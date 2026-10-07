@@ -45,6 +45,10 @@ type Options struct {
 	// ExtraAuthTokens are bearer tokens supplied out of band (--auth-token,
 	// CODDY_HTTP_TOKEN) so a credential need not be written into config.yaml.
 	ExtraAuthTokens []string
+	// ExtraSwarmTokens are the swarm tokens supplied out of band
+	// (--swarm-auth-token, --swarm-pairing-token): this server never uses
+	// them, it refuses a shared-model token that is the same as one.
+	ExtraSwarmTokens []string
 	// ExtraLogin is a web sign-in account supplied out of band (CODDY_HTTP_USER,
 	// CODDY_HTTP_PASSWORD), for the same reason: it enables the form on its own
 	// and never reaches the file, so a save from the settings screen cannot

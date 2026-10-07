@@ -59,6 +59,21 @@ type Server struct {
 	// extraAuthTokens are bearer tokens supplied out-of-band (--auth-token / CODDY_HTTP_TOKEN).
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
 	extraAuthTokens []string
+	// extraSwarmTokens are the swarm tokens given out of band (--swarm-auth-token,
+	// --swarm-pairing-token, CODDY_SWARM_TOKEN): this server never uses them, it
+	// only keeps them out of the shared-model token class (checkTokenClasses).
+	extraSwarmTokens []string
+
+	// The shared-model routes (shared_models_http.go): the per-credential limiter,
+	// the key that seeds revisions and signature envelopes, and the timers, which
+	// are the defaults unless a test sets shorter ones.
+	sharedLimit  *sharedLimiter
+	sharedKeyMu  sync.Mutex
+	sharedKey    []byte
+	sharedClk    sharedClock
+	sharedBodyP  time.Duration
+	sharedWriteW time.Duration
+	sharedHB     time.Duration
 
 	// envLoginUser and envLoginHash are the web sign-in account supplied out of
 	// band (CODDY_HTTP_USER / CODDY_HTTP_PASSWORD). The password is hashed once
@@ -174,6 +189,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		providerFactory:      defaultProviderFromAgentModel,
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
+		sharedLimit:          newSharedLimiter(),
 		drives:               platform.Drives,
 		neuralDeepHubFor:     llm.NeuralDeepHubFor,
 		slashCache:           make(map[string]slashListCacheEntry),
@@ -220,6 +236,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.mux.HandleFunc("GET /v1/responses/{id}", s.handleResponsesGetPath)
 	s.registerAuthRoutes()
 	s.registerCoddyRoutes()
+	s.registerSharedModelRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPIYAML)
@@ -251,6 +268,13 @@ func (s *Server) ReplaceConfig(c *config.Config) {
 	if c == nil {
 		return
 	}
+	// The manager has installed this configuration already, so it cannot be refused
+	// from here (the settings screen and the reload paths check before they
+	// install); a token that is of two classes is read by the gate as shared-model
+	// only, and said so.
+	if err := s.checkTokenClasses(c); err != nil {
+		s.log.Error("the configuration in use has a token of two classes: the gate reads it as a shared-model token only", "error", err)
+	}
 	s.cfgAt.Store(c)
 	s.invalidateSlashCache()
 	s.publishConfigReloaded()
@@ -258,9 +282,11 @@ func (s *Server) ReplaceConfig(c *config.Config) {
 
 // streamIdleTimeout is the stall guard for a direct-model call: the agent's
 // llm_stream_idle_timeout_ms on a streaming row, nothing on a blocking one,
-// whose answer arrives in one piece.
+// whose answer arrives in one piece. A row of a model another Coddy shares
+// (type coddy) is always streamed on the wire, so it keeps the guard whatever
+// its stream flag says.
 func streamIdleTimeout(cfg *config.Config, rm *config.ResolvedLLM) time.Duration {
-	if cfg == nil || rm == nil || !rm.Stream {
+	if cfg == nil || rm == nil || (!rm.Stream && rm.ProviderType != "coddy") {
 		return 0
 	}
 	return cfg.Agent.EffectiveLLMStreamIdleTimeout()
@@ -302,9 +328,15 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		DisableStream:     !rm.Stream,
 		Timeout:           time.Duration(rm.TimeoutMS) * time.Millisecond,
 		StreamIdleTimeout: streamIdleTimeout(cfg, rm),
+		BusyWait:          rm.BusyWait,
 	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
+// defaultMakeLLMFromYAML builds the provider of one direct or shared-model call.
+// opts are the call's own options, the caller's remaining retry budget included:
+// a pause on a usage limit longer than that budget fails at once as a quota error
+// instead of being slept through. The call's own time budget (CallBudget) stays
+// unset.
 func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.RequestOptions) (llm.Provider, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config unavailable")
@@ -331,6 +363,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string, opts llm.Request
 		DisableStream:     !rm.Stream,
 		Timeout:           time.Duration(rm.TimeoutMS) * time.Millisecond,
 		StreamIdleTimeout: streamIdleTimeout(cfg, rm),
+		BusyWait:          rm.BusyWait,
 	}
 	opts.Apply(&in)
 	return llm.NewProvider(llm.WithAgentResilience(in, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))

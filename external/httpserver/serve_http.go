@@ -43,8 +43,15 @@ func Serve(ctx context.Context, opts Options) error {
 	s := New(opts.Cfg, opts.Mgr, log, opts.DefaultCWD)
 	s.SetDetachedPrompts(opts.DetachedPrompts)
 	s.SetExtraAuthTokens(opts.ExtraAuthTokens)
+	s.SetExtraSwarmTokens(opts.ExtraSwarmTokens)
 	if err := s.SetExtraLogin(opts.ExtraLogin.User, opts.ExtraLogin.Password); err != nil {
 		return fmt.Errorf("httpserver: %s / %s: %w", LoginUserEnvVar, LoginPasswordEnvVar, err)
+	}
+	// A shared-model token must open the three LLM routes and nothing else, so it
+	// can never be the same as a token of another class: refused at start, with
+	// the flag and environment tokens in view that the loader cannot see.
+	if err := s.checkTokenClasses(s.activeCfg()); err != nil {
+		return fmt.Errorf("httpserver: %w", err)
 	}
 	// A form nobody can pass is refused here, in the terminal that typed the
 	// command, rather than discovered by an operator staring at a sign-in screen
@@ -74,7 +81,10 @@ func Serve(ctx context.Context, opts Options) error {
 	cfg := s.activeCfg()
 	tokenOn := len(cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(opts.ExtraAuthTokens) > 0
 	loginOn := s.loginPolicyNow().enabled
-	authOn := tokenOn || loginOn
+	sharedOn := len(cfg.HTTPServer.EffectiveSharedTokens()) > 0
+	// A shared-model token closes the gate too: every route but the three LLM
+	// routes is then refused to every caller.
+	authOn := tokenOn || loginOn || sharedOn
 	effHost, _, _ := net.SplitHostPort(opts.ListenAddr)
 	if !authOn && !cfg.HTTPServer.AllowInsecure && !isLoopbackHost(effHost) {
 		log.Warn("HTTP API is reachable without authentication",
@@ -104,6 +114,15 @@ func Serve(ctx context.Context, opts Options) error {
 		log.Info("web sign-in is on and no bearer token is set",
 			"note", "API clients (coddy --remote, coddy acp --remote, a swarm relay mounting this node, scripts) authenticate with a token, not the form",
 			"hint", "set httpserver.auth_token / --auth-token / "+TokenEnvVar+" if anything but a browser talks to this server")
+	}
+
+	if sharedOn && !tokenOn && !loginOn {
+		log.Info("only shared-model tokens are configured: every API route except the three shared-model routes is closed to every caller, and the web UI cannot sign in",
+			"hint", "set httpserver.auth_token / --auth-token / "+TokenEnvVar+" or httpserver.login to administer this node over its API or its web UI")
+	}
+	if len(cfg.SharedModelEntries()) > 0 && !authOn && !cfg.HTTPServer.AllowInsecure {
+		log.Warn("models are shared and no credential is configured: the shared-model routes answer 403 until one is",
+			"hint", "set httpserver.shared_models.tokens (a token that opens only the LLM routes) or httpserver.auth_token; httpserver.allow_insecure: true is for an API that is open on purpose")
 	}
 
 	// Joining a relay is what makes this agent reachable from a swarm. It runs

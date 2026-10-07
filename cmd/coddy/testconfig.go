@@ -16,5 +16,14 @@ var configTestOutput io.Writer = os.Stdout
 // takes the flag - the console, acp, serve - ends up here, so the report reads
 // the same whichever command printed it.
 func runConfigTest(cli config.CLIPaths) error {
-	return config.RunCheck(configTestOutput, cli)
+	return runConfigTestWith(cli, config.ExtraTokens{})
+}
+
+// runConfigTestWith is runConfigTest for a command that holds credentials the
+// file does not show - the values of --auth-token, --swarm-auth-token and
+// --swarm-pairing-token on `coddy serve` - so that the rules that compare token
+// classes and ask for a credential in front of shared models see what a start
+// would see. The environment is read by the check itself.
+func runConfigTestWith(cli config.CLIPaths, extra config.ExtraTokens) error {
+	return config.RunCheckWith(configTestOutput, cli, extra)
 }

@@ -548,6 +548,10 @@ func (s *Server) reloadConfigFromDisk() {
 		s.log.Error("skills config reload", "error", err)
 		return
 	}
+	if err := s.checkTokenClasses(reloaded); err != nil {
+		s.log.Error("skills config reload refused, keeping the running configuration", "error", err)
+		return
+	}
 	s.ReplaceConfig(reloaded)
 	s.mgr.ReplaceConfig(reloaded)
 }

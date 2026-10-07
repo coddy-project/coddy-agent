@@ -3236,7 +3236,7 @@ func openAPISpec() map[string]interface{} {
 				"bearerAuth": map[string]interface{}{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The three /coddy/auth/* routes are always reachable without it.",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The three /coddy/auth/* routes are always reachable without it. A token of the LLM-only class (httpserver.shared_models.tokens) is a bearer token too, but it opens only GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage and POST /coddy/llm/completions: every other route answers it 401 like an unknown token, and any such token closes the gate for everyone else.",
 				},
 				"cookieAuth": map[string]interface{}{
 					"type": "apiKey",
@@ -4318,6 +4318,7 @@ func openAPISpec() map[string]interface{} {
 	mergeOpenAPISchedulerDoc(&doc)
 	mergeOpenAPIMemoryDoc(&doc)
 	mergeWorkspaceViewerOpenAPI(doc)
+	mergeSharedModelsOpenAPI(doc)
 	return doc
 }
 

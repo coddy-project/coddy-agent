@@ -120,8 +120,21 @@ func runServe(args []string) error {
 	// A config check reports on the file and leaves: nothing is created under
 	// the home and no subsystem starts. Next to --dry-run it asks for the full
 	// report instead of the problems-only one.
+	//
+	// The credentials the file cannot show - the values of --auth-token,
+	// --swarm-auth-token and --swarm-pairing-token and the environment - are
+	// part of what the check compares and asks for, so a start, a reload and
+	// this report agree on a shared-model token and on authentication.
+	//
+	// What the environment holds is not known yet: <home>/.env, the documented
+	// place of CODDY_HTTP_TOKEN, the swarm tokens and the web sign-in account,
+	// is read into it by the config loader. The report and the dry run read it
+	// after the loader has (config.CheckWith), so they take the flags only;
+	// everything that runs after a load asks extraNow, which reads the
+	// environment when it is asked and never earlier.
+	extraNow := serveExtraNow(*authToken, *swarmAuthToken, *swarmPairing)
 	if *testConfig && !*dryRun {
-		return runConfigTest(cli)
+		return runConfigTestWith(cli, extraNow())
 	}
 
 	// applyProcessOverrides re-applies everything the operator decided outside
@@ -166,6 +179,11 @@ func runServe(args []string) error {
 		c.Swarm.Host = firstNonEmpty(strings.TrimSpace(*swarmHost), c.Swarm.EffectiveHost())
 		return nil
 	}
+	// What a configuration has to satisfy before this process serves it or
+	// installs it: the process overrides apply, and shared models are neither
+	// served without a credential nor guarded by a token that is also of
+	// another class. A reload that fails it keeps the running configuration.
+	adjustForInstall := serveAdjuster(applyProcessOverrides, extraNow)
 	// The listen addresses are read from a configuration rather than captured,
 	// because the supervisor asks the same questions of a reloaded one: an
 	// address that moved is the one change a running process cannot adopt, and
@@ -183,8 +201,8 @@ func runServe(args []string) error {
 	// A dry run resolves the subsystems and their addresses as a start would,
 	// probes them together with everything the file names, and leaves.
 	if *dryRun {
-		return runServeDryRun(cli, *testConfig, applyProcessOverrides, httpListenAddr, swarmListenAddr,
-			len(outOfBandTokens(*authToken, httpserver.TokenEnvVar)) > 0)
+		return runServeDryRun(cli, *testConfig, extraNow(), applyProcessOverrides, httpListenAddr, swarmListenAddr,
+			func() bool { return len(outOfBandTokens(*authToken, httpserver.TokenEnvVar)) > 0 })
 	}
 	paths, err := config.Resolve(cli)
 	if err != nil {
@@ -198,7 +216,7 @@ func runServe(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	if err := applyProcessOverrides(cfg); err != nil {
+	if err := adjustForInstall(cfg); err != nil {
 		return err
 	}
 
@@ -221,7 +239,8 @@ func runServe(args []string) error {
 		httpAuthTokens:  httpTokens,
 		httpLogin:       outOfBandLogin(),
 		swarmAuthTokens: outOfBandTokens(*swarmAuthToken, swarm.TokenEnvVar),
-		adjust:          applyProcessOverrides,
+		swarmTokens:     extraNow().Swarm,
+		adjust:          adjustForInstall,
 	})
 	// Resolve is the pre-flight: it refuses a configuration this binary cannot
 	// honour before a single listener is opened, and reports what will run.
@@ -318,7 +337,7 @@ func runServe(args []string) error {
 		Paths:   paths,
 		Live:    rt.Cfg,
 		Install: rt.ReplaceConfig,
-		Adjust:  applyProcessOverrides,
+		Adjust:  adjustForInstall,
 		Log:     log,
 	}
 	go func() { _ = watcher.Run(ctx) }()
@@ -462,6 +481,11 @@ type subsystemDeps struct {
 	httpAuthTokens  []string
 	httpLogin       httpserver.LoginCredentials
 	swarmAuthTokens []string
+	// swarmTokens are every swarm credential given out of band (the client
+	// token and the pairing token, flag or environment), which the HTTP server
+	// compares its shared-model tokens with. The relay itself takes
+	// swarmAuthTokens.
+	swarmTokens []string
 	// adjust re-applies the command-line overrides to a configuration loaded
 	// from the file, the way the file watcher does, before it is installed.
 	adjust func(*config.Config) error
@@ -495,7 +519,8 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 					Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
 					ListenAddr: deps.httpListenAddr(cfg), ExtraAuthTokens: deps.httpAuthTokens,
-					ExtraLogin: deps.httpLogin, DetachedPrompts: rt, Wakes: rt,
+					ExtraSwarmTokens: deps.swarmTokens,
+					ExtraLogin:       deps.httpLogin, DetachedPrompts: rt, Wakes: rt,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
 							rt.SetTurnMirror(nil)
@@ -664,6 +689,65 @@ func outOfBandTokens(flagValue, envVar string) []string {
 		out = append(out, t)
 	}
 	return out
+}
+
+// serveExtraTokens gathers the credentials `coddy serve` holds that config.yaml
+// does not carry: the values of --auth-token, --swarm-auth-token and
+// --swarm-pairing-token, and what the environment gives (CODDY_HTTP_TOKEN, the
+// swarm tokens, a web sign-in account).
+func serveExtraTokens(authToken, swarmAuthToken, swarmPairing string) config.ExtraTokens {
+	extra := config.ExtraTokensFromEnv()
+	if t := strings.TrimSpace(authToken); t != "" {
+		extra.HTTP = append(extra.HTTP, t)
+	}
+	for _, t := range []string{swarmAuthToken, swarmPairing} {
+		if t = strings.TrimSpace(t); t != "" {
+			extra.Swarm = append(extra.Swarm, t)
+		}
+	}
+	extra.Login = extra.Login || outOfBandLogin().IsSet()
+	return extra
+}
+
+// serveExtraNow returns the gatherer of serveExtraTokens for one command line.
+// The environment is read each time the result is called, not when it is built:
+// the config loader reads <home>/.env into the environment, so the credentials
+// kept there (CODDY_HTTP_TOKEN, the swarm tokens, the web sign-in account) exist
+// only after the load, while the flags are known from the start.
+func serveExtraNow(authToken, swarmAuthToken, swarmPairing string) func() config.ExtraTokens {
+	return func() config.ExtraTokens { return serveExtraTokens(authToken, swarmAuthToken, swarmPairing) }
+}
+
+// serveAdjuster is what a configuration has to satisfy before this process
+// serves it or installs it, at start and at every reload: the process overrides
+// apply (apply), and shared models are neither served without a credential nor
+// guarded by a token that is also of another class. extraNow is asked on every
+// call, so the credentials of the environment are those of the moment.
+func serveAdjuster(apply func(*config.Config) error, extraNow func() config.ExtraTokens) func(*config.Config) error {
+	return func(c *config.Config) error {
+		if err := apply(c); err != nil {
+			return err
+		}
+		return checkSharedModels(c, extraNow())
+	}
+}
+
+// checkSharedModels refuses a configuration that shares models unsafely: a
+// shared-model token that is also a token of another class (main or swarm), and
+// shared models with no credential of any class in front of them. The messages
+// name the keys and never a value.
+func checkSharedModels(cfg *config.Config, extra config.ExtraTokens) error {
+	if err := config.CheckSharedTokenClasses(cfg, extra); err != nil {
+		return fmt.Errorf("%w; give each class a token of its own", err)
+	}
+	if err := config.SharedModelsAuthProblem(cfg, extra); err != nil {
+		var open *config.SharedModelsAuthError
+		if errors.As(err, &open) {
+			return fmt.Errorf("%w; %s", err, open.Fix())
+		}
+		return err
+	}
+	return nil
 }
 
 func firstNonEmpty(values ...string) string {

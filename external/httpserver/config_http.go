@@ -3,6 +3,8 @@
 package httpserver
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -19,6 +21,12 @@ func (s *Server) registerConfigRoutes() {
 		// observer registered in New, which is also how a reload from the
 		// agent's own config_commit tool or from the console gets here.
 		Install: func(c *config.Config) error {
+			// The last line of defence: a shared-model token that is also a main
+			// or swarm token is refused here too, with the flag and environment
+			// tokens in view, which the loader the save went through cannot see.
+			if err := s.checkTokenClasses(c); err != nil {
+				return err
+			}
 			s.mgr.ReplaceConfig(c)
 			return nil
 		},
@@ -27,7 +35,45 @@ func (s *Server) registerConfigRoutes() {
 		Revisions: s.served,
 		Log:       s.log,
 	}
-	backend.Register(s.mux)
+	// The backend serves on a mux of its own, so that the two routes which take a
+	// candidate configuration can be checked before the backend touches the file:
+	// a save that fails after the write cannot be undone from here, because every
+	// successful load refreshes the backup the rollback restores.
+	inner := http.NewServeMux()
+	backend.Register(inner)
+	s.mux.Handle("GET /coddy/config/schema", inner)
+	s.mux.Handle("GET /coddy/config", inner)
+	s.mux.Handle("POST /coddy/config/validate", s.refuseTokenClassClash(inner))
+	s.mux.Handle("PUT /coddy/config", s.refuseTokenClassClash(inner))
+}
+
+// maxConfigBodyBytes bounds the settings document the check below reads ahead.
+const maxConfigBodyBytes = 8 << 20
+
+// refuseTokenClassClash answers a candidate configuration that would make a
+// shared-model token the same as a main-class or swarm token - the ones this
+// process was given by flag or environment included, which the loader cannot
+// see - before anything is written: a refused candidate leaves both the running
+// configuration and the file as they were. A document that does not parse is
+// left to the backend, which reports it in its own words.
+func (s *Server) refuseTokenClassClash(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxConfigBodyBytes))
+		if err != nil {
+			writeCoddyConfigErr(w, http.StatusBadRequest, "read body")
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if live := s.activeCfg(); live != nil {
+			if candidate, perr := config.ParseConfigJSONPreservingSecrets(body, live.Paths, live); perr == nil {
+				if cerr := s.checkTokenClasses(candidate); cerr != nil {
+					writeCoddyConfigErr(w, http.StatusBadRequest, cerr.Error())
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // decorateConfigDocument reports the effective auth state (YAML token or
