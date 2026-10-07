@@ -38,9 +38,21 @@ skills, hooks and configured MCP servers are reloaded for the new cwd, with
 project MCP declarations checked through the workspace trust gate. The session
 records its new cwd for later turns.
 
+A branch that exists only on a remote other than `origin` opens the same way: by
+its name (`fix/typo`, taken from `origin` when `origin` has it too, else from
+the first remote by name that does), or by its remote-tracking name
+(`upstream/fix/typo`) to pick the remote. Either way the local `fix/typo` is
+created at the remote branch and tracks it; an existing local `fix/typo` that
+already tracks it is reused, and one that tracks something else is refused
+rather than silently opened. The tool's answer names the local branch.
+
 In the web UI, select a feature branch with the **Worktree** checkbox on the
 plate over the composer before the first message. The same fetch, branch checks
-and worktree placement apply. Once the chat runs, the plate shows the main
+and worktree placement apply. The branch list fetches every remote before it
+opens and lists the branches only on a remote among the local ones, marked with
+a cloud, so a branch pushed from another machine can be opened without a
+terminal; see
+[Per-session workspace](../surfaces/web-ui.md#per-session-workspace-folder--branch--worktree). Once the chat runs, the plate shows the main
 project's name and the feature branch, the branch's tooltip naming the worktree;
 History groups the main checkout and its worktrees under that project. The
 session still runs inside the worktree. The web workspace picks give way to that

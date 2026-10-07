@@ -5,6 +5,7 @@ import {
   BRANCH_CHARS,
   folderChipLabel,
   middleTruncate,
+  type WorkspaceBranchFetch,
   type WorkspaceContext,
 } from "./workspaceContext";
 import { BranchIcon, FolderIcon } from "./workspaceIcons";
@@ -18,6 +19,8 @@ export type WorkspacePick = {
   onPickFolder: (path: string) => void;
   onPickBranch: (branch: string, worktree: boolean) => void;
   onWorktreeToggle: () => void;
+  /** Fetches the remotes before the branch list shows (see WorkspaceChips). */
+  onRefreshBranches?: (() => Promise<WorkspaceBranchFetch | null>) | undefined;
   /** The menus open upward from a docked composer, downward on the start screen. */
   opensUp: boolean;
 };
@@ -61,6 +64,9 @@ export function WorkspaceBar(props: {
           onPickFolder={props.pick.onPickFolder}
           onPickBranch={props.pick.onPickBranch}
           onWorktreeToggle={props.pick.onWorktreeToggle}
+          {...(props.pick.onRefreshBranches
+            ? { onRefreshBranches: props.pick.onRefreshBranches }
+            : {})}
           opensUp={props.pick.opensUp}
         />
       ) : (

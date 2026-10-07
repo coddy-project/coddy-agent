@@ -42,6 +42,9 @@ type wsFeatureState struct {
 	sessionID string
 	status    int
 	body      map[string]interface{}
+	// localState is a repository's uncommitted state recorded before a
+	// refresh of its remote branches.
+	localState string
 
 	// turnGate parks the fake runner while a prompt turn is in flight, so the
 	// scenario can poke at the session while it reports a live turn.
@@ -62,6 +65,7 @@ func (s *wsFeatureState) reset() error {
 	s.sessionID = ""
 	s.status = 0
 	s.body = nil
+	s.localState = ""
 	return nil
 }
 
@@ -899,6 +903,7 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the folder listing points at "([^"]+)" inside "([^"]+)"$`, s.folderListingPointsAtNewFolder)
 	sc.Step(`^the folder listing has no folder above it$`, s.folderListingHasNoParent)
 	sc.Step(`^the folder listing offers the drive list above it$`, s.folderListingParentIsDriveList)
+	registerWorkspaceFetchSteps(sc, s)
 }
 
 func TestWorkspaceSwitchingFeature(t *testing.T) {

@@ -1,6 +1,7 @@
 package gitws
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/client"
@@ -211,15 +213,8 @@ func builtinCheckout(dir, branch string) error {
 	if err != nil {
 		return err
 	}
-	status, err := wt.Status()
-	if err != nil {
+	if err := refuseUncommitted(wt); err != nil {
 		return err
-	}
-	for _, fs := range status {
-		if (fs.Staging != git.Unmodified && fs.Staging != git.Untracked) ||
-			(fs.Worktree != git.Unmodified && fs.Worktree != git.Untracked) {
-			return fmt.Errorf("refusing checkout: the working copy has uncommitted changes")
-		}
 	}
 	return wt.Checkout(&git.CheckoutOptions{
 		Branch: plumbing.NewBranchReferenceName(branch),
@@ -234,8 +229,45 @@ var fileTransportOnce sync.Once
 
 func installFileTransport() {
 	fileTransportOnce.Do(func() {
-		client.InstallProtocol("file", server.NewClient(fileLoader{}))
+		client.InstallProtocol("file", knownHavesTransport{server.NewClient(fileLoader{})})
 	})
+}
+
+// knownHavesTransport fixes one gap of go-git's in-process server: it walks
+// every commit the client says it has, and a commit only the client has - a
+// local commit not pushed yet - ends the fetch with "object not found".
+// git-upload-pack ignores such a have; this wrapper drops it before the
+// server sees it.
+type knownHavesTransport struct {
+	transport.Transport
+}
+
+func (t knownHavesTransport) NewUploadPackSession(ep *transport.Endpoint, auth transport.AuthMethod) (transport.UploadPackSession, error) {
+	session, err := t.Transport.NewUploadPackSession(ep, auth)
+	if err != nil {
+		return nil, err
+	}
+	sto, err := fileLoader{}.Load(ep)
+	if err != nil {
+		return nil, err
+	}
+	return knownHavesSession{UploadPackSession: session, storer: sto}, nil
+}
+
+type knownHavesSession struct {
+	transport.UploadPackSession
+	storer storer.Storer
+}
+
+func (s knownHavesSession) UploadPack(ctx context.Context, req *packp.UploadPackRequest) (*packp.UploadPackResponse, error) {
+	known := req.Haves[:0:0]
+	for _, h := range req.Haves {
+		if s.storer.HasEncodedObject(h) == nil {
+			known = append(known, h)
+		}
+	}
+	req.Haves = known
+	return s.UploadPackSession.UploadPack(ctx, req)
 }
 
 // fileLoader serves repositories to the in-process file transport. The
