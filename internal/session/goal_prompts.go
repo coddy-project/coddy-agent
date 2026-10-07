@@ -120,10 +120,11 @@ func goalContinuationText(g GoalState, result GoalCheckResult, index int, cfg *c
 
 // goalRecoveryText follows a turn that did not finish: the watchdog cut it,
 // it failed on a passing error, or the agent stopped itself.
-func goalRecoveryText(g GoalState, reason string, cfg *config.Config) string {
+func goalRecoveryText(g GoalState, reason string, remaining []string, cfg *config.Config) string {
 	return joinBlocks(
 		"[Goal recovery] "+strings.TrimSpace(reason)+".",
-		"Summarize in one or two sentences what you tried, then change your approach rather than repeating the same steps, and continue toward the goal.",
+		"Summarize in one or two sentences what you tried, then change your approach rather than repeating the same steps, and continue toward the goal. If you cannot go on without the operator (an address, a credential, a decision), stop and ask them plainly.",
+		goalRemainingBlock(remaining),
 		goalObjectiveBlock(g.Objective),
 		goalChecklistBlock(g.Checklist),
 		goalBudgetLine(g, cfg),

@@ -54,6 +54,13 @@ func (m *Manager) SetGoalJudge(judge GoalJudge) { m.goalJudge = judge }
 // stands alone.
 func (m *Manager) SetGoalVerifier(verify GoalVerifier) { m.goalVerifier = verify }
 
+// LoopStopError is how the agent ends a turn its own loop guard stopped: the
+// model kept repeating a call or a passage after every nudge. The supervisor
+// takes it for a stuck turn rather than a failure.
+type LoopStopError struct{ Msg string }
+
+func (e *LoopStopError) Error() string { return e.Msg }
+
 // goalCheckTimeout bounds one check; goalVerifyTimeout one verification run.
 const (
 	goalCheckTimeout  = 90 * time.Second
@@ -228,22 +235,45 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 			return stop, err
 		}
 
-		// A turn that did not finish: a watchdog cut, a failed or refused
-		// turn. Those get a recovery turn while nudges last.
-		if reason, ok, fatal := r.unfinished(stop, err, watch); ok {
-			if fatal != nil {
-				return stop, fatal
+		// A turn that did not finish. A provider that failed on the way gets a
+		// recovery turn; a stuck turn - cut by the watchdog, stopped by the
+		// agent's loop guard or refused - is checked first, since a worker
+		// that loops is often one that needs the operator.
+		reason, kind, fatal := r.unfinished(stop, err, watch)
+		switch kind {
+		case turnFatal:
+			return stop, fatal
+		case turnTransient, turnStuck:
+			var remaining []string
+			if kind == turnStuck {
+				result, checkErr := r.check(ctx)
+				if ctx.Err() != nil || st.IsUserCancelledTurn() {
+					return string(acp.StopReasonCancelled), nil
+				}
+				if len(st.QueuedMessages()) > 0 {
+					return string(acp.StopReasonEndTurn), nil
+				}
+				if checkErr == nil {
+					switch result.Verdict {
+					case GoalVerdictMet:
+						r.finish(GoalComplete, "", "Goal complete: "+goal.Objective)
+						return string(acp.StopReasonEndTurn), nil
+					case GoalVerdictNeedsUser, GoalVerdictImpossible:
+						question := firstNonEmpty(result.Reason, reason)
+						r.finish(GoalBlocked, question, "Goal blocked: "+question)
+						return string(acp.StopReasonEndTurn), nil
+					}
+					remaining = result.Remaining
+				}
 			}
 			if r.nudges >= sup.NudgeLimit() {
 				r.finish(GoalBlocked, reason, "Goal blocked: "+reason)
-				if err != nil {
-					return stop, err
-				}
 				return string(acp.StopReasonEndTurn), nil
 			}
 			r.nudges++
-			marker = &llm.GoalTurn{Kind: acp.GoalTurnRecover, Index: r.nudges, Limit: sup.NudgeLimit(), Objective: goal.Objective, Reason: reason}
-			prompt = goalPrompt(goalRecoveryText(goal, reason, cfg))
+			goal = r.goal()
+			marker = &llm.GoalTurn{Kind: acp.GoalTurnRecover, Index: r.nudges, Limit: sup.NudgeLimit(), Objective: goal.Objective, Reason: reason, Remaining: remaining}
+			prompt = goalPrompt(goalRecoveryText(goal, reason, remaining, cfg))
 			continue
 		}
 		if runningBackgroundWork(st.ID) {
@@ -339,39 +369,61 @@ func (r *goalRun) runStep(ctx context.Context, prompt []acp.ContentBlock, marker
 	return stop, watch, err
 }
 
-// unfinished classifies a turn that did not end with an answer. ok says the
-// supervisor should recover from it (reason says why); fatal is an error the
-// run ends with after pausing the goal.
-func (r *goalRun) unfinished(stop string, err error, watch *turnWatch) (reason string, ok bool, fatal error) {
+// turnOutcome is how a turn ended, as the supervisor reads it.
+type turnOutcome int
+
+const (
+	// turnDone ended with an answer: the result is checked.
+	turnDone turnOutcome = iota
+	// turnTransient failed on a passing provider error: recover.
+	turnTransient
+	// turnStuck was cut by the watchdog, stopped by the agent's loop guard
+	// or refused: check, then recover.
+	turnStuck
+	// turnFatal failed for good: the goal is paused and the run ends with
+	// the error.
+	turnFatal
+)
+
+// unfinished classifies how a turn ended; reason says why for every outcome
+// but turnDone, fatal is the error of a turnFatal one.
+func (r *goalRun) unfinished(stop string, err error, watch *turnWatch) (reason string, kind turnOutcome, fatal error) {
+	turn := CountUserTurns(r.st.GetMessages())
 	if cause := watch.cause(); cause != "" {
 		if err != nil && !errors.Is(err, context.Canceled) {
-			r.st.AppendUILogNotice(CountUserTurns(r.st.GetMessages()), "Turn interrupted: "+err.Error())
+			r.st.AppendUILogNotice(turn, "Turn interrupted: "+err.Error())
 		}
-		return "the previous turn was interrupted because it was " + cause, true, nil
+		return "the previous turn was interrupted because it was " + cause, turnStuck, nil
 	}
 	if err != nil {
 		var reset *llm.QuotaResetError
+		var loop *LoopStopError
 		switch {
+		case errors.As(err, &loop):
+			// The agent ended the turn itself; the supervisor takes it over.
+			r.st.TakeTurnStopNotice()
+			r.st.AppendUILogNotice(turn, "Turn stopped: "+loop.Msg)
+			return "the previous turn was " + strings.TrimPrefix(loop.Msg, "stopped: ") + " and was stopped", turnStuck, nil
 		case errors.As(err, &reset) || llm.UpstreamStatus(err) == 429:
 			r.finish(GoalPaused, "usage limit reached: "+err.Error(), "Goal paused: usage limit reached")
-			return "", true, err
+			return "", turnFatal, err
 		case llm.IsTransientProviderError(err):
-			r.st.AppendUILogNotice(CountUserTurns(r.st.GetMessages()), "Turn failed: "+err.Error()+"; the supervisor continues the goal")
-			return "the previous turn ended early: " + err.Error(), true, nil
+			r.st.AppendUILogNotice(turn, "Turn failed: "+err.Error()+"; the supervisor continues the goal")
+			return "the previous turn ended early: " + err.Error(), turnTransient, nil
 		default:
 			r.finish(GoalPaused, "the turn failed: "+err.Error(), "Goal paused: the turn failed")
-			return "", true, err
+			return "", turnFatal, err
 		}
 	}
 	switch acp.StopReason(stop) {
 	case acp.StopReasonEndTurn, acp.StopReasonCancelled:
-		return "", false, nil
+		return "", turnDone, nil
 	}
 	notice := r.st.TakeTurnStopNotice()
 	if notice != "" {
-		r.st.AppendUILogNotice(CountUserTurns(r.st.GetMessages()), notice)
+		r.st.AppendUILogNotice(turn, notice)
 	}
-	return firstNonEmpty(notice, "the previous turn stopped ("+stop+")"), true, nil
+	return firstNonEmpty(notice, "the previous turn stopped ("+stop+")"), turnStuck, nil
 }
 
 // check asks the judge, once more on a failure, and records the verdict. A

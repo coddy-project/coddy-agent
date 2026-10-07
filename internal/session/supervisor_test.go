@@ -328,6 +328,7 @@ func TestGoalInterruptsAStalledTurnAndRecovers(t *testing.T) {
 		<-ctx.Done()
 		return string(acp.StopReasonCancelled), ctx.Err()
 	}
+	h.verdict(notMet("nothing done yet", "write the code"), met())
 	h.prompt("/goal ship it")
 	if got := strings.Join(h.kinds(), ","); got != "kickoff,recover" {
 		t.Fatalf("turns = %s", got)
@@ -412,6 +413,7 @@ func TestGoalCutsARepeatedToolOperation(t *testing.T) {
 	h.mgr.Cfg().Supervisor.StallSeconds = intp(0)
 	// Assistant text between the calls does not hide the loop.
 	h.steps[0] = repeatTurn(`{"path":"a.go","old":"x","new":"y"}`, "no match", 5)
+	h.verdict(notMet("a.go unchanged", "fix a.go"), met())
 	h.prompt("/goal fix a.go")
 	if got := strings.Join(h.kinds(), ","); got != "kickoff,recover" || !strings.Contains(h.prompts[1], "repeating") {
 		t.Fatalf("turns=%s recovery=%q", got, h.prompts[len(h.prompts)-1])
@@ -449,9 +451,50 @@ func TestGoalLoopDetectionCountsResultsAndCycles(t *testing.T) {
 			}
 			return string(acp.StopReasonEndTurn), nil
 		}
+		h.verdict(notMet("tests fail", "fix the test"), met())
 		h.prompt("/goal fix tests")
 		if got := strings.Join(h.kinds(), ","); got != "kickoff,recover" {
 			t.Fatalf("an edit-test cycle with the same results was not cut: %s", got)
+		}
+	})
+}
+
+func TestGoalStuckTurnIsCheckedBeforeARecovery(t *testing.T) {
+	stuck := func(context.Context, *session.State, acp.UpdateSender, int) (string, error) {
+		return string(acp.StopReasonRefused), &session.LoopStopError{Msg: "stopped: the model kept requesting the same run_command call with identical arguments"}
+	}
+	t.Run("needs the operator", func(t *testing.T) {
+		h := newGoalHarness(t)
+		h.steps[0] = stuck
+		h.verdict(goalVerdictStep{result: session.GoalCheckResult{Verdict: session.GoalVerdictNeedsUser, Reason: "which registry, and with what credentials?"}})
+		res := h.prompt("/goal upload the build to the registry")
+		goal := h.st().GetGoal()
+		if len(h.prompts) != 1 || goal.Status != session.GoalBlocked || goal.StatusReason != "which registry, and with what credentials?" || res.StopReason != acp.StopReasonEndTurn {
+			t.Fatalf("runs=%d res=%+v goal=%+v", len(h.prompts), res, goal)
+		}
+	})
+	t.Run("work left", func(t *testing.T) {
+		h := newGoalHarness(t)
+		h.steps[0] = stuck
+		h.verdict(notMet("the upload never ran", "find the upload script"), met())
+		h.prompt("/goal upload the build")
+		if got := strings.Join(h.kinds(), ","); got != "kickoff,recover" {
+			t.Fatalf("turns = %s", got)
+		}
+		rec := h.prompts[1]
+		if !strings.Contains(rec, "kept requesting the same run_command call") || !strings.Contains(rec, "find the upload script") || !strings.Contains(rec, "ask them plainly") {
+			t.Fatalf("recovery text = %q", rec)
+		}
+	})
+	t.Run("recoveries run out", func(t *testing.T) {
+		h := newGoalHarness(t)
+		h.mgr.Cfg().Supervisor.MaxNudges = intp(1)
+		h.steps[0], h.steps[1] = stuck, stuck
+		h.verdict(notMet("still stuck"))
+		h.prompt("/goal upload the build")
+		goal := h.st().GetGoal()
+		if strings.Join(h.kinds(), ",") != "kickoff,recover" || goal.Status != session.GoalBlocked || !strings.Contains(goal.StatusReason, "kept requesting") {
+			t.Fatalf("turns=%v goal=%+v", h.kinds(), goal)
 		}
 	})
 }

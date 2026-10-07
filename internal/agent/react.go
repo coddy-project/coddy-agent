@@ -1519,8 +1519,8 @@ func (a *Agent) runReActLoop(
 					blockedInResponse[key] = true
 					if loopNudges >= loopNudgeBudget {
 						a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolLoopSkippedResult)
-						return string(acp.StopReasonRefused), fmt.Errorf(
-							"stopped: the model kept requesting the same %s call with identical arguments", tc.Name)
+						return string(acp.StopReasonRefused), &session.LoopStopError{Msg: fmt.Sprintf(
+							"stopped: the model kept requesting the same %s call with identical arguments", tc.Name)}
 					}
 					loopNudges++
 					// The counter deliberately keeps running: clearing it here (as Roo does,
@@ -1779,9 +1779,9 @@ func loopAbortChannelName(c loopAbortChannel) string {
 // nudge. The session manager records it as a UI log entry with a Retry control.
 func loopAbortError(c loopAbortChannel) error {
 	if c == loopAbortReasoning {
-		return fmt.Errorf("stopped: the model kept repeating the same reasoning without reaching an answer")
+		return &session.LoopStopError{Msg: "stopped: the model kept repeating the same reasoning without reaching an answer"}
 	}
-	return fmt.Errorf("stopped: the model kept repeating the same output instead of finishing the task")
+	return &session.LoopStopError{Msg: "stopped: the model kept repeating the same output instead of finishing the task"}
 }
 
 // executeToolCall runs a single tool call and reports updates to the client.
