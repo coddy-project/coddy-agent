@@ -2,7 +2,8 @@ package linediff
 
 import (
 	"fmt"
-	"math/rand"
+	// Seeded generators make reproducible test inputs; nothing here is secret.
+	"math/rand" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used
 	"strings"
 	"testing"
 	"time"

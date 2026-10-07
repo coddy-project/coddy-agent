@@ -1509,26 +1509,41 @@ async function scenarioManyEdits(sid) {
     }
   }
   const m = await openPage();
+  // Every patch arrives late, so the pick below is made while the diffs above
+  // and below the file are still loading: the file has to stay where the pick
+  // put it as they land (a slow CI runner caught it short of its place).
+  await m.page.route("**/changes/file**", async (route) => {
+    await new Promise((r) => setTimeout(r, 400));
+    await route.continue();
+  });
   await m.page.goto(`${RELAY}/#/s/${sid}/changes`);
   const edits = m.page.getByTestId("edits-view");
-  await edits.getByTestId("dv-file-pkg/web/helper4.go").waitFor({ timeout: 15000 });
   const target = "pkg/web/helper4.go";
+  await edits.getByTestId(`edits-tree-file-${target}`).waitFor({ timeout: 15000 });
+  const loadingAtPick = await edits.locator(".dv-file-body .dv-note", { hasText: "Loading the diff" }).count();
   await edits.getByTestId(`edits-tree-file-${target}`).click();
-  await m.page.waitForTimeout(300);
-  const jumped = await edits.evaluate((el, target) => {
-    const scroller = el.querySelector(".dv-scroll").getBoundingClientRect();
-    const section = el.querySelector(`[data-testid="dv-file-${target}"]`).getBoundingClientRect();
-    return {
-      gap: Math.round(section.top - scroller.top),
-      head: Math.round(el.querySelector(".files-header").getBoundingClientRect().top),
-      overflow: el.querySelector(".dv-scroll").scrollHeight > el.querySelector(".dv-scroll").clientHeight,
-    };
-  }, target);
+  const place = () =>
+    edits.evaluate((el, target) => {
+      const scroller = el.querySelector(".dv-scroll").getBoundingClientRect();
+      const section = el.querySelector(`[data-testid="dv-file-${target}"]`).getBoundingClientRect();
+      return {
+        gap: Math.round(section.top - scroller.top),
+        head: Math.round(el.querySelector(".files-header").getBoundingClientRect().top),
+        overflow: el.querySelector(".dv-scroll").scrollHeight > el.querySelector(".dv-scroll").clientHeight,
+        loading: [...el.querySelectorAll(".dv-file-body .dv-note")].filter((n) => n.textContent.startsWith("Loading the diff")).length,
+      };
+    }, target);
+  // Settled: every patch in, and the file where the pick put it.
+  let jumped = await place();
+  for (let i = 0; i < 60 && (jumped.loading > 0 || Math.abs(jumped.gap - 10) > 1); i++) {
+    await m.page.waitForTimeout(250);
+    jumped = await place();
+  }
   check(
-    "with many files a pick in the tree scrolls the diffs to the file, 10px under their top, the window still",
+    "with many files a pick made while the diffs load scrolls to the file and keeps it 10px under their top, the window still",
     // WebKit scrolls by whole pixels, so a card on a fractional offset lands a pixel off.
-    jumped.overflow && Math.abs(jumped.gap - 10) <= 1 && jumped.head === 15,
-    JSON.stringify(jumped),
+    loadingAtPick > 0 && jumped.loading === 0 && jumped.overflow && Math.abs(jumped.gap - 10) <= 1 && jumped.head === 15,
+    JSON.stringify({ loadingAtPick, ...jumped }),
   );
   await edits.locator(".dv-scroll").evaluate((el) => (el.scrollTop = el.scrollHeight));
   await m.page.waitForTimeout(400);
