@@ -99,6 +99,23 @@ function checkerLevel(
   return level === "default" ? t("goal.reasoningDefault") : level;
 }
 
+/**
+ * A model id that may break after its provider: in a number's column
+ * "codex/gpt-5.6-luna" wraps as "codex/" over "gpt-5.6-luna" rather than in
+ * the middle of a word.
+ */
+function ModelId(props: { id: string }) {
+  const slash = props.id.indexOf("/");
+  if (slash < 0) return <>{props.id}</>;
+  return (
+    <>
+      {props.id.slice(0, slash + 1)}
+      <wbr />
+      {props.id.slice(slash + 1)}
+    </>
+  );
+}
+
 function checklistStatusKey(status: string): string {
   if (status === "met") return "goal.item.met";
   if (status === "not_met") return "goal.item.notMet";
@@ -574,12 +591,11 @@ export function GoalPopover(props: {
           </div>
         ) : null}
         {checker ? (
-          // A model id does not fit one number's column: it starts a row of
-          // the grid and spans two, so its level falls into the third, on
-          // the same column lines as the numbers above.
-          <div className="goal-numbers-checker">
+          <div>
             <dt>{t("goal.checkedBy")}</dt>
-            <dd data-testid="goal-checker">{checker}</dd>
+            <dd data-testid="goal-checker">
+              <ModelId id={checker} />
+            </dd>
           </div>
         ) : null}
         {checker && level ? (

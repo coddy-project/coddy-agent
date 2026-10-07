@@ -7748,10 +7748,11 @@ html:not([data-theme="light"]) .context-breakdown-error {
   color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
 }
 
+/* The numbers of a goal, the checker and its level included: three cells
+   to a row, every cell one column wide, so the rows come out full and the
+   labels stand on the same column lines. */
 .goal-numbers {
   display: grid;
-  /* Three columns at every width, so the checker's two and its level's one
-     stay on one row on a phone too. */
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px 12px;
   margin: 0;
@@ -7765,17 +7766,15 @@ html:not([data-theme="light"]) .context-breakdown-error {
 .goal-numbers dd {
   margin: 0;
   font-variant-numeric: tabular-nums;
-}
-
-/* The checker closes the numbers: a row of its own from the first column,
-   two columns wide, so its reasoning level falls into the third and every
-   label stands on the grid's column lines. */
-.goal-numbers-checker {
-  grid-column: 1 / span 2;
-}
-
-.goal-numbers-checker dd {
+  /* A model id wraps inside its cell, after the provider first. */
   overflow-wrap: anywhere;
+}
+
+/* A phone has room for two numbers to a row. */
+@media (max-width: 599px) {
+  .goal-numbers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .goal-popover-actions {

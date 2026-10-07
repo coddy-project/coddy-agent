@@ -3,33 +3,45 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 
 /**
- * The checker of a goal is the widest value of the goal menu: in one number's
- * column a model id broke into several lines. It closes the numbers' grid on
- * a row of its own that starts at the first column and spans two, so its
- * reasoning level falls into the third column, under the time worked, and
- * every label of the menu stands on the same column lines (DESIGN.md, Session
- * goal in the composer).
+ * The goal menu's numbers - continuations, checks, time worked, tokens, the
+ * checker and its reasoning level - are cells of one grid: three to a row on
+ * a desktop and a tablet, two on a phone, every cell one column wide, so the
+ * rows come out full and every label stands on the grid's column lines
+ * (DESIGN.md, Session goal in the composer).
  */
 
 const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
 
-test("the checker starts a row of the numbers' grid and spans two columns", () => {
-  const rule = css.match(/\.goal-numbers-checker\s*\{([^}]*)\}/);
-  expect(rule, ".goal-numbers-checker is missing").not.toBeNull();
-  expect((rule?.[1] ?? "").replace(/\s+/g, " ")).toContain(
-    "grid-column: 1 / span 2",
-  );
-});
+function squash(body: string): string {
+  return body
+    .replace(/\s+/g, " ")
+    .replace(/\(\s+/g, "(")
+    .replace(/\s+\)/g, ")");
+}
 
-test("the numbers keep three columns at every width", () => {
-  // auto-fit dropped to two columns on a phone, and the level fell under the
-  // model instead of beside it.
-  const rule = css.match(/\.goal-numbers\s*\{([^}]*)\}/);
-  expect((rule?.[1] ?? "").replace(/\s+/g, " ")).toContain(
+test("three numbers to a row above the phone tier", () => {
+  const rule = css.match(/(?:^|\n)\.goal-numbers\s*\{([^}]*)\}/);
+  expect(squash(rule?.[1] ?? "")).toContain(
     "grid-template-columns: repeat(3, minmax(0, 1fr))",
   );
 });
 
-test("no grid of its own pushes the level to the edge", () => {
+test("two numbers to a row on a phone", () => {
+  const phone = [
+    ...css.matchAll(/@media \(max-width: 599px\) \{([\s\S]*?)\n\}/g),
+  ].map((m) => squash(m[1] ?? ""));
+  expect(
+    phone.some((block) =>
+      /\.goal-numbers \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/.test(
+        block,
+      ),
+    ),
+  ).toBe(true);
+});
+
+test("no cell spans columns, and a long model id wraps in its own", () => {
+  expect(css).not.toMatch(/\.goal-numbers-checker\b/);
   expect(css).not.toMatch(/\.goal-checker-numbers\b/);
+  const dd = css.match(/\.goal-numbers dd\s*\{([^}]*)\}/);
+  expect(squash(dd?.[1] ?? "")).toContain("overflow-wrap: anywhere");
 });
