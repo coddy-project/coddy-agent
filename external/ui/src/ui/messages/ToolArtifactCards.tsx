@@ -75,6 +75,27 @@ function IconActions() {
   );
 }
 
+/**
+ * Whether the trigger of an open menu can still be seen: its centre inside the
+ * window, and nothing on top there but the trigger, or the menu itself in a
+ * window too short to keep the two apart. The transcript scrolls under the
+ * chat's sticky title and the docked composer without leaving the window, and
+ * a menu that only watched the window's edges stayed open over the composer.
+ */
+function triggerShows(trigger: HTMLElement, menu: HTMLElement): boolean {
+  const box = trigger.getBoundingClientRect();
+  const x = box.left + box.width / 2;
+  const y = box.top + box.height / 2;
+  if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight)
+    return false;
+  // jsdom has no hit testing; a browser always has.
+  const hit =
+    typeof document.elementFromPoint === "function"
+      ? document.elementFromPoint(x, y)
+      : null;
+  return !hit || trigger.contains(hit) || menu.contains(hit);
+}
+
 const enabledItems = (menu: HTMLElement | null) =>
   menu
     ? [
@@ -137,31 +158,31 @@ export function ArtifactCard(props: {
   // `overflow: hidden` (it clips a thumbnail to its corners) and cut the menu
   // off, so a click on the trigger drew nothing. Placed from the trigger before
   // the first paint, it follows the trigger while the page scrolls and closes
-  // once the trigger has left the window.
+  // once the trigger cannot be seen any more.
   useLayoutEffect(() => {
     if (!menu) return undefined;
-    const follow = () => {
+    const place = () => {
       const trigger = triggerRef.current;
       const panel = menuRef.current;
       if (!trigger || !panel) return;
-      const anchor = trigger.getBoundingClientRect();
-      // A trigger with no box is not laid out (a hidden row): nothing to measure.
-      if (
-        anchor.height > 0 &&
-        (anchor.bottom <= 0 || anchor.top >= window.innerHeight)
-      ) {
-        setMenu(false);
-        return;
-      }
       setPlace(
         placeArtifactMenu(
-          anchor,
+          trigger.getBoundingClientRect(),
           { width: panel.offsetWidth, height: panel.offsetHeight },
           { width: window.innerWidth, height: window.innerHeight },
         ),
       );
     };
-    follow();
+    const follow = () => {
+      const trigger = triggerRef.current;
+      const panel = menuRef.current;
+      if (trigger && panel && !triggerShows(trigger, panel)) {
+        setMenu(false);
+        return;
+      }
+      place();
+    };
+    place();
     enabledItems(menuRef.current)[0]?.focus({ preventScroll: true });
     const press = (event: MouseEvent) => {
       const target = event.target as Node;

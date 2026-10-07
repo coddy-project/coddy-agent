@@ -465,6 +465,80 @@ try {
       `${menu.count} menus, trigger above the window: ${gone}`,
     );
 
+    // The transcript scrolls under the chat's sticky title and the docked
+    // composer without leaving the window: a trigger under a layer like them
+    // is out of sight too, and the menu must not stay over that layer.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await press(trigger);
+    const opened = (await openMenu(page)).count;
+    await trigger.evaluate((el) => {
+      const cover = document.createElement("div");
+      cover.className = "artifact-card-stand-cover";
+      Object.assign(cover.style, {
+        position: "fixed",
+        left: "0",
+        right: "0",
+        top: "0",
+        height: `${Math.ceil(el.getBoundingClientRect().bottom) + 2}px`,
+        zIndex: "4",
+        background: "#000",
+      });
+      document.body.append(cover);
+      window.scrollBy(0, 1);
+    });
+    await page.waitForTimeout(50);
+    menu = await openMenu(page);
+    check(
+      `${at} the menu closes once a layer covers its trigger`,
+      opened === 1 && menu.count === 0,
+      `${opened} then ${menu.count} menus`,
+    );
+    await page.evaluate(() =>
+      document.querySelector(".artifact-card-stand-cover")?.remove(),
+    );
+
+    await context.close();
+  }
+
+  // A window shorter than the menu: the menu keeps inside it and scrolls its
+  // items, rather than cut the last ones off.
+  {
+    const context = await browser.newContext({
+      viewport: { width: 640, height: 170 },
+    });
+    const page = await context.newPage();
+    await page.goto(`${URL_BASE}/artifact-card-check.html?lang=ru`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForSelector(".tool-artifact-card");
+    const at = `${ENGINE} ru 640x170`;
+    const first = page.locator(".tool-artifact-card").first();
+    await first.evaluate((el) => el.scrollIntoView({ block: "start" }));
+    await first.hover();
+    await first.locator(".inline-artifact-menu-trigger").click();
+    const short = await page.evaluate(() => {
+      const menu = document.querySelector(".inline-artifact-menu");
+      if (!menu) return null;
+      const items = [...menu.querySelectorAll('[role="menuitem"]')];
+      const last = items[items.length - 1];
+      last.scrollIntoView({ block: "nearest" });
+      const box = menu.getBoundingClientRect();
+      const r = last.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        r.left + r.width / 2,
+        r.top + r.height / 2,
+      );
+      return {
+        inside: box.top >= 0 && box.bottom <= innerHeight,
+        scrolls: menu.scrollHeight > menu.clientHeight,
+        lastReachable: !!hit && last.contains(hit),
+      };
+    });
+    check(
+      `${at} the menu stays inside a window shorter than it and scrolls its items`,
+      !!short && short.inside && short.scrolls && short.lastReachable,
+      JSON.stringify(short),
+    );
     await context.close();
   }
 } finally {

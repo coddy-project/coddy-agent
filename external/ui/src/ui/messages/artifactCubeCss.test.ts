@@ -90,6 +90,9 @@ test("the actions menu is fixed to the window, outside the clipping card", () =>
   const menu = block(".inline-artifact-menu");
   expect(menu).toMatch(/position:\s*fixed/);
   expect(menu).not.toMatch(/top:\s*calc\(100%/);
+  // A window shorter than the menu scrolls its items rather than cut them off.
+  expect(menu).toMatch(/max-height:\s*calc\(100dvh - 16px\)/);
+  expect(menu).toMatch(/overflow-y:\s*auto/);
 });
 
 // The row keeps 16px before the paragraph after it, but the answer's foot has a

@@ -251,6 +251,56 @@ test("the menu follows its trigger while the page scrolls and closes once the tr
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
+// The transcript scrolls under the chat's sticky title and the docked composer
+// inside the window, so a trigger can be hidden without leaving it; the menu
+// used to stay open over the composer, following a trigger nobody could see.
+test("closes the menu once something else covers its trigger", () => {
+  render(<ArtifactCard inline artifact={artifact} />);
+  const trigger = screen.getByRole("button", {
+    name: "Actions for release-notes.pdf",
+  });
+  vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(
+    DOMRect.fromRect({ x: 272, y: 300, width: 28, height: 28 }),
+  );
+  const composer = document.createElement("div");
+  document.body.append(composer);
+  let onTop: Element = trigger;
+  const hit = vi.fn(() => onTop);
+  Object.defineProperty(document, "elementFromPoint", {
+    value: hit,
+    configurable: true,
+  });
+  try {
+    fireEvent.click(trigger);
+    // The menu itself over the trigger (a window too short to keep them
+    // apart) still counts as the trigger being there.
+    onTop = screen.getByRole("menuitem", { name: "Copy name" });
+    fireEvent.scroll(window);
+    expect(screen.getByRole("menu")).toBeVisible();
+
+    onTop = composer;
+    fireEvent.scroll(window);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(hit).toHaveBeenCalledWith(286, 314);
+  } finally {
+    delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+    composer.remove();
+  }
+});
+
+test("Tab closes the menu and leaves the focus moving on from the trigger", () => {
+  render(<ArtifactCard inline artifact={artifact} />);
+  const trigger = screen.getByRole("button", {
+    name: "Actions for release-notes.pdf",
+  });
+  fireEvent.click(trigger);
+  const tab = fireEvent.keyDown(screen.getByRole("menu"), { key: "Tab" });
+  // Not prevented: the browser's own Tab then moves on from the trigger.
+  expect(tab).toBe(true);
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(trigger).toHaveFocus();
+});
+
 test("places the menu under the trigger, above it at the window's foot, and inside the window", () => {
   const view = { width: 390, height: 720 };
   const menu = { width: 200, height: 238 };

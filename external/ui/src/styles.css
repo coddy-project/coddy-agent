@@ -4108,8 +4108,9 @@ a.rail-brand {
 }
 /* Portalled to the document and placed from the trigger
    (placeArtifactMenu in ToolArtifactCards.tsx): the card clips what overflows
-   it, and a menu inside it was never seen. */
-.inline-artifact-menu { position: fixed; z-index: 1000; display: grid; min-width: 180px; max-width: calc(100vw - 16px); box-sizing: border-box; padding: 4px; border: 1px solid var(--coddy-glass-panel-border); border-radius: 10px; background: var(--coddy-tip-bg); box-shadow: var(--coddy-tip-shadow); }
+   it, and a menu inside it was never seen. A window shorter than the menu
+   scrolls its items instead of cutting the last ones off. */
+.inline-artifact-menu { position: fixed; z-index: 1000; display: grid; min-width: 180px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; box-sizing: border-box; padding: 4px; border: 1px solid var(--coddy-glass-panel-border); border-radius: 10px; background: var(--coddy-tip-bg); box-shadow: var(--coddy-tip-shadow); }
 .inline-artifact-menu button { padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
 .inline-artifact-menu button:hover:not(:disabled), .inline-artifact-menu button:focus-visible { background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base)); }
 .inline-artifact-menu button:disabled { opacity: 0.45; cursor: default; }
