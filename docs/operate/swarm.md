@@ -317,6 +317,38 @@ requires a token, it will say so and ask for one rather than reporting an empty 
 without the `ui` tag the relay's root explains how to rebuild, and the console can still be
 opened from any node and pointed at the relay.
 
+## Sharing models through a relay
+
+A node can lend its models to other Coddys ([Shared models](../features/shared-models.md)), and a relay mount carries that traffic with no change to the relay: the borrower's provider has `api_base: https://relay.example/swarm/nodes/<node>` and `type: coddy`, the mount passes `/coddy/llm/models` and `/coddy/llm/completions` like any `/coddy/*` route, and it works for a node the relay dials and for one that dialled out through the tunnel alike. The streams are server-sent events through a proxy that flushes after every write, and the heartbeat of the shared stream keeps a hop that idles out at a minute alive. A relay rebuilt on a configuration change cuts the streams in flight, which the borrower sees as a transport failure and retries while nothing was shown.
+
+**The relay substitutes the credential.** The borrower's `api_key` is the relay's client token (`swarm.auth_token`). The relay replaces it with the token the node registered with - `swarm.join[].token`, or `swarm.upstreams[].token` for a node pinned from the relay's side - so the node sees one caller. Two things follow. The limit of `httpserver.shared_models.max_streams` calls per credential then counts every client of the relay together, so it protects the node and its provider, not one borrower from another; and a slow client can hold a slot while its request body arrives (the body deadline is 30 s), so up to `max_streams` of them can keep the credential busy for the other clients, repeatedly. Per-client scopes enforced by the relay are not part of this version.
+
+**One privilege per join token.** A node that exists to share models joins with one of its shared-model tokens, so what the relay can do on that node is exactly the three LLM routes:
+
+```yaml
+# on the node
+swarm:
+  join:
+    - url: "https://relay.example"
+      name: "workstation"
+      pairing_token: "${CODDY_SWARM_PAIRING_TOKEN}"
+      token: "${CODDY_SHARED_MODELS_TOKEN}"   # one of httpserver.shared_models.tokens
+```
+
+The relay needs no change for it, and both transports work. What it looks like from the relay: the aggregated session list asks every node for its sessions with the node's token and gets `401` from this one, which is shown as the entry `workstation: 401 Unauthorized` in the `warnings` of [the aggregated list](#the-aggregated-list). The same warning comes from a node with authentication on and an empty, stale or rotated token (an unreachable node warns with the transport error and an expired lease with `offline since`). The topology is unaffected, since only chained relays are asked for it. Driving that node through the relay - the web UI's environment menu, `--remote` - is refused, which is the point. A node that must be driven through the relay **and** share models through it has to join with a token that does both, and then every client of the relay gets that privilege.
+
+A node that joins with no token makes the relay send no `Authorization` at all, and an agent has no fallback to the relay's own token. With authentication on, every mounted call is then a `401`. With authentication off the node is open to every relay client on every route except the three LLM routes, which still answer `403` with `kind: auth` while a row has `shared_as` and `httpserver.allow_insecure` is not set. Sharing through a relay therefore needs a token on the node.
+
+**A dedicated relay for share-only nodes.** The client token a borrower holds opens the mounts of every node of that relay: a mount is a prefix allowlist (`/v1/*` and `/coddy/*`), and each node is reached with the token it joined with. A shared-model token therefore protects only the nodes that joined with one; a node that joined with its main token is open to everything the relay's client token can do. Keep the nodes you administer and the nodes that only share models on separate relays, and hand the client token of the second relay to borrowers.
+
+**A stale token outlives its configuration.** A registration with an empty `token` does not erase the one the relay already holds, so removing `swarm.join[].token` from a node, or turning its token off, does not cut it off while it keeps its lease: a direct node renews at every heartbeat and a tunnel node keeps one lease for the whole connection. The old token is dropped when the node stays silent longer than the lease and its offline grace (three minutes by default) and registers again, at once when it registers with a different non-empty token, or when the relay restarts. To cut a node off now, evict it, which makes its next registration a fresh lease with the token it carries:
+
+```bash
+curl -X DELETE -H "Authorization: Bearer $RELAY_CLIENT_TOKEN" https://relay.example/swarm/nodes/workstation
+```
+
+Editing the node's configuration alone is not enough. A registration that replaces the token even with an empty one is planned for a later step.
+
 ## Where the settings live
 
 | What | Where |
@@ -374,7 +406,7 @@ tools and its settings, the secrets a node's `GET /coddy/config` hands back (pro
 remote tokens) included. This is stated
 rather than mitigated: there are no per-node client ACLs in this version. Give each node a
 credential minted for its relay rather than your own, put TLS in front, and keep the pairing
-token secret.
+token secret. Models a node lends through the relay inherit this: see [Sharing models through a relay](#sharing-models-through-a-relay) for the node's token, a relay of its own for share-only nodes and how to cut a node off.
 
 Binding off loopback without a client token **refuses to start** (`swarm.allow_insecure`
 overrides). On loopback one is generated for the run rather than left absent, because an open
@@ -453,7 +485,7 @@ relay, wrap in TLS, upgrade, invert roles. The HTTP/2 layer above is unaware of 
   single HTTP/2 connection per node and are not worked around.
 - **One relay process per endpoint.** Two replicas behind a load balancer would split the
   registry and the tunnels.
-- **No per-node client authorisation.** See the blast radius above.
+- **No per-node client authorisation.** See the blast radius above. It holds for shared models too: a client of the relay reaches every node's mount, and a node that shares models is protected only by the token it joined with ([Sharing models through a relay](#sharing-models-through-a-relay)).
 
 ## Reference
 

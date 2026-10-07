@@ -12,7 +12,7 @@ models:
     multimodal: true
 ```
 
-Every provider type sends them: an OpenAI-compatible endpoint as `image_url` parts, Anthropic as image blocks, the Codex backend as `input_image` parts, Devin with the prompt. An SVG attached to a prompt is text, and every provider gets it as text. Anthropic, the Codex backend and Devin take PNG, JPEG, GIF and WebP; a picture of another type is named in the message as not sent rather than failing the request. An OpenAI-compatible endpoint is sent a picture of any type, since a local server behind that API may take more types than OpenAI does. Mark a model this way only when it really accepts images; a text-only endpoint refuses a request that carries one.
+Every provider type sends them: an OpenAI-compatible endpoint as `image_url` parts, Anthropic as image blocks, the Codex backend as `input_image` parts, Devin with the prompt, a model a remote Coddy shares as image parts of its own wire that the remote hands to its provider (a refusal by that provider comes back as an error). An SVG attached to a prompt is text, and every provider gets it as text. Anthropic, the Codex backend and Devin take PNG, JPEG, GIF and WebP; a picture of another type is named in the message as not sent rather than failing the request. An OpenAI-compatible endpoint is sent a picture of any type, since a local server behind that API may take more types than OpenAI does. Mark a model this way only when it really accepts images; a text-only endpoint refuses a request that carries one.
 
 ## Reading an image file
 

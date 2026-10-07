@@ -302,6 +302,13 @@ settings, so an edit that only moves those changes nothing and announces nothing
 Flags outrank the file, on a reload as much as at startup. A daemon started with
 `--gateway` or `-H 0.0.0.0` keeps them when somebody else saves an unrelated setting.
 
+A file that shares models unsafely is refused the same way, at startup and on a reload: a
+`shared_as` row with no credential in front of the shared routes (no `httpserver.auth_token`,
+`--auth-token`, sign-in or `httpserver.shared_models.tokens`, unless `httpserver.allow_insecure`
+says the API is open on purpose), or a shared-model token that is also a main or swarm token. The
+message names the key and never a value, and a reload that fails it keeps the running
+configuration ([Shared models](../features/shared-models.md#shared-model-tokens)).
+
 ### Restarting itself
 
 A listen address is the one change no running process can adopt: the listener is what

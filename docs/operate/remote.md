@@ -134,6 +134,8 @@ The active environment is asked the same way on load, every 30 seconds and on wi
 
 ## What runs where
 
+Remote mode moves the agent: the loop, the tools and the files are the server's. To keep your own agent, rules and files and borrow only the server's models, use [Shared models](../features/shared-models.md) instead: the server lends `models[]` rows under aliases, and a provider of type `coddy` on your side sends it one model call per turn with a token that opens nothing else.
+
 | On the server | On the client |
 |---|---|
 | the ReAct loop and the model calls, with the server's providers and keys | rendering the transcript, thinking, tool boxes, plan updates, token and context stats |
