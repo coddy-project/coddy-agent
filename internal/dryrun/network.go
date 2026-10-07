@@ -228,8 +228,13 @@ func (r *runner) corsOpen() {
 	}
 	const path = "httpserver.cors"
 	loc, what := path+".allow_loopback", "every page served from the browser's own machine (allow_loopback: a dev server, a desktop app's page)"
-	if !c.AllowLoopback {
-		loc, what = path+".allowed_origins", "any page anywhere (allowed_origins: \"*\")"
+	// The list is read before allow_loopback, so a "*" in it opens the API to
+	// every page anywhere whether or not the toggle is on as well.
+	for _, o := range c.AllowedOrigins {
+		if strings.TrimSpace(o) == "*" {
+			loc, what = path+".allowed_origins", "any page anywhere (allowed_origins: \"*\")"
+			break
+		}
 	}
 	r.rep.add(r.check(StatusWarning, path, loc,
 		"CORS admits "+what+" and the API asks for no credential: such a page can read /coddy/config, provider keys included, and run the agent",

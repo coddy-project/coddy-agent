@@ -153,12 +153,13 @@ When `cors.enable` is true, preflight `OPTIONS` requests for an allowed origin r
 `Access-Control-Allow-Headers: Authorization, Content-Type, X-Coddy-Session-ID`; disallowed origins
 receive no CORS headers. An origin is allowed when `allowed_origins` names it exactly, when
 `allowed_origins` holds `"*"`, or when `allow_loopback` is on and the origin is `http` or `https`
-with a loopback host - `localhost`, a `*.localhost` name, `127.0.0.0/8` or `[::1]` - on any port;
-a loopback origin is echoed, never answered with `*`. Bearer auth still applies to the actual
-request whichever of the three admits the page, and `allow_loopback` and `"*"` are only as safe as
-that credential. A remote's token is either the `token` of its
-`httpserver.remotes` entry, which **`GET /coddy/config`** hands to every page that reads it, or one
-typed into the UI's **Connect to…** form, which the UI keeps client-side per remote. A swarm relay
+with a loopback host - `localhost`, a `*.localhost` name, `127.0.0.0/8` or `[::1]` - on any port.
+The list is read first and in order, so a `"*"` in it answers `*` to every origin no entry names
+before it, loopback ones included; an origin admitted by `allow_loopback` alone is echoed, never
+widened to `*`. Bearer auth still applies to the actual request whichever of the three admits
+the page, and `allow_loopback` and `"*"` are only as safe as that credential. A remote's token
+is either the `token` of its `httpserver.remotes` entry, which **`GET /coddy/config`** hands to
+every page that reads it, or one typed into the UI's **Connect to…** form, which the UI keeps client-side per remote. A swarm relay
 answers a cross-origin page through `swarm.cors` instead (same shape), and the UI recognises it by
 its public **`GET /swarm/info`** rather than by **`/v1/models`**, which a relay does not serve.
 

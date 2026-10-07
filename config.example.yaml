@@ -481,8 +481,9 @@ tools:
 #   # resolved by `coddy --remote <name>`. An entry may carry the token to present (usually a
 #   # ${ENV} reference): every browser that reads this config receives it, which is the choice
 #   # of whoever writes it here. Without one, the UI keeps the token in the browser per remote
-#   # and the console reads --remote-token or CODDY_REMOTE_TOKEN. A relay also has to list the
-#   # page's origin in its swarm.cors.allowed_origins.
+#   # and the console reads --remote-token or CODDY_REMOTE_TOKEN. A relay also has to admit the
+#   # page's origin in its swarm.cors: listed in allowed_origins, or allow_loopback for a page
+#   # served from the browser's own machine.
 #   remotes:
 #     - name: "prod box"
 #       url: "https://box.example:12345"

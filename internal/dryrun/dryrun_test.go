@@ -897,6 +897,15 @@ func TestCORSOpenToUnlistedOriginsWithoutCredentialIsWarned(t *testing.T) {
 		t.Errorf("* CORS on an open server: %+v", c)
 	}
 
+	// "*" is read before allow_loopback, so with both on the server is open to
+	// any page anywhere, and the finding says that and points at the list.
+	both := "httpserver:\n  cors:\n    enable: true\n    allow_loopback: true\n    allowed_origins: [\"*\"]\n"
+	listLine := strings.Count(modeline+both[:strings.Index(both, "allowed_origins")], "\n") + 1
+	c = find(t, run(t, both, func(r *Request) { r.WebUIOpen = true }), "httpserver.cors")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "any page") || c.Line != listLine {
+		t.Errorf("* with allow_loopback on an open server: %+v", c)
+	}
+
 	exact := "httpserver:\n  cors:\n    enable: true\n    allowed_origins: [\"http://localhost:12345\"]\n"
 	for _, c := range run(t, exact, func(r *Request) { r.WebUIOpen = true }).Checks {
 		if c.Path == "httpserver.cors" {
