@@ -23,6 +23,7 @@ import {
   subscribeShellStack,
 } from "../shellBreakpoint";
 import { navSlots, splitNavItems, type NavItemId } from "./navOverflow";
+import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 
 function IconBook(props: { className?: string }) {
@@ -334,6 +335,7 @@ export function NavRail(props: {
   if (showSwarm) present.push("swarm");
   if (props.onOpenDocs) present.push("docs");
   present.push("settings");
+  present.push("environment");
   if (signedIn) present.push("signOut");
   const { bar, menu } = splitNavItems(present, slots);
   const inBar = (id: NavItemId) => bar.includes(id);
@@ -618,6 +620,12 @@ export function NavRail(props: {
                 </span>
               ) : null}
             </div>
+          ) : null}
+
+          {/* The environment the page drives, at the foot of the rail and
+              above the way out: never folded behind More. */}
+          {inBar("environment") ? (
+            <EnvironmentSwitcher className={navBtnCls} wide={pillWide} />
           ) : null}
 
           {inBar("signOut") ? (

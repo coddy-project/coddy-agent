@@ -212,3 +212,25 @@ func TestDecodeToUTF8PassesUTF8Through(t *testing.T) {
 		t.Fatalf("charset = %q, want utf-8", charset)
 	}
 }
+
+// TestLooksBinarySeparatesBinaryFromUnnamedText is what lets the file tools keep
+// a legacy fallback without applying it to a PNG: ErrUndecodable alone does not
+// say which of the two happened.
+func TestLooksBinarySeparatesBinaryFromUnnamedText(t *testing.T) {
+	pngHeader := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 'I', 'H', 'D', 'R'}
+	if !textenc.LooksBinary(pngHeader) {
+		t.Fatal("a PNG header did not read as binary")
+	}
+	// A short legacy fragment: too little evidence for detection, no NUL bytes.
+	short := mustEncode(t, charmap.Windows1251, "да\n")
+	if textenc.LooksBinary(short) {
+		t.Fatal("short legacy text read as binary")
+	}
+	if _, _, err := textenc.DecodeToUTF8(pngHeader); !errors.Is(err, textenc.ErrUndecodable) {
+		t.Fatalf("err = %v, want ErrUndecodable", err)
+	}
+	// Text with a byte-order mark is text whatever the mark is followed by.
+	if textenc.LooksBinary(mustEncode(t, unicode.UTF16(unicode.LittleEndian, unicode.UseBOM), russian)) {
+		t.Fatal("BOM-marked UTF-16 read as binary")
+	}
+}

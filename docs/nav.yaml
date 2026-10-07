@@ -68,7 +68,7 @@ groups:
         summary: One process for every enabled subsystem, the systemd user service (serve install and uninstall), --daemon with status, stop and restart, and configuration reloads.
       - path: operate/remote.md
         title: Remote mode
-        summary: Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment chip.
+        summary: Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment menu.
       - path: operate/swarm.md
         title: Swarm
         summary: Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel.

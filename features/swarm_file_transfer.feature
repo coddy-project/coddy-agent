@@ -10,3 +10,9 @@ Feature: Transfer session files through a relay-mounted node
     Then the uploaded image thumbnail is available through the relay
     And the shared report is downloadable through the relay
     And the node receives its own credential for every file request
+
+  Scenario: A workspace file streams through the relay from its signed address, as a media element loads it
+    Given a swarm relay mounts an authenticated file-capable node
+    When I ask the mounted node for a media address of "report.txt"
+    Then the first six bytes of "report.txt" stream through the relay from that address alone
+    And the node checks the media address itself

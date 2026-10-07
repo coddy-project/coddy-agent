@@ -56,3 +56,4 @@ Feature: The documentation built into the binary
     And a page mentioned in a sent message opens the reader
     And /docs in the composer opens the reader on a search instead of reaching the agent
     And the chat names a documentation lookup by what it does
+    And the reader's close button stays where it stood as a page loads

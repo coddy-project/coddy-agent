@@ -1,6 +1,6 @@
 # Remote mode
 
-A `coddy serve` on one machine can be driven from another. The console and `coddy acp` take `--remote`, the web UI has an environment chip in its composer, and all three talk to the server's HTTP API: the agent, its tools, its sessions and its permission policy live on the server, while the client renders the transcript and answers the prompts. This page is the user guide; the design record with the reasoning and the parts that were deferred is [Remote control design](../plans/remote-control.md).
+A `coddy serve` on one machine can be driven from another. The console and `coddy acp` take `--remote`, the web UI has an environment menu at the foot of its rail, and all three talk to the server's HTTP API: the agent, its tools, its sessions and its permission policy live on the server, while the client renders the transcript and answers the prompts. This page is the user guide; the design record with the reasoning and the parts that were deferred is [Remote control design](../plans/remote-control.md).
 
 ## What remote mode is
 
@@ -8,7 +8,7 @@ A `coddy serve` on one machine can be driven from another. The console and `codd
 |---|---|---|
 | console (`coddy`, `coddy cli`, `coddy -p "..."`) | `--remote <target>` | the HTTP API (`http` build tag, `httpserver.enable`, on by default) |
 | editor over ACP (`coddy acp`) | `--remote <target>` | the same |
-| web UI | the environment chip above the composer | the same, plus CORS on the server |
+| web UI | the environment menu at the foot of the rail | the same, plus CORS on the server |
 
 With `--remote` the local process keeps no session store, runs no scheduler and no agent loop; every session call is proxied to the server over `/v1/*` and `/coddy/*`, the streamed answer comes back over SSE and is translated into the updates the console and the ACP client already understand. Specs: `features/remote_client.feature` and `features/cli_remote.feature`; the live checks are `examples/cli/cli_e2e_remote.py`, `examples/acp/acp_remote.py` and `examples/httpserver/http_e2e_remote.py`.
 
@@ -38,7 +38,7 @@ coddy --remote 192.168.1.20:12345    # bare host:port, plain http
 coddy acp --remote https://nas02.example:12345
 ```
 
-The same `remotes` list is what a server offers in its web UI's environment menu, so the entry does double duty: put it in the config of the machine you type on. A swarm relay is listed the same way; the menu recognises it and lists the agents behind it ([The environment chip](#the-environment-chip)).
+The same `remotes` list is what a server offers in its web UI's environment menu, so the entry does double duty: put it in the config of the machine you type on. A swarm relay is listed the same way; the menu recognises it and lists the agents behind it ([The environment menu](#the-environment-menu)).
 
 ## The token
 
@@ -107,11 +107,11 @@ httpserver:
 
 With `cors.enable` on, a preflight from an allowed origin gets `204` with `Access-Control-Allow-Origin` (the origin echoed, or `*` when configured) and `Access-Control-Allow-Headers: Authorization, Content-Type, X-Coddy-Session-ID`; an origin that is not listed gets no CORS headers, which the browser reports as a blocked request. The bearer token still applies to the real request. A swarm relay has CORS of its own, `swarm.cors`, with the same two keys: a page served elsewhere that talks to a relay needs its origin there, and a node behind the relay is answered by the relay's CORS, never by the node's. Because `EventSource` cannot send a header, the two SSE subscription routes, `GET /coddy/sessions/{id}/composer-stream` and `GET /coddy/events`, also accept `?access_token=`; the bundled UI fetches those streams instead, so its header applies and no token lands in a URL. Reference: [HTTP API](../reference/http-api.md#authentication-optional).
 
-## The environment chip
+## The environment menu
 
-The chip sits in the composer's workspace row, next to the folder, branch and worktree chips, and reads **Local** or the name of the active remote. Its menu has an **Environment** section with Local and a **Remote** section with the server's configured `remotes` plus **Connect to…** (name, URL, token). The list is read from the page's own server when the menu opens and again whenever that server's configuration is replaced, so a remote added by a settings save or the agent's `config_commit` shows up without reloading the page. An entry without a `name` is shown by the name the remote reports - a relay's name, which is its host name unless `swarm.name` sets one, or an agent's host name - with its address beside it, and by its address alone when it reports nothing. Choosing an entry connects at once and starts the app over on it, so the session list, the models and the defaults are re-read from the chosen backend: between two remotes in place, without reloading the page, and to or from Local with a reload. Choosing the entry the page is already on reads everything again, which is the way back after that remote was down; the SPA shell always comes from the local origin, so **Local** stays reachable from the chip even when the remote is down.
+The environment is the item at the foot of the web UI's rail, below Settings and above Sign out: a laptop while the page drives its own server, two chevrons pointing at each other while it drives a remote, with a dot for whether that host answers, and a tooltip naming **Local** or the active remote. On a tablet or a phone it is one of the top bar's icons and never folds behind **More**. Its menu opens beside the rail (a sheet from the bottom on a narrow screen) and has an **Environment** section with Local and a **Remote** section with the server's configured `remotes` plus **Connect to…** (name, URL, token). The list is read from the page's own server when the menu opens and again whenever that server's configuration is replaced, so a remote added by a settings save or the agent's `config_commit` shows up without reloading the page. An entry without a `name` is shown by the name the remote reports - a relay's name, which is its host name unless `swarm.name` sets one, or an agent's host name - with its address beside it, and by its address alone when it reports nothing. Choosing an entry connects at once and starts the app over on it, so the session list, the models and the defaults are re-read from the chosen backend: between two remotes in place, without reloading the page, and to or from Local with a reload. Choosing the entry the page is already on reads everything again, which is the way back after that remote was down; the SPA shell always comes from the local origin, so **Local** stays reachable from the menu even when the remote is down.
 
-![The environment menu with a relay, its agents, and the remotes that cannot be used yet](../assets/env-menu-states-dark-1280.png)
+![The environment menu beside the rail with a relay, its agents, and the remotes that cannot be used yet](../assets/env-menu-states-dark-1280.png)
 
 *A relay with its agents listed under it, a relay that wants its token, one that CORS keeps from the page, and one that does not answer*
 
