@@ -136,7 +136,8 @@ describe("toSplitRows", () => {
     expect(rows).toHaveLength(3);
     const first = rows[0]!;
     const last = rows[2]!;
-    if (first.kind !== "pair" || last.kind !== "pair") throw new Error("want pairs");
+    if (first.kind !== "pair" || last.kind !== "pair")
+      throw new Error("want pairs");
     expect(first.right).toBeNull();
     expect(last.left).toBeNull();
   });

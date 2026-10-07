@@ -86,7 +86,12 @@ export function backgroundWakeItem(
   }
   const tasks = parseBackgroundWakeTasks(raw);
   if (tasks.length === 0) return null;
-  return { id, type: "background_wake", tasks, createdAtUtc: new Date().toISOString() };
+  return {
+    id,
+    type: "background_wake",
+    tasks,
+    createdAtUtc: new Date().toISOString(),
+  };
 }
 
 /** Whether a transcript item opens a turn: a message typed, or a wake. */

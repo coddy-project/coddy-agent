@@ -117,7 +117,9 @@ function stubApi(
 }
 
 function renderEditor(sessionId = "sess_view", onSynced = vi.fn()) {
-  render(<MarketplacesEditor activeSessionId={sessionId} onSynced={onSynced} />);
+  render(
+    <MarketplacesEditor activeSessionId={sessionId} onSynced={onSynced} />,
+  );
   return onSynced;
 }
 
@@ -181,7 +183,9 @@ test("a project entry waits for its approval: a note, no sync, and the shield", 
   const key = "team/data-skills";
   const row = await screen.findByTestId(`skills-marketplace-${key}`);
   expect(row).toHaveClass("is-held");
-  expect(screen.getByTestId(`skills-marketplace-note-${key}`)).toHaveTextContent(
+  expect(
+    screen.getByTestId(`skills-marketplace-note-${key}`),
+  ).toHaveTextContent(
     "Declared by /work/repo/.coddy/marketplaces.json, which travels with the checkout",
   );
   const sync = screen.getByTestId(`skills-marketplace-sync-${key}`);
@@ -252,9 +256,7 @@ test("a refused approval says why", async () => {
 });
 
 test("a denied project entry says the policy switched it off and has no shield", async () => {
-  stubApi(
-    listing([{ ...PROJECT_SOURCE, status: "denied" }], "deny"),
-  );
+  stubApi(listing([{ ...PROJECT_SOURCE, status: "denied" }], "deny"));
   renderEditor();
   const key = "team/data-skills";
   expect(
@@ -271,7 +273,8 @@ test("adding declares the entry where the operator chose", async () => {
     status: "ready",
   };
   const calls = stubApi(listing([SYSTEM]), (call, setListing) => {
-    if (call.url === "/coddy/skills/sources") setListing(listing([SYSTEM, added]));
+    if (call.url === "/coddy/skills/sources")
+      setListing(listing([SYSTEM, added]));
     return undefined;
   });
   renderEditor();

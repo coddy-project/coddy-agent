@@ -46,7 +46,11 @@ let types: Record<string, string> = {};
 /** Status the node answers a text read of a path with, instead of the text. */
 let textStatus: Record<string, number> = {};
 /** Holds the tree reads of these folders until released. */
-let holdTree: { dirs: Set<string>; release: () => void; waiting: (() => void)[] } = {
+let holdTree: {
+  dirs: Set<string>;
+  release: () => void;
+  waiting: (() => void)[];
+} = {
   dirs: new Set(),
   release() {
     for (const go of this.waiting.splice(0)) go();
@@ -121,10 +125,10 @@ beforeEach(() => {
           "Content-Type": types[path]
             ? types[path]!
             : path.endsWith(".wav")
-            ? "audio/wav"
-            : path.endsWith(".md")
-              ? "text/markdown; charset=utf-8"
-              : "text/plain; charset=utf-8",
+              ? "audio/wav"
+              : path.endsWith(".md")
+                ? "text/markdown; charset=utf-8"
+                : "text/plain; charset=utf-8",
           "Content-Length": String(contents[path]?.length ?? 0),
           "Last-Modified": "Mon, 05 Oct 2026 12:00:00 GMT",
         },
@@ -141,7 +145,11 @@ beforeEach(() => {
       const asked = query(url, "etag");
       if (asked && asked !== etag)
         return new Response(
-          JSON.stringify({ error: { message: "file changed; reload before reading another page" } }),
+          JSON.stringify({
+            error: {
+              message: "file changed; reload before reading another page",
+            },
+          }),
           { status: 409 },
         );
       const all = (contents[path] || "").split("\n");
@@ -165,13 +173,29 @@ beforeEach(() => {
         return new Response(
           JSON.stringify({
             items: [
-              { kind: "file", insert: "@../outside.txt", label: "../outside.txt" },
+              {
+                kind: "file",
+                insert: "@../outside.txt",
+                label: "../outside.txt",
+              },
               { kind: "file", insert: "@/etc/outside", label: "/etc/outside" },
               { kind: "file", insert: "@~/outside", label: "~/outside" },
               { kind: "directory", insert: "@../up/", label: "../up/" },
-              { kind: "file", insert: "@\\Windows\\win.ini", label: "\\Windows\\win.ini" },
-              { kind: "file", insert: "@\\\\server\\share\\x", label: "\\\\server\\share\\x" },
-              { kind: "file", insert: "@notes/outside.md", label: "notes/outside.md" },
+              {
+                kind: "file",
+                insert: "@\\Windows\\win.ini",
+                label: "\\Windows\\win.ini",
+              },
+              {
+                kind: "file",
+                insert: "@\\\\server\\share\\x",
+                label: "\\\\server\\share\\x",
+              },
+              {
+                kind: "file",
+                insert: "@notes/outside.md",
+                label: "notes/outside.md",
+              },
             ],
           }),
         );
@@ -245,9 +269,11 @@ test("a file picked in the tree opens in a tab, and a second one beside it", asy
   fireEvent.click(await screen.findByText("notes.txt"));
   await screen.findByText("second note");
   const tabs = screen.getByRole("tablist", { name: t("files.openFiles") });
-  expect(within(tabs).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-    "notes.txt",
-  ]);
+  expect(
+    within(tabs)
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent),
+  ).toEqual(["notes.txt"]);
   expect(onNavigate).toHaveBeenLastCalledWith("notes.txt", 1);
   // Folders open in place.
   fireEvent.click(screen.getByText("src"));
@@ -297,7 +323,9 @@ test("the window opens on the file and the line the address names", async () => 
   expect(row?.className || "").toBe("");
   // The scroll is a passive effect of the render that put the line in, which
   // a loaded runner can run after findByText has already returned.
-  await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+  await waitFor(() =>
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled(),
+  );
   expect(screen.getByRole("tab", { selected: true }).textContent).toBe(
     "notes.txt",
   );
@@ -359,10 +387,11 @@ test("the window opened again keeps the files that were open in it", async () =>
   unmount();
   render(view());
   const tabs = await screen.findByRole("tablist");
-  expect(within(tabs).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-    "notes.txt",
-    "README.md",
-  ]);
+  expect(
+    within(tabs)
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent),
+  ).toEqual(["notes.txt", "README.md"]);
   // Another chat has its own.
   cleanup();
   render(view({ sessionId: "s2" }));
@@ -373,7 +402,9 @@ test("hidden files are a choice of the window's menu", async () => {
   render(view());
   await screen.findByText("README.md");
   fireEvent.click(screen.getByTestId("files-more"));
-  const item = screen.getByRole("menuitemcheckbox", { name: t("files.hidden") });
+  const item = screen.getByRole("menuitemcheckbox", {
+    name: t("files.hidden"),
+  });
   expect(item.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(item);
   await waitFor(() =>
@@ -390,7 +421,8 @@ test("hidden files are a choice of the window's menu", async () => {
 // A phone has room for one column: the tree, or the file.
 test("on a phone the window shows the file it was opened on, and a file picked in the tree puts the tree away", async () => {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: query.includes("max-width: 599px") || query.includes("max-width: 1199px"),
+    matches:
+      query.includes("max-width: 599px") || query.includes("max-width: 1199px"),
     media: query,
     onchange: null,
     addListener: () => {},
@@ -533,7 +565,9 @@ test("the rows a folder loaded with Load more stay through a refresh", async () 
 });
 
 test("the window opened again shows its file at the line it was on, and says so to the address", async () => {
-  const { unmount } = render(view({ initialPath: "notes.txt", initialLine: 3 }));
+  const { unmount } = render(
+    view({ initialPath: "notes.txt", initialLine: 3 }),
+  );
   await screen.findByText("third note");
   unmount();
   const onNavigate = vi.fn();
@@ -541,7 +575,9 @@ test("the window opened again shows its file at the line it was on, and says so 
   await screen.findByText("third note");
   // The window goes to the line; for now a file is only read, so nothing marks it.
   const line = document.querySelector('[data-file-line="3"]');
-  await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+  await waitFor(() =>
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled(),
+  );
   expect(line?.className || "").toBe("");
   expect(onNavigate).toHaveBeenCalledWith("notes.txt", 3);
 });
@@ -591,8 +627,14 @@ test("a new filter query never shows the hits of the one before", async () => {
 /** Puts the file's scroll box at `top` of `height`, as a browser would lay it out. */
 function scrollBody(top: number, height = 6000, view = 600) {
   const body = document.querySelector(".files-file-body") as HTMLElement;
-  Object.defineProperty(body, "scrollHeight", { configurable: true, value: height });
-  Object.defineProperty(body, "clientHeight", { configurable: true, value: view });
+  Object.defineProperty(body, "scrollHeight", {
+    configurable: true,
+    value: height,
+  });
+  Object.defineProperty(body, "clientHeight", {
+    configurable: true,
+    value: view,
+  });
   body.scrollTop = top;
   fireEvent.scroll(body);
 }
@@ -600,7 +642,10 @@ function scrollBody(top: number, height = 6000, view = 600) {
 // A long file scrolls through: the next lines are read as the reader nears
 // the end of those on screen, so there are no pages to click through.
 test("a long file reads on as it is scrolled, with no pages to click", async () => {
-  contents["long.txt"] = Array.from({ length: 700 }, (_, i) => `line ${i + 1}`).join("\n");
+  contents["long.txt"] = Array.from(
+    { length: 700 },
+    (_, i) => `line ${i + 1}`,
+  ).join("\n");
   render(view({ initialPath: "long.txt" }));
   await screen.findByText("line 1");
   expect(screen.queryByText("line 301")).toBeNull();
@@ -619,7 +664,10 @@ test("a long file reads on as it is scrolled, with no pages to click", async () 
 // line 700, which outlasts the default second of findByText on a loaded
 // runner (the full suite beside other work); with time it always arrives.
 test("a view still at the end after a read reads on without another scroll", async () => {
-  contents["long.txt"] = Array.from({ length: 700 }, (_, i) => `line ${i + 1}`).join("\n");
+  contents["long.txt"] = Array.from(
+    { length: 700 },
+    (_, i) => `line ${i + 1}`,
+  ).join("\n");
   render(view({ initialPath: "long.txt" }));
   await screen.findByText("line 1");
   scrollBody(5500);
@@ -629,7 +677,10 @@ test("a view still at the end after a read reads on without another scroll", asy
 // Opened in the middle (an address, a link), the file reads back up as the
 // reader scrolls to the top of what is on screen.
 test("a file opened in the middle reads back up as it is scrolled", async () => {
-  contents["long.txt"] = Array.from({ length: 700 }, (_, i) => `line ${i + 1}`).join("\n");
+  contents["long.txt"] = Array.from(
+    { length: 700 },
+    (_, i) => `line ${i + 1}`,
+  ).join("\n");
   render(view({ initialPath: "long.txt", initialLine: 450 }));
   await screen.findByText("line 450");
   expect(screen.queryByText("line 1")).toBeNull();
@@ -641,10 +692,16 @@ test("a file opened in the middle reads back up as it is scrolled", async () => 
 // A file rewritten while the reader scrolls on is not spliced from two
 // versions: it says so and starts over at its top.
 test("a file rewritten while it is read on starts over and says so", async () => {
-  contents["long.txt"] = Array.from({ length: 700 }, (_, i) => `line ${i + 1}`).join("\n");
+  contents["long.txt"] = Array.from(
+    { length: 700 },
+    (_, i) => `line ${i + 1}`,
+  ).join("\n");
   render(view({ initialPath: "long.txt" }));
   await screen.findByText("line 1");
-  contents["long.txt"] = Array.from({ length: 700 }, (_, i) => `new ${i + 1}`).join("\n");
+  contents["long.txt"] = Array.from(
+    { length: 700 },
+    (_, i) => `new ${i + 1}`,
+  ).join("\n");
   scrollBody(5300);
   await screen.findByRole("status");
   await screen.findByText("new 1");
@@ -654,8 +711,14 @@ test("a file rewritten while it is read on starts over and says so", async () =>
 /** Lays the tab strip out as a browser would: `content` wide inside `width`. */
 function layOutTabs(content: number, width = 300) {
   const strip = document.querySelector(".files-tabs") as HTMLElement;
-  Object.defineProperty(strip, "scrollWidth", { configurable: true, value: content });
-  Object.defineProperty(strip, "clientWidth", { configurable: true, value: width });
+  Object.defineProperty(strip, "scrollWidth", {
+    configurable: true,
+    value: content,
+  });
+  Object.defineProperty(strip, "clientWidth", {
+    configurable: true,
+    value: width,
+  });
   fireEvent.scroll(strip);
   return strip;
 }
@@ -666,7 +729,11 @@ test("tabs that do not fit scroll sideways by the wheel, with no arrows", async 
   render(view({ initialPath: "notes.txt" }));
   await screen.findByText("first note");
   const strip = layOutTabs(900);
-  expect(document.querySelector(".files-tabs-bar button:not([role=tab]):not(.files-tab-close)")).toBeNull();
+  expect(
+    document.querySelector(
+      ".files-tabs-bar button:not([role=tab]):not(.files-tab-close)",
+    ),
+  ).toBeNull();
   expect(strip).toHaveClass("has-more-right");
   expect(strip).not.toHaveClass("has-more-left");
   fireEvent.wheel(strip, { deltaY: 120 });
@@ -685,11 +752,20 @@ test("the tab on show is scrolled into the strip", async () => {
   await screen.findByText("Welcome.");
   const strip = layOutTabs(900);
   // notes.txt lies past the strip's right edge; showing it brings it in.
-  const notes = screen.getByRole("tab", { name: "notes.txt" }).parentElement as HTMLElement;
-  Object.defineProperty(notes, "offsetLeft", { configurable: true, value: 760 });
-  Object.defineProperty(notes, "offsetWidth", { configurable: true, value: 120 });
+  const notes = screen.getByRole("tab", { name: "notes.txt" })
+    .parentElement as HTMLElement;
+  Object.defineProperty(notes, "offsetLeft", {
+    configurable: true,
+    value: 760,
+  });
+  Object.defineProperty(notes, "offsetWidth", {
+    configurable: true,
+    value: 120,
+  });
   fireEvent.click(screen.getByRole("tab", { name: "notes.txt" }));
-  await waitFor(() => expect(strip.scrollLeft).toBeGreaterThanOrEqual(760 + 120 - 300));
+  await waitFor(() =>
+    expect(strip.scrollLeft).toBeGreaterThanOrEqual(760 + 120 - 300),
+  );
 });
 
 test("Reload puts away the notice that the file changed", async () => {
@@ -725,7 +801,9 @@ test("the open files survive the window learning its workspace folder", async ()
   unmount();
   render(view({ workspacePath: "/work/demo" }));
   const tabs = await screen.findByRole("tablist");
-  expect(within(tabs).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-    "notes.txt",
-  ]);
+  expect(
+    within(tabs)
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent),
+  ).toEqual(["notes.txt"]);
 });

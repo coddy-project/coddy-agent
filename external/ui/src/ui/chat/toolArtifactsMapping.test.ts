@@ -26,9 +26,16 @@ test("reload maps artifacts from a persisted tool message", () => {
     messages: [
       {
         role: "assistant",
-        tool_calls: [{ id: "share-1", function: { name: "share_file", arguments: "{}" } }],
+        tool_calls: [
+          { id: "share-1", function: { name: "share_file", arguments: "{}" } },
+        ],
       },
-      { role: "tool", tool_call_id: "share-1", content: "shared", artifacts: [artifact] },
+      {
+        role: "tool",
+        tool_call_id: "share-1",
+        content: "shared",
+        artifacts: [artifact],
+      },
     ],
     window: { offset: 0, total: 2, turnsBefore: 0, userRowsBefore: 0 },
     uiLog: undefined,
@@ -44,7 +51,12 @@ test("tool-call list metadata enriches a reloaded tool row", () => {
     { id: "t", type: "tool_call", toolCallId: "share-1", status: "completed" },
   ];
   applyToolCallRows(items, new Map([["share-1", 0]]), [
-    { toolCallId: "share-1", name: "share_file", status: "completed", artifacts: [artifact] },
+    {
+      toolCallId: "share-1",
+      name: "share_file",
+      status: "completed",
+      artifacts: [artifact],
+    },
   ]);
 
   expect(tool(items)?.artifacts).toEqual([artifact]);

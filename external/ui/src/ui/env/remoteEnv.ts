@@ -421,12 +421,16 @@ export function swarmRootRelay(env: {
 /** The name the current environment gives a relay base, for its chip. */
 function getEnvName(relay: string): string {
   const env = getEnv();
-  if (env.mode === "remote" && env.baseUrl === relay && env.name && env.name !== "swarm") {
+  if (
+    env.mode === "remote" &&
+    env.baseUrl === relay &&
+    env.name &&
+    env.name !== "swarm"
+  ) {
     return env.name;
   }
   return relay.replace(/^https?:\/\//, "");
 }
-
 
 export function isApiPath(path: string): boolean {
   return (

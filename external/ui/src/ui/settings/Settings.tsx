@@ -349,7 +349,9 @@ export function Settings(props: {
             : { ...d, seen: fresh },
         );
       } else if (!read.ok) {
-        setError(translate("settings.error.failedToLoad", { error: read.error }));
+        setError(
+          translate("settings.error.failedToLoad", { error: read.error }),
+        );
       }
     } finally {
       setReloading(false);

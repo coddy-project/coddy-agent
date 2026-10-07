@@ -56,7 +56,10 @@ let themeWatch: MutationObserver | null = null;
  * draws in the theme's colours outside CSS (a diagram) follows a theme switch.
  */
 export function subscribeAppliedUiTheme(onChange: () => void): () => void {
-  if (typeof document === "undefined" || typeof MutationObserver === "undefined") {
+  if (
+    typeof document === "undefined" ||
+    typeof MutationObserver === "undefined"
+  ) {
     return () => {};
   }
   themeListeners.add(onChange);
@@ -64,7 +67,10 @@ export function subscribeAppliedUiTheme(onChange: () => void): () => void {
     themeWatch = new MutationObserver(() => {
       for (const listener of [...themeListeners]) listener();
     });
-    themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    themeWatch.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
   }
   return () => {
     themeListeners.delete(onChange);

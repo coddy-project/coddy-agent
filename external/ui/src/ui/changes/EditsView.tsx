@@ -24,10 +24,7 @@ import {
 } from "../files/windowIcons";
 import { DiffFileSection } from "./DiffFileSection";
 import { EditsTree } from "./EditsTree";
-import {
-  readDiffViewCookie,
-  writeDiffViewCookie,
-} from "./diffViewPrefs";
+import { readDiffViewCookie, writeDiffViewCookie } from "./diffViewPrefs";
 import type { DiffView } from "./diffViewPrefs";
 import { fetchSessionChangeFile } from "./api";
 import { treeOrder } from "./fileTree";
@@ -222,7 +219,9 @@ export function EditsView(props: {
     });
   }, [changes.files]);
   // Until the reader picks or scrolls, the file at the top is the one on show.
-  const onShow = files.some((f) => f.path === active) ? active : files[0]?.path || "";
+  const onShow = files.some((f) => f.path === active)
+    ? active
+    : files[0]?.path || "";
 
   const registerRef = useCallback((path: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -250,7 +249,9 @@ export function EditsView(props: {
     const section = sectionRefs.current.get(path);
     if (!scroller || !section) return;
     scroller.scrollTop +=
-      section.getBoundingClientRect().top - scroller.getBoundingClientRect().top - JUMP_GAP_PX;
+      section.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top -
+      JUMP_GAP_PX;
     pinRef.current = { path, top: scroller.scrollTop };
   };
   useLayoutEffect(() => {
@@ -265,9 +266,12 @@ export function EditsView(props: {
     if (!scroller) return;
     // A scroll the pin did not make is the reader's: the pin lets go.
     const pin = pinRef.current;
-    if (pin && Math.abs(scroller.scrollTop - pin.top) > 1) pinRef.current = null;
+    if (pin && Math.abs(scroller.scrollTop - pin.top) > 1)
+      pinRef.current = null;
     const port = scroller.getBoundingClientRect();
-    const picked = pickedRef.current ? sectionRefs.current.get(pickedRef.current) : undefined;
+    const picked = pickedRef.current
+      ? sectionRefs.current.get(pickedRef.current)
+      : undefined;
     if (picked) {
       const r = picked.getBoundingClientRect();
       if (r.top < port.bottom && r.bottom > port.top) return;
@@ -332,7 +336,8 @@ export function EditsView(props: {
   return (
     <div
       className={
-        "files-dock-cluster edits-window" + (expandedWindow ? " is-expanded" : "")
+        "files-dock-cluster edits-window" +
+        (expandedWindow ? " is-expanded" : "")
       }
       data-testid="edits-view"
       role="dialog"
@@ -345,8 +350,16 @@ export function EditsView(props: {
             className={"files-icon-btn" + (treeOpen ? " is-active" : "")}
             data-testid="edits-toggle-tree"
             aria-pressed={treeOpen}
-            aria-label={t(treeOpen ? "changes.viewer.hideFiles" : "changes.viewer.showFiles")}
-            title={t(treeOpen ? "changes.viewer.hideFiles" : "changes.viewer.showFiles")}
+            aria-label={t(
+              treeOpen
+                ? "changes.viewer.hideFiles"
+                : "changes.viewer.showFiles",
+            )}
+            title={t(
+              treeOpen
+                ? "changes.viewer.hideFiles"
+                : "changes.viewer.showFiles",
+            )}
             onClick={() => setTreeOpen((v) => !v)}
           >
             <IconTree />
@@ -355,14 +368,22 @@ export function EditsView(props: {
             <h2 className="files-title">{t("changes.viewer.title")}</h2>
             <p
               className="files-subtitle"
-              title={workspacePath ? t("files.workspace", { path: workspacePath }) : undefined}
+              title={
+                workspacePath
+                  ? t("files.workspace", { path: workspacePath })
+                  : undefined
+              }
             >
               {workspaceName ? (
                 <span className="edits-folder">{workspaceName}</span>
               ) : null}
               <span className="edits-totals" data-testid="edits-totals">
-                <span className="changes-add">{"+" + changes.totals.additions}</span>
-                <span className="changes-del">{"−" + changes.totals.deletions}</span>
+                <span className="changes-add">
+                  {"+" + changes.totals.additions}
+                </span>
+                <span className="changes-del">
+                  {"−" + changes.totals.deletions}
+                </span>
               </span>
             </p>
           </div>
@@ -490,13 +511,21 @@ export function EditsView(props: {
               </div>
             ) : null}
             {discard.error ? (
-              <div className="dv-note dv-note--error" role="alert" data-testid="dv-discard-error">
+              <div
+                className="dv-note dv-note--error"
+                role="alert"
+                data-testid="dv-discard-error"
+              >
                 {discard.error}
               </div>
             ) : null}
 
             {!wc.loaded && wc.error ? (
-              <div className="dv-note dv-note--error" role="alert" data-testid="dv-error">
+              <div
+                className="dv-note dv-note--error"
+                role="alert"
+                data-testid="dv-error"
+              >
                 {wc.error}
               </div>
             ) : unversioned ? (
@@ -525,7 +554,9 @@ export function EditsView(props: {
                     onToggle={() => toggleOne(file.path)}
                     registerRef={registerRef}
                     discardBusy={discard.busy}
-                    onDiscard={() => void discard.discardFile(file.path, file.status)}
+                    onDiscard={() =>
+                      void discard.discardFile(file.path, file.status)
+                    }
                   />
                 );
               })

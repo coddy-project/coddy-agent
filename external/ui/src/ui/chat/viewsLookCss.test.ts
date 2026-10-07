@@ -12,22 +12,34 @@ import { expect, test } from "vitest";
 
 const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
 
+/**
+ * A declaration block on one line: Prettier breaks a long value over several,
+ * indented, so the assertions read it with runs of whitespace as one space and
+ * none inside the parentheses.
+ */
+function squash(body: string): string {
+  return body
+    .replace(/\s+/g, " ")
+    .replace(/\(\s+/g, "(")
+    .replace(/\s+\)/g, ")");
+}
+
 /** The body of the last rule whose selector list ends with `selector {`. */
 function ruleBody(selector: string): string {
   const idx = css.lastIndexOf(`${selector} {`);
   expect(idx, `${selector} is missing from styles.css`).toBeGreaterThan(-1);
   const open = css.indexOf("{", idx);
-  return css.slice(open + 1, css.indexOf("}", open));
+  return squash(css.slice(open + 1, css.indexOf("}", open)));
 }
 
-test.each([
-  ".files-icon-btn.is-active",
-  ".files-tree-row.is-active",
-])("%s brightens from the text colour, not the accent", (selector) => {
-  const body = ruleBody(selector);
-  expect(body).not.toContain("var(--accent)");
-  expect(body).toMatch(/background: color-mix\(in srgb, var\(--text\)/);
-});
+test.each([".files-icon-btn.is-active", ".files-tree-row.is-active"])(
+  "%s brightens from the text colour, not the accent",
+  (selector) => {
+    const body = ruleBody(selector);
+    expect(body).not.toContain("var(--accent)");
+    expect(body).toMatch(/background: color-mix\(in srgb, var\(--text\)/);
+  },
+);
 
 test("a pressed toggle and the active row of the tree carry a light outline too", () => {
   // The edits window is headed with the Files window's controls, not toggles of its own.
@@ -62,17 +74,42 @@ test("the plate's icons sit a pixel above the middle of the lowercase letters, i
 // on the picks of the start screen, and on a phone or a touch screen.
 test("the plate's first item lines up with the placeholder", () => {
   const ta = /\ntextarea#composer\s*\{([^}]+)\}/s.exec(css)![1]!;
-  const fieldLeft = parseFloat(/padding:\s*[\d.]+px\s+[\d.]+px\s+[\d.]+px\s+([\d.]+)px/.exec(ta)![1]!);
+  const fieldLeft = parseFloat(
+    /padding:\s*[\d.]+px\s+[\d.]+px\s+[\d.]+px\s+([\d.]+)px/.exec(ta)![1]!,
+  );
   const bar = /\n\.workspace-bar\s*\{([^}]+)\}/s.exec(css)![1]!;
-  const barLeft = parseFloat(/padding:\s*[\d.]+px\s+[\d.]+px\s+[\d.]+px\s+([\d.]+)px/.exec(bar)![1]!);
+  const barLeft = parseFloat(
+    /padding:\s*[\d.]+px\s+[\d.]+px\s+[\d.]+px\s+([\d.]+)px/.exec(bar)![1]!,
+  );
   expect(barLeft).toBe(fieldLeft);
   const left = (block: string, sel: string) =>
-    parseFloat(new RegExp(`\\n\\s*${sel.replace(/\./g, "\\.")}\\s*\\{[^}]*?padding-left:\\s*([\\d.]+)px`, "s").exec(block)![1]!);
+    parseFloat(
+      new RegExp(
+        `\\n\\s*${sel.replace(/\./g, "\\.")}\\s*\\{[^}]*?padding-left:\\s*([\\d.]+)px`,
+        "s",
+      ).exec(block)![1]!,
+    );
   const padX = (block: string, sel: string) =>
-    parseFloat(new RegExp(`\\n\\s*${sel.replace(/\./g, "\\.")}[^{]*\\{[^}]*?padding:\\s*[\\d.]+px\\s+([\\d.]+)px`, "s").exec(block)![1]!);
-  const top = css.slice(0, css.indexOf("@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {\n  .workspace-bar {"));
-  expect(left(top, ".workspace-bar--pick") + padX(top, ".workspace-bar-pick,")).toBe(fieldLeft);
-  const touchStart = css.indexOf("@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {\n  .workspace-bar {");
+    parseFloat(
+      new RegExp(
+        `\\n\\s*${sel.replace(/\./g, "\\.")}[^{]*\\{[^}]*?padding:\\s*[\\d.]+px\\s+([\\d.]+)px`,
+        "s",
+      ).exec(block)![1]!,
+    );
+  const top = css.slice(
+    0,
+    css.indexOf(
+      "@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {\n  .workspace-bar {",
+    ),
+  );
+  expect(
+    left(top, ".workspace-bar--pick") + padX(top, ".workspace-bar-pick,"),
+  ).toBe(fieldLeft);
+  const touchStart = css.indexOf(
+    "@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {\n  .workspace-bar {",
+  );
   const touch = css.slice(touchStart, css.indexOf("\n}\n", touchStart));
-  expect(left(touch, ".workspace-bar--pick") + padX(touch, ".workspace-bar-pick")).toBe(fieldLeft);
+  expect(
+    left(touch, ".workspace-bar--pick") + padX(touch, ".workspace-bar-pick"),
+  ).toBe(fieldLeft);
 });

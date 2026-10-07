@@ -25,11 +25,16 @@ export const CompactionMessage = memo(function CompactionMessage(props: {
         >
           <span className="thinking-left">
             <Chevron className="thinking-chevron" />
-            <span className="thinking-label">{t("messages.compactionLabel")}</span>
+            <span className="thinking-label">
+              {t("messages.compactionLabel")}
+            </span>
           </span>
         </summary>
         {text ? (
-          <div className="thinking-body" aria-label={t("messages.compactionBodyAriaLabel")}>
+          <div
+            className="thinking-body"
+            aria-label={t("messages.compactionBodyAriaLabel")}
+          >
             <Markdown text={text} />
           </div>
         ) : null}

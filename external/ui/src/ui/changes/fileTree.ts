@@ -72,7 +72,12 @@ function finish(node: Building, prefix: string): FileTreeNode[] {
 
 function toNode(node: Building, prefix: string): FileTreeNode {
   if (node.filePath !== undefined && node.children.size === 0) {
-    return { kind: "file", label: node.name, path: node.filePath, children: [] };
+    return {
+      kind: "file",
+      label: node.name,
+      path: node.filePath,
+      children: [],
+    };
   }
 
   // A directory holding exactly one directory adds a row that says nothing on

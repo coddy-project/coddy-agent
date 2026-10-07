@@ -113,9 +113,7 @@ export function useGraphViewport(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const restoredRef = useRef<GraphCamera | null>(restored);
-  const [camera, setCamera] = useState<GraphCamera>(
-    restored ?? INITIAL_CAMERA,
-  );
+  const [camera, setCamera] = useState<GraphCamera>(restored ?? INITIAL_CAMERA);
   const cameraRef = useRef<GraphCamera>(restored ?? INITIAL_CAMERA);
   const [isPanning, setIsPanning] = useState(false);
   const [wheelReady, setWheelReady] = useState(false);
@@ -327,10 +325,7 @@ export function useGraphViewport(props: {
   // Capturing a pointer retargets its click to the viewport, so the node
   // underneath would never see it. Capture is deferred until the press has
   // become a drag or a pinch: before that the gesture can only end as a click.
-  const capturePointer = (
-    element: HTMLDivElement,
-    pointerId: number,
-  ): void => {
+  const capturePointer = (element: HTMLDivElement, pointerId: number): void => {
     try {
       element.setPointerCapture(pointerId);
     } catch {

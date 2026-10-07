@@ -94,7 +94,10 @@ export function MathInline(props: { source: string }) {
   const { t } = useT();
   const api = useKatex();
   const [failedSource, setFailedSource] = useState<string | null>(null);
-  const onFail = useCallback(() => setFailedSource(props.source), [props.source]);
+  const onFail = useCallback(
+    () => setFailedSource(props.source),
+    [props.source],
+  );
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -121,10 +124,16 @@ export function MathInline(props: { source: string }) {
     [onCopy],
   );
 
-  const title = copied ? t("messages.copied") : t("markdown.math.inlineTitle", { source: delimited });
+  const title = copied
+    ? t("messages.copied")
+    : t("markdown.math.inlineTitle", { source: delimited });
   if (!api || failedSource === props.source) {
     return (
-      <code className="md-math-inline md-math-pending" data-testid="md-math-inline" title={title}>
+      <code
+        className="md-math-inline md-math-pending"
+        data-testid="md-math-inline"
+        title={title}
+      >
         {delimited}
       </code>
     );
@@ -154,12 +163,19 @@ export function MathBlock(props: { source: string }) {
   const { t } = useT();
   const api = useKatex();
   const [failedSource, setFailedSource] = useState<string | null>(null);
-  const onFail = useCallback(() => setFailedSource(props.source), [props.source]);
+  const onFail = useCallback(
+    () => setFailedSource(props.source),
+    [props.source],
+  );
   const [view, setView] = useState<"picture" | "code">("picture");
   const unavailable = !api || failedSource === props.source;
   const showing = unavailable ? "code" : view;
   return (
-    <figure className="md-figure md-figure--math" data-testid="md-math-block" data-view={showing}>
+    <figure
+      className="md-figure md-figure--math"
+      data-testid="md-math-block"
+      data-view={showing}
+    >
       <div className="md-figure-head">
         <span className="md-figure-label">{t("markdown.math.label")}</span>
         <div className="md-figure-actions">
@@ -171,7 +187,14 @@ export function MathBlock(props: { source: string }) {
         </div>
       </div>
       {showing === "picture" && api ? (
-        <Typeset as="div" api={api} source={props.source} display onFail={onFail} className="md-math-display" />
+        <Typeset
+          as="div"
+          api={api}
+          source={props.source}
+          display
+          onFail={onFail}
+          className="md-math-display"
+        />
       ) : (
         <FigureSource source={props.source} copyTestId="md-math-copy" />
       )}

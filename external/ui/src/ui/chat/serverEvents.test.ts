@@ -145,14 +145,23 @@ test("a malformed event payload is skipped rather than thrown", async () => {
 test("provider_usage frames reach their handler with the session that caused them", async () => {
   const seen: Array<{ sid: string; used: number | undefined }> = [];
   const ctl = new AbortController();
-  const frame =
-    `event: provider_usage\ndata: ${JSON.stringify({
-      object: "coddy.provider_usage",
-      sessionId: "sess_a",
-      usage: { provider: "neuraldeep", providerType: "neuraldeep", windows: [{ id: "session", label: "3h", used: 42, limit: 100, usedPercent: 42 }] },
-    })}\n\n`;
+  const frame = `event: provider_usage\ndata: ${JSON.stringify({
+    object: "coddy.provider_usage",
+    sessionId: "sess_a",
+    usage: {
+      provider: "neuraldeep",
+      providerType: "neuraldeep",
+      windows: [
+        { id: "session", label: "3h", used: 42, limit: 100, usedPercent: 42 },
+      ],
+    },
+  })}\n\n`;
   const fetchImpl = vi.fn(async () =>
-    responseOf(`event: ready\ndata: {"object":"coddy.events_ready"}\n\n` + frame + `event: provider_usage\ndata: {"broken":true}\n\n`),
+    responseOf(
+      `event: ready\ndata: {"object":"coddy.events_ready"}\n\n` +
+        frame +
+        `event: provider_usage\ndata: {"broken":true}\n\n`,
+    ),
   );
   await subscribeServerEvents({
     onTurnStarted: () => {},
@@ -173,16 +182,19 @@ test("provider_usage frames reach their handler with the session that caused the
 test("a message_queue frame reaches its handler with the session and the version", async () => {
   const seen: Array<{ sid: string; texts: string[]; version: number }> = [];
   const ctl = new AbortController();
-  const frame =
-    `event: message_queue\ndata: ${JSON.stringify({
-      object: "coddy.message_queue",
-      sessionId: "sess_shared",
-      messages: [
-        { id: "q_1", text: "check the Windows path too", createdAt: "2026-09-14T00:00:00Z" },
-        { id: "q_2", text: "and skip the integration suite" },
-      ],
-      version: 4,
-    })}\n\n`;
+  const frame = `event: message_queue\ndata: ${JSON.stringify({
+    object: "coddy.message_queue",
+    sessionId: "sess_shared",
+    messages: [
+      {
+        id: "q_1",
+        text: "check the Windows path too",
+        createdAt: "2026-09-14T00:00:00Z",
+      },
+      { id: "q_2", text: "and skip the integration suite" },
+    ],
+    version: 4,
+  })}\n\n`;
   const fetchImpl = vi.fn(async () =>
     responseOf(
       `event: ready\ndata: {"object":"coddy.events_ready"}\n\n` +

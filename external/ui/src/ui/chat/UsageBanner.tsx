@@ -40,7 +40,9 @@ export function UsageBanner(props: {
     // The turn is waiting for the reset and resumes by itself: a calmer
     // notice than a block the user has to act on.
     text = u.retryAt
-      ? t("usage.bannerResumingAt", { time: formatResetTime(u.retryAt, now, locale) })
+      ? t("usage.bannerResumingAt", {
+          time: formatResetTime(u.retryAt, now, locale),
+        })
       : t("usage.bannerResuming");
   } else if (summary.kind === "blocked") {
     tone = "error";

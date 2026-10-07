@@ -464,8 +464,7 @@ function hopLink(from: PlacedNode, to: PlacedNode): Connector {
   // riding the bottom edge toward the child, rather than one centre stub
   // every sibling shares.
   const spread = nodeHalfWidth(from) * 0.8;
-  const exitX =
-    from.x + Math.max(-spread, Math.min(spread, to.x - from.x));
+  const exitX = from.x + Math.max(-spread, Math.min(spread, to.x - from.x));
   const hdir = to.x > exitX ? 1 : -1;
   const r = Math.min(
     CORNER,
@@ -534,11 +533,15 @@ export function graphConnectorFor(edge: PlacedEdge): Connector {
 }
 
 export function nodeHalfWidth(n: PlacedNode): number {
-  return n.kind === "relay" ? NODE_METRICS.relayRadius : NODE_METRICS.agentRadius;
+  return n.kind === "relay"
+    ? NODE_METRICS.relayRadius
+    : NODE_METRICS.agentRadius;
 }
 
 export function nodeHalfHeight(n: PlacedNode): number {
-  return n.kind === "relay" ? NODE_METRICS.relayRadius : NODE_METRICS.agentRadius;
+  return n.kind === "relay"
+    ? NODE_METRICS.relayRadius
+    : NODE_METRICS.agentRadius;
 }
 
 /** The point halfway along a cubic, which is where a peer label sits. */

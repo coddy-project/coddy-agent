@@ -19,7 +19,8 @@ const BLANK = /^[ \t\r]*$/;
 const INDENTED = /^(?: {4}|\t)/;
 
 export function normalizeMathDelimiters(text: string): string {
-  if (!text.includes("\\(") && !text.includes("\\[") && !text.includes("$")) return text;
+  if (!text.includes("\\(") && !text.includes("\\[") && !text.includes("$"))
+    return text;
   const lines = text.split("\n");
   const out: string[] = [];
   let prose: string[] = [];
@@ -27,7 +28,8 @@ export function normalizeMathDelimiters(text: string): string {
   let indented = false;
   let previousBlank = true;
   const flush = () => {
-    if (prose.length) out.push(rewriteProse(escapeLiteralDollars(prose.join("\n"))));
+    if (prose.length)
+      out.push(rewriteProse(escapeLiteralDollars(prose.join("\n"))));
     prose = [];
   };
   for (const line of lines) {
@@ -48,7 +50,10 @@ export function normalizeMathDelimiters(text: string): string {
     const open = line.match(FENCE_OPEN);
     // A backtick fence's info string may not hold a backtick; such a line is
     // inline code, not a fence.
-    if (open && !(open[2]![0] === "`" && line.slice(open[0].length).includes("`"))) {
+    if (
+      open &&
+      !(open[2]![0] === "`" && line.slice(open[0].length).includes("`"))
+    ) {
       flush();
       out.push(line);
       fence = { char: open[2]![0]!, size: open[2]!.length };
@@ -58,7 +63,11 @@ export function normalizeMathDelimiters(text: string): string {
     }
     // Indented code (or a list's indented paragraph, which is left alone too:
     // passing it through untouched is the safe side of the ambiguity).
-    if (INDENTED.test(line) && !BLANK.test(line) && (previousBlank || indented)) {
+    if (
+      INDENTED.test(line) &&
+      !BLANK.test(line) &&
+      (previousBlank || indented)
+    ) {
       flush();
       out.push(line);
       indented = true;
@@ -121,7 +130,10 @@ function escapeLiteralDollars(text: string): string {
       i++;
       continue;
     }
-    if (inCode(close) || isLiteralDollarSpan(text, i, close + 1, text.slice(i + 1, close))) {
+    if (
+      inCode(close) ||
+      isLiteralDollarSpan(text, i, close + 1, text.slice(i + 1, close))
+    ) {
       escapeAt.add(i);
       i++;
       continue;
@@ -131,7 +143,8 @@ function escapeLiteralDollars(text: string): string {
   }
   if (escapeAt.size === 0) return text;
   let out = "";
-  for (let k = 0; k < text.length; k++) out += escapeAt.has(k) ? "\\$" : text[k];
+  for (let k = 0; k < text.length; k++)
+    out += escapeAt.has(k) ? "\\$" : text[k];
   return out;
 }
 
@@ -210,7 +223,8 @@ function rewriteProse(text: string): string {
           } else {
             const lead = out.length === 0 || out.endsWith("\n") ? "" : "\n";
             const afterAt = close + 2;
-            const trail = afterAt >= text.length || text[afterAt] === "\n" ? "" : "\n";
+            const trail =
+              afterAt >= text.length || text[afterAt] === "\n" ? "" : "\n";
             out += `${lead}$$\n${inner}\n$$${trail}`;
           }
           i = close + 2;
@@ -235,7 +249,9 @@ const WORD_BEFORE = /[\p{L}\p{N}_]/u;
  * group or an operator, or is a short name such as `x` or `n`.
  */
 function looksLikeFormula(inner: string): boolean {
-  return /[\\^_{}=<>+*/|-]/.test(inner) || /^[A-Za-z][A-Za-z0-9]{0,2}$/.test(inner);
+  return (
+    /[\\^_{}=<>+*/|-]/.test(inner) || /^[A-Za-z][A-Za-z0-9]{0,2}$/.test(inner)
+  );
 }
 
 /**
@@ -272,7 +288,10 @@ function findCloser(text: string, from: number, closer: string): number {
     if (ch === "\n") {
       const rest = text.slice(i, i + 64);
       if (/^\n[ \t\r]*\n/.test(rest)) return -1;
-      const line = text.slice(i + 1, text.indexOf("\n", i + 1) < 0 ? text.length : text.indexOf("\n", i + 1));
+      const line = text.slice(
+        i + 1,
+        text.indexOf("\n", i + 1) < 0 ? text.length : text.indexOf("\n", i + 1),
+      );
       if (/^(?:[ \t]*>)*[ \t]*(?:[-*+]|\d+[.)])[ \t]/.test(line)) return -1;
       if (quoteDepth(line) !== depth) return -1;
       continue;
@@ -315,7 +334,12 @@ const VARIABLE_REFERENCE = /^\{[A-Za-z_][A-Za-z0-9_]*\}/;
  * digit or letter right outside them), plus a `${NAME}` reference. Prices,
  * `$HOME$PATH`, `$argon2id$v=19` and `${CODDY_HOME}/x and ${CWD}` stay text.
  */
-export function isLiteralDollarSpan(text: string, start: number, end: number, source: string): boolean {
+export function isLiteralDollarSpan(
+  text: string,
+  start: number,
+  end: number,
+  source: string,
+): boolean {
   if (isLiteralDollarMath(source)) return true;
   if (VARIABLE_REFERENCE.test(source)) return true;
   const before = start > 0 ? text[start - 1]! : "";
@@ -330,7 +354,8 @@ export function isLiteralDollarSpan(text: string, start: number, end: number, so
  */
 export function remarkLiteralDollars() {
   return (tree: MdNode, file: { value?: unknown }) => {
-    const text = typeof file.value === "string" ? file.value : String(file.value ?? "");
+    const text =
+      typeof file.value === "string" ? file.value : String(file.value ?? "");
     const walk = (node: MdNode) => {
       if (!node.children) return;
       node.children = node.children.flatMap((child) => {
@@ -343,7 +368,8 @@ export function remarkLiteralDollars() {
         if (start === undefined || end === undefined) return [child];
         const raw = text.slice(start, end);
         if (raw.startsWith("$$")) return [child];
-        if (!isLiteralDollarSpan(text, start, end, child.value ?? "")) return [child];
+        if (!isLiteralDollarSpan(text, start, end, child.value ?? ""))
+          return [child];
         return reparseWithoutMath(raw);
       });
     };
@@ -361,7 +387,11 @@ const plainParser = unified().use(remarkParse).use(remarkGfm);
 function reparseWithoutMath(raw: string): MdNode[] {
   const root = plainParser.runSync(plainParser.parse(raw)) as unknown as MdNode;
   const first = root.children?.[0];
-  if (root.children?.length === 1 && first?.type === "paragraph" && first.children) {
+  if (
+    root.children?.length === 1 &&
+    first?.type === "paragraph" &&
+    first.children
+  ) {
     return first.children;
   }
   return [{ type: "text", value: raw }];

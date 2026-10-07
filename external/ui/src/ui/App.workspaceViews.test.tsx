@@ -70,69 +70,74 @@ function heldStream() {
   });
 }
 
-const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-  const path = String(input);
-  if (path === "/coddy/events") return heldStream();
-  if (path.startsWith("/coddy/sessions?")) {
-    return json({ active_count: 1, sessions: [{ id: SID, title: "A chat" }] });
-  }
-  if (path.startsWith(`/coddy/sessions/${SID}/messages`)) {
-    return json({ session_id: SID, messages: [] });
-  }
-  if (path.startsWith(`/coddy/sessions/${SID}/changes`)) {
-    return json({
-      session_id: SID,
-      vcs: "git",
-      files: [
-        {
-          path: "notes.txt",
-          status: "modified",
-          additions: 1,
-          deletions: 0,
-          binary: false,
-          truncated: false,
+const fetchMock = vi.fn(
+  async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/coddy/events") return heldStream();
+    if (path.startsWith("/coddy/sessions?")) {
+      return json({
+        active_count: 1,
+        sessions: [{ id: SID, title: "A chat" }],
+      });
+    }
+    if (path.startsWith(`/coddy/sessions/${SID}/messages`)) {
+      return json({ session_id: SID, messages: [] });
+    }
+    if (path.startsWith(`/coddy/sessions/${SID}/changes`)) {
+      return json({
+        session_id: SID,
+        vcs: "git",
+        files: [
+          {
+            path: "notes.txt",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+            truncated: false,
+          },
+        ],
+        totals: { files: 1, additions: 1, deletions: 0 },
+      });
+    }
+    if (path.includes("/workspace/tree")) {
+      return json({
+        entries: [
+          {
+            name: "notes.txt",
+            path_rel: "notes.txt",
+            kind: "file",
+            size_bytes: 10,
+            mod_time: "2026-10-05T12:00:00Z",
+          },
+        ],
+        has_more: false,
+        next_cursor: "",
+      });
+    }
+    if (path.includes("/workspace/raw") && init?.method === "HEAD") {
+      return new Response(null, {
+        headers: {
+          ETag: '"v1"',
+          "Content-Type": "text/plain; charset=utf-8",
+          "Content-Length": "22",
+          "Last-Modified": "Mon, 05 Oct 2026 12:00:00 GMT",
         },
-      ],
-      totals: { files: 1, additions: 1, deletions: 0 },
-    });
-  }
-  if (path.includes("/workspace/tree")) {
-    return json({
-      entries: [
-        {
-          name: "notes.txt",
-          path_rel: "notes.txt",
-          kind: "file",
-          size_bytes: 10,
-          mod_time: "2026-10-05T12:00:00Z",
-        },
-      ],
-      has_more: false,
-      next_cursor: "",
-    });
-  }
-  if (path.includes("/workspace/raw") && init?.method === "HEAD") {
-    return new Response(null, {
-      headers: {
-        ETag: '"v1"',
-        "Content-Type": "text/plain; charset=utf-8",
-        "Content-Length": "22",
-        "Last-Modified": "Mon, 05 Oct 2026 12:00:00 GMT",
-      },
-    });
-  }
-  if (path.includes("/workspace/text")) {
-    return json({
-      path_rel: "notes.txt",
-      lines: ["first note", "second note"],
-      offset: 0,
-      next_offset: 2,
-      has_more: false,
-      etag: '"v1"',
-    });
-  }
-  return json({}, 404);
-});
+      });
+    }
+    if (path.includes("/workspace/text")) {
+      return json({
+        path_rel: "notes.txt",
+        lines: ["first note", "second note"],
+        offset: 0,
+        next_offset: 2,
+        has_more: false,
+        etag: '"v1"',
+      });
+    }
+    return json({}, 404);
+  },
+);
 
 beforeEach(() => {
   resetSettingsConfigForTests();
@@ -160,8 +165,9 @@ function mountAt(hash: string) {
   );
 }
 
-const pressEscape = (target: Element = document.activeElement ?? document.body) =>
-  fireEvent.keyDown(target, { key: "Escape" });
+const pressEscape = (
+  target: Element = document.activeElement ?? document.body,
+) => fireEvent.keyDown(target, { key: "Escape" });
 
 test("the edits open in their window, and the address names them", async () => {
   mountAt(`#/s/${SID}`);

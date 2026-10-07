@@ -71,7 +71,10 @@ test("both transitions are dropped for readers who asked for less motion", () =>
 // stacked shell; an overlaying on-screen keyboard covers that bottom, so the
 // block is lifted by the inset ChatScreen measures from the visual viewport.
 test("the stacked shell's composer block sits on the keyboard inset", () => {
-  const stacked = css.indexOf("@media (max-width: 1199px)", css.indexOf(".chat-scroll-sticky-head"));
+  const stacked = css.indexOf(
+    "@media (max-width: 1199px)",
+    css.indexOf(".chat-scroll-sticky-head"),
+  );
   const at = css.indexOf(".chat-bottom:has(.composer-wrap-docked) {", stacked);
   expect(at, "the stacked composer block rule").toBeGreaterThan(-1);
   const body = css.slice(css.indexOf("{", at) + 1, css.indexOf("}", at));

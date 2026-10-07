@@ -11,7 +11,9 @@ import { acquireObjectUrl } from "../files/objectUrl";
  * environment, the page's own origin does not serve the node's API, and an
  * <img> would ask it without the environment's token.
  */
-export function apiImageRequest(url: string): { url: string; init: RequestInit } | null {
+export function apiImageRequest(
+  url: string,
+): { url: string; init: RequestInit } | null {
   return url.startsWith("/") ? remoteApiRequest(url) : null;
 }
 
@@ -27,7 +29,9 @@ export function useApiImageSrc(url: string | undefined): string | undefined {
   const env = useSyncExternalStore(subscribeEnv, snapshotEnv, snapshotEnv);
   const request = url ? apiImageRequest(url) : null;
   const target = request?.url ?? "";
-  const [loaded, setLoaded] = useState<{ target: string; src: string } | null>(null);
+  const [loaded, setLoaded] = useState<{ target: string; src: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!url || !target) return;

@@ -45,12 +45,16 @@ test("the field's first line is level with the wand", () => {
   expect(Math.abs(top + (15 * 1.5) / 2 - wandMiddle)).toBeLessThanOrEqual(0.5);
   // 16px type on a phone or a touch screen, with its own top padding.
   const touch = css.slice(
-    css.indexOf("@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {\n  /* The mirror draws"),
+    css.indexOf(
+      "@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {\n  /* The mirror draws",
+    ),
   );
   const block = touch.slice(0, touch.indexOf("}") + 1);
   expect(block).toMatch(/font-size:\s*16px/);
   const touchTop = parseFloat(/padding-top:\s*([\d.]+)px/.exec(block)![1]!);
-  expect(Math.abs(touchTop + (16 * 1.5) / 2 - wandMiddle)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(touchTop + (16 * 1.5) / 2 - wandMiddle)).toBeLessThanOrEqual(
+    0.5,
+  );
 });
 
 // Git's count on the plate and the wand under it end on one vertical line.

@@ -393,7 +393,7 @@ export function PermissionToolPreview({
               type="button"
               className="permission-preview-location files-open-path"
               title={barHeader}
-                onClick={() => openWorkspaceFile(barHeader, preview.line)}
+              onClick={() => openWorkspaceFile(barHeader, preview.line)}
             >
               {barHeader}
             </button>

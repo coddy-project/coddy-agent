@@ -149,7 +149,10 @@ export function WorkspaceChips(props: Props) {
         >
           <BranchIcon worktree={ctx.is_worktree === true} />
           <span className="workspace-bar-text">
-            {middleTruncate(ctx.branch || t("workspace.detached"), BRANCH_CHARS)}
+            {middleTruncate(
+              ctx.branch || t("workspace.detached"),
+              BRANCH_CHARS,
+            )}
           </span>
         </button>
       ) : null}

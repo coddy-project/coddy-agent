@@ -99,7 +99,10 @@ function lastStep(screen: RailScreenId): Step | undefined {
  * list, a section of the stacked shell back to the tiles). `null` while there
  * is no step to take, and Escape closes the screen.
  */
-export function useRailEscapeStep(screen: RailScreenId, step: (() => void) | null): void {
+export function useRailEscapeStep(
+  screen: RailScreenId,
+  step: (() => void) | null,
+): void {
   const stepRef = useRef(step);
   useLayoutEffect(() => {
     stepRef.current = step;

@@ -153,7 +153,10 @@ function formField(name: string, value: string): string {
  * past 2^53 is not rounded; JSON.parse keeps the last of a repeated key, and so
  * does the lookup.
  */
-function httpBody(args: ToolArgs, argsNode?: JsonNode): HttpRequestView["body"] {
+function httpBody(
+  args: ToolArgs,
+  argsNode?: JsonNode,
+): HttpRequestView["body"] {
   if (args.json !== undefined) {
     const written =
       argsNode?.kind === "object"
@@ -791,7 +794,9 @@ export function parseJsonDocument(
   text: string,
 ): Extract<JsonNode, { kind: "object" | "array" }> | undefined {
   const node = parseJsonSource(norm(text));
-  return node && (node.kind === "object" || node.kind === "array") ? node : undefined;
+  return node && (node.kind === "object" || node.kind === "array")
+    ? node
+    : undefined;
 }
 
 export type FieldValue =
@@ -831,7 +836,10 @@ export function fieldRows(
     ) {
       rows.push({
         key,
-        value: { kind: "list", items: v.items.map((el) => scalarText(el) ?? "") },
+        value: {
+          kind: "list",
+          items: v.items.map((el) => scalarText(el) ?? ""),
+        },
       });
     } else {
       rows.push({ key, value: { kind: "json", text: indentJson(v.source) } });

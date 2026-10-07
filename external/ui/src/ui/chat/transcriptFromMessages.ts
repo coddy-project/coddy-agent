@@ -65,7 +65,9 @@ const COMPACTION_PREAMBLE = "Summary of the compacted part:";
 
 function stripCompactionPreamble(s: string): string {
   const i = s.indexOf(COMPACTION_PREAMBLE);
-  return i >= 0 ? s.slice(i + COMPACTION_PREAMBLE.length).trimStart() : s.trim();
+  return i >= 0
+    ? s.slice(i + COMPACTION_PREAMBLE.length).trimStart()
+    : s.trim();
 }
 
 /**

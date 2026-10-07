@@ -31,14 +31,16 @@ test("only verified artifacts in the current turn turn coddy_file markers into c
     {
       id: "answer",
       type: "assistant_message",
-      content: 'Done.\n\n<coddy_file id="artifact-1"/>\n\n<coddy_file id="invented"/>',
+      content:
+        'Done.\n\n<coddy_file id="artifact-1"/>\n\n<coddy_file id="invented"/>',
     },
   ];
 
   const markers = artifactMarkersForAssistant(items, 2);
   expect([...markers.keys()]).toEqual(["artifact-1"]);
   const answer = items[2]!;
-  if (answer.type !== "assistant_message") throw new Error("expected assistant answer");
+  if (answer.type !== "assistant_message")
+    throw new Error("expected assistant answer");
   expect(tokenizeAssistantArtifacts(answer.content, markers)).toEqual([
     { type: "markdown", text: "Done.\n\n" },
     { type: "artifact", artifact },
@@ -67,7 +69,9 @@ test("a share_file artifact remains a detached fallback until an answer actually
   };
 
   expect(artifactMarkersForAssistant([shared, plainAnswer], 1).size).toBe(1);
-  expect(artifactMarkersForAssistant([shared, markedAnswer], 1).has("artifact-1")).toBe(true);
+  expect(
+    artifactMarkersForAssistant([shared, markedAnswer], 1).has("artifact-1"),
+  ).toBe(true);
 });
 
 test("groups adjacent verified markers while preserving surrounding Markdown", () => {

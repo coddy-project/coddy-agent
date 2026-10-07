@@ -198,11 +198,7 @@ export function MarkdownLineEditor(props: MarkdownLineEditorProps) {
         ))}
       </div>
       <div className="md-line-editor-stack">
-        <div
-          ref={backdropRef}
-          className="md-line-editor-backdrop"
-          aria-hidden
-        >
+        <div ref={backdropRef} className="md-line-editor-backdrop" aria-hidden>
           {gutterEntries.map((entry) => (
             <div
               key={`hl-${entry.logicalLine}-${entry.visualIndex}`}

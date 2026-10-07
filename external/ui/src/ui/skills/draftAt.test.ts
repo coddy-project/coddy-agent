@@ -355,11 +355,15 @@ test("range parses at CRLF boundary, before punctuation and at end of text", () 
 
 // A padded token had its trailing space trimmed, so the suffix is prose.
 test("a range after a space does not attach to the path", () => {
-  expect(extractAtFileAttachments("look @notes.md :2-4 here")).toEqual([{ path: "notes.md" }]);
+  expect(extractAtFileAttachments("look @notes.md :2-4 here")).toEqual([
+    { path: "notes.md" },
+  ]);
 });
 
 test("attachments dedupe by path and range", () => {
-  expect(extractAtFileAttachments("@f.go:1-2 @f.go:1-2 @f.go:3-4 @f.go")).toEqual([
+  expect(
+    extractAtFileAttachments("@f.go:1-2 @f.go:1-2 @f.go:3-4 @f.go"),
+  ).toEqual([
     { path: "f.go", startLine: 1, endLine: 2 },
     { path: "f.go", startLine: 3, endLine: 4 },
     { path: "f.go" },

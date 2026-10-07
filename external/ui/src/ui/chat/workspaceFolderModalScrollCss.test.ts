@@ -95,9 +95,7 @@ test("short listings keep a stable list area while modal chrome stays separated"
   expect(list).toMatch(/min-height:\s*0\b/);
   // The head's rule is the drawers' head rule the dialog's head is drawn with.
   expect(block(".sessions-head")).toMatch(/border-bottom:\s*1px solid/);
-  expect(block(".workspace-modal-actions")).toMatch(
-    /border-top:\s*1px solid/,
-  );
+  expect(block(".workspace-modal-actions")).toMatch(/border-top:\s*1px solid/);
 });
 
 test("hidden and symlink folders retain clear, compact row treatments", () => {
@@ -116,14 +114,19 @@ test("hidden and symlink folders retain clear, compact row treatments", () => {
 // with three children.
 test("a phone opens the folder modal where History opens", () => {
   const css = cssText();
-  const phone = /@media \(max-width: 599px\)\s*\{\s*\.workspace-modal\s*\{([^}]*)\}/.exec(css);
+  const phone =
+    /@media \(max-width: 599px\)\s*\{\s*\.workspace-modal\s*\{([^}]*)\}/.exec(
+      css,
+    );
   expect(phone, "phone rule for .workspace-modal").not.toBeNull();
   const rule = phone![1];
   expect(rule).toMatch(/position:\s*fixed/);
   expect(rule).toMatch(/top:\s*calc\(var\(--coddy-mobile-top-inset\) \+ 6px\)/);
   expect(rule).toMatch(/bottom:\s*14px/);
   expect(rule).toMatch(/left:\s*max\(10px, env\(safe-area-inset-left, 0px\)\)/);
-  expect(rule).toMatch(/right:\s*max\(10px, env\(safe-area-inset-right, 0px\)\)/);
+  expect(rule).toMatch(
+    /right:\s*max\(10px, env\(safe-area-inset-right, 0px\)\)/,
+  );
   expect(rule).toMatch(/background:\s*var\(--coddy-glass-panel-bg\)/);
   expect(rule).toMatch(/border-radius:\s*var\(--coddy-glass-panel-radius\)/);
   expect(css).not.toMatch(

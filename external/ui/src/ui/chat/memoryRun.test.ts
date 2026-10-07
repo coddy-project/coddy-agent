@@ -62,6 +62,8 @@ describe("applyMemoryRunToItems", () => {
       reason: "memory runs in flight for this session: 2 of 2",
     });
     expect(skipped[1]).toMatchObject({ type: "memory_run", status: "skipped" });
-    expect(applyMemoryRunToItems([user()], { status: "weird" })).toHaveLength(1);
+    expect(applyMemoryRunToItems([user()], { status: "weird" })).toHaveLength(
+      1,
+    );
   });
 });

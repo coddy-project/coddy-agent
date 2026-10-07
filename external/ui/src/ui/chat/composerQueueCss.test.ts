@@ -14,7 +14,9 @@ const css = readFileSync(join(dir, "../../styles.css"), "utf8");
 
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|\\n)${escaped}\\s*\\{[^}]*\\}`, "s").exec(css)?.[0] ?? "";
+  return (
+    new RegExp(`(^|\\n)${escaped}\\s*\\{[^}]*\\}`, "s").exec(css)?.[0] ?? ""
+  );
 }
 
 // The row was a 6% wash of the text colour: over a dark transcript that is almost
@@ -22,8 +24,12 @@ function rule(selector: string): string {
 test("a queued message is cut from the frosted glass panel", () => {
   const item = rule(".composer-queue-item");
   expect(item).toMatch(/background:\s*var\(--coddy-glass-panel-bg\)/);
-  expect(item).toMatch(/backdrop-filter:\s*var\(--coddy-glass-panel-backdrop\)/);
-  expect(item).toMatch(/-webkit-backdrop-filter:\s*var\(--coddy-glass-panel-backdrop\)/);
+  expect(item).toMatch(
+    /backdrop-filter:\s*var\(--coddy-glass-panel-backdrop\)/,
+  );
+  expect(item).toMatch(
+    /-webkit-backdrop-filter:\s*var\(--coddy-glass-panel-backdrop\)/,
+  );
 });
 
 test("the cancel control sits in the top right corner", () => {
@@ -57,7 +63,10 @@ function px(block: string, prop: string): number {
 /** The right edge of a `padding` shorthand (one to four lengths). */
 function paddingRight(block: string): number {
   const m = /(?:^|;|\s)padding:\s*([^;]+);/.exec(block);
-  const parts = (m?.[1] ?? "").trim().split(/\s+/).map((v) => parseFloat(v));
+  const parts = (m?.[1] ?? "")
+    .trim()
+    .split(/\s+/)
+    .map((v) => parseFloat(v));
   return parts.length === 1 ? parts[0]! : parts[1]!;
 }
 

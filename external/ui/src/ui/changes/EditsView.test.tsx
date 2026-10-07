@@ -98,7 +98,11 @@ async function confirmDialog(): Promise<HTMLElement> {
 function open(onClose: () => void = () => {}) {
   return render(
     <ConfirmProvider>
-      <EditsView sessionId="s1" workspacePath="/home/dev/shop" onClose={onClose} />
+      <EditsView
+        sessionId="s1"
+        workspacePath="/home/dev/shop"
+        onClose={onClose}
+      />
     </ConfirmProvider>,
   );
 }
@@ -129,9 +133,13 @@ test("is framed and headed like the Files window", async () => {
   expect(viewer.parentElement).not.toBe(document.body);
   const head = viewer.querySelector(".files-header") as HTMLElement;
   expect(head).toBeTruthy();
-  expect(within(head).getByRole("heading").textContent).toBe(t("changes.viewer.title"));
+  expect(within(head).getByRole("heading").textContent).toBe(
+    t("changes.viewer.title"),
+  );
   expect(head.querySelector(".files-subtitle")?.textContent).toContain("shop");
-  const order = [...head.querySelectorAll("[data-testid]")].map((el) => el.getAttribute("data-testid"));
+  const order = [...head.querySelectorAll("[data-testid]")].map((el) =>
+    el.getAttribute("data-testid"),
+  );
   expect(order.filter((id) => id !== "edits-totals")).toEqual([
     "edits-toggle-tree",
     "edits-more",
@@ -143,7 +151,10 @@ test("is framed and headed like the Files window", async () => {
   expect(screen.queryByTestId("dv-goto")).toBeNull();
   fireEvent.click(screen.getByTestId("edits-expand"));
   expect(viewer).toHaveClass("is-expanded");
-  expect(screen.getByTestId("edits-expand")).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByTestId("edits-expand")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   fireEvent.click(screen.getByTestId("edits-close"));
   expect(onClose).toHaveBeenCalledTimes(1);
 });
@@ -153,9 +164,18 @@ test("the menu holds side by side, collapse all and discard all", async () => {
   open();
   await screen.findByTestId("dv-file-src/a.ts");
   const menu = openMenu();
-  const items = [...menu.querySelectorAll("[role^=menuitem]")].map((el) => el.getAttribute("data-testid"));
-  expect(items).toEqual(["edits-split", "edits-toggle-all", "edits-discard-all"]);
-  expect(within(menu).getByTestId("edits-split")).toHaveAttribute("aria-checked", "false");
+  const items = [...menu.querySelectorAll("[role^=menuitem]")].map((el) =>
+    el.getAttribute("data-testid"),
+  );
+  expect(items).toEqual([
+    "edits-split",
+    "edits-toggle-all",
+    "edits-discard-all",
+  ]);
+  expect(within(menu).getByTestId("edits-split")).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
   expect(menu.querySelector(".files-menu-sep")).toBeTruthy();
 });
 
@@ -194,7 +214,10 @@ test("side by side in the menu switches to the split view and back", async () =>
   expect(document.body.querySelector(".dv-diff--unified")).toBeNull();
   // Picking an item puts the menu away.
   expect(screen.queryByRole("menu")).toBeNull();
-  expect(within(openMenu()).getByTestId("edits-split")).toHaveAttribute("aria-checked", "true");
+  expect(within(openMenu()).getByTestId("edits-split")).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
 
   fireEvent.click(screen.getByTestId("edits-split"));
   await waitFor(() =>
@@ -208,9 +231,13 @@ test("every new report of git reads the patches again, the old ones staying on s
     expect(document.body.querySelectorAll(".dv-file-body")).toHaveLength(2),
   );
   const details = () =>
-    fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("/changes/file"));
+    fetchMock.mock.calls
+      .map((c) => String(c[0]))
+      .filter((u) => u.includes("/changes/file"));
   await waitFor(() => expect(details()).toHaveLength(2));
-  await waitFor(() => expect(document.body.querySelector(".dv-code")).toBeTruthy());
+  await waitFor(() =>
+    expect(document.body.querySelector(".dv-code")).toBeTruthy(),
+  );
   let release: () => void = () => {};
   const held = new Promise<void>((r) => (release = r));
   fetchMock.mockImplementation(async (input: unknown) => {
@@ -226,7 +253,9 @@ test("every new report of git reads the patches again, the old ones staying on s
     });
   });
   emitChangesSettled("s1");
-  await waitFor(() => expect(screen.getByTestId("edits-totals")).toHaveTextContent("+7"));
+  await waitFor(() =>
+    expect(screen.getByTestId("edits-totals")).toHaveTextContent("+7"),
+  );
   await waitFor(() => expect(details()).toHaveLength(4));
   // While the new patches are on their way the old ones are still drawn.
   expect(document.body.querySelector(".dv-code")).toBeTruthy();
@@ -269,14 +298,27 @@ test("the tree lists only the changed files, in their folders", async () => {
   await screen.findByTestId("dv-file-src/a.ts");
   const tree = screen.getByTestId("edits-tree");
   expect(tree.closest(".files-sidebar")).toBeTruthy();
-  const rows = [...tree.querySelectorAll(".files-tree-row")].map((el) => el.textContent);
+  const rows = [...tree.querySelectorAll(".files-tree-row")].map(
+    (el) => el.textContent,
+  );
   expect(rows).toEqual(["docs", "b.mdA", "src", "a.tsM"]);
-  expect(within(tree).getByTestId("edits-tree-file-docs/b.md").querySelector(".edits-tree-status--added")).toBeTruthy();
+  expect(
+    within(tree)
+      .getByTestId("edits-tree-file-docs/b.md")
+      .querySelector(".edits-tree-status--added"),
+  ).toBeTruthy();
   // The diffs read in the tree's order, and the file at their top is marked.
-  const sections = [...document.querySelectorAll(".dv-file")].map((el) => el.getAttribute("data-testid"));
+  const sections = [...document.querySelectorAll(".dv-file")].map((el) =>
+    el.getAttribute("data-testid"),
+  );
   expect(sections).toEqual(["dv-file-docs/b.md", "dv-file-src/a.ts"]);
-  expect(within(tree).getByTestId("edits-tree-file-docs/b.md")).toHaveClass("is-active");
-  expect(screen.getByTestId("edits-toggle-tree")).toHaveAttribute("aria-pressed", "true");
+  expect(within(tree).getByTestId("edits-tree-file-docs/b.md")).toHaveClass(
+    "is-active",
+  );
+  expect(screen.getByTestId("edits-toggle-tree")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   // A folder folds its files away.
   fireEvent.click(within(tree).getByRole("treeitem", { name: /docs/ }));
   expect(within(tree).queryByTestId("edits-tree-file-docs/b.md")).toBeNull();
@@ -286,18 +328,44 @@ test("the tree lists only the changed files, in their folders", async () => {
 function place(el: Element, top: number, height: number) {
   Object.defineProperty(el, "getBoundingClientRect", {
     configurable: true,
-    value: () => ({ top, bottom: top + height, left: 0, right: 800, width: 800, height, x: 0, y: top, toJSON() {} }),
+    value: () => ({
+      top,
+      bottom: top + height,
+      left: 0,
+      right: 800,
+      width: 800,
+      height,
+      x: 0,
+      y: top,
+      toJSON() {},
+    }),
   });
 }
 
 /** Lays a section out inside the diffs at `at()` from their content's top,
  *  moving with their scroll as it does in a browser. */
-function placeIn(scroller: HTMLElement, el: Element, at: () => number, height = 200) {
+function placeIn(
+  scroller: HTMLElement,
+  el: Element,
+  at: () => number,
+  height = 200,
+) {
   Object.defineProperty(el, "getBoundingClientRect", {
     configurable: true,
     value: () => {
-      const top = scroller.getBoundingClientRect().top + at() - scroller.scrollTop;
-      return { top, bottom: top + height, left: 0, right: 800, width: 800, height, x: 0, y: top, toJSON() {} };
+      const top =
+        scroller.getBoundingClientRect().top + at() - scroller.scrollTop;
+      return {
+        top,
+        bottom: top + height,
+        left: 0,
+        right: 800,
+        width: 800,
+        height,
+        x: 0,
+        y: top,
+        toJSON() {},
+      };
     },
   });
 }
@@ -367,7 +435,13 @@ test("a picked file stays put while the diffs above it load, until the reader sc
       jsonResponse(
         String(input).includes("/changes/file")
           ? { patch: PATCH }
-          : { ...SESSION, files: [SESSION.files[0]!, { ...SESSION.files[1]!, additions: 4 + edits }] },
+          : {
+              ...SESSION,
+              files: [
+                SESSION.files[0]!,
+                { ...SESSION.files[1]!, additions: 4 + edits },
+              ],
+            },
       ),
     );
     emitChangesSettled("s1");
@@ -397,21 +471,33 @@ test("the row the scroll marks is kept in the tree's view", async () => {
   place(screen.getByTestId("dv-file-src/a.ts"), 0, 300);
   place(screen.getByTestId("edits-tree-file-src/a.ts"), 400, 28);
   fireEvent.scroll(scroller);
-  await waitFor(() => expect(screen.getByTestId("edits-tree-file-src/a.ts")).toHaveClass("is-active"));
+  await waitFor(() =>
+    expect(screen.getByTestId("edits-tree-file-src/a.ts")).toHaveClass(
+      "is-active",
+    ),
+  );
   expect(tree.scrollTop).toBe(400 + 28 - 200 + 4);
 });
 
 test("the filter narrows the tree, and the tree switch puts it away", async () => {
   open();
   await screen.findByTestId("dv-file-src/a.ts");
-  fireEvent.change(screen.getByTestId("edits-tree-filter"), { target: { value: "b.md" } });
-  await waitFor(() => expect(screen.queryByTestId("edits-tree-file-src/a.ts")).toBeNull());
+  fireEvent.change(screen.getByTestId("edits-tree-filter"), {
+    target: { value: "b.md" },
+  });
+  await waitFor(() =>
+    expect(screen.queryByTestId("edits-tree-file-src/a.ts")).toBeNull(),
+  );
   expect(screen.getByTestId("edits-tree-file-docs/b.md")).toBeTruthy();
-  fireEvent.change(screen.getByTestId("edits-tree-filter"), { target: { value: "nothing" } });
+  fireEvent.change(screen.getByTestId("edits-tree-filter"), {
+    target: { value: "nothing" },
+  });
   await screen.findByText(t("changes.viewer.noMatches"));
   fireEvent.click(screen.getByTestId("edits-toggle-tree"));
   expect(screen.queryByTestId("edits-tree")).toBeNull();
-  expect(screen.getByTestId("edits-view").querySelector(".files-layout")).not.toHaveClass("has-tree");
+  expect(
+    screen.getByTestId("edits-view").querySelector(".files-layout"),
+  ).not.toHaveClass("has-tree");
 });
 
 // One Escape, one step: the menu goes first, the window with the next one.
@@ -436,7 +522,9 @@ test("a file's head ends with its counts, after copy and discard, with one chevr
   const head = section.querySelector(".dv-file-head") as HTMLElement;
   const parts = [...head.children].map((el) => el.className.split(" ")[0]);
   expect(parts).toEqual(["dv-file-title", "dv-file-actions", "dv-file-stat"]);
-  const actions = [...head.querySelectorAll(".dv-file-actions button")].map((b) => b.getAttribute("data-testid"));
+  const actions = [...head.querySelectorAll(".dv-file-actions button")].map(
+    (b) => b.getAttribute("data-testid"),
+  );
   expect(actions).toEqual(["dv-copy-src/a.ts", "dv-discard-src/a.ts"]);
   expect(head.querySelectorAll(".coddy-chevron")).toHaveLength(1);
   // No status dot before the name: the tree says the status, the name is enough.
@@ -485,11 +573,17 @@ test("discarding a file asks first, then puts it back through the server", async
   fireEvent.click(screen.getByTestId("dv-discard-src/a.ts"));
   const dialog = await confirmDialog();
   expect(dialog.textContent || "").toContain("a.ts");
-  fireEvent.click(within(dialog).getByRole("button", { name: t("changes.discardYes") }));
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: t("changes.discardYes") }),
+  );
   await waitFor(() => {
-    const post = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/revert"));
+    const post = fetchMock.mock.calls.find((c) =>
+      String(c[0]).endsWith("/changes/revert"),
+    );
     expect(post).toBeTruthy();
-    expect(JSON.parse(String((post![1] as RequestInit).body))).toEqual({ paths: ["src/a.ts"] });
+    expect(JSON.parse(String((post![1] as RequestInit).body))).toEqual({
+      paths: ["src/a.ts"],
+    });
   });
 });
 
@@ -498,16 +592,28 @@ test("discarding everything asks first, and a refusal touches nothing", async ()
   await screen.findByTestId("dv-file-src/a.ts");
   fireEvent.click(within(openMenu()).getByTestId("edits-discard-all"));
   let dialog = await confirmDialog();
-  fireEvent.click(within(dialog).getByRole("button", { name: t("common.cancel") }));
-  await waitFor(() => expect(document.body.querySelector(".confirm-dialog")).toBeNull());
-  expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/revert"))).toBe(false);
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: t("common.cancel") }),
+  );
+  await waitFor(() =>
+    expect(document.body.querySelector(".confirm-dialog")).toBeNull(),
+  );
+  expect(
+    fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/revert")),
+  ).toBe(false);
 
   fireEvent.click(within(openMenu()).getByTestId("edits-discard-all"));
   dialog = await confirmDialog();
-  fireEvent.click(within(dialog).getByRole("button", { name: t("changes.discardYes") }));
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: t("changes.discardYes") }),
+  );
   await waitFor(() => {
-    const post = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/revert"));
-    expect(JSON.parse(String((post![1] as RequestInit).body))).toEqual({ all: true });
+    const post = fetchMock.mock.calls.find((c) =>
+      String(c[0]).endsWith("/changes/revert"),
+    );
+    expect(JSON.parse(String((post![1] as RequestInit).body))).toEqual({
+      all: true,
+    });
   });
 });
 
@@ -582,18 +688,23 @@ test("Escape on the discard question closes the question, not the window", async
   fireEvent.click(within(openMenu()).getByTestId("edits-discard-all"));
   await confirmDialog();
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
-  await waitFor(() => expect(document.body.querySelector(".confirm-dialog")).toBeNull());
+  await waitFor(() =>
+    expect(document.body.querySelector(".confirm-dialog")).toBeNull(),
+  );
   expect(onClose).not.toHaveBeenCalled();
   fireEvent.keyDown(document.body, { key: "Escape" });
   expect(onClose).toHaveBeenCalledTimes(1);
 });
 
 test("a first read that fails says why instead of an empty window", async () => {
-  fetchMock.mockImplementation(async () => ({
-    ok: false,
-    status: 503,
-    json: async () => ({ error: { message: "server restarting" } }),
-  }) as unknown as Response);
+  fetchMock.mockImplementation(
+    async () =>
+      ({
+        ok: false,
+        status: 503,
+        json: async () => ({ error: { message: "server restarting" } }),
+      }) as unknown as Response,
+  );
   open();
   const note = await screen.findByTestId("dv-error");
   expect(note.textContent).toContain("server restarting");
@@ -606,7 +717,11 @@ test("a file edited again with the same counts shows its new diff", async () => 
     if (url.includes("/changes/file")) {
       return jsonResponse({ patch: PATCH.replace("+new", "+" + body) });
     }
-    return jsonResponse({ ...SESSION, files: [SESSION.files[0]!], totals: { files: 1, additions: 1, deletions: 1 } });
+    return jsonResponse({
+      ...SESSION,
+      files: [SESSION.files[0]!],
+      totals: { files: 1, additions: 1, deletions: 1 },
+    });
   });
   open();
   await waitFor(() => expect(document.body.textContent).toContain("new"));
@@ -617,7 +732,13 @@ test("a file edited again with the same counts shows its new diff", async () => 
 
 test("new files git could not list can still be discarded", async () => {
   fetchMock.mockImplementation(async () =>
-    jsonResponse({ sessionId: "s1", vcs: "git", files: [], totals: { files: 0, additions: 0, deletions: 0 }, skipped: 3 }),
+    jsonResponse({
+      sessionId: "s1",
+      vcs: "git",
+      files: [],
+      totals: { files: 0, additions: 0, deletions: 0 },
+      skipped: 3,
+    }),
   );
   open();
   await screen.findByTestId("dv-skipped");

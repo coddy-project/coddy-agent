@@ -54,7 +54,9 @@ test("eye toggle switches preview and markdown in one pane", () => {
   const toggle = screen.getByRole("button", { name: "Toggle preview" });
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-pressed", "false");
-  expect(screen.getByRole("textbox", { name: /plan body/i })).toBeInTheDocument();
+  expect(
+    screen.getByRole("textbox", { name: /plan body/i }),
+  ).toBeInTheDocument();
   expect(screen.getByTestId("plan_editor_gutter")).toBeInTheDocument();
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-pressed", "true");
@@ -73,12 +75,16 @@ test("without action handlers (read-only child transcript) the card has no foote
   vi.stubGlobal("fetch", fetchMock);
   try {
     renderPlan(undefined, { withActions: false });
-    expect(document.querySelector(".plan-document-card--readonly")).toBeTruthy();
+    expect(
+      document.querySelector(".plan-document-card--readonly"),
+    ).toBeTruthy();
     expect(document.querySelector(".plan-document-foot")).toBeNull();
     expect(screen.queryByRole("button", { name: /run plan/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
     // The preview still works, and the markdown pane cannot be edited or saved.
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Hello");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Hello",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Toggle preview" }));
     const editor = screen.getByRole("textbox", { name: /plan body/i });
     expect(editor).toHaveAttribute("readonly");

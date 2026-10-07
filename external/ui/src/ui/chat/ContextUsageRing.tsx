@@ -17,7 +17,12 @@ export function ContextUsageRing({
 
   return (
     <div className="context-ring" role="img" aria-hidden="true">
-      <svg viewBox={`0 0 ${vb} ${vb}`} width={size} height={size} aria-hidden="true">
+      <svg
+        viewBox={`0 0 ${vb} ${vb}`}
+        width={size}
+        height={size}
+        aria-hidden="true"
+      >
         <circle className="context-ring-inner" cx={cx} cy={cx} r={rInner} />
         {showOuter ? (
           <circle

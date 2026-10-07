@@ -267,13 +267,16 @@ export function FilePreview(props: {
   // says so and starts it over at its top.
   const readOn = async (direction: "down" | "up") => {
     const shown = textRef.current;
-    const version = metaRef.current?.path === path ? metaRef.current.meta.etag : "";
+    const version =
+      metaRef.current?.path === path ? metaRef.current.meta.etag : "";
     if (!shown || !version || readingOnRef.current || staleRef.current) return;
     if (direction === "down" ? !shown.has_more : shown.offset === 0) return;
     readingOnRef.current = true;
     let failed = false;
     const from =
-      direction === "down" ? shown.next_offset : Math.max(0, shown.offset - PAGE_LINES);
+      direction === "down"
+        ? shown.next_offset
+        : Math.max(0, shown.offset - PAGE_LINES);
     try {
       const page = await readText(sessionId, path, from, version);
       // A read of the whole file meanwhile (Reload, a change) wins.
@@ -288,9 +291,17 @@ export function FilePreview(props: {
         });
       } else {
         const body = bodyRef.current;
-        if (body) anchorRef.current = { height: body.scrollHeight, top: body.scrollTop };
+        if (body)
+          anchorRef.current = {
+            height: body.scrollHeight,
+            top: body.scrollTop,
+          };
         const before = page.lines.slice(0, shown.offset - page.offset);
-        setText({ ...shown, offset: page.offset, lines: [...before, ...shown.lines] });
+        setText({
+          ...shown,
+          offset: page.offset,
+          lines: [...before, ...shown.lines],
+        });
       }
     } catch (err) {
       failed = true;
@@ -315,7 +326,10 @@ export function FilePreview(props: {
   const nearEnds = () => {
     const body = bodyRef.current;
     if (!body || !textRef.current || body.clientHeight === 0) return;
-    if (body.scrollHeight - body.scrollTop - body.clientHeight < READ_AHEAD_PX) {
+    if (
+      body.scrollHeight - body.scrollTop - body.clientHeight <
+      READ_AHEAD_PX
+    ) {
       void readOn("down");
     } else if (body.scrollTop < READ_AHEAD_PX) {
       void readOn("up");

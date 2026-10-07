@@ -276,12 +276,14 @@ export function NavRail(props: {
   const showHistory = props.showHistory !== false;
   const historyActiveCount = Math.max(0, props.historyActiveCount ?? 0);
   const schedulerActiveCount = Math.max(0, props.schedulerActiveCount ?? 0);
-  const historyAriaLabel = historyActiveCount > 0
-    ? `${t("nav.history")}, ${tp("nav.activeSessions", historyActiveCount)}`
-    : t("nav.history");
-  const schedulerAriaLabel = schedulerActiveCount > 0
-    ? `${t("nav.schedulerAriaLabel")}, ${tp("nav.activeRuns", schedulerActiveCount)}`
-    : t("nav.schedulerAriaLabel");
+  const historyAriaLabel =
+    historyActiveCount > 0
+      ? `${t("nav.history")}, ${tp("nav.activeSessions", historyActiveCount)}`
+      : t("nav.history");
+  const schedulerAriaLabel =
+    schedulerActiveCount > 0
+      ? `${t("nav.schedulerAriaLabel")}, ${tp("nav.activeRuns", schedulerActiveCount)}`
+      : t("nav.schedulerAriaLabel");
   const pillWide = props.canWidenRail && props.railLabelsWide;
   const signedIn = auth.loginRequired && auth.authenticated;
   // Below 1200px the rail is a top bar; on a phone it folds what does not fit
@@ -318,10 +320,14 @@ export function NavRail(props: {
       }
       const pillStyle = getComputedStyle(pill);
       const inner =
-        pill.clientWidth - px(pillStyle.paddingLeft) - px(pillStyle.paddingRight);
+        pill.clientWidth -
+        px(pillStyle.paddingLeft) -
+        px(pillStyle.paddingRight);
       const available =
         inner - px(pillStyle.columnGap) - (brand ? brand.scrollWidth : 0);
-      setSlots(navSlots(available, slot, px(getComputedStyle(middle).columnGap)));
+      setSlots(
+        navSlots(available, slot, px(getComputedStyle(middle).columnGap)),
+      );
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -504,7 +510,9 @@ export function NavRail(props: {
                     {historyActiveCount}
                   </span>
                 ) : null}
-                {pillWide ? <span className="rail-nav-label">{t("nav.history")}</span> : null}
+                {pillWide ? (
+                  <span className="rail-nav-label">{t("nav.history")}</span>
+                ) : null}
               </a>
               {!pillWide && !props.historyOpen ? (
                 <span className="rail-tip" role="tooltip">
@@ -536,7 +544,9 @@ export function NavRail(props: {
                     {schedulerActiveCount}
                   </span>
                 ) : null}
-                {pillWide ? <span className="rail-nav-label">{t("nav.scheduler")}</span> : null}
+                {pillWide ? (
+                  <span className="rail-nav-label">{t("nav.scheduler")}</span>
+                ) : null}
               </a>
               {!pillWide && !props.schedulerOpen ? (
                 <span className="rail-tip" role="tooltip">
@@ -584,7 +594,9 @@ export function NavRail(props: {
                 aria-label={t("nav.docs")}
                 aria-pressed={props.docsOpen}
                 data-testid="nav-docs"
-                onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenDocs ?? (() => {}))}
+                onClick={(ev) =>
+                  sameTabInAppNavClick(ev, props.onOpenDocs ?? (() => {}))
+                }
               >
                 <IconDocs className="rail-svg rail-nav-hit-svg" />
                 {pillWide ? (
@@ -669,7 +681,11 @@ export function NavRail(props: {
                 <IconMore className="rail-svg rail-nav-hit-svg" />
               </button>
               {moreOpen ? (
-                <div className="rail-more-menu" role="menu" aria-label={t("nav.more")}>
+                <div
+                  className="rail-more-menu"
+                  role="menu"
+                  aria-label={t("nav.more")}
+                >
                   {menu.map((id, i) => {
                     if (id === "docs") {
                       return (
@@ -681,7 +697,10 @@ export function NavRail(props: {
                           data-testid="nav-more-docs"
                           onClick={(ev) => {
                             setMoreOpen(false);
-                            sameTabInAppNavClick(ev, props.onOpenDocs ?? (() => {}));
+                            sameTabInAppNavClick(
+                              ev,
+                              props.onOpenDocs ?? (() => {}),
+                            );
                           }}
                         >
                           <IconDocs className="rail-svg" />
@@ -738,7 +757,9 @@ export function NavRail(props: {
                     if (id === "signOut") {
                       return (
                         <Fragment key="signOut">
-                          {i > 0 ? <div role="separator" className="rail-more-sep" /> : null}
+                          {i > 0 ? (
+                            <div role="separator" className="rail-more-sep" />
+                          ) : null}
                           <button
                             type="button"
                             role="menuitem"
@@ -752,7 +773,9 @@ export function NavRail(props: {
                             <IconSignOut className="rail-svg" />
                             <span>
                               {auth.user
-                                ? t("auth.signOut.tooltipUser", { user: auth.user })
+                                ? t("auth.signOut.tooltipUser", {
+                                    user: auth.user,
+                                  })
                                 : t("auth.signOut.action")}
                             </span>
                           </button>

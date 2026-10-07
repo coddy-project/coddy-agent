@@ -51,7 +51,11 @@ test("a saved Save button is green as a state, and the pop only moves it", () =>
 function reducedMotionRules(): { selectors: string[]; body: string }[] {
   const out: { selectors: string[]; body: string }[] = [];
   const opener = "@media (prefers-reduced-motion: reduce) {";
-  for (let at = css.indexOf(opener); at !== -1; at = css.indexOf(opener, at + 1)) {
+  for (
+    let at = css.indexOf(opener);
+    at !== -1;
+    at = css.indexOf(opener, at + 1)
+  ) {
     let i = at + opener.length;
     for (;;) {
       const open = css.indexOf("{", i);

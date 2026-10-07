@@ -3,13 +3,24 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { useProviderUsage } from "./useProviderUsage";
 import type { ProviderUsage } from "./providerUsage";
 
-function snapshot(used: number, extra: Partial<ProviderUsage> = {}): ProviderUsage {
+function snapshot(
+  used: number,
+  extra: Partial<ProviderUsage> = {},
+): ProviderUsage {
   return {
     provider: "neuraldeep",
     providerType: "neuraldeep",
     plan: "pro",
     windows: [
-      { id: "session", label: "3h", used, limit: 15000, usedPercent: (used / 15000) * 100, resetsAt: "2026-09-06T17:59:59Z", resetInSec: 777 },
+      {
+        id: "session",
+        label: "3h",
+        used,
+        limit: 15000,
+        usedPercent: (used / 15000) * 100,
+        resetsAt: "2026-09-06T17:59:59Z",
+        resetInSec: 777,
+      },
     ],
     ...extra,
   };
@@ -20,7 +31,10 @@ function fetchStub(script: Array<{ url: RegExp; body: unknown }>) {
   const impl = vi.fn(async (url: string) => {
     calls.push(url);
     const hit = script.find((s) => s.url.test(url));
-    return new Response(JSON.stringify(hit ? hit.body : { ok: false, unsupported: true }), { status: 200 });
+    return new Response(
+      JSON.stringify(hit ? hit.body : { ok: false, unsupported: true }),
+      { status: 200 },
+    );
   }) as unknown as typeof fetch;
   return { impl, calls };
 }
@@ -33,15 +47,27 @@ afterEach(() => {
 });
 
 test("reads at session open and model change, refreshes after a turn", async () => {
-  const { impl, calls } = fetchStub([{ url: /neuraldeep/, body: { ok: true, usage: snapshot(407) } }]);
+  const { impl, calls } = fetchStub([
+    { url: /neuraldeep/, body: { ok: true, usage: snapshot(407) } },
+  ]);
   const { result, rerender } = renderHook(
     (p: { sessionId: string; llmModel: string; turnEpoch: number }) =>
       useProviderUsage({ ...p, fetchImpl: impl }),
-    { initialProps: { sessionId: "s1", llmModel: "neuraldeep/qwen3.8-27b", turnEpoch: 0 } },
+    {
+      initialProps: {
+        sessionId: "s1",
+        llmModel: "neuraldeep/qwen3.8-27b",
+        turnEpoch: 0,
+      },
+    },
   );
   await waitFor(() => expect(result.current.usage?.plan).toBe("pro"));
   expect(calls).toEqual(["/coddy/providers/neuraldeep/usage"]);
-  rerender({ sessionId: "s1", llmModel: "neuraldeep/qwen3.8-27b", turnEpoch: 1 });
+  rerender({
+    sessionId: "s1",
+    llmModel: "neuraldeep/qwen3.8-27b",
+    turnEpoch: 1,
+  });
   await waitFor(() => expect(calls.length).toBe(2));
   expect(calls[1]).toBe("/coddy/providers/neuraldeep/usage?refresh=1");
   rerender({ sessionId: "s1", llmModel: "stub/model", turnEpoch: 1 });
@@ -54,14 +80,23 @@ test("reads at session open and model change, refreshes after a turn", async () 
 });
 
 test("a pushed snapshot for the active provider replaces the state, a foreign one is ignored", async () => {
-  const { impl } = fetchStub([{ url: /neuraldeep/, body: { ok: true, usage: snapshot(407) } }]);
+  const { impl } = fetchStub([
+    { url: /neuraldeep/, body: { ok: true, usage: snapshot(407) } },
+  ]);
   const { result } = renderHook(() =>
-    useProviderUsage({ sessionId: "s1", llmModel: "neuraldeep/qwen3.8-27b", turnEpoch: 0, fetchImpl: impl }),
+    useProviderUsage({
+      sessionId: "s1",
+      llmModel: "neuraldeep/qwen3.8-27b",
+      turnEpoch: 0,
+      fetchImpl: impl,
+    }),
   );
   await waitFor(() => expect(result.current.usage?.plan).toBe("pro"));
   act(() => result.current.applyPushed(snapshot(9000)));
   expect(result.current.usage?.windows?.[0]?.used).toBe(9000);
-  act(() => result.current.applyPushed({ ...snapshot(1), provider: "nd-work" }));
+  act(() =>
+    result.current.applyPushed({ ...snapshot(1), provider: "nd-work" }),
+  );
   expect(result.current.usage?.windows?.[0]?.used).toBe(9000);
 });
 
@@ -75,7 +110,12 @@ test("a deferred refresh is followed by one cache read, a reset by a hub read", 
   ]);
   const { result, rerender } = renderHook(
     (p: { turnEpoch: number }) =>
-      useProviderUsage({ sessionId: "s1", llmModel: "neuraldeep/qwen3.8-27b", turnEpoch: p.turnEpoch, fetchImpl: impl }),
+      useProviderUsage({
+        sessionId: "s1",
+        llmModel: "neuraldeep/qwen3.8-27b",
+        turnEpoch: p.turnEpoch,
+        fetchImpl: impl,
+      }),
     { initialProps: { turnEpoch: 0 } },
   );
   await waitFor(() => expect(result.current.usage?.plan).toBe("pro"));
@@ -96,15 +136,28 @@ test("a deferred refresh is followed by one cache read, a reset by a hub read", 
 });
 
 test("the banner dismissal is remembered per period", async () => {
-  const { impl } = fetchStub([{ url: /neuraldeep/, body: { ok: true, usage: snapshot(13000) } }]);
+  const { impl } = fetchStub([
+    { url: /neuraldeep/, body: { ok: true, usage: snapshot(13000) } },
+  ]);
   const { result } = renderHook(() =>
-    useProviderUsage({ sessionId: "s1", llmModel: "neuraldeep/qwen3.8-27b", turnEpoch: 0, fetchImpl: impl }),
+    useProviderUsage({
+      sessionId: "s1",
+      llmModel: "neuraldeep/qwen3.8-27b",
+      turnEpoch: 0,
+      fetchImpl: impl,
+    }),
   );
   await waitFor(() => expect(result.current.usage?.plan).toBe("pro"));
   expect(result.current.dismissedKey).toBe("");
-  act(() => result.current.dismissBanner("neuraldeep@session@2026-09-06T17:59:59Z"));
-  expect(result.current.dismissedKey).toBe("neuraldeep@session@2026-09-06T17:59:59Z");
-  expect(window.localStorage.getItem("coddy_usage_banner_dismissed")).toBe("neuraldeep@session@2026-09-06T17:59:59Z");
+  act(() =>
+    result.current.dismissBanner("neuraldeep@session@2026-09-06T17:59:59Z"),
+  );
+  expect(result.current.dismissedKey).toBe(
+    "neuraldeep@session@2026-09-06T17:59:59Z",
+  );
+  expect(window.localStorage.getItem("coddy_usage_banner_dismissed")).toBe(
+    "neuraldeep@session@2026-09-06T17:59:59Z",
+  );
 });
 
 test("an older REST answer never replaces a newer pushed snapshot, nor does an older push", async () => {
@@ -115,19 +168,42 @@ test("an older REST answer never replaces a newer pushed snapshot, nor does an o
   const impl = vi.fn(async (url: string) => {
     if (/refresh=1/.test(url)) {
       await slow;
-      return new Response(JSON.stringify({ ok: true, usage: snapshot(500, { fetchedAt: "2026-09-06T17:47:00Z" }) }), { status: 200 });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          usage: snapshot(500, { fetchedAt: "2026-09-06T17:47:00Z" }),
+        }),
+        { status: 200 },
+      );
     }
-    return new Response(JSON.stringify({ ok: true, usage: snapshot(407, { fetchedAt: "2026-09-06T17:47:00Z" }) }), { status: 200 });
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        usage: snapshot(407, { fetchedAt: "2026-09-06T17:47:00Z" }),
+      }),
+      { status: 200 },
+    );
   }) as unknown as typeof fetch;
   const { result, rerender } = renderHook(
     (p: { turnEpoch: number }) =>
-      useProviderUsage({ sessionId: "s1", llmModel: "neuraldeep/qwen3.8-27b", turnEpoch: p.turnEpoch, fetchImpl: impl }),
+      useProviderUsage({
+        sessionId: "s1",
+        llmModel: "neuraldeep/qwen3.8-27b",
+        turnEpoch: p.turnEpoch,
+        fetchImpl: impl,
+      }),
     { initialProps: { turnEpoch: 0 } },
   );
-  await waitFor(() => expect(result.current.usage?.windows?.[0]?.used).toBe(407));
+  await waitFor(() =>
+    expect(result.current.usage?.windows?.[0]?.used).toBe(407),
+  );
   // The turn-end refresh is slow; the server's push for the same turn lands first.
   rerender({ turnEpoch: 1 });
-  act(() => result.current.applyPushed(snapshot(9000, { fetchedAt: "2026-09-06T17:47:30Z" })));
+  act(() =>
+    result.current.applyPushed(
+      snapshot(9000, { fetchedAt: "2026-09-06T17:47:30Z" }),
+    ),
+  );
   expect(result.current.usage?.windows?.[0]?.used).toBe(9000);
   await act(async () => {
     release();
@@ -135,10 +211,22 @@ test("an older REST answer never replaces a newer pushed snapshot, nor does an o
     await new Promise((r) => setTimeout(r, 10));
   });
   expect(result.current.usage?.windows?.[0]?.used).toBe(9000);
-  act(() => result.current.applyPushed(snapshot(1, { fetchedAt: "2026-09-06T17:47:10Z" })));
+  act(() =>
+    result.current.applyPushed(
+      snapshot(1, { fetchedAt: "2026-09-06T17:47:10Z" }),
+    ),
+  );
   expect(result.current.usage?.windows?.[0]?.used).toBe(9000);
   // A deferred answer carries the read time of the snapshot it repeats: it still applies (with its schedule).
-  act(() => result.current.applyPushed(snapshot(9000, { fetchedAt: "2026-09-06T17:47:30Z", refreshPending: true, refreshInSec: 9 })));
+  act(() =>
+    result.current.applyPushed(
+      snapshot(9000, {
+        fetchedAt: "2026-09-06T17:47:30Z",
+        refreshPending: true,
+        refreshInSec: 9,
+      }),
+    ),
+  );
   expect(result.current.usage?.refreshPending).toBe(true);
 });
 
@@ -155,7 +243,12 @@ test("only the latest read issued applies, whatever order the answers arrive in"
   }) as unknown as typeof fetch;
   const { result, rerender } = renderHook(
     (p: { turnEpoch: number }) =>
-      useProviderUsage({ sessionId: "s1", llmModel: "neuraldeep/qwen3.8-27b", turnEpoch: p.turnEpoch, fetchImpl: impl }),
+      useProviderUsage({
+        sessionId: "s1",
+        llmModel: "neuraldeep/qwen3.8-27b",
+        turnEpoch: p.turnEpoch,
+        fetchImpl: impl,
+      }),
     { initialProps: { turnEpoch: 0 } },
   );
   await waitFor(() => expect(gates.length).toBe(1));
@@ -179,7 +272,12 @@ test("an unsupported row is asked again after five minutes", async () => {
   const { impl, calls } = fetchStub([]);
   const { rerender } = renderHook(
     (p: { sessionId: string }) =>
-      useProviderUsage({ sessionId: p.sessionId, llmModel: "stub/model", turnEpoch: 0, fetchImpl: impl }),
+      useProviderUsage({
+        sessionId: p.sessionId,
+        llmModel: "stub/model",
+        turnEpoch: 0,
+        fetchImpl: impl,
+      }),
     { initialProps: { sessionId: "s1" } },
   );
   await waitFor(() => expect(calls.length).toBe(1));
@@ -199,13 +297,24 @@ test("an unsupported answer for the shown provider clears the snapshot", async (
   const impl = vi.fn(async (url: string) => {
     calls.push(url);
     const body = panelOff
-      ? { ok: false, unsupported: true, disabled: true, provider: "neuraldeep", providerType: "neuraldeep" }
+      ? {
+          ok: false,
+          unsupported: true,
+          disabled: true,
+          provider: "neuraldeep",
+          providerType: "neuraldeep",
+        }
       : { ok: true, usage: snapshot(407) };
     return new Response(JSON.stringify(body), { status: 200 });
   }) as unknown as typeof fetch;
   const { result, rerender } = renderHook(
     (p: { turnEpoch: number }) =>
-      useProviderUsage({ sessionId: "s1", llmModel: "neuraldeep/qwen3.8-27b", turnEpoch: p.turnEpoch, fetchImpl: impl }),
+      useProviderUsage({
+        sessionId: "s1",
+        llmModel: "neuraldeep/qwen3.8-27b",
+        turnEpoch: p.turnEpoch,
+        fetchImpl: impl,
+      }),
     { initialProps: { turnEpoch: 0 } },
   );
   await waitFor(() => expect(result.current.usage?.plan).toBe("pro"));

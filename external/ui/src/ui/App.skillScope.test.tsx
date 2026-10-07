@@ -262,7 +262,9 @@ test("the folder picked last wins over a slower preview of the one before", asyn
   expect(screen.getByTestId("workspace-state")).toHaveTextContent(
     `home:${OTHER_WORKSPACE}`,
   );
-  expect(screen.getByTestId("chat-workspace").textContent).toBe(OTHER_WORKSPACE);
+  expect(screen.getByTestId("chat-workspace").textContent).toBe(
+    OTHER_WORKSPACE,
+  );
   expect(known()).toBe("global");
 });
 

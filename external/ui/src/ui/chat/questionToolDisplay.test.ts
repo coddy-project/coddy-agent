@@ -55,7 +55,11 @@ test("the parsed question carries the options the model offered", () => {
           ],
           custom: true,
         },
-        { question: "Pick any that apply", options: [{ label: "One" }], multiple: true },
+        {
+          question: "Pick any that apply",
+          options: [{ label: "One" }],
+          multiple: true,
+        },
       ],
     }),
   );
@@ -86,5 +90,7 @@ test("a question with no options still parses, and junk entries are dropped", ()
         questions: [{ question: "Bare", options: [{ label: "" }, 7, null] }],
       }),
     ),
-  ).toEqual([{ question: "Bare", options: [], multiple: false, custom: false }]);
+  ).toEqual([
+    { question: "Bare", options: [], multiple: false, custom: false },
+  ]);
 });

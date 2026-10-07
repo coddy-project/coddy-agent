@@ -3,7 +3,10 @@
  * button and on a queued message that carries images. Stroked with the
  * current colour, 1em square unless the caller sizes it.
  */
-export function PaperclipIcon(props: { className?: string; size?: number | string }) {
+export function PaperclipIcon(props: {
+  className?: string;
+  size?: number | string;
+}) {
   const size = props.size ?? "1em";
   return (
     <svg

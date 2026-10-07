@@ -96,9 +96,9 @@ test("with tasks the control says how many are running out of how many there are
   expect(control.getAttribute("aria-label")).toBe(
     "Background tasks: 1 running, 3 in total",
   );
-  expect(control.parentElement?.querySelector(".chat-view-tip")?.textContent).toBe(
-    "Background tasks: 1 running, 3 in total",
-  );
+  expect(
+    control.parentElement?.querySelector(".chat-view-tip")?.textContent,
+  ).toBe("Background tasks: 1 running, 3 in total");
 });
 
 test("once everything has finished the control keeps the total and drops the live mark", () => {
@@ -133,7 +133,9 @@ test("without a way to open the panel the header has no views", () => {
 // Background tasks last with the dot and the counts, the full name in a
 // tooltip; no tab strip inside a panel, no menu to open first. The edits open
 // from git's count in the bar over the composer, never from the header.
-function viewsHeader(over: Partial<React.ComponentProps<typeof ChatHeader>> = {}) {
+function viewsHeader(
+  over: Partial<React.ComponentProps<typeof ChatHeader>> = {},
+) {
   return (
     <ChatHeader
       title="Hello"
@@ -193,8 +195,8 @@ test("the button of the view on show is pressed", () => {
       screen.getByTestId(`chat-views-${id}`).getAttribute("aria-pressed"),
     ).toBe("false");
   rerender(viewsHeader({ filesOpen: true }));
-  expect(screen.getByTestId("chat-views-files").getAttribute("aria-pressed")).toBe(
-    "true",
-  );
+  expect(
+    screen.getByTestId("chat-views-files").getAttribute("aria-pressed"),
+  ).toBe("true");
   expect(screen.getByTestId("chat-views-files")).toHaveClass("is-active");
 });

@@ -56,14 +56,20 @@ test("highlights active line after caret moves", () => {
   ta.focus();
   ta.setSelectionRange(8, 8);
   fireEvent.select(ta);
-  const currents = document.querySelectorAll(".md-line-editor-hl-band.is-current");
+  const currents = document.querySelectorAll(
+    ".md-line-editor-hl-band.is-current",
+  );
   expect(currents.length).toBeGreaterThanOrEqual(1);
 });
 
 test("calls onChange when typing", () => {
   const onChange = vi.fn();
   render(
-    <MarkdownLineEditor value="hi" aria-label="Plan body" onChange={onChange} />,
+    <MarkdownLineEditor
+      value="hi"
+      aria-label="Plan body"
+      onChange={onChange}
+    />,
   );
   const ta = screen.getByRole("textbox", { name: /plan body/i });
   fireEvent.change(ta, { target: { value: "hello" } });

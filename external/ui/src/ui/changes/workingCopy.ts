@@ -28,7 +28,11 @@ export type WorkingCopy = {
 /** A burst of tool calls is read once, this long after the last of them. */
 export const TOOL_ACTIVITY_DEBOUNCE_MS = 400;
 
-const NOT_LOADED: WorkingCopy = { loaded: false, changes: EMPTY_SESSION_CHANGES, error: "" };
+const NOT_LOADED: WorkingCopy = {
+  loaded: false,
+  changes: EMPTY_SESSION_CHANGES,
+  error: "",
+};
 
 type Entry = {
   state: WorkingCopy;
@@ -45,7 +49,12 @@ let generation = 0;
 function entryFor(sessionId: string): Entry {
   let entry = entries.get(sessionId);
   if (!entry) {
-    entry = { state: NOT_LOADED, listeners: new Set(), inflight: false, again: false };
+    entry = {
+      state: NOT_LOADED,
+      listeners: new Set(),
+      inflight: false,
+      again: false,
+    };
     entries.set(sessionId, entry);
   }
   return entry;
@@ -203,7 +212,10 @@ export function useWorkingCopy(
     if (!moved || !enabled) {
       return undefined;
     }
-    const timer = setTimeout(() => refreshWorkingCopy(sid), TOOL_ACTIVITY_DEBOUNCE_MS);
+    const timer = setTimeout(
+      () => refreshWorkingCopy(sid),
+      TOOL_ACTIVITY_DEBOUNCE_MS,
+    );
     return () => clearTimeout(timer);
   }, [toolActivity, sid, enabled]);
 

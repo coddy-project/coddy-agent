@@ -53,7 +53,15 @@ test("reading a folder again stops when a page brings nothing new", async () => 
         JSON.stringify({
           entries:
             calls === 1
-              ? [{ name: "a", path_rel: "a", kind: "file", size_bytes: 1, mod_time: "" }]
+              ? [
+                  {
+                    name: "a",
+                    path_rel: "a",
+                    kind: "file",
+                    size_bytes: 1,
+                    mod_time: "",
+                  },
+                ]
               : [],
           has_more: true,
           next_cursor: "f/a",

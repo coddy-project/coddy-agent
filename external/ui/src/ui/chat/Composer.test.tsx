@@ -126,21 +126,45 @@ test("a touch-only device keeps the keyboard closed on the start screen and in a
   stubViewport({ narrow: true, touchOnly: true });
   try {
     const hero = render(
-      <Composer value="" isEmpty sessionId="" mode="agent" modes={["agent"]}
-        onModeChange={() => {}} onChange={() => {}} onSend={() => {}} />,
+      <Composer
+        value=""
+        isEmpty
+        sessionId=""
+        mode="agent"
+        modes={["agent"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={() => {}}
+      />,
     );
     expect(screen.getByRole("textbox", { name: "Message" })).not.toHaveFocus();
     hero.unmount();
 
     const { rerender } = render(
-      <Composer value="" isEmpty={false} sessionId="sess-a" mode="agent" modes={["agent"]}
-        onModeChange={() => {}} onChange={() => {}} onSend={() => {}} />,
+      <Composer
+        value=""
+        isEmpty={false}
+        sessionId="sess-a"
+        mode="agent"
+        modes={["agent"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={() => {}}
+      />,
     );
     const ta = screen.getByRole("textbox", { name: "Message" });
     expect(ta).not.toHaveFocus();
     rerender(
-      <Composer value="" isEmpty={false} sessionId="sess-b" mode="agent" modes={["agent"]}
-        onModeChange={() => {}} onChange={() => {}} onSend={() => {}} />,
+      <Composer
+        value=""
+        isEmpty={false}
+        sessionId="sess-b"
+        mode="agent"
+        modes={["agent"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={() => {}}
+      />,
     );
     expect(ta).not.toHaveFocus();
   } finally {
@@ -152,8 +176,16 @@ test("a narrow desktop window still focuses the field: it has a keyboard", () =>
   stubViewport({ narrow: true, touchOnly: false });
   try {
     render(
-      <Composer value="" isEmpty sessionId="" mode="agent" modes={["agent"]}
-        onModeChange={() => {}} onChange={() => {}} onSend={() => {}} />,
+      <Composer
+        value=""
+        isEmpty
+        sessionId=""
+        mode="agent"
+        modes={["agent"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={() => {}}
+      />,
     );
     expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
   } finally {
@@ -184,58 +216,58 @@ test("send play disabled when input empty", () => {
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
 });
 
-  test("send play enabled when draft has text", () => {
-    render(
-      <Composer
-        value="hi"
-        isEmpty={true}
-        mode="agent"
-        modes={["agent", "plan"]}
-        onModeChange={() => {}}
-        onChange={() => {}}
-        onSend={() => {}}
-      />,
-    );
-    expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
-  });
+test("send play enabled when draft has text", () => {
+  render(
+    <Composer
+      value="hi"
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
+});
 
-  test("click Send button calls onSend with trimmed text", () => {
-    const onSend = vi.fn();
-    render(
-      <Composer
-        value="  hello world  "
-        isEmpty={true}
-        mode="agent"
-        modes={["agent", "plan"]}
-        onModeChange={() => {}}
-        onChange={() => {}}
-        onSend={onSend}
-      />,
-    );
-    const btn = screen.getByRole("button", { name: "Send" });
-    fireEvent.click(btn);
-    expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith("hello world");
-  });
+test("click Send button calls onSend with trimmed text", () => {
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value="  hello world  "
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const btn = screen.getByRole("button", { name: "Send" });
+  fireEvent.click(btn);
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(onSend).toHaveBeenCalledWith("hello world");
+});
 
-  test("pressing Enter calls onSend with trimmed text", () => {
-    const onSend = vi.fn();
-    render(
-      <Composer
-        value="  test input  "
-        isEmpty={false}
-        mode="agent"
-        modes={["agent", "plan"]}
-        onModeChange={() => {}}
-        onChange={() => {}}
-        onSend={onSend}
-      />,
-    );
-    const ta = screen.getByRole("textbox", { name: "Message" });
-    fireEvent.keyDown(ta, { key: "Enter", code: "Enter", charCode: 13 });
-    expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith("test input");
-  });
+test("pressing Enter calls onSend with trimmed text", () => {
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value="  test input  "
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.keyDown(ta, { key: "Enter", code: "Enter", charCode: 13 });
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(onSend).toHaveBeenCalledWith("test input");
+});
 
 test("the slash menu lists /docs where the reader can open", async () => {
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -255,7 +287,10 @@ test("the slash menu lists /docs where the reader can open", async () => {
         ok: true,
         json: async () =>
           String(url).includes("/coddy/commands")
-            ? { object: "coddy.commands", items: [{ name: "compact", description: "Summarize" }] }
+            ? {
+                object: "coddy.commands",
+                items: [{ name: "compact", description: "Summarize" }],
+              }
             : { items: [], has_more: false, page: 1 },
       }),
     ),
@@ -277,12 +312,16 @@ test("the slash menu lists /docs where the reader can open", async () => {
   }
   render(<Harness />);
   const ta = screen.getByRole("textbox", { name: "Message" });
-  fireEvent.change(ta, { target: { value: "/do", selectionStart: 3, selectionEnd: 3 } });
+  fireEvent.change(ta, {
+    target: { value: "/do", selectionStart: 3, selectionEnd: 3 },
+  });
   // No skill matches "do", yet the menu stays open on the command.
   await waitFor(() => {
     expect(screen.getByTestId("command-row-docs")).toBeTruthy();
   });
-  expect(screen.getByTestId("command-row-docs").textContent).toContain("documentation");
+  expect(screen.getByTestId("command-row-docs").textContent).toContain(
+    "documentation",
+  );
   vi.unstubAllGlobals();
 });
 
@@ -317,7 +356,10 @@ test("Tab key selects first slash command from picker", async () => {
         mode="agent"
         modes={["agent", "plan"]}
         onModeChange={() => {}}
-        onChange={(v) => { setValue(v); onChange(v); }}
+        onChange={(v) => {
+          setValue(v);
+          onChange(v);
+        }}
         onSend={() => {}}
       />
     );
@@ -325,10 +367,14 @@ test("Tab key selects first slash command from picker", async () => {
 
   render(<Harness />);
   const ta = screen.getByRole("textbox", { name: "Message" });
-  fireEvent.change(ta, { target: { value: "/gen", selectionStart: 4, selectionEnd: 4 } });
+  fireEvent.change(ta, {
+    target: { value: "/gen", selectionStart: 4, selectionEnd: 4 },
+  });
 
   await waitFor(() => {
-    expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeTruthy();
+    expect(
+      screen.queryByRole("listbox", { name: "Slash commands" }),
+    ).toBeTruthy();
   });
 
   fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
@@ -527,7 +573,10 @@ test("slash menu shows a Commands group from /coddy/commands", async () => {
 // /docs is the console's help command; in the web UI it opens the reader
 // instead of going to the agent as a prompt.
 describe("/docs", () => {
-  function renderWith(value: string, extra: Partial<Parameters<typeof Composer>[0]> = {}) {
+  function renderWith(
+    value: string,
+    extra: Partial<Parameters<typeof Composer>[0]> = {},
+  ) {
     const onSend = vi.fn();
     const onDocsCommand = vi.fn();
     const onQueue = vi.fn();
@@ -550,7 +599,9 @@ describe("/docs", () => {
 
   test("opens the reader with what follows it, and sends nothing", () => {
     const { onSend, onDocsCommand } = renderWith("  /docs telegram proxy ");
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+      key: "Enter",
+    });
     expect(onDocsCommand).toHaveBeenCalledWith("telegram proxy");
     expect(onSend).not.toHaveBeenCalled();
   });
@@ -563,17 +614,24 @@ describe("/docs", () => {
   });
 
   test("works while a turn runs instead of joining the queue", () => {
-    const { onQueue, onDocsCommand } = renderWith("/docs features/mentions#completion", {
-      generating: true,
+    const { onQueue, onDocsCommand } = renderWith(
+      "/docs features/mentions#completion",
+      {
+        generating: true,
+      },
+    );
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+      key: "Enter",
     });
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
     expect(onDocsCommand).toHaveBeenCalledWith("features/mentions#completion");
     expect(onQueue).not.toHaveBeenCalled();
   });
 
   test("a word that only starts like it is an ordinary prompt", () => {
     const { onSend, onDocsCommand } = renderWith("/docsify the readme");
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+      key: "Enter",
+    });
     expect(onDocsCommand).not.toHaveBeenCalled();
     expect(onSend).toHaveBeenCalledWith("/docsify the readme");
   });
@@ -594,7 +652,9 @@ test("/mcp opens MCP settings without sending a prompt", () => {
       onMCPCommand={onMCPCommand}
     />,
   );
-  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "Enter",
+  });
   expect(onMCPCommand).toHaveBeenCalledOnce();
   expect(onSend).not.toHaveBeenCalled();
 });
@@ -622,7 +682,9 @@ test.each([
       onMCPCommand={onMCPCommand}
     />,
   );
-  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "Enter",
+  });
   expect(onMCPCommand).toHaveBeenCalledTimes(opens ? 1 : 0);
   expect(onSend).toHaveBeenCalledTimes(opens ? 0 : 1);
 });
@@ -647,7 +709,9 @@ test("generating shows stop and calls onStop", () => {
   const b = screen.getByRole("button", { name: "Stop generation" });
   expect(b).not.toBeDisabled();
   expect(b).toHaveClass("composer-send-stop");
-  expect(b.querySelector(".composer-send-glyph .composer-stop-square")).toBeTruthy();
+  expect(
+    b.querySelector(".composer-send-glyph .composer-stop-square"),
+  ).toBeTruthy();
   expect(b.closest(".composer-bar-actions")).toBeTruthy();
   fireEvent.click(b);
   expect(stopped).toBe(true);
@@ -780,7 +844,11 @@ test("context popover percent follows breakdown not cumulative tokenUsage pct", 
       isEmpty={false}
       mode="agent"
       modes={["agent", "plan"]}
-      tokenUsage={{ inputTokens: 800000, outputTokens: 20000, totalTokens: 820000 }}
+      tokenUsage={{
+        inputTokens: 800000,
+        outputTokens: 20000,
+        totalTokens: 820000,
+      }}
       contextPct={100}
       maxContextTokens={128000}
       contextBreakdown={breakdown}
@@ -791,7 +859,9 @@ test("context popover percent follows breakdown not cumulative tokenUsage pct", 
   );
   fireEvent.click(screen.getByTestId("composer-context-ring-host"));
   expect(screen.getByText(/18\.6% [Uu]sed/)).toBeTruthy();
-  const fg = document.querySelector(".context-ring-fg") as SVGCircleElement | null;
+  const fg = document.querySelector(
+    ".context-ring-fg",
+  ) as SVGCircleElement | null;
   expect(fg).toBeTruthy();
   const c = 2 * Math.PI * 12;
   const off = Number.parseFloat(fg!.getAttribute("stroke-dashoffset") || "0");
@@ -929,12 +999,19 @@ test("a folder in no repository: the plate offers the folder alone", () => {
       onModeChange={() => {}}
       onChange={() => {}}
       onSend={() => {}}
-      workspaceCtx={{ path: "/tmp/plain", name: "plain", is_git_repo: false, is_worktree: false }}
+      workspaceCtx={{
+        path: "/tmp/plain",
+        name: "plain",
+        is_git_repo: false,
+        is_worktree: false,
+      }}
       onWorkspacePickFolder={() => {}}
     />,
   );
   const plate = screen.getByTestId("workspace-bar");
-  expect(within(plate).getByTestId("composer-workspace-chip").textContent).toBe("plain");
+  expect(within(plate).getByTestId("composer-workspace-chip").textContent).toBe(
+    "plain",
+  );
   expect(within(plate).queryByTestId("composer-branch-chip")).toBeNull();
   expect(within(plate).queryByTestId("composer-worktree-checkbox")).toBeNull();
   expect(within(plate).queryByTestId("workspace-bar-edits")).toBeNull();
@@ -1083,7 +1160,9 @@ function renderEnterComposer(value = "hello") {
       onSend={onSend}
     />,
   );
-  const ta = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  const ta = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
   return { onSend, onChange, ta };
 }
 
@@ -1223,7 +1302,9 @@ test("selecting a file shows attachment chip", async () => {
       onSend={() => {}}
     />,
   );
-  const fileInput = screen.getByTestId("composer-file-input") as HTMLInputElement;
+  const fileInput = screen.getByTestId(
+    "composer-file-input",
+  ) as HTMLInputElement;
   const file = new File(["content"], "photo.png", { type: "image/png" });
   fireEvent.change(fileInput, { target: { files: [file] } });
   await waitFor(() => {
@@ -1247,7 +1328,9 @@ test("send with attached file passes files to onSend", async () => {
       onSend={onSend}
     />,
   );
-  const fileInput = screen.getByTestId("composer-file-input") as HTMLInputElement;
+  const fileInput = screen.getByTestId(
+    "composer-file-input",
+  ) as HTMLInputElement;
   const file = new File(["data"], "img.png", { type: "image/png" });
   fireEvent.change(fileInput, { target: { files: [file] } });
   await waitFor(() => screen.getByText("img.png"));
@@ -1259,11 +1342,29 @@ test("send with attached file passes files to onSend", async () => {
 test("Tab queues the alternate mode and clears attached images", async () => {
   stubMatchMediaMobile(false);
   const onQueue = vi.fn();
-  render(<Composer value="inspect this" isEmpty={false} generating={true} mode="agent" modes={["agent"]} llmModelMultimodal={true} queueMode="steer" onModeChange={() => {}} onChange={() => {}} onSend={() => {}} onQueue={onQueue} />);
+  render(
+    <Composer
+      value="inspect this"
+      isEmpty={false}
+      generating={true}
+      mode="agent"
+      modes={["agent"]}
+      llmModelMultimodal={true}
+      queueMode="steer"
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      onQueue={onQueue}
+    />,
+  );
   const file = new File(["image"], "img.png", { type: "image/png" });
-  fireEvent.change(screen.getByTestId("composer-file-input"), { target: { files: [file] } });
+  fireEvent.change(screen.getByTestId("composer-file-input"), {
+    target: { files: [file] },
+  });
   await waitFor(() => screen.getByText("img.png"));
-  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Tab" });
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "Tab",
+  });
   expect(onQueue).toHaveBeenCalledWith("inspect this", "after_turn", [file]);
   expect(screen.queryByText("img.png")).toBeNull();
   vi.unstubAllGlobals();
@@ -1312,7 +1413,9 @@ test("pasting an image attaches it under a deterministic pasted-N name", () => {
   const ta = screen.getByRole("textbox", { name: "Message" });
   pasteWithImages(ta, [new File(["img"], "image.png", { type: "image/png" })]);
   expect(screen.getByText("pasted-1.png")).toBeTruthy();
-  pasteWithImages(ta, [new File(["img2"], "image.png", { type: "image/jpeg" })]);
+  pasteWithImages(ta, [
+    new File(["img2"], "image.png", { type: "image/jpeg" }),
+  ]);
   expect(screen.getByText("pasted-2.jpg")).toBeTruthy();
   vi.unstubAllGlobals();
 });
@@ -1580,7 +1683,9 @@ test("send is enabled by an image alone and sends empty text with the files", as
       onSend={onSend}
     />,
   );
-  const sendBtn = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  const sendBtn = screen.getByRole("button", {
+    name: "Send",
+  }) as HTMLButtonElement;
   expect(sendBtn.disabled).toBe(true);
   const ta = screen.getByRole("textbox", { name: "Message" });
   pasteWithImages(ta, [new File(["img"], "image.png", { type: "image/png" })]);
@@ -1620,9 +1725,9 @@ test("attached images stay visible but are not sent after switching to a non-mul
   await waitFor(() => screen.getByText("photo.png"));
 
   rerender(<Composer {...common} value="" llmModelMultimodal={false} />);
-  const chip = screen.getByText("photo.png").closest(
-    ".composer-attachment-chip",
-  );
+  const chip = screen
+    .getByText("photo.png")
+    .closest(".composer-attachment-chip");
   expect(chip).toHaveClass("composer-attachment-chip--disabled");
   expect(chip).toHaveAttribute("aria-disabled", "true");
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
@@ -1732,7 +1837,9 @@ test("arrow keys move the slash highlight and Enter picks the highlighted row", 
   });
   // The first row (a skill) is highlighted by default.
   expect(
-    screen.getByTestId("slash-command-row-review").getAttribute("aria-selected"),
+    screen
+      .getByTestId("slash-command-row-review")
+      .getAttribute("aria-selected"),
   ).toBe("true");
 
   // ArrowDown moves the highlight to the next row (the first command).
@@ -1781,7 +1888,10 @@ function stubWorkspaceFileFetch(lines: string[]) {
   return fetchMock;
 }
 
-function RangeHarness(props: { initial: string; onChange: (v: string) => void }) {
+function RangeHarness(props: {
+  initial: string;
+  onChange: (v: string) => void;
+}) {
   const [value, setValue] = useState(props.initial);
   return (
     <Composer
@@ -1912,7 +2022,9 @@ test("prose that never resolves to a file leaves the picker closed", async () =>
   stubWorkspaceFileFetch([]);
   vi.stubGlobal(
     "fetch",
-    vi.fn(() => Promise.resolve({ ok: false, status: 404, json: async () => ({}) })),
+    vi.fn(() =>
+      Promise.resolve({ ok: false, status: 404, json: async () => ({}) }),
+    ),
   );
   render(<RangeHarness initial="" onChange={() => {}} />);
 
@@ -1922,7 +2034,9 @@ test("prose that never resolves to a file leaves the picker closed", async () =>
   });
 
   await waitFor(() => {
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+    expect(
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length,
+    ).toBeGreaterThan(0);
   });
   expect(screen.queryByTestId("at-range-picker")).toBeNull();
   vi.unstubAllGlobals();
@@ -2082,7 +2196,9 @@ type MentionStubRow = {
 };
 
 /** Answers GET /coddy/mentions from a map keyed by the query; records every URL. */
-function stubMentionsFetch(answers: Record<string, { items: MentionStubRow[]; total?: number }>) {
+function stubMentionsFetch(
+  answers: Record<string, { items: MentionStubRow[]; total?: number }>,
+) {
   const urls: string[] = [];
   const fetchMock = vi.fn((input: string) => {
     urls.push(String(input));
@@ -2091,7 +2207,10 @@ function stubMentionsFetch(answers: Record<string, { items: MentionStubRow[]; to
       const a = answers[u.searchParams.get("q") ?? ""] ?? { items: [] };
       return Promise.resolve({
         ok: true,
-        json: async () => ({ items: a.items, total: a.total ?? a.items.length }),
+        json: async () => ({
+          items: a.items,
+          total: a.total ?? a.items.length,
+        }),
       });
     }
     return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
@@ -2133,8 +2252,18 @@ test("the @ picker asks the server's search and names each candidate's kind", as
   const urls = stubMentionsFetch({
     app: {
       items: [
-        { kind: "file", insert: "@external/cli/app.go", label: "external/cli/app.go", detail: "external/cli/" },
-        { kind: "session", insert: "@session:sess_1", label: "App refactor", detail: "sess_1" },
+        {
+          kind: "file",
+          insert: "@external/cli/app.go",
+          label: "external/cli/app.go",
+          detail: "external/cli/",
+        },
+        {
+          kind: "session",
+          insert: "@session:sess_1",
+          label: "App refactor",
+          detail: "sess_1",
+        },
       ],
       total: 7,
     },
@@ -2143,14 +2272,20 @@ test("the @ picker asks the server's search and names each candidate's kind", as
   typeDraft(screen.getByRole("textbox", { name: "Message" }), "@app");
 
   await waitFor(() => {
-    expect(screen.getByTestId("mention-row-file-external_cli_app_go")).toBeTruthy();
+    expect(
+      screen.getByTestId("mention-row-file-external_cli_app_go"),
+    ).toBeTruthy();
   });
   const first = urls.find((u) => u.startsWith("/coddy/mentions?"));
   expect(first).toContain("q=app");
   // The picker just opened: the server rebuilds its workspace index.
   expect(first).toContain("refresh=1");
-  expect(screen.getByTestId("mention-row-session-App_refactor")).toHaveTextContent("session");
-  expect(screen.getByTestId("mention-more")).toHaveTextContent("2 of 7, type to narrow");
+  expect(
+    screen.getByTestId("mention-row-session-App_refactor"),
+  ).toHaveTextContent("session");
+  expect(screen.getByTestId("mention-more")).toHaveTextContent(
+    "2 of 7, type to narrow",
+  );
   vi.unstubAllGlobals();
 });
 
@@ -2160,7 +2295,11 @@ test("arrow keys pick the row that enter inserts, with a space after it", async 
     rea: {
       items: [
         { kind: "file", insert: "@README.md", label: "README.md" },
-        { kind: "file", insert: "@internal/agent/react.go", label: "internal/agent/react.go" },
+        {
+          kind: "file",
+          insert: "@internal/agent/react.go",
+          label: "internal/agent/react.go",
+        },
       ],
     },
   });
@@ -2186,8 +2325,14 @@ test("arrow keys pick the row that enter inserts, with a space after it", async 
 test("the server's answer keeps the row the arrows moved to among the recent picks", async () => {
   stubShell(true);
   localStorage.clear();
-  recordWorkspaceAtRecent(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, { path_rel: "b.go", kind: "file" });
-  recordWorkspaceAtRecent(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, { path_rel: "a.go", kind: "file" });
+  recordWorkspaceAtRecent(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, {
+    path_rel: "b.go",
+    kind: "file",
+  });
+  recordWorkspaceAtRecent(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, {
+    path_rel: "a.go",
+    kind: "file",
+  });
   let answer: (v: unknown) => void = () => {};
   const pending = new Promise((resolve) => {
     answer = resolve;
@@ -2199,7 +2344,14 @@ test("the server's answer keeps the row the arrows moved to among the recent pic
         ? pending.then(() => ({
             ok: true,
             json: async () => ({
-              items: [{ kind: "scheme", insert: "@session:", label: "session:", continue: true }],
+              items: [
+                {
+                  kind: "scheme",
+                  insert: "@session:",
+                  label: "session:",
+                  continue: true,
+                },
+              ],
               total: 1,
             }),
           }))
@@ -2214,13 +2366,19 @@ test("the server's answer keeps the row the arrows moved to among the recent pic
   });
   fireEvent.keyDown(ta, { key: "ArrowDown" });
   await waitFor(() => {
-    expect(screen.getByTestId("mention-row-file-b_go")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("mention-row-file-b_go")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
   answer(null);
   await waitFor(() => {
     expect(screen.getByTestId("mention-row-scheme-session_")).toBeTruthy();
   });
-  expect(screen.getByTestId("mention-row-file-b_go")).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByTestId("mention-row-file-b_go")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   localStorage.clear();
   vi.unstubAllGlobals();
 });
@@ -2244,7 +2402,10 @@ test("the composer chips only the mentions the server says a send would attach",
           }),
         });
       }
-      return Promise.resolve({ ok: true, json: async () => ({ items: [], total: 0 }) });
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ items: [], total: 0 }),
+      });
     }),
   );
   render(<MentionHarness onChange={() => {}} />);
@@ -2267,8 +2428,14 @@ test("the composer chips only the mentions the server says a send would attach",
 test("a folder row keeps the picker open on what it holds", async () => {
   stubShell(true);
   const urls = stubMentionsFetch({
-    src: { items: [{ kind: "directory", insert: "@src/", label: "src/", continue: true }] },
-    "src/": { items: [{ kind: "file", insert: "@src/app.go", label: "src/app.go" }] },
+    src: {
+      items: [
+        { kind: "directory", insert: "@src/", label: "src/", continue: true },
+      ],
+    },
+    "src/": {
+      items: [{ kind: "file", insert: "@src/app.go", label: "src/app.go" }],
+    },
   });
   const onChange = vi.fn();
   render(<MentionHarness onChange={onChange} />);
@@ -2358,7 +2525,12 @@ test("the settings armed for the next turns are shown next to the selectors", ()
       mode="agent"
       modes={["agent", "plan"]}
       settingsOverrides={[
-        { setting: "model", value: "nd/gpt-oss-120b", turnsLeft: 2, active: true },
+        {
+          setting: "model",
+          value: "nd/gpt-oss-120b",
+          turnsLeft: 2,
+          active: true,
+        },
         { setting: "reasoning", value: "off", turnsLeft: 1 },
       ]}
       onModeChange={() => {}}
@@ -2421,7 +2593,9 @@ test("picking /plan in the / menu switches the mode instead of typing it", async
     );
   }
   render(<Harness />);
-  const ta = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  const ta = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
   fireEvent.change(ta, {
     target: { value: "/pl", selectionStart: 3, selectionEnd: 3 },
   });
@@ -2481,10 +2655,9 @@ test("keys an input method is composing with leave the slash picker alone", asyn
   const ta = screen.getByRole("textbox", { name: "Message" });
   typeDraft(ta, "/gen");
   await waitFor(() => {
-    expect(screen.getByTestId("slash-command-row-rpa-gen-rules")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(
+      screen.getByTestId("slash-command-row-rpa-gen-rules"),
+    ).toHaveAttribute("aria-selected", "true");
   });
   onChange.mockClear();
   fireEvent.keyDown(ta, { key: "ArrowDown", isComposing: true });
@@ -2542,7 +2715,9 @@ test("keys an input method is composing with leave the @ picker alone", async ()
 test("a keyCode 229 with no composition behind it still takes the @ row", async () => {
   stubShell(true);
   stubMentionsFetch({
-    rea: { items: [{ kind: "file", insert: "@README.md", label: "README.md" }] },
+    rea: {
+      items: [{ kind: "file", insert: "@README.md", label: "README.md" }],
+    },
   });
   const onChange = vi.fn();
   render(<MentionHarness onChange={onChange} />);
@@ -2583,7 +2758,9 @@ test("an Escape the input method is composing with leaves the line-range picker 
 test("a keyCode 229 long after a composition ended still takes the @ row", async () => {
   stubShell(true);
   stubMentionsFetch({
-    rea: { items: [{ kind: "file", insert: "@README.md", label: "README.md" }] },
+    rea: {
+      items: [{ kind: "file", insert: "@README.md", label: "README.md" }],
+    },
   });
   const onChange = vi.fn();
   render(<MentionHarness onChange={onChange} />);
@@ -2638,7 +2815,10 @@ test("files picked from the dialog survive the input being cleared before the up
   const input = screen.getByTestId("composer-file-input") as HTMLInputElement;
   const file = new File(["image"], "shot.png", { type: "image/png" });
   const live: File[] = [file];
-  Object.defineProperty(input, "files", { configurable: true, get: () => live });
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    get: () => live,
+  });
   Object.defineProperty(input, "value", {
     configurable: true,
     get: () => (live.length ? "C:\\fakepath\\shot.png" : ""),
@@ -2648,7 +2828,10 @@ test("files picked from the dialog survive the input being cleared before the up
   });
   fireEvent.change(input);
   // The update runs only now, after the handler cleared the input.
-  const next = typeof updater === "function" ? (updater as (p: File[]) => File[])([]) : updater;
+  const next =
+    typeof updater === "function"
+      ? (updater as (p: File[]) => File[])([])
+      : updater;
   expect(next).toEqual([file]);
   vi.unstubAllGlobals();
 });
@@ -2719,7 +2902,11 @@ function SentDraftHarness(props: {
 
 async function openCommandMenu(ta: HTMLElement, draft: string) {
   fireEvent.change(ta, {
-    target: { value: draft, selectionStart: draft.length, selectionEnd: draft.length },
+    target: {
+      value: draft,
+      selectionStart: draft.length,
+      selectionEnd: draft.length,
+    },
   });
   await waitFor(() => {
     expect(screen.getByTestId("command-row-compact")).toBeTruthy();
@@ -2760,10 +2947,7 @@ test("a draft queued while the slash menu is open closes the menu", async () => 
 });
 
 describe("cwd-scoped requests follow the chat workspace", () => {
-  function slashHarness(props: {
-    sessionId?: string;
-    workspacePath?: string;
-  }) {
+  function slashHarness(props: { sessionId?: string; workspacePath?: string }) {
     function Harness() {
       const [value, setValue] = useState("");
       return (
@@ -2861,7 +3045,9 @@ describe("cwd-scoped requests follow the chat workspace", () => {
     });
     const slashCwds = () =>
       fetchMock.mock.calls
-        .filter((c: unknown[]) => String(c[0]).includes("/coddy/slash-commands"))
+        .filter((c: unknown[]) =>
+          String(c[0]).includes("/coddy/slash-commands"),
+        )
         .map((c: unknown[]) =>
           new URL(String(c[0]), "http://x").searchParams.get("cwd"),
         );

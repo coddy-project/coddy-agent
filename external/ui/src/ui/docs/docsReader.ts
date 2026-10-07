@@ -46,7 +46,10 @@ const headingKey = (s: string) =>
  * the renderer draws and the server does not count (one inside a quote, an
  * underlined one) is skipped instead of shifting every anchor after it.
  */
-export function assignHeadingIds(root: HTMLElement, headings: DocsHeading[]): void {
+export function assignHeadingIds(
+  root: HTMLElement,
+  headings: DocsHeading[],
+): void {
   // The "#" links of an earlier pass are not part of a heading's text.
   root.querySelectorAll(".docs-heading-anchor").forEach((a) => a.remove());
   let next = 0;
@@ -106,6 +109,8 @@ export function sectionAnchorAt(root: HTMLElement, node: Node): string | null {
 }
 
 /** The snippet of a search hit as plain text, for a title attribute. */
-export function snippetText(snippet: DocsFragment[] | null | undefined): string {
+export function snippetText(
+  snippet: DocsFragment[] | null | undefined,
+): string {
   return (snippet ?? []).map((f) => f.text).join("");
 }

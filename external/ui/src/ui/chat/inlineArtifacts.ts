@@ -23,7 +23,8 @@ export function artifactMarkersForAssistant(
     if (!item) continue;
     if (opensTurn(item)) break;
     if (item.type !== "tool_call") continue;
-    for (const artifact of item.artifacts || []) result.set(artifact.id, artifact);
+    for (const artifact of item.artifacts || [])
+      result.set(artifact.id, artifact);
   }
   return result;
 }
@@ -82,10 +83,18 @@ export function groupAssistantArtifactTokens(
   return out;
 }
 
-export function artifactMarkerIds(content: string, artifacts: ReadonlyMap<string, ToolArtifact>): Set<string> {
+export function artifactMarkerIds(
+  content: string,
+  artifacts: ReadonlyMap<string, ToolArtifact>,
+): Set<string> {
   return new Set(
     tokenizeAssistantArtifacts(content, artifacts)
-      .filter((token): token is Extract<AssistantArtifactToken, { type: "artifact" }> => token.type === "artifact")
+      .filter(
+        (
+          token,
+        ): token is Extract<AssistantArtifactToken, { type: "artifact" }> =>
+          token.type === "artifact",
+      )
       .map((token) => token.artifact.id),
   );
 }

@@ -131,9 +131,9 @@ describe("swarm mount helpers", () => {
   // A mount URL spells the whole chain from the outermost relay down, so the
   // map can always be drawn by the root relay no matter how deep the env is.
   it("swarmMountRoot returns the relay a mount hangs off", () => {
-    expect(
-      swarmMountRoot("http://r:1/swarm/nodes/east/swarm/nodes/deep"),
-    ).toBe("http://r:1");
+    expect(swarmMountRoot("http://r:1/swarm/nodes/east/swarm/nodes/deep")).toBe(
+      "http://r:1",
+    );
     expect(swarmMountRoot("http://r:1/swarm/nodes/east")).toBe("http://r:1");
     expect(swarmMountRoot("http://r:1")).toBe("");
     expect(swarmMountRoot("http://node.example")).toBe("");
@@ -157,9 +157,9 @@ describe("swarm mount helpers", () => {
       }),
     ).toBe("http://r:1");
     // A chained relay env: the mount is in its own baseUrl.
-    expect(
-      swarmRootRelay({ baseUrl: "http://r:1/swarm/nodes/east" }),
-    ).toBe("http://r:1");
+    expect(swarmRootRelay({ baseUrl: "http://r:1/swarm/nodes/east" })).toBe(
+      "http://r:1",
+    );
     // A plain node mount and a direct remote stand as they are.
     expect(
       swarmRootRelay({

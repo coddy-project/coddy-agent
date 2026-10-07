@@ -93,7 +93,11 @@ function listPage(url: string) {
       archived: archivedById.get(id) ?? false,
     }))
     .filter((row) =>
-      filter === "all" ? true : filter === "only" ? row.archived : !row.archived,
+      filter === "all"
+        ? true
+        : filter === "only"
+          ? row.archived
+          : !row.archived,
     );
   const end = offset + limit;
   return json({
@@ -113,72 +117,74 @@ function shownIds(): string[] {
   return (sidebar.sessions ?? []).map((row) => row.id);
 }
 
-const fetchStub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-  const url =
-    typeof input === "string"
-      ? input
-      : input instanceof URL
-        ? input.href
-        : input.url;
-  const msgMatch = url.match(/\/coddy\/sessions\/([^/?]+)\/messages/);
-  if (msgMatch) {
-    const sid = decodeURIComponent(msgMatch[1] ?? "");
-    // The flag is read at issue time, so a deferred reply carries the older
-    // value even when the PATCH has moved the flag since.
-    const archived = archivedById.get(sid) ?? false;
-    const answer = () =>
-      json({
-        messages: [],
-        session_id: sid,
-        title: "",
-        archived,
-      });
-    if (holdMessages) {
-      return new Promise<Response>((resolve) => {
-        messageGate.push(() => resolve(answer()));
-      });
-    }
-    return answer();
-  }
-  if (url.startsWith("/coddy/sessions?")) {
-    if (url.includes("cursor=")) {
-      if (throwCursorPages) throw new TypeError("Failed to fetch");
-      if (holdCursorPages) {
-        // The page is read when it is answered, like the real server's.
-        return new Promise<Response>((resolve) => {
-          pageGate.push(() => resolve(listPage(url)));
+const fetchStub = vi.fn(
+  async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    const msgMatch = url.match(/\/coddy\/sessions\/([^/?]+)\/messages/);
+    if (msgMatch) {
+      const sid = decodeURIComponent(msgMatch[1] ?? "");
+      // The flag is read at issue time, so a deferred reply carries the older
+      // value even when the PATCH has moved the flag since.
+      const archived = archivedById.get(sid) ?? false;
+      const answer = () =>
+        json({
+          messages: [],
+          session_id: sid,
+          title: "",
+          archived,
         });
-      }
-    }
-    return listPage(url);
-  }
-  if ((init?.method ?? "GET") === "PATCH") {
-    const patchMatch = url.match(/\/coddy\/sessions\/([^/?]+)/);
-    const body = JSON.parse(String(init?.body ?? "{}")) as {
-      archived?: boolean;
-    };
-    if (patchMatch && body.archived !== undefined) {
-      const sid = decodeURIComponent(patchMatch[1] ?? "");
-      const archived = body.archived;
-      const answer = () => {
-        if (failArchivePatch) return json({ error: "disk full" }, 500);
-        if (applyPatchOnRelease) archivedById.set(sid, archived);
-        return json({ ok: true });
-      };
-      if (!applyPatchOnRelease && !failArchivePatch) {
-        archivedById.set(sid, archived);
-      }
-      if (holdArchivePatch) {
+      if (holdMessages) {
         return new Promise<Response>((resolve) => {
-          patchGate.push(() => resolve(answer()));
+          messageGate.push(() => resolve(answer()));
         });
       }
       return answer();
     }
-    return json({ ok: true });
-  }
-  return json({});
-});
+    if (url.startsWith("/coddy/sessions?")) {
+      if (url.includes("cursor=")) {
+        if (throwCursorPages) throw new TypeError("Failed to fetch");
+        if (holdCursorPages) {
+          // The page is read when it is answered, like the real server's.
+          return new Promise<Response>((resolve) => {
+            pageGate.push(() => resolve(listPage(url)));
+          });
+        }
+      }
+      return listPage(url);
+    }
+    if ((init?.method ?? "GET") === "PATCH") {
+      const patchMatch = url.match(/\/coddy\/sessions\/([^/?]+)/);
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        archived?: boolean;
+      };
+      if (patchMatch && body.archived !== undefined) {
+        const sid = decodeURIComponent(patchMatch[1] ?? "");
+        const archived = body.archived;
+        const answer = () => {
+          if (failArchivePatch) return json({ error: "disk full" }, 500);
+          if (applyPatchOnRelease) archivedById.set(sid, archived);
+          return json({ ok: true });
+        };
+        if (!applyPatchOnRelease && !failArchivePatch) {
+          archivedById.set(sid, archived);
+        }
+        if (holdArchivePatch) {
+          return new Promise<Response>((resolve) => {
+            patchGate.push(() => resolve(answer()));
+          });
+        }
+        return answer();
+      }
+      return json({ ok: true });
+    }
+    return json({});
+  },
+);
 
 function releaseMessages() {
   messageGate.splice(0).forEach((release) => release());
@@ -319,7 +325,9 @@ test("an archive PATCH that lands after the viewer moved on marks no session", a
   // sess_y must not inherit a flag that belonged to sess_x.
   expect(chatScreenRenders.at(-1)?.sessionArchived).toBe(false);
   expect(
-    chatScreenRenders.filter((r) => r.sessionId === "sess_y").every((r) => !r.sessionArchived),
+    chatScreenRenders
+      .filter((r) => r.sessionId === "sess_y")
+      .every((r) => !r.sessionArchived),
   ).toBe(true);
 });
 
@@ -359,7 +367,10 @@ test("the notice's unarchive control brings the composer back", async () => {
 });
 
 function sessionIds(n: number): string[] {
-  return Array.from({ length: n }, (_, i) => `sess_${String(i).padStart(2, "0")}`);
+  return Array.from(
+    { length: n },
+    (_, i) => `sess_${String(i).padStart(2, "0")}`,
+  );
 }
 
 async function openHistory() {
@@ -426,8 +437,12 @@ test("a refused archive puts the row back where it was and says so on it", async
 
   releaseArchivePatch();
   await waitFor(() => expect(shownIds()).toEqual(order));
-  expect(sidebar.rowErrors?.["sess_05"]).toBe("The conversation was not archived");
-  expect((sidebar.sessions ?? []).find((row) => row.id === "sess_05")?.archived).toBeFalsy();
+  expect(sidebar.rowErrors?.["sess_05"]).toBe(
+    "The conversation was not archived",
+  );
+  expect(
+    (sidebar.sessions ?? []).find((row) => row.id === "sess_05")?.archived,
+  ).toBeFalsy();
   // Trying again takes the note away with the row.
   failArchivePatch = false;
   await act(async () => {

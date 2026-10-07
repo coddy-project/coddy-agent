@@ -80,7 +80,9 @@ test("the first read asks for the schema and the config once, however many ask",
 });
 
 test("a reload notice reads a held copy again and leaves an unread one alone", async () => {
-  const state = { config: { agent: { max_turns: 40 } } as Record<string, unknown> };
+  const state = {
+    config: { agent: { max_turns: 40 } } as Record<string, unknown>,
+  };
   const fetch = answeringServer(state);
 
   noteSettingsConfigReloaded();
@@ -90,7 +92,9 @@ test("a reload notice reads a held copy again and leaves an unread one alone", a
   state.config = { agent: { max_turns: 60 } };
   noteSettingsConfigReloaded();
   await vi.waitFor(() =>
-    expect(snapshotSettingsConfig().config).toEqual({ agent: { max_turns: 60 } }),
+    expect(snapshotSettingsConfig().config).toEqual({
+      agent: { max_turns: 60 },
+    }),
   );
   expect(fetch).toHaveBeenCalledTimes(4);
 });
@@ -156,7 +160,9 @@ test("an answer older than a failed read is kept, and the next open reads again"
   }
   expect((await newer).ok).toBe(false);
   for (const p of pending.slice(0, 2)) {
-    p.resolve(p.path.endsWith("/schema") ? schema : { agent: { max_turns: 1 } });
+    p.resolve(
+      p.path.endsWith("/schema") ? schema : { agent: { max_turns: 1 } },
+    );
   }
   await older;
   expect(snapshotSettingsConfig().config).toEqual({ agent: { max_turns: 1 } });
@@ -185,7 +191,9 @@ test("a saved document is the copy until a read after the save replaces it", asy
   expect(snapshotSettingsConfig().config).toEqual({ agent: { max_turns: 45 } });
 
   for (const p of pending) {
-    p.resolve(p.path.endsWith("/schema") ? schema : { agent: { max_turns: 40 } });
+    p.resolve(
+      p.path.endsWith("/schema") ? schema : { agent: { max_turns: 40 } },
+    );
   }
   await before;
   expect(snapshotSettingsConfig().config).toEqual({ agent: { max_turns: 45 } });
@@ -204,7 +212,9 @@ test("a reload notice retries a first read that failed", async () => {
   answeringServer({ config: { agent: { max_turns: 40 } } });
   noteSettingsConfigReloaded();
   await vi.waitFor(() =>
-    expect(snapshotSettingsConfig().config).toEqual({ agent: { max_turns: 40 } }),
+    expect(snapshotSettingsConfig().config).toEqual({
+      agent: { max_turns: 40 },
+    }),
   );
   expect(snapshotSettingsConfig().error).toBeNull();
 });

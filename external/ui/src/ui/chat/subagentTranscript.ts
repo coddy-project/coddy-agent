@@ -31,7 +31,11 @@ export type SubagentTranscriptPayload = {
     parentSessionId?: unknown;
     name?: unknown;
     taskId?: unknown;
-    scheduler?: { jobId?: unknown; trigger?: unknown; workspace?: unknown } | null;
+    scheduler?: {
+      jobId?: unknown;
+      trigger?: unknown;
+      workspace?: unknown;
+    } | null;
   } | null;
   schedulerJob?: { jobId?: unknown; workspace?: unknown } | null;
   readOnly?: unknown;

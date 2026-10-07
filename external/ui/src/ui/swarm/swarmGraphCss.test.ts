@@ -12,7 +12,9 @@ const css = readFileSync(join(dir, "../../styles.css"), "utf8");
 
 const rule = (selector: string): string => {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|\\n)${escaped}\\s*\\{[^}]*\\}`, "s").exec(css)?.[0] ?? "";
+  return (
+    new RegExp(`(^|\\n)${escaped}\\s*\\{[^}]*\\}`, "s").exec(css)?.[0] ?? ""
+  );
 };
 
 describe("swarm graph canvas sizing", () => {

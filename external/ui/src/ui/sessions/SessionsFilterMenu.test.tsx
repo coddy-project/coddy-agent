@@ -1,10 +1,7 @@
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, test, vi } from "vitest";
-import {
-  SessionsFilterMenu,
-  placeFilterSubmenu,
-} from "./SessionsFilterMenu";
+import { SessionsFilterMenu, placeFilterSubmenu } from "./SessionsFilterMenu";
 
 afterEach(() => {
   cleanup();
@@ -112,7 +109,11 @@ function renderMenu(anchor: DOMRect) {
 describe("History filter menu on a phone", () => {
   // The geometry Chromium gives the Russian menu at 393px: the trigger ends at
   // 370, the menu is 313px wide, a row spans its width less the padding.
-  const phone = { viewport: 393, row: [63, 364] as [number, number], submenu: 160 };
+  const phone = {
+    viewport: 393,
+    row: [63, 364] as [number, number],
+    submenu: 160,
+  };
   const phoneTrigger = rect(334, 370, 150, 186);
 
   it("folds a section's choices out under its row, inside the screen", () => {
@@ -178,20 +179,33 @@ describe("History filter menu between the two", () => {
     // 510px: the status list fits on the left of the menu, the wider sort
     // list fits nowhere. Switching kinds of list under the reader's finger
     // would move the rows, so the menu stays inline until it closes.
-    layOut({ viewport: 510, row: [180, 481], submenu: { status: 160, sort: 199 } });
+    layOut({
+      viewport: 510,
+      row: [180, 481],
+      submenu: { status: 160, sort: 199 },
+    });
     renderMenu(rect(451, 487, 150, 186));
 
-    fireEvent.click(screen.getByTestId("sessions-filter-section-status"), POINTER_CLICK);
+    fireEvent.click(
+      screen.getByTestId("sessions-filter-section-status"),
+      POINTER_CLICK,
+    );
     expect(screen.getByTestId("sessions-filter-submenu-status")).toHaveClass(
       "opens-left",
     );
 
-    fireEvent.click(screen.getByTestId("sessions-filter-section-sort"), POINTER_CLICK);
+    fireEvent.click(
+      screen.getByTestId("sessions-filter-section-sort"),
+      POINTER_CLICK,
+    );
     expect(screen.getByTestId("sessions-filter-submenu-sort")).toHaveClass(
       "opens-inline",
     );
 
-    fireEvent.click(screen.getByTestId("sessions-filter-section-status"), POINTER_CLICK);
+    fireEvent.click(
+      screen.getByTestId("sessions-filter-section-status"),
+      POINTER_CLICK,
+    );
     expect(screen.getByTestId("sessions-filter-submenu-status")).toHaveClass(
       "opens-inline",
     );
@@ -321,7 +335,9 @@ describe("History filter menu and Escape", () => {
     }
     render(<Drawer />);
     fireEvent.click(screen.getByTestId("sessions-filter-section-sort"));
-    expect(screen.getByTestId("sessions-filter-sort-title")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("sessions-filter-sort-title"),
+    ).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByTestId("sessions-filter-sort-title")).toBeNull();
@@ -335,27 +351,43 @@ describe("History filter menu and Escape", () => {
 
 describe("placeFilterSubmenu", () => {
   test("prefers the right, where the drawer leaves the room", () => {
-    expect(placeFilterSubmenu({ left: 86, right: 387 }, 160, 1280)).toBe("right");
+    expect(placeFilterSubmenu({ left: 86, right: 387 }, 160, 1280)).toBe(
+      "right",
+    );
   });
 
   test("goes left when the right is short of room", () => {
-    expect(placeFilterSubmenu({ left: 370, right: 671 }, 199, 700)).toBe("left");
+    expect(placeFilterSubmenu({ left: 370, right: 671 }, 199, 700)).toBe(
+      "left",
+    );
   });
 
   test("folds inline when neither side has the room", () => {
-    expect(placeFilterSubmenu({ left: 63, right: 364 }, 160, 393)).toBe("inline");
+    expect(placeFilterSubmenu({ left: 63, right: 364 }, 160, 393)).toBe(
+      "inline",
+    );
     // One window, two lists: the status list fits on the left, the wider sort
     // list does not.
-    expect(placeFilterSubmenu({ left: 180, right: 481 }, 160, 510)).toBe("left");
-    expect(placeFilterSubmenu({ left: 180, right: 481 }, 199, 510)).toBe("inline");
+    expect(placeFilterSubmenu({ left: 180, right: 481 }, 160, 510)).toBe(
+      "left",
+    );
+    expect(placeFilterSubmenu({ left: 180, right: 481 }, 199, 510)).toBe(
+      "inline",
+    );
   });
 
   test("keeps the list 8px clear of the window edge", () => {
     // Right: 4px gap from the row, then the list, then 8px to the edge.
     expect(placeFilterSubmenu({ left: 0, right: 100 }, 188, 300)).toBe("right");
-    expect(placeFilterSubmenu({ left: 0, right: 100 }, 189, 300)).toBe("inline");
+    expect(placeFilterSubmenu({ left: 0, right: 100 }, 189, 300)).toBe(
+      "inline",
+    );
     // Left: 8px from the edge, the list, then the 4px gap to the row.
-    expect(placeFilterSubmenu({ left: 212, right: 500 }, 200, 500)).toBe("left");
-    expect(placeFilterSubmenu({ left: 211, right: 500 }, 200, 500)).toBe("inline");
+    expect(placeFilterSubmenu({ left: 212, right: 500 }, 200, 500)).toBe(
+      "left",
+    );
+    expect(placeFilterSubmenu({ left: 211, right: 500 }, 200, 500)).toBe(
+      "inline",
+    );
   });
 });

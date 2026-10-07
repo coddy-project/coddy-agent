@@ -325,7 +325,10 @@ function SchemaField(props: {
       <fieldset className="settings-fieldset">
         <LegendWithHint label={label} description={desc} />
         {setCount > 0 ? (
-          <p className="settings-field-desc" data-testid="settings-secret-list-state">
+          <p
+            className="settings-field-desc"
+            data-testid="settings-secret-list-state"
+          >
             {tp("settings.secret.listSet", setCount)}
           </p>
         ) : null}
@@ -493,7 +496,9 @@ function SchemaField(props: {
           type="password"
           autoComplete="new-password"
           value={s}
-          placeholder={set ? tr("settings.secret.keep") : tr("settings.secret.unset")}
+          placeholder={
+            set ? tr("settings.secret.keep") : tr("settings.secret.unset")
+          }
           aria-label={label}
           data-testid={`settings-secret-${path}`}
           onChange={(e: ChangeEvent<HTMLInputElement>) =>

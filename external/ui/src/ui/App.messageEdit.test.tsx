@@ -32,44 +32,60 @@ const json = (body: unknown, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
-const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
-  const url = new URL(String(input), "http://localhost");
-  const path = url.pathname;
-  if (path === "/coddy/events")
-    return new Response(new ReadableStream<Uint8Array>(), {
-      headers: { "Content-Type": "text/event-stream" },
-    });
-  if (path === "/v1/models") return json({ data: [] });
-  if (path.startsWith("/coddy/sessions") && !path.includes(SID))
-    return json({ sessions: [{ id: SID, title: "Edit" }] });
-  if (path === `/coddy/sessions/${SID}/messages`) {
-    return json({
-      messages: msgs,
-      window: { offset: 0, total: msgs.length, turnsBefore: 0, userRowsBefore: 0 },
-      ...(rewindUndo ? { rewindUndo } : {}),
-    });
-  }
-  if (path === `/coddy/sessions/${SID}/rewind`) {
-    msgs = msgs.slice(0, 2);
-    rewindUndo = { userMessageIndex: 1 };
-    return json({ object: "coddy.session_rewound", sessionId: SID, messagesRev: 3 });
-  }
-  if (path === `/coddy/sessions/${SID}/rewind/undo`) {
-    msgs = [...ORIGINAL];
-    rewindUndo = null;
-    return json({ object: "coddy.session_rewind_undone", sessionId: SID, messagesRev: 9 });
-  }
-  if (path === `/coddy/sessions/${SID}/tool-calls`) return json({ toolCalls: [] });
-  if (path === `/coddy/sessions/${SID}/activity`)
-    return json({ sessionId: SID, turnActive: false });
-  if (path === `/coddy/sessions/${SID}/background-tasks`)
-    return json({ data: [], running: 0 });
-  if (path === `/coddy/sessions/${SID}/stats`) return json({ stats: {} });
-  if (path === `/coddy/sessions/${SID}/queue`) return json({ messages: [] });
-  if (path === "/coddy/workspace/context")
-    return json({ cwd: "/workspace", is_git_repo: false });
-  return json({});
-});
+const fetchMock = vi.fn(
+  async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    const path = url.pathname;
+    if (path === "/coddy/events")
+      return new Response(new ReadableStream<Uint8Array>(), {
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    if (path === "/v1/models") return json({ data: [] });
+    if (path.startsWith("/coddy/sessions") && !path.includes(SID))
+      return json({ sessions: [{ id: SID, title: "Edit" }] });
+    if (path === `/coddy/sessions/${SID}/messages`) {
+      return json({
+        messages: msgs,
+        window: {
+          offset: 0,
+          total: msgs.length,
+          turnsBefore: 0,
+          userRowsBefore: 0,
+        },
+        ...(rewindUndo ? { rewindUndo } : {}),
+      });
+    }
+    if (path === `/coddy/sessions/${SID}/rewind`) {
+      msgs = msgs.slice(0, 2);
+      rewindUndo = { userMessageIndex: 1 };
+      return json({
+        object: "coddy.session_rewound",
+        sessionId: SID,
+        messagesRev: 3,
+      });
+    }
+    if (path === `/coddy/sessions/${SID}/rewind/undo`) {
+      msgs = [...ORIGINAL];
+      rewindUndo = null;
+      return json({
+        object: "coddy.session_rewind_undone",
+        sessionId: SID,
+        messagesRev: 9,
+      });
+    }
+    if (path === `/coddy/sessions/${SID}/tool-calls`)
+      return json({ toolCalls: [] });
+    if (path === `/coddy/sessions/${SID}/activity`)
+      return json({ sessionId: SID, turnActive: false });
+    if (path === `/coddy/sessions/${SID}/background-tasks`)
+      return json({ data: [], running: 0 });
+    if (path === `/coddy/sessions/${SID}/stats`) return json({ stats: {} });
+    if (path === `/coddy/sessions/${SID}/queue`) return json({ messages: [] });
+    if (path === "/coddy/workspace/context")
+      return json({ cwd: "/workspace", is_git_repo: false });
+    return json({});
+  },
+);
 
 type ChatProps = {
   sessionId: string;
@@ -101,7 +117,9 @@ const prompts = () =>
     .map((it) => (it as { content: string }).content);
 
 const calledPath = (p: string) =>
-  fetchMock.mock.calls.some((c) => new URL(String(c[0]), "http://localhost").pathname === p);
+  fetchMock.mock.calls.some(
+    (c) => new URL(String(c[0]), "http://localhost").pathname === p,
+  );
 
 beforeEach(() => {
   initLocale("en");
@@ -129,7 +147,9 @@ function renderApp() {
 
 async function openSession() {
   renderApp();
-  await waitFor(() => expect(prompts()).toEqual(["first question", "second question"]));
+  await waitFor(() =>
+    expect(prompts()).toEqual(["first question", "second question"]),
+  );
 }
 
 test("the pencil names the message being edited and cancelling restores the draft it replaced", async () => {
@@ -170,7 +190,9 @@ test("an undoable rewind is offered on its prompt, and Undo restores the convers
   expect(chat!.rewindUndoBanner).toBe(true);
 
   await act(async () => chat!.onUndoEdit!());
-  await waitFor(() => expect(prompts()).toEqual(["first question", "second question"]));
+  await waitFor(() =>
+    expect(prompts()).toEqual(["first question", "second question"]),
+  );
   expect(calledPath(`/coddy/sessions/${SID}/rewind/undo`)).toBe(true);
   await waitFor(() => expect(chat!.rewindUndoUserMsgIdx ?? null).toBeNull());
   expect(chat!.rewindUndoBanner).toBe(false);
@@ -197,7 +219,9 @@ test("sending the edit gives back the draft the pencil set aside", async () => {
   await act(async () => chat!.onEdit!("second question", 1));
   await act(async () => chat!.onDraftChange("second question, edited"));
   await act(async () => chat!.onSend!("second question, edited"));
-  await waitFor(() => expect(calledPath(`/coddy/sessions/${SID}/rewind`)).toBe(true));
+  await waitFor(() =>
+    expect(calledPath(`/coddy/sessions/${SID}/rewind`)).toBe(true),
+  );
   await waitFor(() => expect(chat!.editingUserMsgIdx ?? null).toBeNull());
   expect(chat!.draft).toBe("half-written follow-up");
 });
@@ -216,9 +240,13 @@ test("two clicks on Undo post one undo", async () => {
     chat!.onUndoEdit!();
     chat!.onUndoEdit!();
   });
-  await waitFor(() => expect(prompts()).toEqual(["first question", "second question"]));
+  await waitFor(() =>
+    expect(prompts()).toEqual(["first question", "second question"]),
+  );
   const undoPosts = fetchMock.mock.calls.filter(
-    (c) => new URL(String(c[0]), "http://localhost").pathname === `/coddy/sessions/${SID}/rewind/undo`,
+    (c) =>
+      new URL(String(c[0]), "http://localhost").pathname ===
+      `/coddy/sessions/${SID}/rewind/undo`,
   );
   expect(undoPosts).toHaveLength(1);
 });
@@ -236,7 +264,9 @@ test("a banner put away comes back for the next edit of the same prompt", async 
   await act(async () => chat!.onDismissRewindUndo!());
   expect(chat!.rewindUndoBanner).toBe(false);
   await act(async () => chat!.onUndoEdit!());
-  await waitFor(() => expect(prompts()).toEqual(["first question", "second question"]));
+  await waitFor(() =>
+    expect(prompts()).toEqual(["first question", "second question"]),
+  );
 
   await act(async () => chat!.onEdit!("second question", 1));
   await act(async () => chat!.onSend!("second question, again"));

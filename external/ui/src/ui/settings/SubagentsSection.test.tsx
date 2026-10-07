@@ -227,7 +227,10 @@ test("the shield of an approved definition withdraws the approval", async () => 
   const calls = stubTrustFlow({ after: listResponse });
   // Start from the approved listing: the first GET answers with it.
   vi.mocked(fetch).mockImplementationOnce(() =>
-    Promise.resolve({ ok: true, json: async () => approvedListing } as Response),
+    Promise.resolve({
+      ok: true,
+      json: async () => approvedListing,
+    } as Response),
   );
   renderSection("/work/repo");
   const shield = await screen.findByTestId("subagent-trust-reviewer");

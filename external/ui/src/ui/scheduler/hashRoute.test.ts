@@ -244,8 +244,12 @@ describe("hash writers", () => {
     setSchedulerJobRunsHash("night ly");
     expect(window.location.hash).toBe("#/scheduler/jobs/night%20ly/runs");
     setSchedulerJobRunsHash("nightly", "bg_7", { historySidebar: true });
-    expect(window.location.hash).toBe("#/scheduler/jobs/nightly/runs/bg_7?history=1");
-    expect(appNavHrefSchedulerJobRuns("nightly")).toBe("#/scheduler/jobs/nightly/runs");
+    expect(window.location.hash).toBe(
+      "#/scheduler/jobs/nightly/runs/bg_7?history=1",
+    );
+    expect(appNavHrefSchedulerJobRuns("nightly")).toBe(
+      "#/scheduler/jobs/nightly/runs",
+    );
     expect(appNavHrefSchedulerJobRuns("nightly", "bg_1")).toBe(
       "#/scheduler/jobs/nightly/runs/bg_1",
     );
@@ -451,7 +455,9 @@ describe("documentation routes", () => {
 
   test("builds the addresses a coddy: link and the rail point at", () => {
     expect(appNavHrefDocs()).toBe("#/docs");
-    expect(appNavHrefDocs("features/mentions")).toBe("#/docs/features/mentions");
+    expect(appNavHrefDocs("features/mentions")).toBe(
+      "#/docs/features/mentions",
+    );
     expect(appNavHrefDocs("features/mentions", "completion")).toBe(
       "#/docs/features/mentions#completion",
     );

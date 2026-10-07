@@ -21,7 +21,8 @@
     "check:files": "node scripts/files-check.mjs",
     "check:artifacts": "node scripts/artifact-card-check.mjs",
     "check:caret": "node scripts/composer-caret-check.mjs",
-    "fmt": "prettier -w ."
+    "fmt": "prettier -w .",
+    "format:check": "prettier --check ."
   },
   "keywords": [],
   "author": "",

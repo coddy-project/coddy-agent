@@ -13,10 +13,16 @@ test("on the local origin an <img> loads the server's URL itself", () => {
 });
 
 test("in a remote environment the URL is asked of it, the token in a header", () => {
-  setEnv({ mode: "remote", baseUrl: "http://relay.example/swarm/nodes/node/", token: "tok" });
+  setEnv({
+    mode: "remote",
+    baseUrl: "http://relay.example/swarm/nodes/node/",
+    token: "tok",
+  });
   const req = apiImageRequest(thumb);
   expect(req?.url).toBe("http://relay.example/swarm/nodes/node" + thumb);
-  expect(new Headers(req?.init.headers).get("Authorization")).toBe("Bearer tok");
+  expect(new Headers(req?.init.headers).get("Authorization")).toBe(
+    "Bearer tok",
+  );
   expect(req?.url).not.toContain("tok");
 });
 
@@ -28,7 +34,11 @@ test("a remote environment without a token sends no Authorization header", () =>
 });
 
 test("what is not the server's API loads as it is, remote or not", () => {
-  setEnv({ mode: "remote", baseUrl: "http://relay.example/swarm/nodes/node", token: "tok" });
+  setEnv({
+    mode: "remote",
+    baseUrl: "http://relay.example/swarm/nodes/node",
+    token: "tok",
+  });
   for (const url of [
     "blob:http://relay.example/5f1c",
     "data:image/png;base64,aGVsbG8=",

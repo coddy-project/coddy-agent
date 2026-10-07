@@ -51,7 +51,10 @@ export function applyMemoryRunToItems(
   for (let i = userIdx + 1; i < prev.length; i++) {
     const it = prev[i];
     if (!it) continue;
-    if (it.type === "memory_run" && (!taskId || !it.taskId || it.taskId === taskId)) {
+    if (
+      it.type === "memory_run" &&
+      (!taskId || !it.taskId || it.taskId === taskId)
+    ) {
       idx = i;
       break;
     }

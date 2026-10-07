@@ -13,8 +13,17 @@ function rule(selector: string): string {
 
 /** The four sides of a `padding` shorthand, in pixels. */
 function padding(block: string): number[] {
-  const values = /padding:\s*([^;]+);/.exec(block)![1]!.trim().split(/\s+/).map((v) => parseFloat(v));
-  const [top, right = top, bottom = top, left = right] = values as [number, number?, number?, number?];
+  const values = /padding:\s*([^;]+);/
+    .exec(block)![1]!
+    .trim()
+    .split(/\s+/)
+    .map((v) => parseFloat(v));
+  const [top, right = top, bottom = top, left = right] = values as [
+    number,
+    number?,
+    number?,
+    number?,
+  ];
   return [top, right, bottom, left];
 }
 
@@ -29,7 +38,9 @@ test("the rows of the tree are as wide as the filter", () => {
 
 // The tabs stand as far under the window's head as the filter beside them.
 test("the tabs start as far under the head as the filter", () => {
-  expect(padding(rule(".files-tabs-bar"))[0]).toBe(padding(rule(".files-filter"))[0]);
+  expect(padding(rule(".files-tabs-bar"))[0]).toBe(
+    padding(rule(".files-filter"))[0],
+  );
 });
 
 // The strip scrolls sideways with no scrollbar of its own: the arrows, the

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Universal pre-commit gate: run the linter (and Prettier over the staged SPA
-# sources) before every commit.
+# Universal pre-commit gate: run the linter (and Prettier over the SPA when the
+# commit stages SPA sources) before every commit.
 #
 # Enable once per clone:   make hooks     (or: git config core.hooksPath .githooks)
 # Emergency bypass:        git commit --no-verify

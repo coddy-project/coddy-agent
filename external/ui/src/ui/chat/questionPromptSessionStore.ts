@@ -1,5 +1,8 @@
 import { parseQuestionToolQuestionsFromArgs } from "./questionToolDisplay";
-import type { CoddyQuestionPayload, QuestionResolvedState } from "./questionTypes";
+import type {
+  CoddyQuestionPayload,
+  QuestionResolvedState,
+} from "./questionTypes";
 import type { TranscriptItem } from "./types";
 
 const STORAGE_PREFIX = "coddy_qp_v1:";
@@ -13,14 +16,18 @@ export type StoredQuestionPromptRecord = {
 export function hasUnresolvedQuestionPrompt(
   items: readonly TranscriptItem[],
 ): boolean {
-  return items.some((item) => item.type === "question_prompt" && !item.resolved);
+  return items.some(
+    (item) => item.type === "question_prompt" && !item.resolved,
+  );
 }
 
 function storageKey(sessionId: string): string {
   return `${STORAGE_PREFIX}${sessionId.trim()}`;
 }
 
-export function loadQuestionPromptRecords(sessionId: string): StoredQuestionPromptRecord[] {
+export function loadQuestionPromptRecords(
+  sessionId: string,
+): StoredQuestionPromptRecord[] {
   if (typeof window === "undefined") return [];
   const sid = sessionId.trim();
   if (!sid) return [];
@@ -70,9 +77,7 @@ export function upsertQuestionPromptRecord(
       ...list[i],
       ...next,
       resolved:
-        record.resolved !== undefined
-          ? record.resolved
-          : list[i]?.resolved,
+        record.resolved !== undefined ? record.resolved : list[i]?.resolved,
     };
   } else {
     list.push(next);
@@ -96,7 +101,9 @@ export function clearQuestionPromptRecords(sessionId: string): void {
 }
 
 /** Rebuild tool arguments JSON so Question rows parse after reload. */
-export function questionToolArgsJsonFromPayload(payload: CoddyQuestionPayload): string {
+export function questionToolArgsJsonFromPayload(
+  payload: CoddyQuestionPayload,
+): string {
   return JSON.stringify({ questions: payload.questions });
 }
 
@@ -127,8 +134,9 @@ export function mergeStoredQuestionPromptsIntoTranscript(
   let out = [...merged];
   const existing = new Set(
     out
-      .filter((x): x is Extract<TranscriptItem, { type: "question_prompt" }> =>
-        x.type === "question_prompt",
+      .filter(
+        (x): x is Extract<TranscriptItem, { type: "question_prompt" }> =>
+          x.type === "question_prompt",
       )
       .map((x) => x.payload.requestId.trim()),
   );

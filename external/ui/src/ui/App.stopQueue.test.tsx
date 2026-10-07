@@ -245,7 +245,10 @@ class Backend {
       if (suffix === "/stats") return json({ stats: {} });
       if (suffix === "/background-tasks") return json({ data: [], running: 0 });
       if (suffix === "/composer-stream") {
-        const stream = this.hold(new ControlledStream(init.signal), init.signal);
+        const stream = this.hold(
+          new ControlledStream(init.signal),
+          init.signal,
+        );
         this.relays.push({ sid, stream });
         return stream.response;
       }
@@ -287,7 +290,8 @@ class Backend {
     }
     if (path === "/v1/models")
       return json({ data: [{ id: "test-model", owned_by: "test" }] });
-    if (path === "/coddy/config") return json({ agent: { queue_mode: "steer" } });
+    if (path === "/coddy/config")
+      return json({ agent: { queue_mode: "steer" } });
     if (path.startsWith("/coddy/slash-commands")) return json({ items: [] });
     if (path === "/coddy/workspace/context")
       return json({ cwd: "/workspace", is_git_repo: false });
@@ -565,9 +569,12 @@ test.each(["worker", "locks"] as const)(
   async (transport) => {
     if (transport === "worker") {
       const workers = fakeWorkers(backend.fetch as unknown as typeof fetch);
-      vi.stubGlobal("SharedWorker", function (_url: URL, options: WorkerOptions) {
-        return workers.factory(options.name!);
-      });
+      vi.stubGlobal(
+        "SharedWorker",
+        function (_url: URL, options: WorkerOptions) {
+          return workers.factory(options.name!);
+        },
+      );
     } else {
       const channels = fakeChannels();
       vi.stubGlobal("BroadcastChannel", function (name: string) {
@@ -782,15 +789,21 @@ test("taking a queued message back puts its image back in the composer", async (
     ],
     version: 3,
   });
-  backend.queuedFiles.set("q1", [{ name: "shot.png", data_url: "data:image/png;base64,aGVsbG8=" }]);
+  backend.queuedFiles.set("q1", [
+    { name: "shot.png", data_url: "data:image/png;base64,aGVsbG8=" },
+  ]);
   await mount();
   await screen.findByText("Compare with this screenshot");
   fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
-  await waitFor(() => expect(composer()).toHaveValue("Compare with this screenshot"));
   await waitFor(() =>
-    expect(screen.getAllByTestId("composer-attachment-chip").map((c) => c.textContent)).toEqual(
-      expect.arrayContaining([expect.stringContaining("shot.png")]),
-    ),
+    expect(composer()).toHaveValue("Compare with this screenshot"),
+  );
+  await waitFor(() =>
+    expect(
+      screen
+        .getAllByTestId("composer-attachment-chip")
+        .map((c) => c.textContent),
+    ).toEqual(expect.arrayContaining([expect.stringContaining("shot.png")])),
   );
 });
 
@@ -809,7 +822,9 @@ test("a message the agent read before it was taken back does not return", async 
   fireEvent.click(screen.getByTestId("composer-queue-remove-q1"));
   await waitFor(() =>
     expect(
-      backend.requests.some((r) => r.method === "DELETE" && r.path.includes("/queue/q1")),
+      backend.requests.some(
+        (r) => r.method === "DELETE" && r.path.includes("/queue/q1"),
+      ),
     ).toBe(true),
   );
   await act(async () => {
@@ -1255,11 +1270,18 @@ test("an observer keeps Stop when an unpaired end is followed by a failed activi
   await waitFor(() => expect(failNext).toBe(false));
   expect(stop()).toBeEnabled();
   await waitFor(
-    () => expect(backend.count(`/coddy/sessions/${A}/activity`)).toBeGreaterThan(reads + 1),
+    () =>
+      expect(backend.count(`/coddy/sessions/${A}/activity`)).toBeGreaterThan(
+        reads + 1,
+      ),
     { timeout: 3000 },
   );
-  fireEvent.change(composer(), { target: { value: "Follow the current turn" } });
-  expect(screen.getByRole("button", { name: "Queue this message" })).toBeEnabled();
+  fireEvent.change(composer(), {
+    target: { value: "Follow the current turn" },
+  });
+  expect(
+    screen.getByRole("button", { name: "Queue this message" }),
+  ).toBeEnabled();
 });
 
 test.each(["turn_started", "ready"])(
@@ -1269,12 +1291,19 @@ test.each(["turn_started", "ready"])(
     await mount();
     await waitFor(() => expect(backend.relays).toHaveLength(1));
     fireEvent.click(stop());
-    await waitFor(() => expect(backend.relays[0]!.stream.signal!.aborted).toBe(true));
+    await waitFor(() =>
+      expect(backend.relays[0]!.stream.signal!.aborted).toBe(true),
+    );
     await act(async () => {
       // A successor is already active when the missed-idle stream recovers.
-      backend.events[0]!.frame(event, event === "ready" ? {} : { sessionId: A });
+      backend.events[0]!.frame(
+        event,
+        event === "ready" ? {} : { sessionId: A },
+      );
     });
-    await waitFor(() => expect(backend.relays.length).toBeGreaterThan(1), { timeout: 3000 });
+    await waitFor(() => expect(backend.relays.length).toBeGreaterThan(1), {
+      timeout: 3000,
+    });
     expect(backend.relays.at(-1)!.stream.signal!.aborted).toBe(false);
     expect(stop()).toBeEnabled();
   },
@@ -1291,13 +1320,18 @@ test.each(["turn_started", "ready"])(
     await waitFor(() => expect(backend.relays).toHaveLength(1));
     fireEvent.click(stop());
     await act(async () => {
-      backend.events[0]!.frame(event, event === "ready" ? {} : { sessionId: A });
+      backend.events[0]!.frame(
+        event,
+        event === "ready" ? {} : { sessionId: A },
+      );
     });
     await act(async () => {
       cancel.resolve(json({}));
     });
     expect(backend.relays[0]!.stream.signal!.aborted).toBe(true);
-    await waitFor(() => expect(backend.relays).toHaveLength(2), { timeout: 3000 });
+    await waitFor(() => expect(backend.relays).toHaveLength(2), {
+      timeout: 3000,
+    });
     expect(backend.relays[1]!.stream.signal!.aborted).toBe(false);
     expect(stop()).toBeEnabled();
   },
@@ -1309,20 +1343,28 @@ test("a hung Stop times out, keeps the turn watched and becomes retryable", asyn
   backend.override = (r) => {
     if (!r.path.endsWith("/cancel")) return undefined;
     return new Promise<Response>((_resolve, reject) => {
-      r.init.signal?.addEventListener("abort", () => reject(new DOMException("Timed out", "AbortError")));
+      r.init.signal?.addEventListener("abort", () =>
+        reject(new DOMException("Timed out", "AbortError")),
+      );
     });
   };
   vi.useFakeTimers();
   try {
     fireEvent.click(stop());
-    await act(async () => { await vi.advanceTimersByTimeAsync(5100); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5100);
+    });
     expect(screen.getByRole("alert")).toHaveTextContent(/stop.*try again/i);
     expect(backend.posts[0]!.stream.signal!.aborted).toBe(true);
-    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
     expect(backend.relays).toHaveLength(1);
     expect(backend.relays[0]!.stream.signal!.aborted).toBe(false);
     delete backend.override;
-    await act(async () => { fireEvent.click(stop()); });
+    await act(async () => {
+      fireEvent.click(stop());
+    });
     expect(backend.count(`/coddy/sessions/${A}/cancel`, "POST")).toBe(2);
     expect(backend.relays[0]!.stream.signal!.aborted).toBe(true);
   } finally {
@@ -1336,9 +1378,10 @@ test("a hung Stop times out, keeps the turn watched and becomes retryable", asyn
 describe("a send the server never took keeps the prompt and its images", () => {
   const images = (type = "image/png") =>
     ["one.png", "two.png", "three.png"].map(
-      (name) => new File([new Uint8Array([137, 80, 78, 71])], name, {
-        type,
-      }),
+      (name) =>
+        new File([new Uint8Array([137, 80, 78, 71])], name, {
+          type,
+        }),
     );
   async function composeWithImages(text: string, type = "image/png") {
     document.cookie = "coddy_llm_model=test-model; Path=/";
@@ -1386,9 +1429,11 @@ describe("a send the server never took keeps the prompt and its images", () => {
     )!;
     const body = JSON.parse(String(request.init.body));
     expect(body.inline_files).toHaveLength(3);
-    expect(body.inline_files.every((file: { data_url: string }) =>
-      file.data_url.startsWith("data:image/png;base64,"),
-    )).toBe(true);
+    expect(
+      body.inline_files.every((file: { data_url: string }) =>
+        file.data_url.startsWith("data:image/png;base64,"),
+      ),
+    ).toBe(true);
   });
 
   test("a connection lost on the way keeps the reason on screen", async () => {
@@ -1424,9 +1469,15 @@ describe("a send the server never took keeps the prompt and its images", () => {
       override readAsDataURL(blob: Blob) {
         if ((blob as File).name === "two.png") {
           Object.defineProperty(this, "error", {
-            value: new DOMException("The file could not be read", "NotReadableError"),
+            value: new DOMException(
+              "The file could not be read",
+              "NotReadableError",
+            ),
           });
-          setTimeout(() => this.onerror?.(new ProgressEvent("error") as never), 0);
+          setTimeout(
+            () => this.onerror?.(new ProgressEvent("error") as never),
+            0,
+          );
           return;
         }
         super.readAsDataURL(blob);

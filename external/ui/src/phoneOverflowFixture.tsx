@@ -23,7 +23,8 @@ import { UI_LOCALE_DEFAULT, isUiLocale } from "./ui/i18n/locales";
 const lang = new URLSearchParams(location.search).get("lang") || "";
 initLocale(isUiLocale(lang) ? lang : UI_LOCALE_DEFAULT);
 
-const longRepo = "organization-with-a-long-name/repository-number-0-with-a-long-name";
+const longRepo =
+  "organization-with-a-long-name/repository-number-0-with-a-long-name";
 const mcpAnswer = JSON.stringify({
   total_count: 2,
   items: [0, 1].map((i) => ({
@@ -73,7 +74,8 @@ function Fixture() {
           title="github__search_repositories_with_extended_filters"
           status="completed"
           argsText={JSON.stringify({
-            query: "language:go+topic:agent+stars:>1000+org:organization-with-a-long-name",
+            query:
+              "language:go+topic:agent+stars:>1000+org:organization-with-a-long-name",
             per_page: 30,
           })}
           resultText={mcpAnswer}
@@ -138,7 +140,9 @@ function Fixture() {
           toolCallId="tc-mcp-mid"
           title="github__create_issue"
           status="failed"
-          argsText={JSON.stringify({ title: "Crash on start when the config has no providers at all" })}
+          argsText={JSON.stringify({
+            title: "Crash on start when the config has no providers at all",
+          })}
           resultText="rate limited"
           durationMs={65_000}
           onFetchToolCallFull={async () => {}}
