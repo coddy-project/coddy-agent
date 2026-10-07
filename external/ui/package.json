@@ -44,7 +44,7 @@
   "dependencies": {
     "cronstrue": "^2.59.0",
     "highlight.js": "^11.11.1",
-    "katex": "^0.16.47",
+    "katex": "^0.19.0",
     "lowlight": "^3.3.0",
     "mermaid": "^12.1.0",
     "react": "^19.0.0",
@@ -55,5 +55,8 @@
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5"
+  },
+  "overrides": {
+    "katex": "$katex"
   }
 }

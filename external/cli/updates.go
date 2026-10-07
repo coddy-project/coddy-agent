@@ -74,6 +74,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		} else if u.notice != "" {
 			a.appendStatus(roleWarning, u.notice)
 		}
+		a.flushPromptsAfterTurn()
 		return
 	case wakeTurn:
 		// A finished background task asks for a turn nobody typed; the
@@ -196,6 +197,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		if u.Revision >= a.remoteActivityRevision {
 			a.remoteActivityRevision = u.Revision
 			a.remoteTurnActive = u.TurnActive
+			a.flushPromptsAfterTurn()
 		}
 	case remote.FollowUpdate:
 		a.applyFollow(u)

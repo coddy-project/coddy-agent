@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/jsoncanon"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
@@ -185,11 +185,10 @@ func (w *turnWatch) findCall(id string) (llm.ToolCall, bool) {
 }
 
 func canonicalArgs(input string) string {
-	var args interface{}
-	if err := json.Unmarshal([]byte(input), &args); err != nil {
+	out, err := jsoncanon.Canonical([]byte(input))
+	if err != nil {
 		return strings.TrimSpace(input)
 	}
-	out, _ := json.Marshal(args)
 	return string(out)
 }
 

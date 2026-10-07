@@ -153,6 +153,58 @@ func (a *App) submitQueueChoice(text string, alternate bool) {
 }
 
 func (a *App) enqueuePromptWithMode(text string, mode session.QueueMode, savePreference bool) {
+	a.enqueuePromptFor(text, mode, savePreference, false)
+}
+
+// submitMenuPrompt sends a prompt a menu action makes, the goal menu's Resume.
+// Nobody typed it, so a refusal never lands in the input: when the turn it
+// would queue behind is already over, it is the next turn's prompt instead
+// (promptAfterTurn).
+func (a *App) submitMenuPrompt(text string) {
+	if a.turnActive || a.remoteTurnActive {
+		a.enqueuePromptFor(text, session.QueueModeAfterTurn, false, true)
+		return
+	}
+	a.submitPrompt(text)
+}
+
+// heldPrompt is a menu's prompt waiting for the end of the turn the console
+// still counts as running, in the session it was made for.
+type heldPrompt struct {
+	sessionID string
+	text      string
+}
+
+// promptAfterTurn sends text as a prompt of its own once no turn runs here:
+// now, or when the turn the console still counts as running is seen to end.
+func (a *App) promptAfterTurn(text string) {
+	if !a.turnActive && !a.remoteTurnActive {
+		a.submitPrompt(text)
+		return
+	}
+	a.promptsAfterTurn = append(a.promptsAfterTurn, heldPrompt{sessionID: a.sessionID, text: text})
+}
+
+// flushPromptsAfterTurn sends the first held prompt of the session on screen
+// once no turn runs; the rest wait for the turn it starts. A prompt held for
+// another session is dropped: the operator left it.
+func (a *App) flushPromptsAfterTurn() {
+	if a.turnActive || a.remoteTurnActive {
+		return
+	}
+	for len(a.promptsAfterTurn) > 0 {
+		held := a.promptsAfterTurn[0]
+		a.promptsAfterTurn = a.promptsAfterTurn[1:]
+		if held.sessionID == a.sessionID {
+			a.submitPrompt(held.text)
+			return
+		}
+	}
+}
+
+// enqueuePromptFor queues text in mode; fromMenu marks a prompt a menu action
+// made, whose refusal for an ended turn runs it after that turn instead.
+func (a *App) enqueuePromptFor(text string, mode session.QueueMode, savePreference, fromMenu bool) {
 	body := strings.TrimSpace(text)
 	if body == "" {
 		return
@@ -182,7 +234,7 @@ func (a *App) enqueuePromptWithMode(text string, mode session.QueueMode, savePre
 			_, queued, _, err = mgr.EnqueueFollowUp(context.Background(), sessionID, body, "console")
 		}
 		if err != nil {
-			return queueResult{action: "enqueue", text: body, err: fmt.Errorf("could not queue the message: %w", err)}
+			return queueResult{action: "enqueue", text: body, fromMenu: fromMenu, err: fmt.Errorf("could not queue the message: %w", err)}
 		}
 		if !queued {
 			return queueResult{action: "settings", text: body}
@@ -230,6 +282,8 @@ type queueResult struct {
 	text   string
 	rows   []session.QueuedMessage
 	err    error
+	// fromMenu marks a prompt a menu action made (submitMenuPrompt).
+	fromMenu bool
 }
 
 // Only remote queue operations involve network I/O. Their rows arrive as
@@ -253,6 +307,13 @@ func (a *App) refreshRemoteControls() {
 }
 
 func (a *App) applyQueueResult(u queueResult) {
+	if u.err != nil && u.action == "enqueue" && u.fromMenu && isNoActiveTurn(u.err) {
+		// The turn ended between the menu and the enqueue: the prompt runs
+		// as the next turn, as if picked a moment later.
+		a.refreshRemoteControls()
+		a.promptAfterTurn(u.text)
+		return
+	}
 	if u.err != nil {
 		if u.action == "enqueue" {
 			a.restoreDraft(u.text)

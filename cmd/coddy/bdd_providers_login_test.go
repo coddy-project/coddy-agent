@@ -10,6 +10,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
+	"html/template"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -54,6 +56,9 @@ type loginFlowState struct {
 	restoreWait func()
 	browserErr  error
 }
+
+// loginHubPage is the hub page the stand serves; html/template escapes the link.
+var loginHubPage = template.Must(template.New("hub").Parse(`<html><body><a href="{{.}}">continue</a></body></html>`))
 
 func (s *loginFlowState) reset() error {
 	s.close()
@@ -123,7 +128,7 @@ func (s *loginFlowState) standInHub() error {
 		q := r.URL.Query()
 		cb := fmt.Sprintf("http://127.0.0.1:%s/cb?state=%s&key=%s", q.Get("port"), q.Get("state"), loginFeatureBrowserKey)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = fmt.Fprintf(w, `<html><body><a href="%s">continue</a></body></html>`, cb)
+		_ = loginHubPage.Execute(w, cb)
 	})
 	mux.HandleFunc("/api/cli/device/start", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -232,7 +237,8 @@ func followCallbackLink(authURL string) error {
 	if m == nil {
 		return fmt.Errorf("no callback link in the hub page: %s", body)
 	}
-	cb, err := getWithRetries(string(m[1]))
+	// The page escapes the link for HTML; a browser reads it back unescaped.
+	cb, err := getWithRetries(html.UnescapeString(string(m[1])))
 	if err != nil {
 		return fmt.Errorf("follow the callback: %w", err)
 	}

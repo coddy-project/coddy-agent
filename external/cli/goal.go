@@ -247,7 +247,7 @@ func (a *App) showGoalMenu() {
 			case "resume":
 				// As if typed: resuming starts a turn, which only a prompt
 				// does, and a turn already running queues it like any other.
-				a.submitPrompt(goalResumePrompt)
+				a.submitMenuPrompt(goalResumePrompt)
 			case "clear":
 				a.confirmClearGoal()
 			}

@@ -1045,9 +1045,11 @@ func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
 		if len(t.Function.Parameters) > maxClientToolSchemaBytes {
 			return nil, fmt.Errorf("tool %q: parameters exceed %d bytes", name, maxClientToolSchemaBytes)
 		}
-		var schema interface{}
-		if len(bytes.TrimSpace(t.Function.Parameters)) > 0 {
-			if err := json.Unmarshal(t.Function.Parameters, &schema); err != nil {
+		// A function's parameters are a JSON Schema object; anything else is
+		// refused rather than decoded into an arbitrary value.
+		var schema map[string]interface{}
+		if params := bytes.TrimSpace(t.Function.Parameters); len(params) > 0 && !bytes.Equal(params, []byte("null")) {
+			if err := json.Unmarshal(params, &schema); err != nil {
 				return nil, fmt.Errorf("tool %q: invalid parameters: %w", name, err)
 			}
 		}

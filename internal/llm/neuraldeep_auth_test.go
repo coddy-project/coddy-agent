@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
+	"html/template"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +24,10 @@ import (
 // fakeNeuralDeepHub emulates the hub side of the browser callback flow: the
 // start endpoint answers, like production, with an HTML page whose script
 // (and fallback link) point at the loopback callback carrying state and key.
+// hubCallbackPage is the hub page the stand serves: html/template escapes the
+// link in the attribute and quotes it in the script, as a real page must.
+var hubCallbackPage = template.Must(template.New("hub").Parse(`<!doctype html><meta charset=utf-8><body><h2>connected</h2><a href="{{.}}">continue</a><script>location.replace({{.}})</script></body>`))
+
 func fakeNeuralDeepHub(t *testing.T, key string, wrongStateFirst bool) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +43,7 @@ func fakeNeuralDeepHub(t *testing.T, key string, wrongStateFirst bool) *httptest
 				cb = fmt.Sprintf("http://127.0.0.1:%s/cb?state=WRONG&key=%s", port, url.QueryEscape("sk-stolen"))
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = fmt.Fprintf(w, `<!doctype html><meta charset=utf-8><body><h2>connected</h2><a href="%s">continue</a><script>location.replace(%q)</script></body>`, cb, cb)
+			_ = hubCallbackPage.Execute(w, cb)
 		case "/api/cli/whoami":
 			if r.Header.Get("Authorization") != "Bearer "+key {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -65,7 +71,8 @@ func browseLikeAUser(t *testing.T, authURL string) *http.Response {
 	if m == nil {
 		t.Fatalf("no callback link in hub page: %s", body)
 	}
-	cbResp, err := http.Get(string(m[1]))
+	// The page escapes the link for HTML; a browser reads it back unescaped.
+	cbResp, err := http.Get(html.UnescapeString(string(m[1])))
 	if err != nil {
 		t.Fatalf("follow callback: %v", err)
 	}

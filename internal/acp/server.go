@@ -5,6 +5,7 @@ package acp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -129,9 +130,10 @@ func (s *Server) processLine(ctx context.Context, data []byte) error {
 		return nil
 	}
 
-	// Parse the ID (can be number or string).
-	var id interface{}
-	if err := json.Unmarshal(idRaw, &id); err != nil {
+	// The ID is a number, a string or null, and goes back exactly as it came:
+	// kept as its raw JSON rather than decoded into an arbitrary value.
+	id, ok := requestID(idRaw)
+	if !ok {
 		return s.sendError(nil, ErrInvalidRequest, "invalid id", nil)
 	}
 
@@ -176,11 +178,29 @@ func (s *Server) handleSessionReady(method string, params json.RawMessage, resul
 	}
 }
 
+// requestID is the id of a request from the client as its raw JSON, valid
+// when it is a number, a string or null (JSON-RPC 2.0); an object, an array
+// or a boolean is not an id.
+func requestID(raw json.RawMessage) (json.RawMessage, bool) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || !json.Valid(trimmed) {
+		return nil, false
+	}
+	switch c := trimmed[0]; {
+	case c == '"', c == '-', c >= '0' && c <= '9', bytes.Equal(trimmed, []byte("null")):
+		return trimmed, true
+	}
+	return nil, false
+}
+
 // handleResponse processes a response to a request we sent (e.g. permission or question).
 func (s *Server) handleResponse(raw map[string]json.RawMessage) error {
-	var id interface{}
+	// The requests this server sends carry numeric ids, and the pending maps
+	// are keyed by them as float64; any other id answers nothing of ours.
+	var id float64
 	if rawID, ok := raw["id"]; ok {
 		if err := json.Unmarshal(rawID, &id); err != nil {
+			s.log.Warn("received a response with an id this server never sent", "id", string(rawID))
 			return nil
 		}
 	}

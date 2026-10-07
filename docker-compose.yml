@@ -19,6 +19,9 @@ services:
     ports:
       - "${CODDY_HTTP_PORT:-12345}:12345"
     working_dir: /workspace
+    # The image runs as uid/gid 1000; set CODDY_UID / CODDY_GID to the owner of
+    # the mounted folders when that is someone else (`id -u`, `id -g`).
+    user: "${CODDY_UID:-1000}:${CODDY_GID:-1000}"
     environment:
       CODDY_HOME: /home/user/.coddy
       CODDY_CWD: /workspace

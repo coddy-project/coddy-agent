@@ -61,8 +61,11 @@ type App struct {
 	goalVersion uint64
 	goalNoticed []uint64
 	goalEchoes  []string
-	goalMenu    *selectorModal
-	log         *slog.Logger
+	// promptsAfterTurn are menu prompts whose turn was over before they could
+	// queue behind it, sent once the console sees it end (queue.go).
+	promptsAfterTurn []heldPrompt
+	goalMenu         *selectorModal
+	log              *slog.Logger
 
 	// remoteURL is set when mgr talks to a remote coddy serve server.
 	remoteURL string

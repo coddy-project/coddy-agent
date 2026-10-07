@@ -147,11 +147,10 @@ func reasoningLevelOffered(cfg *config.Config, ent *config.ModelEntry, level str
 // completionMetadataForbidden returns true when JSON metadata contains a model key (not allowed for direct completion).
 // coerceMetadataJSON returns an error when metadata is non-empty invalid JSON.
 func coerceMetadataJSON(raw json.RawMessage) error {
-	if len(raw) == 0 {
+	if len(raw) == 0 || json.Valid(raw) {
 		return nil
 	}
-	var discard interface{}
-	return json.Unmarshal(raw, &discard)
+	return errors.New("metadata is not valid JSON")
 }
 
 func completionMetadataForbidden(raw json.RawMessage) bool {
