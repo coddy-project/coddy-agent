@@ -95,7 +95,7 @@ func (t *stallGuardTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		cancel()
 		return nil, err
 	}
-	if !isEventStream(resp) {
+	if !isEventStream(req, resp) {
 		// A blocking answer arrives in one piece; nothing to guard, and the
 		// context lives as long as the body does.
 		resp.Body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
@@ -105,9 +105,19 @@ func (t *stallGuardTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	return resp, nil
 }
 
-func isEventStream(resp *http.Response) bool {
-	ct := strings.ToLower(resp.Header.Get("Content-Type"))
-	return strings.HasPrefix(strings.TrimSpace(ct), "text/event-stream")
+// isEventStream reports whether resp is a server-sent-events answer: its
+// Content-Type says so, or it is a success that names none and req asked for
+// an event stream. The Codex backend answers its stream with no Content-Type
+// at all, so the request is all that tells its body apart from a blocking
+// answer; an error status is never a stream, whatever was asked for.
+func isEventStream(req *http.Request, resp *http.Response) bool {
+	if ct := strings.TrimSpace(resp.Header.Get("Content-Type")); ct != "" {
+		return strings.HasPrefix(strings.ToLower(ct), "text/event-stream")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(req.Header.Get("Accept")), "text/event-stream")
 }
 
 // cancelOnClose releases the request context when the body is closed.
