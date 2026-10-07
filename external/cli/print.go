@@ -61,6 +61,26 @@ type printSender struct {
 }
 
 func (p *printSender) SendSessionUpdate(_ string, update interface{}) error {
+	switch u := update.(type) {
+	case acp.GoalTurnUpdate:
+		// A turn the session supervisor started: its answer starts on a
+		// paragraph of its own on stdout, and why it runs goes to stderr,
+		// which a script reading the answer does not parse.
+		if p.wrote {
+			_, _ = io.WriteString(p.out, "\n\n")
+		}
+		if p.errOut != nil {
+			_, _ = fmt.Fprintln(p.errOut, "[goal] "+session.GoalTurnNote(u))
+		}
+		return nil
+	case acp.SessionGoalUpdate:
+		// How the goal ended: complete, blocked with the question, paused,
+		// out of budget.
+		if p.errOut != nil && u.Notice != "" && !strings.HasPrefix(u.Notice, "Goal set:") {
+			_, _ = fmt.Fprintln(p.errOut, "[goal] "+u.Notice)
+		}
+		return nil
+	}
 	if chunk, ok := update.(acp.MessageChunkUpdate); ok {
 		if chunk.SessionUpdate == "agent_message_chunk" && chunk.Content.Type == "text" && chunk.Content.Text != "" {
 			text := chunk.Content.Text

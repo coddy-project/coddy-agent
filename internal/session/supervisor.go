@@ -157,7 +157,7 @@ func (m *Manager) answerGoalCommand(st *State, sender acp.UpdateSender, notice s
 		return
 	}
 	AnnounceSettingsNotice(sender, st.ID, notice)
-	st.AppendUILogNotice(CountUserTurns(st.GetMessages())+1, notice)
+	st.AppendUILogNotice(CountUserTurns(st.GetMessages()), notice)
 	st.setGoalCommandNotice(notice)
 }
 
