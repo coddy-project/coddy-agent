@@ -388,6 +388,9 @@ func (r *goalRun) check(ctx context.Context) (GoalCheckResult, error) {
 		Checklist: goal.Checklist,
 		Digest:    buildGoalDigest(r.st.GetMessages(), goal, !r.persist),
 	}
+	// The check and the verification take a while with the turn lock held:
+	// a surface that shows notices says what the session is waiting for.
+	r.publishNotice("Goal check: the supervisor is reviewing the turn")
 	var result GoalCheckResult
 	var err error
 	for attempt := 0; attempt < 2; attempt++ {
@@ -406,6 +409,7 @@ func (r *goalRun) check(ctx context.Context) (GoalCheckResult, error) {
 	if result.Verdict == GoalVerdictMet && r.persist && r.cfg.Supervisor.VerifyEnabled() && r.m.goalVerifier != nil {
 		vreq := req
 		vreq.Checklist = firstChecklist(result.Checklist, req.Checklist)
+		r.publishNotice("Goal verification: a read-only subagent is checking the workspace")
 		verifyCtx, cancel := context.WithTimeout(ctx, goalVerifyTimeout)
 		vres, verr := r.m.goalVerifier(verifyCtx, r.st, vreq)
 		cancel()
