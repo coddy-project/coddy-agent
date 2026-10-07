@@ -549,7 +549,16 @@ define; a client that ignores unknown kinds keeps working.
   re-issues the call, and the next turn-end snapshot replaces the update:
   `{"sessionUpdate": "provider_usage", "provider": "neuraldeep",
   "providerType": "neuraldeep", "blocked": true, "retryAt":
-  "2026-09-06T20:59:59Z", "retryInSec": 767, "resuming": true}`.
+  "2026-09-06T20:59:59Z", "retryInSec": 767, "resuming": true}`. A call to a
+  model that a remote Coddy shares (provider type `coddy`, see
+  [Shared models](../features/shared-models.md)) that waits for a free stream
+  slot of the remote sends the same update, whatever `agent.wait_for_limit_reset`
+  says: `blocked: true`, `blockers: ["remote_busy"]`, `retryAt` / `retryInSec`
+  as the end of the wait budget at the latest, and `resuming: true`, re-sent
+  every 20 s while the wait lasts; when the call returns, an update with
+  `unsupported: true` for that provider takes the line down, since a `coddy` row
+  has no usage source. `remote_busy` is not an account limit, and a client may
+  show it as a wait for the remote.
 
 ```json
 {

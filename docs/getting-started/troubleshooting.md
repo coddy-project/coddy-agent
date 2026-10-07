@@ -258,6 +258,14 @@ Field reference: [`agent`](../reference/config.md#agent), [`providers`](../refer
 
 **Fix.** Nothing is needed for a lane that recovers in seconds. For one that keeps failing, check the provider's status, or put the model behind a gateway with healthier deployments. A longer outage is a reason to raise `agent.llm_retry_base_ms`, which stretches the pauses. A subagent that failed this way keeps its transcript, and its report tells the parent to continue it with `spawn_agent` `resume` rather than start a second subagent on the same task ([Resuming a run](../features/subagents.md#resuming-a-run)).
 
+## A shared model is refused or keeps waiting
+
+**Symptom.** A model of a `type: coddy` provider fails with an error that ends in a kind in brackets, such as `the remote refused the credential (auth)`, `no shared model is offered under that name (invalid)` or `the remote has no free stream slot for this credential: waited 30s for one, in 9 requests`; or `coddy --dry-run` names the provider; or the console shows `Usage limit reached · resuming at ...` although no account hit a limit.
+
+**Cause.** The model comes from another Coddy that lends it, so the failure can be on either side or on the path between them. The last symptom is the wait for a free slot: the remote runs at most five calls per credential and the local Coddy waits for one, which the status row shows like a limit wait.
+
+**Fix.** `coddy --dry-run` asks the remote for its listing and tells a refused credential from an unreachable address, a protocol the two Coddys do not share, an address that does not offer shared models and an alias the remote does not list. A refused credential is a wrong token or one that opens nothing there: the remote wants a token from its `httpserver.shared_models.tokens` (or its main token), and through a relay mount the relay's client token. A busy wait that keeps failing means more calls run on one credential than the remote allows: raise `httpserver.shared_models.max_streams` there, give each borrower a token of their own, or give the provider more patience with `providers[].busy_wait_ms` / `agent.shared_busy_wait_ms`. A `max_tokens is not supported by a codex model` refusal comes from a local row that sets `max_tokens` or `temperature` for a model the remote backs with Codex: remove the keys. The remaining kinds, the timers and what each one means are in [Shared models](../features/shared-models.md#troubleshooting).
+
 ## A turn stops before the task is done
 
 **Symptom.** The agent stops working with the task unfinished, and a notice under the last answer says why: `Stopped after 40 steps, the step limit set by agent.max_turns. ...`, or `The answer was cut off at the model's output limit (max_tokens). ...`. The console prints the same line, `coddy -p` writes it to stderr, and a Telegram chat receives it as a message of its own ([issue #255](https://github.com/coddy-project/coddy-agent/issues/255)).

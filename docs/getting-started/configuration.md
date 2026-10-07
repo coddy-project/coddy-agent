@@ -56,6 +56,8 @@ config test failed
 
 The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `coddy serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - a file without the `# yaml-language-server:` header, and a setting the provider never sends: `max_tokens` on a model served by a `codex` provider bounds nothing, because the Codex backend takes no output cap. The loader keeps accepting that one, since the settings form seeds `max_tokens` on every model row it adds, and `coddy serve` names it in a warning at startup. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
 
+Models shared with other Coddys add findings that the loader alone cannot make. Errors: a `shared_as` that is not a valid alias or is used by two rows (both rows are named), a shared row on a `coddy` provider, a row backed by a subscription login without `shared_subscription_ack`, `httpserver.shared_models.tokens` entries that equal a main or swarm token (the check reads `--auth-token`, `--swarm-auth-token`, `--swarm-pairing-token` of `coddy serve -t` and the credential variables of the environment, and names both keys, never a value), and a shared row with no credential of any class in front of it unless `httpserver.allow_insecure` is set. Warnings: a `coddy` provider whose `api_base` is plain `http://` to a host that is not loopback, an `agent.llm_stream_idle_timeout_ms` of `0` or below 30000 while a provider is of type `coddy` (the remote's heartbeat comes every 15 seconds), a shared `stream: false` row with no `timeout_ms` while `httpserver.shared_models.max_call_ms` is above 30 minutes, an empty entry of `shared_models.tokens`, shared-model tokens as the only credential (the rest of the API is closed to every caller) and `busy_wait_ms` on a provider that is not of type `coddy`. See [Shared models](../features/shared-models.md#checking-the-setup).
+
 A file that does not parse at all is placed differently from one whose values are merely wrong. The parser reports the line the block it was reading began on, which in a file with a header of comments is a blank line far above the mistake, so the check re-reads the file to find the line whose arrival stops it parsing and reports that one instead. A start prints the same line, so `coddy -t` and `coddy serve` send you to the same place.
 
 What an editor leaves in the file is not part of the configuration. A file written on Windows ends its lines with a carriage return and a line feed and may carry a byte order mark in front of the first one; both are dropped on the way in, so the `# yaml-language-server:` header behind a mark is still found and a finding still names the line the editor shows, and a save puts the file's own line endings back. The one shape Coddy does not read is UTF-16 - Notepad's "Unicode" - which is reported as such, with UTF-8 as the fix, instead of as a syntax error.
@@ -66,7 +68,7 @@ What an editor leaves in the file is not part of the configuration. A file writt
 
 - **memory** - `memory.additional_prompt` longer than `memory.additional_prompt_max_chars` is a warning at the key: the memory subagent reads the cut text;
 - **paths** - `sessions.dir`, `logger.file`, `memory.dir` and the scheduler's jobs folder are fine when missing as long as they can be created (the process makes them at start), and an error when a regular file stands in the way; `prompts.dir` has to exist, and a template missing from it is a warning; `skills.dirs`, `subagents.dirs` and `hooks.files` entries you wrote are warnings when missing, while absent defaults stay quiet; a hook file that exists has to parse; an `instructions.files` entry is a warning when its file does not exist, cannot be read, is a folder or is empty, except a relative or `${CWD}` one missing from the workspace the check runs in, which is skipped (another workspace may carry it); `swarm.tls` must load and every `dial.ca_file` must hold a certificate;
-- **LLM providers** - each provider is asked for its model list, which exercises the address, the proxy and the credential in one request (`coddy providers login` credentials included); a provider aimed at a vendor's official endpoint with nothing to present is reported without a request. Every `models[]` entry is then checked against that list: a model the server does not name is a warning, since some servers serve more than they list. A `max_tokens` on a `codex` model is a warning whatever the provider answers, since no request carries it;
+- **LLM providers** - each provider is asked for its model list, which exercises the address, the proxy and the credential in one request (`coddy providers login` credentials included); a provider aimed at a vendor's official endpoint with nothing to present is reported without a request. Every `models[]` entry is then checked against that list: a model the server does not name is a warning, since some servers serve more than they list. A `coddy` provider is asked for the shared models of the remote, and its report names a refused credential, a protocol the two Coddys do not share and an address that does not offer shared models; an alias the remote does not list is an error there, not a warning, because the remote answers a request for it with a `404`. A `max_tokens` on a `codex` model is a warning whatever the provider answers, since no request carries it;
 - **MCP servers** of `~/.coddy/mcp.json` - the executable of a stdio server is resolved in `PATH` the way the spawn would, without spawning it; a remote server is asked for any HTTP answer, with its headers. Project-local `.coddy/mcp.json` declarations are not contacted: they sit behind the workspace trust gate;
 - **Telegram** - when `gateways.telegram.enable` is true the token is checked against the Bot API (`getMe`), through `gateways.telegram.proxy` when set; the report names the bot;
 - **remotes** - each `httpserver.remotes[]` URL is asked for an answer (a warning when down, since it is used only on request), and the `--remote` target of a console or `acp` run has to accept the token;
@@ -174,6 +176,15 @@ providers:
   - name: "devin"
     type: "devin"
 
+  # A model another Coddy shares (its models[].shared_as); see docs/features/shared-models.md.
+  # api_base is the remote coddy serve or a swarm relay mount (https://relay/swarm/nodes/<node>),
+  # api_key the token it accepts (a shared-model token is enough).
+  # - name: "workstation"
+  #   type: "coddy"
+  #   api_base: "https://workstation.example:12345"
+  #   api_key: "${WORKSTATION_SHARED_TOKEN}"
+  #   # busy_wait_ms: 60000   # wait this long for a free slot of the remote; above zero wins over agent.shared_busy_wait_ms
+
   - name: "local"
     type: "openai"
     api_base: "http://localhost:11434/v1"
@@ -223,6 +234,14 @@ models:
     reasoning_levels: [low, medium, high, xhigh, max]  # each level is a variant of the family
     reasoning_default: medium
 
+  # Lend a model to other Coddys under an alias (docs/features/shared-models.md). Needs a credential:
+  # httpserver.shared_models.tokens or httpserver.auth_token. A codex, devin or key-less neuraldeep
+  # row also needs shared_subscription_ack: true.
+  # - model: "openai/gpt-5.6-terra"
+  #   shared_as: "terra"
+  # A model borrowed from another Coddy is written <provider>/<alias>:
+  # - model: "workstation/terra"
+
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
   model: "openai/gpt-5.6-terra"  # optional default LLM until the client overrides per session;
@@ -241,6 +260,7 @@ agent:
                                      # keeping the text already delivered (0 disables the guard; blocking models are never guarded)
   wait_for_limit_reset: false        # wait for a hit usage limit to lift and re-issue the call (off: the turn ends with the error)
   wait_for_limit_reset_max_ms: 14400000  # total wait per turn (4 h), the retry wrapper's sleeps on a limit included; under 60 s it also bounds ordinary 429 retries; 0 never waits
+  # shared_busy_wait_ms: 30000   # a call to a coddy provider waits this long for a free slot of the remote (absent 30000, 0 no waiting)
   loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
   loop_tool_repeat_limit: 2    # identical calls in successive ReAct responses before the guard steps in (0 disables)
   loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)
@@ -389,6 +409,10 @@ tools:
 # httpserver:
 #   host: "127.0.0.1"
 #   port: 8080
+#   shared_models:                      # serving the models[] rows that carry shared_as
+#     tokens: ["${CODDY_SHARED_MODELS_TOKEN}"]   # LLM-only credentials; any entry closes the gate on the rest of the API
+#     max_streams: 5                    # concurrent calls per credential
+#     max_call_ms: 1800000              # longest blocking (stream: false) call; at most 28800000, 0 = that ceiling
 
 # Cron scheduler (only with go build -tags=scheduler). UTC crontab; flat *.md jobs in ${CODDY_HOME}/scheduler
 # and, once approved, in <workspace>/.coddy/scheduler.
@@ -452,6 +476,20 @@ The tool requires user permission (same as `run_command`) and returns combined s
 ## HTTP gateway (optional build)
 
 The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`coddy serve`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/reference/http-api.md`**.
+
+### Shared models (`httpserver.shared_models`)
+
+The routes that lend `models[]` rows carrying **`shared_as`** to other Coddys are always registered; this block holds the credentials and the limits they use. **`tokens`** are LLM-only bearer tokens (`${ENV}` references, write-only in Settings) that open `GET /coddy/llm/models`, `GET /coddy/llm/models/{alias}/usage` and `POST /coddy/llm/completions` and nothing else, where `httpserver.auth_token` opens the whole API. Any entry turns authentication on: with no `auth_token` and no sign-in, every other route is closed to every caller. **`max_streams`** (default 5) is how many calls one credential may run at once, and **`max_call_ms`** (default 1800000, at most 28800000, `0` meaning that ceiling) bounds one blocking call. A model is shared by **`models[].shared_as`**; the page [Shared models](../features/shared-models.md) has the rules, and [HTTP API](../reference/http-api.md#shared-model-tokens) the gate.
+
+```yaml
+httpserver:
+  shared_models:
+    tokens:
+      - "${CODDY_SHARED_MODELS_TOKEN}"
+models:
+  - model: "openai/gpt-5.6-terra"
+    shared_as: "terra"
+```
 
 ### Web UI sign-in (`httpserver.login`)
 
@@ -639,12 +677,12 @@ An environment variable named **`CWD`** does not replace the placeholder (a bare
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`**, **`coddy`**.
 
 YAML split:
 
-- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**; for **`type: neuraldeep`** it selects the deployment, **`https://api.neuraldeep.ru/v1`** or **`https://api.neuraldeep.tech/v1`**, and any other value falls back to the first), optional **`proxy`** (the route of every request of the row: **`inherit`** by default, **`none`** for a direct connection, or an **`http://`**, **`https://`**, **`socks5://`** or **`socks5h://`** proxy URL; see [Provider proxy](#provider-proxy)), optional **`usage_limits_panel`** (boolean, default **`true`**; **`false`** hides the account usage panel of this row on every surface and stops the usage reads behind it, meaningful for **`type: neuraldeep`**, **`type: codex`** and **`type: devin`** today).
-- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (the model's context window: what the web UI context ring, the console context percentage and automatic compaction measure against; 0 reads it from the provider's model listing when the provider reports one, else 128000 - see [Context compaction](../features/compaction.md#the-context-window)), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only, and [`read`](../reference/tools.md#files) shows such a model the picture in an image file instead of refusing it, see [Images](../features/images.md)), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** and **`gpt-6*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, qwen3.8, ...) and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels), and optional **`allow_reasoning_off`** (boolean, default **`false`**; adds **`off`** to this model's choices only when an operator has verified that its provider/model deployment honours Coddy's provider-specific disable-reasoning request). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**; for **`qwen3*`** models on OpenAI-compatible providers the request also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`** so the chat-template thinking switch stays on. The Codex backend rejects **`max_output_tokens`**, so **`max_tokens`** is not sent for **`codex`** providers; it also rejects the **`minimal`** tier its **`gpt-5*`** and **`gpt-6*`** ids would normally imply, so codex-backed models offer **`none`** in its place (in the composer selector and in **`GET /v1/models`**). Reasoning turns request summaries (**`summary: auto`**) so thinking streams, and encrypted reasoning (**`include: reasoning.encrypted_content`**) so the chain of thought is replayed across tool calls the way the Codex CLI does it. See [config-reference.md](../reference/config.md) for token lifetime and the startup credential report.
+- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**; for **`type: neuraldeep`** it selects the deployment, **`https://api.neuraldeep.ru/v1`** or **`https://api.neuraldeep.tech/v1`**, and any other value falls back to the first), optional **`proxy`** (the route of every request of the row: **`inherit`** by default, **`none`** for a direct connection, or an **`http://`**, **`https://`**, **`socks5://`** or **`socks5h://`** proxy URL; see [Provider proxy](#provider-proxy)), optional **`usage_limits_panel`** (boolean, default **`true`**; **`false`** hides the account usage panel of this row on every surface and stops the usage reads behind it, meaningful for **`type: neuraldeep`**, **`type: codex`** and **`type: devin`** today), and for **`type: coddy`** the required **`api_base`** (the address of the remote `coddy serve` or of a swarm relay mount) and optional **`busy_wait_ms`** (see [`coddy`](#coddy)).
+- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (the model's context window: what the web UI context ring, the console context percentage and automatic compaction measure against; 0 reads it from the provider's model listing when the provider reports one, else 128000 - see [Context compaction](../features/compaction.md#the-context-window)), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only, and [`read`](../reference/tools.md#files) shows such a model the picture in an image file instead of refusing it, see [Images](../features/images.md)), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** and **`gpt-6*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, qwen3.8, ...) and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels), and optional **`allow_reasoning_off`** (boolean, default **`false`**; adds **`off`** to this model's choices only when an operator has verified that its provider/model deployment honours Coddy's provider-specific disable-reasoning request), optional **`shared_as`** (an alias that offers the model to other Coddys that reach this server, see [Shared models](../features/shared-models.md)) and **`shared_subscription_ack`** (required next to it for a model that runs on a subscription login). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**; for **`qwen3*`** models on OpenAI-compatible providers the request also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`** so the chat-template thinking switch stays on. The Codex backend rejects **`max_output_tokens`**, so **`max_tokens`** is not sent for **`codex`** providers; it also rejects the **`minimal`** tier its **`gpt-5*`** and **`gpt-6*`** ids would normally imply, so codex-backed models offer **`none`** in its place (in the composer selector and in **`GET /v1/models`**). Reasoning turns request summaries (**`summary: auto`**) so thinking streams, and encrypted reasoning (**`include: reasoning.encrypted_content`**) so the chain of thought is replayed across tool calls the way the Codex CLI does it. See [config-reference.md](../reference/config.md) for token lifetime and the startup credential report.
 
 ### Provider proxy
 
@@ -694,6 +732,24 @@ The same API is served from two deployments: **`https://api.neuraldeep.ru/v1`** 
 The models of a Devin (Cognition) account, reached the way the Devin CLI reaches them.
 
 **`coddy providers login devin`** signs in through the browser (PKCE, like **`devin auth login`**): the Devin page sends the browser back to a loopback port on this machine, and over SSH you paste the address it ended on into the terminal instead. **`--devin-cli`** reuses the login the Devin CLI already holds and opens no browser. The session token is stored under **`$CODDY_HOME/providers/<name>/devin-auth.json`**; without it the provider falls back to the Devin CLI's **`credentials.toml`**, and an explicit **`api_key`** (or **`api_key_command`** / **`DEVIN_API_KEY`**) wins over both. The login adds one model per family, such as **`devin/claude-opus-5`**, with the family's variants as its **`reasoning_levels`**: level **`high`** is sent as **`claude-opus-5-high`**. **`api_base`** is ignored; optional **`proxy`** routes the sign-in, the catalog and chat ([Provider proxy](#provider-proxy)). The full story, including how levels map to variants and how the output cap is chosen, is on [Devin](../features/devin.md).
+
+### `coddy`
+A model that another Coddy shares: that server marks `models[]` rows with `shared_as`, and this row lists them. The whole agent stays here - prompt, rules, tools, history and the tool loop - and each model turn is one streamed call to the remote, which answers it with the provider the shared row is configured with ([Shared models](../features/shared-models.md)).
+
+```yaml
+providers:
+  - name: "workstation"
+    type: "coddy"
+    api_base: "https://workstation.example:12345"   # the remote coddy serve, or https://relay/swarm/nodes/<node>
+    api_key: "${WORKSTATION_SHARED_TOKEN}"          # a shared-model token of the remote, or the relay's client token through a mount
+    busy_wait_ms: 60000                             # optional, see below
+models:
+  - model: "workstation/terra"                      # <provider>/<alias>
+```
+
+**`api_base`** is required, an **`http`** or **`https`** URL; the type appends **`/coddy/llm/...`**, and **`coddy -t`** warns about a plain **`http://`** address whose host is not loopback, because the token and the whole conversation would travel in clear text. **`api_key`** is the token the remote accepts; the usual three sources apply (literal, **`api_key_command`**, **`WORKSTATION_API_KEY`**). **`proxy`** works as for every row. The models of the row are picked from the remote's listing, and the context window comes from that listing unless the model sets **`max_context_tokens`**. A **`coddy`** row has no first-token timer and always streams, whatever **`models[].stream`** says.
+
+**`busy_wait_ms`** is how long one call waits for a free slot when the remote answers that all of its slots for this credential (five by default) are busy. Above zero it wins over the global **`agent.shared_busy_wait_ms`**; zero or absent follows it, and that key is 30000 when absent and means no waiting at 0. Account usage is not read for this type.
 
 ### Several profiles of one provider type
 
