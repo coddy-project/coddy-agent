@@ -128,7 +128,9 @@ type Response struct {
 	// StopReason explains why generation stopped.
 	// "end_turn" | "tool_use" | "max_tokens"
 	StopReason string
-	// InputTokens and OutputTokens are for usage tracking.
+	// InputTokens and OutputTokens are for usage tracking. InputTokens is the
+	// whole prompt, like OpenAI prompt_tokens: a provider that reports cache
+	// reads and cache writes apart from the rest (Anthropic, Devin) adds them in.
 	InputTokens  int
 	OutputTokens int
 	// CachedInputTokens is the part of InputTokens the provider served from its

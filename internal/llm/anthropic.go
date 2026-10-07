@@ -178,7 +178,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 			outputTokens = int(e.Usage.OutputTokens)
 			// A final delta normally carries only output usage. Anthropic may
 			// also replace the input counters after a model fallback mid-stream.
-			if e.Usage.JSON.InputTokens.Valid() || e.Usage.JSON.CacheCreationInputTokens.Valid() || e.Usage.JSON.CacheReadInputTokens.Valid() {
+			if anthropicDeltaReportsInput(e.Usage) {
 				if e.Usage.JSON.InputTokens.Valid() {
 					uncachedInput = e.Usage.InputTokens
 				}
@@ -479,6 +479,25 @@ func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, er
 // Response.InputTokens includes all three, like OpenAI prompt_tokens does.
 func anthropicTotalInputTokens(input, cacheCreation, cacheRead int64) int {
 	return int(input + cacheCreation + cacheRead)
+}
+
+// anthropicDeltaReportsInput says whether a message_delta carries input
+// counters to take over. They are cumulative, so the ones present replace what
+// message_start said. A delta whose input counters add up to zero reports
+// nothing: no prompt has zero input, and an Anthropic-compatible gateway that
+// fills the fields with zeros must not erase the counts it sent at the start.
+func anthropicDeltaReportsInput(u anthropic.MessageDeltaUsage) bool {
+	var input int64
+	if u.JSON.InputTokens.Valid() {
+		input += u.InputTokens
+	}
+	if u.JSON.CacheCreationInputTokens.Valid() {
+		input += u.CacheCreationInputTokens
+	}
+	if u.JSON.CacheReadInputTokens.Valid() {
+		input += u.CacheReadInputTokens
+	}
+	return input > 0
 }
 
 func mapAnthropicStopReason(reason string) string {

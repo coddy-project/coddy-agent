@@ -64,10 +64,11 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 		}
 		if resp != nil && (resp.InputTokens > 0 || resp.OutputTokens > 0) {
 			_ = bridge.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
-				SessionUpdate: acp.UpdateTypeTokenUsage,
-				InputTokens:   resp.InputTokens,
-				OutputTokens:  resp.OutputTokens,
-				TotalTokens:   resp.InputTokens + resp.OutputTokens,
+				SessionUpdate:     acp.UpdateTypeTokenUsage,
+				InputTokens:       resp.InputTokens,
+				OutputTokens:      resp.OutputTokens,
+				TotalTokens:       resp.InputTokens + resp.OutputTokens,
+				CachedInputTokens: resp.CachedInputTokens,
 			})
 		}
 		st.AddMessage(directAssistantMessage(resp, yamlSel))

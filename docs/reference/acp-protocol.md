@@ -525,6 +525,9 @@ define; a client that ignores unknown kinds keeps working.
 
 - **`token_usage`** after every completed model call: `inputTokens`,
   `outputTokens` of that call and `totalTokens` accumulated over the turn.
+  `inputTokens` is the whole prompt of the call, the part served from the
+  provider's prompt cache included; that part is `cachedInputTokens`, omitted
+  when the provider reported none.
 - **`usage_update`** when the context window occupancy changes (a model call,
   manual or automatic compaction): `used` and `size` in tokens.
 - **`provider_usage`**: the account quota behind the session's model

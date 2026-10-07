@@ -266,6 +266,9 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	}
 }
 
+// CompletionUsage is the OpenAI usage object of the JSON answer: the counters of
+// every token_usage update this sender received, summed, or nil when the
+// provider reported none.
 func (s *Sender) CompletionUsage() map[string]interface{} {
 	s.mu.Lock()
 	usage := s.usage

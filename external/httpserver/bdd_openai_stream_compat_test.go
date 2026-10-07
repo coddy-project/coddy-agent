@@ -368,6 +368,19 @@ func (s *openAIStreamCompatState) lastChunkReportsUsage(input, output int) error
 	return nil
 }
 
+func (s *openAIStreamCompatState) usageChunkReportsCachedTokens(cached int) error {
+	chunks := s.chunks()
+	if len(chunks) == 0 {
+		return fmt.Errorf("no chunks on the stream: %s", s.sseBody)
+	}
+	last := chunks[len(chunks)-1]
+	got := gjson.Get(last, "usage.prompt_tokens_details.cached_tokens")
+	if !got.Exists() || got.Int() != int64(cached) {
+		return fmt.Errorf("cached prompt tokens = %s, want %d in %s", got.Raw, cached, last)
+	}
+	return nil
+}
+
 func (s *openAIStreamCompatState) usageChunkCarriesEmptyChoices() error {
 	chunks := s.chunks()
 	last := chunks[len(chunks)-1]
@@ -402,6 +415,7 @@ func initializeOpenAIStreamCompatScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the streamed reasoning "([^"]+)" survives as reasoning_content$`, s.reasoningSurvivesAsReasoningContent)
 	sc.Step(`^the last chunk before \[DONE\] reports (\d+) input and (\d+) output tokens$`, s.lastChunkReportsUsage)
 	sc.Step(`^that usage chunk carries an empty choices array$`, s.usageChunkCarriesEmptyChoices)
+	sc.Step(`^that usage chunk reports (\d+) cached prompt tokens$`, s.usageChunkReportsCachedTokens)
 }
 
 func TestOpenAIStreamCompat(t *testing.T) {
