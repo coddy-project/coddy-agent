@@ -244,6 +244,8 @@ export const messagesRu: Record<string, string> = {
   "settings.group.hooks.mainDesc":
     "Как выполняются хуки, то есть можно ли запускать файлы, пришедшие с чекаутом, сколько может длиться один процесс хука без своего таймаута, сколько раз хук Stop может вернуть агента к работе и сколько текста может передать один хук.",
   "settings.group.compaction.summary": "Суммаризация",
+  "settings.group.supervisor.checks": "Проверки цели",
+  "settings.group.supervisor.watchdog": "Сторож",
   "settings.group.tools.permissions": "Разрешения",
   "settings.group.memory.model": "Модель и хранилище",
   "settings.group.memory.runs": "Запуски",

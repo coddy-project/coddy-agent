@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { deriveSettingsSections } from "./settingsSections";
+import { deriveSettingsSections, knownSectionLabel } from "./settingsSections";
 import type { JsonSchema } from "./SchemaForm";
 import { initLocale } from "../i18n/i18n";
 
@@ -249,4 +249,11 @@ test("a relay without a settings page keeps only Appearance", () => {
   expect(
     deriveSettingsSections(null, { relay: true }).map((s) => s.id),
   ).toEqual(["appearance"]);
+});
+
+test("the session goal tab is named in the active locale", () => {
+  initLocale("ru");
+  expect(knownSectionLabel("supervisor")).toBe("Цель сессии");
+  initLocale("en");
+  expect(knownSectionLabel("supervisor")).toBe("Session goal");
 });

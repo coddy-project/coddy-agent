@@ -243,6 +243,8 @@ export const messagesEn: Record<string, string> = {
   "settings.group.hooks.mainDesc":
     "How hooks run: whether files that came with the checkout may run, how long one hook process may take when its definition gives no timeout, how many times a Stop hook may send the agent back to work, and how much text one hook may hand over.",
   "settings.group.compaction.summary": "Summarization",
+  "settings.group.supervisor.checks": "Goal checks",
+  "settings.group.supervisor.watchdog": "Watchdog",
   "settings.group.tools.permissions": "Permissions",
   "settings.group.memory.model": "Model and storage",
   "settings.group.memory.runs": "Runs",

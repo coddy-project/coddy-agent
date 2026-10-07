@@ -677,7 +677,10 @@ export function SettingsSection(props: {
   const override: FieldOverride | undefined =
     key === "gateways"
       ? gatewaysFieldOverride
-      : key === "agent" || key === "memory" || key === "compaction"
+      : key === "agent" ||
+          key === "memory" ||
+          key === "compaction" ||
+          key === "supervisor"
         ? (ctx) =>
             ctx.path === "model" ? (
               <ModelPicker
@@ -759,6 +762,20 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
         id: "summary",
         legend: translate("settings.group.compaction.summary"),
         paths: ["threshold_percent", "keep_recent_turns", "model"],
+      },
+    ];
+  }
+  if (key === "supervisor") {
+    return [
+      {
+        id: "checks",
+        legend: translate("settings.group.supervisor.checks"),
+        paths: ["model", "verify", "max_continuations", "token_budget"],
+      },
+      {
+        id: "watchdog",
+        legend: translate("settings.group.supervisor.watchdog"),
+        paths: ["stall_seconds", "max_nudges", "loop_repeat"],
       },
     ];
   }
