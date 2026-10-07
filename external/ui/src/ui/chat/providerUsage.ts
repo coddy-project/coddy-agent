@@ -181,12 +181,21 @@ export function formatDurationSec(seconds: number): string {
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 }
 
+/**
+ * The blocker of a call to a model another Coddy shares that waits for a free
+ * stream slot of the remote (provider type coddy). It comes with `resuming`,
+ * is no limit of an account, and ends with an update saying the row has no
+ * usage.
+ */
+export const REMOTE_BUSY_BLOCKER = "remote_busy";
+
 export type UsageBlockKind =
   | "window"
   | "rate"
   | "key"
   | "wallet"
   | "account"
+  | "busy"
   | "other";
 
 const BLOCKER_KIND: Record<string, UsageBlockKind> = {
@@ -200,7 +209,13 @@ const BLOCKER_KIND: Record<string, UsageBlockKind> = {
   key_cap_blocked: "key",
   wallet_empty: "wallet",
   user_blocked: "account",
+  [REMOTE_BUSY_BLOCKER]: "busy",
 };
+
+/** True for the snapshot of a call waiting for a free slot of the remote. */
+export function remoteBusy(u: ProviderUsage | null | undefined): boolean {
+  return !!u?.blocked && (u.blockers ?? []).includes(REMOTE_BUSY_BLOCKER);
+}
 
 /** Classifies a Blocked snapshot by its first known blocker. */
 export function usageBlockKind(u: ProviderUsage): UsageBlockKind {
@@ -342,7 +357,9 @@ export function usageNextReadMs(u: ProviderUsage | null | undefined): {
     }
   };
   for (const w of u.windows ?? []) consider(w.resetInSec, true);
-  consider(u.retryInSec, true);
+  // The end of a wait for a slot of the remote is not a reset of anything the
+  // hub could be asked about; the update that clears it comes by itself.
+  if (!remoteBusy(u)) consider(u.retryInSec, true);
   if (u.refreshPending) consider(u.refreshInSec, false);
   if (best === 0) return { delayMs: 0, forced: false };
   // A browser timer past 2^31-1 ms fires at once; a block the hub measures
@@ -385,6 +402,11 @@ export function usageBannerKey(
   modelId = "",
 ): string {
   if (!u) return "";
+  if (remoteBusy(u)) {
+    // The countdown is re-sent while the wait lasts, with a deadline that can
+    // move by a second: one key for the row, not one per re-send.
+    return `${u.provider}@${REMOTE_BUSY_BLOCKER}`;
+  }
   if (u.blocked) {
     return `${u.provider}@blocked@${u.retryAt ?? ""}@${(u.blockers ?? []).join(",")}`;
   }

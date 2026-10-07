@@ -3,6 +3,7 @@ import {
   formatDurationSec,
   formatResetTime,
   formatRub,
+  remoteBusy,
   summarizeUsage,
   usagePercent,
   usageProviderTitle,
@@ -54,6 +55,17 @@ export function UsageSection(props: {
       break;
     case "blocked":
       noteTone = "error";
+      if (remoteBusy(u)) {
+        // Waiting for a free stream slot of a remote Coddy: no account
+        // limit was hit, and the call goes on by itself.
+        noteTone = "warn";
+        note = u.retryAt
+          ? t("usage.remoteBusyUntil", {
+              time: formatResetTime(u.retryAt, now, locale),
+            })
+          : t("usage.remoteBusy");
+        break;
+      }
       if (u.resuming) {
         noteTone = "warn";
         note = u.retryAt

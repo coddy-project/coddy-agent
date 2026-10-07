@@ -50,6 +50,36 @@ const (
 // counted down to has passed: the status row goes back to the model.
 type usageResumeDue struct{}
 
+// remoteBusyBlocker is the blocker of a call to a model another Coddy shares
+// that waits for a free stream slot of the remote (provider type coddy,
+// internal/agent/coddy_provider.go). It is no limit of an account: nothing in
+// it resets, and the call goes on by itself when a slot frees up.
+const remoteBusyBlocker = "remote_busy"
+
+// isRemoteBusy reports whether an update is the wait for a slot of the remote.
+func isRemoteBusy(u *acp.ProviderUsageUpdate) bool {
+	if u == nil {
+		return false
+	}
+	for _, id := range u.Blockers {
+		if id == remoteBusyBlocker {
+			return true
+		}
+	}
+	return false
+}
+
+// remoteBusyPhrase is what the status row says while a call waits for a free
+// slot of the remote: what is waited for, that the call resumes without
+// anyone's help, and the latest time it gives up at, when the update has one.
+func remoteBusyPhrase(retryAt string, now time.Time) string {
+	text := "Waiting for a free slot on the remote · resumes on its own"
+	if at := parseUsageTime(retryAt); !at.IsZero() {
+		text += ", gives up at " + formatResetTime(at, now)
+	}
+	return text
+}
+
 type usageResetDue struct {
 	provider string
 	forced   bool
@@ -294,6 +324,8 @@ func blockerKind(id string) string {
 		return "wallet"
 	case "user_blocked":
 		return "account"
+	case remoteBusyBlocker:
+		return "busy"
 	default:
 		return ""
 	}
@@ -310,6 +342,14 @@ func blockedSegment(u *acp.ProviderUsageUpdate, now time.Time) usageSegment {
 		}
 	}
 	switch kind {
+	case "busy":
+		// Nothing was refused: the call waits for the remote's slot and
+		// resumes on its own, so it takes the warning role, not the error one.
+		text := "waiting for a free slot on the remote"
+		if at := parseUsageTime(u.RetryAt); !at.IsZero() {
+			text += " (gives up at " + formatResetTime(at, now) + ")"
+		}
+		return usageSegment{text: text, role: roleWarning}
 	case "key":
 		return usageSegment{text: "key blocked", role: roleError}
 	case "wallet":
@@ -609,6 +649,25 @@ func (a *App) applyProviderUsage(u acp.ProviderUsageUpdate) {
 		if a.usageActive(&u) {
 			a.stopUsageTimer()
 		}
+		// The call that waited for a slot of this row has its answer, or was
+		// given up: the row goes back to the model until the call streams,
+		// since the first chunk is the only thing that announces it.
+		if a.remoteBusy != "" && a.remoteBusy == u.Provider {
+			a.stopUsageResume()
+			if a.turnActive || a.remoteTurnActive {
+				a.setStatus(newWaitingStatus())
+			}
+		}
+		return
+	}
+	if u.Resuming && isRemoteBusy(&u) {
+		// The turn is waiting for the remote's slot, not for a limit to lift:
+		// the status row says so, and nothing is armed. The call re-sends the
+		// countdown while it waits and ends it with an update that says the
+		// row has no usage (the branch above).
+		a.stopUsageResume()
+		a.remoteBusy = u.Provider
+		a.setStatus(liveStatus{verb: remoteBusyPhrase(u.RetryAt, a.usageNow()), startedAt: time.Now()})
 		return
 	}
 	if u.Resuming {
@@ -664,9 +723,14 @@ func (a *App) noticeUsage(u *acp.ProviderUsageUpdate) {
 	if u.Blocked {
 		seg := blockedSegment(u, now)
 		key := "blocked@" + u.RetryAt + "@" + strings.Join(u.Blockers, ",")
+		role := roleError
+		if isRemoteBusy(u) {
+			// One notice per wait, whatever second its deadline falls on.
+			key, role = "busy@"+u.Provider, roleWarning
+		}
 		if !a.usageNotified[key] {
 			a.usageNotified[key] = true
-			a.appendStatus(roleError, blockedNotice(seg.text))
+			a.appendStatus(role, blockedNotice(seg.text))
 		}
 		return
 	}
@@ -741,9 +805,10 @@ func (a *App) armUsageTimer(u *acp.ProviderUsageUpdate) {
 	})
 }
 
-// stopUsageResume drops the pending resume note (a turn ended, or a newer
-// countdown replaced it).
+// stopUsageResume drops the pending resume note and the memory of a wait for
+// a slot of the remote (a turn ended, or a newer countdown replaced it).
 func (a *App) stopUsageResume() {
+	a.remoteBusy = ""
 	if a.usageResume != nil {
 		a.usageResume()
 		a.usageResume = nil

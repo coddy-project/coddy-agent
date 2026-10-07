@@ -162,3 +162,34 @@ test("switch field grid centres the label cell on the switch", () => {
   // consumers left and is gone with them.
   expect(css).not.toMatch(/\.settings-row-inline/);
 });
+
+// An acknowledgement the form cannot be saved without says so to assistive
+// technology, and names the warning under it; a plain switch sets none of it.
+test("a required acknowledgement forwards its aria state to the switch", () => {
+  render(
+    <>
+      <p id="warning">Hands its quota to every holder.</p>
+      <SwitchField
+        checked={false}
+        onChange={() => {}}
+        label="I accept"
+        ariaRequired
+        ariaInvalid
+        ariaDescribedBy="warning"
+      />
+    </>,
+  );
+  const sw = screen.getByRole("switch", { name: "I accept" });
+  expect(sw.getAttribute("aria-required")).toBe("true");
+  expect(sw.getAttribute("aria-invalid")).toBe("true");
+  expect(sw.getAttribute("aria-describedby")).toBe("warning");
+  expect(sw).toHaveAccessibleDescription("Hands its quota to every holder.");
+});
+
+test("a plain switch carries none of the acknowledgement attributes", () => {
+  render(<SwitchField checked onChange={() => {}} label="Stream" />);
+  const sw = screen.getByRole("switch", { name: "Stream" });
+  for (const attr of ["aria-required", "aria-invalid", "aria-describedby"]) {
+    expect(sw.hasAttribute(attr), attr).toBe(false);
+  }
+});

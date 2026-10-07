@@ -2,6 +2,7 @@ import { useT } from "../i18n/I18nProvider";
 import {
   formatDurationSec,
   formatResetTime,
+  remoteBusy,
   summarizeUsage,
   usageBannerKey,
   usagePercent,
@@ -17,8 +18,12 @@ import {
  * dismiss control (remembered per provider row, window and period), and on
  * a block the error tone: a timed block names its reset ("Usage limit
  * reached · Resets 20:59"), the others name their cause (a blocked key, an
- * empty wallet, a blocked account, a rate limit). Returns null when there
- * is nothing to say or the notice was dismissed for this period.
+ * empty wallet, a blocked account, a rate limit). A call waiting for a free
+ * stream slot of a remote Coddy (blocker remote_busy) is no limit of an
+ * account: its notice says what is waited for and until when, carries no
+ * dismiss control (it goes away by itself) and is never hidden by an earlier
+ * dismissal. Returns null when there is nothing to say or the notice was
+ * dismissed for this period.
  */
 export function UsageBanner(props: {
   usage: ProviderUsage | null | undefined;
@@ -31,12 +36,21 @@ export function UsageBanner(props: {
   const summary = summarizeUsage(props.usage, props.modelId);
   const now = props.now ?? new Date();
   const key = usageBannerKey(props.usage, props.modelId);
-  if (!key || props.dismissedKey === key) return null;
+  if (!key || (!remoteBusy(props.usage) && props.dismissedKey === key)) {
+    return null;
+  }
   const u = props.usage as ProviderUsage;
   const brand = usageProviderBrand(u);
   let text = "";
   let tone: "warn" | "error" = "warn";
-  if (summary.kind === "blocked" && u.resuming) {
+  const waitingForRemote = summary.kind === "blocked" && remoteBusy(u);
+  if (waitingForRemote) {
+    text = u.retryAt
+      ? t("usage.remoteBusyUntil", {
+          time: formatResetTime(u.retryAt, now, locale),
+        })
+      : t("usage.remoteBusy");
+  } else if (summary.kind === "blocked" && u.resuming) {
     // The turn is waiting for the reset and resumes by itself: a calmer
     // notice than a block the user has to act on.
     text = u.retryAt
@@ -91,14 +105,16 @@ export function UsageBanner(props: {
       data-tone={tone}
     >
       <span className="usage-banner-text">{text}</span>
-      <button
-        type="button"
-        className="usage-banner-dismiss"
-        aria-label={t("usage.bannerDismiss")}
-        onClick={() => props.onDismiss?.(key)}
-      >
-        ×
-      </button>
+      {waitingForRemote ? null : (
+        <button
+          type="button"
+          className="usage-banner-dismiss"
+          aria-label={t("usage.bannerDismiss")}
+          onClick={() => props.onDismiss?.(key)}
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 }

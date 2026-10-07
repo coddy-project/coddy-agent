@@ -9,6 +9,12 @@ export type SwitchProps = {
   ariaLabel?: string | undefined;
   /** id of the visible element that names the switch when ariaLabel is absent. */
   ariaLabelledBy?: string | undefined;
+  /** A switch the form cannot be saved without: an acknowledgement. */
+  ariaRequired?: boolean | undefined;
+  /** The switch is in the state the form refuses. */
+  ariaInvalid?: boolean | undefined;
+  /** id of the element that explains the switch (a warning under it). */
+  ariaDescribedBy?: string | undefined;
   dataTestId?: string | undefined;
 };
 
@@ -24,6 +30,9 @@ export function Switch({
   id,
   ariaLabel,
   ariaLabelledBy,
+  ariaRequired,
+  ariaInvalid,
+  ariaDescribedBy,
   dataTestId,
 }: SwitchProps) {
   return (
@@ -38,6 +47,9 @@ export function Switch({
       title={title}
       aria-label={ariaLabel}
       aria-labelledby={ariaLabel ? undefined : ariaLabelledBy}
+      aria-required={ariaRequired ? true : undefined}
+      aria-invalid={ariaInvalid ? true : undefined}
+      aria-describedby={ariaDescribedBy}
       data-testid={dataTestId}
     >
       <span className="skill-switch-thumb" />

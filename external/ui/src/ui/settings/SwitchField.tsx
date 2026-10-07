@@ -13,6 +13,10 @@ export type SwitchFieldProps = {
   title?: string | undefined;
   /** Overrides the accessible name when the visible label is state text ("Enabled"). */
   ariaLabel?: string | undefined;
+  /** Forwarded to the switch: see SwitchProps. */
+  ariaRequired?: boolean | undefined;
+  ariaInvalid?: boolean | undefined;
+  ariaDescribedBy?: string | undefined;
   dataTestId?: string | undefined;
   className?: string | undefined;
 };
@@ -34,6 +38,9 @@ export function SwitchField({
   disabled,
   title,
   ariaLabel,
+  ariaRequired,
+  ariaInvalid,
+  ariaDescribedBy,
   dataTestId,
   className,
 }: SwitchFieldProps) {
@@ -56,6 +63,9 @@ export function SwitchField({
         title={title}
         ariaLabel={ariaLabel}
         ariaLabelledBy={labelId}
+        ariaRequired={ariaRequired}
+        ariaInvalid={ariaInvalid}
+        ariaDescribedBy={ariaDescribedBy}
         dataTestId={dataTestId}
       />
       <span className="settings-switch-field-label-cell">

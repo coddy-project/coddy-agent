@@ -171,3 +171,77 @@ test("the reader's language names the window in the banner", () => {
     setLocale("en");
   }
 });
+
+// A call to a model another Coddy shares waits for a free stream slot of the
+// remote; the agent reports it as a resuming provider_usage update with the
+// blocker remote_busy. The notice must say what is being waited for, not
+// "Usage limit reached".
+function busyWait(extra: Partial<ProviderUsage> = {}): ProviderUsage {
+  return {
+    provider: "lab",
+    providerType: "coddy",
+    blocked: true,
+    blockers: ["remote_busy"],
+    resuming: true,
+    retryAt: "2026-09-06T17:48:12Z",
+    retryInSec: 60,
+    ...extra,
+  };
+}
+
+test("the banner says the call waits for a free slot of the remote, not that a usage limit was hit", () => {
+  const { container } = render(
+    <UsageBanner usage={busyWait()} modelId="lab/terra" now={now} />,
+  );
+  const banner = container.querySelector(
+    "[data-testid=usage-banner]",
+  ) as HTMLElement;
+  expect(banner.getAttribute("data-tone")).toBe("warn");
+  expect(banner.textContent).toContain("Waiting for a free slot on the remote");
+  expect(banner.textContent).toContain("resumes on its own");
+  expect(banner.textContent).toContain("gives up at");
+  expect(banner.textContent).not.toMatch(/usage limit|auto-resuming/i);
+  // A wait that goes away by itself has nothing to dismiss, and a dismissal
+  // would hide every later wait of the row.
+  expect(container.querySelector(".usage-banner-dismiss")).toBeNull();
+});
+
+test("without a deadline the banner names no time", () => {
+  const noDeadline = busyWait();
+  delete noDeadline.retryAt;
+  delete noDeadline.retryInSec;
+  const { container } = render(
+    <UsageBanner usage={noDeadline} modelId="lab/terra" now={now} />,
+  );
+  const text = container.querySelector("[data-testid=usage-banner]")
+    ?.textContent as string;
+  expect(text).toContain("Waiting for a free slot on the remote");
+  expect(text).not.toContain("gives up");
+});
+
+test("a remembered dismissal of another notice does not hide the wait", () => {
+  const { container } = render(
+    <UsageBanner
+      usage={busyWait()}
+      modelId="lab/terra"
+      dismissedKey="lab@blocked@2026-09-06T17:48:12Z@remote_busy"
+      now={now}
+    />,
+  );
+  expect(container.querySelector("[data-testid=usage-banner]")).not.toBeNull();
+});
+
+test("the reader's language says it too", () => {
+  expect(setLocale("ru")).toBe(true);
+  try {
+    const { container } = render(
+      <UsageBanner usage={busyWait()} modelId="lab/terra" now={now} />,
+    );
+    const text = container.querySelector("[data-testid=usage-banner]")
+      ?.textContent as string;
+    expect(text).toContain("Ждём свободный слот на удалённом Coddy");
+    expect(text).not.toContain("лимит");
+  } finally {
+    setLocale("en");
+  }
+});
