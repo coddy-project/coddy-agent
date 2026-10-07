@@ -67,6 +67,12 @@ type State struct {
 	// every system prompt of the session carries it (see docs/features/hooks.md).
 	HookContext string
 	goal        GoalState
+	// goalNotify publishes a goal change (State.SetGoalNotifier).
+	goalNotify func(notice string)
+	// turnGoal is the marker of the goal turn about to run (SetTurnGoal);
+	// goalCommandNotice the answer of a /goal command for the result.
+	turnGoal          *llm.GoalTurn
+	goalCommandNotice string
 
 	// Messages is the conversation history.
 	Messages []llm.Message

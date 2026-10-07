@@ -63,6 +63,9 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	case acp.BackgroundWakeUpdate:
 		// A turn nobody typed opens with what woke the agent.
 		s.post("🔔 " + session.BackgroundWakeNote(u))
+	case acp.GoalTurnUpdate:
+		// The supervisor starts another turn of the goal.
+		s.post("🎯 " + session.GoalTurnNote(u))
 	case acp.MessageChunkUpdate:
 		if u.Content.Type != acp.ContentTypeText || u.SessionUpdate == acp.UpdateTypeUserMessageChunk {
 			return nil

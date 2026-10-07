@@ -2,10 +2,9 @@ package session
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -14,37 +13,67 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
-// SupervisorContinuationPrefix marks a visible automatic follow-up prompt.
-const SupervisorContinuationPrefix = "[Supervisor continuation] "
-
-// SupervisorVerdict is one completion check by the small supervisor model.
-type SupervisorVerdict struct {
-	Done      bool   `json:"done"`
-	Remaining string `json:"remaining"`
+// GoalCheckRequest is what the supervisor's check reads: the objective, the
+// requirements the previous check tracked, and the evidence digest the
+// harness built from the goal's turns (goal_digest.go).
+type GoalCheckRequest struct {
+	Objective string
+	// Implicit says there is no goal: the objective is the latest request
+	// (supervisor.enable).
+	Implicit  bool
+	Checklist []GoalItem
+	Digest    string
+	// Remaining is what the check that ran before this verification found
+	// open; empty for the check itself.
+	Remaining []string
 }
 
-type supervisorJudge func(context.Context, *config.Config, *State, string) (SupervisorVerdict, error)
-
-// SetSupervisorJudge replaces the model-based verdict reader. Tests use it to
-// exercise continuation policy without a network model.
-func (m *Manager) SetSupervisorJudge(judge func(context.Context, *config.Config, *State, string) (SupervisorVerdict, error)) {
-	m.supervisorJudge = judge
+// GoalCheckResult is one verdict.
+type GoalCheckResult struct {
+	Verdict   GoalVerdict
+	Reason    string
+	Remaining []string
+	Checklist []GoalItem
+	// Model is the model that answered.
+	Model string
 }
 
-func (m *Manager) supervisorEnabled(st *State, opts *PromptRunOpts) bool {
-	if st.GetMode() != string(ModeAgent) || st.Subagent() != nil || opts != nil && opts.subagentTurn {
-		return false
-	}
-	goal := st.GetGoal()
-	return goal.Text != "" && goal.Status == GoalActive || m.activeCfg().Supervisor.Enable
-}
+// GoalJudge checks a finished goal turn against the objective, without tools.
+type GoalJudge func(ctx context.Context, cfg *config.Config, st *State, req GoalCheckRequest) (GoalCheckResult, error)
 
-func isSupervisorCommandPrompt(prompt []acp.ContentBlock) bool {
+// GoalVerifier confirms a met verdict by reading the workspace: the
+// goal-verifier subagent (internal/agent/goal_verifier.go).
+type GoalVerifier func(ctx context.Context, st *State, req GoalCheckRequest) (GoalCheckResult, error)
+
+// SetGoalJudge replaces the model-based check. Tests use it to drive the
+// continuation policy without a model.
+func (m *Manager) SetGoalJudge(judge GoalJudge) { m.goalJudge = judge }
+
+// SetGoalVerifier installs the workspace verification of a met verdict. A
+// surface that runs no subagents leaves it unset and the check's verdict
+// stands alone.
+func (m *Manager) SetGoalVerifier(verify GoalVerifier) { m.goalVerifier = verify }
+
+// goalCheckTimeout bounds one check; goalVerifyTimeout one verification run.
+const (
+	goalCheckTimeout  = 90 * time.Second
+	goalVerifyTimeout = 4 * time.Minute
+	// goalIdleTurnsLimit is how many goal turns in a row may end without a
+	// single tool call before the goal is blocked: a model that only talks
+	// is not making progress the next continuation would change.
+	goalIdleTurnsLimit = 2
+)
+
+// agentCommandPrompts are the built-ins Agent.Run answers without a model
+// turn; there is no work in them for the supervisor to check.
+var agentCommandPrompts = []string{"/compact", "/plugin", "/export"}
+
+func isAgentCommandPrompt(prompt []acp.ContentBlock) bool {
 	if len(prompt) != 1 || prompt[0].Type != acp.ContentTypeText {
 		return false
 	}
 	text := strings.TrimSpace(prompt[0].Text)
-	for _, command := range []string{"/goal", "/compact", "/plugin", "/export"} {
+	for _, command := range agentCommandPrompts {
 		if text == command || strings.HasPrefix(text, command+" ") || strings.HasPrefix(text, command+"\n") {
 			return true
 		}
@@ -52,270 +81,442 @@ func isSupervisorCommandPrompt(prompt []acp.ContentBlock) bool {
 	return false
 }
 
+// goalRun is one run of the supervisor over a prompt: the turns it starts,
+// the recoveries it has spent and whether the wrap-up already ran.
+type goalRun struct {
+	m      *Manager
+	st     *State
+	sender acp.UpdateSender
+	cfg    *config.Config
+	// persist is true for the session's goal, false for the implicit goal
+	// of supervisor.enable, which lives only as long as the run.
+	persist  bool
+	implicit GoalState
+	nudges   int
+	idle     int
+}
+
+func (r *goalRun) goal() GoalState {
+	if r.persist {
+		return r.st.GetGoal()
+	}
+	return r.implicit
+}
+
+func (r *goalRun) update(notice string, fn func(*GoalState) bool) {
+	if r.persist {
+		r.st.UpdateGoal(notice, fn)
+		return
+	}
+	fn(&r.implicit)
+}
+
+// runSupervisedTurn runs one prompt of a top-level agent session. A /goal
+// command is answered here, whichever surface or queue it came from; a turn
+// of a session with an active goal (or any turn, with supervisor.enable) is
+// checked when it ends, and unfinished work gets bounded continuation turns.
 func (m *Manager) runSupervisedTurn(ctx context.Context, st *State, prompt []acp.ContentBlock, sender acp.UpdateSender, opts *PromptRunOpts) (string, error) {
-	if !m.supervisorEnabled(st, opts) || isSupervisorCommandPrompt(prompt) || opts != nil && opts.BackgroundWake != nil && st.GetGoal().Status != GoalActive {
+	topLevel := st.Subagent() == nil && (opts == nil || !opts.subagentTurn)
+	var first *llm.GoalTurn
+	if topLevel {
+		if cmd := goalCommandOf(prompt); cmd.Kind != GoalCommandNone {
+			var notice string
+			var err error
+			prompt, first, notice, err = m.applyGoalCommand(st, cmd, opts)
+			if err != nil {
+				notice = err.Error()
+			}
+			if first == nil {
+				m.answerGoalCommand(st, sender, notice)
+				return string(acp.StopReasonEndTurn), nil
+			}
+		}
+	}
+	if !topLevel || st.GetMode() != string(ModeAgent) || isAgentCommandPrompt(prompt) {
 		return m.runner(ctx, st, prompt, sender)
 	}
 	cfg := m.activeCfg()
-	goal := st.GetGoal()
-	objective := ""
-	used := 0
-	if goal.Status == GoalActive {
-		objective = goal.Text
-		used = goal.Continuations
-	}
-	if objective == "" {
-		for _, block := range prompt {
-			if block.Type == acp.ContentTypeText {
-				objective += block.Text + "\n"
-			}
+	run := &goalRun{m: m, st: st, sender: sender, cfg: cfg, persist: true}
+	if !st.GetGoal().Active() {
+		woken := opts != nil && opts.BackgroundWake != nil
+		objective := strings.TrimSpace(contentBlocksToPlainText(prompt))
+		if !cfg.Supervisor.Enable || woken || objective == "" {
+			return m.runner(ctx, st, prompt, sender)
 		}
-		objective = strings.TrimSpace(objective)
+		run.persist = false
+		run.implicit = GoalState{Objective: objective, Status: GoalActive}
 	}
-	if objective == "" {
-		return m.runner(ctx, st, prompt, sender)
+	return run.loop(ctx, prompt, first)
+}
+
+// answerGoalCommand tells the operator what a /goal command did, on the
+// surface that sent it and in the transcript's notices.
+func (m *Manager) answerGoalCommand(st *State, sender acp.UpdateSender, notice string) {
+	notice = strings.TrimSpace(notice)
+	if notice == "" {
+		return
 	}
-	judge := m.supervisorJudge
-	if judge == nil {
-		judge = judgeSessionGoal
+	AnnounceSettingsNotice(sender, st.ID, notice)
+	st.AppendUILogNotice(CountUserTurns(st.GetMessages())+1, notice)
+	st.setGoalCommandNotice(notice)
+}
+
+// applyGoalCommand carries out a /goal command. A command that starts work
+// (set, resume) returns the prompt and the marker of the turn to run; the
+// others return only the notice.
+func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOpts) ([]acp.ContentBlock, *llm.GoalTurn, string, error) {
+	cfg := m.activeCfg()
+	if cmd.Kind != GoalCommandShow && opts != nil && opts.Restriction != nil {
+		return nil, nil, "", fmt.Errorf("only the bot's admins can change the session goal")
 	}
-	limit := cfg.Supervisor.ContinuationLimit()
-	nudges := 0
-	continuation := false
+	switch cmd.Kind {
+	case GoalCommandShow:
+		return nil, nil, GoalStatusText(st.GetGoal(), cfg.Supervisor.ContinuationLimit()), nil
+	case GoalCommandClear:
+		return nil, nil, m.clearGoal(st), nil
+	case GoalCommandPause:
+		notice, err := m.pauseGoal(st, "paused by the operator")
+		return nil, nil, notice, err
+	case GoalCommandResume:
+		if err := m.resumeGoal(st); err != nil {
+			return nil, nil, "", err
+		}
+		g := st.GetGoal()
+		marker := &llm.GoalTurn{Kind: acp.GoalTurnResume, Objective: g.Objective, Limit: cfg.Supervisor.ContinuationLimit()}
+		return goalPrompt(goalResumeText(g, cfg)), marker, "", nil
+	case GoalCommandSet:
+		if st.GetMode() != string(ModeAgent) {
+			return nil, nil, "", fmt.Errorf("a goal is worked on in agent mode; switch to agent mode first (/agent)")
+		}
+		goal, err := NewGoal(cmd.Objective)
+		if err != nil {
+			return nil, nil, "", err
+		}
+		st.SetGoalWithNotice(goal, "Goal set: "+goal.Objective)
+		marker := &llm.GoalTurn{Kind: acp.GoalTurnKickoff, Objective: goal.Objective, Limit: cfg.Supervisor.ContinuationLimit()}
+		return goalPrompt(goalKickoffText(goal, cfg)), marker, "", nil
+	}
+	return nil, nil, "", nil
+}
+
+func goalPrompt(text string) []acp.ContentBlock {
+	return []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}}
+}
+
+// loop runs prompt, checks the result and continues until the check is met,
+// the goal leaves active, a person takes over or a budget runs out.
+func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *llm.GoalTurn) (string, error) {
+	st, cfg := r.st, r.cfg
+	sup := cfg.Supervisor
 	for {
-		stepCtx, cancel := context.WithCancel(ctx)
-		if continuation {
-			stepCtx = withPromptEcho(stepCtx, st.ID)
-		}
-		watch := newTurnWatch(sender, st, cancel, cfg.Supervisor.StallTimeout(), cfg.Supervisor.LoopRepeatLimit())
-		done := make(chan struct{})
-		watchDone := make(chan struct{})
-		go func() {
-			defer close(watchDone)
-			watch.run(stepCtx, done)
-		}()
-		stop, err := m.runner(stepCtx, st, prompt, watch)
-		close(done)
-		cancel()
-		<-watchDone
-		if ctx.Err() != nil || st.IsUserCancelledTurn() {
+		stop, watch, err := r.runStep(ctx, prompt, marker)
+		if ctx.Err() != nil || st.IsUserCancelledTurn() || errors.Is(err, context.Canceled) && watch.cause() == "" {
 			return stop, err
 		}
-		cause := watch.cause()
-		if cause != "" {
-			// A queued operator message gets the next run before any recovery
-			// prompt. In particular, /goal clear must be able to stop a goal.
-			if len(st.QueuedMessages()) > 0 {
+		goal := r.goal()
+		if !goal.Active() {
+			// Cleared, paused or replaced while the turn ran.
+			return stop, err
+		}
+		if marker != nil && marker.Kind == acp.GoalTurnWrapUp {
+			r.finish(GoalLimited, limitReason(goal, sup), "Goal stopped: "+limitReason(goal, sup))
+			return string(acp.StopReasonEndTurn), nil
+		}
+		// What the operator wrote meanwhile goes first; the supervisor picks
+		// the goal up again after it, since that prompt runs supervised too.
+		if len(st.QueuedMessages()) > 0 {
+			return stop, err
+		}
+
+		// A turn that did not finish: a watchdog cut, a failed or refused
+		// turn. Those get a recovery turn while nudges last.
+		if reason, ok, fatal := r.unfinished(stop, err, watch); ok {
+			if fatal != nil {
+				return stop, fatal
+			}
+			if r.nudges >= sup.NudgeLimit() {
+				r.finish(GoalBlocked, reason, "Goal blocked: "+reason)
+				if err != nil {
+					return stop, err
+				}
 				return string(acp.StopReasonEndTurn), nil
 			}
-			if nudges >= cfg.Supervisor.NudgeLimit() || used >= limit {
-				return m.stopSupervisedTurn(st, cause, used)
-			}
-			nudges++
-			used++
-			prompt = supervisorPrompt("The previous turn was interrupted because it was " + cause + ". Summarize what you tried, change approach and finish the remaining work.")
-			continuation = true
-			m.recordSupervisorContinuation(st, used, cause)
+			r.nudges++
+			marker = &llm.GoalTurn{Kind: acp.GoalTurnRecover, Index: r.nudges, Limit: sup.NudgeLimit(), Objective: goal.Objective, Reason: reason}
+			prompt = goalPrompt(goalRecoveryText(goal, reason, cfg))
 			continue
 		}
-		if err != nil || stop != string(acp.StopReasonEndTurn) {
-			return stop, err
-		}
-		if len(st.QueuedMessages()) > 0 {
-			return stop, nil
-		}
 		if runningBackgroundWork(st.ID) {
+			// The result is not in yet: the wake that reports the work
+			// starts the next supervised turn.
+			r.publishNotice("Goal check deferred: background work is still running")
 			return stop, nil
 		}
-		verdictCtx, verdictCancel := context.WithTimeout(ctx, 30*time.Second)
-		verdict, verdictErr := judge(verdictCtx, cfg, st, objective)
-		verdictCancel()
+
+		result, checkErr := r.check(ctx)
 		if ctx.Err() != nil || st.IsUserCancelledTurn() {
 			return string(acp.StopReasonCancelled), nil
 		}
 		if len(st.QueuedMessages()) > 0 {
-			return string(acp.StopReasonEndTurn), nil
-		}
-		if verdictErr != nil {
-			m.log.Warn("supervisor completion check failed", "session", st.ID, "error", verdictErr)
-			return m.stopSupervisedTurn(st, "completion check failed: "+verdictErr.Error(), used)
-		}
-		if verdict.Done {
-			if goal := st.GetGoal(); goal.Text != "" && goal.Status == GoalActive {
-				goal.Status = GoalComplete
-				goal.Remaining = ""
-				st.SetGoal(goal)
-			}
 			return stop, nil
 		}
-		remaining := strings.TrimSpace(verdict.Remaining)
-		if remaining == "" {
-			remaining = "Finish the outstanding parts of the request."
+		if checkErr != nil {
+			r.m.log.Warn("goal check failed", "session", st.ID, "error", checkErr)
+			r.finish(GoalPaused, "the supervisor check failed: "+checkErr.Error(), "Goal paused: the supervisor check failed")
+			return stop, nil
 		}
-		if used >= limit {
-			return m.stopSupervisedTurn(st, remaining, used)
+		if watch.toolCalls() == 0 && result.Verdict == GoalVerdictNotMet {
+			r.idle++
+		} else {
+			r.idle = 0
 		}
-		used++
-		prompt = supervisorPrompt("Continue the task. Remaining: " + remaining)
-		continuation = true
-		m.recordSupervisorContinuation(st, used, remaining)
-	}
-}
-
-func supervisorPrompt(text string) []acp.ContentBlock {
-	return []acp.ContentBlock{{Type: acp.ContentTypeText, Text: SupervisorContinuationPrefix + text}}
-}
-
-func (m *Manager) recordSupervisorContinuation(st *State, used int, remaining string) {
-	if goal := st.GetGoal(); goal.Text != "" && goal.Status == GoalActive {
-		goal.Continuations = used
-		goal.Remaining = remaining
-		st.SetGoal(goal)
-	}
-	st.AppendUILogNotice(CountUserTurns(st.GetMessages()), fmt.Sprintf("Supervisor continuation %d: %s", used, remaining))
-}
-
-func (m *Manager) stopSupervisedTurn(st *State, remaining string, used int) (string, error) {
-	if goal := st.GetGoal(); goal.Text != "" && goal.Status == GoalActive {
-		goal.Status = GoalStopped
-		goal.Remaining = remaining
-		goal.Continuations = used
-		st.SetGoal(goal)
-	}
-	st.SetTurnStopNotice(fmt.Sprintf("Supervisor stopped after %d automatic continuations. Remaining: %s", used, remaining))
-	return string(acp.StopReasonRefused), nil
-}
-
-type turnWatch struct {
-	acp.UpdateSender
-	sessionID string
-	state     *State
-	cancel    context.CancelFunc
-	stall     time.Duration
-	repeat    int
-	mu        sync.Mutex
-	last      time.Time
-	waiting   int
-	lastTool  string
-	toolRuns  int
-	seenTools map[string]bool
-	stoppedBy string
-}
-
-func newTurnWatch(sender acp.UpdateSender, state *State, cancel context.CancelFunc, stall time.Duration, repeat int) *turnWatch {
-	return &turnWatch{UpdateSender: sender, sessionID: state.ID, state: state, cancel: cancel, stall: stall, repeat: repeat, last: time.Now(), seenTools: make(map[string]bool)}
-}
-
-func (w *turnWatch) SendSessionUpdate(sessionID string, update interface{}) error {
-	var toolKey string
-	if event, ok := update.(acp.ToolCallStatusUpdate); ok && (event.Status == "completed" || event.Status == "failed") {
-		toolKey = w.toolKey(event.ToolCallID)
-	}
-	w.mu.Lock()
-	switch event := update.(type) {
-	case acp.MessageChunkUpdate:
-		if event.SessionUpdate == acp.UpdateTypeAgentMessageChunk && event.Content.Text != "" {
-			w.last = time.Now()
-			w.toolRuns = 0
+		switch result.Verdict {
+		case GoalVerdictMet:
+			r.finish(GoalComplete, "", "Goal complete: "+goal.Objective)
+			return stop, nil
+		case GoalVerdictNeedsUser, GoalVerdictImpossible:
+			reason := firstNonEmpty(result.Reason, "the supervisor needs your decision")
+			r.finish(GoalBlocked, reason, "Goal blocked: "+reason)
+			return stop, nil
 		}
-	case acp.ToolCallUpdate:
-		w.last = time.Now()
-	case acp.ToolCallStatusUpdate:
-		w.last = time.Now()
-		if toolKey != "" && !w.seenTools[event.ToolCallID] {
-			w.seenTools[event.ToolCallID] = true
-			if toolKey == w.lastTool {
-				w.toolRuns++
+		if r.idle >= goalIdleTurnsLimit {
+			reason := fmt.Sprintf("no progress: %d turns in a row ended without a tool call", r.idle)
+			r.finish(GoalBlocked, reason, "Goal blocked: "+reason)
+			return stop, nil
+		}
+		goal = r.goal()
+		if goal.Continuations >= sup.ContinuationLimit() || overBudget(goal, sup) {
+			if !r.persist {
+				r.st.SetTurnStopNotice(fmt.Sprintf("Supervisor stopped after %d automatic continuations. Remaining: %s", goal.Continuations, strings.Join(result.Remaining, "; ")))
+				return string(acp.StopReasonRefused), nil
+			}
+			marker = &llm.GoalTurn{Kind: acp.GoalTurnWrapUp, Objective: goal.Objective, Reason: limitReason(goal, sup), Remaining: result.Remaining}
+			prompt = goalPrompt(goalWrapUpText(goal, result, cfg))
+			continue
+		}
+		used := goal.Continuations + 1
+		r.update("", func(g *GoalState) bool {
+			g.Continuations = used
+			return true
+		})
+		marker = &llm.GoalTurn{Kind: acp.GoalTurnContinue, Index: used, Limit: sup.ContinuationLimit(), Objective: goal.Objective,
+			Reason: result.Reason, Remaining: result.Remaining}
+		prompt = goalPrompt(goalContinuationText(r.goal(), result, used, cfg))
+	}
+}
+
+// runStep runs one turn under the watchdog and charges its time and tokens to
+// the goal.
+func (r *goalRun) runStep(ctx context.Context, prompt []acp.ContentBlock, marker *llm.GoalTurn) (string, *turnWatch, error) {
+	sup := r.cfg.Supervisor
+	stepCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	watch := newTurnWatch(r.sender, r.st, cancel, sup.StallTimeout(), sup.LoopRepeatLimit())
+	done := make(chan struct{})
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		watch.run(stepCtx, done)
+	}()
+	r.st.SetTurnGoal(marker)
+	started := time.Now()
+	stop, err := r.m.runner(stepCtx, r.st, prompt, watch)
+	r.st.TakeTurnGoal()
+	close(done)
+	cancel()
+	<-watchDone
+	elapsed, tokens := time.Since(started), watch.tokens()
+	if r.persist {
+		r.st.UpdateGoal("", func(g *GoalState) bool {
+			if !g.Set() {
+				return false
+			}
+			g.ActiveMs += elapsed.Milliseconds()
+			g.TokensUsed += tokens
+			return true
+		})
+	}
+	return stop, watch, err
+}
+
+// unfinished classifies a turn that did not end with an answer. ok says the
+// supervisor should recover from it (reason says why); fatal is an error the
+// run ends with after pausing the goal.
+func (r *goalRun) unfinished(stop string, err error, watch *turnWatch) (reason string, ok bool, fatal error) {
+	if cause := watch.cause(); cause != "" {
+		if err != nil && !errors.Is(err, context.Canceled) {
+			r.st.AppendUILogNotice(CountUserTurns(r.st.GetMessages()), "Turn interrupted: "+err.Error())
+		}
+		return "the previous turn was interrupted because it was " + cause, true, nil
+	}
+	if err != nil {
+		var reset *llm.QuotaResetError
+		switch {
+		case errors.As(err, &reset) || llm.UpstreamStatus(err) == 429:
+			r.finish(GoalPaused, "usage limit reached: "+err.Error(), "Goal paused: usage limit reached")
+			return "", true, err
+		case llm.IsTransientProviderError(err):
+			r.st.AppendUILogNotice(CountUserTurns(r.st.GetMessages()), "Turn failed: "+err.Error()+"; the supervisor continues the goal")
+			return "the previous turn ended early: " + err.Error(), true, nil
+		default:
+			r.finish(GoalPaused, "the turn failed: "+err.Error(), "Goal paused: the turn failed")
+			return "", true, err
+		}
+	}
+	switch acp.StopReason(stop) {
+	case acp.StopReasonEndTurn, acp.StopReasonCancelled:
+		return "", false, nil
+	}
+	notice := r.st.TakeTurnStopNotice()
+	if notice != "" {
+		r.st.AppendUILogNotice(CountUserTurns(r.st.GetMessages()), notice)
+	}
+	return firstNonEmpty(notice, "the previous turn stopped ("+stop+")"), true, nil
+}
+
+// check asks the judge, once more on a failure, and records the verdict. A
+// met verdict of the session's goal is confirmed by the verifier.
+func (r *goalRun) check(ctx context.Context) (GoalCheckResult, error) {
+	judge := r.m.goalJudge
+	if judge == nil {
+		judge = judgeSessionGoal
+	}
+	goal := r.goal()
+	req := GoalCheckRequest{
+		Objective: goal.Objective,
+		Implicit:  !r.persist,
+		Checklist: goal.Checklist,
+		Digest:    buildGoalDigest(r.st.GetMessages(), goal, !r.persist),
+	}
+	var result GoalCheckResult
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		checkCtx, cancel := context.WithTimeout(ctx, goalCheckTimeout)
+		result, err = judge(checkCtx, r.cfg, r.st, req)
+		cancel()
+		if err == nil || ctx.Err() != nil {
+			break
+		}
+	}
+	if err != nil {
+		return GoalCheckResult{}, err
+	}
+	result.Verdict = normalizeVerdict(result.Verdict)
+	verified := false
+	if result.Verdict == GoalVerdictMet && r.persist && r.cfg.Supervisor.VerifyEnabled() && r.m.goalVerifier != nil {
+		vreq := req
+		vreq.Checklist = firstChecklist(result.Checklist, req.Checklist)
+		verifyCtx, cancel := context.WithTimeout(ctx, goalVerifyTimeout)
+		vres, verr := r.m.goalVerifier(verifyCtx, r.st, vreq)
+		cancel()
+		switch {
+		case ctx.Err() != nil:
+			return GoalCheckResult{}, ctx.Err()
+		case verr != nil:
+			r.m.log.Warn("goal verification failed; the check's verdict stands", "session", r.st.ID, "error", verr)
+			result.Reason = strings.TrimSpace(result.Reason + " (not verified: " + verr.Error() + ")")
+		default:
+			vres.Verdict = normalizeVerdict(vres.Verdict)
+			if vres.Verdict == GoalVerdictMet {
+				verified = true
+				if len(vres.Checklist) > 0 {
+					result.Checklist = vres.Checklist
+				}
+				result.Reason = firstNonEmpty(vres.Reason, result.Reason)
 			} else {
-				w.lastTool, w.toolRuns = toolKey, 1
-			}
-			if w.repeat > 0 && w.toolRuns >= w.repeat && w.stoppedBy == "" {
-				w.stoppedBy = "repeating the same tool operation"
-				w.cancel()
-			}
-		}
-	}
-	w.mu.Unlock()
-	return w.UpdateSender.SendSessionUpdate(sessionID, update)
-}
-
-func (w *turnWatch) toolKey(id string) string {
-	w.state.mu.RLock()
-	var found llm.ToolCall
-	for i := len(w.state.Messages) - 1; i >= 0 && found.ID == ""; i-- {
-		for _, call := range w.state.Messages[i].ToolCalls {
-			if call.ID == id {
-				found = call
-				break
+				if vres.Model == "" {
+					vres.Model = result.Model
+				}
+				result = vres
 			}
 		}
 	}
-	w.state.mu.RUnlock()
-	if found.ID == "" {
-		return ""
-	}
-	var args map[string]interface{}
-	if err := json.Unmarshal([]byte(found.InputJSON), &args); err != nil {
-		return found.Name + "\x00" + found.InputJSON
-	}
-	canonical, _ := json.Marshal(args)
-	return found.Name + "\x00" + string(canonical)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	r.update("", func(g *GoalState) bool {
+		g.Checks++
+		g.LastCheck = &GoalCheck{Verdict: result.Verdict, Reason: strings.TrimSpace(result.Reason), Remaining: result.Remaining,
+			Verified: verified, At: now, Model: result.Model}
+		if len(result.Checklist) > 0 {
+			g.Checklist = result.Checklist
+		}
+		return true
+	})
+	return result, nil
 }
 
-func (w *turnWatch) RequestPermission(ctx context.Context, req acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	w.setWaiting(1)
-	defer w.setWaiting(-1)
-	return w.UpdateSender.RequestPermission(ctx, req)
-}
-
-func (w *turnWatch) RequestQuestion(ctx context.Context, req acp.QuestionRequestParams) (*acp.QuestionResult, error) {
-	w.setWaiting(1)
-	defer w.setWaiting(-1)
-	return w.UpdateSender.RequestQuestion(ctx, req)
-}
-
-func (w *turnWatch) setWaiting(delta int) {
-	w.mu.Lock()
-	w.waiting += delta
-	w.last = time.Now()
-	w.mu.Unlock()
-}
-
-func (w *turnWatch) cause() string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.stoppedBy
-}
-
-func (w *turnWatch) run(ctx context.Context, done <-chan struct{}) {
-	if w.stall <= 0 {
+// finish sets the goal's final status for this run. The implicit goal of
+// supervisor.enable has no status to keep: a blocked one tells the operator
+// through the turn's stop notice.
+func (r *goalRun) finish(status GoalStatus, reason, notice string) {
+	if !r.persist {
+		if status == GoalBlocked || status == GoalPaused {
+			r.st.SetTurnStopNotice("Supervisor stopped: " + reason)
+		}
 		return
 	}
-	interval := min(w.stall/4, time.Second)
-	if interval < 10*time.Millisecond {
-		interval = 10 * time.Millisecond
-	}
-	timer := time.NewTicker(interval)
-	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-done:
-			return
-		case <-timer.C:
-			w.mu.Lock()
-			if w.waiting > 0 || runningBackgroundWork(w.sessionID) {
-				w.last = time.Now()
-			} else if time.Since(w.last) >= w.stall && w.stoppedBy == "" {
-				w.stoppedBy = "stalled"
-				w.cancel()
-			}
-			w.mu.Unlock()
+	r.st.UpdateGoal(notice, func(g *GoalState) bool {
+		if !g.Set() {
+			return false
 		}
+		g.Status, g.StatusReason = status, strings.TrimSpace(reason)
+		return true
+	})
+	if notice != "" {
+		r.st.AppendUILogNotice(CountUserTurns(r.st.GetMessages()), notice)
 	}
 }
 
+func (r *goalRun) publishNotice(notice string) {
+	if r.persist {
+		r.m.PublishSessionGoal(r.st, notice)
+	}
+}
+
+func overBudget(g GoalState, sup config.Supervisor) bool {
+	budget := sup.EffectiveTokenBudget()
+	return budget > 0 && g.BudgetTokens() >= budget
+}
+
+func limitReason(g GoalState, sup config.Supervisor) string {
+	if overBudget(g, sup) {
+		return fmt.Sprintf("the token budget is used up (%d of %d)", g.BudgetTokens(), sup.EffectiveTokenBudget())
+	}
+	return fmt.Sprintf("all %d automatic continuations are used", sup.ContinuationLimit())
+}
+
+func normalizeVerdict(v GoalVerdict) GoalVerdict {
+	switch GoalVerdict(strings.ToLower(strings.TrimSpace(string(v)))) {
+	case GoalVerdictMet:
+		return GoalVerdictMet
+	case GoalVerdictNeedsUser:
+		return GoalVerdictNeedsUser
+	case GoalVerdictImpossible:
+		return GoalVerdictImpossible
+	}
+	return GoalVerdictNotMet
+}
+
+func firstChecklist(lists ...[]GoalItem) []GoalItem {
+	for _, l := range lists {
+		if len(l) > 0 {
+			return l
+		}
+	}
+	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// runningBackgroundWork reports whether the session has a command or a
+// subagent run in flight. A preview server runs until stopped and is no
+// result anybody waits for.
 func runningBackgroundWork(sessionID string) bool {
 	for _, task := range bgtask.Default().List(sessionID) {
 		if task.Kind != bgtask.KindServer && (task.Status == bgtask.StatusRunning || task.Status == bgtask.StatusQueued) {
@@ -323,72 +524,4 @@ func runningBackgroundWork(sessionID string) bool {
 		}
 	}
 	return false
-}
-
-func judgeSessionGoal(ctx context.Context, cfg *config.Config, st *State, objective string) (SupervisorVerdict, error) {
-	model := strings.TrimSpace(cfg.Supervisor.Model)
-	if model == "" {
-		model = st.EffectiveModelID(cfg)
-	}
-	rm, err := cfg.ResolveLLM(model)
-	if err != nil {
-		return SupervisorVerdict{}, err
-	}
-	provider, err := llm.NewProvider(llm.ProviderInput{
-		Name: rm.ProviderName, Type: rm.ProviderType, Model: rm.Model,
-		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
-		AuthPath: rm.AuthPath, NoCLILogin: rm.NoCLILogin,
-		MaxTokens: supervisorMaxTokens(rm.MaxTokens), DisableStream: true,
-		Timeout: time.Duration(rm.TimeoutMS) * time.Millisecond,
-	})
-	if err != nil {
-		return SupervisorVerdict{}, err
-	}
-	messages := st.GetMessages()
-	if len(messages) > 12 {
-		messages = messages[len(messages)-12:]
-	}
-	var transcript strings.Builder
-	for _, msg := range messages {
-		fmt.Fprintf(&transcript, "%s: %s\n", msg.Role, truncateSupervisorText(msg.Content, 1200))
-		for _, call := range msg.ToolCalls {
-			fmt.Fprintf(&transcript, "tool_use: %s %s\n", call.Name, truncateSupervisorText(call.InputJSON, 300))
-		}
-	}
-	response, err := provider.Complete(ctx, []llm.Message{
-		{Role: llm.RoleSystem, Content: "You are a session supervisor. Decide whether the user's objective is fully complete using only the visible transcript. Return only JSON with keys done (boolean) and remaining (short string). Mark done true only when the result is explicit. Do not request tools or continue the task yourself."},
-		{Role: llm.RoleUser, Content: "Objective: " + objective + "\nRecent transcript:\n" + transcript.String()},
-	}, nil)
-	if err != nil {
-		return SupervisorVerdict{}, err
-	}
-	if response == nil {
-		return SupervisorVerdict{}, fmt.Errorf("supervisor model returned no response")
-	}
-	var parsed struct {
-		Done      *bool  `json:"done"`
-		Remaining string `json:"remaining"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(response.Content)), &parsed); err != nil {
-		return SupervisorVerdict{}, fmt.Errorf("supervisor verdict: %w", err)
-	}
-	if parsed.Done == nil {
-		return SupervisorVerdict{}, fmt.Errorf("supervisor verdict has no done field")
-	}
-	return SupervisorVerdict{Done: *parsed.Done, Remaining: parsed.Remaining}, nil
-}
-
-func truncateSupervisorText(text string, maxRunes int) string {
-	runes := []rune(text)
-	if len(runes) > maxRunes {
-		runes = runes[:maxRunes]
-	}
-	return string(runes)
-}
-
-func supervisorMaxTokens(configured int) int {
-	if configured <= 0 {
-		return 512
-	}
-	return min(configured, 512)
 }

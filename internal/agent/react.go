@@ -241,9 +241,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// arguments.
 	if a.subagent == nil {
 		typed := typedText(prompt)
-		if arg, ok := parseGoalCommand(typed); ok {
-			return a.runGoalCommand(ctx, arg, userText)
-		}
 		// The built-in /compact command compacts history instead of running the
 		// ReAct loop. The command text is persisted (so it shows in the transcript
 		// like any other message) by runCompactCommand itself.
@@ -299,12 +296,18 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		a.markWokeTasks(wake)
 		_ = a.server.SendSessionUpdate(a.state.GetID(), session.BackgroundWakeUpdate(wake))
 	}
+	// A goal turn the supervisor started opens with its marker the same way:
+	// the clients show a one-line row, never the instruction text.
+	goalTurn := a.takeTurnGoal()
+	if goalTurn != nil {
+		_ = a.server.SendSessionUpdate(a.state.GetID(), session.GoalTurnUpdate(goalTurn))
+	}
 	// A prompt the turn boundary started from the queue was typed into no
 	// client's view of this run, unlike an ordinary prompt, which its surface
 	// shows the moment it is sent. It is announced the way a steer read is
 	// (message_queue.go), before it is persisted, so a live transcript shows
 	// the operator's message above the answer to it.
-	if wake == nil && session.PromptEcho(ctx, a.state.GetID()) {
+	if wake == nil && goalTurn == nil && session.PromptEcho(ctx, a.state.GetID()) {
 		_ = a.server.SendSessionUpdate(a.state.GetID(), acp.MessageChunkUpdate{
 			SessionUpdate: acp.UpdateTypeUserMessageChunk,
 			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: messageContent},
@@ -316,6 +319,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageParts:     imageParts,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 		BackgroundWake: wake,
+		GoalTurn:       goalTurn,
 	})
 	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()))
 	// The turn's clock is announced before anything slow happens - the memory

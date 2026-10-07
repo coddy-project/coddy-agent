@@ -1171,7 +1171,7 @@ func (f *FileStore) Save(state *State) error {
 		PinnedAt:          strings.TrimSpace(pinnedAt),
 		PinnedRank:        pinnedRank,
 	}
-	if goal := state.GetGoal(); goal.Text != "" {
+	if goal := state.GetGoal(); goal.Set() {
 		meta.Goal = &goal
 	}
 	if state.IsSchedulerJob() {

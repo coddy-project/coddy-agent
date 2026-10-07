@@ -44,6 +44,8 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			MaxNudges:        intPtr(SupervisorDefaultMaxNudges),
 			MaxContinuations: intPtr(SupervisorDefaultMaxContinuations),
 			LoopRepeat:       intPtr(SupervisorDefaultLoopRepeat),
+			TokenBudget:      intPtr(0),
+			Verify:           boolPtr(true),
 		},
 		Prompts: PromptsJSON{
 			Dir:         "",

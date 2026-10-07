@@ -441,3 +441,14 @@ type WakeSurface interface {
 type WakeSurfaces interface {
 	AddWakeSurface(surface WakeSurface, rank WakeRank) (withdraw func())
 }
+
+// takeTurnGoal returns the marker of the goal turn this run was started for,
+// once, or nil for a turn somebody typed (session.State.SetTurnGoal). A
+// child never has one: the supervisor runs only top-level sessions.
+func (a *Agent) takeTurnGoal() *llm.GoalTurn {
+	st := sessionStatePtr(a.state)
+	if st == nil || a.subagent != nil {
+		return nil
+	}
+	return st.TakeTurnGoal()
+}

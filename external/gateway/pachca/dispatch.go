@@ -310,7 +310,7 @@ func parseCommand(text string) (string, string) {
 // ask).
 func knownCommand(cmd string) bool {
 	switch cmd {
-	case "start", "help", "clear", "model", "context":
+	case "start", "help", "clear", "model", "context", "goal":
 		return true
 	}
 	return isSettingsCommand(cmd)
@@ -415,7 +415,7 @@ func (b *Bot) processMessage(ctx context.Context, in inbound, key string) {
 	// A reply asks about the message it answers: the session receives that
 	// message quoted in front of what the person wrote. Commands are not
 	// quoted - the manager reads them off the start of the text.
-	if in.msg.ParentMessageID != nil && !isSettingsCommand(in.command) {
+	if in.msg.ParentMessageID != nil && !isSettingsCommand(in.command) && in.command != "goal" {
 		text = b.quoteParent(tctx, c, *in.msg.ParentMessageID, text)
 	}
 	st, err := b.ensureSession(tctx, key)
@@ -499,6 +499,7 @@ func (b *Bot) helpText() string {
 	sb.WriteString("/think, /nothink, /reasoning <level> - thinking and reasoning level\n")
 	sb.WriteString("Add --once or --count=N to change a setting for the next messages only, and write the message after it.\n")
 	sb.WriteString("/context - context window usage\n")
+	sb.WriteString("/goal <objective>, /goal, /goal pause|resume|clear - set and work on a session goal, show it, pause, resume or remove it\n")
 	sb.WriteString("/clear - start a new session\n")
 	sb.WriteString("/help - this message\n\n")
 	sb.WriteString("Reply to a message to ask about it.\n")

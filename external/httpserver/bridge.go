@@ -261,6 +261,13 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	case acp.BackgroundWakeUpdate:
 		// The first frame of a turn nobody typed: what woke the agent.
 		return s.writeNamedEventJSON("background_wake", u)
+	case acp.SessionGoalUpdate:
+		// The goal changed during this turn: set, checked, continued.
+		return s.writeNamedEventJSON("session_goal", u)
+	case acp.GoalTurnUpdate:
+		// The first frame of a turn the supervisor started: a row, not the
+		// instruction text the model reads.
+		return s.writeNamedEventJSON("goal_turn", u)
 	default:
 		return nil
 	}

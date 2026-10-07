@@ -30,12 +30,15 @@ type AgentRunner func(ctx context.Context, state *State, prompt []acp.ContentBlo
 
 // Manager handles all active sessions and implements acp.Handler.
 type Manager struct {
-	cfgAt           atomic.Pointer[config.Config]
-	server          acp.UpdateSender
-	skillsLoad      *skills.Loader
-	runner          AgentRunner
-	supervisorJudge supervisorJudge
-	log             *slog.Logger
+	cfgAt      atomic.Pointer[config.Config]
+	server     acp.UpdateSender
+	skillsLoad *skills.Loader
+	runner     AgentRunner
+	// goalJudge and goalVerifier check a goal turn's result
+	// (supervisor.go); nil judge means the model-based default.
+	goalJudge    GoalJudge
+	goalVerifier GoalVerifier
+	log          *slog.Logger
 	// defaultCWD is used when session/new passes an empty cwd (from CLI default or os.Getwd).
 	defaultCWD string
 	store      *FileStore
@@ -105,6 +108,8 @@ type Manager struct {
 	// settingsObs fans every change of a session's settings out the same way
 	// (settings.go).
 	settingsObs settingsObservers
+	// goalObs fans every goal change out to the surfaces (goal.go).
+	goalObs goalObservers
 
 	// cfgObservers are told whenever the live configuration is replaced, from
 	// whichever path replaced it (see config_observers.go).
@@ -690,6 +695,7 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		return nil, err
 	}
 
+	m.attachGoalNotifier(state)
 	m.mu.Lock()
 	prev := m.sessions[id]
 	m.sessions[id] = state
@@ -1639,6 +1645,11 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 
 	res := &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}
+	// A /goal command answers like a settings command: its notice is the
+	// reply of a surface that shows no session update (the HTTP JSON answer).
+	if notice := state.takeGoalCommandNotice(); notice != "" {
+		res.SettingsNotice = notice
+	}
 	// A turn that stopped before its answer - its step limit, the model's
 	// output limit - says why, on every surface (issue #255): the notice is
 	// kept in the UI log and handed to the caller.
@@ -1741,6 +1752,7 @@ func (m *Manager) registerSession(id string, st *State) (winner *State, register
 		return existing, false
 	}
 	m.sessions[id] = st
+	m.attachGoalNotifier(st)
 	// What a surface let go of is the live state's again (loadSessionFromDisk
 	// restored it). Taken under the lock ForgetLiveSession sets it aside under,
 	// so a let-go right after this registration keeps what it reads.
@@ -1781,6 +1793,11 @@ func (m *Manager) HandleSessionReady(sessionID string) {
 		}
 	}
 	m.sendAvailableSlashCommands(sessionID, st)
+	// A goal the session carries is on screen from the start: a client that
+	// opens or loads it learns where the supervisor stands.
+	if st != nil && st.GetGoal().Set() && m.server != nil {
+		_ = m.server.SendSessionUpdate(sessionID, m.goalUpdate(st, ""))
+	}
 	// The footer is populated before the first prompt: an automatic read,
 	// served from the cache when it is warm.
 	m.publishProviderUsageOnReady(sessionID, st)

@@ -14,7 +14,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
@@ -60,18 +59,25 @@ func TestGoalCommandReachesSessionInTelegram(t *testing.T) {
 	}
 }
 
-func TestTelegramShowsSupervisorContinuationAsSeparateNote(t *testing.T) {
+func TestTelegramShowsAGoalTurnAsANoteOfItsOwn(t *testing.T) {
 	fake := newFakeAPI(t, tgfake.Options{})
 	sender := newSender(fake.api, 7072, 0, slog.New(slog.DiscardHandler), richConfig{})
-	text := session.SupervisorContinuationPrefix + "Finish the tests"
 	if err := sender.SendSessionUpdate("sess_goal", acp.MessageChunkUpdate{
-		SessionUpdate: acp.UpdateTypeUserMessageChunk,
-		Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: text},
+		SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+		Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: "First turn answer."},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := fake.fake.Chat(7072).Text(); !strings.Contains(got, "🔁 Finish the tests") {
-		t.Fatalf("supervisor continuation note missing from chat: %q", got)
+	if err := sender.SendSessionUpdate("sess_goal", acp.GoalTurnUpdate{
+		SessionUpdate: acp.UpdateTypeGoalTurn, Kind: acp.GoalTurnContinue, Index: 1, Limit: 10,
+		Objective: "ship the fix", Reason: "tests still fail",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := fake.fake.Chat(7072).Text()
+	if !strings.Contains(got, "First turn answer.") || !strings.Contains(got, "Goal continuation 1 of 10: tests still fail") ||
+		strings.Index(got, "First turn answer.") > strings.Index(got, "Goal continuation") {
+		t.Fatalf("the first answer is not final above the goal note: %q", got)
 	}
 }
 

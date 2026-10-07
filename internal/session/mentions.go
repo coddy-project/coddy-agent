@@ -732,7 +732,7 @@ func digestLines(msgs []llm.Message) []string {
 	for _, m := range msgs {
 		switch m.Role {
 		case llm.RoleUser:
-			if m.BackgroundWake != nil || m.CompactionSummary {
+			if m.BackgroundWake != nil || m.GoalTurn != nil || m.CompactionSummary {
 				continue
 			}
 			text := UserMessageDisplayText(m.Content)

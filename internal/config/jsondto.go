@@ -495,11 +495,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		WaitForLimitReset:      c.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
 	}
-	out.Supervisor = c.Supervisor
-	out.Supervisor.StallSeconds = cloneIntPtr(c.Supervisor.StallSeconds)
-	out.Supervisor.MaxNudges = cloneIntPtr(c.Supervisor.MaxNudges)
-	out.Supervisor.MaxContinuations = cloneIntPtr(c.Supervisor.MaxContinuations)
-	out.Supervisor.LoopRepeat = cloneIntPtr(c.Supervisor.LoopRepeat)
+	out.Supervisor = c.Supervisor.clone()
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt, AskPrompt: c.Prompts.AskPrompt,
 	}
@@ -728,11 +724,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		WaitForLimitReset:      j.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
 	}
-	cfg.Supervisor = j.Supervisor
-	cfg.Supervisor.StallSeconds = cloneIntPtr(j.Supervisor.StallSeconds)
-	cfg.Supervisor.MaxNudges = cloneIntPtr(j.Supervisor.MaxNudges)
-	cfg.Supervisor.MaxContinuations = cloneIntPtr(j.Supervisor.MaxContinuations)
-	cfg.Supervisor.LoopRepeat = cloneIntPtr(j.Supervisor.LoopRepeat)
+	cfg.Supervisor = j.Supervisor.clone()
 	if j.Agent.MaxTurns != nil {
 		cfg.Agent.MaxTurns = *j.Agent.MaxTurns
 		cfg.Agent.maxTurnsSet = true

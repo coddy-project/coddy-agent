@@ -411,16 +411,18 @@ Messenger bot adapters (used only by binaries built with -tags gateway, or -tags
 
 ### `supervisor`
 
-Checks goals and watches for stalled or repetitive turns; see https://coddy.dev/docs/features/session-supervisor.
+Checks a session goal (/goal) after every turn with a second model, continues unfinished work within bounds, and watches for stalled or looping turns; see https://coddy.dev/docs/features/session-supervisor.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `supervisor.enable` | boolean | false | Watch ordinary turns even without a /goal. A session goal activates supervision regardless of this switch. |
-| `supervisor.model` | string | "" | Configured models[].model used for short completion checks. Empty uses the session model. |
-| `supervisor.stall_seconds` | integer or null | 180 | Seconds without output or tool activity before a stalled turn is interrupted. Permission prompts and running background tasks pause this timer. 0 disables it. |
-| `supervisor.max_nudges` | integer or null | 2 | Maximum stall and loop recovery nudges per user request. |
-| `supervisor.max_continuations` | integer or null | 3 | Maximum automatic continuation turns per user request. |
-| `supervisor.loop_repeat` | integer or null | 3 | Consecutive matching tool operations before a loop nudge. |
+| `supervisor.enable` | boolean | false | Check ordinary turns against the latest request even without a /goal. A session goal is checked whatever this switch says. |
+| `supervisor.model` | string | "" | Configured models[].model that checks the work. Empty uses the session's own model, which then grades its own work; a model of another family is the better judge. |
+| `supervisor.verify` | boolean or null | true | Confirm a met verdict before the goal is closed: the goal-verifier subagent reads the workspace with read-only tools and checks every requirement. Unset means true. |
+| `supervisor.stall_seconds` | integer or null | 300 | Seconds a goal turn may go without any update before the watchdog cuts it and starts a recovery turn. Permission prompts, running tools and running background tasks pause the timer. 0 disables it. |
+| `supervisor.max_nudges` | integer or null | 2 | Recovery turns after a stall, a tool loop or a failed turn, per run of the supervisor. |
+| `supervisor.max_continuations` | integer or null | 10 | Automatic continuation turns one goal may use; when they run out the goal gets one wrap-up turn and stops as limited. |
+| `supervisor.loop_repeat` | integer or null | 3 | How many times a repeating cycle of identical tool operations (same call, same result) may come round before the watchdog cuts the turn. 0 disables loop detection. |
+| `supervisor.token_budget` | integer or null | 0 | Uncached input plus output tokens one goal's turns may spend; 0 means no cap. |
 <!-- docsgen:config:end -->
 
 ## Notes

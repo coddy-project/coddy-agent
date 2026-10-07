@@ -111,6 +111,9 @@ type Server struct {
 	// feeds session_settings frames to the events stream, so a model switched
 	// in a console or an editor is mirrored by every browser tab.
 	removeSettingsObserver func()
+	// removeGoalObserver detaches the session goal observer that feeds
+	// session_goal frames to the events stream.
+	removeGoalObserver func()
 
 	codexAuthIssuer string
 	// codexAuthMu guards both browser-login attempt maps; the attempts share
@@ -136,6 +139,9 @@ func (s *Server) Drain() {
 	}
 	if s.removeQueueObserver != nil {
 		s.removeQueueObserver()
+	}
+	if s.removeGoalObserver != nil {
+		s.removeGoalObserver()
 	}
 	if s.removeSettingsObserver != nil {
 		s.removeSettingsObserver()
@@ -197,6 +203,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		// may be reading the stream of the turn that is running.
 		s.removeQueueObserver = mgr.AddMessageQueueObserver(s.publishMessageQueueEvent)
 		s.removeSettingsObserver = mgr.AddSessionSettingsObserver(s.publishSessionSettingsEvent)
+		s.removeGoalObserver = mgr.AddSessionGoalObserver(s.publishSessionGoalEvent)
 		// The manager is the one place every reload path passes through - the
 		// settings screen, the agent's config_commit tool, the console - so
 		// following it is how the handlers see an edit no matter who made it.
