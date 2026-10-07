@@ -357,10 +357,15 @@ test("the card names the checker and, beside it, the level the check runs at", (
     } else {
       expect(reasoning).toHaveTextContent(new RegExp(`^${level}$`));
     }
-    // The two sit together after the numbers, in a list of their own.
-    expect(
-      within(popover()).getByTestId("goal-checker").closest("dl"),
-    ).toHaveClass("goal-checker-numbers");
+    // Both close the numbers' own grid, so their columns line up with the
+    // numbers above: the model across two columns, the level in the next.
+    const checkerCell =
+      within(popover()).getByTestId("goal-checker").parentElement!;
+    expect(checkerCell).toHaveClass("goal-numbers-checker");
+    expect(checkerCell.parentElement).toHaveClass("goal-numbers");
+    if (level !== null) {
+      expect(checkerCell.nextElementSibling).toBe(reasoning!.parentElement);
+    }
     cleanup();
   }
 });

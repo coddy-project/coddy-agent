@@ -573,23 +573,22 @@ export function GoalPopover(props: {
             </dd>
           </div>
         ) : null}
-      </dl>
-      {checker ? (
-        // A row of its own after the numbers: a model id does not fit a
-        // number's column. The model takes the room, its level sits beside.
-        <dl className="goal-numbers goal-checker-numbers">
-          <div>
+        {checker ? (
+          // A model id does not fit one number's column: it starts a row of
+          // the grid and spans two, so its level falls into the third, on
+          // the same column lines as the numbers above.
+          <div className="goal-numbers-checker">
             <dt>{t("goal.checkedBy")}</dt>
             <dd data-testid="goal-checker">{checker}</dd>
           </div>
-          {level ? (
-            <div>
-              <dt>{t("goal.reasoning")}</dt>
-              <dd data-testid="goal-reasoning">{level}</dd>
-            </div>
-          ) : null}
-        </dl>
-      ) : null}
+        ) : null}
+        {checker && level ? (
+          <div>
+            <dt>{t("goal.reasoning")}</dt>
+            <dd data-testid="goal-reasoning">{level}</dd>
+          </div>
+        ) : null}
+      </dl>
     </>
   ) : null;
 

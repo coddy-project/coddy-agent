@@ -7750,7 +7750,9 @@ html:not([data-theme="light"]) .context-breakdown-error {
 
 .goal-numbers {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  /* Three columns at every width, so the checker's two and its level's one
+     stay on one row on a phone too. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px 12px;
   margin: 0;
 }
@@ -7765,14 +7767,14 @@ html:not([data-theme="light"]) .context-breakdown-error {
   font-variant-numeric: tabular-nums;
 }
 
-/* The checker after the numbers: the model takes the room, its reasoning
-   level its own width; pulled up to the numbers' row gap. */
-.goal-checker-numbers {
-  grid-template-columns: minmax(0, 1fr) auto;
-  margin-top: -4px;
+/* The checker closes the numbers: a row of its own from the first column,
+   two columns wide, so its reasoning level falls into the third and every
+   label stands on the grid's column lines. */
+.goal-numbers-checker {
+  grid-column: 1 / span 2;
 }
 
-.goal-checker-numbers dd {
+.goal-numbers-checker dd {
   overflow-wrap: anywhere;
 }
 
