@@ -253,7 +253,7 @@ Volume and environment details for Compose are in [Docker Compose](#docker-compo
 
 1. **`ui-builder` (Node)** - runs **`npm ci`** and **`npm run build:go`** under **`external/ui`**, producing the static bundle copied into the Go tree for **`go:embed`** when **`ui`** is in **`BUILD_TAGS`**.
 2. **`build` (Go)** - **`CGO_ENABLED=0`**, **`GOOS`/`GOARCH`** from BuildKit **`TARGETOS`/`TARGETARCH`** (CI builds **`linux/amd64`** and **`linux/arm64`**), **`go build -tags="$BUILD_TAGS"`** with **`-trimpath`** and **`-ldflags "-s -w -X ...Version=..."`**, writes **`/out/coddy`**, copies **`ca-certificates.crt`** for HTTPS clients.
-3. **`scratch`** - only the binary and CA bundle; **`ENTRYPOINT`** **`/bin/coddy`**, default **`CMD`** **`serve -H 0.0.0.0 -P 12345`**.
+3. **`scratch`** - only the binary and CA bundle; **`ENTRYPOINT`** **`/bin/coddy`**, default **`CMD`** **`serve -H 0.0.0.0 -P 12345`**. Marketplace sync and plugin installation do not need `/tmp` or a Git executable: remote staging is kept under the writable `${CODDY_HOME}/tmp` directory, and Git sources fall back to go-git. HTTPS and `file://` sources work in that path; SSH sources need an authentication mechanism go-git can use in the container.
 
 ## Automated smoke test
 

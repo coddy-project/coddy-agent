@@ -18,12 +18,17 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
 
 // syncMu serializes materialization into the managed skills dir so concurrent
 // Sync/UpdateSkill calls cannot race on the shared staging directories.
 var syncMu sync.Mutex
+
+// remoteStagingMu serializes staging allocation and stale-entry cleanup within
+// this process. A second process only removes entries old enough to be stale.
+var remoteStagingMu sync.Mutex
 
 // remoteGuard is the SSRF guard every http(s) address of a remote source goes
 // through: a clone URL before git runs, and a marketplace.json or a plugin
@@ -77,6 +82,31 @@ func safeClone(url, ref, dest string) error {
 	return gitws.Clone(url, ref, dest)
 }
 
+// pluginCloneURLAllowed permits non-HTTP transports only when the operator
+// explicitly selected a local or SSH marketplace. A remote marketplace must
+// not use its manifest to reach local repositories or arbitrary SSH hosts.
+func pluginCloneURLAllowed(parentSource, pluginURL string) bool {
+	pluginURL = strings.ToLower(strings.TrimSpace(pluginURL))
+	if strings.HasPrefix(pluginURL, "http://") || strings.HasPrefix(pluginURL, "https://") {
+		return true
+	}
+	parent, err := parseSource(parentSource)
+	if err != nil || parent.kind != "git" {
+		return false
+	}
+	parentURL := strings.ToLower(parent.url)
+	return strings.HasPrefix(parentURL, "file://") ||
+		strings.HasPrefix(parentURL, "git@") ||
+		strings.HasPrefix(parentURL, "ssh://")
+}
+
+func safePluginClone(parentSource, pluginURL, ref, dest string) error {
+	if !pluginCloneURLAllowed(parentSource, pluginURL) {
+		return fmt.Errorf("plugin clone url %q must use http(s) unless its marketplace source is local or SSH", pluginURL)
+	}
+	return safeClone(pluginURL, ref, dest)
+}
+
 // remoteLockFile is the provenance sidecar written into the managed skills dir.
 const remoteLockFile = ".remote.json"
 
@@ -85,6 +115,65 @@ const maxManifestBytes = 4 << 20
 
 // maxWalkDepth bounds the recursive SKILL.md search inside a clone.
 const maxWalkDepth = 6
+
+const (
+	remoteStagingDirName = "tmp"
+	remoteStagingMaxAge  = 24 * time.Hour
+)
+
+// remoteStagingDir creates a temporary directory below the Coddy home instead
+// of the system temporary directory. Minimal containers can mount a writable
+// Coddy home without providing /tmp. Stale directories from interrupted
+// operations are collected before a new operation starts.
+func remoteStagingDir(managedDir, pattern string) (string, func(), error) {
+	root := filepath.Join(filepath.Dir(managedDir), remoteStagingDirName)
+	remoteStagingMu.Lock()
+	defer remoteStagingMu.Unlock()
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", nil, fmt.Errorf("create remote staging directory: %w", err)
+	}
+	if err := removeStaleRemoteStaging(root, time.Now()); err != nil {
+		return "", nil, err
+	}
+	dir, err := os.MkdirTemp(root, pattern)
+	if err != nil {
+		return "", nil, err
+	}
+	unlock, err := platform.LockFile(filepath.Join(dir, ".lock"))
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", nil, fmt.Errorf("lock remote staging directory: %w", err)
+	}
+	return dir, func() {
+		unlock()
+		_ = os.RemoveAll(dir)
+	}, nil
+}
+
+func removeStaleRemoteStaging(root string, now time.Time) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("read remote staging directory: %w", err)
+	}
+	cutoff := now.Add(-remoteStagingMaxAge)
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "coddy-") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		path := filepath.Join(root, entry.Name())
+		unlock, acquired, err := platform.TryLockFile(filepath.Join(path, ".lock"))
+		if err != nil || !acquired {
+			continue
+		}
+		unlock()
+		_ = os.RemoveAll(path)
+	}
+	return nil
+}
 
 // RemoteEntry records where an installed skill came from (one per skill dir).
 type RemoteEntry struct {
@@ -342,11 +431,11 @@ func syncOne(ctx context.Context, src, managedDir string, lock map[string]Remote
 		return installMarketplace(ctx, mf, "", src, RemoteEntry{Source: src, URL: spec.url}, managedDir, lock, res)
 
 	case "git":
-		tmp, err := os.MkdirTemp("", "coddy-skillsrc-")
+		tmp, cleanup, err := remoteStagingDir(managedDir, "coddy-skillsrc-")
 		if err != nil {
 			return err
 		}
-		defer func() { _ = os.RemoveAll(tmp) }()
+		defer cleanup()
 		clone := filepath.Join(tmp, "repo")
 		if err := safeClone(spec.url, spec.ref, clone); err != nil {
 			return fmt.Errorf("clone %s: %w", spec.url, err)
@@ -393,13 +482,13 @@ func installPlugin(ctx context.Context, p MarketplacePlugin, repoRoot, src strin
 		if cloneURL == "" {
 			return fmt.Errorf("plugin %q: empty source url", p.Name)
 		}
-		tmp, err := os.MkdirTemp("", "coddy-plugin-")
+		tmp, cleanup, err := remoteStagingDir(managedDir, "coddy-plugin-")
 		if err != nil {
 			return err
 		}
-		defer func() { _ = os.RemoveAll(tmp) }()
+		defer cleanup()
 		dst := filepath.Join(tmp, "repo")
-		if err := safeClone(cloneURL, p.Source.Ref, dst); err != nil {
+		if err := safePluginClone(src, cloneURL, p.Source.Ref, dst); err != nil {
 			return fmt.Errorf("clone plugin %q: %w", p.Name, err)
 		}
 		entry.Repo = cloneURL
@@ -942,7 +1031,7 @@ func CheckUpdates(ctx context.Context, cfg *config.Config, cwd string) ([]Update
 		}
 		versions, ok := cache[ent.Source]
 		if !ok {
-			versions, _ = sourceManifestVersions(ctx, ent.Source) // best-effort
+			versions, _ = sourceManifestVersions(ctx, ent.Source, managedDir) // best-effort
 			cache[ent.Source] = versions
 		}
 		key := ent.Plugin
@@ -1035,7 +1124,7 @@ func AvailablePlugins(ctx context.Context, cfg *config.Config, cwd string) ([]Av
 		}
 	}
 	for _, src := range srcs {
-		mf, err := fetchSourceManifest(ctx, src)
+		mf, err := fetchSourceManifest(ctx, src, cfg.Skills.ManagedDir(cfg.Paths.Home))
 		if err != nil || mf == nil {
 			continue
 		}
@@ -1079,7 +1168,7 @@ func InstallPlugin(ctx context.Context, cfg *config.Config, source, pluginName s
 	if err := os.MkdirAll(managedDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create managed dir: %w", err)
 	}
-	om, err := openMarketplace(ctx, source)
+	om, err := openMarketplace(ctx, source, managedDir)
 	if errors.Is(err, errNoMarketplace) {
 		return nil, fmt.Errorf("source %q has no marketplace.json to install a named plugin from", source)
 	}
@@ -1124,7 +1213,7 @@ type openedMarketplace struct {
 // openMarketplace reads the marketplace a source publishes: over http for a
 // marketplace.json URL, from a shallow clone for a git source. A source with no
 // marketplace.json is errNoMarketplace.
-func openMarketplace(ctx context.Context, source string) (*openedMarketplace, error) {
+func openMarketplace(ctx context.Context, source, managedDir string) (*openedMarketplace, error) {
 	spec, err := parseSource(source)
 	if err != nil {
 		return nil, err
@@ -1140,11 +1229,10 @@ func openMarketplace(ctx context.Context, source string) (*openedMarketplace, er
 		om.base.URL = spec.url
 		return om, nil
 	case "git":
-		tmp, err := os.MkdirTemp("", "coddy-marketplace-")
+		tmp, cleanup, err := remoteStagingDir(managedDir, "coddy-marketplace-")
 		if err != nil {
 			return nil, err
 		}
-		cleanup := func() { _ = os.RemoveAll(tmp) }
 		clone := filepath.Join(tmp, "repo")
 		if err := safeClone(spec.url, spec.ref, clone); err != nil {
 			cleanup()
@@ -1182,8 +1270,8 @@ func (m *Marketplace) plugin(name string) *MarketplacePlugin {
 // fetchSourceManifest fetches a source's agents-standard marketplace manifest
 // (HTTP for API sources, a shallow clone for git sources). Returns an error when
 // the source has no manifest.
-func fetchSourceManifest(ctx context.Context, source string) (*Marketplace, error) {
-	om, err := openMarketplace(ctx, source)
+func fetchSourceManifest(ctx context.Context, source, managedDir string) (*Marketplace, error) {
+	om, err := openMarketplace(ctx, source, managedDir)
 	if err != nil {
 		return nil, err
 	}
@@ -1194,7 +1282,7 @@ func fetchSourceManifest(ctx context.Context, source string) (*Marketplace, erro
 // sourceManifestVersions fetches a source's marketplace manifest and returns a
 // pluginName -> version map. For a plain repo with no manifest it maps each
 // discovered skill's frontmatter version by skill name instead.
-func sourceManifestVersions(ctx context.Context, source string) (map[string]string, error) {
+func sourceManifestVersions(ctx context.Context, source, managedDir string) (map[string]string, error) {
 	spec, err := parseSource(source)
 	if err != nil {
 		return nil, err
@@ -1208,11 +1296,11 @@ func sourceManifestVersions(ctx context.Context, source string) (map[string]stri
 		return marketplaceVersions(mf), nil
 
 	case "git":
-		tmp, err := os.MkdirTemp("", "coddy-skillcheck-")
+		tmp, cleanup, err := remoteStagingDir(managedDir, "coddy-skillcheck-")
 		if err != nil {
 			return nil, err
 		}
-		defer func() { _ = os.RemoveAll(tmp) }()
+		defer cleanup()
 		clone := filepath.Join(tmp, "repo")
 		if err := safeClone(spec.url, spec.ref, clone); err != nil {
 			return nil, err

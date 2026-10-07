@@ -135,8 +135,10 @@ You can also browse and install through the Coddy web UI: **Settings → Skills 
 ## Marketplaces and sources
 
 Coddy can fetch skills itself, without any external CLI, from a **GitHub repo**, a **git URL**, or
-an **http(s) URL** to an [agents-standard](https://agents.md) `marketplace.json`. What it may fetch
-is declared in two files of one shape, never in `config.yaml`:
+an **http(s) URL** to an [agents-standard](https://agents.md) `marketplace.json`. Git sources use
+the Git executable when it is available and the built-in go-git backend otherwise; remote staging
+lives under `${CODDY_HOME}/tmp`, so a minimal image needs a writable Coddy home but no system `/tmp`.
+What it may fetch is declared in two files of one shape, never in `config.yaml`:
 
 | File | Written by | Takes effect |
 |------|------------|--------------|
@@ -341,7 +343,7 @@ again and records the new version.
 
 ### How a source is resolved
 
-1. `owner/repo` shorthands and git URLs are cloned (`git clone --depth 1`, refreshed with `git pull --ff-only`); an API URL is downloaded as JSON.
+1. `owner/repo` shorthands and git URLs are shallow-cloned and refreshed. Coddy uses the Git CLI when present and its built-in go-git backend otherwise; an API URL is downloaded as JSON.
 2. If the repo (or API response) is an agents-standard **marketplace** (`.agents/plugins/marketplace.json` or `.claude-plugin/marketplace.json`), each listed plugin is resolved:
    - an **external** source (`{"source":"github","repo":"owner/repo"}` / `{"source":"url","url":"…","ref":"…"}`) is cloned;
    - an **archive** source (`{"source":"archive","url":"https://…/plugin.zip","sha256":"…"}`) is downloaded and unpacked, without git (see [below](#plugins-published-as-zip-archives));
@@ -351,7 +353,7 @@ again and records the new version.
 
 Provenance is tracked in `${CODDY_HOME}/skills/.remote.json`. Because synced skills live in a normal skills directory, `enable`/`disable` work on them like any other skill; `remove` deletes the copy (re-running `sync` re-installs it unless you also remove the source from its `marketplaces.json`).
 
-Private repositories rely on your ambient `git` credentials; API URLs and plugin archives are checked against the same SSRF guard used by the `webfetch` tool.
+Private repositories use the credentials their selected Git backend can access. Git-less environments support HTTPS and `file://` sources through go-git; SSH sources require an authentication mechanism go-git can use in that process. An HTTP(S) marketplace may name only HTTP(S) external plugin URLs, which pass the same SSRF guard as API URLs and plugin archives. A local or SSH marketplace the operator explicitly selected may resolve plugins over its matching non-HTTP transport.
 
 ### Plugins published as zip archives
 

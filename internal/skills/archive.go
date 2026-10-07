@@ -102,11 +102,11 @@ func installArchivePlugin(ctx context.Context, p MarketplacePlugin, entry Remote
 	if err != nil {
 		return fmt.Errorf("plugin %q: %w", p.Name, err)
 	}
-	tmp, err := os.MkdirTemp("", "coddy-plugin-archive-")
+	tmp, cleanup, err := remoteStagingDir(managedDir, "coddy-plugin-archive-")
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.RemoveAll(tmp) }()
+	defer cleanup()
 
 	zipPath, sum, err := downloadArchive(ctx, archiveURL, wantSHA, tmp, defaultArchiveLimits)
 	if err != nil {
