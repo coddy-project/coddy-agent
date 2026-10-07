@@ -39,6 +39,11 @@ export function stableWakeItemId(userTurnIndex: number): string {
   return `wake_${userTurnIndex}`;
 }
 
+/** Stable id for the goal row a supervised turn opens with, in the slot of its turn. */
+export function stableGoalTurnItemId(userTurnIndex: number): string {
+  return `goal_${userTurnIndex}`;
+}
+
 /**
  * Ids for the reasoning and answer rows of a turn a page opens in the middle
  * of: how many of each the turn had before the page is not known there, so

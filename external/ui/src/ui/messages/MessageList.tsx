@@ -13,6 +13,7 @@ import { AssistantMessage } from "./AssistantMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { CompactionMessage } from "./CompactionMessage";
+import { GoalTurnMessage } from "./GoalTurnMessage";
 import { opensTurn } from "../chat/backgroundWake";
 import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
@@ -118,9 +119,10 @@ export function MessageList(props: {
     return byId;
   }, [props.items]);
 
-  // The server numbers every user-role message of the transcript, a woken
-  // turn's first message included, so the wake counts here too: an edit of a
-  // later message must name the message the server knows by that index.
+  // The server numbers every user-role message of the transcript, the first
+  // message of a woken turn and of a goal turn included, so those count here
+  // too: an edit of a later message must name the message the server knows by
+  // that index.
   const userMsgIndexById = useMemo(
     () => userMsgIndices(props.items, props.userMsgIndexBase ?? 0),
     [props.items, props.userMsgIndexBase],
@@ -244,6 +246,12 @@ export function MessageList(props: {
           // reads as the work carrying on, and the task's card in the Tasks
           // panel keeps a bell for what woke it.
           return null;
+        }
+        if (it.type === "goal_turn") {
+          // A turn the session supervisor started for the goal: a compact
+          // row, never a user bubble, since nobody typed the instruction the
+          // model read. It opens a turn and has no edit or copy controls.
+          return <GoalTurnMessage key={it.id} rowId={it.id} turn={it.turn} />;
         }
         if (it.type === "memory_run") {
           // The memory subagent's run is the live status line's business and

@@ -66,7 +66,7 @@ supervisor:
   loop_repeat: 3             # 0 turns loop detection off
 ```
 
-`model` names a configured `models[].model`. Left empty, the session's own model checks its own work. Research on model judges finds that a model rates its own output higher, so a model of another family is the better choice even when it is smaller. The check runs without tools, through the same retries and proxy as the agent's own calls. An answer without valid JSON is asked for once more, and a check that fails twice pauses the goal. **Settings → Session supervisor** in the web UI edits the same keys.
+`model` names a configured `models[].model`. Left empty, the session's own model checks its own work. Research on model judges finds that a model rates its own output higher, so a model of another family is the better choice even when it is smaller. The check runs without tools, through the same retries and proxy as the agent's own calls. An answer without valid JSON is asked for once more, and a check that fails twice pauses the goal. **Settings → Session goal** in the web UI edits the same keys.
 
 `enable: true` puts ordinary turns under the same checks, with the latest request as the objective. Nothing is stored for them: a `blocked` or limited run ends with a notice. A goal is checked whatever `enable` says.
 

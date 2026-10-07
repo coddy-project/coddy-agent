@@ -62,6 +62,14 @@ import {
   type SessionSettingsEvent,
   type TurnOverride,
 } from "./chat/sessionSettings";
+import {
+  GOAL_RESUME_PROMPT,
+  isNewerGoal,
+  parseSessionGoalUpdate,
+  type SessionGoal,
+  type SessionGoalUpdate,
+} from "./chat/goal";
+import type { GoalActions } from "./chat/GoalPopover";
 import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
 import { mergeTurnProgress, type TurnProgress } from "./chat/turnProgress";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
@@ -733,6 +741,7 @@ export function App() {
     configReloaded: () => void;
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
     sessionSettings: (event: SessionSettingsEvent) => void;
+    sessionGoal: (update: SessionGoalUpdate) => void;
     subagentPermission: (parentSid: string) => void;
     questionPending: (sid: string) => void;
     sessionRewound: (sid: string) => void;
@@ -744,6 +753,7 @@ export function App() {
     configReloaded: () => {},
     messageQueue: () => {},
     sessionSettings: () => {},
+    sessionGoal: () => {},
     subagentPermission: () => {},
     questionPending: () => {},
     sessionRewound: () => {},
@@ -1020,12 +1030,13 @@ export function App() {
 
   // Text of the most recent user turn, used to re-run it from the retry button
   // on a failed/system notice (e.g. "model did not respond"). A turn a finished
-  // background task started has no text anybody typed, so there is nothing to
-  // re-run and no retry is offered.
+  // background task or the goal supervisor started has no text anybody typed,
+  // so there is nothing to re-run and no retry is offered.
   const lastUserText = useMemo(() => {
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
-      if (it && it.type === "background_wake") return "";
+      if (it && (it.type === "background_wake" || it.type === "goal_turn"))
+        return "";
       if (it && it.type === "user_message") {
         return typeof it.content === "string" ? it.content : "";
       }
@@ -1372,6 +1383,21 @@ export function App() {
     [],
   );
   const settingsVersionRef = useRef<{ sid: string; version: number }>({
+    sid: "",
+    version: 0,
+  });
+  /**
+   * The viewed session's goal (chat/goal.ts) and the version of the snapshot
+   * it came from, kept the way the settings are: the messages read, the turn
+   * stream, the events stream and the answers of the goal's own routes all
+   * deliver it, and the highest version wins. A goal of another session is
+   * not shown: the chip reads `goal` only while `sid` is the viewed session.
+   */
+  const [viewedGoal, setViewedGoal] = useState<{
+    sid: string;
+    goal: SessionGoal | null;
+  }>({ sid: "", goal: null });
+  const goalVersionRef = useRef<{ sid: string; version: number }>({
     sid: "",
     version: 0,
   });
@@ -3076,6 +3102,9 @@ export function App() {
   serverEventHandlersRef.current = {
     sessionSettings: (event: SessionSettingsEvent) =>
       applySessionSettings(event.settings),
+    // A goal set in a console, paused in another tab or checked by the
+    // supervisor shows here too, not only in the tab reading the turn.
+    sessionGoal: (update: SessionGoalUpdate) => applySessionGoal(update),
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
       const key = sid.trim();
@@ -3189,6 +3218,8 @@ export function App() {
       onSessionChanges: (sid) => emitChangesSettled(sid),
       onSessionSettings: (event) =>
         serverEventHandlersRef.current.sessionSettings(event),
+      onSessionGoal: (update) =>
+        serverEventHandlersRef.current.sessionGoal(update),
       onSubagentPermission: (parentSid) =>
         serverEventHandlersRef.current.subagentPermission(parentSid),
       onQuestionPending: (sid) =>
@@ -3317,6 +3348,7 @@ export function App() {
       selectedModelId?: string;
       selectedReasoning?: string;
       settings?: unknown;
+      goal?: unknown;
       subagent?: {
         parentSessionId?: string;
         name?: string;
@@ -3383,6 +3415,13 @@ export function App() {
       }
       if (snap) {
         applySessionSettings(snap);
+      }
+      // The session goal, versioned like the settings: the chip and the
+      // popover mirror it, and a read older than an event already applied
+      // moves nothing back.
+      const goalUpdate = parseSessionGoalUpdate(res.data.goal, sid);
+      if (goalUpdate) {
+        applySessionGoal(goalUpdate);
       }
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
@@ -4551,6 +4590,7 @@ export function App() {
           }
         },
         onSessionSettings: (e) => applySessionSettings(e.settings),
+        onSessionGoal: (u) => applySessionGoal(u),
         onTurnProgress: (progress) => {
           if (ownsRelay() && !fetchCtl.signal.aborted) {
             applyTurnProgress(key, progress, "stream");
@@ -5143,6 +5183,7 @@ export function App() {
           }
         },
         onSessionSettings: (e) => applySessionSettings(e.settings),
+        onSessionGoal: (u) => applySessionGoal(u),
         onTurnProgress: (progress) => {
           if (ownsPost() && !abortCtl.signal.aborted) {
             applyTurnProgress(streamKey, progress, "stream");
@@ -5567,6 +5608,63 @@ export function App() {
         : snap.reasoning,
     );
   });
+
+  /**
+   * applySessionGoal mirrors a goal snapshot of the viewed session in the
+   * composer's chip and popover. A snapshot of another session, or one older
+   * than the one shown, is dropped: the same change reaches a tab down the
+   * turn stream and the events stream, and an action's answer can land after
+   * the event of a later change.
+   */
+  const applySessionGoal = useStableHandler((update: SessionGoalUpdate) => {
+    const viewed = viewedSessionIdRef.current.trim();
+    const held =
+      goalVersionRef.current.sid === update.sessionId
+        ? goalVersionRef.current.version
+        : 0;
+    if (!isNewerGoal(held, viewed, update)) {
+      return;
+    }
+    goalVersionRef.current = {
+      sid: update.sessionId,
+      version: update.version,
+    };
+    setViewedGoal({ sid: update.sessionId, goal: update.goal });
+  });
+
+  /**
+   * sendGoalRequest pauses or clears the viewed session's goal over REST and
+   * mirrors the answer, which has the shape of the events stream's frame.
+   * Resolves false when the server refused (no goal, an unknown session).
+   */
+  const sendGoalRequest = useCallback(
+    async (method: "PATCH" | "DELETE", body?: unknown): Promise<boolean> => {
+      const sid = sessionId.trim();
+      if (!sid) return false;
+      try {
+        const res = await fetch(
+          `/coddy/sessions/${encodeURIComponent(sid)}/goal`,
+          {
+            method,
+            headers: {
+              ...headers,
+              ...(body !== undefined
+                ? { "Content-Type": "application/json" }
+                : {}),
+            },
+            ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          },
+        );
+        if (!res.ok) return false;
+        const update = parseSessionGoalUpdate(await res.json(), sid);
+        if (update) applySessionGoal(update);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [sessionId, headers, applySessionGoal],
+  );
 
   /** patchSessionSettings sends a settings change and mirrors the answer. */
   const patchSessionSettings = useCallback(
@@ -6667,6 +6765,39 @@ export function App() {
   const handleRetryLast = useStableHandler(
     () => void streamResponses(lastUserText),
   );
+  /**
+   * The goal popover's prompts (`/goal resume`, `/goal <objective>`) go the
+   * way a typed message goes - a turn of this chat, its optimistic row, the
+   * stream - without touching the draft or an edit in progress. Nothing is
+   * sent while a turn runs (the popover says so and waits): like the plan
+   * card's Run plan. An objective the server never took returns to the
+   * composer, since somebody wrote it.
+   */
+  const sendGoalPrompt = useStableHandler((text: string) => {
+    if (subagentTranscript) return;
+    if (
+      sessionId.trim() &&
+      (turnActivity.get(sessionId) ??
+        activeComposerSidRef.current.has(sessionId.trim()))
+    ) {
+      return;
+    }
+    void streamResponses(text, {
+      restoreOnRefusal: text.trim() !== GOAL_RESUME_PROMPT,
+    });
+  });
+  const goalActions = useMemo<GoalActions>(
+    () => ({
+      pause: () => sendGoalRequest("PATCH", { status: "paused" }),
+      clear: () => sendGoalRequest("DELETE"),
+      sendPrompt: sendGoalPrompt,
+    }),
+    [sendGoalRequest, sendGoalPrompt],
+  );
+  const viewedSessionGoal =
+    viewedGoal.sid !== "" && viewedGoal.sid === sessionId.trim()
+      ? viewedGoal.goal
+      : null;
   const handleFetchToolCallFull = useStableHandler(
     async (toolCallId: string) => {
       if (!sessionId) return;
@@ -7077,6 +7208,9 @@ export function App() {
               subagentTranscript ? undefined : onPermissionModeChange
             }
             settingsOverrides={settingsOverrides}
+            {...(subagentTranscript
+              ? {}
+              : { goal: viewedSessionGoal, goalActions })}
             onDraftChange={setDraft}
             onMentionArtifact={(path: string) =>
               setDraft(

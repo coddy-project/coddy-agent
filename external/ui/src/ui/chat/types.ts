@@ -8,6 +8,7 @@ import type {
 } from "./questionTypes";
 import type { TodoPlanEntry } from "./todoToolPreview";
 import type { BackgroundWakeTask } from "./backgroundWake";
+import type { GoalTurn } from "./goal";
 import type { ToolArtifact } from "./toolArtifacts";
 
 export type TokenUsage = {
@@ -83,6 +84,20 @@ export type TranscriptItem =
       id: string;
       type: "background_wake";
       tasks: BackgroundWakeTask[];
+      createdAtUtc?: string;
+    }
+  | {
+      /**
+       * The first message of a turn the session supervisor started for the
+       * goal (chat/goal.ts): a kickoff, a continuation, a recovery, a resume
+       * or the wrap-up. It opens a turn like a user message and renders as a
+       * compact goal row, never as a user bubble - nobody typed the
+       * instruction the model reads. Built from the `goal_turn` frame live and
+       * from the message's `goal_turn` field after a reload.
+       */
+      id: string;
+      type: "goal_turn";
+      turn: GoalTurn;
       createdAtUtc?: string;
     }
   | {

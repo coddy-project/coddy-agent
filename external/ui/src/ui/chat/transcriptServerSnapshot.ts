@@ -23,6 +23,14 @@ export function transcriptItemsLooselyEqual(
           .map((t) => t.id)
           .join(",") === a.tasks.map((t) => t.id).join(",")
       );
+    case "goal_turn": {
+      const bt = (b as Extract<TranscriptItem, { type: "goal_turn" }>).turn;
+      return (
+        bt.kind === a.turn.kind &&
+        bt.index === a.turn.index &&
+        bt.objective === a.turn.objective
+      );
+    }
     case "thinking":
       return (
         (b as Extract<TranscriptItem, { type: "thinking" }>).status ===

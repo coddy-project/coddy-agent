@@ -1,5 +1,11 @@
 import type { MemoryRunEvt } from "./memoryRun";
 import { backgroundWakeItem } from "./backgroundWake";
+import {
+  applyGoalTurnToItems,
+  goalTurnItem,
+  sessionGoalEventOf,
+  type SessionGoalUpdate,
+} from "./goal";
 import type { MutableRefObject } from "react";
 import {
   namedErrorEventMessage,
@@ -123,6 +129,9 @@ export type ConsumeComposerSseParams = {
    *  command, the permission dialog, the model's own switch
    *  (`event: session_settings`). */
   onSessionSettings?: (event: SessionSettingsEvent) => void;
+  /** Coddy extension. The session's goal changed during this turn - set,
+   *  checked, continued, paused, cleared (`event: session_goal`). */
+  onSessionGoal?: (update: SessionGoalUpdate) => void;
   /** Coddy extension. The running turn's clock and generated tokens (`event: turn_progress`). */
   onTurnProgress?: (progress: TurnProgress) => void;
   /** Coddy extension. The input was only settings commands: no turn ran and
@@ -177,6 +186,7 @@ export async function consumeComposerSseReader(
     onProviderUsage,
     onMessageQueue,
     onSessionSettings,
+    onSessionGoal,
     onTurnProgress,
     onSettingsOnly,
   } = p;
@@ -619,6 +629,20 @@ export async function consumeComposerSseReader(
         continue;
       }
 
+      // A turn the session supervisor started for the goal opens with its
+      // row: where the turn begins, before anything the turn says, and in
+      // place of the `/goal` prompt this tab sent for a kickoff or a resume.
+      if (ev.event === "goal_turn") {
+        const goalRow = goalTurnItem(ev.data, newId("goal"));
+        if (goalRow) {
+          flushToolQueue();
+          finishThinking();
+          applyStreamItems((prev) => applyGoalTurnToItems(prev, goalRow));
+          assistantSegmentDirty = true;
+        }
+        continue;
+      }
+
       // A queued follow-up the agent has just read enters the conversation
       // here, where it was read - not at the end, where a transcript reload
       // would otherwise be the first place it appears.
@@ -639,6 +663,14 @@ export async function consumeComposerSseReader(
         const parsed = sessionSettingsEventOf(ev.data);
         if (parsed) {
           onSessionSettings?.(parsed);
+        }
+        continue;
+      }
+
+      if (ev.event === "session_goal") {
+        const parsed = sessionGoalEventOf(ev.data);
+        if (parsed) {
+          onSessionGoal?.(parsed);
         }
         continue;
       }
@@ -889,6 +921,20 @@ export async function consumeComposerSseReader(
         continue;
       }
 
+      // A turn the session supervisor started for the goal opens with its
+      // row: where the turn begins, before anything the turn says, and in
+      // place of the `/goal` prompt this tab sent for a kickoff or a resume.
+      if (ev.event === "goal_turn") {
+        const goalRow = goalTurnItem(ev.data, newId("goal"));
+        if (goalRow) {
+          flushToolQueue();
+          finishThinking();
+          applyStreamItems((prev) => applyGoalTurnToItems(prev, goalRow));
+          assistantSegmentDirty = true;
+        }
+        continue;
+      }
+
       // A queued follow-up the agent has just read enters the conversation
       // here, where it was read - not at the end, where a transcript reload
       // would otherwise be the first place it appears.
@@ -909,6 +955,14 @@ export async function consumeComposerSseReader(
         const parsed = sessionSettingsEventOf(ev.data);
         if (parsed) {
           onSessionSettings?.(parsed);
+        }
+        continue;
+      }
+
+      if (ev.event === "session_goal") {
+        const parsed = sessionGoalEventOf(ev.data);
+        if (parsed) {
+          onSessionGoal?.(parsed);
         }
         continue;
       }

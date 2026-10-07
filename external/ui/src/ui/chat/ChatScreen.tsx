@@ -13,6 +13,8 @@ import type { HeroAccentVerb } from "./heroTitleWords";
 import { useT } from "../i18n/I18nProvider";
 import type { PermissionResolvedState } from "./permissionTypes";
 import type { TurnOverride } from "./sessionSettings";
+import type { SessionGoal } from "./goal";
+import type { GoalActions } from "./GoalPopover";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { UsageBanner } from "./UsageBanner";
@@ -104,6 +106,10 @@ export function ChatScreen(props: {
   configuredPermissionMode?: string;
   onPermissionModeChange?: ((mode: string) => void) | undefined;
   settingsOverrides?: TurnOverride[];
+  /** The session goal and what the composer's goal chip and popover can do
+   *  with it (chat/goal.ts); passed through to the composer. */
+  goal?: SessionGoal | null;
+  goalActions?: GoalActions;
   onDraftChange: (v: string) => void;
   onMentionArtifact?: (path: string) => void;
   onSend: (text: string, files?: File[]) => void;
@@ -780,6 +786,9 @@ export function ChatScreen(props: {
                 {...(props.settingsOverrides
                   ? { settingsOverrides: props.settingsOverrides }
                   : {})}
+                {...(props.goalActions
+                  ? { goal: props.goal ?? null, goalActions: props.goalActions }
+                  : {})}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
                 {...(props.onDocsCommand
@@ -984,6 +993,12 @@ export function ChatScreen(props: {
                     : {})}
                   {...(props.settingsOverrides
                     ? { settingsOverrides: props.settingsOverrides }
+                    : {})}
+                  {...(props.goalActions
+                    ? {
+                        goal: props.goal ?? null,
+                        goalActions: props.goalActions,
+                      }
                     : {})}
                   onChange={props.onDraftChange}
                   onSend={props.onSend}

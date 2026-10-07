@@ -50,6 +50,22 @@ function history(spec: string): RawSessionMessage[] {
           compaction_summary: true,
         });
         break;
+      case "G":
+        // A turn the session supervisor started: the content is the
+        // instruction the model read, the marker says what the row shows.
+        out.push({
+          role: "user",
+          content: `You are working toward a goal (message ${n}).`,
+          goal_turn: {
+            kind: "continue",
+            index: n,
+            limit: 99,
+            objective: "ship",
+            reason: `left ${n}`,
+            remaining: [`step ${n}`],
+          },
+        });
+        break;
       case "A":
         out.push({
           role: "assistant",
@@ -149,6 +165,8 @@ function shape(items: TranscriptItem[]): string[] {
         return `compaction:${it.summary}`;
       case "background_wake":
         return `wake:${it.tasks.map((t) => t.id).join(",")}`;
+      case "goal_turn":
+        return `goal:${it.turn.kind}:${it.turn.index}`;
       default:
         return it.type;
     }
@@ -220,6 +238,56 @@ test("pages read from the end join into what a whole read shows", () => {
       ids.length,
     );
   }
+});
+
+test("a goal turn after a reload is a goal row, never a user bubble, and opens a turn of its own", () => {
+  const msgs = history("U A G S T A U A");
+  const items = mapPage(msgs, 0, msgs.length);
+  expect(shape(items)).toEqual([
+    "user:prompt 1",
+    "thinking:thought 2",
+    "answer:answer 2",
+    "goal:continue:3",
+    "thinking:plan 4",
+    "tool:c1:completed",
+    "thinking:thought 6",
+    "answer:answer 6",
+    "user:prompt 7",
+    "thinking:thought 8",
+    "answer:answer 8",
+  ]);
+  // The instruction the model read is shown nowhere.
+  expect(JSON.stringify(items)).not.toContain("You are working toward a goal");
+  // The goal turn is turn 2, so the prompt after it is turn 3, as the server
+  // counts user-role messages.
+  expect(items.find((it) => it.type === "goal_turn")?.id).toBe("goal_2");
+  expect(
+    items.find((it) => it.type === "user_message" && it.id === "u_3"),
+  ).toBeTruthy();
+  const goal = items.find((it) => it.type === "goal_turn");
+  expect(goal?.type === "goal_turn" && goal.turn.remaining).toEqual(["step 3"]);
+});
+
+test("pages around a goal turn join into what a whole read shows", () => {
+  const msgs = history("U A G S T A G A U S T A");
+  const full = mapPage(msgs, 0, msgs.length);
+  const cuts = msgs
+    .map((m, i) => (m.role === "tool" || i === 0 ? -1 : i))
+    .filter((i) => i > 0);
+  for (const cut of cuts) {
+    const joined = [
+      ...mapPage(msgs, 0, cut),
+      ...mapPage(msgs, cut, msgs.length),
+    ];
+    expect(shape(joined), `cut at ${cut}`).toEqual(shape(full));
+    const ids = joined.map((it) => it.id);
+    expect(new Set(ids).size, `unique ids with a cut at ${cut}`).toBe(
+      ids.length,
+    );
+  }
+  // A page that opens after both goal turns numbers its prompt after them.
+  const page = mapPage(msgs, 8, msgs.length);
+  expect(page[0]).toMatchObject({ id: "u_4", type: "user_message" });
 });
 
 test("the notice ending the turn before a page opens that page", () => {

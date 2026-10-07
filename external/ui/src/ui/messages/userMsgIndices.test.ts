@@ -32,3 +32,27 @@ test("a wake takes an index of its own, so a rewind after it lands on its messag
   expect(m.get("u0")).toBe(0);
   expect(m.get("u2")).toBe(2);
 });
+
+test("a goal turn takes an index of its own too, and none of its rows is an editable prompt", () => {
+  const goal = (id: string): TranscriptItem => ({
+    id,
+    type: "goal_turn",
+    turn: {
+      kind: "continue",
+      index: 1,
+      limit: 10,
+      objective: "ship",
+      reason: "",
+      remaining: [],
+    },
+  });
+  const items = [user("u0"), goal("g1"), wake("w2"), goal("g3"), user("u4")];
+  const m = userMsgIndices(items, 5);
+  expect(m.get("u0")).toBe(5);
+  // Three turns nobody typed stand between the two prompts, as the server
+  // counts its user-role messages.
+  expect(m.get("u4")).toBe(9);
+  expect(m.has("g1")).toBe(false);
+  expect(m.has("g3")).toBe(false);
+  expect(m.size).toBe(2);
+});
