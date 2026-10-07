@@ -4,7 +4,7 @@ This page is the detailed reference for local builds. For a short version, see [
 
 ## Prerequisites
 
-- **Go** - **1.26** or newer, the `go` line of [`go.mod`](../../go.mod). The `toolchain` line next to it (currently **`go1.26.8`**) is the exact release CI, the release archives and the Docker image build with; with the default `GOTOOLCHAIN=auto` an older local `go` downloads it on first use, so the standard library a local build links matches theirs. Raise it when a Go patch release fixes a vulnerability the code reaches: `go mod edit -toolchain=go1.26.N` (see [AppSec scanning](security-scanning.md#the-go-toolchain)).
+- **Go** - **1.26** or newer, the `go` line of [`go.mod`](../../go.mod). The `toolchain` line next to it (currently **`go1.26.8`**) is the oldest release any build links: CI and the release archives build with exactly that one, and with the default `GOTOOLCHAIN=auto` an older local `go` downloads it on first use. A newer local Go, or a newer patch in the `golang:1.26` image the Dockerfile starts from, builds with itself, which only adds fixes. Raise it when a Go patch release fixes a vulnerability the code reaches: `go mod edit -toolchain=go1.26.N` (see [AppSec scanning](security-scanning.md#the-go-toolchain)).
 - **Git** - the Makefile embeds a version string from tags or `git describe` when available.
 - **Node.js and npm** - required when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../../Makefile)) to produce the assets that **`go:embed`** picks up, and by **`make test`** and **`make lint`**, which run the SPA's vitest suite and its TypeScript check.
 

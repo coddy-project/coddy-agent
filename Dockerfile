@@ -20,8 +20,8 @@ FROM golang:1.26-bookworm AS build
 
 # The official image sets GOTOOLCHAIN=local, which would build with whatever
 # 1.26 release a cached copy of this image holds. auto lets go switch to the
-# `toolchain` line of go.mod when the image is older, so the image links the
-# same standard library as CI and the release archives.
+# `toolchain` line of go.mod when the image is older, so the image never links
+# an older standard library than CI and the release archives.
 ENV GOTOOLCHAIN=auto
 
 WORKDIR /src
