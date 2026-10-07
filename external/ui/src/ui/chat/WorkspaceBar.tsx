@@ -3,12 +3,11 @@ import { useT } from "../i18n/I18nProvider";
 import { getLocale } from "../i18n/i18n";
 import { hasEdits, type WorkingCopy } from "../changes/workingCopy";
 import {
-  BRANCH_CHARS,
   folderChipLabel,
-  middleTruncate,
   type WorkspaceBranchFetch,
   type WorkspaceContext,
 } from "./workspaceContext";
+import { FitMiddleText } from "./FitMiddleText";
 import { BranchIcon, FolderIcon } from "./workspaceIcons";
 import { WorkspaceChips } from "./WorkspaceChips";
 
@@ -93,9 +92,7 @@ export function WorkspaceBar(props: {
               data-testid="workspace-bar-branch"
             >
               <BranchIcon worktree={ctx.is_worktree === true} />
-              <span className="workspace-bar-text">
-                {middleTruncate(branch, BRANCH_CHARS)}
-              </span>
+              <FitMiddleText className="workspace-bar-text" text={branch} />
             </span>
           ) : null}
         </>
