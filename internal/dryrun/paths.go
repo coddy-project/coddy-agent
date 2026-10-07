@@ -3,7 +3,9 @@ package dryrun
 import (
 	"crypto/tls"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
 )
@@ -72,6 +75,9 @@ func (r *runner) paths() {
 	}
 	for i, f := range cfg.Hooks.Files {
 		r.hookFile(fmt.Sprintf("hooks.files[%d]", i), config.ExpandPathVars(f, r.req.Paths))
+	}
+	for i, entry := range cfg.Instructions.Files {
+		r.instructionFile(fmt.Sprintf("instructions.files[%d]", i), entry)
 	}
 
 	if cfg.SchedulerEffectiveEnabled() && cfg.SchedulerUserDir() != "" {
@@ -185,6 +191,27 @@ func (r *runner) hookFile(path, file string) {
 		return
 	}
 	r.rep.add(r.check(StatusOK, path, path, file+" parses", ""))
+}
+
+// instructionFile reads one entry of instructions.files the way a session in
+// the default workspace would. A session skips a file it cannot read without
+// a word, so this is where an entry naming the same file in every workspace
+// (an absolute path, ~, ${CODDY_HOME}) is reported when it points at nothing;
+// a workspace entry absent from this folder is only skipped, since the list
+// may serve workspaces that carry it.
+func (r *runner) instructionFile(path, entry string) {
+	file, workspace, err := session.CheckInstructionFile(entry, r.req.Paths.CWD, r.req.Paths.Home)
+	switch {
+	case file == "":
+		return
+	case err == nil:
+		r.rep.add(r.check(StatusOK, path, path, file+" is read into the system prompt", ""))
+	case workspace && errors.Is(err, fs.ErrNotExist):
+		r.rep.add(r.check(StatusSkipped, path, path, file+" is not in this workspace", "a session reads it in a workspace that has it"))
+	default:
+		r.rep.add(r.check(StatusWarning, path, path, file+" "+session.UnreadReason(err)+"; no session reads it",
+			"correct the path or remove the entry; a coddy running in a container or under another account has to see the file at this path"))
+	}
 }
 
 // caFileCheck reads a PEM bundle and counts its certificates.

@@ -111,7 +111,10 @@ Top to bottom:
   (`escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ctrl+o more`);
   a dim welcome line; `[Context]` (the documents the session's prompt carries:
   your and the workspace's `AGENTS.md` and `DESIGN.md` that exist, then the
-  files `instructions.files` adds, each once) and
+  files `instructions.files` adds, each once; after them, in the warning
+  colour, an `instructions.files` entry whose file the session cannot read,
+  as `<path> (not read: <reason>)`, see
+  [Rules](../features/rules.md#more-instruction-files)) and
   `[Skills]` (the loaded skills, the bundled ones first).
   `ctrl+o` expands the full hint list and adds `[Rules]` and `[MCP]` sections;
   `[MCP]` names the servers a session of this workspace starts: the enabled ones

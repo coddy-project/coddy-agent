@@ -473,22 +473,33 @@ func (a *App) populateHeader() {
 	if st != nil {
 		cwd = st.GetCWD()
 	}
-	// The documents the session's prompt carries: the AGENTS.md and DESIGN.md
-	// of the agent home and of the workspace, then the files instructions.files
-	// adds, each once (rules.LoadStanding).
-	var contextFiles []string
-	standing := rules.LoadStanding(cfg.Paths.Home, cwd, session.ResolveInstructionFiles(cfg.Instructions.Files, cwd, cfg.Paths.Home))
-	for _, doc := range append(standing.Docs, standing.User...) {
-		contextFiles = append(contextFiles, doc.Label)
-	}
+	contextFiles, unreadFiles := standingContextFiles(cfg, cwd)
 	if st != nil {
 		for _, sk := range st.GetSkills() {
 			skillNames = append(skillNames, sk.Name)
 		}
 		rulesCount = len(st.GetRulesCatalog())
 	}
-	a.header.SetSections(contextFiles, skillNames, rulesCount, a.headerMCPNames())
+	a.header.SetSections(contextFiles, unreadFiles, skillNames, rulesCount, a.headerMCPNames())
 	a.seedMCPStatus()
+}
+
+// standingContextFiles lists the documents a session in cwd carries in its
+// prompt - the AGENTS.md and DESIGN.md of the agent home and of the workspace,
+// then the files instructions.files adds, each once (rules.LoadStanding) -
+// and, apart, the entries of instructions.files that name a file the session
+// cannot read, each with the reason (session.UnreadInstructionFiles): a file
+// the session skips would otherwise simply be missing from the list.
+func standingContextFiles(cfg *config.Config, cwd string) (read, unread []string) {
+	home := cfg.Paths.Home
+	standing := rules.LoadStanding(home, cwd, session.ResolveInstructionFiles(cfg.Instructions.Files, cwd, home))
+	for _, doc := range append(standing.Docs, standing.User...) {
+		read = append(read, doc.Label)
+	}
+	for _, u := range session.UnreadInstructionFiles(cfg.Instructions.Files, cwd, home) {
+		unread = append(unread, rules.UserDocLabel(cwd, u.Path)+" (not read: "+u.Reason()+")")
+	}
+	return read, unread
 }
 
 // headerMCPNames lists the MCP servers a session in the console's workspace
