@@ -23,6 +23,9 @@ func UpstreamStatus(err error) int {
 	if errors.As(err, &reset) {
 		return 429
 	}
+	if status, ok := coddyUpstreamStatus(err); ok {
+		return status
+	}
 	var oai *openai.Error
 	if errors.As(err, &oai) && oai.StatusCode > 0 {
 		return oai.StatusCode
@@ -50,6 +53,10 @@ func UpstreamRetryAfter(err error) (time.Duration, bool) {
 	if errors.As(err, &reset) && reset.Delay > 0 {
 		return reset.Delay, true
 	}
+	if d, ok := coddyRetryAfter(err); ok {
+		// A remote Coddy's text is never scanned for a pause.
+		return d, d > 0
+	}
 	var dev *devinAPIError
 	if errors.As(err, &dev) && dev.retryAfter > 0 {
 		return dev.retryAfter, true
@@ -74,6 +81,9 @@ func IsTransientProviderError(err error) bool {
 	var reset *QuotaResetError
 	if errors.As(err, &reset) {
 		return false
+	}
+	if transient, ok := coddyTransient(err); ok {
+		return transient
 	}
 	var sse *streamServerError
 	if errors.As(err, &sse) {

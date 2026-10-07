@@ -1,6 +1,9 @@
 package llm
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // RequestOptions are the generation options one caller asked for on one
 // request - the max_tokens, temperature and reasoning_effort of a direct POST
@@ -19,12 +22,25 @@ type RequestOptions struct {
 	// reasoning_default); empty sends no reasoning parameter at all, which is
 	// not the same request as the level "none".
 	ReasoningEffort string
+	// RetryBudget is the part of the caller's own budget that is left for waiting
+	// on a usage limit (a shared-model call carries it in options.retry_budget_ms):
+	// a pause longer than it fails at once as a quota error instead of being slept
+	// through. nil asks for nothing; a set value, zero included, switches the
+	// budget on (ProviderInput.RetryBudgetSet). It is no generation option, so
+	// Validate never reads it.
+	RetryBudget *time.Duration
 }
 
 // Validate reports the first option a provider of providerType cannot send as
 // asked, so the caller refuses the request before anything reaches the
 // provider instead of the value being dropped on the way.
 func (o RequestOptions) Validate(providerType string) error {
+	if providerType == "coddy" {
+		// The remote validates, against the row it shares under the alias: its
+		// own provider type decides what max_tokens, temperature and a level
+		// mean, and a client that never sets one never trips it.
+		return nil
+	}
 	if o.MaxTokens != nil {
 		if *o.MaxTokens < 1 {
 			return fmt.Errorf("max_tokens must be a positive integer")
@@ -71,5 +87,8 @@ func (o RequestOptions) Apply(in *ProviderInput) {
 	}
 	if o.ReasoningEffort != "" {
 		in.ReasoningEffort = o.ReasoningEffort
+	}
+	if o.RetryBudget != nil {
+		in.RetryBudget, in.RetryBudgetSet = *o.RetryBudget, true
 	}
 }

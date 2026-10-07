@@ -24,6 +24,16 @@ type ModelEntry struct {
 	// route; the session manager also reads it for models whose
 	// max_context_tokens is unset.
 	ContextWindow int `json:"context_window,omitempty"`
+	// Revision, Multimodal, ReasoningLevels, ReasoningDefault and
+	// AllowReasoningOff are what a model shared by a remote Coddy (type coddy)
+	// reports about itself in its listing; no other listing carries them.
+	// Revision is an opaque string that changes whenever anything a client can
+	// observe about the row changes.
+	Revision          string   `json:"revision,omitempty"`
+	Multimodal        bool     `json:"multimodal,omitempty"`
+	ReasoningLevels   []string `json:"reasoning_levels,omitempty"`
+	ReasoningDefault  string   `json:"reasoning_default,omitempty"`
+	AllowReasoningOff bool     `json:"allow_reasoning_off,omitempty"`
 }
 
 // modelListTimeout bounds a single provider model-listing request.
@@ -61,7 +71,9 @@ func defaultModelListBaseURL(providerType string) string {
 	}
 }
 
-// ListModels fetches the models advertised by a provider's HTTP API. openai,
+// ListModels fetches the models advertised by a provider's HTTP API. coddy
+// providers are asked at {api_base}/coddy/llm/models for the models the remote
+// shares. openai,
 // neuraldeep, and other OpenAI-compatible providers are queried at {base}/models
 // with a Bearer token; anthropic providers at {base}/v1/models with x-api-key +
 // anthropic-version. The response is expected in the common {"data":[{"id":...}]}
@@ -73,6 +85,9 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
 		defer cancel()
 		return listDevinModels(ctx, in)
+	}
+	if in.Type == "coddy" {
+		return listCoddyModels(ctx, in)
 	}
 	if in.Type == "codex" {
 		entries, err := fetchCodexCatalog(ctx, in)
