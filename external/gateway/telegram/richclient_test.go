@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 )
 
 func TestRichParams_WireFormat(t *testing.T) {

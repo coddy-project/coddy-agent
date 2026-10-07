@@ -1,7 +1,9 @@
 """Shared stand for the background wake e2e harnesses (HTTP, ACP, console).
 
-No model and no network: the scripted model of cmd/tgfake (`--llm`, rules
-from a JSON script) answers every request. The first turn asks it to "start
+No model and no network: the scripted model of tgfake
+(github.com/EvilFreelancer/tgfake, `--llm`, rules from a JSON script) answers
+every request - the binary in CODDY_TGFAKE_BIN, else one built from the
+version go.mod pins. The first turn asks it to "start
 the tests": it calls run_command with a failing command, background and
 notify_on_finish, then answers once the tool result comes back. When the task
 ends, the process wakes the agent, and the woken turn's prompt names the task:
@@ -45,6 +47,17 @@ def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def tgfake_binary(tmp: Path) -> Path:
+    """The tgfake binary: CODDY_TGFAKE_BIN when set (CI installs a release
+    there), else built from the module version go.mod pins."""
+    prebuilt = os.environ.get("CODDY_TGFAKE_BIN")
+    if prebuilt:
+        return Path(prebuilt)
+    out = tmp / ("tgfake.exe" if os.name == "nt" else "tgfake")
+    subprocess.run(["go", "build", "-o", str(out), "github.com/EvilFreelancer/tgfake/cmd/tgfake"], cwd=REPO_ROOT, check=True)
+    return out
 
 
 def coddy_bin() -> str:
@@ -131,12 +144,13 @@ class WakeStand:
         self.config.write_text(config_yaml(self.model_port, http=http, log_file=self.log_file), encoding="utf-8")
         script = self.tmp / "rules.json"
         script.write_text(json.dumps(rules(fixes)), encoding="utf-8")
-        tgfake = self.tmp / "tgfake"
-        subprocess.run(["go", "build", "-o", str(tgfake), "./cmd/tgfake"], cwd=REPO_ROOT, check=True)
+        tgfake = tgfake_binary(self.tmp)
         # A pause between streamed words keeps a woken turn running long
-        # enough for a client to attach to it, as a real model does.
+        # enough for a client to attach to it, as a real model does. The
+        # model ignores the <turn_context> block Coddy appends to a request.
         self.model = subprocess.Popen(
             [str(tgfake), "--addr", f"127.0.0.1:{self.model_port}", "--llm",
+             "--llm-model", "coddy-demo", "--llm-strip-tag", "turn_context",
              "--llm-script", str(script), "--llm-delay", "80ms"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )

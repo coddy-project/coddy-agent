@@ -1585,7 +1585,7 @@
               "properties": {
                 "url": {
                   "type": "string",
-                  "description": "The public https address the web UI is served at, for example https://coddy.example.com/. Plain http is accepted only for a loopback host (the offline stand cmd/tgfake). No fragment: Telegram puts its launch parameters there. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.",
+                  "description": "The public https address the web UI is served at, for example https://coddy.example.com/. Plain http is accepted only for a loopback host (an offline stand such as tgfake). No fragment: Telegram puts its launch parameters there. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.",
                   "default": ""
                 },
                 "menu_button": {

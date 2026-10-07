@@ -8,8 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
+
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 func TestSender_RichFlow_DraftsThenFinalizesWithTools(t *testing.T) {

@@ -8,7 +8,7 @@ Feature: The Telegram bot polls a Bot API server
   bot without a phone.
 
   Background:
-    Given a fake Bot API whose bot is "coddy_fake_bot"
+    Given a fake Bot API whose bot is "coddy_fake_bot" named "Coddy Fake"
     And a telegram gateway over a scripted agent pointed at it
 
   Scenario: Starting the bot introduces it to the Bot API

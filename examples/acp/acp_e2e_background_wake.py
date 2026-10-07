@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ACP e2e for the background wake (issue #305), against a real `coddy acp`.
 
-Self-boots the scripted model of cmd/tgfake (examples/shared/wake_e2e_common.py),
+Self-boots the scripted model of tgfake (examples/shared/wake_e2e_common.py),
 so no key and no network. The model starts a failing command in the background
 with notify_on_finish and ends its turn; `coddy acp` wakes it when the command
 ends, outside any session/prompt the client sent.

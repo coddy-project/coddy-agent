@@ -8,6 +8,7 @@ require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.1
 	github.com/anthropics/anthropic-sdk-go v1.27.1
 	github.com/bmatcuk/doublestar/v4 v4.10.0
+	github.com/EvilFreelancer/tgfake v0.1.0
 	github.com/cucumber/godog v0.15.1
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/go-shiori/go-readability v0.0.0-20251205110129-5db1dc9836f0
@@ -61,3 +62,5 @@ require (
 	golang.org/x/sync v0.23.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
+
+tool github.com/EvilFreelancer/tgfake/cmd/tgfake

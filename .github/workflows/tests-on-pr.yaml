@@ -1,5 +1,5 @@
-# Run the full test matrix (one job per tag combination), the race detector and
-# golangci-lint on pull requests.
+# Run the full test matrix (one job per tag combination), the Telegram stand
+# against tgfake, the race detector and golangci-lint on pull requests.
 
 name: Tests on PR
 
@@ -164,17 +164,52 @@ jobs:
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:files
 
-      # The gateway suite runs the bot against the fake Bot API in-process. In
-      # the combination that is the gateway alone, the real binary is started
-      # against cmd/tgfake on a port and has to answer a message, so the
-      # offline stand of docs/surfaces/gateway.md is proven on every pull
-      # request without a Telegram token or a model.
+  # The integration layer against tgfake (github.com/EvilFreelancer/tgfake),
+  # the fake Telegram Bot API and scripted model this repository tests its
+  # bot with. The gateway suite above runs tgfake in-process at the version
+  # go.mod pins; here the release binary of that same version, installed by
+  # tgfake's own action, stands in for Telegram and for the model while the
+  # real coddy serve answers a message, comes back to a session with /resume
+  # and is woken by a background task - the offline stand of
+  # docs/surfaces/gateway.md, proven without a token or a key. A bump of
+  # tgfake changes go.mod and the action ref below together; the first step
+  # fails when they drift. Guide: docs/contributing/tgfake.md.
+  telegram-stand:
+    name: Telegram stand (tgfake)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Read the tgfake version go.mod pins
+        id: pin
+        run: |
+          version="$(go list -m -f '{{.Version}}' github.com/EvilFreelancer/tgfake)"
+          grep -q "uses: EvilFreelancer/tgfake@${version}\$" .github/workflows/tests-on-pr.yaml || {
+            echo "go.mod pins tgfake ${version}, the action below is used at another ref" >&2
+            exit 1
+          }
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install tgfake
+        id: tgfake
+        uses: EvilFreelancer/tgfake@v0.1.0
+        with:
+          version: ${{ steps.pin.outputs.version }}
+
       - name: Build the gateway
-        if: matrix.tags == 'gateway'
         run: make build TAGS=gateway
 
-      - name: Run the bot against the offline Telegram stand
-        if: matrix.tags == 'gateway'
+      - name: Run the bot against tgfake
+        env:
+          CODDY_TGFAKE_BIN: ${{ steps.tgfake.outputs.path }}
         run: CODDY_BIN="$PWD/build/coddy" examples/gateway/tg_e2e_offline.sh
 
   # The race detector, `make test-race`: the whole tree with every tag but ui.

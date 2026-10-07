@@ -17,9 +17,10 @@ import (
 	"strings"
 	"testing"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
+
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 type fixedSession struct{ id, dir string }

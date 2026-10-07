@@ -15,7 +15,7 @@ pty (see the CLI section below):
 | **`e2e_memory`** | **`httpserver/http_e2e_memory.py`** (a `remember` turn persisted by the memory subagent, the `memory` task row and its read-only child transcript) | **`acp/acp_e2e_memory.py`** (a seeded note recalled, a `remember` turn persisted, the fact asked again in a fresh session so it can only come from disk, the child bundle under `subagents/`) |
 | **`e2e_background`** | **`httpserver/http_e2e_background.py`** (task list, live output, stop, 404) | **`acp/acp_e2e_background.py`** (persisted `background/<id>/meta.json` plus `output.log`) |
 | **`e2e_preview_server`** | **`httpserver/http_e2e_preview_server.py`** (asked in an operator's words to run a folder on a web server, the model calls **`preview_server`**: the address in the answer, the running **`server`** task with its **`url`** and no hard timeout, the page and its ES module over http with a script content type, an edit served fresh, `.env` hidden, the request log as the task output, stop taking the address down) | - |
-| **`e2e_background_wake`** | **`httpserver/http_e2e_background_wake.py`** (self-boots **`coddy serve`** on the scripted model of **`cmd/tgfake`**, no key: a failing command started with **`notify_on_finish`** wakes the agent; **`background_wake`** on **`GET /coddy/events`**, the woken turn's relay opening with the **`background_wake`** frame, the marker in **`GET .../messages`**, the task row's **`notify_on_finish`**; then the woken turn's permission prompt answered through **`POST .../permission`**) | **`acp/acp_e2e_background_wake.py`** (self-boots **`coddy acp`** on the same model: the **`background_wake`** update and the quoted note outside any **`session/prompt`**, no user message for the instruction, **`session/request_permission`** inside the woken turn, **`session/load`** replaying the wake) |
+| **`e2e_background_wake`** | **`httpserver/http_e2e_background_wake.py`** (self-boots **`coddy serve`** on the scripted model of **tgfake**, no key: a failing command started with **`notify_on_finish`** wakes the agent; **`background_wake`** on **`GET /coddy/events`**, the woken turn's relay opening with the **`background_wake`** frame, the marker in **`GET .../messages`**, the task row's **`notify_on_finish`**; then the woken turn's permission prompt answered through **`POST .../permission`**) | **`acp/acp_e2e_background_wake.py`** (self-boots **`coddy acp`** on the same model: the **`background_wake`** update and the quoted note outside any **`session/prompt`**, no user message for the instruction, **`session/request_permission`** inside the woken turn, **`session/load`** replaying the wake) |
 | **`e2e_subagents`** | **`httpserver/http_e2e_subagents.py`** (trust route, `spawn_agent` run as an `agent` task, read-only child transcript, `include_subagents`, catalog with declared bounds; then a detached child's permission prompt: `pending_permission` on the task row, `subagent_permission` on `GET /coddy/events`, answered against the child session) | **`acp/acp_e2e_subagents.py`** (`coddy agents trust`, persisted `agent` task plus the child bundle inside the parent's, with the parent link) |
 | **`e2e_hooks`** | **`httpserver/http_e2e_hooks.py`** (catalog with the held project file, the notice row in the transcript, `POST /coddy/hooks/trust` then a turn that runs the approved hook, `untrust`) | **`acp/acp_e2e_hooks.py`** (user-scope `PreToolUse` / `PostToolUse` recorder hooks see a real `run_command`, the project-scope hook stays held until `coddy hooks trust .coddy/hooks.json`, then runs on the next turn) |
 | **`e2e_toolcalls_persist`** | **`httpserver/http_e2e_toolcalls_persist.py`** | **`acp/acp_e2e_toolcalls_persist.py`** |
@@ -40,8 +40,8 @@ pty (see the CLI section below):
 | **`httpserver/`** | HTTP Python harnesses, **`test_httpserver.sh`**, **`docker.sh`**. |
 | **`acp/`** | ACP Python harnesses and **`test_acp.sh`**. |
 | **`cli/`** | Console TUI harnesses and **`test_cli.sh`** (pty-driven, Linux-only). |
-| **`gateway/`** | **`tg_e2e_offline.sh`** (wrapper **`test_gateway.sh`**): the Telegram bot against the fake Bot API and scripted model of **`cmd/tgfake`**, no Telegram and no LLM involved (bash, Git Bash on Windows included). |
-| **`shared/`** | **`scheduler_e2e_common.py`**, **`plan_e2e_common.py`**, **`ask_e2e_common.py`** for paired e2e harnesses; **`wake_e2e_common.py`**, the stand of the **`e2e_background_wake`** scripts (the scripted model of **`cmd/tgfake`** with a tool rule, a home and a config pointing at it, **`coddy serve`** on demand). |
+| **`gateway/`** | **`tg_e2e_offline.sh`** (wrapper **`test_gateway.sh`**): the Telegram bot against the fake Bot API and scripted model of **[tgfake](https://github.com/EvilFreelancer/tgfake)**, no Telegram and no LLM involved (bash, Git Bash on Windows included). |
+| **`shared/`** | **`scheduler_e2e_common.py`**, **`plan_e2e_common.py`**, **`ask_e2e_common.py`** for paired e2e harnesses; **`wake_e2e_common.py`**, the stand of the **`e2e_background_wake`** scripts (the scripted model of **tgfake** with a tool rule, a home and a config pointing at it, **`coddy serve`** on demand). |
 | **`skills_fixture/`** | Bundled skill for slash-command HTTP demo (copied into **`$CODDY_HOME/skills_fixture`** by **`test_httpserver.sh`**). |
 | **`agents_fixture/`** | Project-scope subagent definitions: **`.coddy/agents/marker-reporter.md`** (read-only, reports the `MARKER:` line of a named file), which each **`e2e_subagents`** script copies into its work dir and approves before the spawn, and **`.coddy/agents/echo-runner.md`** (`permission_mode: ask`, `background: true`, runs one named command), which the HTTP script approves for its detached-prompt phase. |
 
@@ -54,7 +54,7 @@ TG_E2E_KEEP=1 ./examples/test_gateway.sh             # leaves both running and p
 RICH_MESSAGES=true ./examples/test_gateway.sh
 ```
 
-Knobs: **`TG_PORT`** (18790), **`LLM_DELAY`** (50ms), **`TG_VERBOSE`** (one line per Bot API call), **`CODDY_BIN`**. Guide: [Debugging against a fake Bot API](../docs/surfaces/gateway.md#debugging-against-a-fake-bot-api).
+Knobs: **`TG_PORT`** (18790), **`LLM_DELAY`** (50ms), **`TG_VERBOSE`** (one line per Bot API call), **`CODDY_BIN`**, **`CODDY_TGFAKE_BIN`** (a prebuilt tgfake; unset builds the version **`go.mod`** pins). The same variable feeds every script here that starts tgfake (**`shared/wake_e2e_common.py`**, **`cli/capture_wake.py`**, `npm run check:telegram`). Guides: [Integration tests with tgfake](../docs/contributing/tgfake.md), [Debugging against a fake Bot API](../docs/surfaces/gateway.md#debugging-against-a-fake-bot-api).
 
 ## HTTP gateway
 
@@ -121,7 +121,7 @@ screen chrome. Knobs: `CLI_E2E_ONLY=<stem>` (one script),
 
 CLI twins cover: smoke, models, web, todo, skills slash, rules, mentions (ranged `@file:3-4`), memory,
 background, background wake (`cli_e2e_background_wake.py`: no model at all - the scripted model of
-`cmd/tgfake` - the local console woken into a turn that shows nothing of its own and a `/tasks` row
+tgfake - the local console woken into a turn that shows nothing of its own and a `/tasks` row
 that says `woke the agent`, its permission modal, then the same over `--remote` against a
 self-booted `coddy serve`), one-shot input (`cli_e2e_print_input.py`: no model at all - a scripted
 model the script serves itself records every request - prompts piped into `-p`, read with `-i` and

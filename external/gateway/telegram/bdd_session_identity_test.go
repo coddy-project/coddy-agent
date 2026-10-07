@@ -3,7 +3,7 @@
 package telegram
 
 // Godog harness for features/gateway_session_identity.feature: drives a chat
-// message through the real handler against the fake Bot API (internal/tgfake)
+// message through the real handler against the fake Bot API (tgfake)
 // and a scripted agent, and asserts on the session id, on the prompt the agent
 // was handed and on the text that reached the chat. No LLM and no network
 // beyond the local httptest server.
@@ -17,13 +17,13 @@ import (
 	"sync"
 	"testing"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 const (
