@@ -454,5 +454,5 @@ lint-windows: ui-build
 # Bypass a single commit with: git commit --no-verify
 hooks:
 	git config core.hooksPath .githooks
-	@echo "Enabled .githooks — 'git commit' now runs the linter (scripts/checks.sh)."
-	@echo "Add tests with CODDY_HOOK_TESTS=fast|full|matrix; skip lint with CODDY_HOOK_LINT=0; bypass once with --no-verify."
+	@echo "Enabled .githooks — 'git commit' now runs the linter and Prettier over the staged SPA files (scripts/checks.sh)."
+	@echo "Add tests with CODDY_HOOK_TESTS=fast|full|matrix; skip lint with CODDY_HOOK_LINT=0, Prettier with CODDY_HOOK_FORMAT=0; bypass once with --no-verify."
