@@ -296,6 +296,10 @@ type messageRow struct {
 	// BackgroundWake marks the first message of a turn a finished background
 	// task started; it is replayed as the wake, not as a user message.
 	BackgroundWake *llm.BackgroundWake `json:"background_wake,omitempty"`
+	// GoalTurn marks the first message of a turn the session supervisor
+	// started; it is replayed as the goal row, not as the instruction text
+	// the model read.
+	GoalTurn *llm.GoalTurn `json:"goal_turn,omitempty"`
 }
 
 type messagesResponse struct {
@@ -311,6 +315,9 @@ type messagesResponse struct {
 	// Settings is the session's settings snapshot: what a surface entering
 	// the session shows, its permission mode included (#362).
 	Settings *acp.SessionSettings `json:"settings,omitempty"`
+	// Goal is the session goal, versioned like the session_goal frames; its
+	// goal is null when the session has none.
+	Goal *goalPayload `json:"goal,omitempty"`
 }
 
 func (h *Handler) sessionMessages(ctx context.Context, id string) (*messagesResponse, error) {

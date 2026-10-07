@@ -359,7 +359,13 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 	if wake != nil {
 		_ = snd.SendSessionUpdate(st.GetID(), session.BackgroundWakeUpdate(wake))
 	}
-	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: userText, CreatedAt: time.Now().UTC().Format(time.RFC3339), BackgroundWake: wake})
+	// A turn the supervisor started does the same with its goal marker.
+	goalTurn := st.TakeTurnGoal()
+	if goalTurn != nil {
+		_ = snd.SendSessionUpdate(st.GetID(), session.GoalTurnUpdate(goalTurn))
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: userText, CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		BackgroundWake: wake, GoalTurn: goalTurn})
 	sessionID := st.GetID()
 	assistant := ""
 	defer func() {

@@ -250,7 +250,8 @@ Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
 `/think`, `/nothink`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
 `--once` or `--count=N` for the next turns only
 ([Session settings](../features/session-settings.md)); client-side `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit`; server-driven `/compact`, `/goal`, `/export`,
+`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit`, and a bare `/goal`, which opens
+the goal menu; server-driven `/compact`, `/goal <objective>` and its `pause`, `resume` and `clear` forms, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
 A bare `/model`, `/reasoning` or `/permissions` opens its picker; with a value
 the command is applied by the session manager and the footer shows the change,
@@ -303,6 +304,37 @@ same menu works over `--remote` through the MCP management routes.
 ![The console /mcp server list with a disabled global server and an untrusted project server](../assets/mcp/mcp-console-dark-1280.png)
 
 *`/mcp` shows both scopes and the trust state before opening a server's controls.*
+
+The session goal ([Session goal and supervisor](../features/session-supervisor.md))
+shows in the console as transcript rows, a footer note and a menu.
+`/goal <objective>` goes to the session manager like any prompt: it sets the goal and starts working on it at once,
+and so do `/goal pause`, `/goal resume` and `/goal clear`. A turn the
+supervisor starts is a dim row in the transcript instead of the instruction
+the model reads - `◎ Goal set: ...`, `◎ Goal continuation 1 of 10: <what the
+check found>` with the remaining work under it, `◎ Goal resumed: ...` - live
+and when the session is resumed, and a change the supervisor makes on its own
+(`Goal blocked: <its question>`, `Goal complete: ...`) is one line, in the
+warning colour for a goal that waits for the operator. While there is a goal
+the footer names it after the notes of the first line: `◎ goal active 1/10
+(/goal)` in the accent colour, `blocked` in the warning colour, `complete` in
+green, `paused` and `limited` muted; on a narrow terminal the note drops the
+command, then the count, before the path is cut to nothing. A bare `/goal`
+opens the goal menu in place of the editor: the objective, the status and why,
+the last check with its verdict, whether a verifier confirmed it and the work
+it found remaining, the checklist the supervisor keeps, and the numbers -
+continuations used of `supervisor.max_continuations`, checks, the time the
+goal's turns ran and the tokens they spent against `supervisor.token_budget`.
+**Pause** is offered while the supervisor works on the goal, **Resume** while it
+is paused, blocked or out of budget (it sends `/goal resume`, which starts a
+turn), and **Clear** asks before it removes the goal. The menu follows the goal
+while it is open. Under `--remote` the menu reads and changes the goal through
+`GET`, `PATCH` and `DELETE /coddy/sessions/{id}/goal`, and the footer follows
+the `session_goal` events of the server, so a goal paused in a browser shows
+here too.
+
+![The console with a blocked session goal: the goal rows, the blocked notice, the goal menu and the footer note](../assets/session-supervisor/goal-console-blocked-dark-1280.png)
+
+*A goal the supervisor continued once and then blocked on a question: the rows in the transcript, the goal menu over the editor and `◎ goal blocked (/goal)` in the footer.*
 
 `/tasks` opens the background tasks of the session in the place of the editor
 ([Background tasks](../features/background-tasks.md#in-the-console)). The
