@@ -306,7 +306,7 @@ The optional `cwd` narrows the list to one workspace. It names a folder, not a s
 
 When the process is started with a writable sessions root (default **`$CODDY_HOME/sessions`**), each bundle is `<root>/<sessionId>/` with:
 
-- `session.json` - id, cwd, mode, model override, reasoning level, the permission mode a subagent's child session ran under (`permissionMode`; an ordinary session's override is never written), agent memory, derived or pinned title (`titlePinned`), timestamps, optional **`activitySeq`** / **`readActivitySeq`** for composer unread sync across HTTP surfaces
+- `session.json` - id, cwd, mode, model override, reasoning level, the permission mode a subagent's child session ran under (`permissionMode`; an ordinary session's override is never written), agent memory, derived or pinned title (`titlePinned`), timestamps, optional **`activitySeq`** / **`readActivitySeq`** / **`lastErrorSeq`** for composer activity and error-state sync across HTTP surfaces (the last is the activity generation of the latest real turn failure, or zero when clear)
 - `messages.json` - LLM message history (roles user, assistant, tool)
 - `assets/` - reserved for future session-scoped files
 - `todos/active.md` - current todo checklist synced from plan tools
@@ -525,6 +525,9 @@ define; a client that ignores unknown kinds keeps working.
 
 - **`token_usage`** after every completed model call: `inputTokens`,
   `outputTokens` of that call and `totalTokens` accumulated over the turn.
+  `inputTokens` is the whole prompt of the call, the part served from the
+  provider's prompt cache included; that part is `cachedInputTokens`, omitted
+  when the provider reported none.
 - **`usage_update`** when the context window occupancy changes (a model call,
   manual or automatic compaction): `used` and `size` in tokens.
 - **`provider_usage`**: the account quota behind the session's model

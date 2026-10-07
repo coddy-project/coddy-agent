@@ -55,6 +55,14 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pol := s.authPolicyNow()
 		_, pattern := s.mux.Handler(r)
+		if pattern == workspaceRawPattern && r.URL.Query().Has("access_token") {
+			if s.acceptWorkspaceCapability(r) {
+				next.ServeHTTP(w, r)
+			} else {
+				http.Error(w, "invalid media capability", http.StatusUnauthorized)
+			}
+			return
+		}
 		if !pol.enabled || !isProtectedPattern(pattern, pol.publicDocs) {
 			next.ServeHTTP(w, r)
 			return
@@ -72,7 +80,7 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 		// A signed-in browser carries a cookie instead of a token. Same-origin
 		// requests send it on their own, which is why the SPA needs no
 		// ?access_token= on its event streams.
-		if _, ok := s.sessionFromRequest(r, pol.login); ok {
+		if s.hasCookieSession(r, pol.login) {
 			// A cookie travels with any request the browser makes, including one
 			// a page on another site caused, so the writes are checked for where
 			// they came from. Token clients never reach this branch.
@@ -86,6 +94,16 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="coddy"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})
+}
+
+// hasCookieSession reports whether the request carries a live browser
+// session: the sign-in form's, or a Telegram admin's Mini App session.
+func (s *Server) hasCookieSession(r *http.Request, login loginPolicy) bool {
+	if _, ok := s.sessionFromRequest(r, login); ok {
+		return true
+	}
+	_, ok := s.telegramSessionFromRequest(r)
+	return ok
 }
 
 // subtleEqual compares two strings without leaking which byte differed.

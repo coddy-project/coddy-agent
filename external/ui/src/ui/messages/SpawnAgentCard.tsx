@@ -1,9 +1,28 @@
+import { useId, useRef, useState } from "react";
 import type { SpawnAgentDetails } from "../chat/spawnAgentDisplay";
 import { useT } from "../i18n/I18nProvider";
+import type { BackgroundTask } from "../tasks/types";
 import "./SpawnAgentCard.css";
 
-export function SpawnAgentCard({ details }: { details: SpawnAgentDetails }) {
+export function SpawnAgentCard(props: {
+  details: SpawnAgentDetails;
+  backgroundTask?: BackgroundTask | undefined;
+  onOpenSession?: (sessionId: string) => void;
+}) {
   const { t } = useT();
+  const [promptExpanded, setPromptExpanded] = useState(false);
+  const promptRef = useRef<HTMLDivElement | null>(null);
+  const childSessionId =
+    props.backgroundTask?.agent?.session_id?.trim() || null;
+  const promptId = useId();
+
+  const collapsePrompt = () => {
+    if (promptRef.current) {
+      promptRef.current.scrollTop = 0;
+    }
+    setPromptExpanded(false);
+  };
+
   return (
     <section
       className="spawn-agent-card"
@@ -25,40 +44,89 @@ export function SpawnAgentCard({ details }: { details: SpawnAgentDetails }) {
           </svg>
         </span>
         <div className="spawn-agent-identity">
-          <div className="spawn-agent-name">{details.agent}</div>
-          {details.description ? (
-            <div className="spawn-agent-description">{details.description}</div>
+          <div className="spawn-agent-name">{props.details.agent}</div>
+          {props.details.description ? (
+            <div className="spawn-agent-description">
+              {props.details.description}
+            </div>
           ) : null}
         </div>
-        {details.timeoutSeconds !== undefined ? (
-          <span
-            className="spawn-agent-timeout"
-            title={t("messages.spawnAgentTimeoutHint")}
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="8" />
-              <path d="M12 7v5l3 2" />
-            </svg>
-            {t("messages.spawnAgentTimeout", {
-              seconds: details.timeoutSeconds,
-            })}
-          </span>
-        ) : null}
       </div>
       <div
-        className="spawn-agent-prompt"
+        ref={promptRef}
+        id={promptId}
+        className={[
+          "spawn-agent-prompt",
+          promptExpanded
+            ? "spawn-agent-prompt--scroll"
+            : "spawn-agent-prompt--collapsed",
+        ].join(" ")}
         aria-label={t("messages.spawnAgentPrompt")}
+        aria-expanded={promptExpanded}
       >
-        {details.prompt}
+        {props.details.prompt}
       </div>
+      <button
+        type="button"
+        className="tool-overflow-toggle spawn-agent-prompt-toggle"
+        aria-controls={promptId}
+        aria-expanded={promptExpanded}
+        onClick={() => {
+          if (promptExpanded) {
+            collapsePrompt();
+          } else {
+            setPromptExpanded(true);
+          }
+        }}
+      >
+        {promptExpanded ? t("messages.toolLess") : t("messages.toolMore")}
+      </button>
+      {props.details.model || props.details.timeoutSeconds !== undefined ? (
+        <div className="spawn-agent-meta" data-testid="spawn-agent-meta">
+          {props.details.model ? (
+            <div className="spawn-agent-model">{props.details.model}</div>
+          ) : null}
+          {props.details.model && props.details.reasoning ? (
+            <div className="spawn-agent-reasoning">
+              {t("messages.spawnAgentReasoning", {
+                reasoning:
+                  props.details.reasoning.charAt(0).toUpperCase() +
+                  props.details.reasoning.slice(1),
+              })}
+            </div>
+          ) : null}
+          {props.details.timeoutSeconds !== undefined ? (
+            <div
+              className="spawn-agent-timeout"
+              title={t("messages.spawnAgentTimeoutHint")}
+            >
+              {t("messages.spawnAgentTimeout", {
+                seconds: props.details.timeoutSeconds,
+              })}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {props.backgroundTask ? (
+        <button
+          type="button"
+          className="spawn-agent-transcript"
+          data-testid="spawn-agent-open-transcript"
+          disabled={childSessionId === null}
+          title={
+            childSessionId === null
+              ? t("tasks.openTranscriptUnavailable")
+              : undefined
+          }
+          onClick={() => {
+            if (childSessionId !== null) {
+              props.onOpenSession?.(childSessionId);
+            }
+          }}
+        >
+          {t("tasks.openTranscript")}
+        </button>
+      ) : null}
     </section>
   );
 }

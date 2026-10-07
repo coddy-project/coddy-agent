@@ -23,6 +23,7 @@ import {
   subscribeShellStack,
 } from "../shellBreakpoint";
 import { navSlots, splitNavItems, type NavItemId } from "./navOverflow";
+import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 
 function IconBook(props: { className?: string }) {
@@ -220,12 +221,16 @@ export function NavRail(props: {
   onNewChat: () => void;
   onOpenHistory: () => void;
   historyOpen: boolean;
+  /** Currently active sessions across History's normal eligible listing. */
+  historyActiveCount?: number;
   /** When false, hide History: a relay holds no sessions of its own. */
   showHistory?: boolean;
   /** When false, hide Scheduler (binary built without scheduler HTTP routes). Default true for tests. */
   showScheduler?: boolean;
   onOpenScheduler: () => void;
   schedulerOpen: boolean;
+  /** Currently active scheduler runs from the scheduler jobs aggregate. */
+  schedulerActiveCount?: number;
   /** When false, hide Swarm (the environment is not a relay). */
   showSwarm?: boolean;
   onOpenSwarm?: () => void;
@@ -239,7 +244,7 @@ export function NavRail(props: {
   railLabelsWide: boolean;
   onToggleRailLabels: () => void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   // The sign-in state is read here rather than threaded down from the gate: the
   // rail is the one place in the app that is always on screen, which is where a
   // "you are signed in as ..., and here is the way out" belongs.
@@ -269,6 +274,16 @@ export function NavRail(props: {
   const showScheduler = props.showScheduler !== false;
   const showSwarm = props.showSwarm === true;
   const showHistory = props.showHistory !== false;
+  const historyActiveCount = Math.max(0, props.historyActiveCount ?? 0);
+  const schedulerActiveCount = Math.max(0, props.schedulerActiveCount ?? 0);
+  const historyAriaLabel =
+    historyActiveCount > 0
+      ? `${t("nav.history")}, ${tp("nav.activeSessions", historyActiveCount)}`
+      : t("nav.history");
+  const schedulerAriaLabel =
+    schedulerActiveCount > 0
+      ? `${t("nav.schedulerAriaLabel")}, ${tp("nav.activeRuns", schedulerActiveCount)}`
+      : t("nav.schedulerAriaLabel");
   const pillWide = props.canWidenRail && props.railLabelsWide;
   const signedIn = auth.loginRequired && auth.authenticated;
   // Below 1200px the rail is a top bar; on a phone it folds what does not fit
@@ -305,10 +320,14 @@ export function NavRail(props: {
       }
       const pillStyle = getComputedStyle(pill);
       const inner =
-        pill.clientWidth - px(pillStyle.paddingLeft) - px(pillStyle.paddingRight);
+        pill.clientWidth -
+        px(pillStyle.paddingLeft) -
+        px(pillStyle.paddingRight);
       const available =
         inner - px(pillStyle.columnGap) - (brand ? brand.scrollWidth : 0);
-      setSlots(navSlots(available, slot, px(getComputedStyle(middle).columnGap)));
+      setSlots(
+        navSlots(available, slot, px(getComputedStyle(middle).columnGap)),
+      );
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -322,6 +341,7 @@ export function NavRail(props: {
   if (showSwarm) present.push("swarm");
   if (props.onOpenDocs) present.push("docs");
   present.push("settings");
+  present.push("environment");
   if (signedIn) present.push("signOut");
   const { bar, menu } = splitNavItems(present, slots);
   const inBar = (id: NavItemId) => bar.includes(id);
@@ -475,12 +495,21 @@ export function NavRail(props: {
               <a
                 href={appNavHrefHistory()}
                 className={`${navBtnCls} ${props.historyOpen ? "is-active" : ""}`}
-                aria-label={t("nav.history")}
+                aria-label={historyAriaLabel}
                 aria-pressed={props.historyOpen}
                 data-testid="nav-history"
                 onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenHistory)}
               >
                 <IconBook className="rail-svg rail-nav-hit-svg" />
+                {historyActiveCount > 0 ? (
+                  <span
+                    className="rail-active-count"
+                    data-testid="nav-history-active-count"
+                    aria-hidden
+                  >
+                    {historyActiveCount}
+                  </span>
+                ) : null}
                 {pillWide ? (
                   <span className="rail-nav-label">{t("nav.history")}</span>
                 ) : null}
@@ -498,7 +527,7 @@ export function NavRail(props: {
               <a
                 href={appNavHrefScheduler()}
                 className={`${navBtnCls} ${props.schedulerOpen ? "is-active" : ""}`}
-                aria-label={t("nav.schedulerAriaLabel")}
+                aria-label={schedulerAriaLabel}
                 aria-pressed={props.schedulerOpen}
                 data-testid="nav-scheduler"
                 onClick={(ev) =>
@@ -506,6 +535,15 @@ export function NavRail(props: {
                 }
               >
                 <IconScheduler className="rail-svg rail-nav-hit-svg" />
+                {schedulerActiveCount > 0 ? (
+                  <span
+                    className="rail-active-count"
+                    data-testid="nav-scheduler-active-count"
+                    aria-hidden
+                  >
+                    {schedulerActiveCount}
+                  </span>
+                ) : null}
                 {pillWide ? (
                   <span className="rail-nav-label">{t("nav.scheduler")}</span>
                 ) : null}
@@ -556,7 +594,9 @@ export function NavRail(props: {
                 aria-label={t("nav.docs")}
                 aria-pressed={props.docsOpen}
                 data-testid="nav-docs"
-                onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenDocs ?? (() => {}))}
+                onClick={(ev) =>
+                  sameTabInAppNavClick(ev, props.onOpenDocs ?? (() => {}))
+                }
               >
                 <IconDocs className="rail-svg rail-nav-hit-svg" />
                 {pillWide ? (
@@ -592,6 +632,12 @@ export function NavRail(props: {
                 </span>
               ) : null}
             </div>
+          ) : null}
+
+          {/* The environment the page drives, at the foot of the rail and
+              above the way out: never folded behind More. */}
+          {inBar("environment") ? (
+            <EnvironmentSwitcher className={navBtnCls} wide={pillWide} />
           ) : null}
 
           {inBar("signOut") ? (
@@ -635,7 +681,11 @@ export function NavRail(props: {
                 <IconMore className="rail-svg rail-nav-hit-svg" />
               </button>
               {moreOpen ? (
-                <div className="rail-more-menu" role="menu" aria-label={t("nav.more")}>
+                <div
+                  className="rail-more-menu"
+                  role="menu"
+                  aria-label={t("nav.more")}
+                >
                   {menu.map((id, i) => {
                     if (id === "docs") {
                       return (
@@ -647,7 +697,10 @@ export function NavRail(props: {
                           data-testid="nav-more-docs"
                           onClick={(ev) => {
                             setMoreOpen(false);
-                            sameTabInAppNavClick(ev, props.onOpenDocs ?? (() => {}));
+                            sameTabInAppNavClick(
+                              ev,
+                              props.onOpenDocs ?? (() => {}),
+                            );
                           }}
                         >
                           <IconDocs className="rail-svg" />
@@ -663,6 +716,7 @@ export function NavRail(props: {
                           href={appNavHrefScheduler()}
                           className={`rail-more-item ${props.schedulerOpen ? "is-active" : ""}`}
                           data-testid="nav-more-scheduler"
+                          aria-label={schedulerAriaLabel}
                           onClick={(ev) => {
                             setMoreOpen(false);
                             sameTabInAppNavClick(ev, props.onOpenScheduler);
@@ -670,6 +724,15 @@ export function NavRail(props: {
                         >
                           <IconScheduler className="rail-svg" />
                           <span>{t("nav.scheduler")}</span>
+                          {schedulerActiveCount > 0 ? (
+                            <span
+                              className="rail-more-active-count"
+                              data-testid="nav-more-scheduler-active-count"
+                              aria-hidden
+                            >
+                              {schedulerActiveCount}
+                            </span>
+                          ) : null}
                         </a>
                       );
                     }
@@ -694,7 +757,9 @@ export function NavRail(props: {
                     if (id === "signOut") {
                       return (
                         <Fragment key="signOut">
-                          {i > 0 ? <div role="separator" className="rail-more-sep" /> : null}
+                          {i > 0 ? (
+                            <div role="separator" className="rail-more-sep" />
+                          ) : null}
                           <button
                             type="button"
                             role="menuitem"
@@ -708,7 +773,9 @@ export function NavRail(props: {
                             <IconSignOut className="rail-svg" />
                             <span>
                               {auth.user
-                                ? t("auth.signOut.tooltipUser", { user: auth.user })
+                                ? t("auth.signOut.tooltipUser", {
+                                    user: auth.user,
+                                  })
                                 : t("auth.signOut.action")}
                             </span>
                           </button>

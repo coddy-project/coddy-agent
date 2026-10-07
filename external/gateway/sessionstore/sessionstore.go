@@ -1,4 +1,4 @@
-//go:build gateway || gateway.telegram
+//go:build gateway || gateway.telegram || gateway.pachca
 
 // Package sessionstore maps stable messenger chat/user keys to Coddy session IDs.
 // Each unique (gateway, chatID, userID, isolation) combination yields a single session ID
@@ -33,6 +33,22 @@ type Store struct {
 // "gw:user:N" / "gw:chat:N…"), and a build that does not know it simply reads
 // one unused entry, so the file needs no format migration.
 const lastModelKey = "$last_model"
+
+// menuButtonKeyPrefix starts the reserved entry holding the address a bot
+// pointed its menu button at, one per bot id: the only menu button the bot may
+// later take back. menuButtonBeforeKeyPrefix holds the button it replaced, as
+// the Bot API's JSON, to put back then. Like $last_model, neither can collide
+// with a session key.
+const (
+	menuButtonKeyPrefix       = "$menu_button:"
+	menuButtonBeforeKeyPrefix = "$menu_button_before:"
+)
+
+// reservedKey reports whether key is one of the store's own entries rather
+// than a chat's session: they all start with "$".
+func reservedKey(key string) bool {
+	return strings.HasPrefix(key, "$")
+}
 
 // New creates an in-memory store with no disk persistence.
 func New() *Store {
@@ -125,6 +141,43 @@ func (s *Store) SetLastModel(id string) {
 	s.saveUnlocked()
 }
 
+// MenuButton returns the address bot pointed its menu button at and the
+// button it replaced (Bot API JSON, "" for the bot's commands), as
+// SetMenuButton recorded them; an empty address means it set none.
+func (s *Store) MenuButton(bot int64) (url, before string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := strconv.FormatInt(bot, 10)
+	return s.data[menuButtonKeyPrefix+id], s.data[menuButtonBeforeKeyPrefix+id]
+}
+
+// SetMenuButton records the address bot pointed its menu button at and the
+// button it replaced; an empty address forgets both.
+func (s *Store) SetMenuButton(bot int64, url, before string) {
+	id := strconv.FormatInt(bot, 10)
+	url = strings.TrimSpace(url)
+	if url == "" {
+		before = ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	for key, value := range map[string]string{menuButtonKeyPrefix + id: url, menuButtonBeforeKeyPrefix + id: before} {
+		old, had := s.data[key]
+		switch {
+		case value == "" && had:
+			delete(s.data, key)
+			changed = true
+		case value != "" && old != value:
+			s.data[key] = value
+			changed = true
+		}
+	}
+	if changed {
+		s.saveUnlocked()
+	}
+}
+
 // KeyFor returns the key that maps to sessionID. A background subagent asks
 // about its parent session, not about a chat, and this is how the bot finds the
 // conversation that session belongs to - after a restart too, since the map is
@@ -136,7 +189,7 @@ func (s *Store) KeyFor(sessionID string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key, id := range s.data {
-		if key == lastModelKey {
+		if reservedKey(key) {
 			continue
 		}
 		if id == sessionID {
@@ -192,7 +245,7 @@ func (s *Store) KnownIDs() []string {
 	defer s.mu.Unlock()
 	ids := make([]string, 0, len(s.data))
 	for key, id := range s.data {
-		if key == lastModelKey {
+		if reservedKey(key) {
 			continue
 		}
 		ids = append(ids, id)

@@ -27,13 +27,14 @@ The same agent and the same sessions from a terminal, a browser, an editor or a 
 - [Web UI](surfaces/web-ui.md) - The embedded single-page app served by coddy serve, with sessions, the composer, modes and models, attachments, settings, themes and languages.
 - [Editors (ACP)](surfaces/editors.md) - Zed, VS Code, Obsidian and scripts as ACP clients of coddy acp, and what they share with the other surfaces.
 - [Telegram gateway](surfaces/gateway.md) - The Telegram bot adapter, setup, access levels, session isolation, rich messages, the same chat live in the browser, writing a new adapter.
+- [Pachca gateway](surfaces/pachca.md) - The Pachca (Пачка) integration bot, setup in the workspace, the events history poll, groups, threads and direct chats, commands, limits.
 
 ## Operate
 
 Running Coddy as a service, reaching it from elsewhere and bounding what it may do.
 
 - [coddy serve and the daemon](operate/serve.md) - One process for every enabled subsystem, the systemd user service (serve install and uninstall), --daemon with status, stop and restart, and configuration reloads.
-- [Remote mode](operate/remote.md) - Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment chip.
+- [Remote mode](operate/remote.md) - Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment menu.
 - [Swarm](operate/swarm.md) - Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel.
 - [Scheduler](operate/scheduler.md) - Cron job files, UTC firing rules, runs as background agent tasks under a job session, the runs panel, the scheduler tools and REST.
 - [Security and trust](operate/security.md) - What the agent may execute and how to bound it, permission modes, project trust for MCP servers, hooks and subagents, tokens and CORS, what is not sandboxed.
@@ -102,7 +103,7 @@ How Coddy is built, tested, documented and released.
 - [Writing documentation](contributing/documentation.md) - Page types, the navigation map, screenshots and videos, the assets index, generated references and the checks that guard them.
 - [Architecture](contributing/architecture.md) - System design and component overview, package boundaries, session modes, the directory structure.
 - [Build from source](contributing/build.md) - Prerequisites, make build, TAGS against go build -tags, the release binaries and the distribution packages.
-- [AppSec scanning](contributing/security-scanning.md) - Trivy and semgrep locally and in CI through one script, the severity gate, triage and suppression.
+- [AppSec scanning](contributing/security-scanning.md) - Trivy, semgrep and govulncheck locally and in CI through one script, the severity gate, the pinned Go toolchain, triage and suppression.
 - [Custom tools](contributing/custom-tools.md) - Adding a built-in tool to the registry, its schema and permission wiring, with a complete example.
 - [ReAct agent](contributing/react-agent.md) - The loop design, the system prompt structure, the tool-calling contract and mode-specific behaviour.
 - [Web UI design](../DESIGN.md) - Tokens, layout and component contracts of the embedded SPA.

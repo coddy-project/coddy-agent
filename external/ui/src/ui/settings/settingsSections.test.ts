@@ -17,7 +17,6 @@ const rootSchema: JsonSchema = {
     "compaction",
     "memory",
     "tools",
-    "mcp_servers",
     "skills",
     "subagents",
     "hooks",
@@ -41,13 +40,8 @@ const rootSchema: JsonSchema = {
     },
     agent: { type: "object", title: "ReAct loop", properties: {} },
     tools: { type: "object", title: "Tools and permissions", properties: {} },
-    mcp_servers: {
-      type: "array",
-      title: "MCP servers",
-      items: { type: "object" },
-    },
     skills: { type: "object", title: "Skills", properties: {} },
-    memory: { type: "object", title: "Memory copilot", properties: {} },
+    memory: { type: "object", title: "Memory", properties: {} },
     scheduler: { type: "object", title: "Scheduler", properties: {} },
     prompts: { type: "object", title: "Prompts", properties: {} },
     instructions: { type: "object", title: "Instructions", properties: {} },
@@ -113,7 +107,7 @@ test("the logger and the gateways are tabs of their own, out of System", () => {
   expect(byId.logger?.label).toBe("Logger");
   expect(byId.gateways?.kind).toBe("object");
   expect(byId.gateways?.label).toBe("Gateways");
-  expect(byId.gateways?.description).toBe("Telegram bot");
+  expect(byId.gateways?.description).toBe("Telegram and Pachca bots");
 });
 
 // The scheduler is a feature of its own, not a system knob: it has a tab.
@@ -136,11 +130,13 @@ test("array sections carry their label field", () => {
   expect(byId.models?.labelField).toBe("model");
 });
 
-test("mcp_servers is its own managed tab", () => {
-  const byId = Object.fromEntries(
-    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
-  );
-  expect(byId.mcp_servers?.kind).toBe("mcp");
+// The servers live in mcp.json files, not in the settings document, so no
+// schema property names the tab: it follows Tools.
+test("the MCP servers tab follows Tools though no schema property names it", () => {
+  const sections = deriveSettingsSections(rootSchema);
+  const ids = sections.map((s) => s.id);
+  expect(ids.indexOf("mcp_servers")).toBe(ids.indexOf("tools") + 1);
+  expect(sections.find((s) => s.id === "mcp_servers")?.kind).toBe("mcp");
 });
 
 test("System group folds the rarely edited tail keys", () => {
@@ -158,7 +154,7 @@ test("skills is its own combined tab; english labels match schema titles", () =>
   expect(byId.skills?.kind).toBe("skills");
   expect(byId.agent?.kind).toBe("object");
   expect(byId.agent?.label).toBe("ReAct loop");
-  expect(byId.memory?.label).toBe("Memory copilot");
+  expect(byId.memory?.label).toBe("Memory");
 });
 
 test("known section labels and descriptions follow the active locale", () => {
@@ -169,7 +165,7 @@ test("known section labels and descriptions follow the active locale", () => {
   expect(byId.appearance?.label).toBe("Оформление");
   expect(byId.providers?.label).toBe("Провайдеры LLM");
   expect(byId.tools?.label).toBe("Инструменты и разрешения");
-  expect(byId.memory?.label).toBe("Копайлот памяти");
+  expect(byId.memory?.label).toBe("Память");
   expect(byId.scheduler?.label).toBe("Планировщик");
   expect(byId.compaction?.label).toBe("Сжатие контекста");
   expect(byId.compaction?.description).toBe("Сжатие истории диалога");
@@ -250,7 +246,7 @@ test("a relay's settings leave out the Sessions tab and name the swarm section",
 // On a relay that predates its settings page the schema is not there at all;
 // the app knows it is on a relay and still leaves the Sessions tab out.
 test("a relay without a settings page keeps only Appearance", () => {
-  expect(deriveSettingsSections(null, { relay: true }).map((s) => s.id)).toEqual([
-    "appearance",
-  ]);
+  expect(
+    deriveSettingsSections(null, { relay: true }).map((s) => s.id),
+  ).toEqual(["appearance"]);
 });

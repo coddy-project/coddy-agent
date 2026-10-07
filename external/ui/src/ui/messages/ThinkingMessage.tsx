@@ -59,7 +59,7 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
     ) {
       return formatStepDuration(props.durationMs);
     }
-    return formatStepDuration(0);
+    return "";
   }, [props.durationMs, props.startedAtMs, props.status, nowMs]);
 
   return (
@@ -68,7 +68,10 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
         className="thinking-details"
         onToggle={(e) => setOpen(e.currentTarget.open)}
       >
-        <summary className="thinking-summary" aria-label={t("messages.thinkingSummaryAriaLabel")}>
+        <summary
+          className="thinking-summary"
+          aria-label={t("messages.thinkingSummaryAriaLabel")}
+        >
           <span className="thinking-left">
             <Chevron className="thinking-chevron" />
             <span className="thinking-label">{label}</span>
@@ -80,8 +83,14 @@ export const ThinkingMessage = memo(function ThinkingMessage(props: {
           </span>
         </summary>
         {open && text ? (
-          <div className="thinking-body" aria-label={t("messages.thinkingContentAriaLabel")}>
-            <Markdown text={text} />
+          <div
+            className="thinking-body"
+            aria-label={t("messages.thinkingContentAriaLabel")}
+          >
+            <Markdown
+              text={text}
+              {...(inProgress ? { streaming: true } : {})}
+            />
           </div>
         ) : null}
       </details>

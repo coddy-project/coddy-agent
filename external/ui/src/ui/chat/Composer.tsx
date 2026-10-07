@@ -8,12 +8,11 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
-import { WorkspaceChips } from "./WorkspaceChips";
+import { WorkspaceBar } from "./WorkspaceBar";
 import { useT } from "../i18n/I18nProvider";
-import { EnvironmentChip } from "./EnvironmentChip";
 import { ImageLightbox } from "../components/ImageLightbox";
 import { PaperclipIcon } from "../components/PaperclipIcon";
 import { useEscapeCloses } from "../components/useEscapeCloses";
@@ -36,6 +35,7 @@ import {
 } from "../skills/draftAtRange";
 import {
   draftExtendsFailedSlashPrefix,
+  inMarkdownFenceBeforeCaret,
   slashMenuDraftAtCaret,
 } from "../skills/draftSlash";
 import { filterCommandRows } from "../skills/commandRows";
@@ -84,6 +84,7 @@ import {
   shouldShowLlmFilter,
 } from "./llmModelMenu";
 import { fileTypeIcon } from "../messages/fileTypeIcon";
+import { applyWorkspaceQuery, workspaceScope } from "./workspaceScope";
 
 function fmtBytes(
   n: number,
@@ -101,6 +102,24 @@ function clamp01(x: number): number {
   if (x < 0) return 0;
   if (x > 1) return 1;
   return x;
+}
+
+function expandCodeFenceAtCaret(
+  value: string,
+  start: number,
+  end: number,
+): { text: string; caret: number } | null {
+  if (start !== end) return null;
+  const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+  const lineEndAt = value.indexOf("\n", start);
+  const lineEnd = lineEndAt < 0 ? value.length : lineEndAt;
+  const line = value.slice(lineStart, lineEnd);
+  if (line.trim() !== "```") return null;
+  const indent = line.match(/^[ \t]*/)?.[0] ?? "";
+  return {
+    text: `${value.slice(0, lineEnd)}\n\n${indent}\`\`\`${value.slice(lineEnd)}`,
+    caret: lineEnd + 1,
+  };
 }
 
 function fmtInt(n: number | undefined): string {
@@ -292,8 +311,17 @@ export type QueueMode = "steer" | "after_turn";
  * list is published to every client on every change of the queue. The bytes
  * come back only to the client that takes the message back.
  */
-export type QueuedImage = { name?: string; mimeType?: string; sizeBytes?: number };
-export type QueuedMessage = { id: string; text: string; mode?: QueueMode; imageParts?: QueuedImage[] };
+export type QueuedImage = {
+  name?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+};
+export type QueuedMessage = {
+  id: string;
+  text: string;
+  mode?: QueueMode;
+  imageParts?: QueuedImage[];
+};
 
 /** The mode a queued message goes in when Tab sends it instead of Enter. */
 export function oppositeQueueMode(mode: QueueMode): QueueMode {
@@ -327,7 +355,6 @@ const MODE_TAB_CLASS: Record<string, string> = {
   plan: "mode-plan",
   ask: "mode-ask",
 };
-
 
 /**
  * The command group of the / menu: the server's rows, plus the commands this
@@ -384,6 +411,17 @@ export function Composer(props: {
   onLlmReasoningChange?: (level: string) => void;
   /** Files carried over from the message being edited — shown as read-only chips. */
   editingFiles?: { name: string; mimeType: string }[];
+  /**
+   * A sent message is loaded into the field for an edit: a banner above the
+   * card names it, the send button says it sends the edit, and Escape or the
+   * banner's cross calls onCancel (which puts back the draft it replaced).
+   */
+  editingMessage?: { snippet: string; onCancel: () => void };
+  /**
+   * The last edit can still be taken back: the banner slot offers Undo. An
+   * edit in progress wins the slot.
+   */
+  rewindUndo?: { onUndo: () => void; onDismiss: () => void; busy?: boolean };
   /** Pristine home (no session). Ring stays empty; tooltip does not imply usage. */
   contextIdle?: boolean;
   tokenUsage?: TokenUsage | null;
@@ -392,7 +430,9 @@ export function Composer(props: {
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: ContextBreakdown | null;
-  compactionSettings?: { enabled: boolean; autoEnabled: boolean; threshold: number } | undefined;
+  compactionSettings?:
+    | { enabled: boolean; autoEnabled: boolean; threshold: number }
+    | undefined;
   onContextCompacted?: (() => void) | undefined;
   /** Fired when the user opens the context breakdown popover (refresh stats). */
   onContextRingOpen?: () => void;
@@ -429,12 +469,23 @@ export function Composer(props: {
   onCancelQueued?: (id: string) => void;
   /** Workspace context chips (folder / branch / worktree) above the field. */
   workspaceCtx?: WorkspaceContext | null;
+  /**
+   * The folder the chat runs in: the session's workspace, or before the first
+   * message the folder picked on the start screen. Sent as cwd with every
+   * cwd-scoped request (slash commands, mentions, the file a mention names),
+   * next to the session header, so a new chat lists what its folder holds.
+   */
+  workspacePath?: string;
   worktreePref?: boolean;
   /** The workspace is chosen once: locked as soon as the conversation starts. */
   workspaceLocked?: boolean;
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
+  /** A plate joined to the top edge of the card (the plate of a running chat,
+   *  naming where it works): under the queue and the banners, flush with the
+   *  card. Without one, a chat that has not started gets the plate of picks. */
+  cardTop?: ReactNode;
 }) {
   const { t, tp } = useT();
   const isMobileShell = useSyncExternalStore(
@@ -455,9 +506,7 @@ export function Composer(props: {
   const permissionChipRef = useRef<HTMLButtonElement | null>(null);
   const [menuOpen, setMenuOpen] = useState<
     "mode" | "llm" | "reasoning" | "permission" | null
-  >(
-    null,
-  );
+  >(null);
   /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
   /** Live query for the model menu filter (only meaningful while `menuOpen === "llm"`). */
@@ -472,6 +521,7 @@ export function Composer(props: {
   const composerFieldWrapRef = useRef<HTMLDivElement | null>(null);
   const composerCardRef = useRef<HTMLDivElement | null>(null);
   const contextHostRef = useRef<HTMLDivElement | null>(null);
+  const mirrorRef = useRef<HTMLDivElement | null>(null);
   const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
   const attachedFiles = props.attachedFiles ?? localAttachedFiles;
@@ -491,7 +541,9 @@ export function Composer(props: {
    * key it was sent with is remembered: a message sent with Tab still goes in
    * the other mode once the answer is in, as it does in the console.
    */
-  const [queueChoice, setQueueChoice] = useState<{ alternate: boolean } | null>(null);
+  const [queueChoice, setQueueChoice] = useState<{ alternate: boolean } | null>(
+    null,
+  );
   /**
    * While a turn runs, a draft with text in it is a follow-up, not a Stop: the
    * primary action queues it for the turn to read at its next step. An empty
@@ -573,7 +625,6 @@ export function Composer(props: {
     },
     [],
   );
-  const [composerScrollTop, setComposerScrollTop] = useState(0);
   /** True while the prompt-improvement request is in flight. */
   const [enhancing, setEnhancing] = useState(false);
   /** Request failure shown without changing the user's draft. */
@@ -755,7 +806,10 @@ export function Composer(props: {
     if (argDraft.kind === "flag") {
       return COMPACT_FLAGS.filter((f) => f.startsWith(argDraft.prefix));
     }
-    return filterLlmModels(orderLlmModels(props.llmModels ?? []), argDraft.prefix);
+    return filterLlmModels(
+      orderLlmModels(props.llmModels ?? []),
+      argDraft.prefix,
+    );
   }, [argDraft, props.llmModels]);
   const argOpen =
     argDraft.open &&
@@ -976,13 +1030,10 @@ export function Composer(props: {
       if (prefix) {
         sp.set("prefix", prefix);
       }
-      const headers: Record<string, string> = {};
-      const sid = (props.sessionId || "").trim();
-      if (sid) {
-        headers["X-Coddy-Session-ID"] = sid;
-      }
+      const scope = workspaceScope(props.sessionId, props.workspacePath);
+      applyWorkspaceQuery(sp, scope);
       const res = await fetch(`/coddy/slash-commands?${sp.toString()}`, {
-        headers,
+        headers: scope.headers,
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
@@ -993,7 +1044,7 @@ export function Composer(props: {
         page: number;
       };
     },
-    [props.sessionId],
+    [props.sessionId, props.workspacePath],
   );
 
   // Built-in deterministic commands (/compact, /plugin) are static per config, so
@@ -1032,20 +1083,17 @@ export function Composer(props: {
       if (refresh) {
         sp.set("refresh", "1");
       }
-      const headers: Record<string, string> = {};
-      const sid = (props.sessionId || "").trim();
-      if (sid) {
-        headers["X-Coddy-Session-ID"] = sid;
-      }
+      const scope = workspaceScope(props.sessionId, props.workspacePath);
+      applyWorkspaceQuery(sp, scope);
       const res = await fetch(`/coddy/mentions?${sp.toString()}`, {
-        headers,
+        headers: scope.headers,
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
       return (await res.json()) as MentionSearchBody;
     },
-    [props.sessionId],
+    [props.sessionId, props.workspacePath],
   );
 
   /** Clears the range panel; the composer text is left exactly as typed. */
@@ -1057,13 +1105,26 @@ export function Composer(props: {
     setAtRangeFile(null);
   }, []);
 
-  // A session switch changes the workspace behind every path: drop the loaded
-  // preview and any read still in flight, so the panel never shows another
-  // session's file. The next keystroke in the suffix fetches afresh.
+  // A session switch, or another folder picked before the session exists,
+  // changes the workspace behind every path and every skill: drop the loaded
+  // preview, the open pickers and any answer still in flight, so nothing of the
+  // previous workspace is shown. A prefix that matched nothing there may match
+  // here, so the remembered no-match is forgotten too. The next keystroke
+  // fetches afresh.
   useEffect(() => {
     closeAtRangePicker();
     setAtRangeSuppressed(null);
-  }, [props.sessionId, closeAtRangePicker]);
+    slashFetchGenRef.current++;
+    atFetchGenRef.current++;
+    setSlashOpen(false);
+    setSlashReplace(null);
+    setSlashNoMatch(null);
+    setSlashLoading(false);
+    setAtOpen(false);
+    setAtReplace(null);
+    setAtNoMatch(null);
+    setAtLoading(false);
+  }, [props.sessionId, props.workspacePath, closeAtRangePicker]);
 
   /**
    * Loads the mentioned file once per path. A path that does not resolve simply
@@ -1079,13 +1140,10 @@ export function Composer(props: {
       const gen = ++atRangeFetchGenRef.current;
       try {
         const sp = new URLSearchParams({ path_rel: pathRel });
-        const headers: Record<string, string> = {};
-        const sid = (props.sessionId || "").trim();
-        if (sid) {
-          headers["X-Coddy-Session-ID"] = sid;
-        }
+        const scope = workspaceScope(props.sessionId, props.workspacePath);
+        applyWorkspaceQuery(sp, scope);
         const res = await fetch(`/coddy/workspace/file?${sp.toString()}`, {
-          headers,
+          headers: scope.headers,
         });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
@@ -1110,7 +1168,7 @@ export function Composer(props: {
         }
       }
     },
-    [props.sessionId],
+    [props.sessionId, props.workspacePath],
   );
 
   const enhancePrompt = useCallback(async () => {
@@ -1513,7 +1571,7 @@ export function Composer(props: {
   useEffect(() => {
     mentionCheckGenRef.current++;
     setMentionMarks(new Map());
-  }, [props.sessionId]);
+  }, [props.sessionId, props.workspacePath]);
   useEffect(() => {
     const text = props.value;
     const gen = ++mentionCheckGenRef.current;
@@ -1521,16 +1579,14 @@ export function Composer(props: {
       return;
     }
     const timer = window.setTimeout(() => {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      const sid = (props.sessionId || "").trim();
-      if (sid) {
-        headers["X-Coddy-Session-ID"] = sid;
-      }
-      void fetch("/coddy/mentions/check", {
+      const scope = workspaceScope(props.sessionId, props.workspacePath);
+      const query = applyWorkspaceQuery(
+        new URLSearchParams(),
+        scope,
+      ).toString();
+      void fetch(`/coddy/mentions/check${query ? `?${query}` : ""}`, {
         method: "POST",
-        headers,
+        headers: { "Content-Type": "application/json", ...scope.headers },
         body: JSON.stringify({ text }),
       })
         .then(async (res) => {
@@ -1555,9 +1611,10 @@ export function Composer(props: {
         });
     }, MENTION_CHECK_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [props.value, props.sessionId]);
+  }, [props.value, props.sessionId, props.workspacePath]);
 
   const maskComposerText = props.value.length > 0;
+  const codeFenceEditing = inMarkdownFenceBeforeCaret(props.value, caretPos);
   const composerSegments = useMemo(
     () =>
       segmentComposerMirrorSpans(
@@ -1586,21 +1643,38 @@ export function Composer(props: {
     setCaretPos(el.selectionStart ?? el.value.length);
   }, [props.value]);
 
+  // The mirror scrolls itself rather than being moved by a transform: two
+  // scroll containers snap a fractional offset (a zoomed page's scrollTop,
+  // 214 CSS px at 125% is 267.5 device px) to the same device pixel, a
+  // translated layer does not, and the lines then stand half a pixel apart.
+  const syncMirrorScroll = useCallback(() => {
+    const ta = taRef.current;
+    const mirror = mirrorRef.current;
+    if (ta && mirror) {
+      mirror.scrollTop = ta.scrollTop;
+    }
+  }, []);
+
   const adjustMirrorToTextarea = useCallback(() => {
     const ta = taRef.current;
+    const mirror = mirrorRef.current;
     const inner = mirrorInnerRef.current;
-    if (!ta || !inner) {
+    if (!ta || !mirror || !inner) {
       return;
     }
-    const sw = Math.max(0, ta.offsetWidth - ta.clientWidth);
-    inner.style.paddingRight = `${16 + sw}px`;
-    inner.style.minHeight = `${Math.max(ta.clientHeight, ta.scrollHeight)}px`;
-    setComposerScrollTop(ta.scrollTop);
-  }, []);
+    // The inline-block textarea leaves the stack a few pixels taller than
+    // itself, and a mirror filling the stack showed the next line there
+    // while the field had already clipped it. Its own height, to the
+    // fraction (131.5px for five rows), keeps the two clipped alike.
+    mirror.style.height = getComputedStyle(ta).height;
+    // Room below the text so the mirror can always scroll as far as the
+    // field does.
+    inner.style.minHeight = `${ta.scrollHeight + mirror.clientHeight}px`;
+    syncMirrorScroll();
+  }, [syncMirrorScroll]);
 
   useLayoutEffect(() => {
     if (!maskComposerText) {
-      setComposerScrollTop(0);
       return;
     }
     adjustMirrorToTextarea();
@@ -1616,15 +1690,37 @@ export function Composer(props: {
     }
     const ro = new ResizeObserver(() => adjustMirrorToTextarea());
     ro.observe(ta);
-    return () => ro.disconnect();
+    // A page zoom or a window moved to a screen of another density lays the
+    // text out again - a classic scrollbar keeps its device pixels, glyphs
+    // are hinted for the new scale - without the field changing its size in
+    // CSS pixels, which is all the observer reports. The textarea then
+    // wraps and scrolls anew and the mirror has to follow it.
+    window.addEventListener("resize", adjustMirrorToTextarea);
+    let density: MediaQueryList | null = null;
+    const onDensity = () => {
+      adjustMirrorToTextarea();
+      watchDensity();
+    };
+    const watchDensity = () => {
+      density?.removeEventListener("change", onDensity);
+      density =
+        typeof window.matchMedia === "function"
+          ? window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+          : null;
+      density?.addEventListener("change", onDensity);
+    };
+    watchDensity();
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", adjustMirrorToTextarea);
+      density?.removeEventListener("change", onDensity);
+    };
   }, [maskComposerText, adjustMirrorToTextarea]);
 
   function syncComposerScroll() {
-    const ta = taRef.current;
-    if (!ta || !maskComposerText) {
-      return;
+    if (maskComposerText) {
+      syncMirrorScroll();
     }
-    setComposerScrollTop(ta.scrollTop);
   }
 
   // A settings command whose value the composer already has a control for
@@ -1643,7 +1739,8 @@ export function Composer(props: {
       case "reasoning":
       case "effort":
         return reasoningChipRef.current
-          ? () => toggleMenu("reasoning", reasoningChipRef.current as HTMLElement)
+          ? () =>
+              toggleMenu("reasoning", reasoningChipRef.current as HTMLElement)
           : null;
       case "permissions":
         return props.onPermissionModeChange && permissionChipRef.current
@@ -1982,6 +2079,9 @@ export function Composer(props: {
   }
   // Escape closes the selector menu that is open, with or without its filter.
   useEscapeCloses(menuOpen !== null, closeMenu);
+  // Escape closes the slash, @, range and argument pickers wherever the focus
+  // is: a tap on the sheet's title, or Telegram Web's Back, leaves it on body.
+  useEscapeCloses(pickerOpen, dismissSlashAtPickers);
 
   function toggleMenu(
     type: "mode" | "llm" | "reasoning" | "permission",
@@ -2320,9 +2420,7 @@ export function Composer(props: {
                   }}
                 >
                   <span className="slash-row-line">
-                    <span
-                      className={`mention-kind mention-kind--${row.kind}`}
-                    >
+                    <span className={`mention-kind mention-kind--${row.kind}`}>
                       {mentionKindLabel(row.kind)}
                     </span>
                     <span className="slash-row-name">
@@ -2519,6 +2617,25 @@ export function Composer(props: {
         : t("composer.slashCommandsAriaLabel");
   const pickerRole = atRangeOpen ? "group" : "listbox";
 
+  // The plate over the card: the one a running chat hands in (cardTop), or,
+  // before the chat starts, the folder, branch and worktree as picks on it.
+  const plate: ReactNode =
+    props.cardTop ??
+    (props.workspaceCtx &&
+    props.onWorkspacePickFolder &&
+    !props.workspaceLocked ? (
+      <WorkspaceBar
+        context={props.workspaceCtx}
+        pick={{
+          worktreePref: props.worktreePref ?? false,
+          onPickFolder: props.onWorkspacePickFolder,
+          onPickBranch: props.onWorkspacePickBranch ?? (() => {}),
+          onWorktreeToggle: props.onWorktreeToggle ?? (() => {}),
+          opensUp: !props.isEmpty,
+        }}
+      />
+    ) : null);
+
   return (
     <>
       <footer
@@ -2563,10 +2680,21 @@ export function Composer(props: {
                   type="button"
                   className="composer-queue-mode"
                   data-testid={`composer-queue-mode-${q.id}`}
-                  title={q.mode === "after_turn" ? t("composer.queueModeAfterTurnTitle") : t("composer.queueModeSteerTitle")}
-                  onClick={() => props.onSetQueuedMode?.(q.id, oppositeQueueMode(q.mode ?? "steer"))}
+                  title={
+                    q.mode === "after_turn"
+                      ? t("composer.queueModeAfterTurnTitle")
+                      : t("composer.queueModeSteerTitle")
+                  }
+                  onClick={() =>
+                    props.onSetQueuedMode?.(
+                      q.id,
+                      oppositeQueueMode(q.mode ?? "steer"),
+                    )
+                  }
                 >
-                  {q.mode === "after_turn" ? t("composer.queueModeAfterTurn") : t("composer.queueModeSteer")}
+                  {q.mode === "after_turn"
+                    ? t("composer.queueModeAfterTurn")
+                    : t("composer.queueModeSteer")}
                 </button>
                 <button
                   type="button"
@@ -2583,14 +2711,110 @@ export function Composer(props: {
           </ul>
         ) : null}
         {queueChoice ? (
-          <div className="composer-queue-choice" role="group" aria-label={t("composer.queueChoiceLabel")} data-testid="composer-queue-choice">
+          <div
+            className="composer-queue-choice"
+            role="group"
+            aria-label={t("composer.queueChoiceLabel")}
+            data-testid="composer-queue-choice"
+          >
             <span>{t("composer.queueChoiceQuestion")}</span>
-            <button type="button" onClick={() => chooseQueueMode("steer")}>{t("composer.queueChoiceSteer")}</button>
-            <button type="button" onClick={() => chooseQueueMode("after_turn")}>{t("composer.queueChoiceAfterTurn")}</button>
+            <button type="button" onClick={() => chooseQueueMode("steer")}>
+              {t("composer.queueChoiceSteer")}
+            </button>
+            <button type="button" onClick={() => chooseQueueMode("after_turn")}>
+              {t("composer.queueChoiceAfterTurn")}
+            </button>
           </div>
         ) : null}
+        {props.editingMessage ? (
+          <div
+            className="composer-edit-banner"
+            role="status"
+            data-testid="composer-edit-banner"
+          >
+            <span className="composer-edit-banner-icon" aria-hidden="true">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+            </span>
+            <span className="composer-edit-banner-body">
+              <span className="composer-edit-banner-title">
+                {t("composer.editingMessage")}
+              </span>
+              <span
+                className="composer-edit-banner-snippet"
+                title={props.editingMessage.snippet}
+              >
+                {props.editingMessage.snippet}
+              </span>
+              <span className="composer-edit-banner-hint">
+                {t("composer.editingHint")}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="sessions-close composer-queue-remove composer-edit-cancel"
+              data-testid="composer-edit-cancel"
+              aria-label={t("composer.cancelEdit")}
+              title={t("composer.cancelEdit")}
+              onClick={() => props.editingMessage?.onCancel()}
+            >
+              ×
+            </button>
+          </div>
+        ) : props.rewindUndo ? (
+          <div
+            className="composer-edit-banner composer-edit-banner--done"
+            role="status"
+            data-testid="composer-undo-banner"
+          >
+            <span className="composer-edit-banner-body">
+              <span className="composer-edit-banner-title">
+                {t("composer.messageEdited")}
+              </span>
+              <span className="composer-edit-banner-hint">
+                {t("composer.undoEditHint")}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="composer-queue-mode composer-undo-edit"
+              data-testid="composer-undo-edit"
+              disabled={props.rewindUndo.busy === true}
+              onClick={() => props.rewindUndo?.onUndo()}
+            >
+              {t("composer.undoEdit")}
+            </button>
+            <button
+              type="button"
+              className="sessions-close composer-queue-remove"
+              data-testid="composer-undo-dismiss"
+              aria-label={t("composer.undoDismiss")}
+              title={t("composer.undoDismiss")}
+              onClick={() => props.rewindUndo?.onDismiss()}
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
+        {plate}
         <div
-          className={`composer-card${dragOverCard ? " composer-card--dragover" : ""}`}
+          className={[
+            "composer-card",
+            dragOverCard ? "composer-card--dragover" : "",
+            plate ? "composer-card--joined" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           ref={composerCardRef}
           onDragOver={(ev) => {
             const dt = ev.dataTransfer;
@@ -2623,48 +2847,6 @@ export function Composer(props: {
             setAttachedFiles((prev) => [...prev, ...files]);
           }}
         >
-          <div className="composer-context-row">
-            {/* One strip for the chips: display: contents on a wide shell, a
-                sideways-scrolling box on a phone (styles.css). */}
-            <div className="composer-context-scroll">
-              <EnvironmentChip />
-              {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
-                <WorkspaceChips
-                  context={props.workspaceCtx ?? null}
-                  worktreePref={props.worktreePref ?? false}
-                  onPickFolder={props.onWorkspacePickFolder}
-                  onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
-                  onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
-                  opensUp={!props.isEmpty}
-                  locked={props.workspaceLocked ?? false}
-                />
-              ) : null}
-            </div>
-            <button
-              type="button"
-              className="composer-enhance-btn"
-              aria-label={t("composer.enhance")}
-              title={t("composer.enhance")}
-              data-testid="composer-enhance-btn"
-              disabled={enhancing || props.generating || idleSendDisabled}
-              onClick={() => void enhancePrompt()}
-            >
-              <svg
-                className={
-                  enhancing
-                    ? "composer-enhance-icon is-spinning"
-                    : "composer-enhance-icon"
-                }
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                width="12"
-                height="12"
-                aria-hidden="true"
-              >
-                <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
-              </svg>
-            </button>
-          </div>
           {(props.editingFiles && props.editingFiles.length > 0) ||
           attachedFiles.length > 0 ? (
             <div
@@ -2713,14 +2895,42 @@ export function Composer(props: {
             </div>
           ) : null}
           <div className="composer-field-wrap" ref={composerFieldWrapRef}>
-            <div className="composer-stack">
+            {/* The wand stands in the field's top right corner, so the field
+                starts at the top of the card; the text keeps clear of it. */}
+            <button
+              type="button"
+              className="composer-enhance-btn"
+              aria-label={t("composer.enhance")}
+              title={t("composer.enhance")}
+              data-testid="composer-enhance-btn"
+              disabled={enhancing || props.generating || idleSendDisabled}
+              onClick={() => void enhancePrompt()}
+            >
+              <svg
+                className={
+                  enhancing
+                    ? "composer-enhance-icon is-spinning"
+                    : "composer-enhance-icon"
+                }
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                width="12"
+                height="12"
+                aria-hidden="true"
+              >
+                <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
+              </svg>
+            </button>
+            <div
+              className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}
+            >
               {maskComposerText ? (
-                <div className="composer-mirror" aria-hidden="true">
-                  <div
-                    ref={mirrorInnerRef}
-                    className="composer-mirror-inner"
-                    style={{ transform: `translateY(-${composerScrollTop}px)` }}
-                  >
+                <div
+                  ref={mirrorRef}
+                  className="composer-mirror"
+                  aria-hidden="true"
+                >
+                  <div ref={mirrorInnerRef} className="composer-mirror-inner">
                     {composerSegments.map((seg, idx) =>
                       seg.type === "text" ? (
                         <span key={idx}>{seg.value}</span>
@@ -2866,6 +3076,21 @@ export function Composer(props: {
                     dismissSlashAtPickers();
                     return;
                   }
+                  // Escape leaves an edit the way the banner's cross does,
+                  // once no picker or popover above claimed it.
+                  if (
+                    ev.key === "Escape" &&
+                    props.editingMessage &&
+                    !ev.repeat &&
+                    !ev.shiftKey &&
+                    !ev.altKey &&
+                    !ev.ctrlKey &&
+                    !ev.metaKey
+                  ) {
+                    ev.preventDefault();
+                    props.editingMessage.onCancel();
+                    return;
+                  }
                   if (argOpen && argItems.length > 0) {
                     if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
                       ev.preventDefault();
@@ -2983,7 +3208,12 @@ export function Composer(props: {
                     !ev.metaKey
                   ) {
                     ev.preventDefault();
-                    queueDraft(props.queueMode ? oppositeQueueMode(props.queueMode) : undefined, true);
+                    queueDraft(
+                      props.queueMode
+                        ? oppositeQueueMode(props.queueMode)
+                        : undefined,
+                      true,
+                    );
                     return;
                   }
                   const enterAction = composerEnterAction(
@@ -3004,7 +3234,9 @@ export function Composer(props: {
                     const el = ev.currentTarget;
                     const start = el.selectionStart ?? props.value.length;
                     const end = el.selectionEnd ?? start;
-                    const next = insertNewline(props.value, start, end);
+                    const next =
+                      expandCodeFenceAtCaret(props.value, start, end) ??
+                      insertNewline(props.value, start, end);
                     setCaretPos(next.caret);
                     preEnhanceRef.current = null;
                     setEnhanceErr(null);
@@ -3244,7 +3476,9 @@ export function Composer(props: {
                     ? t("composer.queueSend")
                     : props.generating
                       ? t("composer.stopGeneration")
-                      : t("composer.send")
+                      : props.editingMessage
+                        ? t("composer.sendEdit")
+                        : t("composer.send")
                 }
                 disabled={!props.generating && idleSendDisabled}
                 onClick={() => {

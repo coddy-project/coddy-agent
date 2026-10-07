@@ -81,7 +81,7 @@ func (s *hooksHTTPState) startServer() error {
 		return err
 	}
 	cfgPath := filepath.Join(s.home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  auto_discovery: true\n"), 0o644); err != nil {
 		return err
 	}
 	cfg, err := config.Load(cfgPath)

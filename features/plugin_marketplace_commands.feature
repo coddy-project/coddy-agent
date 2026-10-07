@@ -7,8 +7,8 @@ Feature: Adding a marketplace and installing its plugins one at a time
   plugin published after the marketplace was added installs without an update.
   `plugin marketplace update <marketplace>` refreshes the list and the plugins
   installed from the marketplace, and installs no other. A source installed
-  with `plugin install <owner/repo | url>`, and every source already in
-  skills.sources, keeps having every plugin it publishes installed.
+  with `plugin install <owner/repo | url>`, and every source the home
+  marketplaces.json declares, keeps having every plugin it publishes installed.
 
   Background:
     Given a coddy home without skill sources
@@ -52,8 +52,8 @@ Feature: Adding a marketplace and installing its plugins one at a time
     And the skill "yandex-wordstat" on disk comes from the new archive
     And the skill "ru-text" is not installed
 
-  Scenario: A source in skills.sources still has every plugin it publishes installed
-    Given the address of the marketplace "neuraldeep" is in skills.sources
+  Scenario: A source of the home marketplaces.json has every plugin it publishes installed
+    Given the address of the marketplace "neuraldeep" is a source of the home marketplaces.json
     When I run the plugin command "marketplace sync"
     Then the plugin command answers "2 added, 0 updated, 0 failed."
     And the skill "yandex-wordstat" is installed

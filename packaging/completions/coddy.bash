@@ -31,11 +31,12 @@ _coddy() {
             ;;
         skills)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list enable disable add sync remove" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = add ] && COMPREPLY=($(compgen -W "--project" -- "${cur}"))
             ;;
         plugin)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "marketplace install remove enable disable list" -- "${cur}"))
             [ "${COMP_CWORD}" -eq 3 ] && [ "${prev}" = marketplace ] &&
-                COMPREPLY=($(compgen -W "add list update remove sync" -- "${cur}"))
+                COMPREPLY=($(compgen -W "add list update remove sync trust untrust" -- "${cur}"))
             ;;
         mcp)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list trust untrust" -- "${cur}"))

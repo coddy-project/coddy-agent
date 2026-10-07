@@ -328,7 +328,38 @@ func (v *schemaValidator) mapping(path string, n *yaml.Node, s *schemaNode) {
 	}
 }
 
+// movedKeys are the keys that left config.yaml for a file of their own. The
+// loader moves them there on the next start (legacy_keys.go), so a check
+// warns about one instead of calling it unknown.
+var movedKeys = map[string]struct{ message, fix, doc string }{
+	"mcp_servers": {
+		message: "mcp_servers is no longer read from config.yaml",
+		fix: "MCP servers live in ${CODDY_HOME}/mcp.json and the project's .coddy/mcp.json; " +
+			"the next start moves this list into ${CODDY_HOME}/mcp.json (a name the file already has is kept) " +
+			"and removes it from config.yaml, keeping the old file as config.yaml.bak-<time>",
+		doc: "https://coddy.dev/docs/features/mcp#moving-from-configyaml",
+	},
+	"skills.sources": {
+		message: "skills.sources is no longer read from config.yaml",
+		fix: "skill marketplaces live in ${CODDY_HOME}/marketplaces.json and the project's .coddy/marketplaces.json; " +
+			"the next start moves this list into the sources of ${CODDY_HOME}/marketplaces.json " +
+			"and removes it from config.yaml, keeping the old file as config.yaml.bak-<time>",
+		doc: "https://coddy.dev/docs/features/skills#marketplaces-and-sources",
+	},
+	"scheduler.dir": {
+		message: "scheduler.dir is no longer read from config.yaml",
+		fix: "user jobs live in ${CODDY_HOME}/scheduler and project jobs in <workspace>/.coddy/scheduler; " +
+			"the next start copies the jobs of this folder into ${CODDY_HOME}/scheduler (a job the folder already has is kept) " +
+			"and removes the key from config.yaml, keeping the old file as config.yaml.bak-<time>",
+		doc: "https://coddy.dev/docs/operate/scheduler#where-jobs-live",
+	},
+}
+
 func (v *schemaValidator) unknownKey(path string, k *yaml.Node, s *schemaNode) {
+	if moved, ok := movedKeys[join(path, k.Value)]; ok {
+		v.at(k, SeverityWarning, join(path, k.Value), moved.message, moved.fix, moved.doc)
+		return
+	}
 	allowed := s.propertyNames()
 	where := "at the top level"
 	if path != "" {

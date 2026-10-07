@@ -29,12 +29,19 @@ test("a server that predates paged reads is read as a whole history", () => {
       { offset: 3240, total: 3306, turnsBefore: 374, userRowsBefore: 376 },
       66,
     ),
-  ).toEqual({ offset: 3240, total: 3306, turnsBefore: 374, userRowsBefore: 376 });
+  ).toEqual({
+    offset: 3240,
+    total: 3306,
+    turnsBefore: 374,
+    userRowsBefore: 376,
+  });
 });
 
 test("each read names its page in the query", () => {
   expect(transcriptPageQuery({ kind: "tail" })).toBe("?limit=60");
-  expect(transcriptPageQuery({ kind: "from", offset: 3240 })).toBe("?from=3240");
+  expect(transcriptPageQuery({ kind: "from", offset: 3240 })).toBe(
+    "?from=3240",
+  );
   expect(transcriptPageQuery({ kind: "older", before: 3240 })).toBe(
     "?limit=80&before=3240",
   );
@@ -42,9 +49,7 @@ test("each read names its page in the query", () => {
   const w = { offset: 3240, total: 3306, turnsBefore: 0, userRowsBefore: 0 };
   expect(transcriptToolCallsQuery(w, 66)).toBe("?from=3240&to=3306");
   // The whole history asks for every call, as before.
-  expect(
-    transcriptToolCallsQuery({ ...w, offset: 0, total: 20 }, 20),
-  ).toBe("");
+  expect(transcriptToolCallsQuery({ ...w, offset: 0, total: 20 }, 20)).toBe("");
 });
 
 test("an older page goes in front and never repeats an id on screen", () => {
@@ -65,7 +70,12 @@ test("an older page goes in front and never repeats an id on screen", () => {
 
 test("rows are carried over from a window that ends where the new one does", () => {
   const next = [user("u_3", "three"), user("u_4", "four")];
-  const previous = [user("a", "one"), user("b", "two"), user("c", "three"), user("d", "four")];
+  const previous = [
+    user("a", "one"),
+    user("b", "two"),
+    user("c", "three"),
+    user("d", "four"),
+  ];
   expect(alignedTranscriptSuffix(next, previous)?.map((it) => it.id)).toEqual([
     "c",
     "d",

@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, interactive-widget=resizes-content"
+    />
     <meta name="color-scheme" content="dark light" />
     <title>Coddy Agent</title>
     <link rel="icon" href="/coddy-favicon.svg" type="image/svg+xml" />
@@ -12,12 +15,22 @@
     <script>
       (function () {
         var LIGHT = { light: 1 };
-        var VALID = { dark: 1, light: 1, midnight: 1, "solarized-dark": 1, monokai: 1, nord: 1, "rose-pine": 1 };
+        var VALID = {
+          dark: 1,
+          light: 1,
+          midnight: 1,
+          "solarized-dark": 1,
+          monokai: 1,
+          nord: 1,
+          "rose-pine": 1,
+        };
         var m = document.cookie.match(/(?:^|;\s*)coddy_ui_theme=([^;]+)/);
         var t = m && decodeURIComponent(m[1].replace(/\+/g, " "));
-        var theme = (t && VALID[t]) ? t : "dark";
+        var theme = t && VALID[t] ? t : "dark";
         document.documentElement.dataset.theme = theme;
-        document.documentElement.style.colorScheme = LIGHT[theme] ? "light" : "dark";
+        document.documentElement.style.colorScheme = LIGHT[theme]
+          ? "light"
+          : "dark";
       })();
     </script>
   </head>

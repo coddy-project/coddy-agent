@@ -18,13 +18,47 @@ import (
 // package; both compile into the same test binary.
 const reloadTestMCPHelperEnv = "CODDY_TEST_MCP_HELPER"
 
-func reloadTestConfig(servers ...config.MCPServerConfig) *config.Config {
+// reloadTestConfig is a configuration whose <home>/mcp.json declares servers.
+func reloadTestConfig(t *testing.T, servers ...config.MCPServerConfig) *config.Config {
+	t.Helper()
+	home := t.TempDir()
+	writeHomeMCP(t, home, servers...)
 	return &config.Config{
-		Providers:  []config.ProviderConfig{{Name: "p1", Type: "openai", APIKey: "k"}},
-		Models:     []config.ModelEntry{{Model: "p1/gpt-4o"}},
-		Agent:      config.Agent{Model: "p1/gpt-4o"},
-		MCPServers: servers,
+		Paths:     config.Paths{Home: home},
+		Providers: []config.ProviderConfig{{Name: "p1", Type: "openai", APIKey: "k"}},
+		Models:    []config.ModelEntry{{Model: "p1/gpt-4o"}},
+		Agent:     config.Agent{Model: "p1/gpt-4o"},
 	}
+}
+
+// writeHomeMCP makes <home>/mcp.json declare exactly servers.
+func writeHomeMCP(t *testing.T, home string, servers ...config.MCPServerConfig) {
+	t.Helper()
+	path := config.GlobalMCPJSONPath(home)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	for _, srv := range servers {
+		if err := config.UpsertMCPJSONServer(path, srv.Name, config.MCPJSONFromServer(srv)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// replaceMCPServers makes <home>/mcp.json declare exactly servers and runs
+// the reload of every live session a change of mcp.project_trust runs.
+func replaceMCPServers(t *testing.T, mgr *Manager, servers ...config.MCPServerConfig) {
+	t.Helper()
+	writeHomeMCP(t, mgr.activeCfg().Paths.Home, servers...)
+	reloadEverySession(mgr)
+}
+
+// reloadEverySession runs the reload of every live session a change of
+// mcp.project_trust runs (ReplaceConfig), under the same deadline.
+func reloadEverySession(mgr *Manager) {
+	ctx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
+	defer cancel()
+	mgr.reloadConfiguredMCPServers(ctx)
 }
 
 func reloadTestMCPServer(name string) config.MCPServerConfig {
@@ -58,7 +92,7 @@ func newReloadTestManager(t *testing.T, cfg *config.Config) (*Manager, *State) {
 // dial that only failed because the budget was gone must not be installed --
 // wiping a healthy session's servers would silently strip its MCP tools.
 func TestReloadKeepsClientsWhenContextExpired(t *testing.T) {
-	mgr, state := newReloadTestManager(t, reloadTestConfig(reloadTestMCPServer("settings-probe")))
+	mgr, state := newReloadTestManager(t, reloadTestConfig(t, reloadTestMCPServer("settings-probe")))
 	if got := len(state.GetMCPClients()); got != 1 {
 		t.Fatalf("session started with %d MCP clients, want 1", got)
 	}
@@ -80,12 +114,13 @@ func TestReloadKeepsClientsWhenContextExpired(t *testing.T) {
 // removing every configured server is a legitimate reload whose result is an
 // empty client list, and it must still be applied.
 func TestReloadStillAppliesAnEmptyServerList(t *testing.T) {
-	mgr, state := newReloadTestManager(t, reloadTestConfig(reloadTestMCPServer("settings-probe")))
+	mgr, state := newReloadTestManager(t, reloadTestConfig(t, reloadTestMCPServer("settings-probe")))
 	if got := len(state.GetMCPClients()); got != 1 {
 		t.Fatalf("session started with %d MCP clients, want 1", got)
 	}
 
-	mgr.ReplaceConfig(reloadTestConfig())
+	writeHomeMCP(t, mgr.activeCfg().Paths.Home)
+	reloadEverySession(mgr)
 
 	if got := len(state.GetMCPClients()); got != 0 {
 		t.Fatalf("MCP clients after removing every configured server = %d, want 0", got)
@@ -106,15 +141,17 @@ func TestReloadDrainsAReloadParkedByAnEarlierReload(t *testing.T) {
 	slow.Args = []string{"-test.run=^TestSlowMCPHelperProcess$"}
 	slow.Env = append(slow.Env, config.EnvVarConfig{Name: slowMCPStartedFileEnv, Value: startedPath})
 
-	mgr, state := newReloadTestManager(t, reloadTestConfig())
+	mgr, state := newReloadTestManager(t, reloadTestConfig(t))
 	if got := len(state.GetMCPClients()); got != 0 {
 		t.Fatalf("session started with %d MCP clients, want 0", got)
 	}
+	home := mgr.activeCfg().Paths.Home
 
+	writeHomeMCP(t, home, slow)
 	saveA := make(chan struct{})
 	go func() {
 		defer close(saveA)
-		mgr.ReplaceConfig(reloadTestConfig(slow))
+		reloadEverySession(mgr)
 	}()
 
 	// Wait until save A is inside the handshake, so it provably holds the lock.
@@ -129,9 +166,10 @@ func TestReloadDrainsAReloadParkedByAnEarlierReload(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	// Save B lands mid-dial: it stores its configuration, parks its reload, and
+	// Save B lands mid-dial: it writes its servers, parks its reload, and
 	// returns because save A holds the lock.
-	mgr.ReplaceConfig(reloadTestConfig(reloadTestMCPServer("settings-probe")))
+	writeHomeMCP(t, home, reloadTestMCPServer("settings-probe"))
+	reloadEverySession(mgr)
 	<-saveA
 
 	clients := state.GetMCPClients()
@@ -188,4 +226,34 @@ func TestSlowMCPHelperProcess(t *testing.T) {
 		}
 	}
 	os.Exit(0)
+}
+
+// The watcher's reload reads <home>/mcp.json strictly: a file caught
+// mid-write or saved with a typo says nothing about which servers should
+// stop, so the running ones stay until it reads again.
+func TestReloadKeepsTheServersOfAFileThatDoesNotRead(t *testing.T) {
+	mgr, state := newReloadTestManager(t, reloadTestConfig(t, reloadTestMCPServer("settings-probe")))
+	if got := len(state.GetMCPClients()); got != 1 {
+		t.Fatalf("session started with %d MCP clients, want 1", got)
+	}
+	path := config.GlobalMCPJSONPath(mgr.activeCfg().Paths.Home)
+	good, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, good[:len(good)/2], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr.ReloadMCPDeclarations(context.Background())
+	if got := len(state.GetMCPClients()); got != 1 {
+		t.Fatalf("a half-written mcp.json left %d clients, want the server kept", got)
+	}
+	// Repaired as it was, the file changes nothing either.
+	if err := os.WriteFile(path, good, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr.ReloadMCPDeclarations(context.Background())
+	if got := len(state.GetMCPClients()); got != 1 {
+		t.Fatalf("after the repair %d clients, want 1", got)
+	}
 }

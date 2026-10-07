@@ -17,7 +17,12 @@ import { blockquoteLine, inMarkdownFenceBeforeCaret } from "./draftSlash";
 export type MentionScheme = "session" | "rule" | "agent" | "coddy";
 
 /** The meta schemes, in the order a picker offers them (**`mention.Schemes`**). */
-const MENTION_SCHEMES: readonly MentionScheme[] = ["session", "rule", "agent", "coddy"];
+const MENTION_SCHEMES: readonly MentionScheme[] = [
+  "session",
+  "rule",
+  "agent",
+  "coddy",
+];
 
 /** One way to read a path token (**`mention.PathReading`**). */
 export type MentionReading = {
@@ -331,7 +336,9 @@ function parseScheme(text: string, at: number): MentionToken | null {
     }
     k++;
   }
-  const ref = page ? trimRightPageRef(text.slice(refStart, k)) : trimRightDots(text.slice(refStart, k));
+  const ref = page
+    ? trimRightPageRef(text.slice(refStart, k))
+    : trimRightDots(text.slice(refStart, k));
   if (ref === "") {
     return null;
   }

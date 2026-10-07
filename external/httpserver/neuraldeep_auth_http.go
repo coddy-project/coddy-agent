@@ -40,7 +40,8 @@ type neuralDeepAuthStatusResponse struct {
 // neuralDeepDeviceStartRequest is the optional body of the device start: the
 // endpoint picked in the settings form, which may not be saved yet.
 type neuralDeepDeviceStartRequest struct {
-	APIBase string `json:"api_base"`
+	APIBase string  `json:"api_base"`
+	Proxy   *string `json:"proxy"`
 }
 
 // neuralDeepDeviceStartBodyLimit bounds the optional JSON body.
@@ -133,6 +134,16 @@ func (s *Server) coddyProviderNeuralDeepAuthDelete(w http.ResponseWriter, r *htt
 	if !ok {
 		return
 	}
+	if raw, present := r.URL.Query()["proxy"]; present {
+		if len(raw) != 1 {
+			writeCoddyConfigErr(w, http.StatusBadRequest, "proxy must occur once")
+			return
+		}
+		if err := applySignInProxy(&provider, &raw[0]); err != nil {
+			writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	// A background device wait finishing after the sign-out would silently
 	// re-store a credential; supersede every pending attempt first.
 	s.cancelNeuralDeepAuthLoginsFor(name)
@@ -147,9 +158,9 @@ func (s *Server) coddyProviderNeuralDeepAuthDelete(w http.ResponseWriter, r *htt
 		}
 		// The revoke goes the row's own way or not at all: a default client
 		// would take the route the row's proxy setting ruled out.
-		if client, err := llm.HTTPClientForProviderProxy(provider.Proxy); err == nil {
+		if _, err := llm.HTTPClientForProviderProxy(provider.Proxy); err == nil {
 			revokeCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-			_ = llm.RevokeNeuralDeepKey(revokeCtx, hub, key, client)
+			_ = llm.RevokeNeuralDeepKey(revokeCtx, hub, key, provider.Proxy)
 			cancel()
 		}
 	}
@@ -174,12 +185,21 @@ func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r 
 	if !ok {
 		return
 	}
-	client, err := llm.HTTPClientForProviderProxy(provider.Proxy)
+	var body neuralDeepDeviceStartRequest
+	if err := decodeNeuralDeepDeviceStartBody(r, &body); err != nil {
+		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	apiBase, err := neuralDeepDeviceStartEndpoint(body, provider)
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	apiBase, err := neuralDeepDeviceStartEndpoint(r, provider)
+	if err := applySignInProxy(&provider, body.Proxy); err != nil {
+		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	client, err := llm.HTTPClientForProviderProxy(provider.Proxy)
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -353,18 +373,7 @@ func signInOwnsProviderUsage(c *config.Config, name, providerType string) bool {
 // pick, possibly unsaved), else the saved row. A body value outside the
 // allowlist is refused up front - the hub it would resolve to is the default
 // one, and a key minted there is useless on the endpoint the user picked.
-func neuralDeepDeviceStartEndpoint(r *http.Request, provider config.ProviderConfig) (string, error) {
-	raw, err := io.ReadAll(io.LimitReader(r.Body, neuralDeepDeviceStartBodyLimit))
-	if err != nil {
-		return "", fmt.Errorf("read request body: %w", err)
-	}
-	if strings.TrimSpace(string(raw)) == "" {
-		return provider.APIBase, nil
-	}
-	var body neuralDeepDeviceStartRequest
-	if err := json.Unmarshal(raw, &body); err != nil {
-		return "", fmt.Errorf("invalid JSON body: %w", err)
-	}
+func neuralDeepDeviceStartEndpoint(body neuralDeepDeviceStartRequest, provider config.ProviderConfig) (string, error) {
 	if strings.TrimSpace(body.APIBase) == "" {
 		return provider.APIBase, nil
 	}
@@ -374,4 +383,21 @@ func neuralDeepDeviceStartEndpoint(r *http.Request, provider config.ProviderConf
 			strings.TrimSpace(body.APIBase), strings.Join(llm.NeuralDeepAPIBases(), ", "))
 	}
 	return base, nil
+}
+
+func decodeNeuralDeepDeviceStartBody(r *http.Request, out *neuralDeepDeviceStartRequest) error {
+	if r.Body == nil {
+		return nil
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, neuralDeepDeviceStartBodyLimit))
+	if err != nil {
+		return fmt.Errorf("read request body: %w", err)
+	}
+	if strings.TrimSpace(string(raw)) == "" {
+		return nil
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return fmt.Errorf("invalid JSON body: %w", err)
+	}
+	return nil
 }

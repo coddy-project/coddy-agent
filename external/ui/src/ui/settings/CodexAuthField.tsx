@@ -35,7 +35,10 @@ async function responseError(response: Response): Promise<string> {
   return `HTTP ${response.status}`;
 }
 
-export function CodexAuthField(props: { providerName: string }) {
+export function CodexAuthField(props: {
+  providerName: string;
+  proxy?: string;
+}) {
   const providerName = props.providerName.trim();
   const endpoint = `/coddy/providers/${encodeURIComponent(providerName)}/codex-auth`;
   const [status, setStatus] = useState<AuthStatus>({ connected: false });
@@ -125,7 +128,9 @@ export function CodexAuthField(props: { providerName: string }) {
       const response = await fetch(`${endpoint}/device`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify(
+          props.proxy === undefined ? {} : { proxy: props.proxy },
+        ),
       });
       if (!response.ok) {
         throw new Error(await responseError(response));

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/EvilFreelancer/coddy-agent/external/gateway"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
@@ -15,7 +16,7 @@ func runConsoleDryRun(cli config.CLIPaths, verbose bool, remoteArg, remoteToken 
 // runServeDryRun resolves the subsystems exactly as a start would - the
 // configuration with the typed flags applied - and probes the addresses they
 // would bind, on top of everything the config names.
-func runServeDryRun(cli config.CLIPaths, verbose bool, apply func(*config.Config) error, httpListenAddr, swarmListenAddr func(*config.Config) string) error {
+func runServeDryRun(cli config.CLIPaths, verbose bool, apply func(*config.Config) error, httpListenAddr, swarmListenAddr func(*config.Config) string, extraAuth bool) error {
 	return dryrun.RunAndReport(configTestOutput, cli, verbose, apply, func(prep *dryrun.Prepared) (dryrun.Request, error) {
 		rt := &serve.Runtime{}
 		all := subsystems(rt, subsystemDeps{
@@ -24,7 +25,8 @@ func runServeDryRun(cli config.CLIPaths, verbose bool, apply func(*config.Config
 			home:            prep.Paths.Home,
 		})
 		enabled, rerr := serve.Resolve(prep.Cfg, all)
-		req := dryrun.Request{Surface: dryrun.SurfaceServe, SubsystemErr: rerr}
+		req := dryrun.Request{Surface: dryrun.SurfaceServe, SubsystemErr: rerr,
+			WebUIOpen: webUIAccess(prep.Cfg, extraAuth, outOfBandLogin().IsSet()) == gateway.WebUIOpen}
 		for _, sub := range enabled {
 			switch sub.Kind {
 			case serve.KindHTTP:

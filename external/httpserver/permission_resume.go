@@ -135,14 +135,23 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	// The resumed turn calls the model like any other: its release refreshes
 	// the provider usage.
 	session.MarkTurnRan(ctx)
-	if _, err := ag.ResumeAfterPermission(ctx, toolCallID, res); err != nil {
+	outcome := session.ActivityOutcomeSuccess
+	_, err = ag.ResumeAfterPermission(ctx, toolCallID, res)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			outcome = session.ActivityOutcomeCanceled
+		} else {
+			outcome = session.ActivityOutcomeFailure
+		}
 		s.log.Warn("permission resume failed", "session", sessionID, "toolCallId", toolCallID, "error", err)
-		return
 	}
+	if ctx.Err() != nil && outcome == session.ActivityOutcomeSuccess {
+		outcome = session.ActivityOutcomeCanceled
+	}
+	st.RecordActivityOutcome(outcome)
 	if fs := s.mgr.FileStore(); fs != nil {
 		if err := fs.Save(st); err != nil {
 			s.log.Warn("permission resume persist", "session", sessionID, "error", err)
 		}
 	}
-	st.BumpActivitySeq()
 }

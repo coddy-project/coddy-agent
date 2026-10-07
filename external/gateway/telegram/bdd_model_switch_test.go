@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,8 +34,9 @@ const (
 	modelSwitchChatID = int64(4242)
 	modelSwitchUserID = int64(309275343)
 	// longModelID is longer than the 64 bytes Telegram allows in callback_data
-	// once the "model:" prefix is added.
-	longModelID = "neuraldeep/qwen3-235b-a22b-instruct-2507-fp8-extended-context-preview"
+	// once the "model:" prefix is added. It sorts after the other models, so a
+	// fresh chat does not start on it and the tap has something to change.
+	longModelID = "vllm/qwen3-235b-a22b-instruct-2507-fp8-extended-context-preview"
 )
 
 // stubRunner is the session side of the bot, modelled on session.Manager: only
@@ -205,6 +207,8 @@ func (w *modelSwitchWorld) buildBot() error {
 	w.logClose = closer
 	w.bot = New(&config.TelegramGatewayConfig{
 		Enabled: true, Token: "t", DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual,
+		// The model a fresh chat starts on is the admins' pick.
+		Admins: []int64{modelSwitchUserID},
 	},
 		w.runner, dir, logger.Component(base, logger.ComponentGatewayTelegram), "", nil)
 	return nil
@@ -216,6 +220,9 @@ func (w *modelSwitchWorld) componentConfiguredAt(name, level string) error {
 }
 
 func (w *modelSwitchWorld) longModelIsConfigured() error {
+	if len(callbackActionModel)+1+len(longModelID) <= telegramCallbackDataMax {
+		return fmt.Errorf("%q fits callback_data, so the digest goes untested", longModelID)
+	}
 	w.runner.cfg.Models = append(w.runner.cfg.Models, config.ModelEntry{Model: longModelID})
 	return nil
 }
@@ -233,11 +240,27 @@ func (w *modelSwitchWorld) sessionKey() string {
 	return fmt.Sprintf("tg:user:%d", modelSwitchUserID)
 }
 
+// currentModel is the model the chat's session runs on (the one it picked,
+// else the configuration's default), empty before the chat has a session.
+func (w *modelSwitchWorld) currentModel() string {
+	id := w.bot.store.Peek(w.sessionKey())
+	w.runner.mu.Lock()
+	defer w.runner.mu.Unlock()
+	if st := w.runner.onDisk[id]; st != nil {
+		return st.EffectiveModelID(w.runner.cfg)
+	}
+	return ""
+}
+
 // tapButton presses the button labelled for model on the keyboard the bot
 // sent. The fake refuses a keyboard whose callback_data is over Telegram's
 // limit, so a button that exists already fits; the length is asserted anyway,
-// because it is what the feature states.
+// because it is what the feature states. A tap on the model the session is on
+// already would change nothing, and the step after it could not fail.
 func (w *modelSwitchWorld) tapButton(model string) error {
+	if w.currentModel() == model {
+		return fmt.Errorf("the session is on %q already, so the tap would prove nothing", model)
+	}
 	cbq, err := w.f.tap(modelSwitchChatID, modelSwitchUserID, model)
 	if err != nil {
 		return err
@@ -357,19 +380,24 @@ func (w *modelSwitchWorld) logRecordsModelApplied() error {
 	return w.findRecord("telegram: model applied", nil)
 }
 
+// close releases the fake Bot API and the log the world opened.
+func (w *modelSwitchWorld) close() {
+	if w.f != nil {
+		w.f.close()
+	}
+	if w.logClose != nil {
+		_ = w.logClose.Close()
+	}
+	if w.logDir != "" {
+		_ = os.RemoveAll(w.logDir)
+	}
+}
+
 func initializeModelSwitchScenario(sc *godog.ScenarioContext) {
 	w := &modelSwitchWorld{}
 
 	sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {
-		if w.f != nil {
-			w.f.close()
-		}
-		if w.logClose != nil {
-			_ = w.logClose.Close()
-		}
-		if w.logDir != "" {
-			_ = os.RemoveAll(w.logDir)
-		}
+		w.close()
 		return ctx, err
 	})
 
@@ -406,5 +434,51 @@ func TestModelSwitchFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("telegram model switch feature suite failed")
+	}
+}
+
+// A tap on the model the menu already marks current leaves the menu as it is:
+// the edit would change nothing, and Telegram refuses such an edit with
+// "message is not modified". A tap on another model still edits the menu in
+// place.
+func TestModelTapOnTheCurrentModelLeavesTheMenuAlone(t *testing.T) {
+	w := &modelSwitchWorld{}
+	if err := w.gatewayWithModels("openai/gpt-4o", "rpa/qwen3.6-35b-a3b"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.close)
+	if err := w.sendCommand("/model"); err != nil {
+		t.Fatal(err)
+	}
+	current := w.currentModel()
+	if current == "" {
+		t.Fatal("the chat has no session model after /model")
+	}
+	cbq, err := w.f.tap(modelSwitchChatID, modelSwitchUserID, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.bot.handleCallback(context.Background(), w.f.api, cbq)
+	if edits := w.f.fake.Calls("editMessageText"); len(edits) != 0 {
+		t.Fatalf("the tap on %q re-sent the menu unchanged: %+v", current, edits)
+	}
+	requireOneAnswer(t, w.f, cbq.ID)
+	if got := w.currentModel(); got != current {
+		t.Fatalf("session model = %q, want %q", got, current)
+	}
+
+	other := "rpa/qwen3.6-35b-a3b"
+	if other == current {
+		other = "openai/gpt-4o"
+	}
+	if err := w.tapButton(other); err != nil {
+		t.Fatal(err)
+	}
+	edits := w.f.fake.Calls("editMessageText")
+	if len(edits) != 1 || edits[0].Status != http.StatusOK {
+		t.Fatalf("the tap on %q did not edit the menu once: %+v", other, edits)
+	}
+	if got := w.currentModel(); got != other {
+		t.Fatalf("session model = %q, want %q", got, other)
 	}
 }

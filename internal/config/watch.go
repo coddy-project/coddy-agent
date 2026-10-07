@@ -173,3 +173,56 @@ func statConfig(path string) fileStamp {
 	}
 	return fileStamp{modTime: info.ModTime(), size: info.Size(), exists: true}
 }
+
+// StampWatcher calls Changed whenever a file's stamp moves: written,
+// replaced, created or removed. It is the FileWatcher's gate without its
+// loading, for the files a running process reads besides config.yaml -
+// <home>/mcp.json, which the MCP servers come from. The first poll
+// establishes the baseline and calls nothing. Changed is told only that the
+// file moved; comparing what it says is the receiver's business, so a
+// rewrite with the same content costs one read there.
+type StampWatcher struct {
+	// Path is the watched file.
+	Path string
+	// Interval is how often it is stat'ed. Zero means defaultWatchInterval.
+	Interval time.Duration
+	// Changed runs on the watcher's goroutine after every move of the stamp.
+	Changed func()
+
+	stamp  fileStamp
+	primed bool
+}
+
+// Run polls until ctx ends.
+func (w *StampWatcher) Run(ctx context.Context) error {
+	interval := w.Interval
+	if interval <= 0 {
+		interval = defaultWatchInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	w.Poll()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			w.Poll()
+		}
+	}
+}
+
+// Poll examines the file once and reports whether Changed was called.
+func (w *StampWatcher) Poll() bool {
+	stamp := statConfig(w.Path)
+	if w.primed && stamp == w.stamp {
+		return false
+	}
+	first := !w.primed
+	w.primed, w.stamp = true, stamp
+	if first || w.Changed == nil {
+		return false
+	}
+	w.Changed()
+	return true
+}

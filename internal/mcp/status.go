@@ -76,16 +76,13 @@ func ListStatus(ctx context.Context, cfg *config.Config, cwd string, pool *Pool,
 		if srv.Origin == OriginHome {
 			source = config.GlobalMCPJSONPath(cfg.Paths.Home)
 		}
-		if srv.Origin == OriginConfig {
-			source = cfg.Paths.ConfigPath
-		}
 		rows[i] = ServerStatus{Name: srv.Config.Name, Scope: srv.Scope, Origin: srv.Origin,
 			Enabled: !srv.Config.Disabled, Trusted: trust == TrustStateAllowed, Tools: []ToolStatus{},
 			// A per-server decision exists only for a project entry under ask:
 			// under allow every one starts, under deny none does.
 			Approvable:  srv.Origin == OriginProject && gate.Policy() == config.ProjectTrustAsk,
 			Fingerprint: Fingerprint(srv.Config),
-			Declaration: DeclarationSummary(EffectiveTransport(srv.Config), srv.Config.Command, srv.Config.Args, srv.Config.URL, envKeys, headerKeys, cwd, source)}
+			Declaration: DeclarationSummary(EffectiveTransport(srv.Config), srv.Config.Command, srv.Config.Args, srv.Config.URL, envKeys, headerKeys, ReadsEnvironment(srv.Config), cwd, source)}
 		switch {
 		case trust != TrustStateAllowed:
 			rows[i].Status = string(trust)
@@ -101,7 +98,7 @@ func ListStatus(ctx context.Context, cfg *config.Config, cwd string, pool *Pool,
 				tools, probeErr := statusProbe(probeCtx, gate, pool, srv, cwd, log)
 				cancel()
 				if probeErr != nil {
-					row.Status, row.Error = "error", probeErr.Error()
+					row.Status, row.Error = "error", RedactValues(srv.Config, cwd, probeErr.Error())
 				} else {
 					row.Status = "connected"
 				}
@@ -118,9 +115,10 @@ func ListStatus(ctx context.Context, cfg *config.Config, cwd string, pool *Pool,
 
 // DeclarationSummary presents an approval without exposing credential values:
 // the transport, the command line or the URL, the names of the environment
-// variables and headers it carries (never their values), the workspace and
-// the file it came from. A list that is empty is left out.
-func DeclarationSummary(transport, command string, args []string, target string, envKeys, headerKeys []string, cwd, source string) string {
+// variables and headers it carries (never their values), the variables of the
+// Coddy process its values read (ReadsEnvironment), the workspace and the
+// file it came from. A list that is empty is left out.
+func DeclarationSummary(transport, command string, args []string, target string, envKeys, headerKeys, reads []string, cwd, source string) string {
 	sort.Strings(envKeys)
 	sort.Strings(headerKeys)
 	line := strings.TrimSpace(command + " " + strings.Join(args, " "))
@@ -133,6 +131,13 @@ func DeclarationSummary(transport, command string, args []string, target string,
 	}
 	if len(headerKeys) > 0 {
 		parts = append(parts, "headers: "+strings.Join(headerKeys, ", "))
+	}
+	if len(reads) > 0 {
+		refs := make([]string, len(reads))
+		for i, name := range reads {
+			refs[i] = "${" + name + "}"
+		}
+		parts = append(parts, "reads: "+strings.Join(refs, ", "))
 	}
 	parts = append(parts, "workspace: "+cwd, "source: "+source)
 	return strings.Join(parts, " · ")

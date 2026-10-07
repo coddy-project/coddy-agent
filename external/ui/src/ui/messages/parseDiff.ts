@@ -107,7 +107,12 @@ function parseV4APatch(patch: string, fallbackPath: string): ParsedDiff {
     if (currentLines === null) continue;
 
     if (line.length === 0) {
-      currentLines.push({ kind: "ctx", oldNo: oldNo++, newNo: newNo++, content: "" });
+      currentLines.push({
+        kind: "ctx",
+        oldNo: oldNo++,
+        newNo: newNo++,
+        content: "",
+      });
       continue;
     }
 
@@ -115,7 +120,12 @@ function parseV4APatch(patch: string, fallbackPath: string): ParsedDiff {
     const content = line.slice(1);
 
     if (sign === " ") {
-      currentLines.push({ kind: "ctx", oldNo: oldNo++, newNo: newNo++, content });
+      currentLines.push({
+        kind: "ctx",
+        oldNo: oldNo++,
+        newNo: newNo++,
+        content,
+      });
     } else if (sign === "+") {
       currentLines.push({ kind: "add", oldNo: null, newNo: newNo++, content });
     } else if (sign === "-") {
@@ -162,11 +172,26 @@ function parseUnifiedDiff(patch: string, fallbackPath: string): ParsedDiff {
     if (raw.startsWith("\\")) continue; // "\ No newline at end of file"
 
     if (raw.startsWith("+")) {
-      currentHunk.lines.push({ kind: "add", oldNo: null, newNo: newNo++, content: raw.slice(1) });
+      currentHunk.lines.push({
+        kind: "add",
+        oldNo: null,
+        newNo: newNo++,
+        content: raw.slice(1),
+      });
     } else if (raw.startsWith("-")) {
-      currentHunk.lines.push({ kind: "del", oldNo: oldNo++, newNo: null, content: raw.slice(1) });
+      currentHunk.lines.push({
+        kind: "del",
+        oldNo: oldNo++,
+        newNo: null,
+        content: raw.slice(1),
+      });
     } else if (raw.startsWith(" ")) {
-      currentHunk.lines.push({ kind: "ctx", oldNo: oldNo++, newNo: newNo++, content: raw.slice(1) });
+      currentHunk.lines.push({
+        kind: "ctx",
+        oldNo: oldNo++,
+        newNo: newNo++,
+        content: raw.slice(1),
+      });
     }
   }
 

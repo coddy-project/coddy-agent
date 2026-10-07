@@ -38,6 +38,11 @@ func (s *Server) serveBotAPI(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, method, params, http.StatusUnauthorized, "Unauthorized", 0)
 		return
 	}
+	if s.opts.Token == "" {
+		s.mu.Lock()
+		s.token = token
+		s.mu.Unlock()
+	}
 	if fault := s.takeFault(method, params); fault != nil {
 		s.writeError(w, method, params, fault.Code, fault.Description, fault.RetryAfter)
 		return
@@ -69,6 +74,10 @@ func (s *Server) serveBotAPI(w http.ResponseWriter, r *http.Request) {
 		s.sendRichMessage(w, method, params)
 	case "sendrichmessagedraft":
 		s.sendRichMessageDraft(w, method, params)
+	case "setchatmenubutton":
+		s.setChatMenuButton(w, method, params)
+	case "getchatmenubutton":
+		s.getChatMenuButton(w, method, params)
 	case "deletewebhook":
 		s.writeResult(w, method, params, true)
 	case "getwebhookinfo":
@@ -214,7 +223,10 @@ func (s *Server) sendMessage(w http.ResponseWriter, method string, params url.Va
 	}
 	markup, problem := parseKeyboard(params.Get("reply_markup"))
 	if problem == "" {
-		problem = validateKeyboard(markup)
+		s.mu.Lock()
+		chatType := s.chatTypeLocked(chatID)
+		s.mu.Unlock()
+		problem = validateKeyboard(markup, chatType)
 	}
 	if problem != "" {
 		s.writeError(w, method, params, http.StatusBadRequest, problem, 0)
@@ -372,7 +384,7 @@ func (s *Server) editMessage(w http.ResponseWriter, method string, params url.Va
 	}
 	newMarkup, problem := parseKeyboard(params.Get("reply_markup"))
 	if problem == "" {
-		problem = validateKeyboard(newMarkup)
+		problem = validateKeyboard(newMarkup, chat.typ)
 	}
 	if problem != "" {
 		s.mu.Unlock()
@@ -640,20 +652,42 @@ func parseKeyboard(raw string) (*InlineKeyboardMarkup, string) {
 const callbackDataMax = 64
 
 // validateKeyboard refuses what api.telegram.org refuses: a button with
-// nothing behind it, and callback_data over the limit - the mistake that is
-// invisible until a real chat shows a keyboard that never arrives. It returns
-// the error description, or "" for a keyboard Telegram would take.
-func validateKeyboard(kb *InlineKeyboardMarkup) string {
+// nothing behind it, callback_data over the limit - the mistake that is
+// invisible until a real chat shows a keyboard that never arrives - and a
+// web_app button outside a private chat or to an address Telegram would not
+// open. It also refuses a button with more than one action, which Telegram
+// would read as its first. It returns the error description, or "" for a
+// keyboard the stand takes in a chat of chatType.
+func validateKeyboard(kb *InlineKeyboardMarkup, chatType string) string {
 	if kb == nil {
 		return ""
 	}
 	for _, row := range kb.InlineKeyboard {
 		for _, b := range row {
-			if b.CallbackData == "" && b.URL == "" {
+			actions := 0
+			for _, set := range []bool{b.CallbackData != "", b.URL != "", b.WebApp != nil} {
+				if set {
+					actions++
+				}
+			}
+			switch {
+			case actions == 0:
+				return "Bad Request: Text buttons are not allowed in the inline keyboard"
+			case actions > 1:
+				// Telegram takes the first action in its own order; the
+				// stand refuses the button, so an ambiguous one never passes.
 				return "Bad Request: BUTTON_TYPE_INVALID"
 			}
 			if len(b.CallbackData) > callbackDataMax {
 				return "Bad Request: BUTTON_DATA_INVALID"
+			}
+			if b.WebApp != nil {
+				if chatType != "private" {
+					return "Bad Request: BUTTON_TYPE_INVALID"
+				}
+				if problem := webAppURLProblem(b.WebApp.URL); problem != "" {
+					return "Bad Request: inline keyboard button " + problem
+				}
 			}
 		}
 	}
@@ -672,7 +706,9 @@ func sameKeyboard(a, b *InlineKeyboardMarkup) bool {
 			return false
 		}
 		for j := range a.InlineKeyboard[i] {
-			if a.InlineKeyboard[i][j] != b.InlineKeyboard[i][j] {
+			x, y := a.InlineKeyboard[i][j], b.InlineKeyboard[i][j]
+			if x.Text != y.Text || x.CallbackData != y.CallbackData || x.URL != y.URL || webAppURLOf(x) != webAppURLOf(y) ||
+				(x.WebApp == nil) != (y.WebApp == nil) {
 				return false
 			}
 		}

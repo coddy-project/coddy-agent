@@ -6,9 +6,72 @@ export function sessionRowNeedsUserAttention(
   questionPendingSessionIds: ReadonlySet<string>,
 ): boolean {
   return (
-    permissionPendingSessionIds.has(row.id) ||
-    questionPendingSessionIds.has(row.id)
+    sessionRowAttentionMarker(
+      row,
+      permissionPendingSessionIds,
+      questionPendingSessionIds,
+    ) !== null
   );
+}
+
+/** Returns the one attention marker a row may show, with permission first. */
+export function sessionRowAttentionMarker(
+  row: SessionRow,
+  permissionPendingSessionIds: ReadonlySet<string>,
+  questionPendingSessionIds: ReadonlySet<string>,
+): "permission" | "question" | null {
+  if (
+    row.permissionPending === true ||
+    permissionPendingSessionIds.has(row.id)
+  ) {
+    return "permission";
+  }
+  if (row.questionPending === true || questionPendingSessionIds.has(row.id)) {
+    return "question";
+  }
+  return null;
+}
+
+/** Reconciles question markers from a refreshed, possibly partial session list. */
+export function reconcileQuestionPendingSessionIds(
+  rows: readonly SessionRow[],
+  previous: ReadonlySet<string>,
+  viewedSessionId: string,
+  viewedPromptPending: boolean,
+): Set<string> {
+  const next = new Set(previous);
+  const listed = new Set<string>();
+  for (const row of rows) {
+    listed.add(row.id);
+    if (row.questionPending === true) next.add(row.id);
+    else next.delete(row.id);
+  }
+  const viewed = viewedSessionId.trim();
+  if (viewed && viewedPromptPending && !listed.has(viewed)) {
+    next.add(viewed);
+  }
+  return next;
+}
+
+/** Reconciles permission markers from a refreshed, possibly partial session list. */
+export function reconcilePermissionPendingSessionIds(
+  rows: readonly SessionRow[],
+  previous: ReadonlySet<string>,
+  viewedSessionId: string,
+  viewedPromptPending: boolean,
+): Set<string> {
+  const next = new Set(previous);
+  const listed = new Set<string>();
+  for (const row of rows) {
+    listed.add(row.id);
+    if (row.permissionPending === true) next.add(row.id);
+    else next.delete(row.id);
+  }
+  const viewed = viewedSessionId.trim();
+  if (viewed && viewedPromptPending && !listed.has(viewed)) {
+    next.add(viewed);
+  }
+  return next;
 }
 
 /**
@@ -47,6 +110,28 @@ export function sessionRowShowsUnreadDot(
   return !!row.unreadComplete && row.id !== currentSessionId;
 }
 
+/** A failure waits for acknowledgement until the activity read cursor reaches it. */
+export function sessionRowShowsErrorUnseen(
+  row: SessionRow,
+  currentSessionId: string,
+): boolean {
+  return (
+    row.id !== currentSessionId &&
+    (row.lastErrorSeq ?? 0) > (row.readActivitySeq ?? 0)
+  );
+}
+
+/** Acknowledged failures remain visible until a later successful turn clears them. */
+export function sessionRowShowsErrorSeen(
+  row: SessionRow,
+  currentSessionId: string,
+): boolean {
+  return (
+    (row.lastErrorSeq ?? 0) > 0 &&
+    !sessionRowShowsErrorUnseen(row, currentSessionId)
+  );
+}
+
 export function sessionRowShowsPermissionPending(
   row: SessionRow,
   pendingSessionIds: ReadonlySet<string>,
@@ -58,5 +143,5 @@ export function sessionRowShowsQuestionPending(
   row: SessionRow,
   pendingSessionIds: ReadonlySet<string>,
 ): boolean {
-  return pendingSessionIds.has(row.id);
+  return row.questionPending === true || pendingSessionIds.has(row.id);
 }

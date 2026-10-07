@@ -11,7 +11,9 @@ import { useT } from "../i18n/I18nProvider";
  * so a remote server or a relay serves them as well as the local one. A
  * picture with no thumbnail (a WebP) previews its original.
  */
-export function ToolImagePreviews(props: { images: readonly TranscriptFile[] }) {
+export function ToolImagePreviews(props: {
+  images: readonly TranscriptFile[];
+}) {
   const { t } = useT();
   const [open, setOpen] = useState<{ src: string; alt: string } | null>(null);
   const shown = props.images.filter((f) => f.previewUrl || f.url);

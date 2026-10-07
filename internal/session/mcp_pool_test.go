@@ -68,7 +68,7 @@ func newPoolTestManager(t *testing.T, cfg *config.Config, runner AgentRunner) *M
 // one process for every session of the manager, not one per session.
 func TestSessionsShareOneGlobalMCPServer(t *testing.T) {
 	started := filepath.Join(t.TempDir(), "started")
-	mgr := newPoolTestManager(t, reloadTestConfig(countedMCPServer("shared", started)), nil)
+	mgr := newPoolTestManager(t, reloadTestConfig(t, countedMCPServer("shared", started)), nil)
 	first := newPoolTestSession(t, mgr, t.TempDir())
 	second := newPoolTestSession(t, mgr, t.TempDir())
 	for _, st := range []*State{first, second} {
@@ -140,7 +140,7 @@ func TestProjectMCPServerRunsOncePerWorkspace(t *testing.T) {
 // the manager lets go of its servers.
 func TestGlobalMCPServersStartWithTheManagerAndOutliveItsSessions(t *testing.T) {
 	started := filepath.Join(t.TempDir(), "started")
-	mgr := newPoolTestManager(t, reloadTestConfig(countedMCPServer("shared", started)), nil)
+	mgr := newPoolTestManager(t, reloadTestConfig(t, countedMCPServer("shared", started)), nil)
 	mgr.StartGlobalMCPServers()
 	if !waitUntil(t, 10*time.Second, func() bool {
 		running := mgr.MCPPoolServers()
@@ -205,16 +205,17 @@ func TestKeptGlobalServerFollowsItsSwitch(t *testing.T) {
 	}
 }
 
-// TestAddingAServerDoesNotRestartTheOthers: a settings change that adds a
-// server reconnects every session, and a server whose declaration did not
-// change keeps its one process.
+// TestAddingAServerDoesNotRestartTheOthers: an edit of <home>/mcp.json that
+// adds a server reaches every session, and a server whose declaration did
+// not change keeps its one process.
 func TestAddingAServerDoesNotRestartTheOthers(t *testing.T) {
 	dir := t.TempDir()
 	stay, added := filepath.Join(dir, "stay"), filepath.Join(dir, "added")
-	mgr := newPoolTestManager(t, reloadTestConfig(countedMCPServer("stay", stay)), nil)
+	mgr := newPoolTestManager(t, reloadTestConfig(t, countedMCPServer("stay", stay)), nil)
 	first := newPoolTestSession(t, mgr, t.TempDir())
 	second := newPoolTestSession(t, mgr, t.TempDir())
-	mgr.ReplaceConfig(reloadTestConfig(countedMCPServer("stay", stay), countedMCPServer("added", added)))
+	writeHomeMCP(t, mgr.activeCfg().Paths.Home, countedMCPServer("stay", stay), countedMCPServer("added", added))
+	mgr.ReloadMCPDeclarations(context.Background())
 	for _, st := range []*State{first, second} {
 		if got := clientNames(st); len(got) != 2 {
 			t.Fatalf("clients after the change = %v, want [stay added]", got)
@@ -240,7 +241,7 @@ func TestEndedSharedServerIsStartedAgainAtTheNextTurn(t *testing.T) {
 	srv := countedMCPServer("fragile", started)
 	srv.Env = append(srv.Env, config.EnvVarConfig{Name: gatedMCPPIDEnv, Value: pidFile})
 	entered := make(chan []string, 4)
-	mgr := newPoolTestManager(t, reloadTestConfig(srv), namesRunner(entered))
+	mgr := newPoolTestManager(t, reloadTestConfig(t, srv), namesRunner(entered))
 	st := newPoolTestSession(t, mgr, t.TempDir())
 	data, err := os.ReadFile(pidFile)
 	if err != nil {
@@ -275,7 +276,7 @@ func TestEndedSharedServerIsStartedAgainAtTheNextTurn(t *testing.T) {
 // a lease on the server its parent runs, not a process of its own.
 func TestSubagentUsesItsParentsSharedServer(t *testing.T) {
 	started := filepath.Join(t.TempDir(), "started")
-	cfg := reloadTestConfig(countedMCPServer("shared", started))
+	cfg := reloadTestConfig(t, countedMCPServer("shared", started))
 	mgr := NewManager(cfg, mcpTestSender{}, nil, slog.Default(), t.TempDir(), &FileStore{Root: t.TempDir()})
 	t.Cleanup(mgr.CloseMCP)
 	cwd := t.TempDir()
@@ -301,7 +302,7 @@ func TestSubagentUsesItsParentsSharedServer(t *testing.T) {
 // probe of its own.
 func TestMCPServersListingStartsNoSecondCopy(t *testing.T) {
 	started := filepath.Join(t.TempDir(), "started")
-	mgr := newPoolTestManager(t, reloadTestConfig(countedMCPServer("shared", started)), nil)
+	mgr := newPoolTestManager(t, reloadTestConfig(t, countedMCPServer("shared", started)), nil)
 	cwd := t.TempDir()
 	newPoolTestSession(t, mgr, cwd)
 	rows, err := mgr.MCPServers(context.Background(), cwd)
@@ -326,7 +327,7 @@ func TestSubagentSharesItsParentsClientServer(t *testing.T) {
 	for _, e := range srv.Env {
 		decl.Env = append(decl.Env, acp.EnvVariable{Name: e.Name, Value: e.Value})
 	}
-	mgr := NewManager(reloadTestConfig(), mcpTestSender{}, nil, slog.Default(), t.TempDir(), &FileStore{Root: t.TempDir()})
+	mgr := NewManager(reloadTestConfig(t), mcpTestSender{}, nil, slog.Default(), t.TempDir(), &FileStore{Root: t.TempDir()})
 	mgr.SetMCPStopDelayForTest(0)
 	t.Cleanup(mgr.CloseMCP)
 	cwd := t.TempDir()

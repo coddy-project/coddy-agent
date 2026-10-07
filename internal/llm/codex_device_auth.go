@@ -25,7 +25,11 @@ const CodexIssuerURL = "https://auth.openai.com"
 // one-call entry point for callers without a UI to drive the two halves
 // separately (the CLI); the HTTP surface keeps using the split form so the
 // request can return the code before the wait.
-func CodexDeviceSignIn(ctx context.Context, issuer string, client *http.Client, authPath string, onPrompt func(CodexDeviceLogin)) error {
+func CodexDeviceSignIn(ctx context.Context, issuer string, proxyOrClient any, authPath string, onPrompt func(CodexDeviceLogin)) error {
+	client, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return err
+	}
 	login, err := StartCodexDeviceLogin(ctx, issuer, client)
 	if err != nil {
 		return err
@@ -47,13 +51,14 @@ type CodexDeviceLogin struct {
 
 // StartCodexDeviceLogin requests a device code from the official ChatGPT OAuth
 // issuer. issuer is injectable so the HTTP integration can be tested locally.
-func StartCodexDeviceLogin(ctx context.Context, issuer string, client *http.Client) (CodexDeviceLogin, error) {
+func StartCodexDeviceLogin(ctx context.Context, issuer string, proxyOrClient any) (CodexDeviceLogin, error) {
 	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
 	if issuer == "" {
 		return CodexDeviceLogin{}, fmt.Errorf("codex auth: OAuth issuer is empty")
 	}
-	if client == nil {
-		client = http.DefaultClient
+	client, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return CodexDeviceLogin{}, err
 	}
 	body, _ := json.Marshal(map[string]string{"client_id": codexClientID})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, issuer+"/api/accounts/deviceauth/usercode", bytes.NewReader(body))
@@ -100,11 +105,11 @@ func StartCodexDeviceLogin(ctx context.Context, issuer string, client *http.Clie
 
 // CompleteCodexDeviceLogin waits for browser confirmation, exchanges the
 // authorization code, and persists a Codex-compatible auth file at authPath.
-func CompleteCodexDeviceLogin(ctx context.Context, issuer string, client *http.Client, login CodexDeviceLogin, authPath string) error {
+func CompleteCodexDeviceLogin(ctx context.Context, issuer string, proxyOrClient any, login CodexDeviceLogin, authPath string) error {
 	if strings.TrimSpace(authPath) == "" {
 		return fmt.Errorf("codex auth: credential path is required")
 	}
-	return CompleteCodexDeviceLoginWith(ctx, issuer, client, login, func(ctx context.Context, credential []byte) error {
+	return CompleteCodexDeviceLoginWith(ctx, issuer, proxyOrClient, login, func(ctx context.Context, credential []byte) error {
 		// A cancelled wait (Ctrl-C, a sign-out) must not store what the
 		// issuer handed over after the cancellation.
 		if err := ctx.Err(); err != nil {
@@ -120,7 +125,7 @@ func CompleteCodexDeviceLogin(ctx context.Context, issuer string, client *http.C
 // that can be signed out while the wait runs uses it to check for
 // cancellation and write the credential under one lock, so a sign-out cannot
 // slip in between.
-func CompleteCodexDeviceLoginWith(ctx context.Context, issuer string, client *http.Client, login CodexDeviceLogin, persist func(ctx context.Context, credential []byte) error) error {
+func CompleteCodexDeviceLoginWith(ctx context.Context, issuer string, proxyOrClient any, login CodexDeviceLogin, persist func(ctx context.Context, credential []byte) error) error {
 	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
 	if issuer == "" {
 		return fmt.Errorf("codex auth: OAuth issuer is required")
@@ -128,8 +133,9 @@ func CompleteCodexDeviceLoginWith(ctx context.Context, issuer string, client *ht
 	if persist == nil {
 		return fmt.Errorf("codex auth: no persistence step")
 	}
-	if client == nil {
-		client = http.DefaultClient
+	client, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, codexDeviceLoginTimeout)
 	defer cancel()
@@ -182,6 +188,9 @@ type codexDeviceToken struct {
 }
 
 func pollCodexDeviceToken(ctx context.Context, issuer string, client *http.Client, login CodexDeviceLogin) (codexDeviceToken, error) {
+	if client == nil {
+		return codexDeviceToken{}, fmt.Errorf("codex device login: provider http client is required; build it with llm.HTTPClientForProviderProxy")
+	}
 	interval := login.Interval
 	if interval < 10*time.Millisecond {
 		interval = 10 * time.Millisecond
@@ -229,6 +238,9 @@ func pollCodexDeviceToken(ctx context.Context, issuer string, client *http.Clien
 }
 
 func exchangeCodexDeviceToken(ctx context.Context, issuer string, client *http.Client, device codexDeviceToken) (codexRefreshResponse, error) {
+	if client == nil {
+		return codexRefreshResponse{}, fmt.Errorf("codex device login: provider http client is required; build it with llm.HTTPClientForProviderProxy")
+	}
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {device.AuthorizationCode},

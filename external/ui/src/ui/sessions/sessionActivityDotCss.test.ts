@@ -45,3 +45,27 @@ test("the activity dot pulses, and holds still for reduced motion", () => {
 test("the spinner is gone", () => {
   expect(css).not.toMatch(/\.session-activity-spinner\b/);
 });
+
+test("a question marker stays still while it waits for the user", () => {
+  expect(rule(".session-question-icon")).not.toMatch(/animation:/);
+  expect(css).not.toMatch(/@keyframes session-question-pulse\s*\{/);
+});
+
+test("finished and error dots keep the shared circle geometry", () => {
+  const idle = rule(".session-idle-dot");
+  const error = rule(".session-error-dot");
+  const unread = rule(".session-unread-dot");
+  for (const dot of [idle, error]) {
+    expect(dot).not.toBe("");
+    for (const prop of ["width", "height", "border-radius"]) {
+      const re = new RegExp(`${prop}:\\s*([^;]+);`);
+      expect(re.exec(dot)?.[1]).toBe(re.exec(unread)?.[1]);
+    }
+  }
+  expect(idle).toMatch(/background:\s*transparent;/);
+  expect(error).toMatch(/background:\s*var\(--coddy-danger\);/);
+  expect(rule(".session-error-dot\.is-seen")).toMatch(
+    /background:\s*transparent;/,
+  );
+  expect(rule(".session-error-dot\.is-seen")).toMatch(/box-shadow:\s*inset/);
+});

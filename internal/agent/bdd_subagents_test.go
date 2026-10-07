@@ -607,7 +607,7 @@ func (s *subagentsFeatureState) approveDefinition(name string) error {
 	if s.cfg == nil {
 		s.cfg = s.buildConfig()
 	}
-	loader := subagents.NewLoader(s.cfg.Subagents.Dirs, "ask")
+	loader := subagents.NewLoader(s.cfg.Subagents.SearchDirs(), "ask")
 	def := subagents.FindByName(loader.Load(s.cwd, s.home), name)
 	if def == nil {
 		return fmt.Errorf("no definition %q to approve", name)
@@ -1379,7 +1379,7 @@ func (s *subagentsFeatureState) childOffered(tool string) error {
 }
 
 func (s *subagentsFeatureState) catalogDoesNotName(name string) error {
-	defs := subagents.NewLoader(s.cfg.Subagents.Dirs, s.cfg.Subagents.ResolvedProjectTrust()).Load(s.cwd, s.home)
+	defs := subagents.NewLoader(s.cfg.Subagents.SearchDirs(), s.cfg.Subagents.ResolvedProjectTrust()).Load(s.cwd, s.home)
 	if subagents.FindByName(defs, name) != nil {
 		return fmt.Errorf("catalog names %q", name)
 	}

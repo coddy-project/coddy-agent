@@ -81,7 +81,9 @@ test("a path outside the workspace has no preview to open", () => {
   expect(draftAtEnd("@/etc/hosts:1-2").open).toBe(false);
   expect(draftAtEnd("@~/notes.md:1-2").open).toBe(false);
   expect(draftAtEnd("@a/../../b.md:1-2").open).toBe(false);
-  expect(draftAtEnd("@a..b.md:1-2").open && draftAtEnd("@a..b.md:1-2")).toMatchObject({
+  expect(
+    draftAtEnd("@a..b.md:1-2").open && draftAtEnd("@a..b.md:1-2"),
+  ).toMatchObject({
     path: "a..b.md",
   });
   expect(draftAtEnd("@c++.md:3").open).toBe(true);

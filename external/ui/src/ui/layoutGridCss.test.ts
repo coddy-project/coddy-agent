@@ -1,6 +1,6 @@
 /**
  * Contract: the layout grid (DESIGN.md, "Layout grid") is the only source of
- * viewport widths. Every width query in styles.css and every matchMedia in the
+ * viewport widths. Every width query in the stylesheets and every matchMedia in the
  * code uses an edge of a tier - phone, tablet, desktop, wide - or one of the
  * component thresholds the grid's table lists, in the direction it lists it. A
  * new width is added to that table first: a threshold nobody wrote down is how
@@ -19,7 +19,23 @@ import {
 } from "./shellBreakpoint";
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+
+/** Every stylesheet of the SPA: styles.css and the few a module imports itself (ui/telegram/telegram.css). */
+function stylesheets(root: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(root)) {
+    const path = join(root, name);
+    if (statSync(path).isDirectory()) {
+      if (name !== "node_modules") out.push(...stylesheets(path));
+    } else if (name.endsWith(".css")) out.push(path);
+  }
+  return out;
+}
+
+const css = stylesheets(join(dir, ".."))
+  .map((path) => readFileSync(path, "utf8"))
+  .join("\n")
+  .replace(/\/\*[\s\S]*?\*\//g, "");
 const design = readFileSync(join(dir, "../../../../DESIGN.md"), "utf8");
 
 type Query = { kind: "min" | "max"; px: number };
@@ -28,7 +44,9 @@ const key = (q: Query) => `${q.kind}-width: ${q.px}px`;
 /** The "Layout grid" section of DESIGN.md, up to the next heading of its level. */
 function gridSection(): string {
   const start = design.indexOf("### Layout grid");
-  expect(start, "DESIGN.md has a Layout grid section").toBeGreaterThanOrEqual(0);
+  expect(start, "DESIGN.md has a Layout grid section").toBeGreaterThanOrEqual(
+    0,
+  );
   const next = design.indexOf("\n### ", start + 1);
   return design.slice(start, next < 0 ? undefined : next);
 }
@@ -63,10 +81,13 @@ const TIER_EDGES = new Set(
 function widthsIn(query: string): { queries: Query[]; strays: string[] } {
   const queries: Query[] = [];
   const strays: string[] = [];
-  const rest = query.replace(/\((min|max)-width:\s*(\d+)px\)/g, (_, kind: string, px: string) => {
-    queries.push({ kind: kind as "min" | "max", px: Number(px) });
-    return "";
-  });
+  const rest = query.replace(
+    /\((min|max)-width:\s*(\d+)px\)/g,
+    (_, kind: string, px: string) => {
+      queries.push({ kind: kind as "min" | "max", px: Number(px) });
+      return "";
+    },
+  );
   if (/width/.test(rest)) strays.push(query.trim());
   return { queries, strays };
 }
@@ -80,7 +101,8 @@ function sourceFiles(root: string): string[] {
   for (const name of readdirSync(root)) {
     const path = join(root, name);
     if (statSync(path).isDirectory()) out.push(...sourceFiles(path));
-    else if (/\.(ts|tsx)$/.test(name) && !/\.test\.(ts|tsx)$/.test(name)) out.push(path);
+    else if (/\.(ts|tsx)$/.test(name) && !/\.test\.(ts|tsx)$/.test(name))
+      out.push(path);
   }
   return out;
 }
@@ -92,13 +114,16 @@ describe("the layout grid", () => {
     for (const prelude of mediaPreludes()) {
       const { queries, strays: other } = widthsIn(prelude);
       strays.push(...other);
-      for (const q of queries) if (!allowed.has(key(q))) strays.push(`${prelude} (${key(q)})`);
+      for (const q of queries)
+        if (!allowed.has(key(q))) strays.push(`${prelude} (${key(q)})`);
     }
     expect(strays).toEqual([]);
   });
 
   test("the phone rules live under one query, not a second threshold of their own", () => {
-    const used = new Set(mediaPreludes().flatMap((p) => widthsIn(p).queries.map(key)));
+    const used = new Set(
+      mediaPreludes().flatMap((p) => widthsIn(p).queries.map(key)),
+    );
     // The phone block used to sit at 520px and the turn line's caption at 480px.
     expect(used.has("max-width: 520px")).toBe(false);
     expect(used.has("max-width: 480px")).toBe(false);
@@ -107,14 +132,22 @@ describe("the layout grid", () => {
 
   test("DESIGN.md names every tier edge the stylesheet uses, and every threshold it lists is in use", () => {
     const grid = gridSection();
-    const used = new Set(mediaPreludes().flatMap((p) => widthsIn(p).queries.map(key)));
+    const used = new Set(
+      mediaPreludes().flatMap((p) => widthsIn(p).queries.map(key)),
+    );
     for (const edge of TIER_EDGES) {
-      if (used.has(edge)) expect(grid, `${edge} is in the Layout grid section`).toContain(edge);
+      if (used.has(edge))
+        expect(grid, `${edge} is in the Layout grid section`).toContain(edge);
     }
     const thresholds = componentThresholds();
-    expect(thresholds.size, "the grid lists its component thresholds").toBeGreaterThan(0);
+    expect(
+      thresholds.size,
+      "the grid lists its component thresholds",
+    ).toBeGreaterThan(0);
     for (const [threshold, name] of thresholds) {
-      expect(used.has(threshold), `${threshold} (${name}) is still used`).toBe(true);
+      expect(used.has(threshold), `${threshold} (${name}) is still used`).toBe(
+        true,
+      );
     }
   });
 
@@ -123,7 +156,9 @@ describe("the layout grid", () => {
     const offenders = sourceFiles(root)
       .filter((path) => !path.endsWith("shellBreakpoint.ts"))
       .filter((path) =>
-        /matchMedia\(\s*["'`][^"'`]*width[^"'`]*\d+(px|em|rem)/.test(readFileSync(path, "utf8")),
+        /matchMedia\(\s*["'`][^"'`]*width[^"'`]*\d+(px|em|rem)/.test(
+          readFileSync(path, "utf8"),
+        ),
       )
       .map((path) => relative(root, path));
     expect(offenders).toEqual([]);

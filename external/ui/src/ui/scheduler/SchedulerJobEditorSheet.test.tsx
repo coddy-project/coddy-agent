@@ -22,9 +22,7 @@ vi.mock("./api", () => ({
     }),
   ),
   schedulerPatchJob: vi.fn(() => Promise.resolve({ ok: true })),
-  schedulerCreateJob: vi.fn(() =>
-    Promise.resolve({ ok: true, job_id: "new" }),
-  ),
+  schedulerCreateJob: vi.fn(() => Promise.resolve({ ok: true, job_id: "new" })),
   schedulerDeleteJob: vi.fn(() => Promise.resolve({ ok: true })),
   schedulerPauseJob: vi.fn(() => Promise.resolve({ ok: true })),
   schedulerResumeJob: vi.fn(() => Promise.resolve({ ok: true })),

@@ -21,7 +21,10 @@ import (
 
 const httpSettingsMCPHelperEnv = "CODDY_TEST_HTTP_SETTINGS_MCP_HELPER"
 
-func TestCoddyConfigPutConnectsMCPToActiveSession(t *testing.T) {
+// A server saved from Settings -> MCP servers into the global file connects
+// to the active session at once, and the save goes to the home the process
+// runs with, never to the one CODDY_HOME names for whoever runs the tests.
+func TestCoddyMCPPutConnectsMCPToActiveSession(t *testing.T) {
 	home := t.TempDir()
 	// The helper MCP server is this test binary, named by an absolute path so
 	// the server process finds it from any working directory.
@@ -85,35 +88,36 @@ agent:
 	httpServer := httptest.NewServer(srv.Handler())
 	defer httpServer.Close()
 
-	dto := config.ConfigToJSONDTO(cfg)
-	dto.MCPServers = []config.MCPServerJSON{{
+	body, err := json.Marshal(config.MCPJSONServer{
 		Type:    "stdio",
-		Name:    "settings-probe",
 		Command: helper,
 		Args:    []string{"-test.run=^TestHTTPSettingsMCPHelperProcess$"},
-		Env:     []config.EnvVarJSON{{Name: httpSettingsMCPHelperEnv, Value: "1"}},
-	}}
-	body, err := json.Marshal(dto)
+		Env:     map[string]string{httpSettingsMCPHelperEnv: "1"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := http.NewRequest(http.MethodPut, httpServer.URL+"/coddy/config", strings.NewReader(string(body)))
+	request, err := http.NewRequest(http.MethodPut, httpServer.URL+"/coddy/mcp/settings-probe?scope=global", strings.NewReader(string(body)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Coddy-Session-ID", created.SessionID)
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		t.Fatalf("PUT /coddy/config status = %d", response.StatusCode)
+		t.Fatalf("PUT /coddy/mcp/settings-probe status = %d", response.StatusCode)
 	}
 
 	// The save went to the test's own home: the operator's file is untouched.
 	if got, err := os.ReadFile(config.GlobalMCPJSONPath(operatorHome)); err != nil || string(got) != string(operatorMCP) {
 		t.Fatalf("operator mcp.json after the save = %q, %v; want it unchanged", got, err)
+	}
+	if entries, err := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home)); err != nil || entries["settings-probe"].Command != helper {
+		t.Fatalf("the test's mcp.json after the save = %+v, %v", entries, err)
 	}
 
 	clients := state.GetMCPClients()

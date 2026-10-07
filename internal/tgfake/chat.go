@@ -103,6 +103,12 @@ func (m *storedMessage) clone() *Message {
 		kb := &InlineKeyboardMarkup{InlineKeyboard: make([][]InlineKeyboardButton, len(m.msg.ReplyMarkup.InlineKeyboard))}
 		for i, row := range m.msg.ReplyMarkup.InlineKeyboard {
 			kb.InlineKeyboard[i] = append([]InlineKeyboardButton(nil), row...)
+			for j := range kb.InlineKeyboard[i] {
+				if app := kb.InlineKeyboard[i][j].WebApp; app != nil {
+					copied := *app
+					kb.InlineKeyboard[i][j].WebApp = &copied
+				}
+			}
 		}
 		out.ReplyMarkup = kb
 	}
@@ -153,6 +159,8 @@ type ChatView struct {
 	Messages  []MessageView    `json:"messages"`
 	Drafts    []DraftView      `json:"drafts"`
 	Callbacks []CallbackAnswer `json:"callbacks"`
+	// MenuButton is the menu button the chat shows: its own, else the bot's.
+	MenuButton *MenuButton `json:"menu_button,omitempty"`
 }
 
 // FindButton looks a button up by its visible text, the way a person finds
@@ -234,11 +242,14 @@ func (c *chatState) expireDraftsLocked(now time.Time) {
 func (s *Server) Chat(id int64) ChatView {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	menu := s.menuButtonLocked(id)
 	c := s.chats[id]
 	if c == nil {
-		return ChatView{ChatID: id, Type: "private", Messages: []MessageView{}, Drafts: []DraftView{}, Callbacks: []CallbackAnswer{}}
+		return ChatView{ChatID: id, Type: s.chatTypeLocked(id), Messages: []MessageView{}, Drafts: []DraftView{}, Callbacks: []CallbackAnswer{}, MenuButton: &menu}
 	}
-	return c.view(s.now())
+	v := c.view(s.now())
+	v.MenuButton = &menu
+	return v
 }
 
 func (c *chatState) view(now time.Time) ChatView {

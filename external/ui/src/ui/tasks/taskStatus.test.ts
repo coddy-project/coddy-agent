@@ -51,9 +51,9 @@ describe("formatDuration", () => {
     [0, "0s"],
     [45, "45s"],
     [60, "1m"],
-    [95, "1m35s"],
+    [95, "1m 35s"],
     [3600, "1h"],
-    [5400, "1h30m"],
+    [5400, "1h 30m"],
   ])("formats %i seconds as %s", (seconds, want) => {
     expect(formatDuration(seconds)).toBe(want);
   });
@@ -176,7 +176,7 @@ describe("taskTimingLine", () => {
       elapsed_seconds: 90,
       exit_code: 2,
     });
-    expect(taskTimingLine(t, START_MS + 9_000_000)).toBe("1m30s · exit 2");
+    expect(taskTimingLine(t, START_MS + 9_000_000)).toBe("1m 30s · exit 2");
   });
 
   test("finished agent task omits the synthetic exit code", () => {
@@ -188,9 +188,9 @@ describe("taskTimingLine", () => {
       elapsed_seconds: 90,
     };
     const ok = task({ ...finished, status: "succeeded", exit_code: 0 });
-    expect(taskTimingLine(ok, START_MS + 9_000_000)).toBe("1m30s");
+    expect(taskTimingLine(ok, START_MS + 9_000_000)).toBe("1m 30s");
     const failed = task({ ...finished, status: "failed", exit_code: 1 });
-    expect(taskTimingLine(failed, START_MS + 9_000_000)).toBe("1m30s");
+    expect(taskTimingLine(failed, START_MS + 9_000_000)).toBe("1m 30s");
   });
 });
 
@@ -477,7 +477,7 @@ describe("what a card says about its task", () => {
   test("the meta line counts while the task runs and sums it up afterwards", () => {
     const nowMs = Date.parse("2026-09-18T10:01:05Z");
     expect(taskMetaLine(base({ expected_seconds: 300 }), nowMs)).toBe(
-      "1m5s · est. 5m",
+      "1m 5s · est. 5m",
     );
     const done = base({
       running: false,
@@ -488,7 +488,7 @@ describe("what a card says about its task", () => {
     });
     // How it ended is the dot's to say on a folded card, and the foot's on an open
     // one; the exit code is the foot's alone.
-    expect(taskMetaLine(done, nowMs)).toMatch(/^1m30s · \d{1,2}:\d{2}/);
+    expect(taskMetaLine(done, nowMs)).toMatch(/^1m 30s · \d{1,2}:\d{2}/);
     expect(taskMetaLine(done, nowMs)).not.toMatch(/Failed|exit/i);
     expect(
       taskMetaLine(

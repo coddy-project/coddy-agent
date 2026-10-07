@@ -815,6 +815,135 @@ func TestListSnapshotsCarriesRowStatistics(t *testing.T) {
 	}
 }
 
+func TestListSnapshotsUsesMatchingPersistedMessageCount(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_count_metadata_ut"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: id, CWD: t.TempDir(), Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "ask"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "answer"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+
+	msgPath := filepath.Join(dir, messagesFile)
+	info, err := os.Stat(msgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := fs.ReadMeta(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.MessageCount == nil || meta.MessagesSize == nil || meta.MessagesModTime == nil {
+		t.Fatalf("save did not record transcript metadata: %+v", meta)
+	}
+	// Keep the recorded identity while making the file unparsable. A metadata
+	// listing must use the matching count and not open this transcript.
+	if err := os.WriteFile(msgPath, bytes.Repeat([]byte("{"), int(info.Size())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(msgPath, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := fs.ListSnapshotsWith(ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].MessageCount != 2 {
+		t.Fatalf("metadata listing = %+v, want one two-message row", rows)
+	}
+}
+
+func TestEnrichMessageCountsFallsBackForLegacyOrStaleMetadata(t *testing.T) {
+	fs, st := savedState(t, "sess_count_fallback", 3)
+	meta, err := fs.ReadMeta(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.MessageCount = nil
+	meta.MessagesSize = nil
+	meta.MessagesModTime = nil
+	if err := writeJSONAtomic(filepath.Join(st.SessionDir, sessionMetaFile), meta); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := fs.ListSnapshotsWith(ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].MessageCount != 0 {
+		t.Fatalf("legacy metadata listing = %+v, want unknown zero count", rows)
+	}
+	fs.EnrichMessageCounts(rows)
+	if rows[0].MessageCount != 3 {
+		t.Fatalf("enriched count = %d, want 3", rows[0].MessageCount)
+	}
+}
+
+func TestListSnapshotsMetadataIncludesChildBundles(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	parentID, childID := "sess_count_parent", "sess_count_child"
+	parentDir, err := fs.EnsureLayout(parentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := &State{ID: parentID, CWD: "/tmp", Mode: ModeAgent, SessionDir: parentDir}
+	parent.AddMessage(llm.Message{Role: llm.RoleUser, Content: "parent"})
+	if err := fs.Save(parent); err != nil {
+		t.Fatal(err)
+	}
+	childDir, err := fs.EnsureChildLayout(parentID, childID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := &State{ID: childID, CWD: "/tmp", Mode: ModeAgent, SessionDir: childDir}
+	child.AddMessage(llm.Message{Role: llm.RoleUser, Content: "child question"})
+	child.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "child answer"})
+	if err := fs.Save(child); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := fs.ListSnapshotsWith(ListOptions{IncludeSubagents: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.SessionID == childID {
+			if !row.SubagentRun || row.ParentSessionID != parentID || row.MessageCount != 2 {
+				t.Fatalf("child metadata row = %+v", row)
+			}
+			return
+		}
+	}
+	t.Fatalf("child %q missing from %+v", childID, rows)
+}
+
+func TestDefaultListSkipsArchivedCorruptTranscriptBeforeReadingIt(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	storeTaggedSession(t, fs, "sess_visible", "Visible", nil, false)
+	storeTaggedSession(t, fs, "sess_archived", "Archived", nil, true)
+	// This is intentionally both large and corrupt. Default History must apply
+	// its archive filter from session.json before any transcript operation.
+	archivedPath := filepath.Join(fs.SessionPath("sess_archived"), messagesFile)
+	if err := os.WriteFile(archivedPath, bytes.Repeat([]byte("{"), 2<<20), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := fs.ListSnapshotsWith(ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].SessionID != "sess_visible" {
+		t.Fatalf("default list = %+v, want visible session only", rows)
+	}
+}
+
 // Persisting a session rewrote the whole history on every state change, so the
 // cost of a save followed the length of the conversation rather than what had
 // moved in it. These tests hold a save to the size of the change.

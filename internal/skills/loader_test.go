@@ -3,9 +3,11 @@ package skills_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
@@ -326,5 +328,174 @@ func TestLoadSkillVersionFromMetadata(t *testing.T) {
 				t.Fatalf("description lost: %q", got.Description)
 			}
 		})
+	}
+}
+
+// writeNamedSkill writes <dir>/<name>/SKILL.md whose description says which
+// folder it came from.
+func writeNamedSkill(t *testing.T, dir, name, description string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: " + name + "\ndescription: " + description + "\n---\n\nbody\n"
+	if err := os.WriteFile(filepath.Join(dir, name, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// describe loads the skills a workspace sees and returns the description of
+// the one called name, "" when it is not there.
+func describe(t *testing.T, loader *skills.Loader, cwd, coddyHome, name string) string {
+	t.Helper()
+	loaded, err := loader.LoadAll(cwd, coddyHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range loaded {
+		if skills.CanonicalCommandName(s) == name {
+			return s.Description
+		}
+	}
+	return ""
+}
+
+// The default folders, lowest priority first: the user's agents skills, the
+// project's agents skills, Coddy's own skills, the project's Coddy skills. A
+// name found in several is taken from the last; taking the top layer away
+// shows the one under it.
+func TestDefaultSkillDirsLayerInOrder(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	coddyHome := t.TempDir()
+	project := t.TempDir()
+	layers := []struct{ dir, label string }{
+		{filepath.Join(userHome, ".agents", "skills"), "user agents"},
+		{filepath.Join(project, ".agents", "skills"), "project agents"},
+		{filepath.Join(coddyHome, "skills"), "coddy home"},
+		{filepath.Join(project, ".coddy", "skills"), "project coddy"},
+	}
+	for _, l := range layers {
+		writeNamedSkill(t, l.dir, "chain", l.label)
+	}
+	loader := skills.NewLoader(config.DefaultSkillDirs())
+	for i := len(layers) - 1; i >= 0; i-- {
+		if got := describe(t, loader, project, coddyHome, "chain"); got != layers[i].label {
+			t.Fatalf("with %d layers the skill came from %q, want %q", i+1, got, layers[i].label)
+		}
+		if err := os.RemoveAll(filepath.Join(layers[i].dir, "chain")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := describe(t, loader, project, coddyHome, "chain"); got != "" {
+		t.Fatalf("with every layer gone the skill is still there: %q", got)
+	}
+}
+
+// A relative entry names a folder of the workspace, like ${CWD}: the default
+// ".agents/skills" of the request follows the session and the folder a new
+// chat picked, never the directory the server process was started from.
+func TestRelativeSkillDirResolvesAgainstTheWorkspace(t *testing.T) {
+	project := t.TempDir()
+	writeNamedSkill(t, filepath.Join(project, ".agents", "skills"), "relative", "from the workspace")
+	loader := skills.NewLoader([]string{".agents/skills"})
+	if got := describe(t, loader, project, "", "relative"); got != "from the workspace" {
+		t.Fatalf("relative entry in the project: got %q", got)
+	}
+	if got := describe(t, loader, t.TempDir(), "", "relative"); got != "" {
+		t.Fatalf("another workspace must not see it: got %q", got)
+	}
+	if got := skills.ExpandConfiguredPath(".agents/skills", project, ""); got != filepath.Join(project, ".agents", "skills") {
+		t.Fatalf("ExpandConfiguredPath(.agents/skills) = %q", got)
+	}
+}
+
+// ${HOME} names the user's home like ~ does, and an entry of the workspace
+// with no workspace behind the call reads nothing rather than a folder at the
+// root of the disk.
+func TestSkillDirPlaceholdersHomeAndMissingWorkspace(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	if got := skills.ExpandConfiguredPath("${HOME}/.agents/skills", "/w", ""); got != filepath.Join(userHome, ".agents", "skills") {
+		t.Fatalf("${HOME}: got %q", got)
+	}
+	for _, entry := range []string{"${CWD}/.coddy/skills", ".agents/skills"} {
+		if got := skills.ExpandConfiguredPath(entry, "", ""); got != "" {
+			t.Fatalf("%s with no workspace: got %q, want nothing", entry, got)
+		}
+	}
+}
+
+// A default folder may itself be a link that leads out of the project.
+func TestDefaultSkillDirThatIsALink(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	outside := t.TempDir()
+	writeNamedSkill(t, outside, "linked-default", "outside the project")
+	project := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(project, ".agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(project, ".agents", "skills")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	loader := skills.NewLoader(config.DefaultSkillDirs())
+	if got := describe(t, loader, project, t.TempDir(), "linked-default"); got != "outside the project" {
+		t.Fatalf("skill behind a linked .agents/skills: got %q", got)
+	}
+}
+
+// A folder named twice is read once, at its last place: the lowest entry is
+// the strongest one, for a folder as for a skill, so a default folder named
+// again in skills.dirs moves below the directories listed before it.
+func TestFolderNamedTwiceIsReadAtItsLastPlace(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a")
+	b := filepath.Join(root, "b")
+	writeNamedSkill(t, a, "twice", "from a")
+	writeNamedSkill(t, b, "twice", "from b")
+	if got := describe(t, skills.NewLoader([]string{a, b, a}), root, "", "twice"); got != "from a" {
+		t.Fatalf("a, b, a: got %q, want the copy of a (read at its last place)", got)
+	}
+	if got := describe(t, skills.NewLoader([]string{a, b}), root, "", "twice"); got != "from b" {
+		t.Fatalf("a, b: got %q, want b (the later directory)", got)
+	}
+	// A link to a folder already listed is that folder.
+	link := filepath.Join(root, "link-to-a")
+	if err := os.Symlink(a, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if got := describe(t, skills.NewLoader([]string{link, b, a}), root, "", "twice"); got != "from a" {
+		t.Fatalf("link-to-a, b, a: got %q, want a", got)
+	}
+}
+
+// The search roots coddy skills list prints are the folders the loader reads,
+// in its order: a folder named twice at its last place, a link to a listed
+// folder counted as that folder, so the list says which folder wins a name.
+func TestSearchRootsAreTheFoldersTheLoaderReads(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a")
+	b := filepath.Join(root, "b")
+	for _, d := range []string{a, b} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := skills.SearchRoots([]string{a, b, a}, root, ""); !reflect.DeepEqual(got, []string{b, a}) {
+		t.Fatalf("a, b, a: roots %v, want b then a", got)
+	}
+	link := filepath.Join(root, "link-to-a")
+	if err := os.Symlink(a, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if got := skills.SearchRoots([]string{a, link, b}, root, ""); !reflect.DeepEqual(got, []string{link, b}) {
+		t.Fatalf("a, link-to-a, b: roots %v, want the link once, then b", got)
+	}
+	// A ${CWD} entry without a workspace names no folder.
+	if got := skills.SearchRoots([]string{"${CWD}/.coddy/skills", b}, "", ""); !reflect.DeepEqual(got, []string{b}) {
+		t.Fatalf("no workspace: roots %v", got)
 	}
 }

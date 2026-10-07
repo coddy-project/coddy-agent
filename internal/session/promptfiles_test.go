@@ -633,6 +633,28 @@ func TestSearchMentionsSchemes(t *testing.T) {
 	}
 }
 
+// The start of a scheme name is answered with that scheme even where nothing
+// in the workspace matches it, so a picker typing "@agent:" one letter at a
+// time never stops at "@ag" for want of a candidate.
+func TestSearchMentionsOffersTheSchemeBeingTyped(t *testing.T) {
+	root := t.TempDir()
+	m, sid := mentionTestManager(t, root)
+	for _, q := range []string{"a", "ag", "Agen", "agent"} {
+		res, _ := m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: q})
+		if got := candidateInserts(res); len(got) == 0 || got[0] != "@agent:" || !res.Items[0].Continue {
+			t.Fatalf("%q in an empty workspace: %q", q, got)
+		}
+	}
+	res, _ := m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: "co"})
+	if got := candidateInserts(res); len(got) == 0 || got[0] != "@coddy:" {
+		t.Fatalf("co: %q", got)
+	}
+	res, _ = m.SearchMentions(context.Background(), session.MentionSearch{SessionID: sid, Query: "zz"})
+	if got := candidateInserts(res); len(got) != 0 {
+		t.Fatalf("a query that starts no scheme gets no hint: %q", got)
+	}
+}
+
 // "@coddy:" lists the pages of the built-in documentation, finds a page by
 // its slug or title, a section after "#", and sections by their words.
 func TestSearchMentionsDocumentation(t *testing.T) {
@@ -818,5 +840,80 @@ func TestDocMentionIsBoundedWithTheWayToReadTheRest(t *testing.T) {
 	short := resolve("see @coddy:mentions")
 	if long.URI != "coddy:surfaces/web-ui" || short.URI != "coddy:features/mentions" || strings.Contains(short.Text, "The page continues") {
 		t.Fatalf("a short page arrives whole: %s %s", short.URI, short.Text[max(0, len(short.Text)-200):])
+	}
+}
+
+// A restricted turn (a messenger user who is not the bot's admin) attaches
+// files of its working directory only: a mention of anything outside it, or
+// of the agent's home, stays plain text.
+func TestConfinedTurnMentionsStayInsideTheWorkspace(t *testing.T) {
+	root := t.TempDir()
+	m, sid := mentionTestManager(t, root)
+	st := m.SessionByID(sid)
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("top secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(st.GetCWD(), "note.txt"), []byte("plain note"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st.SetTurnRestriction(&session.TurnRestriction{ConfineToWorkspace: true})
+	defer st.SetTurnRestriction(nil)
+	scope := session.MentionScope{Confined: true, ConfineHome: m.Cfg().Paths.Home}
+	blocks := m.ResolvePromptMentions(context.Background(), st, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "@" + outside + " and @note.txt"}}, scope)
+	var texts []string
+	for _, b := range blocks {
+		if b.Resource != nil {
+			texts = append(texts, b.Resource.Text)
+		}
+	}
+	joined := strings.Join(texts, "|")
+	if strings.Contains(joined, "top secret") || !strings.Contains(joined, "plain note") {
+		t.Fatalf("attachments of a confined turn: %q", texts)
+	}
+	if !session.PathInWorkspace("note.txt", st.GetCWD(), "") || session.PathInWorkspace("../x", st.GetCWD(), "") {
+		t.Fatal("PathInWorkspace misread a relative path")
+	}
+}
+
+// A restricted turn attaches the rules of its working directory only: a rule
+// of the agent's home stays out of "@rule:", as a file of the home does.
+func TestConfinedTurnRuleMentionsStayInsideTheWorkspace(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	for _, f := range []struct{ path, body string }{
+		{filepath.Join(home, "rules", "home-secret.md"), "---\npaths:\n  - never/**\n---\nHOME RULE BODY"},
+		{filepath.Join(root, ".claude", "rules", "local.md"), "---\npaths:\n  - never/**\n---\nLOCAL RULE BODY"},
+	} {
+		_ = os.MkdirAll(filepath.Dir(f.path), 0o755)
+		if err := os.WriteFile(f.path, []byte(f.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{Paths: config.Paths{Home: home, CWD: root}}
+	cfg.Agent.ApplyDefaults()
+	cfg.Rules.ApplyDefaults()
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.New(slog.DiscardHandler), root, &session.FileStore{Root: t.TempDir()})
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := m.SessionByID(res.SessionID)
+	attach := func(scope session.MentionScope) string {
+		blocks := m.ResolvePromptMentions(context.Background(), st, []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "@rule:home-secret @rule:local"}}, scope)
+		var b strings.Builder
+		for _, x := range blocks {
+			if x.Resource != nil {
+				b.WriteString(x.Resource.Text)
+			}
+		}
+		return b.String()
+	}
+	if open := attach(session.MentionScope{}); !strings.Contains(open, "HOME RULE BODY") {
+		t.Skipf("the home rule is not in this session's catalog (%q); nothing to confine", open)
+	}
+	got := attach(session.MentionScope{Confined: true, ConfineHome: home})
+	if strings.Contains(got, "HOME RULE BODY") || !strings.Contains(got, "LOCAL RULE BODY") {
+		t.Fatalf("rule attachments of a confined turn: %q", got)
 	}
 }

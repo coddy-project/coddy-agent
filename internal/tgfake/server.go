@@ -92,6 +92,13 @@ type Server struct {
 	files      map[string]*storedFile
 	nextFileID int
 	now        func() time.Time
+
+	// token is the one in the path of the latest Bot API call: what launch
+	// data is signed with when Options.Token is not set.
+	token       string
+	defaultMenu *MenuButton           // the bot's menu button; nil shows its commands
+	chatMenus   map[int64]*MenuButton // private chats' own menu buttons
+	nextQuery   int                   // numbers the query_id of Mini App launches
 }
 
 // New returns a Server with nothing in it.
@@ -116,6 +123,7 @@ func New(opts Options) *Server {
 		cbqChat:    map[string]int64{},
 		files:      map[string]*storedFile{},
 		now:        time.Now,
+		chatMenus:  map[int64]*MenuButton{},
 	}
 }
 
@@ -136,8 +144,8 @@ func (s *Server) Close() {
 	s.closeOnce.Do(func() { close(s.closing) })
 }
 
-// Reset forgets the chats, the outbox, the faults, the commands and the
-// uploaded files. Update ids keep growing: a bot that is polling remembers
+// Reset forgets the chats, the outbox, the faults, the commands, the menu
+// buttons and the uploaded files. Update ids keep growing: a bot that is polling remembers
 // the last id it confirmed and would drop anything numbered below it. The
 // allowed_updates subscription stays as well, on purpose: Telegram keeps it
 // with the token, not with the chats, so a reset between two runs of a bot
@@ -155,6 +163,8 @@ func (s *Server) Reset() {
 	s.cbqChat = map[string]int64{}
 	s.files = map[string]*storedFile{}
 	s.nextFileID = 0
+	s.defaultMenu = nil
+	s.chatMenus = map[int64]*MenuButton{}
 	s.wakeLocked()
 }
 

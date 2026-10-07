@@ -2,6 +2,8 @@
 
 package telegram
 
+import "github.com/EvilFreelancer/coddy-agent/external/gateway/replyquote"
+
 // What this adapter tells the model about answering into a Telegram chat. It
 // is a system prompt block the gateway contributes for the length of one turn
 // (session.PromptRunOpts.SurfaceSystemPrompt), not a line prepended to what
@@ -33,6 +35,7 @@ const telegramLegacyGuidance = "## Answering in a Telegram chat\n\n" +
 	"- `-` or `•` for bullets, never `*`, which the chat reads as emphasis;\n" +
 	"- put every identifier, path, filename, flag and command in backticks. Outside code an `_` opens italics, so `foo_bar` written bare costs the message its formatting;\n" +
 	"- a chat is a narrow column on a phone: answer in a few short paragraphs, and put the thing that was asked for first.\n\n" +
+	replyquote.Guidance + "\n\n" +
 	"None of this is visible to the person, and nothing about it belongs in the answer itself."
 
 // telegramRichGuidance is sent when rich_messages is on: the answer goes out
@@ -41,6 +44,7 @@ const telegramLegacyGuidance = "## Answering in a Telegram chat\n\n" +
 const telegramRichGuidance = "## Answering in a Telegram chat\n\n" +
 	"This conversation reaches the person through a Telegram chat that renders GitHub-flavoured Markdown in full: headings, tables, task lists, fenced code and inline code all display correctly, so write the answer the way you normally would.\n\n" +
 	"A chat is still a narrow column on a phone. Keep it to a few short paragraphs, put the thing that was asked for first, and reach for a table only when the columns carry the point.\n\n" +
+	replyquote.Guidance + "\n\n" +
 	"None of this is visible to the person, and nothing about it belongs in the answer itself."
 
 // surfaceSystemPrompt is what the gateway hands the session for one turn.

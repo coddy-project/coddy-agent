@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -52,7 +53,7 @@ func refuseAskModePlanRun(state *State, slug string) error {
 
 // runPlanAdmitted is the body of RunPlan for a turn that beginTurn already
 // admitted; ctx is that turn's context.
-func (m *Manager) runPlanAdmitted(ctx context.Context, sessionID, slug string, state *State, sender acp.UpdateSender) (*acp.SessionPromptResult, error) {
+func (m *Manager) runPlanAdmitted(ctx context.Context, sessionID, slug string, state *State, sender acp.UpdateSender) (result *acp.SessionPromptResult, err error) {
 	if sender == nil {
 		sender = m.server
 	}
@@ -63,6 +64,15 @@ func (m *Manager) runPlanAdmitted(ctx context.Context, sessionID, slug string, s
 	if sd == "" {
 		return nil, fmt.Errorf("session has no persisted bundle")
 	}
+	outcome := ActivityOutcomeSuccess
+	defer func() {
+		if ctx.Err() != nil && outcome == ActivityOutcomeSuccess {
+			outcome = ActivityOutcomeCanceled
+		} else if err != nil && outcome == ActivityOutcomeSuccess {
+			outcome = ActivityOutcomeFailure
+		}
+		state.RecordActivityOutcome(outcome)
+	}()
 	doc, err := plans.Read(sd, slug)
 	if err != nil {
 		return nil, err
@@ -89,9 +99,13 @@ func (m *Manager) runPlanAdmitted(ctx context.Context, sessionID, slug string, s
 	MarkTurnRan(ctx)
 	stopReason, err := m.runner(ctx, state, hydrated, sender)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			outcome = ActivityOutcomeCanceled
+		} else {
+			outcome = ActivityOutcomeFailure
+		}
 		return nil, err
 	}
-	state.BumpActivitySeq()
 	return &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}, nil
 }
 

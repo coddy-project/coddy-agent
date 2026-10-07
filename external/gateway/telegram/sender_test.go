@@ -19,20 +19,19 @@ import (
 
 func TestForeignPermissionTapPreservesOwnersKeyboard(t *testing.T) {
 	w := newPermissionWorld(t)
-	owner := w.bot.store.Get(sessionstore.SessionKey(adapterName, permissionChatID, permissionUserID, config.IsolationIndividual, true))
+	owner := w.bot.store.Get(sessionstore.SessionKey(adapterName, permissionGroupID, permissionUserID, config.IsolationIndividual, true))
 	p := &chatPrompt{sessionID: owner, options: []acp.PermissionOption{{OptionID: "allow", Name: "Allow"}}, answer: make(chan *acp.PermissionResult, 1)}
 	w.bot.asks.pending["token"] = p
-	query := &tgbotapi.CallbackQuery{From: &tgbotapi.User{ID: permissionUserID + 1}, Message: &tgbotapi.Message{MessageID: 1, Chat: &tgbotapi.Chat{ID: permissionChatID, Type: "supergroup"}}}
-	w.bot.answerPermissionTap(w.api, query, "token:0")
-	w.mu.Lock()
-	for _, call := range w.calls {
-		if call.method == "editMessageReplyMarkup" {
-			t.Error("a foreign tap removed the owner's permission buttons")
-		}
+	query := &tgbotapi.CallbackQuery{From: &tgbotapi.User{ID: permissionUserID + 1}, Message: &tgbotapi.Message{MessageID: 1, Chat: &tgbotapi.Chat{ID: permissionGroupID, Type: "supergroup"}}}
+	w.bot.answerPermissionTap(w.f.api, query, "token:0")
+	// The fake files every call it is sent, a refused one included, so an
+	// attempt to take the buttons away shows here even though no message of
+	// this chat carries them.
+	if calls := w.f.fake.Calls("editMessageReplyMarkup"); len(calls) != 0 {
+		t.Errorf("a foreign tap removed the owner's permission buttons: %+v", calls)
 	}
-	w.mu.Unlock()
 	query.From.ID = permissionUserID
-	w.bot.answerPermissionTap(w.api, query, "token:0")
+	w.bot.answerPermissionTap(w.f.api, query, "token:0")
 	select {
 	case answer := <-p.answer:
 		if answer.OptionID != "allow" {
@@ -124,7 +123,7 @@ func TestAWithdrawnRequestSaysItNoLongerWaits(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan *acp.PermissionResult, 1)
 	go func() {
-		res, _ := w.bot.asks.ask(ctx, w.api, slog.New(slog.DiscardHandler), permissionChatID, w.sessionID,
+		res, _ := w.bot.asks.ask(ctx, w.f.api, slog.New(slog.DiscardHandler), permissionChatID, w.sessionID,
 			permissionParams(w.sessionID, "writer", "echo checked"))
 		done <- res
 	}()

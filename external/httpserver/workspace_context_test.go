@@ -27,7 +27,7 @@ func TestDrivesListingPayload(t *testing.T) {
 	if got["drives"] != true {
 		t.Errorf("drives flag = %v, want true", got["drives"])
 	}
-	folders, _ := got["folders"].([]map[string]string)
+	folders, _ := got["folders"].([]map[string]interface{})
 	if len(folders) != 2 {
 		t.Fatalf("folders = %v, want 2 rows", folders)
 	}
@@ -235,6 +235,93 @@ func TestWorkspaceFolderCreateRejectsTheDriveLevel(t *testing.T) {
 	status, body := postFolderJSON(t, ts, workspaceDrivesPath, "child")
 	if status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body %v)", status, body)
+	}
+}
+
+func TestWorkspaceFoldersListsHiddenDirectoriesOnlyWhenRequested(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"visible", ".hidden", "node_modules"} {
+		if err := os.Mkdir(filepath.Join(dir, name), 0o755); err != nil {
+			t.Fatalf("mkdir %q: %v", name, err)
+		}
+	}
+	ts := newFoldersTestServer(t, nil)
+
+	_, defaultBody := getFoldersJSON(t, ts, dir)
+	defaultRows, _ := defaultBody["folders"].([]interface{})
+	if len(defaultRows) != 1 || defaultRows[0].(map[string]interface{})["name"] != "visible" {
+		t.Fatalf("default folders = %v, want only visible", defaultRows)
+	}
+
+	status, hiddenBody := getFoldersJSON(t, ts, dir+"&show_hidden=true")
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %v)", status, hiddenBody)
+	}
+	rows, _ := hiddenBody["folders"].([]interface{})
+	if len(rows) != 2 {
+		t.Fatalf("folders = %v, want visible and hidden folders", rows)
+	}
+	var hidden map[string]interface{}
+	for _, row := range rows {
+		entry := row.(map[string]interface{})
+		if entry["name"] == ".hidden" {
+			hidden = entry
+		}
+	}
+	if hidden == nil || hidden["hidden"] != true {
+		t.Errorf("hidden folder row = %v, want hidden: true", hidden)
+	}
+}
+
+func TestWorkspaceFoldersListsOnlyDirectorySymlinksAndResolvesNavigation(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "file"), []byte("not a folder"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	link := filepath.Join(dir, "directory-link")
+	fileLink := filepath.Join(dir, "file-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "file"), fileLink); err != nil {
+		t.Fatalf("symlink file: %v", err)
+	}
+	ts := newFoldersTestServer(t, nil)
+
+	status, body := getFoldersJSON(t, ts, dir)
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %v)", status, body)
+	}
+	rows, _ := body["folders"].([]interface{})
+	if len(rows) != 2 { // target plus the directory symlink; file-link is unsafe to follow.
+		t.Fatalf("folders = %v, want target and one directory symlink", rows)
+	}
+	var linkRow map[string]interface{}
+	for _, row := range rows {
+		entry := row.(map[string]interface{})
+		if entry["name"] == "directory-link" {
+			linkRow = entry
+		}
+	}
+	if linkRow == nil || linkRow["symlink"] != true || linkRow["target"] != target {
+		t.Fatalf("directory symlink row = %v, want path target metadata", linkRow)
+	}
+
+	status, resolvedBody := getFoldersJSON(t, ts, link)
+	if status != http.StatusOK {
+		t.Fatalf("symlink path status = %d, want 200 (body %v)", status, resolvedBody)
+	}
+	if resolvedBody["path"] != target {
+		t.Errorf("symlink path resolved to %v, want %q", resolvedBody["path"], target)
+	}
+
+	status, _ = getFoldersJSON(t, ts, fileLink)
+	if status != http.StatusBadRequest {
+		t.Errorf("non-directory symlink status = %d, want 400", status)
 	}
 }
 

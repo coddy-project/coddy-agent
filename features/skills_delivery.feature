@@ -13,6 +13,7 @@ Feature: The standard skill delivery
     When coddy hands over the standard delivery
     Then the home skills directory carries "rpa-feat"
     And the skill "rpa-gen-rules" carries its references on disk
+    And the skill "crossreview" carries its runnable scripts on disk
     And the skill catalogue offers "rpa-feat"
     And the configured skill sources contain "EvilFreelancer/rpa-skills"
 

@@ -24,9 +24,27 @@ func TestSubagentsDefaultsFillEveryUnsetKnob(t *testing.T) {
 	if got := s.EffectiveDefaultTimeoutSeconds(); got != SubagentsDefaultTimeoutSeconds {
 		t.Fatalf("default_timeout_seconds = %d, want %d", got, SubagentsDefaultTimeoutSeconds)
 	}
-	want := []string{"${CODDY_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.coddy/agents"}
-	if strings.Join(s.Dirs, "|") != strings.Join(want, "|") {
-		t.Fatalf("dirs = %v, want %v", s.Dirs, want)
+	if len(s.Dirs) != 0 {
+		t.Fatalf("an absent subagents.dirs must stay empty (the defaults are read beside it), got %v", s.Dirs)
+	}
+	want := []string{"${HOME}/.agents/agents", "${CWD}/.agents/agents", "${CODDY_HOME}/agents", "${CWD}/.coddy/agents"}
+	if strings.Join(DefaultSubagentDirs(), "|") != strings.Join(want, "|") {
+		t.Fatalf("DefaultSubagentDirs() = %v, want %v", DefaultSubagentDirs(), want)
+	}
+	if strings.Join(s.SearchDirs(), "|") != strings.Join(want, "|") {
+		t.Fatalf("SearchDirs() without subagents.dirs = %v, want the defaults %v", s.SearchDirs(), want)
+	}
+}
+
+// subagents.dirs only adds directories after the four defaults, which win a
+// name over them.
+func TestSubagentsDirsAddToTheDefaults(t *testing.T) {
+	s := Subagents{Dirs: []string{"/srv/team-agents"}}
+	s.ApplyDefaults(Paths{Home: "/home/dev/.coddy", CWD: "/work"})
+	got := s.SearchDirs()
+	want := append(DefaultSubagentDirs(), "/srv/team-agents")
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("SearchDirs() = %v, want %v", got, want)
 	}
 }
 

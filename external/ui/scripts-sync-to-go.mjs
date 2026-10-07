@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const uiRoot = path.resolve(import.meta.dirname);
@@ -22,6 +22,16 @@ await cp(
   path.join(dist, "events-worker.js"),
   path.join(uiRoot, "events-worker.js"),
 );
+
+// The chunks loaded on demand (Mermaid, KaTeX and its fonts). Their names carry
+// a content hash, so the folder is replaced whole: a stale chunk from an older
+// build must not end up embedded next to the new ones. Source maps stay behind.
+const chunksDest = path.join(uiRoot, "chunks");
+await rm(chunksDest, { recursive: true, force: true });
+await cp(path.join(dist, "chunks"), chunksDest, {
+  recursive: true,
+  filter: (src) => !src.endsWith(".map"),
+});
 
 const docsAssets = path.join(uiRoot, "..", "..", "docs", "assets");
 const faviconFiles = [

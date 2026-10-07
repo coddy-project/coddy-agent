@@ -16,7 +16,13 @@ COPY docs/assets/coddy-logo-*.svg docs/assets/favicon-32.png docs/assets/favicon
 RUN npm run build:go
 
 
-FROM golang:1.25-bookworm AS build
+FROM golang:1.26-bookworm AS build
+
+# The official image sets GOTOOLCHAIN=local, which would build with whatever
+# 1.26 release a cached copy of this image holds. auto lets go switch to the
+# `toolchain` line of go.mod when the image is older, so the image never links
+# an older standard library than CI and the release archives.
+ENV GOTOOLCHAIN=auto
 
 WORKDIR /src
 
@@ -41,6 +47,8 @@ ENV VERSION=${VERSION}
 ENV BUILD_TAGS=${BUILD_TAGS}
 
 COPY --from=ui-builder /ui/index.html /ui/styles.css /ui/app.js /ui/events-worker.js /src/external/ui/
+# The renderers app.js loads on demand (Mermaid, KaTeX), content-hashed.
+COPY --from=ui-builder /ui/chunks /src/external/ui/chunks
 
 RUN mkdir -p /out \
 	/out/ssl-certs \

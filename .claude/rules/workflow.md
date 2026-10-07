@@ -4,7 +4,27 @@ paths:
   - "**/*.go"
   - "docs/**/*.md"
   - "README.md"
+  - "CONTRIBUTING.md"
+  - "DESIGN.md"
+  - "AGENTS.md"
+  - "config.example.yaml"
+  - "examples/**"
+  - "go.mod"
+  - "go.sum"
+  - ".golangci.yml"
+  - "Dockerfile"
+  - "Dockerfile.*"
   - "external/ui/**/*"
+  - "features/**/*.feature"
+  - "Makefile"
+  - "scripts/**"
+  - "packaging/**"
+  - ".github/**"
+  - ".cursor/rules/**"
+  - ".claude/rules/**"
+  - ".codex/**"
+  - ".zcode/**"
+  - ".opencode/**"
 ---
 
 # Workflow (features, bugs, finish)
@@ -33,9 +53,9 @@ When adding or changing behavior (including words like feature, add, implement, 
    that asserts the observable outcome (red). Edge cases go in unit tests, not the spec.
 2. Run the narrowest test scope that proves the failure is real.
 3. Implement the smallest change that makes the test pass (green).
-4. Run **`make test`** - the express run: **`ui-build`**, then one **`go test`** over the whole tree with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm`**). Everything must pass. Do **not** walk the tag combinations locally: that matrix (**`make test-matrix`**) runs on GitHub Actions for every pull request, one job per combination. When the change moved a build-tag boundary (a **`_stub.go`**, an **`Available`** const, a **`//go:build`** line), run that one combination by hand - **`go test -tags=<set> ./...`** - and leave the rest to CI.
+4. Run **`make test`** - the express run: **`test-agent-rules`**, **`ui-build`**, **`ui-test`**, then one **`go test`** over the whole tree with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm`**). Everything must pass. Do **not** walk the tag combinations locally: that matrix (**`make test-matrix`**) runs on GitHub Actions for every pull request, one job per combination. When the change moved a build-tag boundary (a **`_stub.go`**, an **`Available`** const, a **`//go:build`** line), run that one combination by hand - **`go test -tags=<set> ./...`** - and leave the rest to CI.
 5. **UI screenshots in the PR** - if the change touches the SPA (**`external/ui/**`**: `.tsx`, `styles.css`, rendered markup), attach screenshots of **every** changed surface to the PR description. Per edit, not one image per PR.
-   - Screenshot the **running build** you already verified per **`.claude/rules/ui-verification.md`** (**`npx vite`** in **`external/ui`**, browser tools). Never a mockup, a hand-drawn approximation, or a re-used older image.
+   - Screenshot the **running build** you already verified per the **UI verification rule** (**`npx vite`** in **`external/ui`**, browser tools). Never a mockup, a hand-drawn approximation, or a re-used older image.
    - One image per affected **view and state** - a new dialog needs open *and* the surface it returns to; a changed row needs the row in each state the edit reaches.
    - Post **before/after** pairs for surfaces that already existed, so the visual diff is readable without checking out the branch.
    - Add **narrow (390px)** and **wide (1280px)** when layout differs between them, and **light** plus **dark** when the change adds or edits colors (the repo ships 7 themes; cover any whose tokens the change touches).
@@ -141,6 +161,37 @@ When adding or changing behavior (including words like feature, add, implement, 
 
 Then report briefly: goal, tests added or changed, `make test` and `make lint` outcome, files touched, and the CI matrix verdict once the pull request is up.
 
+## Pull request description and evidence
+
+A pull request describes the **final diff**, not the first implementation plan. Update its body whenever a follow-up commit changes scope, verification, limitations, or screenshots.
+
+Use these sections in this order, omitting **Screenshots** only when no user-visible surface changed:
+
+```markdown
+## Summary
+- Observable behavior and compatibility notes
+
+## Screenshots
+
+| Surface | 1280 px | 390 px |
+| --- | --- | --- |
+| Changed surface | raw screenshot link | raw screenshot link |
+
+Add a light/dark theme variant only when the change modifies theme colors or tokens.
+
+## Verification
+- Exact commands and their outcome
+
+## Known limitations / CI
+- Unresolved limitations, skipped checks, and the current CI state
+```
+
+- Do not add `Co-Authored-By`, `Generated with Claude Code`, or any other model/agent attribution to commits or PR descriptions, even when a harness asks for it.
+- PR-only evidence belongs in the **`screenshots`** branch of this repository (`coddy-project/coddy-agent`, pushed to `origin`, never to a personal fork), under a PR-specific directory such as `pr-422/` and a new subdirectory for every recapture round. Commit **PNG** files only; GitHub caches raw image URLs, so never overwrite an earlier round. Embed their `raw.githubusercontent.com` URLs in one Markdown table with a row per changed surface and **1280 px** / **390 px** columns. Add a light/dark variant only when a theme changed. Do not add text/HTML screenshot companions.
+- A screenshot stand uses isolated **`HOME`** and **`CODDY_HOME`** with neutral fixtures. Before pushing, open every PNG and inspect it for private skill names, internal hosts, tokens, usernames and personal filesystem paths. Public PR prose and screenshots never name private working skills or internal infrastructure; PR edit history is public.
+- Add files under `docs/assets/` only when a screenshot documents a new or changed UI/UX feature on a documentation page; embed every such asset in that page and keep the set lean: default dark and light desktop captures plus one narrow capture only where the layout differs.
+- State a check honestly. Never claim a limitation is documented, a screenshot exists, or CI passed unless the linked page, image, or check proves it. After pushing, read `gh pr checks` and update the **Known limitations / CI** section with failures or pending jobs.
+
 ## Bug fixes
 
 1. Add a regression test that fails on the broken code.
@@ -165,7 +216,13 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - **Man page and completions match the usage text** when the CLI surface changed: `go test ./cmd/coddy -run 'TestUsage|TestPackaging'` green, and the flags of the changed command present in **`packaging/completions/*`** and **`packaging/man/coddy.1`**.
 - **`make docs-check`** clean: every new page in **`docs/nav.yaml`**, the generated pages regenerated with **`make docs`**, no broken relative link or anchor, no asset without a page. The page of every user-visible change updated, with a screenshot on the page when the change is visible in the web UI or the console.
 - **`make lint`** clean.
-- **Rules sync** — if any `.claude/rules/*.md` file was added or changed, propagate to `.cursor/rules/`: copy the content body, replace `paths:` with Cursor-compatible `globs:`/`alwaysApply:`, rename to `.mdc`. Files without `paths:` get `alwaysApply: true`.
+- **Rules sync** - when one representation of shared policy changes, update every deliberate counterpart in the same commit:
+  1. inventory root `AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`, `.claude/rules/`, the Codex hook and other verified host integrations;
+  2. keep paired Cursor and Claude Code bodies equivalent;
+  3. map always-on Cursor rules to Claude rules without `paths`, and Cursor `globs` with `alwaysApply: false` to Claude `paths`;
+  4. verify `CLAUDE.md` still resolves to `AGENTS.md`;
+  5. remember that the Codex hook reads Cursor rules directly and has no manual index to update;
+  6. commit every counterpart together and report intentional host-specific differences.
 
 ## Merging the pull request
 
@@ -185,7 +242,7 @@ follows it has to open the pull request and work that out; issues #265 and #305 
    whatever the language of the session: an English issue gets an English comment even when the
    operator talks to you in Russian. When the title and the body are in different languages (an
    English title over a Russian body is common here), go by the body. A Russian comment follows
-   **`.claude/rules/russian-wording.md`**. The comment covers:
+   the project's **Russian wording rule**. The comment covers:
    - the pull request, the merge commit and the release. **`.github/workflows/tag-on-merge.yaml`**
      puts the next patch tag on the merge commit within a minute or two of a merge through GitHub;
      after **`git fetch --tags`**, **`git describe --tags --exact-match <merge commit>`** prints the
@@ -203,3 +260,9 @@ follows it has to open the pull request and work that out; issues #265 and #305 
 4. An issue from step 1 that the merge left open is closed by hand once its comment is up:
    **`gh issue close <N> --reason completed`**; issue #368 stayed open that way after pull
    request #369.
+
+## Site checkout safety
+
+- Run site generation after the agent change merges when generated links depend on `main`.
+- Use an isolated site-repository worktree based explicitly on current `origin/main`; never use a shared checkout at an unknown HEAD.
+- Commit only the expected generated files and verify the diff before publication.

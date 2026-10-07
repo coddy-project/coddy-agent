@@ -212,7 +212,9 @@ function mentionedBefore(
 export function parseSessionAssetFiles(
   content: string,
 ): { name: string; mimeType: string }[] {
-  const m = /<coddy_session_assets>([\s\S]*?)<\/coddy_session_assets>/i.exec(content);
+  const m = /<coddy_session_assets>([\s\S]*?)<\/coddy_session_assets>/i.exec(
+    content,
+  );
   if (!m) return [];
   const files: { name: string; mimeType: string }[] = [];
   for (const line of (m[1] ?? "").split("\n")) {
@@ -237,7 +239,9 @@ export function parseSessionAssetFiles(
  * block can be re-appended to the edited message before sending.
  */
 export function extractSessionAssetsXml(content: string): string {
-  const m = /<coddy_session_assets>[\s\S]*?<\/coddy_session_assets>/i.exec(content);
+  const m = /<coddy_session_assets>[\s\S]*?<\/coddy_session_assets>/i.exec(
+    content,
+  );
   return m ? m[0] : "";
 }
 
@@ -257,7 +261,10 @@ export const STDIN_LABEL = "[stdin]";
  */
 export function stripCoddyAttachmentsForUserDisplay(raw: string): string {
   // Strip <coddy_session_assets> blocks — backend-injected, not for display.
-  let s = raw.replace(/\n*<coddy_session_assets>[\s\S]*?<\/coddy_session_assets>/gi, "");
+  let s = raw.replace(
+    /\n*<coddy_session_assets>[\s\S]*?<\/coddy_session_assets>/gi,
+    "",
+  );
   // Strip legacy bracket annotation from older sessions.
   s = s.replace(
     /\n\n\[Uploaded files saved to session assets \(read-only\):\n[\s\S]*?You can read these files directly or copy them to the workspace as needed\.\]/g,

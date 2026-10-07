@@ -102,7 +102,7 @@ func (s *skFeatureState) startServer() error {
 		return err
 	}
 	cfgPath := filepath.Join(s.home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  auto_discovery: true\n"), 0o644); err != nil {
 		return err
 	}
 	cfg, err := config.Load(cfgPath)
@@ -293,6 +293,65 @@ func (s *skFeatureState) removeSource(market string) error {
 	return nil
 }
 
+// projectDeclares writes the server workspace's .coddy/marketplaces.json with
+// the marketplace as a source, the way a checkout brings it.
+func (s *skFeatureState) projectDeclares(market string) error {
+	return config.WriteMarketplacesFile(config.ProjectMarketplacesPath(s.home), config.MarketplacesFile{Sources: []string{s.marketplaceURL(market)}})
+}
+
+// listedEntry finds the entry of the last source listing whose source is the
+// marketplace's.
+func (s *skFeatureState) listedEntry(market string) (map[string]interface{}, error) {
+	entries, _ := s.body["entries"].([]interface{})
+	for _, it := range entries {
+		m, _ := it.(map[string]interface{})
+		if src, _ := m["source"].(string); src == s.marketplaceURL(market) {
+			return m, nil
+		}
+	}
+	return nil, fmt.Errorf("the listing has no entry for %q: %v", market, s.body["entries"])
+}
+
+func (s *skFeatureState) listedAwaitingApproval(market string) error {
+	m, err := s.listedEntry(market)
+	if err != nil {
+		return err
+	}
+	if m["origin"] != "project" || m["status"] != "needs_approval" || m["trusted"] != false || m["gated"] != true {
+		return fmt.Errorf("entry of %q = %v, want a gated project entry awaiting approval", market, m)
+	}
+	return nil
+}
+
+func (s *skFeatureState) approveListed(market string) error {
+	m, err := s.listedEntry(market)
+	if err != nil {
+		return err
+	}
+	if err := s.do(http.MethodPost, "/coddy/skills/sources/trust", map[string]interface{}{
+		"key": s.marketplaceURL(market), "fingerprint": m["fingerprint"],
+	}); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("approve status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
+func (s *skFeatureState) syncSources() error {
+	if err := s.do(http.MethodPost, "/coddy/skills/sync", nil); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("sync status %d body %v", s.status, s.body)
+	}
+	if failed, _ := s.body["failed"].([]interface{}); len(failed) != 0 {
+		return fmt.Errorf("sync failed: %v", failed)
+	}
+	return nil
+}
+
 func (s *skFeatureState) skillRow(name string) (map[string]interface{}, error) {
 	if err := s.do(http.MethodGet, "/coddy/skills", nil); err != nil {
 		return nil, err
@@ -389,6 +448,10 @@ func initializeSkillsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I update the skill "([^"]*)"$`, s.updateSkill)
 	sc.Step(`^I list the skill sources$`, s.listSources)
 	sc.Step(`^I remove the marketplace "([^"]*)" from the skill sources$`, s.removeSource)
+	sc.Step(`^the workspace's marketplaces\.json declares the marketplace "([^"]*)"$`, s.projectDeclares)
+	sc.Step(`^the source list shows the marketplace "([^"]*)" from the project awaiting approval$`, s.listedAwaitingApproval)
+	sc.Step(`^I approve the project marketplace "([^"]*)" as it was listed$`, s.approveListed)
+	sc.Step(`^I sync the skill sources$`, s.syncSources)
 
 	sc.Step(`^the skills list shows "([^"]*)" at version "([^"]*)"$`, s.listShowsVersion)
 	sc.Step(`^the skills list still shows "([^"]*)" at version "([^"]*)"$`, s.listShowsVersion)
@@ -588,6 +651,23 @@ func (s *skCWDFeatureState) sessionAnchoredOnProject(project string) error {
 	return nil
 }
 
+func (s *skCWDFeatureState) switchSessionWorkspaceToProject(project string) error {
+	dir, ok := s.projects[project]
+	if !ok {
+		return fmt.Errorf("unknown project %q", project)
+	}
+	if s.sessionID == "" {
+		return fmt.Errorf("no session anchored")
+	}
+	if err := s.do(http.MethodPost, "/coddy/sessions/"+s.sessionID+"/workspace", map[string]interface{}{"path": dir}, false); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("switch workspace status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
 func (s *skCWDFeatureState) listSlashCommands(withSession bool) error {
 	if err := s.do(http.MethodGet, "/coddy/slash-commands?page=1&page_size=200", nil, withSession); err != nil {
 		return err
@@ -602,6 +682,165 @@ func (s *skCWDFeatureState) listSlashCommandsForSession() error { return s.listS
 
 func (s *skCWDFeatureState) listSlashCommandsWithoutSession() error {
 	return s.listSlashCommands(false)
+}
+
+// pickedFolderQuery is the query the SPA adds to a cwd-scoped listing while a
+// new chat has no session yet: the folder picked on the start screen.
+func (s *skCWDFeatureState) pickedFolderQuery(project string) (string, error) {
+	dir, ok := s.projects[project]
+	if !ok {
+		return "", fmt.Errorf("unknown project %q", project)
+	}
+	return "&cwd=" + url.QueryEscape(dir), nil
+}
+
+func (s *skCWDFeatureState) listSlashCommandsPicked(project string, withSession bool) error {
+	q, err := s.pickedFolderQuery(project)
+	if err != nil {
+		return err
+	}
+	if err := s.do(http.MethodGet, "/coddy/slash-commands?page=1&page_size=200"+q, nil, withSession); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("slash-commands status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
+func (s *skCWDFeatureState) listSlashCommandsWithoutSessionPicked(project string) error {
+	return s.listSlashCommandsPicked(project, false)
+}
+
+func (s *skCWDFeatureState) listSlashCommandsForSessionPicked(project string) error {
+	return s.listSlashCommandsPicked(project, true)
+}
+
+func (s *skCWDFeatureState) listSkillsWithoutSessionPicked(project string) error {
+	q, err := s.pickedFolderQuery(project)
+	if err != nil {
+		return err
+	}
+	if err := s.do(http.MethodGet, "/coddy/skills?"+strings.TrimPrefix(q, "&"), nil, false); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("skills status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
+func (s *skCWDFeatureState) projectHasLocalSubagent(project, name string) error {
+	dir, ok := s.projects[project]
+	if !ok {
+		return fmt.Errorf("unknown project %q", project)
+	}
+	agents := filepath.Join(dir, ".coddy", "agents")
+	if err := os.MkdirAll(agents, 0o755); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: Local subagent of project %s\n---\n\nReview the change.\n", name, project)
+	return os.WriteFile(filepath.Join(agents, name+".md"), []byte(body), 0o644)
+}
+
+func (s *skCWDFeatureState) searchMentionsPicked(query, project string) error {
+	q, err := s.pickedFolderQuery(project)
+	if err != nil {
+		return err
+	}
+	if err := s.do(http.MethodGet, "/coddy/mentions?q="+url.QueryEscape(query)+q, nil, false); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("mentions status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
+func (s *skCWDFeatureState) mentionInserts() []string {
+	items, _ := s.body["items"].([]interface{})
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		if m, ok := it.(map[string]interface{}); ok {
+			if v, _ := m["insert"].(string); v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
+}
+
+func (s *skCWDFeatureState) mentionCandidatesInclude(insert string) error {
+	for _, v := range s.mentionInserts() {
+		if v == insert {
+			return nil
+		}
+	}
+	return fmt.Errorf("mention candidates %v do not include %q", s.mentionInserts(), insert)
+}
+
+func (s *skCWDFeatureState) mentionCandidatesExclude(insert string) error {
+	for _, v := range s.mentionInserts() {
+		if v == insert {
+			return fmt.Errorf("mention candidates %v unexpectedly include %q", s.mentionInserts(), insert)
+		}
+	}
+	return nil
+}
+
+// projectLinksSkillFromOutside puts a skill folder outside every project and
+// links it into the project's skills directory, the way an operator shares one
+// skill between projects.
+func (s *skCWDFeatureState) projectLinksSkillFromOutside(project, skill string) error {
+	if s.dirEntry == "" {
+		return fmt.Errorf("skills directory entry not configured")
+	}
+	dir, ok := s.projects[project]
+	if !ok {
+		return fmt.Errorf("unknown project %q", project)
+	}
+	target := filepath.Join(s.root, "outside", skill)
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: Shared skill %s\n---\n\n# %s\n\nShared body.\n", skill, skill, skill)
+	if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte(body), 0o644); err != nil {
+		return err
+	}
+	skillsDir := skills.ExpandConfiguredPath(s.dirEntry, dir, s.home)
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		return err
+	}
+	return os.Symlink(target, filepath.Join(skillsDir, skill))
+}
+
+func (s *skCWDFeatureState) deleteSkillForSession(skill string) error {
+	if err := s.do(http.MethodDelete, "/coddy/skills/"+url.PathEscape(skill), nil, true); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("delete status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
+func (s *skCWDFeatureState) skillLinkGone(skill, project string) error {
+	dir, ok := s.projects[project]
+	if !ok {
+		return fmt.Errorf("unknown project %q", project)
+	}
+	link := filepath.Join(skills.ExpandConfiguredPath(s.dirEntry, dir, s.home), skill)
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		return fmt.Errorf("skill link %s still there (err %v)", link, err)
+	}
+	return nil
+}
+
+func (s *skCWDFeatureState) linkedSkillStillOnDisk(skill string) error {
+	if _, err := os.Stat(filepath.Join(s.root, "outside", skill, "SKILL.md")); err != nil {
+		return fmt.Errorf("the linked skill %q went with its link: %v", skill, err)
+	}
+	return nil
 }
 
 func (s *skCWDFeatureState) listSkillsForSession() error {
@@ -732,8 +971,20 @@ func initializeSkillsSessionWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a project folder "([^"]*)" with a local skill "([^"]*)"$`, s.projectWithLocalSkill)
 	sc.Step(`^a running coddy HTTP server started outside the project$`, s.startServerOutsideProject)
 	sc.Step(`^a session anchored on the project folder "([^"]*)"$`, s.sessionAnchoredOnProject)
+	sc.Step(`^I switch that session workspace to the project folder "([^"]*)"$`, s.switchSessionWorkspaceToProject)
 	sc.Step(`^I list slash commands for that session$`, s.listSlashCommandsForSession)
 	sc.Step(`^I list slash commands without a session$`, s.listSlashCommandsWithoutSession)
+	sc.Step(`^I list slash commands without a session for the picked folder "([^"]*)"$`, s.listSlashCommandsWithoutSessionPicked)
+	sc.Step(`^I list slash commands for that session with the picked folder "([^"]*)"$`, s.listSlashCommandsForSessionPicked)
+	sc.Step(`^I list skills without a session for the picked folder "([^"]*)"$`, s.listSkillsWithoutSessionPicked)
+	sc.Step(`^the project folder "([^"]*)" has a local subagent "([^"]*)"$`, s.projectHasLocalSubagent)
+	sc.Step(`^I search the mentions "([^"]*)" without a session for the picked folder "([^"]*)"$`, s.searchMentionsPicked)
+	sc.Step(`^the mention candidates include "([^"]*)"$`, s.mentionCandidatesInclude)
+	sc.Step(`^the mention candidates do not include "([^"]*)"$`, s.mentionCandidatesExclude)
+	sc.Step(`^the project folder "([^"]*)" links the skill "([^"]*)" from outside the project$`, s.projectLinksSkillFromOutside)
+	sc.Step(`^I delete the skill "([^"]*)" for that session$`, s.deleteSkillForSession)
+	sc.Step(`^the skill link "([^"]*)" is gone from the project folder "([^"]*)"$`, s.skillLinkGone)
+	sc.Step(`^the linked skill "([^"]*)" is still on disk outside the project$`, s.linkedSkillStillOnDisk)
 	sc.Step(`^I list skills for that session$`, s.listSkillsForSession)
 	sc.Step(`^I prompt that session with "([^"]*)"$`, s.promptSession)
 	sc.Step(`^I read the server configuration$`, s.readServerConfiguration)
@@ -742,6 +993,155 @@ func initializeSkillsSessionWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the skills list includes "([^"]*)" from the project folder "([^"]*)"$`, s.skillsListIncludesFromProject)
 	sc.Step(`^the turn runs with the skill "([^"]*)" loaded$`, s.turnRanWithSkill)
 	sc.Step(`^the skills directories include "([^"]*)"$`, s.skillsDirectoriesInclude)
+}
+
+// ---- features/skills_default_dirs.feature ----
+
+func (s *skCWDFeatureState) projectFolders(a, b string) error {
+	for _, name := range []string{a, b} {
+		dir := filepath.Join(s.root, "projects", name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		s.projects[name] = dir
+	}
+	return nil
+}
+
+func writeDescribedSkill(dir, name, description string) error {
+	if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n# %s\n", name, description, name)
+	return os.WriteFile(filepath.Join(dir, name, "SKILL.md"), []byte(body), 0o644)
+}
+
+func (s *skCWDFeatureState) projectHasSkillIn(project, skill, rel, description string) error {
+	dir, ok := s.projects[project]
+	if !ok {
+		return fmt.Errorf("unknown project %q", project)
+	}
+	return writeDescribedSkill(filepath.Join(dir, filepath.FromSlash(rel)), skill, description)
+}
+
+func (s *skCWDFeatureState) coddyHomeHasSkill(skill, description string) error {
+	return writeDescribedSkill(filepath.Join(s.home, "skills"), skill, description)
+}
+
+func (s *skCWDFeatureState) extraDirHasSkill(extra, skill, description string) error {
+	return writeDescribedSkill(filepath.Join(s.root, extra), skill, description)
+}
+
+func (s *skCWDFeatureState) projectLinksFolderOutside(project, rel, skill string) error {
+	dir, ok := s.projects[project]
+	if !ok {
+		return fmt.Errorf("unknown project %q", project)
+	}
+	outside := filepath.Join(s.root, "outside-"+skill)
+	if err := writeDescribedSkill(outside, skill, "behind a link"); err != nil {
+		return err
+	}
+	link := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		return err
+	}
+	return os.Symlink(outside, link)
+}
+
+// startServerWithSkills starts the server from a directory that is not a
+// project, with skillsBlock as the whole skills section of its config ("" for
+// none at all).
+func (s *skCWDFeatureState) startServerWithSkills(skillsBlock string) error {
+	if err := os.MkdirAll(s.home, 0o755); err != nil {
+		return err
+	}
+	cfgPath := filepath.Join(s.home, "config.yaml")
+	cfgYAML := `providers:
+  - name: local
+    type: openai
+    api_key: test-key
+models:
+  - model: local/gpt-4o
+    max_tokens: 4096
+    temperature: 0.1
+agent:
+  model: local/gpt-4o
+` + skillsBlock
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
+		return err
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: s.home, CWD: s.launch, ConfigPath: cfgPath})
+	if err != nil {
+		return err
+	}
+	runner := func(_ context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	s.mgr = session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.launch, nil)
+	s.srv = New(cfg, s.mgr, slog.Default(), s.launch)
+	s.ts = httptest.NewServer(s.srv.Handler())
+	return nil
+}
+
+func (s *skCWDFeatureState) startServerNoSkillDirs() error { return s.startServerWithSkills("") }
+
+func (s *skCWDFeatureState) startServerExtraSkillDir(extra string) error {
+	return s.startServerWithSkills(fmt.Sprintf("skills:\n  dirs:\n    - %q\n", filepath.ToSlash(filepath.Join(s.root, extra))))
+}
+
+func (s *skCWDFeatureState) slashCommandDescribed(name, description string) error {
+	items, _ := s.body["items"].([]interface{})
+	for _, it := range items {
+		m, ok := it.(map[string]interface{})
+		if !ok || m["name"] != name {
+			continue
+		}
+		if got, _ := m["description"].(string); got != description {
+			return fmt.Errorf("slash command %q is described %q, want %q", name, got, description)
+		}
+		return nil
+	}
+	return fmt.Errorf("slash commands %v do not include %q", s.itemNames(), name)
+}
+
+func initializeSkillsDefaultDirsScenario(sc *godog.ScenarioContext) {
+	s := &skCWDFeatureState{}
+	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+		return ctx, s.reset()
+	})
+	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+		s.close()
+		return ctx, nil
+	})
+	sc.Step(`^project folders "([^"]*)" and "([^"]*)"$`, s.projectFolders)
+	sc.Step(`^the project folder "([^"]*)" has the skill "([^"]*)" in "([^"]*)" described "([^"]*)"$`, s.projectHasSkillIn)
+	sc.Step(`^Coddy's own skills folder has the skill "([^"]*)" described "([^"]*)"$`, s.coddyHomeHasSkill)
+	sc.Step(`^the extra directory "([^"]*)" has the skill "([^"]*)" described "([^"]*)"$`, s.extraDirHasSkill)
+	sc.Step(`^the project folder "([^"]*)" links "([^"]*)" to a folder outside it with the skill "([^"]*)"$`, s.projectLinksFolderOutside)
+	sc.Step(`^a running coddy HTTP server with no skill directories configured$`, s.startServerNoSkillDirs)
+	sc.Step(`^a running coddy HTTP server with the extra skill directory "([^"]*)"$`, s.startServerExtraSkillDir)
+	sc.Step(`^a session anchored on the project folder "([^"]*)"$`, s.sessionAnchoredOnProject)
+	sc.Step(`^I switch that session workspace to the project folder "([^"]*)"$`, s.switchSessionWorkspaceToProject)
+	sc.Step(`^I list slash commands for that session$`, s.listSlashCommandsForSession)
+	sc.Step(`^I list slash commands without a session for the picked folder "([^"]*)"$`, s.listSlashCommandsWithoutSessionPicked)
+	sc.Step(`^the slash commands include "([^"]*)"$`, s.slashCommandsInclude)
+	sc.Step(`^the slash commands do not include "([^"]*)"$`, s.slashCommandsExclude)
+	sc.Step(`^the slash command "([^"]*)" is described "([^"]*)"$`, s.slashCommandDescribed)
+}
+
+func TestSkillsDefaultDirsFeature(t *testing.T) {
+	suite := godog.TestSuite{
+		Name:                "skills_default_dirs",
+		ScenarioInitializer: initializeSkillsDefaultDirsScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/skills_default_dirs.feature"},
+			TestingT: t,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("skills_default_dirs feature failed")
+	}
 }
 
 func TestSkillsSessionWorkspaceFeature(t *testing.T) {

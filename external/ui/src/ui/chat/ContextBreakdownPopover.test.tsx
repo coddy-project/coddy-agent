@@ -10,6 +10,17 @@ import { afterEach, expect, test, vi } from "vitest";
 import { ContextBreakdownPopover } from "./ContextBreakdownPopover";
 import { OpenRailScreen } from "../nav/railEscape.fakes";
 
+const breakdown = {
+  systemPrompt: 100,
+  toolDefinitions: 50,
+  rules: 0,
+  skills: 0,
+  mcp: 0,
+  subagents: 0,
+  conversation: 350,
+  estimatedTotal: 500,
+};
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -73,13 +84,59 @@ test("context action says compact now when automation is disabled", () => {
   );
 });
 
+test("idle sheet keeps close and disabled compact controls visible", () => {
+  render(
+    <ContextBreakdownPopover
+      open
+      onClose={() => {}}
+      useSheet
+      maxContextTokens={128000}
+      compactThreshold={80}
+    />,
+  );
+  expect(screen.getByTestId("context-breakdown-close")).toBeVisible();
+  const compact = screen.getByTestId("context-breakdown-compact");
+  expect(compact).toHaveTextContent("Compact at 80%");
+  expect(compact).toBeDisabled();
+});
+
+test("context popover uses modal head chrome and keeps usage and compaction in one row", () => {
+  render(
+    <ContextBreakdownPopover
+      open
+      onClose={() => {}}
+      maxContextTokens={1000}
+      breakdown={breakdown}
+      sessionId="sess_123"
+      compactAvailable
+      compactAutoEnabled
+      compactThreshold={80}
+    />,
+  );
+
+  expect(screen.getByTestId("context-breakdown-head")).toHaveClass(
+    "sessions-head",
+  );
+  expect(screen.getByTestId("context-breakdown-close")).toHaveClass(
+    "sessions-close",
+  );
+  const usageRow = screen.getByTestId("context-breakdown-usage-row");
+  expect(usageRow).toHaveTextContent("50.0% Used");
+  expect(usageRow).toContainElement(
+    screen.getByTestId("context-breakdown-compact"),
+  );
+});
+
 test("context action says nothing to compact when the endpoint folds nothing", async () => {
   const fetchMock = vi.fn(async () =>
     Promise.resolve(
-      new Response(JSON.stringify({ compacted: false, reason: "nothing_to_compact" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({ compacted: false, reason: "nothing_to_compact" }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     ),
   );
   vi.stubGlobal("fetch", fetchMock);
@@ -111,7 +168,11 @@ test("Escape closes the breakdown before the drawer open beside the chat", () =>
   render(
     <>
       <OpenRailScreen id="history" onClose={closeHistory} />
-      <ContextBreakdownPopover open onClose={onClose} maxContextTokens={128000} />
+      <ContextBreakdownPopover
+        open
+        onClose={onClose}
+        maxContextTokens={128000}
+      />
     </>,
   );
   fireEvent.keyDown(document.body, { key: "Escape" });

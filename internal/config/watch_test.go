@@ -166,3 +166,37 @@ func TestFileWatcherRunStopsWithItsContext(t *testing.T) {
 		t.Fatal("Run did not return when its context was cancelled")
 	}
 }
+
+// The watcher of <home>/mcp.json reports every move of the file after the
+// first look - written, removed, created again - and stays quiet between.
+func TestStampWatcherReportsEveryMoveAfterTheBaseline(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	calls := 0
+	w := &StampWatcher{Path: path, Changed: func() { calls++ }}
+	if w.Poll() || calls != 0 {
+		t.Fatal("the first poll reported a file nobody changed")
+	}
+	touch := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		future := time.Now().Add(time.Duration(calls+1) * time.Second)
+		if err := os.Chtimes(path, future, future); err != nil {
+			t.Fatal(err)
+		}
+	}
+	touch(`{"mcpServers":{}}`)
+	if !w.Poll() || calls != 1 {
+		t.Fatalf("a created file was not reported (calls %d)", calls)
+	}
+	if w.Poll() || calls != 1 {
+		t.Fatal("an unchanged file was reported again")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if !w.Poll() || calls != 2 {
+		t.Fatalf("a removed file was not reported (calls %d)", calls)
+	}
+}

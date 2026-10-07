@@ -116,6 +116,8 @@ func (w *mcpWorld) gatewayOverAWorkspace() error {
 	}
 	w.bot = New(&config.TelegramGatewayConfig{
 		Enabled: true, Token: "t", DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual,
+		// The switches change the whole agent's configuration: an admin's.
+		Admins: []int64{mcpFeatureUserID},
 	}, w.runner, w.cwd, logger.Component(base, logger.ComponentGatewayTelegram), "", nil)
 	return nil
 }

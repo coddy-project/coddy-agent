@@ -70,8 +70,6 @@ agent:
 sessions:
   dir: ""
 
-mcp_servers: []
-
 tools:
   permission_mode: bypass
 

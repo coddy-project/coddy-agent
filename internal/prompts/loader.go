@@ -50,7 +50,9 @@ type TemplateData struct {
 	// Skills is preformatted markdown for slash skills (may be empty).
 	Skills string
 
-	// Rules is preformatted markdown for active project rules (may be empty).
+	// Rules is the AGENTS.md and DESIGN.md of the agent home and of the
+	// workspace, then the rules that always apply, as preformatted markdown
+	// (may be empty).
 	Rules string
 
 	// Tools is a human-readable markdown list of tools for the current mode (may be empty).
@@ -70,7 +72,10 @@ type TemplateData struct {
 	// DiscardedPlans is plan-mode guidance when the user discarded design plan slugs (may be empty).
 	DiscardedPlans string
 
-	// Instructions is the concatenated content of project instruction files (AGENTS.md etc.), may be empty.
+	// Instructions is the concatenated content of the files of
+	// instructions.files (may be empty). A template that does not print the
+	// AGENTS.md documents handed in Rules gets them here, ahead of those files
+	// (internal/agent/system_prompt.go, renderWithDocuments).
 	Instructions string
 
 	// Subagents is the catalog block a parent that may spawn subagents reads (may be empty).
@@ -149,13 +154,17 @@ func RenderSource(name, src string, data TemplateData) (string, error) {
 	return strings.TrimSpace(b.String()), nil
 }
 
-// RenderWithFallback renders the prompt and returns a safe default on error.
-func RenderWithFallback(mode, promptsDir, agentFile, planFile, askFile string, data TemplateData) string {
+// RenderChecked renders the template for mode, or the fallback prompt when it
+// cannot (a source that cannot be read, a template that does not parse or
+// execute), and reports which one it was: true for the template. The fallback
+// carries none of the blocks of data, so a caller that must deliver one of
+// them (the AGENTS.md documents) appends it.
+func RenderChecked(mode, promptsDir, agentFile, planFile, askFile string, data TemplateData) (string, bool) {
 	s, err := Render(mode, promptsDir, agentFile, planFile, askFile, data)
 	if err != nil {
-		return fallbackPrompt(mode, data.CWD)
+		return fallbackPrompt(mode, data.CWD), false
 	}
-	return s
+	return s, true
 }
 
 // DefaultSource returns the built-in template source for a mode.
@@ -209,13 +218,13 @@ func loadSource(mode, promptsDir, agentFile, planFile, askFile string) (string, 
 }
 
 // RendersRules reports whether the template for mode puts the {{.Rules}} block
-// into the prompt at all. The cross-block dedupe depends on it: the project
-// docs preamble is dropped from {{.Instructions}} only because the rules block
-// carries it, and an operator's own template under prompts.dir is free to
-// render one block and not the other. A template that cannot be read falls
-// back to the built-in one, which does render the block. The field is looked
-// for by name, so {{if .Rules}} and {{ .Rules }} count too: answering yes when
-// in doubt keeps the file in one block rather than in none.
+// into the prompt at all. It decides whether glob rules ride on tool results
+// and messages: an operator's own template under prompts.dir that does not
+// print the block asked for no rules. The AGENTS.md documents do not depend on
+// it (the agent checks the rendered prompt for them). A template that cannot
+// be read counts as printing the block: its fallback gets the always-on rules
+// appended. The field is looked for by name, so {{if .Rules}} and
+// {{ .Rules }} count too.
 func RendersRules(mode, promptsDir, agentFile, planFile, askFile string) bool {
 	src, err := loadSource(mode, promptsDir, agentFile, planFile, askFile)
 	if err != nil {

@@ -25,7 +25,9 @@ function prompt(
 describe("relayed permission prompts", () => {
   it("recognises the relay's title prefix", () => {
     expect(isRelayedPermissionTitle("[subagent writer] Run: echo")).toBe(true);
-    expect(isRelayedPermissionTitle("  [subagent writer] Run: echo")).toBe(true);
+    expect(isRelayedPermissionTitle("  [subagent writer] Run: echo")).toBe(
+      true,
+    );
     expect(isRelayedPermissionTitle("Run: echo")).toBe(false);
     expect(isRelayedPermissionTitle(undefined)).toBe(false);
   });

@@ -64,23 +64,36 @@ type Subagents struct {
 	MaxTurns int `yaml:"max_turns"`
 }
 
-// DefaultSubagentDirs are the definition directories used when the operator
-// lists none: the coddy home first, then the two project-scope trees.
+// DefaultSubagentDirs are the definition directories every workspace reads,
+// whatever subagents.dirs says, lowest priority first - the same layout as
+// the skill folders (DefaultSkillDirs): the user's agents definitions, the
+// project's .agents/agents, Coddy's own, the project's .coddy/agents. A name
+// found in several is taken from the last. The two project folders are
+// project scope and follow subagents.project_trust. The placeholders stay in
+// the entries for the loader to expand per session.
 func DefaultSubagentDirs() []string {
 	return []string{
+		"${HOME}/.agents/agents",
+		"${CWD}/.agents/agents",
 		"${CODDY_HOME}/agents",
-		"${CWD}/.claude/agents",
 		"${CWD}/.coddy/agents",
 	}
 }
 
-// ApplyDefaults fills Dirs the way skills.dirs is filled: the defaults keep
-// their ${CODDY_HOME} and ${CWD} placeholders for the loader to expand per
-// session, while operator-supplied entries get ${CODDY_HOME} expanded at load
-// time.
+// SearchDirs is every definition directory a workspace reads, lowest priority
+// first: DefaultSubagentDirs, then the extra directories of subagents.dirs in
+// their order, which win a name over the defaults. Every reader of
+// definitions goes through it. A folder named twice is read once, at its last
+// place (the loader drops the earlier one).
+func (s Subagents) SearchDirs() []string {
+	return append(DefaultSubagentDirs(), s.Dirs...)
+}
+
+// ApplyDefaults leaves Dirs as the file has it (subagents.dirs only adds to
+// DefaultSubagentDirs, see SearchDirs) and expands ${CODDY_HOME} in the
+// operator's entries at load time; ${CWD} stays for the session.
 func (s *Subagents) ApplyDefaults(p Paths) {
 	if len(s.Dirs) == 0 {
-		s.Dirs = DefaultSubagentDirs()
 		return
 	}
 	for i := range s.Dirs {

@@ -10,6 +10,7 @@
   --syntax-type: #67e8f9;
   --syntax-meta: #f9a8d4;
   --syntax-deletion: #fca5a5;
+  --coddy-danger: #f87171;
   --bg: #121212;
   --diff-add-bg: rgba(46, 160, 67, 0.13);
   --diff-del-bg: rgba(248, 81, 73, 0.13);
@@ -118,6 +119,7 @@
   --syntax-type: #0e646e;
   --syntax-meta: #93306a;
   --syntax-deletion: #b91c1c;
+  --coddy-danger: #b91c1c;
   --bg: #f8f8fa;
   --diff-add-bg: rgba(46, 160, 67, 0.09);
   --diff-del-bg: rgba(248, 81, 73, 0.09);
@@ -1050,6 +1052,46 @@ body {
   padding: 0;
 }
 
+.rail-nav-hit {
+  position: relative;
+}
+
+/* The environment item of the rail (EnvironmentSwitcher.tsx): the host's
+   icon - a laptop for this browser's server, two chevrons for another host -
+   with the reachability dot on its lower right corner, ringed in the rail's
+   ground so it reads over the glyph. */
+.rail-env-icon {
+  position: relative;
+  display: inline-flex;
+}
+
+.rail-env-status {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 1.5px var(--coddy-canvas-gradient-top);
+}
+
+.rail-active-count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1px var(--coddy-canvas-gradient-top);
+}
+
 .rail-nav-label {
   font-size: 13px;
   font-weight: 600;
@@ -1387,16 +1429,15 @@ a.rail-brand {
   box-sizing: border-box;
 }
 
-/* Two columns: the state marks, then the title with its tags under it. The tags
-   label the words, so they start where the title's text starts rather than under
-   the marks; a row with no mark leaves the first column empty. */
+/* Two columns: a fixed state-mark slot, then the title with its tags under it.
+   The fixed slot keeps an 8px dot and a 16px prompt marker from moving text. */
 .session-row-link {
   flex: 1;
   min-width: 0;
   text-decoration: none;
   color: inherit;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
 }
 
@@ -1405,8 +1446,13 @@ a.rail-brand {
   grid-row: 1;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-right: 6px;
+  align-content: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 16px;
+  min-width: 16px;
+  gap: 0;
+  margin-left: 0px;
 }
 
 .session-item:hover {
@@ -1479,6 +1525,30 @@ a.rail-brand {
   flex-shrink: 0;
 }
 
+.session-idle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px
+    color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
+}
+
+.session-error-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--coddy-danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--coddy-danger) 25%, transparent);
+}
+
+.session-error-dot.is-seen {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--coddy-danger);
+}
+
 .session-permission-icon,
 .session-question-icon {
   flex-shrink: 0;
@@ -1491,22 +1561,6 @@ a.rail-brand {
   font-weight: 700;
   line-height: 1;
   color: rgba(196, 181, 253, 0.95);
-}
-
-.session-question-icon {
-  animation: session-question-pulse 1.1s ease-in-out infinite;
-}
-
-@keyframes session-question-pulse {
-  0%,
-  100% {
-    opacity: 0.55;
-    transform: scale(0.92);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.08);
-  }
 }
 
 .sessions-empty {
@@ -1556,8 +1610,8 @@ a.rail-brand {
   color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
 }
 
-/* The filter control sits in the search row - both narrow the list below - so
-   that row is what the menu hangs off. */
+/* The filter control sits in the search row - both narrow the list below. Its
+   menu is portaled out of the drawer and placed from the control's rectangle. */
 .sessions-search-row {
   position: relative;
 }
@@ -1701,9 +1755,36 @@ a.rail-brand {
   overflow-y: auto;
 }
 
-.sessions-filter-menu.opens-left .sessions-filter-submenu {
+.sessions-filter-submenu.opens-left {
   left: auto;
   right: calc(100% + 4px);
+}
+
+/* Neither side of the menu has the room - a phone, where the drawer is the
+   width of the screen and the trigger sits at its right edge - so the choices
+   fold out under their row, inside the menu, indented under the question they
+   answer. The menu scrolls as a whole rather than nest a second scroller. */
+.sessions-filter-submenu.opens-inline {
+  position: static;
+  min-width: 0;
+  max-height: none;
+  overflow: visible;
+  margin: 2px 0 4px;
+  padding: 0 0 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sessions-filter-menu.has-inline-submenu {
+  overflow-y: auto;
+}
+
+.sessions-filter-submenu.opens-inline .sessions-filter-item > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sessions-filter-item {
@@ -2094,30 +2175,21 @@ a.rail-brand {
     color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
-/* The handle. touch-action none is what lets a finger drag the row instead of
-   scrolling the list under it. */
-.session-drag-grip {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 16px;
-  margin-left: -4px;
-  color: color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
-  cursor: grab;
-  touch-action: none;
-  transition: color 140ms ease;
+/* A pin is dragged by its row, so the row must not also start a text
+   selection, a native link drag or the long-press callout of a touch browser. */
+.session-item.is-reorderable {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
-.session-item:hover .session-drag-grip {
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
-}
-
-.session-drag-grip:active {
-  cursor: grabbing;
+.session-item.is-reorderable .session-row-link {
+  -webkit-user-drag: none;
 }
 
 .session-item.is-dragging {
   opacity: 0.45;
+  cursor: grabbing;
 }
 
 /* Where the drop would land, drawn on the list rather than under the pointer:
@@ -2182,16 +2254,6 @@ a.rail-brand {
 .archived-session-action:disabled {
   opacity: 0.6;
   cursor: default;
-}
-
-/* A pin is a mark on the title, not a badge: it says where the row is, and the
-   row is already at the top saying it. */
-.session-pin-mark {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  line-height: 1;
-  color: var(--accent);
 }
 
 .session-menu {
@@ -2324,60 +2386,177 @@ a.rail-brand {
   white-space: nowrap;
 }
 
-/* The Tasks control at the right edge of the sticky header: the opener of the Tasks
-   panel and the one place a chat says how much runs in its background. It is there
-   from the first message, so the header never jumps when the first task starts. */
-.chat-header-tasks {
+/* The views of a chat at the right of the sticky header: a row of buttons -
+   Files, and Background tasks at the right edge. Files is an icon the size of
+   the rail's with its short name on a desktop and a tablet, the icon alone on
+   a phone; Background tasks are the dot and the running / total count the
+   header always had. The full name and the view's key are in a tooltip
+   everywhere. The row is there from the first message, so
+   the header never jumps when the first task starts. DESIGN.md, Views of a
+   chat. */
+.chat-views {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+}
+
+.chat-view-tip-host {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The look of the top bar's buttons around an 18px icon and its name: 36px
+   high in a desktop header, the top bar's own 42px on a tablet, and a 40px
+   square around the icon alone on a phone (further down). */
+.chat-view-btn {
+  position: relative;
   flex: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
-  min-height: 26px;
-  margin-left: 10px;
-  padding: 3px 11px 3px 9px;
-  border-radius: 999px;
-  border: 0.5px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  height: 36px;
+  padding: 0 12px 0 10px;
   font: inherit;
-  font-size: 12px;
-  font-weight: 400;
+  font-size: 13px;
   white-space: nowrap;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
   cursor: pointer;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
 }
 
-.chat-header-tasks:hover,
-.chat-header-tasks[aria-expanded="true"] {
+/* Pointed at, and while its view shows: brighter text, border and ground, the
+   way the Tasks control always marked its open panel. The accent is kept for
+   work in flight (.is-running, below), which wins over this. */
+.chat-view-btn:hover,
+.chat-view-btn.is-active {
   color: var(--text);
   border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
 }
 
-.chat-header-tasks.is-running {
+/* Work in flight in the chat's background: the accent border and tint the
+   Tasks control always had, the dot running. */
+.chat-view-btn.is-running {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
   background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
   color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
 }
 
-.chat-header-tasks:focus-visible {
+.chat-view-btn:focus-visible {
   outline: 1.5px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* running / total. Tabular digits, so a count that changes does not move the title. */
-.chat-header-tasks-counts {
+/* The icon (or the tasks dot), the name and the counts are one line of text,
+   and the icon sits on it with vertical-align: middle - the middle of the
+   lowercase letters, in whatever font the engine draws. Centred on the line box
+   instead, an icon reads a pixel high beside mostly lowercase names, by an
+   amount that differs per font. A phone shows the icon alone, centred in its
+   square (below). */
+.chat-view-face {
+  display: block;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.chat-view-face > * + * {
+  margin-left: 7px;
+}
+
+.chat-view-icon {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.chat-view-face .bgtask-dot {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.chat-view-label {
+  line-height: 1;
+}
+
+/* running / total beside the dot. Tabular digits, so a count that changes
+   does not move the row. */
+.chat-view-count {
   font-variant-numeric: tabular-nums;
+  line-height: 1;
   color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
 }
 
-/* A phone header has room for the title and little else: once there are counts they
-   speak for themselves, and the word gives way. */
+/* The name of a button, in the rail's tooltip, under the row and kept to its
+   right edge so the tooltip of the last button stays inside the window. */
+.chat-view-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--coddy-tip-bg);
+  border: 1px solid var(--coddy-tip-border);
+  color: var(--coddy-tip-fg);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+  z-index: 80;
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+.chat-view-tip-host:hover .chat-view-tip,
+.chat-view-tip-host:has(.chat-view-btn:focus-visible) .chat-view-tip {
+  opacity: 1;
+}
+
+/* The stacked shell's top bar has 42px buttons, a phone's 40px: the header's
+   take the same size there. */
+@media (max-width: 1199px) {
+  .chat-view-btn {
+    height: 42px;
+  }
+}
+
+/* A phone: Edits and Files are the icon alone, in the 40px square of its top
+   bar's buttons; Background tasks keep the dot and the counts, and the word
+   only while there are no counts yet. */
 @media (max-width: 599px) {
-  .chat-header-tasks {
-    min-height: 32px;
+  .chat-views {
+    gap: 4px;
   }
 
-  .chat-header-tasks.has-tasks .chat-header-tasks-label {
+  .chat-view-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+  }
+
+  .chat-view-label {
     display: none;
+  }
+
+  .chat-view-icon {
+    display: block;
+  }
+
+  .chat-view-btn--tasks {
+    width: auto;
+    padding: 0 12px 0 11px;
+  }
+
+  .chat-view-btn--tasks:not(.has-tasks) .chat-view-label {
+    display: inline;
   }
 }
 
@@ -2588,10 +2767,6 @@ a.rail-brand {
   z-index: 4;
   flex-shrink: 0;
   padding: 0 0 16px;
-  /* Opaque canvas backing: pinned title stays on top while transcript
-     scrolls behind it (no see-through bleed). Matches canvas top color so
-     the shield is invisible against the page in every theme. */
-  /* background-color: var(--coddy-canvas-gradient-top); */
 }
 
 /* Same max-width as .chat-bottom-inner / transcript column so title and composer share one vertical stripe */
@@ -2838,8 +3013,19 @@ a.rail-brand {
 }
 
 .subagent-readonly-text {
+  display: block;
+}
+
+.subagent-readonly-copy {
   flex: 1 1 240px;
   min-width: 0;
+}
+
+.subagent-readonly-model {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .subagent-readonly-link {
@@ -3261,6 +3447,22 @@ a.rail-brand {
   box-sizing: border-box;
   overflow-wrap: anywhere;
   position: relative;
+}
+
+/* Message editing: the prompt loaded into the composer is outlined in the
+   accent colour, and every row after it is faded, because sending the edit
+   removes exactly those rows. The rows are siblings under .messages-inner
+   (each row root is a direct child), so a general sibling selector reaches
+   them without the rows knowing about the edit. See DESIGN.md, Message
+   editing. */
+.msg-user-stack--editing .msg-user {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.msg-user-stack--editing ~ * {
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
 }
 
 /* User turns are plain text (no Markdown); preserve composer line breaks. */
@@ -3746,6 +3948,250 @@ a.rail-brand {
   border-radius: inherit;
 }
 
+/* Verified shared files render as compact cubes in assistant answers
+   (DESIGN.md, Shared file cards). */
+.tool-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 0 14px;
+  min-width: 0;
+}
+
+.tool-artifact-card {
+  /* The badge's numbers place the actions trigger too, so the two stay level
+     and mirror each other across the card whatever size either takes. */
+  --artifact-badge-inset: 10px;
+  --artifact-badge-size: 28px;
+  --artifact-trigger-size: 28px;
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  width: 134px;
+  height: 140px;
+  box-sizing: border-box;
+  /* Clips a thumbnail to the corners; the actions menu is portalled out of
+     the card for that reason. */
+  overflow: hidden;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+}
+
+.tool-artifact-icon {
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+}
+
+.tool-artifact-info {
+  display: grid;
+  min-width: 0;
+  grid-row: 1 / -1;
+  grid-template-rows: 1fr auto;
+}
+
+.tool-artifact-name {
+  align-self: end;
+  margin-bottom: 4px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.tool-artifact-meta {
+  align-self: end;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.tool-artifact-meta--error {
+  color: var(--coddy-danger, #ef4444);
+}
+
+.inline-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+  margin: 12px 0 16px;
+}
+
+/* The 16px are for the paragraph after the cards. The answer's foot keeps its
+   own margin, and both together stood it twice as far from the cards as from
+   a paragraph. */
+.inline-artifacts:last-child,
+.inline-artifacts:has(+ .msg-assistant-foot) {
+  margin-bottom: 0;
+}
+
+.inline-artifact-card {
+  display: grid;
+}
+
+.tool-artifact-card {
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.tool-artifact-card:hover {
+  border-color: color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  transform: translateY(-1px);
+}
+
+.inline-artifact-card .tool-artifact-info {
+  padding-top: 22px;
+}
+.inline-artifact-extension {
+  position: absolute;
+  top: var(--artifact-badge-inset);
+  left: var(--artifact-badge-inset);
+  display: grid;
+  place-items: center;
+  width: var(--artifact-badge-size);
+  height: var(--artifact-badge-size);
+  box-sizing: border-box;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 46%, var(--coddy-blend-base));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 74%, transparent);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  pointer-events: none;
+}
+.inline-artifact-image {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.inline-artifact-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+.inline-artifact-card:has(.inline-artifact-image) .tool-artifact-info {
+  position: relative;
+  z-index: 1;
+  padding: 32px 0 0;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}
+.inline-artifact-card:has(.inline-artifact-image) .tool-artifact-meta {
+  padding: 4px;
+  margin: 0 -4px -4px;
+  border-radius: 5px;
+  background: color-mix(in srgb, #000 56%, transparent);
+}
+/* The badge mirrored across the card: level with it and as far from the right
+   edge as the badge is from the left, centred on the badge's box when the
+   trigger is larger (a phone's touch target). The dots are an svg centred in
+   its viewBox; the "⋮" glyph sat wherever the platform's font put its ink. */
+.inline-artifact-menu-trigger {
+  position: absolute;
+  z-index: 2;
+  top: calc(
+    var(--artifact-badge-inset) +
+      (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2
+  );
+  right: calc(
+    var(--artifact-badge-inset) +
+      (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2
+  );
+  display: grid;
+  place-items: center;
+  width: var(--artifact-trigger-size);
+  height: var(--artifact-trigger-size);
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 74%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+}
+.tool-artifact-card:hover .inline-artifact-menu-trigger,
+.tool-artifact-card:focus-within .inline-artifact-menu-trigger,
+.inline-artifact-menu-trigger:focus-visible,
+.inline-artifact-menu-trigger[aria-expanded="true"] {
+  opacity: 1;
+}
+/* A screen without hover would never show it. */
+@media (hover: none) {
+  .inline-artifact-menu-trigger {
+    opacity: 1;
+  }
+}
+/* Portalled to the document and placed from the trigger
+   (placeArtifactMenu in ToolArtifactCards.tsx): the card clips what overflows
+   it, and a menu inside it was never seen. A window shorter than the menu
+   scrolls its items instead of cutting the last ones off. */
+.inline-artifact-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  min-width: 180px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: var(--coddy-tip-bg);
+  box-shadow: var(--coddy-tip-shadow);
+}
+.inline-artifact-menu button {
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.inline-artifact-menu button:hover:not(:disabled),
+.inline-artifact-menu button:focus-visible {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+.inline-artifact-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@media (max-width: 599px) {
+  .tool-artifact-card {
+    --artifact-trigger-size: 32px;
+    width: min(118px, calc(50vw - 28px));
+    height: 132px;
+  }
+
+  .inline-artifact-menu-trigger {
+    opacity: 1;
+  }
+}
+
 .coddy-tool-call-body {
   display: flex;
   flex-direction: column;
@@ -3853,7 +4299,8 @@ a.rail-brand {
 }
 
 .coddy-tool-call-body > .tool-result-toggle-row {
-  margin: 0 0 2px;
+  align-self: flex-start;
+  margin: -8px 0 2px;
 }
 
 .coddy-tool-call-body > .tool-call-result-card + .tool-result-toggle-row {
@@ -4210,6 +4657,180 @@ a.rail-brand {
   height: 14px;
 }
 
+/* Pictures and formulas in Markdown (DESIGN.md, "Diagrams and formulas"): a
+   Mermaid or SVG fence and a display formula are drawn, with a head row that
+   switches to the source and copies or downloads it. The frame is the code
+   block's, so a picture sits in the transcript like the code it came from. */
+.md-figure {
+  margin: 12px 0;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: var(--coddy-surface-inset);
+  overflow: hidden;
+}
+
+.md-figure-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 5px 5px 5px 12px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.md-figure-label {
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.md-figure-status {
+  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+}
+
+.md-figure-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* The head's buttons line up in the row instead of floating over the code. */
+.md-figure-actions .md-copy {
+  position: static;
+}
+
+/* The formats a figure saves as, named by extension (MMD, SVG): text
+   buttons in the copy button's chrome. */
+.md-figure-format {
+  line-height: 14px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 5px 6px;
+}
+
+/* The source switch: an icon button, lit while the source is shown. */
+.md-figure-source-toggle[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+
+/* The picture is a button that opens the image viewer. It is never wider than
+   the transcript and never taller than most of a screen; the <img> keeps its
+   proportions under both caps. */
+.md-figure-picture {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  border: 0;
+  margin: 0;
+  padding: 12px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.md-figure-picture img {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 640px);
+  width: auto;
+  height: auto;
+}
+
+.md-figure-picture:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* A figure's source: the copy button in the top right corner of the text, as
+   on a code block, and a box that scrolls once the text is longer than about
+   twenty lines. */
+.md-figure-source {
+  position: relative;
+}
+
+/* Clear of the scrollbar a long source grows. */
+.md-figure-source > .md-copy {
+  right: 14px;
+}
+
+.md-figure-code {
+  margin: 0;
+  white-space: pre;
+  overflow: auto;
+  max-height: calc(20 * 18px + 12px);
+  padding: 6px 40px 6px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.md-figure-code code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.md-figure-error {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--coddy-danger);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  overflow-wrap: anywhere;
+}
+
+/* A display formula scrolls sideways when it is wider than the transcript. */
+.md-math-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 12px;
+}
+
+.md-math-display .katex-display {
+  margin: 8px 0;
+}
+
+/* An inline formula copies its source on a click, like inline code. */
+.md-math-inline {
+  cursor: copy;
+  border-radius: 4px;
+}
+
+.md-math-inline:hover,
+.md-math-inline.is-copied {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.md-math-inline:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.md-math-inline .katex {
+  font-size: 1.1em;
+}
+
+code.md-math-pending {
+  font-family: var(--coddy-md-inline-code-font);
+  font-size: 0.92em;
+  color: var(--coddy-md-inline-code-fg);
+}
+
 .token-bar {
   color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
   font-size: 12px;
@@ -4277,7 +4898,7 @@ a.rail-brand {
   justify-content: space-between;
   gap: 8px;
   /* 12px on the right puts the remove cross on the vertical line of the
-     improve-prompt button of the card below (the row's 12px, the same 24px
+     improve-prompt wand in the field's corner below (12px in, the same 24px
      control): composerQueueCss.test.ts. */
   padding: 6px 12px;
   border-radius: 12px;
@@ -4360,6 +4981,83 @@ a.rail-brand {
   background: var(--coddy-glass-panel-bg);
   color: var(--text);
   font-size: 12px;
+}
+
+/* The edit banner: the composer says which message it holds while a sent
+   message is being edited, and offers Undo once the edit was sent. The same
+   frosted panel as the queue rows above the card; the cross sits where the
+   queue's remove control sits. */
+.composer-edit-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 6px 0;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 55%, var(--coddy-glass-panel-border));
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* The undo banner is one line: the title and the note side by side, Undo and
+   the cross centred on it. The cross is the queue's control, which sits at the
+   top of its row; here it follows the line like Undo does. */
+.composer-edit-banner--done {
+  align-items: center;
+  border-color: var(--coddy-glass-panel-border);
+}
+
+.composer-edit-banner--done > * {
+  align-self: center;
+}
+
+.composer-edit-banner--done .composer-edit-banner-body {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  padding-top: 0;
+}
+
+.composer-edit-banner-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding-top: 4px;
+  color: var(--accent);
+}
+
+.composer-edit-banner-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 3px;
+}
+
+.composer-edit-banner-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.composer-edit-banner-snippet {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-edit-banner-hint {
+  color: var(--muted);
+}
+
+.composer-edit-banner .composer-undo-edit:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* The primary control keeps its circle and swaps only its meaning: a draft
@@ -4742,7 +5440,9 @@ textarea#composer {
   background: transparent;
   border: 0;
   border-radius: 0;
-  padding: 16px 16px 10px;
+  /* 9px on top puts the middle of the first line (15px type, 1.5 line height)
+     on the middle of the improve-prompt wand in the corner. */
+  padding: 9px 44px 10px 16px;
   outline: none;
 }
 
@@ -4752,10 +5452,19 @@ textarea#composer {
   width: 100%;
 }
 
+/* The mirror draws the text the masked textarea above it hides, so their
+   text boxes must be the same width to the fraction of a pixel, or the two
+   wrap a line at different words and the caret stands away from the text.
+   The textarea keeps a stable scrollbar gutter; the mirror reserves its own
+   the same way instead of a width measured in script, which offsetWidth and
+   clientWidth round to whole pixels and which goes stale when the page zoom
+   or the screen density changes - a classic scrollbar keeps its device
+   pixels, so it takes 13.6 CSS pixels at 110% and 8.6 at 175%. */
 .composer-mirror {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  scrollbar-gutter: stable;
   pointer-events: none;
   z-index: 0;
 }
@@ -4763,7 +5472,7 @@ textarea#composer {
 .composer-mirror-inner {
   box-sizing: border-box;
   width: 100%;
-  padding: 16px 16px 10px;
+  padding: 9px 44px 10px 16px;
   white-space: pre-wrap;
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -4787,6 +5496,41 @@ textarea#composer.composer-ta-masked::selection {
   background: rgba(147, 51, 234, 0.18);
 }
 
+.composer-code-editing {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+}
+
+.composer-code-editing .composer-mirror-inner,
+.composer-code-editing textarea#composer {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.msg-user-token {
+  display: inline;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  cursor: copy;
+}
+
+.msg-user-token--mention,
+.msg-user-body .coddy-skill-chip {
+  border-radius: 4px;
+  color: var(--coddy-skill-chip-text);
+  background: var(--coddy-skill-chip-bg);
+  box-shadow: 0 0 0 1px var(--coddy-skill-chip-bd);
+}
+
+.msg-user-body .coddy-skill-chip {
+  cursor: copy;
+}
+
 .composer-mirror-inner,
 textarea#composer {
   font-family: inherit;
@@ -4798,9 +5542,17 @@ textarea#composer {
   font-variant-numeric: normal;
 }
 
+/* The improve-prompt wand stands in the field's top right corner rather than in
+   a row of its own, so the field (and its placeholder) starts at the top of the
+   card; the textarea and its mirror keep 44px clear on the right for it. Its
+   right edge is the line git's count on the plate above ends on. 8px under
+   the seam reads as deep as the 12px to the card's edge: the seam is lighter
+   than the edge, and the same 12px above looked deeper. */
 .composer-enhance-btn {
-  flex: 0 0 24px;
-  margin-left: auto;
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4816,8 +5568,8 @@ textarea#composer {
 
 .composer-enhance-btn:hover:not(:disabled) {
   color: var(--text);
-  background: color-mix(in srgb, var(--accent) 17%, var(--coddy-surface-muted));
-  border-color: color-mix(in srgb, var(--accent) 52%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-surface-muted));
+  border-color: color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
 }
 
 .composer-enhance-btn:disabled {
@@ -5050,36 +5802,10 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   margin-top: 2px;
 }
 
-/* Environment selector: workspace-row chip + local/remote menu. */
-
-/* Top workspace-context row now hosts the env chip alongside folder/branch/worktree. */
-.composer-context-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 12px 0;
-}
-
-/* The chips' strip. Not a box on a wide shell, so the chips stay flex items
-   of the wrapping row; a phone makes it a sideways-scrolling strip (Phone
-   layout at the end of this file). */
-.composer-context-scroll {
-  display: contents;
-}
-
-.workspace-chip-wrap {
-  display: inline-flex;
-}
-
-.workspace-chip--env {
-  gap: 6px;
-}
-
 .mode-menu--env {
   min-width: 240px;
   max-width: min(340px, calc(100vw - 24px));
-  /* The anchored menu gets the room it has as max-height (EnvironmentChip);
+  /* The anchored menu gets the room it has as max-height (EnvironmentSwitcher);
      past that it scrolls rather than running off the window. */
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -5295,40 +6021,213 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   padding: 7px 9px;
 }
 
-/* display:contents dissolves this wrapper so the folder/branch/worktree chips
-   become direct flex items of .composer-context-row alongside the environment
-   chip. Without it the chips form a nested flex box that wraps as one unit, so
-   a long branch pushed the whole group onto its own lines (env alone on line 1,
-   folder+branch on line 2, worktree on line 3). Flattened, only the chips that
-   overflow wrap, and worktree stays beside the branch until the branch is long
-   enough to push it. Gap and alignment come from .composer-context-row. */
-.composer-context-chips {
+/* The bar over the composer of a running chat (WorkspaceBar.tsx): where the
+   chat works - the repository, the branch or worktree - and, at its right
+   edge, git's count of the changes, which opens the edits window. A plate of
+   the queue rows' glass, joined to the top of the composer card: square at the
+   bottom, no bottom border of its own (the card's top border is the seam), the
+   card's top corners squared to meet it (.composer-card--joined). Above the
+   card in the stack, so the card's upward halo does not darken it. One line
+   that never wraps. */
+.workspace-bar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  /* 16px on the left: the plate's first word starts where the field's text
+     does. 12px on the right: git's count ends where the wand below does. */
+  padding: 5px 12px 5px 16px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  font-size: 12px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 66%, var(--coddy-blend-base));
+  white-space: nowrap;
+}
+
+.composer-card.composer-card--joined {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* An item is one line of text that ends in an ellipsis when the bar runs out
+   of room; its icon sits on that line with vertical-align: middle, the middle
+   of the lowercase letters in whatever font the engine draws, and a pixel
+   above it: the glyphs carry their ink low, and on the middle they read as
+   sunk below the words. */
+.workspace-bar-item {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-bar-repo {
+  flex: 0 1 auto;
+  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+}
+
+.workspace-bar-branch {
+  flex: 0 1 auto;
+}
+
+.workspace-bar-icon {
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+  margin-right: 6px;
+  opacity: 0.85;
+}
+
+/* Before the chat starts the plate offers the workspace as a choice
+   (WorkspaceChips on it): the folder and the branch are buttons, the worktree
+   a checkbox, each a row item that a lighter ground marks as pressable. The
+   picks carry their own padding, so the plate's own left padding gives way
+   and the folder still starts on the placeholder's left edge. */
+.workspace-bar--pick {
+  padding-left: 10px;
+  gap: 4px;
+}
+
+.workspace-bar-picks {
   display: contents;
 }
 
-.workspace-chip {
+.workspace-bar-pick,
+.workspace-bar-check {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.workspace-bar-pick:hover,
+.workspace-bar-pick:focus-visible,
+.workspace-bar-pick.is-open,
+.workspace-bar-check:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+  outline: none;
+}
+
+.workspace-bar-check {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--muted) 28%, transparent);
-  background: var(--coddy-chip-badge-bg);
-  color: var(--coddy-chip-badge-fg);
-  font-size: 11.5px;
-  line-height: 1.4;
-  cursor: pointer;
-  max-width: 220px;
+  gap: 6px;
+  flex: none;
+  user-select: none;
 }
 
-.workspace-chip:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  color: var(--text);
-}
-
-.workspace-chip:disabled {
+.workspace-bar-check.is-locked {
   cursor: default;
   opacity: 0.75;
+}
+
+.workspace-bar-check.is-locked:hover {
+  background: transparent;
+}
+
+/* The worktree checkbox is the browser's own, in the theme's colour scheme
+   and accent, so it reads as the ordinary control it is. */
+.workspace-bar-checkbox {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  flex: none;
+  cursor: inherit;
+  accent-color: var(--accent);
+}
+
+.workspace-bar-check:focus-within {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+/* A finger needs a target of its own: on a phone and on any touch screen the
+   picks and the worktree checkbox are 36px tall (they have no ground at rest,
+   so only the plate grows around them), and git's count keeps its slim framed
+   look with an invisible hit area 40px tall laid over it. */
+@media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
+  .workspace-bar {
+    font-size: 13px;
+  }
+
+  .workspace-bar--pick {
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 6px;
+  }
+
+  .workspace-bar-pick {
+    min-height: 36px;
+    padding: 1px 10px;
+    line-height: 34px;
+  }
+
+  .workspace-bar-check {
+    min-height: 36px;
+    padding: 0 10px;
+  }
+
+  .workspace-bar-checkbox {
+    width: 16px;
+    height: 16px;
+  }
+
+  .workspace-bar-edits {
+    position: relative;
+  }
+
+  .workspace-bar-edits::after {
+    content: "";
+    position: absolute;
+    left: -6px;
+    right: -6px;
+    top: 50%;
+    height: 40px;
+    transform: translateY(-50%);
+  }
+}
+
+/* Git's count, at the right edge: the digits in the diff colours inside a
+   light frame, so it reads as a button; pointed at, the frame and the ground
+   brighten. Never the accent. */
+.workspace-bar-edits {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: 7px;
+  background: transparent;
+  line-height: 15px;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.workspace-bar-edits:hover,
+.workspace-bar-edits:focus-visible {
+  border-color: color-mix(in srgb, var(--text) 34%, transparent);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  outline: none;
 }
 
 .workspace-chip-icon {
@@ -5336,58 +6235,6 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   align-items: center;
   flex: none;
   opacity: 0.85;
-}
-
-.workspace-chip-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-chip--check {
-  gap: 6px;
-  user-select: none;
-}
-
-.workspace-chip--check.is-active {
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
-  color: var(--accent);
-}
-
-.workspace-chip--check.is-locked {
-  cursor: default;
-  opacity: 0.75;
-}
-
-.workspace-chip-checkbox {
-  appearance: none;
-  width: 12px;
-  height: 12px;
-  margin: 0;
-  border-radius: 3px;
-  border: 1px solid color-mix(in srgb, var(--muted) 55%, transparent);
-  background: transparent;
-  cursor: inherit;
-  display: inline-block;
-  position: relative;
-  flex: none;
-}
-
-.workspace-chip-checkbox:checked {
-  border-color: var(--accent);
-  background: var(--accent);
-}
-
-.workspace-chip-checkbox:checked::after {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 0.5px;
-  width: 4px;
-  height: 7px;
-  border: solid #fff;
-  border-width: 0 1.5px 1.5px 0;
-  transform: rotate(45deg);
 }
 
 .workspace-recent-item {
@@ -5436,16 +6283,16 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 .workspace-modal {
   display: flex;
   flex-direction: column;
-  width: min(440px, calc(100vw - 32px));
+  width: min(560px, calc(100vw - 48px));
   /* Roomy body for a folder with few children: 262px is the 140px of head,
      path row and actions plus the 120px of list the body used to claim through
      the list's own min-height. Stated on the dialog, the floor leaves the list
      free to shrink; clamped by the same viewport fraction as the cap below, it
      can never exceed it. */
-  min-height: min(262px, 60vh);
-  min-height: min(262px, 60dvh);
-  max-height: min(60vh, 520px);
-  max-height: min(60dvh, 520px);
+  min-height: min(520px, 80vh);
+  min-height: min(520px, 80dvh);
+  max-height: min(80vh, 760px);
+  max-height: min(80dvh, 760px);
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
   background: var(--bg);
@@ -5453,15 +6300,12 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   overflow: hidden;
 }
 
+/* The head is the drawers' head (.sessions-head: 12px bold capitals, its
+   padding and rule), the one History and the Scheduler open with; this class
+   only keeps it from shrinking. Overriding its font here is what made the
+   title a 16px regular line unlike every other head. */
 .workspace-modal-head {
-  display: flex;
   flex: none;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px 8px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--text);
 }
 
 /* Editable path row: type or paste a path (a Windows user needs it to jump to
@@ -5471,14 +6315,31 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   flex: none;
   width: calc(100% - 28px);
   box-sizing: border-box;
-  margin: 0 14px 8px;
+  margin: 10px 14px 6px;
   padding: 6px 9px;
   border-radius: 9px;
   border: 1px solid var(--coddy-glass-panel-border);
   background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
   color: var(--text);
-  font-size: 11.5px;
+  /* Inputs and buttons do not inherit the page font: without font: inherit
+     the field, the rows and the buttons of the dialog were drawn in the
+     browser's control font (Arial) instead of the app's. */
+  font: inherit;
+  font-size: 12px;
   outline: none;
+}
+
+/* Show hidden sits next to New folder on the left of the footer; its auto
+   margin is what sends Cancel / Open to the right. */
+.workspace-modal-show-hidden {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .workspace-modal-path::placeholder {
@@ -5502,7 +6363,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
    platforms with overlay scrollbars (macOS), so it is an affordance, not the
    fix. */
 .workspace-modal-list {
-  flex: 1 1 auto;
+  flex: 1 1 120px;
   min-height: 0;
   overflow-y: auto;
   /* A wheel gesture that runs past the last folder stays in the dialog instead
@@ -5538,7 +6399,8 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   border: 0;
   background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font: inherit;
+  font-size: 13px;
   text-align: left;
   padding: 7px 8px;
   border-radius: 8px;
@@ -5554,6 +6416,30 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 
 .workspace-modal-row--up {
   color: var(--muted);
+}
+
+.workspace-modal-row--hidden {
+  opacity: 0.6;
+}
+
+/* The name wins over a link's target: the target path is the part cut short,
+   the name only once it alone passes 70% of the row (a long target used to
+   squeeze "data-link" down to "da..."). */
+.workspace-modal-row-name {
+  flex: 0 0 auto;
+  max-width: 70%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-modal-row-target {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Inline "new folder" row: a name field on the folder-row metrics, directly
@@ -5588,7 +6474,8 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   border: 1px solid var(--coddy-glass-panel-border);
   background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
   color: var(--text);
-  font-size: 12.5px;
+  font: inherit;
+  font-size: 13px;
   outline: none;
 }
 
@@ -5606,12 +6493,14 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   justify-content: flex-end;
   gap: 8px;
   padding: 10px 14px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--muted) 20%, transparent);
 }
 
 .workspace-modal-btn {
   border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
   background: transparent;
   color: var(--text);
+  font: inherit;
   font-size: 12.5px;
   padding: 6px 14px;
   border-radius: 9px;
@@ -5624,9 +6513,51 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   color: #fff;
 }
 
-/* New folder leads the footer, opposite the Cancel / Open pair. */
-.workspace-modal-btn--lead {
-  margin-right: auto;
+/* New folder leads the footer: a square as tall as the buttons beside it,
+   with the plus glyph of the scheduler's add button and its colours (the
+   colour rules are shared with .scheduler-btn-primary, light theme included,
+   so the two never drift apart). */
+.workspace-modal-btn--add {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  /* Stated, not derived: aspect-ratio on a stretched flex item left it 18px
+     wide in Chromium. The row stretches Cancel / Open to the same 32px. */
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9px;
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+}
+
+.workspace-modal-btn--add svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* A phone opens the dialog where History opens: a glass panel under the top
+   bar, 10px from the sides and 14px from the bottom, the full height between
+   (the box and the tokens of .sessions.drawer on the stacked shell). Wider
+   screens keep the centred dialog above. */
+@media (max-width: 599px) {
+  .workspace-modal {
+    position: fixed;
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: 14px;
+    left: max(10px, env(safe-area-inset-left, 0px));
+    width: auto;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    border-radius: var(--coddy-glass-panel-radius);
+    border: 1px solid var(--coddy-glass-panel-border);
+    background: var(--coddy-glass-panel-bg);
+    backdrop-filter: var(--coddy-glass-panel-backdrop);
+    -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+    box-shadow: var(--coddy-glass-panel-shadow);
+  }
 }
 
 /* The two buttons inside the inline name row sit on a list row, not in the
@@ -6204,7 +7135,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 .context-breakdown-menu-scroll {
   position: relative;
   z-index: 1;
-  padding: 12px 14px 16px;
+  padding: 0 12px 12px;
   min-height: 0;
 }
 
@@ -6220,7 +7151,7 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   right: 0;
   bottom: 0;
   margin: 0 auto;
-  max-width: min(560px, 100vw);
+  max-width: min(520px, calc(100vw - 28px));
   border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
     0 0;
   z-index: 41;
@@ -6271,22 +7202,25 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 }
 
 .context-breakdown-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
+  padding: 10px 12px;
 }
 
 .context-breakdown-title {
-  font-weight: 600;
-  font-size: 13px;
+  min-width: 0;
+  text-transform: none;
 }
 
-.context-breakdown-actions {
+.context-breakdown-usage-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 0;
+}
+
+.context-breakdown-used {
+  color: color-mix(in srgb, var(--text) 75%, transparent);
+  font-variant-numeric: tabular-nums;
 }
 
 .context-breakdown-compact {
@@ -6321,18 +7255,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
 }
 
 .context-breakdown-close {
-  border: none;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 70%, transparent);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 6px;
-}
-
-.context-breakdown-close:hover {
-  background: color-mix(in srgb, var(--text) 8%, transparent);
+  flex: 0 0 auto;
 }
 
 .context-breakdown-summary {
@@ -6340,7 +7263,7 @@ html:not([data-theme="light"]) .context-breakdown-error {
   flex-wrap: wrap;
   gap: 6px;
   color: color-mix(in srgb, var(--text) 75%, transparent);
-  margin-bottom: 10px;
+  margin: 4px 14px 10px;
 }
 
 .context-breakdown-summary-sep {
@@ -6645,14 +7568,18 @@ html:not([data-theme="light"]) .context-usage-note--error {
   .settings.drawer {
     z-index: 70;
   }
-  .shell {
-    /* The top bar the rail becomes, and under it the environment banner when
-       one is shown: the banner publishes its height (EnvHealthBanner.tsx), so
-       everything placed by the inset starts below both. */
+  /* The top bar the rail becomes, and under it the environment banner when
+     one is shown: the banner publishes its height on <html>
+     (EnvHealthBanner.tsx), so everything placed by the inset starts below
+     both. Declared on :root rather than .shell so a dialog portalled into
+     <body> (the folder browser) is placed by the same inset as the drawers. */
+  :root {
     --coddy-mobile-bar-h: calc(78px + env(safe-area-inset-top, 0px));
     --coddy-mobile-top-inset: calc(
       var(--coddy-mobile-bar-h) + var(--coddy-env-banner-h, 0px)
     );
+  }
+  .shell {
     /* Same rhythm as title row to first message (.messages-inner gap, sticky-head padding-bottom) */
     --coddy-mobile-chat-stack-gap: 12px;
     --coddy-mobile-title-sticky-top: calc(
@@ -6957,7 +7884,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
   flex-shrink: 0;
 }
 
-.scheduler-btn-primary {
+.scheduler-btn-primary,
+.workspace-modal-btn--add {
   border-color: rgba(147, 51, 234, 0.45);
   background: rgba(147, 51, 234, 0.2);
 }
@@ -6979,7 +7907,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
   background: var(--coddy-surface-raised);
 }
 
-[data-theme="light"] .scheduler-btn-primary {
+[data-theme="light"] .scheduler-btn-primary,
+[data-theme="light"] .workspace-modal-btn--add {
   border-color: rgba(124, 58, 237, 0.4);
   background: rgba(124, 58, 237, 0.12);
 }
@@ -7094,6 +8023,150 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 1px 6px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+/* Project jobs: the drawer's sections, the trust badge of a row that does
+   not run, and the approval block of the editor (DESIGN.md, Scheduler). */
+.scheduler-job-group + .scheduler-job-group {
+  margin-top: 6px;
+}
+
+.scheduler-job-group-head {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduler-job-group-empty {
+  padding: 2px 10px 6px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+}
+
+.scheduler-job-trust {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+}
+
+.scheduler-job-trust--needs_approval {
+  color: #ff9f0a;
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
+.scheduler-job-trust--conflict,
+.scheduler-job-trust--invalid,
+.scheduler-job-trust--denied {
+  color: #ff453a;
+  border-color: color-mix(in srgb, #ff453a 45%, transparent);
+}
+
+.scheduler-job-row-untrusted .scheduler-job-row-id {
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+}
+
+.scheduler-job-approve-icon {
+  color: #ff9f0a;
+}
+
+.scheduler-trust-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+}
+
+.scheduler-trust-block--needs_approval {
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
+.scheduler-trust-block--conflict,
+.scheduler-trust-block--invalid,
+.scheduler-trust-block--denied {
+  border-color: color-mix(in srgb, #ff453a 45%, transparent);
+}
+
+.scheduler-trust-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scheduler-trust-state {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scheduler-trust-state::first-letter {
+  text-transform: uppercase;
+}
+
+.scheduler-trust-block--needs_approval .scheduler-trust-state {
+  color: #ff9f0a;
+}
+
+.scheduler-trust-note,
+.scheduler-trust-reason {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  overflow-wrap: anywhere;
+}
+
+.scheduler-trust-raw {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.scheduler-scope-field {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.scheduler-scope-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 2px;
+}
+
+.scheduler-scope-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.scheduler-scope-option input:disabled + span {
+  opacity: 0.5;
 }
 
 .scheduler-job-row-actions {
@@ -7879,7 +8952,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   gap: 12px;
 }
 
+/* A <fieldset> defaults to a min-content inline size, so nested frames - a
+   per-chat override inside a bot's block - added up past a phone's panel and
+   scrolled it sideways. Every settings frame may shrink to its column. */
 .settings-fieldset {
+  min-inline-size: 0;
   border: 1px solid var(--coddy-glass-panel-border);
   border-radius: var(--coddy-glass-panel-radius);
   padding: 12px 14px 14px;
@@ -8918,14 +9995,97 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 /* "Installed skills" heading row with the Refresh action on the right. */
-/* Footer of the Remote skill sources box: Add on the left, Sync all on the
-   right, on one level (matches the SchemaForm array's Add position). */
+/* Footer of the Marketplaces box: the add form on the left, Sync all on the
+   right, on one level; on a narrow box Sync all drops under the form. */
 .skills-sources-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* The add form: the address grows, the scope picker and Add keep their
+   size. */
+.skills-marketplace-add {
+  display: flex;
+  flex: 1 1 320px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skills-marketplace-add > .settings-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+.skills-marketplace-add > .skills-marketplace-scope {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.skills-marketplace-add > button {
+  flex: 0 0 auto;
+}
+
+/* A fieldset is as wide as its min-content unless told otherwise, and the
+   add form and the long addresses of this box would widen it past the panel
+   on a phone. */
+.skills-marketplaces-box {
+  min-inline-size: 0;
+  max-width: 100%;
+}
+
+/* The marketplaces list: one row per declared source or marketplace, laid
+   out like an MCP server row (text, then the 40px icon controls). */
+.skills-marketplaces {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.skills-marketplace-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.skills-marketplace-head > button {
+  flex: 0 0 auto;
+}
+
+.skills-marketplace-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.skills-marketplace-key {
+  font-family: var(--mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+
+.skills-marketplace-source {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+/* A project entry the trust gate holds back reads dimmed, its shield amber
+   (.settings-btn-approve) and the note under it says why. */
+.skills-marketplace.is-held .skills-marketplace-text {
+  opacity: 0.65;
+}
+
+.skills-marketplace-note {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  overflow-wrap: anywhere;
 }
 
 .skills-sync-all-btn {
@@ -9073,7 +10233,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .mcp-list {
   /* Where a server row's name starts: the chevron, its gap, the status dot
      and its gap. The tools and the trust note under a row start there too. */
-  --mcp-row-inset: calc(22px + 8px + 9px + 8px);
+  --mcp-switch-inset: calc(22px + 8px);
+  --mcp-row-inset: calc(var(--mcp-switch-inset) + 38px + 8px + 9px + 8px);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -9082,8 +10243,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .mcp-list-item {
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   padding: 4px 0;
 }
 
@@ -9272,6 +10431,13 @@ html:not([data-theme="light"]) .context-usage-note--error {
   min-width: 0;
 }
 
+/* The shield of a project definition stands at the end of its head, like
+   the MCP tab's, and never shrinks under a long name. */
+.subagents-item-head > .subagents-trust {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 /* The fold toggle is the app's chevron in front of the definition's name, the
    two one control (DESIGN.md "Chevron"). The chevron is centred on the name's
    first 20px line, (20 - 14) / 2 = 3px down, so a name that wraps keeps it on
@@ -9369,8 +10535,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
 /* Expanded per-tool rows, under the server's name. */
 .mcp-tools {
   list-style: none;
-  margin: 0 0 6px;
-  padding: 0 0 0 var(--mcp-row-inset);
+  margin: 0;
+  padding: 0 0 0 var(--mcp-switch-inset);
   display: flex;
   flex-direction: column;
 }
@@ -9382,6 +10548,10 @@ html:not([data-theme="light"]) .context-usage-note--error {
   padding: 5px 0;
   border-top: 1px dashed
     color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+}
+
+.mcp-tool-row > .skill-switch {
+  flex: 0 0 auto;
 }
 
 .mcp-tool-row.is-disabled .mcp-tool-text {
@@ -11773,15 +12943,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border-radius: 2px;
 }
 
-/* Tab controls hanging off the card above them, like the More / Less row: the
-   body is a flex column with an 8px gap, and these cancel it. */
-.tool-bgtask-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: -8px;
-}
-
 /* ── Background tasks panel (docked inside the session) ────────────────────
    The panel belongs to the chat that started the tasks, so it sits beside the
    transcript rather than floating over the shell like History or Scheduler.
@@ -11818,7 +12979,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     /* What the panel takes off the end edge: its width and the inset it keeps
        from the viewport (see .bgtasks-panel), plus the gap the column keeps
        from it. */
-    --coddy-tasks-panel-band: calc(min(380px, 100vw - 32px) + 14px + 28px);
+    --coddy-tasks-panel-band: calc(min(380px, 100vw - 32px) + 14px + 12px);
     /* 920px is the transcript stripe (.messages-inner max-width); the stripe is
        centred in what is left, so covering the band costs twice it. */
     --coddy-tasks-reserve: clamp(
@@ -12059,26 +13220,14 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   white-space: pre;
 }
 
-/* The way into the task, on the folded card: an agent run's child conversation,
-   a preview server's address. The run is that conversation and the server is that
-   page, so an operator who had to open a card to find the link was made to take a
-   step on the way to the one move the panel exists for. A card carries at most one
-   of the two, because a task is one kind or the other.
-
-   It takes a row of its own under the status and the usage. The panel is 380px
-   wide: a control sharing that line would be paid for by the model's name, the
-   one thing there that cannot be cut down to something still readable. */
-.bgtask-card-transcript-row,
+/* A running preview server remains reachable from its folded card. */
 .bgtask-card-address-row {
   flex: 1 0 100%;
   display: flex;
   margin-top: 4px;
 }
 
-.bgtask-card-transcript,
 .bgtask-card-link {
-  /* Above the opener stretched over the summary, the way Stop is: it opens the
-     transcript or the page rather than the card it sits on. */
   position: relative;
   z-index: 1;
   padding: 0;
@@ -12091,10 +13240,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   cursor: pointer;
 }
 
-.bgtask-card-transcript {
-  flex: 0 0 auto;
-}
-
 /* An address is as long as it is, and the panel is narrow: it wraps onto a second
    line whole rather than trailing off in an ellipsis that names no port. */
 .bgtask-card-link {
@@ -12103,21 +13248,9 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   overflow-wrap: anywhere;
 }
 
-.bgtask-card-transcript:hover:not(:disabled),
-.bgtask-card-transcript:focus-visible,
 .bgtask-card-link:hover,
 .bgtask-card-link:focus-visible {
   text-decoration: underline;
-}
-
-/* A run whose child session is not known yet - it has only just started. The
-   title says so; the control stays in place so the card does not change shape
-   under the reader when the id arrives. */
-.bgtask-card-transcript:disabled {
-  color: inherit;
-  opacity: 0.55;
-  cursor: not-allowed;
-  text-decoration: none;
 }
 
 .bgtask-card.is-overdue .bgtask-card-meta {
@@ -12202,6 +13335,36 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   min-height: 56px;
   max-height: 260px;
   overflow: auto;
+}
+
+/* The child transcript belongs to an agent task's expanded report. The tab
+   cancels the body's flex gap so it attaches directly below the output. */
+.bgtask-card-transcript {
+  align-self: flex-start;
+  margin-top: -8px;
+  padding: 4px 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bgtask-card-transcript:hover:not(:disabled),
+.bgtask-card-transcript:focus-visible {
+  text-decoration: underline;
+}
+
+/* A run whose child session is not known yet keeps the action in place until
+   the child transcript can be opened. */
+.bgtask-card-transcript:disabled {
+  color: inherit;
+  opacity: 0.55;
+  cursor: not-allowed;
+  text-decoration: none;
 }
 
 .bgtask-card-foot {
@@ -12333,7 +13496,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   position: relative;
   z-index: 3;
   display: grid;
-  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(170px, 210px);
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(
+      170px,
+      210px
+    );
   grid-template-areas: "title search actions";
   column-gap: 32px;
   align-items: center;
@@ -12435,6 +13601,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  /* The scrollbar's room is kept from the first frame, so the header's right
+     edge (and the close button on it) does not move when a page grows tall
+     enough to scroll. */
+  scrollbar-gutter: stable;
   overscroll-behavior: contain;
   container-type: size;
   padding: 0 var(--docs-inline);
@@ -12452,7 +13622,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   box-sizing: border-box;
   padding: var(--docs-top) 0 var(--docs-bottom);
   display: grid;
-  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(170px, 210px);
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(
+      170px,
+      210px
+    );
   gap: 32px;
   align-items: start;
 }
@@ -14616,52 +15789,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
     height: 40px;
   }
 
-  /* Context row: env / folder / branch / worktree in one scrolling strip,
-     the improve-prompt button fixed at the row's end. */
-  .composer-context-row {
-    flex-wrap: nowrap;
-  }
-
-  .composer-context-scroll {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-    /* Room for focus rings inside the scroller. */
-    padding: 3px;
-    margin: -3px;
-    -webkit-mask-image: linear-gradient(
-      to right,
-      #000 calc(100% - 16px),
-      transparent
-    );
-    mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
-  }
-
-  .composer-context-scroll::-webkit-scrollbar {
-    display: none;
-  }
-
-  /* Trailing room so the last chip can scroll clear of the fade. */
-  .composer-context-scroll::after {
-    content: "";
-    flex: 0 0 12px;
-  }
-
-  .composer-context-scroll > *,
-  .composer-context-chips > * {
-    flex-shrink: 0;
-  }
-
-  .workspace-chip {
-    max-width: 42vw;
-  }
-
   /* Selector chips: one strip that scrolls under a fade, Send stays put. */
   .composer-bar {
     gap: 8px;
@@ -14739,6 +15866,28 @@ html:not([data-theme="light"]) .swarm-graph-panel {
     flex-basis: calc(100% - var(--mcp-row-inset));
   }
 
+  /* Marketplaces: the same rule as an MCP row. The address and its badges
+     take the first line, the shield, Sync and trash wrap to the row's end,
+     and the add form puts its scope picker and Add under the address. */
+  .skills-marketplace-head {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
+  }
+
+  .skills-marketplace-text {
+    flex-basis: 100%;
+  }
+
+  .skills-marketplace-add {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .skills-marketplace-add > .settings-input:first-child {
+    flex-basis: 100%;
+  }
+
   /* Settings maps (the default headers): a name and a value side by side left
      the name 82px at 390px, User-Agent cut to "User-Ag". The value goes under
      the name, the trash stays beside the pair, and the pairs stand further
@@ -14756,10 +15905,12 @@ html:not([data-theme="light"]) .swarm-graph-panel {
    does not zoom back. Phones in both orientations and touch tablets. */
 @media (max-width: 599px), (any-hover: none) and (any-pointer: coarse) {
   /* The mirror draws the mention highlights under the textarea: the two
-     must keep the same metrics. */
+     must keep the same metrics. 8px on top keeps the first line's middle
+     on the wand's at the larger type. */
   .composer-mirror-inner,
   textarea#composer {
     font-size: 16px;
+    padding-top: 8px;
   }
 
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
@@ -14821,8 +15972,1061 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: var(--accent);
 }
 
+.rail-more-active-count {
+  min-width: 18px;
+  margin-left: auto;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .rail-more-sep {
   height: 1px;
   margin: 4px 8px;
   background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+/* ── Edits: what git reports for the chat's folder ─────────────────────────
+   Their one view is the edits window further down (.dv-*); these are the
+   colours of the counts and the buttons it shares with the bar over the
+   composer. */
+
+.changes-add {
+  color: var(--diff-add-no);
+}
+
+.changes-del {
+  color: var(--diff-del-no);
+}
+
+.changes-action {
+  min-height: 26px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 0.5px solid var(--coddy-glass-panel-border);
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.changes-action:hover:not(:disabled) {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 24%, var(--coddy-blend-base));
+}
+
+.changes-action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.changes-action--danger:hover:not(:disabled) {
+  border-color: var(--diff-del-no);
+  color: var(--diff-del-no);
+}
+
+/* ── Files window ─────────────────────────────────────────────────────────
+   The session's workspace in a window over the chat, framed the way the
+   documentation reader is (.docs-dock-cluster): the same glass sheet right of
+   the rail, no wider than the dock width, centred in what is left. Expanded,
+   it takes the whole window, the rail included. Inside: a header, then the
+   tree beside the open files. DESIGN.md, Workspace files window. */
+.files-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  right: 14px;
+  width: var(--coddy-dock-width);
+  margin-inline: auto;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: var(--text);
+}
+
+.files-dock-cluster.is-expanded {
+  left: 14px;
+  width: auto;
+  margin-inline: 0;
+  z-index: 55;
+}
+
+/* The head of the window: the tree switch and the title on the left, the
+   window's own controls on the right, on one line at every width. */
+.files-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 12px 12px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.files-title-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.files-title-text {
+  min-width: 0;
+}
+
+/* Spelled like the documentation's title: small capitals in a 72% text tint. */
+.files-title {
+  margin: 0;
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.files-subtitle {
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.files-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* A square control as tall as the close button beside it (30px). */
+.files-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.files-icon-btn:hover,
+.files-icon-btn:focus-visible {
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+/* A pressed toggle brightens - text, border and ground - like the view
+   buttons of the chat header; the accent is the mark of work in flight. */
+.files-icon-btn.is-active {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.files-icon-btn:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.files-more-host {
+  position: relative;
+}
+
+/* The window's menu hangs from its button inside the window, so it is never
+   clipped by the sheet and needs no portal. */
+.files-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  z-index: 101;
+  min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.files-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.files-menu-check {
+  flex: 0 0 14px;
+  text-align: center;
+  color: var(--accent);
+}
+
+.files-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+/* Tree and open files, side by side; the tree folds away for the width. */
+.files-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.files-layout.has-tree {
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+}
+
+.files-sidebar {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.files-filter {
+  position: relative;
+  flex: none;
+  padding: 10px 10px 8px;
+}
+
+.files-filter-icon {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-top: 1px;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  pointer-events: none;
+}
+
+.files-filter input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px 0 32px;
+  border-radius: 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.files-filter input:focus {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--coddy-blend-base));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.files-filter input::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+/* As wide as the filter over it: a row's edges, the marked one's included,
+   are the filter's (.files-filter's side padding). */
+.files-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 10px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.files-tree-level {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.files-tree-row,
+.files-tree-more {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.files-tree-row:hover:not(:disabled),
+.files-tree-more:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+/* The file on show: a brighter row with a light outline, not the accent. */
+.files-tree-row.is-active {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.files-tree-row:disabled {
+  cursor: default;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+.files-tree-row:focus-visible,
+.files-tree-more:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+}
+
+.files-tree-glyph {
+  flex: 0 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+.files-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-hit .files-tree-name {
+  direction: rtl;
+  text-align: left;
+}
+
+.files-tree-link {
+  flex: none;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+}
+
+.files-tree-more {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+/* The open files: a strip of tabs over the file on show. */
+.files-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The strip of open files stands as far under the head as the filter beside
+   it. Tabs that do not fit scroll sideways with no scrollbar and no arrows:
+   the wheel and a swipe move it (FilesView.tsx, TabStrip). */
+.files-tabs-bar {
+  position: relative;
+  flex: none;
+  padding: 10px 0 0;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.files-tabs {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.files-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* An end that has more tabs fades out, the strip's only sign of them. */
+.files-tabs.has-more-left {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 28px);
+  mask-image: linear-gradient(to right, transparent, #000 28px);
+}
+
+.files-tabs.has-more-right {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 28px);
+  mask-image: linear-gradient(to left, transparent, #000 28px);
+}
+
+.files-tabs.has-more-left.has-more-right {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
+}
+
+/* 33px and the strip's 1px line under it: as tall as the filter beside it, so
+   the line the file starts under is level with the filter's bottom edge. */
+.files-tab {
+  flex: none;
+  box-sizing: border-box;
+  height: 33px;
+  display: flex;
+  align-items: center;
+  max-width: 240px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 9px 9px 0 0;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+}
+
+.files-tab:hover {
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+}
+
+.files-tab.is-active {
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.files-tab-name {
+  align-self: stretch;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 4px 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.files-tab-dir {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  font-size: 11px;
+}
+
+.files-tab-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-right: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.files-tab-close:hover,
+.files-tab-close:focus-visible,
+.files-tab.is-active .files-tab-close {
+  opacity: 1;
+}
+
+.files-tab-close:hover {
+  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+/* No file open: a quiet note in the middle of the space the files will take. */
+.files-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+}
+
+.files-empty-icon {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  margin-bottom: 6px;
+}
+
+.files-empty-title {
+  margin: 0;
+  font-size: 15px;
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+}
+
+.files-empty-hint {
+  margin: 0;
+  max-width: 360px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+/* One open file: its body alone, the tab above names it. */
+.files-file {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.files-file-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.files-note {
+  margin: 12px 14px;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+}
+
+.files-changed {
+  margin: 10px 14px 0;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+/* A line's number and its text are one line box: the block sets the font,
+   the size and the line height, and both take them. The stack is the diffs'
+   (.dv-diff); the code element inherits it instead of the browser's own
+   monospace, whose size and line height would set the text apart from its
+   number. */
+.files-code {
+  padding-top: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  min-width: 100%;
+  width: max-content;
+}
+
+.files-code > div {
+  display: flex;
+}
+
+.files-code code {
+  font: inherit;
+  white-space: pre;
+  flex: 1;
+  min-width: 0;
+  padding-right: 14px;
+}
+
+.files-code--wrap {
+  width: 100%;
+}
+
+.files-code--wrap code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.files-line-no {
+  flex: 0 0 52px;
+  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  text-align: right;
+  padding-right: 14px;
+  user-select: none;
+}
+
+.files-image {
+  display: block;
+  padding: 12px;
+  overflow: auto;
+  background: repeating-conic-gradient(
+      rgb(127 127 127 / 8%) 0% 25%,
+      transparent 0% 50%
+    )
+    50% / 16px 16px;
+}
+
+.files-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px auto;
+}
+
+.files-image--full img {
+  max-width: none;
+}
+
+.files-file-body audio,
+.files-file-body video {
+  display: block;
+  max-width: calc(100% - 28px);
+  margin: 14px;
+}
+
+.files-image > button,
+.files-action {
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+/* A file path in a permission preview opens the file in the window. */
+.files-open-path {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.files-open-path:hover {
+  text-decoration: underline;
+}
+
+/* The stacked shell: below the top bar, above the shell's backdrop (which
+   rises to 60 there), inset like the documentation sheet. The tree keeps its
+   column while it fits beside the file. */
+@media (max-width: 1199px) {
+  /* 72: over the dock (70), which the window leaves open under it. */
+  .files-dock-cluster,
+  .files-dock-cluster.is-expanded {
+    z-index: 72;
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    bottom: 8px;
+    width: auto;
+    margin-inline: 0;
+  }
+
+  /* Expanded, over the top bar (80) as well. */
+  .files-dock-cluster.is-expanded {
+    top: max(8px, env(safe-area-inset-top, 0px));
+    z-index: 85;
+  }
+
+  .files-layout.has-tree {
+    grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  }
+}
+
+/* A phone shows one column at a time: the tree until a file opens, then the
+   file; the tree switch in the head brings the tree back over it. */
+@media (max-width: 599px) {
+  .files-layout.has-tree {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .files-layout.has-tree .files-main {
+    display: none;
+  }
+
+  .files-layout.has-tree .files-sidebar {
+    border-right: 0;
+  }
+
+  .files-subtitle {
+    max-width: 40vw;
+  }
+}
+
+@media (max-width: 1199px) {
+  .changes-action {
+    min-height: 32px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Edits window (EditsView.tsx) - every changed file's diff in one scrollable
+   document, in the frame, head and tree of the Files window (.files-*). What
+   is its own: the totals under the title, git's letter beside a file of the
+   tree, and the diffs (.dv-*).
+   Chromium 104 baseline: no :has(), no @container, marker classes instead.
+   --------------------------------------------------------------------------- */
+
+/* The folder, then git's count of the edits, on the subtitle line. Where
+   the line is short (a phone gives it 40% of the width) the folder's name
+   takes the ellipsis and the count stays whole. */
+.edits-window .files-subtitle {
+  display: flex;
+  align-items: baseline;
+}
+
+.edits-folder {
+  min-width: 0;
+  margin-right: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edits-totals {
+  flex: none;
+  display: inline-flex;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Git's short status at the right end of a file's row: A, M or D. */
+.edits-tree-status {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+.edits-tree-status--added {
+  color: var(--diff-add-no);
+}
+
+.edits-tree-status--deleted {
+  color: var(--diff-del-no);
+}
+
+/* A menu item that destroys work reads in the colour of a deletion. */
+.files-menu-item--danger:not(:disabled) {
+  color: var(--diff-del-no);
+}
+
+/* Icon buttons of a file's head in the diffs. */
+.dv-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--text) 66%, var(--coddy-blend-base));
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.dv-icon-btn:hover {
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.dv-icon-btn--danger:hover:not(:disabled) {
+  color: var(--diff-del-no);
+}
+
+.dv-icon-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* The diffs keep from the edges of their column what the tree's column keeps
+   (the filter's 10px), and the files stand as far apart. */
+.dv-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+/* It takes the focus as the window opens, for the keys that scroll it; the
+   frame around the window already says where the focus is. */
+.dv-scroll:focus {
+  outline: none;
+}
+
+/* Notices ------------------------------------------------------------------- */
+
+.dv-note {
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+}
+
+.dv-note--error {
+  color: var(--coddy-danger, #e5534b);
+}
+
+.dv-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+  padding: 9px 12px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 74%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+}
+
+/* One file ------------------------------------------------------------------ */
+
+.dv-file {
+  margin-bottom: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 11%, var(--coddy-blend-base));
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* The card's 1px border, then 33px with the head's own line: as tall as the
+   filter beside it, the card starting where the filter does. */
+.dv-file-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  height: 33px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 4px;
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+.dv-file-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 4px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.dv-file-badge {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 34%, var(--coddy-blend-base));
+}
+
+.dv-file-badge--added {
+  background: var(--diff-add-no);
+}
+
+.dv-file-badge--deleted {
+  background: var(--diff-del-no);
+}
+
+.dv-file-path {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 12.5px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.dv-file-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dv-file-name {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.dv-file-stat {
+  display: inline-flex;
+  gap: 7px;
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dv-file-stat--binary {
+  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
+}
+
+/* Copy and discard, always in sight, between the name and git's counts,
+   which close the row at its right end. */
+.dv-file-actions {
+  display: inline-flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.dv-file-body {
+  overflow-x: auto;
+}
+
+/* Diff rows ----------------------------------------------------------------- */
+
+.dv-diff {
+  display: flex;
+  flex-direction: column;
+  min-width: max-content;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.dv-line {
+  display: flex;
+  align-items: baseline;
+}
+
+.dv-line--add {
+  background: var(--diff-add-bg);
+}
+
+.dv-line--del {
+  background: var(--diff-del-bg);
+}
+
+.dv-num {
+  flex: 0 0 auto;
+  min-width: 4ch;
+  padding: 0 6px;
+  text-align: right;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.dv-line--add .dv-num {
+  color: var(--diff-add-no);
+}
+
+.dv-line--del .dv-num {
+  color: var(--diff-del-no);
+}
+
+.dv-code {
+  flex: 1 1 auto;
+  padding: 0 10px 0 6px;
+  white-space: pre;
+}
+
+/* The jump between hunks. Deliberately wordless: the reference UI writes
+   "N unmodified lines" here, which is a number the reader cannot act on. */
+.dv-gap {
+  height: 10px;
+  border-top: 1px dashed
+    color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  border-bottom: 1px dashed
+    color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+}
+
+/* Unified scrolls sideways the way a terminal diff does. Split cannot: a long
+   line would paint over the other column, so inside a column it wraps instead.
+   The pair stays one flex row, so the two sides stay level however tall it gets. */
+.dv-diff--split {
+  min-width: 0;
+}
+
+.dv-diff--split .dv-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dv-split-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.dv-side {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 50%;
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+.dv-side--add {
+  background: var(--diff-add-bg);
+}
+
+.dv-side--del {
+  background: var(--diff-del-bg);
+}
+
+.dv-side--empty {
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+}
+
+.dv-side--add .dv-num {
+  color: var(--diff-add-no);
+}
+
+.dv-side--del .dv-num {
+  color: var(--diff-del-no);
 }

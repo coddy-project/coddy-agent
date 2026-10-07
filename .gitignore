@@ -58,6 +58,7 @@ Thumbs.db
 /external/ui/app.js
 /external/ui/events-worker.js
 /external/ui/app.js.map
+/external/ui/chunks/
 .playwright-mcp/
 
 # Config backups written by coddy at startup (internal/config WriteBackup)

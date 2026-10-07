@@ -111,6 +111,32 @@ func (m *Manager) BackgroundMCPConnect() bool {
 	return m.backgroundMCP.Load()
 }
 
+// ActivateDeferredMCP explicitly warms the configured MCP servers of a
+// restored ordinary session. Passive session reads leave the deferred marker
+// untouched; this method is the one opt-in transition that consumes it. The
+// turn lock makes consuming the marker and registering the background
+// generation atomic with reload and workspace reconciliation.
+func (m *Manager) ActivateDeferredMCP(ctx context.Context, sessionID string) error {
+	state := m.SessionByID(sessionID)
+	if state == nil {
+		return errors.New("session not found")
+	}
+	if state.GetArchived() || state.Subagent() != nil || state.IsSchedulerJob() {
+		return nil
+	}
+	unlock, err := m.acquireTurnLockWithReloadDrain(sessionID, state)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if !state.takeDeferredConfiguredMCP() {
+		return nil
+	}
+	m.installMCPFilter(state)
+	m.startBackgroundMCPConnect(state)
+	return nil
+}
+
 // connectNewSessionMCPServers is the configured-server step of a new
 // session: the tool filter, then the dial - in the background when the
 // manager connects there, in the caller's context otherwise.

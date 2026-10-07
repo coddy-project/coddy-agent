@@ -145,6 +145,8 @@ func (w *wakeWorld) chatWithScriptedModel() error {
 	w.fake = openFakeAPI(tgfake.Options{})
 	w.bot = New(&config.TelegramGatewayConfig{
 		Enabled: true, Token: "t", DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual,
+		// The woken turn runs with the rights of the chat's owner: an admin's.
+		Admins: []int64{wakeUserID},
 	}, w.mgr, cwd, log, "", nil)
 	w.bot.setAPI(w.fake.api)
 	agent.NewBackgroundWaker(log, func(ctx context.Context, wake agent.Wake) error {

@@ -1,0 +1,21 @@
+# The reviewer CLIs crossreview knows: one row per agent, tab-separated.
+# Read by scripts/crossreview.py, scripts/detect-agents.sh and scripts/detect-agents.ps1.
+# binaries: candidates in preference order (comma-separated; a space adds a fixed subcommand).
+# marker: a word --version or --help must print, so an unrelated executable of the same name is skipped.
+# models: arguments that list the agent's models, '-' when it has no such command.
+# posix / powershell: command templates; {bin}, {model}, {brief} and {out} are placeholders.
+# Every template feeds the brief through stdin or a file flag, except koda's: that CLI takes the
+# prompt only as an argument, and the helper refuses it when the brief is too long for one.
+# The PowerShell column hands redirection to cmd.exe (--% passes the rest verbatim), which moves
+# bytes as they are: PowerShell's own | and > re-encode text (UTF-16, the OEM code page).
+# agent	binaries	marker	models	posix	powershell
+claude	claude	claude	-	{bin} -p --model {model} --output-format text --permission-mode plan < {brief} > {out}	cmd /d /c --% {bin} -p --model {model} --output-format text --permission-mode plan < {brief} > {out}
+codex	codex	codex	debug models	{bin} exec -m {model} --sandbox read-only --skip-git-repo-check - < {brief} > {out}	cmd /d /c --% {bin} exec -m {model} --sandbox read-only --skip-git-repo-check - < {brief} > {out}
+coddy	coddy	coddy	-	{bin} --model {model} --mode ask --no-stdin -i {brief} > {out}	cmd /d /c --% {bin} --model {model} --mode ask --no-stdin -i {brief} > {out}
+cursor	agent,cursor-agent,cursor agent	cursor	--list-models	{bin} -p --trust --mode ask --model {model} --output-format text < {brief} > {out}	cmd /d /c --% {bin} -p --trust --mode ask --model {model} --output-format text < {brief} > {out}
+devin	devin	devin	models list	{bin} -p --model {model} --prompt-file {brief} --permission-mode auto --respect-workspace-trust false < /dev/null > {out}	cmd /d /c --% {bin} -p --model {model} --prompt-file {brief} --permission-mode auto --respect-workspace-trust false < NUL > {out}
+opencode	opencode	opencode	models	{bin} run -m {model} --agent plan < {brief} > {out}	cmd /d /c --% {bin} run -m {model} --agent plan < {brief} > {out}
+gemini	gemini	gemini	-	{bin} -m {model} --approval-mode plan -o text < {brief} > {out}	cmd /d /c --% {bin} -m {model} --approval-mode plan -o text < {brief} > {out}
+qwen	qwen	qwen	-	{bin} -m {model} --approval-mode plan -o text < {brief} > {out}	cmd /d /c --% {bin} -m {model} --approval-mode plan -o text < {brief} > {out}
+kimi	kimi	kimi	-	{bin} --quiet --plan -m {model} < {brief} > {out}	cmd /d /c --% {bin} --quiet --plan -m {model} < {brief} > {out}
+koda	koda	koda	-	{bin} "$(cat {brief})" > {out}	{bin} "$(Get-Content -Raw -Encoding UTF8 {brief})" > {out}

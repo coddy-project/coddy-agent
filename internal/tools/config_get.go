@@ -26,7 +26,7 @@ func ConfigGetTool() *tooling.Tool {
 				"properties": map[string]interface{}{
 					"path": map[string]interface{}{
 						"type":        "string",
-						"description": "Dotted path such as skills, agent.model, skills.dirs.0, or mcp_servers[name=context7].",
+						"description": "Dotted path such as skills, agent.model, skills.dirs.0, or providers[name=local].",
 					},
 				},
 				"required": []interface{}{"path"},

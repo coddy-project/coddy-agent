@@ -18,6 +18,8 @@ import (
 //	GET  /sim/file/{id}
 //	GET  /sim/chats
 //	GET  /sim/state
+//	POST /sim/webapp/launch     {chat_id, user_id, username, first_name, url, start_param, color_scheme, platform, version}
+//	GET  /sim/webapp/theme/{light|dark}
 //	POST /sim/fault             {method, code, description, retry_after, times} or {method, clear: true}
 //	DELETE /sim/fault
 //	POST /sim/reset
@@ -30,6 +32,8 @@ func (s *Server) registerSim(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sim/file/{id}", s.simFile)
 	mux.HandleFunc("GET /sim/chats", s.simChats)
 	mux.HandleFunc("GET /sim/state", s.simState)
+	mux.HandleFunc("POST /sim/webapp/launch", s.simWebAppLaunch)
+	mux.HandleFunc("GET /sim/webapp/theme/{scheme}", s.simWebAppTheme)
 	mux.HandleFunc("POST /sim/fault", s.simFault)
 	mux.HandleFunc("DELETE /sim/fault", s.simClearFaults)
 	mux.HandleFunc("POST /sim/reset", s.simReset)
@@ -125,9 +129,37 @@ func (s *Server) simState(w http.ResponseWriter, _ *http.Request) {
 		"next_update_id":  next,
 		"allowed_updates": s.AllowedUpdates(),
 		"commands":        s.Commands(),
+		"menu_button":     s.MenuButton(0),
 		"faults":          s.Faults(),
 		"calls":           len(s.Calls("")),
 	})
+}
+
+// simWebAppLaunch opens a Mini App the way the person would: from a web_app
+// button (url) or from the chat's menu button (no url). The answer is the
+// address the client loads and the signed launch data in it.
+func (s *Server) simWebAppLaunch(w http.ResponseWriter, r *http.Request) {
+	var in WebAppLaunch
+	if !readJSON(w, r, &in) {
+		return
+	}
+	launched, err := s.LaunchWebApp(in)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, launched)
+}
+
+// simWebAppTheme serves the theme parameters of a Telegram theme, what the
+// page sends an open Mini App in theme_changed when the person switches it.
+func (s *Server) simWebAppTheme(w http.ResponseWriter, r *http.Request) {
+	scheme := r.PathValue("scheme")
+	if scheme != "light" && scheme != "dark" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "scheme is light or dark"})
+		return
+	}
+	writeJSON(w, http.StatusOK, ThemeParams(scheme))
 }
 
 func (s *Server) simFault(w http.ResponseWriter, r *http.Request) {

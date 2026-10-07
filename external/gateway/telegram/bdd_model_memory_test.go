@@ -32,6 +32,15 @@ func (w *modelSwitchWorld) secondChatSends(text string) error {
 
 // sessionModelIsForUser asserts the effective model of the session the given
 // user's chat is bound to.
+func (w *modelSwitchWorld) secondChatTaps(model string) error {
+	cbq, err := w.f.tap(secondChatID, secondUserID, model)
+	if err != nil {
+		return err
+	}
+	w.bot.handleCallback(context.Background(), w.f.api, cbq)
+	return nil
+}
+
 func (w *modelSwitchWorld) sessionModelIsForUser(userID int64, model string) error {
 	id := w.bot.store.Peek(fmt.Sprintf("tg:user:%d", userID))
 	if id == "" {
@@ -78,6 +87,7 @@ func initializeModelMemoryScenario(sc *godog.ScenarioContext) {
 	sc.When(`^the user sends "([^"]*)"$`, w.sendCommand)
 	sc.When(`^the user taps the button for "([^"]*)"$`, w.tapButton)
 	sc.When(`^the second chat sends "([^"]*)"$`, w.secondChatSends)
+	sc.When(`^the second chat taps the button for "([^"]*)"$`, w.secondChatTaps)
 
 	sc.Then(`^the chat's session model is "([^"]*)"$`, w.chatSessionModelIs)
 	sc.Then(`^the second chat's session model is "([^"]*)"$`, w.secondChatSessionModelIs)

@@ -116,7 +116,7 @@ func (p *mcpKindsProvider) Stream(_ context.Context, messages []llm.Message, too
 }
 
 // startKindsServer boots the gateway with "native", "remote" and "legacy"
-// configured in config.yaml; "packaged" is registered by a later step.
+// declared in <home>/mcp.json; "packaged" is registered by a later step.
 func (s *mcpE2EState) startKindsServer() error {
 	if err := s.makeHome(); err != nil {
 		return err
@@ -125,16 +125,20 @@ func (s *mcpE2EState) startKindsServer() error {
 	s.kinds = k
 	k.remote = mcptest.NewHTTPServer(mcpKindsTokens["remote"])
 	k.legacy = mcptest.NewSSEServer(mcpKindsTokens["legacy"])
+	for _, srv := range []config.MCPServerConfig{
+		mcptest.Stdio("native", mcpKindsTokens["native"]),
+		{Name: "remote", Type: "http", URL: k.remote.URL},
+		{Name: "legacy", Type: "sse", URL: k.legacy.URL},
+	} {
+		if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.home), srv.Name, config.MCPJSONFromServer(srv)); err != nil {
+			return err
+		}
+	}
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: s.home, CWD: s.cwd},
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 200}},
 		Agent:     config.Agent{Model: "fake/model"},
-		MCPServers: []config.MCPServerConfig{
-			mcptest.Stdio("native", mcpKindsTokens["native"]),
-			{Name: "remote", Type: "http", URL: k.remote.URL},
-			{Name: "legacy", Type: "sse", URL: k.legacy.URL},
-		},
 	}
 	s.serve(cfg, k.model)
 	return nil

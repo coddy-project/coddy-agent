@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -17,52 +18,84 @@ type rulesState interface {
 	GetMessages() []llm.Message
 	GetLastContextBreakdown() *session.ContextBreakdown
 	SetLastContextBreakdown(*session.ContextBreakdown)
-	CachedRulesPrompt(rendersRules bool, inputs string) (*session.RulesPrompt, uint64)
+	CachedRulesPrompt(inputs string) (*session.RulesPrompt, uint64)
 	StoreRulesPrompt(*session.RulesPrompt)
 }
 
-// standingPrompt returns the {{.Rules}} and {{.Instructions}} blocks of the
-// system prompt: the project docs preamble and the always-on rules, then the
-// files of instructions.files. They are rendered once per rules generation of
-// the session and reused by every later turn (session.RulesPrompt), so neither a
-// rule that activates nor an AGENTS.md edited mid-session moves the system
-// message the provider has cached; a compaction, a config reload, a workspace
-// switch or a restart starts the next generation, which reads the files again.
-// A rule scoped to paths is never part of it: it arrives with the tool result
-// or the message that brought its path into play (rules_activation.go,
-// mentions.go).
-func (a *Agent) standingPrompt(rendersRules bool) (rulesMD, instructionsMD string) {
+// standingParts returns the part of the system prompt that does not move
+// while a rules generation lasts (issue #425): the AGENTS.md and DESIGN.md of
+// the agent home and of the session folder, always and in that order (Docs),
+// the rules that always apply (Rules), the files of instructions.files after
+// all of them (User), and the key of every file Docs and User carry (Keys),
+// each file once. It is rendered once per generation and reused by every
+// later turn, whatever template a turn runs on, so neither a rule that
+// activates nor an AGENTS.md edited mid-session moves the system message the
+// provider has cached; a compaction, a config reload, a workspace switch or a
+// restart starts the next generation, which reads the files again. A rule
+// scoped to paths and a nested AGENTS.md are never part of it: they arrive
+// with the tool result or the message that brought their path into play
+// (rules_activation.go, mentions.go), unless Keys already holds their file.
+func (a *Agent) standingParts() *session.RulesPrompt {
 	cwd, home := a.state.GetCWD(), a.cfg.Paths.Home
+	render := func() *session.RulesPrompt {
+		st := rules.LoadStanding(home, cwd, session.ResolveInstructionFiles(a.cfg.Instructions.Files, cwd, home))
+		// LoadStanding skips a file it cannot read without a word, which is
+		// right for a workspace file this workspace does not carry and wrong
+		// for one the operator named for every session: say so once per
+		// generation, where the operator of the process looks.
+		for _, u := range session.UnreadInstructionFiles(a.cfg.Instructions.Files, cwd, home) {
+			a.log.Warn("instructions file not read",
+				"entry", fmt.Sprintf("instructions.files[%d]", u.Index),
+				"path", u.Path,
+				"reason", u.Reason())
+		}
+		return &session.RulesPrompt{
+			Docs: rules.RenderDocs(st.Docs),
+			User: rules.RenderUserDocs(st.User),
+			Keys: st.Keys,
+		}
+	}
 	rs, ok := a.state.(rulesState)
 	if !ok {
-		return "", session.LoadInstructions(cwd, home, a.cfg.Instructions.Files, nil)
+		return render()
 	}
 	// A configuration reloaded without a new generation - another agent home,
 	// another instructions.files list - renders afresh; the files behind an
 	// unchanged configuration are read once per generation.
 	inputs := strings.Join(append([]string{home, cwd}, a.cfg.Instructions.Files...), "\x00")
-	cached, generation := rs.CachedRulesPrompt(rendersRules, inputs)
+	cached, generation := rs.CachedRulesPrompt(inputs)
 	if cached != nil {
-		return cached.Rules, cached.Instructions
+		return cached
 	}
-	rulesMD, embedded := rules.RenderPrompt(home, cwd, rules.AlwaysOnRules(rs.GetRulesCatalog()))
-	// Project docs the rules block already carries: instructions.files names
-	// AGENTS.md too, and one system prompt does not need it twice. A template
-	// under prompts.dir may render {{.Instructions}} and not {{.Rules}}, and
-	// then nothing carries them - so the skip list is taken only from a
-	// template that actually prints the block.
-	if !rendersRules {
-		embedded = nil
+	p := render()
+	p.Generation, p.Inputs = generation, inputs
+	p.Rules = rules.RenderSection("## Active project rules", rules.AlwaysOnRules(rs.GetRulesCatalog()))
+	rs.StoreRulesPrompt(p)
+	return p
+}
+
+// documentKeys are the keys of the documents the system prompt the model is
+// reading carries: those of the build this turn froze, else those of the
+// current generation, which the next build will carry. A tool call reads
+// them, so a reload from another surface in the middle of the turn cannot
+// make a nested document the frozen prompt already holds look new.
+func (a *Agent) documentKeys() map[string]bool {
+	a.docKeysMu.Lock()
+	keys := a.docKeys
+	a.docKeysMu.Unlock()
+	if keys != nil {
+		return keys
 	}
-	instructionsMD = session.LoadInstructions(cwd, home, a.cfg.Instructions.Files, embedded)
-	rs.StoreRulesPrompt(&session.RulesPrompt{
-		Generation:   generation,
-		RendersRules: rendersRules,
-		Inputs:       inputs,
-		Rules:        rulesMD,
-		Instructions: instructionsMD,
-	})
-	return rulesMD, instructionsMD
+	return a.standingParts().Keys
+}
+
+func (a *Agent) setDocumentKeys(keys map[string]bool) {
+	if keys == nil {
+		keys = map[string]bool{}
+	}
+	a.docKeysMu.Lock()
+	a.docKeys = keys
+	a.docKeysMu.Unlock()
 }
 
 // computeContextBreakdown estimates category sizes for the context UI.

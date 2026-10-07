@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
+  <a href="https://go.dev/doc/go1.26"><img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go 1.26+" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/EvilFreelancer/coddy-agent" alt="MIT License" /></a>
   <a href="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
   <a href="https://github.com/coddy-project/coddy-agent/releases"><img src="https://img.shields.io/github/v/release/coddy-project/coddy-agent" alt="Latest release" /></a>
@@ -65,6 +65,7 @@ agent:
 | Web UI and HTTP API | `coddy serve` | The embedded single-page app on `http://127.0.0.1:12345/`, OpenAI-compatible `/v1/*` endpoints and the `/coddy` REST surface, Swagger at `/docs/` | [Web UI](docs/surfaces/web-ui.md), [HTTP API](docs/reference/http-api.md), [video](docs/assets/video/web-ui.mp4) |
 | Editors | `coddy acp` | Zed, VS Code, Obsidian and scripts as ACP clients, with Coddy's modes, models, permissions and skills in the editor's composer | [Editors](docs/surfaces/editors.md), [Zed video](docs/assets/video/zed-acp.mp4), [VS Code video](docs/assets/video/vscode-acp.mp4) |
 | Telegram | `coddy serve` with `gateways.telegram.enable` | A bot with per-user sessions, access levels and group isolation; the same chat is live in the web UI | [Telegram gateway](docs/surfaces/gateway.md) |
+| Pachca | `coddy serve` with `gateways.pachca.enable` | A Pachca (Пачка) integration bot for direct chats, groups and threads; reads its events history, so no public address is needed | [Pachca gateway](docs/surfaces/pachca.md) |
 | Scheduler | `coddy serve` with `scheduler.enable` | Cron jobs as Markdown files, each run a session of its own | [Scheduler](docs/operate/scheduler.md) |
 | Swarm | `coddy serve` with `swarm.enable` | A relay that lists and reaches many Coddy nodes, including ones that can only dial out | [Swarm](docs/operate/swarm.md), [video](docs/assets/video/swarm.mp4) |
 | Remote | `coddy --remote host:port` | The console, an editor or the browser driving a `coddy serve` on another machine | [Remote mode](docs/operate/remote.md) |
@@ -80,7 +81,7 @@ agent:
 - **Session supervisor**: `/goal` keeps a persistent objective, checks finished work and starts bounded continuations; an optional watchdog interrupts stalled or repeated operations ([Session supervisor](docs/features/session-supervisor.md)).
 - **Feature worktrees**: `worktree_create` fetches the default branch from `origin`, creates a feature worktree and moves the active session into it; the web composer and History show its branch under the main project ([Git worktrees](docs/features/worktrees.md)).
 - **Hooks**: your own commands at every lifecycle point, in Claude Code's `hooks.json` shape, able to deny, approve or rewrite a tool call ([Hooks](docs/features/hooks.md)).
-- **MCP servers** over stdio, streamable HTTP and SSE, from `config.yaml`, `mcp.json` files or the editor, with a trust gate for what arrives with a checkout; connected all at once and, in the console, after the first frame ([MCP servers](docs/features/mcp.md)).
+- **MCP servers** over stdio, streamable HTTP and SSE, from the global and project `mcp.json` files or the editor, with a trust gate for what arrives with a checkout; connected all at once and, in the console, after the first frame ([MCP servers](docs/features/mcp.md)).
 - **Mentions**: `@` points at a file anywhere on disk, a line range, a folder, another session, a rule, a subagent or a web page, with the same fuzzy completion in the console and the browser; each is read once into the message that names it, so the provider's prompt cache holds ([Mentions](docs/features/mentions.md)).
 - **Documentation built in**: this documentation ships inside the binary - a reader in the web UI, F1 in the console, `coddy docs` in the shell - searched offline, and the agent looks itself up with its own `coddy_docs_search` and `coddy_docs_read` tools or a `@coddy:<page>` mention ([Built-in documentation](docs/features/built-in-docs.md)).
 - **Message queue**: steer a running turn at its next step or queue a separate turn after it, with images attached; every browser and console viewing the session sees the same queue ([Message queue](docs/features/message-queue.md)).

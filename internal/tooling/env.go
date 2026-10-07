@@ -19,6 +19,11 @@ type Env struct {
 	SwitchWorkspace  func(context.Context, string) error
 	WorkspaceChanged bool
 
+	// Confined is set for a turn whose reads stay inside CWD
+	// (session.TurnRestriction.ConfineToWorkspace): a tool that walks the
+	// tree does not follow symbolic links out of it.
+	Confined bool
+
 	// PermissionMode controls when the agent requests user approval before running a tool.
 	// Values mirror config.PermMode* constants: "ask", "accept_edits", "bypass".
 	PermissionMode string

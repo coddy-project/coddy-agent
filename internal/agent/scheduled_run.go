@@ -24,8 +24,12 @@ import (
 // decides everything here (the job session it hangs under, the definition and
 // its trust, the mode, the permission mode) before calling RunScheduledJob.
 type ScheduledRunSpec struct {
-	// JobID is the scheduler job (the file basename under scheduler.dir).
+	// JobID is the scheduler job (the basename of its *.md file).
 	JobID string
+	// JobWorkspace is the canonical workspace of a project job; empty for a
+	// user job. The run's transcript names it so a client links back to the
+	// right job.
+	JobWorkspace string
 	// JobSessionID is the job session the run is a child of; it is live in
 	// the manager when this is called.
 	JobSessionID string
@@ -235,9 +239,10 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 			ConnectMCP:        connectMCP,
 			ResolveTools:      resolve,
 			Scheduler: &session.SchedulerRunMeta{
-				JobID:    jobID,
-				Trigger:  strings.TrimSpace(spec.Trigger),
-				FireSlot: spec.FireSlot,
+				JobID:     jobID,
+				Workspace: strings.TrimSpace(spec.JobWorkspace),
+				Trigger:   strings.TrimSpace(spec.Trigger),
+				FireSlot:  spec.FireSlot,
 			},
 		}
 		go executeChildRun(runCtx, rt, run, childSpec, out, finish, log, nil)

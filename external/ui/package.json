@@ -16,7 +16,13 @@
     "check:overflow": "node scripts/phone-overflow-check.mjs",
     "check:transcript": "node scripts/transcript-window-check.mjs",
     "check:queue": "node scripts/queue-modes-check.mjs",
-    "fmt": "prettier -w ."
+    "check:telegram": "node scripts/telegram-mini-app-check.mjs",
+    "check:diagrams": "node scripts/diagram-check.mjs",
+    "check:files": "node scripts/files-check.mjs",
+    "check:artifacts": "node scripts/artifact-card-check.mjs",
+    "check:caret": "node scripts/composer-caret-check.mjs",
+    "fmt": "prettier -w .",
+    "format:check": "prettier --check ."
   },
   "keywords": [],
   "author": "",
@@ -32,17 +38,22 @@
     "jsdom": "^26.1.0",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3",
-    "vite": "^8.0.11",
-    "vitest": "^3.2.4"
+    "vite": "^8.0.16",
+    "vitest": "^3.2.7"
   },
   "dependencies": {
     "cronstrue": "^2.59.0",
     "highlight.js": "^11.11.1",
+    "katex": "^0.16.47",
     "lowlight": "^3.3.0",
+    "mermaid": "^12.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5"
   }
 }

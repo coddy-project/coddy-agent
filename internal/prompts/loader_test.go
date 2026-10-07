@@ -375,10 +375,13 @@ func TestDefaultSource(t *testing.T) {
 	}
 }
 
-func TestRenderWithFallbackNoPanic(t *testing.T) {
-	result := prompts.RenderWithFallback("agent", "/nonexistent/prompt-dir", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
-	if result == "" {
-		t.Error("RenderWithFallback should return non-empty string even on error")
+func TestRenderCheckedFallsBackAndSaysSo(t *testing.T) {
+	result, rendered := prompts.RenderChecked("agent", "/nonexistent/prompt-dir", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
+	if result == "" || rendered {
+		t.Errorf("RenderChecked = %q, %v; want the fallback prompt, reported as not rendered", result, rendered)
+	}
+	if _, rendered := prompts.RenderChecked("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"}); !rendered {
+		t.Error("the built-in template reported as not rendered")
 	}
 }
 

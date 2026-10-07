@@ -19,39 +19,38 @@ func DiscoverRules(cfg *config.Config, cwd string) []*rules.Rule {
 	return cat
 }
 
-// RulesPrompt is the standing part of a session's system prompt: the {{.Rules}}
-// block (the project docs preamble and the always-on rules) and the
-// {{.Instructions}} block. A session renders it once per rules generation and
-// reuses it on every later turn, so a file behind it that is edited during the
-// session - an AGENTS.md the agent itself updates - does not move the system
-// message and throw away the provider's cached copy of the conversation behind
-// it. The next generation reads the files again: a compaction, a config reload,
-// a workspace switch, a restart.
+// RulesPrompt is the standing part of a session's system prompt: the
+// AGENTS.md and DESIGN.md layers of the agent home and the session folder
+// (Docs), the always-on rules (Rules), the files of instructions.files (User)
+// and the key (rules.DocKey) of every file the first and the last carry
+// (Keys). A session renders it once per rules generation and reuses it on
+// every later turn, whatever template the turn runs on - the agent places the
+// parts per template, from the same strings - so a file behind it that is
+// edited during the session, an AGENTS.md the agent itself updates, does not
+// move the system message and throw away the provider's cached copy of the
+// conversation behind it. The next generation reads the files again: a
+// compaction, a config reload, a workspace switch, a restart.
 type RulesPrompt struct {
-	// Generation is the rules generation the blocks were rendered for.
+	// Generation is the rules generation the parts were rendered for.
 	Generation uint64
-	// RendersRules records whether the template printed {{.Rules}}: only then
-	// were the documents the rules block embedded left out of Instructions.
-	RendersRules bool
-	// Inputs names what the blocks were rendered from besides the files
+	// Inputs names what the parts were rendered from besides the files
 	// themselves - the agent home, the workspace, the instructions.files
 	// list - so a configuration that changed them is not answered from a
 	// rendering of the old one.
-	Inputs       string
-	Rules        string
-	Instructions string
+	Inputs string
+	Docs   string
+	Rules  string
+	User   string
+	Keys   map[string]bool
 }
 
 // CachedRulesPrompt returns the standing prompt rendered for the current rules
-// generation, for a template of this kind (rendersRules) and from the same
-// inputs - nil when there is none yet - and the current generation, which a
-// caller stores its own rendering under. A session whose modes run on
-// templates of both kinds keeps one rendering of each, so switching between
-// them does not read the files again halfway through a generation.
-func (s *State) CachedRulesPrompt(rendersRules bool, inputs string) (*RulesPrompt, uint64) {
+// generation from the same inputs - nil when there is none yet - and the
+// current generation, which a caller stores its own rendering under.
+func (s *State) CachedRulesPrompt(inputs string) (*RulesPrompt, uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	p := s.rulesPrompts[rulesPromptSlot(rendersRules)]
+	p := s.rulesPrompt
 	if p == nil || p.Generation != s.rulesGeneration || p.Inputs != inputs {
 		return nil, s.rulesGeneration
 	}
@@ -67,14 +66,7 @@ func (s *State) StoreRulesPrompt(p *RulesPrompt) {
 	}
 	s.mu.Lock()
 	if p.Generation == s.rulesGeneration {
-		s.rulesPrompts[rulesPromptSlot(p.RendersRules)] = p
+		s.rulesPrompt = p
 	}
 	s.mu.Unlock()
-}
-
-func rulesPromptSlot(rendersRules bool) int {
-	if rendersRules {
-		return 1
-	}
-	return 0
 }

@@ -1,7 +1,8 @@
 Feature: Agent-managed Coddy configuration
   Coddy exposes its own YAML configuration to the agent through UCI-style typed
-  tools, so a request such as "find a browser MCP and install it" can be
-  completed without hand-editing config.yaml or restarting the process.
+  tools, so a request such as "add the OpenRouter provider" can be completed
+  without hand-editing config.yaml or restarting the process. MCP servers are
+  not part of config.yaml: they live in the mcp.json files.
 
   "config_get" reads one dotted path and redacts secret-shaped values. Edits are
   staged like OpenWrt's uci CLI: "config_set" records commands (set, add_list,
@@ -14,7 +15,7 @@ Feature: Agent-managed Coddy configuration
 
   Paths are dotted like uci with a selector for named sequence entries:
   "agent.max_turns" walks mappings, "skills.dirs.0" indexes a sequence, and
-  "mcp_servers[name=context7]" selects a sequence entry by a scalar field, or
+  "providers[name=openrouter]" selects a sequence entry by a scalar field, or
   appends it on set when no entry matches.
 
   Background:
@@ -25,23 +26,21 @@ Feature: Agent-managed Coddy configuration
       skills:
         dirs:
           - /opt/coddy/skills
-      mcp_servers:
-        - name: filesystem
-          command: npx
-          args: ["-y", "@modelcontextprotocol/server-filesystem"]
-          env:
-            - name: ROOT_TOKEN
-              value: super-secret
+      providers:
+        - name: local
+          type: openai
+          api_base: http://127.0.0.1:11434/v1
+          api_key: super-secret
       """
     And the session can hot-reload its runtime configuration
 
   Scenario: Read one setting instead of the whole file
-    When the agent reads config path "mcp_servers[name=filesystem].command"
-    Then the read returns "npx"
+    When the agent reads config path "providers[name=local].api_base"
+    Then the read returns "http://127.0.0.1:11434/v1"
     And the read names the active config file
 
   Scenario: Credentials are redacted on read
-    When the agent reads config path "mcp_servers[name=filesystem]"
+    When the agent reads config path "providers[name=local]"
     Then the read is marked as redacted
     And the read does not expose "super-secret"
 
@@ -63,16 +62,16 @@ Feature: Agent-managed Coddy configuration
     And the agent lists config changes
     Then the change list shows "set agent.max_turns=20"
 
-  Scenario: Install an MCP server and reload on commit
+  Scenario: Add a provider and reload on commit
     When the agent stages config commands:
       """
-      set mcp_servers[name=context7]={"name":"context7","command":"npx","args":["-y","@upstash/context7-mcp"]}
+      set providers[name=openrouter]={"name":"openrouter","type":"openai","api_base":"https://openrouter.ai/api/v1"}
       """
     And the agent commits the staged config
     Then the commit succeeds and reports the applied commands
     And the runtime config is reloaded once
-    And config path "mcp_servers[name=context7].command" equals "npx"
-    And config path "mcp_servers[name=filesystem].command" equals "npx"
+    And config path "providers[name=openrouter].api_base" equals "https://openrouter.ai/api/v1"
+    And config path "providers[name=local].api_base" equals "http://127.0.0.1:11434/v1"
     And the reloaded config still limits the agent to 17 turns
     And a pre-commit snapshot sits next to the active file
     And no config commands remain staged
@@ -108,14 +107,14 @@ Feature: Agent-managed Coddy configuration
     And config path "agent.max_turns" equals "17"
     And the runtime config is not reloaded
 
-  Scenario: Remove a configured MCP server through the staged flow
+  Scenario: Remove a provider through the staged flow
     When the agent stages config commands:
       """
-      delete mcp_servers[name=filesystem]
+      delete providers[name=local]
       """
     And the agent commits the staged config
     Then the commit succeeds and reports the applied commands
-    And config path "mcp_servers[name=filesystem]" is absent
+    And config path "providers[name=local]" is absent
     And the reloaded config still limits the agent to 17 turns
 
   Scenario: Roll back to the previous configuration from the snapshot

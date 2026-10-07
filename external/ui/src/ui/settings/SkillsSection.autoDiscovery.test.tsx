@@ -18,10 +18,10 @@ const skillsSchema = {
       title: "Skill directories",
       items: { type: "string" },
     },
-    sources: {
-      type: "array",
-      title: "Remote skill sources",
-      items: { type: "string" },
+    project_trust: {
+      type: "string",
+      title: "Project marketplaces",
+      enum: ["ask", "allow", "deny"],
     },
     auto_discovery: {
       type: "boolean",
@@ -176,4 +176,38 @@ test("Escape clears the install search before it reaches the drawer", async () =
 
   fireEvent.keyDown(input, { key: "Escape" });
   expect(closeDrawer).toHaveBeenCalledTimes(1);
+});
+
+// The policy for the project's marketplaces.json is a block of its own, the
+// way MCP discovery is in the MCP tab, and it stands above the list it
+// governs rather than as a loose field between two fieldsets.
+test("the project marketplaces policy has its own fieldset above the marketplaces", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }),
+  );
+  render(
+    <SkillsSection
+      schema={skillsSchema}
+      value={{ auto_discovery: true, project_trust: "ask" }}
+      onChange={() => {}}
+    />,
+  );
+  const group = screen.getByTestId("settings-group-skills-marketplace-trust");
+  expect(group.querySelector("legend")?.textContent).toBe(
+    "Marketplace discovery",
+  );
+  expect(group.textContent).toContain("Project marketplaces");
+  const marketplaces = await screen.findByTestId("skills-marketplaces");
+  expect(
+    group.compareDocumentPosition(marketplaces) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  // Every top-level block of the section is a fieldset: no field stands
+  // loose between them.
+  const section = document.querySelector(".settings-skills-section")!;
+  const loose = section.querySelectorAll(
+    ":scope > .settings-schema-root > .settings-row",
+  );
+  expect(loose).toHaveLength(0);
 });

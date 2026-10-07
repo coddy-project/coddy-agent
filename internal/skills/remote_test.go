@@ -334,12 +334,10 @@ func TestSyncFromLocalMarketplaceGit(t *testing.T) {
 
 	home := t.TempDir()
 	fileURL := "file://" + filepath.ToSlash(repo)
-	cfg := &config.Config{
-		Paths:  config.Paths{Home: home},
-		Skills: config.Skills{Sources: []string{fileURL}},
-	}
+	declareHomeSources(t, home, fileURL)
+	cfg := &config.Config{Paths: config.Paths{Home: home}}
 
-	res, err := Sync(context.Background(), cfg)
+	res, err := Sync(context.Background(), cfg, "")
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
@@ -372,12 +370,12 @@ func TestRemoteLockRoundTrip(t *testing.T) {
 func TestAddSourceAndRemoveRemote(t *testing.T) {
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  auto_discovery: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Paths: config.Paths{Home: home, ConfigPath: cfgPath}}
 
-	added, err := AddSource(cfg, "owner/repo")
+	added, err := AddSource(cfg, "", "owner/repo", ScopeGlobal)
 	if err != nil {
 		t.Fatalf("AddSource: %v", err)
 	}
@@ -385,13 +383,16 @@ func TestAddSourceAndRemoveRemote(t *testing.T) {
 		t.Fatal("expected source added")
 	}
 	// idempotent
-	added2, err := AddSource(cfg, "owner/repo")
+	added2, err := AddSource(cfg, "", "owner/repo", ScopeGlobal)
 	if err != nil || added2 {
 		t.Fatalf("expected no-op second add, added=%v err=%v", added2, err)
 	}
-	data, _ := os.ReadFile(cfgPath)
+	data, _ := os.ReadFile(config.GlobalMarketplacesPath(home))
 	if !strings.Contains(string(data), "owner/repo") {
-		t.Errorf("config not persisted with source: %s", data)
+		t.Errorf("marketplaces.json not persisted with source: %s", data)
+	}
+	if cfgData, _ := os.ReadFile(cfgPath); strings.Contains(string(cfgData), "owner/repo") {
+		t.Errorf("the source was written into config.yaml: %s", cfgData)
 	}
 
 	// RemoveRemote only removes installed (locked) skills.
@@ -492,40 +493,38 @@ func TestListSourcesAndRemoveSource(t *testing.T) {
 	offlineSystemSources(t)
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources:\n    - owner/one\n    - owner/two\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("agent:\n  max_turns: 5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{
-		Paths:  config.Paths{Home: home, ConfigPath: cfgPath},
-		Skills: config.Skills{Sources: []string{"owner/one", " ", "owner/two"}},
-	}
+	declareHomeSources(t, home, "owner/one", " ", "owner/two")
+	cfg := &config.Config{Paths: config.Paths{Home: home, ConfigPath: cfgPath}}
 
 	// ListSources trims blanks.
-	got := ListSources(cfg)
+	got := ListSources(cfg, "")
 	if len(got) != 2 || got[0] != "owner/one" || got[1] != "owner/two" {
 		t.Fatalf("ListSources = %v", got)
 	}
 
 	// Removing an unknown source is a no-op (removed=false, no error).
-	removed, err := RemoveSource(cfg, "owner/missing")
+	removed, err := RemoveSource(cfg, "", "owner/missing", "")
 	if err != nil || removed {
 		t.Fatalf("remove unknown: removed=%v err=%v", removed, err)
 	}
 
 	// Empty source is an error.
-	if _, err := RemoveSource(cfg, "  "); err == nil {
+	if _, err := RemoveSource(cfg, "", "  ", ""); err == nil {
 		t.Fatal("expected error for empty source")
 	}
 
 	// Case-insensitive match, persisted to disk.
-	removed, err = RemoveSource(cfg, "OWNER/ONE")
+	removed, err = RemoveSource(cfg, "", "OWNER/ONE", "")
 	if err != nil || !removed {
 		t.Fatalf("remove existing: removed=%v err=%v", removed, err)
 	}
-	if got := ListSources(cfg); len(got) != 1 || got[0] != "owner/two" {
+	if got := ListSources(cfg, ""); len(got) != 1 || got[0] != "owner/two" {
 		t.Errorf("after remove ListSources = %v", got)
 	}
-	data, _ := os.ReadFile(cfgPath)
+	data, _ := os.ReadFile(config.GlobalMarketplacesPath(home))
 	if strings.Contains(string(data), "owner/one") {
 		t.Errorf("removed source still on disk: %s", data)
 	}
@@ -573,12 +572,10 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 
 	home := t.TempDir()
 	fileURL := "file://" + filepath.ToSlash(repo)
-	cfg := &config.Config{
-		Paths:  config.Paths{Home: home},
-		Skills: config.Skills{Sources: []string{fileURL}},
-	}
+	declareHomeSources(t, home, fileURL)
+	cfg := &config.Config{Paths: config.Paths{Home: home}}
 
-	if _, err := Sync(context.Background(), cfg); err != nil {
+	if _, err := Sync(context.Background(), cfg, ""); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 	managed := cfg.Skills.ManagedDir(home)
@@ -587,7 +584,7 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 	}
 
 	// No update available right after install.
-	ups, err := CheckUpdates(context.Background(), cfg)
+	ups, err := CheckUpdates(context.Background(), cfg, "")
 	if err != nil {
 		t.Fatalf("CheckUpdates: %v", err)
 	}
@@ -599,7 +596,7 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 	writeMarketplaceManifest(t, repo, "demo", "2.0.0")
 	gitCommitAllRepo(t, repo, false, "v2")
 
-	ups, err = CheckUpdates(context.Background(), cfg)
+	ups, err = CheckUpdates(context.Background(), cfg, "")
 	if err != nil {
 		t.Fatalf("CheckUpdates 2: %v", err)
 	}
@@ -608,7 +605,7 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 	}
 
 	// Applying the update installs it and clears the flag.
-	if _, err := UpdateSkill(context.Background(), cfg, "demo"); err != nil {
+	if _, err := UpdateSkill(context.Background(), cfg, "", "demo"); err != nil {
 		t.Fatalf("UpdateSkill: %v", err)
 	}
 	if ent := readRemoteLock(managed)["demo"]; ent.Version != "2.0.0" {
@@ -616,7 +613,7 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 	}
 
 	// Updating a non-remote skill errors.
-	if _, err := UpdateSkill(context.Background(), cfg, "not-installed"); err == nil {
+	if _, err := UpdateSkill(context.Background(), cfg, "", "not-installed"); err == nil {
 		t.Error("expected error updating unknown skill")
 	}
 }
@@ -659,37 +656,45 @@ func TestSafeCloneBlocksLoopbackHTTP(t *testing.T) {
 	}
 }
 
+// A source is declared in marketplaces.json, so adding and removing one never
+// touches config.yaml, and the marketplaces the file declares stay.
 func TestAddRemoveSourceDoNotClobberConfig(t *testing.T) {
 	home := t.TempDir()
+	// The home the loader resolves, never the operator's own.
+	t.Setenv(config.EnvCODDYHome, home)
 	cfgPath := filepath.Join(home, "config.yaml")
-	// A config carrying an unrelated field that must survive source mutations.
-	if err := os.WriteFile(cfgPath, []byte("agent:\n  max_turns: 17\nskills:\n  sources: []\n"), 0o644); err != nil {
+	const original = "agent:\n  max_turns: 17\n"
+	if err := os.WriteFile(cfgPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.WriteMarketplacesFile(config.GlobalMarketplacesPath(home), config.MarketplacesFile{
+		Marketplaces: []config.DeclaredMarketplace{{Name: "shop", Source: "owner/shop"}},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AddSource(cfg, "owner/repo"); err != nil {
+	if cfg.Paths.Home != home {
+		t.Fatalf("config home = %q, want the test's %q", cfg.Paths.Home, home)
+	}
+	if _, err := AddSource(cfg, "", "owner/repo", ScopeGlobal); err != nil {
 		t.Fatalf("AddSource: %v", err)
 	}
-	reloaded, err := config.Load(cfgPath)
-	if err != nil {
-		t.Fatal(err)
+	file, err := config.ReadMarketplacesFile(config.GlobalMarketplacesPath(home))
+	if err != nil || len(file.Sources) != 1 || file.Sources[0] != "owner/repo" || len(file.Marketplaces) != 1 {
+		t.Fatalf("marketplaces.json after the add = %+v, %v", file, err)
 	}
-	if reloaded.Agent.MaxTurns != 17 {
-		t.Errorf("unrelated field clobbered: max_turns = %d, want 17", reloaded.Agent.MaxTurns)
-	}
-	if len(reloaded.Skills.Sources) != 1 || reloaded.Skills.Sources[0] != "owner/repo" {
-		t.Errorf("source not persisted: %v", reloaded.Skills.Sources)
-	}
-	// Remove leaves the unrelated field intact too.
-	if _, err := RemoveSource(cfg, "owner/repo"); err != nil {
+	if _, err := RemoveSource(cfg, "", "owner/repo", ""); err != nil {
 		t.Fatalf("RemoveSource: %v", err)
 	}
-	reloaded2, _ := config.Load(cfgPath)
-	if reloaded2.Agent.MaxTurns != 17 || len(reloaded2.Skills.Sources) != 0 {
-		t.Errorf("after remove: max_turns=%d sources=%v", reloaded2.Agent.MaxTurns, reloaded2.Skills.Sources)
+	file, _ = config.ReadMarketplacesFile(config.GlobalMarketplacesPath(home))
+	if len(file.Sources) != 0 || len(file.Marketplaces) != 1 {
+		t.Fatalf("marketplaces.json after the remove = %+v", file)
+	}
+	if data, _ := os.ReadFile(cfgPath); string(data) != original {
+		t.Fatalf("config.yaml changed: %q", data)
 	}
 }
 
@@ -774,9 +779,10 @@ func TestAvailablePluginsAndInstallPlugin(t *testing.T) {
 
 	home := t.TempDir()
 	fileURL := "file://" + filepath.ToSlash(repo)
+	declareHomeSources(t, home, fileURL)
 	cfg := &config.Config{
 		Paths:  config.Paths{Home: home},
-		Skills: config.Skills{Dirs: []string{filepath.Join(home, "skills")}, Sources: []string{fileURL}},
+		Skills: config.Skills{Dirs: []string{filepath.Join(home, "skills")}},
 	}
 	ctx := context.Background()
 

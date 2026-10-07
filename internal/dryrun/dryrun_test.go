@@ -288,6 +288,57 @@ func TestTelegramTokenProbe(t *testing.T) {
 	}
 }
 
+func TestPachcaTokenProbe(t *testing.T) {
+	status := http.StatusOK
+	scopes := `["messages:create","messages:update","messages:read","chats:read","profile:read","users:read","webhooks:events:read","webhooks:events:delete"]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/oauth/token/info" || r.Header.Get("Authorization") != "Bearer pc-token" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(status)
+		if status == http.StatusOK {
+			_, _ = fmt.Fprintf(w, `{"data":{"id":1,"user_id":77,"scopes":%s}}`, scopes)
+		} else {
+			_, _ = fmt.Fprint(w, `{"error":"invalid_token","error_description":"revoked"}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv(config.PachcaAPIBaseEnv, srv.URL)
+	body := "gateways:\n  pachca:\n    enable: true\n    token: \"pc-token\"\n"
+
+	if c := find(t, run(t, body, nil), "gateways.pachca"); c.Status != StatusOK || !strings.Contains(c.Message, "77") {
+		t.Errorf("accepted token %+v", c)
+	}
+	scopes = `["messages:create","messages:update","messages:read","chats:read","profile:read","users:read","webhooks:events:read"]`
+	if c := find(t, run(t, body, nil), "gateways.pachca"); c.Status != StatusWarning || !strings.Contains(c.Message, "webhooks:events:delete") {
+		t.Errorf("token without the delete scope %+v", c)
+	}
+	scopes = `["messages:create"]`
+	if c := find(t, run(t, body, nil), "gateways.pachca"); c.Status != StatusError || !strings.Contains(c.Message, "profile:read") {
+		t.Errorf("token without required scopes %+v", c)
+	}
+	status = http.StatusUnauthorized
+	if c := find(t, run(t, body, nil), "gateways.pachca"); c.Status != StatusError || !strings.Contains(c.Message, "rejected") || c.Line != 5 {
+		t.Errorf("rejected token %+v", c)
+	}
+	t.Setenv(config.PachcaBotTokenEnvVar, "")
+	if c := find(t, run(t, "gateways:\n  pachca:\n    enable: true\n", nil), "gateways.pachca"); c.Status != StatusError || !strings.Contains(c.Message, "no token") {
+		t.Errorf("missing token %+v", c)
+	}
+}
+
+// runWithMCP prepares body, writes mcpJSON as <home>/mcp.json - where the MCP
+// servers are declared - and runs the probes.
+func runWithMCP(t *testing.T, body, mcpJSON string) *Report {
+	t.Helper()
+	prep, home := prepare(t, body)
+	if err := os.WriteFile(config.GlobalMCPJSONPath(home), []byte(mcpJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return Run(context.Background(), Request{Cfg: prep.Cfg, Paths: prep.Paths, Locator: prep.Locator})
+}
+
 func TestMCPCommandLookup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("PATH lookup of a shell script is a POSIX fixture")
@@ -297,16 +348,25 @@ func TestMCPCommandLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	rep := run(t, "mcp_servers:\n  - name: found\n    command: coddy-dry-run-tool\n  - name: missing\n    command: definitely-not-installed-coddy-mcp\n  - name: off\n    command: definitely-not-installed-coddy-mcp\n    disabled: true\n", nil)
-	if c := find(t, rep, "mcp_servers[found]"); c.Status != StatusOK || !strings.Contains(c.Message, "resolves to") {
+	rep := runWithMCP(t, "agent:\n  max_turns: 5\n", `{"mcpServers": {
+  "found": {"command": "coddy-dry-run-tool"},
+  "missing": {"command": "definitely-not-installed-coddy-mcp"},
+  "off": {"command": "definitely-not-installed-coddy-mcp", "disabled": true}
+}}`)
+	if c := find(t, rep, "mcp.json[found]"); c.Status != StatusOK || !strings.Contains(c.Message, "resolves to") {
 		t.Errorf("found %+v", c)
 	}
-	m := find(t, rep, "mcp_servers[missing]")
-	if m.Status != StatusError || !strings.Contains(m.Message, "not found") || m.Line != 6 {
+	m := find(t, rep, "mcp.json[missing]")
+	if m.Status != StatusError || !strings.Contains(m.Message, "not found") || !strings.Contains(m.Fix, "mcp.json") {
 		t.Errorf("missing %+v", m)
 	}
-	if c := find(t, rep, "mcp_servers[off]"); c.Status != StatusSkipped {
+	if c := find(t, rep, "mcp.json[off]"); c.Status != StatusSkipped {
 		t.Errorf("disabled %+v", c)
+	}
+
+	broken := runWithMCP(t, "agent:\n  max_turns: 5\n", `{"mcpServers": [`)
+	if c := find(t, broken, "mcp.json"); c.Status != StatusError || !strings.Contains(c.Fix, "mcpServers") {
+		t.Errorf("an mcp.json that does not read %+v", c)
 	}
 }
 
@@ -322,11 +382,17 @@ func TestMCPRemoteReachability(t *testing.T) {
 	down := httptest.NewServer(http.NotFoundHandler())
 	downURL := down.URL
 	down.Close()
-	rep := run(t, fmt.Sprintf("mcp_servers:\n  - name: up\n    url: %s/mcp\n    headers:\n      - name: X-Token\n        value: secret\n  - name: down\n    url: %s/mcp\n", srv.URL, downURL), nil)
-	if c := find(t, rep, "mcp_servers[up]"); c.Status != StatusOK || !strings.Contains(c.Message, "HTTP 405") {
+	// A header that names an environment variable is sent with its value, as
+	// the server would be started.
+	t.Setenv("CODDY_DRY_RUN_MCP_TOKEN", "secret")
+	rep := runWithMCP(t, "agent:\n  max_turns: 5\n", fmt.Sprintf(`{"mcpServers": {
+  "up": {"url": %q, "headers": {"X-Token": "${CODDY_DRY_RUN_MCP_TOKEN}"}},
+  "down": {"url": %q}
+}}`, srv.URL+"/mcp", downURL+"/mcp"))
+	if c := find(t, rep, "mcp.json[up]"); c.Status != StatusOK || !strings.Contains(c.Message, "HTTP 405") {
 		t.Errorf("up %+v", c)
 	}
-	if c := find(t, rep, "mcp_servers[down]"); c.Status != StatusError || !strings.Contains(c.Message, "cannot reach") {
+	if c := find(t, rep, "mcp.json[down]"); c.Status != StatusError || !strings.Contains(c.Message, "cannot reach") {
 		t.Errorf("down %+v", c)
 	}
 }
@@ -493,6 +559,51 @@ func TestExplicitSkillsDirMissingIsAWarningDefaultsAreSilent(t *testing.T) {
 		if strings.HasPrefix(c.Path, "skills.dirs") && c.Status != StatusOK {
 			t.Errorf("a default dir that is absent must stay quiet: %+v", c)
 		}
+	}
+}
+
+// A relative skills.dirs or subagents.dirs entry names a folder of the
+// workspace, as the loaders read it, not of the directory the check runs in.
+func TestRelativeDirsAreProbedInTheWorkspace(t *testing.T) {
+	prep, home := prepare(t, "skills:\n  dirs: [\"team-skills\"]\nsubagents:\n  dirs: [\"team-agents\"]\n")
+	for _, d := range []string{"team-agents", "team-skills"} {
+		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if wd, _ := os.Getwd(); wd == prep.Paths.CWD {
+		t.Fatalf("the workspace must differ from the process cwd for this test (%s)", wd)
+	}
+	rep := Run(t.Context(), Request{Cfg: prep.Cfg, Paths: prep.Paths, Locator: prep.Locator})
+	for _, path := range []string{"skills.dirs[0]", "subagents.dirs[0]"} {
+		if c := find(t, rep, path); c.Status != StatusOK {
+			t.Errorf("%s = %+v, want the workspace folder found", path, c)
+		}
+	}
+}
+
+// instructions.files is how several agents with configurations of their own
+// share one set of instructions, and a session skips a file it cannot read
+// without a word. The check is where the operator learns that an entry
+// naming the same file in every workspace points at nothing; a workspace
+// entry missing from the folder the check runs in is only skipped, since the
+// list may serve workspaces that carry it.
+func TestInstructionFilesAreProbed(t *testing.T) {
+	shared := t.TempDir()
+	readable := filepath.Join(shared, "house-style.md")
+	if err := os.WriteFile(readable, []byte("HOUSE STYLE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(shared, "infrastructure.md")
+	rep := run(t, fmt.Sprintf("instructions:\n  files:\n    - %q\n    - %q\n    - \"docs/STYLE.md\"\n", readable, missing), nil)
+	if c := find(t, rep, "instructions.files[0]"); c.Status != StatusOK || !strings.Contains(c.Message, readable) {
+		t.Errorf("readable file %+v", c)
+	}
+	if c := find(t, rep, "instructions.files[1]"); c.Status != StatusWarning || !strings.Contains(c.Message, missing+" does not exist") || c.Line != 5 || c.Fix == "" {
+		t.Errorf("missing absolute file %+v", c)
+	}
+	if c := find(t, rep, "instructions.files[2]"); c.Status != StatusSkipped {
+		t.Errorf("workspace file absent from the default workspace %+v", c)
 	}
 }
 
@@ -739,5 +850,109 @@ func TestCodexRowOffTheCLILoginIsNamed(t *testing.T) {
 	}
 	if p := find(t, rep, "providers[codex]"); p.Status != StatusOK {
 		t.Errorf("codex check %+v, want the CLI login to serve it", p)
+	}
+}
+
+// The bot gives Telegram the web UI's address: the dry run says when the bot
+// will hold it back (the web UI asks for no sign-in) and whether the address
+// answers with the web UI at all.
+func TestMiniAppChecks(t *testing.T) {
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = fmt.Fprint(w, `<!doctype html><div id="root"></div>`)
+	}))
+	t.Cleanup(web.Close)
+	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"ok":true,"result":{"username":"dry_bot"}}`)
+	}))
+	t.Cleanup(tg.Close)
+	t.Setenv(config.TelegramAPIBaseEnv, tg.URL)
+	body := func(url string) string {
+		return "gateways:\n  telegram:\n    enable: true\n    token: \"123:abc\"\n    mini_app:\n      url: \"" + url + "\"\n"
+	}
+
+	rep := run(t, body(web.URL+"/"), nil)
+	if c := find(t, rep, "gateways.telegram.mini_app.url"); c.Status != StatusOK || !strings.Contains(c.Message, "answers") {
+		t.Errorf("the web UI answers: %+v", c)
+	}
+	for _, c := range rep.Checks {
+		if c.Path == "gateways.telegram.mini_app" {
+			t.Errorf("a gated web UI got %+v", c)
+		}
+	}
+
+	rep = run(t, body(web.URL+"/"), func(r *Request) { r.WebUIOpen = true })
+	if c := find(t, rep, "gateways.telegram.mini_app"); c.Status != StatusWarning || !strings.Contains(c.Message, "will not advertise") || c.Line == 0 {
+		t.Errorf("an open web UI: %+v", c)
+	}
+
+	if c := find(t, run(t, body(web.URL+"/nothing"), nil), "gateways.telegram.mini_app.url"); c.Status != StatusWarning || !strings.Contains(c.Message, "HTTP 404") {
+		t.Errorf("a wrong address: %+v", c)
+	}
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURL := dead.URL + "/"
+	dead.Close()
+	if c := find(t, run(t, body(deadURL), nil), "gateways.telegram.mini_app.url"); c.Status != StatusWarning || !strings.Contains(c.Message, "cannot reach") {
+		t.Errorf("an unreachable address: %+v", c)
+	}
+}
+
+// A CORS setting that admits pages nobody listed - allow_loopback or "*" - is
+// only as safe as the credential behind it. With the web UI open (no token, no
+// sign-in, no allow_insecure) the dry run says so once, under httpserver.cors;
+// a credential, or exact origins alone, keeps it silent.
+func TestCORSOpenToUnlistedOriginsWithoutCredentialIsWarned(t *testing.T) {
+	loopback := "httpserver:\n  cors:\n    enable: true\n    allow_loopback: true\n"
+	c := find(t, run(t, loopback, func(r *Request) { r.WebUIOpen = true }), "httpserver.cors")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "loopback") || c.Line == 0 {
+		t.Errorf("loopback CORS on an open server: %+v", c)
+	}
+	for _, c := range run(t, loopback, nil).Checks {
+		if c.Path == "httpserver.cors" {
+			t.Errorf("a server with a credential was warned: %+v", c)
+		}
+	}
+
+	star := "httpserver:\n  cors:\n    enable: true\n    allowed_origins: [\"*\"]\n"
+	c = find(t, run(t, star, func(r *Request) { r.WebUIOpen = true }), "httpserver.cors")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "any page") {
+		t.Errorf("* CORS on an open server: %+v", c)
+	}
+
+	// "*" is read before allow_loopback, so with both on the server is open to
+	// any page anywhere, and the finding says that and points at the list.
+	both := "httpserver:\n  cors:\n    enable: true\n    allow_loopback: true\n    allowed_origins: [\"*\"]\n"
+	listLine := strings.Count(modeline+both[:strings.Index(both, "allowed_origins")], "\n") + 1
+	c = find(t, run(t, both, func(r *Request) { r.WebUIOpen = true }), "httpserver.cors")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "any page") || c.Line != listLine {
+		t.Errorf("* with allow_loopback on an open server: %+v", c)
+	}
+
+	exact := "httpserver:\n  cors:\n    enable: true\n    allowed_origins: [\"http://localhost:12345\"]\n"
+	for _, c := range run(t, exact, func(r *Request) { r.WebUIOpen = true }).Checks {
+		if c.Path == "httpserver.cors" {
+			t.Errorf("exact origins were warned about: %+v", c)
+		}
+	}
+}
+
+func TestGatewayWithoutAdminsIsWarned(t *testing.T) {
+	t.Setenv(config.PachcaBotTokenEnvVar, "")
+	t.Setenv(config.TelegramBotTokenEnvVar, "")
+	if c := find(t, run(t, "gateways:\n  telegram:\n    enable: true\n", nil), "gateways.telegram.admins"); c.Status != StatusWarning {
+		t.Errorf("a Telegram bot without admins: %+v", c)
+	}
+	body := "gateways:\n  pachca:\n    enable: true\n"
+	if c := find(t, run(t, body, nil), "gateways.pachca.admins"); c.Status != StatusWarning || !strings.Contains(c.Message, "no admins") {
+		t.Errorf("no admins: %+v", c)
+	}
+	body = "gateways:\n  pachca:\n    enable: true\n    admins: [7]\n"
+	for _, c := range run(t, body, nil).Checks {
+		if c.Path == "gateways.pachca.admins" {
+			t.Errorf("a bot with admins was warned: %+v", c)
+		}
 	}
 }

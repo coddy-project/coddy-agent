@@ -10,9 +10,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -154,16 +156,16 @@ func TestProbeBadCommand(t *testing.T) {
 
 // ---- management operations ----
 
-// writeTestConfig writes a config.yaml with one server and loads it, pinning
-// Paths.Home to the temp dir so the global <home>/mcp.json lands there too.
+// writeTestConfig writes a config.yaml and loads it, pinning Paths.Home to
+// the temp dir so the global <home>/mcp.json lands there too. config.yaml
+// declares no MCP server: they live in the mcp.json files.
 func writeTestConfig(t *testing.T) (*config.Config, string, string) {
 	t.Helper()
 	home := t.TempDir()
 	cfgPath := home + "/config.yaml"
 	yaml := `
-mcp_servers:
-  - name: cfg-srv
-    command: cfg-mcp
+agent:
+  max_turns: 7
 `
 	if err := os.WriteFile(cfgPath, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
@@ -182,11 +184,11 @@ func TestListManagedServersScopesAndOrigins(t *testing.T) {
 	globalPath := config.GlobalMCPJSONPath(home)
 	projectPath := config.MCPJSONPath(cwd)
 
-	// Global file adds home-srv and overrides cfg-srv; project file adds
-	// proj-srv and overrides home-srv.
+	// The global file declares home-srv and shared; the project file adds
+	// proj-srv and overrides shared.
 	for name, srv := range map[string]config.MCPJSONServer{
 		"home-srv": {Command: "home-mcp"},
-		"cfg-srv":  {Command: "home-override"},
+		"shared":   {Command: "home-shared"},
 	} {
 		if err := config.UpsertMCPJSONServer(globalPath, name, srv); err != nil {
 			t.Fatal(err)
@@ -194,7 +196,7 @@ func TestListManagedServersScopesAndOrigins(t *testing.T) {
 	}
 	for name, srv := range map[string]config.MCPJSONServer{
 		"proj-srv": {Command: "proj-mcp"},
-		"home-srv": {Command: "proj-override"},
+		"shared":   {Command: "proj-override"},
 	} {
 		if err := config.UpsertMCPJSONServer(projectPath, name, srv); err != nil {
 			t.Fatal(err)
@@ -213,30 +215,33 @@ func TestListManagedServersScopesAndOrigins(t *testing.T) {
 	for _, s := range servers {
 		got[s.Config.Name] = so{s.Scope, s.Origin, s.Config.Command}
 	}
-	if got["cfg-srv"] != (so{ScopeGlobal, OriginHome, "home-override"}) {
-		t.Errorf("cfg-srv = %+v, want global/home with home override", got["cfg-srv"])
+	if got["home-srv"] != (so{ScopeGlobal, OriginHome, "home-mcp"}) {
+		t.Errorf("home-srv = %+v, want global/home", got["home-srv"])
 	}
-	if got["home-srv"] != (so{ScopeLocal, OriginProject, "proj-override"}) {
-		t.Errorf("home-srv = %+v, want local/project with project override", got["home-srv"])
+	if got["shared"] != (so{ScopeLocal, OriginProject, "proj-override"}) {
+		t.Errorf("shared = %+v, want local/project with the project override", got["shared"])
 	}
 	if got["proj-srv"] != (so{ScopeLocal, OriginProject, "proj-mcp"}) {
 		t.Errorf("proj-srv = %+v, want local/project", got["proj-srv"])
 	}
 
-	// Without any overrides the config.yaml entry stays config-owned/global.
-	if _, err := config.DeleteMCPJSONServer(globalPath, "cfg-srv"); err != nil {
+	// Without the project file the global declaration is the one listed.
+	if err := os.Remove(projectPath); err != nil {
 		t.Fatal(err)
 	}
 	servers, _ = ListManagedServers(cfg, cwd)
+	if len(servers) != 2 {
+		t.Fatalf("servers without the project file = %+v, want 2", servers)
+	}
 	for _, s := range servers {
-		if s.Config.Name == "cfg-srv" && (s.Scope != ScopeGlobal || s.Origin != OriginConfig) {
-			t.Errorf("cfg-srv = %s/%s, want global/config", s.Scope, s.Origin)
+		if s.Origin != OriginHome || s.Scope != ScopeGlobal {
+			t.Errorf("%s = %s/%s, want global/home", s.Config.Name, s.Scope, s.Origin)
 		}
 	}
 }
 
 func TestSetServerDisabledPersistsToOwningFile(t *testing.T) {
-	cfg, cfgPath, home := writeTestConfig(t)
+	cfg, _, home := writeTestConfig(t)
 	cwd := t.TempDir()
 	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
 		t.Fatal(err)
@@ -272,25 +277,13 @@ func TestSetServerDisabledPersistsToOwningFile(t *testing.T) {
 		t.Errorf("home-srv not disabled in global mcp.json: %+v", entries)
 	}
 
-	// Config-owned toggle lands in config.yaml.
-	if err := SetServerDisabled(cfg, cwd, "cfg-srv", true); err != nil {
-		t.Fatalf("disable config server: %v", err)
-	}
-	reloaded, err := config.Load(cfgPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(reloaded.MCPServers) != 1 || !reloaded.MCPServers[0].Disabled {
-		t.Errorf("config.yaml servers = %+v, want cfg-srv disabled", reloaded.MCPServers)
-	}
-
 	if err := SetServerDisabled(cfg, cwd, "ghost", true); err == nil {
 		t.Error("unknown server must error")
 	}
 }
 
 func TestSetToolDisabledPersistsToOwningFile(t *testing.T) {
-	cfg, cfgPath, home := writeTestConfig(t)
+	cfg, _, home := writeTestConfig(t)
 	cwd := t.TempDir()
 	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
 		t.Fatal(err)
@@ -304,32 +297,21 @@ func TestSetToolDisabledPersistsToOwningFile(t *testing.T) {
 		t.Errorf("home-srv disabledTools = %v, want [echo]", got)
 	}
 
-	if err := SetToolDisabled(cfg, cwd, "cfg-srv", "reverse", true); err != nil {
-		t.Fatalf("disable config tool: %v", err)
-	}
-	reloaded, err := config.Load(cfgPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := reloaded.MCPServers[0].DisabledTools; len(got) != 1 || got[0] != "reverse" {
-		t.Errorf("config.yaml disabled_tools = %v, want [reverse]", got)
-	}
-
 	// Re-enable removes the entry again.
-	if err := SetToolDisabled(cfg, cwd, "cfg-srv", "reverse", false); err != nil {
+	if err := SetToolDisabled(cfg, cwd, "home-srv", "echo", false); err != nil {
 		t.Fatal(err)
 	}
-	reloaded, _ = config.Load(cfgPath)
-	if got := reloaded.MCPServers[0].DisabledTools; len(got) != 0 {
-		t.Errorf("config.yaml disabled_tools = %v, want empty", got)
+	entries, _ = config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if got := entries["home-srv"].DisabledTools; len(got) != 0 {
+		t.Errorf("home-srv disabledTools = %v, want empty", got)
 	}
 }
 
-func TestUpsertServerScopes(t *testing.T) {
+func TestSaveServerScopes(t *testing.T) {
 	cfg, _, home := writeTestConfig(t)
 	cwd := t.TempDir()
 
-	if err := UpsertServer(cfg, cwd, "glob", ScopeGlobal, config.MCPJSONServer{Command: "glob-mcp"}); err != nil {
+	if err := SaveServer(cfg, cwd, "glob", ScopeGlobal, config.MCPJSONServer{Command: "glob-mcp"}, ""); err != nil {
 		t.Fatalf("upsert global: %v", err)
 	}
 	entries, _ := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
@@ -337,7 +319,7 @@ func TestUpsertServerScopes(t *testing.T) {
 		t.Errorf("global mcp.json = %+v, want glob", entries)
 	}
 
-	if err := UpsertServer(cfg, cwd, "loc", ScopeLocal, config.MCPJSONServer{Command: "loc-mcp"}); err != nil {
+	if err := SaveServer(cfg, cwd, "loc", ScopeLocal, config.MCPJSONServer{Command: "loc-mcp"}, ""); err != nil {
 		t.Fatalf("upsert local: %v", err)
 	}
 	entries, _ = config.ReadMCPJSONFile(config.MCPJSONPath(cwd))
@@ -345,8 +327,144 @@ func TestUpsertServerScopes(t *testing.T) {
 		t.Errorf("project mcp.json = %+v, want loc", entries)
 	}
 
-	if err := UpsertServer(cfg, cwd, "x", "nope", config.MCPJSONServer{Command: "x"}); err == nil {
+	if err := SaveServer(cfg, cwd, "x", "nope", config.MCPJSONServer{Command: "x"}, ""); err == nil {
 		t.Error("unknown scope must error")
+	}
+}
+
+// The list shows "<redacted>" in place of every env and header value, so a
+// save of an edited entry sends it back for the values the operator did not
+// retype: those keep what the file stores, typed values replace theirs, and
+// a key left out goes. A check against the declaration shown and the write it
+// allows read the file once; a refusal writes nothing.
+func TestSaveServerKeepsRedactedValues(t *testing.T) {
+	cfg, _, home := writeTestConfig(t)
+	cwd := t.TempDir()
+	globalPath := config.GlobalMCPJSONPath(home)
+	stored := config.MCPJSONServer{Command: "files-mcp", Env: map[string]string{"TOKEN": "tok-1", "OLD": "gone"}, Headers: map[string]string{"X-Key": "tok-2"}}
+	if err := config.UpsertMCPJSONServer(globalPath, "files", stored); err != nil {
+		t.Fatal(err)
+	}
+	shown := Fingerprint(config.MCPServerFromJSON("files", stored))
+	unchanged := func(t *testing.T, path string, want []byte) {
+		t.Helper()
+		if got, _ := os.ReadFile(path); string(got) != string(want) {
+			t.Fatalf("a refused save rewrote %s:\n%s", path, got)
+		}
+	}
+
+	edit := config.MCPJSONServer{Command: "files-mcp", Env: map[string]string{"TOKEN": config.RedactedValue, "NEW": "fresh"}, Headers: map[string]string{"X-Key": config.RedactedValue}}
+	if err := SaveServer(cfg, cwd, "files", ScopeGlobal, edit, shown); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := config.ReadMCPJSONFile(globalPath)
+	if got := entries["files"]; !reflect.DeepEqual(got.Env, map[string]string{"TOKEN": "tok-1", "NEW": "fresh"}) || !reflect.DeepEqual(got.Headers, map[string]string{"X-Key": "tok-2"}) {
+		t.Fatalf("saved entry = %+v", got)
+	}
+	before, _ := os.ReadFile(globalPath)
+
+	err := SaveServer(cfg, cwd, "files", ScopeGlobal, config.MCPJSONServer{Command: "files-mcp", Headers: map[string]string{"X-Missing": config.RedactedValue}}, "")
+	if err == nil || !strings.Contains(err.Error(), "X-Missing") {
+		t.Fatalf("a placeholder for a value the file lacks = %v, want an error naming it", err)
+	}
+	unchanged(t, globalPath, before)
+
+	if err := SaveServer(cfg, cwd, "files", ScopeGlobal, edit, shown); !errors.Is(err, ErrDeclarationChanged) {
+		t.Fatalf("a save against the declaration as it was before the last save = %v, want ErrDeclarationChanged", err)
+	}
+	unchanged(t, globalPath, before)
+	if err := SaveServer(cfg, cwd, "gone", ScopeGlobal, config.MCPJSONServer{Command: "x"}, shown); !errors.Is(err, ErrDeclarationChanged) {
+		t.Fatalf("a save naming a declaration deleted since = %v, want ErrDeclarationChanged", err)
+	}
+	unchanged(t, globalPath, before)
+
+	// A project entry keeps a value only against the declaration shown, and
+	// the save approves what it wrote.
+	projectPath := config.MCPJSONPath(cwd)
+	project := config.MCPJSONServer{Command: "tracker-mcp", Env: map[string]string{"KEY": "tok-3", "MODE": "${TRACKER_MODE}"}}
+	if err := config.UpsertMCPJSONServer(projectPath, "tracker", project); err != nil {
+		t.Fatal(err)
+	}
+	keep := config.MCPJSONServer{Command: "tracker-mcp", Args: []string{"--verbose"}, Env: map[string]string{"KEY": config.RedactedValue, "MODE": config.RedactedValue}}
+	projectBefore, _ := os.ReadFile(projectPath)
+	if err := SaveServer(cfg, cwd, "tracker", ScopeLocal, keep, ""); err == nil || !strings.Contains(err.Error(), "fingerprint") {
+		t.Fatalf("keeping a project value without the fingerprint = %v, want a refusal naming it", err)
+	}
+	unchanged(t, projectPath, projectBefore)
+	if err := SaveServer(cfg, cwd, "tracker", ScopeLocal, keep, Fingerprint(config.MCPServerFromJSON("tracker", project))); err != nil {
+		t.Fatal(err)
+	}
+	servers, err := ListManagedServers(cfg, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, srv := range servers {
+		if srv.Config.Name != "tracker" {
+			continue
+		}
+		if got := srv.Config.Env; len(got) != 2 || got[0].Value != "tok-3" || got[1].Value != "${TRACKER_MODE}" {
+			t.Fatalf("kept project values = %+v", got)
+		}
+		if state := NewTrustGate(cfg).Evaluate(cwd, srv); state != TrustStateAllowed {
+			t.Fatalf("the saved project entry is %s, want it approved as written", state)
+		}
+	}
+
+	// Typed whole, a project entry needs no fingerprint.
+	if err := SaveServer(cfg, cwd, "typed", ScopeLocal, config.MCPJSONServer{Command: "typed-mcp", Env: map[string]string{"KEY": "typed"}}, ""); err != nil {
+		t.Fatalf("a project entry typed whole = %v", err)
+	}
+}
+
+// Under mcp.project_trust allow a project entry starts without an approval,
+// so a save of one records no receipt.
+func TestSaveServerUnderAllowRecordsNoReceipt(t *testing.T) {
+	cfg, _, home := writeTestConfig(t)
+	cwd := t.TempDir()
+	cfg.MCP.ProjectTrust = config.ProjectTrustAllow
+	if err := SaveServer(cfg, cwd, "free", ScopeLocal, config.MCPJSONServer{Command: "free-mcp"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if recs := NewTrustStore(home).Records(cwd); len(recs) != 0 {
+		t.Fatalf("a save under allow recorded receipts: %+v", recs)
+	}
+}
+
+// A probe error shown next to a server carries what the declaration resolved
+// to - the request URL with a ${NAME} in its query, a credential the server
+// echoed back - and leaves the server the way the list shows the declaration.
+func TestRedactValues(t *testing.T) {
+	t.Setenv("XR_REDACT_KEY", "tok-url-s3cr3t")
+	t.Setenv("XR_REDACT_PATH", "a/b+c=d/tok-path")
+	srv := config.MCPServerConfig{
+		Name:    "docs",
+		URL:     "https://mcp.example/${XR_REDACT_PATH}?api_key=${XR_REDACT_KEY}",
+		Env:     []config.EnvVarConfig{{Name: "TOKEN", Value: "tok-env-literal"}, {Name: "DEBUG", Value: "1"}},
+		Headers: []config.HTTPHeaderConfig{{Name: "Authorization", Value: "Bearer tok-hdr-s3cr3t"}, {Name: "X-Key", Value: "${XR_REDACT_KEY}"}},
+	}
+	cases := []struct{ name, msg, want string }{
+		{"transport error prints the request URL",
+			`Post "https://mcp.example/a/b+c=d/tok-path?api_key=tok-url-s3cr3t": dial tcp: connection refused`,
+			`Post "https://mcp.example/${XR_REDACT_PATH}?api_key=${XR_REDACT_KEY}": dial tcp: connection refused`},
+		{"a refusal echoes the token of a header",
+			`sse connect: http 401 text/plain: invalid token tok-hdr-s3cr3t`,
+			`sse connect: http 401 text/plain: invalid token <redacted>`},
+		{"a server echoes an env value",
+			`jsonrpc error -32000: TOKEN=tok-env-literal rejected`,
+			`jsonrpc error -32000: TOKEN=<redacted> rejected`},
+		{"a variable escaped into a path",
+			`GET /x/` + url.PathEscape("a/b+c=d/tok-path") + `: not found`,
+			`GET /x/<redacted>: not found`},
+		{"short values are ordinary words",
+			`exit status 1`, `exit status 1`},
+		{"nothing to redact", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RedactValues(srv, t.TempDir(), tc.msg); got != tc.want {
+				t.Fatalf("RedactValues = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -371,9 +489,6 @@ func TestDeleteServerPerOrigin(t *testing.T) {
 		t.Errorf("home-srv still present: %+v", entries)
 	}
 
-	if err := DeleteServer(cfg, cwd, "cfg-srv"); err == nil {
-		t.Error("config-defined server must refuse API deletion")
-	}
 	if err := DeleteServer(cfg, cwd, "ghost"); err == nil {
 		t.Error("unknown server must error")
 	}
@@ -865,6 +980,20 @@ func TestTrustStoreApprovalIsPerWorkspaceAndDeclaration(t *testing.T) {
 	if strings.Contains(strings.Join(recs[0].EnvKeys, ","), "secret") {
 		t.Fatal("receipt leaked an env value")
 	}
+	// A declaration that reads the environment names what it reads, by name.
+	reader := projectServer("reader", "run-me")
+	reader.Headers = []config.HTTPHeaderConfig{{Name: "X-Data", Value: "${AWS_SECRET_ACCESS_KEY}"}}
+	if err := store.Approve(ws, "/ws/.coddy/mcp.json", reader); err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range store.Records(ws) {
+		if rec.Server == "reader" && (len(rec.ReadsEnv) != 1 || rec.ReadsEnv[0] != "AWS_SECRET_ACCESS_KEY") {
+			t.Fatalf("receipt of a reading declaration = %+v", rec)
+		}
+	}
+	if _, err := store.Revoke(ws, "reader"); err != nil {
+		t.Fatal(err)
+	}
 
 	removed, err := store.Revoke(ws, "demo")
 	if err != nil || !removed {
@@ -883,12 +1012,11 @@ func TestTrustGateGatesOnlyProjectEntries(t *testing.T) {
 
 	project := ManagedServer{Config: projectServer("demo", "run-me"), Scope: ScopeLocal, Origin: OriginProject}
 	fromHome := ManagedServer{Config: projectServer("demo", "run-me"), Scope: ScopeGlobal, Origin: OriginHome}
-	fromConfig := ManagedServer{Config: projectServer("demo", "run-me"), Scope: ScopeGlobal, Origin: OriginConfig}
 
 	if got := gate.Evaluate(ws, project); got != TrustStateNeedsApproval {
 		t.Fatalf("project entry = %q, want %q", got, TrustStateNeedsApproval)
 	}
-	for _, srv := range []ManagedServer{fromHome, fromConfig} {
+	for _, srv := range []ManagedServer{fromHome} {
 		if got := gate.Evaluate(ws, srv); got != TrustStateAllowed {
 			t.Fatalf("operator-authored entry from %q = %q, want %q", srv.Origin, got, TrustStateAllowed)
 		}
@@ -971,70 +1099,6 @@ func TestHelperTrustMarker(t *testing.T) {
 	}
 }
 
-// A config.yaml mutation from the MCP management surface must serialize with
-// the staged config transactions (config_commit / config_rollback / HTTP PUT):
-// they all write the same file, and an unserialized writer could overwrite a
-// transaction mid-flight.
-func TestGlobalServerMutationSerializesWithConfigTransactions(t *testing.T) {
-	cfg, cfgPath, home := writeTestConfig(t)
-	cwd := t.TempDir()
-	paths := config.Paths{Home: home, CWD: home, ConfigPath: cfgPath}
-
-	cmds, err := config.ParseUCICommands([]string{"set agent.max_turns=2"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	inReload := make(chan struct{})
-	release := make(chan struct{})
-	commitDone := make(chan error, 1)
-	go func() {
-		_, _, err := config.CommitUCICommandsAndReload(paths, cmds, func() ([]string, error) {
-			close(inReload)
-			<-release
-			return nil, nil
-		})
-		commitDone <- err
-	}()
-	// The staged transaction wrote the file and is parked mid-reload, still
-	// holding the config file lock.
-	<-inReload
-
-	mutDone := make(chan error, 1)
-	go func() {
-		mutDone <- SetServerDisabled(cfg, cwd, "cfg-srv", true)
-	}()
-	select {
-	case <-mutDone:
-		t.Fatal("MCP config mutation entered while a config transaction held the lock")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	close(release)
-	if err := <-commitDone; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-mutDone; err != nil {
-		t.Fatal(err)
-	}
-
-	// Serialization alone is not enough: the MCP mutation waited behind the
-	// staged commit, so it must have applied on top of the committed file, not
-	// persisted its stale pre-commit snapshot over it. Both changes survive.
-	final, err := config.LoadWithPaths(paths)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if final.Agent.MaxTurns != 2 {
-		t.Fatalf("MCP mutation erased the staged commit: max_turns = %d, want 2", final.Agent.MaxTurns)
-	}
-	if len(final.MCPServers) != 1 || !final.MCPServers[0].Disabled {
-		t.Fatalf("MCP mutation lost: servers = %+v, want cfg-srv disabled", final.MCPServers)
-	}
-	if !cfg.MCPServers[0].Disabled {
-		t.Fatal("mutation was not mirrored back into the caller's config object")
-	}
-}
-
 // A project-local stdio server follows the session workspace: ${CWD} in the
 // command resolves like it does in the arguments and the environment
 // (coddy-project/coddy-agent#146 kept the placeholder in the loaded config).
@@ -1054,6 +1118,45 @@ func TestStdioSpecResolvesPlaceholdersAgainstSessionCWD(t *testing.T) {
 	}
 	if len(env) != 1 || env[0] != "PROJECT=/work/app/src" {
 		t.Fatalf("env = %v", env)
+	}
+}
+
+// A value that names an environment variable starts the server with its
+// value, whichever file declared it, while the declaration keeps the
+// reference (what Settings shows and an approval digests): a secret kept in
+// the environment is never written into the file.
+func TestServerStartsWithTheEnvironmentItsDeclarationNames(t *testing.T) {
+	t.Setenv("CODDY_MCP_TEST_TOKEN", "tok-1")
+	srv := config.MCPServerConfig{
+		Name:    "github",
+		Command: "npx",
+		Args:    []string{"--token=${CODDY_MCP_TEST_TOKEN}", "${CODDY_MCP_TEST_UNSET:-fallback}"},
+		Env:     []config.EnvVarConfig{{Name: "GITHUB_TOKEN", Value: "${CODDY_MCP_TEST_TOKEN}"}},
+		Headers: []config.HTTPHeaderConfig{{Name: "Authorization", Value: "Bearer ${env:CODDY_MCP_TEST_TOKEN}"}},
+	}
+	_, args, env := stdioSpec(srv, "/work/app")
+	if len(args) != 2 || args[0] != "--token=tok-1" || args[1] != "fallback" {
+		t.Fatalf("args = %v", args)
+	}
+	if len(env) != 1 || env[0] != "GITHUB_TOKEN=tok-1" {
+		t.Fatalf("env = %v", env)
+	}
+	if h := expandHeaders(srv, "/work/app"); h["Authorization"] != "Bearer tok-1" {
+		t.Fatalf("headers = %v", h)
+	}
+	if srv.Env[0].Value != "${CODDY_MCP_TEST_TOKEN}" {
+		t.Fatalf("the declaration itself changed: %+v", srv.Env)
+	}
+	// What an approval shows: the variables the declaration reads, by name.
+	if got := ReadsEnvironment(srv); !reflect.DeepEqual(got, []string{"CODDY_MCP_TEST_TOKEN", "CODDY_MCP_TEST_UNSET"}) {
+		t.Fatalf("ReadsEnvironment = %v", got)
+	}
+
+	// A rotated secret is another connection, not the old one reused.
+	before := PoolKey(ManagedServer{Config: srv, Origin: OriginProject}, "/work/app")
+	t.Setenv("CODDY_MCP_TEST_TOKEN", "tok-2")
+	if PoolKey(ManagedServer{Config: srv, Origin: OriginProject}, "/work/app") == before {
+		t.Fatal("the pool key did not follow the value the server starts with")
 	}
 }
 
@@ -1126,15 +1229,16 @@ func TestStatusShowsUntrustedProjectDeclarationWithoutSecretsOrProbe(t *testing.
 }
 
 // A broken <home>/mcp-overrides.json must not take the operator's own servers
-// with it: config.yaml and <home>/mcp.json entries keep their declarations and
-// their switches (a tool switched off stays off), and the project entries,
-// whose switches can no longer be read, stay off until the file is repaired.
+// with it: <home>/mcp.json entries keep their declarations and their switches
+// (a tool switched off stays off), and the project entries, whose switches
+// can no longer be read, stay off until the file is repaired.
 func TestCorruptOverridesKeepGlobalServersAndSwitchProjectOnesOff(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
-	cfg := &config.Config{MCPServers: []config.MCPServerConfig{
-		{Name: "yaml-srv", Command: "yaml-mcp", DisabledTools: []string{"danger"}},
-	}}
+	cfg := &config.Config{}
 	cfg.Paths.Home = home
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "guarded", config.MCPJSONServer{Command: "guarded-mcp", DisabledTools: []string{"danger"}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
 		t.Fatal(err)
 	}
@@ -1156,7 +1260,7 @@ func TestCorruptOverridesKeepGlobalServersAndSwitchProjectOnesOff(t *testing.T) 
 	if len(byName) != 3 {
 		t.Fatalf("tolerant list dropped servers: %+v", managed)
 	}
-	if byName["yaml-srv"].Disabled || byName["home-srv"].Disabled {
+	if byName["guarded"].Disabled || byName["home-srv"].Disabled {
 		t.Fatalf("global servers switched off by a broken overrides file: %+v", managed)
 	}
 	if !byName["proj"].Disabled {
@@ -1167,10 +1271,10 @@ func TestCorruptOverridesKeepGlobalServersAndSwitchProjectOnesOff(t *testing.T) 
 		configs = append(configs, srv.Config)
 	}
 	allowed := config.BuildMCPToolFilter(configs)
-	if allowed("yaml-srv", "danger") {
-		t.Fatal("a tool switched off in config.yaml came back on")
+	if allowed("guarded", "danger") {
+		t.Fatal("a tool switched off in <home>/mcp.json came back on")
 	}
-	if !allowed("yaml-srv", "read") || !allowed("home-srv", "read") {
+	if !allowed("guarded", "read") || !allowed("home-srv", "read") {
 		t.Fatal("global tools hidden by a broken overrides file")
 	}
 	if allowed("proj", "read") {
@@ -1185,7 +1289,7 @@ func TestDeleteServerDropsProjectSwitches(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	cfg := &config.Config{}
 	cfg.Paths.Home = home
-	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}); err != nil {
+	if err := SaveServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := SetServerDisabled(cfg, cwd, "demo", true); err != nil {
@@ -1201,7 +1305,7 @@ func TestDeleteServerDropsProjectSwitches(t *testing.T) {
 	if strings.Contains(string(data), `"demo"`) {
 		t.Fatalf("switches of a deleted server survived: %s", data)
 	}
-	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "other-mcp"}); err != nil {
+	if err := SaveServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "other-mcp"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	servers, err := ListManagedServers(cfg, cwd)
@@ -1495,7 +1599,7 @@ func TestFailedDeleteKeepsTheServerSwitchedOff(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	cfg := &config.Config{}
 	cfg.Paths.Home = home
-	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}); err != nil {
+	if err := SaveServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := SetServerDisabled(cfg, cwd, "demo", true); err != nil {
@@ -1529,7 +1633,7 @@ func TestDeleteServerStandsWhenItsSwitchesCannotBeDropped(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	cfg := &config.Config{}
 	cfg.Paths.Home = home
-	if err := UpsertServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}); err != nil {
+	if err := SaveServer(cfg, cwd, "demo", ScopeLocal, config.MCPJSONServer{Command: "demo-mcp"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := SetServerDisabled(cfg, cwd, "demo", true); err != nil {
@@ -1583,4 +1687,39 @@ func mustLoad(t *testing.T, path string) *config.Config {
 		t.Fatal(err)
 	}
 	return cfg
+}
+
+// A receipt written before ${NAME} expanded in project files carries no
+// reads_env: it approved a declaration that read nothing. The same text now
+// sends the variable's value, so it is asked about again; a receipt for a
+// declaration that reads nothing stays good.
+func TestAReceiptFromBeforeEnvExpansionDoesNotApproveAReader(t *testing.T) {
+	home, ws := t.TempDir(), t.TempDir()
+	reader := config.MCPServerConfig{Name: "docs", Type: "http", URL: "https://collector.example/mcp",
+		Headers: []config.HTTPHeaderConfig{{Name: "Authorization", Value: "Bearer ${GITHUB_TOKEN}"}}}
+	plain := config.MCPServerConfig{Name: "plain", Command: "run-me"}
+	old := func(srv config.MCPServerConfig) TrustRecord {
+		return TrustRecord{Server: srv.Name, Digest: Fingerprint(srv), Source: config.MCPJSONPath(ws), ApprovedAt: "2026-09-01T00:00:00Z"}
+	}
+	data, err := json.Marshal(trustFile{Version: 1, Workspaces: map[string][]TrustRecord{CanonicalWorkspace(ws): {old(reader), old(plain)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, TrustFileName), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewTrustStore(home)
+	if store.Approved(ws, reader) {
+		t.Fatal("an approval given before the declaration could read the environment still admits it")
+	}
+	if !store.Approved(ws, plain) {
+		t.Fatal("a receipt of a declaration that reads nothing must stay good")
+	}
+	// Approved again, it is.
+	if err := store.Approve(ws, config.MCPJSONPath(ws), reader); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Approved(ws, reader) {
+		t.Fatal("a fresh approval must admit the reader")
+	}
 }

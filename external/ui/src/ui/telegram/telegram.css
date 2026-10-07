@@ -1,0 +1,132 @@
+/* The web UI inside Telegram as a Mini App (DESIGN.md, Telegram Mini App).
+
+   miniApp.ts sets data-telegram-mini-app on <html> and the --coddy-telegram-*
+   variables; nothing here applies anywhere else. A Telegram WebView is a phone
+   or a narrow window, so only the stacked shell changes.
+
+   Telegram can show only the top part of the WebView - a half-open app, whose
+   lower part stays below the screen - and --coddy-telegram-hidden-bottom is
+   that lower part. What the stacked shell anchors to the bottom of the layout
+   viewport is lifted by it, or by the on-screen keyboard that overlays the
+   page (--coddy-keyboard-inset, ChatScreen), whichever is more, so the
+   keyboard is counted once. Menus and pickers stay bottom sheets. */
+
+@media (max-width: 1199px) {
+  html[data-telegram-mini-app="true"] {
+    --coddy-telegram-lift: max(
+      var(--coddy-keyboard-inset, 0px),
+      var(--coddy-telegram-hidden-bottom, 0px)
+    );
+    /* The top bar keeps clear of the status bar and Telegram's own buttons
+       (fullscreen). Set where the stacked shell sets it, so the inset under
+       the bar, the environment banner and the dialogs portalled into <body>
+       all follow. */
+    --coddy-mobile-bar-h: calc(
+      78px +
+        max(env(safe-area-inset-top, 0px), var(--coddy-telegram-safe-top, 0px))
+    );
+  }
+
+  html[data-telegram-mini-app="true"] body,
+  html[data-telegram-mini-app="true"] #root,
+  html[data-telegram-mini-app="true"] .shell {
+    min-height: var(--coddy-telegram-viewport-height, 100svh);
+  }
+
+  html[data-telegram-mini-app="true"] .rail-column {
+    padding-top: calc(
+      10px +
+        max(env(safe-area-inset-top, 0px), var(--coddy-telegram-safe-top, 0px))
+    );
+    padding-left: max(
+      10px,
+      env(safe-area-inset-left, 0px),
+      var(--coddy-telegram-safe-left, 0px)
+    );
+    padding-right: max(
+      10px,
+      env(safe-area-inset-right, 0px),
+      var(--coddy-telegram-safe-right, 0px)
+    );
+  }
+
+  /* The docked composer keeps its bottom on the keyboard inset (styles.css). */
+  html[data-telegram-mini-app="true"] .chat-bottom:has(.composer-wrap-docked) {
+    padding-bottom: max(
+      12px,
+      env(safe-area-inset-bottom, 0px),
+      var(--coddy-telegram-safe-bottom, 0px)
+    );
+    padding-left: max(
+      14px,
+      env(safe-area-inset-left, 0px),
+      var(--coddy-telegram-safe-left, 0px)
+    );
+    padding-right: max(
+      14px,
+      env(safe-area-inset-right, 0px),
+      var(--coddy-telegram-safe-right, 0px)
+    );
+  }
+
+  /* What Telegram hides beyond the keyboard is a block at the end of the
+     one over the transcript, whose content height ChatScreen measures as the
+     transcript's reserve (a ResizeObserver, which padding would not wake):
+     the composer rises into the visible part, the transcript's tail grows
+     with it, and a transcript parked at its newest message follows, the way
+     it does when the usage banner arrives. */
+  html[data-telegram-mini-app="true"]
+    .chat-bottom:has(.composer-wrap-docked)
+    .chat-bottom-inner::after {
+    content: "";
+    display: block;
+    height: max(
+      0px,
+      var(--coddy-telegram-hidden-bottom, 0px) -
+        var(--coddy-keyboard-inset, 0px)
+    );
+  }
+
+  /* Bottom sheets: the composer's menus, and the slash, @ and context
+     pickers on the start screen (above the docked composer they are placed
+     from its card, which is lifted already). Capped to what is visible under
+     the top bar. */
+  html[data-telegram-mini-app="true"] .mode-menu--sheet,
+  html[data-telegram-mini-app="true"]
+    .slash-menu--sheet:not(.slash-menu--above-composer),
+  html[data-telegram-mini-app="true"]
+    .context-breakdown-menu--sheet:not(
+      .context-breakdown-menu--above-composer
+    ) {
+    bottom: var(--coddy-telegram-lift);
+    max-height: calc(
+      var(--coddy-telegram-stable-height, 100dvh) -
+        var(--coddy-mobile-bar-h, 78px) - 8px
+    );
+    overflow-y: auto;
+  }
+
+  html[data-telegram-mini-app="true"] .mode-menu--sheet .mode-menu-scroll,
+  html[data-telegram-mini-app="true"] .slash-menu--sheet .slash-menu-scroll,
+  html[data-telegram-mini-app="true"]
+    .context-breakdown-menu--sheet
+    .context-breakdown-menu-scroll {
+    max-height: min(
+      46vh,
+      calc(var(--coddy-telegram-stable-height, 100dvh) * 0.55)
+    );
+  }
+
+  /* Dialogs and the image viewer centre in what is visible. */
+  html[data-telegram-mini-app="true"] .confirm-dialog-backdrop,
+  html[data-telegram-mini-app="true"] .docs-lightbox {
+    bottom: var(--coddy-telegram-lift);
+  }
+}
+
+@media (max-width: 599px) {
+  /* The folder dialog of a phone ends 14px above the bottom (styles.css). */
+  html[data-telegram-mini-app="true"] .workspace-modal {
+    bottom: calc(14px + var(--coddy-telegram-lift, 0px));
+  }
+}

@@ -34,7 +34,7 @@ func openAPISpec() map[string]interface{} {
 		"servers": []interface{}{
 			map[string]interface{}{
 				"url":         "/",
-				"description": "Server root (same host/port as the API coddy serve exposes). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/events-worker.js`** (the SharedWorker that holds **`GET /coddy/events`** for every tab of one environment), **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
+				"description": "Server root (same host/port as the API coddy serve exposes). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/events-worker.js`** (the SharedWorker that holds **`GET /coddy/events`** for every tab of one environment), **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**. The renderers the page loads on demand live under **`/chunks/`** with content-hashed names and **`Cache-Control: public, max-age=31536000, immutable`**.",
 			},
 		},
 		// Optional auth: an empty requirement plus the two schemes means requests may be
@@ -75,6 +75,7 @@ func openAPISpec() map[string]interface{} {
 						"Optional **`metadata`** on agent/plan/ask only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
 						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools, **`content_filter`** when the provider's content filter cut a direct answer short), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
+						"A non-streaming JSON completion includes **`usage`** with **`prompt_tokens`**, **`completion_tokens`** and **`total_tokens`** when the provider reported token counts, summing the model calls of an agent turn's own loop (a spawned subagent, a compaction and the memory run are not counted); **`prompt_tokens_details.cached_tokens`** is included when positive. If no counts were reported, **`usage`** is omitted rather than invented as zero. " +
 						"A direct **`models[].model`** id is coddy standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, any other value leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools, 256 KiB of **`parameters`** per tool, 16 images per message, 20 MiB per image URL string, else **400**. The **agent** / **plan** / **ask** profiles run coddy's own tools, never read the client's, and take no trailing **`tool`** message. " +
 						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
@@ -102,7 +103,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completion JSON, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, exactly one of them non-null (`stop`, `length` for a turn cut by `max_turns` / `max_tokens`, `tool_calls`, or `content_filter`), an optional usage chunk, then `data: [DONE]`. A provider stream cut before its terminal event is an error, not a finished choice.",
+							"description": "Completion JSON with `usage` when provider token counts are known, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, exactly one of them non-null (`stop`, `length` for a turn cut by `max_turns` / `max_tokens`, `tool_calls`, or `content_filter`), an optional usage chunk, then `data: [DONE]`. A provider stream cut before its terminal event is an error, not a finished choice.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -212,6 +213,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List persisted chat sessions",
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
+						"The envelope's **active_count** is the global number of currently active turns in History's normal eligible scope (not the page or active filters), so it excludes archived, scheduler and subagent sessions. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
 						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
@@ -267,7 +269,7 @@ func openAPISpec() map[string]interface{} {
 						"name":   "include_activity",
 						"in":     "query",
 						"schema": map[string]string{"type": "boolean"},
-						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, **unreadComplete**, **permissionPending** and **backgroundRunning** for composer UI. " +
+						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, **lastErrorSeq**, **unreadComplete**, **permissionPending**, **questionPending** and **backgroundRunning** for composer UI. **questionPending** is process-local: it is reported only by the Coddy server process that owns the interactive wait. " +
 							"**backgroundRunning** is how many of the session's background tasks are still in flight - detached work outlives the turn that started it, so it can be above zero while **turnActive** is false. " +
 							"System tasks (the per-turn memory run) and finished tasks are not counted.",
 					}, map[string]interface{}{
@@ -280,7 +282,23 @@ func openAPISpec() map[string]interface{} {
 							"that never overrode **`agent.model`**, so a client renders those as unknown rather than as a value. Each row costs one extra small file read.",
 					}),
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Paged session identifiers"},
+						"200": map[string]interface{}{
+							"description": "Paged session identifiers with a global active turn count",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":       map[string]string{"type": "string"},
+											"sessions":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object"}},
+											"nextCursor":   map[string]interface{}{"type": "string", "nullable": true},
+											"hasMore":      map[string]string{"type": "boolean"},
+											"active_count": map[string]string{"type": "integer", "minimum": "0", "description": "Currently active turns in the normal History scope, independent of pagination and filters."},
+										},
+									},
+								},
+							},
+						},
 						"503": errorResponseRef(),
 					},
 				},
@@ -496,7 +514,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "List slash commands from skills (paginated)",
 					"description": "Returns skill-derived slash command **`name`** and **`description`** rows sorted by name. " +
 						"**`page`** (1-based) and **`page_size`** (1 to 200) are required. Optional **`prefix`** filters by case-insensitive name prefix. " +
-						"When **X-Coddy-Session-ID** names a session (a persisted one is loaded on demand), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default cwd applies.",
+						"When **X-Coddy-Session-ID** names a session (a persisted one is loaded on demand), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the folder in **`cwd`** applies (a new chat's picked folder), else the server default cwd.",
 					"operationId": "listSlashCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -504,6 +522,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Optional session whose cwd scopes skill path expansion.",
 						},
+						listingCWDParam(),
 						map[string]interface{}{
 							"name": "page", "in": "query", "required": true,
 							"schema":      map[string]interface{}{"type": "integer", "minimum": 1},
@@ -704,15 +723,16 @@ func openAPISpec() map[string]interface{} {
 					"description": "What the **`@`** picker offers for **`q`**, the text after **`@`** (a leading **`\"`** opens a quoted path). " +
 						"Without a scheme it ranks the files and folders of the session **cwd** against **`q`** (fuzzy: the file name first, then path segments, then letters in order; inside a git checkout the index follows **`.gitignore`** and keeps dotfiles) and merges in the rules, subagents and plans whose names match. " +
 						"**`q`** starting with **`/`**, **`~`**, **`./`**, **`../`** or a drive letter browses the folder typed so far, filtered by the name after its last separator. " +
-						"**`session:`**, **`rule:`** and **`agent:`** list that kind; **`coddy:`** lists the pages of the documentation built into the binary, finds pages by slug or title and sections by their words, and after **`<page>#`** the sections of that page. An empty **`q`** offers the four scheme hints and the top of the workspace. " +
+						"**`session:`**, **`rule:`** and **`agent:`** list that kind; **`coddy:`** lists the pages of the documentation built into the binary, finds pages by slug or title and sections by their words, and after **`<page>#`** the sections of that page. An empty **`q`** offers the four scheme hints and the top of the workspace, and a **`q`** that starts a scheme's name puts that scheme's hint first. " +
 						"**`refresh=1`** rebuilds the workspace index even when the last build is fresh (the picker just opened). **`total`** counts every match before the cut to **`limit`**; **`indexing`** says the first index of the workspace is still being built.",
 					"operationId": "searchMentions",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Session the draft belongs to: its **cwd**, rules and plans answer. Without it the server's default cwd is searched.",
+							"description": "Session the draft belongs to: its **cwd**, rules and plans answer. Without it the folder in **`cwd`** is searched, else the server's default cwd.",
 						},
+						listingCWDParam(),
 						map[string]interface{}{
 							"name": "q", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
@@ -757,6 +777,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Session the draft would be sent to: its **cwd**, rules, plans and scope answer. Without it the server's default cwd is used, as for a first message.",
 						},
+						listingCWDParam(),
 					},
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -800,6 +821,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Session whose **cwd** is the read root.",
 						},
+						listingCWDParam(),
 						map[string]interface{}{
 							"name": "path_rel", "in": "query", "required": true,
 							"schema":      map[string]string{"type": "string"},
@@ -870,7 +892,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List subfolders for the workspace folder picker",
 					"description": "Lists direct subfolders of **`path`** (default: session cwd via **`X-Coddy-Session-ID`**, else the server default cwd). " +
-						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**. " +
+						"Hidden folders are included only with **`show_hidden=true`** and **`node_modules`** is always skipped; rows are sorted by name. Directory symlinks carry their resolved target and non-directory symlinks are skipped. A missing folder yields **400**. " +
 						"**`path=:drives:`** lists the machine's drive roots instead (Windows only; **400** elsewhere), and the **`parent`** " +
 						"of a drive root is **`:drives:`** so the picker can walk up out of a volume.",
 					"operationId": "coddyWorkspaceFoldersGet",
@@ -884,6 +906,11 @@ func openAPISpec() map[string]interface{} {
 							"name": "path", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
 							"description": "Absolute folder to list, or **`:drives:`** for the drive level.",
+						},
+						map[string]interface{}{
+							"name": "show_hidden", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "boolean", "default": false},
+							"description": "Include hidden direct subfolders. **`node_modules`** remains excluded.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -908,6 +935,18 @@ func openAPISpec() map[string]interface{} {
 													"properties": map[string]interface{}{
 														"name": map[string]interface{}{"type": "string"},
 														"path": map[string]interface{}{"type": "string"},
+														"hidden": map[string]interface{}{
+															"type":        "boolean",
+															"description": "Present and true for a hidden folder when requested.",
+														},
+														"symlink": map[string]interface{}{
+															"type":        "boolean",
+															"description": "Present and true when the folder row is a directory symlink.",
+														},
+														"target": map[string]interface{}{
+															"type":        "string",
+															"description": "Resolved target of a directory symlink.",
+														},
 													},
 												},
 											},
@@ -1065,7 +1104,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
-					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers, and the **token** of an **`httpserver.remotes`** entry that carries one: the page presents it to that remote). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${CODDY_HOME}`** and the process-scoped directories are returned expanded. The document carries a **`revision`** naming the configuration it was read from; send it back with a **PUT**.",
+					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers, and the **token** of an **`httpserver.remotes`** entry that carries one: the page presents it to that remote). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${CODDY_HOME}`** and the process-scoped directories are returned expanded. The document carries a **`revision`** naming the configuration it was read from; send it back with a **PUT**.",
 					"operationId": "coddyConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -1081,7 +1120,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys, the existing key order and the spelling of every value the body did not change survive the save (a **`${VAR}`** reference, **`${CODDY_HOME}`**, **`~`**, quotes, a list written on one line), a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://coddy.dev/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. A value sent back as the client read it keeps what the file says now: what the process runs differently from the file (a command-line flag, the relay address **coddy serve** fills in, a pairing token from the environment) is not written into it by an unrelated save, and a value another save changed after the client's **GET** is not put back. \"As the client read it\" is measured against the configuration the body's **`revision`** names, else against the one live when the **PUT** arrives. A list is one value: an edited list is written as sent. **`agent.model`** is optional and stored as sent: calls that need a default model (`coddy -p`, `coddy acp`, **`POST /v1/responses`** without **`metadata.model`**) report a missing model when it is empty. Keys the file never had appear only when their value differs from the built-in defaults and from what the file loads them as: unset optional fields are omitted rather than written as **`null`**, so commented-out sections stay out of the file, and an entry of a list (a provider, a model, an MCP server) keeps only the fields it named plus the ones the body set. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
+					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys, the existing key order and the spelling of every value the body did not change survive the save (a **`${VAR}`** reference, **`${CODDY_HOME}`**, **`~`**, quotes, a list written on one line), a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://coddy.dev/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. A value sent back as the client read it keeps what the file says now: what the process runs differently from the file (a command-line flag, the relay address **coddy serve** fills in, a pairing token from the environment) is not written into it by an unrelated save, and a value another save changed after the client's **GET** is not put back. \"As the client read it\" is measured against the configuration the body's **`revision`** names, else against the one live when the **PUT** arrives. A list is one value: an edited list is written as sent. **`agent.model`** is optional and stored as sent: calls that need a default model (`coddy -p`, `coddy acp`, **`POST /v1/responses`** without **`metadata.model`**) report a missing model when it is empty. Keys the file never had appear only when their value differs from the built-in defaults and from what the file loads them as: unset optional fields are omitted rather than written as **`null`**, so commented-out sections stay out of the file, and an entry of a list (a provider, a model) keeps only the fields it named plus the ones the body set. MCP servers are not part of this document (they live in **`<home>/mcp.json`** and the project's **`.coddy/mcp.json`**, see `/coddy/mcp`); a changed **`mcp.project_trust`** reconnects them in active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
 					"operationId": "coddyConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1141,7 +1180,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/activity": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Composer activity for a session",
-					"description": "Returns **turnActive** (a turn running in this server process, or the exclusive turn lock held by another one), **activitySeq**, **readActivitySeq**, and **unreadComplete** for multi-surface UI. While this process runs the turn it also carries the turn's progress - **turnStartedAt** (RFC3339), **turnElapsedMs**, **turnOutputTokens** and **turnTokensEstimated**, the numbers of the **turn_progress** stream event - so a client that joins the turn late (a reloaded tab is not replayed the frames its transcript snapshot covers) still shows the right clock and token count. A turn finished background tasks started (**notify_on_finish**) also carries **backgroundWake** (**`{tasks}`**, in the shape of the **background_wake** stream frame), so a client resuming the session mid-turn learns that nobody typed it. A turn held by another process leaves those fields out.",
+					"description": "Returns **turnActive** (a turn running in this server process, or the exclusive turn lock held by another one), **activitySeq**, **readActivitySeq**, **lastErrorSeq**, **unreadComplete** and **questionPending** for multi-surface UI. **questionPending** is true while an interactive `question` tool waits for an answer, and is process-local to the Coddy server process that owns the wait. **lastErrorSeq** is the activity generation of the latest real failure, or zero when the latest outcome was not an error. While this process runs the turn it also carries the turn's progress - **turnStartedAt** (RFC3339), **turnElapsedMs**, **turnOutputTokens** and **turnTokensEstimated**, the numbers of the **turn_progress** stream event - so a client that joins the turn late (a reloaded tab is not replayed the frames its transcript snapshot covers) still shows the right clock and token count. A turn finished background tasks started (**notify_on_finish**) also carries **backgroundWake** (**`{tasks}`**, in the shape of the **background_wake** stream frame), so a client resuming the session mid-turn learns that nobody typed it. A turn held by another process leaves those fields out.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1351,7 +1390,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/subagents": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Subagent definitions visible from a workspace",
-					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**, and the hidden orchestrator **crossreview**), user-scope files under **`${CODDY_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.coddy/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
+					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**, and the hidden orchestrator **crossreview**), user-scope files under **`~/.agents/agents`** and **`${CODDY_HOME}/agents`**, project-scope files under the workspace's **`.agents/agents`** and **`.coddy/agents`**, then the extra directories of **`subagents.dirs`**, later directories overriding earlier ones by name. " +
 						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, the bounds the definition declares (**tools**, **disallowed_tools**, **permission_mode**, **timeout_seconds**, **max_turns**, **background**, **spawns**, **role_bytes**; a bound the file does not declare is absent, which means it inherits) so an approval surface can show what it is approving, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. The role body itself is never served. Errors are **`{\"error\":{\"message\"}}`** JSON. " +
 						"Under **`subagents.project_trust: ask`** a project-scope file needs a receipt for its current content; under **allow** it is trusted; under **deny** project directories are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy.",
 					"operationId": "listSubagents",
@@ -1391,7 +1430,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Approve a project subagent definition for a workspace",
 					"description": "Records a receipt in **`<home>/subagents-trust.json`** binding the workspace, the definition name and the digest of its current file content, so **spawn_agent** may run it under **`subagents.project_trust: ask`**. Rewriting the file changes the digest and withdraws the approval. " +
-						"Optional body **`{\"cwd\": ...}`** selects the workspace (default: the server's default cwd). **404** when no definition of that name is visible from the workspace; **400** for a built-in or user-scope definition (nothing to approve), a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry.",
+						"Optional body **`{\"cwd\": ..., \"digest\": ...}`** selects the workspace (default: the server's default cwd) and names the content the operator was shown: a file rewritten since is refused with **409**. **404** when no definition of that name is visible from the workspace; **400** for a built-in or user-scope definition (nothing to approve), a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry. Settings -> Subagents approves through this route.",
 					"operationId": "trustSubagent",
 					"parameters":  []interface{}{subagentNameParam()},
 					"requestBody": subagentTrustRequestBody(),
@@ -1399,6 +1438,7 @@ func openAPISpec() map[string]interface{} {
 						"200": subagentEntryResponse("Approval recorded; the entry now reports **trusted**."),
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -1441,6 +1481,7 @@ func openAPISpec() map[string]interface{} {
 											"mode":           map[string]interface{}{"type": "string", "enum": []string{"password"}, "description": "How a browser signs in. Absent when no form is configured."},
 											"user":           map[string]string{"type": "string", "description": "Signed-in account; absent otherwise."},
 											"expires_at":     map[string]string{"type": "string", "format": "date-time", "description": "When the session ends; absent otherwise."},
+											"telegram_login": map[string]string{"type": "boolean", "description": "A page opened as the Telegram bot's Mini App can sign in with its launch data (POST /coddy/auth/telegram), the bot's admins only."},
 										},
 										"required": []string{"login_required", "auth_required", "authenticated"},
 									},
@@ -1497,10 +1538,53 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/auth/telegram": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Sign a Telegram Mini App in with its launch data (the bot's admins only)",
+					"description": "Public: the way through the gate for the web UI opened as the Telegram bot's Mini App. `init_data` is the launch data Telegram signed with the bot's token (`tgWebAppData`); the server checks the signature as Telegram documents for Mini Apps, refuses launch data older than an hour or used before, and signs in only a user listed in `gateways.telegram.admins`. " +
+						"On success sets an HttpOnly, SameSite=Strict `" + tgSessionCookieBaseName + "_<host digest>` cookie that opens what the sign-in form's cookie opens, also behind a token-only gate; it ends when the bot's token changes, the bot is disabled or the person is no longer an admin. " +
+						"**400** without an enabled Telegram bot with a token, **401** for bad, stale or replayed launch data, **403** for somebody who is not an admin or a cross-site attempt.",
+					"operationId": "authTelegram",
+					"security":    []interface{}{map[string]interface{}{}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":       "object",
+									"properties": map[string]interface{}{"init_data": map[string]string{"type": "string"}},
+									"required":   []string{"init_data"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Signed in; the Mini App session cookie is set",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":         map[string]string{"type": "boolean"},
+											"user":       map[string]string{"type": "string", "description": "`telegram:<user id>`"},
+											"expires_at": map[string]string{"type": "string", "format": "date-time"},
+										},
+										"required": []string{"ok", "user"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/auth/logout": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "End the browser session on the server",
-					"description": "Drops the session server-side and expires the cookie, so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
+					"description": "Drops the session server-side and expires the cookie - the sign-in form's and, when the browser holds one, the Telegram Mini App's (`" + tgSessionCookieBaseName + "_<host digest>`) - so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
 					"operationId": "authLogout",
 					"security":    []interface{}{map[string]interface{}{}},
 					"responses": map[string]interface{}{
@@ -1681,7 +1765,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Rewind the session history to a user message",
 					"description": "Truncates the conversation **in place**: the user message at **userMessageIndex** (0-based over **`user`** rows, a background wake counting as one) and everything after it are dropped, so resending an edited version of that message continues the same session rather than forking a new one. " +
-						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, prunes orphaned **`tool_calls/`** entries, and drops **`ui_log`** rows of the dropped turns. " +
+						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, moves the **`tool_calls/`** entries and **`ui_log`** rows of the dropped turns into the bundle's undo snapshot, which **POST /coddy/sessions/{id}/rewind/undo** restores. " +
 						"A **`session_rewound`** event is published on **`GET /coddy/events`** so other watchers of the session refetch their transcript. The session must be idle: a turn in flight is refused.",
 					"operationId": "coddyRewind",
 					"parameters": []interface{}{
@@ -1728,6 +1812,207 @@ func openAPISpec() map[string]interface{} {
 						"404": errorResponseRef(),
 						"409": map[string]interface{}{
 							"description": "The session is a read-only transcript (a subagent child or the session of a scheduler job), or a turn is in flight.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/changes": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "List what git reports for the session's folder",
+					"description": "The working copy changes of the session's folder, as git reports them: every tracked file that differs from **`HEAD`** (staged or not) and every new file git does not ignore, whoever made the change - the agent, a shell command or an editor next to it. Nothing is recorded per turn. " +
+						"When the session runs in a subfolder of a repository only that folder is reported, by paths relative to it. Without the git binary on PATH the server answers through its built-in implementation, which does not detect renames (a staged rename reads as a deletion plus an addition). " +
+						"**`status`** is **`added`**, **`modified`**, or **`deleted`**; a **`binary`** file carries no line counts and no patch. " +
+						"By default only stats are returned - **`include=patch`** adds the unified diff and **`include=content`** the decoded before/after sides (both may be combined, comma separated). " +
+						"A patch cut short at 256 KB sets **`truncated`**; **`additions`** and **`deletions`** still describe the whole file. " +
+						"New files are read up to 500 of them and 2 MB each, regular files only; **`skipped`** counts the ones left out (a symbolic link and a nested repository included). In a repository with no commit yet, every file of the index is an addition. **`vcs`** is **`git`**, or empty when the folder is in no repository, and the list is then empty. " +
+						"This is what the SPA's edits window and git's count on the plate over the composer read.",
+					"operationId": "coddySessionChangesList",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "include", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Comma-separated extras: `patch`, `content`.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Working copy changes",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"sessionId": map[string]string{"type": "string"},
+											"vcs": map[string]interface{}{
+												"type":        "string",
+												"enum":        []interface{}{"git", ""},
+												"description": "`git` when the folder is inside a repository, empty otherwise.",
+											},
+											"skipped": map[string]interface{}{
+												"type":        "integer",
+												"description": "New files not listed: past the cap of 500, larger than 2 MB, or not a regular file (a symbolic link, a nested repository).",
+											},
+											"files": map[string]interface{}{
+												"type":  "array",
+												"items": sessionChangeFileSchema(),
+											},
+											"totals": map[string]interface{}{
+												"type": "object",
+												"properties": map[string]interface{}{
+													"files":     map[string]string{"type": "integer"},
+													"additions": map[string]string{"type": "integer"},
+													"deletions": map[string]string{"type": "integer"},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/changes/file": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Read one changed file of the session's folder",
+					"description": "One file of **GET .../changes**, always carrying **`patch`**, **`before`** and **`after`**; only that file is read. " +
+						"**`path`** is matched against what git reports, never resolved on disk, so this route cannot be pointed at a file outside the change set: an unchanged, ignored, unknown or traversing path yields **404**. Either separator names the same file.",
+					"operationId": "coddySessionChangeFile",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "path", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Path relative to the session's folder, as listed by GET .../changes.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "One changed file",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": sessionChangeFileSchema(),
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/changes/revert": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Discard uncommitted changes of the session's folder",
+					"description": "Puts the named files, or all of them, back at **`HEAD`** through git: a tracked file gets its content and index entry from **`HEAD`** back, a file **`HEAD`** does not hold (new, or only added to the index) is deleted, and a folder left empty by that goes with it. Files git ignores are never touched. " +
+						"The body says what it means: **`{\"paths\":[...]}`** with at least one path as **GET .../changes** lists them, or **`{\"all\":true}`**; an empty, malformed or ambiguous body (both keys, an empty or null list, an unknown key, anything after the object) is **400** and nothing is discarded. **`all`** also clears index entries that differ from **`HEAD`** where the disk does not. " +
+						"A path git does not report any more (committed, or put back meanwhile) is **409** and nothing of the request is applied. A folder in no repository is **400**. " +
+						"While a turn runs in this session, or in any other session of this process whose folder is this one or lies inside or around it, the request yields **409**; the discard holds the session turn lock. " +
+						"A **`session_changes`** event is published on **`GET /coddy/events`** so every watcher of the session reads its working copy again.",
+					"operationId": "coddySessionChangesRevert",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"paths": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"minItems":    1,
+											"description": "Files to discard, relative to the session's folder. Not with `all`.",
+										},
+										"all": map[string]interface{}{
+											"type":        "boolean",
+											"description": "Discard every change git reports for the folder.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Changes discarded",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"sessionId": map[string]string{"type": "string"},
+											"at":        map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/rewind/undo": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Undo the last rewind of the session",
+					"operationId": "coddyRewindUndo",
+					"description": "Takes back the last **POST /coddy/sessions/{id}/rewind**: a running turn of the session (the edited prompt) is cancelled first, whatever was appended after the cut is dropped, and the cut messages, their **uiLog** rows and tool-call detail come back. Available while **GET /coddy/sessions/{id}/messages** carries **rewindUndo**: until a second prompt follows the edited one, another rewind replaces it, or the kept prefix changes (a compaction). File changes the removed turns made are not reverted. Publishes **session_rewound** on **GET /coddy/events**.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Last rewind taken back",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":      map[string]string{"type": "string"},
+											"sessionId":   map[string]string{"type": "string"},
+											"messagesRev": map[string]string{"type": "integer"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "There is no rewind to undo, the edited turn is still running, or the session is a read-only transcript.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
@@ -1806,9 +2091,11 @@ func openAPISpec() map[string]interface{} {
 						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
 						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat. " +
 						"**Paged reads.** Without **limit**, **before** or **from** the whole history is returned. **`?limit=N`** returns a page of about **N** messages ending at **before** (default: the end of the history); **`?limit=N&before=K`** is the page before a window that starts at message **K**; **`?from=K`** re-reads a window from message **K** to **before** or the end (it cannot be combined with **limit**); **before** alone is refused, since it would read the whole prefix. A page never splits a tool step - a start or an end that falls on a tool result moves back to the assistant message that issued the call - and with **limit** it starts at the prompt of its turn when one lies within half a page, so consecutive pages join without a gap or an overlap. Positions past the history are clamped; a value that is not a non-negative integer, or a **limit** outside 1..1000, is **400**. " +
-						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /coddy/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it.",
+						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /coddy/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it. " +
+						"**rewindUndo** **`{userMessageIndex}`** is present while the last rewind can be taken back with **POST /coddy/sessions/{id}/rewind/undo**; **userMessageIndex** names the prompt that was edited.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "activate_mcp", "in": "query", "required": false, "description": "Set to `1` only on the SPA's initial, unpaged selected-session read with a matching `X-Coddy-Session-ID` header. It starts that restored ordinary session's deferred configured MCP connections in the background; all other reads remain passive.", "schema": map[string]interface{}{"type": "string", "enum": []string{"1"}}},
 						map[string]interface{}{"name": "limit", "in": "query", "required": false, "description": "Read a page of about this many messages ending at **before** (1..1000).", "schema": map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 1000}},
 						map[string]interface{}{"name": "before", "in": "query", "required": false, "description": "Message index the page ends at, exclusive (default: the end of the history).", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
 						map[string]interface{}{"name": "from", "in": "query", "required": false, "description": "Message index a window starts at, read to **before** or the end; not with **limit**.", "schema": map[string]interface{}{"type": "integer", "minimum": 0}},
@@ -1836,6 +2123,30 @@ func openAPISpec() map[string]interface{} {
 						"404": errorResponseRef(),
 						"503": errorResponseRef(),
 					},
+				},
+			},
+			"/coddy/sessions/{id}/artifacts/{artifactID}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Download a session artifact",
+					"description": "Downloads one immutable artifact published by the agent through **share_file**. The id is resolved only through this session's manifest; unregistered ids, traversal, symlinks and digest mismatches are not served. HEAD and Range requests are refused. The response is an attachment with a sandbox CSP and nosniff.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "artifactID", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Artifact bytes", "content": map[string]interface{}{"application/octet-stream": map[string]interface{}{"schema": map[string]string{"type": "string", "format": "binary"}}}}, "404": errorResponseRef(), "405": errorResponseRef()},
+				},
+			},
+			"/coddy/sessions/{id}/artifacts/{artifactID}/preview": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Read a shared image artifact inline",
+					"description": "Returns a manifest-registered artifact only when its first 512 bytes sniff as an **`image/*`** media type. The filename is not trusted, so a text file called `preview.png` is still **404**. This route is for an inline preview; download uses the artifact route. Answers with the sniffed content type, `X-Content-Type-Options: nosniff`, and private immutable cache headers.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "artifactID", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
+					"responses":   map[string]interface{}{"200": map[string]interface{}{"description": "Original image bytes", "content": map[string]interface{}{"image/*": map[string]interface{}{"schema": map[string]string{"type": "string", "format": "binary"}}}}, "404": errorResponseRef()},
+				},
+			},
+			"/coddy/sessions/{id}/artifacts/{artifactID}/reveal": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Reveal a shared artifact source",
+					"description": "Reveals the original verified workspace source for an artifact in the local host file manager. The request carries only the session and artifact ids; the server re-validates the stored absolute and workspace-relative source paths, never accepts a client path, and refuses unavailable sources. Headless and unsupported server hosts return 503.",
+					"parameters":  []interface{}{map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}, map[string]interface{}{"name": "artifactID", "in": "path", "required": true, "schema": map[string]string{"type": "string"}}},
+					"responses":   map[string]interface{}{"204": map[string]interface{}{"description": "Reveal request started"}, "404": errorResponseRef(), "410": errorResponseRef(), "503": errorResponseRef()},
 				},
 			},
 			"/coddy/sessions/{id}/assets/{name}": map[string]interface{}{
@@ -1886,7 +2197,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. **event: session_rewound** (**`{object:\"coddy.session_rewound\", sessionId, messagesRev}`**) after a **POST /coddy/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"coddy.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /coddy/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"coddy.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /coddy/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /coddy/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; **event: session_question_pending** (**`{object:\"coddy.session_question_pending\", sessionId}`**) when an interactive `question` wait is registered or settled (both edges use the same notification and carry no question text; this event and **questionPending** are process-local to the Coddy server process that owns the wait; clients re-read **GET /coddy/sessions** or **GET /coddy/sessions/{id}/activity** for **questionPending**); and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. It emits **event: session_changes** (**`{object:\"coddy.session_changes\", sessionId, at}`**) after **POST /coddy/sessions/{id}/changes/revert** discarded changes of the session's folder, so every Edits view of the session reads **GET /coddy/sessions/{id}/changes** again; after a turn, which may have edited the folder too, **turn_ended** is that signal. **event: session_rewound** (**`{object:\"coddy.session_rewound\", sessionId, messagesRev}`**) after a **POST /coddy/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"coddy.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /coddy/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"coddy.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /coddy/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /coddy/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of server-wide events"},
 						"500": errorResponseRef(),
@@ -1996,7 +2307,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List skills",
 					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.coddy/skills/.disabled`). " +
-						"When **X-Coddy-Session-ID** names a session (a persisted one is loaded on demand), **`${CWD}`** in configured skill directories resolves against that session **cwd**, so project-local skills of that workspace are listed; otherwise the server default cwd applies.",
+						"When **X-Coddy-Session-ID** names a session (a persisted one is loaded on demand), **`${CWD}`** in configured skill directories resolves against that session **cwd**, so project-local skills of that workspace are listed; otherwise the folder in **`cwd`** applies, else the server default cwd.",
 					"operationId": "listSkills",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2004,6 +2315,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Optional session whose cwd scopes skill path expansion.",
 						},
+						listingCWDParam(),
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -2118,9 +2430,10 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/codex-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start Codex ChatGPT device authorization",
-					"description": "Starts the official ChatGPT device flow. The request must be `Content-Type: application/json` (the body is ignored, send `{}`); any other type is refused with 415 before the issuer is contacted, because a page on another site can send the other types without a preflight. A new start supersedes the provider's previous pending attempt, including one still waiting for the issuer to answer (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
+					"description": "Starts the official ChatGPT device flow. The request must be `Content-Type: application/json`; an optional `proxy` is the current unsaved Settings value and overrides the resolved row for this login. A new start supersedes the provider's previous pending attempt, including one still waiting for the issuer to answer (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
 					"operationId": "startProviderCodexDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
+					"requestBody": map[string]interface{}{"required": false, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"$ref": "#/components/schemas/ProviderSignInProxyRequest"}}}},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/CodexAuthDeviceStart"),
 						"400": errorResponseRef(),
@@ -2170,9 +2483,9 @@ func openAPISpec() map[string]interface{} {
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Sign out of NeuralDeep",
-					"description": "Best-effort revokes the key on the hub, then deletes the credential stored under `CODDY_HOME/providers/{name}/neuraldeep-auth.json`.",
+					"description": "Best-effort revokes the key on the hub through the row's route (or optional `proxy` query override), then deletes the credential stored under `CODDY_HOME/providers/{name}/neuraldeep-auth.json`.",
 					"operationId": "deleteProviderNeuralDeepAuth",
-					"parameters":  []interface{}{codexProviderNameParameter()},
+					"parameters":  []interface{}{codexProviderNameParameter(), map[string]interface{}{"name": "proxy", "in": "query", "required": false, "schema": map[string]string{"type": "string"}, "description": "Current unsaved provider proxy. Empty or `inherit` follows the system proxy; `none` connects directly."}},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Connection status after sign-out.", "#/components/schemas/NeuralDeepAuthStatus"),
 						"400": errorResponseRef(),
@@ -2183,7 +2496,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start NeuralDeep device authorization",
-					"description": "Starts the hub's RFC 8628 device flow for client `coddy`. The request must be `Content-Type: application/json`, the body optional; any other type is refused with 415 before the hub is contacted, because a page on another site can send the other types without a preflight. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base` (none for a row still saved as another type, so the default deployment); a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"description": "Starts the hub's RFC 8628 device flow for client `coddy`. The optional JSON body carries the unsaved `api_base` and `proxy` Settings values; `proxy` overrides the row only for this login. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
 					"operationId": "startProviderNeuralDeepDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"requestBody": map[string]interface{}{
@@ -2263,9 +2576,10 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List MCP servers",
-					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.coddy/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.\n\nA project-local entry arrives with the checkout, so it is **not** probed until it is approved for this workspace (see **POST** `/coddy/mcp/{name}/trust`): such a row comes back with `status: \"needs_approval\"`, `trusted: false`, no tools, and the `command`/`args`/`env`/`url`/`fingerprint` an approval would cover. Under `mcp.project_trust: deny` the status is `denied`.",
+					"description": "Returns the merged MCP server list from two files: the global **`<home>/mcp.json`** (scope `global`) and the project-local **`.coddy/mcp.json`** (scope `local`); both are Cursor-compatible and the project file overrides a name. config.yaml declares no MCP server: an old **`mcp_servers`** key is moved into `<home>/mcp.json` when the configuration loads. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.\n\nA project-local entry arrives with the checkout, so it is **not** probed until it is approved for this workspace (see **POST** `/coddy/mcp/{name}/trust`): such a row comes back with `status: \"needs_approval\"`, `trusted: false`, no tools, and the `command`/`args`/`url`, the names of its `env` and `headers`, its `reads` and the `fingerprint` an approval would cover. Under `mcp.project_trust: deny` the status is `denied`.\n\nNo `env` or `headers` value of either file is ever returned: each one reads `<redacted>`, which **PUT** `/coddy/mcp/{name}` takes back as \"keep the stored value\". A probe error shows the URL as written and `<redacted>` for a value the declaration resolves to.",
 					"operationId": "listMCPServers",
 					"parameters": []interface{}{
+						mcpWorkspaceSessionParam(),
 						map[string]interface{}{
 							"name": "refresh", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
@@ -2283,6 +2597,8 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -2292,10 +2608,11 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Enable an MCP server",
 					"description": "Clears the disabled flag. Global entries persist in their defining file; project entries persist in `<home>/mcp-overrides.json`, leaving the checkout unchanged. Live sessions connect this server if the trust gate admits it; their other servers keep running. A session with a turn in flight connects it when its next turn starts.",
 					"operationId": "enableMCPServer",
-					"parameters":  []interface{}{mcpServerNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Server enabled."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
@@ -2304,19 +2621,20 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Disable an MCP server",
 					"description": "Sets the disabled flag under the same scope rule as enable. Live sessions close this server, leaving their other servers running (a turn in flight keeps it until the turn ends); new sessions skip connecting it.",
 					"operationId": "disableMCPServer",
-					"parameters":  []interface{}{mcpServerNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Server disabled."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
 			"/coddy/mcp/{name}/trust": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Approve a project MCP server for this workspace",
-					"description": "Records the operator's approval of a project-local (`.coddy/mcp.json`) server's declaration for the server's workspace, so sessions may start it, and connects it in live sessions. The optional body names the declaration the operator was shown by the `fingerprint` the list reported; when the checkout rewrote the entry since, the approval is refused with **409** and nothing is recorded. Without a body the current declaration is approved. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in config.yaml or `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
+					"description": "Records the operator's approval of a project-local (`.coddy/mcp.json`) server's declaration for the server's workspace, so sessions may start it, and connects it in live sessions. The optional body names the declaration the operator was shown by the `fingerprint` the list reported; when the checkout rewrote the entry since, the approval is refused with **409** and nothing is recorded. Without a body the current declaration is approved. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
 					"operationId": "trustMCPServer",
-					"parameters":  []interface{}{mcpServerNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"requestBody": map[string]interface{}{
 						"required": false,
 						"content": map[string]interface{}{
@@ -2346,6 +2664,7 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
@@ -2356,7 +2675,7 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Withdraw a project MCP server approval",
 					"description": "Removes the workspace approval of a project-local server. Live sessions close it (a turn in flight keeps it until the turn ends) and new sessions no longer start it. `removed` reports whether an approval was actually on file.",
 					"operationId": "untrustMCPServer",
-					"parameters":  []interface{}{mcpServerNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Approval withdrawn (or none was on file).",
@@ -2372,6 +2691,7 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -2419,10 +2739,11 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Enable a single MCP tool",
 					"description": "Enables **{tool}** in the effective tool list. Global switches persist in their defining file; project switches persist in `<home>/mcp-overrides.json`. Nothing reconnects: live sessions offer the tool again on their next turn.",
 					"operationId": "enableMCPTool",
-					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Tool enabled."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
@@ -2431,24 +2752,31 @@ func openAPISpec() map[string]interface{} {
 					"summary":     "Disable a single MCP tool",
 					"description": "Disables **{tool}** under the same scope rule as enable. The tool is hidden from the agent and rejected at dispatch from the next turn on; nothing reconnects.",
 					"operationId": "disableMCPTool",
-					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Tool disabled."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
 			"/coddy/mcp/{name}": map[string]interface{}{
 				"put": map[string]interface{}{
 					"summary":     "Create or update an mcp.json MCP server",
-					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.coddy/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. Live sessions start the server, or start it again from the edited declaration, and keep their other servers running. Config.yaml-defined servers are edited via **PUT** `/coddy/config` instead.",
+					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.coddy/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. The body replaces the stored entry whole; an `env` or `headers` value of `<redacted>` (the placeholder **GET** `/coddy/mcp` shows) keeps the value the target file stores for that name, and is a 400 for a name the file stores no value for. **`?fingerprint=`** names the declaration the client was shown: when the file holds another one by then the answer is 409 and nothing is written or approved; a project entry keeps a stored value only with it (400 otherwise). A project entry written under `mcp.project_trust: ask` is approved as written. Live sessions start the server, or start it again from the edited declaration, and keep their other servers running. config.yaml declares no MCP server.",
 					"operationId": "putMCPServer",
 					"parameters": []interface{}{
 						mcpServerNameParam(),
+						mcpWorkspaceSessionParam(),
 						map[string]interface{}{
 							"name": "scope", "in": "query", "required": false,
 							"schema":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}},
 							"description": "Target file: local (default) = ./.coddy/mcp.json, global = <home>/mcp.json.",
+						},
+						map[string]interface{}{
+							"name": "fingerprint", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The `fingerprint` **GET** `/coddy/mcp` listed for the entry being edited. The save is refused with 409 when the file holds another declaration by then; required to keep a `<redacted>` value of a project entry.",
 						},
 					},
 					"requestBody": map[string]interface{}{
@@ -2462,30 +2790,33 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Server saved."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
 				"delete": map[string]interface{}{
 					"summary":     "Delete an mcp.json MCP server",
-					"description": "Removes the named entry from the mcp.json file that defines it (project **`.coddy/mcp.json`** or global **`<home>/mcp.json`**); a project entry's switches in `<home>/mcp-overrides.json` go with it. Live sessions close the server. Servers defined in config.yaml are refused with 400.",
+					"description": "Removes the named entry from the mcp.json file that defines it (project **`.coddy/mcp.json`** or global **`<home>/mcp.json`**); a project entry's switches in `<home>/mcp-overrides.json` go with it. Live sessions close the server.",
 					"operationId": "deleteMCPServer",
-					"parameters":  []interface{}{mcpServerNameParam()},
+					"parameters":  []interface{}{mcpServerNameParam(), mcpWorkspaceSessionParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Server deleted."},
 						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 					},
 				},
 			},
 			"/coddy/skills/sync": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Sync remote skill sources",
-					"description": "Fetches every source in **`skills.sources`** (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**) and materializes their skills into the managed skills directory, then refreshes every marketplace added with `plugin marketplace add` and reinstalls only the plugins installed from it. Manual only — never runs automatically. Returns lists of added/updated skill names and per-source failures.",
+					"description": "Fetches every source in effect for the session workspace (the server default workspace without **X-Coddy-Session-ID**): the built-in one, the sources of **`<home>/marketplaces.json`** and those of the workspace's **`.coddy/marketplaces.json`** the trust gate admits (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**), and materializes their skills into the managed skills directory, then refreshes every marketplace in effect and reinstalls only the plugins installed from it. A project entry the gate holds back (**`skills.project_trust`**) is reported in **`held`** and not fetched. Manual only - never runs automatically. Returns lists of added/updated skill names and per-source failures.",
 					"operationId": "syncSkills",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "source", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Sync only this source; a marketplace added with `plugin marketplace add` refreshes only the plugins installed from it. Omit to sync everything.",
+							"description": "Sync only this source, or refresh only the plugins installed from this marketplace (by name or source). Omit to sync everything in effect. A project entry the trust gate holds back is refused with 400.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -2497,26 +2828,34 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"400": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
 			},
 			"/coddy/skills/sources": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary":     "List remote skill sources",
-					"description": "Returns the configured **`skills.sources`** entries (GitHub repos, git URLs, or marketplace.json URLs).",
+					"summary":     "List skill sources and marketplaces",
+					"description": "Lists what is declared for the session workspace (the server default workspace without **X-Coddy-Session-ID**, as the MCP tab does): the built-in source, the entries of **`<home>/marketplaces.json`** and those of the workspace's **`.coddy/marketplaces.json`**, each once, with its kind, origin, file and trust state. A project entry takes effect only as **`skills.project_trust`** allows: under `ask` once approved for the workspace (`POST /coddy/skills/sources/trust`).",
 					"operationId": "listSkillSources",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Configured sources.",
+							"description": "Declared sources and marketplaces.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"object": map[string]string{"type": "string", "example": "coddy.skills_sources"},
-											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Every source in effect: the built-in ones first, then what skills.sources names."},
-											"system": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The subset of items Coddy brings itself. They are not in config.yaml, DELETE refuses them, and a client should offer no remove control for them."},
+											"object":        map[string]string{"type": "string", "example": "coddy.skills_sources"},
+											"workspace":     map[string]string{"type": "string", "description": "The workspace whose project file was read."},
+											"project_trust": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}, "description": "The skills.project_trust in force."},
+											"items":         map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The sources installed whole that are in effect: the built-in ones first, then the operator's, then the project's the gate admits."},
+											"system":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "The sources Coddy brings itself. They are in no file, always trusted, DELETE refuses them, and a client should offer no remove control for them."},
+											"entries": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]interface{}{"$ref": "#/components/schemas/SkillSourceEntry"},
+											},
+											"errors": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "A marketplaces.json that could not be read; it declares nothing until repaired."},
 										},
 									},
 								},
@@ -2525,8 +2864,8 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 				"post": map[string]interface{}{
-					"summary":     "Add a remote skill source",
-					"description": "Appends a source to **`skills.sources`** in **config.yaml** and reloads config. Set **`sync:true`** to also fetch it immediately. The source is a GitHub repo (`owner/repo[@ref]`), a git URL, or an http(s) URL to an agents-standard **`marketplace.json`**.",
+					"summary":     "Declare a skill source or marketplace",
+					"description": "Declares a source (installed whole: every plugin it publishes, kept in sync) or, with **`kind: marketplace`**, a catalog whose plugins are installed one by one (its **`marketplace.json`** is read for its name). **`scope: global`** (default) writes **`<home>/marketplaces.json`**; **`scope: local`** writes the session workspace's **`.coddy/marketplaces.json`** and approves the entry for that workspace, the operator having typed it. Set **`sync:true`** to also fetch a source immediately; with **`kind: marketplace`** it is a 400, because declaring a marketplace installs nothing. config.yaml is not touched.",
 					"operationId": "addSkillSource",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -2536,7 +2875,9 @@ func openAPISpec() map[string]interface{} {
 									"type": "object",
 									"properties": map[string]interface{}{
 										"source": map[string]string{"type": "string", "description": "owner/repo[@ref], a git URL, or a marketplace.json URL."},
-										"sync":   map[string]interface{}{"type": "boolean", "description": "Fetch the source immediately after adding."},
+										"sync":   map[string]interface{}{"type": "boolean", "description": "Fetch the source immediately after adding (kind source only)."},
+										"scope":  map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "global: <home>/marketplaces.json (default); local: the workspace's .coddy/marketplaces.json."},
+										"kind":   map[string]interface{}{"type": "string", "enum": []string{"source", "marketplace"}, "description": "source (default): installed whole; marketplace: a catalog."},
 									},
 									"required": []interface{}{"source"},
 								},
@@ -2544,24 +2885,79 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Source added (with optional sync result)."},
+						"200": map[string]interface{}{"description": "Declared (added:false when it was declared already), with an optional sync result."},
 						"400": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
 				"delete": map[string]interface{}{
-					"summary":     "Remove a remote skill source",
-					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400, and so does a source listed under **`system`** by `GET /coddy/skills/sources`: those are built into Coddy and are not in the file.",
+					"summary":     "Remove a skill source or marketplace",
+					"description": "Takes every source and marketplace **`source`** names (a marketplace by name, either kind by source in any spelling; a marketplace removed by name takes a source of its address with it) out of **`<home>/marketplaces.json`** and the session workspace's **`.coddy/marketplaces.json`** (only out of the one **`origin`** names, when given), with the approvals of the project entries removed. Already-installed skills remain until removed. Missing **`source`** returns 400, and so do an unknown **`origin`** and a source listed under **`system`** by `GET /coddy/skills/sources`: those are built into Coddy and are in no file.",
 					"operationId": "removeSkillSource",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "source", "in": "query", "required": true,
 							"schema":      map[string]string{"type": "string"},
-							"description": "The exact configured source string to remove.",
+							"description": "A marketplace name, or a source address.",
+						},
+						map[string]interface{}{
+							"name": "origin", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"home", "project"}},
+							"description": "Remove only from this file (the origin of the row a client showed): home is <home>/marketplaces.json, project the workspace's .coddy/marketplaces.json. Omitted: both.",
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Source removed (or absent, with removed:false)."},
+						"200": map[string]interface{}{"description": "Removed (or absent, with removed:false)."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/sources/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Approve a project skill source",
+					"description": "Records the operator's approval of an entry of the session workspace's **`.coddy/marketplaces.json`** for that workspace, so a sync uses it. The optional **`fingerprint`** names the entry the operator was shown (`GET /coddy/skills/sources`); when the checkout rewrote it since, the answer is **409** and nothing is recorded. Receipts live in **`<home>/skills-trust.json`**. **400** for an entry no file declares, one of the operator's own or the built-in one (they need no approval), and under **`skills.project_trust: deny`**.",
+					"operationId": "trustSkillSource",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"key":         map[string]string{"type": "string", "description": "A marketplace name, or a source address."},
+										"fingerprint": map[string]string{"type": "string", "description": "The fingerprint the listing reported for the entry."},
+									},
+									"required": []interface{}{"key"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Approved: {\"ok\": true, \"fingerprint\": \"sha256:...\"}."},
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/sources/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw the approval of a project skill source",
+					"description": "Removes the receipt of the entry **`key`** names for the session workspace. Skills it installed stay until removed.",
+					"operationId": "untrustSkillSource",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":       "object",
+									"properties": map[string]interface{}{"key": map[string]string{"type": "string", "description": "A marketplace name, or a source address."}},
+									"required":   []interface{}{"key"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "{\"ok\": true, \"removed\": bool}."},
 						"400": errorResponseRef(),
 					},
 				},
@@ -2569,8 +2965,9 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/skills/available": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List installable marketplace plugins",
-					"description": "Fetches the manifest of every configured source and of every marketplace added with `plugin marketplace add` (network / git) and returns the plugins they advertise, each flagged with `installed`. Backs the browse/filter install control.",
+					"description": "Fetches the manifest of every source and marketplace in effect for the workspace (network / git) and returns the plugins they advertise, each flagged with `installed`; a project entry the trust gate holds back offers nothing. Backs the browse/filter install control.",
 					"operationId": "listAvailablePlugins",
+					"parameters":  []interface{}{listingCWDParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Available plugins (name, description, version, source, installed)."},
 						"500": errorResponseRef(),
@@ -2606,8 +3003,9 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/skills/updates": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Check installed remote skills for updates",
-					"description": "For every installed remote skill, fetches its marketplace source and compares the installed version against the latest declared upstream. Performs network / git access. Returns one entry per remote skill with **`update_available`** set when a newer version exists. For a zip-archive plugin without a declared version the upstream value is the archive **`sha256`** its entry declares, and any change of it is an update.",
+					"description": "For every installed remote skill, fetches its marketplace source and compares the installed version against the latest declared upstream. Performs network / git access. Returns one entry per remote skill with **`update_available`** set when a newer version exists. For a zip-archive plugin without a declared version the upstream value is the archive **`sha256`** its entry declares, and any change of it is an update. A source a project of the workspace declares (**X-Coddy-Session-ID**, else the optional **`cwd`** query, else the server default cwd) that the trust gate holds back is not contacted and reports no update.",
 					"operationId": "checkSkillUpdates",
+					"parameters":  []interface{}{listingCWDParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Per-skill update status.",
@@ -2624,7 +3022,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/skills/{name}/update": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Update a skill to its latest version",
-					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. A skill installed from a marketplace added with `plugin marketplace add` reinstalls only its own plugin, not every plugin that marketplace lists. Fails with 400 when the skill was not installed from a remote source.",
+					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. A skill installed from a marketplace (a catalog) reinstalls only its own plugin, not every plugin that marketplace lists. Fails with 400 when the skill was not installed from a remote source, and when that source is a project entry of the session workspace the trust gate holds back (approval withdrawn, or `skills.project_trust: deny`). A source no file of the workspace declares any more stays updatable.",
 					"operationId": "updateSkill",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2649,7 +3047,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/skills/{name}": map[string]interface{}{
 				"delete": map[string]interface{}{
 					"summary":     "Remove a remote skill",
-					"description": "Deletes any on-disk skill by name (its directory, and its remote provenance entry when synced). Bundled (read-only) skills cannot be deleted and return 400; so do skills outside the configured skill directories.",
+					"description": "Deletes any on-disk skill by name (its directory, and its remote provenance entry when synced). Bundled (read-only) skills cannot be deleted and return 400; so do skills outside the configured skill directories. The skill is looked up in the workspace of the session in **X-Coddy-Session-ID**, else the folder in **`cwd`**, else the server default cwd, the way the skills list resolves it. A skill linked into a skills directory from elsewhere is removed as the link: what it points at stays on disk.",
 					"operationId": "removeRemoteSkill",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2657,6 +3055,7 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Canonical skill name (single segment, no slashes).",
 						},
+						listingCWDParam(),
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Remote skill removed."},
@@ -2927,7 +3326,7 @@ func openAPISpec() map[string]interface{} {
 						"file_path":   map[string]string{"type": "string"},
 						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the skill is in the disabled list."},
 						"version":     map[string]string{"type": "string", "description": "Installed version: the marketplace-declared version for synced skills, else `sha256:` and the first 12 hex digits of the archive for a plugin installed from a zip archive, else the SKILL.md frontmatter version. Absent when unknown."},
-						"source":      map[string]string{"type": "string", "description": "Configured source string when the skill was installed via `skills.sources`; absent for local/bundled skills."},
+						"source":      map[string]string{"type": "string", "description": "The source the skill was installed from (as a marketplaces.json declares it, or as an install named it); absent for local/bundled skills."},
 						"readonly":    map[string]interface{}{"type": "boolean", "description": "True for bundled skills, which cannot be deleted."},
 					},
 				},
@@ -2947,6 +3346,25 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"held": map[string]interface{}{
+							"type":        "array",
+							"description": "Project entries the workspace trust gate kept out of the sync.",
+							"items":       map[string]interface{}{"$ref": "#/components/schemas/SkillSourceEntry"},
+						},
+					},
+				},
+				"SkillSourceEntry": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"kind":        map[string]interface{}{"type": "string", "enum": []string{"source", "marketplace"}, "description": "source: installed whole; marketplace: a catalog whose plugins are installed one by one."},
+						"name":        map[string]string{"type": "string", "description": "A marketplace's name, what <plugin>@<name> uses."},
+						"source":      map[string]string{"type": "string", "description": "owner/repo, a git URL or a marketplace.json URL."},
+						"origin":      map[string]interface{}{"type": "string", "enum": []string{"system", "home", "project"}, "description": "Built into Coddy, <home>/marketplaces.json, or the workspace's .coddy/marketplaces.json."},
+						"source_path": map[string]string{"type": "string", "description": "The file it is declared in; absent for the built-in source."},
+						"gated":       map[string]interface{}{"type": "boolean", "description": "True for a project entry, the kind the trust gate decides on."},
+						"trusted":     map[string]interface{}{"type": "boolean"},
+						"status":      map[string]interface{}{"type": "string", "enum": []string{"ready", "needs_approval", "denied"}},
+						"fingerprint": map[string]string{"type": "string", "description": "The digest an approval of a project entry binds to."},
 					},
 				},
 				"SkillList": map[string]interface{}{
@@ -2990,18 +3408,18 @@ func openAPISpec() map[string]interface{} {
 					"type": "object",
 					"properties": map[string]interface{}{
 						"name":        map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
-						"source":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.coddy/mcp.json)."},
-						"origin":      map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.coddy/mcp.json."},
-						"readonly":    map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
+						"source":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (<home>/mcp.json) or local (./.coddy/mcp.json)."},
+						"origin":      map[string]interface{}{"type": "string", "enum": []string{"home", "project"}, "description": "File that owns the definition: <home>/mcp.json or ./.coddy/mcp.json."},
 						"transport":   map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
 						"command":     map[string]string{"type": "string"},
 						"args":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
 						"url":         map[string]string{"type": "string"},
-						"env":         map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
-						"headers":     map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
+						"env":         map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "Names of the environment variables the declaration sets; every value is `<redacted>`."},
+						"headers":     map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "Names of the HTTP headers sent to http/sse servers; every value is `<redacted>`."},
+						"reads":       map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Names of the environment variables of the Coddy process the declaration's values read (${NAME}), shown by an approval since header values are not."},
 						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
 						"status":      map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported", "needs_approval", "denied"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type), needs_approval (project entry awaiting workspace approval; not probed), denied (project entries switched off by mcp.project_trust)."},
-						"error":       map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported, or why the trust gate refused the entry."},
+						"error":       map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported (the URL as written, `<redacted>` for a value the declaration resolves to), or why the trust gate refused the entry."},
 						"source_path": map[string]string{"type": "string", "description": "File the declaration was read from."},
 						"trusted":     map[string]interface{}{"type": "boolean", "description": "False only for a project entry the workspace trust gate holds back."},
 						"gated":       map[string]interface{}{"type": "boolean", "description": "True for project-local entries, the ones the trust gate applies to."},
@@ -3032,9 +3450,9 @@ func openAPISpec() map[string]interface{} {
 						"type":          map[string]interface{}{"type": "string", "enum": []string{"stdio", "http", "sse"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
 						"command":       map[string]string{"type": "string", "description": "Executable for stdio transport."},
 						"args":          map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
-						"env":           map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"env":           map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "Environment of a stdio server; on PUT a value of `<redacted>` keeps the stored one."},
 						"url":           map[string]string{"type": "string", "description": "Remote endpoint for http/sse transports."},
-						"headers":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"headers":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers of an http/sse server; on PUT a value of `<redacted>` keeps the stored one."},
 						"disabled":      map[string]interface{}{"type": "boolean"},
 						"disabledTools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
 					},
@@ -3119,8 +3537,10 @@ func openAPISpec() map[string]interface{} {
 							"enum":        []string{"https://api.neuraldeep.ru/v1", "https://api.neuraldeep.tech/v1"},
 							"description": "Deployment to sign in against; decides which hub mints the key. Empty or absent: the saved provider row's `api_base`, else the default deployment.",
 						},
+						"proxy": map[string]interface{}{"type": "string", "description": "Current unsaved provider proxy. Absent keeps the resolved row; empty or `inherit` follows the system proxy; `none` connects directly."},
 					},
 				},
+				"ProviderSignInProxyRequest": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"proxy": map[string]interface{}{"type": "string", "description": "Current unsaved provider proxy. Absent keeps the resolved row; empty or `inherit` follows the system proxy; `none` connects directly."}}},
 				"NeuralDeepAuthDeviceStart": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -3345,7 +3765,7 @@ func openAPISpec() map[string]interface{} {
 						"stream": map[string]string{"type": "boolean"},
 						"stream_options": map[string]interface{}{
 							"type":        "object",
-							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`) after the choice finishes. Streamed responses only.",
+							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`, summed over the model calls of the turn by the same rule as the JSON answer - a spawned subagent, a compaction and the memory run are not counted - zero when the provider reported none, plus `prompt_tokens_details.cached_tokens` only when it reported cached input) after the choice finishes. Streamed responses only.",
 							"properties": map[string]interface{}{
 								"include_usage": map[string]string{"type": "boolean"},
 							},
@@ -3399,7 +3819,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -3412,6 +3832,20 @@ func openAPISpec() map[string]interface{} {
 						"object":  map[string]string{"type": "string", "example": "chat.completion"},
 						"created": map[string]string{"type": "integer", "format": "int64"},
 						"model":   map[string]string{"type": "string"},
+						"usage": map[string]interface{}{
+							"type":        "object",
+							"description": "Provider-reported counters for this request; omitted when the provider returned no counts.",
+							"properties": map[string]interface{}{
+								"prompt_tokens":     map[string]string{"type": "integer"},
+								"completion_tokens": map[string]string{"type": "integer"},
+								"total_tokens":      map[string]string{"type": "integer"},
+								"prompt_tokens_details": map[string]interface{}{
+									"type":       "object",
+									"properties": map[string]interface{}{"cached_tokens": map[string]string{"type": "integer"}},
+								},
+							},
+							"required": []string{"prompt_tokens", "completion_tokens", "total_tokens"},
+						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
 							"description":          "Effective YAML model selector under `model`, optional `api_model`, and for a direct completion that reasoned, the level the provider was asked for under `reasoning_effort`.",
@@ -3458,7 +3892,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
@@ -3821,6 +4255,7 @@ func openAPISpec() map[string]interface{} {
 	}
 	mergeOpenAPISchedulerDoc(&doc)
 	mergeOpenAPIMemoryDoc(&doc)
+	mergeWorkspaceViewerOpenAPI(doc)
 	return doc
 }
 
@@ -3853,6 +4288,47 @@ func errorResponseRef() map[string]interface{} {
 	}
 }
 
+// sessionChangeFileSchema describes one file in a session change set. Patch,
+// before and after are absent unless the caller asked for them via `include`.
+func sessionChangeFileSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]string{
+				"type":        "string",
+				"description": "Workspace-relative path.",
+			},
+			"status": map[string]interface{}{
+				"type":        "string",
+				"enum":        []string{"added", "modified", "deleted"},
+				"description": "How the working copy differs from HEAD: added (HEAD does not hold it), modified, or deleted.",
+			},
+			"additions": map[string]string{"type": "integer"},
+			"deletions": map[string]string{"type": "integer"},
+			"binary": map[string]string{
+				"type":        "boolean",
+				"description": "No line diff exists; additions, deletions and patch are empty.",
+			},
+			"truncated": map[string]string{
+				"type":        "boolean",
+				"description": "The patch was cut short at 256 KB; the line counts still cover the whole file.",
+			},
+			"patch": map[string]string{
+				"type":        "string",
+				"description": "Unified diff. Present with include=patch.",
+			},
+			"before": map[string]string{
+				"type":        "string",
+				"description": "Decoded content at HEAD. Present with include=content.",
+			},
+			"after": map[string]string{
+				"type":        "string",
+				"description": "Decoded content in the working copy. Present with include=content.",
+			},
+		},
+	}
+}
+
 func codexProviderNameParameter() map[string]interface{} {
 	return map[string]interface{}{
 		"name":        "name",
@@ -3879,6 +4355,14 @@ func mcpServerNameParam() map[string]interface{} {
 		"name": "name", "in": "path", "required": true,
 		"schema":      map[string]string{"type": "string"},
 		"description": "MCP server name (no `__`, spaces, or path separators).",
+	}
+}
+
+func mcpWorkspaceSessionParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Optional session whose workspace selects project-local MCP declarations and switches. Without it, the server default workspace is used. A malformed ID is 400; an unknown session is 404.",
 	}
 }
 
@@ -3972,7 +4456,8 @@ func subagentTrustRequestBody() map[string]interface{} {
 				"schema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
+						"cwd":    map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
+						"digest": map[string]string{"type": "string", "description": "trust only: the digest the catalog reported for the definition the operator was shown; a file rewritten since is refused with **409** and nothing is recorded."},
 					},
 				},
 			},
@@ -4034,5 +4519,18 @@ func subagentEntryResponse(description string) map[string]interface{} {
 				},
 			},
 		},
+	}
+}
+
+// listingCWDParam is the cwd query of the read-only listings the composer asks
+// for while the user types: the folder a new chat picked before its session
+// exists (resolveListingCWD).
+func listingCWDParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "cwd", "in": "query", "required": false,
+		"schema": map[string]string{"type": "string"},
+		"description": "Absolute path of an existing folder that names the workspace when no session is behind the request " +
+			"(X-Coddy-Session-ID absent, or naming a session the server does not have yet): the folder a new chat picked before its first message. " +
+			"Ignored next to a session the server has. 400 for a relative path or a missing folder.",
 	}
 }

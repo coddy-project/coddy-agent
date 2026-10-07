@@ -1,14 +1,17 @@
 import React, { useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
+  BRANCH_CHARS,
   branchChipVisible,
   folderChipLabel,
   isWorktreeBadgeActive,
+  middleTruncate,
   pathBasename,
   pathParent,
   sortedBranches,
   type WorkspaceContext,
 } from "./workspaceContext";
+import { BranchIcon, FolderIcon } from "./workspaceIcons";
 import {
   pushWorkspaceRecent,
   readWorkspaceRecents,
@@ -31,19 +34,21 @@ type Props = {
   onWorktreeToggle: () => void;
   // Anchored dropdown direction; the docked composer opens the menu upward.
   opensUp?: boolean;
-  // The workspace is chosen once: locked as soon as the conversation starts.
-  locked?: boolean;
 };
 
 type MenuKind = "folder" | "branch" | null;
 
-// WorkspaceChips renders the workspace context row above the composer field:
-// a folder chip (recent folders + "Open folder…" browser), a branch chip
-// (branch list inside git repos), and a worktree checkbox.
+// WorkspaceChips renders the picks of the plate over the composer before a
+// chat starts (WorkspaceBar, pick mode): the folder (recent folders + "Open
+// folder…" browser), the branch (the branch list) and the worktree checkbox,
+// the last two only inside a git repository. They are items of the plate's
+// row, a lighter ground showing they are buttons. Once the chat runs the
+// workspace is a fact and the plate names it without these.
 export function WorkspaceChips(props: Props) {
   const { t } = useT();
   const [menuOpen, setMenuOpen] = useState<MenuKind>(null);
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
+  const [menuFilter, setMenuFilter] = useState("");
   const [recents, setRecents] = useState<WorkspaceRecent[]>([]);
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const isMobileShell = useSyncExternalStore(
@@ -56,29 +61,28 @@ export function WorkspaceChips(props: Props) {
   useEscapeCloses(menuOpen !== null, () => {
     setMenuOpen(null);
     setMenuAnchorRect(null);
+    setMenuFilter("");
   });
 
   const ctx = props.context;
   if (!ctx) {
     return null;
   }
-  const locked = Boolean(props.locked);
 
   const closeMenu = () => {
     setMenuOpen(null);
     setMenuAnchorRect(null);
+    setMenuFilter("");
   };
 
   const toggleMenu = (kind: Exclude<MenuKind, null>, trigger: HTMLElement) => {
-    if (locked) {
-      return;
-    }
     if (menuOpen === kind) {
       closeMenu();
       return;
     }
     setMenuOpen(kind);
     setMenuAnchorRect(trigger.getBoundingClientRect());
+    setMenuFilter("");
     if (kind === "folder") {
       setRecents(readWorkspaceRecents());
     }
@@ -95,6 +99,14 @@ export function WorkspaceChips(props: Props) {
   const recentRows: WorkspaceRecent[] = recents.some((r) => r.path === ctx.path)
     ? recents
     : [{ path: ctx.path, name: folderChipLabel(ctx) }, ...recents];
+  const filter = menuFilter.trim().toLocaleLowerCase();
+  const filteredRecents = filter
+    ? recentRows.filter((row) => row.name.toLocaleLowerCase().includes(filter))
+    : recentRows;
+  const branches = sortedBranches(ctx);
+  const filteredBranches = filter
+    ? branches.filter((branch) => branch.toLocaleLowerCase().includes(filter))
+    : branches;
 
   const dirClass = props.opensUp ? "opens-up" : "opens-down";
   const menuStyle =
@@ -111,48 +123,43 @@ export function WorkspaceChips(props: Props) {
   const worktreeActive = isWorktreeBadgeActive(ctx, props.worktreePref);
 
   return (
-    <div className="composer-context-chips">
+    <div className="workspace-bar-picks">
       <button
         type="button"
-        className="workspace-chip"
+        className={`workspace-bar-item workspace-bar-repo workspace-bar-pick${menuOpen === "folder" ? " is-open" : ""}`}
         data-testid="composer-workspace-chip"
         title={ctx.is_worktree && ctx.repo_root ? ctx.repo_root : ctx.path}
         aria-haspopup="menu"
-        disabled={locked}
+        aria-expanded={menuOpen === "folder"}
         onClick={(e) => toggleMenu("folder", e.currentTarget)}
       >
-        <span className="workspace-chip-icon" aria-hidden="true">
-          <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
-            <path d="M1.75 2.5h4.3l1.4 1.5h6.8c.41 0 .75.34.75.75v8c0 .41-.34.75-.75.75H1.75a.75.75 0 0 1-.75-.75v-9.5c0-.41.34-.75.75-.75Z" />
-          </svg>
-        </span>
-        <span className="workspace-chip-label">{folderChipLabel(ctx)}</span>
+        <FolderIcon />
+        <span className="workspace-bar-text">{folderChipLabel(ctx)}</span>
       </button>
 
       {showBranch ? (
         <button
           type="button"
-          className="workspace-chip"
+          className={`workspace-bar-item workspace-bar-branch workspace-bar-pick${menuOpen === "branch" ? " is-open" : ""}`}
           data-testid="composer-branch-chip"
           title={ctx.branch || t("workspace.detached")}
           aria-haspopup="menu"
-          disabled={locked}
+          aria-expanded={menuOpen === "branch"}
           onClick={(e) => toggleMenu("branch", e.currentTarget)}
         >
-          <span className="workspace-chip-icon" aria-hidden="true">
-            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
-              <path d="M5 3.25a1.75 1.75 0 1 1-2.5-1.58V3.25a3.25 3.25 0 0 0 3.25 3.25h3.5c.97 0 1.75.78 1.75 1.75v.42a1.75 1.75 0 1 1-1.5 0V8.25a.25.25 0 0 0-.25-.25h-3.5A4.73 4.73 0 0 1 3.5 7.1v3.23a1.75 1.75 0 1 1-1.5 0V4.83A1.75 1.75 0 0 1 5 3.25Z" />
-            </svg>
-          </span>
-          <span className="workspace-chip-label">
-            {ctx.branch || t("workspace.detached")}
+          <BranchIcon worktree={ctx.is_worktree === true} />
+          <span className="workspace-bar-text">
+            {middleTruncate(
+              ctx.branch || t("workspace.detached"),
+              BRANCH_CHARS,
+            )}
           </span>
         </button>
       ) : null}
 
       {showBranch ? (
         <label
-          className={`workspace-chip workspace-chip--check ${worktreeActive ? "is-active" : ""} ${locked || ctx.is_worktree ? "is-locked" : ""}`}
+          className={`workspace-bar-check${worktreeActive ? " is-active" : ""}${ctx.is_worktree ? " is-locked" : ""}`}
           data-testid="composer-worktree-chip"
           title={
             ctx.is_worktree
@@ -162,15 +169,13 @@ export function WorkspaceChips(props: Props) {
         >
           <input
             type="checkbox"
-            className="workspace-chip-checkbox"
+            className="workspace-bar-checkbox"
             data-testid="composer-worktree-checkbox"
             checked={worktreeActive}
-            disabled={locked || ctx.is_worktree}
+            disabled={ctx.is_worktree}
             onChange={() => props.onWorktreeToggle()}
           />
-          <span className="workspace-chip-label">
-            {t("workspace.worktree")}
-          </span>
+          <span className="workspace-bar-text">{t("workspace.worktree")}</span>
         </label>
       ) : null}
 
@@ -202,8 +207,17 @@ export function WorkspaceChips(props: Props) {
                     <div className="mode-menu-group-label">
                       {t("workspace.recent")}
                     </div>
+                    <input
+                      className="mode-menu-filter"
+                      data-testid="workspace-recent-filter"
+                      value={menuFilter}
+                      placeholder={t("workspace.filterRecent")}
+                      aria-label={t("workspace.filterRecent")}
+                      autoFocus
+                      onChange={(event) => setMenuFilter(event.target.value)}
+                    />
                     <div className="mode-menu-scroll">
-                      {recentRows.map((r) => (
+                      {filteredRecents.map((r) => (
                         <button
                           key={r.path}
                           type="button"
@@ -232,6 +246,14 @@ export function WorkspaceChips(props: Props) {
                           ) : null}
                         </button>
                       ))}
+                      {filteredRecents.length === 0 ? (
+                        <div
+                          className="mode-menu-empty"
+                          data-testid="workspace-recent-empty"
+                        >
+                          {t("workspace.noRecentMatch")}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="workspace-menu-sep" aria-hidden="true" />
                     <button
@@ -249,31 +271,51 @@ export function WorkspaceChips(props: Props) {
                   </>
                 ) : null}
                 {menuOpen === "branch" ? (
-                  <div className="mode-menu-scroll">
-                    {sortedBranches(ctx).map((b) => (
-                      <button
-                        key={b}
-                        type="button"
-                        role="menuitem"
-                        title={b}
-                        className={`mode-item ${b === ctx.branch ? "is-selected" : ""}`}
-                        data-testid={`workspace-branch-row-${b}`}
-                        onClick={() => {
-                          if (b !== ctx.branch) {
-                            props.onPickBranch(b, props.worktreePref);
-                          }
-                          closeMenu();
-                        }}
-                      >
-                        {b}
-                      </button>
-                    ))}
-                    {(ctx.branches || []).length === 0 ? (
-                      <div className="mode-menu-empty">
-                        {t("workspace.noBranches")}
-                      </div>
-                    ) : null}
-                  </div>
+                  <>
+                    <input
+                      className="mode-menu-filter"
+                      data-testid="workspace-branch-filter"
+                      value={menuFilter}
+                      placeholder={t("workspace.filterBranches")}
+                      aria-label={t("workspace.filterBranches")}
+                      autoFocus
+                      onChange={(event) => setMenuFilter(event.target.value)}
+                    />
+                    <div className="mode-menu-scroll">
+                      {filteredBranches.map((b) => (
+                        <button
+                          key={b}
+                          type="button"
+                          role="menuitem"
+                          title={b}
+                          className={`mode-item ${b === ctx.branch ? "is-selected" : ""}`}
+                          data-testid={`workspace-branch-row-${b}`}
+                          onClick={() => {
+                            if (b !== ctx.branch) {
+                              props.onPickBranch(b, props.worktreePref);
+                            }
+                            closeMenu();
+                          }}
+                        >
+                          {b}
+                        </button>
+                      ))}
+                      {(ctx.branches || []).length === 0 ? (
+                        <div className="mode-menu-empty">
+                          {t("workspace.noBranches")}
+                        </div>
+                      ) : null}
+                      {(ctx.branches || []).length > 0 &&
+                      filteredBranches.length === 0 ? (
+                        <div
+                          className="mode-menu-empty"
+                          data-testid="workspace-branch-empty"
+                        >
+                          {t("workspace.noBranchesMatch")}
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
                 ) : null}
               </div>
             </>,

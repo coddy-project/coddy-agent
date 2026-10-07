@@ -1,4 +1,4 @@
-//go:build gateway || gateway.telegram
+//go:build gateway || gateway.telegram || gateway.pachca
 
 package gateway
 
@@ -21,7 +21,8 @@ func NewHub(log *slog.Logger, adapters ...Adapter) *Hub {
 
 // Start launches all adapters in parallel goroutines.
 // Each adapter is automatically restarted after a 5-second backoff on error.
-// Blocks until ctx is cancelled.
+// Blocks until ctx is cancelled and every adapter has returned, so a bot that
+// is rebuilt never overlaps the one it replaces.
 func (h *Hub) Start(ctx context.Context) {
 	done := make(chan struct{}, len(h.adapters))
 	for _, a := range h.adapters {
@@ -48,4 +49,7 @@ func (h *Hub) Start(ctx context.Context) {
 		}()
 	}
 	<-ctx.Done()
+	for range h.adapters {
+		<-done
+	}
 }

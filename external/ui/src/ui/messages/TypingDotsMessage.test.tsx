@@ -101,9 +101,7 @@ test("the status node is the fourth child so the dot animation stagger survives"
 test("renders the phrase alone, with nothing the step acts on", () => {
   render(<TypingDotsMessage statusKind="tool" statusKey="status.read" />);
   expect(screen.getByText("Reading a file")).toBeInTheDocument();
-  expect(
-    document.querySelector(".typing-dots-status-target"),
-  ).toBeNull();
+  expect(document.querySelector(".typing-dots-status-target")).toBeNull();
   expect(
     screen.getByTestId("typing-dots-status").getAttribute("title"),
   ).toBeNull();
@@ -157,7 +155,10 @@ test("a step counts from its own stamp when no start time is supplied", () => {
 test("escalates the waiting phrase at 15s and 60s", () => {
   vi.useFakeTimers();
   const { rerender } = render(
-    <TypingDotsMessage statusKind="waiting" startedAtMs={Date.now() - 14_000} />,
+    <TypingDotsMessage
+      statusKind="waiting"
+      startedAtMs={Date.now() - 14_000}
+    />,
   );
   expect(screen.getByText("Waiting for the model")).toBeInTheDocument();
   expect(document.querySelector(".typing-dots-status--slow")).toBeNull();
@@ -171,7 +172,10 @@ test("escalates the waiting phrase at 15s and 60s", () => {
   expect(document.querySelector(".typing-dots-status--slow")).not.toBeNull();
 
   rerender(
-    <TypingDotsMessage statusKind="waiting" startedAtMs={Date.now() - 61_000} />,
+    <TypingDotsMessage
+      statusKind="waiting"
+      startedAtMs={Date.now() - 61_000}
+    />,
   );
   expect(
     screen.getByText("Still no response from the server"),
@@ -326,7 +330,9 @@ test("before the first token the line is the turn clock and the waiting phrase",
       turnStartedAtMs={Date.now() - 57_000}
     />,
   );
-  expect(screen.getByTestId("typing-dots-turn-elapsed").textContent).toBe("57s");
+  expect(screen.getByTestId("typing-dots-turn-elapsed").textContent).toBe(
+    "57s",
+  );
   expect(
     screen.getByText("The model is taking longer than usual"),
   ).toBeInTheDocument();
@@ -420,7 +426,9 @@ test("an operator gate keeps the turn clock and still has no step clock", () => 
       turnStartedAtMs={Date.now() - 30_000}
     />,
   );
-  expect(screen.getByTestId("typing-dots-turn-elapsed").textContent).toBe("30s");
+  expect(screen.getByTestId("typing-dots-turn-elapsed").textContent).toBe(
+    "30s",
+  );
   expect(screen.queryByTestId("typing-dots-elapsed")).toBeNull();
 });
 

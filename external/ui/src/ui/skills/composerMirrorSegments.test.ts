@@ -47,7 +47,11 @@ test("completed @ mention stays chipped after space and non-path text", () => {
   const caret = s.length;
   const segs = segmentComposerMirrorSpans(s, caret, null, null);
   expect(segs).toEqual([
-    { type: "at", literal: "@http_todo_report.md", pathRel: "http_todo_report.md" },
+    {
+      type: "at",
+      literal: "@http_todo_report.md",
+      pathRel: "http_todo_report.md",
+    },
     { type: "text", value: " что в файле?" },
   ]);
 });
@@ -57,7 +61,11 @@ test("completed @ mention chips file only when prose follows ASCII path", () => 
   const caret = s.length;
   const segs = segmentComposerMirrorSpans(s, caret, null, null);
   expect(segs).toEqual([
-    { type: "at", literal: "@http_todo_report.md", pathRel: "http_todo_report.md" },
+    {
+      type: "at",
+      literal: "@http_todo_report.md",
+      pathRel: "http_todo_report.md",
+    },
     { type: "text", value: " asdf asdf zxcv" },
   ]);
 });
@@ -160,7 +168,7 @@ test("the chip covers the part of a token that resolves", () => {
 
 test("a token the server has not answered for yet stays text", () => {
   const s = "read @README.md please";
-  expect(segmentComposerMirrorSpans(s, s.length, null, null, undefined, marks({}))).toEqual([
-    { type: "text", value: s },
-  ]);
+  expect(
+    segmentComposerMirrorSpans(s, s.length, null, null, undefined, marks({})),
+  ).toEqual([{ type: "text", value: s }]);
 });

@@ -13,7 +13,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const redactedConfigValue = "<redacted>"
+// RedactedValue stands in for a secret a surface reads but never shows: the
+// config tools print it for a secret setting, and the MCP list prints it for
+// every env and header value (a save that sends it back keeps the stored one).
+const RedactedValue = "<redacted>"
 
 var configPathWriteMu sync.Mutex
 
@@ -35,7 +38,7 @@ type configPathToken struct {
 }
 
 // ReadConfigPath reads one path from the active YAML file. Paths are dotted
-// uci-style ("mcp_servers[name=context7].command"); legacy slash paths are
+// uci-style ("providers[name=local].api_base"); legacy slash paths are
 // still accepted. Secret-shaped values are redacted.
 func ReadConfigPath(paths Paths, path string) (*ConfigPathValue, error) {
 	tokens, err := parseAnyConfigPath(path)
@@ -618,5 +621,5 @@ func publicConfigScalar(node *yaml.Node, path []string) bool {
 }
 
 func setRedactedNode(node *yaml.Node) {
-	*node = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: redactedConfigValue}
+	*node = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: RedactedValue}
 }

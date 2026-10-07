@@ -78,7 +78,11 @@ describe("probeEnvHealth against a relay", () => {
     });
     expect(probe).toEqual({ reach: "unauthorized", relay: true });
     await expect(
-      probeEnvHealth({ mode: "remote", baseUrl: "http://relay.example", token: "" }),
+      probeEnvHealth({
+        mode: "remote",
+        baseUrl: "http://relay.example",
+        token: "",
+      }),
     ).resolves.toBe("down");
   });
 

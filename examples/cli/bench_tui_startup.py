@@ -17,7 +17,7 @@ terminal and records, from the spawn:
 Scenarios:
   empty          the demo config with an empty skills directory (what CI runs)
   real           a copy of ~/.coddy/skills, no remote sources
-  real+sources   the same copy plus the sources of ~/.coddy/config.yaml
+  real+sources   the same copy plus the sources of ~/.coddy/marketplaces.json
   synth300       300 generated SKILL.md files
   synth300+dead  the same 300 plus one source that accepts TCP and never answers
   synth1000      1000 generated SKILL.md files
@@ -82,15 +82,19 @@ def plain_text(raw: bytes) -> str:
 
 
 def render_config(home: Path, skills_dirs: list[Path], sources: list[str]) -> None:
-    """Write the demo config into `home` with the skills block replaced."""
+    """Write the demo config into `home` with the skills block replaced, and
+    the sources into <home>/marketplaces.json, where Coddy reads them."""
     text = DEMO_CONFIG.read_text().replace("__E2E_LOG_PATH__", str(home / "e2e.log"))
     start = text.index("skills:\n")
-    end = text.index("mcp_servers:")
+    end = text.index("\ntools:\n") + 1
     block = "skills:\n  dirs:\n" + "".join(f'    - "{d}"\n' for d in skills_dirs)
-    if sources:
-        block += "  sources:\n" + "".join(f'    - "{s}"\n' for s in sources)
     block += "\n"
     (home / "config.yaml").write_text(text[:start] + block + text[end:])
+    marketplaces = home / "marketplaces.json"
+    if sources:
+        marketplaces.write_text(json.dumps({"sources": sources}, indent=2) + "\n")
+    elif marketplaces.exists():
+        marketplaces.unlink()
     (home / "sessions").mkdir(exist_ok=True)
 
 
@@ -123,9 +127,17 @@ def copy_real_skills(dst: Path) -> int:
 
 
 def real_sources() -> list[str]:
-    """The skills.sources list of ~/.coddy/config.yaml, read without a YAML library."""
-    lines = (Path.home() / ".coddy" / "config.yaml").read_text().splitlines()
+    """The sources of ~/.coddy/marketplaces.json, plus a skills.sources list a
+    config.yaml no Coddy has loaded since the key moved still carries (read
+    without a YAML library)."""
     out: list[str] = []
+    declared = Path.home() / ".coddy" / "marketplaces.json"
+    if declared.exists():
+        out.extend(s for s in json.loads(declared.read_text()).get("sources", []) if isinstance(s, str))
+    config = Path.home() / ".coddy" / "config.yaml"
+    if not config.exists():
+        return out
+    lines = config.read_text().splitlines()
     in_skills = in_sources = False
     for line in lines:
         if re.match(r"^skills:\s*$", line):
@@ -138,7 +150,7 @@ def real_sources() -> list[str]:
             continue
         if in_sources:
             m = re.match(r"^\s{4}-\s*(.+?)\s*$", line)
-            if m:
+            if m and m.group(1).strip("\"'") not in out:
                 out.append(m.group(1).strip("\"'"))
             elif line.strip() and not line.lstrip().startswith("#"):
                 in_sources = False

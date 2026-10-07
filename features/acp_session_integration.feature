@@ -25,9 +25,9 @@ Feature: ACP session integrations
     When the client switches the mode to "ask"
     Then the current mode update identifies "ask" with "currentModeId"
 
-  Scenario: A configured MCP server is connected to the active session
+  Scenario: An MCP server added to the home mcp.json is connected to the active session
     Given an active session without configured MCP servers
-    When settings are reloaded with MCP server "settings-probe"
+    When MCP server "settings-probe" is added to the home mcp.json
     Then the current session exposes MCP tool "settings-probe__probe"
 
   Scenario: A workspace's sessions are listed whatever spelling of its path the client sends

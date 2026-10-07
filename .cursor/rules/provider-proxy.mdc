@@ -1,0 +1,30 @@
+---
+description: Every provider request follows providers[].proxy
+globs:
+  - internal/llm/**/*.go
+  - external/httpserver/*auth*_http.go
+  - cmd/coddy/codex.go
+  - cmd/coddy/devin.go
+  - cmd/coddy/providers.go
+alwaysApply: false
+---
+# Provider transport and proxy boundary
+
+Every outbound request belonging to an LLM provider — completions, streams,
+model discovery, account usage, OAuth/device sign-in, token refresh, revoke,
+and any provider added later — must follow that row's `providers[].proxy`
+setting.
+
+- Production provider helpers accept the row's proxy setting and build their
+  client through `llm.HTTPClientForProviderProxy`; do not use
+  `http.DefaultClient`, `&http.Client{}`, `http.Get`, `http.Post`, or
+  `http.Head` in a provider path.
+- A helper that needs a custom `*http.Client` only as a test seam must reject
+  `nil`; nil must never silently fall back to a direct/environment client.
+- Settings sign-in starts before Save. If the form carries an unsaved `proxy`,
+  apply it after resolving the row, including when the saved row has another
+  provider type. An absent field retains the row value; `""` / `inherit`
+  inherit the process proxy; `none` goes direct; invalid settings return 400.
+- When changing provider transport, extend `features/provider_proxy.feature`
+  and `internal/llm/bdd_provider_proxy_test.go` for every new request class,
+  and keep `TestProviderProxyGuard` green.

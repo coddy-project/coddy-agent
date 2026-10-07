@@ -82,7 +82,7 @@ func runAgents(args []string) error {
 // built-ins, the user's files, and the project's files unless the policy is
 // deny, in which case the project directories are never read.
 func agentsLoad(cfg *config.Config, cwd string) []*subagents.Definition {
-	loader := subagents.NewLoader(cfg.Subagents.Dirs, cfg.Subagents.ResolvedProjectTrust())
+	loader := subagents.NewLoader(cfg.Subagents.SearchDirs(), cfg.Subagents.ResolvedProjectTrust())
 	return loader.Load(cwd, cfg.Paths.Home)
 }
 

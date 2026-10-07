@@ -58,7 +58,7 @@ type subagentCatalog struct {
 func (s *Server) loadSubagentCatalog(cwd string) subagentCatalog {
 	cfg := s.activeCfg()
 	policy := cfg.Subagents.ResolvedProjectTrust()
-	loader := subagents.NewLoader(cfg.Subagents.Dirs, policy)
+	loader := subagents.NewLoader(cfg.Subagents.SearchDirs(), policy)
 	loader.Log = s.log
 	return subagentCatalog{
 		workspace: subagents.CanonicalWorkspace(cwd),
@@ -117,30 +117,40 @@ func (s *Server) coddySubagentsList(w http.ResponseWriter, r *http.Request) {
 // body means the server's default workspace.
 type subagentTrustRequest struct {
 	CWD string `json:"cwd"`
+	// Digest names the file content the operator was shown (the catalog's
+	// digest): an approval of a file rewritten since is refused.
+	Digest string `json:"digest,omitempty"`
 }
 
 // resolveSubagentTrustTarget parses the body, resolves the workspace and finds
 // the named definition. It writes the error response itself and reports false
 // when the caller must stop.
 func (s *Server) resolveSubagentTrustTarget(w http.ResponseWriter, r *http.Request) (subagentCatalog, *subagents.Definition, bool) {
+	cat, def, _, ok := s.resolveSubagentTrustRequest(w, r)
+	return cat, def, ok
+}
+
+// resolveSubagentTrustRequest is resolveSubagentTrustTarget that also
+// returns the parsed body.
+func (s *Server) resolveSubagentTrustRequest(w http.ResponseWriter, r *http.Request) (subagentCatalog, *subagents.Definition, subagentTrustRequest, bool) {
 	var body subagentTrustRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
 		writeSubagentsError(w, http.StatusBadRequest, "invalid JSON")
-		return subagentCatalog{}, nil, false
+		return subagentCatalog{}, nil, body, false
 	}
 	cwd, err := s.subagentWorkspaceCWD(body.CWD)
 	if err != nil {
 		writeSubagentsError(w, http.StatusBadRequest, err.Error())
-		return subagentCatalog{}, nil, false
+		return subagentCatalog{}, nil, body, false
 	}
 	name := strings.TrimSpace(r.PathValue("name"))
 	cat := s.loadSubagentCatalog(cwd)
 	def := subagents.FindByName(cat.defs, name)
 	if def == nil {
 		writeSubagentsError(w, http.StatusNotFound, fmt.Sprintf("subagent %q not found for workspace %s", name, cat.workspace))
-		return subagentCatalog{}, nil, false
+		return subagentCatalog{}, nil, body, false
 	}
-	return cat, def, true
+	return cat, def, body, true
 }
 
 // coddySubagentTrust records a receipt for the current content of a
@@ -148,8 +158,12 @@ func (s *Server) resolveSubagentTrustTarget(w http.ResponseWriter, r *http.Reque
 // files need no approval, so asking for one is a client error rather than a
 // silent no-op.
 func (s *Server) coddySubagentTrust(w http.ResponseWriter, r *http.Request) {
-	cat, def, ok := s.resolveSubagentTrustTarget(w, r)
+	cat, def, body, ok := s.resolveSubagentTrustRequest(w, r)
 	if !ok {
+		return
+	}
+	if shown := strings.TrimSpace(body.Digest); shown != "" && shown != def.Digest {
+		writeSubagentsError(w, http.StatusConflict, fmt.Sprintf("subagent %q changed since it was shown (%s); review it and approve again", def.Name, def.Path))
 		return
 	}
 	switch {
@@ -212,10 +226,14 @@ func subagentLink(parentSessionID, name, taskID string) map[string]interface{} {
 func subagentMetaLink(meta *session.SubagentMeta) map[string]interface{} {
 	link := subagentLink(meta.ParentSessionID, meta.Name, meta.TaskID)
 	if meta.Scheduler != nil {
-		link["scheduler"] = map[string]interface{}{
+		sched := map[string]interface{}{
 			"jobId":   meta.Scheduler.JobID,
 			"trigger": meta.Scheduler.Trigger,
 		}
+		if meta.Scheduler.Workspace != "" {
+			sched["workspace"] = meta.Scheduler.Workspace
+		}
+		link["scheduler"] = sched
 	}
 	return link
 }

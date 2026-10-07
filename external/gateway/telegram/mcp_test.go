@@ -29,7 +29,7 @@ func TestMCPMenuTogglesTrustedServerThroughFakeBotAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := newFakeAPI(t, tgfake.Options{})
-	bot := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll}, newStubRunner(cfg), cwd, slog.New(slog.DiscardHandler), "", nil)
+	bot := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, Admins: []int64{202}}, newStubRunner(cfg), cwd, slog.New(slog.DiscardHandler), "", nil)
 	msg := f.userMessage(101, 202, "/mcp")
 	bot.processMessage(ctx, f.api, msg, sessionstore.SessionKey(adapterName, 101, 202, config.IsolationIndividual, false))
 	if !strings.Contains(f.fake.Chat(101).Text(), "demo · disabled") {
@@ -60,7 +60,7 @@ func TestMCPMenuDoesNotOfferTrustForProjectServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := newFakeAPI(t, tgfake.Options{})
-	bot := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll}, newStubRunner(cfg), cwd, slog.New(slog.DiscardHandler), "", nil)
+	bot := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, Admins: []int64{202}}, newStubRunner(cfg), cwd, slog.New(slog.DiscardHandler), "", nil)
 	msg := f.userMessage(101, 202, "/mcp")
 	bot.processMessage(context.Background(), f.api, msg, "")
 	if !strings.Contains(f.fake.Chat(101).Text(), "checkout · needs_approval") {
@@ -352,7 +352,7 @@ func newMCPTest(t *testing.T) *mcpTest {
 	m.cfg.Paths.Home = m.home
 	m.runner = newMCPRunner(m.cfg)
 	m.f = newFakeAPI(t, tgfake.Options{})
-	m.bot = New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll}, m.runner, m.cwd, slog.New(slog.DiscardHandler), "", nil)
+	m.bot = New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, Admins: []int64{mcpTestUserID}}, m.runner, m.cwd, slog.New(slog.DiscardHandler), "", nil)
 	return m
 }
 
@@ -425,13 +425,34 @@ func (m *mcpTest) menu(id int) tgfake.MessageView {
 	return msg
 }
 
-// In a group /mcp is answered without a mention, like the other bot
-// commands the command menu lists (docs/surfaces/gateway.md, Group chats).
-func TestGroupChatAnswersMCPWithoutAMention(t *testing.T) {
+// In a group a command needs the bot's mention, like any message there: a
+// group is where many people talk (docs/surfaces/gateway.md, Group chats).
+// Telegram writes the mention of a command as /command@botname.
+func TestGroupChatAnswersMCPOnlyWithAMention(t *testing.T) {
 	b := New(&config.TelegramGatewayConfig{}, nil, "", slog.New(slog.DiscardHandler), "", nil)
 	b.botName = "coddy_bot"
 	msg := commandMessage("/mcp")
+	if b.shouldRespond(msg, msg.Text) {
+		t.Fatal("/mcp without a mention is answered in a group")
+	}
+	msg = commandMessage("/mcp@coddy_bot")
 	if !b.shouldRespond(msg, msg.Text) {
-		t.Fatal("/mcp in a group is not answered")
+		t.Fatal("/mcp@coddy_bot in a group is not answered")
+	}
+}
+
+// The MCP switches change the whole agent's configuration, so a tap from
+// somebody who is not an admin changes nothing and says why.
+func TestMCPTapFromANonAdminIsRefused(t *testing.T) {
+	m := newMCPTest(t)
+	m.globalServer("demo", config.MCPJSONServer{Command: "missing-mcp", Disabled: true})
+	m.bot.cfg.Admins = nil
+	m.sendMCP()
+	m.tap("Enable demo")
+	if got := m.runner.refreshedNames(); len(got) != 0 {
+		t.Fatalf("a non-admin's tap switched %q", got)
+	}
+	if !strings.Contains(m.f.fake.Chat(mcpTestChatID).Text(), "Only the bot's admins") {
+		t.Fatalf("a non-admin's tap was not refused:\n%s", m.f.fake.Chat(mcpTestChatID).Text())
 	}
 }

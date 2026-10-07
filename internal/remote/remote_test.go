@@ -1240,3 +1240,40 @@ func TestRemoteMCPTrustFollowsThePolicyAndNamesTheDeclarationShown(t *testing.T)
 		t.Fatalf("calls = %+v", calls)
 	}
 }
+
+// ---- /mcp ----
+
+// The server lists no env or header value, only "<redacted>" in its place,
+// and names the variables a declaration reads in reads: the approval summary
+// of /mcp in --remote mode takes them from there. A server from before sends
+// the values and no reads, and the summary reads them from the values.
+func TestMCPServersNameTheVariablesTheServerLists(t *testing.T) {
+	for _, tc := range []struct{ name, item, want string }{
+		{"current server", `{"name":"tracker","transport":"stdio","command":"tracker-mcp","env":{"KEY":"<redacted>"},"headers":{"X-Team":"<redacted>"},"reads":["TRACKER_KEY"],"gated":true}`,
+			"stdio · tracker-mcp · env: KEY · headers: X-Team · reads: ${TRACKER_KEY}"},
+		{"older server", `{"name":"tracker","transport":"stdio","command":"tracker-mcp","env":{"KEY":"${TRACKER_KEY}"},"gated":true}`,
+			"stdio · tracker-mcp · env: KEY · reads: ${TRACKER_KEY}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/coddy/mcp" {
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = w.Write([]byte(`{"workspace":"/w","project_trust":"ask","items":[` + tc.item + `]}`))
+			}))
+			defer srv.Close()
+			h, err := NewHandler(Options{BaseURL: srv.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, err := h.MCPServers(context.Background(), "")
+			if err != nil || len(rows) != 1 {
+				t.Fatalf("rows = %+v, %v", rows, err)
+			}
+			if !strings.HasPrefix(rows[0].Declaration, tc.want) || strings.Contains(rows[0].Declaration, "redacted") {
+				t.Fatalf("declaration = %q, want it to start with %q", rows[0].Declaration, tc.want)
+			}
+		})
+	}
+}

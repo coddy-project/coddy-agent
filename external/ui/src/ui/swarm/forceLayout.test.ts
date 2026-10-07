@@ -292,8 +292,7 @@ describe("layoutTopologyGraph", () => {
       },
     };
     const layout = layoutTopologyGraph(topology);
-    const x = (uuid: string) =>
-      layout.nodes.find((n) => n.uuid === uuid)!.x;
+    const x = (uuid: string) => layout.nodes.find((n) => n.uuid === uuid)!.x;
 
     const eastX = x("east");
     const westX = x("west");
@@ -304,7 +303,10 @@ describe("layoutTopologyGraph", () => {
     const rightX = [x(`${rightBranch}-a`), x(`${rightBranch}-b`)];
     for (const lx of [x(leftBranch), ...leftX]) {
       for (const rx of [x(rightBranch), ...rightX]) {
-        expect(lx, `${leftBranch} subtree must stay left of ${rightBranch}`).toBeLessThan(rx);
+        expect(
+          lx,
+          `${leftBranch} subtree must stay left of ${rightBranch}`,
+        ).toBeLessThan(rx);
       }
     }
   });

@@ -1506,7 +1506,7 @@ func (r *subagentRig) writeDefinition(name, extra string) {
 
 func (r *subagentRig) approve(name string) {
 	r.t.Helper()
-	def := subagents.FindByName(subagents.NewLoader(r.cfg.Subagents.Dirs, config.SubagentsProjectTrustAsk).Load(r.cwd, r.home), name)
+	def := subagents.FindByName(subagents.NewLoader(r.cfg.Subagents.SearchDirs(), config.SubagentsProjectTrustAsk).Load(r.cwd, r.home), name)
 	if def == nil {
 		r.t.Fatalf("no definition %q to approve", name)
 	}

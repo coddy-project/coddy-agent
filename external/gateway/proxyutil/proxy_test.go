@@ -1,4 +1,4 @@
-//go:build gateway || gateway.telegram
+//go:build gateway || gateway.telegram || gateway.pachca
 
 package proxyutil
 

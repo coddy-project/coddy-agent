@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,18 @@ type globalInstructionsFeatureState struct {
 	ag      *Agent
 	catalog string
 	seen    [][]llm.Message
+	// What the scenario configures before the session starts.
+	promptsDir       string
+	instructionFiles []string
+	tweak            func(*config.Config)
+	// sharedFile is a file of instructions.files that lives outside the
+	// agent home and the project, the way several agents share one.
+	sharedFile string
+	// missingFile is an absolute entry of instructions.files with nothing
+	// behind it.
+	missingFile string
+	// logs is what the agent logged during the scenario.
+	logs bytes.Buffer
 }
 
 func (s *globalInstructionsFeatureState) reset() error {
@@ -51,6 +64,12 @@ func (s *globalInstructionsFeatureState) close() {
 	s.ag = nil
 	s.catalog = ""
 	s.seen = nil
+	s.promptsDir = ""
+	s.instructionFiles = nil
+	s.tweak = nil
+	s.sharedFile = ""
+	s.missingFile = ""
+	s.logs.Reset()
 }
 
 func (s *globalInstructionsFeatureState) tempDir() (string, error) {
@@ -175,9 +194,191 @@ func (s *globalInstructionsFeatureState) agentSessionInThatProject() error {
 		Agent:     config.Agent{Model: "fake/model", MaxTurns: 6},
 	}
 	cfg.Prompts.ApplyDefaults()
+	cfg.Prompts.Dir = s.promptsDir
+	cfg.Instructions.Files = s.instructionFiles
 	cfg.Instructions.ApplyDefaults()
+	if s.tweak != nil {
+		s.tweak(cfg)
+	}
 	s.st.ReplaceRulesCatalog(session.DiscoverRules(cfg, s.cwd))
-	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, nil)
+	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, slog.New(slog.NewTextHandler(&s.logs, nil)))
+	return nil
+}
+
+// agentSessionInAgentHome opens the session in CODDY_HOME itself, where the
+// operator's pair and the session folder's pair are the same two files.
+func (s *globalInstructionsFeatureState) agentSessionInAgentHome() error {
+	if s.home == "" {
+		return fmt.Errorf("no agent home prepared")
+	}
+	s.cwd = s.home
+	return s.agentSessionInThatProject()
+}
+
+// projectLinkingHomeAgentsMD is a checkout whose AGENTS.md is a symlink to
+// the operator's own.
+func (s *globalInstructionsFeatureState) projectLinkingHomeAgentsMD() error {
+	if err := s.projectWithoutAgentsMD(); err != nil {
+		return err
+	}
+	if err := os.Symlink(filepath.Join(s.home, "AGENTS.md"), filepath.Join(s.cwd, "AGENTS.md")); err != nil {
+		// Windows without the symlink privilege: nothing to check there.
+		return godog.ErrSkip
+	}
+	return nil
+}
+
+func (s *globalInstructionsFeatureState) projectAlsoHas(nameA, bodyA, nameB, bodyB string) error {
+	if s.cwd == "" {
+		return fmt.Errorf("no project prepared")
+	}
+	for _, f := range [][2]string{{nameA, bodyA}, {nameB, bodyB}} {
+		path := filepath.Join(s.cwd, filepath.FromSlash(f[0]))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte(f[1]+"\n"), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *globalInstructionsFeatureState) instructionFilesList(tail string) error {
+	s.instructionFiles = quotedTokens(tail)
+	return nil
+}
+
+// sharedFolderHolds writes a file into a folder that is neither the agent
+// home nor the project, the way several agents with configurations of their
+// own share one set of instructions. The text is long enough that the context
+// estimate cannot count it under rules by accident.
+func (s *globalInstructionsFeatureState) sharedFolderHolds(name, token string) error {
+	dir, err := s.tempDir()
+	if err != nil {
+		return err
+	}
+	body := token + "\n\n" + strings.Repeat("Every agent of this fleet follows the house style. ", 80)
+	s.sharedFile = filepath.Join(dir, filepath.FromSlash(name))
+	return os.WriteFile(s.sharedFile, []byte(body+"\n"), 0o644)
+}
+
+func (s *globalInstructionsFeatureState) instructionFilesListsShared() error {
+	if s.sharedFile == "" {
+		return fmt.Errorf("no shared file prepared")
+	}
+	s.instructionFiles = []string{s.sharedFile}
+	return nil
+}
+
+func (s *globalInstructionsFeatureState) instructionFilesListsMissing() error {
+	dir, err := s.tempDir()
+	if err != nil {
+		return err
+	}
+	s.missingFile = filepath.Join(dir, "shared", "infrastructure.md")
+	s.instructionFiles = []string{s.missingFile}
+	return nil
+}
+
+// requestNamesSharedFile is what lets the model connect the text it was
+// given with the file the operator talks about: without the name, "follow
+// infrastructure.md" sends it to read a file it already holds.
+func (s *globalInstructionsFeatureState) requestNamesSharedFile() error {
+	sp, err := s.systemPrompt(len(s.seen) - 1)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(s.sharedFile)
+	if err != nil {
+		return err
+	}
+	want := "### " + rules.UserDocLabel(s.cwd, s.sharedFile) + "\n\n" + strings.TrimSpace(string(data))
+	if !strings.Contains(sp, want) {
+		return fmt.Errorf("the request does not carry the shared file under %q", "### "+rules.UserDocLabel(s.cwd, s.sharedFile))
+	}
+	return nil
+}
+
+// contextCountsSharedUnderRules reads the estimate the context ring and the
+// stats endpoint show: an instruction file is a rule the operator wrote, so
+// its tokens belong to the rules share, not to the system prompt.
+func (s *globalInstructionsFeatureState) contextCountsSharedUnderRules() error {
+	b := s.st.GetLastContextBreakdown()
+	if b == nil {
+		return fmt.Errorf("no context estimate was published")
+	}
+	data, err := os.ReadFile(s.sharedFile)
+	if err != nil {
+		return err
+	}
+	want := session.EstimateContextTokens(strings.TrimSpace(string(data)))
+	if b.Rules < want {
+		return fmt.Errorf("the rules share is %d tokens, want at least the %d of the shared file (system prompt %d)", b.Rules, want, b.SystemPrompt)
+	}
+	return nil
+}
+
+func (s *globalInstructionsFeatureState) logWarnsUnread() error {
+	logs := s.logs.String()
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, "level=WARN") && strings.Contains(line, "instructions file not read") && strings.Contains(line, s.missingFile) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no warning names %s; the log was:\n%s", s.missingFile, logs)
+}
+
+// templateWithoutBlocks is an operator's prompts.dir whose templates print
+// neither {{.Rules}} nor {{.Instructions}}: the documents must reach the
+// model anyway.
+func (s *globalInstructionsFeatureState) templateWithoutBlocks() error {
+	dir, err := s.tempDir()
+	if err != nil {
+		return err
+	}
+	const body = "You are a test agent working in {{.CWD}}.\n\n{{if .Tools}}## Available tools\n\n{{.Tools}}\n{{end}}"
+	for _, file := range []string{"agent.md", "plan.md", "ask.md"} {
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o644); err != nil {
+			return err
+		}
+	}
+	s.promptsDir = dir
+	return nil
+}
+
+// configurationSets applies one of the rules settings that used to switch the
+// nested documents off.
+func (s *globalInstructionsFeatureState) configurationSets(setting string) error {
+	switch strings.TrimSpace(setting) {
+	case "rules.auto_discover: false":
+		s.tweak = func(c *config.Config) {
+			off := false
+			c.Rules.AutoDiscover = &off
+		}
+	case "rules.systems: [coddy]":
+		s.tweak = func(c *config.Config) { c.Rules.Systems = []string{"coddy"} }
+	default:
+		return fmt.Errorf("unknown setting %q", setting)
+	}
+	return nil
+}
+
+// everyRequestCarriesOnce counts in everything each request says, the system
+// message and the tool results alike: a document reaches the model once.
+func (s *globalInstructionsFeatureState) everyRequestCarriesOnce(token string) error {
+	if len(s.seen) == 0 {
+		return fmt.Errorf("no request was made")
+	}
+	for n := range s.seen {
+		whole, err := s.wholeRequest(n)
+		if err != nil {
+			return err
+		}
+		if c := strings.Count(whole, token); c != 1 {
+			return fmt.Errorf("request %d carries %q %d time(s), want exactly 1", n, token, c)
+		}
+	}
 	return nil
 }
 
@@ -362,6 +563,19 @@ func initializeGlobalInstructionsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a project without an AGENTS\.md of its own$`, s.projectWithoutAgentsMD)
 	sc.Step(`^a project whose "([^"]*)" holds "([^"]*)"$`, s.projectWithFile)
 	sc.Step(`^a coddy agent session in that project$`, s.agentSessionInThatProject)
+	sc.Step(`^a coddy agent session in the agent home itself$`, s.agentSessionInAgentHome)
+	sc.Step(`^a project whose AGENTS\.md is a link to the agent home's$`, s.projectLinkingHomeAgentsMD)
+	sc.Step(`^the project also has "([^"]*)" holding "([^"]*)" and "([^"]*)" holding "([^"]*)"$`, s.projectAlsoHas)
+	sc.Step(`^instructions\.files lists ("[^"]+"(?:(?:,| and) "[^"]+")*)$`, s.instructionFilesList)
+	sc.Step(`^a folder outside the agent home and the project holds "([^"]*)" with "([^"]*)"$`, s.sharedFolderHolds)
+	sc.Step(`^instructions\.files lists that shared file by its absolute path$`, s.instructionFilesListsShared)
+	sc.Step(`^instructions\.files lists an absolute path that does not exist$`, s.instructionFilesListsMissing)
+	sc.Step(`^the request names the shared file in a heading above its text$`, s.requestNamesSharedFile)
+	sc.Step(`^the context estimate counts the shared file under rules$`, s.contextCountsSharedUnderRules)
+	sc.Step(`^the log warns that the instructions file was not read and names its path$`, s.logWarnsUnread)
+	sc.Step(`^the operator's prompts\.dir template prints neither \{\{\.Rules\}\} nor \{\{\.Instructions\}\}$`, s.templateWithoutBlocks)
+	sc.Step(`^the configuration sets (.+)$`, s.configurationSets)
+	sc.Step(`^every request carries "([^"]+)" exactly once$`, s.everyRequestCarriesOnce)
 	sc.Step(`^the model answers without touching any file$`, s.modelAnswers)
 	sc.Step(`^the model reads "([^"]*)" and then answers$`, s.modelReadsFileThenAnswers)
 	sc.Step(`^the operator lists the rules catalog$`, s.operatorListsCatalog)

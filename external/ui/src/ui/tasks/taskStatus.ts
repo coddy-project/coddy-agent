@@ -57,10 +57,10 @@ export function formatDuration(seconds: number): string {
   }
   if (s < 3600) {
     const rem = s % 60;
-    return rem ? `${Math.floor(s / 60)}m${rem}s` : `${Math.floor(s / 60)}m`;
+    return rem ? `${Math.floor(s / 60)}m ${rem}s` : `${Math.floor(s / 60)}m`;
   }
   const rem = Math.floor((s % 3600) / 60);
-  return rem ? `${Math.floor(s / 3600)}h${rem}m` : `${Math.floor(s / 3600)}h`;
+  return rem ? `${Math.floor(s / 3600)}h ${rem}m` : `${Math.floor(s / 3600)}h`;
 }
 
 /**

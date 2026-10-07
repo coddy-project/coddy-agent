@@ -46,6 +46,8 @@ type scriptedRunner struct {
 	// surfaces records the system prompt block each turn was given, so the
 	// spec can assert the gateway spoke for itself without a real model.
 	surfaces []string
+	// restricted records whether each turn came with a restriction.
+	restricted []bool
 }
 
 func newScriptedRunner() *scriptedRunner {
@@ -82,6 +84,7 @@ func (r *scriptedRunner) HandleSessionPromptWithSender(_ context.Context, params
 		surface = opts.SurfaceSystemPrompt
 	}
 	r.surfaces = append(r.surfaces, surface)
+	r.restricted = append(r.restricted, opts != nil && opts.Restriction != nil)
 	answer := r.answer
 	r.mu.Unlock()
 

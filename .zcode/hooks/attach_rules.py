@@ -14,19 +14,20 @@ files directly:
   PreToolUse   -> inject rules whose `globs` match the file paths a tool is
                   about to touch, at most once per rule per session
 
-`.cursor/rules/` stays the single source of truth; nothing is duplicated here.
-The hook fails open: any unexpected input exits 0 with no output, so a broken
-rule file can never block an edit.
+The hook reads `.cursor/rules/` directly and creates no ZCode copy of a rule body.
+It fails open: any unexpected input exits 0 with no output, so a broken rule file
+can never block an edit.
 
 Wired up in `.zcode/config.json` under `hooks.events.{SessionStart,PreToolUse}`.
-Unlike the Codex sibling (`.codex/hooks/attach_rules.py`) the edited file paths
-arrive as JSON fields of the tool payload (`tool_input.file_path`, `.path`, ...),
-not as an embedded `*** Update File:` patch, so this variant extracts them from
-those fields instead of parsing a patch blob.
+ZCode delivers edited paths as JSON fields of the tool payload
+(`tool_input.file_path`, `.path`, ...), so this variant reads those structured
+fields. The Codex sibling accepts the same fields and also parses patch headers.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import hashlib
 import json
 import os
 import re
@@ -34,12 +35,24 @@ import sys
 import tempfile
 from pathlib import Path
 
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
+
 # The repository root is two levels up from this script:
 # .zcode/hooks/attach_rules.py -> repo root.
 SCRIPT_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_ROOT.parents[1]
 RULES_DIR = Path(os.environ.get("ZCODE_RULES_DIR") or (REPO_ROOT / ".cursor" / "rules"))
-STATE_DIR = Path(os.environ.get("ZCODE_RULES_STATE_DIR") or (Path(tempfile.gettempdir()) / "zcode-coddy-rules"))
+
+
+def default_state_dir(repo_root: Path) -> Path:
+    repo_key = hashlib.sha256(str(repo_root.resolve()).encode()).hexdigest()[:12]
+    return Path(tempfile.gettempdir()) / f"zcode-attach-rules-{repo_key}"
+
+
+STATE_DIR = Path(os.environ.get("ZCODE_RULES_STATE_DIR") or default_state_dir(REPO_ROOT))
 
 # Field names inside a ZCode tool payload that carry a file path. The matcher is
 # intentionally permissive: it also walks nested structures, so a path nested
@@ -102,6 +115,186 @@ def glob_to_regex(pattern: str) -> re.Pattern[str]:
     return re.compile("^" + "".join(out) + "$")
 
 
+def strip_yaml_comment(value: str) -> str:
+    quote = ""
+    escaped = False
+    for index, char in enumerate(value):
+        if quote:
+            if char == "\\" and quote == '"' and not escaped:
+                escaped = True
+                continue
+            if char == quote and not escaped:
+                quote = ""
+            escaped = False
+            continue
+        if char in ("'", '"'):
+            quote = char
+            continue
+        if char == "#" and (index == 0 or value[index - 1].isspace()):
+            return value[:index].strip()
+    return value.strip()
+
+
+YAML_DOUBLE_ESCAPES = {
+    "0": "\0",
+    "a": "\x07",
+    "b": "\x08",
+    "t": "\t",
+    "n": "\n",
+    "v": "\x0b",
+    "f": "\x0c",
+    "r": "\r",
+    "e": "\x1b",
+    " ": " ",
+    '"': '"',
+    "/": "/",
+    "\\": "\\",
+    "N": "\x85",
+    "_": "\xa0",
+    "L": "\u2028",
+    "P": "\u2029",
+}
+
+
+def decode_yaml_double_quoted(value: str) -> str:
+    out: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char != "\\":
+            out.append(char)
+            index += 1
+            continue
+        if index + 1 >= len(value):
+            out.append("\\")
+            break
+        escape = value[index + 1]
+        if escape in YAML_DOUBLE_ESCAPES:
+            out.append(YAML_DOUBLE_ESCAPES[escape])
+            index += 2
+            continue
+        width = {"x": 2, "u": 4, "U": 8}.get(escape)
+        if width is not None:
+            digits = value[index + 2 : index + 2 + width]
+            if len(digits) == width:
+                try:
+                    out.append(chr(int(digits, 16)))
+                    index += 2 + width
+                    continue
+                except (ValueError, OverflowError):
+                    pass
+        out.extend(("\\", escape))
+        index += 2
+    return "".join(out)
+
+
+def unquote(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+        return decode_yaml_double_quoted(value[1:-1])
+    if len(value) >= 2 and value[0] == "'" and value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    return value
+
+
+def split_globs(value: str) -> list[str]:
+    value = strip_yaml_comment(value)
+    value = value.removeprefix("[").removesuffix("]")
+    out: list[str] = []
+    current: list[str] = []
+    quote = ""
+    escaped = False
+    brace_depth = 0
+
+    def flush() -> None:
+        item = unquote("".join(current))
+        if item:
+            out.append(item)
+        current.clear()
+
+    for char in value:
+        if quote:
+            current.append(char)
+            if char == "\\" and quote == '"' and not escaped:
+                escaped = True
+                continue
+            if char == quote and not escaped:
+                quote = ""
+            escaped = False
+            continue
+        if char in ("'", '"'):
+            quote = char
+            current.append(char)
+        elif char == "{":
+            brace_depth += 1
+            current.append(char)
+        elif char == "}":
+            brace_depth = max(0, brace_depth - 1)
+            current.append(char)
+        elif char == "," and brace_depth == 0:
+            flush()
+        else:
+            current.append(char)
+    flush()
+    return out
+
+
+def flow_sequence_complete(value: str) -> bool:
+    quote = ""
+    escaped = False
+    depth = 0
+    for char in value:
+        if quote:
+            if char == "\\" and quote == '"' and not escaped:
+                escaped = True
+                continue
+            if char == quote and not escaped:
+                quote = ""
+            escaped = False
+            continue
+        if char in ("'", '"'):
+            quote = char
+        elif char == "[":
+            depth += 1
+        elif char == "]":
+            depth = max(0, depth - 1)
+    return depth == 0
+
+
+def flow_quote_state(value: str) -> str:
+    quote = ""
+    escaped = False
+    for char in value:
+        if quote:
+            if char == "\\" and quote == '"' and not escaped:
+                escaped = True
+                continue
+            if char == quote and not escaped:
+                quote = ""
+            escaped = False
+            continue
+        if char in ("'", '"'):
+            quote = char
+    return quote
+
+
+def flow_line_continues(value: str) -> bool:
+    quote = ""
+    escaped = False
+    for char in value:
+        if quote:
+            if char == "\\" and quote == '"' and not escaped:
+                escaped = True
+                continue
+            if char == quote and not escaped:
+                quote = ""
+            escaped = False
+            continue
+        if char in ("'", '"'):
+            quote = char
+    return quote == '"' and value.endswith("\\")
+
+
 def parse_rule(path: Path) -> Rule | None:
     """Read one `.mdc` file. Frontmatter is flat, so no YAML dependency."""
     text = path.read_text(encoding="utf-8")
@@ -114,17 +307,54 @@ def parse_rule(path: Path) -> Rule | None:
     body = text[end + 4 :].strip()
 
     description, globs, always = "", [], False
-    for line in head.splitlines():
+    lines = head.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
         key, sep, value = line.partition(":")
         if not sep:
+            index += 1
             continue
         key, value = key.strip(), value.strip()
         if key == "description":
-            description = value
+            description = unquote(strip_yaml_comment(value))
         elif key == "globs":
-            globs = [g.strip() for g in value.split(",") if g.strip()]
+            cleaned_value = strip_yaml_comment(value)
+            if cleaned_value.startswith("[") and not flow_sequence_complete(cleaned_value):
+                while index + 1 < len(lines):
+                    index += 1
+                    raw_continuation = lines[index].strip()
+                    continuation = (
+                        raw_continuation
+                        if flow_quote_state(cleaned_value)
+                        else strip_yaml_comment(raw_continuation)
+                    )
+                    if continuation:
+                        if flow_line_continues(cleaned_value):
+                            cleaned_value = cleaned_value[:-1] + continuation.lstrip()
+                        else:
+                            cleaned_value += " " + continuation
+                    if flow_sequence_complete(cleaned_value):
+                        break
+            if cleaned_value:
+                globs = split_globs(cleaned_value)
+            else:
+                index += 1
+                while index < len(lines):
+                    item = lines[index].strip()
+                    if not item or item.startswith("#"):
+                        index += 1
+                        continue
+                    if not item.startswith("-"):
+                        index -= 1
+                        break
+                    pattern = unquote(strip_yaml_comment(item[1:].strip()))
+                    if pattern:
+                        globs.append(pattern)
+                    index += 1
         elif key == "alwaysApply":
-            always = value.lower() == "true"
+            always = unquote(strip_yaml_comment(value)).lower() == "true"
+        index += 1
     return Rule(path, description, globs, always, body)
 
 
@@ -149,12 +379,103 @@ def load_sent(session_id: str) -> set[str]:
         return set()
 
 
-def save_sent(session_id: str, sent: set[str]) -> None:
+def save_sent(session_id: str, sent: set[str]) -> bool:
     try:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
-        state_file(session_id).write_text(json.dumps(sorted(sent)), encoding="utf-8")
+        destination = state_file(session_id)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=STATE_DIR,
+            prefix=destination.name + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            json.dump(sorted(sent), handle)
+            temporary = Path(handle.name)
+        os.replace(temporary, destination)
+        return True
+    except Exception:
+        return False
+
+
+def clear_sent(session_id: str) -> None:
+    if save_sent(session_id, set()):
+        return
+    try:
+        state_file(session_id).unlink(missing_ok=True)
     except Exception:
         pass
+
+
+@contextmanager
+def session_lock(session_id: str):
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = state_file(session_id).with_suffix(".lock")
+    with lock_path.open("a+b") as handle:
+        if os.name == "nt":
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def deliver_rule_context(session_id: str, candidates: list[Rule], deliver) -> bool:
+    lock = session_lock(session_id)
+    try:
+        lock.__enter__()
+    except Exception:
+        if not candidates:
+            return False
+        deliver(candidates)
+        return True
+
+    try:
+        sent = load_sent(session_id)
+        selected = [rule for rule in candidates if rule.rel not in sent]
+        if not selected:
+            return False
+        deliver(selected)
+        save_sent(session_id, sent | {rule.rel for rule in selected})
+        return True
+    finally:
+        lock.__exit__(*sys.exc_info())
+
+
+def deliver_session_start(session_id: str, source: str, always: list[Rule], deliver) -> bool:
+    lock = session_lock(session_id)
+    try:
+        lock.__enter__()
+    except Exception:
+        if source != "resume":
+            clear_sent(session_id)
+        if not always:
+            return False
+        deliver(always)
+        return True
+
+    try:
+        sent = load_sent(session_id) if source == "resume" else set()
+        if source != "resume":
+            clear_sent(session_id)
+        if always:
+            deliver(always)
+        save_sent(session_id, sent | {rule.rel for rule in always})
+        return bool(always)
+    finally:
+        lock.__exit__(*sys.exc_info())
 
 
 def collect_target_paths(tool_input: object) -> list[str]:
@@ -180,15 +501,21 @@ def collect_target_paths(tool_input: object) -> list[str]:
 
     walk(tool_input)
 
+    root = REPO_ROOT.resolve()
     rel: list[str] = []
     for raw in found:
+        raw = raw.strip()
+        if not raw or "\x00" in raw:
+            continue
         path = Path(raw)
-        if path.is_absolute():
-            try:
-                path = path.relative_to(REPO_ROOT)
-            except ValueError:
-                continue
-        rel.append(path.as_posix())
+        candidate = path if path.is_absolute() else root / path
+        try:
+            relative = candidate.resolve(strict=False).relative_to(root)
+        except (OSError, RuntimeError, ValueError):
+            continue
+        normalized = relative.as_posix()
+        if relative.parts and normalized not in rel:
+            rel.append(normalized)
     return rel
 
 
@@ -218,27 +545,30 @@ def main() -> int:
     try:
         rules = load_rules()
     except Exception:
-        return 0
-    if not rules:
+        if event == "SessionStart" and payload.get("source", "") != "resume":
+            clear_sent(session_id)
         return 0
 
     if event == "SessionStart":
-        if payload.get("source") == "clear":
-            state_file(session_id).unlink(missing_ok=True)
+        source = payload.get("source", "")
         always = [r for r in rules if r.always]
-        if not always:
-            return 0
-        save_sent(session_id, {r.rel for r in always})
-        emit(
-            event,
-            render(
-                always,
-                "Project rules for this repository, always in force. They are"
-                " authoritative; `.cursor/rules/` is their single source of truth."
-                " More rules are attached automatically when you edit files they"
-                " cover.",
-            ),
-        )
+
+        def deliver(selected: list[Rule]) -> None:
+            emit(
+                event,
+                render(
+                    selected,
+                    "Project rules for this repository, always in force."
+                    " The ZCode project hook attached them from `.cursor/rules/`;"
+                    " no separate ZCode copy is maintained. More rules are attached"
+                    " automatically when you edit files they cover.",
+                ),
+            )
+
+        deliver_session_start(session_id, source, always, deliver)
+        return 0
+
+    if not rules:
         return 0
 
     if event != "PreToolUse":
@@ -248,28 +578,30 @@ def main() -> int:
     if not paths:
         return 0
 
-    sent = load_sent(session_id)
-    matched: list[Rule] = []
+    candidates: list[Rule] = []
     for rule in rules:
-        if rule.always or rule.rel in sent or not rule.globs:
+        if rule.always or not rule.globs:
             continue
         patterns = [glob_to_regex(g) for g in rule.globs]
         if any(p.match(path) for path in paths for p in patterns):
-            matched.append(rule)
+            candidates.append(rule)
 
-    if not matched:
+    if not candidates:
         return 0
 
-    save_sent(session_id, sent | {r.rel for r in matched})
     touched = ", ".join(sorted(set(paths))[:8])
-    emit(
-        event,
-        render(
-            matched,
-            f"Project rules that cover the files you are editing ({touched})."
-            " Apply them to this change before continuing.",
-        ),
-    )
+
+    def deliver(matched: list[Rule]) -> None:
+        emit(
+            event,
+            render(
+                matched,
+                f"Project rules that cover the files you are editing ({touched})."
+                " Apply them to this change before continuing.",
+            ),
+        )
+
+    deliver_rule_context(session_id, candidates, deliver)
     return 0
 
 

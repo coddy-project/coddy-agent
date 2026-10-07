@@ -15,7 +15,10 @@ Feature: Truncated LLM streams surface as errors
   frame the server closed without a blank line, meets the same error on a
   body cut inside a data: line. In every case the text already delivered is
   kept, no tool call of the unfinished answer runs, and the request is not
-  sent again once deltas reached the caller.
+  sent again once deltas reached the caller. A frame that carries no data is
+  not an event at all: the Codex backend sends a ": keep-alive" comment while
+  the model is silent, and the stream reads on past it to its terminal event
+  instead of reporting it as an event cut inside its JSON.
 
   Scenario: A stream cut after text deltas fails and keeps the partial text
     Given an "openai" provider pointed at a stub server that cuts the stream after text deltas
@@ -56,6 +59,13 @@ Feature: Truncated LLM streams surface as errors
     When a streaming completion is requested
     Then the call succeeds with the complete text "Hello from server"
     And the reported stop reason is "end_turn"
+
+  Scenario: A Codex stream with keep-alive comments while the model is silent succeeds
+    Given a "codex" provider pointed at a stub server that sends keep-alive comments while the model is silent
+    When a streaming completion is requested
+    Then the call succeeds with the complete text "Hello from server"
+    And the reported stop reason is "end_turn"
+    And the stub server received 1 request
 
   Scenario: A Codex response stopped at its output cap reports max_tokens
     Given a "codex" provider pointed at a stub server that stops the response at its output cap

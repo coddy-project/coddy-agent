@@ -126,13 +126,11 @@ def _render_config_into(
     template = (REPO_ROOT / "examples" / "config.demo.yaml").read_text()
     resolved = template.replace("__E2E_LOG_PATH__", str(home / "e2e.log"))
     if mcp_servers:
-        # YAML reads JSON, so the list lands as a flow sequence in place of
-        # the template's empty one.
-        assert "mcp_servers: []" in resolved, "config.demo.yaml lost its mcp_servers line"
-        resolved = resolved.replace("mcp_servers: []", "mcp_servers: " + json.dumps(mcp_servers))
+        # MCP servers live in <home>/mcp.json, never in config.yaml.
+        write_home_mcp_json(home, mcp_servers)
     if skill_sources:
-        assert "skills:\n  dirs:" in resolved, "config.demo.yaml lost its skills.dirs line"
-        resolved = resolved.replace("skills:\n  dirs:", "skills:\n  sources: " + json.dumps(skill_sources) + "\n  dirs:")
+        # Skill sources live in <home>/marketplaces.json, never in config.yaml.
+        (home / "marketplaces.json").write_text(json.dumps({"sources": skill_sources}, indent=2) + "\n")
     resolved = resolved.replace(
         'model: "rpa/qwen3.6-35b-a3b"\n  max_turns', f'model: "{model}"\n  max_turns'
     )
@@ -143,6 +141,22 @@ def _render_config_into(
     (home / "config.yaml").write_text(resolved)
     (home / "sessions").mkdir(exist_ok=True)
     (home / "skills_fixture").mkdir(exist_ok=True)
+
+
+def write_home_mcp_json(home: Path, servers: list[dict]) -> None:
+    """Declare servers in <home>/mcp.json, Cursor's shape.
+
+    Each server is a dict with a name and the fields of an mcp.json entry;
+    env and headers may be given as {"name", "value"} lists or as objects.
+    """
+    entries = {}
+    for server in servers:
+        entry = {key: value for key, value in server.items() if key != "name"}
+        for field in ("env", "headers"):
+            if isinstance(entry.get(field), list):
+                entry[field] = {pair["name"]: pair["value"] for pair in entry[field]}
+        entries[server["name"]] = entry
+    (home / "mcp.json").write_text(json.dumps({"mcpServers": entries}, indent=2) + "\n")
 
 
 def _seed_env_into(home: Path) -> None:

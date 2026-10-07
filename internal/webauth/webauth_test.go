@@ -551,3 +551,47 @@ func TestClientAddrBelievesAProxyOnlyFromLoopback(t *testing.T) {
 		})
 	}
 }
+
+// The vector is computed independently (Python's hmac and hashlib) from the
+// algorithm in Telegram's documentation.
+const (
+	tgTestToken = "123456:ABC-test-token"
+	tgTestData  = "auth_date=1759570000&query_id=AAHdF6IQAAAAAN0XohDhrOrc&user=%7B%22id%22%3A4242%2C%22first_name%22%3A%22Anna%22%2C%22username%22%3A%22anna%22%7D&signature=sig-ed25519-ignored&hash=7e45710e0d2b5a67ed32dfcc3945bc07a7f8ceb0bb39bf964a9c84ef4e6935e3"
+)
+
+func TestVerifyTelegramInitData(t *testing.T) {
+	signed := time.Unix(1759570000, 0)
+	got, err := VerifyTelegramInitData(tgTestData, tgTestToken, signed.Add(10*time.Minute), time.Hour)
+	if err != nil || got.UserID != 4242 || got.Username != "anna" || got.Hash == "" {
+		t.Fatalf("valid launch: %+v %v", got, err)
+	}
+	cases := []struct {
+		name, data, token string
+		now               time.Time
+		want              error
+	}{
+		{"wrong token", tgTestData, "123456:other", signed, ErrTelegramSignature},
+		{"tampered user", strings.Replace(tgTestData, "4242", "4243", 1), tgTestToken, signed, ErrTelegramSignature},
+		{"stale", tgTestData, tgTestToken, signed.Add(2 * time.Hour), ErrTelegramExpired},
+		{"from the future", tgTestData, tgTestToken, signed.Add(-time.Hour), ErrTelegramExpired},
+		{"no hash", strings.Split(tgTestData, "&hash=")[0], tgTestToken, signed, ErrTelegramMalformed},
+		{"a key twice", tgTestData + "&auth_date=1", tgTestToken, signed, ErrTelegramMalformed},
+		{"no token", tgTestData, "", signed, ErrTelegramSignature},
+	}
+	for _, c := range cases {
+		if _, err := VerifyTelegramInitData(c.data, c.token, c.now, time.Hour); !errors.Is(err, c.want) {
+			t.Errorf("%s: got %v, want %v", c.name, err, c.want)
+		}
+	}
+}
+
+func TestReplayGuard(t *testing.T) {
+	var g ReplayGuard
+	now := time.Unix(1000, 0)
+	if !g.Use("a", now.Add(time.Hour), now) || g.Use("a", now.Add(time.Hour), now) {
+		t.Fatal("a launch was accepted twice")
+	}
+	if !g.Use("a", now.Add(3*time.Hour), now.Add(2*time.Hour)) {
+		t.Fatal("an expired entry was not forgotten")
+	}
+}

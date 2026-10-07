@@ -48,6 +48,10 @@ type State struct {
 	// CWD is the session working directory.
 	CWD string
 
+	// persistedCWD keeps the original path when a missing managed worktree is
+	// recovered to its parent checkout for this process.
+	persistedCWD string
+
 	// Mode is the current operating mode.
 	Mode Mode
 
@@ -153,11 +157,11 @@ type State struct {
 	// RulesCatalog is discovered project rules for the session CWD.
 	RulesCatalog []*rules.Rule
 	// rulesGeneration counts the catalogs this session has had: every
-	// ReplaceRulesCatalog starts a new generation. rulesPrompts are the
-	// standing part of the system prompt rendered for the current one, one per
-	// kind of template: with {{.Rules}} and without (rules_load.go).
+	// ReplaceRulesCatalog starts a new generation. rulesPrompt is the standing
+	// part of the system prompt rendered for the current one, whatever template
+	// a turn runs on (rules_load.go).
 	rulesGeneration uint64
-	rulesPrompts    [2]*RulesPrompt
+	rulesPrompt     *RulesPrompt
 	// LastContextBreakdown is the latest per-category token estimate for the UI.
 	LastContextBreakdown *ContextBreakdown
 	// contextWindows reads the provider-reported context windows cached by
@@ -206,6 +210,9 @@ type State struct {
 	// surfaceSystemPrompt is the block the surface running the current turn
 	// contributed to the system prompt; turn-scoped and never persisted.
 	surfaceSystemPrompt string
+	// turnRestriction is what the surface running the current turn took away
+	// from it; turn-scoped and never persisted.
+	turnRestriction *TurnRestriction
 	// turnWake is the background wake the current turn was started for, until
 	// the agent takes it to mark the turn's first message; turn-scoped.
 	turnWake *llm.BackgroundWake
@@ -219,6 +226,10 @@ type State struct {
 	// schedulerJobId, which is what keeps it out of the working list.
 	SchedulerRun   bool
 	SchedulerJobID string
+	// SchedulerJobWorkspace is the canonical workspace of a project job's
+	// session; empty for a user job. It is what keeps a user job and a project
+	// job of the same id from finding each other's session.
+	SchedulerJobWorkspace string
 
 	// PermissionMode is the session-level override for tools.permission_mode.
 	// Empty means use the config default. Values: "ask", "accept_edits", "bypass".
@@ -268,8 +279,11 @@ type State struct {
 
 	// activitySeq increments when an agent turn finishes (persisted in session.json).
 	// readActivitySeq is advanced when the user marks the session read (PATCH markActivityRead).
+	// lastErrorSeq is the activity generation of the latest real failure, or zero
+	// when the latest outcome was not an error.
 	activitySeq     uint64
 	readActivitySeq uint64
+	lastErrorSeq    uint64
 
 	// persist is invoked after persisted fields change (set by Manager; may be nil).
 	persist func()
@@ -327,10 +341,31 @@ func (s *State) GetCWD() string {
 	return s.CWD
 }
 
+// CWDForPersist returns the original stored workspace when a deleted managed
+// worktree was recovered to an effective parent-checkout workspace.
+func (s *State) CWDForPersist() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.persistedCWD != "" {
+		return s.persistedCWD
+	}
+	return s.CWD
+}
+
+// RestoreRecoveredCWD sets an effective fallback without changing the path
+// an ordinary persistence operation writes. SetCWD clears this override.
+func (s *State) RestoreRecoveredCWD(effective, persisted string) {
+	s.mu.Lock()
+	s.CWD = effective
+	s.persistedCWD = persisted
+	s.mu.Unlock()
+}
+
 // SetCWD updates the session working directory (persisted in session.json).
 func (s *State) SetCWD(dir string) {
 	s.mu.Lock()
 	s.CWD = dir
+	s.persistedCWD = ""
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -358,6 +393,22 @@ func (s *State) SetSchedulerJobWithoutPersist(jobID string) {
 	s.SchedulerRun = true
 	s.SchedulerJobID = strings.TrimSpace(jobID)
 	s.mu.Unlock()
+}
+
+// SetSchedulerJobWorkspaceWithoutPersist records the workspace of a project
+// job's session (see SchedulerJobWorkspace); empty for a user job.
+func (s *State) SetSchedulerJobWorkspaceWithoutPersist(workspace string) {
+	s.mu.Lock()
+	s.SchedulerJobWorkspace = strings.TrimSpace(workspace)
+	s.mu.Unlock()
+}
+
+// GetSchedulerJobWorkspace returns the workspace of a project job's session,
+// "" for a user job or an ordinary session.
+func (s *State) GetSchedulerJobWorkspace() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SchedulerJobWorkspace
 }
 
 // IsSchedulerJob reports whether this session belongs to a scheduler job: the
@@ -480,8 +531,11 @@ type SubagentMeta struct {
 
 // SchedulerRunMeta is the origin of a scheduled run.
 type SchedulerRunMeta struct {
-	// JobID is the scheduler job (the file basename under scheduler.dir).
+	// JobID is the scheduler job (the basename of its *.md file).
 	JobID string
+	// Workspace is the canonical workspace of a project job; empty for a
+	// user job.
+	Workspace string
 	// Trigger is "cron" for a run the tick started, "manual" for one asked
 	// for through the API or a tool.
 	Trigger string
@@ -1041,6 +1095,7 @@ func normalizeModelID(cfg *config.Config, id string) string {
 // AddMessage appends a message to the conversation history.
 func (s *State) AddMessage(msg llm.Message) {
 	s.mu.Lock()
+	placePendingArtifacts(s.Messages, &msg)
 	s.Messages = append(s.Messages, msg)
 	s.markMessagesAppended()
 	s.mu.Unlock()
@@ -1490,6 +1545,21 @@ func (s *State) SetSurfaceSystemPrompt(block string) {
 	s.mu.Unlock()
 }
 
+// SetTurnRestriction records what the surface running the current turn takes
+// away from it; nil clears it.
+func (s *State) SetTurnRestriction(r *TurnRestriction) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnRestriction = r
+}
+
+// GetTurnRestriction returns the current turn's restriction, or nil.
+func (s *State) GetTurnRestriction() *TurnRestriction {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.turnRestriction
+}
+
 // GetSurfaceSystemPrompt returns that block, or "" when the turn came from a
 // surface that asks for nothing.
 func (s *State) GetSurfaceSystemPrompt() string {
@@ -1763,7 +1833,7 @@ func (s *State) ReplaceRulesCatalog(cat []*rules.Rule) {
 	s.mu.Lock()
 	s.RulesCatalog = cat
 	s.rulesGeneration++
-	s.rulesPrompts = [2]*RulesPrompt{}
+	s.rulesPrompt = nil
 	s.mu.Unlock()
 }
 
@@ -1868,11 +1938,29 @@ func (s *State) RestorePermissionGrantsWithoutPersist(commands, writes, httpKeys
 	s.mu.Unlock()
 }
 
-// RestoreActivityFromSnapshot restores activitySeq/readActivitySeq from disk (session/load).
-func (s *State) RestoreActivityFromSnapshot(activitySeq, readActivitySeq uint64) {
+// RestoreActivityFromSnapshot merges activity counters from disk (session/load).
+// A disk read can be older than a live turn that finished while the read was in
+// flight, so restoring is deliberately monotonic and never rolls counters back.
+// The optional third argument keeps older in-process callers source compatible;
+// snapshots without the field restore a zero error generation.
+func (s *State) RestoreActivityFromSnapshot(activitySeq, readActivitySeq uint64, lastError ...uint64) {
+	lastErrorSeq := uint64(0)
+	if len(lastError) > 0 {
+		lastErrorSeq = lastError[0]
+	}
 	s.mu.Lock()
-	s.activitySeq = activitySeq
-	s.readActivitySeq = readActivitySeq
+	if activitySeq > s.activitySeq {
+		s.activitySeq = activitySeq
+		s.lastErrorSeq = lastErrorSeq
+	} else if activitySeq == s.activitySeq && lastErrorSeq > s.lastErrorSeq {
+		s.lastErrorSeq = lastErrorSeq
+	}
+	if readActivitySeq > s.readActivitySeq {
+		s.readActivitySeq = readActivitySeq
+	}
+	if s.readActivitySeq > s.activitySeq {
+		s.readActivitySeq = s.activitySeq
+	}
 	s.mu.Unlock()
 }
 
@@ -1890,12 +1978,44 @@ func (s *State) GetReadActivitySeq() uint64 {
 	return s.readActivitySeq
 }
 
-// BumpActivitySeq increments the activity counter after a completed agent turn and persists.
-func (s *State) BumpActivitySeq() {
+// GetLastErrorSeq returns the activity generation of the latest real failure.
+func (s *State) GetLastErrorSeq() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastErrorSeq
+}
+
+// ActivityOutcome describes how an admitted agent turn ended.
+type ActivityOutcome uint8
+
+const (
+	ActivityOutcomeSuccess ActivityOutcome = iota
+	ActivityOutcomeFailure
+	ActivityOutcomeCanceled
+)
+
+// RecordActivityOutcome atomically advances the activity generation and records
+// the outcome before persistence is invoked. Cancellation deliberately keeps
+// the previous error marker while retaining the existing activity increment.
+func (s *State) RecordActivityOutcome(outcome ActivityOutcome) {
 	s.mu.Lock()
 	s.activitySeq++
+	switch outcome {
+	case ActivityOutcomeFailure:
+		s.lastErrorSeq = s.activitySeq
+	case ActivityOutcomeSuccess:
+		s.lastErrorSeq = 0
+	case ActivityOutcomeCanceled:
+		// Preserve the previous failure marker.
+	}
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// BumpActivitySeq increments the activity counter after a completed agent turn and persists.
+// It is kept for callers that only know about the historical success operation.
+func (s *State) BumpActivitySeq() {
+	s.RecordActivityOutcome(ActivityOutcomeSuccess)
 }
 
 // MarkActivityReadSynced sets readActivitySeq to the current activitySeq in memory.

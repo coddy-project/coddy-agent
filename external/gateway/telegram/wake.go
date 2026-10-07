@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/external/gateway/access"
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -77,10 +78,20 @@ func (b *Bot) runWokenTurn(ctx context.Context, bot *tgbotapi.BotAPI, chatID int
 	sender.pictures = st
 	mirrored, releaseMirror := session.Mirror(b.mirror, st.GetID(), sender)
 	defer releaseMirror()
+	// Nobody typed this turn: it runs with the rights of whoever the
+	// conversation belongs to, and a shared group's belongs to everybody.
+	admin := false
+	if key, ok := b.store.KeyFor(st.GetID()); ok {
+		admin = access.KeyIsAdmin(key, b.cfg)
+	}
 
 	b.log.Debug("telegram: woken turn", "session", st.GetID(), "chat", chatID, "tasks", len(wake.Tasks))
 	opts := wake.RunOpts()
 	opts.SurfaceSystemPrompt = surfaceSystemPrompt(rich)
+	if !admin {
+		opts.Restriction = access.NonAdminTurn()
+		sender.refuseApprovals = true
+	}
 	result, err := b.runner.HandleSessionPromptWithSender(ctx, wake.PromptParams(), mirrored, opts)
 	if errors.Is(err, session.ErrSessionTurnBusy) {
 		// The person's own turn is still running: the waker asks again once

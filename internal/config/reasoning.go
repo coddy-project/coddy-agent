@@ -92,52 +92,35 @@ func ReasoningLevelsForProviderType(ent *ModelEntry, providerType string) []stri
 	return remapMinimalToNone(levels)
 }
 
-// ReasoningOffOffered reports whether thinking can really be turned off for
-// this model entry, so "off" may be offered next to its levels.
-//
-// Off is only honest where the provider has a switch for it: the chat-template
-// flag of Qwen3 on an OpenAI-compatible server, Anthropic's thinking block, the
-// Codex backend's "none" tier, and any model whose configured levels include
-// "none". A gpt-5 model's "minimal" still reasons, and the o-series and
-// gpt-oss have no switch at all, so off is not offered there. A model with no
-// levels (none detected, or reasoning_levels: []) has nothing to switch.
+// ReasoningOffOffered reports whether the operator enabled the off pseudo-level
+// for this model entry. The setting attests that this deployment honours its
+// provider-specific request; Coddy does not infer that capability from a model
+// name or provider type. A model with no reasoning levels has nothing to switch.
 func (c *Config) ReasoningOffOffered(ent *ModelEntry) bool {
+	if ent == nil || !ent.AllowReasoningOff {
+		return false
+	}
 	levels := c.ReasoningLevelsFor(ent)
-	if len(levels) == 0 {
-		return false
-	}
-	for _, lv := range levels {
-		if lv == ReasoningNone {
-			return true
-		}
-	}
-	providerType := ""
-	if c != nil {
-		if prov := c.FindProvider(ent.ProviderName()); prov != nil {
-			providerType = prov.Type
-		}
-	}
-	switch providerType {
-	case "anthropic", "codex":
-		return true
-	case "openai", "neuraldeep":
-		return isQwenThinking(strings.ToLower(strings.TrimSpace(ent.APIModel())))
-	default:
-		return false
-	}
+	return len(levels) > 0
 }
 
 // ReasoningChoicesFor returns what a session may select for this model entry:
-// its levels, then "off" when the provider can turn thinking off.
+// its levels, then "off" when the model configuration permits it.
 func (c *Config) ReasoningChoicesFor(ent *ModelEntry) []string {
 	levels := c.ReasoningLevelsFor(ent)
-	if len(levels) == 0 {
+	choices := make([]string, 0, len(levels)+1)
+	for _, level := range levels {
+		if level != ReasoningOff {
+			choices = append(choices, level)
+		}
+	}
+	if len(choices) == 0 {
 		return nil
 	}
 	if c.ReasoningOffOffered(ent) {
-		levels = append(levels, ReasoningOff)
+		choices = append(choices, ReasoningOff)
 	}
-	return levels
+	return choices
 }
 
 // DefaultReasoningLevelFor returns the pre-selected level for one model entry

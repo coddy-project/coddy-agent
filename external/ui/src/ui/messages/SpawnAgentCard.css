@@ -50,22 +50,28 @@
 }
 
 .spawn-agent-timeout {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 5px;
-  margin-left: auto;
-  padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  border-radius: 999px;
+  margin-top: 2px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
 }
 
-.spawn-agent-timeout svg {
-  width: 14px;
-  height: 14px;
+.spawn-agent-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.spawn-agent-model {
+  color: var(--text);
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
+.spawn-agent-reasoning {
+  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
 }
 
 .spawn-agent-prompt {
@@ -78,6 +84,38 @@
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.spawn-agent-prompt--collapsed {
+  max-height: 5.2em;
+  overflow: hidden;
+}
+
+.spawn-agent-prompt--scroll {
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.spawn-agent-prompt-toggle {
+  margin-left: 0;
+}
+
+.spawn-agent-transcript {
+  display: inline-flex;
+  margin-top: 10px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.spawn-agent-transcript:disabled {
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  cursor: not-allowed;
 }
 
 .coddy-tool-call-body--connected-result > .spawn-agent-card {

@@ -203,6 +203,14 @@ func (f *FileStore) EnsureChildLayout(parentSessionID, childSessionID string) (s
 		return "", err
 	}
 	dir := filepath.Join(f.SessionPath(parentSessionID), ChildSessionsDirName, childSessionID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	unlock, err := f.lockSessionBundle(dir)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	if err := f.ensureLayoutAt(childSessionID, dir); err != nil {
 		return "", err
 	}

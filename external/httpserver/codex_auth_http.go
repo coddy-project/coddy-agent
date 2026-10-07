@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"strings"
@@ -34,6 +35,10 @@ type codexAuthLoginResponse struct {
 	Status          string `json:"status,omitempty"`
 	Connected       bool   `json:"connected"`
 	Error           string `json:"error,omitempty"`
+}
+
+type codexDeviceStartRequest struct {
+	Proxy *string `json:"proxy"`
 }
 
 // cancelCodexAuthLogins stops every sign-in still waiting for confirmation.
@@ -137,6 +142,15 @@ func (s *Server) coddyProviderCodexAuthDevicePost(w http.ResponseWriter, r *http
 	if !ok {
 		return
 	}
+	var body codexDeviceStartRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, neuralDeepDeviceStartBodyLimit)).Decode(&body); err != nil && err != io.EOF {
+		writeCoddyConfigErr(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	if err := applySignInProxy(&provider, body.Proxy); err != nil {
+		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	client, err := llm.HTTPClientForProviderProxy(provider.Proxy)
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
@@ -218,6 +232,23 @@ func (s *Server) coddyProviderCodexAuthDevicePost(w http.ResponseWriter, r *http
 		UserCode:        login.UserCode,
 		Status:          "pending",
 	})
+}
+
+// applySignInProxy resolves the optional proxy a Settings form posts for a
+// device sign-in. A missing field keeps the resolved row's proxy. A present
+// empty string is deliberate: it clears a saved URL and follows the process
+// proxy. Parse through the same config helper that builds provider clients so
+// malformed URLs fail before the issuer or hub is contacted.
+func applySignInProxy(provider *config.ProviderConfig, override *string) error {
+	if override == nil {
+		return nil
+	}
+	setting := strings.TrimSpace(*override)
+	if _, _, err := config.ParseProxySetting(setting); err != nil {
+		return err
+	}
+	provider.Proxy = setting
+	return nil
 }
 
 // persistCodexLogin stores the credential a device login obtained and marks

@@ -1,5 +1,6 @@
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import rehypeHighlight from "rehype-highlight";
 import { syntaxHighlightOptions } from "./syntaxLanguages";
 import {
@@ -17,6 +18,13 @@ import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
 import { remarkDocMentions } from "./remarkDocMentions";
+import { DiagramBlock, MarkdownStreamingContext } from "./DiagramBlock";
+import { MathBlock, MathInline } from "./MathFormula";
+import {
+  normalizeMathDelimiters,
+  remarkLiteralDollars,
+} from "./mathDelimiters";
+import { pictureKindOf } from "./pictureRender";
 
 /**
  * rehype-highlight builds a new highlighter each time its attacher runs - every
@@ -30,7 +38,12 @@ function rehypeHighlightShared() {
   highlightTransformer ??= rehypeHighlight(syntaxHighlightOptions);
   return highlightTransformer;
 }
-const REMARK_PLUGINS = [remarkGfm, remarkDocMentions];
+const REMARK_PLUGINS = [
+  remarkGfm,
+  remarkMath,
+  remarkLiteralDollars,
+  remarkDocMentions,
+];
 const REHYPE_PLUGINS = [rehypeHighlightShared];
 
 /** A video file where Markdown has an image: the documentation embeds its
@@ -133,8 +146,18 @@ function InlineCode(props: { className?: string; children?: unknown }) {
   );
 }
 
+/** remark-math marks `$...$` as inline code of these classes. */
+const MATH_INLINE = /(?:^|\s)math-inline(?:\s|$)/;
+/** `$$...$$` and a ```math fence. */
+const MATH_BLOCK = /(?:^|\s)language-math(?:\s|$)/;
+
 function MarkdownCode(props: CodeProps) {
   const inPre = useContext(MarkdownPreContext);
+  if (!inPre && MATH_INLINE.test(props.className || "")) {
+    // Dollars that only look like a formula were turned back into text by
+    // remarkLiteralDollars before they got here.
+    return <MathInline source={normalizeText(props.children)} />;
+  }
   if (!inPre) {
     return (
       <InlineCode className={props.className || ""}>
@@ -142,13 +165,28 @@ function MarkdownCode(props: CodeProps) {
       </InlineCode>
     );
   }
-  return (
-    <code className={props.className || ""}>{props.children as any}</code>
-  );
+  return <code className={props.className || ""}>{props.children as any}</code>;
 }
 
 function MarkdownPre(props: PreProps) {
   const txt = normalizeText(props.children);
+  const code = isValidElement(props.children)
+    ? (props.children.props as { className?: string; children?: unknown })
+    : undefined;
+  const className = code?.className || "";
+  if (MATH_BLOCK.test(className)) {
+    return <MathBlock source={txt.replace(/\n$/, "")} />;
+  }
+  const picture = pictureKindOf(className);
+  if (picture) {
+    return (
+      <MarkdownPreContext.Provider value={true}>
+        <DiagramBlock kind={picture} source={txt.replace(/\n$/, "")}>
+          <code className={className}>{code?.children as any}</code>
+        </DiagramBlock>
+      </MarkdownPreContext.Provider>
+    );
+  }
   return (
     <MarkdownPreContext.Provider value={true}>
       <div className="md-code">
@@ -159,7 +197,11 @@ function MarkdownPre(props: PreProps) {
   );
 }
 
-export const Markdown = memo(function Markdown(props: { text: string }) {
+export const Markdown = memo(function Markdown(props: {
+  text: string;
+  /** The text is still arriving: a diagram that does not parse yet is not an error. */
+  streaming?: boolean;
+}) {
   const components = useMemo(
     () => ({
       code: MarkdownCode,
@@ -236,15 +278,17 @@ export const Markdown = memo(function Markdown(props: { text: string }) {
   }, []);
 
   return (
-    <div className="md">
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={REHYPE_PLUGINS}
-        components={components}
-        urlTransform={urlTransform}
-      >
-        {props.text}
-      </ReactMarkdown>
-    </div>
+    <MarkdownStreamingContext.Provider value={props.streaming === true}>
+      <div className="md">
+        <ReactMarkdown
+          remarkPlugins={REMARK_PLUGINS}
+          rehypePlugins={REHYPE_PLUGINS}
+          components={components}
+          urlTransform={urlTransform}
+        >
+          {normalizeMathDelimiters(props.text)}
+        </ReactMarkdown>
+      </div>
+    </MarkdownStreamingContext.Provider>
   );
 });

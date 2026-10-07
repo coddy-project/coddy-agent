@@ -17,7 +17,7 @@ package skills
 //
 // The marketplace those skills are published from needs no receipt: it is a
 // system source (config.SystemSkillsSource), listed and synced beside whatever
-// skills.sources names, so no config file is ever written here.
+// the marketplaces.json files declare, so no file is ever written here.
 
 import (
 	"encoding/json"

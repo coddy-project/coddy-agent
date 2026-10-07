@@ -96,6 +96,57 @@ func TestRequestQuestionSSECompletesWhenPosted(t *testing.T) {
 	}
 }
 
+func TestRequestQuestionNotifiesPendingLifecycle(t *testing.T) {
+	rec := &syncBuffer{}
+	sender := NewSender(&config.Config{}, rec, true, "agent-model")
+	transitions := make(chan struct {
+		sessionID string
+		pending   bool
+	}, 2)
+	sender.SetQuestionPendingCallback(func(sessionID string, pending bool) {
+		transitions <- struct {
+			sessionID string
+			pending   bool
+		}{sessionID: sessionID, pending: pending}
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := sender.RequestQuestion(context.Background(), acp.QuestionRequestParams{
+			SessionID: "s-pending",
+			RequestID: "r-pending",
+			Questions: []acp.QuestionPrompt{{Question: "private question", Options: []acp.QuestionOption{{Label: "yes"}}}},
+		})
+		done <- err
+	}()
+
+	select {
+	case transition := <-transitions:
+		if transition.sessionID != "s-pending" || !transition.pending {
+			t.Fatalf("first question transition = %+v, want pending", transition)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("question pending transition was not reported")
+	}
+	if !QuestionPending("s-pending") {
+		t.Fatal("question wait was not registered")
+	}
+	if !CompleteQuestionAnswer("s-pending", "r-pending", &acp.QuestionResult{Answers: [][]string{{"yes"}}}) {
+		t.Fatal("CompleteQuestionAnswer failed")
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case transition := <-transitions:
+		if transition.sessionID != "s-pending" || transition.pending {
+			t.Fatalf("second question transition = %+v, want settled", transition)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("question settled transition was not reported")
+	}
+}
+
 // deadResponseWriter stands in for a client that went away mid-turn: every
 // write reports the broken pipe a real socket returns.
 type deadResponseWriter struct{}
@@ -504,6 +555,37 @@ func TestOpenAIStreamFilter_UsageChunkFollowsTheFinishedChoice(t *testing.T) {
 		if strings.Contains(fr, `"usage"`) {
 			t.Fatalf("usage frame sent without include_usage: %s", fr)
 		}
+	}
+}
+
+func TestOpenAIStreamFilter_SumsUsageAcrossCallsAndIncludesCache(t *testing.T) {
+	frames := openAIFilterFrames(t, true,
+		"event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":30,\"outputTokens\":12,\"totalTokens\":42,\"cachedInputTokens\":20}\n\n",
+		"event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":8,\"outputTokens\":3,\"totalTokens\":53,\"cachedInputTokens\":5}\n\n",
+		"data: [DONE]\n\n")
+	usage := frames[len(frames)-2]
+	if !strings.Contains(usage, `"prompt_tokens":38`) || !strings.Contains(usage, `"completion_tokens":15`) || !strings.Contains(usage, `"total_tokens":53`) || !strings.Contains(usage, `"cached_tokens":25`) {
+		t.Fatalf("usage frame did not sum both calls: %s", usage)
+	}
+}
+
+func TestNonStreamingSenderSumsUsageAcrossCalls(t *testing.T) {
+	sender := NewSender(nil, nil, false, "local/m")
+	for _, update := range []acp.TokenUsageUpdate{
+		{InputTokens: 30, OutputTokens: 12, TotalTokens: 42, CachedInputTokens: 20},
+		{InputTokens: 8, OutputTokens: 3, TotalTokens: 53, CachedInputTokens: 5},
+	} {
+		if err := sender.SendSessionUpdate("s", update); err != nil {
+			t.Fatal(err)
+		}
+	}
+	usage := sender.CompletionUsage()
+	if usage["prompt_tokens"] != 38 || usage["completion_tokens"] != 15 || usage["total_tokens"] != 53 {
+		t.Fatalf("non-stream usage did not sum both calls: %+v", usage)
+	}
+	details, _ := usage["prompt_tokens_details"].(map[string]int)
+	if details["cached_tokens"] != 25 {
+		t.Fatalf("non-stream cache usage = %+v", usage)
 	}
 }
 

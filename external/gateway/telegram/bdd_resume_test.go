@@ -4,17 +4,16 @@ package telegram
 
 // Godog harness for features/gateway_telegram_resume.feature: drives /resume,
 // the keyboard tap and the message that follows through the real handlers
-// against a stub Telegram API and a server that keeps a fixed set of sessions,
-// and asserts on which session the next prompt reached. No LLM and no network
+// against the fake Bot API (internal/tgfake) and a server that keeps a fixed
+// set of sessions, and asserts on which session the next prompt reached and on
+// what the chat shows. What the user types lands in the fake's chat first, so
+// the bot replies to a message Telegram holds, and a tap presses the keyboard
+// the bot really sent, on the message it sent it with. No LLM and no network
 // beyond the local httptest server.
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +29,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 const (
@@ -204,36 +204,14 @@ func (r *resumeRunner) lastPrompt() (resumePrompt, bool) {
 	return r.prompts[len(r.prompts)-1], true
 }
 
-// apiCall is one request the bot made to the stub Telegram API.
-type apiCall struct {
-	method string
-	form   url.Values
-}
-
-// resumeWorld holds the bot, the stub API and what the bot posted.
+// resumeWorld holds the bot, the fake Bot API in front of it and the store the
+// bot persists its chats in.
 type resumeWorld struct {
-	mu sync.Mutex
-
 	runner    *resumeRunner
 	bot       *Bot
-	api       *tgbotapi.BotAPI
-	srv       *httptest.Server
+	f         *fakeAPI
 	storeDir  string
 	storePath string
-	calls     []apiCall
-	nextMsg   int
-}
-
-func (w *resumeWorld) handler(rw http.ResponseWriter, r *http.Request) {
-	_ = r.ParseForm()
-	w.mu.Lock()
-	w.calls = append(w.calls, apiCall{method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:], form: r.PostForm})
-	w.nextMsg++
-	id := w.nextMsg
-	w.mu.Unlock()
-	rw.Header().Set("Content-Type", "application/json")
-	_, _ = fmt.Fprintf(rw, `{"ok":true,"result":{"message_id":%d,"date":0,"chat":{"id":%d,"type":"private"}}}`,
-		id, resumeChatID)
 }
 
 func (w *resumeWorld) gatewayKeepingSessions(table *godog.Table) error {
@@ -247,9 +225,7 @@ func (w *resumeWorld) gatewayKeepingSessions(table *godog.Table) error {
 		}
 		w.runner.keep(row.Cells[0].Value, row.Cells[1].Value, row.Cells[2].Value)
 	}
-	w.srv = httptest.NewServer(http.HandlerFunc(w.handler))
-	w.api = &tgbotapi.BotAPI{Token: "TESTTOKEN", Client: &http.Client{}, Buffer: 100}
-	w.api.SetAPIEndpoint(w.srv.URL + "/bot%s/%s")
+	w.f = openFakeAPI(tgfake.Options{})
 	dir, err := os.MkdirTemp("", "coddy-tg-resume-")
 	if err != nil {
 		return err
@@ -267,14 +243,16 @@ func (w *resumeWorld) buildBot() error {
 	}
 	w.bot = New(&config.TelegramGatewayConfig{
 		Enabled: true, Token: "t", DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual,
+		// /resume reaches every session the server keeps: an admin's command.
+		Admins: []int64{resumeUserID},
 	}, w.runner, "/work", logger.Component(base, logger.ComponentGatewayTelegram), w.storePath, nil)
 	return nil
 }
 
 func (w *resumeWorld) close() {
-	if w.srv != nil {
-		w.srv.Close()
-		w.srv = nil
+	if w.f != nil {
+		w.f.close()
+		w.f = nil
 	}
 	if w.storeDir != "" {
 		_ = os.RemoveAll(w.storeDir)
@@ -286,48 +264,25 @@ func (w *resumeWorld) sessionKey() string {
 	return fmt.Sprintf("tg:user:%d", resumeUserID)
 }
 
-// commandMessage shapes text the way Telegram delivers it: a message that
-// starts with a slash carries a bot_command entity over its first word, so
-// Command and CommandArguments split it as the real client would.
-func commandMessage(text string) *tgbotapi.Message {
-	msg := &tgbotapi.Message{
-		MessageID: 1,
-		From:      &tgbotapi.User{ID: resumeUserID},
-		Chat:      &tgbotapi.Chat{ID: resumeChatID, Type: "private"},
-		Text:      text,
-	}
-	if strings.HasPrefix(text, "/") {
-		length := len(text)
-		if i := strings.IndexByte(text, ' '); i > 0 {
-			length = i
-		}
-		msg.Entities = []tgbotapi.MessageEntity{{Type: "bot_command", Offset: 0, Length: length}}
-	}
-	return msg
-}
-
+// userSends types text into the chat. The message lands in the fake's chat
+// before the bot sees it, so the answer, which quotes it, replies to a message
+// Telegram holds.
 func (w *resumeWorld) userSends(text string) error {
-	w.bot.processMessage(context.Background(), w.api, commandMessage(text), w.sessionKey())
+	msg := w.f.userMessage(resumeChatID, resumeUserID, text)
+	w.bot.processMessage(context.Background(), w.f.api, msg, w.sessionKey())
 	return nil
 }
 
-// lastKeyboard returns the inline keyboard of the most recent message that
-// carried one.
-func (w *resumeWorld) lastKeyboard() (tgbotapi.InlineKeyboardMarkup, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	for i := len(w.calls) - 1; i >= 0; i-- {
-		raw := w.calls[i].form.Get("reply_markup")
-		if raw == "" {
-			continue
+// menu returns the newest message the chat shows with a keyboard under it:
+// the one a person looks at and taps.
+func (w *resumeWorld) menu() (tgfake.MessageView, error) {
+	view := w.f.fake.Chat(resumeChatID)
+	for i := len(view.Messages) - 1; i >= 0; i-- {
+		if m := view.Messages[i]; m.From == "bot" && !m.Deleted && len(m.Keyboard) > 0 {
+			return m, nil
 		}
-		var kb tgbotapi.InlineKeyboardMarkup
-		if err := json.Unmarshal([]byte(raw), &kb); err != nil {
-			return kb, fmt.Errorf("reply_markup is not an inline keyboard: %v", err)
-		}
-		return kb, nil
 	}
-	return tgbotapi.InlineKeyboardMarkup{}, fmt.Errorf("no keyboard in %d api calls", len(w.calls))
+	return tgfake.MessageView{}, fmt.Errorf("no message in the chat shows a keyboard:\n%s", view.Text())
 }
 
 // buttonTitle strips what the label adds around the title: the mark on the
@@ -340,23 +295,30 @@ func buttonTitle(label string) string {
 	return label
 }
 
-// sessionButtons returns the buttons that name a session, in keyboard order,
-// leaving the navigation row out.
-func (w *resumeWorld) sessionButtons() ([]tgbotapi.InlineKeyboardButton, error) {
-	kb, err := w.lastKeyboard()
+// menuButtons splits the keyboard of a message into the buttons that name a
+// session, in keyboard order, and the labels of the navigation row.
+func menuButtons(m tgfake.MessageView) (sessions []tgfake.InlineKeyboardButton, nav []string) {
+	for _, row := range m.Keyboard {
+		for _, btn := range row {
+			if strings.HasPrefix(btn.CallbackData, "resume:s:") {
+				sessions = append(sessions, btn)
+			} else {
+				nav = append(nav, btn.Text)
+			}
+		}
+	}
+	return sessions, nav
+}
+
+// sessionButtons returns the buttons of the menu that name a session, in
+// keyboard order, leaving the navigation row out.
+func (w *resumeWorld) sessionButtons() ([]tgfake.InlineKeyboardButton, error) {
+	m, err := w.menu()
 	if err != nil {
 		return nil, err
 	}
-	var out []tgbotapi.InlineKeyboardButton
-	for _, row := range kb.InlineKeyboard {
-		for _, btn := range row {
-			if btn.CallbackData == nil || !strings.HasPrefix(*btn.CallbackData, "resume:s:") {
-				continue
-			}
-			out = append(out, btn)
-		}
-	}
-	return out, nil
+	sessions, _ := menuButtons(m)
+	return sessions, nil
 }
 
 func (w *resumeWorld) offeredKeyboardWith(table *godog.Table) error {
@@ -378,31 +340,40 @@ func (w *resumeWorld) offeredKeyboardWith(table *godog.Table) error {
 	return nil
 }
 
-func (w *resumeWorld) tapButton(title string) error {
+// tap presses the session button titled title on the menu the chat shows and
+// hands the tap to the bot. The label carries the age of the session as well,
+// so the button is found by its title and pressed by its whole label: the
+// query is one the fake issued, on the message that carries the keyboard.
+func (w *resumeWorld) tap(title string) (*tgbotapi.CallbackQuery, error) {
 	buttons, err := w.sessionButtons()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, btn := range buttons {
 		if buttonTitle(btn.Text) != title {
 			continue
 		}
-		if len(*btn.CallbackData) > telegramCallbackDataMax {
-			return fmt.Errorf("callback_data for %q is %d bytes, over the telegram limit of %d",
-				title, len(*btn.CallbackData), telegramCallbackDataMax)
+		// The fake refuses a keyboard whose callback_data is over Telegram's
+		// limit, so a button that exists already fits; the length is asserted
+		// anyway, because an id an operator chose can be far longer than what
+		// fits next to the prefix, and the button has to carry a digest then.
+		if len(btn.CallbackData) > telegramCallbackDataMax {
+			return nil, fmt.Errorf("callback_data for %q is %d bytes, over the telegram limit of %d",
+				title, len(btn.CallbackData), telegramCallbackDataMax)
 		}
-		w.bot.handleCallback(context.Background(), w.api, &tgbotapi.CallbackQuery{
-			ID:   "cb1",
-			From: &tgbotapi.User{ID: resumeUserID},
-			Message: &tgbotapi.Message{
-				MessageID: 2,
-				Chat:      &tgbotapi.Chat{ID: resumeChatID, Type: "private"},
-			},
-			Data: *btn.CallbackData,
-		})
-		return nil
+		cbq, err := w.f.tap(resumeChatID, resumeUserID, btn.Text)
+		if err != nil {
+			return nil, err
+		}
+		w.bot.handleCallback(context.Background(), w.f.api, cbq)
+		return cbq, nil
 	}
-	return fmt.Errorf("no button titled %q on the keyboard", title)
+	return nil, fmt.Errorf("no button titled %q on the keyboard:\n%s", title, w.f.fake.Chat(resumeChatID).Text())
+}
+
+func (w *resumeWorld) tapButton(title string) error {
+	_, err := w.tap(title)
+	return err
 }
 
 func (w *resumeWorld) agentPromptedInSession(id string) error {
@@ -416,26 +387,24 @@ func (w *resumeWorld) agentPromptedInSession(id string) error {
 	return nil
 }
 
-// sentTexts returns the text of every message the bot posted or edited.
-func (w *resumeWorld) sentTexts() []string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	var out []string
-	for _, call := range w.calls {
-		if t := call.form.Get("text"); t != "" {
-			out = append(out, t)
-		}
+func (w *resumeWorld) agentNotPromptedInSession(id string) error {
+	if p, ok := w.runner.lastPrompt(); ok && p.sessionID == id {
+		return fmt.Errorf("the prompt %q went to session %q", p.text, id)
 	}
-	return out
+	return nil
 }
 
+// chatReceived looks for want in what the chat shows: the bot's messages as
+// they read now, an edited one with its new text. A message Telegram refused
+// never got there.
 func (w *resumeWorld) chatReceived(want string) error {
-	for _, t := range w.sentTexts() {
-		if strings.Contains(t, want) {
+	view := w.f.fake.Chat(resumeChatID)
+	for _, m := range view.Messages {
+		if m.From == "bot" && !m.Deleted && strings.Contains(m.Text, want) {
 			return nil
 		}
 	}
-	return fmt.Errorf("no message sent to the chat contains %q; sent %q", want, w.sentTexts())
+	return fmt.Errorf("no message in the chat contains %q:\n%s", want, view.Text())
 }
 
 func (w *resumeWorld) keyboardMarksTheChatSession() error {
@@ -449,7 +418,7 @@ func (w *resumeWorld) keyboardMarksTheChatSession() error {
 	}
 	for _, btn := range buttons {
 		marked := strings.HasPrefix(btn.Text, "✓ ")
-		names := *btn.CallbackData == "resume:s:"+current
+		names := btn.CallbackData == "resume:s:"+current
 		switch {
 		case names && !marked:
 			return fmt.Errorf("the button for the chat's session %q is not marked: %q", current, btn.Text)
@@ -481,9 +450,11 @@ func initializeResumeScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a telegram gateway over a server keeping these sessions:$`, w.gatewayKeepingSessions)
 	sc.Step(`^the user sends "([^"]*)"$`, w.userSends)
+	sc.Step(`^the user is not an admin of the bot$`, func() error { w.bot.cfg.Admins = nil; return nil })
 	sc.Step(`^the chat is offered a keyboard with the buttons:$`, w.offeredKeyboardWith)
 	sc.Step(`^the user taps the button for "([^"]*)"$`, w.tapButton)
 	sc.Step(`^the agent was prompted in the session "([^"]*)"$`, w.agentPromptedInSession)
+	sc.Step(`^the agent was not prompted in the session "([^"]*)"$`, w.agentNotPromptedInSession)
 	sc.Step(`^the chat received "([^"]*)"$`, w.chatReceived)
 	sc.Step(`^the keyboard marks the session behind the chat as the current one$`, w.keyboardMarksTheChatSession)
 	sc.Step(`^the gateway is restarted over the same session store$`, w.restartOverTheSameStore)

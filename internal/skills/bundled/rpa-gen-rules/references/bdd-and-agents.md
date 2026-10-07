@@ -1,203 +1,184 @@
-# BDD-style agent rules and multiple IDEs
+# BDD-style project instructions across coding-agent hosts
 
-This file explains how to encode **behavior** (examples, acceptance checks, regression discipline) in project rules, and how **Cursor**, **Claude Code**, **OpenAI Codex**, and other tools differ while serving the same goal.
+This reference explains how to encode repository behavior in project instructions without treating one coding-agent vendor's directory as universal policy.
 
-## What "BDD rules" means here
+## BDD in project rules
 
-Classic BDD often uses Gherkin (`Given` / `When` / `Then`) and tools like `pytest-bdd`. In this RPA workflow, **BDD-oriented rules** mean:
+Behavior belongs in executable tests. Project instructions tell the coding agent how to preserve that behavior:
 
-1. **Executable behavior** lives in tests. Rules tell the agent to treat tests as the long-term memory of the project (red-green-refactor, full suite before done).
-2. **`workflow.mdc` (in this skill)** is the main rail: trigger phrases for features and bugs, mandatory order (failing test → fix or implement → green → all tests → optional `pre-commit run -a` → short report).
-3. **`testing.mdc`** defines how tests read: naming, Arrange-Act-Assert, fixtures, integration vs unit, commands (`pytest`, coverage).
+1. New behavior begins with a failing test that describes the observable result;
+2. a bug fix begins with a regression test that reproduces the failure;
+3. the smallest implementation makes the focused test pass;
+4. the repository's full test and lint gates run before completion;
+5. user-visible behavior, APIs, configuration, examples, and generated artifacts are updated in the same change.
 
-If the repo already uses Gherkin or `pytest-bdd`, extend `testing.mdc` and `workflow.mdc` with paths to `features/`, step definitions, and how to run those tests. Otherwise, plain pytest examples are enough.
+Use the repository's actual commands and test layout. Do not paste Python examples into a Go project or invent a Gherkin workflow where the repository does not use one.
 
-**Important:** In `implementation-order.mdc`, steps sometimes show a class before tests for illustration of **layers**. For **new behavior**, always follow **`workflow.mdc`**: write or extend the failing test first, then minimal code (TDD). Layering still applies when choosing *where* code lives.
+Layered architecture and TDD answer different questions:
+
+- `architecture` and `implementation-order` decide where a change belongs and which dependency layer comes first;
+- `workflow` and `testing` decide the delivery order, starting with RED and ending with full verification.
+
+## Common baseline
+
+Put requirements that every host must see in root `AGENTS.md`:
+
+- repository and package boundaries;
+- dependency direction;
+- test and lint gates;
+- security and trust boundaries;
+- documentation and generated-file obligations;
+- language and commit conventions;
+- Rules Sync when the project maintains native mirrors.
+
+A critical invariant must not live only in path-scoped model context. Path discovery, host trust, tool payloads, and timing differ. Enforce critical behavior through root policy, code, permission checks, tests, or CI.
+
+When Claude Code support is required, use a root `CLAUDE.md` symlink to `AGENTS.md` where the checkout preserves symlinks. Otherwise use a short import or synchronized compatibility file and verify it explicitly.
 
 ## Cursor
 
-- **Location:** `.cursor/rules/` with `.mdc` files.
-- **Format:** YAML front matter ([MDC](https://github.com/nuxt-content/mdc)) with `description`, optional `globs`, optional `alwaysApply`.
-- **Context:** Use `@path/to/file` inside a rule to pull files into context when the rule applies.
-- **Docs:** [Cursor Rules](https://cursor.com/docs/context/rules).
+Cursor project rules live under `.cursor/rules/` as `.mdc` files. Frontmatter can contain:
 
-**Mapping**
+- `description`;
+- `alwaysApply`;
+- `globs`.
 
-| Concern | Typical file |
-|---------|----------------|
-| TDD and bugfix workflow | `workflow.mdc` |
-| pytest structure and examples | `testing.mdc` |
-| Layers and modules | `architecture.mdc` |
-| Style and tooling | `code-style.mdc` |
-| Dependency order | `implementation-order.mdc` (often `alwaysApply: false`) |
+Use an always-on rule only for policy needed in every Cursor session. Use `globs` with `alwaysApply: false` for path-scoped topics.
+
+Example:
+
+```markdown
+---
+description: HTTP API contracts
+globs: src/api/**/*.py
+alwaysApply: false
+---
+
+# HTTP API
+
+Update handlers, schemas, tests, and API documentation together.
+```
+
+Do not assume that another host reads `.mdc` merely because Cursor does.
 
 ## Claude Code
 
-Official reference: [How Claude remembers your project](https://code.claude.com/docs/en/memory), including [modular rules with `.claude/rules/`](https://code.claude.com/docs/en/memory#organize-rules-with-claude/rules/).
+Claude Code project instructions use root `CLAUDE.md` and Markdown files under `.claude/rules/`.
 
-Claude Code uses a **similar** idea (persistent instructions + optional modular files) but **different paths and discovery**.
+- A rule without `paths` is always loaded;
+- a rule with `paths` is path-scoped;
+- confirm exact behavior against the installed Claude Code version when it matters.
 
-- **`CLAUDE.md`:** Project instructions loaded for sessions. Prefer under 200 lines; split using `@imports` or `.claude/rules/`. See the same memory page for load order and `CLAUDE.local.md`.
-- **`.claude/rules/`:** Markdown files, one topic per file (`testing.md`, `workflow.md`, …). Discovered recursively; you can nest `frontend/`, `backend/`. Rules **without** YAML frontmatter load at launch (same priority as `.claude/CLAUDE.md`). Rules **with** `paths:` in frontmatter load when Claude works on matching files (see [path-specific rules](https://code.claude.com/docs/en/memory#path-specific-rules)). Use glob patterns like `src/**/*.py`, `tests/**/*.py`, `**/*.{ts,tsx}`.
-- **Imports in `CLAUDE.md`:** `@README.md`, `@docs/guide.md`, up to five hops deep. First-time imports may require user approval in the IDE.
-- **`AGENTS.md`:** Claude Code reads `CLAUDE.md`, not `AGENTS.md` by default. You can `import` with `@AGENTS.md` at the top of `CLAUDE.md` to share one text with other agents (documented on the memory page).
-- **Skills (Agent Skills):** Portable folders with `SKILL.md` and optional `scripts/`. For heavy procedures that should not sit in every session context, prefer skills over huge rules. [agentskills.io](https://agentskills.io/), [anthropics/skills](https://github.com/anthropics/skills).
+Example:
 
-### Bundled example in this skill
+```markdown
+---
+description: HTTP API contracts
+paths:
+  - src/api/**/*.py
+---
 
-Copy or adapt `references/claude-examples/.claude/` into a real project root. It demonstrates:
+# HTTP API
 
-- Short `.claude/CLAUDE.md` with imports and pointers to modular rules.
-- Global `rules/workflow.md` (no `paths`, TDD for features and bugs).
-- Path-scoped `rules/testing.md`, `code-style.md`, `architecture.md`, `implementation-order.md`, `api-layer.md` with YAML `paths:` per the official docs.
+Update handlers, schemas, tests, and API documentation together.
+```
 
-**Practical alignment**
+Keep reusable procedures in skills and repository-specific policy in project instructions.
 
-- Port the **same substance** as Cursor rules: one file for **workflow** (TDD, bug reproduction, full suite), one for **testing** conventions, one for **architecture**.
-- Use Markdown in `.claude/rules/` without assuming MDC-only features; link `@` to repo files if your Claude Code build supports it.
-- **Plugins vs repo rules:** Skills are portable packages; `CLAUDE.md` and `.claude/rules/` are project-local. Use both when skills encode reusable procedure and repo rules encode **this** codebase.
+## Cursor and Claude Code mapping
+
+Normalize the intent before translating the format:
+
+| Intent | Cursor | Claude Code |
+|---|---|---|
+| Always-on | `alwaysApply: true`, no narrowing glob | no `paths` |
+| Path-scoped | Cursor `globs` with `alwaysApply: false` | `paths` |
+
+Keep paired Markdown bodies equivalent. Adapt only native frontmatter and host-specific links. Do not widen a Claude `paths` rule into Cursor `alwaysApply: true`.
+
+Neither vendor tree is automatically a universal source of truth. They are native compatibility representations maintained by the target repository.
 
 ## OpenAI Codex
 
-Codex reads instructions differently from Cursor and Claude Code, and the difference is what the `.codex/` hook bridge exists for.
+Root `AGENTS.md` is the common baseline for Codex. When the project needs its Cursor topic rules in Codex too, install the bundled project hook:
 
-### Why plain `AGENTS.md` is not enough
+- `.codex/hooks.json` wires session and pre-tool events;
+- `.codex/hooks/attach_rules.py` reads `.cursor/rules/*.mdc` directly;
+- `alwaysApply: true` rules are attached at `SessionStart`;
+- scoped rules whose `globs` match recognized edit paths are attached at `PreToolUse`;
+- rule bodies are not copied into a third tree.
 
-Codex resolves its instruction chain **once per session**, walking from the repository root down to the directory it was launched in and concatenating at most one `AGENTS.md` per directory ([Custom instructions with AGENTS.md](https://developers.openai.com/codex/guides/agents-md)). Two consequences:
+The hook parser accepts scalar, flow-list and block-list `globs`, including quoted commas, blank lines and YAML comments. Probe it against representative add, update, delete and rename payloads before reporting support.
 
-- a session started at the repository root never loads a nested `AGENTS.md`, no matter which files it goes on to edit;
-- there is no glob-based attachment - Codex has no equivalent of `globs` in `.cursor/rules/*.mdc`, so scope can only be expressed by where a file sits in the tree.
+State is keyed by canonical repository path and session. `resume` preserves scoped dedupe; `startup`, `compact` and `clear` reset it to the always-on set. Concurrent hook processes claim rule ids under a per-session lock and persist state with atomic replacement.
 
-Pointing Codex at an index file and asking it to "open the relevant rule before editing" is advisory, and it gets skipped.
+This is a project adapter, not native Codex rule discovery. Its limits must remain visible:
 
-### The hook bridge
+- project hooks require trust and can be disabled or skipped;
+- a fail-open hook is not a security boundary;
+- opaque shell writes may expose no path to the hook;
+- host event and payload behavior can change by version;
+- root `AGENTS.md`, code, tests, permission checks, and CI still own critical constraints.
 
-[Codex hooks](https://developers.openai.com/codex/hooks) close the gap. This skill ships a ready-made bridge in `references/codex-examples/.codex/`:
+Tell the user to run `/hooks` once per clone and again after changing either hook file. Record the required Python interpreter and any unsupported platform behavior.
 
-| File | Role | Per-project edits |
-|------|------|-------------------|
-| `hooks.json` | Wires both handlers to `attach_rules.py` | none - copy verbatim |
-| `hooks/attach_rules.py` | Parses `.mdc` frontmatter, injects rule bodies | none - copy verbatim |
-| `rules.md` | Human-readable index of every rule and its attachment | regenerate per project |
+Codex execpolicy `.rules` files are unrelated. They decide command execution policy rather than model instructions.
 
-What fires when:
+## Coddy, OpenCode, ZCode, and other hosts
 
-| Event | Matcher | What is injected |
-|-------|---------|------------------|
-| `SessionStart` | `startup\|resume\|clear\|compact` | every rule whose frontmatter has `alwaysApply: true` |
-| `PreToolUse` | `^(apply_patch\|Edit\|Write)$` | rules whose `globs` cover a file in the pending patch, once per rule per session |
+Do not infer support from a directory name.
 
-Implementation points worth knowing (all already handled by the bundled script):
+For each additional host:
 
-- **Glob matching is hand-rolled.** `fnmatch` is unusable because its `*` also crosses `/`, which makes `src/api/**/*.py` miss `src/api/server.py`. The script translates globs to a regex where `**/` means "zero or more directories" and `*` stays inside one segment.
-- **Paths come from the patch itself.** `*** Add File:`, `*** Update File:`, `*** Delete File:` and the `*** Move to:` destination are all read; absolute paths are made repo-relative before matching.
-- **Each rule is injected at most once per session.** Dedup state lives under the system temp directory, keyed by repository path and session id; `SessionStart` with `source: "clear"` resets it.
-- **It fails open.** Malformed JSON on stdin, an unparsable rule file, or an unwritable state directory all exit 0 with no output. A broken rule can never block an edit.
-- **No third copy of rule bodies.** The script reads `.cursor/rules/*.mdc` directly, so the bridge adds no new drift surface; only the `rules.md` index needs syncing when rules are added, renamed, or removed.
+1. Inspect the mechanism already used by the repository;
+2. verify whether it reads root and nested instruction files;
+3. verify whether scoped instructions arrive before a mutation;
+4. verify trust, reset, and compaction behavior;
+5. record unsupported behavior instead of inventing a manifest, plugin, or hook.
 
-### Context budget
+A project may deliberately use `.coddy/rules`, `.agents/rules`, an OpenCode plugin, or a ZCode hook. This skill does not choose one as a new cross-host standard. Keep existing integrations only when their behavior is documented and tested.
 
-Codex caps model-visible hook output at roughly 2500 tokens by default, then spills the remainder to a temp file and shows the model a head-and-tail preview. The bundled `hooks.json` raises `additionalContextLimit` to 8000 at session start and 6000 per patch - ceilings, not reservations. Keep the always-on set small (`workflow`, `code-style`, `architecture`, `testing`) and let topic rules attach by glob; oversized always-on context degrades the model instead of helping it.
+## Language
 
-### Trust
+Write rule files and root briefs in English unless the user requests another language or the repository already has a deliberate language policy.
 
-Codex requires explicit approval before a non-managed command hook runs, records the approval against the **hash of the hook definition**, and skips an unapproved hook without a hard error - which looks exactly like a hook that is not firing. Tell the user to run `/hooks` once per clone, and again after any edit to `attach_rules.py` or `hooks.json`.
+Keep mirrored policy in one language. Translating one tree independently makes parity impossible to review. The chat continues in the user's language.
 
-### Verifying without a Codex session
+## Rules Sync
 
-The script reads JSON on stdin and writes JSON on stdout:
+Rules Sync applies to the instruction surfaces the repository actually supports.
 
-```bash
-echo '{"hook_event_name":"SessionStart","session_id":"probe","source":"startup"}' | python3 .codex/hooks/attach_rules.py
-echo '{"hook_event_name":"PreToolUse","session_id":"probe","tool_input":{"command":"*** Begin Patch\n*** Update File: src/api/server.py\n*** End Patch"}}' | python3 .codex/hooks/attach_rules.py
-```
+1. Inventory root `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `.claude/rules`, the Codex hook, and any existing verified host integration;
+2. decide which files represent shared policy and which are intentionally host-specific;
+3. update deliberate Cursor and Claude Code counterparts in the same change;
+4. keep shared bodies equivalent and translate only native metadata or links;
+5. map always-on and path-scoped behavior correctly;
+6. verify the `CLAUDE.md` compatibility path after changing `AGENTS.md`;
+7. keep the Codex hook template unchanged unless its parser or event contract itself changes; it reads Cursor rules directly and has no manual rule index to synchronize;
+8. list every synchronized file and every unsupported host limitation in the report.
 
-Empty output means: no glob matched, the rule was already sent in this session, or the input was not understood.
+When one host needs unique mechanics, keep that section small and label the difference. Do not copy host-specific setup into every policy body.
 
-### Not to be confused with Codex execpolicy `.rules`
+## Recommended topic split
 
-Codex uses the word "rules" for a second, unrelated mechanism: Starlark `.rules` files under a `rules/` directory next to a config layer, which decide which shell commands may run outside the sandbox. That is an execution policy, not instructions; this skill does not generate it.
+Use only topics the repository needs:
 
-## Other agents and editors
+| Topic | Owns |
+|---|---|
+| `workflow` | feature and bugfix delivery, final verification, Rules Sync |
+| `testing` | test layout, naming, fixtures, commands |
+| `architecture` | layers, modules, dependency direction |
+| `code-style` | formatter, types, comments, language |
+| `implementation-order` | layer-by-layer implementation sequence |
+| `api-layer` | handler, schema, transport, and API docs parity |
+| `core-modules` | domain-specific package responsibilities |
 
-| Tool | Where rules usually live | Notes |
-|------|---------------------------|--------|
-| **OpenCode / skills repos** | `SKILL.md`, `AGENTS.md` | Same progressive disclosure idea as Agent Skills standard. |
-| **GitHub Copilot** | `.github/copilot-instructions.md` (or policy UI) | Keep instructions short; mirror key bullets from `workflow` and `testing`. |
-| **Generic** | `CONTRIBUTING.md`, `docs/dev-guide.md` | Humans and any agent can read these; duplicate critical agent constraints here if your team does not use Cursor or Claude.
+Keep rules focused. A very large always-on file consumes context for unrelated tasks and becomes stale faster.
 
-## Language: English by default
+## Bundled examples
 
-Rule files and top-level briefs (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/*.mdc`, `.claude/rules/*.md`, `.github/copilot-instructions.md`) are written in **English** unless the user explicitly asks for another language. Reasons:
+- `references/cursor-examples/.cursor/rules/` contains Cursor templates;
+- `references/claude-examples/.claude/` contains Claude Code templates;
+- `references/codex-examples/.codex/` contains the Codex hook template that consumes Cursor rules.
 
-- rule trees are mirrored across agents, and a diff between an English `.mdc` and a translated `.md` is impossible to review;
-- most agents are prompted and evaluated in English, so English rules behave more predictably;
-- contributors joining the repo later read one language, not two.
-
-This is about **files**, not about conversation. The chat stays in the user's language, and a `Respond in <language>` line inside `code-style` stays exactly as the project wants it. If the user asks for rules in another language, switch every tree at once. If the repo already carries rules in another language and the user gave no instruction, keep that language in the files you touch and report the mismatch instead of translating on your own initiative.
-
-## Single source of truth and mandatory sync
-
-Different agents read different paths, but the **content** must stay identical. Two mechanisms keep that true:
-
-### Top-level brief: `AGENTS.md` + `CLAUDE.md` symlink
-
-Keep one canonical brief at repo root and make every other agent's top-level filename point at it.
-
-```bash
-# at repo root
-ln -sf AGENTS.md CLAUDE.md
-# verify
-ls -la CLAUDE.md   # should print "CLAUDE.md -> AGENTS.md"
-```
-
-Used in production by `getconf`, `getconf-ui`, and `sdm-client-proxy`. Claude Code reads `CLAUDE.md`, OpenCode / Codex / others read `AGENTS.md`, and Cursor picks up `AGENTS.md` via its docs context - all see the same text.
-
-If a project genuinely needs a Claude-only addendum, put a **short** `.claude/CLAUDE.md` with an `@AGENTS.md` import at the top and only the Claude-specific lines below.
-
-### Per-topic rules: paired files, paired edits
-
-For every topic file you create, generate **both** `.cursor/rules/<topic>.mdc` and `.claude/rules/<topic>.md`. The body is identical; only frontmatter and inline link syntax differ:
-
-| Cursor (`.mdc`) | Claude Code (`.md`) |
-|-----------------|---------------------|
-| `globs: src/**/*.py` + `alwaysApply: true` | `paths: ["src/**/*.py"]` |
-| `alwaysApply: true` (no `globs`) | rule **without** `paths:` (loads every session) |
-| `@architecture.mdc` | `.claude/rules/architecture.md` |
-| `.mdc` extension | `.md` extension |
-
-Codex is served by the **Cursor** side of each pair through the `.codex/` hook bridge (`alwaysApply` maps to `SessionStart`, `globs` to `PreToolUse`), so no third copy of the body exists. The delivery equivalence across the three agents:
-
-| Agent | Always-on rules | Scoped rules |
-|-------|-----------------|--------------|
-| Cursor | `alwaysApply: true` in `.cursor/rules/*.mdc` | `globs` in the same frontmatter |
-| Claude Code | `.claude/rules/*.md` without `paths:` | `paths:` in frontmatter |
-| Codex | `AGENTS.md` plus the `SessionStart` hook | the `PreToolUse` hook |
-
-### "Rules Sync" section is mandatory
-
-Every `workflow` rule must end with a `## Rules Sync` section that makes propagation a mandatory final step of every feature / bugfix pass. The two reference workflow files in this skill (`references/cursor-examples/.cursor/rules/workflow.mdc` and `references/claude-examples/.claude/rules/workflow.md`) already include it - copy that section verbatim and adjust paths.
-
-The agent must, in the same commit / PR:
-
-1. Identify every rule tree present in the repo: `.cursor/rules/`, `.claude/rules/`, root `AGENTS.md` / `CLAUDE.md`, the Codex bridge (`.codex/`), plus any `.kimi/`, `.github/copilot-instructions.md`.
-2. Locate or create the counterpart of each edited file in every other tree.
-3. Copy the body verbatim; translate frontmatter and links per the table above.
-4. Keep both sides in the same language (English by default, see the section above).
-5. Confirm the `CLAUDE.md -> AGENTS.md` symlink is still valid when `AGENTS.md` changed.
-6. Refresh the `.codex/rules.md` index when a rule file was added, renamed, or removed; the hook script itself needs no update.
-7. List every synced file in the task report.
-
-Drift is a bug. If one tree leads the other for more than a single commit, the agents start giving contradictory advice on the same codebase.
-
-### Other constants to keep aligned
-
-Point all rules at the **same** test commands (`pytest`, `uv run`, `go test`, `behave`, etc.) and the **same** config files (`ruff.toml`, `pytest.ini`, `pre-commit-config.yaml`). When one of those constants changes, the sync step above must touch every rule file that names it.
-
-## Bundled examples in this skill
-
-- **`references/cursor-examples/.cursor/rules/`** — full **reference copies** of [cursor-vibe-prompts](https://github.com/EvilFreelancer/cursor-vibe-prompts/tree/main/cursor-rules) (`.mdc` templates), laid out like a real Cursor project (same path as production `.cursor/rules/`).
-- **`references/claude-examples/.claude/`** — parallel **Claude Code** layout (`CLAUDE.md` + `rules/*.md` with and without `paths`), aligned with [code.claude.com memory docs](https://code.claude.com/docs/en/memory#organize-rules-with-claude/rules/).
-- **`references/codex-examples/.codex/`** — the **Codex** hook bridge (`hooks.json` + `hooks/attach_rules.py`, both copied into projects verbatim, and the `rules.md` index template).
-
-Read these when generating or updating project rules so structure and BDD/TDD wording stay consistent across tools.
+Adapt them to the target repository. They are examples, not proof that a host integration exists.

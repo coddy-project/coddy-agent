@@ -428,13 +428,14 @@ type NeuralDeepDeviceLogin struct {
 }
 
 // StartNeuralDeepDeviceLogin begins the RFC 8628 flow for client "coddy".
-func StartNeuralDeepDeviceLogin(ctx context.Context, hub string, hc *http.Client, deviceLabel string) (*NeuralDeepDeviceLogin, error) {
+func StartNeuralDeepDeviceLogin(ctx context.Context, hub string, proxyOrClient any, deviceLabel string) (*NeuralDeepDeviceLogin, error) {
 	hub = strings.TrimRight(strings.TrimSpace(hub), "/")
 	if hub == "" {
 		hub = NeuralDeepHub()
 	}
-	if hc == nil {
-		hc = &http.Client{}
+	hc, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return nil, err
 	}
 	body, _ := json.Marshal(map[string]string{
 		"client":       NeuralDeepClientID,
@@ -487,10 +488,11 @@ func (l *NeuralDeepDeviceLogin) VerificationTarget() string {
 // PollNeuralDeepDeviceToken polls the token endpoint once. It returns the key
 // when approved, ("", nil) while pending, and an error on a terminal state.
 // slowDown reports that the server asked to widen the polling interval.
-func PollNeuralDeepDeviceToken(ctx context.Context, hub string, hc *http.Client, deviceCode string) (key string, slowDown bool, err error) {
+func PollNeuralDeepDeviceToken(ctx context.Context, hub string, proxyOrClient any, deviceCode string) (key string, slowDown bool, err error) {
 	hub = strings.TrimRight(strings.TrimSpace(hub), "/")
-	if hc == nil {
-		hc = &http.Client{}
+	hc, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return "", false, err
 	}
 	body, _ := json.Marshal(map[string]string{"device_code": deviceCode})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hub+"/api/cli/device/token", strings.NewReader(string(body)))
@@ -546,7 +548,7 @@ func PollNeuralDeepDeviceToken(ctx context.Context, hub string, hc *http.Client,
 // by the overall login timeout) runs out; then persists the key at authPath
 // and returns it. Polling follows the server cadence with a floor against
 // busy-looping; slow_down widens the interval per RFC 8628.
-func CompleteNeuralDeepDeviceLogin(ctx context.Context, hub string, hc *http.Client, login *NeuralDeepDeviceLogin, authPath, deviceLabel string) (string, error) {
+func CompleteNeuralDeepDeviceLogin(ctx context.Context, hub string, proxyOrClient any, login *NeuralDeepDeviceLogin, authPath, deviceLabel string) (string, error) {
 	if strings.TrimSpace(authPath) == "" {
 		return "", errors.New("neuraldeep auth: credential path is empty")
 	}
@@ -554,7 +556,7 @@ func CompleteNeuralDeepDeviceLogin(ctx context.Context, hub string, hc *http.Cli
 	if hub == "" {
 		hub = NeuralDeepHub()
 	}
-	return CompleteNeuralDeepDeviceLoginWith(ctx, hub, hc, login, func(ctx context.Context, key string) error {
+	return CompleteNeuralDeepDeviceLoginWith(ctx, hub, proxyOrClient, login, func(ctx context.Context, key string) error {
 		// A sign-out or a newer login attempt may have cancelled this wait
 		// while the poll was in flight; a cancelled attempt must not
 		// resurrect a credential the user just removed.
@@ -570,13 +572,17 @@ func CompleteNeuralDeepDeviceLogin(ctx context.Context, hub string, hc *http.Cli
 // once and decides whether and where it is stored. A server that can be
 // signed out while the wait runs uses it to check for cancellation and write
 // the credential under one lock, so a sign-out cannot slip in between.
-func CompleteNeuralDeepDeviceLoginWith(ctx context.Context, hub string, hc *http.Client, login *NeuralDeepDeviceLogin, persist func(ctx context.Context, key string) error) (string, error) {
+func CompleteNeuralDeepDeviceLoginWith(ctx context.Context, hub string, proxyOrClient any, login *NeuralDeepDeviceLogin, persist func(ctx context.Context, key string) error) (string, error) {
 	if persist == nil {
 		return "", errors.New("neuraldeep auth: no persistence step")
 	}
 	hub = strings.TrimRight(strings.TrimSpace(hub), "/")
 	if hub == "" {
 		hub = NeuralDeepHub()
+	}
+	hc, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return "", err
 	}
 	deadline := neuralDeepLoginTimeout
 	if login.ExpiresIn > 0 {
@@ -619,7 +625,7 @@ func CompleteNeuralDeepDeviceLoginWith(ctx context.Context, hub string, hc *http
 // persist. The CLI's --device path and headless machines use this one-call
 // form; the HTTP surface starts and completes separately so the SPA can show
 // the user code while the wait runs in the background.
-func NeuralDeepDeviceSignIn(ctx context.Context, hub string, hc *http.Client, authPath, deviceLabel string, onPrompt func(NeuralDeepDeviceLogin)) (string, error) {
+func NeuralDeepDeviceSignIn(ctx context.Context, hub string, proxyOrClient any, authPath, deviceLabel string, onPrompt func(NeuralDeepDeviceLogin)) (string, error) {
 	if strings.TrimSpace(authPath) == "" {
 		return "", errors.New("neuraldeep auth: credential path is empty")
 	}
@@ -630,6 +636,10 @@ func NeuralDeepDeviceSignIn(ctx context.Context, hub string, hc *http.Client, au
 	ctx, cancel := context.WithTimeout(ctx, neuralDeepLoginTimeout)
 	defer cancel()
 
+	hc, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return "", err
+	}
 	login, err := StartNeuralDeepDeviceLogin(ctx, hub, hc, deviceLabel)
 	if err != nil {
 		return "", err
@@ -648,9 +658,9 @@ type NeuralDeepWhoami struct {
 }
 
 // FetchNeuralDeepWhoami asks the hub who owns the key (greeting after login).
-func FetchNeuralDeepWhoami(ctx context.Context, hub, key string, hc *http.Client) (*NeuralDeepWhoami, error) {
+func FetchNeuralDeepWhoami(ctx context.Context, hub, key string, proxyOrClient any) (*NeuralDeepWhoami, error) {
 	var who NeuralDeepWhoami
-	if err := neuralDeepGetJSON(ctx, hub, "/api/cli/whoami", key, hc, &who); err != nil {
+	if err := neuralDeepGetJSON(ctx, hub, "/api/cli/whoami", key, proxyOrClient, &who); err != nil {
 		return nil, err
 	}
 	return &who, nil
@@ -669,22 +679,23 @@ type NeuralDeepStatus struct {
 }
 
 // FetchNeuralDeepStatus returns tier and the tier's chat-model catalog.
-func FetchNeuralDeepStatus(ctx context.Context, hub, key string, hc *http.Client) (*NeuralDeepStatus, error) {
+func FetchNeuralDeepStatus(ctx context.Context, hub, key string, proxyOrClient any) (*NeuralDeepStatus, error) {
 	var st NeuralDeepStatus
-	if err := neuralDeepGetJSON(ctx, hub, "/api/cli/status", key, hc, &st); err != nil {
+	if err := neuralDeepGetJSON(ctx, hub, "/api/cli/status", key, proxyOrClient, &st); err != nil {
 		return nil, err
 	}
 	return &st, nil
 }
 
 // RevokeNeuralDeepKey asks the hub to revoke the key itself (honest logout).
-func RevokeNeuralDeepKey(ctx context.Context, hub, key string, hc *http.Client) error {
+func RevokeNeuralDeepKey(ctx context.Context, hub, key string, proxyOrClient any) error {
 	hub = strings.TrimRight(strings.TrimSpace(hub), "/")
 	if hub == "" {
 		hub = NeuralDeepHub()
 	}
-	if hc == nil {
-		hc = &http.Client{}
+	hc, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hub+"/api/cli/revoke", nil)
 	if err != nil {
@@ -702,13 +713,14 @@ func RevokeNeuralDeepKey(ctx context.Context, hub, key string, hc *http.Client) 
 	return nil
 }
 
-func neuralDeepGetJSON(ctx context.Context, hub, path, key string, hc *http.Client, out any) error {
+func neuralDeepGetJSON(ctx context.Context, hub, path, key string, proxyOrClient any, out any) error {
 	hub = strings.TrimRight(strings.TrimSpace(hub), "/")
 	if hub == "" {
 		hub = NeuralDeepHub()
 	}
-	if hc == nil {
-		hc = &http.Client{}
+	hc, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hub+path, nil)
 	if err != nil {
@@ -743,8 +755,8 @@ func neuralDeepHTTPError(op string, resp *http.Response) error {
 // the key came from agree (a key minted by one deployment is not honored by
 // the other). It returns human-readable names of everything it changed; an
 // empty slice means the config already covered the login.
-func ApplyNeuralDeepLoginToConfig(ctx context.Context, cfg *config.Config, name, hub, apiBase, key string, hc *http.Client) ([]string, error) {
-	st, err := FetchNeuralDeepStatus(ctx, hub, key, hc)
+func ApplyNeuralDeepLoginToConfig(ctx context.Context, cfg *config.Config, name, hub, apiBase, key string, proxyOrClient any) ([]string, error) {
+	st, err := FetchNeuralDeepStatus(ctx, hub, key, proxyOrClient)
 	if err != nil {
 		return nil, fmt.Errorf("fetch the tier model catalog: %w", err)
 	}

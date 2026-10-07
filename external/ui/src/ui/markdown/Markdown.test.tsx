@@ -113,12 +113,8 @@ test("vue fences highlight markup and embedded JavaScript and CSS without execut
   expect(code?.querySelector(".hljs-attr")?.textContent).toBe(
     ":container-height",
   );
-  expect(
-    code?.querySelector(".hljs-keyword")?.textContent,
-  ).toBe("const");
-  expect(
-    code?.querySelector(".hljs-attribute")?.textContent,
-  ).toBe("display");
+  expect(code?.querySelector(".hljs-keyword")?.textContent).toBe("const");
+  expect(code?.querySelector(".hljs-attribute")?.textContent).toBe("display");
   expect(code?.querySelector("script, style, template")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /copy code/i }));
   await waitFor(() => expect(writeText).toHaveBeenCalledWith(source));
@@ -203,7 +199,9 @@ test("coddy: links open the documentation reader", () => {
     <Markdown text="See [Completion](coddy:features/mentions#completion) and [config](coddy:reference/config)." />,
   );
   const section = screen.getByText("Completion").closest("a");
-  expect(section?.getAttribute("href")).toBe("#/docs/features/mentions#completion");
+  expect(section?.getAttribute("href")).toBe(
+    "#/docs/features/mentions#completion",
+  );
   expect(section?.getAttribute("target")).toBeNull();
   expect(screen.getByText("config").closest("a")?.getAttribute("href")).toBe(
     "#/docs/reference/config",
@@ -214,7 +212,9 @@ test("an image or a link cannot carry a script", () => {
   const { container } = render(
     <Markdown text="![x](javascript:alert(1)) [y](javascript:alert(2)) [z](coddy:features/modes)" />,
   );
-  expect(container.querySelector("img")?.getAttribute("src") || "").not.toMatch(/javascript/i);
+  expect(container.querySelector("img")?.getAttribute("src") || "").not.toMatch(
+    /javascript/i,
+  );
   for (const a of Array.from(container.querySelectorAll("a"))) {
     expect(a.getAttribute("href") || "").not.toMatch(/javascript/i);
   }
@@ -233,11 +233,17 @@ test("images are loaded lazily and fit the column", () => {
 // mentions one: in an answer that is a link to the reader too.
 test("an @coddy: reference in an answer opens the documentation reader", () => {
   const { container } = render(
-    <Markdown text={"Read @coddy:operate/swarm#two-transports first. `@coddy:not/in/code` stays code."} />,
+    <Markdown
+      text={
+        "Read @coddy:operate/swarm#two-transports first. `@coddy:not/in/code` stays code."
+      }
+    />,
   );
   const link = container.querySelector("a.md-docs-link");
   expect(link?.textContent).toBe("@coddy:operate/swarm#two-transports");
-  expect(link?.getAttribute("href")).toBe("#/docs/operate/swarm#two-transports");
+  expect(link?.getAttribute("href")).toBe(
+    "#/docs/operate/swarm#two-transports",
+  );
   expect(container.querySelectorAll("a.md-docs-link")).toHaveLength(1);
 });
 

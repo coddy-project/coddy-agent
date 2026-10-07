@@ -42,18 +42,17 @@ That file describes **layers and dependencies**. For **new behavior**, this file
 
 ## Rules Sync
 
-**MANDATORY** - if any rule file is added or changed in this task, mirror the change to every other agent's rule tree in the same PR. Do not leave one tree ahead of the other.
+**MANDATORY** - if any rule file is added or changed in this task, update every deliberate representation of the same policy in the same PR. Do not leave one tree ahead of the other.
 
-1. Identify every rule tree in the repo: `.claude/rules/`, `.cursor/rules/`, root `AGENTS.md` / `CLAUDE.md`, the Codex bridge (`.codex/`), plus any other agent roots present (`.kimi/`, `.github/copilot-instructions.md`).
-2. For each edited file, locate or create its counterpart in every other tree under the same topic name (`workflow`, `testing`, `architecture`, `code-style`, `implementation-order`, `api-layer`, `core-modules`).
-3. Copy the body verbatim, then adapt frontmatter and inline links:
-   - Claude rule **without** `paths:` (always loads) <-> Cursor `globs: <broad>` + `alwaysApply: true`.
-   - Claude `paths: ["src/**/*.py"]` <-> Cursor `globs: src/**/*.py` + `alwaysApply: true`.
+1. Inventory root `AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`, `.claude/rules/`, the Codex hook, and any other verified agent integration already present.
+2. Pair Cursor and Claude Code files only when the project supports both hosts and the files represent the same topic.
+3. Keep the Markdown body equivalent, then adapt native metadata and links:
+   - Claude rule without `paths:` <-> Cursor always-on `alwaysApply: true`.
+   - Claude `paths:` <-> Cursor path-scoped `globs:` with `alwaysApply: false`.
    - Claude `.claude/rules/file.md` references <-> Cursor `@file.mdc` references.
-   - File extension `.md` <-> `.mdc`.
-4. Keep the language identical across trees. Rule files and `AGENTS.md` are written in **English** unless the user asked for another language for this project.
-5. If `AGENTS.md` changed, verify `CLAUDE.md` resolves to the same content (`ls -la CLAUDE.md` shows a symlink to `AGENTS.md`; if not, refresh it or re-create the symlink: `ln -sf AGENTS.md CLAUDE.md`).
-6. If the repo has the Codex bridge and a rule file was added, renamed, or removed, refresh the index in `.codex/rules.md`; the hook (`.codex/hooks.json`, `.codex/hooks/attach_rules.py`) reads `.cursor/rules/` directly and needs no update.
-7. Commit both sides together. The report must list every rule file synced.
+4. Keep the language identical across deliberate mirrors. Rule files and `AGENTS.md` are written in **English** unless the project deliberately uses another language.
+5. If `AGENTS.md` changed, verify `CLAUDE.md` still resolves to the same content or remains an intentional short compatibility file.
+6. The Codex hook reads `.cursor/rules/*.mdc` directly. Update it only when its parser or event contract changes; do not maintain a separate manual rule index.
+7. Commit every counterpart together and list all synchronized files and unsupported host limitations in the final report.
 
-Skip only when the topic is genuinely tool-specific. When skipping, add a one-line comment in the file that diverges so the divergence is intentional and visible.
+Skip a counterpart when the project does not support that host or when the topic is genuinely host-specific. Label an intentional divergence in the differing file.

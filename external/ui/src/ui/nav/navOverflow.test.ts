@@ -1,8 +1,21 @@
 import { describe, expect, test } from "vitest";
 import { navSlots, splitNavItems, type NavItemId } from "./navOverflow";
 
-const signedIn: NavItemId[] = ["history", "scheduler", "docs", "settings", "signOut"];
-const relay: NavItemId[] = ["history", "scheduler", "swarm", "docs", "settings", "signOut"];
+const signedIn: NavItemId[] = [
+  "history",
+  "scheduler",
+  "docs",
+  "settings",
+  "signOut",
+];
+const relay: NavItemId[] = [
+  "history",
+  "scheduler",
+  "swarm",
+  "docs",
+  "settings",
+  "signOut",
+];
 
 describe("splitNavItems", () => {
   test("an unmeasured bar keeps every item", () => {
@@ -43,8 +56,35 @@ describe("splitNavItems", () => {
     });
   });
 
+  // The environment says where the page works and whether that host answers,
+  // so it is always in sight: at the foot of the rail, above sign-out.
+  test("the environment never folds and stands between settings and sign-out", () => {
+    const withEnv: NavItemId[] = [
+      "history",
+      "scheduler",
+      "docs",
+      "settings",
+      "environment",
+      "signOut",
+    ];
+    expect(splitNavItems(withEnv, 0)).toEqual({
+      bar: ["history", "environment"],
+      menu: ["docs", "scheduler", "settings", "signOut"],
+    });
+    expect(splitNavItems(withEnv, 4)).toEqual({
+      bar: ["history", "settings", "environment"],
+      menu: ["docs", "scheduler", "signOut"],
+    });
+    expect(splitNavItems(withEnv, 6).bar).toEqual(withEnv);
+  });
+
   test("the menu lists docs, scheduler, settings and ends with sign-out", () => {
-    expect(splitNavItems(relay, 2).menu).toEqual(["docs", "scheduler", "settings", "signOut"]);
+    expect(splitNavItems(relay, 2).menu).toEqual([
+      "docs",
+      "scheduler",
+      "settings",
+      "signOut",
+    ]);
   });
 
   test("more room never puts fewer items in the bar", () => {
@@ -60,7 +100,10 @@ describe("splitNavItems", () => {
   test("a bar without sign-out or docs folds what it has", () => {
     const plain: NavItemId[] = ["history", "scheduler", "settings"];
     expect(splitNavItems(plain, 3)).toEqual({ bar: plain, menu: [] });
-    expect(splitNavItems(plain, 2)).toEqual({ bar: ["history"], menu: ["scheduler", "settings"] });
+    expect(splitNavItems(plain, 2)).toEqual({
+      bar: ["history"],
+      menu: ["scheduler", "settings"],
+    });
   });
 });
 

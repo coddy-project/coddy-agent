@@ -38,7 +38,7 @@ const (
 // expandConfigBody prepares raw config.yaml text for parsing: ${CODDY_HOME} is
 // substituted (with forward slashes, see ExpandPathVars) and environment
 // references are expanded, while ${CWD} survives verbatim. Per-session paths
-// (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers) resolve
+// (skills.dirs, subagents.dirs, hooks.files, prompts.dir) resolve
 // it against the workspace of the session that uses them; the process-scoped
 // directories expand it against Paths.CWD in applyDefaults. A leading ~ inside
 // a value is left to those consumers as well, as it always was: the previous

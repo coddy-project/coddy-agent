@@ -176,9 +176,10 @@ type NeuralDeepUsageWallet struct {
 // HTTP read is bounded by the request timeout on top of ctx, whose
 // cancellation (a logout, a config swap) aborts it. The error is always a
 // *NeuralDeepUsageError, with the key redacted from any upstream text.
-func FetchNeuralDeepUsage(ctx context.Context, apiBase, key string, hc *http.Client) (*NeuralDeepUsage, error) {
-	if hc == nil {
-		hc = &http.Client{}
+func FetchNeuralDeepUsage(ctx context.Context, apiBase, key string, proxyOrClient any) (*NeuralDeepUsage, error) {
+	hc, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return nil, &NeuralDeepUsageError{Kind: NeuralDeepUsageUnavailable, Detail: redactNeuralDeepSecrets(err.Error())}
 	}
 	ctx, cancel := context.WithTimeout(ctx, neuralDeepUsageRequestTimeout)
 	defer cancel()

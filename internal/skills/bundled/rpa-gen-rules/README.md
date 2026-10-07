@@ -2,69 +2,75 @@
 
 ## Purpose
 
-Create or update **agent rules** for **Cursor** (`.cursor/rules/*.mdc`), **Claude Code** (`.claude/` with modular `rules/`), and **OpenAI Codex** (a `.codex/` hook bridge that auto-attaches Cursor rules by glob, since Codex has no native equivalent). Bundled examples live under `references/`.
+Create or refresh project instructions with root `AGENTS.md` as the common baseline, native Cursor and Claude Code rule trees, and an optional Codex project hook that attaches Cursor rules without duplicating their bodies.
 
-Rules follow a **layered-cake** idea: implement **inner layers first** (no internal project dependencies), then the next layer, and so on. They also describe **BDD-style** work (behavior driven by tests). No long user brief is required; the agent infers from the repo.
+The skill can produce:
 
-Generated rules, `AGENTS.md`, and every other agent brief are written **in English** unless you explicitly ask for another language - mirrored trees are only reviewable when both sides speak the same language. The chat itself stays in your language.
+- root `AGENTS.md` with repository-wide architecture, workflow, verification, and security invariants;
+- a root `CLAUDE.md` symlink or short compatibility import when Claude Code is used;
+- Cursor `.cursor/rules/*.mdc` files with correct `alwaysApply` and `globs` semantics;
+- Claude Code `.claude/rules/*.md` files with correct `paths` semantics;
+- `.codex/hooks.json` and `.codex/hooks/attach_rules.py` when Codex support is requested;
+- synchronized layered-cake and BDD/TDD guidance across deliberate mirrors.
 
-Generated rules **must** include a mandatory **Rules Sync** step: any change to a rule for one agent (for example a Cursor `.mdc`) has to be mirrored to every other agent's tree (Claude `.md`, root `AGENTS.md` / `CLAUDE.md`, the `.codex/rules.md` index, etc.) in the **same** commit. The skill also recommends keeping `CLAUDE.md` as a symlink to `AGENTS.md` at repo root (see `getconf`, `getconf-ui`, `sdm-client-proxy` for reference). See `SKILL.md` and `references/bdd-and-agents.md` for the exact wording and translation table.
-
-For Codex the skill installs a ready-made hook bridge (`.codex/hooks.json` + `.codex/hooks/attach_rules.py`, copied verbatim): `alwaysApply: true` rules are injected at `SessionStart`, glob-matched rules on `PreToolUse` when a patch touches covered files - the same behavior Cursor and Claude Code provide natively. Rule bodies are **not** duplicated; the hook reads `.cursor/rules/*.mdc` directly. After install, run `/hooks` in Codex once to trust the hook.
+The Codex hook reads `.cursor/rules/*.mdc` directly. The skill does not generate a separate human-readable Codex rule index. Critical constraints remain in root `AGENTS.md`, code, tests, permissions, or CI because project hooks can be disabled or untrusted.
 
 ## When to use
 
-- User runs **`/rpa-gen-rules`** or asks to generate or refresh rules.
+Use `/rpa-gen-rules` when creating, refreshing, auditing, or synchronizing project instructions, especially when Cursor and Claude Code rule trees have drifted.
+
+No separate brief is required. The agent infers the project contract from code, tests, documentation, build files, and CI, and asks only when a real product or architecture decision is missing.
+
+## Core behavior
+
+- Repository-wide policy stays in root `AGENTS.md`;
+- layered architecture is implemented from inner dependencies outward;
+- new behavior and bug fixes follow RED-GREEN-REFACTOR;
+- Cursor and Claude Code mirrors keep equivalent bodies and native frontmatter;
+- Claude `paths` map to Cursor `globs` with `alwaysApply: false`;
+- the Codex hook consumes Cursor rules and is probed before the result is reported;
+- unsupported host mechanisms are reported, not invented.
+
+See `SKILL.md` for the workflow and `references/bdd-and-agents.md` for detailed host semantics and synchronization guidance.
 
 ## Bundled references
 
 | Path | Contents |
-|------|----------|
-| `references/bdd-and-agents.md` | BDD rules meaning, Cursor vs Claude vs Codex |
-| `references/cursor-examples/.cursor/rules/` | `.mdc` templates |
-| `references/claude-examples/.claude/` | `CLAUDE.md` + `rules/*.md` examples |
-| `references/codex-examples/.codex/` | Codex hook bridge: `hooks.json`, `hooks/attach_rules.py`, `rules.md` index template |
-
-## Contents
-
-| File / dir | Role |
-|------------|------|
-| `SKILL.md` | Metadata and deliverables |
-| `references/` | Templates and notes |
-
+|---|---|
+| `references/bdd-and-agents.md` | BDD/TDD wording, host capabilities, limits, and Rules Sync |
+| `references/cursor-examples/.cursor/rules/` | Cursor `.mdc` templates |
+| `references/claude-examples/.claude/` | Claude Code `CLAUDE.md` and modular rule templates |
+| `references/codex-examples/.codex/hooks.json` | Codex hook configuration template |
+| `references/codex-examples/.codex/hooks/attach_rules.py` | Codex hook that reads Cursor rules |
 
 ## Install
 
-This skill is distributed through the **rpa-skills** catalog (a Claude Code plugin marketplace), and also installs as a plain **skill folder** (Cursor, OpenAI Codex, Kimi Code CLI, and others).
+This skill is distributed through the [rpa-skills](https://github.com/EvilFreelancer/rpa-skills) catalog and can also be installed as a plain skill folder.
 
-**As a plugin (Claude Code)** — add the catalog once, then install this skill from it:
+### Claude Code plugin
 
 ```text
 /plugin marketplace add EvilFreelancer/rpa-skills
 /plugin install rpa-gen-rules@rpa-skills
 ```
 
-**As a plain skill folder** — copy or symlink this repository into a skill root (its `SKILL.md` lives at the repo root):
+### Plain skill folder
 
-| Tool          | Path                          |
-|---------------|-------------------------------|
-| Claude Code   | `~/.claude/skills/rpa-gen-rules/`      |
-| Cursor        | `~/.cursor/skills/rpa-gen-rules/`      |
-| OpenAI Codex  | `~/.codex/skills/rpa-gen-rules/`       |
-| Kimi Code CLI | `~/.kimi/skills/rpa-gen-rules/`        |
+Copy or symlink this repository into a supported skill root:
+
+| Tool | Path |
+|---|---|
+| Claude Code | `~/.claude/skills/rpa-gen-rules/` |
+| Cursor | `~/.cursor/skills/rpa-gen-rules/` |
+| OpenAI Codex | `~/.codex/skills/rpa-gen-rules/` |
+| Kimi Code CLI | `~/.kimi/skills/rpa-gen-rules/` |
 
 The directory name must match the `name` field in `SKILL.md`.
 
-## How to invoke
+## Source and attribution
 
-- **Slash command** — type `/rpa-gen-rules` in agent chat.
-- **`@` context** — attach the skill folder or `SKILL.md` to ground the message in these instructions.
-- **Automatic** — the agent may load the skill on its own when your request matches the `description` in `SKILL.md`.
+Part of [rpa-skills](https://github.com/EvilFreelancer/rpa-skills), Pavel Rykov's agent-skills collection.
 
-## Source & attribution
+Packaged from [cursor-vibe-prompts](https://github.com/EvilFreelancer/cursor-vibe-prompts) and maintained as a reusable multi-host skill.
 
-Part of **[rpa-skills](https://github.com/EvilFreelancer/rpa-skills)** — [Pavel Rykov](https://t.me/evilfreelancer)'s agent-skills collection (see [notes on vibe coding](https://t.me/evilfreelancer/1485)).
-
-Packaged from the prompt collection **[cursor-vibe-prompts](https://github.com/EvilFreelancer/cursor-vibe-prompts)** — the same vibe-coding workflow, turned into a reusable skill.
-
-Licensed under the MIT License — see [LICENSE](LICENSE).
+Licensed under the MIT License. See [LICENSE](LICENSE).

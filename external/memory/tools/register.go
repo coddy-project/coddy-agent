@@ -46,7 +46,7 @@ func PersistTools(store *memstorage.Store, mem *config.MemoryConfig) []*tooling.
 		memoryListTool(store),
 		memoryReadTool(store),
 		memoryMkdirTool(store),
-		memorySaveTool(store),
+		memorySaveTool(store, mem),
 		memoryDeleteTool(store),
 	}
 }

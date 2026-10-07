@@ -578,7 +578,12 @@ func (s *cliTUIState) buildAppWithModels(neuraldeep, panel bool, models []config
 	cfg.Tools.PermissionMode = "ask"
 	cfg.Rules.AutoDiscover = &noAuto
 	cfg.Skills.Dirs = append(cfg.Skills.Dirs, s.skillDirs...)
-	cfg.Skills.Sources = append(cfg.Skills.Sources, s.skillSources...)
+	if len(s.skillSources) > 0 {
+		// Remote sources are declared in the home marketplaces.json.
+		if err := config.WriteMarketplacesFile(config.GlobalMarketplacesPath(cfg.Paths.Home), config.MarketplacesFile{Sources: s.skillSources}); err != nil {
+			return err
+		}
+	}
 	s.cfg = cfg
 	s.store = &session.FileStore{Root: filepath.Join(s.home, "sessions")}
 
@@ -2160,8 +2165,9 @@ func (s *cliTUIState) oneShotEndsCleanly() error {
 	}
 }
 
-// consoleDeclaresGatedMCP adds a stdio server to the scenario's config that
-// answers initialize only once its release file exists (TestHelperConsoleMCP).
+// consoleDeclaresGatedMCP adds a stdio server to the scenario's
+// <home>/mcp.json that answers initialize only once its release file exists
+// (TestHelperConsoleMCP).
 func (s *cliTUIState) consoleDeclaresGatedMCP(name string) error {
 	if s.app == nil {
 		if err := s.buildApp(); err != nil {
@@ -2169,17 +2175,12 @@ func (s *cliTUIState) consoleDeclaresGatedMCP(name string) error {
 		}
 	}
 	s.mcpRelease = filepath.Join(s.home, "mcp-release-"+name)
-	s.cfg.MCPServers = append(s.cfg.MCPServers, config.MCPServerConfig{
+	return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.cfg.Paths.Home), name, config.MCPJSONServer{
 		Type:    "stdio",
-		Name:    name,
 		Command: os.Args[0],
 		Args:    []string{"-test.run=^TestHelperConsoleMCP$"},
-		Env: []config.EnvVarConfig{
-			{Name: consoleMCPHelperEnv, Value: "1"},
-			{Name: consoleMCPReleaseEnv, Value: s.mcpRelease},
-		},
+		Env:     map[string]string{consoleMCPHelperEnv: "1", consoleMCPReleaseEnv: s.mcpRelease},
 	})
-	return nil
 }
 
 func (s *cliTUIState) mcpServerReleased(string) error {
@@ -2527,8 +2528,13 @@ func (s *cliTUIState) consoleDeclaresBinaryMCP(name string) error {
 			return err
 		}
 	}
-	s.cfg.MCPServers = append(s.cfg.MCPServers, mcptest.Stdio(name, s.mcpToken(name)))
-	return nil
+	return s.declareHomeMCP(mcptest.Stdio(name, s.mcpToken(name)))
+}
+
+// declareHomeMCP adds a server to the scenario's <home>/mcp.json, where the
+// console's MCP servers are declared.
+func (s *cliTUIState) declareHomeMCP(srv config.MCPServerConfig) error {
+	return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.cfg.Paths.Home), srv.Name, config.MCPJSONFromServer(srv))
 }
 
 // consoleDeclaresRemoteMCP adds a remote server on a local port, over
@@ -2546,8 +2552,7 @@ func (s *cliTUIState) consoleDeclaresRemoteMCP(name, transport string) error {
 		srv = mcptest.NewHTTPServer(s.mcpToken(name))
 	}
 	s.mcpRemote = append(s.mcpRemote, srv)
-	s.cfg.MCPServers = append(s.cfg.MCPServers, config.MCPServerConfig{Name: name, Type: transport, URL: srv.URL})
-	return nil
+	return s.declareHomeMCP(config.MCPServerConfig{Name: name, Type: transport, URL: srv.URL})
 }
 
 func (s *cliTUIState) stubTurnCallsEveryMCPTool() error {

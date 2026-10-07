@@ -22,6 +22,9 @@ export type ServerEventHandlers = {
    *  follow-up onto the turn it is watching. Carries the whole queue and its
    *  version; the caller keeps the highest version it has seen. */
   onMessageQueue?: (sessionId: string, queue: QueuedMessageEvent) => void;
+  /** Uncommitted changes of a session's folder were discarded, from this window
+   *  or another: every Edits view of the session reads git's report again. */
+  onSessionChanges?: (sessionId: string) => void;
   /** A session's settings changed - model, reasoning, mode, permission mode,
    *  the overrides for the next turns - from any surface. Carries the whole
    *  versioned snapshot, and a notice of the change when the agent made it
@@ -36,6 +39,8 @@ export type ServerEventHandlers = {
    *  Whoever holds that session - this tab or another - drops the shadow
    *  transcript and stale prompts and reloads the kept prefix. */
   onSessionRewound?: (sessionId: string) => void;
+  /** An interactive question wait started or settled; re-read session rows for its state. */
+  onQuestionPending?: (sessionId: string) => void;
   /** The connect/reconnect replay is complete; reconcile activity and queues over REST. */
   onReady?: () => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
@@ -60,9 +65,11 @@ export type ServerEvent =
   | { type: "turn_ended"; sessionId: string }
   | { type: "provider_usage"; sessionId: string; usage: ProviderUsage }
   | { type: "message_queue"; sessionId: string; queue: QueuedMessageEvent }
+  | { type: "session_changes"; sessionId: string }
   | { type: "session_settings"; event: SessionSettingsEvent }
   | { type: "config_reloaded" }
   | { type: "subagent_permission"; parentSessionId: string }
+  | { type: "session_question_pending"; sessionId: string }
   | { type: "session_rewound"; sessionId: string }
   | { type: "ready" };
 
@@ -176,8 +183,13 @@ export function parseServerEvent(ev: {
         ? { type: "subagent_permission", parentSessionId: parent }
         : null;
     }
+    case "session_question_pending": {
+      const sid = sessionIdOf(ev.data);
+      return sid ? { type: "session_question_pending", sessionId: sid } : null;
+    }
     case "turn_started":
     case "turn_ended":
+    case "session_changes":
     case "session_rewound": {
       const sid = sessionIdOf(ev.data);
       return sid ? { type: ev.event, sessionId: sid } : null;
@@ -211,8 +223,14 @@ export function dispatchServerEvent(
     case "subagent_permission":
       h.onSubagentPermission?.(event.parentSessionId);
       return;
+    case "session_question_pending":
+      h.onQuestionPending?.(event.sessionId);
+      return;
     case "session_rewound":
       h.onSessionRewound?.(event.sessionId);
+      return;
+    case "session_changes":
+      h.onSessionChanges?.(event.sessionId);
       return;
     case "turn_started":
       h.onTurnStarted(event.sessionId);

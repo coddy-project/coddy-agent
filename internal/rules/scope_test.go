@@ -174,7 +174,7 @@ func TestPromptNeverCarriesScopedRules(t *testing.T) {
 	always := &rules.Rule{ID: "coddy:always", Name: "always", AlwaysApply: true, ApplyMode: rules.ApplyAuto, Content: "ALWAYS_BODY_TOKEN"}
 	catalog := []*rules.Rule{scopedRule("agents:a", scope, "SCOPED_BODY_TOKEN"), always}
 
-	out, _ := rules.RenderPrompt("", tmp, rules.AlwaysOnRules(catalog))
+	out := rules.RenderSection("## Active project rules", rules.AlwaysOnRules(catalog))
 	if strings.Contains(out, "SCOPED_BODY_TOKEN") {
 		t.Fatalf("a scoped rule leaked into the prompt: %q", out)
 	}

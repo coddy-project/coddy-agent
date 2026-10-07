@@ -31,6 +31,12 @@ Feature: The settings page of a relay
     And the relay's file keeps the provider the settings do not show
     And the relay was handed the new settings
 
+  Scenario: Loopback origins allowed from the settings reach the file and the relay
+    When I save the relay's settings allowing loopback origins with the client token
+    Then the save succeeds
+    And the relay's file allows loopback origins
+    And the relay was handed the new settings allowing loopback origins
+
   Scenario: The settings need the client token
     When I read the relay's settings without a credential
     Then the settings request is rejected as unauthorized

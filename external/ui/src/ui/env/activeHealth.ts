@@ -56,7 +56,9 @@ function set(next: ActiveEnvProbe): void {
  * remote the browser gets no answer from whether it is there at all. Null for
  * Local, which is always there.
  */
-export async function probeActiveEnv(env: CoddyEnv): Promise<RemoteProbe | null> {
+export async function probeActiveEnv(
+  env: CoddyEnv,
+): Promise<RemoteProbe | null> {
   if (env.mode !== "remote") {
     return null;
   }
@@ -128,7 +130,10 @@ subscribeEnv(() => {
 export function startActiveHealthMonitor(): void {
   if (started || typeof window === "undefined") return;
   started = true;
-  state = { health: getEnv().mode === "remote" ? "checking" : "up", probe: null };
+  state = {
+    health: getEnv().mode === "remote" ? "checking" : "up",
+    probe: null,
+  };
   stateKey = environmentKey(getEnv());
   void tick();
   window.setInterval(() => void tick(), PROBE_INTERVAL_MS);

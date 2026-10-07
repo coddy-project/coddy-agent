@@ -17,6 +17,13 @@ Feature: Reading and pruning the stored sessions in bulk
     And session 1 reports 120 input, 45 output and 165 total tokens
     And every listed session reports when it was created
 
+  Scenario: An activity list reports an unseen failed turn
+    Given 1 stored sessions
+    And session 1 has an unseen failed turn at generation 5
+    When I list sessions with activity
+    Then session 1 reports last error generation 5
+    And session 1 reports an unread completion
+
   Scenario: Deleting the sessions the operator ticked
     Given 3 stored sessions
     When I delete sessions 1 and 3 in one request

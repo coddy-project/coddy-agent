@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { QuestionPromptSection } from "./QuestionPromptSection";
 import type { CoddyQuestionPayload } from "./questionTypes";
@@ -195,8 +201,7 @@ test("an answered card states the question once and the answer under it", () => 
       resolved={{
         skipped: false,
         answers: [["через скил configure-coddy"]],
-        summaryLine:
-          "Which scheduler did you mean? через скил configure-coddy",
+        summaryLine: "Which scheduler did you mean? через скил configure-coddy",
       }}
       onResolved={() => {}}
     />,
@@ -206,7 +211,9 @@ test("an answered card states the question once and the answer under it", () => 
   expect(container.querySelector("summary")).toBeNull();
   expect(container.querySelector(".question-prompt-summary-line")).toBeNull();
 
-  expect(container.querySelectorAll(".question-prompt-resolved-q")).toHaveLength(1);
+  expect(
+    container.querySelectorAll(".question-prompt-resolved-q"),
+  ).toHaveLength(1);
   expect(
     container.querySelector(".question-prompt-resolved-q")?.textContent,
   ).toBe("Which scheduler did you mean?");

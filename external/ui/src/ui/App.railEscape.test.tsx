@@ -1,5 +1,12 @@
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { ConfirmProvider } from "./components/useConfirm";
@@ -23,10 +30,27 @@ import {
  */
 
 vi.mock("./chat/ChatScreen", () => ({
-  ChatScreen: () => <div data-testid="chat-screen-stub" />,
+  ChatScreen: (props: {
+    backgroundTasksOpen?: boolean;
+    onOpenBackgroundTasks?: () => void;
+  }) => (
+    <div data-testid="chat-screen-stub">
+      <button
+        type="button"
+        data-testid="open-tasks"
+        onClick={() => props.onOpenBackgroundTasks?.()}
+      >
+        Open tasks
+      </button>
+      <output data-testid="chat-tasks-open">
+        {String(props.backgroundTasksOpen === true)}
+      </output>
+    </div>
+  ),
 }));
 
 const SID = "sess_a";
+const OTHER_SID = "sess_b";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -41,7 +65,9 @@ const docsContents = {
       id: "features",
       title: "Features",
       summary: "What it does.",
-      pages: [{ slug: "features/modes", title: "Operating modes", summary: "Modes." }],
+      pages: [
+        { slug: "features/modes", title: "Operating modes", summary: "Modes." },
+      ],
     },
   ],
 };
@@ -82,7 +108,7 @@ const scheduler = {
   dir: "/tmp/jobs",
   timeout: "30m",
   max_queue: 4,
-  runs_active: 0,
+  runs_active: 3,
   retain_sessions: 10,
 };
 
@@ -117,17 +143,28 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       registry_warming: false,
     });
   }
-  if (path === "/coddy/scheduler/jobs") return json({ scheduler, jobs: [job] });
   if (path.startsWith("/coddy/scheduler/jobs/nightly")) return json(job);
+  if (path.startsWith("/coddy/scheduler/jobs"))
+    return json({ scheduler, jobs: [job] });
   if (path === "/coddy/docs") return json(docsContents);
   if (path.startsWith("/coddy/docs/page")) return json(docsPage);
   if (path === "/coddy/config/schema") return json(configSchema);
-  if (path === "/coddy/config") return json({ models: [{ model: "fake/alpha" }] });
+  if (path === "/coddy/config")
+    return json({ models: [{ model: "fake/alpha" }] });
   if (path.startsWith("/coddy/sessions?")) {
-    return json({ sessions: [{ id: SID, title: "A chat" }] });
+    return json({
+      active_count: 2,
+      sessions: [
+        { id: SID, title: "A chat" },
+        { id: OTHER_SID, title: "Another chat" },
+      ],
+    });
   }
   if (path.startsWith(`/coddy/sessions/${SID}/messages`)) {
     return json({ session_id: SID, messages: [] });
+  }
+  if (path.startsWith(`/coddy/sessions/${OTHER_SID}/messages`)) {
+    return json({ session_id: OTHER_SID, messages: [] });
   }
   return json({}, 404);
 });
@@ -160,7 +197,9 @@ function mountInChat() {
 }
 
 /** Escape as a keyboard sends it: at whatever has the focus, up to the window. */
-function pressEscape(target: Element = document.activeElement ?? document.body) {
+function pressEscape(
+  target: Element = document.activeElement ?? document.body,
+) {
   return fireEvent.keyDown(target, { key: "Escape" });
 }
 
@@ -200,7 +239,9 @@ test("Escape still closes the scheduler, its job editor first", async () => {
   fireEvent.click(await screen.findByTestId("nav-scheduler"));
   await screen.findByTestId("scheduler-drawer");
   fireEvent.click(await screen.findByText("nightly"));
-  await waitFor(() => expect(window.location.hash).toBe("#/scheduler/jobs/nightly"));
+  await waitFor(() =>
+    expect(window.location.hash).toBe("#/scheduler/jobs/nightly"),
+  );
   pressEscape();
   await waitFor(() => expect(window.location.hash).toBe("#/scheduler"));
   expect(screen.getByTestId("scheduler-drawer")).toBeTruthy();
@@ -214,7 +255,9 @@ test("in Settings Escape leaves an open row for its list first, then Settings", 
   window.dispatchEvent(new HashChangeEvent("hashchange"));
   await screen.findByTestId("settings-head-back");
   pressEscape();
-  await waitFor(() => expect(screen.queryByTestId("settings-head-back")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByTestId("settings-head-back")).toBeNull(),
+  );
   expect(screen.getByTestId("settings-master-item-0")).toBeTruthy();
   expect(window.location.hash).toBe("#/settings/models");
   pressEscape();
@@ -245,6 +288,86 @@ test("on the stacked shell Escape takes Settings back to its tiles first, then c
   await backInChat("settings-screen");
 });
 
+test("on desktop Tasks stays open across rail screens and uses local panel state", async () => {
+  mountInChat();
+  fireEvent.click(await screen.findByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  expect(window.location.hash).toBe(`#/s/${SID}`);
+
+  for (const [trigger, panel] of [
+    ["nav-history", "sessions"],
+    ["nav-settings", "settings-screen"],
+    ["nav-scheduler", "scheduler-drawer"],
+    ["nav-docs", "docs-view"],
+  ] as const) {
+    fireEvent.click(await screen.findByTestId(trigger));
+    await screen.findByTestId(panel);
+    expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
+  }
+
+  fireEvent.click(screen.getByTestId("bgtasks-panel-close"));
+  await waitFor(() => expect(screen.queryByTestId("bgtasks-panel")).toBeNull());
+  expect(window.location.hash).toMatch(/^#\/docs/);
+  expect(window.location.hash).not.toContain("/tasks");
+  fireEvent.click(screen.getByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  expect(window.location.hash).toMatch(/^#\/docs/);
+  expect(window.location.hash).not.toContain("/tasks");
+});
+
+// Tasks belongs to the chat on screen, not to the rail: on desktop it stays
+// open while History picks another chat and shows that chat's tasks, and the
+// backdrop that takes History down leaves it where it was.
+test("on desktop Tasks follows the chat picked in History and outlives its backdrop", async () => {
+  mountInChat();
+  fireEvent.click(await screen.findByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+
+  fireEvent.click(await screen.findByTestId("nav-history"));
+  await screen.findByTestId("sessions");
+  fireEvent.click(await screen.findByTestId(`session-row-${OTHER_SID}`));
+  await waitFor(() =>
+    expect(window.location.hash).toMatch(new RegExp(`^#/s/${OTHER_SID}`)),
+  );
+  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).startsWith(
+          `/coddy/sessions/${OTHER_SID}/background-tasks`,
+        ),
+      ),
+    ).toBe(true),
+  );
+
+  fireEvent.click(document.querySelector(".backdrop.is-open")!);
+  await waitFor(() => expect(screen.queryByTestId("sessions")).toBeNull());
+  await settle();
+  expect(screen.getByTestId("bgtasks-panel")).toBeTruthy();
+  expect(window.location.hash).toMatch(new RegExp(`^#/s/${OTHER_SID}`));
+});
+
+test("on the stacked shell a rail screen closes the full-screen Tasks panel", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === shellStackMaxWidthMediaQuery,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+  mountInChat();
+  fireEvent.click(await screen.findByTestId("open-tasks"));
+  await screen.findByTestId("bgtasks-panel");
+  expect(window.location.hash).toBe(`#/s/${SID}/tasks`);
+
+  fireEvent.click(await screen.findByTestId("nav-history"));
+  await screen.findByTestId("sessions");
+  expect(screen.queryByTestId("bgtasks-panel")).toBeNull();
+});
+
 test("an Escape the documentation search takes clears it and leaves the reader open", async () => {
   mountInChat();
   fireEvent.click(await screen.findByTestId("nav-docs"));
@@ -264,7 +387,10 @@ test("an Escape the documentation search takes clears it and leaves the reader o
  * link points, and what it draws. A Record: a screen added to the rail does not
  * compile here until it says both, and the test below then holds it to Escape.
  */
-const RAIL_SCREEN_PAGES: Record<RailScreenId, { href: string; testId: string }> = {
+const RAIL_SCREEN_PAGES: Record<
+  RailScreenId,
+  { href: string; testId: string }
+> = {
   history: { href: appNavHrefHistory(), testId: "sessions" },
   scheduler: { href: appNavHrefScheduler(), testId: "scheduler-drawer" },
   swarm: { href: appNavHrefSwarm(), testId: "swarm-view" },
@@ -284,7 +410,9 @@ test("every screen of the rail closes on Escape and gives the address back to th
     // first page): the operator presses Escape on a screen they see.
     await settle();
     pressEscape();
-    await waitFor(() => expect(screen.queryByTestId(page.testId), id).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByTestId(page.testId), id).toBeNull(),
+    );
     await waitFor(() => expect(window.location.hash, id).toBe(`#/s/${SID}`));
     cleanup();
   }
@@ -326,7 +454,9 @@ test("on a relay the swarm is home: Escape leaves it, and closes what opened ove
   fireEvent.click(await screen.findByTestId("nav-settings"));
   await screen.findByTestId("settings-screen");
   pressEscape();
-  await waitFor(() => expect(screen.queryByTestId("settings-screen")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByTestId("settings-screen")).toBeNull(),
+  );
   expect(screen.getByTestId("swarm-view")).toBeTruthy();
   expect(window.location.hash).toBe("");
 });
@@ -344,18 +474,27 @@ test("on a relay the Swarm entry stays lit, and the brand leads to the map", asy
   );
   await screen.findByTestId("swarm-view");
   await waitFor(() =>
-    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "true"),
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    ),
   );
   // The page is the relay's own, which has no documentation to read.
   await waitFor(() => expect(screen.queryByTestId("nav-docs")).toBeNull());
   fireEvent.click(await screen.findByTestId("nav-settings"));
   await screen.findByTestId("settings-screen");
   await waitFor(() =>
-    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "false"),
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    ),
   );
   fireEvent.click(screen.getByTestId("nav-home"));
   await screen.findByTestId("swarm-view");
   await waitFor(() =>
-    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "true"),
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    ),
   );
 });

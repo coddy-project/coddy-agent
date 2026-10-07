@@ -129,7 +129,7 @@ test("a window with room to spare keeps the transcript where it was", () => {
 });
 
 // Once the stripe would run under the panel it has to give way - but only by
-// the overlap, keeping a 28px gap from the panel rather than hiding behind it
+// the overlap, keeping a 12px gap from the panel rather than hiding behind it
 // or leaving a dead strip beside it.
 test("a tighter window gives up exactly what the panel covers", () => {
   for (const window of [
@@ -138,7 +138,7 @@ test("a tighter window gives up exactly what the panel covers", () => {
     { viewportPx: 1440, shellPx: 1356 },
     { viewportPx: 1200, shellPx: 1116 },
   ]) {
-    expect(stripeEndInsetPx(window)).toBeCloseTo(380 + 14 + 28, 1);
+    expect(stripeEndInsetPx(window)).toBeCloseTo(380 + 14 + 12, 1);
   }
 });
 
@@ -263,34 +263,23 @@ test("the whole summary of a card is its click surface, and Stop stands above it
   expect(stop).toContain("z-index: 1");
 });
 
-test("the way into a task rides the folded card, above the opener and on a row of its own", () => {
-  // Both ways in - a run's transcript, a preview server's address - are one
-  // pattern. The panel is narrow: a control competing for the meta line would be
-  // paid for by the model's name, which is the one thing on that line that cannot
-  // be cut down to something still readable. The row breaks whole instead.
-  expect(
-    ruleBody(".bgtask-card-transcript-row,\n.bgtask-card-address-row {"),
-  ).toContain("100%");
+test("the child transcript action is an expanded-card tab attached below output", () => {
+  const transcript = ruleBody(".bgtask-card-transcript {");
+  expect(transcript).toContain("margin-top: -8px");
+  expect(transcript).toContain("var(--accent)");
 
-  const control = ruleBody(".bgtask-card-transcript,\n.bgtask-card-link {");
-  expect(control).toContain("var(--accent)");
-  // Like Stop, they sit above the opener stretched over the summary, so they open
-  // the transcript or the page rather than the card under them.
-  expect(control).toContain("position: relative");
-  expect(control).toContain("z-index: 1");
+  // The folded summary has no transcript row; only a running preview server keeps
+  // its address there.
+  expect(css).not.toContain(".bgtask-card-transcript-row");
+  expect(ruleBody(".bgtask-card-address-row {")).toContain("100%");
 
   // An address is as long as it is: it wraps whole instead of trailing off in an
-  // ellipsis that names no port. (The rule of its own is the last one that opens
-  // with the selector; the one before it is the pair's shared rule.)
-  const at = css.lastIndexOf("\n.bgtask-card-link {");
-  expect(at).toBeGreaterThan(-1);
-  const address = css.slice(at, css.indexOf("}", at));
+  // ellipsis that names no port.
+  const addressAt = css.lastIndexOf("\n.bgtask-card-link {");
+  expect(addressAt).toBeGreaterThan(-1);
+  const address = css.slice(addressAt, css.indexOf("}", addressAt));
   expect(address).toContain("overflow-wrap: anywhere");
   expect(address).not.toContain("text-overflow: ellipsis");
-
-  // The buttons the open card used to carry are gone with the duplicates.
-  expect(css).not.toContain(".bgtask-card-actions");
-  expect(css).not.toContain(".bgtask-open-transcript");
 });
 
 test("a card answers the pointer with a tint from the theme", () => {
@@ -317,25 +306,41 @@ test("the copy control sits in the corner of the command block, which leaves it 
   );
 });
 
-test("the header control is styled from theme tokens, marks a live session and never shrinks the title away", () => {
-  const control = ruleBody(".chat-header-tasks {");
-  expect(control).toContain("var(--text)");
-  // The title is the flexible child of the header; the control keeps its size.
-  expect(control).toContain("flex: none");
-  expect(ruleBody(".chat-header-tasks.is-running {")).toContain(
-    "var(--accent)",
-  );
+test("the header's view buttons are styled from theme tokens, mark a live session and never shrink the title away", () => {
+  const row = ruleBody(".chat-views {");
+  // The title is the flexible child of the header; the row keeps its size.
+  expect(row).toContain("flex: none");
+  const button = ruleBody(".chat-view-btn {");
+  expect(button).toContain("var(--text)");
+  expect(button).toContain("height: 36px");
+  // The accent says that work runs in the background, nothing else.
+  expect(ruleBody(".chat-view-btn.is-running {")).toContain("var(--accent)");
+  // Pointed at, or with its view on show, a button only brightens: its text,
+  // its border and its ground, the way the Tasks control always marked its
+  // open panel.
+  const pressed = ruleBody(".chat-view-btn.is-active {");
+  expect(pressed).not.toContain("var(--accent)");
+  expect(pressed).toMatch(/color: var\(--text\)/);
+  expect(pressed).toMatch(/border-color: color-mix\(in srgb, var\(--text\)/);
+  expect(pressed).toMatch(/background: color-mix\(in srgb, var\(--text\)/);
+  expect(css).toMatch(/\.chat-view-btn:hover,\n\.chat-view-btn\.is-active \{/);
+  // The tooltip is the rail's: the same tokens.
+  const tip = ruleBody(".chat-view-tip {");
+  expect(tip).toContain("var(--coddy-tip-bg)");
+  expect(tip).toContain("var(--coddy-tip-fg)");
 });
 
-test("at phone width the counts speak for the control and the word gives way", () => {
+test("the view buttons take the top bar's sizes: 42px on a tablet, a 40px icon alone on a phone", () => {
+  const stacked = css.slice(
+    css.indexOf(`@media (max-width: 1199px) {\n  .chat-view-btn {`),
+  );
+  expect(stacked.slice(0, 120)).toContain("height: 42px");
   const phone = css.slice(
-    css.indexOf(`@media ${phoneMaxWidthMediaQuery} {\n  .chat-header-tasks`),
+    css.indexOf(`@media ${phoneMaxWidthMediaQuery} {\n  .chat-views {`),
   );
-  const block = phone.slice(0, 260);
-  expect(block).toContain(
-    ".chat-header-tasks.has-tasks .chat-header-tasks-label",
-  );
-  expect(block).toContain("display: none");
+  const block = phone.slice(0, 400);
+  expect(block).toMatch(/\.chat-view-btn \{[^}]*width: 40px;[^}]*height: 40px/);
+  expect(block).toMatch(/\.chat-view-label \{[^}]*display: none/);
 });
 
 test("no opener is left under the transcript", () => {

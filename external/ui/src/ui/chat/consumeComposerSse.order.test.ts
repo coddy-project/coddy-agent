@@ -102,6 +102,26 @@ test("streaming interleaves text and tool calls in arrival order", async () => {
   expect(shape).toEqual(["text:Reading files. ", "tool:tc1", "text:All good."]);
 });
 
+test("completed share_file metadata attaches its artifacts to the live tool row", async () => {
+  const artifact = {
+    id: "file-1",
+    name: "report.pdf",
+    sha256: "a".repeat(64),
+    size: 1024,
+    url: "/coddy/sessions/s1/artifacts/file-1",
+  };
+  const items = await drive(
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "share-1", title: "share_file", status: "pending" })}\n\n` +
+      `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "share-1", status: "completed", content: [{ content: { text: "shared" } }], meta: { coddy: { artifacts: [artifact] } } })}\n\n`,
+  );
+
+  const tool = items.find(
+    (item): item is Extract<TranscriptItem, { type: "tool_call" }> =>
+      item.type === "tool_call",
+  );
+  expect(tool?.artifacts).toEqual([artifact]);
+});
+
 test("completed todo calls keep the plan snapshot sent with their status update", async () => {
   const todoPlan = [
     { content: "Inspect existing cards", status: "completed" },
@@ -219,7 +239,10 @@ test("whitespace between tool calls opens no empty assistant segment", async () 
 
 test("whitespace inside a paragraph still reaches the segment it belongs to", async () => {
   const items = await drive(
-    textEvent("one") + textEvent("\n\n") + textEvent("two") + `data: [DONE]\n\n`,
+    textEvent("one") +
+      textEvent("\n\n") +
+      textEvent("two") +
+      `data: [DONE]\n\n`,
   );
   expect(
     items
@@ -234,20 +257,38 @@ test("whitespace inside a paragraph still reaches the segment it belongs to", as
 test("replayed frames are dated when they happened, not when they arrived", async () => {
   const now = Date.now();
   vi.spyOn(Date, "now").mockReturnValue(now);
-  const aged = (age: number, frame: string) => frame.replace(/^/, `age: ${age}\n`);
+  const aged = (age: number, frame: string) =>
+    frame.replace(/^/, `age: ${age}\n`);
   const sse =
-    aged(30000, `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Weighing." } }] })}\n\n`) +
-    aged(20000, `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: " More." } }] })}\n\n`) +
-    aged(12000, `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "tc1", title: "webfetch", status: "pending" })}\n\n`) +
-    aged(9000, `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "tc1", status: "in_progress", content: [{ content: { text: '{"url":"https://coddy.dev/"}' } }] })}\n\n`) +
-    aged(4000, `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "tc1", status: "completed", content: [{ content: { text: "page" } }] })}\n\n`) +
+    aged(
+      30000,
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Weighing." } }] })}\n\n`,
+    ) +
+    aged(
+      20000,
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: " More." } }] })}\n\n`,
+    ) +
+    aged(
+      12000,
+      `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "tc1", title: "webfetch", status: "pending" })}\n\n`,
+    ) +
+    aged(
+      9000,
+      `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "tc1", status: "in_progress", content: [{ content: { text: '{"url":"https://coddy.dev/"}' } }] })}\n\n`,
+    ) +
+    aged(
+      4000,
+      `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "tc1", status: "completed", content: [{ content: { text: "page" } }] })}\n\n`,
+    ) +
     `data: [DONE]\n\n`;
 
   const items = await drive(sse);
   vi.restoreAllMocks();
   const thinking = items.find((it) => it.type === "thinking");
   const call = items.find((it) => it.type === "tool_call");
-  expect(thinking?.type === "thinking" && thinking.startedAtMs).toBe(now - 30000);
+  expect(thinking?.type === "thinking" && thinking.startedAtMs).toBe(
+    now - 30000,
+  );
   expect(thinking?.type === "thinking" && thinking.durationMs).toBe(18000);
   expect(call?.type === "tool_call" && call.durationMs).toBe(5000);
 });
@@ -356,7 +397,9 @@ async function driveWithPrompts(sse: string): Promise<string[]> {
   vi.stubGlobal("requestAnimationFrame", () => 0);
   const items: TranscriptItem[] = [];
   let idc = 0;
-  const applyStreamItems = (fn: (prev: TranscriptItem[]) => TranscriptItem[]) => {
+  const applyStreamItems = (
+    fn: (prev: TranscriptItem[]) => TranscriptItem[],
+  ) => {
     const next = fn(items.slice());
     items.length = 0;
     items.push(...next);
@@ -396,7 +439,10 @@ async function driveWithPrompts(sse: string): Promise<string[]> {
           type: "permission_prompt",
           payload: {
             sessionId: "s1",
-            toolCall: { toolCallId: String(raw.toolCallId), title: "run_command" },
+            toolCall: {
+              toolCallId: String(raw.toolCallId),
+              title: "run_command",
+            },
             options: [],
           },
         } as TranscriptItem,
@@ -435,13 +481,32 @@ test("turn_progress reaches the caller on this machine's clock, replayed frames 
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-09-18T10:00:45Z"));
   const now = Date.now();
-  const seen: Array<{ startedAtMs: number; outputTokens: number; estimated: boolean }> = [];
+  const seen: Array<{
+    startedAtMs: number;
+    outputTokens: number;
+    estimated: boolean;
+  }> = [];
   const frame = (payload: object, age?: number) =>
     `event: turn_progress\n${age === undefined ? "" : `age: ${age}\n`}data: ${JSON.stringify(payload)}\n\n`;
   const params: ConsumeComposerSseParams = {
     reader: mockReader(
-      frame({ sessionUpdate: "turn_progress", startedAt: "2026-09-18T12:00:00Z", elapsedMs: 40_000, outputTokens: 0, estimated: false }, 5_000) +
-        frame({ sessionUpdate: "turn_progress", startedAt: "2026-09-18T12:00:00Z", elapsedMs: 45_000, outputTokens: 433, estimated: true }) +
+      frame(
+        {
+          sessionUpdate: "turn_progress",
+          startedAt: "2026-09-18T12:00:00Z",
+          elapsedMs: 40_000,
+          outputTokens: 0,
+          estimated: false,
+        },
+        5_000,
+      ) +
+        frame({
+          sessionUpdate: "turn_progress",
+          startedAt: "2026-09-18T12:00:00Z",
+          elapsedMs: 45_000,
+          outputTokens: 433,
+          estimated: true,
+        }) +
         `data: [DONE]\n\n`,
     ),
     dec: new TextDecoder(),
@@ -465,8 +530,20 @@ test("turn_progress reaches the caller on this machine's clock, replayed frames 
   // what lets the shell order it against an activity read.
   const turn = Date.parse("2026-09-18T12:00:00Z");
   expect(seen).toEqual([
-    { startedAtMs: now - 45_000, outputTokens: 0, estimated: false, serverStartedAtMs: turn, serverElapsedMs: 40_000 },
-    { startedAtMs: now - 45_000, outputTokens: 433, estimated: true, serverStartedAtMs: turn, serverElapsedMs: 45_000 },
+    {
+      startedAtMs: now - 45_000,
+      outputTokens: 0,
+      estimated: false,
+      serverStartedAtMs: turn,
+      serverElapsedMs: 40_000,
+    },
+    {
+      startedAtMs: now - 45_000,
+      outputTokens: 433,
+      estimated: true,
+      serverStartedAtMs: turn,
+      serverElapsedMs: 45_000,
+    },
   ]);
 });
 
@@ -474,7 +551,14 @@ test("a woken turn opens with the wake, before anything it says", async () => {
   const wake = {
     sessionUpdate: "background_wake",
     tasks: [
-      { id: "bg_3", kind: "command", label: "make test", status: "failed", exitCode: 2, durationMs: 90000 },
+      {
+        id: "bg_3",
+        kind: "command",
+        label: "make test",
+        status: "failed",
+        exitCode: 2,
+        durationMs: 90000,
+      },
     ],
   };
   const items = await drive(
@@ -483,12 +567,28 @@ test("a woken turn opens with the wake, before anything it says", async () => {
       textEvent("The tests failed.") +
       `data: [DONE]\n\n`,
   );
-  expect(items.map((it) => it.type)).toEqual(["background_wake", "assistant_message"]);
-  const wakeItem = items[0] as Extract<TranscriptItem, { type: "background_wake" }>;
-  expect(wakeItem.tasks).toEqual([
-    { id: "bg_3", kind: "command", label: "make test", status: "failed", exitCode: 2, durationMs: 90000 },
+  expect(items.map((it) => it.type)).toEqual([
+    "background_wake",
+    "assistant_message",
   ]);
-  expect((items[1] as Extract<TranscriptItem, { type: "assistant_message" }>).content).toBe("The tests failed.");
+  const wakeItem = items[0] as Extract<
+    TranscriptItem,
+    { type: "background_wake" }
+  >;
+  expect(wakeItem.tasks).toEqual([
+    {
+      id: "bg_3",
+      kind: "command",
+      label: "make test",
+      status: "failed",
+      exitCode: 2,
+      durationMs: 90000,
+    },
+  ]);
+  expect(
+    (items[1] as Extract<TranscriptItem, { type: "assistant_message" }>)
+      .content,
+  ).toBe("The tests failed.");
 });
 
 test("a wake frame naming no task adds nothing", async () => {
@@ -505,10 +605,17 @@ test("a wake frame naming no task adds nothing", async () => {
 test("a pending tool_call_update keeps the row's start time", async () => {
   const now = Date.now();
   vi.spyOn(Date, "now").mockReturnValue(now);
-  const aged = (age: number, frame: string) => frame.replace(/^/, `age: ${age}\n`);
+  const aged = (age: number, frame: string) =>
+    frame.replace(/^/, `age: ${age}\n`);
   const sse =
-    aged(12000, `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "w1", title: "write", kind: "edit", status: "pending" })}\n\n`) +
-    aged(5000, `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "w1", status: "pending", _meta: { coddy: { toolInputProgress: { path: "a.html", bytes: 42, lines: 3, argumentBytes: 80, preview: "<html>" } } } })}\n\n`) +
+    aged(
+      12000,
+      `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "w1", title: "write", kind: "edit", status: "pending" })}\n\n`,
+    ) +
+    aged(
+      5000,
+      `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "w1", status: "pending", _meta: { coddy: { toolInputProgress: { path: "a.html", bytes: 42, lines: 3, argumentBytes: 80, preview: "<html>" } } } })}\n\n`,
+    ) +
     `data: [DONE]\n\n`;
 
   const items = await drive(sse);

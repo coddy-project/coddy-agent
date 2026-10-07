@@ -34,6 +34,14 @@ Feature: POST /v1/chat/completions streams the contract an OpenAI client parses
     When an OpenAI client streams "local/qwen3-1.7b" over POST /v1/chat/completions asking for usage
     Then the last chunk before [DONE] reports 12 input and 5 output tokens
     And that usage chunk carries an empty choices array
+    And that usage chunk reports 4 cached prompt tokens
+
+  Scenario: An agent turn that asks for usage is given a final usage chunk
+    Given a coddy server whose model streams reasoning before its answer
+    When an OpenAI client streams "agent" over POST /v1/chat/completions asking for usage
+    Then the last chunk before [DONE] reports 12 input and 5 output tokens
+    And that usage chunk carries an empty choices array
+    And that usage chunk reports 4 cached prompt tokens
 
   Scenario: The rich coddy channel is untouched on POST /v1/responses
     Given a coddy server whose model streams reasoning before its answer

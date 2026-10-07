@@ -31,6 +31,7 @@ func reasoningHTTPConfig() *config.Config {
 			{Model: "openai/gpt-5", MaxTokens: 100, ReasoningDefault: "medium"},
 			{Model: "openai/gpt-4o", MaxTokens: 100},
 			{Model: "neuraldeep/qwen3.6-35b-a3b", MaxTokens: 100},
+			{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 100, AllowReasoningOff: true},
 			{Model: "neuraldeep/gpt-oss-120b", MaxTokens: 100},
 		},
 	}
@@ -80,9 +81,12 @@ func TestGETModelsReasoningLevels(t *testing.T) {
 	if len(got["openai/gpt-4o"].levels) != 0 {
 		t.Errorf("gpt-4o reasoning_levels = %v, want empty", got["openai/gpt-4o"].levels)
 	}
-	// Qwen3 and gpt-oss families auto-detect to the standard level set.
+	// The normal tiers are auto-detected, but Off is a per-model opt-in.
 	if !reflect.DeepEqual(got["neuraldeep/qwen3.6-35b-a3b"].levels, []string{"low", "medium", "high"}) {
 		t.Errorf("qwen3.6 reasoning_levels = %v", got["neuraldeep/qwen3.6-35b-a3b"].levels)
+	}
+	if !reflect.DeepEqual(got["neuraldeep/qwen3.8-27b"].levels, []string{"low", "medium", "high", "off"}) {
+		t.Errorf("enabled qwen reasoning_levels = %v", got["neuraldeep/qwen3.8-27b"].levels)
 	}
 	if !reflect.DeepEqual(got["neuraldeep/gpt-oss-120b"].levels, []string{"low", "medium", "high"}) {
 		t.Errorf("gpt-oss reasoning_levels = %v", got["neuraldeep/gpt-oss-120b"].levels)

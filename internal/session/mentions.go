@@ -78,6 +78,14 @@ type MentionScope struct {
 	// prompt holds such a mention. The note, when set, is why none can be
 	// spawned in this turn; the mention still says which one the user meant.
 	Agents func() (agents []MentionAgent, note string)
+	// ConfineHome, when set, keeps file and folder mentions inside the
+	// session's working directory and out of this directory (the agent's
+	// home): a restricted turn (TurnRestriction.ConfineToWorkspace) attaches
+	// nothing else, and the mention stays plain text.
+	ConfineHome string
+	// Confined turns ConfineHome on; ConfineHome may be empty when the agent
+	// has no home to keep out.
+	Confined bool
 }
 
 // mentionScope is what a prompt of this session may resolve. A child's task
@@ -86,6 +94,15 @@ type MentionScope struct {
 func (m *Manager) mentionScope(st *State, subagentTurn, askMode bool) MentionScope {
 	if subagentTurn || st == nil {
 		return MentionScope{}
+	}
+	// A restricted turn reads inside its working directory only and fetches
+	// no page for anybody.
+	if r := st.GetTurnRestriction(); r != nil && r.ConfineToWorkspace {
+		home := ""
+		if cfg := m.Cfg(); cfg != nil {
+			home = cfg.Paths.Home
+		}
+		return MentionScope{Confined: true, ConfineHome: home}
 	}
 	return MentionScope{
 		Sessions: m.store != nil && !IsGatewayOrigin(st.GetOrigin()),
@@ -105,7 +122,7 @@ func (m *Manager) mentionAgents(cwd string, askMode bool) ([]MentionAgent, strin
 	if cfg == nil || !cfg.Subagents.ResolvedEnabled() {
 		return nil, ""
 	}
-	loader := subagents.NewLoader(cfg.Subagents.Dirs, cfg.Subagents.ResolvedProjectTrust())
+	loader := subagents.NewLoader(cfg.Subagents.SearchDirs(), cfg.Subagents.ResolvedProjectTrust())
 	loader.Log = m.log
 	entries := subagents.BuildCatalog(loader.Load(cwd, cfg.Paths.Home), cfg.Subagents.ResolvedProjectTrust(),
 		subagents.CanonicalWorkspace(cwd), subagents.NewTrustStore(cfg.Paths.Home))
@@ -304,6 +321,9 @@ func (r *mentionResolver) resolvePath(reading mention.PathReading, typed string)
 	}
 	loc, okLoc := mention.Resolve(r.cwd, r.home, reading.Path)
 	if !okLoc {
+		return nil, false, false
+	}
+	if r.scope.Confined && !PathInWorkspace(loc.Abs, r.cwd, r.scope.ConfineHome) {
 		return nil, false, false
 	}
 	info, err := os.Stat(loc.Abs)
@@ -787,6 +807,10 @@ func findMentionRule(catalog []*rules.Rule, name string) *rules.Rule {
 }
 
 func (r *mentionResolver) ruleResource(rule *rules.Rule, typed string) (*acp.Resource, bool) {
+	// A restricted turn attaches the rules of its working directory only.
+	if r.scope.Confined && !PathInWorkspace(rule.FilePath, r.cwd, r.scope.ConfineHome) {
+		return nil, false
+	}
 	res := RuleAttachment(r.cwd, r.home, rule)
 	if !r.claim(mention.KindRule + "|" + res.URI) {
 		return nil, false
@@ -907,4 +931,48 @@ func (r *mentionResolver) resolveAgent(name, typed string) (*acp.Resource, bool)
 		Text:     b.String(),
 		Mention:  &acp.ResourceMention{Kind: mention.KindAgent, Name: agent.Name, Typed: typed},
 	}, true
+}
+
+// PathInWorkspace reports whether p - absolute, or relative to cwd, or under
+// "~" - lies inside cwd and outside home (home empty keeps nothing out).
+// Symbolic links are followed as far as they exist, so a link inside the
+// workspace that points out of it does not count as inside.
+func PathInWorkspace(p, cwd, home string) bool {
+	p = strings.TrimSpace(p)
+	if p == "" || strings.TrimSpace(cwd) == "" {
+		return false
+	}
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if h := mention.HomeDir(); h != "" {
+			p = filepath.Join(h, strings.TrimPrefix(strings.TrimPrefix(p, "~"), "/"))
+		}
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(cwd, p)
+	}
+	abs := realPath(p)
+	if !pathWithin(realPath(cwd), abs) {
+		return false
+	}
+	if h := strings.TrimSpace(home); h != "" && pathWithin(realPath(h), abs) {
+		return false
+	}
+	return true
+}
+
+// realPath resolves the symbolic links of the longest existing prefix of p.
+func realPath(p string) string {
+	p = filepath.Clean(p)
+	rest := ""
+	for cur := p; ; {
+		if r, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(r, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
 }

@@ -1,7 +1,9 @@
 Feature: Skill marketplace versioning and management
   Coddy installs skills from agents-standard marketplaces, records the
   installed version, detects when a newer version is published, and lets
-  operators manage marketplace sources over the HTTP API.
+  operators manage marketplace sources over the HTTP API. A source a project
+  declares in its .coddy/marketplaces.json is listed with its trust state and
+  synced once the operator approved it for the workspace.
 
   Background:
     Given a running coddy HTTP server
@@ -35,3 +37,12 @@ Feature: Skill marketplace versioning and management
     Then the source list contains the marketplace "shop"
     When I remove the marketplace "shop" from the skill sources
     Then the source list is empty
+
+  Scenario: A project source waits for its approval, then syncs into the coddy home
+    Given a local marketplace "shop" publishing skill "demo" at version "1.0.0"
+    And the workspace's marketplaces.json declares the marketplace "shop"
+    When I list the skill sources
+    Then the source list shows the marketplace "shop" from the project awaiting approval
+    When I approve the project marketplace "shop" as it was listed
+    And I sync the skill sources
+    Then the skills list shows "demo" at version "1.0.0"

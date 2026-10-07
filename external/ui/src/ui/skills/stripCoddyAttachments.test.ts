@@ -1,9 +1,11 @@
 import { expect, test } from "vitest";
-import { stripCoddyAttachmentsForUserDisplay, parseSessionAssetFiles } from "./stripCoddyAttachments";
+import {
+  stripCoddyAttachmentsForUserDisplay,
+  parseSessionAssetFiles,
+} from "./stripCoddyAttachments";
 
 test("replacing coddy_attachment with @path for display", () => {
-  const raw =
-    `see below\n\n<coddy_attachment path="docs/readme.txt" name="readme.txt">\n<![CDATA[hello]]>\n</coddy_attachment>`;
+  const raw = `see below\n\n<coddy_attachment path="docs/readme.txt" name="readme.txt">\n<![CDATA[hello]]>\n</coddy_attachment>`;
   expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe(
     "see below\n\n@docs/readme.txt",
   );
@@ -17,14 +19,11 @@ test("decoded XML entities in path attribute", () => {
 test("strips coddy_session_assets block and preceding newlines", () => {
   const raw =
     "What is in the file?\n\n<coddy_session_assets>Uploaded files saved to session assets (read-only). You can read or copy them:\n- /home/user/.coddy/sessions/s1/assets/note.txt\n</coddy_session_assets>";
-  expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe(
-    "What is in the file?",
-  );
+  expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe("What is in the file?");
 });
 
 test("strips coddy_session_assets when no preceding newline", () => {
-  const raw =
-    "<coddy_session_assets>- /some/path.txt\n</coddy_session_assets>";
+  const raw = "<coddy_session_assets>- /some/path.txt\n</coddy_session_assets>";
   expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe("");
 });
 
@@ -61,7 +60,9 @@ test("no duplicate @path when user text already mentioned the attachment", () =>
 test("attachment with lines attribute collapses to @path:range", () => {
   const raw =
     'see @Dockerfile:21-31\n<coddy_attachment path="Dockerfile" name="Dockerfile" lines="21-31">\n<![CDATA[FROM x]]>\n</coddy_attachment>';
-  expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe("see @Dockerfile:21-31\n");
+  expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe(
+    "see @Dockerfile:21-31\n",
+  );
 });
 
 test("ranged attachment renders @path:range when text lacks the mention", () => {

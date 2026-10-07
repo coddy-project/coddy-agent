@@ -24,6 +24,7 @@ const ComponentKey = "component"
 const (
 	ComponentGateway         = "gateway"
 	ComponentGatewayTelegram = "gateway.telegram"
+	ComponentGatewayPachca   = "gateway.pachca"
 	ComponentSession         = "session"
 	ComponentAgent           = "agent"
 	ComponentScheduler       = "scheduler"

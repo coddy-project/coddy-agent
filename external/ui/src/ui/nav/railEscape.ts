@@ -22,8 +22,12 @@ import type { NavItemId } from "./navOverflow";
  * the screen.
  */
 
-/** A screen the rail opens: every rail item but sign-out. */
-export type RailScreenId = Exclude<NavItemId, "signOut">;
+/**
+ * A screen the rail opens: every rail item but sign-out and the environment,
+ * which opens a menu (it answers Escape through useEscapeCloses) rather than
+ * a screen.
+ */
+export type RailScreenId = Exclude<NavItemId, "signOut" | "environment">;
 
 /** Whether a screen is on screen, and what Escape does to it. */
 export type RailScreen = { open: boolean; close: () => void };
@@ -95,7 +99,10 @@ function lastStep(screen: RailScreenId): Step | undefined {
  * list, a section of the stacked shell back to the tiles). `null` while there
  * is no step to take, and Escape closes the screen.
  */
-export function useRailEscapeStep(screen: RailScreenId, step: (() => void) | null): void {
+export function useRailEscapeStep(
+  screen: RailScreenId,
+  step: (() => void) | null,
+): void {
   const stepRef = useRef(step);
   useLayoutEffect(() => {
     stepRef.current = step;

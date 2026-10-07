@@ -74,6 +74,47 @@ func TestRunPlanDoesNotSetTodo(t *testing.T) {
 	}
 }
 
+func TestRunPlanReadFailurePersistsActivityError(t *testing.T) {
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	runs := 0
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		runs++
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", store)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := mgr.SessionByID(res.SessionID)
+	if _, err := mgr.RunPlan(ctx, res.SessionID, "missing-plan", nil); err == nil {
+		t.Fatal("RunPlan unexpectedly succeeded for a missing plan")
+	}
+	if runs != 0 {
+		t.Fatalf("runner ran %d time(s) after plan read failed", runs)
+	}
+	if state.GetActivitySeq() != 1 || state.GetLastErrorSeq() != 1 {
+		t.Fatalf("pre-run failure counters = activity=%d lastError=%d, want 1 and 1", state.GetActivitySeq(), state.GetLastErrorSeq())
+	}
+	snap, err := store.ReadSnapshot(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq != 1 || snap.Meta.LastErrorSeq != 1 {
+		t.Fatalf("persisted pre-run failure counters = activity=%d lastError=%d, want 1 and 1", snap.Meta.ActivitySeq, snap.Meta.LastErrorSeq)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := mgr.RunPlan(canceled, res.SessionID, "missing-plan", nil); err == nil {
+		t.Fatal("canceled RunPlan unexpectedly succeeded for a missing plan")
+	}
+	if state.GetActivitySeq() != 2 || state.GetLastErrorSeq() != 1 {
+		t.Fatalf("canceled pre-run counters = activity=%d lastError=%d, want 2 and 1", state.GetActivitySeq(), state.GetLastErrorSeq())
+	}
+}
+
 // Ask mode is read-only, so neither run-plan shortcut may start a plan run: the
 // metadata one is refused, and a plan mention stays reading material for the
 // ask turn instead of switching the session to agent mode.
@@ -181,5 +222,43 @@ func TestRunPlanRefusesAskModeSession(t *testing.T) {
 	}
 	if got := state.GetMode(); got != string(session.ModeAsk) {
 		t.Fatalf("mode switched to %q", got)
+	}
+}
+
+// A restricted turn (a messenger user who is not the bot's admin) does not
+// run a plan: running one switches the session out of plan mode, a setting
+// that is the admins' to change.
+func TestRestrictedTurnDoesNotRunAPlan(t *testing.T) {
+	cfg := testConfig()
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	mgr := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), t.TempDir(), store)
+	ctx := context.Background()
+	st, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := st.SessionID
+	state := mgr.SessionByID(id)
+	state.SetMode(string(session.ModePlan))
+	dir, err := store.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plans.Write(dir, "run-me", plans.DefaultContent("run-me", "Run me")); err != nil {
+		t.Fatal(err)
+	}
+	for _, params := range []acp.SessionPromptParams{
+		{SessionID: id, Meta: map[string]interface{}{plans.MetaRunPlanSlug: "run-me"}, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "go"}}},
+		{SessionID: id, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "Implement the plan @plans/run-me.plan.md"}}},
+	} {
+		if _, err := mgr.HandleSessionPromptWithSender(ctx, params, noopSender{}, &session.PromptRunOpts{
+			Restriction: &session.TurnRestriction{AskAlways: true, ConfineToWorkspace: true},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if state.GetMode() != string(session.ModePlan) {
+			t.Fatalf("a restricted turn ran the plan and switched the mode to %s", state.GetMode())
+		}
 	}
 }

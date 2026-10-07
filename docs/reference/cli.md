@@ -50,10 +50,11 @@ Usage:
   coddy skills list
   coddy skills enable <name>
   coddy skills disable <name>
-  coddy skills add <owner/repo | git-url | marketplace-url>
+  coddy skills add <owner/repo | git-url | marketplace-url> [--project]
   coddy skills sync
   coddy skills remove <name>
   coddy plugin marketplace add <src> | list [marketplace] | update [marketplace] | remove <marketplace | src>
+  coddy plugin marketplace trust <marketplace | src> | untrust <marketplace | src>
   coddy plugin install <plugin>@<marketplace> | <owner/repo | git-url | marketplace-url>
   coddy plugin remove <name>
   coddy plugin enable <name> | disable <name>
@@ -84,7 +85,7 @@ Usage of cli (interactive console, also the default for bare coddy on a terminal
   -cwd string
     	session working directory (CODDY_CWD, default process cwd)
   -dry-run
-    	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
+    	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram and Pachca tokens - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
   -home string
     	agent state directory (CODDY_HOME, default ~/.coddy)
   -i file
@@ -141,7 +142,7 @@ Usage of acp:
   -cwd string
     	default session cwd when the client sends an empty cwd (CODDY_CWD, default process cwd)
   -dry-run
-    	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
+    	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram and Pachca tokens - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
   -home string
     	agent state directory (CODDY_HOME, default ~/.coddy)
   -log-file string
@@ -189,9 +190,9 @@ Usage of serve (runs every subsystem enabled in config.yaml):
   -daemon coddy serve status|stop|restart
     	run in the background under a dispatcher that restarts the process if it dies (see coddy serve status|stop|restart)
   -dry-run
-    	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
+    	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram and Pachca tokens - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
   -gateway
-    	run the messenger gateway; overrides gateways.*.enable
+    	run the Telegram bot; overrides gateways.telegram.enable (the Pachca bot follows gateways.pachca.enable)
   -home string
     	agent state directory (CODDY_HOME, default ~/.coddy)
   -host string
@@ -310,6 +311,8 @@ plugin commands:
   plugin marketplace list [<marketplace>]     list marketplaces and sources, or the plugins of one marketplace
   plugin marketplace update [<marketplace>]   refresh marketplaces and what is installed from them (alias: sync)
   plugin marketplace remove <marketplace>     remove a marketplace or a source
+  plugin marketplace trust <marketplace>      approve a project marketplace or source for this workspace (terminal only)
+  plugin marketplace untrust <marketplace>    withdraw that approval
   plugin install <plugin>@<marketplace>       install one plugin of an added marketplace
   plugin install <owner/repo|url>             install every skill a source publishes and keep them in sync
   plugin remove <name>                        remove an installed skill

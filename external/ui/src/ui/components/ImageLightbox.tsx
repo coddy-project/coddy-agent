@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { useEscapeCloses } from "./useEscapeCloses";
 import { useT } from "../i18n/I18nProvider";
 
 /** How large the image is drawn: fitted to the window, or a scale of its own size. */
@@ -72,13 +73,19 @@ type Box = { left: number; top: number; width: number; height: number };
 /** A pointer, or one finger of a pinch, in the client's coordinates. */
 export type Point = { x: number; y: number };
 
-const clamp01 = (n: number) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.5);
+const clamp01 = (n: number) =>
+  Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.5;
 
 /**
  * The point of the image under a spot of the stage (the stage's middle when
  * none is given), so a zoom can bring the same point back under it.
  */
-export function focusAt(stage: Box, img: Box, clientX?: number, clientY?: number): ZoomFocus {
+export function focusAt(
+  stage: Box,
+  img: Box,
+  clientX?: number,
+  clientY?: number,
+): ZoomFocus {
   const vx = clientX === undefined ? stage.width / 2 : clientX - stage.left;
   const vy = clientY === undefined ? stage.height / 2 : clientY - stage.top;
   return {
@@ -97,8 +104,14 @@ export function scrollToKeep(
   scroll: { left: number; top: number },
 ): { left: number; top: number } {
   return {
-    left: Math.max(0, img.left - stage.left + scroll.left + focus.fx * img.width - focus.vx),
-    top: Math.max(0, img.top - stage.top + scroll.top + focus.fy * img.height - focus.vy),
+    left: Math.max(
+      0,
+      img.left - stage.left + scroll.left + focus.fx * img.width - focus.vx,
+    ),
+    top: Math.max(
+      0,
+      img.top - stage.top + scroll.top + focus.fy * img.height - focus.vy,
+    ),
   };
 }
 
@@ -176,7 +189,12 @@ export function scaleZoom(start: Zoom, fit: number, factor: number): Zoom {
 }
 
 /** How far apart the fingers went, as the factor the zoom is scaled by. */
-export function pinchZoom(start: Zoom, fit: number, startSpan: number, span: number): Zoom {
+export function pinchZoom(
+  start: Zoom,
+  fit: number,
+  startSpan: number,
+  span: number,
+): Zoom {
   if (!(startSpan > 0) || !(span > 0)) {
     return start;
   }
@@ -213,7 +231,11 @@ export const WHEEL_DOUBLING_PX = 500;
  * down over a fitted picture does nothing at all.
  */
 export function wheelZoom(start: Zoom, fit: number, pixels: number): Zoom {
-  if (!Number.isFinite(pixels) || pixels === 0 || (start === "fit" && pixels > 0)) {
+  if (
+    !Number.isFinite(pixels) ||
+    pixels === 0 ||
+    (start === "fit" && pixels > 0)
+  ) {
     return start;
   }
   return scaleZoom(start, fit, Math.pow(2, -pixels / WHEEL_DOUBLING_PX));
@@ -232,7 +254,11 @@ function capturePointer(el: Element | null, id: number) {
 
 function releasePointer(el: Element | null, id: number) {
   try {
-    if (el && typeof el.releasePointerCapture === "function" && el.hasPointerCapture(id)) {
+    if (
+      el &&
+      typeof el.releasePointerCapture === "function" &&
+      el.hasPointerCapture(id)
+    ) {
       el.releasePointerCapture(id);
     }
   } catch {
@@ -254,7 +280,11 @@ function releasePointer(el: Element | null, id: number) {
  * attachment cards and the sent bubble's all open this. Its `docs-lightbox*`
  * class names are older than that and stay as they are.
  */
-export function ImageLightbox(props: { src: string; alt: string; onClose: () => void }) {
+export function ImageLightbox(props: {
+  src: string;
+  alt: string;
+  onClose: () => void;
+}) {
   const { t } = useT();
   const [zoom, setZoom] = useState<Zoom>("fit");
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
@@ -268,10 +298,16 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
   // Every pointer down on the stage, so the second finger of a pinch is seen
   // the moment it lands, and the one left over when it lifts.
   const pointersRef = useRef(new Map<number, Point>());
-  const dragRef = useRef<
-    { id: number; x: number; y: number; left: number; top: number } | null
-  >(null);
-  const pinchRef = useRef<{ span: number; zoom: Zoom; fit: number } | null>(null);
+  const dragRef = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+  } | null>(null);
+  const pinchRef = useRef<{ span: number; zoom: Zoom; fit: number } | null>(
+    null,
+  );
   // A press that travelled: its click is the end of a gesture, not a zoom.
   const movedRef = useRef(false);
   // The fitted image as a fraction of its own size, measured while it is
@@ -282,7 +318,11 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
   // events arrives faster than React re-renders, and each one builds on the last.
   const zoomRef = useRef<Zoom>("fit");
 
-  const changeZoom = (next: (z: Zoom) => Zoom, clientX?: number, clientY?: number) => {
+  const changeZoom = (
+    next: (z: Zoom) => Zoom,
+    clientX?: number,
+    clientY?: number,
+  ) => {
     const stage = stageRef.current;
     const img = imgRef.current;
     if (stage && img) {
@@ -304,10 +344,15 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
     if (!focus || !stage || !img) {
       return;
     }
-    const to = scrollToKeep(focus, stage.getBoundingClientRect(), img.getBoundingClientRect(), {
-      left: stage.scrollLeft,
-      top: stage.scrollTop,
-    });
+    const to = scrollToKeep(
+      focus,
+      stage.getBoundingClientRect(),
+      img.getBoundingClientRect(),
+      {
+        left: stage.scrollLeft,
+        top: stage.scrollTop,
+      },
+    );
     stage.scrollLeft = to.left;
     stage.scrollTop = to.top;
   }, [zoom]);
@@ -319,7 +364,10 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
     zoomRef.current = zoom;
     const img = imgRef.current;
     if (zoom === "fit" && img && natural) {
-      fitRatioRef.current = fittedScale(img.getBoundingClientRect().width, natural.w);
+      fitRatioRef.current = fittedScale(
+        img.getBoundingClientRect().width,
+        natural.w,
+      );
     }
   }, [zoom, natural]);
 
@@ -363,7 +411,11 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const current = zoomRef.current;
-      const next = wheelZoom(current, fittedRatio(current), wheelPixels(e.deltaY, e.deltaMode));
+      const next = wheelZoom(
+        current,
+        fittedRatio(current),
+        wheelPixels(e.deltaY, e.deltaMode),
+      );
       if (next === current) {
         return;
       }
@@ -377,12 +429,12 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [natural]);
 
+  // Escape closes the viewer wherever the focus is: a tap on the picture
+  // leaves it on body, and so does Telegram Web's Back (a parent-page button).
+  useEscapeCloses(true, props.onClose);
+
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      props.onClose();
-    } else if (e.key === "+" || e.key === "=") {
+    if (e.key === "+" || e.key === "=") {
       e.preventDefault();
       changeZoom(zoomIn);
     } else if (e.key === "-") {
@@ -417,7 +469,13 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
     // Captured on the picture, so a drag that wanders off it keeps coming, and
     // so the click it ends with is still the picture's own.
     capturePointer(imgRef.current, id);
-    dragRef.current = { id, x: at.x, y: at.y, left: stage.scrollLeft, top: stage.scrollTop };
+    dragRef.current = {
+      id,
+      x: at.x,
+      y: at.y,
+      left: stage.scrollLeft,
+      top: stage.scrollTop,
+    };
     setPanning(true);
   };
 
@@ -466,7 +524,12 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
     const fingers = twoFingers();
     if (pinch && fingers) {
       e.preventDefault();
-      const next = pinchZoom(pinch.zoom, pinch.fit, pinch.span, touchSpan(fingers[0], fingers[1]));
+      const next = pinchZoom(
+        pinch.zoom,
+        pinch.fit,
+        pinch.span,
+        touchSpan(fingers[0], fingers[1]),
+      );
       if (next === zoom) {
         return;
       }
@@ -575,7 +638,9 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
       </div>
       <div
         ref={stageRef}
-        className={panning ? "docs-lightbox-stage is-panning" : "docs-lightbox-stage"}
+        className={
+          panning ? "docs-lightbox-stage is-panning" : "docs-lightbox-stage"
+        }
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}
@@ -601,7 +666,10 @@ export function ImageLightbox(props: { src: string; alt: string; onClose: () => 
               : undefined
           }
           onLoad={(e) =>
-            setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
+            setNatural({
+              w: e.currentTarget.naturalWidth,
+              h: e.currentTarget.naturalHeight,
+            })
           }
           onClick={(e) => {
             if (gestureClick()) {

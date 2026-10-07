@@ -17,7 +17,8 @@ export function readsADirectory(argsText: string | undefined): boolean {
   if (!argsText?.trim()) return false;
   try {
     const value = JSON.parse(argsText) as unknown;
-    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return false;
     const args = value as Record<string, unknown>;
     if (args.recursive === true || args.show_hidden === true) return true;
     const path = typeof args.path === "string" ? args.path.trim() : "";
@@ -36,7 +37,8 @@ function runsInBackground(argsText: string | undefined): boolean {
   if (!argsText?.trim()) return false;
   try {
     const value = JSON.parse(argsText) as unknown;
-    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return false;
     return (value as Record<string, unknown>).background === true;
   } catch {
     return false;
@@ -52,7 +54,8 @@ function runsInBackground(argsText: string | undefined): boolean {
 const MCP_NAME_KEY = "tool.name.mcp";
 
 function toolNameKey(id: string, argsText: string | undefined): string {
-  if (id === "read" && readsADirectory(argsText)) return "tool.name.read_directory";
+  if (id === "read" && readsADirectory(argsText))
+    return "tool.name.read_directory";
   if (id === "run_command" && runsInBackground(argsText)) {
     return "tool.name.run_command_background";
   }

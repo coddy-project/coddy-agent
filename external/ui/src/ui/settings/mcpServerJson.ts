@@ -40,18 +40,18 @@ export const PROJECT_TRUST_OPTIONS: Array<{
 
 export type MCPServerRow = {
   name: string;
-  /** Scope: global (config.yaml or the agent home's mcp.json) or local (./.coddy/mcp.json). */
+  /** Scope: global (the agent home's mcp.json) or local (./.coddy/mcp.json). */
   source: MCPScope;
-  /** Owning file: config (config.yaml), home (the agent home's mcp.json), project (./.coddy/mcp.json). */
-  origin: "config" | "home" | "project";
-  /** True for config.yaml entries: toggle-only here, edited in the config sections. */
-  readonly?: boolean;
+  /** Owning file: home (the agent home's mcp.json), project (./.coddy/mcp.json). */
+  origin: "home" | "project";
   transport: string;
   command?: string;
   args?: string[];
   url?: string;
   env?: Record<string, string>;
   headers?: Record<string, string>;
+  /** Variables of the Coddy process its values read (${NAME}), by name. */
+  reads?: string[];
   /** File the declaration was read from. */
   source_path?: string;
   enabled: boolean;
@@ -90,8 +90,10 @@ export function showsTrustControl(
 
 /**
  * declarationFacts renders everything a workspace-trust decision rests on:
- * the effective transport, what would be executed or contacted, and the names
- * (never the values) of the environment variables and headers it carries.
+ * the effective transport, what would be executed or contacted, the names
+ * (never the values) of the environment variables and headers it carries, and
+ * the variables of the Coddy process its values read - a header value is never
+ * shown, so a ${SECRET} it would send is named here instead.
  * Approving is a decision about these lines, so they are shown before it.
  */
 export function declarationFacts(
@@ -120,6 +122,12 @@ export function declarationFacts(
       value: headerKeys.join(", "),
     });
   }
+  if (row.reads && row.reads.length > 0) {
+    out.push({
+      label: translate("mcp.fact.reads"),
+      value: row.reads.map((name) => "${" + name + "}").join(", "),
+    });
+  }
   return out;
 }
 
@@ -134,14 +142,9 @@ export function originLabel(
 ): string {
   const path = sourcePath?.trim();
   if (path) return path;
-  switch (origin) {
-    case "config":
-      return translate("mcp.origin.config");
-    case "home":
-      return translate("mcp.origin.home");
-    default:
-      return translate("mcp.origin.project");
-  }
+  return origin === "home"
+    ? translate("mcp.origin.home")
+    : translate("mcp.origin.project");
 }
 
 // globalMCPPath names the user-global mcp.json for a surface that has no row

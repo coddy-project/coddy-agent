@@ -550,3 +550,14 @@ func TestAToolPictureIsSentOnlyFromItsOwnCopy(t *testing.T) {
 		t.Errorf("sent %d pictures, first.png=%v gone.png=%v; want the missing copy skipped and the oldest picture in its slot", len(sent), sent["first.png"], sent["gone.png"])
 	}
 }
+
+func TestWithToolImagesOmitsArtifactsFromProviderProjection(t *testing.T) {
+	history := []llm.Message{{Role: llm.RoleTool, ToolCallID: "share-1", Content: "shared", Artifacts: []llm.Artifact{{ID: "artifact", Name: "report.txt", SHA256: "abc", Size: 7}}}}
+	out := withToolImages(history, true, noToolImageFile)
+	if len(out) != 1 || len(out[0].Artifacts) != 0 {
+		t.Fatalf("provider projection leaked artifacts: %#v", out)
+	}
+	if len(history[0].Artifacts) != 1 {
+		t.Fatal("provider projection changed persisted history")
+	}
+}

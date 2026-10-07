@@ -3,6 +3,7 @@ package session_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -627,6 +628,77 @@ func TestManagerPersistMessagesAndReload(t *testing.T) {
 	}
 }
 
+func TestHandleSessionPromptRunnerFailurePersistsActivityError(t *testing.T) {
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	wantErr := errors.New("runner failed")
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", wantErr
+	}
+	mgr := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", store)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: res.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "fail"}},
+	}); !errors.Is(err, wantErr) {
+		t.Fatalf("prompt error = %v, want %v", err, wantErr)
+	}
+	state := mgr.SessionByID(res.SessionID)
+	if state.GetActivitySeq() != 1 || state.GetLastErrorSeq() != 1 {
+		t.Fatalf("failure counters = activity=%d lastError=%d, want 1 and 1", state.GetActivitySeq(), state.GetLastErrorSeq())
+	}
+	snap, err := store.ReadSnapshot(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq != 1 || snap.Meta.LastErrorSeq != 1 {
+		t.Fatalf("persisted failure counters = activity=%d lastError=%d, want 1 and 1", snap.Meta.ActivitySeq, snap.Meta.LastErrorSeq)
+	}
+}
+
+func TestSequentialStaleManagersAllocateDistinctActivityGenerations(t *testing.T) {
+	root := t.TempDir()
+	storeA := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	storeB := &session.FileStore{Root: storeA.Root}
+	mgrA := session.NewManager(testConfig(), noopSender{}, noopRunner, slog.Default(), "/tmp", storeA)
+	mgrB := session.NewManager(testConfig(), noopSender{}, func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", errors.New("manager B failed")
+	}, slog.Default(), "/tmp", storeB)
+	ctx := context.Background()
+	created, err := mgrA.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgrB.EnsureHTTPSession(ctx, created.SessionID, "/tmp"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := mgrA.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: created.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "first"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgrB.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: created.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "second"}},
+	}); err == nil || err.Error() != "manager B failed" {
+		t.Fatalf("manager B prompt error = %v, want manager B failed", err)
+	}
+
+	snap, err := storeA.ReadSnapshot(created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq != 2 || snap.Meta.LastErrorSeq != 2 {
+		t.Fatalf("activity metadata = activity %d, lastError %d; want 2, 2", snap.Meta.ActivitySeq, snap.Meta.LastErrorSeq)
+	}
+}
+
 func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	cfg := testConfig()
 	blockStarted := make(chan struct{})
@@ -642,6 +714,8 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := res.SessionID
+	state := mgr.SessionByID(id)
+	state.RestoreActivityFromSnapshot(1, 0, 1)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -667,6 +741,9 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	}
 	if out.StopReason != acp.StopReasonCancelled {
 		t.Fatalf("stop reason %q want %q", out.StopReason, acp.StopReasonCancelled)
+	}
+	if state.GetActivitySeq() != 2 || state.GetLastErrorSeq() != 1 {
+		t.Fatalf("cancellation counters = activity=%d lastError=%d, want 2 and 1", state.GetActivitySeq(), state.GetLastErrorSeq())
 	}
 }
 
@@ -776,6 +853,11 @@ func TestSessionTurnActiveInProcessDuringTurn(t *testing.T) {
 }
 
 func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
+	// The default skill folders are read in every workspace, ~/.agents/skills
+	// among them: an empty home keeps the operator's skills out of the count.
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
 	skRoot := t.TempDir()
 	skillDir := filepath.Join(skRoot, "probe")
 	if err := os.MkdirAll(filepath.Join(skillDir, "demo"), 0o755); err != nil {
@@ -881,21 +963,21 @@ func TestSetSessionWorkspaceSwitchesCwdAndPersists(t *testing.T) {
 
 func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
 	home := t.TempDir()
-	cfg := &config.Config{MCPServers: []config.MCPServerConfig{
-		{Name: "cfg-srv", Command: "cfg-mcp"},
-		{Name: "off-srv", Command: "off-mcp", Disabled: true},
-	}}
+	cfg := &config.Config{}
 	cfg.Paths.Home = home
 	cwd := t.TempDir()
 
-	// Global <home>/mcp.json overrides config.yaml; project overrides both.
-	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
-		t.Fatal(err)
+	// The project's mcp.json overrides a name of the global <home>/mcp.json.
+	for name, entry := range map[string]config.MCPJSONServer{
+		"home-srv": {Command: "home-mcp"},
+		"off-srv":  {Command: "off-mcp", Disabled: true},
+		"shared":   {Command: "home-shared"},
+	} {
+		if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), name, entry); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "cfg-srv", config.MCPJSONServer{Command: "home-override"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "home-srv", config.MCPJSONServer{Command: "proj-override"}); err != nil {
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "shared", config.MCPJSONServer{Command: "proj-override"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj-srv", config.MCPJSONServer{Command: "proj-mcp"}); err != nil {
@@ -910,11 +992,11 @@ func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
 	for _, s := range servers {
 		byName[s.Name] = s
 	}
-	if byName["cfg-srv"].Command != "home-override" {
-		t.Errorf("cfg-srv command = %q, want global mcp.json override", byName["cfg-srv"].Command)
+	if byName["home-srv"].Command != "home-mcp" {
+		t.Errorf("home-srv command = %q, want the global declaration", byName["home-srv"].Command)
 	}
-	if byName["home-srv"].Command != "proj-override" {
-		t.Errorf("home-srv command = %q, want project override", byName["home-srv"].Command)
+	if byName["shared"].Command != "proj-override" {
+		t.Errorf("shared command = %q, want project override", byName["shared"].Command)
 	}
 	if !byName["off-srv"].Disabled {
 		t.Errorf("off-srv must keep its disabled flag in the effective list")
@@ -923,8 +1005,8 @@ func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
 		t.Errorf("proj-srv missing from effective list")
 	}
 
-	// A broken project mcp.json must not fail the session; config.yaml plus
-	// the global file still apply.
+	// A broken project mcp.json must not fail the session; the global file
+	// still applies.
 	if err := os.WriteFile(filepath.Join(cwd, ".coddy", "mcp.json"), []byte("{broken"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1155,13 +1237,15 @@ func TestParseSettingsCommands(t *testing.T) {
 	}
 }
 
-// settingsTestConfig serves a Qwen model (thinking can be switched off), a
-// gpt-5 (it cannot) and a plain one.
+// settingsTestConfig serves a Qwen model that explicitly permits reasoning
+// off, an otherwise identical Qwen model that does not, a gpt-5 and a plain
+// model.
 func settingsTestConfig() *config.Config {
 	cfg := testConfig()
 	cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: "nd", Type: "neuraldeep", APIKey: "k"})
 	cfg.Models = append(cfg.Models,
-		config.ModelEntry{Model: "nd/qwen3.8-27b"},
+		config.ModelEntry{Model: "nd/qwen3.8-27b", AllowReasoningOff: true},
+		config.ModelEntry{Model: "nd/qwen3.8-27b-disabled"},
 		config.ModelEntry{Model: "p1/gpt-5", ReasoningDefault: "medium"},
 	)
 	return cfg
@@ -1318,6 +1402,7 @@ func TestApplySessionSettingsRejectsWhatTheModelCannotDo(t *testing.T) {
 		want string
 	}{
 		{session.SettingsChange{Model: str("nd/nope")}, "unknown model"},
+		{session.SettingsChange{Model: str("nd/qwen3.8-27b-disabled"), Reasoning: str("off")}, "cannot be turned off"},
 		{session.SettingsChange{Model: str("p1/gpt-5"), Reasoning: str("off")}, "cannot be turned off"},
 		{session.SettingsChange{Model: str("p1/gpt-5"), Reasoning: str("ultra")}, "is not offered"},
 		{session.SettingsChange{Reasoning: str("high")}, "offers no reasoning levels"},

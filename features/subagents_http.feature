@@ -39,6 +39,14 @@ Feature: The HTTP surface exposes subagent runs and definitions
     And I GET the subagent catalog for the server workspace
     Then the catalog names "reviewer" as trusted
 
+  Scenario: The catalog reads the shared .agents folders of the user and of the project
+    Given a running coddy serve server with a session
+    And the user's home has a subagent definition "home-helper" under .agents/agents
+    And the server workspace has a subagent definition "project-helper" under .agents/agents
+    When I GET the subagent catalog for the server workspace
+    Then the catalog names "home-helper" with scope "user" as trusted
+    And the catalog names "project-helper" with scope "project" needing approval
+
   Scenario: The catalog carries the bounds each definition declares
     Given a running coddy serve server with a session
     And the server workspace has a bounded subagent definition "reviewer" under .coddy/agents

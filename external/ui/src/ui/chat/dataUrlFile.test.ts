@@ -10,7 +10,9 @@ test("a base64 data URI becomes the file it carries", () => {
 });
 
 test("anything but a base64 data URI is refused, never fetched", () => {
-  expect(fileFromDataUrl("https://example.com/shot.png", "shot.png")).toBeNull();
+  expect(
+    fileFromDataUrl("https://example.com/shot.png", "shot.png"),
+  ).toBeNull();
   expect(fileFromDataUrl("data:image/png,raw", "shot.png")).toBeNull();
   expect(fileFromDataUrl("data:image/png;base64,***", "shot.png")).toBeNull();
 });

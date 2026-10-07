@@ -353,11 +353,14 @@ func (s *acpSessionFeatureState) activeSessionWithoutMCP() error {
 	return nil
 }
 
-func (s *acpSessionFeatureState) settingsReloadedWithMCP(name string) error {
-	next := testConfig()
-	next.Paths.Home = filepath.Join(s.root, "home")
-	next.MCPServers = []config.MCPServerConfig{testMCPServerConfig(name)}
-	s.mgr.ReplaceConfig(next)
+// mcpAddedToHomeMCPJSON declares a server in <home>/mcp.json and runs the
+// reconcile the watcher of that file runs when it moves.
+func (s *acpSessionFeatureState) mcpAddedToHomeMCPJSON(name string) error {
+	home := filepath.Join(s.root, "home")
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), name, config.MCPJSONFromServer(testMCPServerConfig(name))); err != nil {
+		return err
+	}
+	s.mgr.ReloadMCPDeclarations(context.Background())
 	return nil
 }
 
@@ -488,7 +491,7 @@ func initializeACPSessionScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^the current mode update does not contain "([^"]+)"$`, s.currentModeUpdateOmits)
 	sc.Step(`^an active session without configured MCP servers$`, s.activeSessionWithoutMCP)
-	sc.Step(`^settings are reloaded with MCP server "([^"]+)"$`, s.settingsReloadedWithMCP)
+	sc.Step(`^MCP server "([^"]+)" is added to the home mcp.json$`, s.mcpAddedToHomeMCPJSON)
 	sc.Step(`^the current session exposes MCP tool "([^"]+)"$`, s.currentSessionExposesMCPTool)
 	sc.Step(`^Coddy ACP keeps its sessions on disk$`, s.coddyACPKeepsSessionsOnDisk)
 	sc.Step(`^a session was created for the workspace through a symlinked path$`, s.sessionCreatedThroughSymlinkedPath)
@@ -512,8 +515,12 @@ func TestACPSessionIntegrationFeature(t *testing.T) {
 	}
 }
 
-func TestReplaceConfigKeepsSessionMCPAndRemovesConfiguredMCP(t *testing.T) {
+// An edit of <home>/mcp.json reaches the live session: a server added there
+// connects, one removed closes, and a server the ACP client sent with the
+// session stays connected through both.
+func TestMCPJSONReloadKeepsSessionMCPAndRemovesConfiguredMCP(t *testing.T) {
 	cfg := testConfig()
+	cfg.Paths.Home = t.TempDir()
 	mgr := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), t.TempDir(), nil)
 	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{
 		CWD: t.TempDir(),
@@ -532,31 +539,42 @@ func TestReplaceConfigKeepsSessionMCPAndRemovesConfiguredMCP(t *testing.T) {
 	t.Cleanup(state.CloseAll)
 	assertMCPClientNames(t, state, "client-probe")
 
-	withConfigured := testConfig()
-	withConfigured.MCPServers = []config.MCPServerConfig{testMCPServerConfig("settings-probe")}
-	mgr.ReplaceConfig(withConfigured)
+	homeMCP := config.GlobalMCPJSONPath(cfg.Paths.Home)
+	if err := config.UpsertMCPJSONServer(homeMCP, "settings-probe", config.MCPJSONFromServer(testMCPServerConfig("settings-probe"))); err != nil {
+		t.Fatal(err)
+	}
+	mgr.ReloadMCPDeclarations(context.Background())
 	assertMCPClientNames(t, state, "settings-probe", "client-probe")
 
-	mgr.ReplaceConfig(testConfig())
+	if _, err := config.DeleteMCPJSONServer(homeMCP, "settings-probe"); err != nil {
+		t.Fatal(err)
+	}
+	mgr.ReloadMCPDeclarations(context.Background())
 	assertMCPClientNames(t, state, "client-probe")
 }
 
-// TestReplaceConfigDefersMCPReloadWhileTurnHoldsLock proves a settings save that
-// changes the configured MCP servers does not swap them under a running turn:
-// the turn already handed the model a tool list, so replacing the clients
-// mid-turn would make its next MCP call resolve to a server that no longer
-// exists. The reload is parked and applied when the turn releases the lock.
+// TestReplaceConfigDefersMCPReloadWhileTurnHoldsLock proves a settings save
+// that changes which configured MCP servers may run (mcp.project_trust) does
+// not swap them under a running turn: the turn already handed the model a
+// tool list, so replacing the clients mid-turn would make its next MCP call
+// resolve to a server that no longer exists. The reload is parked and
+// applied when the turn releases the lock.
 func TestReplaceConfigDefersMCPReloadWhileTurnHoldsLock(t *testing.T) {
 	cfg := testConfig()
+	cfg.Paths.Home = t.TempDir()
+	cwd := t.TempDir()
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "settings-probe", config.MCPJSONFromServer(testMCPServerConfig("settings-probe"))); err != nil {
+		t.Fatal(err)
+	}
 	mgr := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), t.TempDir(), nil)
-	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
 	if err != nil {
 		t.Fatal(err)
 	}
 	state := mgr.SessionByID(created.SessionID)
 	t.Cleanup(state.CloseAll)
 	if got := len(state.GetMCPClients()); got != 0 {
-		t.Fatalf("new session has %d MCP clients, want 0", got)
+		t.Fatalf("an unapproved project server connected: %d clients, want 0", got)
 	}
 
 	// A turn is in flight: it holds the exclusive per-session lock.
@@ -565,10 +583,11 @@ func TestReplaceConfigDefersMCPReloadWhileTurnHoldsLock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Saving settings that add a configured server must not attach it yet.
-	withConfigured := testConfig()
-	withConfigured.MCPServers = []config.MCPServerConfig{testMCPServerConfig("settings-probe")}
-	mgr.ReplaceConfig(withConfigured)
+	// Saving settings that let project servers run must not attach it yet.
+	allow := testConfig()
+	allow.Paths.Home = cfg.Paths.Home
+	allow.MCP.ProjectTrust = "allow"
+	mgr.ReplaceConfig(allow)
 	if got := len(state.GetMCPClients()); got != 0 {
 		t.Fatalf("configured MCP server attached mid-turn: %d clients, want the reload parked until the turn ends", got)
 	}

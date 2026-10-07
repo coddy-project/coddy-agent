@@ -198,8 +198,9 @@ func (d *streamRepeatDetector) Add(delta string) (period int, tripped bool) {
 	return periodicSuffix(d.tail, d.minCycles)
 }
 
-// toolRepeatDetector counts consecutive identical tool calls. A nil detector is
-// inert, which is how the check is switched off.
+// toolRepeatDetector counts consecutive identical tool calls from successive
+// ReAct responses. A nil detector is inert, which is how the check is switched
+// off.
 type toolRepeatDetector struct {
 	limit int
 	key   string

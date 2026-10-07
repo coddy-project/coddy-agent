@@ -125,3 +125,152 @@ func TestIsGroupKey(t *testing.T) {
 		}
 	}
 }
+
+func TestReplyContext(t *testing.T) {
+	if a, q := replyContext(nil); a != "" || q != "" {
+		t.Fatalf("no reply: %q %q", a, q)
+	}
+	a, q := replyContext(&tgbotapi.Message{From: &tgbotapi.User{FirstName: "Anna", LastName: "K"}, Text: "hi"})
+	if a != "Anna K" || q != "hi" {
+		t.Fatalf("text reply: %q %q", a, q)
+	}
+	a, q = replyContext(&tgbotapi.Message{From: &tgbotapi.User{UserName: "boris"}, Caption: "a photo"})
+	if a != "@boris" || q != "a photo" {
+		t.Fatalf("caption reply: %q %q", a, q)
+	}
+	if _, q := replyContext(&tgbotapi.Message{From: &tgbotapi.User{FirstName: "x"}}); q != "" {
+		t.Fatalf("a message without text quoted %q", q)
+	}
+}
+
+func TestChangesSettings(t *testing.T) {
+	cases := map[string]bool{
+		"/clear": true, "/model": true, "/model x": true, "/resume": true, "/plan": true,
+		"/think": true, "/help": false, "/context": false, "/mcp": false, "hello": false,
+	}
+	for text, want := range cases {
+		msg := commandMessage(text)
+		if !strings.HasPrefix(text, "/") {
+			msg = &tgbotapi.Message{Text: text}
+		}
+		if got := changesSettings(msg); got != want {
+			t.Errorf("changesSettings(%q) = %v, want %v", text, got, want)
+		}
+	}
+}
+
+// A settings command written after the bot's mention ("@bot /think") is the
+// same command: in a group it is the admins' too.
+func TestGroupSettingsCommandAfterAMentionIsAdminOnly(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{BotUsername: "coddy_bot"})
+	runner := newScriptedRunner()
+	b := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual, Admins: []int64{9}},
+		runner, t.TempDir(), slog.New(slog.DiscardHandler), "", nil)
+	b.botName = "coddy_bot"
+	for _, text := range []string{"@coddy_bot /think", "@coddy_bot /model openai/x", "@coddy_bot /resume", "@coddy_bot /clear"} {
+		msg := f.userMessage(-100, 5, text)
+		key := sessionstore.SessionKey(adapterName, -100, 5, config.IsolationIndividual, true)
+		b.processMessage(context.Background(), f.api, msg, key)
+		if len(runner.prompts) != 0 {
+			t.Fatalf("%q from a non-admin reached the session: %q", text, runner.prompts)
+		}
+		if replies := f.repliesTo(-100, msg.MessageID); len(replies) != 1 || !strings.Contains(replies[0].Text, "Only the bot's admins") {
+			t.Fatalf("%q was not refused: %+v", text, replies)
+		}
+	}
+}
+
+// A message of somebody who is not the bot's admin runs a restricted turn,
+// and the chat approves nothing for it; an admin's turn is unrestricted.
+func TestNonAdminTurnIsRestricted(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{BotUsername: "coddy_bot"})
+	runner := newScriptedRunner()
+	b := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual, Admins: []int64{9}},
+		runner, t.TempDir(), slog.New(slog.DiscardHandler), "", nil)
+	b.botName = "coddy_bot"
+	for _, uid := range []int64{5, 9} {
+		key := sessionstore.SessionKey(adapterName, uid, uid, config.IsolationIndividual, false)
+		b.processMessage(context.Background(), f.api, f.userMessage(uid, uid, "hello"), key)
+	}
+	if len(runner.restricted) != 2 || !runner.restricted[0] || runner.restricted[1] {
+		t.Fatalf("restricted turns: %v, want [true false] for a user and an admin", runner.restricted)
+	}
+	s := b.chatSender(f.api, 5, 0, richConfig{})
+	s.refuseApprovals = true
+	res, err := s.RequestPermission(context.Background(), acp.PermissionRequestParams{SessionID: "x"})
+	if err != nil || res == nil || res.OptionID != "reject" {
+		t.Fatalf("a non-admin's own agent was approved: %+v %v", res, err)
+	}
+}
+
+func TestAppCommandIsAdminOnly(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{})
+	b := miniAppBot(t, "https://coddy.example.com/", "")
+	b.cfg.Admins = []int64{1}
+	msg := f.userMessage(4242, 4242, "/app")
+	b.processMessage(t.Context(), f.api, msg, sessionstore.SessionKey(adapterName, 4242, 4242, config.IsolationIndividual, false))
+	replies := f.repliesTo(4242, msg.MessageID)
+	if len(replies) != 1 || !strings.Contains(replies[0].Text, "Only the bot's admins") {
+		t.Fatalf("/app from a non-admin: %+v", replies)
+	}
+}
+
+// "@bot /command" is the command: a command nobody handles is dropped rather
+// than sent to the session, /permissions too, and an admin's /clear clears.
+func TestCommandAfterAMentionIsTheCommand(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{BotUsername: "coddy_bot"})
+	runner := newScriptedRunner()
+	b := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual, Admins: []int64{9}},
+		runner, t.TempDir(), slog.New(slog.DiscardHandler), "", nil)
+	b.botName = "coddy_bot"
+	for _, text := range []string{"@coddy_bot /plugin install evil/repo", "@coddy_bot /compact", "@coddy_bot /permissions bypass", "@coddy_bot /export x.md"} {
+		for _, uid := range []int64{5, 9} {
+			b.processMessage(context.Background(), f.api, f.userMessage(uid, uid, text), sessionstore.SessionKey(adapterName, uid, uid, config.IsolationIndividual, false))
+		}
+	}
+	if len(runner.prompts) != 0 {
+		t.Fatalf("commands after a mention reached the session: %q", runner.prompts)
+	}
+	key := sessionstore.SessionKey(adapterName, 9, 9, config.IsolationIndividual, false)
+	before := b.store.Get(key)
+	msg := f.userMessage(9, 9, "@coddy_bot /clear")
+	b.processMessage(context.Background(), f.api, msg, key)
+	if b.store.Peek(key) == before {
+		t.Fatal("an admin's \"@bot /clear\" did not start a new session")
+	}
+}
+
+// In a shared group session everybody shares the asking session: only the
+// bot's admins may answer what the agent asks.
+func TestPermissionTapFromANonAdminInASharedGroupIsIgnored(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{})
+	b := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationShared, Admins: []int64{9}},
+		newScriptedRunner(), t.TempDir(), slog.New(slog.DiscardHandler), "", nil)
+	key := sessionstore.SessionKey(adapterName, -100, 0, config.IsolationShared, true)
+	sid := b.store.Get(key)
+	p := &chatPrompt{sessionID: sid, options: []acp.PermissionOption{{OptionID: "allow", Name: "Allow"}}, answer: make(chan *acp.PermissionResult, 1)}
+	b.asks.mu.Lock()
+	b.asks.pending["tok"] = p
+	b.asks.mu.Unlock()
+	tap := func(uid int64) {
+		b.answerPermissionTap(f.api, &tgbotapi.CallbackQuery{
+			From:    &tgbotapi.User{ID: uid},
+			Message: &tgbotapi.Message{MessageID: 1, Chat: &tgbotapi.Chat{ID: -100, Type: "group"}},
+		}, "tok:0")
+	}
+	tap(5)
+	select {
+	case <-p.answer:
+		t.Fatal("a non-admin answered a permission request in a shared group")
+	default:
+	}
+	tap(9)
+	select {
+	case res := <-p.answer:
+		if res.OptionID != "allow" {
+			t.Fatalf("the admin's answer: %+v", res)
+		}
+	default:
+		t.Fatal("the admin's tap did not answer the request")
+	}
+}

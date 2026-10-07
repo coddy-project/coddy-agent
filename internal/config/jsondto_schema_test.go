@@ -65,7 +65,7 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 	want := []interface{}{
 		"providers", "models",
 		"agent", "supervisor", "compaction", "memory",
-		"tools", "mcp_servers", "skills", "subagents", "hooks",
+		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions",
 	}
@@ -142,6 +142,13 @@ func TestUISchemaModelHasReasoningFields(t *testing.T) {
 	if _, ok := mprops["reasoning_default"].(map[string]interface{}); !ok {
 		t.Fatal("expected reasoning_default in model schema")
 	}
+	off, ok := mprops["allow_reasoning_off"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected allow_reasoning_off in model schema")
+	}
+	if off["type"] != "boolean" || off["default"] != false {
+		t.Fatalf("allow_reasoning_off schema = %#v, want boolean default false", off)
+	}
 }
 
 func TestConfigJSONRoundTripAndYAML(t *testing.T) {
@@ -162,9 +169,7 @@ agent:
   model: "openai/gpt-4o"
 
 skills:
-  sources:
-    - owner/repo
-    - https://example.com/marketplace.json
+  project_trust: allow
 `
 	p := filepath.Join(home, "config.yaml")
 	if err := os.WriteFile(p, []byte(yml), 0o644); err != nil {
@@ -187,11 +192,10 @@ skills:
 	if cfg2.Agent.Model != "openai/gpt-4o" {
 		t.Fatalf("model %q", cfg2.Agent.Model)
 	}
-	// skills.sources must survive the JSON DTO round-trip so the config-form
-	// UI can view and persist remote marketplace sources (not just skills.dirs).
-	if len(cfg2.Skills.Sources) != 2 || cfg2.Skills.Sources[0] != "owner/repo" ||
-		cfg2.Skills.Sources[1] != "https://example.com/marketplace.json" {
-		t.Fatalf("skills.sources lost in JSON round-trip: %v", cfg2.Skills.Sources)
+	// skills.project_trust must survive the JSON DTO round-trip so the
+	// settings form can view and persist it (not just skills.dirs).
+	if cfg2.Skills.ResolvedProjectTrust() != config.ProjectTrustAllow {
+		t.Fatalf("skills.project_trust lost in JSON round-trip: %q", cfg2.Skills.ProjectTrust)
 	}
 	yb, err := config.MarshalConfigYAML(cfg2)
 	if err != nil {
@@ -208,8 +212,8 @@ skills:
 	if cfg3.Agent.Model != "openai/gpt-4o" {
 		t.Fatalf("yaml round-trip model %q", cfg3.Agent.Model)
 	}
-	if len(cfg3.Skills.Sources) != 2 {
-		t.Fatalf("skills.sources lost in yaml round-trip: %v", cfg3.Skills.Sources)
+	if cfg3.Skills.ResolvedProjectTrust() != config.ProjectTrustAllow {
+		t.Fatalf("skills.project_trust lost in yaml round-trip: %q", cfg3.Skills.ProjectTrust)
 	}
 }
 

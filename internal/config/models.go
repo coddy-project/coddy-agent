@@ -40,6 +40,9 @@ type ModelEntry struct {
 	// ReasoningDefault is the reasoning level pre-selected for new chats with this model.
 	// Ignored when not one of the resolved levels.
 	ReasoningDefault string `yaml:"reasoning_default"`
+	// AllowReasoningOff exposes the off pseudo-level only when this deployment
+	// supports the provider-specific request that disables reasoning.
+	AllowReasoningOff bool `yaml:"allow_reasoning_off"`
 	// Stream selects the transport used to talk to this model. A nil pointer (key
 	// omitted) means streaming, which is the default for every backend. An explicit
 	// false makes the runtime issue one blocking completion request and deliver the

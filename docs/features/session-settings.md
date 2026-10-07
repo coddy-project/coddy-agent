@@ -43,14 +43,14 @@ A model switched to has its context window read at once, the window its provider
 
 ## Thinking off
 
-`/nothink` and `/reasoning off` are offered only where the provider has a real switch:
+`/nothink` and `/reasoning off` are offered only when the model entry explicitly sets `allow_reasoning_off: true`. The default is `false`: Coddy cannot infer that a provider/model deployment honours the request, so the operator enables the choice only after verifying that deployment.
 
-- Qwen3 models on an OpenAI-compatible server, where it becomes `chat_template_kwargs.enable_thinking: false`;
-- Anthropic models, which then get no thinking block;
-- the Codex backend, where it becomes `none`;
-- any model whose configured `reasoning_levels` include `none`.
+- Qwen3 models on an OpenAI-compatible server receive `chat_template_kwargs.enable_thinking: false`;
+- Anthropic models receive no thinking block;
+- the Codex backend receives `none`;
+- another provider/model deployment uses its existing `off` mapping.
 
-A gpt-5 model has no off (`minimal` still thinks), and the o-series and gpt-oss have no switch at all; there the command is refused with the levels the model does offer. When you switch to a model that does not offer the stored level, the session runs at that model's default, and the selectors and the snapshot show the level actually used.
+Without the opt-in, the command is refused with the levels the model does offer. An explicit empty `reasoning_levels: []` hides the selector and `off` even when the opt-in is set. When you switch to a model that does not offer the stored level, the session runs at that model's default, and the selectors and the snapshot show the level actually used.
 
 ## Switching from the permission dialog
 
@@ -86,7 +86,7 @@ A session saved by an earlier version keeps a notice of every change in its `ui_
 
 ### Web UI
 
-The composer's **Mode**, **Permissions** and **Model** selectors show the session's settings as the server has them. Entering a session shows its own model, its level (a session running with thinking off shows **Off**) and its permission mode, from the snapshot `GET /coddy/sessions/{id}/messages` answers with. What the start page picked, and the cookies `coddy_llm_model` and `coddy_llm_reasoning` that remember it, are the default of a new chat only: they never replace a session's value on screen, so they never ride into it with the next message. A session with no level of its own, on a model that names no `reasoning_default`, shows the level it runs at, `medium` or else the model's first level, and sends none with the next message, so it is not pinned to a level nobody picked. Where the provider can turn thinking off, the **Reasoning** menu of the session offers **Off** as well. A setting the running turn holds (`--once`, `--count=N`) stays on the line of overrides, and the selectors keep the session's own value. The permission chip reads **Ask first**, **Accept edits** or **Bypass**, the last in red; a line next to the selectors lists what is changed for the next turns. A change made anywhere else - a command, the dialog, a user-requested `switch_model` call, a console on the same session - reaches the tab as `event: session_settings` and moves the selectors. A browser that has not seen the latest change yet does not undo it when it sends: the request carries `metadata.settingsVersion`, and an older version leaves the session's settings alone.
+The composer's **Mode**, **Permissions** and **Model** selectors show the session's settings as the server has them. Entering a session shows its own model, its level (a session running with thinking off shows **Off**) and its permission mode, from the snapshot `GET /coddy/sessions/{id}/messages` answers with. What the start page picked, and the cookies `coddy_llm_model` and `coddy_llm_reasoning` that remember it, are the default of a new chat only: they never replace a session's value on screen, so they never ride into it with the next message. A session with no level of its own, on a model that names no `reasoning_default`, shows the level it runs at, `medium` or else the model's first level, and sends none with the next message, so it is not pinned to a level nobody picked. The **Reasoning** menu offers **Off** only when its logical model sets `allow_reasoning_off: true`. A setting the running turn holds (`--once`, `--count=N`) stays on the line of overrides, and the selectors keep the session's own value. The permission chip reads **Ask first**, **Accept edits** or **Bypass**, the last in red; a line next to the selectors lists what is changed for the next turns. A change made anywhere else - a command, the dialog, a user-requested `switch_model` call, a console on the same session - reaches the tab as `event: session_settings` and moves the selectors. A browser that has not seen the latest change yet does not undo it when it sends: the request carries `metadata.settingsVersion`, and an older version leaves the session's settings alone.
 
 ![The composer after a bypass from the dialog: the selectors end with a red Bypass chip, followed by "stub/qwen3.8-27b, 2 turns left"](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
 

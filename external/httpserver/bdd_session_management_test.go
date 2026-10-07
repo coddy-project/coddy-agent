@@ -153,6 +153,23 @@ func (s *sessMgmtState) spentTokens(nth, in, out int) error {
 	})
 }
 
+func (s *sessMgmtState) unseenFailedTurn(nth, generation int) error {
+	id, err := s.idAt(nth)
+	if err != nil {
+		return err
+	}
+	st := s.mgr.SessionByID(id)
+	if st == nil {
+		return fmt.Errorf("session %q not registered", id)
+	}
+	st.RestoreActivityFromSnapshot(
+		uint64(generation),
+		uint64(generation-1),
+		uint64(generation),
+	)
+	return s.store.Save(st)
+}
+
 // request performs an HTTP call and decodes the JSON body.
 func (s *sessMgmtState) request(method, path string, payload interface{}) (int, map[string]interface{}, error) {
 	var body *bytes.Reader
@@ -187,6 +204,24 @@ func (s *sessMgmtState) listWithStats() error {
 	}
 	if status != http.StatusOK {
 		return fmt.Errorf("session list returned %d: %v", status, body)
+	}
+	raw, _ := body["sessions"].([]interface{})
+	s.rows = make([]map[string]interface{}, 0, len(raw))
+	for _, item := range raw {
+		if m, ok := item.(map[string]interface{}); ok {
+			s.rows = append(s.rows, m)
+		}
+	}
+	return nil
+}
+
+func (s *sessMgmtState) listWithActivity() error {
+	status, body, err := s.request(http.MethodGet, "/coddy/sessions?include_activity=true", nil)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("session activity list returned %d: %v", status, body)
 	}
 	raw, _ := body["sessions"].([]interface{})
 	s.rows = make([]map[string]interface{}, 0, len(raw))
@@ -270,6 +305,28 @@ func (s *sessMgmtState) everyRowReportsCreatedAt() error {
 		if got, _ := row["createdAt"].(string); got == "" {
 			return fmt.Errorf("session %v carries no createdAt: %v", row["id"], row)
 		}
+	}
+	return nil
+}
+
+func (s *sessMgmtState) reportsLastErrorGeneration(nth, want int) error {
+	row, err := s.rowOf(nth)
+	if err != nil {
+		return err
+	}
+	if got, ok := row["lastErrorSeq"].(float64); !ok || int(got) != want {
+		return fmt.Errorf("lastErrorSeq = %v, want %d: %v", row["lastErrorSeq"], want, row)
+	}
+	return nil
+}
+
+func (s *sessMgmtState) reportsUnreadCompletion(nth int) error {
+	row, err := s.rowOf(nth)
+	if err != nil {
+		return err
+	}
+	if got, _ := row["unreadComplete"].(bool); !got {
+		return fmt.Errorf("unreadComplete = %v, want true: %v", row["unreadComplete"], row)
 	}
 	return nil
 }
@@ -383,8 +440,10 @@ func initializeSessionManagementScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^(\d+) stored sessions$`, s.storedSessions)
 	sc.Step(`^session (\d+) was answered by model "([^"]*)" over (\d+) turns$`, s.answeredByModel)
 	sc.Step(`^session (\d+) spent (\d+) input and (\d+) output tokens$`, s.spentTokens)
+	sc.Step(`^session (\d+) has an unseen failed turn at generation (\d+)$`, s.unseenFailedTurn)
 
 	sc.Step(`^I list sessions with statistics$`, s.listWithStats)
+	sc.Step(`^I list sessions with activity$`, s.listWithActivity)
 	sc.Step(`^I delete sessions (\d+) and (\d+) in one request$`, s.deleteTicked)
 	sc.Step(`^I delete every session in one request$`, s.deleteEverySession)
 	sc.Step(`^I delete every session except session (\d+)$`, s.deleteEverySessionExcept)
@@ -393,6 +452,8 @@ func initializeSessionManagementScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^session (\d+) reports (\d+) messages$`, s.reportsMessages)
 	sc.Step(`^session (\d+) reports (\d+) input, (\d+) output and (\d+) total tokens$`, s.reportsTokens)
 	sc.Step(`^every listed session reports when it was created$`, s.everyRowReportsCreatedAt)
+	sc.Step(`^session (\d+) reports last error generation (\d+)$`, s.reportsLastErrorGeneration)
+	sc.Step(`^session (\d+) reports an unread completion$`, s.reportsUnreadCompletion)
 	sc.Step(`^the response reports (\d+) deleted sessions$`, s.reportsDeletedCount)
 	sc.Step(`^only session (\d+) is left$`, s.onlySessionLeft)
 	sc.Step(`^no session is left$`, s.noSessionLeft)

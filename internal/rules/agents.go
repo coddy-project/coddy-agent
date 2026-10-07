@@ -12,20 +12,6 @@ var agentsSkipDirs = map[string]bool{
 	"vendor":       true,
 }
 
-// AgentsOnDemand reports whether rules.systems admits the nested documents a
-// folder describes itself with; an empty list means every system.
-func AgentsOnDemand(systems []Source) bool {
-	if len(systems) == 0 {
-		return true
-	}
-	for _, s := range systems {
-		if s == SourceAgents {
-			return true
-		}
-	}
-	return false
-}
-
 // AgentsForPaths returns the nested documents that govern paths, read on the
 // spot: for every path under root, each directory on the chain from root
 // (exclusive) down to the path's own directory is probed for an AGENTS.md
@@ -39,10 +25,13 @@ func AgentsOnDemand(systems []Source) bool {
 // a/b/c/f.go brings in a/AGENTS.md, a/b/AGENTS.md and a/b/c/AGENTS.md, plus
 // whichever of those folders also has a DESIGN.md. A hidden directory,
 // node_modules or vendor ends the chain. Rules already in active are not read
-// again. Paths outside root yield nothing; a path that does not exist yet (a
-// write) counts as a file, so its parent chain is read. The root pair is
-// excluded: it enters the prompt unconditionally as the project docs preamble
-// (see LoadProjectDocs).
+// again, and a file is read once whatever name reaches it (DocKey: a folder
+// linked into another, a DESIGN.md that links to the AGENTS.md beside it).
+// Paths outside root yield nothing; a path that does not exist yet (a write)
+// counts as a file, so its parent chain is read. The root pair is excluded:
+// it is the second layer of the documents, always in the system prompt (see
+// LoadStanding). Nothing configures the chain: no rules setting and no prompt
+// template turns it off.
 func AgentsForPaths(root string, paths []string, active []*Rule) []*Rule {
 	root = strings.TrimSpace(root)
 	if root == "" || len(paths) == 0 {
@@ -56,6 +45,7 @@ func AgentsForPaths(root string, paths []string, active []*Rule) []*Rule {
 	for _, r := range active {
 		if r != nil {
 			known[r.ID] = true
+			known[DocKey(r.FilePath)] = true
 		}
 	}
 	var out []*Rule
@@ -66,7 +56,11 @@ func AgentsForPaths(root string, paths []string, active []*Rule) []*Rule {
 				if r == nil || known[r.ID] {
 					continue
 				}
-				known[r.ID] = true
+				key := DocKey(r.FilePath)
+				if known[key] {
+					continue
+				}
+				known[r.ID], known[key] = true, true
 				out = append(out, r)
 			}
 		}

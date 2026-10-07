@@ -27,6 +27,27 @@ func HTTPClientForProviderProxy(setting string) (*http.Client, error) {
 	return &http.Client{Transport: rt}, nil
 }
 
+// providerHTTPClientArg is the compatibility boundary for provider helpers.
+// Production callers pass the providers[].proxy setting and therefore cannot
+// skip the shared provider transport. Tests that need a TLS test server may
+// pass an already built client explicitly. A nil client is never substituted
+// with http.DefaultClient: doing that silently loses the row's proxy.
+func providerHTTPClientArg(proxyOrClient any) (*http.Client, error) {
+	switch v := proxyOrClient.(type) {
+	case string:
+		return HTTPClientForProviderProxy(v)
+	case *http.Client:
+		if v == nil {
+			return nil, fmt.Errorf("provider http client is required; build it with llm.HTTPClientForProviderProxy")
+		}
+		return v, nil
+	case nil:
+		return nil, fmt.Errorf("provider http client is required; build it with llm.HTTPClientForProviderProxy")
+	default:
+		return nil, fmt.Errorf("provider http client must be a proxy setting or *http.Client, got %T", proxyOrClient)
+	}
+}
+
 // HTTPClientForOptionalProxy returns the client for the proxy setting of a
 // caller that is not a provider row (the dry-run's Telegram probe), read by
 // config.ParseProxySetting like providers[].proxy: an empty value or

@@ -1,14 +1,14 @@
 # Contributing guide
 
-This page is for people: the environment, the build, the test runs, the flow of a change and what a pull request has to carry. The repository map, the build-tag rules and the code review rules that coding agents read are in [AGENTS.md](AGENTS.md), and the detailed project rules live in `.cursor/rules/*.mdc` (mirrored to `.claude/rules/*.md`); this page links to them instead of repeating them.
+This page is for people: the environment, the build, the test runs, the flow of a change and what a pull request has to carry. The repository map, build-tag rules and review invariants that coding agents read are in [AGENTS.md](AGENTS.md). Detailed topic rules have paired native representations under `.cursor/rules/` and `.claude/rules/`; the Codex, OpenCode and ZCode project adapters consume the Cursor representation and are tested by `make test-agent-rules`.
 
 ## Development environment
 
-- **Go** - the version `go.mod` declares (1.25 today); CI reads it from the same file.
-- **Node.js and npm** (CI uses Node 22) - for a build with the `ui` tag, where `make ui-build` bundles the SPA that `go:embed` picks up; for `make test`, which builds those assets, runs the SPA's vitest suite and the OpenCode rules plugin test with `node --test`; and for `make lint`, whose shipped-tag pass embeds those assets and whose last step type-checks the SPA with `tsc`.
-- **golangci-lint v2.x** (CI pins v2.12.2), built with Go 1.25 or newer - for `make lint`.
+- **Go** - 1.26 or newer, the `go` line of `go.mod`. Its `toolchain` line (`go1.26.8` today) is the oldest release any build links: CI and the release archives install the `go` line's release and switch to exactly that one, and with the default `GOTOOLCHAIN=auto` an older local `go` downloads it on first use. A newer local Go, or a newer patch in the `golang:1.26` image, builds with itself, which only adds fixes.
+- **Node.js and npm** (CI uses Node 22) - for a build with the `ui` tag, where `make ui-build` bundles the SPA that `go:embed` picks up; for `make test-agent-rules`, whose OpenCode half uses Node's test runner; for `make test`, which builds the SPA and runs vitest; and for `make lint`, whose shipped-tag pass embeds those assets and ends with `tsc`.
+- **golangci-lint v2.x** (CI pins v2.12.2), built with Go 1.26 or newer - for `make lint`.
 - **ripgrep** - the CI test job installs it before `go test`; keep `rg` on `PATH` for the same run locally.
-- **Python 3** - only for the end-to-end harnesses in `examples/`; the console driver needs `pip install -r examples/cli/requirements.txt`.
+- **Python 3** - for `make test-agent-rules` and the end-to-end harnesses in `examples/`; the console driver needs `pip install -r examples/cli/requirements.txt`.
 
 ```bash
 git clone https://github.com/EvilFreelancer/coddy-agent
@@ -53,7 +53,7 @@ What ships is still the embedded copy: a change under `external/ui/src` is compl
 ## Running the tests
 
 - **`go test ./...`** - the untagged tree with its stubs; the quick check while iterating. A single package: `go test ./path/to/pkg -run TestName -count=1`.
-- **`make test`** - the express run, before every push: the OpenCode plugin test, `ui-build`, the SPA's vitest suite (`make ui-test`), then one `go test -tags=http,ui,scheduler,memory,cli,gateway,swarm ./...` over the whole tree with every optional module compiled in. Minutes, not tens of minutes.
+- **`make test`** - the express run, before every push: `make test-agent-rules` (Python hooks plus the OpenCode plugin), `ui-build`, the SPA's vitest suite (`make ui-test`), then one `go test -tags=http,ui,scheduler,memory,cli,gateway,swarm ./...` over the whole tree with every optional module compiled in. Minutes, not tens of minutes.
 - **`make test-matrix`** - every tag combination in `TEST_TAG_SETS` (`Makefile`), one after another. This is CI's job, one job per combination on every pull request; do not walk it locally. When a change moved a build-tag boundary (a `_stub.go`, an `Available` const, a `//go:build` line), run that one combination by hand, `go test -tags=<set> ./...`, and leave the rest to CI.
 - **`make test-race`** - the tree under the Go race detector, with every optional module but `ui` compiled in. CI runs it on every pull request (job **Race detector**). Run it before the push when a change touches goroutines, locks, channels or a test harness that drives a live loop; `GOFLAGS=-count=3 make test-race` repeats every test for a race that shows up rarely. Every package is clean under it, so a race it reports is fixed rather than skipped.
 - **`make test-cache`** - the prompt-cache group on its own: the `features/prompt_cache_*.feature` specs and every test named `TestPromptCache*`, which check what each request sends the provider - the same system message for the whole session, a history that only grows at its end, every rule at most once and nothing no path brought in. It is part of `make test`; run it when a change touches the system prompt, the rules, the history or the send boundary, and name a new test of the kind `TestPromptCache...` so it joins the group.
@@ -63,13 +63,13 @@ What ships is still the embedded copy: a change under `external/ui/src` is compl
 - **`make ui-test`** (`cd external/ui && npm test`) - the SPA's own vitest suite on its own (`npm run test:watch` while editing). `make test` runs it as well, and CI runs it once, in the job that reads the tag matrix. **`make ui-typecheck`** (`npm run typecheck`) is the TypeScript compiler over the same sources with no emit, the step `make lint` ends with: `vite` only transpiles, so a type error reaches the bundle unless this runs.
 - **The harnesses in `examples/`** - real binaries against a reachable model: `./examples/build_coddy.sh`, then `./examples/test_acp.sh` (ACP over stdio), `./examples/test_httpserver.sh` (a disposable `coddy serve`), `./examples/test_cli.sh` (the console in a pty, Linux only) and `./examples/test_swarm.sh` (three relays, no model needed). The layout and every script are in [examples/README.md](examples/README.md).
 
-The happy path of a feature is an executable Gherkin spec in the repo-root `features/` directory, run by a godog harness in the package that owns the behaviour (for example `external/httpserver/bdd_*_test.go`, with `Options.Paths` pointing at `../../features/<name>.feature`). Edge and error cases are ordinary unit tests next to the code, never scenarios. Specs stay deterministic and LLM-free through a stub runner, and they run under the tag that owns them as part of `make test`. Conventions are in [.claude/rules/testing.md](.claude/rules/testing.md).
+The happy path of a feature is an executable Gherkin spec in the repo-root `features/` directory, run by a godog harness in the package that owns the behaviour (for example `external/httpserver/bdd_*_test.go`, with `Options.Paths` pointing at `../../features/<name>.feature`). Edge and error cases are ordinary unit tests next to the code, never scenarios. Specs stay deterministic and LLM-free through a stub runner, and they run under the tag that owns them as part of `make test`. Conventions are in the paired testing rule ([Cursor](.cursor/rules/testing.mdc), [Claude Code](.claude/rules/testing.md)).
 
 ## Making a change
 
 Branch from `main` with a prefix that matches the commit type and a short kebab-case slug: `feat/config-dry-run`, `fix/update-refresh-completions`, `docs/documentation-structure`, `chore/express-test-flow`.
 
-The flow is red, green, then the checks - in full in [.claude/rules/workflow.md](.claude/rules/workflow.md):
+The flow is red, green, then the checks - in full in the paired workflow rule ([Cursor](.cursor/rules/workflow.mdc), [Claude Code](.claude/rules/workflow.md)):
 
 1. For a feature, add or extend the happy-path `.feature` spec (and a failing unit test where one fits); for a bug, add the regression test that fails on the broken code. Run the narrowest scope that proves the failure is real.
 2. Make the smallest change that turns it green.
@@ -85,7 +85,7 @@ What the pull request has to carry depends on what moved:
 | a subcommand, a `serve` verb or a flag that `printUsage` lists | `packaging/man/coddy.1`, `packaging/completions/coddy.bash`, `packaging/completions/coddy.zsh` and `topLevelCommands` in `cmd/coddy/usage_test.go`; nothing generates them |
 | anything a user notices, or anything a page describes | the documentation, in the same pull request: the page that owns the area, an entry in `docs/nav.yaml` for a new page, a screenshot on the page for a visible UI or console change, `make docs` for the generated pages. Page types, capture recipes and the checks are in [docs/contributing/documentation.md](docs/contributing/documentation.md) |
 | a rename of a key, a command or a flag | a sweep with `git grep -nI '<old spelling>'` that comes back empty outside `docs/plans/`: docs, `config.example.yaml`, `examples/`, Go comments, the SPA dictionaries under `external/ui/src/ui/i18n/messages/` and the bundled skills included |
-| `.claude/rules/*.md` | the mirror in `.cursor/rules/*.mdc` (`paths:` becomes `globs:` and `alwaysApply:`); the `.mdc` files are the source of truth for every other agent |
+| `.cursor/rules/*.mdc` or `.claude/rules/*.md` | the deliberate counterpart in the other native tree, with equivalent body and activation intent; Claude `paths:` maps to Cursor `globs:` with `alwaysApply: false`, while a Cursor always-on rule maps to a Claude rule without `paths:`; Codex, OpenCode and ZCode adapters consume the Cursor representation and are tested by `make test-agent-rules` |
 
 Two rules from the code review section of [AGENTS.md](AGENTS.md) come up often enough to repeat: a package that builds by default must not import one behind the `http`, `ui`, `scheduler`, `memory` or `gateway` tags, and project-local configuration (`.coddy/mcp.json`, hook files, subagent definitions) is never read or executed without the trust gate.
 
@@ -96,13 +96,13 @@ Two rules from the code review section of [AGENTS.md](AGENTS.md) come up often e
 - Follow the neighbouring files: import grouping, naming, error handling, table-driven tests where they clarify the cases, no real network in a test unless it is documented as integration-style.
 - The SPA is formatted with Prettier (`npm run fmt` in `external/ui`); [DESIGN.md](DESIGN.md) is its contract for tokens, layout and component behaviour, and the localization rules (every dictionary changed in the same commit) are in [AGENTS.md](AGENTS.md).
 
-The one-page version is [.claude/rules/code-style.md](.claude/rules/code-style.md).
+The one-page version is the paired code-style rule ([Cursor](.cursor/rules/code-style.mdc), [Claude Code](.claude/rules/code-style.md)).
 
 ## Pull requests
 
 Commit messages follow `type(scope): summary`, as the log does: `feat(config): --dry-run probes what config.yaml points at before anything starts`, `fix(update): refresh the man page and the completions beside the binary`, `docs(swarm): ...`, `test(agent): ...`, `chore(test): ...`, `ci: ...`. The scope is the package or surface, the summary is one lower-case line in the imperative, and an issue goes at the end in parentheses (`(issue #195)`).
 
-Every commit passes through the gate `make hooks` enabled: `.githooks/pre-commit` calls `scripts/checks.sh`, which runs `make lint` for a commit that touches code and, for a commit that touches the documentation (`docs/`, `README.md`, `AGENTS.md`, `DESIGN.md`, this file, the config schema), the documentation check instead (`go run ./cmd/docsgen -skip-cli`: the navigation map, links and anchors, assets, generated pages). Tests are opt-in on commit: `CODDY_HOOK_TESTS=fast` adds `go test ./...`, `full` the express `make test`, `matrix` every combination; `CODDY_HOOK_LINT=0` and `CODDY_HOOK_DOCS=0` switch one check off; `CODDY_HOOK_SKIP=1` bypasses everything, and `git commit --no-verify` bypasses one commit.
+Every commit passes through the gate `make hooks` enabled: `.githooks/pre-commit` calls `scripts/checks.sh`, which runs `make lint` for a commit that touches code, `prettier --check` over the whole SPA when it stages SPA files (`make ui-format-check`, which CI's Lint job runs too; `cd external/ui && npm run fmt` fixes what it reports) and, for a commit that touches the documentation (`docs/`, `README.md`, `AGENTS.md`, `DESIGN.md`, this file, the config schema), the documentation check instead (`go run ./cmd/docsgen -skip-cli`: the navigation map, links and anchors, assets, generated pages). Tests are opt-in on commit: `CODDY_HOOK_TESTS=fast` adds `go test ./...`, `full` the express `make test`, `matrix` every combination; `CODDY_HOOK_LINT=0`, `CODDY_HOOK_FORMAT=0` and `CODDY_HOOK_DOCS=0` switch one check off; `CODDY_HOOK_SKIP=1` bypasses everything, and `git commit --no-verify` bypasses one commit.
 
 Before the push: `make test` and `make lint` green, and `make docs-check` when documentation moved. After the push, read the **Tests on PR** run with `gh pr checks` and fix whichever job it names:
 
@@ -127,6 +127,6 @@ The description says what the change is for, which tests were added or changed, 
 | Page types, the navigation map, screenshots, generated references | [docs/contributing/documentation.md](docs/contributing/documentation.md) |
 | Adding a built-in tool | [docs/contributing/custom-tools.md](docs/contributing/custom-tools.md) |
 | The ReAct loop and the system prompt | [docs/contributing/react-agent.md](docs/contributing/react-agent.md) |
-| The full workflow, testing and style rules | [.claude/rules/workflow.md](.claude/rules/workflow.md), [.claude/rules/testing.md](.claude/rules/testing.md), [.claude/rules/code-style.md](.claude/rules/code-style.md) |
+| The full workflow, testing and style rules | [Cursor rules](.cursor/rules/) and [Claude Code rules](.claude/rules/) |
 | Executable specs and end-to-end harnesses | `features/`, [examples/README.md](examples/README.md) |
 | The documentation map | [docs/nav.yaml](docs/nav.yaml) |

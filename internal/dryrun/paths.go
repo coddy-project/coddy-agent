@@ -3,7 +3,9 @@ package dryrun
 import (
 	"crypto/tls"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,9 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
 )
 
 // paths checks every filesystem location the configuration names. A
@@ -51,19 +56,32 @@ func (r *runner) paths() {
 	}
 
 	// ${CODDY_HOME} survives the load for the per-session consumers, so a
-	// probe that only expanded ${CWD} would stat a literal placeholder.
+	// probe that only expanded ${CWD} would stat a literal placeholder. Skill
+	// and definition folders expand the way their loaders read them (${HOME},
+	// a relative entry against the workspace, not the process cwd).
 	for i, d := range cfg.Skills.Dirs {
-		r.readableDir(fmt.Sprintf("skills.dirs[%d]", i), config.ExpandPathVars(d, r.req.Paths))
+		dir := skills.ExpandConfiguredPath(d, r.req.Paths.CWD, r.req.Paths.Home)
+		if dir == "" {
+			continue
+		}
+		r.readableDir(fmt.Sprintf("skills.dirs[%d]", i), dir)
 	}
 	for i, d := range cfg.Subagents.Dirs {
-		r.readableDir(fmt.Sprintf("subagents.dirs[%d]", i), config.ExpandPathVars(d, r.req.Paths))
+		dir := subagents.ExpandDir(d, r.req.Paths.CWD, r.req.Paths.Home)
+		if dir == "" {
+			continue
+		}
+		r.readableDir(fmt.Sprintf("subagents.dirs[%d]", i), dir)
 	}
 	for i, f := range cfg.Hooks.Files {
 		r.hookFile(fmt.Sprintf("hooks.files[%d]", i), config.ExpandPathVars(f, r.req.Paths))
 	}
+	for i, entry := range cfg.Instructions.Files {
+		r.instructionFile(fmt.Sprintf("instructions.files[%d]", i), entry)
+	}
 
-	if cfg.SchedulerEffectiveEnabled() && strings.TrimSpace(cfg.Scheduler.Dir) != "" {
-		r.rep.add(r.creatableDir("scheduler.dir", cfg.Scheduler.Dir))
+	if cfg.SchedulerEffectiveEnabled() && cfg.SchedulerUserDir() != "" {
+		r.rep.add(r.creatableDir("scheduler.enable", cfg.SchedulerUserDir()))
 	}
 	if cfg.Memory.Enabled && strings.TrimSpace(cfg.Memory.Dir) != "" {
 		r.rep.add(r.creatableDir("memory.dir", cfg.Memory.Dir))
@@ -175,6 +193,27 @@ func (r *runner) hookFile(path, file string) {
 	r.rep.add(r.check(StatusOK, path, path, file+" parses", ""))
 }
 
+// instructionFile reads one entry of instructions.files the way a session in
+// the default workspace would. A session skips a file it cannot read without
+// a word, so this is where an entry naming the same file in every workspace
+// (an absolute path, ~, ${CODDY_HOME}) is reported when it points at nothing;
+// a workspace entry absent from this folder is only skipped, since the list
+// may serve workspaces that carry it.
+func (r *runner) instructionFile(path, entry string) {
+	file, workspace, err := session.CheckInstructionFile(entry, r.req.Paths.CWD, r.req.Paths.Home)
+	switch {
+	case file == "":
+		return
+	case err == nil:
+		r.rep.add(r.check(StatusOK, path, path, file+" is read into the system prompt", ""))
+	case workspace && errors.Is(err, fs.ErrNotExist):
+		r.rep.add(r.check(StatusSkipped, path, path, file+" is not in this workspace", "a session reads it in a workspace that has it"))
+	default:
+		r.rep.add(r.check(StatusWarning, path, path, file+" "+session.UnreadReason(err)+"; no session reads it",
+			"correct the path or remove the entry; a coddy running in a container or under another account has to see the file at this path"))
+	}
+}
+
 // caFileCheck reads a PEM bundle and counts its certificates.
 func (r *runner) caFileCheck(path, file string) Check {
 	data, err := os.ReadFile(file)
@@ -199,28 +238,48 @@ func (r *runner) caFileCheck(path, file string) Check {
 }
 
 // mcpCommands resolves the executable of every stdio MCP server of
-// config.yaml in PATH, the way the spawn would, without spawning it.
+// <home>/mcp.json in PATH, the way the spawn would, without spawning it.
 func (r *runner) mcpCommands() {
-	for i := range r.req.Cfg.MCPServers {
-		srv := &r.req.Cfg.MCPServers[i]
-		path := "mcp_servers[" + srv.Name + "]"
-		cmd := strings.TrimSpace(srv.Command)
+	file, servers, err := r.globalMCPServers()
+	if err != nil {
+		r.rep.add(r.check(StatusError, "mcp.json", "", err.Error(),
+			"repair "+file+`: it must be a JSON object with an "mcpServers" object of servers`))
+		return
+	}
+	for i := range servers {
+		srv := &servers[i]
+		path := mcpCheckPath(srv.Name)
+		cmd := strings.TrimSpace(config.ExpandMCPValue(srv.Command, r.req.Paths.CWD))
 		switch {
 		case srv.Disabled:
-			r.rep.add(r.check(StatusSkipped, path, path, "disabled in config", ""))
+			r.rep.add(r.check(StatusSkipped, path, path, "disabled in "+file, ""))
 		case cmd == "" && strings.TrimSpace(srv.URL) == "":
-			r.rep.add(r.check(StatusError, path, path, "neither command nor url is set", "give the server a command (stdio) or a url (http)"))
+			r.rep.add(r.check(StatusError, path, path, "neither command nor url is set", "give "+srv.Name+" a command (stdio) or a url (http) in "+file))
 		case cmd != "":
 			resolved, err := exec.LookPath(cmd)
 			if err != nil {
-				fix := "install it or write an absolute path in " + path + ".command"
+				fix := "install it or write an absolute path as the command of " + srv.Name + " in " + file
 				if strings.ContainsAny(cmd, " \t") {
-					fix = "command must be the executable alone; put its arguments in " + path + ".args"
+					fix = "command must be the executable alone; put its arguments in the args of " + srv.Name + " in " + file
 				}
-				r.rep.add(r.check(StatusError, path, path+".command", fmt.Sprintf("command %q not found in PATH", cmd), fix))
+				r.rep.add(r.check(StatusError, path, path, fmt.Sprintf("command %q not found in PATH", cmd), fix))
 				continue
 			}
-			r.rep.add(r.check(StatusOK, path, path+".command", fmt.Sprintf("command %q resolves to %s", cmd, resolved), ""))
+			r.rep.add(r.check(StatusOK, path, path, fmt.Sprintf("command %q resolves to %s", cmd, resolved), ""))
 		}
 	}
+}
+
+// globalMCPServers reads <home>/mcp.json, the file the MCP servers every
+// session starts with are declared in. Project files are not read: their
+// servers sit behind the workspace trust gate.
+func (r *runner) globalMCPServers() (string, []config.MCPServerConfig, error) {
+	file := config.GlobalMCPJSONPath(r.req.Cfg.Paths.Home)
+	servers, err := config.LoadMCPJSONServers(file)
+	return file, servers, err
+}
+
+// mcpCheckPath names one server of <home>/mcp.json in the report.
+func mcpCheckPath(name string) string {
+	return "mcp.json[" + name + "]"
 }

@@ -46,3 +46,37 @@ export function setUiTheme(mode: UiThemeMode): void {
   writeUiThemeCookie(mode);
   applyUiTheme(mode);
 }
+
+/** One observer of <html> for every subscriber, however many diagrams a page shows. */
+const themeListeners = new Set<() => void>();
+let themeWatch: MutationObserver | null = null;
+
+/**
+ * Subscribes to the theme on <html>, for useSyncExternalStore: what a component
+ * draws in the theme's colours outside CSS (a diagram) follows a theme switch.
+ */
+export function subscribeAppliedUiTheme(onChange: () => void): () => void {
+  if (
+    typeof document === "undefined" ||
+    typeof MutationObserver === "undefined"
+  ) {
+    return () => {};
+  }
+  themeListeners.add(onChange);
+  if (!themeWatch) {
+    themeWatch = new MutationObserver(() => {
+      for (const listener of [...themeListeners]) listener();
+    });
+    themeWatch.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+  }
+  return () => {
+    themeListeners.delete(onChange);
+    if (themeListeners.size === 0 && themeWatch) {
+      themeWatch.disconnect();
+      themeWatch = null;
+    }
+  };
+}

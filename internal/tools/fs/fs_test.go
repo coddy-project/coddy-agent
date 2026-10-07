@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -468,6 +469,33 @@ func TestGlobHidesSessionStore(t *testing.T) {
 	}
 	if strings.Contains(out, "messages.json") {
 		t.Fatalf("session store leaked into glob results: %q", out)
+	}
+}
+
+// A confined turn's glob does not follow a symbolic link out of its working
+// directory: a link to the agent's home lists nothing behind it.
+func TestConfinedGlobDoesNotFollowLinksOut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symbolic links need privileges on Windows")
+	}
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret-token.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "leak")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "mine.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"pattern": "**/*.json", "path": root})
+	out, err := executeGlob(context.Background(), string(args), &tooling.Env{CWD: root, Confined: true})
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	if strings.Contains(out, "secret-token.json") || !strings.Contains(out, "mine.json") {
+		t.Fatalf("confined glob: %q", out)
 	}
 }
 

@@ -28,7 +28,7 @@ func (s *Server) coddyMentionsGet(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	cwd, ok := s.resolveSessionCWD(w, r)
+	cwd, ok := s.resolveListingCWD(w, r)
 	if !ok {
 		return
 	}
@@ -76,7 +76,7 @@ func (s *Server) coddyMentionsCheckPost(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, `{"error":{"message":"the draft is too long to check"}}`, http.StatusRequestEntityTooLarge)
 		return
 	}
-	cwd, ok := s.resolveSessionCWD(w, r)
+	cwd, ok := s.resolveListingCWD(w, r)
 	if !ok {
 		return
 	}

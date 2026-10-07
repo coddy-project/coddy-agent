@@ -16,7 +16,7 @@ func TestSpawnAgentCardFeature(t *testing.T) {
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Step(`^the spawn agent card shows its identity, description, multiline prompt, timeout and result$`, func() error {
 				return runVitestScenario("src/ui/messages/SpawnAgentCard.test.tsx",
-					"spawn_agent displays agent identity, description, prompt and timeout")
+					"spawn_agent displays identity and bottom model/reasoning/timeout metadata")
 			})
 		},
 		Options: &godog.Options{

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
 import {
+  hasUnresolvedQuestionPrompt,
   mergeStoredQuestionPromptsIntoTranscript,
   pickRicherQuestionToolArgs,
 } from "./questionPromptSessionStore";
@@ -68,5 +69,55 @@ test("mergeStoredQuestionPromptsIntoTranscript inserts after matching tool_call"
     window.localStorage.removeItem("coddy_qp_v1:sess_x");
   } catch {
     //
+  }
+});
+
+test("reconstructed pending question clears its marker after settlement", () => {
+  const payload: CoddyQuestionPayload = {
+    sessionId: "sess_x",
+    requestId: "q_pending",
+    toolCallId: "call_pending",
+    questions: [{ question: "Continue?", options: [{ label: "Yes" }] }],
+  };
+  const merged: TranscriptItem[] = [
+    {
+      id: "tc_pending",
+      type: "tool_call",
+      toolCallId: "call_pending",
+      title: "question",
+      status: "completed",
+    },
+  ];
+
+  try {
+    window.localStorage.setItem(
+      "coddy_qp_v1:sess_x",
+      JSON.stringify([{ requestId: "q_pending", payload }]),
+    );
+    const pending = mergeStoredQuestionPromptsIntoTranscript(merged, "sess_x");
+    expect(hasUnresolvedQuestionPrompt(pending)).toBe(true);
+
+    window.localStorage.setItem(
+      "coddy_qp_v1:sess_x",
+      JSON.stringify([
+        {
+          requestId: "q_pending",
+          payload,
+          resolved: {
+            skipped: false,
+            answers: [["Yes"]],
+            summaryLine: "Continue? Yes",
+          },
+        },
+      ]),
+    );
+    const settled = mergeStoredQuestionPromptsIntoTranscript(merged, "sess_x");
+    expect(hasUnresolvedQuestionPrompt(settled)).toBe(false);
+  } finally {
+    try {
+      window.localStorage.removeItem("coddy_qp_v1:sess_x");
+    } catch {
+      // Storage can be unavailable in privacy mode.
+    }
   }
 });

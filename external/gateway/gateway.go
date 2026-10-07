@@ -1,7 +1,8 @@
-//go:build gateway || gateway.telegram
+//go:build gateway || gateway.telegram || gateway.pachca
 
 // Package gateway provides a pluggable messenger gateway for Coddy Agent.
-// Build with -tags gateway (all adapters) or -tags gateway.telegram (Telegram only).
+// Build with -tags gateway (all adapters), or -tags gateway.telegram /
+// -tags gateway.pachca for one adapter.
 package gateway
 
 import "context"
@@ -57,4 +58,3 @@ type OutgoingMessage struct {
 	// ParseMode is "HTML" or "MarkdownV2" (Telegram-specific; ignored by other adapters).
 	ParseMode string
 }
-

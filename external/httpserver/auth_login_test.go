@@ -257,7 +257,7 @@ func signedInRequest(t *testing.T, srv *Server, method, path string) *http.Reque
 	t.Helper()
 	c := sessionCookieOf(t, signIn(t, srv, loginTestUser, loginTestPassword))
 	r := httptest.NewRequest(method, path, nil)
-	r.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	r.AddCookie(c)
 	return r
 }
 
@@ -358,7 +358,7 @@ func TestSignOutIsIdempotentAndClearsTheCookie(t *testing.T) {
 
 	out := httptest.NewRequest(http.MethodPost, "/coddy/auth/logout", nil)
 	out.Header.Set("Sec-Fetch-Site", "same-origin")
-	out.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	out.AddCookie(c)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, out)
 	if w.Code != http.StatusOK {
@@ -370,7 +370,7 @@ func TestSignOutIsIdempotentAndClearsTheCookie(t *testing.T) {
 	}
 	// The same stale cookie now opens nothing.
 	stale := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-	stale.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	stale.AddCookie(c)
 	ws := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(ws, stale)
 	if ws.Code != http.StatusUnauthorized {
@@ -396,7 +396,7 @@ func TestSessionExpiresWithItsTTL(t *testing.T) {
 	c := sessionCookieOf(t, signIn(t, srv, loginTestUser, loginTestPassword))
 	call := func() int {
 		r := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-		r.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+		r.AddCookie(c)
 		w := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(w, r)
 		return w.Code
@@ -414,7 +414,7 @@ func TestGarbageCookieIsRefused(t *testing.T) {
 	srv := newLoginServer(t, configuredLogin(t))
 	for _, value := range []string{"not-a-token", "", strings.Repeat("A", 512)} {
 		r := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-		r.AddCookie(&http.Cookie{Name: sessionCookieName(r), Value: value})
+		r.Header.Set("Cookie", sessionCookieName(r)+"="+value)
 		w := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(w, r)
 		if w.Code != http.StatusUnauthorized {
@@ -432,7 +432,7 @@ func TestRotatingThePasswordEndsLiveSessions(t *testing.T) {
 	srv.ReplaceConfig(&next)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-	r.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	r.AddCookie(c)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized {
@@ -449,7 +449,7 @@ func TestRenamingTheAccountEndsLiveSessions(t *testing.T) {
 	srv.ReplaceConfig(&next)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-	r.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	r.AddCookie(c)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized {
@@ -468,7 +468,7 @@ func TestUnrelatedConfigReloadKeepsSessions(t *testing.T) {
 	srv.ReplaceConfig(&next)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-	r.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	r.AddCookie(c)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
@@ -666,7 +666,7 @@ func TestConfigEndpointReportsTheLoginSource(t *testing.T) {
 	// environment.
 	c := sessionCookieOf(t, signIn(t, srv, "envuser", "env-pass"))
 	r := httptest.NewRequest(http.MethodGet, "/coddy/config", nil)
-	r.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	r.AddCookie(c)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, r)
 	var out map[string]interface{}
@@ -873,7 +873,7 @@ func TestASessionOfAnotherOriginDoesNotOpenThisOne(t *testing.T) {
 	// request addressed here does not present it.
 	r := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	r.Host = "box:12345"
-	r.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	r.AddCookie(c)
 	wr := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(wr, r)
 	if wr.Code != http.StatusUnauthorized {

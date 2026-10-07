@@ -1,10 +1,21 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
+import { setEnv } from "../env/remoteEnv";
 import { SessionsSidebar } from "./SessionsSidebar";
 import type { SessionRow } from "./types";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setEnv({ mode: "local" });
+  window.localStorage.clear();
+});
 
 const row = (id: string, title: string): SessionRow => ({
   id,
@@ -128,7 +139,7 @@ test("draft session row links to #/draft/<id>", () => {
   expect(link).toHaveAttribute("href", "#/draft/draft_1");
 });
 
-test("shows the activity dot on every running session and the unread dot on others", () => {
+test("shows activity on every running session without duplicating unread state", () => {
   render(
     <SessionsSidebar
       sessionId="current"
@@ -153,7 +164,7 @@ test("shows the activity dot on every running session and the unread dot on othe
     />,
   );
   expect(screen.getByTestId("session-activity-busy")).toBeInTheDocument();
-  expect(screen.getByTestId("session-unread-busy")).toBeInTheDocument();
+  expect(screen.queryByTestId("session-unread-busy")).toBeNull();
   expect(screen.getByTestId("session-activity-current")).toBeInTheDocument();
   expect(screen.queryByTestId("session-unread-current")).toBeNull();
 });
@@ -179,7 +190,97 @@ test("question pending hides the activity dot and shows animated question icon",
     />,
   );
   expect(screen.queryByTestId("session-activity-q")).toBeNull();
+  expect(screen.queryByTestId("session-idle-q")).toBeNull();
   expect(screen.getByTestId("session-question-q")).toBeInTheDocument();
+});
+
+test("server-reported permission owns the state slot and exposes its name", () => {
+  renderDrawer({
+    sessionId: "other",
+    sessions: [
+      {
+        id: "permission",
+        title: "Permission",
+        turnActive: true,
+        permissionPending: true,
+      },
+    ],
+  });
+
+  expect(screen.queryByTestId("session-activity-permission")).toBeNull();
+  expect(screen.queryByTestId("session-idle-permission")).toBeNull();
+  expect(
+    screen.getByRole("img", { name: "Permission required" }),
+  ).toBeInTheDocument();
+});
+
+test("server-reported question owns the state slot before its chat is opened", () => {
+  renderDrawer({
+    sessionId: "other",
+    sessions: [
+      {
+        id: "question",
+        title: "Question",
+        turnActive: true,
+        questionPending: true,
+      },
+    ],
+  });
+
+  expect(screen.queryByTestId("session-activity-question")).toBeNull();
+  expect(
+    screen.getByRole("img", { name: "Question pending" }),
+  ).toBeInTheDocument();
+});
+
+test("permission marker wins when a row reports both pending states", () => {
+  renderDrawer({
+    sessionId: "other",
+    sessions: [
+      {
+        id: "both",
+        title: "Both",
+        turnActive: true,
+        permissionPending: true,
+        questionPending: true,
+      },
+    ],
+  });
+
+  expect(screen.getByTestId("session-permission-both")).toBeInTheDocument();
+  expect(screen.queryByTestId("session-question-both")).toBeNull();
+  expect(
+    screen.getAllByRole("img", { name: /pending|required/i }),
+  ).toHaveLength(1);
+});
+
+test("finished and failed rows carry a state dot that distinguishes unseen errors", () => {
+  renderDrawer({
+    sessionId: "current",
+    sessions: [
+      { id: "idle", title: "Idle" },
+      {
+        id: "unseen-error",
+        title: "Unseen error",
+        lastErrorSeq: 4,
+        readActivitySeq: 3,
+      },
+      {
+        id: "seen-error",
+        title: "Seen error",
+        lastErrorSeq: 4,
+        readActivitySeq: 4,
+        unreadComplete: true,
+      },
+    ],
+  });
+
+  expect(screen.getByTestId("session-idle-idle")).toBeInTheDocument();
+  expect(screen.getByTestId("session-error-unseen-error")).not.toHaveClass(
+    "is-seen",
+  );
+  expect(screen.getByTestId("session-error-seen-error")).toHaveClass("is-seen");
+  expect(screen.queryByTestId("session-unread-seen-error")).toBeNull();
 });
 
 test("the dot names background work when the row has no turn running", () => {
@@ -233,10 +334,11 @@ test("the state marks stand apart from the title so the tags line up under its t
   expect(
     busy.querySelector(".session-row-leading .session-activity-dot"),
   ).toBeNull();
-  // A row without a state mark has no empty column holder to push its title in.
-  expect(
-    screen.getByTestId("session-row-calm").querySelector(".session-row-marks"),
-  ).toBeNull();
+  // The transparent finished ring gives grouped rows the same left anchor as
+  // a busy row without pretending work is still running.
+  const calm = screen.getByTestId("session-row-calm");
+  expect(calm.querySelector(".session-row-marks")).not.toBeNull();
+  expect(screen.getByTestId("session-idle-calm")).toBeInTheDocument();
 });
 
 // --- grouping and the archive ---
@@ -312,6 +414,49 @@ test("a heading collapses the rows under it and opens them again", () => {
   expect(screen.getByTestId("session-row-today")).toBeInTheDocument();
 });
 
+test("a collapsed workspace group survives navigation and temporary absence", () => {
+  const sessions = [
+    { id: "workspace", title: "Report", cwd: "/srv/reports" },
+  ] as SessionRow[];
+  const first = renderDrawer({ sessions, groupMode: "workspace" });
+  const toggle = screen.getByTestId("session-group-toggle-cwd:/srv/reports");
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  first.unmount();
+
+  const withoutGroup = renderDrawer({ sessions: [], groupMode: "workspace" });
+  withoutGroup.unmount();
+
+  renderDrawer({ sessions, groupMode: "workspace" });
+  expect(
+    screen.getByTestId("session-group-toggle-cwd:/srv/reports"),
+  ).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByTestId("session-row-workspace")).toBeNull();
+});
+
+test("collapsed groups are scoped to their environment", () => {
+  const sessions = [dated("today", "Report", "2026-09-15T09:00:00")];
+  setEnv({ mode: "remote", baseUrl: "https://alpha.example", token: "" });
+  const alpha = renderDrawer({ sessions, groupMode: "time" });
+  fireEvent.click(screen.getByTestId("session-group-toggle-today"));
+  alpha.unmount();
+
+  setEnv({ mode: "remote", baseUrl: "https://beta.example", token: "" });
+  const beta = renderDrawer({ sessions, groupMode: "time" });
+  expect(screen.getByTestId("session-group-toggle-today")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  beta.unmount();
+
+  setEnv({ mode: "remote", baseUrl: "https://alpha.example", token: "" });
+  renderDrawer({ sessions, groupMode: "time" });
+  expect(screen.getByTestId("session-group-toggle-today")).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+});
+
 test("the filter menu is closed until its control is pressed, and shuts again", () => {
   renderDrawer();
   expect(screen.queryByTestId("sessions-filter-menu")).toBeNull();
@@ -363,10 +508,14 @@ test("hovering a section opens it and closes the one before it", () => {
   renderDrawer();
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
 
-  fireEvent.mouseEnter(screen.getByTestId("sessions-filter-section-group"));
+  pointer(screen.getByTestId("sessions-filter-section-group"), "pointerover", {
+    y: 0,
+  });
   expect(screen.getByTestId("sessions-filter-group-tag")).toBeInTheDocument();
 
-  fireEvent.mouseEnter(screen.getByTestId("sessions-filter-section-sort"));
+  pointer(screen.getByTestId("sessions-filter-section-sort"), "pointerover", {
+    y: 0,
+  });
   expect(screen.queryByTestId("sessions-filter-group-tag")).toBeNull();
   expect(screen.getByTestId("sessions-filter-sort-title")).toBeInTheDocument();
 });
@@ -412,7 +561,13 @@ test("sort is reported up for the server to apply", () => {
 test("one environment is no choice at all, so the section stays out", () => {
   renderDrawer({
     environments: [
-      { kind: "origin", key: "local", label: "Local", active: true, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "local",
+        label: "Local",
+        active: true,
+        onPick: () => {},
+      },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -425,7 +580,13 @@ test("an environment row switches where the history is read from", () => {
   const onPick = vi.fn();
   renderDrawer({
     environments: [
-      { kind: "origin", key: "local", label: "Local", active: true, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "local",
+        label: "Local",
+        active: true,
+        onPick: () => {},
+      },
       { kind: "switch", key: "nas02", label: "nas02", active: false, onPick },
     ],
   });
@@ -439,9 +600,27 @@ test("an environment row switches where the history is read from", () => {
 test("environment origins and remote switches keep independent menu semantics", () => {
   renderDrawer({
     environments: [
-      { kind: "origin", key: "all", label: "All", active: false, onPick: () => {} },
-      { kind: "origin", key: "gateway", label: "Gateway", active: true, onPick: () => {} },
-      { kind: "switch", key: "nas02", label: "nas02", active: true, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "all",
+        label: "All",
+        active: false,
+        onPick: () => {},
+      },
+      {
+        kind: "origin",
+        key: "gateway",
+        label: "Gateway",
+        active: true,
+        onPick: () => {},
+      },
+      {
+        kind: "switch",
+        key: "nas02",
+        label: "nas02",
+        active: true,
+        onPick: () => {},
+      },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -479,8 +658,20 @@ test("environment origins and remote switches keep independent menu semantics", 
 test("environment summary names only the remote when All is selected", () => {
   renderDrawer({
     environments: [
-      { kind: "origin", key: "all", label: "All", active: true, onPick: () => {} },
-      { kind: "switch", key: "nas02", label: "nas02", active: true, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "all",
+        label: "All",
+        active: true,
+        onPick: () => {},
+      },
+      {
+        kind: "switch",
+        key: "nas02",
+        label: "nas02",
+        active: true,
+        onPick: () => {},
+      },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -496,8 +687,20 @@ test("environment summary names only the remote when All is selected", () => {
 test("environment summary uses the origin and defaults only to All locally", () => {
   renderDrawer({
     environments: [
-      { kind: "origin", key: "all", label: "All", active: true, onPick: () => {} },
-      { kind: "origin", key: "gateway", label: "Gateway", active: false, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "all",
+        label: "All",
+        active: true,
+        onPick: () => {},
+      },
+      {
+        kind: "origin",
+        key: "gateway",
+        label: "Gateway",
+        active: false,
+        onPick: () => {},
+      },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -510,8 +713,20 @@ test("environment summary uses the origin and defaults only to All locally", () 
   cleanup();
   renderDrawer({
     environments: [
-      { kind: "origin", key: "all", label: "All", active: false, onPick: () => {} },
-      { kind: "origin", key: "gateway", label: "Gateway", active: true, onPick: () => {} },
+      {
+        kind: "origin",
+        key: "all",
+        label: "All",
+        active: false,
+        onPick: () => {},
+      },
+      {
+        kind: "origin",
+        key: "gateway",
+        label: "Gateway",
+        active: true,
+        onPick: () => {},
+      },
     ],
   });
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
@@ -621,10 +836,13 @@ test("a row pins and unpins from its menu", () => {
   expect(onPin).toHaveBeenCalledWith("a", true);
 });
 
-test("a pinned row says so and offers to let it go", () => {
+test("a pinned row stands under the heading, unmarked, and offers to let it go", () => {
   const onPin = vi.fn();
   renderDrawer({ sessions: [{ id: "a", title: "A", pinned: true }], onPin });
-  expect(screen.getByTestId("session-pinned-a")).toBeInTheDocument();
+  expect(screen.getByTestId("session-group-pinned")).toContainElement(
+    screen.getByTestId("session-row-a"),
+  );
+  expect(document.querySelector(".session-pin-mark")).toBeNull();
 
   fireEvent.click(screen.getByTestId("session-menu-a"));
   expect(screen.getByTestId("session-menu-pin-a")).toHaveTextContent("Unpin");
@@ -643,6 +861,104 @@ test("an archived row reads as put aside", () => {
   expect(screen.getByTestId("session-row-a").className).not.toContain(
     "is-archived",
   );
+});
+
+// --- Reordering the pins ----------------------------------------------------
+
+/** Fires a pointer event; jsdom has no PointerEvent, and React reads only the type. */
+function pointer(
+  target: EventTarget,
+  type: string,
+  init: { x?: number; y: number; kind?: string },
+) {
+  const ev = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    clientX: init.x ?? 10,
+    clientY: init.y,
+  });
+  Object.defineProperty(ev, "pointerId", { value: 1 });
+  Object.defineProperty(ev, "pointerType", { value: init.kind ?? "mouse" });
+  act(() => {
+    target.dispatchEvent(ev);
+  });
+}
+
+/** Three pins, 40px tall each, stacked from the top of the list. */
+function renderPins(props: Partial<Parameters<typeof SessionsSidebar>[0]>) {
+  const pins = ["a", "b", "c"].map((id) => ({ id, title: id, pinned: true }));
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: Element) {
+      const at = pins.findIndex(
+        (p) => this.getAttribute("data-testid") === `session-row-${p.id}`,
+      );
+      return { top: at * 40, height: 40 } as DOMRect;
+    },
+  );
+  onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
+  return renderDrawer({ sessions: pins, ...props });
+}
+
+test("a pinned row has no grip and is dragged by the row itself", () => {
+  const onReorderPins = vi.fn();
+  const onPick = vi.fn();
+  renderPins({ onReorderPins, onPick });
+  expect(document.querySelector(".session-drag-grip")).toBeNull();
+
+  const rowA = screen.getByTestId("session-row-a");
+  expect(rowA.className).toContain("is-reorderable");
+  pointer(rowA, "pointerdown", { y: 20 });
+  pointer(window, "pointermove", { y: 110 });
+  expect(rowA.className).toContain("is-dragging");
+  pointer(window, "pointerup", { y: 110 });
+  // The click the release produces must not open the row that was moved.
+  fireEvent.click(rowA);
+
+  expect(onReorderPins).toHaveBeenCalledWith(["b", "c", "a"]);
+  expect(onPick).not.toHaveBeenCalled();
+});
+
+test("a mouse press that stays within the slop is a click, not a drag", () => {
+  const onReorderPins = vi.fn();
+  const onPick = vi.fn();
+  renderPins({ onReorderPins, onPick });
+  const rowB = screen.getByTestId("session-row-b");
+  pointer(rowB, "pointerdown", { y: 60 });
+  pointer(window, "pointermove", { y: 62 });
+  pointer(window, "pointerup", { y: 62 });
+  fireEvent.click(rowB);
+
+  expect(onReorderPins).not.toHaveBeenCalled();
+  expect(onPick).toHaveBeenCalledWith("b");
+});
+
+test("a finger drags a pin only after holding it, and a swipe scrolls", () => {
+  vi.useFakeTimers();
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
+  const onReorderPins = vi.fn();
+  renderPins({ onReorderPins });
+  const rowA = screen.getByTestId("session-row-a");
+
+  // Moving straight away is a scroll: the hold never takes the row.
+  pointer(rowA, "pointerdown", { y: 20, kind: "touch" });
+  pointer(window, "pointermove", { y: 110, kind: "touch" });
+  act(() => vi.advanceTimersByTime(1000));
+  expect(rowA.className).not.toContain("is-dragging");
+  pointer(window, "pointerup", { y: 110, kind: "touch" });
+  expect(onReorderPins).not.toHaveBeenCalled();
+
+  // Holding first takes the row, and then the finger moves it.
+  pointer(rowA, "pointerdown", { y: 20, kind: "touch" });
+  act(() => vi.advanceTimersByTime(500));
+  expect(rowA.className).toContain("is-dragging");
+  pointer(window, "pointermove", { y: 110, kind: "touch" });
+  pointer(window, "pointerup", { y: 110, kind: "touch" });
+  expect(onReorderPins).toHaveBeenCalledWith(["b", "c", "a"]);
 });
 
 // --- Renaming and filing from the row menu ---------------------------------
@@ -846,9 +1162,9 @@ test("a row carries the error of the change it refused, and only that row", () =
   // Beside the link, not inside it: the link is named by the conversation,
   // not by the error of the last thing done to it.
   expect(note.closest("a")).toBeNull();
-  expect(screen.getByTestId("session-row-b").querySelector("a")?.textContent).not.toContain(
-    "not archived",
-  );
+  expect(
+    screen.getByTestId("session-row-b").querySelector("a")?.textContent,
+  ).not.toContain("not archived");
   expect(screen.queryByTestId("session-row-error-a")).toBeNull();
   expect(screen.queryByTestId("sessions-error")).toBeNull();
 });

@@ -158,7 +158,7 @@ func (s *mcpFeatureState) startServer() error {
 		return err
 	}
 	cfgPath := filepath.Join(s.home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  auto_discovery: true\n"), 0o644); err != nil {
 		return err
 	}
 	cfg, err := config.Load(cfgPath)
@@ -234,6 +234,77 @@ func (s *mcpFeatureState) givenProjectServer(name string) error {
 
 func (s *mcpFeatureState) givenGlobalServer(name string) error {
 	return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.home), name, fakeMCPEntry())
+}
+
+func (s *mcpFeatureState) givenGlobalServerWithEnv(name, key, value string) error {
+	entry := fakeMCPEntry()
+	entry.Env[key] = value
+	return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.home), name, entry)
+}
+
+func (s *mcpFeatureState) listNamesEnvWithoutValue(key, server, value string) error {
+	row, err := s.serverRow(server)
+	if err != nil {
+		return err
+	}
+	env, _ := row["env"].(map[string]interface{})
+	if got, _ := env[key].(string); got != config.RedactedValue {
+		return fmt.Errorf("server %q env %s = %q, want the name with %q in place of its value", server, key, got, config.RedactedValue)
+	}
+	raw, _ := json.Marshal(s.body)
+	if bytes.Contains(raw, []byte(value)) {
+		return fmt.Errorf("the MCP list carries the value %q: %s", value, raw)
+	}
+	return nil
+}
+
+// editAsListed saves an entry the way the settings editor does: built from
+// the listed row, placeholders and all, with one variable added, and sent
+// with the fingerprint of the declaration listed.
+func (s *mcpFeatureState) editAsListed(server, key, value string) error {
+	row, err := s.serverRow(server)
+	if err != nil {
+		return err
+	}
+	entry := config.MCPJSONServer{Env: map[string]string{key: value}}
+	entry.Command, _ = row["command"].(string)
+	for _, a := range anySlice(row["args"]) {
+		arg, _ := a.(string)
+		entry.Args = append(entry.Args, arg)
+	}
+	env, _ := row["env"].(map[string]interface{})
+	for k, v := range env {
+		entry.Env[k], _ = v.(string)
+	}
+	scope := mcp.ScopeLocal
+	if origin, _ := row["origin"].(string); origin == mcp.OriginHome {
+		scope = mcp.ScopeGlobal
+	}
+	fingerprint, _ := row["fingerprint"].(string)
+	path := "/coddy/mcp/" + url.PathEscape(server) + "?scope=" + scope + "&fingerprint=" + url.QueryEscape(fingerprint)
+	if err := s.do(http.MethodPut, path, entry); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("edit server status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
+func anySlice(v interface{}) []interface{} {
+	out, _ := v.([]interface{})
+	return out
+}
+
+func (s *mcpFeatureState) globalFileKeepsEnv(value, key, server string) error {
+	entries, err := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(s.home))
+	if err != nil {
+		return err
+	}
+	if got := entries[server].Env[key]; got != value {
+		return fmt.Errorf("global mcp.json env %s of %q = %q, want %q kept", key, server, got, value)
+	}
+	return nil
 }
 
 func (s *mcpFeatureState) listServers() error {
@@ -502,6 +573,10 @@ func initializeMCPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a running coddy HTTP server$`, s.startServer)
 	sc.Step(`^a project mcp\.json defining the stdio server "([^"]*)"$`, s.givenProjectServer)
 	sc.Step(`^a global mcp\.json defining the stdio server "([^"]*)"$`, s.givenGlobalServer)
+	sc.Step(`^a global mcp\.json defining the stdio server "([^"]*)" with the env "([^"]*)" set to "([^"]*)"$`, s.givenGlobalServerWithEnv)
+	sc.Step(`^the MCP list names the env "([^"]*)" of server "([^"]*)" but not "([^"]*)"$`, s.listNamesEnvWithoutValue)
+	sc.Step(`^I edit the MCP server "([^"]*)" as listed, adding the env "([^"]*)" set to "([^"]*)"$`, s.editAsListed)
+	sc.Step(`^the global mcp\.json keeps "([^"]*)" as the env "([^"]*)" of server "([^"]*)"$`, s.globalFileKeepsEnv)
 	sc.Step(`^I list the MCP servers$`, s.listServers)
 	sc.Step(`^I disable the tool "([^"]*)" of MCP server "([^"]*)"$`, s.disableTool)
 	sc.Step(`^I disable the MCP server "([^"]*)"$`, s.disableServer)

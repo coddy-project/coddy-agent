@@ -9,9 +9,9 @@ Codex resolves its instruction chain **once per session**, walking from the repo
 - a session started at the repository root never loads a nested `AGENTS.md`, no matter which files it goes on to edit;
 - there is no glob-based attachment. Codex has no equivalent of the `globs` field in `.cursor/rules/*.mdc`, so scope can only be expressed by where a file sits in the tree.
 
-This repository keeps its detailed rules in `.cursor/rules/*.mdc`. The previous arrangement pointed Codex at `.codex/rules.md` and asked it to open the relevant rule file before editing. That is advisory, and it gets skipped.
+This repository keeps a native Cursor representation under `.cursor/rules/*.mdc`, and the Codex adapter reads those files directly. A previous manually maintained index only asked the model to open another file; that was advisory and was skipped.
 
-`.codex/hooks/attach_rules.py` closes the gap by injecting rule bodies into the session directly, so compliance no longer depends on the model choosing to read a file.
+`.codex/hooks/attach_rules.py` closes the gap by injecting rule bodies into the session directly, so compliance no longer depends on the model choosing to follow an index.
 
 ## What fires when
 
@@ -22,15 +22,15 @@ This repository keeps its detailed rules in `.cursor/rules/*.mdc`. The previous 
 
 Configuration lives in `.codex/hooks.json`. Both handlers run the same script; it branches on `hook_event_name` from the hook payload.
 
-For this repository that currently means `architecture`, `code-style`, `testing` and `workflow` arrive at session start (about 9.5 KB total), and the remaining six attach on demand. A patch touching `external/httpserver/server.go` pulls in `api-layer` and `implementation-order`; one touching `external/ui/src/` pulls in `ui-spa` and `ui-verification`.
+For this repository, `russian-wording` arrives at session start. The Go, HTTP, gateway and UI topic rules are path-scoped and attach on demand. An edit touching `external/httpserver/server.go` pulls in `api-layer`, `architecture`, `code-style`, `implementation-order`, `testing` and `workflow`; one touching `external/ui/src/` also pulls in `ui-spa` and `ui-verification`.
 
 ## How it works
 
-The script parses the `.mdc` frontmatter itself (`description`, `globs`, `alwaysApply`), so `.cursor/rules/` stays the single source of truth and a new rule file needs no wiring. Points worth knowing:
+The project adapter parses `.mdc` frontmatter itself (`description`, scalar or list `globs`, and `alwaysApply`). Quoted commas, doubled single quotes, double-quoted escapes and YAML comments in valid scalar, single-line or multiline flow-list, and block-list forms are decoded or stripped as appropriate. It reads `.cursor/rules/` as its input and keeps no separate Codex copy of a rule body. A new Cursor rule file needs no adapter wiring. Points worth knowing:
 
 - **Glob matching is hand-rolled.** `fnmatch` is unusable because its `*` also crosses `/`, which makes `external/httpserver/**/*.go` miss `external/httpserver/server.go`. The script translates globs to a regex where `**/` becomes "zero or more directories", `*` stays inside one segment, and a bare `**` spans anything.
-- **Paths come from the patch itself.** `*** Add File:`, `*** Update File:`, `*** Delete File:` and the `*** Move to:` destination are all read, and absolute paths are made repo-relative before matching.
-- **Each rule is injected at most once per session.** State is a JSON file under `<tempdir>/codex-coddy-rules/<session_id>.json`, so re-editing the same area does not re-send the same 3 KB. A `SessionStart` with `source: "clear"` resets it.
+- **Paths come from patch headers and structured tool fields.** `*** Add File:`, `*** Update File:`, `*** Delete File:` and `*** Move to:` are read, as are known JSON fields such as `file_path`, `path`, `source` and `destination`. Absolute paths are made repo-relative, and paths outside the repository are ignored.
+- **Each scoped rule is injected at most once per active session context.** State is a JSON file under `<tempdir>/codex-attach-rules-<repository-hash>/<session_id>.json`, so clones cannot suppress one another. `resume` preserves scoped dedupe; `startup`, `compact` and `clear` reset state to the always-on set so scoped rules can attach again when needed. Concurrent processes serialize delivery with a per-session lock, and state updates use atomic replacement. Rule ids are persisted only after context output succeeds, so failed output leaves them eligible for a later attempt. If locking or persistence is unavailable, matching rule context is still emitted and deduplication may temporarily degrade to duplicate delivery.
 - **It fails open.** Malformed JSON on stdin, an unparsable rule file, or an unwritable state directory all exit 0 with no output. A broken rule can never block an edit.
 
 ## Context budget
@@ -51,6 +51,14 @@ This mirrors the workspace trust gate Coddy applies to project-local `.coddy/mcp
 
 ## Verifying and debugging
 
+Run the repository adapter contract first:
+
+```bash
+make test-agent-rules
+```
+
+It covers scalar and YAML-list `globs`, structured edit paths, provider-rule activation, OpenCode delivery and the absence of a manual Codex index.
+
 Drive the script by hand with a synthetic payload. It reads JSON on stdin and writes JSON on stdout, so no Codex session is needed:
 
 ```bash
@@ -66,17 +74,18 @@ echo '{"hook_event_name":"SessionStart","session_id":"probe","source":"startup"}
 Empty output is a valid answer and means one of three things: no glob matched, the rule was already sent in this session, or the input was not understood. Clear the dedup state to re-test:
 
 ```bash
-rm -rf "${TMPDIR:-/tmp}/codex-coddy-rules"
+rm -rf "${TMPDIR:-/tmp}"/codex-attach-rules-*
 ```
 
 If a hook produces nothing inside a real session, check `/hooks` first. Trust is the usual cause.
 
 ## Adding or changing a rule
 
-Edit `.cursor/rules/*.mdc` as before. The hook needs no change, but two things do:
+Edit `.cursor/rules/*.mdc` as before. The hook needs no change when a topic is added or renamed because it reads the directory on each event.
 
-- a rule is only reachable from Codex if its frontmatter carries `globs` or `alwaysApply: true`;
-- the index in `.codex/rules.md` and the bridge section in `AGENTS.md` are refreshed in the same change that adds, renames, or removes a rule file.
+- a rule is reachable from Codex only when its frontmatter carries `globs` or `alwaysApply: true`;
+- update the deliberate Claude Code counterpart in the same change and keep the bodies equivalent;
+- run `make test-agent-rules` after changing rule frontmatter or either adapter file.
 
 ## Not to be confused with Codex `.rules`
 
@@ -93,7 +102,7 @@ This repository ships no `.codex/rules/` directory; command policy is a per-deve
 | Agent | Always-on rules | Scoped rules |
 |---|---|---|
 | Cursor | `alwaysApply: true` in `.cursor/rules/*.mdc` | `globs` in the same frontmatter |
-| Claude Code | `CLAUDE.md` (symlinked to `AGENTS.md` here) | `.claude/rules/*.md` referenced from it |
+| Claude Code | `CLAUDE.md` (symlinked to `AGENTS.md` here) | native `.claude/rules/*.md` path scoping |
 | Codex | `AGENTS.md` plus the `SessionStart` hook | `PreToolUse` hook, this page |
 
 Upstream reference: [Hooks](https://developers.openai.com/codex/hooks) and [Custom instructions with AGENTS.md](https://developers.openai.com/codex/guides/agents-md).

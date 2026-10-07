@@ -1586,6 +1586,11 @@ test("the logical model form groups its fields: model, generation, reasoning", a
               type: "string",
               title: "Default reasoning level",
             },
+            allow_reasoning_off: {
+              type: "boolean",
+              title: "Allow disabling reasoning",
+              default: false,
+            },
           },
           "x-coddy-property-order": [
             "model",
@@ -1596,6 +1601,7 @@ test("the logical model form groups its fields: model, generation, reasoning", a
             "stream",
             "reasoning_levels",
             "reasoning_default",
+            "allow_reasoning_off",
           ],
         },
       },
@@ -1626,13 +1632,19 @@ test("the logical model form groups its fields: model, generation, reasoning", a
   const reasoning = screen.getByTestId("settings-group-reasoning");
   expect(reasoning.textContent).toContain("Reasoning levels");
   expect(reasoning.textContent).toContain("Default reasoning level");
+  expect(reasoning.textContent).toContain("Allow disabling reasoning");
 });
 
 // The queue mode answers what Enter does with a message written during a
 // turn: it belongs with the model and the turn cap, never loose between the
 // fieldsets of the tab.
 test("the agent tab keeps the queue mode inside its model and turns fieldset", () => {
-  const agentSection: SectionDescriptor = { id: "agent", label: "ReAct loop", kind: "object", schemaKey: "agent" };
+  const agentSection: SectionDescriptor = {
+    id: "agent",
+    label: "ReAct loop",
+    kind: "object",
+    schemaKey: "agent",
+  };
   const schema = {
     type: "object",
     properties: {
@@ -1640,16 +1652,34 @@ test("the agent tab keeps the queue mode inside its model and turns fieldset", (
         type: "object",
         properties: {
           model: { type: "string", title: "Default model" },
-          queue_mode: { type: "string", title: "Queue mode", enum: ["steer", "after_turn"] },
+          queue_mode: {
+            type: "string",
+            title: "Queue mode",
+            enum: ["steer", "after_turn"],
+          },
           max_turns: { type: "integer", title: "Max turns" },
           llm_retry_max: { type: "integer", title: "LLM retry max" },
         },
-        "x-coddy-property-order": ["model", "queue_mode", "max_turns", "llm_retry_max"],
+        "x-coddy-property-order": [
+          "model",
+          "queue_mode",
+          "max_turns",
+          "llm_retry_max",
+        ],
       },
     },
   } as JsonSchema;
-  render(<SettingsSection section={agentSection} schema={schema} doc={{ agent: { queue_mode: "after_turn" } }} setDoc={() => {}} />);
+  render(
+    <SettingsSection
+      section={agentSection}
+      schema={schema}
+      doc={{ agent: { queue_mode: "after_turn" } }}
+      setDoc={() => {}}
+    />,
+  );
   const turn = screen.getByTestId("settings-group-turn");
   expect(turn.textContent).toContain("Queue mode");
-  expect(screen.getByRole("combobox", { name: "Queue mode" }).closest("fieldset")).toBe(turn);
+  expect(
+    screen.getByRole("combobox", { name: "Queue mode" }).closest("fieldset"),
+  ).toBe(turn);
 });

@@ -54,7 +54,11 @@ export function overlayArchiveMoves(
       continue;
     }
     if (!rowVisibleUnder(filter, move.archived)) continue;
-    out.push(!!row.archived === move.archived ? row : { ...row, archived: move.archived });
+    out.push(
+      !!row.archived === move.archived
+        ? row
+        : { ...row, archived: move.archived },
+    );
   }
   return out;
 }
@@ -74,7 +78,11 @@ export function cursorAfterRemovals(
 }
 
 /** Where a row stood before it was taken out, to put it back there. */
-export type RowPlace = { row: SessionRow; index: number; nextId: string | null };
+export type RowPlace = {
+  row: SessionRow;
+  index: number;
+  nextId: string | null;
+};
 
 export function rowPlace(rows: SessionRow[], id: string): RowPlace | null {
   const index = rows.findIndex((row) => row.id === id);
@@ -101,7 +109,9 @@ export function restoreRow(rows: SessionRow[], place: RowPlace): SessionRow[] {
     );
   }
   const before =
-    place.nextId !== null ? rows.findIndex((row) => row.id === place.nextId) : -1;
+    place.nextId !== null
+      ? rows.findIndex((row) => row.id === place.nextId)
+      : -1;
   const at = before >= 0 ? before : Math.min(place.index, rows.length);
   return [...rows.slice(0, at), place.row, ...rows.slice(at)];
 }

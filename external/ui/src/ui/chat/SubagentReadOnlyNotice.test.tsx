@@ -2,8 +2,12 @@ import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
+import { initLocale } from "../i18n/i18n";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  initLocale("en");
+});
 
 const meta = { parentSessionId: "s_parent", name: "explore", taskId: "bg_3" };
 
@@ -12,7 +16,7 @@ test("names the subagent and links back to the parent chat", () => {
   render(<SubagentReadOnlyNotice meta={meta} onOpenSession={onOpenSession} />);
 
   expect(screen.getByTestId("subagent-readonly-notice")).toHaveTextContent(
-    "Read-only transcript of subagent explore. Prompts go to the parent chat.",
+    "Read-only transcript of subagent explore.",
   );
   const link = screen.getByTestId("subagent-readonly-parent-link");
   expect(link).toHaveAttribute("href", "#/s/s_parent");
@@ -21,6 +25,18 @@ test("names the subagent and links back to the parent chat", () => {
   const notPrevented = fireEvent.click(link);
   expect(notPrevented).toBe(false);
   expect(onOpenSession).toHaveBeenCalledWith("s_parent");
+});
+
+test("states the child session's effective model", () => {
+  render(
+    <SubagentReadOnlyNotice
+      meta={{ ...meta, model: "neuraldeep/qwen3.8-27b" }}
+    />,
+  );
+
+  expect(screen.getByTestId("subagent-readonly-notice")).toHaveTextContent(
+    "Effective model: neuraldeep/qwen3.8-27b",
+  );
 });
 
 test("a modifier click falls through to the href", () => {
@@ -41,9 +57,21 @@ test("falls back to generic copy without a name and hides the link without a par
   );
 
   expect(screen.getByTestId("subagent-readonly-notice")).toHaveTextContent(
-    "Read-only subagent transcript. Prompts go to the parent chat.",
+    "Read-only subagent transcript.",
   );
   expect(screen.queryByTestId("subagent-readonly-parent-link")).toBeNull();
+});
+
+test("uses the shortened Russian read-only notice and keeps the parent link", () => {
+  initLocale("ru");
+  render(<SubagentReadOnlyNotice meta={meta} />);
+
+  expect(screen.getByTestId("subagent-readonly-notice")).toHaveTextContent(
+    "Только для чтения: транскрипт субагента explore.",
+  );
+  expect(screen.getByTestId("subagent-readonly-parent-link")).toHaveTextContent(
+    "Открыть родительский чат",
+  );
 });
 
 test("a scheduled run names its job and links to the job's runs", () => {

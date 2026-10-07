@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
@@ -143,12 +144,15 @@ func scoreOverlap(query, body string) int {
 	return score
 }
 
+// clip cuts s to max characters (runes, not bytes), so a snippet of
+// non-Latin text is as long as an ASCII one and never ends in half a
+// character.
 func clip(s string, max int) string {
 	s = strings.TrimSpace(s)
-	if len(s) <= max {
+	if utf8.RuneCountInString(s) <= max {
 		return s
 	}
-	return s[:max] + "\n..."
+	return string([]rune(s)[:max]) + "\n..."
 }
 
 // Search ranks memory files by token overlap with query.
@@ -393,12 +397,15 @@ func (s *Store) Read(rel string) (string, error) {
 	return string(b), nil
 }
 
+// slugify turns a title into a file name stem. Letters and digits of any
+// script are kept, so two notes titled in Cyrillic do not both land on
+// "note.md" and overwrite each other; the stem is cut at 80 characters.
 func slugify(title string) string {
 	var b strings.Builder
 	dash := false
 	for _, r := range strings.ToLower(strings.TrimSpace(title)) {
 		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case unicode.IsLetter(r), unicode.IsDigit(r):
 			b.WriteRune(r)
 			dash = false
 		case r == ' ', r == '-', r == '_':
@@ -412,8 +419,8 @@ func slugify(title string) string {
 	if s == "" {
 		s = "note"
 	}
-	if len(s) > 80 {
-		s = s[:80]
+	if r := []rune(s); len(r) > 80 {
+		s = strings.TrimRight(string(r[:80]), "-")
 	}
 	return s
 }

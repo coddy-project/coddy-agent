@@ -35,8 +35,6 @@ skills:
     # skill in that session's catalog (coddy-project/coddy-agent#146).
     - "${CWD}/.coddy/skills"
 
-mcp_servers: []
-
 tools:
   permission_mode: bypass
 
@@ -53,7 +51,6 @@ httpserver:
 
 scheduler:
   enable: true
-  dir: ""
   max_queue: 10
   timeout: "6m"
 

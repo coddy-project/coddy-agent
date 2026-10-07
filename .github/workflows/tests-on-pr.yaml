@@ -34,8 +34,8 @@ jobs:
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
-      - name: Test the OpenCode rules plugin
-        run: make test-opencode-rules
+      - name: Test project rule adapters
+        run: make test-agent-rules
 
       - name: Test the web UI
         run: make ui-test
@@ -153,6 +153,16 @@ jobs:
       - name: Drive the message queue through a swarm relay
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:queue
+
+      # The views of a chat through the same kind of stand, the node asking for
+      # a token of its own: the header's views menu, the edits and the
+      # background tasks in the dock without a tab strip, and the Files window -
+      # its tree, its tabs, a search over the whole workspace, every tier of the
+      # grid in English and in Russian, and a sound playing through the relay
+      # from its signed address alone.
+      - name: Drive the views of a chat through a swarm relay
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:files
 
       # The gateway suite runs the bot against the fake Bot API in-process. In
       # the combination that is the gateway alone, the real binary is started
@@ -474,7 +484,7 @@ jobs:
 
   # The passes of `make lint` and `make lint-windows`: the untagged tree, every
   # tag but ui, and the shipped set, each for the host and for the Windows
-  # build, then the TypeScript check of the web UI. The two tag lists come from
+  # build, then the TypeScript and the Prettier checks of the web UI. The two tag lists come from
   # the Makefile (print-full-tags, print-lint-tags-no-ui), so they cannot drift
   # from what `make lint` compiles; the shipped set embeds the SPA, so the
   # assets are built first.
@@ -552,3 +562,6 @@ jobs:
 
       - name: Type-check the web UI
         run: make ui-typecheck
+
+      - name: Check the web UI's formatting
+        run: make ui-format-check

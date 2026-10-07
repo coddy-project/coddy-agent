@@ -556,16 +556,19 @@ func TestSettingsSaveKeepsReferencesInNumberAndBooleanFields(t *testing.T) {
 	}
 }
 
-// An empty list the loader fills with its defaults (skills.dirs: [] reads as the three
-// standard directories) is still an empty list in the file after a save that did not
+// An empty list the loader fills with its defaults (hooks.files: [] reads as the
+// operator's hooks.json) is still an empty list in the file after a save that did not
 // touch it.
 func TestSettingsSaveKeepsAListTheLoaderFillsIn(t *testing.T) {
+	// hooks.files: an empty list the loader fills with its defaults
+	// (skills.dirs, subagents.dirs and instructions.files no longer are such
+	// lists: what they used to default to is read beside them).
 	withEmpty := strings.Replace(spelledConfig,
-		"skills:\n  dirs:\n    - ~/.agents/skills\n    - ${CODDY_HOME}/skills\n    - ${CWD}/.coddy/skills\n    - ${CODDY_TEST_TEAM}/skills\n",
-		"skills:\n  dirs: []\n", 1)
+		"hooks:\n  files:\n    - ${CODDY_HOME}/hooks.json\n",
+		"hooks:\n  files: []\n", 1)
 	live, raw := settingsSaveFixture(t, withEmpty)
-	if len(live.Skills.Dirs) == 0 {
-		t.Fatal("the loader no longer fills an empty skills.dirs; this case needs another list")
+	if len(live.Hooks.Files) == 0 {
+		t.Fatal("the loader no longer fills an empty hooks.files; this case needs another list")
 	}
 	if got := saveFromSettings(t, live, nil); got != raw {
 		t.Errorf("a save without edits filled in the empty list:\n%s\nwant it as it was:\n%s", got, raw)

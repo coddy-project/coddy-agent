@@ -17,10 +17,10 @@ RULE_TOKEN = "USER_RULE_TOKEN:e2e-home"
 def install_home_files(home: Path) -> None:
     """The operator's own instructions and rule folder, next to config.yaml.
 
-    Neither is configured anywhere: instructions.files defaults to
-    ${CODDY_HOME}/AGENTS.md before the project's own, and ${CODDY_HOME}/rules
-    is the `user` rules root. The workdir stays empty, so anything the model
-    repeats came from the agent home.
+    Neither is configured anywhere: ${CODDY_HOME}/AGENTS.md is the first
+    layer of the documents every session reads, ahead of the project's own,
+    and ${CODDY_HOME}/rules is the `user` rules root. The workdir stays empty,
+    so anything the model repeats came from the agent home.
     """
     (home / "AGENTS.md").write_text(
         "# Operator instructions\n\n"

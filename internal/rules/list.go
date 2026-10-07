@@ -38,7 +38,7 @@ func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error 
 		if err := renderFolders(w, d); err != nil {
 			return err
 		}
-		return renderAgentsNote(w, systems)
+		return renderAgentsNote(w)
 	}
 	t := table.NewWriter()
 	t.SetOutputMirror(w)
@@ -79,7 +79,7 @@ func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error 
 	if err := renderFolders(w, d); err != nil {
 		return err
 	}
-	return renderAgentsNote(w, systems)
+	return renderAgentsNote(w)
 }
 
 // catalogRoots names where the listed rules came from. The workspace alone,
@@ -131,12 +131,9 @@ func renderFolders(w io.Writer, d *Discovery) error {
 // agentsOnDemandNote tells a reader of the catalog why no nested document
 // appears in it: the listing would have to walk the whole workspace to find
 // them, and a session never does.
-const agentsOnDemandNote = "Nested AGENTS.md and DESIGN.md files are not listed: they are read on demand, from the folders a tool enters (the root pair is the project docs preamble)."
+const agentsOnDemandNote = "Nested AGENTS.md and DESIGN.md files are not listed: they are read on demand, from the folders a tool enters (the pairs of the agent home and of the workspace are always in the prompt)."
 
-func renderAgentsNote(w io.Writer, systems []Source) error {
-	if !AgentsOnDemand(systems) {
-		return nil
-	}
+func renderAgentsNote(w io.Writer) error {
 	_, err := fmt.Fprintln(w, agentsOnDemandNote)
 	return err
 }

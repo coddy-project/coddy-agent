@@ -225,9 +225,7 @@ type MemoryItem = Extract<TranscriptItem, { type: "memory_run" }>;
  * user_message: rows above it belong to a finished turn, and a stale in_progress tool up
  * there would otherwise drive the label forever (branch switches, reloads).
  */
-export function deriveLiveStatus(
-  items: readonly TranscriptItem[],
-): LiveStatus {
+export function deriveLiveStatus(items: readonly TranscriptItem[]): LiveStatus {
   let permissionPending = false;
   let questionPending = false;
   let toolRunning: ToolItem | null = null;

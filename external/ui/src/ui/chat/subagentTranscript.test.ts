@@ -24,6 +24,25 @@ describe("parseSubagentTranscriptMeta", () => {
     ).toEqual({ parentSessionId: "s_parent", name: "explore", taskId: "bg_3" });
   });
 
+  test("keeps the effective model from the messages response", () => {
+    expect(
+      parseSubagentTranscriptMeta({
+        subagent: {
+          parentSessionId: "s_parent",
+          name: "explore",
+          taskId: "bg_3",
+        },
+        readOnly: true,
+        model: " neuraldeep/qwen3.8-27b ",
+      } as never),
+    ).toEqual({
+      parentSessionId: "s_parent",
+      name: "explore",
+      taskId: "bg_3",
+      model: "neuraldeep/qwen3.8-27b",
+    });
+  });
+
   test("a bare readOnly flag still locks the composer", () => {
     expect(parseSubagentTranscriptMeta({ readOnly: true })).toEqual({
       parentSessionId: "",

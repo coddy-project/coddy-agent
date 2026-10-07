@@ -307,6 +307,56 @@ func (s *settingsFeatureState) relayWasHandedTheSettings() error {
 	return nil
 }
 
+// saveAllowingLoopback flips the loopback toggle the way the relay's Settings
+// form does: the whole document back, with cors.allow_loopback on.
+func (s *settingsFeatureState) saveAllowingLoopback() error {
+	if err := s.readSettings(); err != nil {
+		return err
+	}
+	doc, err := s.okBody()
+	if err != nil {
+		return err
+	}
+	sw, _ := doc["swarm"].(map[string]any)
+	sw["cors"] = map[string]any{"enable": true, "allow_loopback": true}
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return s.do(http.MethodPut, "/coddy/config", s.token, body)
+}
+
+func (s *settingsFeatureState) fileAllowsLoopback() error {
+	raw, err := os.ReadFile(s.path)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: s.dir, CWD: s.dir, ConfigPath: s.path})
+	if err != nil {
+		return err
+	}
+	if !cfg.Swarm.CORS.Enabled || !cfg.Swarm.CORS.AllowLoopback {
+		return fmt.Errorf("the file's swarm.cors is %+v:\n%s", cfg.Swarm.CORS, raw)
+	}
+	return nil
+}
+
+// relayWasHandedLoopback checks the handoff only: the harness records what
+// the runtime would install, it does not rebuild the server under test. The
+// rebuilt relay's behaviour is the fingerprint test's and swarm_mount's job.
+func (s *settingsFeatureState) relayWasHandedLoopback() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.installed) != 1 {
+		return fmt.Errorf("%d configurations installed, want 1", len(s.installed))
+	}
+	got := s.installed[0]
+	if !got.Swarm.CORS.Enabled || !got.Swarm.CORS.AllowLoopback || got.Swarm.AuthToken != s.token {
+		return fmt.Errorf("installed swarm %+v", got.Swarm)
+	}
+	return nil
+}
+
 func (s *settingsFeatureState) rejectedAsUnauthorized() error {
 	if s.status != http.StatusUnauthorized {
 		return fmt.Errorf("status %d, want 401: %s", s.status, s.body)
@@ -335,6 +385,9 @@ func TestSwarmRelaySettingsFeature(t *testing.T) {
 			sc.Step(`^the relay's file allows the origin "([^"]+)"$`, s.fileAllowsOrigin)
 			sc.Step(`^the relay's file keeps its comments and its client token$`, s.fileKeepsCommentsAndToken)
 			sc.Step(`^the relay was handed the new settings$`, s.relayWasHandedTheSettings)
+			sc.Step(`^I save the relay's settings allowing loopback origins with the client token$`, s.saveAllowingLoopback)
+			sc.Step(`^the relay's file allows loopback origins$`, s.fileAllowsLoopback)
+			sc.Step(`^the relay was handed the new settings allowing loopback origins$`, s.relayWasHandedLoopback)
 			sc.Step(`^the settings carry only the sections "([^"]+)"$`, s.settingsCarryOnly)
 			sc.Step(`^the relay's file keeps the provider the settings do not show$`, s.fileKeepsProvider)
 			sc.Step(`^the settings request is rejected as unauthorized$`, s.rejectedAsUnauthorized)

@@ -270,7 +270,7 @@ func TestDevinCustomChatServerMustBeHTTPS(t *testing.T) {
 			out.str(2, tc.custom)
 			_, _ = w.Write(out.buf)
 		}))
-		jwt, err := mintDevinJWT(context.Background(), nil, devinCredential{token: "t-" + tc.custom, apiServer: srv.URL})
+		jwt, err := mintDevinJWT(context.Background(), srv.Client(), devinCredential{token: "t-" + tc.custom, apiServer: srv.URL})
 		srv.Close()
 		if err != nil {
 			t.Fatal(err)
@@ -657,7 +657,7 @@ func TestDevinSignInCallbackAndPaste(t *testing.T) {
 
 	t.Run("a foreign callback is refused and the real one completes", func(t *testing.T) {
 		authPath := filepath.Join(t.TempDir(), "devin-auth.json")
-		acct, err := DevinSignIn(context.Background(), nil, authPath, DevinSignInOptions{OnPrompt: func(p DevinLoginPrompt) {
+		acct, err := DevinSignIn(context.Background(), ts.Client(), authPath, DevinSignInOptions{OnPrompt: func(p DevinLoginPrompt) {
 			go func() {
 				bad, err := http.Get(p.RedirectURI + "?code=x&state=forged")
 				if err == nil {
@@ -688,7 +688,7 @@ func TestDevinSignInCallbackAndPaste(t *testing.T) {
 		defer func() { _ = pw.Close() }()
 		var rejected []string
 		var mu sync.Mutex
-		_, err := DevinSignIn(context.Background(), nil, authPath, DevinSignInOptions{
+		_, err := DevinSignIn(context.Background(), ts.Client(), authPath, DevinSignInOptions{
 			Paste: pr,
 			OnPasteRejected: func(reason string) {
 				mu.Lock()
@@ -747,7 +747,7 @@ func TestDevinExchangeFallsBackToConnect(t *testing.T) {
 	defer ts.Close()
 	t.Setenv(EnvDevinAPIURL, ts.URL)
 	t.Setenv(EnvDevinAPIServerURL, ts.URL)
-	token, server, err := exchangeDevinCode(context.Background(), nil, "c", "v")
+	token, server, err := exchangeDevinCode(context.Background(), ts.Client(), "c", "v")
 	mu.Lock()
 	defer mu.Unlock()
 	if err != nil || token != "devin-session-token$via-connect" || server != "https://tenant.example" || len(hits) != 2 {

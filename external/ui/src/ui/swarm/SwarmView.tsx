@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import {
   fetchNodes,
   fetchSwarmSessions,
@@ -72,12 +71,6 @@ export function SwarmView(props: {
    * node carries when the app is on that node.
    */
   rootCurrent?: boolean;
-  /**
-   * Rendered in the header. On a relay opened as the app's home there is no
-   * composer, so the environment selector that normally lives there has to be
-   * reachable from here instead.
-   */
-  headerSlot?: ReactNode;
   /**
    * Closes the screen back to what was under it. Absent on a relay's home:
    * the map is the home screen there and has nothing under it to go back to.
@@ -232,18 +225,20 @@ export function SwarmView(props: {
     const pool = topology.root
       ? [topology.root, ...topology.nodes]
       : topology.nodes;
-    return pool
-      .filter(
-        (n) =>
-          n.name.toLowerCase().includes(q) ||
-          n.uuid.toLowerCase().startsWith(q),
-      )
-      .map((n) => ({ node: n, path: topology.routes[n.uuid]?.path ?? [] }))
-      // Only a node the map can enter is offered: one the drawn relay has a
-      // route to, or a relay itself - its own map opens through where the app
-      // already is.
-      .filter((hit) => hit.path.length > 0 || hit.node.kind === "relay")
-      .slice(0, 8);
+    return (
+      pool
+        .filter(
+          (n) =>
+            n.name.toLowerCase().includes(q) ||
+            n.uuid.toLowerCase().startsWith(q),
+        )
+        .map((n) => ({ node: n, path: topology.routes[n.uuid]?.path ?? [] }))
+        // Only a node the map can enter is offered: one the drawn relay has a
+        // route to, or a relay itself - its own map opens through where the app
+        // already is.
+        .filter((hit) => hit.path.length > 0 || hit.node.kind === "relay")
+        .slice(0, 8)
+    );
   }, [topology, query]);
   const setLayout = (mode: typeof layoutMode) => {
     setLayoutMode(mode);
@@ -261,7 +256,6 @@ export function SwarmView(props: {
           </div>
           <div className="swarm-search-box" />
           <div className="swarm-header-actions">
-            {props.headerSlot}
             {props.onClose ? (
               <button
                 type="button"
@@ -333,96 +327,99 @@ export function SwarmView(props: {
                 data-testid="swarm-results-empty"
               >
                 <p className="swarm-empty">
-                {loading ? t("swarm.empty.looking") : t("swarm.empty.noMatches")}
-              </p>
-            </div>
-          ) : (
-            <ul
-              className="swarm-search-results swarm-results"
-              data-testid="swarm-results"
-              aria-label={t("swarm.results.label")}
-            >
-              {nodeHits.length > 0 ? (
-                <li className="swarm-result-group" aria-hidden="true">
-                  {t("swarm.results.nodes")}
-                </li>
-              ) : null}
-              {nodeHits.map(({ node, path }) => (
-                <li key={`node-${node.uuid}`} className="swarm-result-row">
-                  <button
-                    type="button"
-                    className="swarm-result-hit"
-                    data-testid={`swarm-node-hit-${node.name}`}
-                    onClick={() => {
-                      setSearch("");
-                      enterNode(path, node.kind, node.name);
-                    }}
-                  >
-                    <span className="swarm-result-title">{node.name}</span>
-                    <span className="swarm-result-meta">
-                      <span className="swarm-badge">
-                        {node.kind === "relay"
-                          ? t("swarm.state.relay")
-                          : t("swarm.state.agent")}
+                  {loading
+                    ? t("swarm.empty.looking")
+                    : t("swarm.empty.noMatches")}
+                </p>
+              </div>
+            ) : (
+              <ul
+                className="swarm-search-results swarm-results"
+                data-testid="swarm-results"
+                aria-label={t("swarm.results.label")}
+              >
+                {nodeHits.length > 0 ? (
+                  <li className="swarm-result-group" aria-hidden="true">
+                    {t("swarm.results.nodes")}
+                  </li>
+                ) : null}
+                {nodeHits.map(({ node, path }) => (
+                  <li key={`node-${node.uuid}`} className="swarm-result-row">
+                    <button
+                      type="button"
+                      className="swarm-result-hit"
+                      data-testid={`swarm-node-hit-${node.name}`}
+                      onClick={() => {
+                        setSearch("");
+                        enterNode(path, node.kind, node.name);
+                      }}
+                    >
+                      <span className="swarm-result-title">{node.name}</span>
+                      <span className="swarm-result-meta">
+                        <span className="swarm-badge">
+                          {node.kind === "relay"
+                            ? t("swarm.state.relay")
+                            : t("swarm.state.agent")}
+                        </span>
+                        <span className="swarm-result-route">
+                          {routeLabel(path)}
+                        </span>
+                        {current !== "" && path.join("/") === current ? (
+                          <span className="swarm-result-here">
+                            {t("swarm.node.here")}
+                          </span>
+                        ) : null}
+                        {!node.online ? (
+                          <span className="swarm-result-offline">
+                            {t("swarm.state.offline")}
+                          </span>
+                        ) : null}
                       </span>
-                      <span className="swarm-result-route">
-                        {routeLabel(path)}
+                    </button>
+                  </li>
+                ))}
+                {results.length > 0 ? (
+                  <li className="swarm-result-group" aria-hidden="true">
+                    {t("swarm.results.sessions")}
+                  </li>
+                ) : null}
+                {results.map((s) => (
+                  <li key={sessionKey(s)} className="swarm-result-row">
+                    <button
+                      type="button"
+                      className="swarm-result-hit"
+                      onClick={() => props.onOpenSession?.(s)}
+                    >
+                      <span className="swarm-result-title">
+                        {s.title || s.id}
                       </span>
-                      {current !== "" && path.join("/") === current ? (
-                        <span className="swarm-result-here">
-                          {t("swarm.node.here")}
+                      <span className="swarm-result-meta">
+                        <span className="swarm-badge">{s.node_name}</span>
+                        <span className="swarm-result-route">
+                          {routeLabel(s.node_path)}
                         </span>
-                      ) : null}
-                      {!node.online ? (
-                        <span className="swarm-result-offline">
-                          {t("swarm.state.offline")}
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
-                </li>
-              ))}
-              {results.length > 0 ? (
-                <li className="swarm-result-group" aria-hidden="true">
-                  {t("swarm.results.sessions")}
-                </li>
-              ) : null}
-              {results.map((s) => (
-                <li key={sessionKey(s)} className="swarm-result-row">
-                  <button
-                    type="button"
-                    className="swarm-result-hit"
-                    onClick={() => props.onOpenSession?.(s)}
-                  >
-                    <span className="swarm-result-title">{s.title || s.id}</span>
-                    <span className="swarm-result-meta">
-                      <span className="swarm-badge">{s.node_name}</span>
-                      <span className="swarm-result-route">
-                        {routeLabel(s.node_path)}
+                        {s.cwd ? (
+                          <span className="swarm-result-cwd">{s.cwd}</span>
+                        ) : null}
+                        {s.permissionPending ? (
+                          <span className="swarm-result-waiting">
+                            {t("swarm.session.waiting")}
+                          </span>
+                        ) : s.turnActive ? (
+                          <span className="swarm-result-active">
+                            {t("swarm.session.working")}
+                          </span>
+                        ) : null}
                       </span>
-                      {s.cwd ? (
-                        <span className="swarm-result-cwd">{s.cwd}</span>
-                      ) : null}
-                      {s.permissionPending ? (
-                        <span className="swarm-result-waiting">
-                          {t("swarm.session.waiting")}
-                        </span>
-                      ) : s.turnActive ? (
-                        <span className="swarm-result-active">
-                          {t("swarm.session.working")}
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )
-        ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : null}
         </div>
 
         <div className="swarm-header-actions">
-          {props.headerSlot}
           {props.onClose ? (
             <button
               type="button"

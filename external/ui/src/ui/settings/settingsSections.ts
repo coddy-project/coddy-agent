@@ -11,6 +11,9 @@ export type SectionKind =
   | "appearance"
   | "sessions";
 
+/** The MCP servers tab: its id stays the old key's, the address #/settings/mcp_servers. */
+export const MCP_SECTION_ID = "mcp_servers";
+
 export type SectionDescriptor = {
   /** Unique id: a config key, or a synthetic id ("system", "appearance"). */
   id: string;
@@ -210,16 +213,6 @@ export function deriveSettingsSections(
       });
       return;
     }
-    if (key === "mcp_servers") {
-      out.push({
-        id: key,
-        label: labelFor(key, sub),
-        description: descFor(key, sub),
-        kind: "mcp",
-        schemaKey: key,
-      });
-      return;
-    }
     // Subagents is a hybrid tab: the generated form for the config section,
     // plus the definition catalog with the per-workspace approvals, which are
     // receipts rather than configuration.
@@ -251,6 +244,18 @@ export function deriveSettingsSections(
       kind: "object",
       schemaKey: key,
     });
+    // The MCP servers tab follows Tools. It edits no key of the settings
+    // document: the servers live in <home>/mcp.json and the project's
+    // .coddy/mcp.json and the tab drives /coddy/mcp*, so no schema property
+    // brings it in (the old mcp_servers key is gone from config.yaml).
+    if (key === "tools") {
+      out.push({
+        id: MCP_SECTION_ID,
+        label: labelFor(MCP_SECTION_ID),
+        description: descFor(MCP_SECTION_ID),
+        kind: "mcp",
+      });
+    }
   };
 
   for (const key of order) {

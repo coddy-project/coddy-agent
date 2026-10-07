@@ -48,8 +48,8 @@ function IconStop() {
  *
  * What a task costs and where it leads is read without opening anything: the model and
  * the tokens an agent run has spent, how long it has run, and the one way in the card
- * has - Show transcript for a subagent run, the address for a preview server - are all
- * on the folded card, and none of them is said again inside it.
+ * has - the address for a preview server is on the folded card, while a subagent's
+ * transcript action sits beneath its expanded output - and neither is repeated.
  */
 function TaskCard(props: {
   task: BackgroundTask;
@@ -202,33 +202,7 @@ function TaskCard(props: {
               ) : null}
             </span>
           ) : null}
-          {/* The way into the task, on a row of its own under the status and the
-              usage: the conversation a subagent run holds, the page a preview
-              server answers with. A card carries at most one of the two, because a
-              task is one kind or the other. */}
-          {isAgentTask(task) ? (
-            <span className="bgtask-card-transcript-row">
-              <button
-                type="button"
-                className="bgtask-card-transcript"
-                data-testid={`bgtask-open-transcript-${task.id}`}
-                disabled={agentSid === null}
-                aria-label={t("tasks.openTranscriptAria", { label: title })}
-                title={
-                  agentSid === null
-                    ? t("tasks.openTranscriptUnavailable")
-                    : undefined
-                }
-                onClick={() => {
-                  if (agentSid !== null) {
-                    props.onOpenSession(agentSid);
-                  }
-                }}
-              >
-                {t("tasks.openTranscript")}
-              </button>
-            </span>
-          ) : task.running && serverUrl ? (
+          {task.running && serverUrl ? (
             // A server that has stopped carries no address: the page is gone, and
             // a link to it would only lead to a refused connection.
             <span className="bgtask-card-address-row">
@@ -261,7 +235,13 @@ function TaskCard(props: {
           </div>
         ) : null}
       </div>
-      {props.open ? <TaskCardBody task={task} output={props.output} /> : null}
+      {props.open ? (
+        <TaskCardBody
+          task={task}
+          output={props.output}
+          onOpenSession={props.onOpenSession}
+        />
+      ) : null}
     </div>
   );
 }
@@ -272,17 +252,22 @@ function TaskCard(props: {
  * nothing to put here for them), the error the run ended with unless it only repeats
  * the exit code, the captured output in a box of its own height, and - once the task
  * has finished - a foot that says how it ended and, for a command, with what exit
- * code. How long it ran and the way into the task - an agent run's transcript, a
- * preview server's address - are the summary's, which is read whether the card is
- * open or not.
+ * code. How long it ran remains in the summary; a subagent's transcript action is
+ * attached below its output, while a preview server's address stays in the summary.
  */
-function TaskCardBody(props: { task: BackgroundTask; output: string }) {
+function TaskCardBody(props: {
+  task: BackgroundTask;
+  output: string;
+  onOpenSession: (sessionId: string) => void;
+}) {
   const { t } = useT();
   const task = props.task;
   const preRef = useRef<HTMLPreElement | null>(null);
   const [follow, setFollow] = useState(true);
   const agent = isAgentTask(task);
   const server = isServerTask(task);
+  const agentSid = agent ? agentTranscriptSessionId(task) : null;
+  const title = taskTitle(task);
 
   useEffect(() => {
     const el = preRef.current;
@@ -349,6 +334,26 @@ function TaskCardBody(props: { task: BackgroundTask; output: string }) {
         {props.output.trim() ? props.output : t("tasks.noOutput")}
       </pre>
 
+      {agent ? (
+        <button
+          type="button"
+          className="bgtask-card-transcript"
+          data-testid={`bgtask-open-transcript-${task.id}`}
+          disabled={agentSid === null}
+          aria-label={t("tasks.openTranscriptAria", { label: title })}
+          title={
+            agentSid === null ? t("tasks.openTranscriptUnavailable") : undefined
+          }
+          onClick={() => {
+            if (agentSid !== null) {
+              props.onOpenSession(agentSid);
+            }
+          }}
+        >
+          {t("tasks.openTranscript")}
+        </button>
+      ) : null}
+
       {footParts.length > 0 ? (
         <div
           className="bgtask-card-foot"
@@ -365,8 +370,8 @@ function TaskCardBody(props: { task: BackgroundTask; output: string }) {
 const OPEN_CARD_POLL_MS = 2500;
 
 /**
- * A card the shell asks the panel to open: "Open in Tasks" on a transcript row, or a
- * link that names a task. `seq` tells a repeated request for the same task from the
+ * A card the shell asks the panel to open from a task-targeted link. `seq` tells a
+ * repeated request for the same task from the
  * request the panel has already honoured.
  */
 export type TaskFocus = { taskId: string; seq: number };
@@ -579,7 +584,7 @@ export function BackgroundTasksPanel(props: {
 
   const { running: live, finished } = groupTasks(props.tasks);
   // The cap keeps a long history cheap; a card that is open is shown wherever it
-  // stands, or "Open in Tasks" on an early row would open a card nobody can see.
+  // stands, or a task-targeted link to an early row would open a card nobody can see.
   const shown = finished.filter(
     (task, i) => i < FINISHED_RENDER_CAP || openIds.includes(task.id),
   );

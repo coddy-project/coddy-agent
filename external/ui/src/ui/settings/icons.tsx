@@ -65,3 +65,27 @@ export function IconPlus() {
     </svg>
   );
 }
+
+/**
+ * Shield with a check: the workspace trust control of an entry that arrived
+ * with the checkout (an MCP server, a subagent definition, a skill
+ * marketplace), and the always-trusted mark of a built-in one.
+ */
+export function IconShield() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 3l7 3v6c0 4.4-3 8.2-7 9-4-.8-7-4.6-7-9V6Z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}

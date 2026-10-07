@@ -140,6 +140,7 @@ func (s *Server) registerAuthRoutes() {
 	s.mux.HandleFunc("POST /coddy/auth/login", s.coddyAuthLoginPost)
 	s.mux.HandleFunc("POST /coddy/auth/logout", s.coddyAuthLogoutPost)
 	s.mux.HandleFunc("GET /coddy/auth/me", s.coddyAuthMeGet)
+	s.mux.HandleFunc("POST /coddy/auth/telegram", s.coddyAuthTelegramPost)
 }
 
 // isAuthRoutePattern reports the three routes the gate lets through unauthenticated.
@@ -149,7 +150,7 @@ func (s *Server) registerAuthRoutes() {
 // invalid. None of them returns anything about the machine behind the gate.
 func isAuthRoutePattern(pattern string) bool {
 	switch pattern {
-	case "POST /coddy/auth/login", "POST /coddy/auth/logout", "GET /coddy/auth/me":
+	case "POST /coddy/auth/login", "POST /coddy/auth/logout", "GET /coddy/auth/me", "POST /coddy/auth/telegram":
 		return true
 	}
 	return false
@@ -233,7 +234,15 @@ func (s *Server) coddyAuthMeGet(w http.ResponseWriter, r *http.Request) {
 	if pol.enabled && !pol.broken {
 		out["mode"] = config.LoginModePassword
 	}
+	// telegram_login tells a page opened as the Telegram bot's Mini App that
+	// its launch data can sign it in (an admin's only).
+	_, _, tgOK := s.telegramBot()
+	out["telegram_login"] = tgOK && auth.enabled
 	if sess, ok := s.sessionFromRequest(r, pol); ok {
+		out["authenticated"] = true
+		out["user"] = sess.User
+		out["expires_at"] = sess.ExpiresAt.UTC().Format(time.RFC3339)
+	} else if sess, ok := s.telegramSessionFromRequest(r); ok {
 		out["authenticated"] = true
 		out["user"] = sess.User
 		out["expires_at"] = sess.ExpiresAt.UTC().Format(time.RFC3339)
@@ -344,6 +353,7 @@ func (s *Server) coddyAuthLogoutPost(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookieName(r)); err == nil && c != nil && c.Value != "" {
 		s.sessions.Revoke(c.Value)
 	}
+	s.clearTelegramSession(w, r)
 	// Clear the cookie whatever happened, so a browser holding a session this
 	// server no longer knows about stops sending it.
 	clear := sessionCookie(r, "", 0)
@@ -366,7 +376,8 @@ func (s *Server) coddyAuthLogoutPost(w http.ResponseWriter, r *http.Request) {
 // plain-HTTP loopback deployments that are the common case, and a browser that
 // never sends the cookie back cannot sign in at all.
 func sessionCookie(r *http.Request, token string, ttl time.Duration) *http.Cookie {
-	c := &http.Cookie{
+	// Secure follows the request's TLS on purpose (see above); HttpOnly is set.
+	c := &http.Cookie{ // nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 		Name:     sessionCookieName(r),
 		Value:    token,
 		Path:     "/",

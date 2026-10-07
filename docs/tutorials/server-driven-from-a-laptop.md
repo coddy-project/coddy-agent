@@ -11,7 +11,7 @@
      auth_token: "${CODDY_HTTP_TOKEN}"
      cors:
        enable: true
-       allowed_origins: ["http://localhost:12345"]   # the origin the laptop's UI is served from
+       allow_loopback: true   # the laptop's UI is served by its own coddy serve: any loopback address, any port
    ```
 
    ```bash
@@ -21,6 +21,8 @@
    ```
 
    The startup banner says what is reachable and how: `httpserver  http://0.0.0.0:12345  (bearer auth)`. Binding a non-loopback address without a token logs a warning at start, and clients warn when they send a token over plain http to an address that is not loopback: put TLS in front of the server, a reverse proxy is enough, when the path crosses a network you do not control.
+
+   Nothing on the laptop has to be reachable, so a laptop behind NAT or on an address that changes works the same: the console dials the server (step 2), the browser dials it from the laptop's own `coddy serve` (step 4), and a laptop that joins a swarm leaves `advertise_url` out of its `swarm.join` entry and dials the relay, which carries requests back down that connection ([Swarm, Two transports](../operate/swarm.md#two-transports)). `allow_loopback` is what makes step 4 independent of the laptop's spelling and port: `http://localhost:12345`, `http://127.0.0.1:12345` and Vite's `http://localhost:5173` are three origins, and the toggle admits them all. It is only as safe as the token this step set ([Security and trust](../operate/security.md)).
 
 2. **Drive it from the laptop's console.** `--remote` takes a bare `host:port` (scheme defaults to http), a full URL, or the name of a remote listed under `httpserver.remotes` in the laptop's own `config.yaml`. The token comes from `--remote-token`, then from the `token` of that remote's entry when it has one, then from `CODDY_REMOTE_TOKEN`.
 
@@ -46,6 +48,6 @@
    coddy acp --remote box.example:12345
    ```
 
-4. **Drive it from the browser.** The environment chip sits in the composer's workspace row and reads `Local` or the name of the remote in use. Its menu lists the remotes of the `coddy serve` that served the page (`httpserver.remotes`) and `Connect to…`, which takes a name, a URL and the bearer token; choosing an entry connects at once and reloads, and a token typed there stays in the browser. An entry of `httpserver.remotes` may carry the token itself (`token: "${BOX_TOKEN}"`), and then every browser that opens this page gets it from the configuration ([The token](../operate/remote.md#the-token)). The remote server has to allow the page's origin through `httpserver.cors`, which is what step 1 set; the dot on each entry turns green when a cross-origin `GET /v1/models` succeeds with the token, and a red one says on the line under it whether the server does not answer, refuses the token or leaves this origin out of its CORS ([Cross-origin access and the remote UI](../reference/http-api.md#cross-origin-access-and-the-remote-ui), [Web UI](../surfaces/web-ui.md)). Opening the server's own address instead loads the SPA shell without a token, since the shell is public, and the page asks for the token before it calls the API.
+4. **Drive it from the browser.** The environment is the item at the foot of the rail: a laptop while the page drives its own server, two chevrons pointing at each other while it drives a remote, with a dot for whether that host answers, and its tooltip names the one in use. Its menu lists the remotes of the `coddy serve` that served the page (`httpserver.remotes`) and `Connect to…`, which takes a name, a URL and the bearer token; choosing an entry connects at once and reloads, and a token typed there stays in the browser. An entry of `httpserver.remotes` may carry the token itself (`token: "${BOX_TOKEN}"`), and then every browser that opens this page gets it from the configuration ([The token](../operate/remote.md#the-token)). The remote server has to allow the page's origin through `httpserver.cors`, which is what step 1 set; the dot on each entry turns green when a cross-origin `GET /v1/models` succeeds with the token, and a red one says on the line under it whether the server does not answer, refuses the token or leaves this origin out of its CORS ([Cross-origin access and the remote UI](../reference/http-api.md#cross-origin-access-and-the-remote-ui), [Web UI](../surfaces/web-ui.md)). Opening the server's own address instead loads the SPA shell without a token, since the shell is public, and the page asks for the token before it calls the API.
 
 5. **Remember what stays on the server.** Sessions, the trust receipts and the child sessions of subagents are the server's, so a project file is approved there: `coddy mcp trust`, `coddy hooks trust` and `coddy agents trust` on the server itself, or `POST /coddy/mcp/{name}/trust`, `POST /coddy/hooks/trust` and `POST /coddy/subagents/{name}/trust` over the API. A dropped connection leaves the server turn running; `/resume` shows the outcome once it ends.

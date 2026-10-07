@@ -145,14 +145,23 @@ test("a malformed event payload is skipped rather than thrown", async () => {
 test("provider_usage frames reach their handler with the session that caused them", async () => {
   const seen: Array<{ sid: string; used: number | undefined }> = [];
   const ctl = new AbortController();
-  const frame =
-    `event: provider_usage\ndata: ${JSON.stringify({
-      object: "coddy.provider_usage",
-      sessionId: "sess_a",
-      usage: { provider: "neuraldeep", providerType: "neuraldeep", windows: [{ id: "session", label: "3h", used: 42, limit: 100, usedPercent: 42 }] },
-    })}\n\n`;
+  const frame = `event: provider_usage\ndata: ${JSON.stringify({
+    object: "coddy.provider_usage",
+    sessionId: "sess_a",
+    usage: {
+      provider: "neuraldeep",
+      providerType: "neuraldeep",
+      windows: [
+        { id: "session", label: "3h", used: 42, limit: 100, usedPercent: 42 },
+      ],
+    },
+  })}\n\n`;
   const fetchImpl = vi.fn(async () =>
-    responseOf(`event: ready\ndata: {"object":"coddy.events_ready"}\n\n` + frame + `event: provider_usage\ndata: {"broken":true}\n\n`),
+    responseOf(
+      `event: ready\ndata: {"object":"coddy.events_ready"}\n\n` +
+        frame +
+        `event: provider_usage\ndata: {"broken":true}\n\n`,
+    ),
   );
   await subscribeServerEvents({
     onTurnStarted: () => {},
@@ -173,16 +182,19 @@ test("provider_usage frames reach their handler with the session that caused the
 test("a message_queue frame reaches its handler with the session and the version", async () => {
   const seen: Array<{ sid: string; texts: string[]; version: number }> = [];
   const ctl = new AbortController();
-  const frame =
-    `event: message_queue\ndata: ${JSON.stringify({
-      object: "coddy.message_queue",
-      sessionId: "sess_shared",
-      messages: [
-        { id: "q_1", text: "check the Windows path too", createdAt: "2026-09-14T00:00:00Z" },
-        { id: "q_2", text: "and skip the integration suite" },
-      ],
-      version: 4,
-    })}\n\n`;
+  const frame = `event: message_queue\ndata: ${JSON.stringify({
+    object: "coddy.message_queue",
+    sessionId: "sess_shared",
+    messages: [
+      {
+        id: "q_1",
+        text: "check the Windows path too",
+        createdAt: "2026-09-14T00:00:00Z",
+      },
+      { id: "q_2", text: "and skip the integration suite" },
+    ],
+    version: 4,
+  })}\n\n`;
   const fetchImpl = vi.fn(async () =>
     responseOf(
       `event: ready\ndata: {"object":"coddy.events_ready"}\n\n` +
@@ -214,6 +226,37 @@ test("a message_queue frame reaches its handler with the session and the version
       version: 4,
     },
   ]);
+});
+
+// The Edits views read the folder again when this says its changes were
+// discarded, from this window or another.
+test("a session_changes frame reaches its handler with the session", async () => {
+  const settled: string[] = [];
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: ready\ndata: {"object":"coddy.events_ready"}\n\n` +
+        `event: session_changes\ndata: ${JSON.stringify({
+          object: "coddy.session_changes",
+          sessionId: "sess_c",
+          at: "2026-09-27T12:00:00Z",
+        })}\n\n`,
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onSessionChanges: (sid) => {
+      settled.push(sid);
+      ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(settled).toEqual(["sess_c"]);
 });
 
 test("a config reload tells the client to re-read what the config decides", async () => {
@@ -269,6 +312,34 @@ test("a config reload without a handler is not an error", async () => {
   });
 
   expect(ended).toEqual(["sess_z"]);
+});
+
+test("a question-pending event names the session without carrying question text", async () => {
+  const pending: string[] = [];
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: session_question_pending\ndata: ${JSON.stringify({
+        object: "coddy.session_question_pending",
+        sessionId: "sess_question",
+      })}\n\n` +
+        `event: session_question_pending\ndata: {"object":"coddy.session_question_pending"}\n\n`,
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onQuestionPending: (sid) => {
+      pending.push(sid);
+      ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(pending).toEqual(["sess_question"]);
 });
 
 // A background subagent asks after its parent turn ended, so nothing streams the

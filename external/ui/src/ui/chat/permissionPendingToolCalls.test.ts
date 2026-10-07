@@ -18,12 +18,19 @@ const permissionRow = (
     },
     options: [],
   },
-  ...(resolved ? { resolved: { optionId: "allow", summaryLine: "Allow" } } : {}),
+  ...(resolved
+    ? { resolved: { optionId: "allow", summaryLine: "Allow" } }
+    : {}),
 });
 
 test("collects unresolved permission tool call ids", () => {
   const ids = permissionPendingToolCallIds([
-    { type: "tool_call", id: "tc_row", toolCallId: "call_a", status: "in_progress" },
+    {
+      type: "tool_call",
+      id: "tc_row",
+      toolCallId: "call_a",
+      status: "in_progress",
+    },
     permissionRow("call_a"),
     permissionRow("call_b", true),
   ]);

@@ -1,3 +1,5 @@
+import { normalizeClipboardImageFile } from "./clipboardImageFile";
+
 /**
  * Metadata for the optimistic user_message item built at send time
  * (see `files` on the `user_message` TranscriptItem variant).
@@ -18,7 +20,8 @@ export type OptimisticUserFile = {
  * backend publishes the durable session thumbnail URL for the same message.
  */
 export function optimisticUserFiles(files: File[]): OptimisticUserFile[] {
-  return files.map((f) => {
+  return files.map((file) => {
+    const f = normalizeClipboardImageFile(file);
     const base: OptimisticUserFile = {
       name: f.name,
       mimeType: f.type || "application/octet-stream",

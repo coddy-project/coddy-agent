@@ -35,8 +35,10 @@ func SupportedTransport(typ string) bool {
 // Connect establishes a client for one configured MCP server, dispatching on
 // its transport type: "stdio" (default) runs a local command, "http" (also
 // accepted: "streamable-http", "streamable_http") speaks streamable HTTP with
-// a legacy-SSE fallback, "sse" forces the legacy HTTP+SSE transport. ${CWD}
-// placeholders in command, args, env, headers, and url resolve against cwd.
+// a legacy-SSE fallback, "sse" forces the legacy HTTP+SSE transport. The
+// command, args, env, headers and url resolve as config.ExpandMCPValue says,
+// the same for every declaration: ${CWD} against cwd, ${NAME} from the
+// environment.
 func Connect(ctx context.Context, srv config.MCPServerConfig, cwd string, log *slog.Logger) (*Client, error) {
 	switch EffectiveTransport(srv) {
 	case "stdio":
@@ -46,26 +48,27 @@ func Connect(ctx context.Context, srv config.MCPServerConfig, cwd string, log *s
 		command, args, env := stdioSpec(srv, cwd)
 		return NewStdioClient(ctx, srv.Name, command, args, env, log)
 	case "http", "streamable-http", "streamable_http":
-		return NewHTTPClient(ctx, srv.Name, config.ExpandCWD(srv.URL, cwd), expandHeaders(srv, cwd), log)
+		return NewHTTPClient(ctx, srv.Name, config.ExpandMCPValue(srv.URL, cwd), expandHeaders(srv, cwd), log)
 	case "sse":
-		return NewSSEClient(ctx, srv.Name, config.ExpandCWD(srv.URL, cwd), expandHeaders(srv, cwd), log)
+		return NewSSEClient(ctx, srv.Name, config.ExpandMCPValue(srv.URL, cwd), expandHeaders(srv, cwd), log)
 	default:
 		return nil, fmt.Errorf("unsupported MCP transport: %s", srv.Type)
 	}
 }
 
-// stdioSpec resolves the ${CWD} placeholder (and a leading ~) in the command,
-// its arguments and its environment against the session cwd, so a
-// project-local server binary follows the workspace like its arguments do.
+// stdioSpec resolves the placeholders of the command, its arguments and its
+// environment (config.ExpandMCPValue: ${CWD} against the session cwd, so a
+// project-local server binary follows the workspace like its arguments do,
+// ${NAME} from the environment, a leading ~).
 func stdioSpec(srv config.MCPServerConfig, cwd string) (command string, args, env []string) {
-	command = config.ExpandCWD(srv.Command, cwd)
+	command = config.ExpandMCPValue(srv.Command, cwd)
 	args = make([]string, len(srv.Args))
 	for i, a := range srv.Args {
-		args[i] = config.ExpandCWD(a, cwd)
+		args[i] = config.ExpandMCPValue(a, cwd)
 	}
 	env = make([]string, len(srv.Env))
 	for i, e := range srv.Env {
-		env[i] = e.Name + "=" + config.ExpandCWD(e.Value, cwd)
+		env[i] = e.Name + "=" + config.ExpandMCPValue(e.Value, cwd)
 	}
 	return command, args, env
 }
@@ -76,7 +79,7 @@ func expandHeaders(srv config.MCPServerConfig, cwd string) map[string]string {
 	}
 	headers := make(map[string]string, len(srv.Headers))
 	for _, h := range srv.Headers {
-		headers[h.Name] = config.ExpandCWD(h.Value, cwd)
+		headers[h.Name] = config.ExpandMCPValue(h.Value, cwd)
 	}
 	return headers
 }

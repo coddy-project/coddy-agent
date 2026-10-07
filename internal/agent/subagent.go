@@ -684,7 +684,7 @@ func (a *Agent) applySubagentEnv(env *tools.Env, mode string) {
 
 // subagentDefinitions loads the definitions visible for this session's cwd.
 func (a *Agent) subagentDefinitions() []*subagents.Definition {
-	loader := subagents.NewLoader(a.cfg.Subagents.Dirs, a.cfg.Subagents.ResolvedProjectTrust())
+	loader := subagents.NewLoader(a.cfg.Subagents.SearchDirs(), a.cfg.Subagents.ResolvedProjectTrust())
 	loader.Log = a.log
 	return loader.Load(a.state.GetCWD(), a.cfg.Paths.Home)
 }

@@ -34,6 +34,7 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r := tooling.NewRegistry()
 	toolfs.RegisterBuiltins(r.Register)
 	r.Register(shell.RunCommandToolForShell(environment.Shell))
+	r.Register(ShareFileTool())
 	r.Register(WorktreeCreateTool())
 	if cfg == nil || cfg.Tools.Background.ResolvedEnabled() {
 		r.Register(shell.BackgroundListTool())

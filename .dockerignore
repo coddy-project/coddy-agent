@@ -30,6 +30,7 @@ rpa-agent
 # UI (fresh npm ci on Node-capable Dockerfile stage)
 **/node_modules/
 external/ui/dist/
+external/ui/chunks/
 
 # Go build cache
 /vendor/

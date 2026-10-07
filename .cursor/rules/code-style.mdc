@@ -1,7 +1,7 @@
 ---
 description: Formatting, lint, comments language
 globs: **/*.go
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Code style (Go)

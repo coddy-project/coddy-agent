@@ -1,7 +1,7 @@
 ---
 name: rpa-init
 metadata:
-  version: 1.0.1
+  version: 1.0.2
 description: >
   Run when the user invokes /rpa-init or asks to onboard or warm up context on a repository.
   The agent studies code, reads documentation and test code, sets up the dev environment as the project expects,
@@ -23,11 +23,12 @@ Treat automated tests as the project long-term memory. Initialization maps **doc
 
 ## Workflow
 
-1. **Scan** repository structure (layout, monorepo packages if any).
-2. **Read** user-facing documentation and specs.
-3. **Study test code** (naming, fixtures, markers, integration vs unit). This is the BDD-facing view of expected behavior.
-4. **Set up dev environment** so tests can run (create venv, install deps, any documented bootstrap). Note blockers if setup cannot be completed.
-5. **Run the test suite**, for example:
+1. **Optional git update** — if the directory is a git repository and the user has not asked to stay on the current commit, run `git pull` to refresh the local copy before analysis.
+2. **Scan** repository structure (layout, monorepo packages if any).
+3. **Read** user-facing documentation and specs.
+4. **Study test code** (naming, fixtures, markers, integration vs unit). This is the BDD-facing view of expected behavior.
+5. **Set up dev environment** so tests can run (create venv, install deps, any documented bootstrap). Note blockers if setup cannot be completed.
+6. **Run the test suite**, for example:
 
    ```bash
    .venv/bin/pytest -q
@@ -35,7 +36,7 @@ Treat automated tests as the project long-term memory. Initialization maps **doc
 
    If tests fail, record where and why (do not fix unless the user asked).
 
-6. **Summarize** in a concise report (see template). Use English for code-related terms if the codebase uses English; respond in the user's language for narrative.
+7. **Summarize** in a concise report (see template). Use English for code-related terms if the codebase uses English; respond in the user's language for narrative.
 
 ## Report template
 

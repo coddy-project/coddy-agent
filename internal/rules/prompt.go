@@ -4,31 +4,6 @@ import (
 	"strings"
 )
 
-// RenderPrompt builds the {{.Rules}} markdown block - the project docs
-// preamble, then the always-on rules - and reports the absolute paths of the
-// project docs it embedded, so the caller can keep a file that is already in
-// this block out of the instructions block instead of sending the same bytes
-// twice. A rule gated by a path is never rendered here: it arrives with the
-// tool result or the message that brought its path into play.
-func RenderPrompt(home, cwd string, alwaysOn []*Rule) (string, []string) {
-	var parts []string
-	var embedded []string
-	docs := LoadProjectDocs(home, cwd)
-	for _, d := range docs {
-		embedded = append(embedded, d.Path)
-		var b strings.Builder
-		b.WriteString("### ")
-		b.WriteString(d.Label)
-		b.WriteString("\n\n")
-		b.WriteString(d.Content)
-		parts = append(parts, b.String())
-	}
-	if section := RenderSection("## Active project rules", alwaysOn); section != "" {
-		parts = append(parts, section)
-	}
-	return strings.TrimSpace(strings.Join(parts, "\n\n")), embedded
-}
-
 // RenderSection renders rules under the given markdown heading, skipping nil
 // entries and repeats of a rule already written. It returns an empty string when
 // nothing is left to write, so a caller can append the result unconditionally.

@@ -1,4 +1,7 @@
-import type { CoddyPermissionPayload, PermissionResolvedState } from "./permissionTypes";
+import type {
+  CoddyPermissionPayload,
+  PermissionResolvedState,
+} from "./permissionTypes";
 import { restorePermissionPromptsForPendingTools } from "./restorePermissionPrompts";
 import { stablePermissionPromptItemId } from "./transcriptItemIds";
 import type { TranscriptItem } from "./types";
@@ -185,6 +188,9 @@ export function mergePermissionPromptsIntoTranscript(
   sessionId: string,
   policy: ToolsPermissionPolicy | null,
 ): TranscriptItem[] {
-  const withStored = mergeStoredPermissionPromptsIntoTranscript(merged, sessionId);
+  const withStored = mergeStoredPermissionPromptsIntoTranscript(
+    merged,
+    sessionId,
+  );
   return restorePermissionPromptsForPendingTools(withStored, sessionId, policy);
 }

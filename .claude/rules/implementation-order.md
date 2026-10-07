@@ -10,12 +10,12 @@ paths:
 
 # Implementation order
 
-For **new behavior**, **`workflow.md` wins** on red-green order. Use this file to decide **where** code lives and which layer to extend first.
+For **new behavior**, the **workflow rule** wins on red-green order. Use this file to decide **where** code lives and which layer to extend first.
 
 1. Extend the **lowest** layer that can own the change with no new upward dependencies.
-2. Add tests at that layer before or with the change (see **`testing.md`**).
+2. Add tests at that layer before or with the change (see the **testing rule**).
 3. Wire through **`internal/agent`** or **`internal/acp`** only after lower pieces exist and pass tests.
-4. Optional HTTP surface - last mile in **`external/httpserver`**, then refresh **`openapi.go`** and docs per **`api-layer.md`** and **`workflow.md`**.
+4. Optional HTTP surface - last mile in **`external/httpserver`**, then refresh **`openapi.go`** and docs per the **API-layer** and **workflow** rules.
 
 ## Forbidden
 
@@ -24,6 +24,4 @@ For **new behavior**, **`workflow.md` wins** on red-green order. Use this file t
 
 ## References
 
-@architecture.md
-@workflow.md
-@api-layer.md
+@docs/contributing/architecture.md

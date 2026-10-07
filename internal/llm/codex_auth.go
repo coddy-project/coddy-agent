@@ -131,13 +131,11 @@ type codexAuthSource struct {
 var codexAuthMu sync.Mutex
 
 // newCodexAuthSource builds an auth source. An empty path defaults to
-// codexAuthPath(); a nil httpClient defaults to http.DefaultClient.
+// codexAuthPath(). A nil client is rejected by Credential rather than
+// silently using http.DefaultClient and bypassing providers[].proxy.
 func newCodexAuthSource(path string, httpClient *http.Client) *codexAuthSource {
 	if strings.TrimSpace(path) == "" {
 		path = codexAuthPath()
-	}
-	if httpClient == nil {
-		httpClient = http.DefaultClient
 	}
 	return &codexAuthSource{
 		path:       path,
@@ -445,6 +443,9 @@ type codexRefreshResponse struct {
 
 // refresh exchanges a refresh token for a new access token via the OAuth endpoint.
 func (s *codexAuthSource) refresh(ctx context.Context, refreshToken string) (*codexRefreshResponse, error) {
+	if s.httpClient == nil {
+		return nil, fmt.Errorf("codex auth: provider http client is required; build it with llm.HTTPClientForProviderProxy")
+	}
 	body, _ := json.Marshal(map[string]string{
 		"client_id":     codexClientID,
 		"grant_type":    "refresh_token",

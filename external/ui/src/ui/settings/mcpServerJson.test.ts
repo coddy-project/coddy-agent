@@ -90,7 +90,6 @@ test("serverRowToEntryJson keeps remote transport, url, and headers", () => {
 
 test("originLabel names the owning file", async () => {
   const { originLabel } = await import("./mcpServerJson");
-  expect(originLabel("config")).toBe("config.yaml");
   expect(originLabel("home")).toBe("~/.coddy/mcp.json");
   expect(originLabel("project")).toBe("./.coddy/mcp.json");
   // The row knows the real file, and the agent home is not always ~/.coddy.
@@ -98,12 +97,8 @@ test("originLabel names the owning file", async () => {
     "/data/coddy/mcp.json",
   );
   expect(originLabel("home", "   ")).toBe("~/.coddy/mcp.json");
-  // The same holds for the other origins on purpose: a config.yaml outside the
-  // default home, or a workspace opened by absolute path, is worth naming in
-  // full rather than as the generic "config.yaml" / "./.coddy/mcp.json".
-  expect(originLabel("config", "/etc/coddy/config.yaml")).toBe(
-    "/etc/coddy/config.yaml",
-  );
+  // The same holds for a project on purpose: a workspace opened by absolute
+  // path is worth naming in full rather than as the generic "./.coddy/mcp.json".
   expect(originLabel("project", "/work/repo/.coddy/mcp.json")).toBe(
     "/work/repo/.coddy/mcp.json",
   );
@@ -129,8 +124,6 @@ test("globalMCPPath takes the real file from a home-scoped row", async () => {
     ]),
   ).toBe("/data/coddy/mcp.json");
   // Nothing in the agent home yet: the default location is the answer.
-  expect(globalMCPPath([row({ origin: "config", source_path: "" })])).toBe(
-    "~/.coddy/mcp.json",
-  );
+  expect(globalMCPPath([row({ source_path: "" })])).toBe("~/.coddy/mcp.json");
   expect(globalMCPPath([])).toBe("~/.coddy/mcp.json");
 });

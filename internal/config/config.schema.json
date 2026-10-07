@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://coddy.dev/config.schema.json",
   "title": "Coddy config.yaml",
-  "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: https://coddy.dev/docs/reference/config. Any string value may reference environment variables with ${VAR_NAME}. ${CODDY_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers command/args/env/url/headers), except in the process-scoped sessions.dir, scheduler.dir, memory.dir and logger.file, where it means the default working directory.",
+  "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: https://coddy.dev/docs/reference/config. Any string value may reference environment variables with ${VAR_NAME}. ${CODDY_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir), except in the process-scoped sessions.dir, memory.dir and logger.file, where it means the default working directory. MCP servers are not declared here: they live in <home>/mcp.json and the project's .coddy/mcp.json, and an old mcp_servers key is moved into <home>/mcp.json on load.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -116,6 +116,11 @@
             "type": "string",
             "description": "Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored."
           },
+          "allow_reasoning_off": {
+            "type": "boolean",
+            "description": "Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically.",
+            "default": false
+          },
           "stream": {
             "type": [
               "boolean",
@@ -144,8 +149,8 @@
         },
         "max_turns": {
           "type": "integer",
-          "description": "Cap on the ReAct steps (LLM calls) of one prompt turn. 0, the default, sets no cap; a turn that reaches a cap set here ends with a notice that names it.",
-          "default": 0,
+          "description": "Cap on the ReAct steps (LLM calls) of one prompt turn. Defaults to 165; set 0 to disable the cap. A turn that reaches the cap ends with a notice that names it.",
+          "default": 165,
           "minimum": 0
         },
         "llm_retry_max": {
@@ -200,8 +205,8 @@
             "integer",
             "null"
           ],
-          "description": "Consecutive identical tool calls (same name, same canonical arguments) before the loop guard steps in. 0 disables the tool-repeat check.",
-          "default": 3,
+          "description": "Consecutive identical tool calls in successive ReAct responses (same name, same canonical arguments) before the loop guard steps in. 0 disables the tool-repeat check.",
+          "default": 2,
           "minimum": 0
         },
         "loop_stream_repeat_cycles": {
@@ -219,7 +224,7 @@
             "null"
           ],
           "description": "How many times one turn may be nudged back on track before the loop guard stops it with a notice.",
-          "default": 2,
+          "default": 1,
           "minimum": 0
         },
         "wait_for_limit_reset": {
@@ -283,16 +288,13 @@
     "instructions": {
       "type": "object",
       "title": "Project instructions",
-      "description": "Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The agent home's own AGENTS.md and DESIGN.md are read on top of this list whenever they exist, ahead of the project's pair, and are not named here. See https://coddy.dev/docs/features/rules.",
+      "description": "Files the operator adds to the system prompt (AGENTS.md convention), after the documents every session reads anyway: the AGENTS.md and DESIGN.md of the agent home, then those of the session folder, and the nested ones of a folder a tool enters, none of which is named here or can be turned off. A file already in the prompt is not read twice. See https://coddy.dev/docs/features/rules.",
       "additionalProperties": false,
       "properties": {
         "files": {
           "type": "array",
-          "description": "Instruction files, read in the order listed. ${CODDY_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD.",
-          "default": [
-            "AGENTS.md",
-            "DESIGN.md"
-          ],
+          "description": "Extra instruction files, appended after the AGENTS.md and DESIGN.md documents in the order listed; empty by default. ${CODDY_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. An entry naming a document the prompt already carries is skipped.",
+          "default": [],
           "items": {
             "type": "string"
           }
@@ -307,22 +309,22 @@
       "properties": {
         "dirs": {
           "type": "array",
-          "description": "Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills. ${CODDY_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.",
-          "default": [
-            "~/.agents/skills",
-            "${CODDY_HOME}/skills",
-            "${CWD}/.coddy/skills"
-          ],
+          "description": "Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${CODDY_HOME}/skills (Coddy's own and installed skills), the project's .coddy/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${CODDY_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included).",
+          "default": [],
           "items": {
             "type": "string"
           }
         },
-        "sources": {
-          "type": "array",
-          "description": "Remote skill sources installed on demand with `coddy skills sync` (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]), a git URL, or an http(s) URL to an agents-standard marketplace.json. Materialized into ${CODDY_HOME}/skills. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not listed here. See https://coddy.dev/docs/features/skills.",
-          "items": {
-            "type": "string"
-          }
+        "project_trust": {
+          "type": "string",
+          "title": "Project marketplaces",
+          "description": "Trust policy for the project's .coddy/marketplaces.json, which travels with the checkout: \"ask\" (default) leaves its sources and marketplaces out of every sync until the operator approves that exact entry for that workspace; \"allow\" treats them like the operator's own ${CODDY_HOME}/marketplaces.json; \"deny\" never uses them (they are listed as switched off). What they install goes to ${CODDY_HOME}/skills. The project's skill folders (.coddy/skills, .agents/skills) are not affected. Skill marketplaces are not declared in config.yaml: they live in ${CODDY_HOME}/marketplaces.json and the project's .coddy/marketplaces.json, and an old skills.sources list is moved into the home file on load. See https://coddy.dev/docs/features/skills#project-marketplaces-and-trust.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
+          "default": "ask"
         },
         "auto_discovery": {
           "type": [
@@ -338,7 +340,7 @@
     "rules": {
       "type": "object",
       "title": "Project rules",
-      "description": "Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from one project folder under the session CWD, the first of .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules that holds a rule file, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.",
+      "description": "Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from one project folder under the session CWD, the first of .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules that holds a rule file; .mdc files are Cursor rules, .md files Claude Code rules. The AGENTS.md and DESIGN.md documents are not rules in this sense and none of these settings turns them off. See https://coddy.dev/docs/features/rules.",
       "additionalProperties": false,
       "properties": {
         "auto_discover": {
@@ -346,112 +348,15 @@
             "boolean",
             "null"
           ],
-          "description": "Scan the session CWD rule roots automatically.",
+          "description": "Scan the rule folders automatically: ${CODDY_HOME}/rules and the project folder of the session CWD. The AGENTS.md and DESIGN.md documents are read either way.",
           "default": true
         },
         "systems": {
           "type": "array",
-          "description": "Restrict which rule systems are loaded: user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all. A project folder left out drops out of the chain; of the ones admitted, the first that holds a rule file is read.",
+          "description": "Restrict which rule systems are loaded: user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex. Empty means all. A project folder left out drops out of the chain; of the ones admitted, the first that holds a rule file is read. agents, which used to switch the nested AGENTS.md files, no longer affects them (they are always read); it is still accepted, and a list holding only agents loads no rule folder.",
           "default": [],
           "items": {
             "type": "string"
-          }
-        }
-      }
-    },
-    "mcp_servers": {
-      "type": "array",
-      "title": "MCP servers",
-      "description": "Model Context Protocol servers connected for every new session.",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "type": {
-            "type": "string",
-            "description": "Transport. \"stdio\" (default when empty; url-only entries default to \"http\") runs a local command; \"http\" speaks streamable HTTP to url (with automatic legacy-SSE fallback); \"sse\" forces the legacy HTTP+SSE transport.",
-            "enum": [
-              "stdio",
-              "http",
-              "sse"
-            ]
-          },
-          "name": {
-            "type": "string",
-            "description": "Stable id referenced by the agent; must be unique in this list."
-          },
-          "command": {
-            "type": "string",
-            "description": "Executable for stdio transport (leave empty when using an http url). ${CWD} expands to the session cwd."
-          },
-          "args": {
-            "type": "array",
-            "description": "Argv passed after command for stdio servers. ${CWD} expands to the session cwd.",
-            "items": {
-              "type": "string"
-            }
-          },
-          "env": {
-            "type": "array",
-            "description": "Extra environment variables for the stdio child process.",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "name",
-                "value"
-              ],
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "description": "Environment variable name."
-                },
-                "value": {
-                  "type": "string",
-                  "description": "Environment variable value. ${CWD} expands to the session cwd."
-                }
-              }
-            }
-          },
-          "url": {
-            "type": "string",
-            "description": "HTTP(S) endpoint when type is \"http\". ${CWD} expands to the session cwd."
-          },
-          "headers": {
-            "type": "array",
-            "description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "name",
-                "value"
-              ],
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "description": "HTTP header name."
-                },
-                "value": {
-                  "type": "string",
-                  "description": "HTTP header value."
-                }
-              }
-            }
-          },
-          "disabled": {
-            "type": "boolean",
-            "description": "Skip connecting this server without removing its definition."
-          },
-          "disabled_tools": {
-            "type": "array",
-            "description": "Tool names of this server hidden from the agent.",
-            "items": {
-              "type": "string"
-            }
           }
         }
       }
@@ -765,19 +670,15 @@
         },
         "dirs": {
           "type": "array",
-          "description": "Definition directories, lowest priority first; later entries override earlier ones by name. ${CODDY_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow project_trust.",
+          "description": "Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${CODDY_HOME}/agents, the project's .coddy/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${CODDY_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy.",
           "items": {
             "type": "string"
           },
-          "default": [
-            "${CODDY_HOME}/agents",
-            "${CWD}/.claude/agents",
-            "${CWD}/.coddy/agents"
-          ]
+          "default": []
         },
         "project_trust": {
           "type": "string",
-          "description": "Trust policy for definitions found inside the workspace, which travel with the checkout: \"ask\" loads them but refuses to spawn one until the operator approved that exact file for that workspace on the machine running coddy (coddy agents trust there, or POST /coddy/subagents/{name}/trust with the session workspace as cwd); \"allow\" treats them like the operator's own files; \"deny\" never reads them.",
+          "description": "Trust policy for definitions found inside the workspace, which travel with the checkout: \"ask\" loads them but refuses to spawn one until the operator approved that exact file for that workspace (the shield in Settings -> Subagents, coddy agents trust on the machine running coddy, or POST /coddy/subagents/{name}/trust with the session workspace as cwd); \"allow\" treats them like the operator's own files; \"deny\" never reads them.",
           "default": "ask",
           "enum": [
             "ask",
@@ -1139,6 +1040,14 @@
           "description": "Maximum snippets returned by memory_search.",
           "default": 8
         },
+        "max_note_chars": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Longest body one note saved by coddy_memory_save may have, in characters (not bytes). An explicit 0 removes the cap.",
+          "default": 900
+        },
         "additional_prompt": {
           "type": "string",
           "description": "Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing.",
@@ -1229,18 +1138,23 @@
         },
         "allow_insecure": {
           "type": "boolean",
-          "description": "Silence the startup warning about a non-loopback bind without authentication.",
+          "description": "Silence the two startup warnings about a server without authentication - a non-loopback bind, and CORS that admits pages nobody listed (allow_loopback or \"*\") - and the --dry-run findings that mirror them.",
           "default": false
         },
         "cors": {
           "type": "object",
           "title": "CORS",
-          "description": "Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies.",
+          "description": "Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies: CORS decides whether a browser shows a page the answer, never whether the server gives one.",
           "additionalProperties": false,
           "properties": {
             "enable": {
               "type": "boolean",
               "description": "Handle CORS preflight and emit Access-Control-* headers for allowed origins.",
+              "default": false
+            },
+            "allow_loopback": {
+              "type": "boolean",
+              "description": "Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. The laptop case of a remote coddy serve, where the web UI comes from the laptop's own coddy serve and its port moves. Narrower than \"*\", and like \"*\" only as safe as the token or sign-in behind the API.",
               "default": false
             },
             "allowed_origins": {
@@ -1346,6 +1260,11 @@
             "enable": {
               "type": "boolean",
               "description": "Handle CORS preflight and emit Access-Control-* headers for allowed origins.",
+              "default": false
+            },
+            "allow_loopback": {
+              "type": "boolean",
+              "description": "Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. A laptop's web UI reaching this relay, whatever port its own coddy serve took. Narrower than \"*\"; the client token still applies.",
               "default": false
             },
             "allowed_origins": {
@@ -1531,18 +1450,13 @@
     "scheduler": {
       "type": "object",
       "title": "Cron scheduler",
-      "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.",
+      "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter in ${CODDY_HOME}/scheduler (user jobs) and <workspace>/.coddy/scheduler (project jobs, which run once approved); five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.",
       "additionalProperties": false,
       "properties": {
         "enable": {
           "type": "boolean",
           "description": "Run the scheduler daemon and expose the coddy_scheduler_* tools. Can also be forced per process with coddy serve --scheduler (or coddy acp -scheduler).",
           "default": false
-        },
-        "dir": {
-          "type": "string",
-          "description": "Directory with *.md job definitions. Empty resolves to ${CODDY_HOME}/scheduler.",
-          "default": ""
         },
         "max_queue": {
           "type": "integer",
@@ -1554,6 +1468,16 @@
           "description": "Wall-clock limit for one run, as a Go duration (e.g. \"30m\", \"1h30m\"); the background task pool still caps it at tools.background.max_timeout_seconds.",
           "default": "30m"
         },
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for project jobs, the *.md files in <workspace>/.coddy/scheduler that travel with the checkout: \"ask\" lists them but runs one only once the operator approved that exact file for that workspace (the shield in the scheduler drawer, or POST /coddy/scheduler/jobs/{job_id}/trust?scope=project from a session in it); a job the operator creates through Coddy is approved at once; \"allow\" runs them like the operator's own jobs; \"deny\" never runs them. See https://coddy.dev/docs/operate/scheduler#project-jobs-and-trust.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
+        },
         "retain_sessions": {
           "type": "integer",
           "description": "Finished runs kept per job_id (their task records and transcripts under the job session); older runs are removed when a run finishes.",
@@ -1564,7 +1488,7 @@
     "gateways": {
       "type": "object",
       "title": "Messenger gateways",
-      "description": "Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; started by coddy serve alongside every other enabled subsystem). See https://coddy.dev/docs/surfaces/gateway.",
+      "description": "Messenger bot adapters (used only by binaries built with -tags gateway, or -tags gateway.telegram / gateway.pachca for one adapter; started by coddy serve alongside every other enabled subsystem). See https://coddy.dev/docs/surfaces/gateway and https://coddy.dev/docs/surfaces/pachca.",
       "additionalProperties": false,
       "properties": {
         "telegram": {
@@ -1651,6 +1575,131 @@
                   "chat_id": {
                     "type": "integer",
                     "description": "Telegram chat id (negative for groups/supergroups)."
+                  },
+                  "isolation": {
+                    "type": "string",
+                    "description": "Per-chat session isolation override.",
+                    "enum": [
+                      "individual",
+                      "shared",
+                      "admin"
+                    ]
+                  },
+                  "access": {
+                    "type": "string",
+                    "description": "Per-chat access override: \"all\", \"admins\", or \"group:<name>\"."
+                  }
+                }
+              }
+            },
+            "mini_app": {
+              "type": "object",
+              "description": "Makes the web UI of this coddy serve the bot's Telegram Mini App. The web UI adapts to Telegram by itself; these keys tell the bot where it is, so it can set its menu button and answer /app with a button that opens the chat's own conversation. Telegram opens Mini Apps over https only, so the web UI has to be published behind a TLS proxy, with sign-in on (httpserver.login). See https://coddy.dev/docs/surfaces/gateway#mini-app.",
+              "additionalProperties": false,
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "The public https address the web UI is served at, for example https://coddy.example.com/. Plain http is accepted only for a loopback host (the offline stand cmd/tgfake). No fragment: Telegram puts its launch parameters there. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.",
+                  "default": ""
+                },
+                "menu_button": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
+                  "description": "Make the bot's menu button (beside the message field) open the web UI. Turned off, with url emptied or while the web UI asks for no sign-in, the bot puts back the menu button it replaced (a Mini App set in @BotFather, else the commands), as long as the button still opens the address the bot set.",
+                  "default": true
+                }
+              }
+            }
+          }
+        },
+        "pachca": {
+          "type": "object",
+          "description": "Pachca integration bot adapter: reads the bot's events history and answers through the Pachca REST API. Turn on Save events history (events_history_enabled) in the bot's outgoing webhook settings. See https://coddy.dev/docs/surfaces/pachca.",
+          "additionalProperties": false,
+          "properties": {
+            "enable": {
+              "type": "boolean",
+              "description": "Run the Pachca bot in this coddy serve process.",
+              "default": false
+            },
+            "token": {
+              "type": "string",
+              "description": "Access token of the Pachca integration bot. Leave empty to read the PACHCA_BOT_TOKEN environment variable (e.g. via ~/.coddy/.env).",
+              "default": ""
+            },
+            "proxy": {
+              "type": "string",
+              "description": "inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://, read like providers[].proxy. inherit follows HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the Coddy process; none connects directly; a proxy URL sends every Pachca API request through that proxy.",
+              "default": "inherit"
+            },
+            "poll_interval_seconds": {
+              "type": "integer",
+              "description": "How often the events history is read, in seconds (1 to 60). Pachca answers that method at about five requests per two seconds.",
+              "default": 2,
+              "minimum": 1,
+              "maximum": 60
+            },
+            "admins": {
+              "type": "array",
+              "description": "Pachca user IDs with elevated rights; admins always pass access checks.",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "default_access": {
+              "type": "string",
+              "description": "Fallback access level for chats without an override: \"all\", \"admins\", or \"group:<name>\".",
+              "default": "all"
+            },
+            "default_isolation": {
+              "type": "string",
+              "description": "Fallback session isolation for group chats: \"individual\" (session per user), \"shared\" (one session for all), \"admin\" (admins only, shared session).",
+              "default": "individual",
+              "enum": [
+                "individual",
+                "shared",
+                "admin"
+              ]
+            },
+            "user_groups": {
+              "type": "array",
+              "description": "Named sets of user IDs referenced from access fields as group:<name>.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Group name referenced as group:<name>."
+                  },
+                  "user_ids": {
+                    "type": "array",
+                    "description": "Pachca user IDs in this group.",
+                    "items": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            },
+            "chats": {
+              "type": "array",
+              "description": "Per-chat overrides keyed by the Pachca chat id (a thread has a chat id of its own).",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "chat_id"
+                ],
+                "properties": {
+                  "chat_id": {
+                    "type": "integer",
+                    "description": "Pachca chat id."
                   },
                   "isolation": {
                     "type": "string",

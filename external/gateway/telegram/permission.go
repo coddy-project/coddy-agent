@@ -176,8 +176,11 @@ func (b *Bot) answerPermissionTap(bot *tgbotapi.BotAPI, cbq *tgbotapi.CallbackQu
 	userID := cbq.From.ID
 	isGroup := cbq.Message.Chat.IsGroup() || cbq.Message.Chat.IsSuperGroup() || cbq.Message.Chat.IsChannel()
 	isolation := access.EffectiveIsolation(chatID, b.cfg)
-	if isGroup && isolation == config.IsolationAdmin && !b.cfg.IsAdmin(userID) {
-		b.log.Debug("telegram: callback ignored", "reason", "admin-only chat", "user", userID, "chat", chatID)
+	// Approving what an agent asks is the bot's admins': in a shared group
+	// session anybody shares the asking session, so the session alone does
+	// not decide who may answer.
+	if !b.cfg.IsAdmin(userID) {
+		b.log.Debug("telegram: callback ignored", "reason", "approvals are admin-only", "user", userID, "chat", chatID)
 		return
 	}
 	token, rawIndex, _ := strings.Cut(payload, ":")
@@ -245,6 +248,11 @@ func (b *Bot) RequestDetachedPermission(ctx context.Context, req agent.DetachedP
 	chatID, ok := sessionstore.ChatID(key)
 	if !ok {
 		return nil, agent.ErrNoDetachedApprover
+	}
+	// The conversation of somebody who is not the bot's admin approves
+	// nothing, now as during its turns.
+	if !access.KeyIsAdmin(key, b.cfg) {
+		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
 	res, err := b.asks.ask(ctx, api, b.log, chatID, req.ParentSessionID, req.Params)
 	if err != nil {

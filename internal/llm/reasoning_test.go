@@ -140,7 +140,10 @@ func TestAnthropicReplaysSignedThinkingBlockBeforeToolUse(t *testing.T) {
 			ToolCalls:          []ToolCall{{ID: "t1", Name: "read", InputJSON: "{}"}},
 		},
 	}
-	_, conv := p.splitMessages(msgs)
+	_, conv, err := p.splitMessages(msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	b, err := json.Marshal(conv)
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +171,10 @@ func TestAnthropicOmitsThinkingBlockWhenDisabled(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleAssistant, Content: "hi", Reasoning: "x", ReasoningSignature: "sig", ToolCalls: []ToolCall{{ID: "t1", Name: "read", InputJSON: "{}"}}},
 	}
-	_, conv := p.splitMessages(msgs)
+	_, conv, err := p.splitMessages(msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	b, _ := json.Marshal(conv)
 	if strings.Contains(string(b), `"type":"thinking"`) {
 		t.Errorf("thinking block must be omitted when thinking disabled: %s", string(b))
@@ -191,6 +197,22 @@ func TestAnthropicParseResponseCapturesThinking(t *testing.T) {
 	}
 	if r.Content != "answer" {
 		t.Errorf("content=%q, want answer", r.Content)
+	}
+}
+
+func TestAnthropicCompletionIncludesCacheInInputUsage(t *testing.T) {
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0, "")
+	var response anthropic.Message
+	raw := `{"content":[{"type":"text","text":"answer"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"cache_creation_input_tokens":7,"cache_read_input_tokens":11,"output_tokens":5}}`
+	if err := json.Unmarshal([]byte(raw), &response); err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.parseResponse(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.InputTokens != 21 || got.OutputTokens != 5 || got.CachedInputTokens != 11 {
+		t.Fatalf("usage = in %d out %d cached %d, want 21/5/11", got.InputTokens, got.OutputTokens, got.CachedInputTokens)
 	}
 }
 

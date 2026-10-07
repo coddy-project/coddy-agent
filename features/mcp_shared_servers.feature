@@ -3,7 +3,7 @@ Feature: Sessions share their MCP servers
   server, and every subagent it spawned one more: a coddy serve with three
   conversations ran three copies of the same browser-automation server. The
   configured servers now come from one pool per process. A server of the
-  global configuration starts with coddy serve, the console or coddy acp and
+  Coddy home's mcp.json starts with coddy serve, the console or coddy acp and
   stays up for as long as the process runs, one copy for every session. A
   server of a project's .coddy/mcp.json runs once per workspace for the
   sessions of that workspace, and stops mcp.idle_timeout_seconds (five
@@ -11,7 +11,7 @@ Feature: Sessions share their MCP servers
   of the workspace takes it in the meantime.
 
   Scenario: A global server runs once for the whole process
-    Given the global configuration declares the MCP server "shared"
+    Given the home mcp.json declares the MCP server "shared"
     When the process starts its global MCP servers
     Then the MCP server "shared" runs before any session opens
     When a session opens in one workspace

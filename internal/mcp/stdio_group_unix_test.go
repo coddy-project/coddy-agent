@@ -168,4 +168,12 @@ func TestCloseDoesNotWaitForAWriteStuckOnAServerThatStoppedReading(t *testing.T)
 	case <-time.After(5 * time.Second):
 		t.Fatal("the stuck call never failed")
 	}
+	// Close only starts the shutdown. The stub sleeps for an hour without
+	// reading stdin, so it is stopped by its group being terminated, which a
+	// test binary that exits first never gets to: wait for it here.
+	select {
+	case <-tr.Stopped():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the server that stopped reading was never stopped")
+	}
 }

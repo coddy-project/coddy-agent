@@ -52,7 +52,7 @@ func TestCoddySkillsInstallThatInstallsNothingIsAnError(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODDY_HOME", home)
 	cfgPath := filepath.Join(home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  auto_discovery: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.Load(cfgPath)
@@ -117,7 +117,7 @@ func TestCoddySkillsSyncOfAnAddedMarketplaceInstallsNothingNew(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODDY_HOME", home)
 	cfgPath := filepath.Join(home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  auto_discovery: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.Load(cfgPath)

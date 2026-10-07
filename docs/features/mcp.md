@@ -3,17 +3,22 @@
 ## Overview
 
 The agent supports connecting to external MCP (Model Context Protocol) servers, which provide
-additional tools and resources. MCP servers can be configured at these levels:
+additional tools and resources. MCP servers are declared in two files, and an ACP client can
+add its own:
 
-1. **Global** (scope `global`) - `mcp_servers` in `config.yaml` and the user-global
-   `~/.coddy/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`; in the agent home,
-   so elsewhere if `CODDY_HOME` or `--home` moved it), one running server shared by every
-   session of the process ([Shared servers](#shared-servers)); entries in that file
-   override same-named `config.yaml` entries
+1. **Global** (scope `global`) - the user-global `~/.coddy/mcp.json` (the analogue of
+   Cursor's `~/.cursor/mcp.json`; in the agent home, so elsewhere if `CODDY_HOME` or
+   `--home` moved it), one running server shared by every session of the process
+   ([Shared servers](#shared-servers))
 2. **Local** (scope `local`) - `<workspace>/.coddy/mcp.json`, merged over the global list for
    sessions in that workspace, one running server per workspace; a local entry with the
    same name overrides the global definition
 3. **Per-session** - provided by the ACP client in `session/new` parameters
+
+`config.yaml` declares no MCP server. It keeps only the `mcp` settings that are not tied to
+one server (`project_trust`, `idle_timeout_seconds`), and a config that still has the old
+`mcp_servers` list hands it over on its next load ([Moving from
+config.yaml](#moving-from-configyaml)).
 
 Tools from all connected MCP servers are merged into the tool list passed to the LLM during
 the ReAct loop (in **`agent`** and **`plan`** modes).
@@ -40,6 +45,83 @@ per-tool switches use `disabledTools`:
 
 A broken `mcp.json` is logged and skipped; the session still starts with the remaining levels.
 
+### Values
+
+A value - the command, an argument, an environment value, the URL, a header - resolves when
+the server starts:
+
+- `${CWD}` is the workspace of the session;
+- `${NAME}` (or Cursor's `${env:NAME}`) is that variable of the Coddy process, empty when it
+  is unset, and `${NAME:-default}` falls back to `default` when it is unset or empty, so a
+  token stays out of the file;
+- `$${` is a literal `${`, every other `$` is literal (a password with a dollar sign needs
+  no escaping), and a leading `~` is the user's home.
+
+The rules are the same in both files and for a server an ACP client sends. The file keeps the
+reference, and the approval of a project declaration digests the reference rather than the
+value. Since an env or header value is never displayed (the server list shows `<redacted>` in
+its place, see [Management API and UI](#management-api-and-ui)), every approval surface names
+the variables a declaration reads (`reads: ${AWS_SECRET_ACCESS_KEY}`), so a checkout whose
+server would send one of them is seen doing so before it is approved. An
+approval records those names too, and one given by an earlier release, when `${NAME}` in a
+project file stayed literal, approved a declaration that read nothing: a project server whose
+values name a variable is asked about once more, while an approval of one that reads nothing
+stays good.
+
+```json
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }
+    }
+  }
+}
+```
+
+### Edits made outside Coddy
+
+`coddy serve`, the console and `coddy acp` watch `~/.coddy/mcp.json` and bring the live
+sessions in line about two seconds after it changes, whoever changed it: an editor, the
+agent with its file tools, another process. Only the servers whose declaration or switch
+moved are reconciled, the way a switch in Settings is: a server added starts, one removed
+closes, one redeclared starts again from the new declaration, and the others keep their
+processes. A tool switch reconnects nothing. A session in the middle of a turn gets a new
+server when its next turn starts. A file that does not read, caught mid-write or saved with a
+typo, stops nothing: the running servers stay, the log says why, and the next save that reads
+is compared with what was running. A change to a project's `.coddy/mcp.json` reaches a
+session when it starts, when it switches to that workspace, and when the server is saved,
+switched or approved through `/mcp` or Settings.
+
+## Moving from config.yaml
+
+Older releases also read servers from an `mcp_servers` list in `config.yaml`. The first
+load of such a file moves the list into `~/.coddy/mcp.json` and takes the key out of
+`config.yaml`:
+
+- every server goes into the file under its name, with `env` and `headers` turned into
+  objects; a name the file already declares is kept as the file has it;
+- every value keeps meaning what it meant in `config.yaml`: an environment reference
+  (`${GITHUB_TOKEN}`, or a bare `$GITHUB_TOKEN`) is written as `${GITHUB_TOKEN}`, which the
+  file resolves when the server starts, so no secret is written; `${CODDY_HOME}` is
+  written out as the home it named, `$$` as a single `$`, and `${CWD}` stays;
+- the rest of `config.yaml` stays byte for byte, the comment lines right above the key go
+  with it, the old file is kept beside it as `config.yaml.bak-<time>`, and the log names
+  the servers that moved and the ones the file already had.
+
+When `~/.coddy/mcp.json` cannot be read, nothing moves: the log says why, and the old list
+stays in `config.yaml`, unused, until the file is repaired; a save from Settings keeps it there
+as it is. The block ends where the parser puts the next key, so a comment at column 0 among
+the items, a list written without indentation or a flow list closed at column 0 goes whole. A
+key inside a flow mapping (`{mcp_servers: [...], ...}` on one line) is not a block of lines:
+its servers move, the key stays, and the log asks to delete it by hand. A `config.yaml` read
+from the workspace because the home has none is never rewritten and its servers never move:
+that file may have come with a checkout, and its servers would become yours in every
+workspace. `coddy -t` reports a leftover key as a warning saying where the servers go and
+writes nothing. The **MCP servers** tab of the web
+settings keeps its address, `#/settings/mcp_servers`.
+
 ## Workspace trust for project-local servers
 
 Added in response to
@@ -53,7 +135,7 @@ before the model runs, before any tool permission prompt exists. Coddy therefore
 `<workspace>/.coddy/mcp.json` entries as untrusted by default and starts them only after
 the operator approves that exact declaration for that workspace.
 
-- `config.yaml` and `~/.coddy/mcp.json` are operator-authored and are **not** gated;
+- `~/.coddy/mcp.json` is operator-authored and is **not** gated;
 - the policy is `mcp.project_trust` in `config.yaml`: `ask` (default), `allow` (start
   project servers automatically; only for workspaces you already trust), `deny` (never
   load them, no approval path). `coddy acp` and `coddy serve` also take
@@ -65,7 +147,7 @@ the operator approves that exact declaration for that workspace.
 - approvals live in `~/.coddy/mcp-trust.json`, keyed by the canonical workspace path and by
   a SHA-256 digest of the command-bearing declaration (transport, command, args, env, url,
   headers). Each record is a receipt naming what was approved - env and header **names**
-  only, never their values;
+  and the variables its values read, never their values;
 - rewriting an approved entry changes the digest and withdraws the approval, so the next
   session asks again. Enable/disable and `disabledTools` do not: they are operational
   switches, not a trust boundary;
@@ -74,7 +156,8 @@ the operator approves that exact declaration for that workspace.
   command that has not been approved;
 - every approval surface prints the **effective declaration first**: transport, the command
   with its arguments (or the URL), the **names** of the environment variables and headers it
-  carries, the workspace the process would start in, and the file it was read from. Values of
+  carries, the variables of the Coddy process its values read (`${NAME}`, [Values](#values)),
+  the workspace the process would start in, and the file it was read from. Values of
   env vars and headers are never printed and never stored in the receipt - the decision is
   about which variables reach the child, not about what is in them. This is deliberately more
   than the name-only prompts of comparable agents: an approval you cannot read is not one.
@@ -106,7 +189,7 @@ Under `allow` and `deny` there is nothing left to decide per server, so the per-
 approval control disappears from the UI entirely: `allow` starts every project server anyway
 and `deny` starts none of them. The shield is offered only under `ask`.
 
-Subagent definitions found inside the workspace (`.coddy/agents`, `.claude/agents`) follow the
+Subagent definitions found inside the workspace (`.agents/agents`, `.coddy/agents`) follow the
 same model with a **sibling store**: policy `subagents.project_trust` (`ask` / `allow` / `deny`),
 receipts in `~/.coddy/subagents-trust.json` keyed by the same canonical workspace path plus the
 definition name and a digest of the file, approved with `coddy agents trust <name>` or
@@ -128,10 +211,9 @@ approval commands. See `docs/features/hooks.md`.
 
 ## Enable / disable switches
 
-Every config level supports switching off a whole server or individual tools without
-removing their definitions:
+Both files support switching off a whole server or individual tools without removing their
+definitions:
 
-- `config.yaml`: `disabled: true` and `disabled_tools: ["tool_a"]` per `mcp_servers` entry
 - `~/.coddy/mcp.json` and `./.coddy/mcp.json`: `"disabled": true` and
   `"disabledTools": ["tool_a"]` per entry when editing the declarations directly
 - For project entries, switches made through `/mcp` or Settings are stored in
@@ -173,7 +255,25 @@ bundled web UI shows them under **Settings -> MCP servers**: status dot per serv
 Cursor-style JSON editor for mcp.json entries with a scope picker (global writes
 `~/.coddy/mcp.json`, local writes `./.coddy/mcp.json`). Global switches persist
 into their defining file; project switches persist in the operator's home.
-`config.yaml` entries are toggle-only here and edited in Settings.
+
+The list names the environment variables and headers of every declaration but never returns
+their values: each one reads `<redacted>`, whichever file declared it, and `reads` names the
+variables of the Coddy process the values take. The command, its arguments and the URL are
+listed as written, since they are what an approval is about, so a secret belongs in `env` or
+`headers`, or better in the environment as `${NAME}`. A probe error is cleaned the same way
+before it is listed: the URL appears as written, `${NAME}` references included, and a value
+the declaration resolves to (an env or header value, a variable it reads, eight characters or
+longer) reads `<redacted>` even when the server echoed it back. The console's and Telegram's
+`/mcp` show the same cleaned error.
+
+The editor starts from the listed entry, placeholders included. A value left as `<redacted>`
+keeps what the file stores, a new value replaces it, and a key removed from the JSON is
+removed from the entry; a placeholder for a key the file stores no value for is refused, since
+that value has to be typed. A save names the declaration the editor opened by its
+`fingerprint` (`PUT /coddy/mcp/{name}?fingerprint=`): when the file holds another declaration
+by then, the save is refused (`409`) and nothing is written or approved, so reopen the entry.
+A project entry keeps a hidden value only with that fingerprint, which is how a value the
+checkout put in the file after the listing is never written back and approved unseen.
 
 If loading or refreshing the list fails, Settings shows the error and leaves any
 previously loaded servers visible. Refresh remains available for another attempt.
@@ -202,8 +302,8 @@ records trust the console prints the whole declaration above the choice: the
 transport, the command line or the URL, the names of its variables and headers,
 the workspace and the file. These controls also work in `--remote` mode through
 the server's MCP management routes. Telegram `/mcp` lists servers and offers
-enable/disable buttons only for already-trusted entries; in a group it is
-answered without a mention, and a failed tap is reported in the menu message.
+enable/disable buttons only for already-trusted entries; in a group it needs
+the bot's mention (`/mcp@botname`), and a failed tap is reported in the menu message.
 Approve project declarations in the console, CLI or web UI; a chat cannot grant
 workspace trust.
 
@@ -259,13 +359,16 @@ Configuration in `session/new`:
 }
 ```
 
-Configuration in `config.yaml`:
-```yaml
-mcp_servers:
-  - name: "filesystem"
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
-    env: []
+In `~/.coddy/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
+    }
+  }
+}
 ```
 
 ### Streamable HTTP (supported)
@@ -278,18 +381,20 @@ with every request (e.g. `Authorization`). URL-only entries (no `command`, no `t
 default to `http`. When the endpoint rejects the handshake (legacy servers answer POST
 with 4xx), the client automatically falls back to the legacy SSE transport at the same
 URL, mirroring Cursor and Claude Code behavior. The agent advertises
-`mcpCapabilities.http: true` and `mcpCapabilities.sse: true`. In YAML the `type` value
-must be `stdio`, `http`, or `sse`; mcp.json and ACP entries additionally accept the
-`streamable-http` / `streamable_http` aliases for `http`.
+`mcpCapabilities.http: true` and `mcpCapabilities.sse: true`. The `type` value is `stdio`,
+`http` or `sse`, and the `streamable-http` / `streamable_http` aliases for `http` are
+accepted as well.
 
-```yaml
-mcp_servers:
-  - name: "remote-tools"
-    type: "http"
-    url: "https://mcp.example.com/mcp"
-    headers:
-      - name: "Authorization"
-        value: "Bearer ${MCP_TOKEN}"
+```json
+{
+  "mcpServers": {
+    "remote-tools": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_TOKEN}" }
+    }
+  }
+}
 ```
 
 ### SSE (supported, legacy)
@@ -346,42 +451,43 @@ credentials and disabling tools you do not need.
 
 ## Popular MCP Servers
 
+Each entry goes under `mcpServers` in `~/.coddy/mcp.json`, where `${NAME}` reads the
+environment.
+
 ### Filesystem access
-```yaml
-mcp_servers:
-  - name: "filesystem"
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"]   # session cwd when the server starts
+```json
+"filesystem": {
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"]
+}
 ```
 
+`${CWD}` is the session workspace when the server starts.
+
 ### GitHub
-```yaml
-mcp_servers:
-  - name: "github"
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-github"]
-    env:
-      - name: "GITHUB_PERSONAL_ACCESS_TOKEN"
-        value: "${GITHUB_TOKEN}"
+```json
+"github": {
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"],
+  "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }
+}
 ```
 
 ### Postgres database
-```yaml
-mcp_servers:
-  - name: "postgres"
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"]
+```json
+"postgres": {
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"]
+}
 ```
 
 ### Brave Search
-```yaml
-mcp_servers:
-  - name: "brave-search"
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-brave-search"]
-    env:
-      - name: "BRAVE_API_KEY"
-        value: "${BRAVE_API_KEY}"
+```json
+"brave-search": {
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+  "env": { "BRAVE_API_KEY": "${BRAVE_API_KEY}" }
+}
 ```
 
 ## Shared servers
@@ -390,11 +496,10 @@ A configured server runs once for the sessions that use it, not once per session
 session, and each subagent a session spawns, holds a lease on a connection the process
 shares:
 
-- A server of the global configuration (`mcp_servers` in `config.yaml`,
-  `~/.coddy/mcp.json`) is one process for the whole Coddy process. `coddy serve`, the
-  console and `coddy acp` start these servers as they start, before any session asks for
-  them, and keep them up until they exit: a session that opens finds them connected, and
-  one that closes does not stop them. The set follows the configuration: a server added
+- A server of `~/.coddy/mcp.json` is one process for the whole Coddy process. `coddy
+  serve`, the console and `coddy acp` start these servers as they start, before any
+  session asks for them, and keep them up until they exit: a session that opens finds them
+  connected, and one that closes does not stop them. The set follows the file: a server added
   or switched on starts at once, one removed or switched off stops as soon as no session
   holds it, and one that crashed is started again by the next session or turn that needs
   it. A one-shot `coddy -p` starts them for its session and stops them on exit.
@@ -427,7 +532,7 @@ Sessions share a connection when the declaration resolves to the same thing for 
 the name, the transport, the command line and the environment of a stdio server (or the
 URL and the headers of a remote one) and, for a server tied to a workspace, the
 workspace. A switched-off tool splits nothing, since every session filters its own tool
-list. A settings save or a switch reconciles the live sessions as described below, and a
+list. An edit of the file or a switch reconciles the live sessions as described below, and a
 server whose declaration did not change keeps its process through it; a server whose
 command line was edited is started once from the new declaration, and the old process
 stops when the last session has let it go.
@@ -457,8 +562,24 @@ one went away.
 
 ## MCP Server Lifecycle
 
+### Selected web session
+
+The MCP Settings tab resolves project-local declarations from the workspace of
+the selected session, rather than from the directory that started `coddy
+serve`. A request with a selected session uses that session's workspace; a
+request with no session keeps the server-default workspace for a new chat.
+Project-local switches, trust decisions, and edits refresh only sessions in
+that workspace, while global declarations still refresh every affected
+session.
+
+Opening a chat in the bundled web UI explicitly starts its deferred configured
+MCP servers in the background. This does not delay rendering the transcript,
+and the next prompt waits for the bounded connection attempt before receiving
+its tool list. Passive reads, including slash completion, MCP Settings lists,
+and paged transcript reads, never start a deferred server.
+
 1. On `session/new`, the session takes every enabled server from the merged
-   config.yaml + `~/.coddy/mcp.json` + `./.coddy/mcp.json` list that the workspace
+   `~/.coddy/mcp.json` + `./.coddy/mcp.json` list that the workspace
    trust gate admits, then connects any ACP client-supplied servers. A configured
    server another session runs already is shared, not started again
    ([Shared servers](#shared-servers)). The servers are
@@ -481,20 +602,18 @@ one went away.
    answered waits for its tool list on the status line (`Connecting MCP
    servers`)
 2. The agent calls `tools/list` on each server and registers the tools
-3. The staged config tools can add, replace, or delete a global `mcp_servers`
-   entry while the session is running: `config_set` stages the uci-like command
-   and `config_commit` (after the user confirms) validates and atomically
-   writes the config, reconnects the effective `config.yaml` + `mcp.json`
-   server set for that session, preserves ACP-provided per-session servers, and
-   closes the replaced configured clients. The refreshed tool definitions and
-   disable filters are visible to the next model call in the same ReAct turn;
-   connection failures are returned as `config_commit` warnings
-4. Saving settings with a changed `mcp_servers` list reconnects the configured
+3. An edit of `~/.coddy/mcp.json` while sessions run - in an editor, in Settings, by the
+   agent with its file tools - reaches them as [Edits made outside
+   Coddy](#edits-made-outside-coddy) says: each server whose declaration or switch moved
+   is reconciled on its own, an idle session at once, a session in the middle of a turn
+   when its next turn starts. ACP client-supplied servers are not touched
+4. A changed `mcp.project_trust` (a settings save, `config_commit`, the policy picker of
+   the MCP tab) reconnects the configured
    servers for every active session; ACP client-supplied per-session servers
    stay connected. The reconnect is a **fresh trust evaluation**, not a replay of
    what the session started with: an unapproved project declaration stays cold,
    and one whose approval was withdrawn in the meantime does not come back. A
-   session with a **turn in flight** is not swapped mid-turn — that turn already
+   session with a **turn in flight** is not swapped mid-turn - that turn already
    handed the model a tool list, so the reload is parked and applied the moment
    the turn releases its lock. All sessions share one deadline per save, and a
    dial it cuts short is discarded rather than installed: a server hanging in
@@ -518,17 +637,17 @@ one went away.
    client-supplied one, stops `mcp.idle_timeout_seconds` after the last session that
    held it let it go, and a global server stays up with the process
 
-For example, `config_set` can stage
-`set mcp_servers[name=context7]={"command":"npx","args":["-y","@upstash/context7-mcp"]}`;
-the selector makes the edit independent of list ordering. The bundled
-`/configure-coddy` skill documents the full command syntax, the
-confirm-then-commit workflow, and discovery safety checks.
+The bundled `/configure-coddy` skill tells the agent how to install a server when a user
+asks for one: verify the package and what it needs, explain what it would run, and only
+after the user agreed add the entry to `~/.coddy/mcp.json` with its file tools, telling the
+user the tools arrive with the next turn.
 
 ## Error Handling
 
 - If an MCP server fails to start, the session still proceeds with a warning,
-  and the server is not dialed again at every turn: a settings reload, its
-  switch (`/mcp`, Settings → MCP servers) or a new session tries it again
+  and the server is not dialed again at every turn: an edit of its declaration,
+  its switch (`/mcp`, Settings → MCP servers), a changed trust policy or a new
+  session tries it again
 - A server that starts and never answers `initialize` is given up after 20
   seconds, and the warning names the bound. It is tried once more when the
   session's next turn starts, because a first start can outlast the bound for

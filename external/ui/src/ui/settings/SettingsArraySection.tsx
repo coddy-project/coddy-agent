@@ -34,8 +34,8 @@ function rowLabel(
 }
 
 /**
- * SettingsArraySection renders an array config section (providers, models,
- * mcp_servers) as a master–detail list: a list of named buttons with Add/Remove,
+ * SettingsArraySection renders an array config section (providers, models)
+ * as a master-detail list: a list of named buttons with Add/Remove,
  * and an item form (reusing SchemaForm on the item object schema) that replaces
  * the list while editing.
  */

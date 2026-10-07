@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // MCPJSONServer is one entry of a Cursor-compatible mcp.json file (global
@@ -80,6 +81,84 @@ func LoadMCPJSONServers(path string) ([]MCPServerConfig, error) {
 	return servers, nil
 }
 
+// ExpandMCPValue resolves one value of an MCP declaration (command,
+// argument, environment value, URL, header) for the server it starts, the
+// same way whichever mcp.json declared it: ${CWD} is the session workspace,
+// ${NAME} or ${env:NAME} the process environment (unset reads as empty),
+// ${NAME:-default} the default when the variable is unset or empty, "$${" a
+// literal "${", and a leading ~ the user's home. Any other "$" is literal,
+// so a password with a dollar sign in it needs no escaping. The declaration
+// itself keeps the references - it is what the settings screen shows and
+// what an approval digests - so a secret named this way never lands in the
+// file, and an approval names the variables a declaration reads
+// (MCPValueVariables).
+func ExpandMCPValue(s, cwd string) string {
+	return expandHome(walkMCPValue(s, func(ref string) string {
+		if ref == "CWD" {
+			return cwd
+		}
+		name, fallback, hasFallback := mcpVariable(ref)
+		value := os.Getenv(name)
+		if value == "" && hasFallback {
+			return fallback
+		}
+		return value
+	}))
+}
+
+// MCPValueVariables names, in order of appearance, the environment
+// variables one value reads through ExpandMCPValue; ${CWD} and an escaped
+// "$${" read none.
+func MCPValueVariables(s string) []string {
+	var names []string
+	walkMCPValue(s, func(ref string) string {
+		if ref != "CWD" {
+			if name, _, _ := mcpVariable(ref); name != "" {
+				names = append(names, name)
+			}
+		}
+		return ""
+	})
+	return names
+}
+
+// walkMCPValue copies s with every ${...} reference replaced by what ref
+// returns for its inside; "$${" is a literal "${", and an unclosed "${" is
+// kept as it is.
+func walkMCPValue(s string, ref func(string) string) string {
+	if !strings.Contains(s, "${") {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if strings.HasPrefix(s[i:], "$${") {
+			b.WriteString("${")
+			i += 3
+			continue
+		}
+		if !strings.HasPrefix(s[i:], "${") {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		end := strings.IndexByte(s[i+2:], '}')
+		if end < 0 {
+			b.WriteString(s[i:])
+			break
+		}
+		b.WriteString(ref(s[i+2 : i+2+end]))
+		i += 2 + end + 1
+	}
+	return b.String()
+}
+
+// mcpVariable reads the inside of an environment reference: NAME,
+// env:NAME, or either with ":-default".
+func mcpVariable(ref string) (name, fallback string, hasFallback bool) {
+	name, fallback, hasFallback = strings.Cut(ref, ":-")
+	return strings.TrimPrefix(name, "env:"), fallback, hasFallback
+}
+
 func mcpJSONServerToConfig(name string, e MCPJSONServer) MCPServerConfig {
 	srv := MCPServerConfig{
 		Type:          e.Type,
@@ -107,6 +186,40 @@ func mcpJSONServerToConfig(name string, e MCPJSONServer) MCPServerConfig {
 	return srv
 }
 
+// MCPServerFromJSON is the declaration one mcp.json entry stands for, exactly
+// as LoadMCPJSONServers reads it, so a digest taken of it is the one the
+// listing of that file reports.
+func MCPServerFromJSON(name string, e MCPJSONServer) MCPServerConfig {
+	return mcpJSONServerToConfig(name, e)
+}
+
+// MCPJSONFromServer is the mcp.json entry of a declaration, the inverse of
+// what LoadMCPJSONServers reads: env and headers become objects, the name is
+// the entry's key and is left out.
+func MCPJSONFromServer(srv MCPServerConfig) MCPJSONServer {
+	e := MCPJSONServer{
+		Type:          strings.TrimSpace(srv.Type),
+		Command:       srv.Command,
+		Args:          append([]string(nil), srv.Args...),
+		URL:           srv.URL,
+		Disabled:      srv.Disabled,
+		DisabledTools: append([]string(nil), srv.DisabledTools...),
+	}
+	if len(srv.Env) > 0 {
+		e.Env = make(map[string]string, len(srv.Env))
+		for _, v := range srv.Env {
+			e.Env[v.Name] = v.Value
+		}
+	}
+	if len(srv.Headers) > 0 {
+		e.Headers = make(map[string]string, len(srv.Headers))
+		for _, h := range srv.Headers {
+			e.Headers[h.Name] = h.Value
+		}
+	}
+	return e
+}
+
 func sortedKeys(m map[string]string) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -130,12 +243,33 @@ func writeMCPJSONFileEntries(path string, entries map[string]MCPJSONServer) erro
 
 // UpsertMCPJSONServer creates or replaces one named entry in an mcp.json file.
 func UpsertMCPJSONServer(path, name string, srv MCPJSONServer) error {
+	_, err := UpdateMCPJSONServer(path, name, func(MCPJSONServer, bool) (MCPJSONServer, error) {
+		return srv, nil
+	})
+	return err
+}
+
+// UpdateMCPJSONServer changes one named entry of an mcp.json file in a single
+// read-modify-write: change receives the entry the file stores (and whether
+// it stores one) and returns the entry to write in its place, which is what
+// UpdateMCPJSONServer returns. An error from change leaves the file as it was,
+// so a check made against the stored entry and the write it allows read the
+// same file.
+func UpdateMCPJSONServer(path, name string, change func(stored MCPJSONServer, exists bool) (MCPJSONServer, error)) (MCPJSONServer, error) {
 	entries, err := ReadMCPJSONFile(path)
 	if err != nil {
-		return err
+		return MCPJSONServer{}, err
 	}
-	entries[name] = srv
-	return writeMCPJSONFileEntries(path, entries)
+	stored, exists := entries[name]
+	next, err := change(stored, exists)
+	if err != nil {
+		return MCPJSONServer{}, err
+	}
+	entries[name] = next
+	if err := writeMCPJSONFileEntries(path, entries); err != nil {
+		return MCPJSONServer{}, err
+	}
+	return next, nil
 }
 
 // DeleteMCPJSONServer removes a named entry; reports whether it existed.
@@ -226,7 +360,7 @@ func BuildMCPToolFilter(servers []MCPServerConfig) func(server, tool string) boo
 // MergeMCPServers overlays higher-precedence servers onto base ones: an
 // overlay entry with the same name replaces the base definition in place; new
 // overlay entries append after the base list. Precedence chain:
-// config.yaml < <home>/mcp.json < <cwd>/.coddy/mcp.json.
+// <home>/mcp.json < <cwd>/.coddy/mcp.json.
 func MergeMCPServers(base, overlay []MCPServerConfig) []MCPServerConfig {
 	overrides := make(map[string]MCPServerConfig, len(overlay))
 	for _, srv := range overlay {

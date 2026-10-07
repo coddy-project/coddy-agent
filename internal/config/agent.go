@@ -3,14 +3,15 @@ package config
 import (
 	"fmt"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
-// Defaults for the ReAct loop when YAML omits zero values.
+// Defaults for the ReAct loop when YAML omits a value.
 const (
-	// AgentDefaultMaxTurns is no step limit: a turn runs as many ReAct steps
-	// as the task takes, bounded by the loop guard and the turn's own
-	// cancellation. A positive agent.max_turns sets one.
-	AgentDefaultMaxTurns       = 0
+	// AgentDefaultMaxTurns caps ReAct steps in one turn. An explicit
+	// agent.max_turns of 0 disables the cap.
+	AgentDefaultMaxTurns       = 165
 	AgentDefaultLLMRetryMax    = 3
 	AgentDefaultLLMRetryBaseMS = 1000
 	// AgentDefaultLLMFirstTokenTimeoutMS is how long a streamed LLM call may
@@ -23,13 +24,13 @@ const (
 	AgentDefaultLLMStreamIdleTimeoutMS = 300000
 	// AgentDefaultLoopToolRepeatLimit is how many consecutive identical tool calls
 	// (same name, same canonical arguments) the loop guard tolerates.
-	AgentDefaultLoopToolRepeatLimit = 3
+	AgentDefaultLoopToolRepeatLimit = 2
 	// AgentDefaultLoopStreamRepeatCycles is how many identical back-to-back output
 	// cycles inside one streamed response trip the loop guard.
 	AgentDefaultLoopStreamRepeatCycles = 5
 	// AgentDefaultLoopNudgeMax is how many times a turn may be nudged back on track
 	// before the loop guard stops it.
-	AgentDefaultLoopNudgeMax = 2
+	AgentDefaultLoopNudgeMax = 1
 	// AgentDefaultWaitForLimitResetMaxMS bounds the opt-in wait for a hit
 	// usage limit: four hours, one NeuralDeep session window and change.
 	AgentDefaultWaitForLimitResetMaxMS = 4 * 60 * 60 * 1000
@@ -42,9 +43,12 @@ type Agent struct {
 	// QueueMode is the preferred action of Enter while a turn runs. Empty asks
 	// the operator on first use; steer and after_turn are explicit choices.
 	QueueMode string `yaml:"queue_mode"`
-	// MaxTurns caps the ReAct steps of one prompt turn; 0 (the default) sets
-	// no cap.
+	// MaxTurns caps the ReAct steps of one prompt turn; an explicit 0 disables
+	// the default cap.
 	MaxTurns int `yaml:"max_turns"`
+	// maxTurnsSet keeps an explicit YAML zero distinct from an absent key. It
+	// stays private so callers keep using the integer MaxTurns API.
+	maxTurnsSet bool `yaml:"-"`
 	// LLMRetryMax caps extra attempts shared by transport retries and consecutive
 	// no-answer recoveries. Tool progress or a new follow-up starts a fresh budget.
 	// Nil means 3; explicit 0 disables these retries. Loop guards, Stop hooks,
@@ -70,14 +74,14 @@ type Agent struct {
 	// over and over. A nil pointer means the default (true).
 	LoopGuard *bool `yaml:"loop_guard"`
 	// LoopToolRepeatLimit is how many consecutive identical tool calls trip the guard.
-	// A nil pointer means the default (3); an explicit 0 disables the tool-repeat check.
+	// A nil pointer means the default (2); an explicit 0 disables the tool-repeat check.
 	LoopToolRepeatLimit *int `yaml:"loop_tool_repeat_limit"`
 	// LoopStreamRepeatCycles is how many identical back-to-back output cycles inside one
 	// streamed response trip the guard. A nil pointer means the default (5); an explicit
 	// 0 disables the stream check.
 	LoopStreamRepeatCycles *int `yaml:"loop_stream_repeat_cycles"`
 	// LoopNudgeMax is how many times one turn may be nudged back on track before the
-	// guard stops it with a notice. A nil pointer means the default (2); an explicit 0
+	// guard stops it with a notice. A nil pointer means the default (1); an explicit 0
 	// stops the turn on the first detected loop.
 	LoopNudgeMax *int `yaml:"loop_nudge_max"`
 	// WaitForLimitReset makes a top-level turn wait for a hit usage limit to
@@ -90,6 +94,24 @@ type Agent struct {
 	// means the default (four hours); a pause longer than this ends the turn
 	// at once, and an explicit 0 never waits.
 	WaitForLimitResetMaxMS *int `yaml:"wait_for_limit_reset_max_ms"`
+}
+
+// UnmarshalYAML records whether max_turns appeared in the document. YAML
+// otherwise decodes an absent integer and an explicit zero identically.
+func (c *Agent) UnmarshalYAML(value *yaml.Node) error {
+	type plain Agent
+	var decoded plain
+	if err := value.Decode(&decoded); err != nil {
+		return err
+	}
+	*c = Agent(decoded)
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		if value.Content[i].Value == "max_turns" {
+			c.maxTurnsSet = true
+			break
+		}
+	}
+	return nil
 }
 
 // EffectiveLLMRetryMax returns llm_retry_max with the default applied.
@@ -157,9 +179,12 @@ func (c *Agent) EffectiveWaitForLimitResetMax() time.Duration {
 	return time.Duration(*c.WaitForLimitResetMaxMS) * time.Millisecond
 }
 
-// ApplyDefaults sets LLMRetryBaseMS when it is zero. MaxTurns stays as
-// written: zero is the default, no step limit.
+// ApplyDefaults sets defaults for absent values while preserving an explicit
+// max_turns: 0 opt-out.
 func (c *Agent) ApplyDefaults() {
+	if !c.maxTurnsSet && c.MaxTurns == 0 {
+		c.MaxTurns = AgentDefaultMaxTurns
+	}
 	if c.LLMRetryBaseMS == 0 {
 		c.LLMRetryBaseMS = AgentDefaultLLMRetryBaseMS
 	}

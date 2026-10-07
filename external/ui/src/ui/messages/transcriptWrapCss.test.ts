@@ -13,20 +13,27 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../../styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const css = readFileSync(join(dir, "../../styles.css"), "utf8").replace(
+  /\/\*[\s\S]*?\*\//g,
+  "",
+);
 
 /** Declarations of every top-level rule whose selector list is exactly `selector`. */
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return [...css.matchAll(new RegExp(`(?:^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`, "g"))]
+  return [
+    ...css.matchAll(
+      new RegExp(`(?:^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`, "g"),
+    ),
+  ]
     .map((m) => m[1])
     .join(";");
 }
 
 function decl(body: string, prop: string): string | undefined {
-  const values = [...body.matchAll(new RegExp(`(?:^|[;{\\s])${prop}\\s*:\\s*([^;]+)`, "g"))].map(
-    (m) => (m[1] ?? "").trim(),
-  );
+  const values = [
+    ...body.matchAll(new RegExp(`(?:^|[;{\\s])${prop}\\s*:\\s*([^;]+)`, "g")),
+  ].map((m) => (m[1] ?? "").trim());
   return values[values.length - 1];
 }
 
@@ -108,7 +115,9 @@ describe("an answer never widens the transcript", () => {
     // the line box grew to 14px and the padding gave the 4px back.
     const chip = rule(".md-inline-code");
     const line = px(decl(chip, "line-height"));
-    const [top, , bottom] = (decl(chip, "padding") ?? "").split(/\s+/).map((v) => px(v));
+    const [top, , bottom] = (decl(chip, "padding") ?? "")
+      .split(/\s+/)
+      .map((v) => px(v));
     expect(px(decl(chip, "font-size"))).toBe(12);
     expect(line).toBeGreaterThanOrEqual(14);
     expect(line + (top ?? NaN) + (bottom ?? NaN)).toBe(18);

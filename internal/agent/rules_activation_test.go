@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -554,6 +555,229 @@ func TestCompactionReadsTheStandingRulesAgain(t *testing.T) {
 	if next := ag.buildSystemPrompt("agent", nil, nil); !strings.Contains(next, "AFTER_COMPACTION") {
 		t.Fatal("the compaction did not start a new rules generation")
 	}
+}
+
+// Issue #425: the AGENTS.md layers and the files of instructions.files reach
+// the prompt whatever an operator's template prints, judged by what it
+// rendered: documents a template did not print go to its instructions slot
+// ahead of the user's files, and what neither slot printed follows the
+// template as one block, documents first. Always-on rules stay where the
+// template asked for them, except after the fallback prompt, which carries
+// nothing and gets everything.
+func TestDocumentsReachThePromptWhateverTheTemplatePrints(t *testing.T) {
+	cases := []struct {
+		name      string
+		template  string // "" = the built-in one; "unreadable" = a prompts.dir without the file
+		wantRules bool
+	}{
+		{"built-in", "", true},
+		{"rules only", "Agent. {{.Rules}}\n", true},
+		{"instructions only", "Agent.\n{{if .Instructions}}## Notes\n\n{{.Instructions}}{{end}}\n", false},
+		{"neither", "Agent in {{.CWD}}.\n", false},
+		{"rules named in a comment only", "Agent. {{/* .Rules goes nowhere */}}{{.Instructions}}\n", false},
+		{"rules behind a false condition", "Agent. {{if .Memory}}{{.Rules}}{{end}}\n", false},
+		{"unreadable", "unreadable", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home, cwd := t.TempDir(), t.TempDir()
+			mustWrite(t, filepath.Join(home, "AGENTS.md"), "HOME_DOC_TOKEN")
+			mustWrite(t, filepath.Join(cwd, "AGENTS.md"), "PROJECT_DOC_TOKEN")
+			mustWrite(t, filepath.Join(cwd, "TEAM.md"), "TEAM_FILE_TOKEN")
+			writeAlwaysRule(t, cwd, "house", "ALWAYS_RULE_TOKEN")
+			a := rulesTestAgent(t, cwd)
+			a.cfg.Paths.Home = home
+			a.cfg.Instructions.Files = []string{"TEAM.md"}
+			switch tc.template {
+			case "":
+			case "unreadable":
+				a.cfg.Prompts.Dir = t.TempDir()
+			default:
+				dir := t.TempDir()
+				mustWrite(t, filepath.Join(dir, "agent.md"), tc.template)
+				a.cfg.Prompts.Dir = dir
+			}
+			got := a.buildSystemPrompt("agent", nil, nil)
+			for _, tok := range []string{"HOME_DOC_TOKEN", "PROJECT_DOC_TOKEN", "TEAM_FILE_TOKEN"} {
+				if n := strings.Count(got, tok); n != 1 {
+					t.Fatalf("%s appears %d times, want once:\n%s", tok, n, got)
+				}
+			}
+			atHome, atProject, atTeam := strings.Index(got, "HOME_DOC_TOKEN"), strings.Index(got, "PROJECT_DOC_TOKEN"), strings.Index(got, "TEAM_FILE_TOKEN")
+			if atHome > atProject || atProject > atTeam {
+				t.Fatalf("order home %d, project %d, user file %d, want the layers first:\n%s", atHome, atProject, atTeam, got)
+			}
+			if has := strings.Contains(got, "ALWAYS_RULE_TOKEN"); has != tc.wantRules {
+				t.Fatalf("always-on rule present = %v, want %v:\n%s", has, tc.wantRules, got)
+			}
+			if again := a.buildSystemPrompt("agent", nil, nil); again != got && tc.template != "unreadable" {
+				t.Fatal("the system prompt moved between two builds of one generation")
+			}
+		})
+	}
+}
+
+// A template that prints {{.Rules}} only behind {{if .Instructions}} prints
+// nothing on its first render when instructions.files is empty; handing the
+// documents to its instructions slot would open the gate and print them
+// through both slots, so they follow the template once instead.
+func TestDocumentsBehindTheInstructionsGateAreSentOnce(t *testing.T) {
+	cwd := t.TempDir()
+	mustWrite(t, filepath.Join(cwd, "AGENTS.md"), "GATED_DOC_TOKEN")
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "agent.md"), "Agent.\n{{if .Instructions}}{{.Instructions}}\n{{.Rules}}{{end}}\n")
+	a := rulesTestAgent(t, cwd)
+	a.cfg.Prompts.Dir = dir
+	got := a.buildSystemPrompt("agent", nil, nil)
+	if n := strings.Count(got, "GATED_DOC_TOKEN"); n != 1 {
+		t.Fatalf("the document appears %d times, want once:\n%s", n, got)
+	}
+}
+
+// The keys of the documents the prompt carries exist before the first system
+// prompt of a generation is built: a mention in the first message of a session
+// does not attach a nested AGENTS.md that instructions.files already put in
+// the prompt.
+func TestAMentionInTheFirstMessageSkipsADocumentThePromptCarries(t *testing.T) {
+	cwd := t.TempDir()
+	mustWrite(t, filepath.Join(cwd, "docs", "AGENTS.md"), "DOCS_AGENTS_TOKEN")
+	mustWrite(t, filepath.Join(cwd, "docs", "guide.md"), "guide")
+	a := rulesTestAgent(t, cwd)
+	a.cfg.Instructions.Files = []string{"docs/AGENTS.md"}
+	blocks := a.attachActivatedRules([]acp.ContentBlock{
+		{Type: acp.ContentTypeText, Text: "look at @docs/guide.md"},
+		{Type: acp.ContentTypeResource, Resource: &acp.Resource{URI: "file://" + filepath.ToSlash(filepath.Join(cwd, "docs", "guide.md"))}},
+	})
+	if strings.Contains(contentBlocksToText(blocks), "DOCS_AGENTS_TOKEN") {
+		t.Fatal("the message attached a document the system prompt carries")
+	}
+	if got := a.toolCallRules("agent", readCall("r1", "docs/guide.md"), cwd); strings.Contains(got, "DOCS_AGENTS_TOKEN") {
+		t.Fatalf("the tool result attached a document the system prompt carries: %q", got)
+	}
+}
+
+// A file of instructions.files that is not there when the generation starts
+// takes no key: written during the session, it arrives with the first read in
+// its folder like any nested document.
+func TestADocumentWrittenAfterTheStartArrivesWithItsFolder(t *testing.T) {
+	cwd := t.TempDir()
+	a := rulesTestAgent(t, cwd)
+	a.cfg.Instructions.Files = []string{"docs/AGENTS.md"}
+	_ = a.buildSystemPrompt("agent", nil, nil)
+	mustWrite(t, filepath.Join(cwd, "docs", "AGENTS.md"), "LATE_DOCS_TOKEN")
+	if got := a.toolCallRules("agent", readCall("r1", "docs/guide.md"), cwd); !strings.Contains(got, "LATE_DOCS_TOKEN") {
+		t.Fatalf("a document written after the start did not arrive with its folder: %q", got)
+	}
+}
+
+// The nested documents do not depend on the rules settings or the template,
+// but a system child that runs on a template of its own (the memory
+// subagent) gets none.
+func TestNestedDocumentsIgnoreRulesSettingsButNotTheMemoryChild(t *testing.T) {
+	cwd := t.TempDir()
+	mustWrite(t, filepath.Join(cwd, "pkg", "AGENTS.md"), "PKG_AGENTS_TOKEN")
+	a := rulesTestAgent(t, cwd)
+	off := false
+	a.cfg.Rules.AutoDiscover = &off
+	a.cfg.Rules.Systems = []string{"coddy"}
+	promptsDir := t.TempDir()
+	mustWrite(t, filepath.Join(promptsDir, "agent.md"), "You are Coddy. {{.CWD}}\n")
+	a.cfg.Prompts.Dir = promptsDir
+	if got := a.toolCallRules("agent", readCall("r1", "pkg/x.go"), cwd); !strings.Contains(got, "PKG_AGENTS_TOKEN") {
+		t.Fatalf("rules settings and a template without {{.Rules}} turned the nested chain off: %q", got)
+	}
+	a.subagent = &session.SubagentMeta{Kind: "memory", PromptTemplate: "Memory child. {{.Tools}}"}
+	if got := a.toolCallRules("agent", readCall("r2", "pkg/y.go"), cwd); strings.Contains(got, "PKG_AGENTS_TOKEN") {
+		t.Fatalf("the memory child received a nested document: %q", got)
+	}
+}
+
+// scriptedReadsProvider reads the next path of reads at the start of every
+// turn, then answers, recording every request it is sent.
+type scriptedReadsProvider struct {
+	reads []string
+	seen  [][]llm.Message
+	turn  int
+}
+
+func (p *scriptedReadsProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, fmt.Errorf("Complete must not be used")
+}
+
+func (p *scriptedReadsProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
+	if last := messages[len(messages)-1]; last.Role == llm.RoleUser && p.turn < len(p.reads) {
+		tc := llm.ToolCall{ID: fmt.Sprintf("call_read_%d", p.turn), Name: "read", InputJSON: fmt.Sprintf(`{"path":%q}`, p.reads[p.turn])}
+		p.turn++
+		onChunk(llm.StreamChunk{ToolCall: &tc})
+		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
+	}
+	onChunk(llm.StreamChunk{TextDelta: "done"})
+	return &llm.Response{Content: "done", StopReason: "end_turn"}, nil
+}
+
+// Issue #425 with the prompt cache: a template under prompts.dir that prints
+// neither block gets the documents appended to it, and the system message is
+// the same byte for byte on every request of the session while a nested
+// AGENTS.md arrives with the result of the read that entered its folder, once.
+func TestPromptCacheDocumentsOfATemplateWithoutBlocks(t *testing.T) {
+	cwd := t.TempDir()
+	mustWrite(t, filepath.Join(cwd, "AGENTS.md"), "ROOT_DOC_TOKEN")
+	mustWrite(t, filepath.Join(cwd, "pkg", "AGENTS.md"), "PKG_DOC_TOKEN")
+	mustWrite(t, filepath.Join(cwd, "pkg", "a.go"), "package pkg")
+	mustWrite(t, filepath.Join(cwd, "pkg", "b.go"), "package pkg")
+	promptsDir := t.TempDir()
+	mustWrite(t, filepath.Join(promptsDir, "agent.md"), "You are Coddy in {{.CWD}}.\n")
+	a := rulesTestAgent(t, cwd)
+	a.server = resumePermissionSender{}
+	a.cfg.Prompts.Dir = promptsDir
+	a.cfg.Providers = []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}}
+	a.cfg.Models = []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}}
+	a.cfg.Agent.Model = "fake/model"
+	provider := &scriptedReadsProvider{reads: []string{"pkg/a.go", "pkg/b.go"}}
+	for _, prompt := range []string{"read a", "read b"} {
+		a.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+		if _, err := a.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: prompt}}); err != nil {
+			t.Fatal(err)
+		}
+		a = NewAgent(a.cfg, a.state, resumePermissionSender{}, nil)
+	}
+	if len(provider.seen) < 4 {
+		t.Fatalf("requests = %d, want two turns of a read and an answer", len(provider.seen))
+	}
+	system := provider.seen[0][0].Content
+	if !strings.Contains(system, "ROOT_DOC_TOKEN") || strings.Contains(system, "PKG_DOC_TOKEN") {
+		t.Fatalf("the first system message should carry the root document only:\n%s", system)
+	}
+	for n, req := range provider.seen {
+		if req[0].Content != system {
+			t.Fatalf("request %d sent another system message", n)
+		}
+		var whole strings.Builder
+		for _, m := range req {
+			whole.WriteString(m.Content)
+		}
+		if want := min(n, 1); strings.Count(whole.String(), "PKG_DOC_TOKEN") != want {
+			t.Fatalf("request %d carries the nested document %d time(s), want %d", n, strings.Count(whole.String(), "PKG_DOC_TOKEN"), want)
+		}
+	}
+}
+
+func mustWrite(t testing.TB, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeAlwaysRule puts a rule that always applies into the project's
+// .coddy/rules.
+func writeAlwaysRule(t testing.TB, cwd, name, token string) {
+	t.Helper()
+	mustWrite(t, filepath.Join(cwd, ".coddy", "rules", name+".mdc"), "---\ndescription: "+name+"\nalwaysApply: true\n---\n\n"+token+"\n")
 }
 
 func TestExtractContextFilesStripsWindowsDriveSlash(t *testing.T) {

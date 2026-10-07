@@ -620,6 +620,23 @@ func TestBuildMessagesRepairsMissingToolResultsWithoutChangingStoredHistory(t *t
 	}
 }
 
+func TestBuildMessagesStripsCoddyFileMarkersFromProviderHistory(t *testing.T) {
+	st := &session.State{ID: "sess_file_markers", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "Here is the report.\n\n<coddy_file id=\"verified\"/>\n<coddy_file id=\"hallucinated\"/>"})
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+
+	got := ag.buildMessages("system")
+	if len(got) != 2 {
+		t.Fatalf("messages = %#v", got)
+	}
+	if strings.Contains(got[1].Content, "<coddy_file") {
+		t.Fatalf("provider history leaked file marker: %q", got[1].Content)
+	}
+	if !strings.Contains(got[1].Content, "Here is the report.") {
+		t.Fatalf("provider history lost answer text: %q", got[1].Content)
+	}
+}
+
 func TestRunCancelsUnstartedToolBatchWithStableResults(t *testing.T) {
 	st := &session.State{ID: "sess_cancel_batch", CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
 	cfg := &config.Config{
@@ -1358,7 +1375,7 @@ func TestInvokedSkillBlocks_bodyAttached(t *testing.T) {
 		Description: "find skills",
 		Content:     body,
 	}
-	blocks := invokedSkillBlocks("/find-skills search pdf", []*skills.Skill{sk})
+	blocks := invokedSkillBlocks("/find-skills search pdf", []*skills.Skill{sk}, "")
 	if len(blocks) != 1 || blocks[0].Resource == nil || blocks[0].Resource.Text != body ||
 		blocks[0].Resource.URI != "skill:find-skills" || blocks[0].Resource.Mention.Kind != mention.KindSkill {
 		t.Fatalf("expected one skill attachment carrying the body, got %+v", blocks)
@@ -1369,6 +1386,45 @@ func TestInvokedSkillBlocks_bodyAttached(t *testing.T) {
 	}
 	if got := mention.ForDisplay(msg); got != "/find-skills search pdf" {
 		t.Fatalf("the transcript shows the message as typed, got %q", got)
+	}
+}
+
+// A skill that is a folder on disk names its own files (scripts/,
+// references/) by relative path, so the model is told where that folder is,
+// with the body it invoked or loaded. A skill read out of the binary has no
+// folder to name.
+func TestSkillBodyNamesTheSkillDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "crossreview")
+	onDisk := &skills.Skill{Name: "crossreview", FilePath: filepath.Join(dir, "SKILL.md"), Content: "Run scripts/x.py.\n"}
+	blocks := invokedSkillBlocks("/crossreview now", []*skills.Skill{onDisk}, "")
+	want := "Skill directory: " + dir + "\n\nRun scripts/x.py."
+	if len(blocks) != 1 || blocks[0].Resource.Text != want {
+		t.Fatalf("attachment text = %+v, want %q", blocks, want)
+	}
+	if got := skillBodyForModel(onDisk, ""); got != want {
+		t.Fatalf("load_skill body = %q, want %q", got, want)
+	}
+	flat := &skills.Skill{Name: "notes", FilePath: filepath.Join(t.TempDir(), "notes.md"), Content: "body"}
+	if got := skillBodyForModel(flat, ""); got != "body" {
+		t.Fatalf("a single-file skill is not a folder of its own, got %q", got)
+	}
+
+	// Served out of the binary: the delivered copy in the managed directory is
+	// named when it is on disk, and nothing is named when it is not.
+	embedded := &skills.Skill{Name: "crossreview", FilePath: "bundled/crossreview/SKILL.md", Content: "body"}
+	managed := t.TempDir()
+	if got := skillBodyForModel(embedded, managed); got != "body" {
+		t.Fatalf("no delivered copy, nothing to name, got %q", got)
+	}
+	if err := os.MkdirAll(filepath.Join(managed, "crossreview"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, "crossreview", "SKILL.md"), []byte("---\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want = "Skill directory: " + filepath.Join(managed, "crossreview") + "\n\nbody"
+	if got := skillBodyForModel(embedded, managed); got != want {
+		t.Fatalf("delivered copy = %q, want %q", got, want)
 	}
 }
 
@@ -1417,7 +1473,7 @@ func TestInvokedSkillBlocks_noSkillMatch(t *testing.T) {
 		FilePath: filepath.Join("skills", "other", "SKILL.md"),
 		Content:  "other body",
 	}
-	if blocks := invokedSkillBlocks("/find-skills pdf", []*skills.Skill{sk}); len(blocks) != 0 {
+	if blocks := invokedSkillBlocks("/find-skills pdf", []*skills.Skill{sk}, ""); len(blocks) != 0 {
 		t.Fatalf("expected nothing when no skill matches; got %+v", blocks)
 	}
 }
@@ -1428,7 +1484,7 @@ func TestInvokedSkillBlocks_noSlashCommand(t *testing.T) {
 		FilePath: filepath.Join("skills", "find-skills", "SKILL.md"),
 		Content:  "body",
 	}
-	if blocks := invokedSkillBlocks("поищи что-нибудь", []*skills.Skill{sk}); len(blocks) != 0 {
+	if blocks := invokedSkillBlocks("поищи что-нибудь", []*skills.Skill{sk}, ""); len(blocks) != 0 {
 		t.Fatalf("expected nothing without a slash command; got %+v", blocks)
 	}
 }
@@ -4091,5 +4147,136 @@ func TestSpawnAgentRefusesAModelTheConfigDoesNotKnow(t *testing.T) {
 	}
 	if !strings.Contains(result, `unknown model "fake/nope"`) {
 		t.Fatalf("spawn_agent result = %q, want the unknown model named", result)
+	}
+}
+
+// refusingSender is a surface that refuses every permission request and
+// remembers what it was asked about.
+type refusingSender struct {
+	mu    sync.Mutex
+	asked []string
+}
+
+func (s *refusingSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (s *refusingSender) RequestPermission(_ context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	s.mu.Lock()
+	s.asked = append(s.asked, p.ToolCall.Title)
+	s.mu.Unlock()
+	return &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}, nil
+}
+
+func (s *refusingSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+// A turn a surface restricts - a messenger user who is not the bot's admin -
+// refuses the tools it names and asks before anything that needs approval,
+// whatever the session's permission mode, so the surface decides.
+func TestRestrictedTurnRefusesNamedToolsAndAsksForTheRest(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a", "fake/b")
+	marker := filepath.Join(t.TempDir(), "ran")
+	h.provider("a").steps = []scriptStep{
+		toolStep(llm.ToolCall{ID: "sw1", Name: "switch_model", InputJSON: `{"model":"fake/b","scope":"session"}`}),
+		toolStep(llm.ToolCall{ID: "rc1", Name: "run_command", InputJSON: fmt.Sprintf(`{"command":"touch %s"}`, marker)}),
+		answerStep("done"),
+	}
+	snd := &refusingSender{}
+	if _, err := h.mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: h.sessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "switch and run"}},
+	}, snd, &session.PromptRunOpts{Restriction: &session.TurnRestriction{
+		AllowedTools: []string{"run_command", "read"},
+		AskAlways:    true,
+		Note:         "only the bot's admins may do that",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	st := h.mgr.SessionByID(h.sessionID)
+	if st.GetSelectedModelID() != "" || h.provider("b").calls != 0 {
+		t.Fatalf("a refused switch_model changed the model to %q", st.GetSelectedModelID())
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("run_command ran without the surface's approval under bypass")
+	}
+	if len(snd.asked) != 1 {
+		t.Fatalf("the surface was asked %d times, want once for run_command", len(snd.asked))
+	}
+	var refused bool
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && strings.Contains(m.Content, "only the bot's admins may do that") {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Fatal("the model was not told why switch_model was refused")
+	}
+	// The restriction lasts the turn: the next one runs as the session says.
+	h.provider("a").steps = append(h.provider("a").steps,
+		toolStep(llm.ToolCall{ID: "sw2", Name: "switch_model", InputJSON: `{"model":"fake/b","scope":"session"}`}))
+	h.provider("b").steps = []scriptStep{answerStep("on b")}
+	h.prompt(t, "now switch")
+	if st.GetSelectedModelID() != "fake/b" {
+		t.Fatalf("the restriction outlived its turn: model %q", st.GetSelectedModelID())
+	}
+}
+
+// A confined turn reads inside the session's working directory only, calls
+// nothing outside its list (an MCP tool included), and does not ride on the
+// session's "always allow" grants.
+func TestRestrictedTurnIsConfinedAndIgnoresGrants(t *testing.T) {
+	h := newSettingsHarness(t, "fake/a")
+	st := h.mgr.SessionByID(h.sessionID)
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("top secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(st.GetCWD(), "note.txt")
+	if err := os.WriteFile(inside, []byte("plain note"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "ran")
+	cmd := "touch " + marker
+	st.AddCommandGrantIfNew(cmd)
+	h.provider("a").steps = []scriptStep{
+		toolStep(llm.ToolCall{ID: "r1", Name: "read", InputJSON: fmt.Sprintf(`{"path":%q}`, outside)}),
+		toolStep(llm.ToolCall{ID: "r2", Name: "read", InputJSON: `{"path":"note.txt"}`}),
+		toolStep(llm.ToolCall{ID: "m1", Name: "github__create_issue", InputJSON: `{}`}),
+		toolStep(llm.ToolCall{ID: "c1", Name: "run_command", InputJSON: fmt.Sprintf(`{"command":%q}`, cmd)}),
+		answerStep("done"),
+	}
+	snd := &refusingSender{}
+	if _, err := h.mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: h.sessionID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "go"}},
+	}, snd, &session.PromptRunOpts{Restriction: &session.TurnRestriction{
+		AllowedTools:       []string{"read", "run_command"},
+		AskAlways:          true,
+		ConfineToWorkspace: true,
+		Note:               "admins only",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	var results []string
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool {
+			results = append(results, m.Content)
+		}
+	}
+	joined := strings.Join(results, "\n---\n")
+	if strings.Contains(joined, "top secret") {
+		t.Fatal("a confined turn read a file outside its working directory")
+	}
+	if !strings.Contains(joined, "plain note") {
+		t.Fatalf("a confined turn could not read inside its working directory:\n%s", joined)
+	}
+	if !strings.Contains(joined, "github__create_issue: admins only") {
+		t.Fatalf("an MCP tool outside the list was not refused:\n%s", joined)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a session grant ran a command in a restricted turn")
+	}
+	if len(snd.asked) != 1 {
+		t.Fatalf("the surface was asked %d times, want once for run_command", len(snd.asked))
 	}
 }

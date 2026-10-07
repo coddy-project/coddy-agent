@@ -85,7 +85,10 @@ func anthropicThinkingBudget(level string, maxTokens int) int64 {
 }
 
 func (p *anthropicProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
-	system, msgs := p.splitMessages(messages)
+	system, msgs, err := p.splitMessages(messages)
+	if err != nil {
+		return nil, err
+	}
 	params := p.buildParams(system, msgs, tools)
 	resp, err := p.client.Messages.New(ctx, params)
 	if err != nil {
@@ -95,7 +98,10 @@ func (p *anthropicProvider) Complete(ctx context.Context, messages []Message, to
 }
 
 func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	system, msgs := p.splitMessages(messages)
+	system, msgs, err := p.splitMessages(messages)
+	if err != nil {
+		return nil, err
+	}
 	params := p.buildParams(system, msgs, tools)
 
 	stream := p.client.Messages.NewStreaming(ctx, params)
@@ -105,6 +111,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	var toolCalls []ToolCall
 	var stopReason string
 	var inputTokens, outputTokens, cachedInputTokens int
+	var uncachedInput, cacheCreation, cacheRead int64
 	var thinkingBuf strings.Builder
 	var thinkingSig string
 
@@ -169,10 +176,28 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		case anthropic.MessageDeltaEvent:
 			stopReason = mapAnthropicStopReason(string(e.Delta.StopReason))
 			outputTokens = int(e.Usage.OutputTokens)
+			// A final delta normally carries only output usage. Anthropic may
+			// also replace the input counters after a model fallback mid-stream.
+			if anthropicDeltaReportsInput(e.Usage) {
+				if e.Usage.JSON.InputTokens.Valid() {
+					uncachedInput = e.Usage.InputTokens
+				}
+				if e.Usage.JSON.CacheCreationInputTokens.Valid() {
+					cacheCreation = e.Usage.CacheCreationInputTokens
+				}
+				if e.Usage.JSON.CacheReadInputTokens.Valid() {
+					cacheRead = e.Usage.CacheReadInputTokens
+				}
+				inputTokens = anthropicTotalInputTokens(uncachedInput, cacheCreation, cacheRead)
+				cachedInputTokens = int(cacheRead)
+			}
 
 		case anthropic.MessageStartEvent:
-			inputTokens = int(e.Message.Usage.InputTokens)
-			cachedInputTokens = int(e.Message.Usage.CacheReadInputTokens)
+			uncachedInput = e.Message.Usage.InputTokens
+			cacheCreation = e.Message.Usage.CacheCreationInputTokens
+			cacheRead = e.Message.Usage.CacheReadInputTokens
+			inputTokens = anthropicTotalInputTokens(uncachedInput, cacheCreation, cacheRead)
+			cachedInputTokens = int(cacheRead)
 		}
 	}
 
@@ -282,9 +307,10 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 }
 
 // splitMessages extracts the system message and converts messages to Anthropic format.
-func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthropic.MessageParam) {
+func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthropic.MessageParam, error) {
 	var system string
 	var result []anthropic.MessageParam
+	var skippedTrailingAssistant bool
 
 	for _, m := range messages {
 		if m.Role == RoleSystem {
@@ -295,6 +321,7 @@ func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthrop
 		switch m.Role {
 		case RoleUser:
 			result = append(result, anthropic.NewUserMessage(anthropicUserBlocks(m)...))
+			skippedTrailingAssistant = false
 
 		case RoleAssistant:
 			var blocks []anthropic.ContentBlockParamUnion
@@ -304,7 +331,7 @@ func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthrop
 			if p.thinkingEnabled() && m.ReasoningSignature != "" && m.Reasoning != "" {
 				blocks = append(blocks, anthropic.NewThinkingBlock(m.ReasoningSignature, m.Reasoning))
 			}
-			if m.Content != "" {
+			if strings.TrimSpace(m.Content) != "" {
 				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
 			}
 			for _, tc := range m.ToolCalls {
@@ -313,18 +340,29 @@ func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthrop
 				blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, inputMap, tc.Name))
 			}
 			if len(blocks) == 0 {
-				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+				// Nothing in this assistant turn can be replayed. In particular,
+				// a signature without thinking text cannot form a valid block.
+				skippedTrailingAssistant = true
+				continue
 			}
 			result = append(result, anthropic.NewAssistantMessage(blocks...))
+			skippedTrailingAssistant = false
 
 		case RoleTool:
+			if skippedTrailingAssistant {
+				return "", nil, fmt.Errorf("anthropic: tool result follows an assistant turn with no replayable content")
+			}
 			result = append(result, anthropic.NewUserMessage(
 				anthropic.NewToolResultBlock(m.ToolCallID, m.Content, false),
 			))
+			skippedTrailingAssistant = false
 		}
 	}
 
-	return system, result
+	if skippedTrailingAssistant {
+		return "", nil, fmt.Errorf("anthropic: final assistant turn has no replayable content")
+	}
+	return system, result, nil
 }
 
 // anthropicUserBlocks is a user message as the Messages API takes it: the
@@ -410,8 +448,9 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 
 func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, error) {
 	r := &Response{
-		StopReason:        mapAnthropicStopReason(string(resp.StopReason)),
-		InputTokens:       int(resp.Usage.InputTokens),
+		StopReason: mapAnthropicStopReason(string(resp.StopReason)),
+		InputTokens: anthropicTotalInputTokens(resp.Usage.InputTokens,
+			resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens),
 		OutputTokens:      int(resp.Usage.OutputTokens),
 		CachedInputTokens: int(resp.Usage.CacheReadInputTokens),
 	}
@@ -434,6 +473,31 @@ func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, er
 	}
 
 	return r, nil
+}
+
+// Anthropic reports uncached input, cache writes and cache reads separately.
+// Response.InputTokens includes all three, like OpenAI prompt_tokens does.
+func anthropicTotalInputTokens(input, cacheCreation, cacheRead int64) int {
+	return int(input + cacheCreation + cacheRead)
+}
+
+// anthropicDeltaReportsInput says whether a message_delta carries input
+// counters to take over. They are cumulative, so the ones present replace what
+// message_start said. A delta whose input counters add up to zero reports
+// nothing: no prompt has zero input, and an Anthropic-compatible gateway that
+// fills the fields with zeros must not erase the counts it sent at the start.
+func anthropicDeltaReportsInput(u anthropic.MessageDeltaUsage) bool {
+	var input int64
+	if u.JSON.InputTokens.Valid() {
+		input += u.InputTokens
+	}
+	if u.JSON.CacheCreationInputTokens.Valid() {
+		input += u.CacheCreationInputTokens
+	}
+	if u.JSON.CacheReadInputTokens.Valid() {
+		input += u.CacheReadInputTokens
+	}
+	return input > 0
 }
 
 func mapAnthropicStopReason(reason string) string {

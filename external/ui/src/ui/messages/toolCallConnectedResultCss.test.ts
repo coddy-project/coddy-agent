@@ -31,13 +31,18 @@ test("a command block and its output keep one gap at the seam, not two paddings"
   );
 });
 
-test("background task controls hang off the card instead of floating under it", () => {
+test("background transcript rows leave task actions to the Tasks panel", () => {
   const css = readFileSync(cssPath, "utf8");
-  const actions = css.match(/\.tool-bgtask-actions\s*\{[^}]*\}/s);
-  // The body is a flex column with an 8px gap; the tab buttons cancel it the
-  // same way the More / Less row does, so they attach to the panel's bottom edge.
-  expect(actions?.[0]).toMatch(/margin-top:\s*-8px/);
-  expect(actions?.[0]).not.toMatch(/padding-top/);
+  expect(css).not.toMatch(/\.tool-bgtask-actions\b/);
+});
+
+test("every truncated result keeps its More tab attached to the output card", () => {
+  const css = readFileSync(cssPath, "utf8");
+  const toggle = css.match(
+    /\.coddy-tool-call-body\s*>\s*\.tool-result-toggle-row\s*\{([^}]*)\}/s,
+  );
+  expect(toggle?.[1]).toMatch(/margin:\s*-8px\s+0\s+2px/);
+  expect(toggle?.[1]).toMatch(/align-self:\s*flex-start/);
 });
 
 test("a background row carries no status block of its own on the summary line", () => {

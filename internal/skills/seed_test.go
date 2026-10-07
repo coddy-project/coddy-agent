@@ -36,7 +36,7 @@ func deliveryHome(t *testing.T, withConfig bool) *config.Config {
 		}
 		return cfg
 	}
-	if err := os.WriteFile(paths.ConfigPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(paths.ConfigPath, []byte("skills:\n  auto_discovery: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.LoadWithPaths(paths)
@@ -180,27 +180,36 @@ func TestDeliveryDoesNotCreateAConfigFile(t *testing.T) {
 	}
 	// A home with no config file still has the marketplace: it is a system
 	// source, not something the file has to name.
-	if len(skills.ListSources(cfg)) == 0 {
+	if len(skills.ListSources(cfg, "")) == 0 {
 		t.Fatal("a home without a config file has no marketplace in effect")
 	}
 }
 
-// The system marketplace is in effect beside skills.sources, is not duplicated
-// when a config happens to name it too, and cannot be taken out of either.
+// declareHome makes <home>/marketplaces.json declare sources.
+func declareHome(t *testing.T, cfg *config.Config, sources ...string) {
+	t.Helper()
+	if err := config.WriteMarketplacesFile(config.GlobalMarketplacesPath(cfg.Paths.Home), config.MarketplacesFile{Sources: sources}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The system marketplace is in effect beside the marketplaces.json files, is
+// not duplicated when a file happens to name it too (in another spelling
+// either), and cannot be taken out of either.
 func TestSystemSourceIsListedAndUndeletable(t *testing.T) {
 	cfg := deliveryHome(t, true)
-	cfg.Skills.Sources = []string{"someone/else", config.SystemSkillsSource}
+	declareHome(t, cfg, "someone/else", "https://github.com/"+config.SystemSkillsSource)
 
-	got := skills.ListSources(cfg)
+	got := skills.ListSources(cfg, "")
 	want := []string{config.SystemSkillsSource, "someone/else"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sources: want %v, got %v", want, got)
 	}
 
-	if _, err := skills.RemoveSource(cfg, config.SystemSkillsSource); err == nil {
+	if _, err := skills.RemoveSource(cfg, "", config.SystemSkillsSource, ""); err == nil {
 		t.Fatal("removing the system marketplace was allowed")
 	}
-	if added, err := skills.AddSource(cfg, config.SystemSkillsSource); err != nil || added {
+	if added, err := skills.AddSource(cfg, "", config.SystemSkillsSource, skills.ScopeGlobal); err != nil || added {
 		t.Fatalf("adding the system marketplace should be a no-op, got added=%v err=%v", added, err)
 	}
 }
@@ -303,29 +312,31 @@ func TestDeliveryRecoversAnInterruptedReplacement(t *testing.T) {
 	}
 }
 
-// A config that also names the system marketplace carries a redundant entry.
-// Removing it takes the entry out of the file and says the marketplace stays.
+// A marketplaces.json that also names the system marketplace carries a
+// redundant entry. Removing it takes the entry out of the file and says the
+// marketplace stays.
 func TestRemovingARedundantConfigEntryClearsTheFile(t *testing.T) {
 	cfg := deliveryHome(t, true)
-	if _, err := skills.AddSource(cfg, "someone/else"); err != nil {
-		t.Fatal(err)
-	}
-	cfg.Skills.Sources = append(cfg.Skills.Sources, config.SystemSkillsSource)
+	declareHome(t, cfg, "someone/else", config.SystemSkillsSource)
 
-	_, err := skills.RemoveSource(cfg, config.SystemSkillsSource)
+	_, err := skills.RemoveSource(cfg, "", config.SystemSkillsSource, "")
 	if err == nil || !strings.Contains(err.Error(), "stays in effect") {
 		t.Fatalf("expected the answer to say the marketplace stays, got %v", err)
 	}
-	for _, s := range cfg.Skills.Sources {
+	file, err := config.ReadMarketplacesFile(config.GlobalMarketplacesPath(cfg.Paths.Home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range file.Sources {
 		if strings.EqualFold(s, config.SystemSkillsSource) {
-			t.Fatalf("the redundant entry is still in skills.sources: %v", cfg.Skills.Sources)
+			t.Fatalf("the redundant entry is still in marketplaces.json: %v", file.Sources)
 		}
 	}
 	// The marketplace is in effect all the same, and the other source survived.
-	if !strings.EqualFold(skills.ListSources(cfg)[0], config.SystemSkillsSource) {
-		t.Fatalf("the system marketplace left the listing: %v", skills.ListSources(cfg))
+	if !strings.EqualFold(skills.ListSources(cfg, "")[0], config.SystemSkillsSource) {
+		t.Fatalf("the system marketplace left the listing: %v", skills.ListSources(cfg, ""))
 	}
-	if !strings.Contains(strings.Join(skills.ListSources(cfg), " "), "someone/else") {
-		t.Fatalf("an unrelated source was dropped: %v", skills.ListSources(cfg))
+	if !strings.Contains(strings.Join(skills.ListSources(cfg, ""), " "), "someone/else") {
+		t.Fatalf("an unrelated source was dropped: %v", skills.ListSources(cfg, ""))
 	}
 }

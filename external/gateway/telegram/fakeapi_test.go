@@ -8,6 +8,7 @@ package telegram
 // write another http.HandlerFunc.
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -138,10 +139,27 @@ func (f *fakeAPI) tap(chatID, userID int64, label string) (*tgbotapi.CallbackQue
 	if err != nil {
 		return nil, err
 	}
+	msg := &tgbotapi.Message{MessageID: msgID, Chat: &tgbotapi.Chat{ID: chatID, Type: view.Type}}
+	// Telegram hands the bot the message the button is on with its keyboard,
+	// as the chat shows it at the moment of the tap.
+	for _, m := range view.Messages {
+		if m.MessageID != msgID || len(m.Keyboard) == 0 {
+			continue
+		}
+		raw, err := json.Marshal(m.Keyboard)
+		if err != nil {
+			return nil, err
+		}
+		var rows [][]tgbotapi.InlineKeyboardButton
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return nil, err
+		}
+		msg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
+	}
 	return &tgbotapi.CallbackQuery{
 		ID:      id,
 		From:    &tgbotapi.User{ID: userID},
-		Message: &tgbotapi.Message{MessageID: msgID, Chat: &tgbotapi.Chat{ID: chatID, Type: view.Type}},
+		Message: msg,
 		Data:    data,
 	}, nil
 }

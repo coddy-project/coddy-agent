@@ -73,12 +73,12 @@ func executeGlob(ctx context.Context, argsJSON string, env *tooling.Env) (string
 		return "", fmt.Errorf("glob: path must be a directory: %s", searchPath)
 	}
 
-	rgArgs := []string{
-		"--files",
-		"--glob", pattern,
-		"--follow",
-		searchPath,
+	rgArgs := []string{"--files", "--glob", pattern}
+	// A confined turn does not follow a link out of its working directory.
+	if !env.Confined {
+		rgArgs = append(rgArgs, "--follow")
 	}
+	rgArgs = append(rgArgs, searchPath)
 
 	var paths []string
 	if rgPath, lookupErr := exec.LookPath("rg"); lookupErr == nil {

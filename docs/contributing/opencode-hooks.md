@@ -6,7 +6,7 @@ This page is for contributors running OpenCode against this repository. It does 
 
 OpenCode reads the root `AGENTS.md`, so the repository map and always-relevant contributor notes already reach a session. OpenCode can also load instruction globs from `opencode.json`, but every matching instruction file is combined into the prompt; Cursor's per-file `globs` semantics are not applied to `.mdc` frontmatter.
 
-This repository keeps detailed instructions in `.cursor/rules/*.mdc`. The project plugin in `.opencode/plugins/project-rules.js` reads that frontmatter directly and attaches only the rules needed by the current session. `.cursor/rules/` remains the single source of truth.
+This repository keeps a native Cursor representation in `.cursor/rules/*.mdc`. The project plugin in `.opencode/plugins/project-rules.js` reads that frontmatter directly and attaches only the rules needed by the current session. The Cursor tree is the adapter input, not a universal policy format, and no separate OpenCode copy of a rule body is maintained.
 
 OpenCode automatically loads JavaScript and TypeScript files under `.opencode/plugins/`. No `opencode.json` entry or package installation is required for this plugin. It uses only Node-compatible APIs provided by the OpenCode runtime.
 
@@ -25,7 +25,7 @@ OpenCode's stable `tool.execute.before` hook can block or modify a tool call, bu
 
 ## Rule parsing and matching
 
-The implementation reads `description`, `globs`, and `alwaysApply` from the flat Cursor frontmatter used in this repository. A glob translator keeps `*` inside one path segment and treats `**/` as zero or more directories, so `external/httpserver/**/*.go` matches both `external/httpserver/server.go` and deeper files.
+The implementation reads `description`, `globs`, and `alwaysApply` from Cursor frontmatter. `globs` may be a scalar, a single-line or multiline flow list, or a YAML block list; quoted commas, doubled single quotes, double-quoted escapes and YAML comments are decoded without truncating the list. A glob translator keeps `*` inside one path segment and treats `**/` as zero or more directories, so `external/httpserver/**/*.go` matches both `external/httpserver/server.go` and deeper files.
 
 Tool arguments are inspected recursively. Recognized path keys include `filePath`, `path`, `filename`, `target`, and their common variants. Unified patch payloads recognize `*** Add File:`, `*** Update File:`, `*** Delete File:`, and `*** Move to:` headers. Absolute paths outside the repository are ignored.
 
@@ -39,16 +39,17 @@ The plugin deliberately adds selected rules to every system transform instead of
 
 ## Verification
 
-The unit suite covers always-on injection, recursive Cursor glob matching, activation by `read`, the first-write retry, patch path extraction, and session cleanup:
+The repository adapter suite covers scalar and YAML-list frontmatter, always-on injection, recursive Cursor glob matching, activation by `read`, the first-write retry, patch path extraction, Python hook parity and session cleanup:
+
+```bash
+make test-agent-rules
+```
+
+For an OpenCode-only iteration, run:
 
 ```bash
 make test-opencode-rules
-```
-
-Or run the underlying command directly:
-
-```bash
-node --test .opencode/tests/project-rules.test.js
+# or: node --test .opencode/tests/project-rules.test.js
 ```
 
 No provider connection or OpenCode installation is required for the tests. To verify the real integration, start a new OpenCode session in the repository, ask it to read `external/httpserver/server.go`, and inspect the next model request with OpenCode debug logging.

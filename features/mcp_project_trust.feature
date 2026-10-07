@@ -31,10 +31,10 @@ Feature: Project-local MCP servers need approval before they run
     And coddy reports the project MCP server "marker" as awaiting approval
 
   @acp
-  Scenario: Saving settings does not start an unapproved project server
+  Scenario: Changing the global MCP servers does not start an unapproved project server
     Given a workspace whose project mcp.json runs a marker command
     And an ACP client has a live session for that workspace
-    When the operator saves settings that change the configured MCP servers
+    When the operator changes the servers of the home mcp.json
     Then the marker command has not run
     And coddy reports the project MCP server "marker" as awaiting approval
 

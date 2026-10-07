@@ -2,27 +2,30 @@ package config
 
 import "strings"
 
-// Instructions configures which files are read as user-provided instructions and
-// appended to the system prompt. Compatible with the AGENTS.md convention used by
-// other AI coding agents, and not limited to the session CWD: ${CODDY_HOME},
+// Instructions configures the files the operator adds to the system prompt
+// (AGENTS.md convention), below the documents every session reads anyway: the
+// AGENTS.md and DESIGN.md of the agent home and of the session folder, and the
+// nested ones of the folders a tool enters (rules.LoadStanding,
+// rules.AgentsForPaths), which no setting names or turns off. ${CODDY_HOME},
 // ${CWD} and a leading ~ expand, and an absolute entry is read as it stands.
 type Instructions struct {
-	// Files is the list of instruction files to read, in the order listed.
-	// Defaults to DefaultInstructionFiles() when empty.
+	// Files is the list of instruction files to read, in the order listed,
+	// after those documents. Empty by default: the list only adds.
 	Files []string `yaml:"files"`
 }
 
-// DefaultInstructionFiles is the pair a directory describes itself with, the
-// same one the project docs preamble reads for the workspace root and for the
-// agent home (rules.LoadProjectDocs). Kept as a function so the schema default,
-// the UI defaults and the loader cannot drift apart.
+// DefaultInstructionFiles is the default of instructions.files: nothing. The
+// AGENTS.md / DESIGN.md pair the list used to name is read whether or not it
+// is listed, and a list naming it still works - an entry the layers already
+// carry is not read twice. Kept as a function so the schema default, the UI
+// defaults and the loader cannot drift apart.
 func DefaultInstructionFiles() []string {
-	return []string{"AGENTS.md", "DESIGN.md"}
+	return []string{}
 }
 
-// ApplyDefaults sets the default file list when empty.
+// ApplyDefaults leaves an empty list empty: there is nothing to fill in.
 func (c *Instructions) ApplyDefaults() {
-	if len(c.Files) == 0 {
+	if c.Files == nil {
 		c.Files = DefaultInstructionFiles()
 	}
 }

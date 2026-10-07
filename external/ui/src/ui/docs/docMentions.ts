@@ -24,7 +24,11 @@ export function splitDocMentions(text: string): DocMentionPart[] {
     if (tok.start > at) {
       parts.push({ type: "text", value: text.slice(at, tok.start) });
     }
-    parts.push({ type: "doc", literal: text.slice(tok.start, tok.end), ref: tok.ref });
+    parts.push({
+      type: "doc",
+      literal: text.slice(tok.start, tok.end),
+      ref: tok.ref,
+    });
     at = tok.end;
   }
   if (at < text.length) {

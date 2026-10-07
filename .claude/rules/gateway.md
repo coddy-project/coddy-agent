@@ -1,28 +1,31 @@
 ---
-description: Messenger gateway architecture, session store, and Telegram adapter conventions
+description: Messenger gateway architecture, session store, and the Telegram and Pachca adapter conventions
 paths:
   - "external/gateway/**/*.go"
   - "internal/config/gateway.go"
+  - "internal/pachcafake/**/*.go"
 ---
 
 # Messenger Gateway (`external/gateway`)
 
-Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters). Without these tags `coddy serve` is present in the binary but returns a "not compiled" error.
+Built with **`-tags gateway.telegram`** (Telegram only), **`-tags gateway.pachca`** (Pachca only) or **`-tags gateway`** (all adapters). Each bot is a subsystem of `coddy serve` of its own (`serve.KindGateway` for Telegram, `serve.KindGatewayPachca`), started by `gateway.ServeTelegram` / `gateway.ServePachca` (`serve_<name>.go`, with a `_stub.go` and a `<Name>Available` const per adapter); a bot enabled in a binary without its tag is refused at startup by name.
 
 ## Package layout
 
 | Package | Role |
 |---------|------|
 | `external/gateway` | `Adapter` interface, `Hub`, `IncomingMessage`, `OutgoingMessage` |
-| `external/gateway/access` | `CanAccess`, `EffectiveAccess`, `EffectiveIsolation` — ACL helpers |
+| `external/gateway/access` | `CanAccess`, `EffectiveAccess`, `EffectiveIsolation` over `access.Policy` (admins, user groups, defaults, `ChatOverride`), which `config.TelegramGatewayConfig` and `config.PachcaGatewayConfig` both satisfy |
 | `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs (`Get` mints, `Reset` replaces for `/clear`, `Bind` points a chat at an existing session for `/resume`); persisted to `gateway_sessions.json` |
 | `external/gateway/proxyutil` | `BuildHTTPClient` — HTTP/SOCKS5 proxy support for outbound adapter requests |
 | `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (the inline keyboard for `/model`, the callback dispatcher, `callbackValue` for payloads over 64 bytes), `resume.go` (`/resume`: the session picker over `HandleSessionList`, the query matcher, the `resume:s:` / `resume:p:` callbacks), `isSettingsCommand` (`/model <id>`, `/think`, `/nothink`, `/reasoning`, `/agent`, `/plan`, `/ask` with `--once` / `--count=N` go to the session as a message and the manager takes them; `/permissions` does not, the bot approves its chat agent itself), `prompt.go` (what the model is told about answering here), `markdown.go` (md → Telegram format) |
-| `internal/tgfake` (untagged) | The fake Bot API: every method the adapter calls, long-polled `getUpdates`, the `/sim/*` API and the chat page, `llmstub` for a scripted model. `cmd/tgfake` serves it; the adapter's polling feature runs it on httptest |
+| `external/gateway/pachca` | The Pachca integration bot: `client.go` (REST client, 429 policy), `poll.go` (the events history walk, the watermark in `gateway_pachca_state.json`), `dispatch.go` (addressing, ACL, commands, turns), `sender.go` (one streamed message, edits, splitting), `commands.go` (`/model` buttons, clicks), `permission.go`, `wake.go`, `prompt.go`, `markdown.go` |
+| `internal/pachcafake` (untagged) | The fake Pachca API the adapter's tests run on httptest: token info, profile, chats, messages with buttons and edits, the events history (newest first, cursor pages, delete), faults, and the person's side (`UserPosts`, `UserClicks`, `StartThread`) |
+| `internal/tgfake` (untagged) | The fake Bot API: every method the adapter calls, long-polled `getUpdates`, the `/sim/*` API and the chat page, `llmstub` for a scripted model; Mini Apps too - `web_app` buttons, the menu button, signed launches (`/sim/webapp/launch`) and a phone frame on the page that plays Telegram's client for the app. `cmd/tgfake` serves it; the adapter's polling feature runs it on httptest |
 
 ## Session store
 
-`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$CODDY_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue where they left off. `/resume` writes the same map through `Bind`, so a chat moved to another session stays there across a restart; the session it left is not forgotten, because `/resume` is a switch the chat may reverse a moment later, while `/clear` ends a conversation and `ForgetLiveSession` belongs to it. A reserved `$last_model` entry holds the gateway's own last model pick: a fresh session (no transcript, no saved pick) starts on it — or on the alphabetically first model when nobody picked yet — via `applyInitialModel` in `commands.go`, called from `processMessage` and `ensureSession`.
+`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The Telegram file lives at `$CODDY_HOME/sessions/gateway_sessions.json` (set in `external/gateway/serve_telegram.go`); the Pachca bot keeps its own, `gateway_pachca_sessions.json` (`serve_pachca.go`), because two stores rewriting one file would undo each other's writes. On restart the bot reloads the map so existing conversations continue where they left off. `/resume` writes the same map through `Bind`, so a chat moved to another session stays there across a restart; the session it left is not forgotten, because `/resume` is a switch the chat may reverse a moment later, while `/clear` ends a conversation and `ForgetLiveSession` belongs to it. A reserved `$last_model` entry holds the gateway's own last model pick: a fresh session (no transcript, no saved pick) starts on it — or on the alphabetically first model when nobody picked yet — via `applyInitialModel` in `commands.go`, called from `processMessage` and `ensureSession`.
 
 `newID()` mints ids through `session.NewSessionID()`: a chat conversation is an ordinary Coddy session with an ordinary `sess_` id, so `GET /coddy/sessions` lists it beside the sessions started in a terminal or a browser.
 
@@ -77,9 +80,13 @@ Enabled per-bot with `gateways.telegram.rich_messages: true` (`config.TelegramGa
 - `Sender` carries a `richConfig{enabled, allowDraft, draftID}`. `allowDraft` is true only in private chats (drafts are private-only). `Flush()` finalizes via `sendRichMessage`; on error it falls back to the legacy formatted send so the bot never goes silent.
 - No `editRichMessage` exists; drafts are ephemeral 30 s previews and need no deletion. `<tg-thinking>` (RichBlockThinking) may be used only in drafts.
 
+## Mini App
+
+`miniapp.go`: with `gateways.telegram.mini_app.url` the bot sets its default menu button (`setChatMenuButton` without `chat_id`, label "Coddy") on every start and answers `/app` with "Open in Coddy" - a `web_app` button in a private chat, a `url` button in a group (Telegram refuses `web_app` there), `url?session=<id>` built with `net/url`, the session only peeked, never minted. The library has no Mini App types: `MakeRequest` with JSON of our own, as `richclient.go` does. The bot advertises the web UI only through `SetWebUIGate`, fed from `gateway.Options.WebUI`, which `cmd/coddy/serve.go` decides (`webUIAccess`: a sign-in or a token from the file, a flag or the environment, else `httpserver.allow_insecure`): the menu button is shown to everybody who opens the bot, so an open web UI is withheld and a button set before is taken back. The store keeps the set address and the replaced button per bot (`$menu_button:<id>`, `$menu_button_before:<id>`; `reservedKey` keeps every `$` entry out of the session lookups); a takeover reads the current button first and leaves it alone when the read fails, an operator's button on the bot's own address is told from the bot's by its label, and a release puts the replaced button back only while the current one still opens the bot's address (never one opening the address an open web UI withholds). `gateway.Fingerprint` (the untagged `serve.go`) hashes the whole Telegram block, plus the HTTP keys of the gate when `mini_app.url` is set, so a new field rebuilds the bot without being listed and a new password does not rebuild a bot without a Mini App: never go back to a hand-written field list. `coddy serve --dry-run` warns about an open web UI and asks `mini_app.url` for the web UI (`internal/dryrun`). tgfake models the client side: `web_app` buttons (private chats, https or loopback http, one action per button), `setChatMenuButton` / `getChatMenuButton` (a menu button in private chats only, `chat_id` read as a user), `/sim/webapp/launch` (launch data signed with the latest token, pinned to a vector computed outside the package) and the page's phone frame. Guide: `docs/surfaces/gateway.md` (Mini App); design: `docs/plans/telegram-mini-app.md`.
+
 ## Logging
 
-The adapter's logger arrives tagged with the `gateway.telegram` component (`internal/logger.Component`, applied in `external/gateway/start.go`; the hub itself is `gateway`), so `logger.levels` can raise one bot to `debug` while the rest of the process stays at `info`. Tag once, at construction - `Component` on an already-tagged logger prints two `component` attributes.
+The adapter's logger arrives tagged with the `gateway.telegram` component (`internal/logger.Component`, applied in `external/gateway/serve_telegram.go`, and `gateway.pachca` in `serve_pachca.go`; the hub itself is `gateway`), so `logger.levels` can raise one bot to `debug` while the rest of the process stays at `info`. Tag once, at construction - `Component` on an already-tagged logger prints two `component` attributes.
 
 The whole command path logs at `debug`: `telegram: update` per arriving message or callback, `telegram: update ignored`/`update rejected` with a `reason` for every silent drop, `telegram: command`, the `model`/`context`/`resume` menus with the session they belong to (`telegram: resume query` for the words after `/resume` and how many sessions matched), and `telegram: callback` with the resolved value. A switch that lands is `info` (`telegram: model applied`, `telegram: session resumed`), matching `telegram: session cleared`; a failure is `warn`. Nothing in the adapter may log through `slog.Default` - a record that skips `b.log` misses the configured sink and carries no component. Operator guide: `docs/surfaces/gateway.md` (Debugging a chat).
 
@@ -99,17 +106,30 @@ The poll names its `allowed_updates` (`subscribedUpdates`: `message`, `callback_
 
 Every test in `external/gateway/telegram` that needs Telegram reaches it through `fakeapi_test.go`: `newFakeAPI(t, opts)` (or `openFakeAPI` for a godog world) serves `internal/tgfake` on httptest and hands back a `tgbotapi` client pointed at it; `userMessage` and `tap` put the person's side into the fake's chat, so the message a handler replies to and the keyboard a tap presses are ones the server knows. Assert on `fake.Calls(method)` (what the bot posted) and `fake.Chat(id)` (what the chat ends up holding). Do not hand-roll an `http.HandlerFunc` for the Bot API: a canned answer accepts what Telegram refuses (an edit of a message never sent, 65 bytes of `callback_data`, a 4097-character text, a reply to a message the chat does not hold, an answer to a callback query it never issued). When a test needs Telegram to behave in a new way - a new method, a new refusal - extend `internal/tgfake` with its own unit test; `Fault` (`Times`, `Contains`) covers refusals by method and by payload. The godog harnesses call `processMessage` / `handleCallback` directly to stay synchronous; only `bdd_polling_test.go` runs `Bot.Start`.
 
+## Pachca adapter
+
+`external/gateway/pachca` is the smaller sibling: an integration bot that reads its **events history** (`GET /webhooks/events`, newest first, `DELETE` after handling) instead of receiving a webhook, so no listener and no public address.
+
+- **The walk** (`poll.go`): a pass goes from the top of the log down to the watermark, `(created_at, id)` because events share milliseconds, kept in `gateway_pachca_state.json`. A pass longer than `pagesPerTick` pages continues from its cursor on the next tick and dispatches only when complete, oldest first; the watermark moves per accepted event. The first start begins after the newest event in the log (server time, not local). An event that arrives while the bot is stopping stays in the log. No `webhooks:events:delete` scope: one warning, then the watermark alone.
+- **Addressing** (`dispatch.go`): a direct chat (`GET /chats/{id}` `personal`, cached; a chat the bot cannot read counts as a group) takes every message; a group takes only a mention (`@nickname`, `<@id>`) or a reply to the bot (`parent_message_id`) - a command and a message in a thread under the bot's message need one of the two. Telegram follows the same group rule (`shouldRespond`: a mention, `/cmd@botname` included, or a reply to the bot).
+- **Somebody who is not an admin only chats** (both adapters): a turn of a sender not in `admins` carries `access.NonAdminTurn()` as `PromptRunOpts.Restriction` (`session.TurnRestriction`: an `AllowedTools` allowlist checked by the agent in `executeToolCall` (`checkRestrictedCall`; MCP tools are never on it), `ConfineToWorkspace` keeping reads and `@` mentions inside the session's cwd and out of `CODDY_HOME` (`session.PathInWorkspace`), `AskAlways` forcing the ask mode in `effectivePermMode` and leaving the session's grants aside), and the bot's sender refuses every permission request (`refuseApprovals`). Woken turns and detached prompts follow `access.KeyIsAdmin(key)`; a permission button is answered by an admin only, whatever the isolation. Telegram's "@bot /command" is normalized into the command first (`commandAfterMention`). `--dry-run` warns about an enabled bot with no `admins`. Tool definitions are not filtered, so the prompt cache holds. Telegram `/app` and the Mini App sign-in (`POST /coddy/auth/telegram`, `external/httpserver/auth_telegram.go`, launch data checked by `webauth.VerifyTelegramInitData`) are the admins' only.
+- **Group settings are the admins'** (both adapters): in a group chat a settings command, `/model` (menu and taps), `/clear` and Telegram `/resume` from somebody not in `admins` are refused with `adminOnlyNote` (`changesSettings` in `telegram/bot.go` and `pachca/dispatch.go`); Telegram `/mcp` taps and `/resume` (command and taps; it reaches every session the server keeps) are admin-only in every chat. The remembered `$last_model` - what every fresh chat starts on - is written only for an admin's pick (tap or typed `/model <id>`), in both adapters; anybody else's pick stays in their own session.
+- **Replies** (both adapters, `external/gateway/replyquote`): a message replying to another reaches the session as `replyquote.Prompt(author, quoted, text)` - the replied-to message as a Markdown quote, its first line naming the author, then what the person wrote; a mention alone under a reply is a quote with nothing under it. The quote is part of the user message (the transcript reads like the chat); a settings command is never quoted; `replyquote.Guidance` is in each adapter's `prompt.go`. Pachca reads the parent with `GET /messages/{id}` and its author with `GET /users/{id}` (`users:read`, recommended). Dedupe by event id, and by message id for `message_new` only. `button_click` passes the same ACL.
+- **Targets**: a `user:` session key is addressed as `entity_type: user` with the person's id (a Pachca direct chat id is not a user id); everything else as `discussion` with the chat id. `targetForKey` is what wakes and detached prompts use; never `sessionstore.ChatID` alone.
+- **Client** (`client.go`): a 429 is retried only with `Retry-After` up to 60 s and no JSON `rate_limit` code (the daily limit doubles its pause on every attempt); no POST is retried on 5xx. `skip_invite_mentions: true` on every post.
+- **Sender**: one message posted at the first text or tool, edited at most every 2 s (edits are outside the send limit), replaced by `renderMarkdown` output at the end; split at 8000 runes with fences reopened, and split again on `too_long`.
+- Tests: `bdd_test.go` runs every `features/gateway_pachca_*.feature` against `internal/pachcafake` with a scripted runner; `pachca_test.go` holds the edges. Extend the fake, with its own test, when the adapter needs Pachca to behave in a new way.
+
 ## Adding a new adapter
 
 1. Create `external/gateway/<name>/bot.go` with `//go:build gateway || gateway.<name>`.
-2. Implement `gateway.Adapter` (`Name() string`, `Start(ctx) error`).
-3. Implement `acp.UpdateSender` (see `telegram/sender.go`).
-4. Add `sessionstore.NewPersisted(storePath)` for key→session-ID persistence.
-5. In `external/gateway/start.go`, append your adapter when its config is enabled.
-6. Update the build constraint on `start.go` / `start_stub.go` to include the new tag.
+2. Implement `gateway.Adapter` (`Name() string`, `Start(ctx) error`) and `acp.UpdateSender` (see `telegram/sender.go`, `pachca/sender.go`).
+3. Give it a `sessionstore.NewPersisted(storePath)` of its own file.
+4. Add `external/gateway/serve_<name>.go` (`Serve<Name>`, `<Name>Available = true`) and `serve_<name>_stub.go` under the negated tag, and add the tag to the constraint of `gateway.go`, `hub.go`, `access`, `sessionstore`, `proxyutil`, and to `TEST_TAG_SETS`.
+5. Add a `serve.Kind` and a descriptor in `subsystems()` of `cmd/coddy/serve.go` with its own `Fingerprint`, a banner line, a `--dry-run` probe in `internal/dryrun`, the config block with its schema, UI schema, JSON DTO and settings dictionary keys.
 
 ## References
 
 @docs/surfaces/gateway.md
-@architecture.md
+@docs/contributing/architecture.md
 @internal/config/gateway.go

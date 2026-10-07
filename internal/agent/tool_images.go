@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -102,12 +103,31 @@ func partBytes(p llm.ImagePart) int {
 // the pictures are taken, so they never reach the next call's result.
 func (a *Agent) callResultMessage(tc llm.ToolCall, result string, execErr error, callRules string) llm.Message {
 	msg := toolResultMessage(tc, result, execErr, callRules)
+	if execErr == nil && tc.Name == "share_file" {
+		if artifact, ok := sharedArtifact(a.state.GetPersistedSessionDir(), result); ok {
+			msg.Artifacts = []llm.Artifact{artifact}
+		}
+	}
 	images := a.callImages
 	a.callImages = nil
 	if execErr == nil && len(images) > 0 {
 		msg.ImageParts = images
 	}
 	return msg
+}
+
+func sharedArtifact(sessionDir, result string) (llm.Artifact, bool) {
+	var out struct {
+		Artifact session.Artifact `json:"artifact"`
+	}
+	if json.Unmarshal([]byte(result), &out) != nil || out.Artifact.ID == "" {
+		return llm.Artifact{}, false
+	}
+	a, _, err := session.ReadArtifact(sessionDir, out.Artifact.ID)
+	if err != nil {
+		return llm.Artifact{}, false
+	}
+	return llm.Artifact{ID: a.ID, Name: a.Name, SHA256: a.SHA256, Size: a.Size, SourcePath: a.SourcePath, SourceRelativePath: a.SourceRelativePath}, true
 }
 
 // toolImagesForSurfaces describes the pictures of a finished call for the
@@ -222,6 +242,7 @@ func selectPictures(msgs []llm.Message, readsImages bool, load func(llm.ImagePar
 // the prompts came with; the text files of a prompt still go. The input is
 // never written.
 func withToolImages(msgs []llm.Message, readsImages bool, load func(llm.ImagePart) (string, error)) []llm.Message {
+	msgs = withoutArtifacts(msgs)
 	kept, missing := selectPictures(msgs, readsImages, load)
 	if untouched(msgs, readsImages, kept) {
 		return msgs
@@ -279,6 +300,22 @@ func withToolImages(msgs []llm.Message, readsImages bool, load func(llm.ImagePar
 	}
 	flush()
 	return out
+}
+
+// withoutArtifacts removes surface-only download metadata from the provider
+// projection without rewriting the persisted transcript.
+func withoutArtifacts(msgs []llm.Message) []llm.Message {
+	for i := range msgs {
+		if len(msgs[i].Artifacts) == 0 {
+			continue
+		}
+		out := append([]llm.Message(nil), msgs...)
+		for i := range out {
+			out[i].Artifacts = nil
+		}
+		return out
+	}
+	return msgs
 }
 
 // untouched reports whether the projection would leave msgs as they are: no

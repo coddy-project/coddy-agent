@@ -283,7 +283,7 @@ func (m *Manager) validateSettingsChange(st *State, ch SettingsChange) (map[stri
 			v = thinkingOnLevel(cfg, ent, choices)
 		}
 		if v == config.ReasoningOff && !containsLevel(choices, v) {
-			return nil, fmt.Errorf("thinking cannot be turned off for model %q: its provider has no switch for it (levels: %s)", model, strings.Join(choices, ", "))
+			return nil, fmt.Errorf("thinking cannot be turned off for model %q: set allow_reasoning_off for this model after verifying its deployment supports the request (levels: %s)", model, strings.Join(choices, ", "))
 		}
 		if v != config.ReasoningDefault && !containsLevel(choices, v) {
 			return nil, fmt.Errorf("reasoning %q is not offered by model %q (offered: %s, default)", v, model, strings.Join(choices, ", "))

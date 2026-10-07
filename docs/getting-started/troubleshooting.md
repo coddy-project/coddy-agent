@@ -145,7 +145,23 @@ coddy agents list [--cwd DIR]
 coddy agents trust <name>
 ```
 
-Both `trust` commands print what they are about to approve and record the receipt (`~/.coddy/hooks-trust.json`, `~/.coddy/subagents-trust.json`). From a remote console or an ACP client the approval belongs on the server: `POST /coddy/hooks/trust` and `POST /coddy/subagents/{name}/trust` with the session workspace as `cwd`. The web UI's Settings > Subagents lists the definitions and marks the ones awaiting approval, but records none. A checkout you already trust can run under `project_trust: allow`. Guides: [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
+Both `trust` commands print what they are about to approve and record the receipt (`~/.coddy/hooks-trust.json`, `~/.coddy/subagents-trust.json`). From a remote console or an ACP client the approval belongs on the server: `POST /coddy/hooks/trust` and `POST /coddy/subagents/{name}/trust` with the session workspace as `cwd`. The web UI's Settings > Subagents lists the definitions and approves a project one with the shield of its row, which records the receipt on the server for the workspace of the chat on screen. A checkout you already trust can run under `project_trust: allow`. Guides: [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
+
+## A project marketplace is not synced
+
+**Symptom.** A source or marketplace the project declares in `.coddy/marketplaces.json` installs nothing: `coddy skills sync` ends with a line like `? team/skills: declared by <workspace>/.coddy/marketplaces.json, not approved for this workspace`, `plugin install <plugin>@<name>` says the marketplace is not approved, and Settings > Skills shows the row with a note and its **Sync** button disabled.
+
+**Cause.** That file arrives with the checkout and decides what is installed into `${CODDY_HOME}/skills`, so its entries follow `skills.project_trust`: under the default `ask` an entry takes effect only once you approve it for that workspace, and an approval is bound to the entry, so a checkout that rewrites it asks again. Under `deny` the entries are listed as switched off and never used.
+
+**Fix.** Approve it in a terminal in the workspace, or with the shield of its row in Settings > Skills:
+
+```bash
+coddy plugin marketplace list            # what is declared, and what waits for approval
+coddy plugin marketplace trust <name>    # a marketplace by name, a source by its address
+coddy skills sync
+```
+
+`/plugin` in a chat cannot approve one. A checkout you already trust can run under `skills.project_trust: allow`. Guide: [Skills](../features/skills.md#project-marketplaces-and-trust).
 
 ## A turn stops with a usage limit
 
@@ -233,7 +249,7 @@ Field reference: [`agent`](../reference/config.md#agent), [`providers`](../refer
 
 **Symptom.** The answer stops mid-sentence, and the session log shows a notice such as `The provider failed mid-turn (... server error 500: litellm.MidStreamFallbackError ...). The turn went on after a 5s pause (recovery 1 of 2).` The turn then continues on its own. Before this, such a turn ended with the error and waited for the user to type "continue" ([issue #246](https://github.com/coddy-project/coddy-agent/issues/246)).
 
-**Cause.** The provider's lane failed, not the request: a 5xx from a proxy whose fallback also failed, a connection cut, a stream gone silent. A connection the remote host closed reads `connection reset by peer` on Linux and `wsarecv: An existing connection was forcibly closed by the remote host.` on Windows; both are a cut ([issue #389](https://github.com/coddy-project/coddy-agent/issues/389)). A stream event that arrives framed but ends inside its JSON is a cut too ([issue #384](https://github.com/coddy-project/coddy-agent/issues/384)): before the fix it surfaced as the decoder's own text, `codex stream: unexpected end of JSON input` or `openai stream: undecodable SSE frame: {"choices":...`, and ended the turn; now it reads `stream truncated: an event arrived with incomplete JSON (unexpected end of JSON input)` (Codex and Anthropic also spell the cut `invalid character '\n' in string literal`) or `stream truncated: an event arrived with incomplete JSON (undecodable SSE frame: {"choices":...)` on an OpenAI-compatible server, keeps the text already shown and takes the same recovery. `undecodable SSE frame:` followed by text that is not JSON at all (an HTML error page) means a server or a proxy wrote something else into the stream; the turn ends with that error, and it is not retried. The resilient wrapper retries a call only while nothing has reached the user, so a failure after the first words, or one that outlasts its backoff, reaches the turn. The turn treats it as a breaker:
+**Cause.** The provider's lane failed, not the request: a 5xx from a proxy whose fallback also failed, a connection cut, a stream gone silent. A connection the remote host closed reads `connection reset by peer` on Linux and `wsarecv: An existing connection was forcibly closed by the remote host.` on Windows; both are a cut ([issue #389](https://github.com/coddy-project/coddy-agent/issues/389)). A stream event that arrives framed but ends inside its JSON is a cut too ([issue #384](https://github.com/coddy-project/coddy-agent/issues/384)): before the fix it surfaced as the decoder's own text, `codex stream: unexpected end of JSON input` or `openai stream: undecodable SSE frame: {"choices":...`, and ended the turn; now it reads `stream truncated: an event arrived with incomplete JSON (unexpected end of JSON input)` (Codex and Anthropic also spell the cut `invalid character '\n' in string literal`) or `stream truncated: an event arrived with incomplete JSON (undecodable SSE frame: {"choices":...)` on an OpenAI-compatible server, keeps the text already shown and takes the same recovery. `undecodable SSE frame:` followed by text that is not JSON at all (an HTML error page) means a server or a proxy wrote something else into the stream; the turn ends with that error, and it is not retried. A Codex turn that failed with `stream truncated: an event arrived with incomplete JSON (unexpected end of JSON input)` about five seconds after the model went quiet, recovery after recovery, was not a cut at all: the Codex backend sends a `: keep-alive` comment while the model is silent, and the reader took that comment for an event with nothing in it. Comments and frames without data are skipped now, as they always were on OpenAI-compatible servers. The resilient wrapper retries a call only while nothing has reached the user, so a failure after the first words, or one that outlasts its backoff, reaches the turn. The turn treats it as a breaker:
 
 - the text the user already saw stays in the transcript, and the model is asked to go on from where it stopped rather than start over;
 - the pause before the first recovery is five times `agent.llm_retry_base_ms` (5 s by default) and four times longer before each next one (20 s, 80 s), or the pause the provider asked for in `Retry-After` when that is longer, at most 2 minutes;
@@ -246,17 +262,19 @@ Field reference: [`agent`](../reference/config.md#agent), [`providers`](../refer
 
 **Symptom.** The agent stops working with the task unfinished, and a notice under the last answer says why: `Stopped after 40 steps, the step limit set by agent.max_turns. ...`, or `The answer was cut off at the model's output limit (max_tokens). ...`. The console prints the same line, `coddy -p` writes it to stderr, and a Telegram chat receives it as a message of its own ([issue #255](https://github.com/coddy-project/coddy-agent/issues/255)).
 
-**Cause.** A limit ended the turn, not the model. `agent.max_turns` caps the ReAct steps of one turn. It is off by default (`0`), so this notice appears only when the configuration sets it; a subagent takes its limit from its definition's `max_turns`, then `subagents.max_turns`. `max_tokens` on a model caps one answer.
+**Cause.** A limit ended the turn, not the model. `agent.max_turns` caps the ReAct steps of one turn at 165 by default. Set it to `0` only to explicitly disable the cap; a subagent takes its limit from its definition's `max_turns`, then `subagents.max_turns`. `max_tokens` on a model caps one answer.
 
 **Fix.** Send a message to let the agent continue, or raise the limit that the notice names:
 
 ```yaml
 agent:
-  max_turns: 0          # no step limit
+  max_turns: 240        # a larger step limit for this task
 models:
   - model: openai/gpt-5.6-terra
     max_tokens: 32000
 ```
+
+Set `max_turns: 0` only when deliberately disabling the step cap.
 
 ## `coddy update` refuses to overwrite a packaged binary
 

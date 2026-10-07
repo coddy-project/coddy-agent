@@ -250,3 +250,278 @@ func TestEnsureSessionStampsOnlyTheChatsItStarts(t *testing.T) {
 		t.Fatalf("the gateway relabelled a session it did not start: origin %q", got)
 	}
 }
+
+// --- the web UI as the bot's Mini App --------------------------------------
+
+func TestMiniAppLinkCarriesTheSessionInTheQuery(t *testing.T) {
+	for _, tc := range []struct{ base, session, want string }{
+		{"https://coddy.example.com/", "sess_1", "https://coddy.example.com/?session=sess_1"},
+		{"https://coddy.example.com", "sess_1", "https://coddy.example.com?session=sess_1"},
+		{"https://coddy.example.com/coddy/?team=a", "sess_1", "https://coddy.example.com/coddy/?session=sess_1&team=a"},
+		{"https://coddy.example.com/", "", "https://coddy.example.com/"},
+	} {
+		if got := miniAppLink(tc.base, tc.session); got != tc.want {
+			t.Errorf("miniAppLink(%q, %q) = %q, want %q", tc.base, tc.session, got, tc.want)
+		}
+	}
+}
+
+func miniAppBot(t *testing.T, app string, store string) *Bot {
+	t.Helper()
+	return New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, MiniApp: config.TelegramMiniAppConfig{URL: app}, Admins: []int64{4242}},
+		newStubRunner(&config.Config{}), t.TempDir(), slog.New(slog.DiscardHandler), store, nil)
+}
+
+// lastKeyboard returns the first button of the newest bot message with a keyboard.
+func lastButton(t *testing.T, f *fakeAPI, chatID int64) tgfake.InlineKeyboardButton {
+	t.Helper()
+	msgs := f.fake.Chat(chatID).Messages
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].From == "bot" && len(msgs[i].Keyboard) > 0 {
+			return msgs[i].Keyboard[0][0]
+		}
+	}
+	t.Fatalf("no bot message with a keyboard:\n%s", f.fake.Chat(chatID).Text())
+	return tgfake.InlineKeyboardButton{}
+}
+
+func TestAppCommandOpensTheChatsConversation(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{})
+	bot := miniAppBot(t, "https://coddy.example.com/", "")
+	key := sessionstore.SessionKey(adapterName, 4242, 4242, config.IsolationIndividual, false)
+
+	// No conversation yet: the start screen, and no session minted for it.
+	bot.processMessage(t.Context(), f.api, f.userMessage(4242, 4242, "/app"), key)
+	if b := lastButton(t, f, 4242); b.WebApp == nil || b.WebApp.URL != "https://coddy.example.com/" {
+		t.Fatalf("/app before any conversation: %+v", b)
+	}
+	if got := bot.store.Peek(key); got != "" {
+		t.Fatalf("/app minted session %q", got)
+	}
+
+	id := bot.store.Get(key)
+	msg := f.userMessage(4242, 4242, "/app")
+	bot.processMessage(t.Context(), f.api, msg, key)
+	if b := lastButton(t, f, 4242); b.WebApp == nil || b.WebApp.URL != "https://coddy.example.com/?session="+id {
+		t.Fatalf("/app in a private chat: %+v", b)
+	}
+	if replies := f.repliesTo(4242, msg.MessageID); len(replies) != 1 {
+		t.Fatalf("/app should answer the message it was sent in, got %d replies", len(replies))
+	}
+
+	// A group gets a plain link: Telegram takes web_app buttons in private chats only.
+	groupKey := sessionstore.SessionKey(adapterName, -100500, 4242, config.IsolationIndividual, true)
+	groupID := bot.store.Get(groupKey)
+	bot.processMessage(t.Context(), f.api, f.userMessage(-100500, 4242, "/app"), groupKey)
+	if b := lastButton(t, f, -100500); b.WebApp != nil || b.URL != "https://coddy.example.com/?session="+groupID {
+		t.Fatalf("/app in a group: %+v", b)
+	}
+}
+
+func TestAppCommandWithoutAMiniAppNamesTheKey(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{})
+	bot := miniAppBot(t, "", "")
+	key := sessionstore.SessionKey(adapterName, 4242, 4242, config.IsolationIndividual, false)
+	msg := f.userMessage(4242, 4242, "/app")
+	bot.processMessage(t.Context(), f.api, msg, key)
+	replies := f.repliesTo(4242, msg.MessageID)
+	if len(replies) != 1 || !strings.Contains(replies[0].Text, "gateways.telegram.mini_app.url") || replies[0].Keyboard != nil {
+		t.Fatalf("/app without a Mini App: %+v", replies)
+	}
+}
+
+func TestCommandListAndHelpNameAppOnlyWithAMiniApp(t *testing.T) {
+	has := func(cfg *config.TelegramGatewayConfig) bool {
+		for _, c := range botCommands(cfg) {
+			if c.Command == "app" {
+				return true
+			}
+		}
+		return false
+	}
+	without := &config.TelegramGatewayConfig{}
+	with := &config.TelegramGatewayConfig{MiniApp: config.TelegramMiniAppConfig{URL: "https://coddy.example.com/"}}
+	if has(without) || !has(with) {
+		t.Fatalf("setMyCommands lists /app: without a Mini App %v, with one %v", has(without), has(with))
+	}
+	if strings.Contains(helpText(without, "b"), "/app") || !strings.Contains(helpText(with, "b"), "/app") {
+		t.Fatal("/help should name /app exactly when the web UI is the bot's Mini App")
+	}
+	if cmds := botCommands(with); cmds[len(cmds)-1].Command != "clear" {
+		t.Fatalf("/clear stays last: %+v", cmds)
+	}
+}
+
+// The bot takes back only the menu button it set itself, and puts back what
+// it replaced.
+func TestMenuButtonSyncTakesBackOnlyItsOwnButton(t *testing.T) {
+	setCalls := func(f *fakeAPI) int { return len(f.fake.Calls("setChatMenuButton")) }
+	setBotFatherButton := func(t *testing.T, f *fakeAPI, url string) {
+		t.Helper()
+		if _, err := f.api.MakeRequest("setChatMenuButton", map[string]string{
+			"menu_button": `{"type":"web_app","text":"Mine","web_app":{"url":"` + url + `"}}`}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	no := false
+
+	t.Run("configured: the button opens the web UI and is remembered", func(t *testing.T) {
+		f := newFakeAPI(t, tgfake.Options{})
+		bot := miniAppBot(t, "https://coddy.example.com/", "")
+		bot.syncMenuButton(f.api)
+		if m := f.fake.MenuButton(0); m.Type != "web_app" || m.WebApp.URL != "https://coddy.example.com/" || m.Text != miniAppMenuText {
+			t.Fatalf("menu button: %+v", m)
+		}
+		if set, _ := bot.store.MenuButton(f.api.Self.ID); set != "https://coddy.example.com/" {
+			t.Fatalf("remembered %q", set)
+		}
+	})
+	t.Run("turned off: the button set in BotFather before comes back", func(t *testing.T) {
+		f := newFakeAPI(t, tgfake.Options{})
+		setBotFatherButton(t, f, "https://mine.example.com/")
+		bot := miniAppBot(t, "https://coddy.example.com/", "")
+		bot.syncMenuButton(f.api)
+		if m := f.fake.MenuButton(0); m.WebApp == nil || m.WebApp.URL != "https://coddy.example.com/" {
+			t.Fatalf("menu button after the takeover: %+v", m)
+		}
+		bot.cfg.MiniApp.MenuButton = &no
+		bot.syncMenuButton(f.api)
+		if m := f.fake.MenuButton(0); m.Type != "web_app" || m.WebApp == nil || m.WebApp.URL != "https://mine.example.com/" || m.Text != "Mine" {
+			t.Fatalf("menu button after turning it off: %+v", m)
+		}
+		if set, before := bot.store.MenuButton(f.api.Self.ID); set != "" || before != "" {
+			t.Fatalf("still remembered %q, %q", set, before)
+		}
+	})
+	t.Run("url emptied with nothing before: the commands come back", func(t *testing.T) {
+		f := newFakeAPI(t, tgfake.Options{})
+		bot := miniAppBot(t, "https://coddy.example.com/", "")
+		bot.syncMenuButton(f.api)
+		bot.cfg.MiniApp.URL = ""
+		bot.syncMenuButton(f.api)
+		if m := f.fake.MenuButton(0); m.Type != "commands" {
+			t.Fatalf("menu button: %+v", m)
+		}
+	})
+	t.Run("changed in BotFather meanwhile: left alone and forgotten", func(t *testing.T) {
+		f := newFakeAPI(t, tgfake.Options{})
+		bot := miniAppBot(t, "https://coddy.example.com/", "")
+		bot.syncMenuButton(f.api)
+		setBotFatherButton(t, f, "https://mine.example.com/")
+		bot.cfg.MiniApp.URL = ""
+		before := setCalls(f)
+		bot.syncMenuButton(f.api)
+		if setCalls(f) != before {
+			t.Fatal("a button the operator set was overwritten")
+		}
+		if m := f.fake.MenuButton(0); m.WebApp == nil || m.WebApp.URL != "https://mine.example.com/" {
+			t.Fatalf("menu button: %+v", m)
+		}
+		if set, _ := bot.store.MenuButton(f.api.Self.ID); set != "" {
+			t.Fatalf("still remembered %q", set)
+		}
+	})
+	t.Run("never configured: the menu button is not touched at all", func(t *testing.T) {
+		f := newFakeAPI(t, tgfake.Options{})
+		bot := miniAppBot(t, "", "")
+		bot.syncMenuButton(f.api)
+		if n := len(f.fake.Calls("")); n != 0 {
+			t.Fatalf("a bot with no Mini App made %d Bot API calls about its menu button", n)
+		}
+	})
+	t.Run("a refused set is not remembered", func(t *testing.T) {
+		f := newFakeAPI(t, tgfake.Options{})
+		f.fake.SetFault(tgfake.Fault{Method: "setChatMenuButton", Code: 400, Description: "Bad Request: nope"})
+		bot := miniAppBot(t, "https://coddy.example.com/", "")
+		bot.syncMenuButton(f.api)
+		if set, _ := bot.store.MenuButton(f.api.Self.ID); set != "" {
+			t.Fatalf("a refused button was remembered: %q", set)
+		}
+	})
+	t.Run("a button that cannot be read is not replaced", func(t *testing.T) {
+		f := newFakeAPI(t, tgfake.Options{})
+		setBotFatherButton(t, f, "https://mine.example.com/")
+		f.fake.SetFault(tgfake.Fault{Method: "getChatMenuButton", Code: 500, Description: "Internal Server Error", Times: 1})
+		bot := miniAppBot(t, "https://coddy.example.com/", "")
+		bot.syncMenuButton(f.api)
+		if m := f.fake.MenuButton(0); m.WebApp == nil || m.WebApp.URL != "https://mine.example.com/" {
+			t.Fatalf("a button that could not be read was replaced: %+v", m)
+		}
+		if set, before := bot.store.MenuButton(f.api.Self.ID); set != "" || before != "" {
+			t.Fatalf("remembered %q, %q", set, before)
+		}
+		// The next start reads it, takes it over and keeps it to put back.
+		bot.syncMenuButton(f.api)
+		bot.cfg.MiniApp.MenuButton = &no
+		bot.syncMenuButton(f.api)
+		if m := f.fake.MenuButton(0); m.WebApp == nil || m.WebApp.URL != "https://mine.example.com/" || m.Text != "Mine" {
+			t.Fatalf("menu button after turning it off: %+v", m)
+		}
+	})
+	t.Run("a BotFather button to the same address comes back", func(t *testing.T) {
+		f := newFakeAPI(t, tgfake.Options{})
+		setBotFatherButton(t, f, "https://coddy.example.com/")
+		bot := miniAppBot(t, "https://coddy.example.com/", "")
+		bot.syncMenuButton(f.api)
+		if m := f.fake.MenuButton(0); m.Text != miniAppMenuText {
+			t.Fatalf("menu button after the takeover: %+v", m)
+		}
+		bot.cfg.MiniApp.MenuButton = &no
+		bot.syncMenuButton(f.api)
+		if m := f.fake.MenuButton(0); m.Type != "web_app" || m.Text != "Mine" || m.WebApp == nil || m.WebApp.URL != "https://coddy.example.com/" {
+			t.Fatalf("menu button after turning it off: %+v", m)
+		}
+	})
+	t.Run("a BotFather button to the same address is not put back to advertise an open web UI", func(t *testing.T) {
+		f := newFakeAPI(t, tgfake.Options{})
+		setBotFatherButton(t, f, "https://coddy.example.com/")
+		bot := miniAppBot(t, "https://coddy.example.com/", "")
+		bot.syncMenuButton(f.api)
+		bot.SetWebUIGate(func() (bool, string) { return false, "the web UI asks for no sign-in" })
+		bot.syncMenuButton(f.api)
+		if m := f.fake.MenuButton(0); m.Type != "commands" {
+			t.Fatalf("an open web UI is advertised again by the button put back: %+v", m)
+		}
+	})
+	t.Run("a store lost under the bot's own button keeps nothing to put back", func(t *testing.T) {
+		f := newFakeAPI(t, tgfake.Options{})
+		miniAppBot(t, "https://coddy.example.com/", "").syncMenuButton(f.api)
+		lost := miniAppBot(t, "https://coddy.example.com/", "")
+		lost.syncMenuButton(f.api)
+		if _, before := lost.store.MenuButton(f.api.Self.ID); before != "" {
+			t.Fatalf("the bot's own button was kept as the operator's: %q", before)
+		}
+	})
+	t.Run("an open web UI is not advertised, and a button set before is taken back", func(t *testing.T) {
+		f := newFakeAPI(t, tgfake.Options{})
+		bot := miniAppBot(t, "https://coddy.example.com/", "")
+		bot.syncMenuButton(f.api)
+		bot.SetWebUIGate(func() (bool, string) { return false, "the web UI asks for no sign-in" })
+		bot.syncMenuButton(f.api)
+		if m := f.fake.MenuButton(0); m.Type != "commands" {
+			t.Fatalf("an open web UI is still advertised: %+v", m)
+		}
+		fresh := miniAppBot(t, "https://coddy.example.com/", "")
+		fresh.SetWebUIGate(func() (bool, string) { return false, "the web UI asks for no sign-in" })
+		g := newFakeAPI(t, tgfake.Options{})
+		fresh.syncMenuButton(g.api)
+		if n := len(g.fake.Calls("setChatMenuButton")); n != 0 {
+			t.Fatalf("an open web UI was advertised by %d setChatMenuButton calls", n)
+		}
+	})
+}
+
+func TestAppCommandWithholdsAnOpenWebUI(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{})
+	bot := miniAppBot(t, "https://coddy.example.com/", "")
+	bot.SetWebUIGate(func() (bool, string) { return false, "the web UI asks for no sign-in" })
+	key := sessionstore.SessionKey(adapterName, 4242, 4242, config.IsolationIndividual, false)
+	bot.store.Get(key)
+	msg := f.userMessage(4242, 4242, "/app")
+	bot.processMessage(t.Context(), f.api, msg, key)
+	replies := f.repliesTo(4242, msg.MessageID)
+	if len(replies) != 1 || replies[0].Keyboard != nil || !strings.Contains(replies[0].Text, "asks for no sign-in") ||
+		strings.Contains(replies[0].Text, "coddy.example.com") {
+		t.Fatalf("/app with an open web UI: %+v", replies)
+	}
+}

@@ -7,6 +7,7 @@ import test from "node:test"
 import {
   createProjectRulesHooks,
   globToRegExp,
+  parseRule,
 } from "../lib/project-rules.js"
 import { ProjectRulesPlugin } from "../plugins/project-rules.js"
 
@@ -38,6 +39,22 @@ async function fixture(t) {
       "Keep the served OpenAPI document aligned with HTTP handlers.",
     ].join("\n"),
   )
+  await writeFile(
+    path.join(rulesDir, "provider-proxy.mdc"),
+    [
+      "---",
+      "description: Provider proxy rule",
+      "globs: # provider paths",
+      '  - "internal/llm/**/*.go" # provider core',
+      "  # provider commands",
+      "",
+      "  - cmd/coddy/providers.go # sign-in commands",
+      "  - 'fixtures/foo\\' # terminal backslash",
+      "alwaysApply: false",
+      "---",
+      "Every provider request follows its configured proxy.",
+    ].join("\n"),
+  )
   return root
 }
 
@@ -58,6 +75,70 @@ test("Cursor globs match files directly below a recursive directory", () => {
   assert.equal(pattern.test("external/ui/src/App.tsx"), false)
 })
 
+test("flow-style YAML scalars preserve quoted commas and comments", () => {
+  const rule = parseRule(
+    "/repo/.cursor/rules/flow.mdc",
+    [
+      "---",
+      'description: "Flow \\N\\_ rule" # display text',
+      "globs: [\"fixtures/foo,bar.go\", 'fixtures/it''s.go', \"\\x69nternal/**/*.go\", \"fixtures/\\_.go\"] # scoped paths",
+      "alwaysApply: true # required",
+      "---",
+      "Flow rule body.",
+    ].join("\n"),
+    "/repo",
+  )
+
+  assert.equal(rule.description, "Flow \u0085\u00a0 rule")
+  assert.deepEqual(rule.globs, [
+    "fixtures/foo,bar.go",
+    "fixtures/it's.go",
+    "internal/**/*.go",
+    "fixtures/\u00a0.go",
+  ])
+  assert.equal(rule.always, true)
+
+  const multiline = parseRule(
+    "/repo/.cursor/rules/multiline-flow.mdc",
+    [
+      "---",
+      "description: Multiline flow",
+      "globs: [",
+      '  "internal/llm/' + "\\",
+      '    *.go",',
+      '  "cmd/coddy/providers.go",',
+      '  "fixtures/foo',
+      '    #bar.go"',
+      "]",
+      "alwaysApply: false",
+      "---",
+      "Multiline flow body.",
+    ].join("\n"),
+    "/repo",
+  )
+  assert.deepEqual(multiline.globs, [
+    "internal/llm/*.go",
+    "cmd/coddy/providers.go",
+    "fixtures/foo #bar.go",
+  ])
+  assert.equal(multiline.always, false)
+
+  const terminalBackslash = parseRule(
+    "/repo/.cursor/rules/terminal-backslash.mdc",
+    [
+      "---",
+      "description: Terminal backslash",
+      "globs: # provider paths",
+      "  - 'fixtures/foo\\' # terminal backslash",
+      "alwaysApply: false",
+      "---",
+      "Terminal backslash body.",
+    ].join("\n"),
+    "/repo",
+  )
+  assert.deepEqual(terminalBackslash.globs, ["fixtures/foo\\"])
+})
+
 test("alwaysApply rules enter every OpenCode system prompt", async (t) => {
   const root = await fixture(t)
   const hooks = await createProjectRulesHooks({ repoRoot: root, directory: root })
@@ -65,6 +146,8 @@ test("alwaysApply rules enter every OpenCode system prompt", async (t) => {
   const system = await systemText(hooks, "session-always")
 
   assert.match(system, /Always follow the repository workflow/)
+  assert.match(system, /OpenCode project adapter/)
+  assert.doesNotMatch(system, /single source of truth/)
   assert.doesNotMatch(system, /Keep the served OpenAPI document aligned/)
 })
 
@@ -88,6 +171,30 @@ test("reading a governed file activates its scoped rules", async (t) => {
 
   const system = await systemText(hooks, "session-read")
   assert.match(system, /Keep the served OpenAPI document aligned/)
+})
+
+test("YAML-list globs activate the provider rule", async (t) => {
+  const root = await fixture(t)
+  const hooks = await createProjectRulesHooks({ repoRoot: root, directory: root })
+
+  await hooks["tool.execute.before"](
+    { tool: "read", sessionID: "session-list-glob", callID: "call-1" },
+    { args: { filePath: "internal/llm/openai.go" } },
+  )
+
+  assert.match(
+    await systemText(hooks, "session-list-glob"),
+    /Every provider request follows its configured proxy/,
+  )
+
+  await hooks["tool.execute.before"](
+    { tool: "read", sessionID: "session-list-glob-second", callID: "call-2" },
+    { args: { filePath: "cmd/coddy/providers.go" } },
+  )
+  assert.match(
+    await systemText(hooks, "session-list-glob-second"),
+    /Every provider request follows its configured proxy/,
+  )
 })
 
 test("the first direct edit is retried after scoped rules are activated", async (t) => {

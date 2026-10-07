@@ -703,27 +703,6 @@ describe("SwarmView", () => {
     expect(russian).toContain('"swarm.viewport.fit": "Показать граф целиком"');
   });
 
-  it("renders the environment selector in the Swarm error state", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          ({ ok: false, status: 404, json: async () => ({}) }) as Response,
-      ),
-    );
-    render(
-      <SwarmView headerSlot={<button type="button">Environment</button>} />,
-    );
-    await waitFor(() => {
-      expect(screen.getByTestId("swarm-view")).toHaveTextContent(
-        "not a swarm relay",
-      );
-    });
-    expect(
-      screen.getByRole("button", { name: "Environment" }),
-    ).toBeInTheDocument();
-  });
-
   it("draws every node the relay can reach, and nothing else", async () => {
     render(<SwarmView />);
     await drawn();
@@ -1254,9 +1233,7 @@ describe("SwarmView", () => {
       target: { value: "nas02" },
     });
     await waitFor(() => {
-      expect(
-        screen.getByTestId("swarm-node-hit-nas02"),
-      ).toBeInTheDocument();
+      expect(screen.getByTestId("swarm-node-hit-nas02")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByTestId("swarm-node-hit-nas02"));
     expect(onOpenNode).toHaveBeenCalledWith(["nas02"]);
@@ -1332,18 +1309,5 @@ describe("SwarmView", () => {
     expect(screen.getByTestId("swarm-view")).not.toHaveTextContent(
       "No nodes have joined yet",
     );
-  });
-
-  // The relay-as-home wiring lives in App.tsx and had no coverage at all. What
-  // is testable here is the half SwarmView owns: with a header slot it renders
-  // it, because on a relay that slot is the only environment control on screen.
-  it("renders the header slot it is given", async () => {
-    render(<SwarmView headerSlot={<button type="button">окружение</button>} />);
-    await waitFor(() => {
-      expect(screen.getByTestId("swarm-view")).toBeInTheDocument();
-    });
-    const slot = screen.getByRole("button", { name: "окружение" });
-    const header = document.querySelector(".swarm-header-actions");
-    expect(header?.contains(slot)).toBe(true);
   });
 });

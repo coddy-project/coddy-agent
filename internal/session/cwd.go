@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
 )
 
 // EffectiveSessionCWD resolves the filesystem working directory for a new session.
@@ -73,6 +75,37 @@ func ValidateWorkspaceDir(dir string) (string, error) {
 	return abs, nil
 }
 
+// RecoverManagedWorktreeCWD returns the repository root for a missing path
+// below a managed <repo>/.coddy/worktrees/<name> directory. It never recovers
+// arbitrary missing directories: the repository root must exist and be the
+// main checkout of a Git repository.
+func RecoverManagedWorktreeCWD(dir string) (string, bool) {
+	abs, err := filepath.Abs(strings.TrimSpace(dir))
+	if err != nil {
+		return "", false
+	}
+	abs = filepath.Clean(abs)
+	if info, err := os.Stat(abs); err == nil && info.IsDir() {
+		return "", false
+	}
+
+	for child, parent := abs, filepath.Dir(abs); child != parent; child, parent = parent, filepath.Dir(parent) {
+		if filepath.Base(parent) != "worktrees" || filepath.Base(filepath.Dir(parent)) != ".coddy" {
+			continue
+		}
+		repo := filepath.Dir(filepath.Dir(parent))
+		info, err := os.Stat(repo)
+		if err != nil || !info.IsDir() {
+			return "", false
+		}
+		if CanonicalWorkspacePath(gitws.MainCheckoutRoot(repo)) != CanonicalWorkspacePath(repo) {
+			return "", false
+		}
+		return repo, true
+	}
+	return "", false
+}
+
 // ReloadSessionWorkspace re-derives workspace-scoped state (configured MCP
 // servers, skills, project rules, SessionStart hook context) after the
 // workspace's files changed under the same cwd - an in-place branch checkout.
@@ -97,17 +130,11 @@ func (m *Manager) reloadWorkspaceScopedState(ctx context.Context, st *State, tur
 		}
 		cancel()
 	} else {
+		// A directory selection must make local skills available to the
+		// composer immediately, but it is not an agent turn and must not
+		// execute a workspace-provided MCP process. Reconcile configured MCP
+		// servers under the next turn lock instead, where trust is evaluated.
 		st.markMCPReloadPending()
-		if unlock, err := m.acquirePromptTurnLock(st.GetID(), st); err == nil {
-			applied := true
-			if st.takeMCPReloadPending() {
-				applied = m.applyConfiguredMCPReload(ctx, st)
-			}
-			unlock()
-			if applied {
-				m.drainPendingMCPReload(st.GetID(), st)
-			}
-		}
 	}
 
 	loadedSkills, err := m.loadSkills(cwd, cfg)

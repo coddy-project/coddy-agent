@@ -1,10 +1,11 @@
-//go:build gateway || gateway.telegram
+//go:build gateway || gateway.telegram || gateway.pachca
 
 package sessionstore_test
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
@@ -202,5 +203,42 @@ func TestLastModelLoadsFromAFlatSessionsFile(t *testing.T) {
 	}
 	if got := s.Peek("tg:user:1"); got != "sess_aaaaaaaaaaaaaaaaaaaaaaaa" {
 		t.Fatalf("flat file session binding lost: Peek = %q", got)
+	}
+}
+
+// The menu button a bot set is remembered per bot, with the button it
+// replaced, survives a restart, and is as invisible to the session lookups as
+// the model entry: only the address the bot itself put there may be taken
+// back later, and what it replaced is what goes back.
+func TestMenuButtonPersistsPerBotAndStaysOutOfSessionLookups(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway_sessions.json")
+	s := sessionstore.NewPersisted(path)
+	if url, before := s.MenuButton(7); url != "" || before != "" {
+		t.Fatalf("MenuButton on a fresh store = %q, %q", url, before)
+	}
+	s.SetMenuButton(7, "https://coddy.example.com/", `{"type":"web_app","text":"Mine","web_app":{"url":"https://mine.example.com/"}}`)
+	s.SetMenuButton(8, "https://other.example.com/", "")
+	id := s.Get("tg:user:1")
+	if key, ok := s.KeyFor("https://coddy.example.com/"); ok {
+		t.Fatalf("KeyFor answers for a menu button entry: %q", key)
+	}
+	if key, ok := s.KeyFor(id); !ok || key != "tg:user:1" {
+		t.Fatalf("KeyFor(%q) = (%q, %v)", id, key, ok)
+	}
+	for _, known := range s.KnownIDs() {
+		if !strings.HasPrefix(known, "sess_") {
+			t.Fatalf("KnownIDs lists a menu button entry %q as a session id", known)
+		}
+	}
+	again := sessionstore.NewPersisted(path)
+	if url, before := again.MenuButton(7); url != "https://coddy.example.com/" || !strings.Contains(before, "mine.example.com") {
+		t.Fatalf("after a restart MenuButton(7) = %q, %q", url, before)
+	}
+	if url, before := again.MenuButton(8); url != "https://other.example.com/" || before != "" {
+		t.Fatalf("after a restart MenuButton(8) = %q, %q", url, before)
+	}
+	again.SetMenuButton(7, "", "ignored")
+	if url, before := sessionstore.NewPersisted(path).MenuButton(7); url != "" || before != "" {
+		t.Fatalf("a forgotten menu button is still remembered: %q, %q", url, before)
 	}
 }

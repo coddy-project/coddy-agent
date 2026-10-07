@@ -119,7 +119,9 @@ afterEach(() => {
 // copy it read, and a second open draws the tab from it in its first frame.
 test("reopening Settings draws the tab from the copy it keeps, without waiting for a request", async () => {
   const fetch = stubServer();
-  const first = render(<Settings onClose={() => {}} initialSection="providers" />);
+  const first = render(
+    <Settings onClose={() => {}} initialSection="providers" />,
+  );
   await screen.findByTestId("settings-master-item-0");
   first.unmount();
   fetch.mockClear();
@@ -250,9 +252,9 @@ test("a configuration reload reaches the kept copy and an untouched open form, n
 
   view.unmount();
   render(<Settings onClose={() => {}} initialSection="agent" />);
-  expect(
-    (screen.getByLabelText("Max turns") as HTMLInputElement).value,
-  ).toBe("70");
+  expect((screen.getByLabelText("Max turns") as HTMLInputElement).value).toBe(
+    "70",
+  );
 });
 
 // A save says it worked on the Save button alone: green for a couple of seconds,
@@ -548,7 +550,8 @@ test("a reopen after a failed first read shows the requested tab loading, not Ap
   function FirstFrame() {
     useLayoutEffect(() => {
       frames.push({
-        skeleton: document.querySelector('[data-testid="settings-skeleton"]') !== null,
+        skeleton:
+          document.querySelector('[data-testid="settings-skeleton"]') !== null,
         appearance: document.querySelector(".appearance-swatch-grid") !== null,
       });
     }, []);
@@ -595,7 +598,9 @@ test("a save during which the operator typed on does not turn the button green",
     release();
     await held;
   });
-  await waitFor(() => expect(server.config).toMatchObject({ agent: { max_turns: 45 } }));
+  await waitFor(() =>
+    expect(server.config).toMatchObject({ agent: { max_turns: 45 } }),
+  );
   await act(async () => {
     await new Promise((r) => setTimeout(r, 20));
   });
@@ -609,16 +614,22 @@ test("a save during which the operator typed on does not turn the button green",
 // provider the address names instead of showing whichever one took its place.
 test("an open row form keeps its row when a reload reorders the list", async () => {
   stubServer();
-  server.config = { ...server.config, providers: [{ name: "demo" }, { name: "spare" }] };
+  server.config = {
+    ...server.config,
+    providers: [{ name: "demo" }, { name: "spare" }],
+  };
   window.location.hash = "#/settings/providers?id=spare";
   render(<RoutedSettings />);
   await waitFor(() =>
-    expect((screen.getByLabelText("Provider id") as HTMLInputElement).value).toBe(
-      "spare",
-    ),
+    expect(
+      (screen.getByLabelText("Provider id") as HTMLInputElement).value,
+    ).toBe("spare"),
   );
 
-  server.config = { ...server.config, providers: [{ name: "spare" }, { name: "demo" }] };
+  server.config = {
+    ...server.config,
+    providers: [{ name: "spare" }, { name: "demo" }],
+  };
   act(() => noteSettingsConfigReloaded());
   await act(async () => {
     await new Promise((r) => setTimeout(r, 20));

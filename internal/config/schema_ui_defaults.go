@@ -28,7 +28,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		Agent: AgentJSON{
 			Model:                  "openai/gpt-5.6-terra",
-			MaxTurns:               AgentDefaultMaxTurns,
+			MaxTurns:               intPtr(AgentDefaultMaxTurns),
 			LLMRetryMax:            intPtr(AgentDefaultLLMRetryMax),
 			LLMRetryBaseMS:         AgentDefaultLLMRetryBaseMS,
 			LLMFirstTokenTimeoutMS: intPtr(AgentDefaultLLMFirstTokenTimeoutMS),
@@ -51,18 +51,17 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			PlanPrompt:  "plan.md",
 			AskPrompt:   "ask.md",
 		},
+		// instructions.files only adds files after the AGENTS.md and
+		// DESIGN.md documents, which are read without being listed.
 		Instructions: InstructionsJSON{
 			Files: DefaultInstructionFiles(),
 		},
+		// skills.dirs only adds directories to the default folders
+		// (DefaultSkillDirs), which are read beside it and never written in.
 		Skills: SkillsJSON{
-			Dirs: []string{
-				"~/.agents/skills",
-				"${CODDY_HOME}/skills",
-				"${CWD}/.coddy/skills",
-			},
+			Dirs: []string{},
 		},
-		MCPServers: []MCPServerJSON{},
-		MCP:        MCPJSON{ProjectTrust: ProjectTrustAsk, IdleTimeoutSeconds: intPtr(MCPDefaultIdleTimeoutSeconds)},
+		MCP: MCPJSON{ProjectTrust: ProjectTrustAsk, IdleTimeoutSeconds: intPtr(MCPDefaultIdleTimeoutSeconds)},
 		Tools: ToolsJSON{
 			PermissionMode:   PermModeAsk,
 			CommandAllowlist: nil,
@@ -92,10 +91,11 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			PersistMaxTurns:  12,
 			CopilotMaxTokens: 4096,
 			MaxSearchHits:    8,
+			MaxNoteChars:     intPtr(MemoryDefaultMaxNoteChars),
 		},
 		Subagents: SubagentsJSON{
 			Enabled:               boolPtr(true),
-			Dirs:                  DefaultSubagentDirs(),
+			Dirs:                  []string{}, // the default folders are read beside subagents.dirs
 			ProjectTrust:          SubagentsProjectTrustAsk,
 			MaxConcurrent:         SubagentsDefaultMaxConcurrent,
 			MaxDepth:              intPtr(SubagentsDefaultMaxDepth),
@@ -112,10 +112,10 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		Scheduler: SchedulerJSON{
 			Enabled:        false,
-			Dir:            "${CODDY_HOME}/scheduler",
 			MaxQueue:       10,
 			Timeout:        "30m",
 			RetainSessions: 5,
+			ProjectTrust:   ProjectTrustAsk,
 		},
 		Gateways: GatewaysJSON{
 			Telegram: TelegramGatewayJSON{
@@ -124,6 +124,13 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 				RichMessages:     true,
 				DefaultAccess:    string(AccessAll),
 				DefaultIsolation: string(IsolationIndividual),
+			},
+			Pachca: PachcaGatewayJSON{
+				Enabled:             false,
+				Token:               "${PACHCA_BOT_TOKEN}",
+				PollIntervalSeconds: PachcaPollIntervalDefault,
+				DefaultAccess:       string(AccessAll),
+				DefaultIsolation:    string(IsolationIndividual),
 			},
 		},
 	}

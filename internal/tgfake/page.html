@@ -28,6 +28,29 @@
   .call .m { font-weight: bold; }
   .call.err .m { color: #d33; }
   .tools { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; font-size: 12px; }
+  .kb button.webapp::after { content: " \2197"; opacity: .7; }
+  body.mini-open { grid-template-columns: minmax(0, 1fr) 480px minmax(0, 1fr); }
+  @media (max-width: 1100px) { body.mini-open { grid-template-columns: 1fr; height: auto; } }
+  #miniapp[hidden] { display: none; }
+  #miniapp { align-items: flex-start; gap: 8px; min-width: 0; overflow: auto; }
+  .mini-tools { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; max-width: 460px; }
+  /* The phone: the Mini App slides up from the bottom of the screen, and half
+     open it shows its top part there, the chat still in sight above it. */
+  .phone { position: relative; flex: none; border: 10px solid #111; border-radius: 28px; overflow: hidden; box-sizing: content-box;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    background: repeating-linear-gradient(0deg, #17212b 0 46px, #1d2a36 46px 48px); }
+  .phone-head { flex: none; display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 10px; box-sizing: border-box; background: #212121; color: #fff; font-size: 14px; border-radius: 12px 12px 0 0; }
+  .phone-head button { font: inherit; background: none; border: 0; color: inherit; cursor: pointer; padding: 4px 6px; }
+  .phone-head .title { flex: 1; text-align: center; font-weight: 600; }
+  .phone-view { flex: none; position: relative; overflow: hidden; background: #000; }
+  .phone-view iframe { display: block; border: 0; width: 100%; background: transparent; }
+  .phone-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #aaa; background: #212121; font-size: 13px; }
+  .phone-loading[hidden] { display: none; }
+  .phone-keyboard { flex: none; height: 0; overflow: hidden; background: repeating-linear-gradient(90deg, #3a3a3c 0 34px, #2c2c2e 34px 38px); color: #aaa; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+  #miniappLog { font-family: ui-monospace, monospace; font-size: 11px; max-height: 14em; overflow: auto; border: 1px solid #8884; border-radius: 6px; padding: 6px; width: 100%; box-sizing: border-box; white-space: pre-wrap; word-break: break-all; }
+  #miniappLog .in { color: #2e7d32; }
+  #miniappLog .out { color: #1565c0; }
+  #miniappStatus { font-size: 11px; opacity: .75; }
 </style>
 </head>
 <body>
@@ -42,9 +65,37 @@
   </form>
   <div id="log"></div>
   <form class="send" id="sendForm">
+    <button type="button" id="menuButton" hidden title="The bot's menu button opens its Mini App"></button>
     <input id="text" placeholder="message or /command" autocomplete="off" autofocus>
     <button>Send</button>
   </form>
+</section>
+<section id="miniapp" hidden>
+  <div class="mini-tools">
+    <strong>Mini App</strong>
+    <label>size <select id="miniappSize"><option value="390x844">390&times;844</option><option value="360x640">360&times;640</option><option value="430x932">430&times;932</option></select></label>
+    <label>window <select id="miniappState"><option value="expanded">expanded</option><option value="half">half open</option></select></label>
+    <label>theme <select id="miniappTheme"><option value="dark">dark</option><option value="light">light</option></select></label>
+    <label><input type="checkbox" id="miniappFullscreen"> fullscreen insets</label>
+    <label><input type="checkbox" id="miniappKeyboard"> keyboard</label>
+    <label>Bot API <input id="miniappVersion" value="10.1" size="4"></label>
+    <button type="button" id="miniappReload">Reload</button>
+  </div>
+  <div class="phone" id="miniappPhone">
+    <div class="phone-head" id="miniappHead">
+      <button type="button" id="miniappBack" hidden>&lsaquo; Back</button>
+      <button type="button" id="miniappClose">Close</button>
+      <span class="title" id="miniappTitle"></span>
+      <span style="width:3em"></span>
+    </div>
+    <div class="phone-view" id="miniappView">
+      <iframe id="miniappFrame" title="Mini App" allow="clipboard-read; clipboard-write"></iframe>
+      <div class="phone-loading" id="miniappLoading">loading&hellip;</div>
+    </div>
+    <div class="phone-keyboard" id="miniappKbd">keyboard</div>
+  </div>
+  <div id="miniappStatus"></div>
+  <div id="miniappLog"></div>
 </section>
 <section>
   <div class="tools">
@@ -116,9 +167,12 @@
         for (const row of m.keyboard) {
           const kb = el('div', 'kb');
           for (const b of row) {
-            const btn = el('button', '', b.text);
+            const btn = el('button', b.web_app ? 'webapp' : '', b.text);
             btn.type = 'button';
+            if (b.web_app) btn.title = 'Opens ' + b.web_app.url + ' as a Mini App';
             btn.addEventListener('click', async () => {
+              if (b.web_app) { miniApp.open(b.web_app.url); return; }
+              if (b.url) { window.open(b.url, '_blank', 'noopener'); return; }
               await post('/sim/callback', { chat_id: chatID, user_id: num('user'), username: $('username').value, message_id: m.message_id, data: b.callback_data });
               refreshChat();
             });
@@ -137,6 +191,15 @@
     }
     if (v.typing) log.appendChild(el('div', 'typing', 'typing…'));
     if (stick) log.scrollTop = log.scrollHeight;
+    const menu = v.menu_button;
+    const mb = $('menuButton');
+    if (menu && menu.type === 'web_app' && menu.web_app) {
+      mb.hidden = false;
+      mb.textContent = '\u2630 ' + menu.text;
+      mb.dataset.url = menu.web_app.url;
+    } else {
+      mb.hidden = true;
+    }
   }
 
   async function refreshOutbox() {
@@ -158,8 +221,157 @@
       out.scrollTop = out.scrollHeight;
     }
     const st = await (await fetch('/sim/state')).json();
+    botName = st.bot.username;
     $('state').textContent = '@' + st.bot.username + ' · pending ' + st.pending_updates + ' · faults ' + st.faults.length;
   }
+
+  // ---- Mini App: this page is the Telegram client of the app in the frame,
+  // the way web.telegram.org is. The app posts {eventType, eventData} to its
+  // parent, and the page answers with messages of the same shape. Everything
+  // either side sends is logged here and kept in window.__tgfakeMiniApp.
+  const HEAD = 48, KEYBOARD = 260, HALF = 0.55;
+  const miniApp = window.__tgfakeMiniApp = {
+    events: [], url: '', origin: '*', ready: false, expanded: true,
+    backVisible: false, swipes: true, closingConfirmation: false,
+    headerColor: '', backgroundColor: '', bottomBarColor: '',
+    size() { const [w, h] = $('miniappSize').value.split('x').map(Number); return { w, h }; },
+    fullscreen() { return $('miniappFullscreen').checked; },
+    keyboard() { return $('miniappKeyboard').checked; },
+    // webViewHeight is the height of the WebView itself; visibleHeight the
+    // part of it the person sees. Half open, the WebView keeps its height and
+    // the frame clips it, as on a phone; an Android keyboard shrinks it.
+    webViewHeight() { const h = this.size().h - (this.fullscreen() ? 0 : HEAD); return this.keyboard() ? h - KEYBOARD : h; },
+    visibleHeight() { const h = this.webViewHeight(); return this.expanded ? h : Math.round(h * HALF); },
+    log(dir, type, data) {
+      const entry = { dir, type, data: data === undefined ? null : data, at: Date.now() };
+      this.events.push(entry);
+      const line = el('div', dir, (dir === 'in' ? '\u2190 app  ' : '\u2192 app  ') + type + (data === undefined || data === '' ? '' : ' ' + JSON.stringify(data)));
+      const box = $('miniappLog'); box.appendChild(line); box.scrollTop = box.scrollHeight;
+    },
+    post(type, data) {
+      const frame = $('miniappFrame');
+      if (!frame.contentWindow) return;
+      this.log('out', type, data);
+      frame.contentWindow.postMessage(JSON.stringify({ eventType: type, eventData: data }), this.origin);
+    },
+    sendViewport(stable) {
+      this.post('viewport_changed', { height: this.visibleHeight(), is_expanded: this.expanded, is_state_stable: stable !== false });
+    },
+    safeArea() { return this.fullscreen() ? { top: 47, bottom: 34, left: 0, right: 0 } : { top: 0, bottom: 0, left: 0, right: 0 }; },
+    contentSafeArea() { return this.fullscreen() ? { top: 46, bottom: 0, left: 0, right: 0 } : { top: 0, bottom: 0, left: 0, right: 0 }; },
+    async sendTheme() {
+      const params = await (await fetch('/sim/webapp/theme/' + $('miniappTheme').value)).json();
+      this.post('theme_changed', { theme_params: params });
+    },
+    layout() {
+      const { w, h } = this.size();
+      const phone = $('miniappPhone'), view = $('miniappView'), frame = $('miniappFrame');
+      phone.style.width = w + 'px';
+      phone.style.height = h + 'px';
+      $('miniappHead').style.display = this.fullscreen() ? 'none' : '';
+      view.style.height = this.visibleHeight() + 'px';
+      frame.style.height = this.webViewHeight() + 'px';
+      $('miniappKbd').style.height = this.keyboard() ? KEYBOARD + 'px' : '0';
+      $('miniappBack').hidden = !this.backVisible;
+      $('miniappStatus').textContent = [
+        'WebView ' + w + '\u00d7' + this.webViewHeight(), 'visible ' + this.visibleHeight(),
+        this.expanded ? 'expanded' : 'half open', 'swipes ' + (this.swipes ? 'on' : 'off'),
+        this.closingConfirmation ? 'confirms closing' : '', this.ready ? 'ready' : 'not ready',
+      ].filter(Boolean).join(' \u00b7 ');
+    },
+    async open(url) {
+      const body = { chat_id: num('chat'), user_id: num('user'), username: $('username').value,
+        color_scheme: $('miniappTheme').value, version: $('miniappVersion').value };
+      if (url) body.url = url;
+      const r = await post('/sim/webapp/launch', body);
+      if (!r.ok) return;
+      const launched = await r.json();
+      this.url = launched.url;
+      try { this.origin = new URL(launched.url).origin; } catch (e) { this.origin = '*'; }
+      this.ready = false; this.expanded = $('miniappState').value === 'expanded'; this.backVisible = false;
+      this.swipes = true; this.closingConfirmation = false;
+      $('miniappTitle').textContent = '@' + (botName || 'bot');
+      $('miniappLoading').hidden = false;
+      $('miniapp').hidden = false;
+      document.body.classList.add('mini-open');
+      this.layout();
+      this.log('out', 'open', { url: launched.url });
+      $('miniappFrame').src = launched.url;
+    },
+    close() {
+      if (this.closingConfirmation && !confirm('Close the Mini App? Changes you made may not be saved.')) return;
+      $('miniappFrame').src = 'about:blank';
+      $('miniapp').hidden = true;
+      document.body.classList.remove('mini-open');
+      this.log('out', 'closed');
+    },
+    receive(type, data) {
+      this.log('in', type, data);
+      switch (type) {
+        case 'web_app_ready': this.ready = true; $('miniappLoading').hidden = true; break;
+        case 'web_app_expand': if (!this.expanded) { this.expanded = true; $('miniappState').value = 'expanded'; this.layout(); this.sendViewport(); } break;
+        case 'web_app_request_viewport': this.sendViewport(); break;
+        case 'web_app_request_theme': this.sendTheme(); break;
+        case 'web_app_request_safe_area': this.post('safe_area_changed', this.safeArea()); break;
+        case 'web_app_request_content_safe_area': this.post('content_safe_area_changed', this.contentSafeArea()); break;
+        case 'web_app_setup_back_button': this.backVisible = !!(data && data.is_visible); break;
+        case 'web_app_setup_swipe_behavior': this.swipes = !(data && data.allow_vertical_swipe === false); break;
+        case 'web_app_setup_closing_behavior': this.closingConfirmation = !!(data && data.need_confirmation); break;
+        case 'web_app_set_header_color':
+          this.headerColor = (data && (data.color || data.color_key)) || '';
+          if (data && data.color) {
+            const head = $('miniappHead');
+            head.style.background = data.color;
+            // Telegram picks the text colour that reads on the header.
+            head.style.color = isDark(data.color) ? '#ffffff' : '#000000';
+          }
+          break;
+        case 'web_app_set_background_color': this.backgroundColor = (data && data.color) || ''; if (data && data.color) $('miniappView').style.background = data.color; break;
+        case 'web_app_set_bottom_bar_color': this.bottomBarColor = (data && data.color) || ''; break;
+        case 'web_app_open_link': if (data && data.url) window.open(data.url, '_blank', 'noopener'); break;
+        case 'web_app_close': this.closingConfirmation = false; this.close(); return;
+      }
+      this.layout();
+    },
+    setState(next) {
+      if (next.size) $('miniappSize').value = next.size;
+      if (next.window) { $('miniappState').value = next.window; this.expanded = next.window === 'expanded'; }
+      if (next.theme) $('miniappTheme').value = next.theme;
+      if (next.fullscreen !== undefined) $('miniappFullscreen').checked = !!next.fullscreen;
+      if (next.keyboard !== undefined) $('miniappKeyboard').checked = !!next.keyboard;
+      this.layout();
+      this.sendViewport();
+      this.post('safe_area_changed', this.safeArea());
+      this.post('content_safe_area_changed', this.contentSafeArea());
+      if (next.theme) this.sendTheme();
+    },
+    back() { this.post('back_button_pressed'); },
+  };
+  let botName = '';
+  // isDark is the SDK's brightness rule for a #rrggbb colour.
+  function isDark(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+    if (!m) return true;
+    const v = parseInt(m[1], 16), r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
+    return Math.sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b) < 120;
+  }
+  window.addEventListener('message', (ev) => {
+    const frame = $('miniappFrame');
+    if (!frame.contentWindow || ev.source !== frame.contentWindow) return;
+    let msg;
+    try { msg = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data; } catch (e) { return; }
+    if (!msg || !msg.eventType) return;
+    miniApp.receive(msg.eventType, msg.eventData);
+  });
+  $('miniappBack').addEventListener('click', () => miniApp.back());
+  $('miniappClose').addEventListener('click', () => miniApp.close());
+  $('miniappReload').addEventListener('click', () => { if (miniApp.url) { miniApp.ready = false; $('miniappLoading').hidden = false; miniApp.layout(); $('miniappFrame').src = miniApp.url; } });
+  $('miniappState').addEventListener('change', () => miniApp.setState({ window: $('miniappState').value }));
+  $('miniappSize').addEventListener('change', () => miniApp.setState({}));
+  $('miniappFullscreen').addEventListener('change', () => miniApp.setState({}));
+  $('miniappKeyboard').addEventListener('change', () => miniApp.setState({}));
+  $('miniappTheme').addEventListener('change', () => miniApp.setState({ theme: $('miniappTheme').value }));
+  $('menuButton').addEventListener('click', () => miniApp.open(''));
 
   $('chat').addEventListener('change', refreshChat);
   setInterval(refreshChat, 1000);

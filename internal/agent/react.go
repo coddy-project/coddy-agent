@@ -4,10 +4,12 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -29,6 +31,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
+	fstools "github.com/EvilFreelancer/coddy-agent/internal/tools/fs"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 	toolweb "github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
@@ -144,6 +147,10 @@ type Agent struct {
 	// memoryRun is the memory subagent this turn started, or nil
 	// (memory_run.go). The Agent lives for one turn, so it needs no reset.
 	memoryRun *memoryTurnRun
+	// docKeys are the keys of the documents the system prompt this turn froze
+	// carries (documentKeys, rules_prompt.go).
+	docKeysMu sync.Mutex
+	docKeys   map[string]bool
 }
 
 // NewAgent creates an Agent for a prompt turn.
@@ -260,7 +267,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	for _, inv := range invokedSkills(typedText(prompt), a.state.GetSkills()) {
 		a.applySkillSettings(ctx, inv.name, inv.skill)
 	}
-	if extra := invokedSkillBlocks(typedText(prompt), a.state.GetSkills()); len(extra) > 0 {
+	if extra := invokedSkillBlocks(typedText(prompt), a.state.GetSkills(), a.managedSkillsDir()); len(extra) > 0 {
 		prompt = append(append([]acp.ContentBlock(nil), prompt...), extra...)
 		userText = contentBlocksToText(prompt)
 	}
@@ -1313,10 +1320,11 @@ func (a *Agent) runReActLoop(
 		totalInputTokens += response.InputTokens
 		totalOutputTokens += response.OutputTokens
 		_ = a.server.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
-			SessionUpdate: acp.UpdateTypeTokenUsage,
-			InputTokens:   response.InputTokens,
-			OutputTokens:  response.OutputTokens,
-			TotalTokens:   totalInputTokens + totalOutputTokens,
+			SessionUpdate:     acp.UpdateTypeTokenUsage,
+			InputTokens:       response.InputTokens,
+			OutputTokens:      response.OutputTokens,
+			TotalTokens:       totalInputTokens + totalOutputTokens,
+			CachedInputTokens: response.CachedInputTokens,
 		})
 		a.progress.finishCall(response.OutputTokens)
 
@@ -1379,6 +1387,14 @@ func (a *Agent) runReActLoop(
 		}
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)
+		if stored := a.state.GetMessages(); len(stored) > 0 {
+			if markers := session.ArtifactMarkers(stored[len(stored)-1].Artifacts); markers != "" {
+				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: "\n\n" + markers},
+				})
+			}
+		}
 		a.refreshConversationContextUsage(true)
 		if strings.TrimSpace(response.Content) != "" {
 			turnHadVisibleText = true
@@ -1476,29 +1492,42 @@ func (a *Agent) runReActLoop(
 			return string(acp.StopReasonEndTurn), nil
 		}
 
-		// Execute all tool calls.
+		// Execute all tool calls. The repeat detector tracks a call across ReAct
+		// responses, not duplicates a model intentionally put in one batch (for
+		// example, parallel subagents with the same prompt).
+		seenInResponse := make(map[string]bool, len(response.ToolCalls))
+		blockedInResponse := make(map[string]bool, len(response.ToolCalls))
 		for i, tc := range response.ToolCalls {
 			if ctx.Err() != nil {
 				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolCallInterruptedResult)
 				return string(acp.StopReasonCancelled), nil
 			}
 
-			// A model stuck on the identical call (same name, same canonical arguments)
-			// would otherwise burn the whole max_turns budget without an answer. Skip
-			// the execution and tell it so; every tool_call_id still gets a result,
-			// because OpenAI-compatible endpoints reject the next request otherwise.
-			if _, tripped := toolRepeats.Observe(tc.Name, tc.InputJSON); tripped {
-				if loopNudges >= loopNudgeBudget {
-					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolLoopSkippedResult)
-					return string(acp.StopReasonRefused), fmt.Errorf(
-						"stopped: the model kept requesting the same %s call with identical arguments", tc.Name)
+			key := canonicalToolCallKey(tc.Name, tc.InputJSON)
+			if !seenInResponse[key] {
+				seenInResponse[key] = true
+				// A model stuck on the identical call (same name, same canonical arguments)
+				// across ReAct responses would otherwise burn the whole max_turns budget
+				// without an answer. Skip the execution and tell it so; every tool_call_id
+				// still gets a result, because OpenAI-compatible endpoints reject the next
+				// request otherwise.
+				if _, tripped := toolRepeats.Observe(tc.Name, tc.InputJSON); tripped {
+					blockedInResponse[key] = true
+					if loopNudges >= loopNudgeBudget {
+						a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolLoopSkippedResult)
+						return string(acp.StopReasonRefused), fmt.Errorf(
+							"stopped: the model kept requesting the same %s call with identical arguments", tc.Name)
+					}
+					loopNudges++
+					// The counter deliberately keeps running: clearing it here (as Roo does,
+					// where the trip is a blocking question to the user) would let the model
+					// execute the same call limit-1 more times per nudge. A genuinely
+					// different call resets the counter on its own.
+					a.log.Warn("loop guard blocked a repeated tool call", "tool", tc.Name, "nudge", loopNudges)
+					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolLoopNudge)
+					continue
 				}
-				loopNudges++
-				// The counter deliberately keeps running: clearing it here (as Roo does,
-				// where the trip is a blocking question to the user) would let the model
-				// execute the same call limit-1 more times per nudge. A genuinely
-				// different call resets the counter on its own.
-				a.log.Warn("loop guard blocked a repeated tool call", "tool", tc.Name, "nudge", loopNudges)
+			} else if blockedInResponse[key] {
 				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolLoopNudge)
 				continue
 			}
@@ -1757,6 +1786,15 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// operator may have switched the session to bypass from the previous
 	// call's dialog, and the rest of the batch runs under that.
 	env.PermissionMode = effectivePermMode(a.state, a.cfg)
+	env.Confined = false
+	if st := sessionStatePtr(a.state); st != nil {
+		if r := st.GetTurnRestriction(); r != nil {
+			env.Confined = r.ConfineToWorkspace
+			if err := checkRestrictedCall(r, tc, env.CWD, a.cfg); err != nil {
+				return "", err
+			}
+		}
+	}
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	a.currentToolCallID = env.ToolCallID
 	a.callImages = nil
@@ -1864,7 +1902,9 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	requiresPerm := ok && tool.RequiresPermission
 
 	var sessCmdGrants, sessWriteGrants, sessHTTPGrants []string
-	if st := sessionStatePtr(a.state); st != nil {
+	// A restricted turn is not the turn of whoever granted "always allow":
+	// the grants of the session stay with the people who gave them.
+	if st := sessionStatePtr(a.state); st != nil && (st.GetTurnRestriction() == nil || !st.GetTurnRestriction().AskAlways) {
 		sessCmdGrants = st.GetPermissionCommandGrants()
 		sessWriteGrants = st.GetPermissionWriteGrants()
 		sessHTTPGrants = st.GetPermissionHTTPGrants()
@@ -2105,6 +2145,18 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 		coddyMeta["todoPlan"] = todoPlanSnapshot
 	}
 	if status == "completed" && execErr == nil {
+		if tc.Name == tools.ShareFileToolName {
+			if artifact, ok := sharedArtifact(sessionDir, result); ok {
+				if previewMeta == nil {
+					previewMeta = map[string]interface{}{}
+				}
+				previewMeta["artifacts"] = []map[string]interface{}{{
+					"id": artifact.ID, "name": artifact.Name, "sha256": artifact.SHA256,
+					"size": artifact.Size, "sourcePath": artifact.SourcePath, "relativePath": artifact.SourceRelativePath,
+					"url": session.ArtifactRoute(sessionID, artifact.ID), "revealUrl": session.ArtifactRoute(sessionID, artifact.ID) + "/reveal",
+				}}
+			}
+		}
 		// The pictures the call showed the model (read on an image file), for
 		// the surfaces that preview them: the web UI on the call's row, a
 		// Telegram chat as photos. After a reload they come from the result
@@ -2197,6 +2249,13 @@ func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
 		defs = append(defs, mcpToolDefinitions(a.state.GetMCPClients(), a.state.GetMCPToolFilter())...)
 	}
 	if a.subagent != nil {
+		filtered := defs[:0]
+		for _, def := range defs {
+			if def.Name != tools.ShareFileToolName {
+				filtered = append(filtered, def)
+			}
+		}
+		defs = filtered
 		// An empty effective set means no tools at all, not "unrestricted" as
 		// the nil ToolSet would read; the spawn refuses such a set up front,
 		// this keeps a replayed or restored child honest too.
@@ -2239,6 +2298,9 @@ func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 	filtered := make([]llm.Message, 0, len(history))
 	for _, m := range history {
 		if isLLMHistoryMessage(m) {
+			if m.Role == llm.RoleAssistant {
+				m.Content = session.StripArtifactMarkers(m.Content)
+			}
 			filtered = append(filtered, m)
 		}
 	}
@@ -2270,14 +2332,14 @@ func formatToolPairingIssues(issues []session.ToolPairingIssue) string {
 // the typed text invokes as /name. It rides in the message that invoked it,
 // written once, so the next turn replays the same bytes rather than a message
 // that lost the body it was sent with.
-func invokedSkillBlocks(text string, allSkills []*skills.Skill) []acp.ContentBlock {
+func invokedSkillBlocks(text string, allSkills []*skills.Skill, managedDir string) []acp.ContentBlock {
 	var out []acp.ContentBlock
 	for _, inv := range invokedSkills(text, allSkills) {
 		n, sk := inv.name, inv.skill
-		body := strings.TrimSpace(sk.Content)
-		if body == "" {
+		if strings.TrimSpace(sk.Content) == "" {
 			continue
 		}
+		body := skillBodyForModel(sk, managedDir)
 		out = append(out, acp.ContentBlock{Type: acp.ContentTypeResource, Resource: &acp.Resource{
 			URI:      "skill:" + n,
 			MimeType: "text/markdown; charset=utf-8",
@@ -2286,6 +2348,43 @@ func invokedSkillBlocks(text string, allSkills []*skills.Skill) []acp.ContentBlo
 		}})
 	}
 	return out
+}
+
+// skillBodyForModel is the text a model reads of a skill it was handed, by a
+// /name invocation or by load_skill: the body, headed by the folder the skill
+// lives in when it is a SKILL.md folder on disk. A skill names its own files
+// (scripts/, references/) by relative path, and neither the attachment nor the
+// tool result says where SKILL.md was read from; without the line a model goes
+// searching the disk for them. A skill read out of the binary has no folder.
+//
+// A skill served out of the binary has no folder of its own, but the standard
+// delivery writes the same skill into managedDir: when that copy is on disk,
+// its folder is the one named.
+func skillBodyForModel(sk *skills.Skill, managedDir string) string {
+	body := strings.TrimSpace(sk.Content)
+	if body == "" || !strings.EqualFold(filepath.Base(sk.FilePath), "SKILL.md") {
+		return body
+	}
+	dir := filepath.Dir(sk.FilePath)
+	if skills.SkillReadonly(sk) {
+		if managedDir == "" {
+			return body
+		}
+		dir = filepath.Join(managedDir, filepath.Base(dir))
+		if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err != nil {
+			return body
+		}
+	}
+	return "Skill directory: " + dir + "\n\n" + body
+}
+
+// managedSkillsDir is where the standard delivery writes the skills it hands
+// over, "" without a configuration.
+func (a *Agent) managedSkillsDir() string {
+	if a.cfg == nil {
+		return ""
+	}
+	return a.cfg.Skills.ManagedDir(a.cfg.Paths.Home)
 }
 
 // invokedSkill is one skill a prompt invokes, under the name it was invoked by.
@@ -2722,10 +2821,52 @@ func configWriteTool(name string) bool {
 
 // effectivePermMode returns the session-level permission mode override, falling back to the config default.
 func effectivePermMode(state SessionState, cfg *config.Config) string {
+	// A restricted turn asks the surface before anything that needs approval:
+	// the surface knows who wrote the message, the session's mode does not.
+	if st := sessionStatePtr(state); st != nil {
+		if r := st.GetTurnRestriction(); r != nil && r.AskAlways {
+			return config.PermModeAsk
+		}
+	}
 	if m := state.EffectivePermissionMode(); m != "" {
 		return m
 	}
 	return cfg.Tools.ResolvedPermMode()
+}
+
+// checkRestrictedCall refuses a call the turn's restriction does not allow:
+// a tool outside its list, or a read outside the session's working directory
+// or inside the agent's home.
+func checkRestrictedCall(r *session.TurnRestriction, tc llm.ToolCall, cwd string, cfg *config.Config) error {
+	note := strings.TrimSpace(r.Note)
+	if note == "" {
+		note = "this tool is not available in this turn"
+	}
+	if !r.Allows(tc.Name) {
+		return fmt.Errorf("%s: %s", tc.Name, note)
+	}
+	if !r.ConfineToWorkspace {
+		return nil
+	}
+	paths := fstools.ToolCallPaths(tc.Name, tc.InputJSON, cwd)
+	if tc.Name == "glob" {
+		var a struct {
+			Pattern string `json:"pattern"`
+		}
+		if json.Unmarshal([]byte(tc.InputJSON), &a) == nil && (filepath.IsAbs(a.Pattern) || strings.HasPrefix(a.Pattern, "~") || strings.Contains(a.Pattern, "..")) {
+			paths = append(paths, a.Pattern)
+		}
+	}
+	home := ""
+	if cfg != nil {
+		home = cfg.Paths.Home
+	}
+	for _, p := range paths {
+		if !session.PathInWorkspace(p, cwd, home) {
+			return fmt.Errorf("%s: %s (%s is outside the session's working directory)", tc.Name, note, p)
+		}
+	}
+	return nil
 }
 
 // extractCommand parses the "command" field from run_command JSON args.

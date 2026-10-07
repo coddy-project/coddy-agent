@@ -44,8 +44,7 @@ func writeProjectMCPServer(t *testing.T, dir, name string) {
 // trust policy, so the mcp.json layers stay inside the test's own directories.
 func workspaceTestConfig(t *testing.T, projectTrust string, servers ...config.MCPServerConfig) *config.Config {
 	t.Helper()
-	cfg := reloadTestConfig(servers...)
-	cfg.Paths.Home = t.TempDir()
+	cfg := reloadTestConfig(t, servers...)
 	cfg.MCP.ProjectTrust = projectTrust
 	return cfg
 }
@@ -76,10 +75,9 @@ func mcpClientNames(st *State) []string {
 	return names
 }
 
-// A workspace switch must swap the configured MCP servers: the previous
-// workspace's clients are closed and the new workspace's .coddy/mcp.json is
-// merged and dialed through the trust gate.
-func TestSetSessionWorkspaceReconnectsConfiguredMCP(t *testing.T) {
+// A workspace switch must park configured MCP reconciliation for the next
+// turn. It must not start a server simply because the user selected a folder.
+func TestSetSessionWorkspaceDefersConfiguredMCPReconnect(t *testing.T) {
 	alpha := t.TempDir()
 	beta := t.TempDir()
 	writeProjectMCPServer(t, alpha, "alpha-probe")
@@ -95,11 +93,44 @@ func TestSetSessionWorkspaceReconnectsConfiguredMCP(t *testing.T) {
 	if err := mgr.SetSessionWorkspace(context.Background(), st, beta); err != nil {
 		t.Fatalf("SetSessionWorkspace: %v", err)
 	}
-	if got := mcpClientNames(st); !reflect.DeepEqual(got, []string{"beta-probe"}) {
-		t.Fatalf("clients after switch = %v, want [beta-probe]", got)
+	if got := mcpClientNames(st); !reflect.DeepEqual(got, []string{"alpha-probe"}) {
+		t.Fatalf("clients after switch = %v, want the existing [alpha-probe] until a turn", got)
 	}
-	if _, err := alphaClient.CallTool(context.Background(), "ping", "{}"); err == nil {
-		t.Fatal("the previous workspace's client must be closed")
+	if !st.hasPendingMCPReload() {
+		t.Fatal("the workspace switch must park MCP reconciliation")
+	}
+	if _, err := alphaClient.CallTool(context.Background(), "ping", "{}"); err != nil {
+		t.Fatal("the existing client must remain available until the next turn")
+	}
+}
+
+// A folder switch refreshes workspace-local state for the composer before any
+// prompt, but it must not start a newly discovered MCP process. The pending
+// reload is consumed under the next turn lock instead.
+func TestSetSessionWorkspaceDefersMCPStartUntilTurn(t *testing.T) {
+	alpha := t.TempDir()
+	beta := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "marker.txt")
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(beta), "beta-probe", config.MCPJSONServer{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestHelperMCPMarkerServer"},
+		Env: map[string]string{
+			"GO_WANT_MCP_MARKER":    "1",
+			"CODDY_MCP_MARKER_FILE": marker,
+		},
+	}); err != nil {
+		t.Fatalf("write beta mcp.json: %v", err)
+	}
+
+	mgr, st := newWorkspaceTestManager(t, workspaceTestConfig(t, config.ProjectTrustAllow), alpha)
+	if err := mgr.SetSessionWorkspace(context.Background(), st, beta); err != nil {
+		t.Fatalf("SetSessionWorkspace: %v", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("workspace switch started MCP process: %v", err)
+	}
+	if !st.hasPendingMCPReload() {
+		t.Fatal("workspace switch must defer configured MCP reload until a turn")
 	}
 }
 
@@ -162,8 +193,8 @@ func TestSetSessionWorkspaceGatesNewProjectServers(t *testing.T) {
 	if got := mcpClientNames(st); !reflect.DeepEqual(got, []string{"global-probe"}) {
 		t.Fatalf("clients after switch = %v, want the re-dialed [global-probe] only", got)
 	}
-	if st.GetMCPClients()[0] == globalClient {
-		t.Fatal("the global server must be re-dialed for the new workspace, not kept")
+	if st.GetMCPClients()[0] != globalClient {
+		t.Fatal("the global server must not be re-dialed until the next turn")
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatal("an unapproved project server must not have started on the switch")
@@ -221,8 +252,8 @@ func TestSetSessionWorkspaceFailedDialKeepsSwitch(t *testing.T) {
 	if got := st.GetCWD(); got != beta {
 		t.Fatalf("cwd = %q, want %q", got, beta)
 	}
-	if got := mcpClientNames(st); len(got) != 0 {
-		t.Fatalf("clients = %v, want none (the only configured server is dead)", got)
+	if got := mcpClientNames(st); !reflect.DeepEqual(got, []string{"alpha-probe"}) {
+		t.Fatalf("clients = %v, want the prior [alpha-probe] until a turn", got)
 	}
 }
 
@@ -369,7 +400,7 @@ func TestSetSessionWorkspaceKeepsSessionMCPClients(t *testing.T) {
 	if err := mgr.SetSessionWorkspace(context.Background(), st, beta); err != nil {
 		t.Fatalf("SetSessionWorkspace: %v", err)
 	}
-	if got := mcpClientNames(st); !reflect.DeepEqual(got, []string{"beta-probe", "client-probe"}) {
-		t.Fatalf("clients after switch = %v, want [beta-probe client-probe]", got)
+	if got := mcpClientNames(st); !reflect.DeepEqual(got, []string{"client-probe"}) {
+		t.Fatalf("clients after switch = %v, want the existing [client-probe] until a turn", got)
 	}
 }

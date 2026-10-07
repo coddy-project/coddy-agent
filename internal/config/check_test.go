@@ -98,6 +98,42 @@ func TestCheckUnknownKeySuggestsTheClosestOne(t *testing.T) {
 	}
 }
 
+// A key that moved out of config.yaml is a warning saying where it went,
+// not an unknown key: the next start moves it there, and -t writes nothing.
+func TestCheckWarnsAboutAKeyThatMovedOut(t *testing.T) {
+	body := withModeline("mcp_servers:\n  - name: files\n    command: npx\n")
+	rep := checkYAML(t, body)
+	if errs := errorsOf(rep); len(errs) != 0 {
+		t.Fatalf("a moved key must not be an error: %+v", errs)
+	}
+	warns := warningsOf(rep)
+	if len(warns) != 1 || warns[0].Path != "mcp_servers" || warns[0].Line != 2 {
+		t.Fatalf("want one warning at mcp_servers on line 2, got %+v", rep.Findings)
+	}
+	if !strings.Contains(warns[0].Fix, "mcp.json") {
+		t.Errorf("fix %q does not say where the servers live now", warns[0].Fix)
+	}
+	if got, err := os.ReadFile(rep.File); err != nil || string(got) != body {
+		t.Fatalf("the check rewrote the file: %q, %v", got, err)
+	}
+
+	sources := checkYAML(t, withModeline("skills:\n  sources:\n    - owner/repo\n"))
+	if errs := errorsOf(sources); len(errs) != 0 {
+		t.Fatalf("skills.sources must not be an error: %+v", errs)
+	}
+	if w := warningsOf(sources); len(w) != 1 || w[0].Path != "skills.sources" || !strings.Contains(w[0].Fix, "marketplaces.json") {
+		t.Fatalf("want one warning at skills.sources naming marketplaces.json, got %+v", sources.Findings)
+	}
+
+	sched := checkYAML(t, withModeline("scheduler:\n  dir: /srv/jobs\n"))
+	if errs := errorsOf(sched); len(errs) != 0 {
+		t.Fatalf("scheduler.dir must not be an error: %+v", errs)
+	}
+	if w := warningsOf(sched); len(w) != 1 || w[0].Path != "scheduler.dir" || !strings.Contains(w[0].Fix, ".coddy/scheduler") {
+		t.Fatalf("want one warning at scheduler.dir naming the fixed folders, got %+v", sched.Findings)
+	}
+}
+
 func TestCheckUnknownKeyInsideAListEntry(t *testing.T) {
 	rep := checkYAML(t, withModeline("providers:\n  - name: a\n    type: openai\n  - name: b\n    type: openai\n    api_bas: x\n"))
 	f := onlyError(t, rep)
@@ -184,7 +220,7 @@ func TestCheckWrongTypeExplainsTheFix(t *testing.T) {
 	t.Run("word for a number", func(t *testing.T) {
 		rep := checkYAML(t, withModeline("agent:\n  max_turns: many\n"))
 		f := onlyError(t, rep)
-		if !strings.Contains(f.Fix, "max_turns: 0") {
+		if !strings.Contains(f.Fix, "max_turns: 165") {
 			t.Errorf("fix %q should show the schema default as an example", f.Fix)
 		}
 	})

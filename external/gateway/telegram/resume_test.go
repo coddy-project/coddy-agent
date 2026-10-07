@@ -4,11 +4,8 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -37,20 +34,16 @@ func sessionRow(id, title, updated string) acp.SessionListInfo {
 	return row
 }
 
-// newResumeTestWorld builds a bot over a server keeping rows, with the stub
-// Telegram API and a persisted store of its own, for the edge cases below.
+// newResumeTestWorld builds a bot over a server keeping rows, with the fake
+// Bot API and a persisted store of its own, for the edge cases below.
 func newResumeTestWorld(t *testing.T, rows ...acp.SessionListInfo) *resumeWorld {
 	t.Helper()
-	w := &resumeWorld{runner: newResumeRunner()}
+	w := &resumeWorld{runner: newResumeRunner(), f: newFakeAPI(t, tgfake.Options{})}
 	w.runner.rows = append(w.runner.rows, rows...)
-	w.srv = httptest.NewServer(http.HandlerFunc(w.handler))
-	w.api = &tgbotapi.BotAPI{Token: "TESTTOKEN", Client: &http.Client{}, Buffer: 100}
-	w.api.SetAPIEndpoint(w.srv.URL + "/bot%s/%s")
 	w.storePath = filepath.Join(t.TempDir(), "gateway_sessions.json")
 	if err := w.buildBot(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(w.close)
 	return w
 }
 
@@ -340,7 +333,8 @@ func TestResumeTapForASessionSinceDeletedLeavesTheMappingAlone(t *testing.T) {
 	w.runner.mu.Lock()
 	w.runner.rows = w.runner.rows[:1]
 	w.runner.mu.Unlock()
-	if err := w.tapButton("Gone"); err != nil {
+	cbq, err := w.tap("Gone")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := w.bot.store.Peek(w.sessionKey()); got != "" {
@@ -349,21 +343,17 @@ func TestResumeTapForASessionSinceDeletedLeavesTheMappingAlone(t *testing.T) {
 	if len(w.runner.ensured) != 0 {
 		t.Fatalf("the server was asked for %v", w.runner.ensured)
 	}
-	replied := false
-	w.mu.Lock()
-	for _, call := range w.calls {
-		switch {
-		case call.method == "sendMessage" && strings.Contains(call.form.Get("text"), "no longer exists") &&
-			call.form.Get("reply_to_message_id") == "2":
-			replied = true
-		case call.method == "answerCallbackQuery" && call.form.Get("text") != "":
-			t.Errorf("the tap was answered with the alert %q, which Telegram refuses after the acknowledgement", call.form.Get("text"))
+	replies := w.f.repliesTo(resumeChatID, cbq.Message.MessageID)
+	if len(replies) != 1 || !strings.Contains(replies[0].Text, "no longer exists") {
+		t.Fatalf("the chat was not told, as a reply to the keyboard, that the session no longer exists:\n%s",
+			w.f.fake.Chat(resumeChatID).Text())
+	}
+	for _, call := range w.f.fake.Calls("answerCallbackQuery") {
+		if text := call.Params["text"]; text != "" {
+			t.Errorf("the tap was answered with the alert %q, which Telegram refuses after the acknowledgement", text)
 		}
 	}
-	w.mu.Unlock()
-	if !replied {
-		t.Fatal("the chat was not told that the session no longer exists")
-	}
+	requireOneAnswer(t, w.f, cbq.ID)
 }
 
 // failingResumeRunner is the resume spec's server with the failures a tap on
@@ -414,7 +404,7 @@ func TestResumeTapFailuresReplyInTheChat(t *testing.T) {
 			runner := &failingResumeRunner{resumeRunner: newResumeRunner()}
 			runner.keep("sess_aaaaaaaaaaaaaaaaaaaaaaaa", "Kept", "")
 			runner.keep("sess_bbbbbbbbbbbbbbbbbbbbbbbb", "Gone", "")
-			bot := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual},
+			bot := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual, Admins: []int64{resumeUserID}},
 				runner, "/work", slog.New(slog.DiscardHandler), "", nil)
 			key := sessionstore.SessionKey(adapterName, resumeChatID, resumeUserID, config.IsolationIndividual, false)
 			bot.processMessage(t.Context(), f.api, f.userMessage(resumeChatID, resumeUserID, "/resume"), key)
@@ -487,50 +477,76 @@ func TestResumeTapReplacesTheMenuAndPagingEditsIt(t *testing.T) {
 	if err := w.userSends("/resume"); err != nil {
 		t.Fatal(err)
 	}
-	kb, err := w.lastKeyboard()
+	menu, err := w.menu()
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, nav := sessionButtonsOf(kb)
-	if strings.Join(nav, ",") != "Next ▶" {
+	if _, nav := menuButtons(menu); strings.Join(nav, ",") != "Next ▶" {
 		t.Fatalf("first page navigation = %v", nav)
 	}
-	w.bot.handleCallback(t.Context(), w.api, &tgbotapi.CallbackQuery{
-		ID: "cb-page", From: &tgbotapi.User{ID: resumeUserID},
-		Message: &tgbotapi.Message{MessageID: 2, Chat: &tgbotapi.Chat{ID: resumeChatID, Type: "private"}},
-		Data:    resumePageCallback(1),
-	})
-	w.mu.Lock()
-	last := w.calls[len(w.calls)-1]
-	w.mu.Unlock()
-	if last.method != "editMessageText" || !strings.Contains(last.form.Get("text"), "Page 2 of 2") {
-		t.Fatalf("the page turn did not edit the menu: %s %q", last.method, last.form.Get("text"))
-	}
-	var edited tgbotapi.InlineKeyboardMarkup
-	if err := json.Unmarshal([]byte(last.form.Get("reply_markup")), &edited); err != nil {
+	// Whatever the page turn and the tap say has to land on the menu itself:
+	// the chat holds no more messages afterwards than it does now.
+	sent := len(w.f.fake.Chat(resumeChatID).Messages)
+
+	cbq, err := w.f.tap(resumeChatID, resumeUserID, "Next ▶")
+	if err != nil {
 		t.Fatal(err)
 	}
-	sessions, nav := sessionButtonsOf(edited)
+	if cbq.Message.MessageID != menu.MessageID || cbq.Data != resumePageCallback(1) {
+		t.Fatalf("Next ▶ carries %q on message %d, want %q on the menu %d",
+			cbq.Data, cbq.Message.MessageID, resumePageCallback(1), menu.MessageID)
+	}
+	w.bot.handleCallback(t.Context(), w.f.api, cbq)
+	paged, ok := w.f.message(resumeChatID, menu.MessageID)
+	if !ok || !paged.Edited || !strings.Contains(paged.Text, "Page 2 of 2") {
+		t.Fatalf("the page turn did not edit the menu:\n%s", w.f.fake.Chat(resumeChatID).Text())
+	}
+	sessions, nav := menuButtons(paged)
 	if len(sessions) != 1 || strings.Join(nav, ",") != "◀ Prev" {
 		t.Fatalf("second page: %d sessions, navigation %v", len(sessions), nav)
 	}
 
-	if err := w.tapButton("Chat i"); err != nil {
+	if _, err := w.tap("Chat i"); err != nil {
 		t.Fatal(err)
 	}
-	w.mu.Lock()
-	last = w.calls[len(w.calls)-1]
-	w.mu.Unlock()
-	if last.method != "editMessageText" || !strings.Contains(last.form.Get("text"), "Resumed: Chat i") {
-		t.Fatalf("the tap did not replace the menu: %s %q", last.method, last.form.Get("text"))
+	confirmed, ok := w.f.message(resumeChatID, menu.MessageID)
+	if !ok || !strings.Contains(confirmed.Text, "Resumed: Chat i") {
+		t.Fatalf("the tap did not replace the menu:\n%s", w.f.fake.Chat(resumeChatID).Text())
 	}
-	if last.form.Get("reply_markup") != "" {
-		t.Fatalf("the confirmation still carries a keyboard: %s", last.form.Get("reply_markup"))
+	if len(confirmed.Keyboard) != 0 {
+		t.Fatalf("the confirmation still carries a keyboard: %+v", confirmed.Keyboard)
+	}
+	if got := len(w.f.fake.Chat(resumeChatID).Messages); got != sent {
+		t.Fatalf("the page turn and the tap posted %d messages instead of editing the menu:\n%s",
+			got-sent, w.f.fake.Chat(resumeChatID).Text())
 	}
 }
 
-// In a group the command is answered without a mention, like /clear.
-func TestGroupChatAnswersResumeWithoutAMention(t *testing.T) {
+// commandMessage shapes text the way Telegram delivers it: a message that
+// starts with a slash carries a bot_command entity over its first word, so
+// Command and CommandArguments split it as the real client would. It is for
+// the checks of shouldRespond, which read the message and send nothing; a
+// test that reaches Telegram types into the fake's chat with userMessage.
+func commandMessage(text string) *tgbotapi.Message {
+	msg := &tgbotapi.Message{
+		MessageID: 1,
+		From:      &tgbotapi.User{ID: resumeUserID},
+		Chat:      &tgbotapi.Chat{ID: resumeChatID, Type: "private"},
+		Text:      text,
+	}
+	if strings.HasPrefix(text, "/") {
+		length := len(text)
+		if i := strings.IndexByte(text, ' '); i > 0 {
+			length = i
+		}
+		msg.Entities = []tgbotapi.MessageEntity{{Type: "bot_command", Offset: 0, Length: length}}
+	}
+	return msg
+}
+
+// In a group the command needs the bot's mention, like /clear, or a reply
+// to one of the bot's messages.
+func TestGroupChatAnswersResumeOnlyWhenAddressed(t *testing.T) {
 	base, _, err := logger.New(config.Logger{Level: config.LogLevelError, Format: config.LogFormatText, Outputs: []string{config.LogOutputStderr}})
 	if err != nil {
 		t.Fatal(err)
@@ -538,8 +554,12 @@ func TestGroupChatAnswersResumeWithoutAMention(t *testing.T) {
 	b := New(&config.TelegramGatewayConfig{}, nil, "", logger.Component(base, logger.ComponentGatewayTelegram), "", nil)
 	b.botName = "coddy_bot"
 	msg := commandMessage("/resume login")
+	if b.shouldRespond(msg, msg.Text) {
+		t.Fatal("/resume without a mention is answered in a group")
+	}
+	msg.ReplyToMessage = &tgbotapi.Message{From: &tgbotapi.User{UserName: "coddy_bot"}}
 	if !b.shouldRespond(msg, msg.Text) {
-		t.Fatal("/resume in a group is not answered")
+		t.Fatal("/resume as a reply to the bot is not answered")
 	}
 }
 

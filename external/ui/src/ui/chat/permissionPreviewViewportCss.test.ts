@@ -77,9 +77,9 @@ test("phone media cap keeps 170px and never re-declares overflow", () => {
     (block) =>
       block.match(/\.permission-preview-viewport[^{]*\{[^}]*\}/gms) || [],
   );
-  expect(
-    viewportRules.some((rule) => /max-height:\s*170px/.test(rule)),
-  ).toBe(true);
+  expect(viewportRules.some((rule) => /max-height:\s*170px/.test(rule))).toBe(
+    true,
+  );
   for (const rule of viewportRules) {
     expect(rule).not.toMatch(/overflow/);
   }
@@ -110,7 +110,10 @@ test("the phone cap never reaches a static viewport", () => {
     const block = css.slice(open + 1, end - 1);
     for (const rule of block.match(/[^{}]+\{[^}]*\}/gms) || []) {
       const selector = rule.slice(0, rule.indexOf("{")).trim();
-      if (/max-height:\s*170px/.test(rule) && /\.permission-preview-viewport\b/.test(selector)) {
+      if (
+        /max-height:\s*170px/.test(rule) &&
+        /\.permission-preview-viewport\b/.test(selector)
+      ) {
         capped.push(selector);
       }
     }

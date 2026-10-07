@@ -32,11 +32,28 @@ type MessageEntity struct {
 	Length int    `json:"length"`
 }
 
-// InlineKeyboardButton is one button of an inline keyboard.
+// InlineKeyboardButton is one button of an inline keyboard: exactly one of
+// CallbackData, URL and WebApp says what a tap does.
 type InlineKeyboardButton struct {
-	Text         string `json:"text"`
-	CallbackData string `json:"callback_data,omitempty"`
-	URL          string `json:"url,omitempty"`
+	Text         string      `json:"text"`
+	CallbackData string      `json:"callback_data,omitempty"`
+	URL          string      `json:"url,omitempty"`
+	WebApp       *WebAppInfo `json:"web_app,omitempty"`
+}
+
+// WebAppInfo names the Mini App a button or the menu button opens.
+type WebAppInfo struct {
+	URL string `json:"url"`
+}
+
+// MenuButton mirrors the Bot API MenuButton: "commands" (the list of the
+// bot's commands, what a bot that set nothing shows), "web_app" (a button
+// that opens a Mini App) or "default" (no value of its own: the chat follows
+// the bot's button, and the bot's button goes back to commands).
+type MenuButton struct {
+	Type   string      `json:"type"`
+	Text   string      `json:"text,omitempty"`
+	WebApp *WebAppInfo `json:"web_app,omitempty"`
 }
 
 // InlineKeyboardMarkup is the reply_markup the gateway attaches to its menus.

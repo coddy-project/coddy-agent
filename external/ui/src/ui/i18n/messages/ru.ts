@@ -27,6 +27,13 @@ export const messagesRu: Record<string, string> = {
     "Вход включён, но учётная запись не настроена. Выполните `coddy serve set-password` на сервере.",
   "auth.signIn.crossSite": "Запрос пришёл не с этой страницы.",
   "auth.signIn.failed": "Войти не удалось ({status}).",
+  "auth.signIn.notKept":
+    "Сервер принял вход, но браузер не сохранил его в этом фрейме, потому что страница встроена в другой сайт, например в Telegram Web.",
+  "auth.signIn.openInTab": "Открыть Coddy в отдельной вкладке",
+  "auth.signIn.telegramNotAdmin":
+    "Открыть Coddy из Telegram могут только админы бота.",
+  "auth.signIn.telegramRetry":
+    "Вход через Telegram не прошёл. Закройте Mini App и откройте заново.",
   "auth.signOut.action": "Выйти",
   "auth.signOut.tooltipUser": "Выйти ({user})",
 
@@ -77,7 +84,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.tools.label": "Инструменты и разрешения",
   "settings.section.mcp_servers.label": "MCP-серверы",
   "settings.section.skills.label": "Навыки",
-  "settings.section.memory.label": "Копайлот памяти",
+  "settings.section.memory.label": "Память",
   "settings.section.system.label": "Промпты",
   "settings.section.compaction.label": "Сжатие контекста",
   "settings.section.subagents.label": "Субагенты",
@@ -133,6 +140,10 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.swarm.cors.enable.label": "Включить CORS",
   "settings.schema.swarm.cors.enable.desc":
     "Отвечать на кросс-доменные запросы с адресов ниже.",
+  "settings.schema.swarm.cors.allow_loopback.label":
+    "Разрешить loopback-origin",
+  "settings.schema.swarm.cors.allow_loopback.desc":
+    "Также допускать любую страницу с машины самого браузера — localhost, *.localhost, 127.0.0.0/8 или [::1] на любом порту, например coddy serve на ноутбуке, какой бы порт он ни занял. Клиентский токен по-прежнему обязателен.",
   "settings.schema.swarm.cors.allowed_origins.label": "Разрешённые origin",
   "settings.schema.swarm.cors.allowed_origins.desc":
     "Точные origin, например http://localhost:12345, или * для любого.",
@@ -223,7 +234,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.logger.label": "Логирование",
   "settings.section.logger.desc": "Уровень, приёмники, ротация",
   "settings.section.gateways.label": "Шлюзы",
-  "settings.section.gateways.desc": "Бот Telegram",
+  "settings.section.gateways.desc": "Боты Telegram и Пачки",
   "settings.group.agent.turn": "Модель и ходы",
   "settings.group.agent.retries": "Повторы",
   "settings.group.agent.timeouts": "Таймауты потока",
@@ -390,23 +401,33 @@ export const messagesRu: Record<string, string> = {
     "Уровень рассуждения, предвыбранный для новых чатов с этой моделью. Должен быть одним из разрешённых уровней рассуждения, иначе игнорируется.",
   "settings.schema.models.reasoning_default.ph":
     "medium, если он есть, иначе первый уровень",
+  "settings.schema.models.allow_reasoning_off.label":
+    "Разрешить отключение рассуждения",
+  "settings.schema.models.allow_reasoning_off.desc":
+    "Показывает Off в селекторе рассуждения этой модели. Включайте, только если это развёртывание провайдера и модели выполняет запрос Coddy на отключение рассуждения. Coddy не может проверить это автоматически.",
   "settings.schema.models.stream.label": "Потоковые ответы",
   "settings.schema.models.stream.desc":
     "Оставьте включённым, чтобы получать ответ токен за токеном по SSE. Выключите, чтобы отправлять один блокирующий запрос и ждать ответ целиком — для серверов и прокси, которые плохо работают с потоками событий; транскрипт тогда заполнится разом, а не по мере набора. Недоступно для моделей codex: их бэкенд работает только в потоковом режиме.",
 
   "settings.schema.agent.model.label": "Модель по умолчанию",
   "settings.schema.supervisor.enable.label": "Включить сторож",
-  "settings.schema.supervisor.enable.desc": "Проверять обычные ходы и без /goal. Цель сессии включает надзор независимо от этого переключателя.",
+  "settings.schema.supervisor.enable.desc":
+    "Проверять обычные ходы и без /goal. Цель сессии включает надзор независимо от этого переключателя.",
   "settings.schema.supervisor.model.label": "Модель надзора",
-  "settings.schema.supervisor.model.desc": "Настроенная модель для коротких проверок завершения. Пустое поле использует модель сессии.",
+  "settings.schema.supervisor.model.desc":
+    "Настроенная модель для коротких проверок завершения. Пустое поле использует модель сессии.",
   "settings.schema.supervisor.stall_seconds.label": "Простой, с",
-  "settings.schema.supervisor.stall_seconds.desc": "Время без ответа до прерывания хода; ожидание разрешения и фоновой задачи не учитывается. 0 отключает сторож простоя.",
+  "settings.schema.supervisor.stall_seconds.desc":
+    "Время без ответа до прерывания хода; ожидание разрешения и фоновой задачи не учитывается. 0 отключает сторож простоя.",
   "settings.schema.supervisor.max_nudges.label": "Максимум подсказок",
-  "settings.schema.supervisor.max_nudges.desc": "Предел подсказок для выхода из зависания или цикла на запрос пользователя.",
+  "settings.schema.supervisor.max_nudges.desc":
+    "Предел подсказок для выхода из зависания или цикла на запрос пользователя.",
   "settings.schema.supervisor.max_continuations.label": "Максимум продолжений",
-  "settings.schema.supervisor.max_continuations.desc": "Предел автоматических ходов продолжения на запрос пользователя.",
+  "settings.schema.supervisor.max_continuations.desc":
+    "Предел автоматических ходов продолжения на запрос пользователя.",
   "settings.schema.supervisor.loop_repeat.label": "Повтор операций",
-  "settings.schema.supervisor.loop_repeat.desc": "Сколько одинаковых вызовов инструмента подряд запускают подсказку о цикле.",
+  "settings.schema.supervisor.loop_repeat.desc":
+    "Сколько одинаковых вызовов инструмента подряд запускают подсказку о цикле.",
   "settings.schema.agent.model.desc":
     "Логический идентификатор модели из списка моделей, используемый, когда клиент не указал модель.",
   "settings.schema.agent.queue_mode.label": "Режим очереди",
@@ -414,7 +435,7 @@ export const messagesRu: Record<string, string> = {
     "Определяет, что делает Enter с сообщением, написанным во время хода. В режиме steer сообщение встраивается в текущий ход на ближайшем шаге, в режиме after_turn запускает отдельный промпт после ответа. Tab отправляет в другом режиме. Если режим не задан, браузер и консоль спросят при первом таком сообщении.",
   "settings.schema.agent.max_turns.label": "Максимум итераций",
   "settings.schema.agent.max_turns.desc":
-    "Предел итераций ReAct (вызовы LLM плюс раунды инструментов) на один запрос пользователя; 0 снимает предел.",
+    "Предел итераций ReAct, включая вызовы LLM и раунды инструментов, на один запрос пользователя. По умолчанию 165, а 0 явно снимает предел.",
   "settings.schema.agent.llm_retry_max.label": "Максимум повторов LLM",
   "settings.schema.agent.llm_retry_max.desc":
     "Общий лимит повторов после ошибок соединения, пустых ответов и тайм-аута первого токена. Сбрасывается после вызова инструмента или нового сообщения. 0 отключает эти повторы. Защита от циклов, Stop-хуки, резервные модели и ожидание квоты имеют отдельные лимиты.",
@@ -438,7 +459,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.agent.loop_tool_repeat_limit.label":
     "Предел повторов инструмента",
   "settings.schema.agent.loop_tool_repeat_limit.desc":
-    "Сколько одинаковых вызовов инструмента подряд допустимо, прежде чем защита от зацикливания вмешается (0 отключает проверку).",
+    "Сколько одинаковых вызовов инструмента в последовательных ответах ReAct допустимо, прежде чем защита от зацикливания вмешается (0 отключает проверку).",
   "settings.schema.agent.loop_stream_repeat_cycles.label":
     "Циклы повтора в потоке",
   "settings.schema.agent.loop_stream_repeat_cycles.desc":
@@ -531,10 +552,10 @@ export const messagesRu: Record<string, string> = {
     "Регистрировать инструмент spawn_agent и перечислять каталог субагентов в системном промпте (по умолчанию включено).",
   "settings.schema.subagents.dirs.label": "Каталоги определений",
   "settings.schema.subagents.dirs.desc":
-    "Первыми идут каталоги с самым низким приоритетом; более поздние записи переопределяют ранние по имени. ${CODDY_HOME} и ${CWD} разворачиваются. Каталоги внутри рабочего пространства относятся к проектной области и подчиняются политике доверия.",
+    "Дополнительные каталоги определений. Четыре каталога по умолчанию читаются всегда, от слабого к сильному, это ${HOME}/.agents/agents, .agents/agents проекта, ${CODDY_HOME}/agents и .coddy/agents проекта. Каталоги из этого списка читаются после них по порядку и сильнее их. Если определение есть в нескольких каталогах, берётся из последнего по этому порядку, а каталог, указанный дважды, читается на последнем месте. ${CODDY_HOME} разворачивается при загрузке файла, ${HOME} и ~ в домашнюю папку, ${CWD} и относительный путь от папки сессии. Каталоги внутри проекта относятся к проектной области и подчиняются политике доверия.",
   "settings.schema.subagents.project_trust.label": "Проектные определения",
   "settings.schema.subagents.project_trust.desc":
-    'Определения, найденные внутри рабочего пространства, приходят вместе с чекаутом. Значение "ask" загружает их, но отказывает в запуске, пока определение не одобрено для этого рабочего пространства на машине, где запущен coddy (там coddy agents trust, либо POST /coddy/subagents/{name}/trust). Значение "allow" считает их вашими собственными файлами. Значение "deny" никогда их не читает.',
+    'Определения, найденные внутри рабочего пространства, приходят вместе с чекаутом. Значение "ask" загружает их, но отказывает в запуске, пока определение не одобрено для этого рабочего пространства на машине, где запущен coddy (щитом в его строке в разделе "Определения", командой coddy agents trust на машине, где запущен coddy, или POST /coddy/subagents/{name}/trust). Значение "allow" считает их вашими собственными файлами. Значение "deny" никогда их не читает.',
   "settings.schema.subagents.max_concurrent.label": "Максимум одновременно",
   "settings.schema.subagents.max_concurrent.desc":
     "Сколько запусков субагентов может одновременно выполняться во всём процессе (по умолчанию 4). Лишние запуски отклоняются, а не ставятся в очередь.",
@@ -573,7 +594,10 @@ export const messagesRu: Record<string, string> = {
 
   "settings.schema.skills.dirs.label": "Каталоги скилов",
   "settings.schema.skills.dirs.desc":
-    "Пути поиска скилов. По умолчанию: ~/.agents/skills (глобальные, совместно с npx skills / npx skillsbd), ${CODDY_HOME}/skills (специфичные для coddy), ${CWD}/.coddy/skills (проектные). ${CODDY_HOME} и ${CWD} разворачиваются во время выполнения.",
+    "Дополнительные каталоги скилов. Четыре каталога по умолчанию читаются всегда, от слабого к сильному, это ${HOME}/.agents/skills (общие для всех агентов, туда ставят npx skills и npx skillsbd), .agents/skills проекта, ${CODDY_HOME}/skills (собственные и установленные скилы Coddy) и .coddy/skills проекта. Каталоги из этого списка читаются после них по порядку и сильнее их. Если скил есть в нескольких каталогах, берётся из последнего по этому порядку, а каталог, указанный дважды, читается на последнем месте. ${CODDY_HOME} разворачивается при загрузке файла, ${HOME} и ~ в домашнюю папку, ${CWD} и относительный путь от папки сессии, в том числе выбранной для нового чата.",
+  "settings.schema.skills.project_trust.label": "Маркетплейсы проекта",
+  "settings.schema.skills.project_trust.desc":
+    'Файл .coddy/marketplaces.json проекта приходит вместе с чекаутом. Значение "ask" не включает его источники и маркетплейсы ни в одну синхронизацию, пока каждая запись не одобрена для этого рабочего пространства (щит в списке ниже или coddy plugin marketplace trust). Значение "allow" считает их вашими, как записи ~/.coddy/marketplaces.json. Значение "deny" никогда их не использует, они показываются выключенными. Установленное ими попадает в ~/.coddy/skills, папок скилов проекта настройка не касается.',
   "settings.schema.skills.auto_discovery.desc":
     "Разрешить агенту самостоятельно загружать полные инструкции подходящего скила (инструмент load_skill, управляемый моделью), а не только по команде /скил. По умолчанию включено.",
 
@@ -613,6 +637,10 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.max_search_hits.label": "Максимум результатов поиска",
   "settings.schema.memory.max_search_hits.desc":
     "Максимум фрагментов, возвращаемых инструментами поиска по памяти.",
+  "settings.schema.memory.max_note_chars.label":
+    "Предел размера заметки (символы)",
+  "settings.schema.memory.max_note_chars.desc":
+    "Наибольшая длина тела одной сохраняемой заметки в символах; 0 без предела (по умолчанию 900).",
   "settings.schema.memory.additional_prompt.label": "Дополнительные инструкции",
   "settings.schema.memory.additional_prompt.desc":
     "Ваши собственные инструкции для субагента памяти, раздел его системного промпта; основной агент их не видит.",
@@ -659,8 +687,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.scheduler.enable.label": "Включено",
   "settings.schema.scheduler.enable.desc":
     "Когда включено, этот процесс может запускать демон планировщика и REST API.",
-  "settings.schema.scheduler.dir.label": "Каталог заданий",
-  "settings.schema.scheduler.dir.desc": "Каталог markdown-определений заданий.",
+  "settings.schema.scheduler.project_trust.label": "Проектные задания",
+  "settings.schema.scheduler.project_trust.desc":
+    'Задания в .coddy/scheduler рабочей папки приходят вместе с checkout. "ask": показывать их, но не запускать, пока задание не одобрено для этой папки (щит в панели планировщика). "allow": запускать как свои. "deny": никогда не запускать.',
   "settings.schema.scheduler.max_queue.label": "Максимум очереди",
   "settings.schema.scheduler.max_queue.desc":
     "Максимум одновременных запусков агента по расписанию.",
@@ -688,7 +717,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.system.instructions.label": "Инструкции",
   "settings.schema.system.instructions.files.label": "Файлы инструкций",
   "settings.schema.system.instructions.files.desc":
-    'Имена файлов относительно рабочего каталога сессии, читаемые как инструкции. По умолчанию ["AGENTS.md"].',
+    "Дополнительные файлы, которые попадают в промпт после документов AGENTS.md и DESIGN.md. Эти документы читаются всегда, из домашнего каталога агента, из папки сессии и из вложенных папок. По умолчанию список пуст, относительный путь читается от папки сессии, а файл, который уже есть в промпте, второй раз не читается.",
   "settings.schema.logger.label": "Логирование",
   "settings.schema.logger.level.label": "Уровень",
   "settings.schema.logger.level.desc":
@@ -770,6 +799,53 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.gateways.telegram.chats.access.label": "Доступ",
   "settings.schema.gateways.telegram.chats.access.desc":
     "Переопределение доступа для конкретного чата: all, admins или group:<имя>.",
+  "settings.schema.gateways.pachca.label": "Пачка",
+  "settings.schema.gateways.pachca.desc": "Настройки бота интеграции Пачки.",
+  "settings.schema.gateways.pachca.enable.label": "Включено",
+  "settings.schema.gateways.pachca.enable.desc":
+    "Запускать бота Пачки (нужен сборочный тег gateway или gateway.pachca).",
+  "settings.schema.gateways.pachca.token.label": "Токен бота",
+  "settings.schema.gateways.pachca.token.desc":
+    "Токен доступа бота интеграции Пачки. Здесь необязателен: если оставить поле пустым, токен берётся из переменной окружения PACHCA_BOT_TOKEN (например, через .env). Секрет: если задан, хранится в config.yaml и показывается целиком.",
+  "settings.schema.gateways.pachca.proxy.label": "URL прокси",
+  "settings.schema.gateways.pachca.proxy.desc":
+    "Необязательный прокси для запросов к API Пачки. Для HTTP-прокси подходят http:// и https://, для SOCKS5 подходят socks5:// и socks5h://. Указанный URL заменяет системный прокси для бота. Пока поле пустое, бот ходит через системный прокси (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+  "settings.schema.gateways.pachca.poll_interval_seconds.label":
+    "Интервал опроса, секунды",
+  "settings.schema.gateways.pachca.poll_interval_seconds.desc":
+    "Как часто бот читает журнал событий, от 1 до 60 секунд (по умолчанию 2).",
+  "settings.schema.gateways.pachca.admins.label": "Администраторы",
+  "settings.schema.gateways.pachca.admins.desc":
+    "Идентификаторы пользователей Пачки с расширенными правами; администраторы всегда проходят проверку доступа.",
+  "settings.schema.gateways.pachca.default_access.label": "Доступ по умолчанию",
+  "settings.schema.gateways.pachca.default_access.desc":
+    "Резервный уровень доступа для чатов без переопределения: all, admins или group:<имя>.",
+  "settings.schema.gateways.pachca.default_isolation.label":
+    "Изоляция по умолчанию",
+  "settings.schema.gateways.pachca.default_isolation.desc":
+    "Резервная изоляция сессий для групповых чатов.",
+  "settings.schema.gateways.pachca.user_groups.label": "Группы пользователей",
+  "settings.schema.gateways.pachca.user_groups.desc":
+    "Именованные наборы идентификаторов пользователей, на которые ссылается access как group:<имя>.",
+  "settings.schema.gateways.pachca.user_groups.name.label": "Имя группы",
+  "settings.schema.gateways.pachca.user_groups.name.desc":
+    "Имя, на которое ссылается access как group:<имя>.",
+  "settings.schema.gateways.pachca.user_groups.user_ids.label":
+    "Идентификаторы пользователей",
+  "settings.schema.gateways.pachca.user_groups.user_ids.desc":
+    "Идентификаторы пользователей Пачки, входящие в эту группу.",
+  "settings.schema.gateways.pachca.chats.label": "Переопределения по чатам",
+  "settings.schema.gateways.pachca.chats.desc":
+    "Переопределение изоляции и доступа для отдельных чатов.",
+  "settings.schema.gateways.pachca.chats.chat_id.label": "Идентификатор чата",
+  "settings.schema.gateways.pachca.chats.chat_id.desc":
+    "Идентификатор чата Пачки: беседы, канала, личного чата или собственного чата треда.",
+  "settings.schema.gateways.pachca.chats.isolation.label": "Изоляция",
+  "settings.schema.gateways.pachca.chats.isolation.desc":
+    "Переопределение изоляции сессий для конкретного чата.",
+  "settings.schema.gateways.pachca.chats.access.label": "Доступ",
+  "settings.schema.gateways.pachca.chats.access.desc":
+    "Переопределение доступа для конкретного чата: all, admins или group:<имя>.",
 
   "settings.combobox.toggleAria": "Показать параметры",
 
@@ -839,6 +915,8 @@ export const messagesRu: Record<string, string> = {
   "mcp.error.delete": "Не удалось удалить {name}",
   "mcp.error.invalidEntry": "Некорректная запись.",
   "mcp.error.saveServer": "Не удалось сохранить сервер",
+  "mcp.error.saveChanged":
+    "Запись изменилась в файле после открытия редактора. Закройте его и откройте запись снова, чтобы увидеть, что в ней сейчас.",
   "mcp.error.load": "Не удалось загрузить серверы MCP: {message}",
   "mcp.error.request": "Ошибка запроса MCP: {message}",
   "mcp.discovery.legend": "Обнаружение MCP",
@@ -863,11 +941,8 @@ export const messagesRu: Record<string, string> = {
   "mcp.switch.disableAria": "Отключить MCP-сервер {name}",
   "mcp.switch.enableAria": "Включить MCP-сервер {name}",
   "mcp.edit.title": "Изменить запись ({origin})",
-  "mcp.edit.readonlyTitle":
-    "Определено в config.yaml — изменяйте в разделах конфигурации",
   "mcp.edit.aria": "Изменить {name}",
   "mcp.delete.title": "Удалить из {origin}",
-  "mcp.delete.readonlyTitle": "Определено в config.yaml — здесь удалить нельзя",
   "mcp.delete.aria": "Удалить {name}",
   "mcp.note.denied":
     "Проектные MCP-серверы выключены параметром mcp.project_trust: deny. Эта запись никогда не запускается.",
@@ -886,11 +961,11 @@ export const messagesRu: Record<string, string> = {
   "mcp.editor.save": "Сохранить",
   "mcp.editor.cancel": "Отмена",
   "mcp.discovery.description":
-    "Проектный ./.coddy/mcp.json приходит вместе с чекаутом, поэтому команду, которую запустит сессия, выбирает репозиторий, а не вы. В режиме «Спрашивать» его серверы не запускаются и не опрашиваются, пока вы не одобрите именно это объявление для данного рабочего пространства (кнопка-щит в списке ниже); изменение одобренной записи снова потребует одобрения. Серверы, добавленные здесь, одобряются самим фактом записи. Записи из config.yaml и ~/.coddy/mcp.json — ваши и никогда не блокируются.",
+    'Проектный ./.coddy/mcp.json приходит вместе с чекаутом, поэтому команду, которую запустит сессия, выбирает репозиторий, а не вы. В режиме "Спрашивать" его серверы не запускаются и не опрашиваются, пока вы не одобрите именно это объявление для данного рабочего пространства (кнопка-щит в списке ниже); изменение одобренной записи снова потребует одобрения. Серверы, добавленные здесь, одобряются самим фактом записи. Записи из ~/.coddy/mcp.json ваши и никогда не блокируются.',
   "mcp.servers.description":
-    "Серверы Model Context Protocol берутся из трёх уровней, это config.yaml (mcp_servers), глобальный ~/.coddy/mcp.json и локальный ./.coddy/mcp.json проекта (формат Cursor, более поздний уровень переопределяет запись с тем же именем). Можно отключить весь сервер или отдельные инструменты. Переключатель глобального сервера сохраняется в файл, где сервер объявлен, переключатель проектного в ~/.coddy/mcp-overrides.json, поэтому checkout остаётся как есть. Переключатель сервера применяется в работающих сессиях сразу, переключатель инструмента на их следующем ходе.",
+    "Серверы Model Context Protocol берутся из двух файлов, это глобальный ~/.coddy/mcp.json и ./.coddy/mcp.json проекта, который переопределяет сервер с тем же именем (формат Cursor). Можно отключить весь сервер или отдельные инструменты. Переключатель глобального сервера сохраняется в ~/.coddy/mcp.json, переключатель проектного в ~/.coddy/mcp-overrides.json, поэтому checkout остаётся как есть. Переключатель сервера применяется в работающих сессиях сразу, переключатель инструмента на их следующем ходе, а правка ~/.coddy/mcp.json в обход этого экрана доходит до них за несколько секунд.",
   "mcp.empty":
-    "Серверы MCP не настроены. Добавьте сервер здесь (сохранится в локальный ./.coddy/mcp.json или глобальный ~/.coddy/mcp.json) либо объявите его в mcp_servers в config.yaml.",
+    "Серверы MCP не настроены. Добавьте сервер здесь, он сохранится в ./.coddy/mcp.json проекта или в глобальный ~/.coddy/mcp.json.",
   "mcp.note.declaredBy":
     "Объявлено в {path}; этот файл передаётся вместе с чекаутом, поэтому сервер пока не запускается и не опрашивается. Одобрение распространяется ровно на это объявление:",
   "mcp.note.namesOnly":
@@ -898,6 +973,8 @@ export const messagesRu: Record<string, string> = {
   "mcp.note.workspaceFallback": "рабочее пространство сессии",
   "mcp.editor.formatDescription":
     "Одна запись mcpServers в формате Cursor: command/args/env (объект), необязательные disabled и disabledTools. Сохраняется в {path}.",
+  "mcp.editor.valuesHint":
+    "Значения env и заголовков не показываются. {placeholder} оставляет сохранённое значение, новое значение заменяет его, а убранный ключ удаляется из записи.",
 
   "mcp.trustOption.ask":
     "Спрашивать — одобрять каждый проектный сервер однократно",
@@ -909,7 +986,7 @@ export const messagesRu: Record<string, string> = {
   "mcp.fact.contacts": "обращается",
   "mcp.fact.env": "env",
   "mcp.fact.headers": "заголовки",
-  "mcp.origin.config": "config.yaml",
+  "mcp.fact.reads": "читает",
   "mcp.origin.home": "~/.coddy/mcp.json",
   "mcp.origin.project": "./.coddy/mcp.json",
   // Настройки -> Субагенты: каталог определений
@@ -918,7 +995,7 @@ export const messagesRu: Record<string, string> = {
     "Правила пула делегирования, то есть можно ли запускать определения, пришедшие с чекаутом, сколько запусков идёт одновременно, насколько глубоко они вкладываются и сколько времени и итераций получает один запуск, если ни определение, ни вызов их не задают.",
   "subagents.catalog.legend": "Определения",
   "subagents.catalog.description":
-    'Все определения, которые может запустить сессия этого рабочего пространства: встроенные, ваши файлы в ~/.coddy/agents и файлы .coddy/agents и .claude/agents, пришедшие вместе с чекаутом. При значении "ask" проектный файл запускается только после одобрения для этого рабочего пространства в терминале на машине, где работает coddy: coddy agents trust <name>.',
+    'Все определения, которые может запустить сессия этого рабочего пространства, это встроенные, ваши файлы в ~/.agents/agents и ~/.coddy/agents и файлы .agents/agents и .coddy/agents, пришедшие вместе с чекаутом. При значении "ask" проектный файл запускается только после одобрения для этого рабочего пространства щитом здесь или командой coddy agents trust <name> на машине, где работает coddy. Изменённый одобренный файл потребует одобрения снова.',
   "subagents.catalog.loading": "Загрузка определений…",
   "subagents.catalog.empty":
     "Из этого рабочего пространства не видно ни одного определения субагента.",
@@ -932,7 +1009,14 @@ export const messagesRu: Record<string, string> = {
   "subagents.badge.hidden": "скрытый",
   "subagents.badge.needsApproval": "нужно одобрение",
   "subagents.badge.needsApprovalTitle":
-    "Запуск отклоняется, пока определение не одобрено для этого рабочего пространства: coddy agents trust {name}",
+    "Запуск отклоняется, пока определение не одобрено для этого рабочего пространства щитом или командой coddy agents trust {name}",
+  "subagents.trust.approveTitle":
+    "Разрешить запуск {name} в этом рабочем пространстве",
+  "subagents.trust.approvedTitle":
+    "Одобрено для этого рабочего пространства, нажмите, чтобы отозвать",
+  "subagents.trust.approveAria": "Одобрить субагента {name}",
+  "subagents.trust.withdrawAria": "Отозвать одобрение субагента {name}",
+  "subagents.error.trust": "Не удалось изменить одобрение {name}.",
   "subagents.fact.file": "файл",
   "subagents.fact.model": "модель",
   "subagents.fact.modelInherits": "модель родителя",
@@ -992,20 +1076,56 @@ export const messagesRu: Record<string, string> = {
   "skills.error.install": "Не удалось установить {name}",
   "skills.status.updated": "Обновлено: {name}.",
   "skills.status.installed": "Установлено: {name}.",
-  "skills.sources.legend": "Удалённые источники скилов",
+  "skills.trust.legend": "Обнаружение маркетплейсов",
+  "skills.trust.description":
+    "Проектный .coddy/marketplaces.json приходит вместе с чекаутом, поэтому то, что синхронизация установит в ~/.coddy/skills, выбирает репозиторий, а не вы. При значении ask его записи не синхронизируются и не предлагаются к установке, пока вы не одобрите каждую для этого рабочего пространства (щит в списке ниже); изменение одобренной записи снова потребует одобрения. Записи, которые вы добавляете в проект здесь, одобряются самим фактом записи, а ~/.coddy/marketplaces.json ваш и никогда не блокируется. Сохраняется вместе с остальными настройками.",
+  "skills.sources.legend": "Маркетплейсы",
   "skills.sources.add": "Добавить",
+  "skills.sources.addAria": "Источник для добавления",
+  "skills.sources.scopeAria": "Где объявить",
+  "skills.sources.scope.global": "Ваш (~/.coddy)",
+  "skills.sources.scope.local": "Этот проект",
   "skills.sources.syncAll": "Синхронизировать все",
-  "skills.sources.syncAllTitle": "Получить все настроенные маркетплейсы",
+  "skills.sources.syncAllTitle":
+    "Получить все действующие источники и маркетплейсы",
   "skills.sources.completed": "Готово",
   "skills.sources.syncedTitle": "Синхронизировано",
   "skills.sources.syncTitle": "Синхронизировать {source}",
+  "skills.sources.heldSyncTitle":
+    "Сначала одобрите его для этого рабочего пространства",
+  "skills.sources.deniedSyncTitle":
+    "Маркетплейсы проектов выключены настройкой skills.project_trust: deny",
+  "skills.sources.scope.noSessionTitle":
+    "Чтобы объявить маркетплейс для проекта, отправьте первое сообщение чата в этом проекте; до этого запись добавляется к вашим",
   "skills.sources.syncAria": "Синхронизировать этот маркетплейс",
-  "skills.sources.removeTitle": "Удалить",
+  "skills.sources.removeTitle": "Удалить из {path}",
   "skills.sources.systemTitle":
-    "Встроен в Coddy: работает без записи в config.yaml и не удаляется",
+    "Встроен в Coddy, всегда действует, всегда доверенный и не удаляется",
   "skills.sources.removeAria": "Удалить маркетплейс",
+  "skills.sources.kind.source": "все плагины",
+  "skills.sources.kind.marketplace": "каталог",
+  "skills.sources.origin.system": "встроенный",
+  "skills.sources.origin.home": "ваш",
+  "skills.sources.origin.project": "из проекта",
+  "skills.sources.trust.systemAria":
+    "{source} встроен в Coddy и всегда доверенный",
+  "skills.sources.trust.approveTitle":
+    "Разрешить синхронизацию {source} в этом рабочем пространстве",
+  "skills.sources.trust.approvedTitle":
+    "Одобрено для этого рабочего пространства, нажмите, чтобы отозвать",
+  "skills.sources.trust.approveAria":
+    "Одобрить {source} для этого рабочего пространства",
+  "skills.sources.trust.withdrawAria": "Отозвать одобрение {source}",
+  "skills.sources.note.held":
+    "Объявлено в {path}; этот файл приходит вместе с чекаутом, поэтому запись не синхронизируется, пока вы не одобрите её щитом для этого рабочего пространства.",
+  "skills.sources.note.denied":
+    "Маркетплейсы проекта отключены настройкой skills.project_trust со значением deny.",
+  "skills.sources.error.load": "Не удалось загрузить маркетплейсы.",
+  "skills.sources.error.add": "Не удалось добавить {source}.",
+  "skills.sources.error.remove": "Не удалось удалить {source}.",
+  "skills.sources.error.trust": "Не удалось изменить одобрение {source}.",
   "skills.sources.description":
-    "Репозитории GitHub (owner/repo[@ref]), git-ссылки или URL agents-standard marketplace.json. Сохраняется в skills.sources; запрашивается только при синхронизации. Блёклые строки встроены в Coddy, их нельзя удалить.",
+    'Откуда берутся удалённые скилы. Источник ставит все плагины, которые публикует, и держит их в актуальном виде, каталог (coddy plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.coddy/marketplaces.json, записи проекта в его .coddy/marketplaces.json, который приходит вместе с чекаутом, и при значении "ask" запись проекта синхронизируется только после одобрения щитом. Всё ставится в ~/.coddy/skills, и ничего не запрашивается до синхронизации. Встроенный маркетплейс rpa-skills действует всегда и всегда доверенный.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
   "skills.install.cliHint":
     "Скилы можно также установить через npx skills или npx skillsbd — они попадают в ~/.agents/skills/ и подхватываются автоматически.",
@@ -1024,6 +1144,7 @@ export const messagesRu: Record<string, string> = {
   "app.chatBusy":
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
   "app.stopFailed": "Не удалось остановить генерацию. Попробуйте ещё раз.",
+  "app.undoEditFailed": "Не удалось отменить правку: {error}",
   "app.emptyResponseBody": "Пустое тело ответа",
 
   "nav.ariaLabel": "Навигация",
@@ -1036,6 +1157,14 @@ export const messagesRu: Record<string, string> = {
   "nav.wideSidebarTooltip": "Широкая панель",
   "nav.history": "История",
   "nav.scheduler": "Планировщик",
+  "nav.activeSessions.one": "{count} активная сессия",
+  "nav.activeSessions.few": "{count} активные сессии",
+  "nav.activeSessions.many": "{count} активных сессий",
+  "nav.activeSessions.other": "{count} активной сессии",
+  "nav.activeRuns.one": "{count} активный запуск",
+  "nav.activeRuns.few": "{count} активных запуска",
+  "nav.activeRuns.many": "{count} активных запусков",
+  "nav.activeRuns.other": "{count} активного запуска",
   "nav.swarm": "Рой",
   "nav.docs": "Документация",
   "nav.schedulerAriaLabel": "Задачи планировщика",
@@ -1054,6 +1183,8 @@ export const messagesRu: Record<string, string> = {
   "sessions.turnRunning": "Идёт ход",
   "sessions.backgroundRunning": "Идут фоновые задачи",
   "sessions.unreadCompletion": "Непрочитанное завершение",
+  "sessions.stateFinished": "Завершена",
+  "sessions.stateError": "Последний ход завершился ошибкой",
   "sessions.newChatFallback": "Новый чат",
   "sessions.deleteConversation": "Удалить диалог",
   "sessions.delete": "Удалить",
@@ -1144,10 +1275,8 @@ export const messagesRu: Record<string, string> = {
   "sessions.group.untagged": "Без тегов",
   "sessions.group.collapse": "Свернуть группу {group}",
   "sessions.group.expand": "Развернуть группу {group}",
-  "sessions.dragPin": "Перетащите, чтобы изменить порядок",
   "sessions.pin": "Закрепить сверху",
   "sessions.unpin": "Открепить",
-  "sessions.pinnedBadge": "закреплён",
   "sessions.rowMenu": "Действия с диалогом",
   "sessions.archive": "Заархивировать",
   "sessions.unarchive": "Разархивировать",
@@ -1169,13 +1298,16 @@ export const messagesRu: Record<string, string> = {
 
   "chat.newChat": "Новый чат",
   "chat.chatTitleAriaLabel": "Заголовок чата",
+  "chat.views.label": "Панели этого чата",
+  "chat.views.filesTitle": "Файлы рабочей папки ({key})",
   "chat.archived.notice":
     "Этот диалог в архиве. Разархивируйте его, чтобы продолжить работу.",
   "chat.archived.unarchive": "Разархивировать",
   "chat.subagentReadOnly.notice":
-    "Транскрипт субагента {name} доступен только для чтения. Запросы отправляются в родительский чат.",
+    "Только для чтения: транскрипт субагента {name}.",
   "chat.subagentReadOnly.noticeUnnamed":
-    "Транскрипт субагента доступен только для чтения. Запросы отправляются в родительский чат.",
+    "Только для чтения: транскрипт субагента.",
+  "chat.subagentReadOnly.model": "Используемая модель: {model}",
   "chat.subagentReadOnly.openParent": "Открыть родительский чат",
   "chat.subagentTitle": "Субагент {name}",
   "chat.subagentTitleUnnamed": "Транскрипт субагента",
@@ -1256,6 +1388,15 @@ export const messagesRu: Record<string, string> = {
     "Не удалось прочитать вложенный файл {name}, сообщение не отправлено ({reason}).",
   "composer.queueFailed": "Не удалось поставить сообщение в очередь.",
   "composer.send": "Отправить",
+  "composer.sendEdit": "Отправить правку",
+  "composer.editingMessage": "Правка сообщения",
+  "composer.editingHint": "При отправке разговор откатится к этому сообщению",
+  "composer.cancelEdit": "Отменить правку (Esc)",
+  "composer.messageEdited": "Сообщение изменено.",
+  "composer.undoEditHint":
+    "Отмена вернёт разговор как был, изменения в файлах не откатываются",
+  "composer.undoEdit": "Отменить",
+  "composer.undoDismiss": "Скрыть",
   "composer.stopGeneration": "Остановить генерацию",
   "composer.enhance": "Улучшить промпт",
   "composer.enhanceNoModel": "Не удалось улучшить промпт: модель не настроена.",
@@ -1377,35 +1518,37 @@ export const messagesRu: Record<string, string> = {
   "composer.atRangeMenuHint": "«:» после файла — выбор строк",
   "composer.atRangeTruncated": "Показаны первые {shown} строк из {total}",
   "composer.requestFailed": "ошибка запроса",
-  "composer.env.ariaLabel": "Окружение",
-  "composer.env.title": "Окружение (локальный или удалённый coddy serve)",
-  "composer.env.local": "Локальное",
-  "composer.env.localThisOrigin": "Локальное (этот origin)",
-  "composer.env.groupEnvironment": "Окружение",
-  "composer.env.groupRemote": "Удалённые",
-  "composer.env.addFormTitle": "Подключиться к серверу",
-  "composer.env.addRemote": "Подключиться к…",
-  "composer.env.namePlaceholder": "название",
-  "composer.env.tokenPlaceholder": "bearer-токен (пусто, если не нужен)",
-  "composer.env.connect": "Подключиться",
-  "composer.env.cancel": "Отмена",
-  "composer.env.enterToken": "Ввести токен",
-  "composer.env.hint.down": "Не отвечает.",
-  "composer.env.hint.agentToken":
+  "env.ariaLabel": "Окружение: {name}",
+  "env.tooltip": "Окружение: {name}",
+  "env.local": "Локальное",
+  "env.localThisOrigin": "Локальное (этот origin)",
+  "env.groupEnvironment": "Окружение",
+  "env.groupRemote": "Удалённые",
+  "env.addFormTitle": "Подключиться к серверу",
+  "env.addRemote": "Подключиться к…",
+  "env.namePlaceholder": "название",
+  "env.tokenPlaceholder": "bearer-токен (пусто, если не нужен)",
+  "env.connect": "Подключиться",
+  "env.cancel": "Отмена",
+  "env.enterToken": "Ввести токен",
+  "env.hint.down": "Не отвечает.",
+  "env.hint.agentToken":
     "Не принимает токен. Нужен токен из его httpserver.auth_token.",
-  "composer.env.hint.relayToken":
+  "env.hint.relayToken":
     "Релей не принимает токен. Нужен его клиентский токен из swarm.auth_token.",
-  "composer.env.hint.configToken":
-    "Токен этой записи в httpserver.remotes не принят.",
-  "composer.env.hint.cors":
+  "env.hint.configToken": "Токен этой записи в httpserver.remotes не принят.",
+  "env.hint.cors":
     "Ответ заблокирован CORS. Разрешите {origin} в swarm.cors.allowed_origins (релей) или httpserver.cors.allowed_origins (coddy serve).",
-  "composer.env.relay": "релей",
-  "composer.env.nodeOffline": "не в сети",
+  "env.hint.corsLoopback":
+    "Ответ заблокирован CORS. Эта страница открыта с loopback-адреса: включите swarm.cors.allow_loopback (релей) или httpserver.cors.allow_loopback (coddy serve) либо разрешите {origin} точно в allowed_origins.",
+  "env.relay": "релей",
+  "env.nodeOffline": "не в сети",
   "composer.folderModal.title": "Открыть папку",
   "composer.folderModal.close": "Закрыть обзор папок",
   "composer.folderModal.pathLabel": "Путь к папке",
   "composer.folderModal.pathPlaceholder": "Путь",
   "composer.folderModal.drivesPlaceholder": "Этот компьютер",
+  "composer.folderModal.showHidden": "Скрытые",
   "composer.folderModal.noSubfolders": "Вложенных папок нет",
   "composer.folderModal.noDrives": "Диски не найдены",
   "composer.folderModal.cannotList": "Не удалось прочитать {path}",
@@ -1429,6 +1572,10 @@ export const messagesRu: Record<string, string> = {
     "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors} на релее.",
   "env.banner.corsEither":
     "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors}, если это релей, или в {agentCors}, если это coddy serve.",
+  "env.banner.corsRelayLoopback":
+    "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors} на релее или включите там {relayLoopback}: эта страница открыта с loopback-адреса, и так она будет допущена с любого порта.",
+  "env.banner.corsEitherLoopback":
+    "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors}, если это релей, или в {agentCors}, если это coddy serve, — либо включите {relayLoopback} / {agentLoopback}: эта страница открыта с loopback-адреса, и так она будет допущена с любого порта.",
   "env.banner.switchLocal": "Переключиться на локальное",
 
   "prompts.questions": "Вопросы",
@@ -1467,6 +1614,30 @@ export const messagesRu: Record<string, string> = {
   "scheduler.loading": "Загрузка…",
   "scheduler.noDescription": "—",
   "scheduler.paused": "на паузе",
+  "scheduler.group.user": "Общие",
+  "scheduler.group.userEmpty": "Общих заданий нет",
+  "scheduler.group.thisProject": "Этот проект · {name}",
+  "scheduler.group.project": "Проект · {name}",
+  "scheduler.trust.trusted": "Одобрено",
+  "scheduler.trust.needsApproval": "ждёт одобрения",
+  "scheduler.trust.denied": "запрещено",
+  "scheduler.trust.conflict": "конфликт id",
+  "scheduler.trust.invalid": "ошибка",
+  "scheduler.trust.review": "Проверить и одобрить",
+  "scheduler.trust.reviewAria":
+    "Проверить и одобрить проектное задание {jobId}",
+  "scheduler.trust.approveTitle": "Одобрить задание для этой папки",
+  "scheduler.trust.withdrawTitle": "Отозвать одобрение",
+  "scheduler.trust.from": "Проектное задание из {workspace}",
+  "scheduler.trust.reviewNote":
+    "Оно пришло с репозиторием и по расписанию запускает агента с вашими правами. Одобрение относится ровно к файлу ниже; любое изменение потребует одобрить его снова.",
+  "scheduler.field.scope": "Где хранится задание",
+  "scheduler.field.scopeHelp":
+    "Общие задания лежат в домашней папке Coddy. Проектное задание сохраняется в репозитории (.coddy/scheduler) и переезжает вместе с ним; для вас оно одобрено, остальные одобряют его сами.",
+  "scheduler.field.scopeNoSession":
+    "Откройте чат в проекте, чтобы создать в нём проектное задание.",
+  "scheduler.scope.user": "Общее",
+  "scheduler.scope.project": "Этот проект ({name})",
   "scheduler.addJob": "Добавить задачу",
   "scheduler.runJobNow": "Запустить сейчас",
   "scheduler.stopJob": "Остановить задачу",
@@ -1483,7 +1654,7 @@ export const messagesRu: Record<string, string> = {
   "scheduler.field.schedulePlaceholder": "0 * * * *",
   "scheduler.field.cwd": "cwd (необязательно)",
   "scheduler.field.cwdHelp":
-    "По умолчанию — рабочая директория агента для этого экземпляра.",
+    "По умолчанию рабочая директория агента этого экземпляра; у проектного задания cwd задаётся относительно его рабочей папки.",
   "scheduler.field.mode": "mode",
   "scheduler.mode.agent": "agent",
   "scheduler.mode.ask": "ask",
@@ -1522,6 +1693,87 @@ export const messagesRu: Record<string, string> = {
   "scheduler.permission.acceptEdits": "accept_edits",
   "scheduler.permission.ask": "ask",
   "scheduler.permission.bypass": "bypass",
+
+  "changes.offline": "Coddy недоступен",
+  "changes.invalidResponse": "Не удалось прочитать ответ сервера.",
+  "changes.skipped.one": "{count} новый файл не показан.",
+  "changes.skipped.few": "{count} новых файла не показаны.",
+  "changes.skipped.many": "{count} новых файлов не показаны.",
+  "changes.skipped.other": "{count} нового файла не показаны.",
+  "changes.discardFileTitle": "Вернуть {name} к последнему коммиту",
+  "changes.discardFileConfirm": "Отменить правки в {name}?",
+  "changes.discardRestoreMessage":
+    "Файл вернётся к содержимому последнего коммита. Это нельзя отменить.",
+  "changes.discardDeleteMessage":
+    "Файла не было в последнем коммите, поэтому он будет удалён. Это нельзя отменить.",
+  "changes.discardAll": "Отменить все",
+  "changes.discardAllTitle":
+    "Вернуть все незакоммиченные правки к последнему коммиту",
+  "changes.discardAllConfirm": "Отменить все незакоммиченные правки?",
+  "changes.discardAllMessage":
+    "Все изменённые файлы вернутся к содержимому последнего коммита, новые файлы будут удалены, а файлы из .gitignore останутся. Это нельзя отменить.",
+  "changes.discardYes": "Отменить правки",
+  "changes.discardFailed": "Не удалось отменить правки: {message}",
+  "workspaceBar.label": "Где работает этот чат",
+  "workspaceBar.branchTitle": "Ветка {branch}",
+  "workspaceBar.worktreeTitle": "Worktree {path} на ветке {branch}",
+  "workspaceBar.editsLabel.one": "Показать правки: изменён {count} файл",
+  "workspaceBar.editsLabel.few": "Показать правки: изменено {count} файла",
+  "workspaceBar.editsLabel.many": "Показать правки: изменено {count} файлов",
+  "workspaceBar.editsLabel.other": "Показать правки: изменено {count} файла",
+  "files.title": "Файлы",
+  "files.workspace": "Рабочая папка {path}",
+  "files.openFiles": "Открытые файлы",
+  "files.closeTab": "Закрыть {name}",
+  "files.empty.title": "Здесь появятся открытые файлы",
+  "files.empty.hint":
+    "Выберите файл в дереве или нажмите на путь к файлу в разговоре.",
+  "files.showTree": "Показать дерево файлов",
+  "files.hideTree": "Скрыть дерево файлов",
+  "files.expand": "Развернуть окно",
+  "files.restore": "Вернуть размер окна",
+  "files.more": "Ещё",
+  "files.copyPath": "Скопировать путь",
+  "files.searching": "Поиск…",
+  "files.noMatches": "Нет подходящих файлов",
+  "files.link": "Ссылка: её содержимое не показывается",
+  "files.close": "Закрыть файлы",
+  "files.search": "Фильтр файлов",
+  "files.hidden": "Показывать скрытые файлы",
+  "files.moreEntries": "Загрузить ещё файлы",
+  "files.reload": "Перечитать",
+  "files.download": "Скачать",
+  "files.loading": "Загрузка…",
+  "files.changed": "Файл изменился. Превью обновлено.",
+  "files.binary": "Превью недоступно. Файл можно скачать.",
+  "files.pdfDownload":
+    "Скачайте PDF, чтобы открыть его в программе для просмотра.",
+  "files.wrap": "Перенос строк",
+  "files.imageUnavailable":
+    "Превью изображения недоступно или превышает 20 МБ. Скачайте оригинал.",
+  "files.actualSize": "Исходный размер",
+  "files.fit": "Вписать изображение",
+  "changes.binary": "бинарный",
+  "changes.binaryBody": "Бинарный файл: построчного диффа нет.",
+  "changes.truncated": "сокращён",
+  "changes.empty": "Незакоммиченных правок в этой папке нет.",
+  "changes.status.added": "добавлен",
+  "changes.status.modified": "изменён",
+  "changes.status.deleted": "удалён",
+  "changes.viewer.title": "Правки",
+  "changes.viewer.close": "Закрыть окно правок",
+  "changes.viewer.expandAll": "Развернуть все различия",
+  "changes.viewer.collapseAll": "Свернуть все различия",
+  "changes.viewer.split": "В две колонки",
+  "changes.viewer.showFiles": "Показать изменённые файлы",
+  "changes.viewer.hideFiles": "Скрыть изменённые файлы",
+  "changes.viewer.files": "Изменённые файлы",
+  "changes.viewer.filterFiles": "Фильтр изменённых файлов",
+  "changes.viewer.copyPath": "Скопировать путь",
+  "changes.viewer.copied": "Путь скопирован",
+  "changes.viewer.loadingFile": "Загрузка различий...",
+  "changes.viewer.noMatches": "Нет подходящих файлов",
+  "changes.viewer.noVcs": "Эта папка не в git-репозитории, показывать нечего.",
 
   "tasks.panelTitle": "Фоновые задачи",
   "tasks.closePanel": "Закрыть фоновые задачи",
@@ -1568,6 +1820,9 @@ export const messagesRu: Record<string, string> = {
   "messages.copyMessage": "Копировать сообщение",
   "messages.copyErrorMessage": "Копировать сообщение об ошибке",
   "messages.editMessage": "Редактировать сообщение",
+  "messages.undoEdit": "Отменить правку",
+  "messages.undoEditTitle":
+    "Вернуть разговор к виду до этой правки. Изменения в файлах не откатываются.",
   "messages.attachedFiles": "Прикреплённые файлы",
   "messages.openAttachmentImage": "Открыть {fileName} крупнее",
   "messages.toolImages": "Картинки, которые вызов показал модели",
@@ -1767,6 +2022,7 @@ export const messagesRu: Record<string, string> = {
   "messages.spawnAgentDetails": "Сведения об агенте",
   "messages.spawnAgentPrompt": "Промпт агента",
   "messages.spawnAgentTimeout": "Таймаут {seconds} с",
+  "messages.spawnAgentReasoning": "Уровень рассуждения: {reasoning}",
   "messages.spawnAgentTimeoutHint": "Максимальное время работы агента",
   "messages.toolDetailsAriaLabel": "Детали вызова инструмента",
   "messages.toolResultAriaLabel": "Результат инструмента",
@@ -1802,8 +2058,6 @@ export const messagesRu: Record<string, string> = {
   "messages.toolQuestionOwnAnswer": "свой ответ",
   "messages.toolQuestionMirrorHint":
     "Ответьте через карточку «Вопросы» в этом чате. Эта строка только отражает состояние инструмента.",
-  "messages.toolBgTaskOpen": "Открыть в задачах",
-  "messages.toolBgTaskStop": "Остановить",
   "messages.fileType.image": "Изображение",
   "messages.fileType.video": "Видео",
   "messages.fileType.audio": "Аудио",
@@ -1825,6 +2079,10 @@ export const messagesRu: Record<string, string> = {
   "workspace.worktreeInactiveTitle":
     "Переход на другую ветку откроется в отдельном worktree",
   "workspace.recent": "Недавние",
+  "workspace.filterRecent": "Фильтровать недавние папки",
+  "workspace.filterBranches": "Фильтровать ветки",
+  "workspace.noRecentMatch": "Недавних папок нет",
+  "workspace.noBranchesMatch": "Подходящих веток нет",
   "workspace.openFolder": "Открыть папку…",
   "workspace.noBranches": "Веток нет",
 
@@ -2046,4 +2304,33 @@ export const messagesRu: Record<string, string> = {
   "status.turnTokens.few": "{shown} токена",
   "status.turnTokens.many": "{shown} токенов",
   "status.turnTokens.other": "{shown} токена",
+  "messages.toolArtifacts": "Переданные файлы",
+  "messages.openArtifactImage": "Открыть {fileName}",
+  "messages.artifactActions": "Действия для {fileName}",
+  "messages.artifactMention": "Упомянуть источник",
+  "messages.artifactCopyName": "Копировать имя",
+  "messages.artifactCopyRelative": "Копировать относительный путь",
+  "messages.artifactCopyAbsolute": "Копировать абсолютный путь",
+  "messages.artifactReveal": "Показать на сервере",
+  "messages.artifactRevealUnavailable":
+    "Показ на удалённом сервере или сервере без интерфейса недоступен",
+  "messages.artifactRevealFailed": "Не удалось показать",
+  "messages.downloadArtifact": "Скачать {fileName}",
+  "messages.downloadArtifactButton": "Скачать",
+  "messages.artifactDownloading": "Скачивание…",
+  "messages.artifactUnavailable": "Скачивание недоступно",
+  "markdown.figure.mermaid": "Диаграмма Mermaid",
+  "markdown.figure.svg": "Изображение SVG",
+  "markdown.figure.showSource": "Показать исходный код",
+  "markdown.figure.showPicture": "Показать картинку",
+  "markdown.figure.downloadSource": "Скачать исходник (.mmd)",
+  "markdown.figure.downloadSvg": "Скачать как SVG (.svg)",
+  "markdown.figure.open": "Открыть картинку",
+  "markdown.figure.rendering": "Рисую…",
+  "markdown.figure.error": "Не удалось нарисовать картинку: {message}",
+  "markdown.figure.loadError":
+    "Не удалось загрузить отрисовщик диаграмм, перезагрузите страницу",
+  "markdown.math.label": "Формула",
+  "markdown.math.copySource": "Скопировать исходник формулы",
+  "markdown.math.inlineTitle": "{source} (нажмите, чтобы скопировать)",
 };

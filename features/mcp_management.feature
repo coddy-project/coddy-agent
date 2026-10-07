@@ -1,12 +1,15 @@
 Feature: MCP server management
-  Coddy discovers MCP servers from three levels: config.yaml and the global
-  ~/.coddy/mcp.json (scope "global"), and the project-local ./.coddy/mcp.json
-  (scope "local"), all Cursor-compatible. Later levels override earlier ones
-  by name. The HTTP API shows each server with its tools and lets operators
-  disable whole servers or individual tools; project-local switches live in
-  the operator's home, without modifying the checkout. Project-local entries arrive with the checkout, so
-  they are probed only once approved (see features/mcp_project_trust.feature);
-  entries written through this API are approved by the act of writing them.
+  Coddy discovers MCP servers from two Cursor-compatible files: the global
+  ~/.coddy/mcp.json (scope "global") and the project-local ./.coddy/mcp.json
+  (scope "local"), which overrides a name the global file declares. The HTTP
+  API shows each server with its tools and lets operators disable whole
+  servers or individual tools; project-local switches live in the operator's
+  home, without modifying the checkout. It names the environment variables and
+  headers of a declaration but never returns their values: an edit sends back
+  the placeholder it was shown to keep a value. Project-local entries arrive
+  with the checkout, so they are probed only once approved (see
+  features/mcp_project_trust.feature); entries written through this API are
+  approved by the act of writing them.
 
   Background:
     Given a running coddy HTTP server
@@ -47,3 +50,11 @@ Feature: MCP server management
     When I delete the MCP server "added"
     Then the MCP list does not show server "added"
     And the project mcp.json does not contain server "added"
+
+  Scenario: The list names a server's env, never its value, and an edit keeps it
+    Given a global mcp.json defining the stdio server "shared" with the env "TOKEN" set to "tok-s3cr3t-value"
+    When I list the MCP servers
+    Then the MCP list names the env "TOKEN" of server "shared" but not "tok-s3cr3t-value"
+    When I edit the MCP server "shared" as listed, adding the env "MODE" set to "fast"
+    Then the global mcp.json keeps "tok-s3cr3t-value" as the env "TOKEN" of server "shared"
+    And server "shared" exposes the tool "echo" as enabled

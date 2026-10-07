@@ -238,6 +238,9 @@ func UISchemaMap() map[string]interface{} {
 		},
 		"reasoning_default": strProp("Default reasoning level",
 			"Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise."),
+		"allow_reasoning_off": boolPropDefault("Allow disabling reasoning",
+			"Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically.",
+			false),
 		// The only boolean here that defaults to true when the key is absent, so the
 		// schema has to say so: the form seeds new entries from schema defaults and
 		// renders an unset switch from them.
@@ -245,56 +248,6 @@ func UISchemaMap() map[string]interface{} {
 			"Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
 			true),
 	}
-	envProps := map[string]interface{}{
-		"name":  strProp("Variable name", "Environment variable name passed to the MCP process."),
-		"value": strProp("Value", "Variable value."),
-	}
-	headerProps := map[string]interface{}{
-		"name":  strProp("Header name", "HTTP header name for MCP HTTP transports."),
-		"value": strProp("Header value", "HTTP header value."),
-	}
-	mcpProps := map[string]interface{}{
-		"type":    strProp("Server type", "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport."),
-		"name":    strProp("Server name", "Stable id referenced by the agent; must be unique in this list."),
-		"command": strProp("Command", "Executable for stdio transport (leave empty when using http url). ${CWD} expands to the session cwd."),
-		"args": map[string]interface{}{
-			"type":        "array",
-			"title":       "Arguments",
-			"description": "Argv passed after command for stdio MCP servers. ${CWD} expands to the session cwd.",
-			"items":       map[string]interface{}{"type": "string"},
-		},
-		"env": map[string]interface{}{
-			"type":        "array",
-			"title":       "Environment",
-			"description": "Extra environment variables for the stdio child process. ${CWD} in a value expands to the session cwd.",
-			"items": map[string]interface{}{
-				"type":                 "object",
-				"properties":           envProps,
-				"required":             []interface{}{"name", "value"},
-				"additionalProperties": false,
-			},
-		},
-		"url": strProp("MCP URL", "HTTP(S) endpoint when type selects an HTTP-based MCP server. ${CWD} expands to the session cwd."),
-		"headers": map[string]interface{}{
-			"type":        "array",
-			"title":       "HTTP headers",
-			"description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
-			"items": map[string]interface{}{
-				"type":                 "object",
-				"properties":           headerProps,
-				"required":             []interface{}{"name", "value"},
-				"additionalProperties": false,
-			},
-		},
-		"disabled": boolProp("Disabled", "Skip connecting this server without removing its definition."),
-		"disabled_tools": map[string]interface{}{
-			"type":        "array",
-			"title":       "Disabled tools",
-			"description": "Tool names of this server hidden from the agent.",
-			"items":       map[string]interface{}{"type": "string"},
-		},
-	}
-
 	isolationEnum := []string{string(IsolationIndividual), string(IsolationShared), string(IsolationAdmin)}
 	telegramUserGroupProps := map[string]interface{}{
 		"name": strProp("Group name", "Name referenced by access as group:<name>."),
@@ -351,6 +304,69 @@ func UISchemaMap() map[string]interface{} {
 			"items": objectSchema("", "", telegramChatProps,
 				[]string{"chat_id", "isolation", "access"}, []string{"chat_id"}),
 		},
+		"mini_app": objectSchema("Mini App",
+			"Open this web UI as the bot's Telegram Mini App: the menu button and /app open it on the chat's own conversation. Telegram opens Mini Apps over https only: publish the web UI behind a TLS proxy and keep sign-in on.",
+			map[string]interface{}{
+				"url": strProp("Web UI address",
+					"The public https address the web UI is served at, for example https://coddy.example.com/. No fragment. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone."),
+				"menu_button": boolProp("Menu button",
+					"Make the bot's menu button open the web UI. Turned off, with the address emptied or while the web UI asks for no sign-in, the bot puts back the button it replaced, as long as that button still opens the address the bot set."),
+			}, []string{"url", "menu_button"}, nil),
+	}
+
+	pachcaUserGroupProps := map[string]interface{}{
+		"name": strProp("Group name", "Name referenced by access as group:<name>."),
+		"user_ids": map[string]interface{}{
+			"type":        "array",
+			"title":       "User IDs",
+			"description": "Pachca user IDs that belong to this group.",
+			"items":       map[string]interface{}{"type": "integer"},
+		},
+	}
+	pachcaChatProps := map[string]interface{}{
+		"chat_id": intProp("Chat ID", "Pachca chat id: a conversation, a channel, a direct chat or a thread's own chat."),
+		"isolation": map[string]interface{}{
+			"type": "string", "title": "Isolation",
+			"description": "Per-chat session isolation override.",
+			"enum":        isolationEnum,
+		},
+		"access": strProp("Access", "Per-chat access override: all, admins, or group:<name>."),
+	}
+	pachcaProps := map[string]interface{}{
+		"enable": boolProp("Enabled", "Run the Pachca bot (requires the gateway or gateway.pachca build tag)."),
+		"token": strProp("Bot token",
+			"The access token of a Pachca integration bot. Optional here: leave empty to read it from the PACHCA_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full."),
+		"proxy": strProp("Proxy URL",
+			"Optional proxy for the Pachca API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5. A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly."),
+		"poll_interval_seconds": intProp("Poll interval, seconds",
+			"How often the bot reads its events history, 1 to 60 seconds (default 2)."),
+		"admins": map[string]interface{}{
+			"type":        "array",
+			"title":       "Admins",
+			"description": "Pachca user IDs with elevated rights; admins always pass access checks.",
+			"items":       map[string]interface{}{"type": "integer"},
+		},
+		"default_access": strProp("Default access",
+			"Fallback access level for chats without an override: all, admins, or group:<name>."),
+		"default_isolation": map[string]interface{}{
+			"type": "string", "title": "Default isolation",
+			"description": "Fallback session isolation for group chats.",
+			"enum":        isolationEnum,
+		},
+		"user_groups": map[string]interface{}{
+			"type":        "array",
+			"title":       "User groups",
+			"description": "Named sets of user IDs referenced by access as group:<name>.",
+			"items": objectSchema("", "", pachcaUserGroupProps,
+				[]string{"name", "user_ids"}, []string{"name"}),
+		},
+		"chats": map[string]interface{}{
+			"type":        "array",
+			"title":       "Per-chat overrides",
+			"description": "Override isolation and access for specific chats.",
+			"items": objectSchema("", "", pachcaChatProps,
+				[]string{"chat_id", "isolation", "access"}, []string{"chat_id"}),
+		},
 	}
 
 	props := map[string]interface{}{
@@ -367,7 +383,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default"},
+				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off"},
 				[]string{"model"}),
 		},
 		"supervisor": objectSchema("Session supervisor", "Checks goals and watches for stalled or repetitive turns.",
@@ -531,13 +547,13 @@ func UISchemaMap() map[string]interface{} {
 				"dirs": map[string]interface{}{
 					"type":        "array",
 					"title":       "Definition directories",
-					"description": "Lowest priority first; later entries override earlier ones by name. ${CODDY_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
+					"description": "Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${CODDY_HOME}/agents, the project's .coddy/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${CODDY_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
 				"project_trust": map[string]interface{}{
 					"type":        "string",
 					"title":       "Project definitions",
-					"description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running coddy (coddy agents trust there, or POST /coddy/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
+					"description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace (the shield of its row in Definitions, coddy agents trust on the machine running coddy, or POST /coddy/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
 					"enum":        []string{SubagentsProjectTrustAsk, SubagentsProjectTrustAllow, SubagentsProjectTrustDeny},
 				},
 				"max_concurrent":          intProp("Max concurrent", "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued."),
@@ -573,14 +589,6 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enable", "files", "project_trust", "default_timeout_seconds", "stop_loop_limit", "max_output_chars"},
 			nil),
-		"mcp_servers": map[string]interface{}{
-			"type":        "array",
-			"title":       "MCP servers",
-			"description": "Model Context Protocol servers started or contacted for new sessions.",
-			"items": objectSchema("", "", mcpProps,
-				[]string{"type", "name", "command", "args", "env", "url", "headers", "disabled", "disabled_tools"},
-				[]string{"name"}),
-		},
 		// mcp.project_trust is deliberately absent here: it is edited in the
 		// MCP servers tab next to the servers it governs (POST
 		// /coddy/mcp/project-trust), not as a settings-document section. It
@@ -590,14 +598,14 @@ func UISchemaMap() map[string]interface{} {
 				"dirs": map[string]interface{}{
 					"type":        "array",
 					"title":       "Skill directories",
-					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${CODDY_HOME}/skills (coddy-specific), ${CWD}/.coddy/skills (project-local). ${CODDY_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.",
+					"description": "Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${CODDY_HOME}/skills (Coddy's own and installed skills), the project's .coddy/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${CODDY_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included).",
 					"items":       map[string]interface{}{"type": "string"},
 				},
-				"sources": map[string]interface{}{
-					"type":        "array",
-					"title":       "Remote skill sources",
-					"description": "GitHub repos (owner/repo[@ref]), git URLs, or an http(s) URL to an agents-standard marketplace.json. Installed on demand via `coddy skills sync` or the Sync button; never fetched automatically. EvilFreelancer/rpa-skills, the marketplace the bundled rpa-* skills are published from, is always in effect as a system source and is not part of this list.",
-					"items":       map[string]interface{}{"type": "string"},
+				"project_trust": map[string]interface{}{
+					"type":        "string",
+					"title":       "Project marketplaces",
+					"description": "The project's .coddy/marketplaces.json travels with the checkout. \"ask\": leave its sources and marketplaces out of every sync until each entry is approved for this workspace (the shield of the marketplaces list, or coddy plugin marketplace trust). \"allow\": treat them like your own ~/.coddy/marketplaces.json. \"deny\": never use them; they are listed as switched off. What they install goes to ${CODDY_HOME}/skills; the project's skill folders are not affected.",
+					"enum":        []string{ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny},
 				},
 				"auto_discovery": map[string]interface{}{
 					"type":        "boolean",
@@ -605,9 +613,9 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name. Defaults to on.",
 				},
 			},
-			[]string{"dirs", "sources", "auto_discovery"},
+			[]string{"dirs", "project_trust", "auto_discovery"},
 			nil),
-		"memory": objectSchema("Memory copilot", "Optional memory subagent (requires the memory build tag and a provider).",
+		"memory": objectSchema("Memory", "Optional memory subagent (requires the memory build tag and a provider).",
 			map[string]interface{}{
 				"enable": boolProp("Enabled", "Runs the memory subagent on every user turn (memory build tag)."),
 				"model":  strProp("Memory model", "Logical model the memory subagent runs on; empty uses the session's model."),
@@ -625,20 +633,26 @@ func UISchemaMap() map[string]interface{} {
 				"persist_max_turns":           intProp("Persist max turns", "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two."),
 				"copilot_max_tokens":          intProp("Max tokens per call", "Completion token cap for the memory model's calls."),
 				"max_search_hits":             intProp("Max search hits", "Maximum snippets returned by memory search tools."),
+				"max_note_chars":              intProp("Note size cap (characters)", "Longest body one saved note may have, in characters; 0 means no cap (default 900)."),
 				"additional_prompt":           strProp("Additional instructions", "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them."),
 				"additional_prompt_max_chars": intProp("Additional instructions cap (characters)", "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap."),
 			},
-			[]string{"enable", "model", "dir", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "additional_prompt", "additional_prompt_max_chars"},
+			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
 			nil),
 		"scheduler": objectSchema("Scheduler", "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.",
 			map[string]interface{}{
 				"enable":          boolProp("Enabled", "When true, this process may run the scheduler daemon and REST."),
-				"dir":             strProp("Jobs directory", "Directory of job markdown definitions."),
 				"max_queue":       intProp("Max queue", "Runs in flight across all jobs at once; a due slot past the cap is skipped, a manual run refused."),
 				"timeout":         strProp("Run timeout", "Wall-clock limit of one run, e.g. 30m or 1h30m (the task pool caps it at tools.background.max_timeout_seconds)."),
 				"retain_sessions": intProp("Retain runs", "Finished runs kept per job (task records and transcripts); older ones are removed when a run finishes."),
+				"project_trust": map[string]interface{}{
+					"type":        "string",
+					"title":       "Project jobs",
+					"description": "Jobs in a workspace's .coddy/scheduler travel with the checkout. \"ask\": list them but run nothing until that exact job is approved for this workspace (the shield in the scheduler drawer). \"allow\": run them like your own jobs. \"deny\": never run them.",
+					"enum":        []string{ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny},
+				},
 			},
-			[]string{"enable", "dir", "max_queue", "timeout", "retain_sessions"},
+			[]string{"enable", "project_trust", "max_queue", "timeout", "retain_sessions"},
 			nil),
 		"prompts": objectSchema("Prompts", "Built-in system prompt files relative to dir.",
 			map[string]interface{}{
@@ -649,12 +663,12 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"dir", "agent_prompt", "plan_prompt", "ask_prompt"},
 			nil),
-		"instructions": objectSchema("Instructions", "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
+		"instructions": objectSchema("Instructions", "Files you add to the system prompt as project instructions, after the AGENTS.md and DESIGN.md of the agent home, of the session folder and of the folders a tool enters, which are always read.",
 			map[string]interface{}{
 				"files": map[string]interface{}{
 					"type":        "array",
 					"title":       "Instruction files",
-					"description": "Instruction files, read in the order listed. ${CODDY_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. Defaults to [\"AGENTS.md\", \"DESIGN.md\"]; the agent home has its own pair, read ahead of this list whenever it exists.",
+					"description": "Extra instruction files, appended after the AGENTS.md and DESIGN.md documents in the order listed; empty by default. ${CODDY_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. A file the prompt already carries is not read twice.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
 			},
@@ -748,13 +762,16 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enable", "auto_enable", "threshold_percent", "keep_recent_turns", "model", "result_eviction"},
 			nil),
-		"gateways": objectSchema("Messenger gateways", "Telegram bot gateway (requires the gateway or gateway.telegram build tag).",
+		"gateways": objectSchema("Messenger gateways", "Telegram and Pachca bots (require the gateway build tag, or gateway.telegram / gateway.pachca for one of them).",
 			map[string]interface{}{
 				"telegram": objectSchema("Telegram", "Telegram bot adapter settings.", telegramProps,
-					[]string{"enable", "token", "rich_messages", "proxy", "admins", "default_access", "default_isolation", "user_groups", "chats"},
+					[]string{"enable", "token", "rich_messages", "proxy", "admins", "default_access", "default_isolation", "user_groups", "chats", "mini_app"},
+					nil),
+				"pachca": objectSchema("Pachca", "Pachca integration bot settings.", pachcaProps,
+					[]string{"enable", "token", "proxy", "poll_interval_seconds", "admins", "default_access", "default_isolation", "user_groups", "chats"},
 					nil),
 			},
-			[]string{"telegram"},
+			[]string{"telegram", "pachca"},
 			nil),
 	}
 
@@ -769,7 +786,7 @@ func UISchemaMap() map[string]interface{} {
 	rootOrder := []string{
 		"providers", "models",
 		"agent", "supervisor", "compaction", "memory",
-		"tools", "mcp_servers", "skills", "subagents", "hooks",
+		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions",
 	}

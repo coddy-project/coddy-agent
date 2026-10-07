@@ -94,9 +94,9 @@ const workspaceDrivesPath = ":drives:"
 // drivesListingPayload renders the volume level: one row per drive root, and
 // no level above it (path == parent, so the picker hides its ".." row).
 func drivesListingPayload(drives []string) map[string]interface{} {
-	folders := make([]map[string]string, 0, len(drives))
+	folders := make([]map[string]interface{}, 0, len(drives))
 	for _, root := range drives {
-		folders = append(folders, map[string]string{
+		folders = append(folders, map[string]interface{}{
 			"name": strings.TrimRight(root, `\/`),
 			"path": root,
 		})
@@ -113,7 +113,7 @@ func drivesListingPayload(drives []string) map[string]interface{} {
 // folderListingPayload renders a real directory. The parent of a filesystem
 // root is promoted to the volume level when the host has drives, which is what
 // lets a Windows session walk up out of `C:\` and into another drive.
-func folderListingPayload(abs string, folders []map[string]string, drives []string) map[string]interface{} {
+func folderListingPayload(abs string, folders []map[string]interface{}, drives []string) map[string]interface{} {
 	parent := filepath.Dir(abs)
 	if parent == abs && len(drives) > 0 {
 		parent = workspaceDrivesPath
@@ -127,8 +127,9 @@ func folderListingPayload(abs string, folders []map[string]string, drives []stri
 }
 
 // coddyWorkspaceFoldersGet lists subfolders of ?path= (default: session cwd)
-// for the workspace folder picker. Hidden folders and node_modules are skipped.
-// ?path=:drives: lists the machine's drive roots instead.
+// for the workspace folder picker. node_modules is always skipped; hidden
+// folders are included only when ?show_hidden=true. ?path=:drives: lists the
+// machine's drive roots instead.
 func (s *Server) coddyWorkspaceFoldersGet(w http.ResponseWriter, r *http.Request) {
 	dir := strings.TrimSpace(r.URL.Query().Get("path"))
 	drives := s.hostDrives()
@@ -154,26 +155,54 @@ func (s *Server) coddyWorkspaceFoldersGet(w http.ResponseWriter, r *http.Request
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder not found: "+abs), http.StatusBadRequest)
 		return
 	}
+	// Stat above follows a symlink only to verify that its final target is a
+	// directory. Resolve it for the listing so a pasted symlink path arrives at
+	// the actual directory and cannot be mistaken for a regular folder later.
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
 	entries, err := os.ReadDir(abs)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
 	}
-	folders := make([]map[string]string, 0, len(entries))
+	showHidden := r.URL.Query().Get("show_hidden") == "true"
+	folders := make([]map[string]interface{}, 0, len(entries))
 	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
 		name := e.Name()
-		if strings.HasPrefix(name, ".") || name == "node_modules" {
+		if name == "node_modules" || (!showHidden && strings.HasPrefix(name, ".")) {
 			continue
 		}
-		folders = append(folders, map[string]string{
+		path := filepath.Join(abs, name)
+		row := map[string]interface{}{
 			"name": name,
-			"path": filepath.Join(abs, name),
-		})
+			"path": path,
+		}
+		if strings.HasPrefix(name, ".") {
+			row["hidden"] = true
+		}
+		if e.Type()&os.ModeSymlink != 0 {
+			// Do not expose an arbitrary symlink as a navigable folder. os.Stat
+			// follows it only after detecting the link, and accepts it only when
+			// its final target is a directory.
+			targetInfo, err := os.Stat(path)
+			if err != nil || !targetInfo.IsDir() {
+				continue
+			}
+			target, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				continue
+			}
+			row["symlink"] = true
+			row["target"] = target
+		} else if !e.IsDir() {
+			continue
+		}
+		folders = append(folders, row)
 	}
-	sort.Slice(folders, func(i, j int) bool { return folders[i]["name"] < folders[j]["name"] })
+	sort.Slice(folders, func(i, j int) bool {
+		return folders[i]["name"].(string) < folders[j]["name"].(string)
+	})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(folderListingPayload(abs, folders, drives))
 }
@@ -245,7 +274,7 @@ func (s *Server) coddyWorkspaceFoldersPost(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(folderListingPayload(made, []map[string]string{}, s.hostDrives()))
+	_ = json.NewEncoder(w).Encode(folderListingPayload(made, []map[string]interface{}{}, s.hostDrives()))
 }
 
 // hostDrives lists the machine's drive roots, tolerating a server built

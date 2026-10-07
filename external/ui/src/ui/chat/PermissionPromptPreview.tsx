@@ -16,6 +16,7 @@ import {
   subscribeHostShell,
 } from "./hostShell";
 import { useT } from "../i18n/I18nProvider";
+import { openWorkspaceFile } from "../files/fileBus";
 
 function DiffLineRow({ line }: { line: ParsedDiffLine }) {
   const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
@@ -300,7 +301,9 @@ export function PermissionToolPreview({
       : preview.header;
   // A shell command carries its own copy control inside the command block, so the
   // header never gets a second one.
-  const copyTestId = interactive ? "permission-prompt-copy" : "tool-preview-copy";
+  const copyTestId = interactive
+    ? "permission-prompt-copy"
+    : "tool-preview-copy";
   const hasBody =
     preview.kind !== "path" &&
     !(preview.kind === "diff" && preview.lines.length === 0);
@@ -380,9 +383,25 @@ export function PermissionToolPreview({
             (hasBody ? "" : " permission-preview-bar--standalone")
           }
         >
-          <div className="permission-preview-location" title={barHeader}>
-            {barHeader}
-          </div>
+          {(preview.kind === "diff" ||
+            preview.kind === "path" ||
+            preview.kind === "code") &&
+          /^(read|write|edit|read_file|write_file|edit_file|apply_patch|touch|mkdir|rm|list_dir)$/.test(
+            preview.toolName,
+          ) ? (
+            <button
+              type="button"
+              className="permission-preview-location files-open-path"
+              title={barHeader}
+              onClick={() => openWorkspaceFile(barHeader, preview.line)}
+            >
+              {barHeader}
+            </button>
+          ) : (
+            <div className="permission-preview-location" title={barHeader}>
+              {barHeader}
+            </div>
+          )}
           {preview.meta.length > 0 ? (
             <div className="permission-preview-meta">
               {preview.meta.map((item) => (

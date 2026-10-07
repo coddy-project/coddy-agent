@@ -65,8 +65,13 @@ Governed by
 which defaults to true.
 .IP \(bu 2
 .B gateway
-\(em the messenger gateway (Telegram). Governed by
+\(em the Telegram bot. Governed by
 .BR gateways.telegram.enable .
+.IP \(bu 2
+.B gateway.pachca
+\(em the Pachca (Пачка) integration bot, which reads the bot's events
+history. Governed by
+.BR gateways.pachca.enable .
 .IP \(bu 2
 .B swarm
 \(em the stateless relay: nodes register themselves into it, it mounts each of
@@ -188,16 +193,28 @@ packs from
 .B add
 takes an
 .IR owner/repo ,
-a git URL, or a marketplace URL.
+a git URL, or a marketplace URL and declares it in
+.IR ~/.coddy/marketplaces.json ,
+or with
+.B \-\-project
+in the workspace's
+.IR .coddy/marketplaces.json .
 .TP
-.B "plugin marketplace add | list | update | remove"
+.B "plugin marketplace add | list | update | remove | trust | untrust"
 Manage skill marketplaces.
 .B add
 reads a marketplace and installs none of its plugins;
 .B update
 refreshes it and the plugins installed from it
 .RB ( sync
-is an alias).
+is an alias);
+.B trust
+and
+.B untrust
+approve or withdraw an entry of the workspace's
+.I .coddy/marketplaces.json
+under
+.BR skills.project_trust " ask".
 .TP
 .B "plugin install | remove | enable | disable"
 Manage installed plugins.
@@ -341,7 +358,7 @@ Run the
 check and then probe what the file points at: the directories and files it
 names, every LLM provider (its model list, which exercises the address and the
 credential; the configured models are checked against it), the executables of
-stdio MCP servers and the reachability of remote ones, the Telegram bot token,
+stdio MCP servers and the reachability of remote ones, the Telegram and Pachca bot tokens,
 the configured remotes and, for
 .BR serve ,
 the subsystems this binary can run and the listen addresses they would bind.

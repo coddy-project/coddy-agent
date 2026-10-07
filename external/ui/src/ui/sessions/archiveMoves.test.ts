@@ -9,7 +9,8 @@ import {
 } from "./archiveMoves";
 import type { SessionRow } from "./types";
 
-const rows = (...ids: string[]): SessionRow[] => ids.map((id) => ({ id, title: id }));
+const rows = (...ids: string[]): SessionRow[] =>
+  ids.map((id) => ({ id, title: id }));
 const ids = (list: SessionRow[]) => list.map((row) => row.id);
 
 test("a listing issued before the archive settled is shown with the move applied", () => {
@@ -18,18 +19,28 @@ test("a listing issued before the archive settled is shown with the move applied
     ["c", { archived: true, removesLoaded: true, settledAtSeq: 4 }],
   ]);
   // In flight: gone from the working list whatever the listing says.
-  expect(ids(overlayArchiveMoves(rows("a", "b"), moves, 9, "exclude"))).toEqual(["a"]);
+  expect(ids(overlayArchiveMoves(rows("a", "b"), moves, 9, "exclude"))).toEqual(
+    ["a"],
+  );
   // Settled at 4: listing 4 was issued before it, listing 5 after it and is
   // the server's own answer.
-  expect(ids(overlayArchiveMoves(rows("a", "c"), moves, 4, "exclude"))).toEqual(["a"]);
-  expect(ids(overlayArchiveMoves(rows("a", "c"), moves, 5, "exclude"))).toEqual(["a", "c"]);
+  expect(ids(overlayArchiveMoves(rows("a", "c"), moves, 4, "exclude"))).toEqual(
+    ["a"],
+  );
+  expect(ids(overlayArchiveMoves(rows("a", "c"), moves, 5, "exclude"))).toEqual(
+    ["a", "c"],
+  );
   // Under "all" the row stays and takes the flag this tab wrote.
   const all = overlayArchiveMoves(rows("a", "b"), moves, 9, "all");
   expect(ids(all)).toEqual(["a", "b"]);
   expect(all[1]?.archived).toBe(true);
   // The archive view keeps what was archived and loses what was taken out.
-  const back = new Map<string, ArchiveMove>([["a", { archived: false, removesLoaded: true, settledAtSeq: null }]]);
-  expect(ids(overlayArchiveMoves(rows("a", "b"), back, 1, "only"))).toEqual(["b"]);
+  const back = new Map<string, ArchiveMove>([
+    ["a", { archived: false, removesLoaded: true, settledAtSeq: null }],
+  ]);
+  expect(ids(overlayArchiveMoves(rows("a", "b"), back, 1, "only"))).toEqual([
+    "b",
+  ]);
 });
 
 test("the next page starts as many rows earlier as the archive took out", () => {
@@ -48,7 +59,13 @@ test("a row is put back before the row that followed it, or at its index", () =>
   expect(place).toEqual({ row: list[1], index: 1, nextId: "c" });
   expect(rowPlace(list, "zz")).toBeNull();
   // A page loaded in between puts rows before it; the neighbour still anchors it.
-  expect(ids(restoreRow(rows("x", "a", "c", "d"), place!))).toEqual(["x", "a", "b", "c", "d"]);
+  expect(ids(restoreRow(rows("x", "a", "c", "d"), place!))).toEqual([
+    "x",
+    "a",
+    "b",
+    "c",
+    "d",
+  ]);
   // The neighbour is gone too: the old index, within the list.
   expect(ids(restoreRow(rows("a", "d"), place!))).toEqual(["a", "b", "d"]);
   expect(ids(restoreRow(rows(), place!))).toEqual(["b"]);
@@ -58,7 +75,9 @@ test("a row is put back before the row that followed it, or at its index", () =>
     [{ id: "b", title: "renamed", tags: ["x"], archived: true }],
     { ...place!, row: { id: "b", title: "b", archived: false } },
   );
-  expect(flagged).toEqual([{ id: "b", title: "renamed", tags: ["x"], archived: false }]);
+  expect(flagged).toEqual([
+    { id: "b", title: "renamed", tags: ["x"], archived: false },
+  ]);
 });
 
 test("bookkeeping older than every listing still out is dropped", () => {

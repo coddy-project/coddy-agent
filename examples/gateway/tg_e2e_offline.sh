@@ -107,6 +107,7 @@ gateways:
   telegram:
     enable: true
     token: "123456:fake"
+    admins: [4242]                 # alice: /resume and approvals are an admin's
     rich_messages: $RICH_MESSAGES
 logger:
   level: info

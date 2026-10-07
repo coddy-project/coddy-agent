@@ -4,12 +4,14 @@ package httpserver
 
 import (
 	"context"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/EvilFreelancer/coddy-agent/external/ui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -156,6 +158,37 @@ func TestEmbeddedUIPublicAssetsCacheControl(t *testing.T) {
 				t.Fatalf("Cache-Control %q for %s, want no-cache", cc, path)
 			}
 		})
+	}
+}
+
+// The renderers the SPA loads on demand (Mermaid, KaTeX) are content-hashed files
+// under /chunks/: public like the rest of the shell, and cached for good.
+func TestEmbeddedUIChunksAreImmutable(t *testing.T) {
+	chunks, err := fs.Glob(ui.Assets, "chunks/*.js")
+	if err != nil || len(chunks) == 0 {
+		t.Fatalf("no embedded chunks (%v)", err)
+	}
+	cfg := &config.Config{
+		Agent: config.Agent{Model: "openai/gpt-4o"},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	res, err := http.Get(ts.URL + "/" + chunks[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /%s: %d", chunks[0], res.StatusCode)
+	}
+	if cc := res.Header.Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Fatalf("Cache-Control %q for /%s, want immutable", cc, chunks[0])
 	}
 }
 

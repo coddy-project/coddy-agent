@@ -10,7 +10,11 @@ afterEach(() => cleanup());
 function renderGenerating(opts: {
   value: string;
   queued?: { id: string; text: string }[];
-  onQueue?: (text: string, mode: "steer" | "after_turn", files?: File[]) => void;
+  onQueue?: (
+    text: string,
+    mode: "steer" | "after_turn",
+    files?: File[],
+  ) => void;
   onStop?: () => void;
   onCancelQueued?: (id: string) => void;
 }) {
@@ -42,7 +46,11 @@ test("the primary control queues the draft while a turn runs", () => {
   expect(btn).toHaveAttribute("data-queue", "true");
   fireEvent.click(btn);
 
-  expect(onQueue).toHaveBeenCalledWith("check the Windows path too", "steer", []);
+  expect(onQueue).toHaveBeenCalledWith(
+    "check the Windows path too",
+    "steer",
+    [],
+  );
   expect(onStop).not.toHaveBeenCalled();
 });
 
@@ -71,8 +79,23 @@ test("Enter queues the draft instead of being swallowed", () => {
 test("first queued message asks for the Enter preference once", () => {
   const onQueue = vi.fn();
   const onQueueModeChange = vi.fn();
-  render(<Composer value="check this" isEmpty={false} mode="agent" modes={["agent"]} generating={true} onModeChange={() => {}} onChange={() => {}} onSend={() => {}} onQueue={onQueue} onQueueModeChange={onQueueModeChange} />);
-  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Enter" });
+  render(
+    <Composer
+      value="check this"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent"]}
+      generating={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      onQueue={onQueue}
+      onQueueModeChange={onQueueModeChange}
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "Enter",
+  });
   expect(onQueue).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "After this turn" }));
   expect(onQueueModeChange).toHaveBeenCalledWith("after_turn");
@@ -115,8 +138,23 @@ test("the placeholder says a draft joins the running turn", () => {
 test("a first message sent with Tab still goes the other way once Enter's mode is chosen", () => {
   const onQueue = vi.fn();
   const onQueueModeChange = vi.fn();
-  render(<Composer value="review the answer" isEmpty={false} mode="agent" modes={["agent"]} generating={true} onModeChange={() => {}} onChange={() => {}} onSend={() => {}} onQueue={onQueue} onQueueModeChange={onQueueModeChange} />);
-  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Tab" });
+  render(
+    <Composer
+      value="review the answer"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent"]}
+      generating={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      onQueue={onQueue}
+      onQueueModeChange={onQueueModeChange}
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "Tab",
+  });
   expect(onQueue).not.toHaveBeenCalled();
   expect(screen.getByTestId("composer-queue-choice")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Steer now" }));
@@ -138,12 +176,24 @@ test("a queued message with images shows a paperclip and their count, not the im
       onSend={() => {}}
       onQueue={() => {}}
       queueMode="steer"
-      queuedMessages={[{ id: "q1", text: "compare", mode: "after_turn", imageParts: [{ name: "a.png", mimeType: "image/png", sizeBytes: 3 }, { name: "b.png" }] }]}
+      queuedMessages={[
+        {
+          id: "q1",
+          text: "compare",
+          mode: "after_turn",
+          imageParts: [
+            { name: "a.png", mimeType: "image/png", sizeBytes: 3 },
+            { name: "b.png" },
+          ],
+        },
+      ]}
     />,
   );
   const files = screen.getByTestId("composer-queue-files-q1");
   expect(files).toHaveTextContent("2");
   expect(files).toHaveAttribute("aria-label", "2 images attached");
   expect(files.querySelector("svg")).not.toBeNull();
-  expect(screen.getByTestId("composer-queue-mode-q1")).toHaveTextContent("After turn");
+  expect(screen.getByTestId("composer-queue-mode-q1")).toHaveTextContent(
+    "After turn",
+  );
 });

@@ -91,7 +91,7 @@ func newBackgroundFixture(t *testing.T, runner AgentRunner, setup func(*Manager)
 		release: filepath.Join(dir, "release"),
 		started: filepath.Join(dir, "started"),
 	}
-	f.mgr = NewManager(reloadTestConfig(gatedMCPServer("gated", f.started, f.release)), f.sender, runner, slog.Default(), t.TempDir(), nil)
+	f.mgr = NewManager(reloadTestConfig(t, gatedMCPServer("gated", f.started, f.release)), f.sender, runner, slog.Default(), t.TempDir(), nil)
 	f.mgr.SetBackgroundMCPConnect(true)
 	if setup != nil {
 		setup(f.mgr)
@@ -106,6 +106,19 @@ func newBackgroundFixture(t *testing.T, runner AgentRunner, setup func(*Manager)
 	}
 	f.st = f.mgr.SessionByID(res.SessionID)
 	t.Cleanup(f.st.CloseAll)
+	// The gated stub writes its "started" marker into dir from a process of
+	// its own as soon as it spawns. A test that ends before that write lets it
+	// land while t.TempDir() removes dir, and the cleanup fails with
+	// "directory not empty" (TestReloadClearsTheConnectRecord, then
+	// TestReloadDuringPendingConnectTellsTheSurface on CI). Every test here
+	// starts the stub, so wait for the marker; the connect stays in flight,
+	// since the stub still waits for release.
+	if !waitUntil(t, 10*time.Second, func() bool {
+		_, err := os.Stat(f.started)
+		return err == nil
+	}) {
+		t.Fatal("the gated server did not start")
+	}
 	return f
 }
 
@@ -241,8 +254,7 @@ func TestCancelDuringWaitEndsTurn(t *testing.T) {
 // the dial is pending supersedes it; the late result is closed, not installed.
 func TestReloadDuringPendingConnectLeavesNoDuplicates(t *testing.T) {
 	f := newBackgroundFixture(t, nil, func(m *Manager) { m.SetMCPConnectTimeoutForTest(2 * time.Second) })
-	next := reloadTestConfig(gatedMCPServer("gated", f.started, f.release), reloadTestMCPServer("good"))
-	f.mgr.ReplaceConfig(next)
+	replaceMCPServers(t, f.mgr, gatedMCPServer("gated", f.started, f.release), reloadTestMCPServer("good"))
 	f.releaseServer()
 	if !waitUntil(t, 10*time.Second, func() bool { return !f.st.backgroundMCPRunning() }) {
 		t.Fatal("the superseded dial never settled")
@@ -268,9 +280,12 @@ func TestReloadDuringPendingConnectLeavesNoDuplicates(t *testing.T) {
 // done, with the server it cut short marked cancelled rather than failed -
 // otherwise the console's footer would count a server nobody dials any more.
 func TestReloadDuringPendingConnectTellsTheSurface(t *testing.T) {
-	f := newBackgroundFixture(t, nil, func(m *Manager) { m.SetMCPConnectTimeoutForTest(300 * time.Millisecond) })
-	f.mgr.ReplaceConfig(reloadTestConfig(reloadTestMCPServer("good")))
-	// The reload has sent its snapshot by the time ReplaceConfig returns. The
+	// Long enough that the connect is still pending when the reload comes,
+	// however slowly the stub spawned: a dial that ran out of time first
+	// would be failed, not cut short.
+	f := newBackgroundFixture(t, nil, func(m *Manager) { m.SetMCPConnectTimeoutForTest(2 * time.Second) })
+	replaceMCPServers(t, f.mgr, reloadTestMCPServer("good"))
+	// The reload has sent its snapshot by the time it returns. The
 	// connect's first update, read before the reload, can still land after
 	// it, and the surface drops that one by its generation.
 	got, ok := f.sender.shown()
@@ -309,7 +324,7 @@ func TestCloseAllUnblocksWait(t *testing.T) {
 // TestForegroundConnectRecordsNothing: without the flag the session connects
 // in session/new and has no background record.
 func TestForegroundConnectRecordsNothing(t *testing.T) {
-	mgr := NewManager(reloadTestConfig(reloadTestMCPServer("good")), mcpTestSender{}, nil, slog.Default(), t.TempDir(), nil)
+	mgr := NewManager(reloadTestConfig(t, reloadTestMCPServer("good")), mcpTestSender{}, nil, slog.Default(), t.TempDir(), nil)
 	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -327,6 +342,49 @@ func TestForegroundConnectRecordsNothing(t *testing.T) {
 	}
 }
 
+// TestActivateDeferredMCPStartsAStoredSessionsServersInTheBackground proves
+// the explicit activation path warms a restored session without making its
+// passive load eager. Repeating activation must keep the one worker and its
+// leases rather than starting the configured declaration again.
+func TestActivateDeferredMCPStartsAStoredSessionsServersInTheBackground(t *testing.T) {
+	mgr, st := newStoredMCPSession(t, reloadTestMCPServer("alpha"))
+	if !st.configuredMCPDeferred() {
+		t.Fatal("stored session was not deferred")
+	}
+	if err := mgr.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatalf("activate deferred MCP: %v", err)
+	}
+	if err := mgr.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatalf("repeat activation: %v", err)
+	}
+	if !waitUntil(t, 10*time.Second, func() bool {
+		snap, recorded := st.MCPConnectSnapshot()
+		return recorded && snap.Done
+	}) {
+		t.Fatal("background activation did not settle")
+	}
+	if got := clientNames(st); len(got) != 1 || got[0] != "alpha" {
+		t.Fatalf("clients after activation = %v, want [alpha]", got)
+	}
+	if st.configuredMCPDeferred() {
+		t.Fatal("activation left the deferred marker set")
+	}
+}
+
+func TestActivateDeferredMCPSkipsArchivedSessions(t *testing.T) {
+	mgr, st := newStoredMCPSession(t, reloadTestMCPServer("alpha"))
+	st.SetArchived(true)
+	if err := mgr.ActivateDeferredMCP(context.Background(), st.GetID()); err != nil {
+		t.Fatalf("activate archived session: %v", err)
+	}
+	if !st.configuredMCPDeferred() {
+		t.Fatal("activation consumed an archived session's deferred marker")
+	}
+	if _, recorded := st.MCPConnectSnapshot(); recorded {
+		t.Fatal("activation started an archived session's MCP servers")
+	}
+}
+
 // TestHeldServerIsReportedNotDialed: a project declaration the gate holds
 // shows as held in the snapshot and is not counted as connectable.
 func TestHeldServerIsReportedNotDialed(t *testing.T) {
@@ -338,9 +396,8 @@ func TestHeldServerIsReportedNotDialed(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cwd, ".coddy", "mcp.json"), []byte(project), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := reloadTestConfig(reloadTestMCPServer("good"))
+	cfg := reloadTestConfig(t, reloadTestMCPServer("good"))
 	cfg.MCP.ProjectTrust = config.ProjectTrustAsk
-	cfg.Paths.Home = t.TempDir()
 	mgr := NewManager(cfg, mcpTestSender{}, nil, slog.Default(), cwd, nil)
 	mgr.SetBackgroundMCPConnect(true)
 	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
@@ -378,17 +435,7 @@ func TestReloadClearsTheConnectRecord(t *testing.T) {
 	if first.Generation == 0 {
 		t.Fatal("the first snapshot carries no generation")
 	}
-	// The gated stub writes this marker as soon as it spawns. A spawn still
-	// in flight at teardown lands that write while t.TempDir() removes the
-	// fixture dir and fails the cleanup with "directory not empty". The
-	// connect stays in flight regardless: the stub still waits for release.
-	if !waitUntil(t, 10*time.Second, func() bool {
-		_, err := os.Stat(f.started)
-		return err == nil
-	}) {
-		t.Fatal("the gated server did not start")
-	}
-	f.mgr.ReplaceConfig(reloadTestConfig(reloadTestMCPServer("good")))
+	replaceMCPServers(t, f.mgr, reloadTestMCPServer("good"))
 	if _, recorded := f.st.MCPConnectSnapshot(); recorded {
 		t.Fatal("the connect record outlived the reload that replaced the servers")
 	}
@@ -417,7 +464,7 @@ func TestApprovedProjectServerConnectsInTheBackground(t *testing.T) {
 	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "project-tool", entry); err != nil {
 		t.Fatal(err)
 	}
-	cfg := reloadTestConfig()
+	cfg := reloadTestConfig(t)
 	cfg.MCP.ProjectTrust = config.ProjectTrustAsk
 	cfg.Paths.Home = home
 	servers, err := mcp.ListManagedServers(cfg, cwd)
@@ -484,7 +531,7 @@ func TestRevokedWhileConnectingIsNotInstalled(t *testing.T) {
 	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "project-tool", entry); err != nil {
 		t.Fatal(err)
 	}
-	cfg := reloadTestConfig()
+	cfg := reloadTestConfig(t)
 	cfg.MCP.ProjectTrust = config.ProjectTrustAsk
 	cfg.Paths.Home = home
 	servers, err := mcp.ListManagedServers(cfg, cwd)

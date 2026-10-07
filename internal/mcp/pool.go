@@ -217,7 +217,7 @@ func PoolKey(srv ManagedServer, workspace string) string {
 		command, args, env := stdioSpec(cfg, workspace)
 		payload.Command, payload.Args, payload.Env = command, args, effectiveEnv(env)
 	} else {
-		payload.URL = config.ExpandCWD(cfg.URL, workspace)
+		payload.URL = config.ExpandMCPValue(cfg.URL, workspace)
 		for name, value := range expandHeaders(cfg, workspace) {
 			payload.Headers = append(payload.Headers, [2]string{name, value})
 		}

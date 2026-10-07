@@ -26,15 +26,14 @@ test("an MCP server row has no leading icon rule", () => {
   expect(cssText()).not.toMatch(/\.mcp-list-item-head\s*>\s*svg/);
 });
 
-// Everything under a server row starts where its name does: the chevron, its
-// gap, the status dot and its gap are the inset, and one variable holds it so
-// the tools, the empty-tools line and the trust note cannot drift apart.
-test("the tools and the trust note start where the server name does", () => {
+// Tools start at the whole-server switch, while text that follows a server row
+// stays under its name. The two independent insets keep both columns stable.
+test("the tools align with the server switch and text stays under the name", () => {
   expect(ruleBody(".mcp-list")).toMatch(
-    /--mcp-row-inset:\s*calc\(22px \+ 8px \+ 9px \+ 8px\)/,
+    /--mcp-row-inset:\s*calc\(var\(--mcp-switch-inset\) \+ 38px \+ 8px \+ 9px \+ 8px\)/,
   );
   expect(ruleBody(".mcp-tools")).toMatch(
-    /padding:\s*0 0 0 var\(--mcp-row-inset\)/,
+    /padding:\s*0 0 0 var\(--mcp-switch-inset\)/,
   );
   expect(ruleBody(".mcp-tools-empty")).toMatch(
     /padding-left:\s*var\(--mcp-row-inset\)/,
@@ -42,6 +41,16 @@ test("the tools and the trust note start where the server name does", () => {
   expect(ruleBody(".mcp-trust-note")).toMatch(
     /margin:\s*6px 0 0 var\(--mcp-row-inset\)/,
   );
+});
+
+test("MCP switches share a left column and server rows have no bottom rule", () => {
+  expect(ruleBody(".mcp-list")).toMatch(
+    /--mcp-switch-inset:\s*calc\(22px \+ 8px\)/,
+  );
+  expect(ruleBody(".mcp-tools")).toMatch(
+    /padding:\s*0 0 0 var\(--mcp-switch-inset\)/,
+  );
+  expect(ruleBody(".mcp-list-item")).not.toMatch(/border-bottom/);
 });
 
 // The trust note names the file a declaration came from, one long path with

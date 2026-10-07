@@ -357,8 +357,15 @@ agent:
   model: stub/demo
 tools:
   permission_mode: bypass
-mcp_servers: {json.dumps(mcp_servers)}
 """)
+        # The servers are declared where Coddy reads them: <home>/mcp.json.
+        entries = {}
+        for server in mcp_servers:
+            entry = {key: value for key, value in server.items() if key != "name"}
+            if "env" in entry:
+                entry["env"] = {pair["name"]: pair["value"] for pair in entry["env"]}
+            entries[server["name"]] = entry
+        (home / "mcp.json").write_text(json.dumps({"mcpServers": entries}, indent=2) + "\n")
         env = dict(os.environ, CODDY_HOME=str(home), TERM="xterm-256color", COLORTERM="truecolor")
         binary = os.path.abspath(env.get("CODDY_BIN", "build/coddy"))
         started = time.monotonic()

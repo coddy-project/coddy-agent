@@ -3,14 +3,14 @@
 
 Every run gets a private CODDY_HOME built from ~/.coddy: config.yaml with every
 absolute /home/<user>/.coddy path rewritten to the copy (sessions.dir,
-logger.file, scheduler.dir, skills.dirs), plus .env, providers/, skills/,
-agents/, memory/ and the trust files. Sessions, logs and backups are not
+logger.file, skills.dirs), plus .env, mcp.json, providers/,
+skills/, agents/, memory/ and the trust files. Sessions, logs and backups are not
 copied. The real home is never written to, which the script checks.
 
 Variants:
   real/empty-cwd     the real config, an empty working directory
   real/repo-cwd      the real config, cwd = the coddy-agent checkout (a git workspace)
-  real/no-mcp        the real config with mcp_servers: [] (isolates MCP connects)
+  real/no-mcp        the real config with an empty mcp.json (isolates MCP connects)
   real/proxy-refused every provider unreachable at once (proxy port with no listener)
   real/proxy-dead    every provider unreachable and silent (proxy accepts, never answers)
 
@@ -27,7 +27,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shutil
 import sys
 import tempfile
@@ -38,7 +37,7 @@ from bench_tui_startup import DeadSource, REPO, fmt, start_once, summarize, vers
 
 REAL_HOME = Path.home() / ".coddy"
 COPY_DIRS = ["providers", "skills", "agents", "memory", "project-agents"]
-COPY_FILES = [".env", "subagents-trust.json", "swarm-leases.json", "hooks.json", "AGENTS.md", "DESIGN.md"]
+COPY_FILES = [".env", "mcp.json", "subagents-trust.json", "swarm-leases.json", "hooks.json", "AGENTS.md", "DESIGN.md"]
 SKIP_TOP = {"sessions", "logs", "coddy.log", "config.yaml.bak", "config.yaml.prev"}
 
 
@@ -70,8 +69,6 @@ def build_home(base: Path, no_mcp: bool) -> Path:
     text = text.replace(str(REAL_HOME), str(home)).replace("~/.coddy", str(home))
     if str(REAL_HOME) in text:
         raise SystemExit("a real-home path survived the rewrite")
-    if no_mcp:
-        text = re.sub(r"(?ms)^mcp_servers:.*?(?=^[a-z_]+:)", "mcp_servers: []\n\n", text)
     (home / "config.yaml").write_text(text)
     for d in COPY_DIRS:
         src = REAL_HOME / d
@@ -81,6 +78,8 @@ def build_home(base: Path, no_mcp: bool) -> Path:
         src = REAL_HOME / f
         if src.exists():
             shutil.copy2(src, home / f)
+    if no_mcp:
+        (home / "mcp.json").write_text('{"mcpServers": {}}\n')
     (home / "sessions").mkdir(exist_ok=True)
     (home / "scheduler").mkdir(exist_ok=True)
     return home

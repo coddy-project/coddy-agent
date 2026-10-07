@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -256,14 +257,19 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// A media element's request carries the node's capability, not a client
+		// token: the mount hands it to the node, which checks it.
+		if s.workspaceMediaCapability(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		tokens := s.clientTokens()
 		if len(tokens) == 0 {
 			next.ServeHTTP(w, r)
 			return
 		}
 		if !acceptToken(tokens, credentialOf(r)) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="coddy-swarm"`)
-			writeError(w, http.StatusUnauthorized, "unauthorized")
+			writeUnauthorized(w)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -301,6 +307,53 @@ func acceptToken(accepted []string, got string) bool {
 // cannot set a header. The relay accepts a query token on exactly those, the
 // same narrow exception the agent makes, and strips it before the hop.
 var eventStreamRoutes = []string{"/composer-stream", "/coddy/events"}
+
+// workspaceMediaPath matches a node's workspace raw route behind one or more
+// mount hops: the one route a native <video> or <audio> element loads with a
+// capability the node signed, because a media element cannot send a header.
+var workspaceMediaPath = regexp.MustCompile(`^(` + regexp.QuoteMeta(swarmdto.MountPath) + `[^/]+)+/coddy/sessions/[^/]+/workspace/raw$`)
+
+// workspaceMediaCapability reports whether r is a media request the relay
+// carries on the node's own capability rather than on a client token: a GET or
+// HEAD of the workspace raw route under a mount, with exactly one non-empty
+// access_token (a second one would ride along to the node unchecked), no bearer
+// of its own, and a token that is not one of this relay's client tokens (that
+// one is never handed to a node). The relay cannot check the node's signature,
+// so it neither accepts nor vouches for the request: the node checks the
+// capability itself.
+func (s *Server) workspaceMediaCapability(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	if bearerOf(r) != "" {
+		return false
+	}
+	if !workspaceMediaPath.MatchString(r.URL.Path) {
+		return false
+	}
+	values := r.URL.Query()["access_token"]
+	if len(values) != 1 {
+		return false
+	}
+	token := strings.TrimSpace(values[0])
+	if token == "" {
+		return false
+	}
+	return !acceptToken(s.clientTokens(), token)
+}
+
+// mediaCapabilityOnly reports whether r got past the gate on a media
+// capability alone: the relay asks for a client token and r brought none.
+func (s *Server) mediaCapabilityOnly(r *http.Request) bool {
+	return len(s.clientTokens()) > 0 && s.workspaceMediaCapability(r)
+}
+
+// writeUnauthorized is the gate's refusal: the same plain 401 whatever was
+// asked, so it tells a caller without a client token nothing about the swarm.
+func writeUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="coddy-swarm"`)
+	writeError(w, http.StatusUnauthorized, "unauthorized")
+}
 
 // credentialOf reads the client's token, allowing the query only where a header
 // is impossible.
@@ -347,11 +400,16 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			if allow != "*" {
 				h.Add("Vary", "Origin")
 			}
-			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			h.Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
 			// Last-Event-ID is what resumes an interrupted stream. Without it in
 			// the allow list a browser reattach fails preflight, which is a
-			// confusing way to lose a conversation.
-			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Coddy-Session-ID, Last-Event-ID")
+			// confusing way to lose a conversation. Range and If-None-Match are
+			// what the Files window reads a workspace file with (media in pieces,
+			// a preview revalidated), and it reads the ETag and the range back:
+			// the node's own CORS answer is dropped on the way, so the relay
+			// allows and exposes them itself.
+			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Coddy-Session-ID, Last-Event-ID, Range, If-None-Match")
+			h.Set("Access-Control-Expose-Headers", "ETag, Content-Range, Accept-Ranges, Content-Disposition")
 			h.Set("Access-Control-Max-Age", "600")
 		}
 		if r.Method == http.MethodOptions {

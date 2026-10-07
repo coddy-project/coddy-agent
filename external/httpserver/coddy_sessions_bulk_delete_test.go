@@ -61,6 +61,32 @@ func storeSession(t *testing.T, mgr *session.Manager, store *session.FileStore, 
 	return res.SessionID
 }
 
+// clearMessageCountMetadata makes a modern fixture look like a bundle from
+// before History stored transcript counts. The transcript itself stays intact
+// so list paths that actually need the count can prove their targeted fallback.
+func clearMessageCountMetadata(t *testing.T, store *session.FileStore, id string) {
+	t.Helper()
+	path := filepath.Join(store.SessionPath(id), "session.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	delete(raw, "messageCount")
+	delete(raw, "messagesSize")
+	delete(raw, "messagesModTime")
+	b, err = json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func postBulkDelete(t *testing.T, srv *Server, payload interface{}) (int, map[string]interface{}) {
 	t.Helper()
 	body, err := json.Marshal(payload)
@@ -344,6 +370,103 @@ func TestSessionListReportsZeroTokensWithoutStatsFile(t *testing.T) {
 		if row.TokenUsage[field] != 0 {
 			t.Fatalf("tokenUsage.%s = %d, want 0", field, row.TokenUsage[field])
 		}
+	}
+}
+
+func TestSessionListStatsEnrichesLegacyCountOnlyAfterPaging(t *testing.T) {
+	srv, mgr, store := bulkDeleteServer(t)
+	first := storeSession(t, mgr, store, "first")
+	second := storeSession(t, mgr, store, "second")
+	if code, body := patchSessionJSON(t, srv, first, map[string]interface{}{"title": "alpha"}); code != http.StatusOK {
+		t.Fatalf("patch first: status %d body %v", code, body)
+	}
+	if code, body := patchSessionJSON(t, srv, second, map[string]interface{}{"title": "beta"}); code != http.StatusOK {
+		t.Fatalf("patch second: status %d body %v", code, body)
+	}
+	secondState := mgr.SessionByID(second)
+	if secondState == nil {
+		t.Fatalf("session %q missing", second)
+	}
+	secondState.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "answer"})
+	if err := store.Save(secondState); err != nil {
+		t.Fatal(err)
+	}
+	clearMessageCountMetadata(t, store, first)
+	clearMessageCountMetadata(t, store, second)
+
+	req := httptest.NewRequest(http.MethodGet, "/coddy/sessions?include_stats=true&sort=title&order=asc&limit=1", nil)
+	rec := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Sessions []struct {
+			ID           string `json:"id"`
+			MessageCount int    `json:"messageCount"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Sessions) != 1 || body.Sessions[0].ID != first || body.Sessions[0].MessageCount != 1 {
+		t.Fatalf("stats page = %+v, want first with one exact message", body.Sessions)
+	}
+}
+
+func TestSessionListSortMessagesEnrichesEveryLegacyCandidate(t *testing.T) {
+	srv, mgr, store := bulkDeleteServer(t)
+	most := storeSession(t, mgr, store, "most")
+	middle := storeSession(t, mgr, store, "middle")
+	least := storeSession(t, mgr, store, "least")
+	for _, tc := range []struct {
+		id    string
+		added int
+	}{
+		{id: most, added: 2},
+		{id: middle, added: 1},
+	} {
+		st := mgr.SessionByID(tc.id)
+		if st == nil {
+			t.Fatalf("session %q missing", tc.id)
+		}
+		for i := 0; i < tc.added; i++ {
+			st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "answer"})
+		}
+		if err := store.Save(st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{most, middle, least} {
+		clearMessageCountMetadata(t, store, id)
+	}
+
+	code, body := getSessions(t, srv, "sort=messages&order=desc")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d body %v", code, body)
+	}
+	if got := listedIDs(body); len(got) != 3 || got[0] != most || got[1] != middle || got[2] != least {
+		t.Fatalf("message sort = %v, want [%s %s %s]", got, most, middle, least)
+	}
+}
+
+func TestSessionListDefaultSkipsArchivedLargeCorruptTranscript(t *testing.T) {
+	srv, mgr, store := bulkDeleteServer(t)
+	visible := storeSession(t, mgr, store, "visible")
+	archived := storeSession(t, mgr, store, "archived")
+	if code, body := patchSessionJSON(t, srv, archived, map[string]interface{}{"archived": true}); code != http.StatusOK {
+		t.Fatalf("archive: status %d body %v", code, body)
+	}
+	if err := os.WriteFile(filepath.Join(store.SessionPath(archived), "messages.json"), bytes.Repeat([]byte("{"), 2<<20), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := getSessions(t, srv, "")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d body %v", code, body)
+	}
+	if got := listedIDs(body); len(got) != 1 || got[0] != visible {
+		t.Fatalf("default list = %v, want visible %q only", got, visible)
 	}
 }
 

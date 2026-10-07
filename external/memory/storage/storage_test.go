@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestStoreSearch(t *testing.T) {
@@ -129,6 +130,54 @@ func TestSlugify(t *testing.T) {
 	}
 	if g := slugify(""); g != "note" {
 		t.Fatalf("got %q", g)
+	}
+	// Titles in another script keep their letters instead of collapsing to "note".
+	if g := slugify("Предпочтения пользователя"); g != "предпочтения-пользователя" {
+		t.Fatalf("got %q", g)
+	}
+	if g := slugify(strings.Repeat("ж", 100)); utf8.RuneCountInString(g) != 80 || !utf8.ValidString(g) {
+		t.Fatalf("long slug must be cut at 80 characters: %q", g)
+	}
+}
+
+// Two notes saved without relative_path under Cyrillic titles land in two
+// files: before the fix both became note.md and the second overwrote the first.
+func TestWriteFlexibleKeepsNotesWithNonLatinTitlesApart(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	p1, err := st.WriteFlexible("project", "Предпочтения", "", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := st.WriteFlexible("project", "Архитектура", "", "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p1 == p2 {
+		t.Fatalf("both notes written to %s", p1)
+	}
+	if got, _ := st.Read(p1); strings.TrimSpace(got) != "first" {
+		t.Fatalf("first note overwritten: %q", got)
+	}
+}
+
+// Search snippets are cut in characters: a Cyrillic body keeps 1200 of them
+// and stays valid UTF-8.
+func TestSearchSnippetCutsByCharacters(t *testing.T) {
+	st := NewWithRoots(t.TempDir(), t.TempDir())
+	body := "кодди " + strings.Repeat("ж", 2000)
+	if _, err := st.WriteFlexible("project", "n", "n.md", body); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := st.Search("кодди", "project", 5)
+	if err != nil || len(hits) != 1 {
+		t.Fatalf("hits=%v err=%v", hits, err)
+	}
+	snip := hits[0].Snippet
+	if !utf8.ValidString(snip) {
+		t.Fatal("snippet is not valid UTF-8")
+	}
+	if n := utf8.RuneCountInString(strings.TrimSuffix(snip, "\n...")); n != 1200 {
+		t.Fatalf("snippet keeps %d characters, want 1200", n)
 	}
 }
 

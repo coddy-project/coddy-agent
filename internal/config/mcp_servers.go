@@ -1,6 +1,9 @@
 package config
 
-// MCPServerConfig defines an MCP server to connect to (YAML key mcp_servers).
+// MCPServerConfig is one MCP server declaration as the runtime holds it: an
+// entry of <home>/mcp.json or the project's .coddy/mcp.json, or one an ACP
+// client sent. The yaml tags read the old mcp_servers key of config.yaml when
+// it is moved into <home>/mcp.json (legacy_keys.go).
 type MCPServerConfig struct {
 	Type    string             `yaml:"type"`
 	Name    string             `yaml:"name"`

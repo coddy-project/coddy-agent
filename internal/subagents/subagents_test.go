@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 func writeDef(t *testing.T, dir, rel, body string) string {
@@ -820,5 +822,101 @@ func TestLoaderWalksNestedDirectoriesAndSkipsDotEntries(t *testing.T) {
 	}
 	if got := FindByName(defs, "planner"); !strings.HasSuffix(got.Path, filepath.Join("planner", "AGENT.md")) {
 		t.Fatalf("planner path = %q", got.Path)
+	}
+}
+
+// ---- default folders ----
+
+// chainDef is a definition named chain whose description says which folder
+// it came from.
+func chainDef(label string) string {
+	return "---\nname: chain\ndescription: " + label + "\n---\nrole\n"
+}
+
+func describeDef(defs []*Definition, name string) string {
+	if d := FindByName(defs, name); d != nil {
+		return d.Description
+	}
+	return ""
+}
+
+// The default folders, lowest priority first: the user's agents definitions,
+// the project's, Coddy's own, the project's Coddy ones; a name found in
+// several comes from the last, and taking the top layer away shows the next.
+func TestDefaultSubagentDirsLayerInOrder(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	coddyHome := t.TempDir()
+	cwd := t.TempDir()
+	layers := []struct{ dir, label string }{
+		{filepath.Join(userHome, ".agents", "agents"), "user agents"},
+		{filepath.Join(cwd, ".agents", "agents"), "project agents"},
+		{filepath.Join(coddyHome, "agents"), "coddy home"},
+		{filepath.Join(cwd, ".coddy", "agents"), "project coddy"},
+	}
+	for _, l := range layers {
+		writeDef(t, l.dir, "chain.md", chainDef(l.label))
+	}
+	loader := NewLoader(config.DefaultSubagentDirs(), "ask")
+	for i := len(layers) - 1; i >= 0; i-- {
+		if got := describeDef(loader.Load(cwd, coddyHome), "chain"); got != layers[i].label {
+			t.Fatalf("with %d layers chain came from %q, want %q", i+1, got, layers[i].label)
+		}
+		if err := os.Remove(filepath.Join(layers[i].dir, "chain.md")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The project's .agents/agents is a project folder: it follows the trust policy.
+	writeDef(t, filepath.Join(cwd, ".agents", "agents"), "proj.md", "---\nname: proj\ndescription: p\n---\nrole\n")
+	if d := FindByName(loader.Load(cwd, coddyHome), "chain"); d != nil {
+		t.Fatalf("chain must be gone, got %+v", d)
+	}
+	if d := FindByName(loader.Load(cwd, coddyHome), "proj"); d == nil || d.Scope != ScopeProject {
+		t.Fatalf("a definition of .agents/agents must be project scope: %+v", d)
+	}
+}
+
+// A folder named twice is read once, at its last place; under deny a project
+// spelling of a user folder (a .coddy/agents linked to ~/.coddy/agents) is
+// dropped before that, so the user copy stays.
+func TestSubagentFolderNamedTwiceAndDeny(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a")
+	b := filepath.Join(root, "b")
+	writeDef(t, a, "twice.md", "---\nname: twice\ndescription: from a\n---\nrole\n")
+	writeDef(t, b, "twice.md", "---\nname: twice\ndescription: from b\n---\nrole\n")
+	if got := describeDef(NewLoader([]string{a, b, a}, "ask").Load(t.TempDir(), ""), "twice"); got != "from a" {
+		t.Fatalf("a, b, a: got %q, want a (its last place)", got)
+	}
+
+	home := t.TempDir()
+	cwd := t.TempDir()
+	writeDef(t, home, "agents/mine.md", "---\ndescription: mine\n---\nrole\n")
+	if err := os.MkdirAll(filepath.Join(cwd, ".coddy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "agents"), filepath.Join(cwd, ".coddy", "agents")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	defs := NewLoader([]string{"${CODDY_HOME}/agents", "${CWD}/.coddy/agents"}, "deny").Load(cwd, home)
+	if d := FindByName(defs, "mine"); d == nil || d.Scope != ScopeUser {
+		t.Fatalf("under deny the user folder must stay although a project link names it: %+v", d)
+	}
+}
+
+// ${HOME} names the user's home; a workspace entry with no workspace reads
+// nothing instead of a folder at the root of the disk or of the process.
+func TestSubagentDirPlaceholders(t *testing.T) {
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	if got := expandDir("${HOME}/.agents/agents", "/w", ""); got != filepath.Join(userHome, ".agents", "agents") {
+		t.Fatalf("${HOME}: got %q", got)
+	}
+	for _, entry := range []string{"${CWD}/.coddy/agents", ".agents/agents"} {
+		if got := expandDir(entry, "", ""); got != "" {
+			t.Fatalf("%s with no workspace: got %q, want nothing", entry, got)
+		}
 	}
 }

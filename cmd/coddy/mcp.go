@@ -162,6 +162,15 @@ func mcpTrust(cfg *config.Config, cwd, name string) error {
 		}
 		fmt.Printf("  headers:   %s\n", strings.Join(names, ", "))
 	}
+	// The variables of this process its values would read and pass on:
+	// a header value is never printed, the variable it names is.
+	if reads := mcp.ReadsEnvironment(srv.Config); len(reads) > 0 {
+		refs := make([]string, len(reads))
+		for i, name := range reads {
+			refs[i] = "${" + name + "}"
+		}
+		fmt.Printf("  reads:     %s\n", strings.Join(refs, ", "))
+	}
 	if err := gate.Approve(cwd, *srv); err != nil {
 		return err
 	}

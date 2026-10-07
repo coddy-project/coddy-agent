@@ -1,11 +1,15 @@
 package tgfake
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -140,7 +144,7 @@ func TestKeyboard_CallbackDataLimit(t *testing.T) {
 	}
 	status, body = s.call("editMessageText", url.Values{"chat_id": {"4242"}, "message_id": {"1"}, "text": {"menu 2"},
 		"reply_markup": {`{"inline_keyboard":[[{"text":"no action"}]]}`}})
-	if status != http.StatusBadRequest || !strings.Contains(body["description"].(string), "BUTTON") {
+	if status != http.StatusBadRequest || body["description"] != "Bad Request: Text buttons are not allowed in the inline keyboard" {
 		t.Fatalf("a button with nothing behind it: %d %v", status, body)
 	}
 	status, _ = s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"link"},
@@ -560,4 +564,345 @@ func TestEditAndDeleteNeedAChatID(t *testing.T) {
 			t.Fatalf("%s without chat_id: %d %v", method, status, body)
 		}
 	}
+}
+
+// --- Mini Apps -------------------------------------------------------------
+
+// checkInitData verifies launch data the way a Mini App's server does
+// (core.telegram.org/bots/webapps, "Validating data received via the Mini
+// App"): the data-check-string is every field but hash, sorted by key, as
+// key=value lines; the secret is HMAC-SHA256 of the token under the key
+// "WebAppData"; hash is the hex HMAC-SHA256 of the data-check-string under
+// that secret. It is written here from the documentation, not taken from the
+// fake, so the fake's signing is checked against something independent.
+func checkInitData(t *testing.T, token, initData string) url.Values {
+	t.Helper()
+	vals, err := url.ParseQuery(initData)
+	if err != nil {
+		t.Fatalf("init data %q does not parse: %v", initData, err)
+	}
+	hash := vals.Get("hash")
+	if hash == "" {
+		t.Fatalf("init data has no hash: %q", initData)
+	}
+	keys := make([]string, 0, len(vals))
+	for k := range vals {
+		if k != "hash" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, k := range keys {
+		lines = append(lines, k+"="+vals.Get(k))
+	}
+	secret := hmac.New(sha256.New, []byte("WebAppData"))
+	secret.Write([]byte(token))
+	mac := hmac.New(sha256.New, secret.Sum(nil))
+	mac.Write([]byte(strings.Join(lines, "\n")))
+	if want := hex.EncodeToString(mac.Sum(nil)); hash != want {
+		t.Fatalf("init data hash %s does not check out against token %q (want %s)", hash, token, want)
+	}
+	return vals
+}
+
+// launchFragment splits a launch URL into the address the app was given and
+// the launch parameters Telegram appended to its fragment.
+func launchFragment(t *testing.T, launch string) (string, url.Values) {
+	t.Helper()
+	base, frag, ok := strings.Cut(launch, "#")
+	if !ok {
+		t.Fatalf("launch URL %q has no fragment", launch)
+	}
+	if i := strings.Index(frag, "?"); i >= 0 {
+		base += "#" + frag[:i]
+		frag = frag[i+1:]
+	}
+	params, err := url.ParseQuery(frag)
+	if err != nil {
+		t.Fatalf("launch fragment %q does not parse: %v", frag, err)
+	}
+	return base, params
+}
+
+func TestWebAppButton_PrivateChatOnly(t *testing.T) {
+	s := newStand(t, Options{})
+	markup := `{"inline_keyboard":[[{"text":"Open in Coddy","web_app":{"url":"https://coddy.example.com/?session=sess_1"}}]]}`
+	status, body := s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"open"}, "reply_markup": {markup}})
+	if status != http.StatusOK {
+		t.Fatalf("a web_app button in a private chat: %d %v", status, body)
+	}
+	msgs := s.fake.Chat(4242).Messages
+	if len(msgs) != 1 || len(msgs[0].Keyboard) != 1 || msgs[0].Keyboard[0][0].WebApp == nil ||
+		msgs[0].Keyboard[0][0].WebApp.URL != "https://coddy.example.com/?session=sess_1" {
+		t.Fatalf("the chat should keep the web_app button: %+v", msgs)
+	}
+	if got := s.fake.Chat(4242).Text(); !strings.Contains(got, "[Open in Coddy]") {
+		t.Fatalf("the text transcript should show the button by its label:\n%s", got)
+	}
+
+	// Telegram allows web_app buttons only in a private chat with the bot.
+	status, body = s.call("sendMessage", url.Values{"chat_id": {"-100500"}, "text": {"open"}, "reply_markup": {markup}})
+	if status != http.StatusBadRequest || !strings.Contains(body["description"].(string), "BUTTON_TYPE_INVALID") {
+		t.Fatalf("a web_app button in a group: %d %v", status, body)
+	}
+	if n := len(s.fake.Chat(-100500).Messages); n != 0 {
+		t.Fatalf("a refused group message reached the chat: %d", n)
+	}
+}
+
+func TestWebAppButton_URLRules(t *testing.T) {
+	s := newStand(t, Options{})
+	send := func(webURL string) (int, map[string]any) {
+		return s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"open"},
+			"reply_markup": {`{"inline_keyboard":[[{"text":"App","web_app":{"url":"` + webURL + `"}}]]}`}})
+	}
+	for _, ok := range []string{"https://coddy.example.com/", "http://127.0.0.1:18792/", "http://localhost:5173/", "http://[::1]:8080/"} {
+		if status, body := send(ok); status != http.StatusOK {
+			t.Fatalf("web_app URL %s: %d %v", ok, status, body)
+		}
+	}
+	for _, bad := range []string{"http://coddy.example.com/", "ftp://coddy.example.com/", "coddy.example.com", ""} {
+		status, body := send(bad)
+		if status != http.StatusBadRequest || !strings.Contains(strings.ToLower(body["description"].(string)), "url") {
+			t.Fatalf("web_app URL %q: %d %v, want 400 naming the URL", bad, status, body)
+		}
+	}
+	// One action per button. Telegram takes the first of several in its own
+	// order; the stand refuses the button, so an ambiguous one never passes.
+	status, body := s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"open"},
+		"reply_markup": {`{"inline_keyboard":[[{"text":"App","callback_data":"x","web_app":{"url":"https://coddy.example.com/"}}]]}`}})
+	if status != http.StatusBadRequest || !strings.Contains(body["description"].(string), "BUTTON_TYPE_INVALID") {
+		t.Fatalf("a button with callback_data and web_app: %d %v", status, body)
+	}
+	// A button with no action at all is refused the way Telegram does.
+	status, body = s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"open"},
+		"reply_markup": {`{"inline_keyboard":[[{"text":"App"}]]}`}})
+	if status != http.StatusBadRequest || body["description"] != "Bad Request: Text buttons are not allowed in the inline keyboard" {
+		t.Fatalf("a button with no action: %d %v", status, body)
+	}
+}
+
+func TestWebAppButton_SameKeyboardIsNotModified(t *testing.T) {
+	s := newStand(t, Options{})
+	markup := `{"inline_keyboard":[[{"text":"App","web_app":{"url":"https://coddy.example.com/"}}]]}`
+	s.call("sendMessage", url.Values{"chat_id": {"4242"}, "text": {"open"}, "reply_markup": {markup}})
+	status, body := s.call("editMessageReplyMarkup", url.Values{"chat_id": {"4242"}, "message_id": {"1"}, "reply_markup": {markup}})
+	if status != http.StatusBadRequest || !strings.Contains(body["description"].(string), "not modified") {
+		t.Fatalf("the same web_app keyboard again: %d %v", status, body)
+	}
+	other := `{"inline_keyboard":[[{"text":"App","web_app":{"url":"https://coddy.example.com/?session=sess_2"}}]]}`
+	if status, body := s.call("editMessageReplyMarkup", url.Values{"chat_id": {"4242"}, "message_id": {"1"}, "reply_markup": {other}}); status != http.StatusOK {
+		t.Fatalf("a web_app button to another address: %d %v", status, body)
+	}
+}
+
+func TestMenuButton_DefaultAndPerChat(t *testing.T) {
+	s := newStand(t, Options{})
+	get := func(chat string) map[string]any {
+		t.Helper()
+		form := url.Values{}
+		if chat != "" {
+			form.Set("chat_id", chat)
+		}
+		status, body := s.call("getChatMenuButton", form)
+		if status != http.StatusOK {
+			t.Fatalf("getChatMenuButton(%q): %d %v", chat, status, body)
+		}
+		return result(t, body)
+	}
+	if got := get(""); got["type"] != "commands" {
+		t.Fatalf("a bot that set nothing has the commands menu: %v", got)
+	}
+	status, body := s.call("setChatMenuButton", url.Values{
+		"menu_button": {`{"type":"web_app","text":"Coddy","web_app":{"url":"https://coddy.example.com/"}}`}})
+	if status != http.StatusOK || body["result"] != true {
+		t.Fatalf("set the default menu button: %d %v", status, body)
+	}
+	for _, chat := range []string{"", "4242"} {
+		got := get(chat)
+		app, _ := got["web_app"].(map[string]any)
+		if got["type"] != "web_app" || got["text"] != "Coddy" || app["url"] != "https://coddy.example.com/" {
+			t.Fatalf("menu button for chat %q: %v", chat, got)
+		}
+	}
+	// A chat's own button wins over the default; "default" takes it away again.
+	s.call("setChatMenuButton", url.Values{"chat_id": {"4242"}, "menu_button": {`{"type":"commands"}`}})
+	if got := get("4242"); got["type"] != "commands" {
+		t.Fatalf("the chat's own button: %v", got)
+	}
+	if got := get("777"); got["type"] != "web_app" {
+		t.Fatalf("another chat still has the default: %v", got)
+	}
+	s.call("setChatMenuButton", url.Values{"chat_id": {"4242"}, "menu_button": {`{"type":"default"}`}})
+	if got := get("4242"); got["type"] != "web_app" {
+		t.Fatalf("after default the chat follows the bot's button again: %v", got)
+	}
+	// No menu_button at all, or type default, puts the bot's button back.
+	s.call("setChatMenuButton", url.Values{"menu_button": {`{"type":"default"}`}})
+	if got := get(""); got["type"] != "commands" {
+		t.Fatalf("the default menu button after a reset: %v", got)
+	}
+	if view := s.fake.Chat(4242); view.MenuButton == nil || view.MenuButton.Type != "commands" {
+		t.Fatalf("the chat view should name the menu button the chat shows: %+v", view.MenuButton)
+	}
+}
+
+func TestMenuButton_Refusals(t *testing.T) {
+	s := newStand(t, Options{})
+	for name, raw := range map[string]string{
+		"unknown type":   `{"type":"weird"}`,
+		"web_app no url": `{"type":"web_app","text":"Coddy","web_app":{"url":""}}`,
+		"web_app http":   `{"type":"web_app","text":"Coddy","web_app":{"url":"http://coddy.example.com/"}}`,
+		"web_app text":   `{"type":"web_app","text":"","web_app":{"url":"https://coddy.example.com/"}}`,
+		"not json":       `{`,
+	} {
+		if status, body := s.call("setChatMenuButton", url.Values{"menu_button": {raw}}); status != http.StatusBadRequest {
+			t.Fatalf("%s: %d %v", name, status, body)
+		}
+	}
+	// A menu button belongs to a private chat or to the bot.
+	status, body := s.call("setChatMenuButton", url.Values{"chat_id": {"-100500"}, "menu_button": {`{"type":"commands"}`}})
+	if status != http.StatusBadRequest {
+		t.Fatalf("a group's menu button: %d %v", status, body)
+	}
+	if got := s.fake.MenuButton(0); got.Type != "commands" {
+		t.Fatalf("refused calls must leave the menu button alone: %+v", got)
+	}
+}
+
+// Telegram shows a bot's menu button in private chats only, and the Bot API
+// reads the chat_id of both menu button methods as a user: a group's id is
+// refused, with the menu button checked first on a set.
+func TestMenuButton_PrivateChatsOnly(t *testing.T) {
+	s := newStand(t, Options{})
+	app := `{"type":"web_app","text":"Coddy","web_app":{"url":"https://coddy.example.com/"}}`
+	if status, body := s.call("setChatMenuButton", url.Values{"menu_button": {app}}); status != http.StatusOK {
+		t.Fatalf("the bot's menu button: %d %v", status, body)
+	}
+	if m := s.fake.Chat(4242).MenuButton; m == nil || m.Type != "web_app" {
+		t.Fatalf("a private chat's menu button: %+v", m)
+	}
+	if _, err := s.fake.LaunchWebApp(WebAppLaunch{ChatID: 4242}); err != nil {
+		t.Fatalf("the menu button of a private chat does not open: %v", err)
+	}
+	if m := s.fake.Chat(-100500); m.Type != "group" || m.MenuButton == nil || m.MenuButton.Type != "commands" {
+		t.Fatalf("a group shows %s with the menu button %+v", m.Type, m.MenuButton)
+	}
+	if _, err := s.fake.LaunchWebApp(WebAppLaunch{ChatID: -100500}); err == nil {
+		t.Fatal("a group opened a Mini App from a menu button it does not have")
+	}
+	for _, chatID := range []string{"-100500", "0", "abc"} {
+		for _, method := range []string{"getChatMenuButton", "setChatMenuButton"} {
+			status, body := s.call(method, url.Values{"chat_id": {chatID}, "menu_button": {`{"type":"commands"}`}})
+			if status != http.StatusBadRequest || body["description"] != "Bad Request: Invalid chat_id specified" {
+				t.Errorf("%s for chat_id %s: %d %v", method, chatID, status, body)
+			}
+		}
+	}
+	status, body := s.call("setChatMenuButton", url.Values{"chat_id": {"-100500"}, "menu_button": {`{"type":"weird"}`}})
+	if status != http.StatusBadRequest || body["description"] == "Bad Request: Invalid chat_id specified" {
+		t.Errorf("the menu button is checked before the chat: %d %v", status, body)
+	}
+}
+
+func TestToken_KeptFromThePath(t *testing.T) {
+	s := newStand(t, Options{})
+	if got := s.fake.Token(); got != "" {
+		t.Fatalf("no call yet, token = %q", got)
+	}
+	s.callToken("123456:FIRST", "getMe", nil)
+	s.callToken("123456:SECOND", "getMe", nil)
+	if got := s.fake.Token(); got != "123456:SECOND" {
+		t.Fatalf("token = %q, want the one of the latest call", got)
+	}
+	fixed := newStand(t, Options{Token: "123456:FIXED"})
+	fixed.callToken("123456:OTHER", "getMe", nil) // refused with 401
+	if got := fixed.fake.Token(); got != "123456:FIXED" {
+		t.Fatalf("--token wins, token = %q", got)
+	}
+}
+
+func TestLaunchWebApp_SignedLikeTelegram(t *testing.T) {
+	s := newStand(t, Options{})
+	s.callToken("123456:SIGN", "getMe", nil)
+	launch, err := s.fake.LaunchWebApp(WebAppLaunch{
+		ChatID: 4242, UserID: 4242, Username: "alice", URL: "https://coddy.example.com/?session=sess_1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, params := launchFragment(t, launch.URL)
+	if base != "https://coddy.example.com/?session=sess_1" {
+		t.Fatalf("the app was given %q", base)
+	}
+	if params.Get("tgWebAppVersion") == "" || params.Get("tgWebAppPlatform") == "" || params.Get("tgWebAppThemeParams") == "" {
+		t.Fatalf("launch parameters missing: %v", params)
+	}
+	if params.Get("tgWebAppData") != launch.InitData {
+		t.Fatalf("tgWebAppData %q is not the init data %q", params.Get("tgWebAppData"), launch.InitData)
+	}
+	vals := checkInitData(t, "123456:SIGN", launch.InitData)
+	var user map[string]any
+	if err := json.Unmarshal([]byte(vals.Get("user")), &user); err != nil || user["id"] != float64(4242) || user["username"] != "alice" {
+		t.Fatalf("init data user: %q (%v)", vals.Get("user"), err)
+	}
+	if vals.Get("auth_date") == "" || vals.Get("query_id") == "" {
+		t.Fatalf("init data lacks auth_date or query_id: %v", vals)
+	}
+	var theme map[string]string
+	if err := json.Unmarshal([]byte(params.Get("tgWebAppThemeParams")), &theme); err != nil || theme["bg_color"] == "" {
+		t.Fatalf("theme params: %q (%v)", params.Get("tgWebAppThemeParams"), err)
+	}
+}
+
+func TestLaunchWebApp_Options(t *testing.T) {
+	s := newStand(t, Options{Token: "123456:OPT"})
+	if _, err := s.fake.LaunchWebApp(WebAppLaunch{ChatID: 4242}); err == nil {
+		t.Fatal("no URL and no web_app menu button: want an error")
+	}
+	s.callToken("123456:OPT", "setChatMenuButton", url.Values{"menu_button": {`{"type":"web_app","text":"Coddy","web_app":{"url":"https://coddy.example.com/"}}`}})
+	launch, err := s.fake.LaunchWebApp(WebAppLaunch{ChatID: 4242, StartParam: "sess_9", ColorScheme: "light"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, params := launchFragment(t, launch.URL)
+	// The start parameter travels in the query, where Telegram puts it, and
+	// in the signed data.
+	if base != "https://coddy.example.com/?tgWebAppStartParam=sess_9" {
+		t.Fatalf("the menu button's app with a start parameter was given %q", base)
+	}
+	if vals := checkInitData(t, "123456:OPT", launch.InitData); vals.Get("start_param") != "sess_9" {
+		t.Fatalf("start_param in init data: %v", vals)
+	}
+	var theme map[string]string
+	_ = json.Unmarshal([]byte(params.Get("tgWebAppThemeParams")), &theme)
+	if theme["bg_color"] != "#ffffff" {
+		t.Fatalf("light theme bg_color = %q", theme["bg_color"])
+	}
+	// A fragment the address already has keeps its place; the launch
+	// parameters follow it after a question mark, the form the SDK parses.
+	launch, err = s.fake.LaunchWebApp(WebAppLaunch{ChatID: 4242, URL: "https://coddy.example.com/#/s/sess_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(launch.URL, "https://coddy.example.com/#/s/sess_1?tgWebAppData=") {
+		t.Fatalf("launch URL with a fragment: %q", launch.URL)
+	}
+}
+
+// A fixed vector, computed outside this package (Python's hmac over the
+// documented data-check-string), so the fake's signing and the checker above
+// cannot agree on the same mistake.
+func TestSignInitData_KnownVector(t *testing.T) {
+	data := url.Values{}
+	data.Set("auth_date", "1700000000")
+	data.Set("query_id", "AAHdF6IQAAAAAN0XohDhrOrc")
+	data.Set("user", `{"id":279058397,"first_name":"Vladislav","username":"vdkfrost","language_code":"ru"}`)
+	const want = "d16b987afd609aa3c33232cac13427d98b80535d6e4b3e4025a02a336fd343ef"
+	if got := signInitData("123456:ABC-DEF1234ghIkl", data); got != want {
+		t.Fatalf("signInitData = %s, want %s", got, want)
+	}
+	data.Set("hash", want)
+	checkInitData(t, "123456:ABC-DEF1234ghIkl", data.Encode())
 }

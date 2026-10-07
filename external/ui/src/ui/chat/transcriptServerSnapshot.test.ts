@@ -163,21 +163,25 @@ describe("preserveUserMessageFiles", () => {
     const server: TranscriptItem[] = [
       {
         ...u("server", "hello"),
-        files: [{
-          name: "photo.png",
-          mimeType: "image/png",
-          previewUrl: "/coddy/sessions/sess_a/assets/photo.png/thumbnail",
-        }],
+        files: [
+          {
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "/coddy/sessions/sess_a/assets/photo.png/thumbnail",
+          },
+        ],
       },
     ];
     const local: TranscriptItem[] = [
       {
         ...u("local", "hello"),
-        files: [{
-          name: "photo.png",
-          mimeType: "image/png",
-          previewUrl: "blob:optimistic-photo",
-        }],
+        files: [
+          {
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "blob:optimistic-photo",
+          },
+        ],
       },
     ];
     expect(preserveUserMessageFiles(server, local)).toEqual(server);
@@ -188,11 +192,13 @@ describe("preserveUserMessageFiles", () => {
     const local: TranscriptItem[] = [
       {
         ...u("local", "hello"),
-        files: [{
-          name: "photo.png",
-          mimeType: "image/png",
-          previewUrl: "blob:optimistic-photo",
-        }],
+        files: [
+          {
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "blob:optimistic-photo",
+          },
+        ],
       },
     ];
     expect(preserveUserMessageFiles(server, local)[0]).toMatchObject({
@@ -208,21 +214,25 @@ describe("preserveUserMessageFiles", () => {
       const server: TranscriptItem[] = [
         {
           ...u("server", "hello"),
-          files: [{
-            name: "photo.png",
-            mimeType: "image/png",
-            previewUrl: "/coddy/sessions/sess_a/assets/photo.png/thumbnail",
-          }],
+          files: [
+            {
+              name: "photo.png",
+              mimeType: "image/png",
+              previewUrl: "/coddy/sessions/sess_a/assets/photo.png/thumbnail",
+            },
+          ],
         },
       ];
       const local: TranscriptItem[] = [
         {
           ...u("local", "hello"),
-          files: [{
-            name: "photo.png",
-            mimeType: "image/png",
-            previewUrl: "blob:optimistic-photo",
-          }],
+          files: [
+            {
+              name: "photo.png",
+              mimeType: "image/png",
+              previewUrl: "blob:optimistic-photo",
+            },
+          ],
         },
       ];
       revokeSupersededUserMessagePreviews(server, local);
@@ -240,11 +250,13 @@ describe("preserveUserMessageFiles", () => {
       const optimistic: TranscriptItem[] = [
         {
           ...u("local", "hello"),
-          files: [{
-            name: "photo.png",
-            mimeType: "image/png",
-            previewUrl: "blob:optimistic-photo",
-          }],
+          files: [
+            {
+              name: "photo.png",
+              mimeType: "image/png",
+              previewUrl: "blob:optimistic-photo",
+            },
+          ],
         },
       ];
       revokeSupersededUserMessagePreviews(optimistic, optimistic);
@@ -255,24 +267,46 @@ describe("preserveUserMessageFiles", () => {
   });
 });
 
-
 it("a wake from the stream and the same wake from the transcript are one row", () => {
-  const live: TranscriptItem = { id: "wake-7", type: "background_wake", tasks: [{ id: "bg_3", status: "failed" }] };
+  const live: TranscriptItem = {
+    id: "wake-7",
+    type: "background_wake",
+    tasks: [{ id: "bg_3", status: "failed" }],
+  };
   const stored: TranscriptItem = {
     id: "wake_2",
     type: "background_wake",
     tasks: [{ id: "bg_3", status: "failed", exitCode: 2 }],
     createdAtUtc: "2026-09-18T12:00:00Z",
   };
-  const other: TranscriptItem = { id: "wake_3", type: "background_wake", tasks: [{ id: "bg_4", status: "failed" }] };
+  const other: TranscriptItem = {
+    id: "wake_3",
+    type: "background_wake",
+    tasks: [{ id: "bg_4", status: "failed" }],
+  };
   expect(transcriptItemsLooselyEqual(stored, live)).toBe(true);
   expect(transcriptItemsLooselyEqual(other, live)).toBe(false);
 });
 
 it("a notice the server wrote mid-turn does not drop the answer still streaming", () => {
-  const user = { id: "u_1", type: "user_message", content: "Please switch to fake/b" } as TranscriptItem;
-  const tool = { id: "tc_1", type: "tool_call", toolCallId: "call_1", title: "switch_model", status: "completed" } as unknown as TranscriptItem;
-  const live = { id: "a_live", type: "assistant_message", content: "Now on", streaming: true } as TranscriptItem;
+  const user = {
+    id: "u_1",
+    type: "user_message",
+    content: "Please switch to fake/b",
+  } as TranscriptItem;
+  const tool = {
+    id: "tc_1",
+    type: "tool_call",
+    toolCallId: "call_1",
+    title: "switch_model",
+    status: "completed",
+  } as unknown as TranscriptItem;
+  const live = {
+    id: "a_live",
+    type: "assistant_message",
+    content: "Now on",
+    streaming: true,
+  } as TranscriptItem;
   const notice = {
     id: "ulog_1",
     type: "system_notice",
@@ -280,10 +314,30 @@ it("a notice the server wrote mid-turn does not drop the answer still streaming"
     message: "Model: fake/b for this session",
   } as TranscriptItem;
   // The agent's switch persisted the notice before the answer was saved.
-  const merged = mergeTranscriptPreferLocalSuffix([user, tool, notice], [user, tool, live]);
-  expect(merged.map((it) => it.id)).toEqual(["u_1", "tc_1", "a_live", "ulog_1"]);
+  const merged = mergeTranscriptPreferLocalSuffix(
+    [user, tool, notice],
+    [user, tool, live],
+  );
+  expect(merged.map((it) => it.id)).toEqual([
+    "u_1",
+    "tc_1",
+    "a_live",
+    "ulog_1",
+  ]);
   // Once both are saved, the server's rows win and the notice stays once.
-  const saved = { id: "as_1", type: "assistant_message", content: "Now on fake/b." } as TranscriptItem;
-  const later = mergeTranscriptPreferLocalSuffix([user, tool, saved, notice], merged);
-  expect(later.map((it) => it.type)).toEqual(["user_message", "tool_call", "assistant_message", "system_notice"]);
+  const saved = {
+    id: "as_1",
+    type: "assistant_message",
+    content: "Now on fake/b.",
+  } as TranscriptItem;
+  const later = mergeTranscriptPreferLocalSuffix(
+    [user, tool, saved, notice],
+    merged,
+  );
+  expect(later.map((it) => it.type)).toEqual([
+    "user_message",
+    "tool_call",
+    "assistant_message",
+    "system_notice",
+  ]);
 });

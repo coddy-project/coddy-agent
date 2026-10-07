@@ -77,7 +77,7 @@ func (a *Agent) loadSkillBody(name string) (string, []string, bool) {
 		// A skill the model loads brings its model and reasoning level for
 		// the rest of the turn, as one the operator invokes does.
 		a.applySkillSettings(context.Background(), strings.TrimSpace(name), sk)
-		return strings.TrimSpace(sk.Content), available, true
+		return skillBodyForModel(sk, a.managedSkillsDir()), available, true
 	}
 	return "", available, false
 }
@@ -122,7 +122,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 // moves between turns: a recall answers one message, and a report rendered here
 // would make every turn's system message a new one and cost the cached copy of
 // the whole conversation each time. The rules and instructions blocks do not
-// move between turns either (standingPrompt).
+// move between turns either (standingParts).
 func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) *systemPromptBuild {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	clock := a.now().UTC()
@@ -147,8 +147,9 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	}
 	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, a.cfg.Skills.AutoDiscoveryEnabled())
 	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
-	rulesMD, instructionsMD := a.standingPrompt(a.rulesRendered(mode))
-	full := prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile(), prompts.TemplateData{
+	standing := a.standingParts()
+	rulesMD := joinNonEmptyPromptBlocks(standing.Docs, standing.Rules)
+	full := a.renderWithDocuments(mode, promptsDir, standing, prompts.TemplateData{
 		CWD:            a.state.GetCWD(),
 		Skills:         skillsMD,
 		Rules:          rulesMD,
@@ -157,7 +158,7 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		TodoList:       promptTodoMD,
 		PlanContext:    planCtx,
 		DiscardedPlans: discardedPlans,
-		Instructions:   instructionsMD,
+		Instructions:   standing.User,
 		Subagents:      a.subagentCatalogBlock(),
 		SubagentRole:   a.subagentRoleBlock(),
 		// The templates describe switch_model only to a turn that can call
@@ -189,13 +190,68 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		Content:  full,
 		SkillsMD: skillsMD,
 		ToolsMD:  toolsMD,
-		RulesMD:  rulesMD,
+		// The context estimate counts the files of instructions.files with
+		// the rules: they are instructions the operator wrote, and a rules
+		// share that leaves them out reads as rules that were not loaded.
+		RulesMD:  joinNonEmptyPromptBlocks(rulesMD, standing.User),
 		ToolDefs: toolDefs,
 		Clock:    clock,
 		Volatile: prompts.RendersVolatile(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()),
 	}
+	a.setDocumentKeys(standing.Keys)
 	a.refreshContextBreakdown(build, "")
 	return build
+}
+
+// renderWithDocuments renders the template of mode and makes sure the
+// AGENTS.md and DESIGN.md layers and the files of instructions.files reach the
+// prompt whatever the template prints (issue #425). It looks at what was
+// rendered rather than at the template's source, so a {{.Rules}} named in a
+// comment or printed under a condition that is false does not count. Documents
+// a template did not print where it was handed them go to its instructions
+// slot, ahead of the user's files, and what neither slot printed is appended
+// as one "## Project instructions" block right after the template, so the
+// documents stay together and the user's files are always the last of them.
+// A template that could not be rendered is replaced by the fallback prompt,
+// and the documents, the always-on rules and the user's files all follow it.
+// Every decision depends on the template and the generation's files only, so
+// the system message is the same on every turn of a generation.
+func (a *Agent) renderWithDocuments(mode, promptsDir string, standing *session.RulesPrompt, data prompts.TemplateData) string {
+	render := func(d prompts.TemplateData) (string, bool) {
+		return prompts.RenderChecked(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile(), d)
+	}
+	full, ok := render(data)
+	if !ok {
+		return joinNonEmptyPromptBlocks(full, standing.Docs, standing.Rules, instructionsBlock(standing.User))
+	}
+	if standing.Docs != "" && !strings.Contains(full, standing.Docs) {
+		retry := data
+		retry.Instructions = joinNonEmptyPromptBlocks(standing.Docs, standing.User)
+		// Kept only when the documents now appear exactly once: a template
+		// that prints {{.Rules}} behind {{if .Instructions}} would otherwise
+		// print them through both slots, and the appended block below is the
+		// better place for them.
+		if again, ok := render(retry); ok && strings.Count(again, standing.Docs) == 1 {
+			full = again
+		}
+	}
+	var missing []string
+	if standing.Docs != "" && !strings.Contains(full, standing.Docs) {
+		missing = append(missing, standing.Docs)
+	}
+	if standing.User != "" && !strings.Contains(full, standing.User) {
+		missing = append(missing, standing.User)
+	}
+	return joinNonEmptyPromptBlocks(full, instructionsBlock(strings.Join(missing, "\n\n")))
+}
+
+// instructionsBlock is body under the heading the built-in templates give the
+// instructions, or nothing for an empty body.
+func instructionsBlock(body string) string {
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+	return "## Project instructions\n\n" + body
 }
 
 // offersTool reports whether the turn's tool definitions include name.

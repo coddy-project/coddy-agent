@@ -286,14 +286,38 @@ func (m *Manager) searchWorkspace(st *State, cwd, q string, limit int, refresh b
 		}
 		return false
 	})
-	if len(all) > limit {
-		all = all[:limit]
+	// A query that is the start of a scheme name ("ag" on the way to
+	// "agent:") offers that scheme first. Without it a workspace with nothing
+	// matching "ag" answers with no candidates, and a picker that stops asking
+	// once a prefix matched nothing never reaches "@agent:" at all.
+	hints := m.schemePrefixHints(st, query)
+	res.Total += len(hints)
+	if len(all)+len(hints) > limit {
+		all = all[:max(0, limit-len(hints))]
 	}
-	res.Items = make([]MentionCandidate, 0, len(all))
+	res.Items = make([]MentionCandidate, 0, len(hints)+len(all))
+	res.Items = append(res.Items, hints...)
 	for _, s := range all {
 		res.Items = append(res.Items, s.c)
 	}
 	return res
+}
+
+// schemePrefixHints are the scheme rows whose name starts with query, the way
+// an empty query offers all of them.
+func (m *Manager) schemePrefixHints(st *State, query string) []MentionCandidate {
+	q := strings.ToLower(query)
+	var out []MentionCandidate
+	for _, sc := range mention.Schemes {
+		if !strings.HasPrefix(string(sc), q) {
+			continue
+		}
+		if sc == mention.SchemeSession && !m.sessionsMentionable(st) {
+			continue
+		}
+		out = append(out, MentionCandidate{Kind: MentionKindScheme, Insert: "@" + string(sc) + ":", Label: string(sc) + ":", Detail: schemeHint(sc), Continue: true})
+	}
+	return out
 }
 
 func entryCandidate(e mention.Entry, quoted bool) MentionCandidate {

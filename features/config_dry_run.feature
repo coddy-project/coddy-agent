@@ -33,11 +33,10 @@ Feature: A dry run checks that the configured world exists before anything start
     And the report points at the line of "name: hosted"
 
   Scenario: an MCP command that is not installed is reported
-    Given a config.yaml with an MCP server "tools" whose command is "definitely-not-installed-coddy-mcp"
+    Given a home mcp.json with an MCP server "tools" whose command is "definitely-not-installed-coddy-mcp"
     When I run coddy with --dry-run
     Then the command fails
-    And the report marks mcp_servers[tools] as an error mentioning "not found"
-    And the report points at the line of "command:"
+    And the report marks mcp.json[tools] as an error mentioning "not found"
 
   Scenario: a Telegram token is checked against the Bot API
     Given a config.yaml enabling the Telegram gateway with a token the Bot API accepts as "coddy_dry_run_bot"

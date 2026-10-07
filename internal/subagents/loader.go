@@ -54,6 +54,17 @@ func (l *Loader) Load(cwd, home string) []*Definition {
 		byName[d.Name] = d
 	}
 
+	// A folder named twice - a default spelled out again in subagents.dirs,
+	// the workspace being the home folder, a project folder linked to a user
+	// one - is read once, at its last place. Under deny the project folders
+	// are dropped first, so a project link to a user folder does not take the
+	// user copy away with it.
+	type dirRead struct {
+		path, key string
+		scope     Scope
+	}
+	var reads []dirRead
+	lastAt := map[string]int{}
 	for _, raw := range l.Dirs {
 		dir := expandDir(raw, cwd, home)
 		if dir == "" {
@@ -63,10 +74,21 @@ func (l *Loader) Load(cwd, home string) []*Definition {
 		if scope == ScopeProject && l.ProjectTrust == "deny" {
 			continue
 		}
-		if l.visit != nil {
-			l.visit(dir)
+		key := dir
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			key = real
 		}
-		for _, d := range loadDir(dir, scope, log) {
+		lastAt[key] = len(reads)
+		reads = append(reads, dirRead{path: dir, key: key, scope: scope})
+	}
+	for i, rd := range reads {
+		if lastAt[rd.key] != i {
+			continue
+		}
+		if l.visit != nil {
+			l.visit(rd.path)
+		}
+		for _, d := range loadDir(rd.path, rd.scope, log) {
 			byName[d.Name] = d
 		}
 	}
@@ -116,7 +138,16 @@ func lexicalPath(p string) string {
 	return filepath.Clean(p)
 }
 
-// expandDir resolves ${CODDY_HOME}, ${CWD} and a leading ~.
+// expandDir resolves ${CODDY_HOME}, ${HOME}, ${CWD}, a leading ~ and a
+// relative entry (a folder of the workspace, like ${CWD}/...). An entry of
+// the workspace with no workspace behind the call expands to "", so it reads
+// nothing rather than a folder at the root of the disk or of the process.
+// ExpandDir is a definition directory as the loader reads it: ${CODDY_HOME},
+// ${HOME}, ~, ${CWD} and a relative entry against the workspace cwd; "" for a
+// workspace entry without a workspace. The --dry-run probe stats the same
+// folder.
+func ExpandDir(path, cwd, home string) string { return expandDir(path, cwd, home) }
+
 func expandDir(path, cwd, home string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -125,13 +156,26 @@ func expandDir(path, cwd, home string) string {
 	if home != "" {
 		path = strings.ReplaceAll(path, "${CODDY_HOME}", home)
 	}
-	path = strings.ReplaceAll(path, "${CWD}", cwd)
-	if strings.HasPrefix(path, "~/") || path == "~" {
+	if strings.Contains(path, "${HOME}") {
 		if userHome, err := os.UserHomeDir(); err == nil {
-			path = filepath.Join(userHome, strings.TrimPrefix(strings.TrimPrefix(path, "~"), "/"))
+			path = strings.ReplaceAll(path, "${HOME}", userHome)
 		}
 	}
-	if !filepath.IsAbs(path) && cwd != "" {
+	if strings.Contains(path, "${CWD}") {
+		if cwd == "" {
+			return ""
+		}
+		path = strings.ReplaceAll(path, "${CWD}", cwd)
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
+		if userHome, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(userHome, strings.TrimPrefix(path, "~"))
+		}
+	}
+	if !filepath.IsAbs(path) {
+		if cwd == "" || strings.Contains(path, "${") {
+			return ""
+		}
 		path = filepath.Join(cwd, path)
 	}
 	return filepath.Clean(path)

@@ -46,5 +46,8 @@ export function insertNewline(
   start: number,
   end: number,
 ): { text: string; caret: number } {
-  return { text: value.slice(0, start) + "\n" + value.slice(end), caret: start + 1 };
+  return {
+    text: value.slice(0, start) + "\n" + value.slice(end),
+    caret: start + 1,
+  };
 }

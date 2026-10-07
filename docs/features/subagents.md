@@ -18,13 +18,15 @@ Operator hooks (`docs/features/hooks.md`) follow the agent into its children. `S
 
 ### Directories and precedence
 
-Definitions are searched in the directories of `subagents.dirs`, lowest priority first; a later directory replaces an earlier one **by name**. The default list:
+Definitions are searched in four default directories, always read, lowest priority first, and then in the extra directories of `subagents.dirs`; a later directory replaces an earlier one **by name**:
 
-1. `${CODDY_HOME}/agents` - user scope, the operator's own files;
-2. `${CWD}/.claude/agents` - project scope, read for compatibility (same frontmatter shape, Claude Code's files load unchanged);
-3. `${CWD}/.coddy/agents` - project scope.
+1. `${HOME}/.agents/agents` - user scope, the folder other agents share in the user's home;
+2. `${CWD}/.agents/agents` - project scope, the shared folder of the workspace;
+3. `${CODDY_HOME}/agents` - user scope, the operator's own Coddy files;
+4. `${CWD}/.coddy/agents` - project scope, the workspace's Coddy files;
+5. every entry of `subagents.dirs`, in order, after the defaults and winning a name over them (empty by default).
 
-`${CODDY_HOME}`, `${CWD}` and a leading `~` expand; a relative entry is resolved against the session cwd. Three built-ins sit below every directory, so a user file with the same name replaces a built-in.
+The chain is the same as the skills' ([Skills](skills.md#directory-layout)): Claude Code's `.claude/agents` is not read unless `subagents.dirs` names it (`"${CWD}/.claude/agents"`; its frontmatter loads unchanged). A directory named twice is read once, at its last place. `${HOME}`, `${CODDY_HOME}`, `${CWD}` and a leading `~` expand; a relative entry is resolved against the session cwd. Three built-ins sit below every directory, so a user file with the same name replaces a built-in.
 
 Scope is decided on **canonical paths**: the expanded directory and the session cwd both go through the same normalisation the MCP trust store uses (absolute, symlinks resolved, cleaned). A directory at or under the canonical cwd is **project scope** and follows `subagents.project_trust` (below); everything else is **user scope**. A workspace reached through a symlink therefore still owns its `.coddy/agents`.
 
@@ -80,7 +82,7 @@ Three definitions ship embedded so delegation works before the operator writes a
 
 - **`general`** - a general-purpose worker with the **parent's tool set** (no `tools` restriction of its own), for multi-step tasks, research, or independent units of work that can run in parallel. Its role tells it to read before changing anything, keep edits minimal, verify when the task calls for it, never retry a permission the operator did not grant, and report what it did and what the parent must still decide.
 - **`explore`** - a read-only explorer for locating files, symbols and usages and gathering evidence before changes are proposed. Its tool list is exactly `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `load_skill`, `coddy_docs_search`, `coddy_docs_read`, `background_list`, `background_output`, `background_wait`: no `run_command`, no writes, no MCP tools. Plan mode alone would not be read-only (it still offers the shell), which is why the list is spelled out. Because nothing in that set is an MCP tool, an `explore` child never dials an MCP server.
-- **`crossreview`** - a `hidden` orchestrator that fans a code review out to external code-agent CLIs (`run_command` background tasks) and internal `explore` children, then merges the findings into one verdict. It is the reason `spawns` exists: its definition declares `spawns: [explore]`, so it keeps `spawn_agent` at the depth cap and delegates to exactly that one reviewer kind. A session reaches it through the bundled `/crossreview` skill, which handles detection, the agent and model questions and the reviewer roster.
+- **`crossreview`** - a `hidden` orchestrator that sends one review brief to external code-agent CLIs (`run_command` background tasks) and internal `explore` children, keeps them blind to each other, waits for every answer, verifies each finding against the code and decides alone what to fix, what is not worth fixing and what to reject; its report is the final word the parent relays. It is the reason `spawns` exists: its definition declares `spawns: [explore]`, so it keeps `spawn_agent` at the depth cap and delegates to exactly that one reviewer kind. A session reaches it through the bundled `/crossreview` skill, which handles detection, the agent and model questions, the reviewer roster and the brief.
 
 ## Scopes and project trust
 
@@ -112,13 +114,13 @@ Rewriting an approved file changes its digest and the receipt stops matching, so
 Approval surfaces:
 
 - **CLI**: `coddy agents list [--cwd DIR]` prints the workspace, the effective policy and the catalog with scope, trust state and flags, followed by a hint when project definitions await approval; `coddy agents trust <name> [--cwd DIR]` prints the effective declaration first (file, model, mode, permission mode, tool lists, digest, receipt path) and then records a receipt for the file as it is on disk right now; `coddy agents untrust <name> [--cwd DIR]` withdraws it. A built-in or user-scope name needs no approval and the command says so. `--cwd` defaults to the process working directory, resolved like `coddy mcp`.
-- **HTTP** (`coddy serve`): `GET /coddy/subagents?cwd=<dir>` returns the catalog; `POST /coddy/subagents/{name}/trust` and `POST /coddy/subagents/{name}/untrust` with body `{"cwd": "<dir>"}` write and remove receipts. `cwd` must be absolute and defaults to the server's own working directory. Catalog rows carry `scope`, `trust` (`trusted` / `needs_approval`), the booleans `trusted` and `needs_approval`, `digest`, `path`, `builtin`, `hidden`, and the bounds the definition declares (`tools`, `disallowed_tools`, `permission_mode`, `timeout_seconds`, `max_turns`, `background`, `spawns`, and `role_bytes`, the size of its role body) so a client can show what a definition declares. A bound the file does not declare is absent, which means it inherits; the role body itself is never served. Errors are `{"error":{"message"}}` JSON. Details in `docs/reference/http-api.md`.
-- **Settings → Subagents** in the web UI lists definitions and records no approvals. The tab opens with the `subagents.enable` switch, then **Definition directories** and the rest of the `subagents` config form in its own **Subagent settings** block, and below them the catalog of the workspace of the session on screen (`spawn_agent` resolves definitions against the session's own cwd, so that is the workspace listed). Each definition shows its name, a scope badge, its description as plain text and its file; the chevron in front of the name folds open what the definition declares: the model, mode, permission mode, tool lists, timeout, turn cap, whether it always runs detached and the size of its instructions (a bound the file leaves out reads as inherited). A project definition still awaiting a receipt carries an amber **needs approval** badge whose tooltip names `coddy agents trust <name>`.
+- **HTTP** (`coddy serve`): `GET /coddy/subagents?cwd=<dir>` returns the catalog; `POST /coddy/subagents/{name}/trust` and `POST /coddy/subagents/{name}/untrust` with body `{"cwd": "<dir>"}` write and remove receipts. `cwd` must be absolute and defaults to the server's own working directory; a trust body may add the `digest` the catalog showed, and a file rewritten since is refused with 409 rather than approved unseen. Catalog rows carry `scope`, `trust` (`trusted` / `needs_approval`), the booleans `trusted` and `needs_approval`, `digest`, `path`, `builtin`, `hidden`, and the bounds the definition declares (`tools`, `disallowed_tools`, `permission_mode`, `timeout_seconds`, `max_turns`, `background`, `spawns`, and `role_bytes`, the size of its role body) so a client can show what a definition declares. A bound the file does not declare is absent, which means it inherits; the role body itself is never served. Errors are `{"error":{"message"}}` JSON. Details in `docs/reference/http-api.md`.
+- **Settings → Subagents** in the web UI lists definitions and approves them. The tab opens with the `subagents.enable` switch, then **Definition directories** and the rest of the `subagents` config form in its own **Subagent settings** block, and below them the catalog of the workspace of the session on screen (`spawn_agent` resolves definitions against the session's own cwd, so that is the workspace listed). Each definition shows its name, a scope badge, its description as plain text and its file; the chevron in front of the name folds open what the definition declares: the model, mode, permission mode, tool lists, timeout, turn cap, whether it always runs detached and the size of its instructions (a bound the file leaves out reads as inherited). Under `ask` a project definition carries the shield of the MCP tab: clicking it records the receipt for the file the row showed (its digest goes with the request, so a file rewritten in between is refused), and clicking it again withdraws the receipt. One still awaiting a receipt also carries an amber **needs approval** badge whose tooltip names the shield and `coddy agents trust <name>`.
 - **Policy**: a checkout you already trust can run its definitions without receipts by setting `subagents.project_trust: allow`, in `config.yaml`, under **Settings → Subagents** in the web UI (the `subagents` config section: policy and pool bounds), or through the bundled `configure-coddy` skill, which documents the key so the agent can stage `set subagents.project_trust=allow` and commit it through the ordinary permission-gated config commit. The policy applies when the form is saved.
 
-![Settings, Subagents tab: the definitions of the session workspace, one awaiting approval](../assets/subagents/settings-subagents-catalog-dark-1280.png)
+![Settings, Subagents tab: the definitions of the session workspace, one awaiting approval with its shield](../assets/subagents/settings-subagents-catalog-dark-1280.png)
 
-*Settings, Subagents tab: the definitions of the session workspace, one awaiting approval*
+*Settings, Subagents tab: the definitions of the session workspace, one awaiting approval, with the shield that approves it*
 
 ## The `spawn_agent` tool
 
@@ -309,7 +311,7 @@ The runtime starts one child of its own: with `memory.enable` on, every user tur
 
 Subagents live where the session manager lives. With the console or `coddy acp` in `--remote` mode (`docs/surfaces/console.md`, Remote mode) the manager, the child sessions, the pool tasks and the trust receipts are all on the `coddy serve` host:
 
-- definitions are read from the **server's** `subagents.dirs` (`${CODDY_HOME}/agents` of the server home and the `.claude/agents` / `.coddy/agents` of the session's cwd on the server);
+- definitions are read from the **server's** folders (the server user's `~/.agents/agents`, `${CODDY_HOME}/agents` of the server home, the `.agents/agents` and `.coddy/agents` of the session's cwd on the server, then its `subagents.dirs`);
 - a project definition is approved **on the server**: `coddy agents trust <name> --cwd <workspace>` on that host, or `POST /coddy/subagents/{name}/trust` with the bearer token. The local `coddy agents` subcommands read and write the local home only and know nothing about `--remote`;
 - a child's permission prompts travel the same way as the parent's: the relay forwards them under the parent session, the HTTP bridge emits the `permission` SSE event (even when the server itself runs with `tools.permission_mode: bypass`, because the child's own mode is what decides), the remote console or ACP client shows the prompt with the `[subagent <name>]` prefix and answers it over `POST /coddy/sessions/{parent}/permission`;
 - a **detached** child that asks after its spawning turn ended reaches the remote console too: the server announces the prompt on `GET /coddy/events`, and the console opens the modal for the sessions it opened and answers with `POST /coddy/sessions/{child}/permission`. The same prompt waits in the parent chat of the SPA served by that host, and in the Telegram chat when the session is one; the first answer wins. The remote ACP client does not show it, and until somebody answers the run waits up to its hard timeout;
@@ -335,10 +337,7 @@ All knobs are ordinary `config.yaml` keys under `subagents:`; the field table is
 ```yaml
 subagents:
   enable: true
-  dirs:
-    - "${CODDY_HOME}/agents"
-    - "${CWD}/.claude/agents"
-    - "${CWD}/.coddy/agents"
+  dirs: []                    # extra folders after the four defaults, e.g. "${CWD}/.claude/agents"
   project_trust: ask          # ask | allow | deny
   max_concurrent: 4           # child runs in flight across the whole process
   max_depth: 1                # 1: children cannot spawn; 0: nobody spawns

@@ -138,3 +138,66 @@ func TestSim_FaultRoutes(t *testing.T) {
 		t.Fatalf("empty body: %d", status)
 	}
 }
+
+func TestSim_WebAppLaunchAndMenuButtonState(t *testing.T) {
+	s := newStand(t, Options{})
+	s.callToken("123456:SIM", "getMe", nil)
+	status, body := s.sim("POST", "/sim/webapp/launch", map[string]any{"chat_id": 4242})
+	if status != http.StatusBadRequest || body["error"] == nil {
+		t.Fatalf("nothing to open: %d %v", status, body)
+	}
+	s.callToken("123456:SIM", "setChatMenuButton", url.Values{"menu_button": {`{"type":"web_app","text":"Coddy","web_app":{"url":"https://coddy.example.com/"}}`}})
+	_, state := s.sim("GET", "/sim/state", nil)
+	menu, _ := state["menu_button"].(map[string]any)
+	if menu["type"] != "web_app" {
+		t.Fatalf("/sim/state menu_button: %v", state["menu_button"])
+	}
+	_, chat := s.sim("GET", "/sim/chat/4242", nil)
+	if m, _ := chat["menu_button"].(map[string]any); m["type"] != "web_app" {
+		t.Fatalf("/sim/chat menu_button: %v", chat["menu_button"])
+	}
+	status, body = s.sim("POST", "/sim/webapp/launch", map[string]any{
+		"chat_id": 4242, "user_id": 77, "username": "bob", "first_name": "Bob", "color_scheme": "dark",
+	})
+	if status != http.StatusOK {
+		t.Fatalf("launch: %d %v", status, body)
+	}
+	launchURL, _ := body["url"].(string)
+	initData, _ := body["init_data"].(string)
+	if !strings.HasPrefix(launchURL, "https://coddy.example.com/#tgWebAppData=") || initData == "" {
+		t.Fatalf("launch answer: %v", body)
+	}
+	vals := checkInitData(t, "123456:SIM", initData)
+	if !strings.Contains(vals.Get("user"), `"id":77`) || !strings.Contains(vals.Get("user"), `"first_name":"Bob"`) {
+		t.Fatalf("init data user: %q", vals.Get("user"))
+	}
+	// A reset forgets the menu buttons with the rest of what the bot set.
+	s.sim("POST", "/sim/reset", nil)
+	_, state = s.sim("GET", "/sim/state", nil)
+	if menu, _ := state["menu_button"].(map[string]any); menu["type"] != "commands" {
+		t.Fatalf("menu button after a reset: %v", state["menu_button"])
+	}
+}
+
+func TestPage_OpensMiniApps(t *testing.T) {
+	s := newStand(t, Options{})
+	resp, err := http.Get(s.srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	page := string(raw)
+	// The phone frame, its controls and its side of the Mini App protocol.
+	for _, want := range []string{
+		`id="miniapp"`, `id="miniappFrame"`, `id="miniappBack"`, `id="miniappLog"`,
+		`/sim/webapp/launch`, `web_app_ready`, `web_app_expand`, `web_app_request_viewport`,
+		`viewport_changed`, `safe_area_changed`, `content_safe_area_changed`, `theme_changed`,
+		`web_app_setup_back_button`, `back_button_pressed`, `web_app_set_header_color`,
+		`web_app_setup_swipe_behavior`, `web_app_close`, `__tgfakeMiniApp`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("the chat page lacks %q", want)
+		}
+	}
+}

@@ -44,6 +44,10 @@ type Sender struct {
 	// (a sender built outside a bot) refuses such a request instead.
 	asks *chatPermissions
 
+	// refuseApprovals is set for the turn of somebody who is not the bot's
+	// admin: every permission request is refused, the agent's own included.
+	refuseApprovals bool
+
 	// pictures is the chat's session, whose saved copies of the pictures its
 	// agent was shown are sent into the chat (pictures.go); nil sends none.
 	pictures pictureSession
@@ -260,6 +264,9 @@ func (s *Sender) streamDraft(llmText, toolName string) {
 // behalf but asked about in the chat, with buttons, and the tap decides
 // (permission.go). A sender with nowhere to ask refuses it instead.
 func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	if s.refuseApprovals {
+		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+	}
 	stamped := strings.TrimSpace(params.EffectivePermissionMode)
 	if stamped == "" || stamped == "bypass" {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil

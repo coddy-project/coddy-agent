@@ -54,7 +54,7 @@ func TestMCPServerControlsOfferTrustOnlyWhereThereIsADecision(t *testing.T) {
 		{Name: "proj", Origin: mcp.OriginProject, Status: "connected", Enabled: true, Trusted: true}, // allow
 		{Name: "proj", Origin: mcp.OriginProject, Status: "denied", Enabled: true},                   // deny
 		{Name: "glob", Origin: mcp.OriginHome, Status: "connected", Enabled: true, Trusted: true},    // global
-		{Name: "yaml", Origin: mcp.OriginConfig, Status: "disabled", Enabled: false, Trusted: true},  // config.yaml
+		{Name: "off", Origin: mcp.OriginHome, Status: "disabled", Enabled: false, Trusted: true},     // switched off
 	} {
 		if _, ok := itemByValue(mcpServerItems(row), "trust"); ok {
 			t.Errorf("%s (%s, %s) offers a trust control", row.Name, row.Origin, row.Status)

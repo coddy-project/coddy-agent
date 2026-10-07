@@ -7,7 +7,8 @@ Feature: Resuming another session from a Telegram chat
   when more than one does. The choice rewrites the same mapping /clear writes,
   so it survives a restart of the gateway. The reply names what the resumed
   session runs on: its own model and reasoning level, never the ones last
-  picked on this bot (#362).
+  picked on this bot (#362). /resume reaches every session the server keeps,
+  the operator's own included, so it is the bot's admins' command.
 
   Background:
     Given a telegram gateway over a server keeping these sessions:
@@ -65,3 +66,10 @@ Feature: Resuming another session from a Telegram chat
     And the gateway is restarted over the same session store
     And the user sends "still here?"
     Then the agent was prompted in the session "sess_cccccccccccccccccccccccc"
+
+  Scenario: Somebody who is not an admin cannot resume a session
+    Given the user is not an admin of the bot
+    When the user sends "/resume release notes"
+    Then the chat received "Only the bot's admins can change settings in this chat."
+    And the user sends "what is left?"
+    And the agent was not prompted in the session "sess_cccccccccccccccccccccccc"

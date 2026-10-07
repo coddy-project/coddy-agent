@@ -12,17 +12,19 @@ package session
 import (
 	"context"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 )
 
-// StartGlobalMCPServers starts the enabled servers of the global
-// configuration (config.yaml and <home>/mcp.json) now, before any session
-// asks for them, and keeps them up for the life of the manager: a session
-// that opens finds them connected, and one that closes does not stop them.
-// The set follows the configuration from then on - every reload and every
-// switch - and CloseMCP ends it. A global server whose declaration names the
-// workspace (${CWD}) is not started here: it runs once per workspace, like a
-// project server, for as long as a session of that workspace holds it.
+// StartGlobalMCPServers starts the enabled servers of <home>/mcp.json now,
+// before any session asks for them, and keeps them up for the life of the
+// manager: a session that opens finds them connected, and one that closes
+// does not stop them. The set follows the file from then on - a switch, an
+// edit through a management surface, and an edit from anywhere else, which
+// a watcher of the file picks up (ReloadMCPDeclarations) - and CloseMCP ends
+// it. A global server whose declaration names the workspace (${CWD}) is not
+// started here: it runs once per workspace, like a project server, for as
+// long as a session of that workspace holds it.
 //
 // Long-running surfaces call it once they have built the manager (coddy
 // serve, the console, coddy acp). A manager that never does shares its
@@ -30,6 +32,31 @@ import (
 func (m *Manager) StartGlobalMCPServers() {
 	m.keepGlobalMCP.Store(true)
 	m.syncGlobalMCPServers()
+	m.watchMCPDeclarations()
+}
+
+// watchMCPDeclarations polls <home>/mcp.json until CloseMCP and reconciles
+// the sessions with it whenever it moves. Started once per manager.
+func (m *Manager) watchMCPDeclarations() {
+	m.mcpWatchMu.Lock()
+	defer m.mcpWatchMu.Unlock()
+	if m.mcpWatchStop != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.mcpWatchStop = cancel
+	watcher := &config.StampWatcher{
+		Path:    config.GlobalMCPJSONPath(m.activeCfg().Paths.Home),
+		Changed: func() { m.ReloadMCPDeclarations(ctx) },
+	}
+	go func() {
+		// The first poll is the baseline; what the file changed between the
+		// manager's start and that baseline is caught up with by comparing
+		// declarations, which costs one read when nothing moved.
+		watcher.Poll()
+		m.ReloadMCPDeclarations(ctx)
+		_ = watcher.Run(ctx)
+	}()
 }
 
 // syncGlobalMCPServers hands the pool the global servers it keeps: every
@@ -55,6 +82,11 @@ func (m *Manager) syncGlobalMCPServers() {
 // process on its way out: the sessions keep their leases, and the calls they
 // make through them fail from then on.
 func (m *Manager) CloseMCP() {
+	m.mcpWatchMu.Lock()
+	if m.mcpWatchStop != nil {
+		m.mcpWatchStop()
+	}
+	m.mcpWatchMu.Unlock()
 	m.mcpPool.Close()
 }
 

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -53,7 +54,7 @@ func (s *deliveryState) emptyHome() error {
 		return err
 	}
 	cfgPath := filepath.Join(s.home, "config.yaml")
-	s.cfgFile = []byte("skills:\n  sources: []\n")
+	s.cfgFile = []byte("skills:\n  auto_discovery: true\n")
 	if err := os.WriteFile(cfgPath, s.cfgFile, 0o644); err != nil {
 		return err
 	}
@@ -98,6 +99,36 @@ func (s *deliveryState) carriesReferences(name string) error {
 	return nil
 }
 
+// carriesScripts: a skill that ships a helper (crossreview's scripts/) has it
+// written next to its SKILL.md, executable where modes exist, because the
+// skill tells the model to run it from there.
+func (s *deliveryState) carriesScripts(name string) error {
+	dir := filepath.Join(s.managedDir(), name, "scripts")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("skill %q has no scripts on disk: %w", name, err)
+	}
+	runnable := 0
+	for _, e := range entries {
+		ext := filepath.Ext(e.Name())
+		if ext != ".py" && ext != ".sh" {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			return err
+		}
+		if runtime.GOOS != "windows" && info.Mode().Perm()&0o100 == 0 {
+			return fmt.Errorf("skill %q: %s is not executable (%v)", name, e.Name(), info.Mode())
+		}
+		runnable++
+	}
+	if runnable == 0 {
+		return fmt.Errorf("skill %q has no runnable script in %s", name, dir)
+	}
+	return nil
+}
+
 func (s *deliveryState) catalogueOffers(name string) error {
 	loader := skills.NewLoader(s.cfg.Skills.Dirs)
 	loaded, err := loader.LoadAll(s.root, s.home, s.managedDir())
@@ -120,12 +151,13 @@ func (s *deliveryState) catalogueDoesNotOffer(name string) error {
 }
 
 func (s *deliveryState) sourcesContain(source string) error {
-	for _, got := range skills.ListSources(s.cfg) {
+	sources := skills.ListSources(s.cfg, "")
+	for _, got := range sources {
 		if strings.EqualFold(got, source) {
 			return nil
 		}
 	}
-	return fmt.Errorf("sources %v do not name %q", s.cfg.Skills.Sources, source)
+	return fmt.Errorf("sources %v do not name %q", sources, source)
 }
 
 func (s *deliveryState) configUntouched() error {
@@ -173,7 +205,7 @@ func (s *deliveryState) deleteSkill(name string) error {
 }
 
 func (s *deliveryState) removeMarketplaceRefused(source string) error {
-	removed, err := skills.RemoveSource(s.cfg, source)
+	removed, err := skills.RemoveSource(s.cfg, "", source, "")
 	if err == nil {
 		return fmt.Errorf("removing %q was allowed (removed=%v)", source, removed)
 	}
@@ -199,6 +231,7 @@ func initializeDeliveryScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the home skills directory carries "([^"]*)"$`, s.carries)
 	sc.Step(`^the home skills directory does not carry "([^"]*)"$`, s.doesNotCarry)
 	sc.Step(`^the skill "([^"]*)" carries its references on disk$`, s.carriesReferences)
+	sc.Step(`^the skill "([^"]*)" carries its runnable scripts on disk$`, s.carriesScripts)
 	sc.Step(`^the skill catalogue offers "([^"]*)"$`, s.catalogueOffers)
 	sc.Step(`^the skill catalogue does not offer "([^"]*)"$`, s.catalogueDoesNotOffer)
 	sc.Step(`^the configured skill sources contain "([^"]*)"$`, s.sourcesContain)

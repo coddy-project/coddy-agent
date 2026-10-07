@@ -29,10 +29,11 @@ type Kind string
 
 // The surfaces `coddy serve` knows how to run.
 const (
-	KindHTTP      Kind = "httpserver"
-	KindGateway   Kind = "gateway"
-	KindSwarm     Kind = "swarm"
-	KindScheduler Kind = "scheduler"
+	KindHTTP          Kind = "httpserver"
+	KindGateway       Kind = "gateway" // the Telegram bot
+	KindGatewayPachca Kind = "gateway.pachca"
+	KindSwarm         Kind = "swarm"
+	KindScheduler     Kind = "scheduler"
 )
 
 // Subsystem describes one surface: whether the configuration asks for it,

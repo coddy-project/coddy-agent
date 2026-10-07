@@ -44,14 +44,16 @@ func (a *Agent) toolCallRules(mode string, tc llm.ToolCall, cwd string) string {
 		return ""
 	}
 	paths := toolfs.ToolCallPaths(tc.Name, tc.InputJSON, cwd)
-	if len(paths) == 0 || !a.rulesRendered(mode) {
+	if len(paths) == 0 {
 		return ""
 	}
-	matched := rules.MatchScoped(rs.GetRulesCatalog(), withoutDirectories(paths))
-	if a.agentsOnDemand() {
-		matched = append(matched, rules.AgentsForPaths(cwd, paths, nil)...)
+	var matched []*rules.Rule
+	if a.rulesRendered(mode) {
+		matched = rules.MatchScoped(rs.GetRulesCatalog(), withoutDirectories(paths))
 	}
+	matched = append(matched, a.nestedDocuments(cwd, paths)...)
 	matched = withoutTargets(matched, paths)
+	matched = withoutPromptDocuments(matched, a.documentKeys())
 	if len(matched) == 0 {
 		return ""
 	}
@@ -67,6 +69,36 @@ func (a *Agent) toolCallRules(mode string, tc llm.ToolCall, cwd string) string {
 		b.WriteString(resourceAttachmentXML(session.RuleAttachment(cwd, home, r)))
 	}
 	return b.String()
+}
+
+// nestedDocuments returns the nested AGENTS.md and DESIGN.md files on the
+// chain of folders down to paths, read on the spot: the third layer of the
+// documents a session always reads (issue #425). No rules setting and no
+// prompt template turns the chain off. A system child that runs on a template
+// of its own (the memory subagent) gets none: its task is not the
+// workspace's.
+func (a *Agent) nestedDocuments(cwd string, paths []string) []*rules.Rule {
+	if a.subagent != nil && strings.TrimSpace(a.subagent.PromptTemplate) != "" {
+		return nil
+	}
+	return rules.AgentsForPaths(cwd, paths, nil)
+}
+
+// withoutPromptDocuments drops the candidates whose file the system prompt
+// already carries (keys, by rules.DocKey): a file enters the prompt once per
+// rules generation, so a nested AGENTS.md that instructions.files names, or a
+// folder that is the agent home, is not attached a second time.
+func withoutPromptDocuments(rs []*rules.Rule, keys map[string]bool) []*rules.Rule {
+	if len(keys) == 0 {
+		return rs
+	}
+	out := rs[:0:0]
+	for _, r := range rs {
+		if r != nil && !keys[rules.DocKey(r.FilePath)] {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // withoutDirectories drops the paths that name an existing directory. A glob
@@ -152,8 +184,17 @@ func ruleAttachmentKey(res *acp.Resource) (path, body string) {
 
 // freshRules returns the candidates the model cannot read yet, each once: a
 // rule never attached in delivered, or attached with other text - its file
-// changed and was read again since. delivered is updated with what it returns.
+// changed and was read again since. A file is known by its real path
+// (rules.DocKey) as well as by the path its attachment names, so the same
+// document reached through a link is not attached twice. delivered is updated
+// with what it returns.
 func freshRules(delivered map[string]string, cwd, home string, candidates []*rules.Rule) []*rules.Rule {
+	byKey := make(map[string]string, len(delivered))
+	for path, body := range delivered {
+		if loc, ok := mention.Resolve(cwd, home, path); ok {
+			byKey[rules.DocKey(loc.Abs)] = body
+		}
+	}
 	var out []*rules.Rule
 	for _, r := range candidates {
 		if r == nil {
@@ -163,7 +204,14 @@ func freshRules(delivered map[string]string, cwd, home string, candidates []*rul
 		if sent, ok := delivered[path]; ok && sent == body {
 			continue
 		}
+		key := rules.DocKey(r.FilePath)
+		if sent, ok := byKey[key]; ok && key != "" && sent == body {
+			continue
+		}
 		delivered[path] = body
+		if key != "" {
+			byKey[key] = body
+		}
 		out = append(out, r)
 	}
 	return out
@@ -201,8 +249,10 @@ func joinToolRules(content, rulesText string) string {
 
 // rulesRendered reports whether the template this mode runs on prints
 // {{.Rules}}. A template under prompts.dir without it asked for no rules at
-// all, so none is attached to a tool result behind its back either; nor to the
-// results of a system child that carries a template of its own.
+// all, so no glob rule is attached to a tool result behind its back either;
+// nor to the results of a system child that carries a template of its own.
+// The AGENTS.md documents are not rules in this sense: they reach the prompt
+// whatever the template prints (renderWithDocuments, nestedDocuments).
 func (a *Agent) rulesRendered(mode string) bool {
 	if a.subagent != nil && strings.TrimSpace(a.subagent.PromptTemplate) != "" {
 		return false
@@ -220,14 +270,4 @@ func (a *Agent) rereadRules() {
 		return
 	}
 	st.ReplaceRulesCatalog(session.DiscoverRules(a.cfg, st.GetCWD()))
-}
-
-// agentsOnDemand reports whether nested AGENTS.md files are read for the
-// folders a tool enters: rules discovery is on and rules.systems does not
-// exclude the agents system.
-func (a *Agent) agentsOnDemand() bool {
-	if a == nil || a.cfg == nil || !a.cfg.Rules.AutoDiscoverEnabled() {
-		return false
-	}
-	return rules.AgentsOnDemand(rules.ParseSystems(a.cfg.Rules.Systems))
 }

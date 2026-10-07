@@ -2,6 +2,8 @@ export type SpawnAgentDetails = {
   agent: string;
   prompt: string;
   description: string;
+  model?: string;
+  reasoning?: string;
   timeoutSeconds?: number;
 };
 
@@ -22,6 +24,12 @@ export function parseSpawnAgentArgs(raw?: string): SpawnAgentDetails | null {
       prompt: value.prompt,
       description:
         typeof value.description === "string" ? value.description.trim() : "",
+      ...(typeof value.model === "string" && value.model.trim()
+        ? { model: value.model.trim() }
+        : {}),
+      ...(typeof value.reasoning === "string" && value.reasoning.trim()
+        ? { reasoning: value.reasoning.trim() }
+        : {}),
       ...(typeof value.timeout_seconds === "number" &&
       Number.isFinite(value.timeout_seconds) &&
       value.timeout_seconds > 0

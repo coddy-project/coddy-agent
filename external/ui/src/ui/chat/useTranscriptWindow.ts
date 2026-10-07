@@ -190,7 +190,9 @@ export function useTranscriptWindow(p: {
       active instanceof HTMLTextAreaElement ||
       active instanceof HTMLSelectElement ||
       (active instanceof HTMLInputElement &&
-        !["button", "checkbox", "radio", "submit", "reset"].includes(active.type));
+        !["button", "checkbox", "radio", "submit", "reset"].includes(
+          active.type,
+        ));
     if (!editable) return null;
     const row = (active as HTMLElement).closest?.("[data-row-id]");
     return row instanceof HTMLElement ? (row.dataset.rowId ?? null) : null;
@@ -217,7 +219,10 @@ export function useTranscriptWindow(p: {
     if (topS && topS.bottom > vTop - margin) {
       if (range.start > 0) {
         next = growRenderWindowUp(cur.items, range, cur.attached);
-        range = { start: Math.max(0, range.start - CHUNK_ROWS), end: range.end };
+        range = {
+          start: Math.max(0, range.start - CHUNK_ROWS),
+          end: range.end,
+        };
         above = true;
         grewUp = true;
       } else if (cur.p.hasOlder && !cur.p.olderLoading && !cur.p.olderFailed) {
@@ -312,7 +317,16 @@ export function useTranscriptWindow(p: {
       then();
     }
     schedule();
-  }, [enabled, range.start, range.end, attached, p.listRef, p.docScroll, p.scrollerRef, schedule]);
+  }, [
+    enabled,
+    range.start,
+    range.end,
+    attached,
+    p.listRef,
+    p.docScroll,
+    p.scrollerRef,
+    schedule,
+  ]);
 
   // Anything that can bring an edge into range asks for a look.
   useEffect(() => {
@@ -338,7 +352,15 @@ export function useTranscriptWindow(p: {
       window.removeEventListener("resize", onScroll);
       io.disconnect();
     };
-  }, [enabled, p.docScroll, p.scrollerRef, schedule, range.start > 0 || p.hasOlder, range.end < items.length, attached]);
+  }, [
+    enabled,
+    p.docScroll,
+    p.scrollerRef,
+    schedule,
+    range.start > 0 || p.hasOlder,
+    range.end < items.length,
+    attached,
+  ]);
 
   const showEarlier = useCallback(() => {
     const cur = latest.current;

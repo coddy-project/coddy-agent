@@ -769,6 +769,52 @@ func (s *wsFeatureState) sessionMCPClientsAre(list string) error {
 	return nil
 }
 
+func (s *wsFeatureState) removeSessionWorktree() error {
+	st := s.mgr.SessionByID(s.sessionID)
+	if st == nil {
+		return fmt.Errorf("session %q not registered", s.sessionID)
+	}
+	path := st.GetCWD()
+	repo := gitws.MainCheckoutRoot(path)
+	if repo == "" {
+		return fmt.Errorf("session workspace %q has no main checkout", path)
+	}
+	if err := bddGit(repo, "worktree", "remove", "--force", path); err != nil {
+		return err
+	}
+	s.mgr.ForgetLiveSession(s.sessionID)
+	return nil
+}
+
+func (s *wsFeatureState) reopenSessionTranscript() error {
+	req, err := http.NewRequest(http.MethodGet,
+		s.ts.URL+"/coddy/sessions/"+url.PathEscape(s.sessionID)+"/messages", nil)
+	if err != nil {
+		return err
+	}
+	return s.do(req)
+}
+
+func (s *wsFeatureState) persistedCwdRemainsRemovedWorktree() error {
+	raw, err := os.ReadFile(filepath.Join(s.sessRoot, s.sessionID, "session.json"))
+	if err != nil {
+		return err
+	}
+	var meta struct {
+		CWD string `json:"cwd"`
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return err
+	}
+	if meta.CWD == "" {
+		return fmt.Errorf("persisted cwd is empty")
+	}
+	if _, err := os.Stat(meta.CWD); !os.IsNotExist(err) {
+		return fmt.Errorf("persisted cwd %q was rewritten or still exists: %v", meta.CWD, err)
+	}
+	return nil
+}
+
 func (s *wsFeatureState) requestFailsWithStatus(code int) error {
 	if s.status != code {
 		return fmt.Errorf("status = %d, want %d (body: %v)", s.status, code, s.body)
@@ -843,7 +889,10 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^MCP project trust is "([^"]+)"$`, s.mcpProjectTrustIs)
 	sc.Step(`^folder "([^"]+)" declares the project MCP server "([^"]+)"$`, s.folderDeclaresMCPServer)
 	sc.Step(`^repository "([^"]+)" branch "([^"]+)" declares the project MCP server "([^"]+)"$`, s.branchDeclaresMCPServer)
-	sc.Step(`^the session's configured MCP clients are "([^"]+)"$`, s.sessionMCPClientsAre)
+	sc.Step(`^the session's configured MCP clients are "([^"]*)"$`, s.sessionMCPClientsAre)
+	sc.Step(`^Git removes the session worktree$`, s.removeSessionWorktree)
+	sc.Step(`^I reopen the session transcript$`, s.reopenSessionTranscript)
+	sc.Step(`^the persisted session cwd remains the removed worktree$`, s.persistedCwdRemainsRemovedWorktree)
 	sc.Step(`^the workspace request fails with status (\d+)$`, s.requestFailsWithStatus)
 	sc.Step(`^no session was created$`, s.noSessionWasCreated)
 	sc.Step(`^the folder listing contains "([^"]+)"$`, s.folderListingContains)

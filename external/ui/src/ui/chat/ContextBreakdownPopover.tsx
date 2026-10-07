@@ -251,40 +251,49 @@ export function ContextBreakdownPopover(props: {
 
   const body = (
     <>
-      <div className="context-breakdown-head">
+      <div
+        className="sessions-head context-breakdown-head"
+        data-testid="context-breakdown-head"
+      >
         <span className="context-breakdown-title">
           {t("chat.contextTitle")}
         </span>
-        <div className="context-breakdown-actions">
-          {props.sessionId && props.compactAvailable === true ? (
-            <button
-              type="button"
-              className="context-breakdown-compact"
-              onClick={() => void compactNow()}
-              disabled={compacting}
-              data-testid="context-breakdown-compact"
-            >
-              {compacting
-                ? t("chat.contextCompacting")
-                : props.compactAutoEnabled === false
-                  ? t("chat.contextCompactNow")
-                  : t("chat.contextCompactAt", {
-                      percent: String(props.compactThreshold || 80),
-                    })}
-            </button>
-          ) : null}
-          {!useSheet ? (
-            <button
-              type="button"
-              className="context-breakdown-close"
-              aria-label={t("chat.contextClose")}
-              data-testid="context-breakdown-close"
-              onClick={() => props.onClose()}
-            >
-              ×
-            </button>
-          ) : null}
-        </div>
+        <button
+          type="button"
+          className="sessions-close context-breakdown-close"
+          aria-label={t("chat.contextClose")}
+          data-testid="context-breakdown-close"
+          onClick={() => props.onClose()}
+        >
+          ×
+        </button>
+      </div>
+      <div
+        className="context-breakdown-usage-row"
+        data-testid="context-breakdown-usage-row"
+      >
+        <span className="context-breakdown-used">
+          {t("chat.contextPercentUsed", {
+            percent: idle ? "0.0" : fillPct.toFixed(1),
+          })}
+        </span>
+        <button
+          type="button"
+          className="context-breakdown-compact"
+          onClick={() => void compactNow()}
+          disabled={
+            compacting || !props.sessionId || props.compactAvailable !== true
+          }
+          data-testid="context-breakdown-compact"
+        >
+          {compacting
+            ? t("chat.contextCompacting")
+            : props.compactAutoEnabled === false
+              ? t("chat.contextCompactNow")
+              : t("chat.contextCompactAt", {
+                  percent: String(props.compactThreshold || 80),
+                })}
+        </button>
       </div>
       {compactState === "error" ? (
         <p role="alert" className="context-breakdown-error">
@@ -297,12 +306,6 @@ export function ContextBreakdownPopover(props: {
         </p>
       ) : null}
       <div className="context-breakdown-summary">
-        <span>
-          {t("chat.contextPercentUsed", {
-            percent: idle ? "0.0" : fillPct.toFixed(1),
-          })}
-        </span>
-        <span className="context-breakdown-summary-sep">·</span>
         <span>
           {t("chat.contextTokensSummary", {
             used: fmtInt(used),
@@ -361,13 +364,18 @@ export function ContextBreakdownPopover(props: {
     </>
   );
 
+  // Over the docked composer the sheet is placed from the composer's card; on
+  // the start screen its class puts it at the bottom, which is what a Mini App
+  // lifts (ui/telegram/telegram.css), the way the slash and @ picker does.
   const menuStyle: CSSProperties | undefined = useSheet
-    ? {
-        bottom: sheetBottom,
-        ...(props.composerDocked && sheetBottom > 0
-          ? { ["--context-sheet-bottom" as string]: `${sheetBottom}px` }
-          : {}),
-      }
+    ? props.composerDocked
+      ? {
+          bottom: sheetBottom,
+          ...(sheetBottom > 0
+            ? { ["--context-sheet-bottom" as string]: `${sheetBottom}px` }
+            : {}),
+        }
+      : undefined
     : floatRect
       ? {
           left: floatRect.left,

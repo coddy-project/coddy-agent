@@ -16,6 +16,10 @@ import {
   type SessionGroupMode,
 } from "./sessionGroups";
 import {
+  readCollapsedSessionGroups,
+  writeCollapsedSessionGroups,
+} from "./collapsedSessionGroups";
+import {
   SessionsFilterMenu,
   type SessionsEnvironmentOption,
 } from "./SessionsFilterMenu";
@@ -26,12 +30,18 @@ import { SessionTagEditor } from "./SessionTagEditor";
 import { Chevron } from "../components/Chevron";
 import { tagVocabulary } from "./tagEditing";
 import {
-  sessionRowShowsPermissionPending,
-  sessionRowShowsQuestionPending,
+  sessionRowAttentionMarker,
   sessionRowShowsActivity,
+  sessionRowShowsErrorSeen,
+  sessionRowShowsErrorUnseen,
   sessionRowShowsUnreadDot,
 } from "./sessionRowActivity";
 import type { SessionRow } from "./types";
+
+/** How far a mouse press travels before it is a drag of a pinned row, not a click. */
+const PIN_DRAG_SLOP_PX = 4;
+/** How long a finger holds a pinned row before it drags it rather than scrolls. */
+const PIN_HOLD_MS = 400;
 
 function pickFromSessionRowClick(
   ev: MouseEvent<HTMLDivElement>,
@@ -65,41 +75,6 @@ function IconFilters() {
       <path d="M12 17h8" />
       <circle cx="16" cy="7" r="2" />
       <circle cx="10" cy="17" r="2" />
-    </svg>
-  );
-}
-
-/** The handle a pinned row is dragged by. */
-function IconGrip() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden
-    >
-      <circle cx="9" cy="6" r="1.6" />
-      <circle cx="15" cy="6" r="1.6" />
-      <circle cx="9" cy="12" r="1.6" />
-      <circle cx="15" cy="12" r="1.6" />
-      <circle cx="9" cy="18" r="1.6" />
-      <circle cx="15" cy="18" r="1.6" />
-    </svg>
-  );
-}
-
-/** A pin, for the row held at the top of the list. */
-function IconPin() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden
-    >
-      <path d="M14 2l8 8-3 1-1.5 1.5 1 6.5-3-3-5 5 1-6-4.5-1.5L9 10l1-3z" />
     </svg>
   );
 }
@@ -237,6 +212,9 @@ export function SessionsSidebar(props: {
   // A pin being dragged, and where it would land. The pointer is tracked rather
   // than HTML5 drag-and-drop, which a finger cannot start.
   const [drag, setDrag] = useState<{ id: string; over: number } | null>(null);
+  // Set when a drag ends: the release is also a click on the row, and that click
+  // must not open the conversation that was only being moved.
+  const draggedRef = useRef(false);
   const pinnedListRef = useRef<HTMLDivElement>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   // The menu is portaled out of the drawer (which clips what overflows it), so
@@ -247,8 +225,10 @@ export function SessionsSidebar(props: {
   const sortKey: SessionSortKey = props.sortKey ?? "updated";
 
   // Collapsed headings are keyed by group, so a group that comes and goes with
-  // a search keeps the state the operator gave it while it is on screen.
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  // a search, drawer close, or route change keeps the state the operator gave it.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+    readCollapsedSessionGroups,
+  );
 
   const groups = useMemo(
     () => groupSessions(props.sessions, groupMode, props.now),
@@ -295,49 +275,117 @@ export function SessionsSidebar(props: {
   const pinnedIds = props.sessions.filter((s) => s.pinned).map((s) => s.id);
 
   /**
-   * Drags one pin through the list with the pointer, so a finger can do it too:
-   * HTML5 drag-and-drop never starts from touch. The row follows nothing - the
-   * list shows where the drop would land instead, which survives a scroll and
-   * costs no layer.
+   * Drags one pin through the list by the row itself, so a finger can do it too:
+   * HTML5 drag-and-drop never starts from touch. A mouse or a pen starts the drag
+   * once the press has travelled past the slop, so a plain click still opens the
+   * row; a finger has to hold the row first, so a swipe still scrolls the list.
+   * The row follows nothing - the list shows where the drop would land instead,
+   * which survives a scroll and costs no layer.
    */
   const startPinDrag = (id: string) => (ev: ReactPointerEvent) => {
-    if (!onReorderPins || ev.button !== 0) {
+    draggedRef.current = false;
+    if (!onReorderPins || ev.button !== 0 || renamingRef.current) {
       return;
     }
-    ev.preventDefault();
-    ev.stopPropagation();
+    if ((ev.target as Element).closest("button, input")) {
+      return;
+    }
     const from = pinnedIds.indexOf(id);
     if (from < 0) {
       return;
     }
-    const handle = ev.currentTarget as HTMLElement;
-    handle.setPointerCapture(ev.pointerId);
-    setDrag({ id, over: from });
+    const row = ev.currentTarget as HTMLElement;
+    const { pointerId, clientX: x0, clientY: y0 } = ev;
+    const touch = ev.pointerType === "touch";
+    let dragging = false;
 
     const rowsOf = () =>
       [...(pinnedListRef.current?.querySelectorAll(".session-item") ?? [])].map(
         (el) => el.getBoundingClientRect(),
       );
 
+    const begin = () => {
+      dragging = true;
+      try {
+        row.setPointerCapture(pointerId);
+      } catch {
+        // The pointer is already gone; the release below still ends the drag.
+      }
+      setDrag({ id, over: from });
+    };
+    const holdTimer = touch ? window.setTimeout(begin, PIN_HOLD_MS) : 0;
+
     const onMove = (move: PointerEvent) => {
+      if (move.pointerId !== pointerId) {
+        return;
+      }
+      if (!dragging) {
+        const travelled = Math.hypot(move.clientX - x0, move.clientY - y0);
+        if (travelled <= PIN_DRAG_SLOP_PX) {
+          return;
+        }
+        if (touch) {
+          // Moved before the hold: the finger is scrolling, not dragging.
+          finish(false);
+          return;
+        }
+        begin();
+      }
       setDrag((prev) =>
         prev ? { ...prev, over: pinDropIndex(rowsOf(), move.clientY) } : prev,
       );
     };
-    const onUp = () => {
-      handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", onUp);
-      handle.removeEventListener("pointercancel", onUp);
+    // Once the hold has taken the row, the finger must not also pan the list.
+    const holdScroll = (touchEv: TouchEvent) => {
+      if (dragging) {
+        touchEv.preventDefault();
+      }
+    };
+    // A held row is not a link to open in a new tab.
+    const holdMenu = (menuEv: Event) => {
+      if (dragging) {
+        menuEv.preventDefault();
+      }
+    };
+    const onUp = (up: PointerEvent) => {
+      if (up.pointerId === pointerId) {
+        finish(up.type === "pointerup");
+      }
+    };
+    function finish(commit: boolean) {
+      window.clearTimeout(holdTimer);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      document.removeEventListener("touchmove", holdScroll);
+      document.removeEventListener("contextmenu", holdMenu);
+      if (!dragging) {
+        return;
+      }
+      draggedRef.current = true;
       setDrag((prev) => {
-        if (prev && prev.over !== from) {
-          onReorderPins(reorderPins(pinnedIds, from, prev.over));
+        if (commit && prev && prev.over !== from) {
+          onReorderPins?.(reorderPins(pinnedIds, from, prev.over));
         }
         return null;
       });
-    };
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onUp);
-    handle.addEventListener("pointercancel", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    document.addEventListener("touchmove", holdScroll, { passive: false });
+    document.addEventListener("contextmenu", holdMenu);
+  };
+
+  /** Swallows the click a drag ends with, which would open the moved row. */
+  const swallowDragClick = (ev: MouseEvent) => {
+    if (!draggedRef.current) {
+      return false;
+    }
+    draggedRef.current = false;
+    ev.preventDefault();
+    ev.stopPropagation();
+    return true;
   };
 
   /** Opens, moves and closes the inline rename, ref and state together. */
@@ -378,18 +426,16 @@ export function SessionsSidebar(props: {
     const activityLabel = t(
       s.turnActive ? "sessions.turnRunning" : "sessions.backgroundRunning",
     );
-    const showsPermission = sessionRowShowsPermissionPending(
+    const attention = sessionRowAttentionMarker(
       s,
       permissionPending,
+      questionPending,
     );
-    const showsQuestion = sessionRowShowsQuestionPending(s, questionPending);
+    const showsPermission = attention === "permission";
+    const showsQuestion = attention === "question";
     const showsUnread = sessionRowShowsUnreadDot(s, props.sessionId);
-    const hasMarks =
-      showsActivity ||
-      showsPermission ||
-      showsQuestion ||
-      !!s.archived ||
-      showsUnread;
+    const showsErrorUnseen = sessionRowShowsErrorUnseen(s, props.sessionId);
+    const showsErrorSeen = sessionRowShowsErrorSeen(s, props.sessionId);
     return (
       <div
         key={s.id}
@@ -398,6 +444,7 @@ export function SessionsSidebar(props: {
           s.id === props.sessionId ? "active" : "",
           s.archived ? "is-archived" : "",
           props.rowErrors?.[s.id] ? "has-row-error" : "",
+          pinnedIndex >= 0 && onReorderPins ? "is-reorderable" : "",
           drag?.id === s.id ? "is-dragging" : "",
           drag && pinnedIndex >= 0 && drag.over === pinnedIndex
             ? "is-drop-target"
@@ -406,29 +453,18 @@ export function SessionsSidebar(props: {
           .filter(Boolean)
           .join(" ")}
         data-testid={`session-row-${s.id}`}
-        onClick={(ev) =>
+        onPointerDown={
+          pinnedIndex >= 0 && onReorderPins ? startPinDrag(s.id) : undefined
+        }
+        onClick={(ev) => {
+          if (swallowDragClick(ev)) {
+            return;
+          }
           pickFromSessionRowClick(ev, () => {
             props.onPick(s.id);
-          })
-        }
+          });
+        }}
       >
-        {pinnedIndex >= 0 && onReorderPins ? (
-          <span
-            className="session-drag-grip"
-            role="button"
-            tabIndex={-1}
-            aria-label={t("sessions.dragPin")}
-            title={t("sessions.dragPin")}
-            data-testid={`session-drag-${s.id}`}
-            onPointerDown={startPinDrag(s.id)}
-            onClick={(ev) => {
-              ev.preventDefault();
-              ev.stopPropagation();
-            }}
-          >
-            <IconGrip />
-          </span>
-        ) : null}
         {renaming?.id === s.id ? (
           <input
             className="session-title-input"
@@ -466,7 +502,11 @@ export function SessionsSidebar(props: {
                 : appNavHrefSession(s.id)
             }
             className="session-row-link"
+            draggable={false}
             onClick={(ev) => {
+              if (swallowDragClick(ev)) {
+                return;
+              }
               ev.stopPropagation();
               sameTabInAppNavClick(ev, () => {
                 props.onPick(s.id);
@@ -474,57 +514,86 @@ export function SessionsSidebar(props: {
             }}
           >
             {/* The state marks take a column of their own, so the title and the
-            tags under it share one left edge: the tags label the words, not the
-            marks in front of them. A row with no mark renders no column. */}
-            {hasMarks ? (
-              <span className="session-row-marks">
-                {showsActivity ? (
+            tags under it share one left edge. A finished ring keeps grouped rows
+            from blending into their headings; pending prompts own the state slot. */}
+            <span className="session-row-marks">
+              {showsActivity ? (
+                <span
+                  className="session-activity-dot"
+                  role="img"
+                  aria-label={activityLabel}
+                  title={activityLabel}
+                  data-testid={`session-activity-${s.id}`}
+                />
+              ) : null}
+              {!showsActivity && !showsPermission && !showsQuestion ? (
+                showsErrorUnseen ? (
                   <span
-                    className="session-activity-dot"
-                    aria-label={activityLabel}
-                    title={activityLabel}
-                    data-testid={`session-activity-${s.id}`}
+                    className="session-error-dot"
+                    role="img"
+                    aria-label={t("sessions.stateError")}
+                    title={t("sessions.stateError")}
+                    data-testid={`session-error-${s.id}`}
                   />
-                ) : null}
-                {showsPermission ? (
+                ) : showsErrorSeen ? (
                   <span
-                    className="session-permission-icon"
-                    aria-label={t("sessions.permissionRequired")}
-                    data-testid={`session-permission-${s.id}`}
-                    title={t("sessions.permissionRequired")}
-                  >
-                    ?
-                  </span>
-                ) : null}
-                {showsQuestion ? (
-                  <span
-                    className="session-question-icon"
-                    aria-label={t("sessions.questionPending")}
-                    data-testid={`session-question-${s.id}`}
-                    title={t("sessions.questionPending")}
-                  >
-                    ?
-                  </span>
-                ) : null}
-                {s.archived ? (
-                  <span
-                    className="session-archived-mark"
-                    data-testid={`session-archived-${s.id}`}
-                    aria-label={t("sessions.archivedBadge")}
-                    title={t("sessions.archivedBadge")}
-                  >
-                    <IconArchiveRow />
-                  </span>
-                ) : null}
-                {showsUnread ? (
+                    className="session-error-dot is-seen"
+                    role="img"
+                    aria-label={t("sessions.stateError")}
+                    title={t("sessions.stateError")}
+                    data-testid={`session-error-${s.id}`}
+                  />
+                ) : showsUnread ? (
                   <span
                     className="session-unread-dot"
+                    role="img"
                     aria-label={t("sessions.unreadCompletion")}
                     data-testid={`session-unread-${s.id}`}
                   />
-                ) : null}
-              </span>
-            ) : null}
+                ) : (
+                  <span
+                    className="session-idle-dot"
+                    role="img"
+                    aria-label={t("sessions.stateFinished")}
+                    title={t("sessions.stateFinished")}
+                    data-testid={`session-idle-${s.id}`}
+                  />
+                )
+              ) : null}
+              {showsPermission ? (
+                <span
+                  className="session-permission-icon"
+                  role="img"
+                  aria-label={t("sessions.permissionRequired")}
+                  data-testid={`session-permission-${s.id}`}
+                  title={t("sessions.permissionRequired")}
+                >
+                  ?
+                </span>
+              ) : null}
+              {showsQuestion ? (
+                <span
+                  className="session-question-icon"
+                  role="img"
+                  aria-label={t("sessions.questionPending")}
+                  data-testid={`session-question-${s.id}`}
+                  title={t("sessions.questionPending")}
+                >
+                  ?
+                </span>
+              ) : null}
+              {s.archived ? (
+                <span
+                  className="session-archived-mark"
+                  role="img"
+                  data-testid={`session-archived-${s.id}`}
+                  aria-label={t("sessions.archivedBadge")}
+                  title={t("sessions.archivedBadge")}
+                >
+                  <IconArchiveRow />
+                </span>
+              ) : null}
+            </span>
             <div className="session-row-leading">
               <span
                 className="session-title"
@@ -532,16 +601,6 @@ export function SessionsSidebar(props: {
               >
                 {s.title || t("sessions.newChatFallback")}
               </span>
-              {s.pinned ? (
-                <span
-                  className="session-pin-mark"
-                  data-testid={`session-pinned-${s.id}`}
-                  aria-label={t("sessions.pinnedBadge")}
-                  title={t("sessions.pinnedBadge")}
-                >
-                  <IconPin />
-                </span>
-              ) : null}
             </div>
             {/* The tags sit under the title rather than beside it: the title is
             what the row is for, and a long one must not be pushed out of view
@@ -806,12 +865,16 @@ export function SessionsSidebar(props: {
                           } else {
                             next.add(group.key);
                           }
+                          writeCollapsedSessionGroups(next);
                           return next;
                         })
                       }
                     >
                       <span className="session-group-label">{label}</span>
-                      <Chevron open={!isCollapsed} className="session-group-caret" />
+                      <Chevron
+                        open={!isCollapsed}
+                        className="session-group-caret"
+                      />
                     </button>
                     {/* A folder heading is also where a conversation about that
                       folder starts: the plus opens a new chat already pointed

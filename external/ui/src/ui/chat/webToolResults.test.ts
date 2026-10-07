@@ -32,7 +32,12 @@ test("a search result becomes a list of links with their snippets", () => {
 test("an empty result says so instead of rendering an empty list", () => {
   expect(
     webSearchResultMarkdown(
-      JSON.stringify({ query: "x", page: 1, has_more_hint: "No results; try rephrasing the query.", results: [] }),
+      JSON.stringify({
+        query: "x",
+        page: 1,
+        has_more_hint: "No results; try rephrasing the query.",
+        results: [],
+      }),
     ),
   ).toBe("No results; try rephrasing the query\\.");
 });
@@ -53,7 +58,8 @@ test("a hit cannot inject markdown into the transcript", () => {
         {
           title: "A [bracketed] title\nand a second line",
           url: "https://coddy.dev/",
-          description: "- injected row\n\n**bold** and [pay here](https://evil.example/)",
+          description:
+            "- injected row\n\n**bold** and [pay here](https://evil.example/)",
         },
       ],
     }),
@@ -71,15 +77,24 @@ test("a url that would end its own link early is encoded", () => {
     webSearchResultMarkdown(
       JSON.stringify({
         results: [
-          { title: "Safe", url: "https://a.example/x) ![x](https://evil.example/x.png" },
+          {
+            title: "Safe",
+            url: "https://a.example/x) ![x](https://evil.example/x.png",
+          },
         ],
       }),
     ),
-  ).toBe("- [Safe](https://a.example/x%29%20![x]%28https://evil.example/x.png)");
+  ).toBe(
+    "- [Safe](https://a.example/x%29%20![x]%28https://evil.example/x.png)",
+  );
 });
 
 test("a hit whose url is not http(s) renders as text, never as a link", () => {
-  for (const url of ["javascript:alert(1)", "data:text/html,<script>", "notaurl"]) {
+  for (const url of [
+    "javascript:alert(1)",
+    "data:text/html,<script>",
+    "notaurl",
+  ]) {
     const md = webSearchResultMarkdown(
       JSON.stringify({ results: [{ title: "Click me", url }] }),
     );
@@ -130,7 +145,11 @@ test("a preview cut mid-array renders the hits that arrived whole", () => {
 test("a brace inside a title cannot run the scan past its own object", () => {
   const full = JSON.stringify({
     results: [
-      { title: "A } brace { inside", url: "https://one.example/", description: "" },
+      {
+        title: "A } brace { inside",
+        url: "https://one.example/",
+        description: "",
+      },
       { title: "Second", url: "https://two.example/", description: "" },
     ],
   });
@@ -146,7 +165,9 @@ test("a brace inside a title cannot run the scan past its own object", () => {
 
 test("a preview cut before the first whole hit keeps its plain text", () => {
   expect(
-    webSearchResultMarkdown('{\n  "query": "x",\n  "results": [\n    {\n      "title": "Fir\n...'),
+    webSearchResultMarkdown(
+      '{\n  "query": "x",\n  "results": [\n    {\n      "title": "Fir\n...',
+    ),
   ).toBeNull();
 });
 

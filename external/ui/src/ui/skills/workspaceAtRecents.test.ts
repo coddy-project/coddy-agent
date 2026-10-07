@@ -63,7 +63,7 @@ test("no_session key is a valid bucket", () => {
     path_rel: "z.go",
     kind: "file",
   });
-  expect(readWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY)).toHaveLength(
-    1,
-  );
+  expect(
+    readWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY),
+  ).toHaveLength(1);
 });

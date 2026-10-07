@@ -34,7 +34,7 @@ SWARM_CLIENT_TOKEN=<client token>
 SWARM_PAIRING_TOKEN=<pairing token>
 ```
 
-and `~/.coddy/config.yaml` runs nothing but the relay. `cors` names the address your laptop's web UI is opened at, because that page will talk to the relay from the browser:
+and `~/.coddy/config.yaml` runs nothing but the relay. `cors` admits the page your laptop's web UI is opened at, because that page will talk to the relay from the browser; `allow_loopback` covers every loopback address and port the laptop's own `coddy serve` may serve it from:
 
 ```yaml
 httpserver:
@@ -49,7 +49,7 @@ swarm:
   pairing_tokens: ["${SWARM_PAIRING_TOKEN}"]
   cors:
     enable: true
-    allowed_origins: ["http://localhost:12345", "http://127.0.0.1:12345"]
+    allow_loopback: true   # http://localhost:12345, http://127.0.0.1:12345, any other loopback port
 ```
 
 ```bash
@@ -130,7 +130,7 @@ The `token` line is optional. With it, the environment menu and `coddy --remote 
 
 *The relay in the laptop's environment menu: green, with its workers under it*
 
-Open the environment chip in the composer. `office` has a green dot and says `relay · 2 agents`, with `gpu01` and `gpu02` under it. Click `gpu01`: the page reloads onto that worker - its sessions in History, its folder and its models in the composer, its configuration in Settings - through the relay. A turn you start runs on `gpu01`.
+Open the environment menu from the foot of the rail. `office` has a green dot and says `relay · 2 agents`, with `gpu01` and `gpu02` under it. Click `gpu01`: the page reloads onto that worker - its sessions in History, its folder and its models in the composer, its configuration in Settings - through the relay. A turn you start runs on `gpu01`.
 
 The **Swarm** entry in the rail opens the relay's map over the worker without leaving it. Your laptop sits at the top, named by its host name, the relay under it and the workers under that; the worker you are on is ringed. Click `gpu02` to move there - the map stays open, now ringing `gpu02`, and the page does not reload - the laptop to go back to Local, the relay to connect to the relay itself.
 
@@ -154,7 +154,7 @@ coddy -p "What is in the workspace?" --remote http://relay.lan:12346/swarm/nodes
 
 ## What tends to go wrong
 
-- **The relay's dot is red and says the answer was blocked by CORS.** The relay does not list the address the laptop's page is open at. The line under the relay names that exact origin: add it to `swarm.cors.allowed_origins` on the relay, in its file or in its own Settings. `localhost` and `127.0.0.1` are two origins.
+- **The relay's dot is red and says the answer was blocked by CORS.** The relay does not admit the address the laptop's page is open at. The line under the relay names that exact origin and, for a page on a loopback address, the toggle: set `swarm.cors.allow_loopback: true` on the relay, in its file or in its own Settings, and every loopback origin on any port is admitted; or add the exact origin to `swarm.cors.allowed_origins`, remembering that `localhost` and `127.0.0.1` are two origins.
 - **The dot is red and says the relay refuses the token.** The token the laptop presents is not the relay's `swarm.auth_token` (or `--swarm-auth-token`). With a `token` in the laptop's entry, fix it there; without one, **Enter token** under the relay opens the form filled in for it.
 - **The dot is red and says the relay does not answer.** Nothing listens at that address from the laptop: check `curl http://relay.lan:12346/swarm/info` from the laptop, the relay's `host`, and a firewall between them.
 - **The relay is green, but no worker is listed.** No worker has joined: the worker's log says whether its registration was refused. A pairing token is compared exactly.

@@ -23,6 +23,9 @@ import type { QueuedMessage, QueueMode } from "./Composer";
 import type { MessageListProps } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
+import { finishedToolCalls } from "../changes/toolActivity";
+import { useWorkingCopy } from "../changes/workingCopy";
+import { WorkspaceBar } from "./WorkspaceBar";
 import type { TurnProgress } from "./turnProgress";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
@@ -45,6 +48,7 @@ import {
   transcriptJumpDurationMs,
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
+import { openWorkspaceFile } from "../files/fileBus";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
 
 export function ChatScreen(props: {
@@ -78,7 +82,9 @@ export function ChatScreen(props: {
   contextBreakdown?:
     | import("./ContextBreakdownPopover").ContextBreakdown
     | null;
-  compactionSettings?: { enabled: boolean; autoEnabled: boolean; threshold: number } | undefined;
+  compactionSettings?:
+    | { enabled: boolean; autoEnabled: boolean; threshold: number }
+    | undefined;
   onContextCompacted?: (() => void) | undefined;
   mode: string;
   modes: string[];
@@ -99,6 +105,7 @@ export function ChatScreen(props: {
   onPermissionModeChange?: ((mode: string) => void) | undefined;
   settingsOverrides?: TurnOverride[];
   onDraftChange: (v: string) => void;
+  onMentionArtifact?: (path: string) => void;
   onSend: (text: string, files?: File[]) => void;
   /** The files attached in the composer, when the caller owns them: a send the
    *  server never took puts them back (App.tsx, streamResponses). */
@@ -138,6 +145,19 @@ export function ChatScreen(props: {
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
   editingFiles?: { name: string; mimeType: string }[];
+  /** The server index of the prompt loaded into the composer for an edit. */
+  editingUserMsgIdx?: number | null;
+  /** What the edit banner names: the text of that prompt. */
+  editingSnippet?: string;
+  /** Leaves the edit and puts back the draft it replaced. */
+  onCancelEdit?: () => void;
+  /** The prompt of the last edit while the server can still take it back. */
+  rewindUndoUserMsgIdx?: number | null;
+  /** The composer's banner offers that Undo too, until dismissed. */
+  rewindUndoBanner?: boolean;
+  rewindUndoBusy?: boolean;
+  onUndoEdit?: () => void;
+  onDismissRewindUndo?: () => void;
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
   knownSkillNames?: Set<string>;
@@ -150,10 +170,14 @@ export function ChatScreen(props: {
   /** The Tasks panel is showing, for the header control's expanded state. */
   backgroundTasksOpen?: boolean;
   onCloseBackgroundTasks?: () => void;
+  /** Opens the edits window: what git reports for the chat's folder. */
+  onOpenEdits?: () => void;
+  /** Opens (or puts away) the Files window from the header. */
+  onOpenFiles?: () => void;
+  /** The Files window is open. */
+  filesOpen?: boolean;
   /** Re-read the task rows: a background subagent's prompt was answered here. */
   onBackgroundTasksChanged?: () => void;
-  onOpenBackgroundTask?: (taskId: string) => void;
-  onStopBackgroundTask?: (taskId: string) => void;
   /** Roots this session works in - its own directory, then its worktrees -
    *  which tool rows spell paths against. */
   pathRoots?: readonly string[];
@@ -161,6 +185,8 @@ export function ChatScreen(props: {
   turnProgress?: TurnProgress | null;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
+  /** The folder the chat runs in (the picked one before a session exists). */
+  chatWorkspacePath?: string;
   worktreePref?: boolean;
   /** The workspace is chosen once: locked as soon as the conversation starts. */
   workspaceLocked?: boolean;
@@ -476,7 +502,10 @@ export function ChatScreen(props: {
     if (!vv) return undefined;
     const root = document.documentElement;
     const apply = () => {
-      root.style.setProperty("--coddy-keyboard-inset", `${keyboardInset(window)}px`);
+      root.style.setProperty(
+        "--coddy-keyboard-inset",
+        `${keyboardInset(window)}px`,
+      );
       if (!isEmpty) syncTranscriptPosition();
     };
     apply();
@@ -505,6 +534,34 @@ export function ChatScreen(props: {
       {...(props.unarchiving ? { busy: true } : {})}
     />
   ) : null;
+
+  // What git reports for the chat's folder, counted by the bar over the
+  // composer, whose count opens the edits window. Every finished tool call may
+  // have written a file.
+  const workingCopy = useWorkingCopy(props.sessionId ?? "", {
+    // Outside a git repository there is no count to show, and no plate.
+    enabled: !!props.onOpenEdits && props.workspaceCtx?.is_git_repo !== false,
+    toolActivity: finishedToolCalls(props.items),
+  });
+  // Once the chat runs, where it works is a fact rather than a choice: a plate
+  // joined to the top of the composer card names it.
+  // The plate of a running chat is git's - the repository, the branch, the
+  // count - so a folder outside any repository has none.
+  const workspaceBar =
+    !readOnlyNotice &&
+    props.sessionId &&
+    props.workspaceLocked &&
+    props.workspaceCtx?.is_git_repo ? (
+      <WorkspaceBar
+        context={props.workspaceCtx}
+        workingCopy={workingCopy}
+        onOpenEdits={props.onOpenEdits}
+      />
+    ) : undefined;
+  // The Files window belongs to a chat, so it opens only once one exists.
+  const openFiles = props.sessionId
+    ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
+    : undefined;
 
   const messageListProps: Omit<
     MessageListProps,
@@ -543,6 +600,16 @@ export function ChatScreen(props: {
       ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
       : {}),
     ...(props.onEdit ? { onEdit: props.onEdit } : {}),
+    ...(props.editingUserMsgIdx !== undefined
+      ? { editingUserMsgIdx: props.editingUserMsgIdx }
+      : {}),
+    ...(props.rewindUndoUserMsgIdx !== undefined && props.onUndoEdit
+      ? {
+          rewindUndoUserMsgIdx: props.rewindUndoUserMsgIdx,
+          onUndoEdit: props.onUndoEdit,
+          ...(props.rewindUndoBusy ? { undoEditBusy: true } : {}),
+        }
+      : {}),
     ...(props.knownSkillNames
       ? { knownSkillNames: props.knownSkillNames }
       : {}),
@@ -554,11 +621,9 @@ export function ChatScreen(props: {
     ...(props.backgroundNowMs !== undefined
       ? { backgroundNowMs: props.backgroundNowMs }
       : {}),
-    ...(props.onOpenBackgroundTask
-      ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
-      : {}),
-    ...(props.onStopBackgroundTask
-      ? { onStopBackgroundTask: props.onStopBackgroundTask }
+    ...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {}),
+    ...(props.onMentionArtifact
+      ? { onMentionArtifact: props.onMentionArtifact }
       : {}),
   };
 
@@ -667,6 +732,7 @@ export function ChatScreen(props: {
                 onAttachedFilesChange={setAttachedFiles}
                 focusEpoch={props.heroComposerFocusEpoch}
                 sessionId={props.sessionId}
+                workspacePath={props.chatWorkspacePath ?? ""}
                 contextIdle={!props.sessionId}
                 mode={props.mode}
                 modes={props.modes}
@@ -719,7 +785,9 @@ export function ChatScreen(props: {
                 {...(props.onDocsCommand
                   ? { onDocsCommand: props.onDocsCommand }
                   : {})}
-                {...(props.onMCPCommand ? { onMCPCommand: props.onMCPCommand } : {})}
+                {...(props.onMCPCommand
+                  ? { onMCPCommand: props.onMCPCommand }
+                  : {})}
                 {...(props.onContextRingOpen
                   ? { onContextRingOpen: props.onContextRingOpen }
                   : {})}
@@ -730,9 +798,15 @@ export function ChatScreen(props: {
                   ? {
                       queuedMessages: props.queuedMessages ?? [],
                       onQueue: props.onQueue,
-                      ...(props.queueMode ? { queueMode: props.queueMode } : {}),
-                      ...(props.onQueueModeChange ? { onQueueModeChange: props.onQueueModeChange } : {}),
-                      ...(props.onSetQueuedMode ? { onSetQueuedMode: props.onSetQueuedMode } : {}),
+                      ...(props.queueMode
+                        ? { queueMode: props.queueMode }
+                        : {}),
+                      ...(props.onQueueModeChange
+                        ? { onQueueModeChange: props.onQueueModeChange }
+                        : {}),
+                      ...(props.onSetQueuedMode
+                        ? { onSetQueuedMode: props.onSetQueuedMode }
+                        : {}),
                       ...(props.onCancelQueued
                         ? { onCancelQueued: props.onCancelQueued }
                         : {}),
@@ -780,14 +854,21 @@ export function ChatScreen(props: {
                   {...(props.onOpenBackgroundTasks
                     ? {
                         tasks: props.backgroundTasks ?? [],
-                        // The header control is where the panel was opened
-                        // from, so a second click puts it away again.
+                        // The header menu is where a view was opened from, so
+                        // picking it again puts it away.
                         onOpenTasks:
                           props.backgroundTasksOpen === true &&
                           props.onCloseBackgroundTasks
                             ? props.onCloseBackgroundTasks
                             : props.onOpenBackgroundTasks,
                         tasksOpen: props.backgroundTasksOpen === true,
+
+                        ...(openFiles
+                          ? {
+                              onOpenFiles: openFiles,
+                              filesOpen: props.filesOpen === true,
+                            }
+                          : {}),
                       }
                     : {})}
                 />
@@ -813,12 +894,14 @@ export function ChatScreen(props: {
                 isAwaitingPermission,
               )}
               tail={
-                props.backgroundTasks ? (
-                  <SubagentPermissionCards
-                    tasks={props.backgroundTasks}
-                    onAnswered={() => props.onBackgroundTasksChanged?.()}
-                  />
-                ) : null
+                <>
+                  {props.backgroundTasks ? (
+                    <SubagentPermissionCards
+                      tasks={props.backgroundTasks}
+                      onAnswered={() => props.onBackgroundTasksChanged?.()}
+                    />
+                  ) : null}
+                </>
               }
             />
             <div className="chat-scroll-tail" aria-hidden />
@@ -844,12 +927,14 @@ export function ChatScreen(props: {
               )}
               {readOnlyNotice ?? (
                 <Composer
+                  cardTop={workspaceBar}
                   value={props.draft}
                   isEmpty={false}
                   providerUsage={props.providerUsage ?? null}
                   attachedFiles={attachedFiles}
                   onAttachedFilesChange={setAttachedFiles}
                   sessionId={props.sessionId}
+                  workspacePath={props.chatWorkspacePath ?? ""}
                   contextIdle={false}
                   mode={props.mode}
                   modes={props.modes}
@@ -905,7 +990,9 @@ export function ChatScreen(props: {
                   {...(props.onDocsCommand
                     ? { onDocsCommand: props.onDocsCommand }
                     : {})}
-                  {...(props.onMCPCommand ? { onMCPCommand: props.onMCPCommand } : {})}
+                  {...(props.onMCPCommand
+                    ? { onMCPCommand: props.onMCPCommand }
+                    : {})}
                   {...(props.onContextRingOpen
                     ? { onContextRingOpen: props.onContextRingOpen }
                     : {})}
@@ -916,9 +1003,15 @@ export function ChatScreen(props: {
                     ? {
                         queuedMessages: props.queuedMessages ?? [],
                         onQueue: props.onQueue,
-                        ...(props.queueMode ? { queueMode: props.queueMode } : {}),
-                        ...(props.onQueueModeChange ? { onQueueModeChange: props.onQueueModeChange } : {}),
-                        ...(props.onSetQueuedMode ? { onSetQueuedMode: props.onSetQueuedMode } : {}),
+                        ...(props.queueMode
+                          ? { queueMode: props.queueMode }
+                          : {}),
+                        ...(props.onQueueModeChange
+                          ? { onQueueModeChange: props.onQueueModeChange }
+                          : {}),
+                        ...(props.onSetQueuedMode
+                          ? { onSetQueuedMode: props.onSetQueuedMode }
+                          : {}),
                         ...(props.onCancelQueued
                           ? { onCancelQueued: props.onCancelQueued }
                           : {}),
@@ -929,6 +1022,25 @@ export function ChatScreen(props: {
                     : {})}
                   {...(props.editingFiles && props.editingFiles.length > 0
                     ? { editingFiles: props.editingFiles }
+                    : {})}
+                  {...(props.editingUserMsgIdx != null && props.onCancelEdit
+                    ? {
+                        editingMessage: {
+                          snippet: props.editingSnippet ?? "",
+                          onCancel: props.onCancelEdit,
+                        },
+                      }
+                    : {})}
+                  {...(props.rewindUndoBanner === true &&
+                  props.onUndoEdit &&
+                  props.onDismissRewindUndo
+                    ? {
+                        rewindUndo: {
+                          onUndo: props.onUndoEdit,
+                          onDismiss: props.onDismissRewindUndo,
+                          ...(props.rewindUndoBusy ? { busy: true } : {}),
+                        },
+                      }
                     : {})}
                   {...(props.onWorkspacePickFolder
                     ? {

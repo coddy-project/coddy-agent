@@ -21,7 +21,13 @@ export type WorkspaceContext = {
   worktrees?: WorkspaceWorktree[];
 };
 
-export type WorkspaceFolderRow = { name: string; path: string };
+export type WorkspaceFolderRow = {
+  name: string;
+  path: string;
+  hidden?: boolean;
+  symlink?: boolean;
+  target?: string;
+};
 
 export type WorkspaceFolderListing = {
   path: string;
@@ -123,4 +129,27 @@ export function isWorktreeBadgeActive(
     return false;
   }
   return ctx.is_worktree || worktreePref;
+}
+
+/** How many characters of a branch name the bar shows before it cuts the middle. */
+export const BRANCH_CHARS = 24;
+
+/**
+ * Cuts the middle out of a long name, keeping both ends: a branch is told
+ * apart by its prefix (feat/, fix/) and by its last words alike.
+ */
+export function middleTruncate(text: string, max: number): string {
+  if (text.length <= max) {
+    return text;
+  }
+  if (max < 5) {
+    // Too little room for both ends: the start alone, cut.
+    return text.slice(0, Math.max(1, max));
+  }
+  const keep = max - 1;
+  // A little more of the end than of the start: the last words tell
+  // branches of one prefix apart.
+  const head = Math.max(1, Math.ceil(keep / 2) - 2);
+  const tail = keep - head;
+  return text.slice(0, head) + "…" + text.slice(text.length - tail);
 }

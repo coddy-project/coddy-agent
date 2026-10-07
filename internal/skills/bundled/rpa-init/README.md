@@ -10,10 +10,11 @@ Warm up context on a repository: study **code**, read **documentation** and **te
 
 ## What the agent does
 
-1. Read layout, docs, and tests.
-2. Install or configure dev tooling (venv, deps, documented bootstrap).
-3. Run the test suite.
-4. Summarize purpose, behavior implied by tests, gaps, and next steps.
+1. Optionally `git pull` if the repo is under git and the user has not asked to stay on the current commit.
+2. Read layout, docs, and tests.
+3. Install or configure dev tooling (venv, deps, documented bootstrap).
+4. Run the test suite.
+5. Summarize purpose, behavior implied by tests, gaps, and next steps.
 
 ## Contents
 

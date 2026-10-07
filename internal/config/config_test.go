@@ -262,11 +262,61 @@ func TestLoadFromCLIWhenConfigMissing_AppliesDefaults(t *testing.T) {
 	if cfg.Logger.Level != config.LogLevelInfo {
 		t.Fatalf("logger default level: %q", cfg.Logger.Level)
 	}
-	if len(cfg.Skills.Dirs) != 3 {
-		t.Fatalf("skills default dirs: len=%d", len(cfg.Skills.Dirs))
+	if len(cfg.Skills.Dirs) != 0 {
+		t.Fatalf("skills.dirs must stay empty without a config (the defaults are read beside it), got %q", cfg.Skills.Dirs)
+	}
+	if got := cfg.Skills.SearchDirs(); !reflect.DeepEqual(got, config.DefaultSkillDirs()) {
+		t.Fatalf("skills search dirs without a config: got %q, want the defaults", got)
 	}
 	if cfg.Sessions.Dir != "" {
 		t.Fatalf("sessions.dir default: %q", cfg.Sessions.Dir)
+	}
+}
+
+func TestLoadFromCLIWhenConfigMissing_UsesLoopSafetyDefaults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+	cfgPath := filepath.Join(home, "empty.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(config.EnvCODDYConfig, cfgPath)
+
+	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Agent.MaxTurns; got != 165 {
+		t.Fatalf("agent.max_turns = %d, want 165", got)
+	}
+	if got := cfg.Agent.EffectiveLLMRetryMax(); got != 3 {
+		t.Fatalf("agent.llm_retry_max = %d, want 3", got)
+	}
+	if got := cfg.Agent.EffectiveLoopToolRepeatLimit(); got != 2 {
+		t.Fatalf("agent.loop_tool_repeat_limit = %d, want 2", got)
+	}
+	if got := cfg.Agent.EffectiveLoopNudgeMax(); got != 1 {
+		t.Fatalf("agent.loop_nudge_max = %d, want 1", got)
+	}
+
+	path := filepath.Join(home, "unlimited.yaml")
+	if err := os.WriteFile(path, []byte("agent:\n  max_turns: 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unlimited, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := unlimited.Agent.MaxTurns; got != 0 {
+		t.Fatalf("explicit YAML agent.max_turns = %d, want 0", got)
+	}
+
+	fromJSON, err := config.ParseAndValidateConfigJSON([]byte(`{"agent":{"max_turns":0}}`), config.Paths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fromJSON.Agent.MaxTurns; got != 0 {
+		t.Fatalf("explicit JSON agent.max_turns = %d, want 0", got)
 	}
 }
 
@@ -623,8 +673,8 @@ agent:
 		t.Fatalf("max_queue %d", cfg.Scheduler.MaxQueue)
 	}
 	wantDir := filepath.Join(home, "scheduler")
-	if cfg.Scheduler.Dir != wantDir {
-		t.Fatalf("dir %q want %q", cfg.Scheduler.Dir, wantDir)
+	if got := cfg.SchedulerUserDir(); got != wantDir {
+		t.Fatalf("user jobs dir %q want %q", got, wantDir)
 	}
 }
 
@@ -797,6 +847,124 @@ func TestHTTPServerCORSAndRemotesRoundTrip(t *testing.T) {
 	}
 	if len(back.HTTPServer.Remotes) != 1 || back.HTTPServer.Remotes[0].URL != "https://box.example:12345" {
 		t.Fatalf("remotes lost in round-trip: %+v", back.HTTPServer.Remotes)
+	}
+}
+
+// allow_loopback admits a page served from the browser's own machine on any
+// port and in each spelling of loopback the setting names, without naming each
+// origin. The echo is the origin itself, never "*", so a browser keeps treating
+// the answer as one for this page alone. The host test is syntactic: no DNS, so
+// a name that happens to resolve to loopback on the laptop is still refused
+// here.
+func TestHTTPCORSAllowLoopbackOrigins(t *testing.T) {
+	c := config.HTTPCORSConfig{Enabled: true, AllowLoopback: true}
+	// The origins live in testdata/loopback_origin_cases.json, which
+	// external/ui/src/ui/env/loopbackOrigin.test.ts reads too: the server and the
+	// SPA's hint are held to the same literals. A browser sends a serialized
+	// origin and nothing more, and the echo goes into Access-Control-Allow-Origin,
+	// which must be an origin, not a URL; the hosts admitted are the ones the
+	// contract names - localhost, *.localhost, 127.0.0.0/8 in dotted form and
+	// ::1 - and not every address net.IP.IsLoopback calls loopback.
+	raw, err := os.ReadFile(filepath.Join("testdata", "loopback_origin_cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Origin   string `json:"origin"`
+		Loopback bool   `json:"loopback"`
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) < 40 {
+		t.Fatalf("only %d shared cases", len(cases))
+	}
+	for _, tc := range cases {
+		allow, ok := c.AllowOrigin(tc.Origin)
+		if tc.Loopback && (!ok || allow != tc.Origin) {
+			t.Errorf("AllowOrigin(%q) = %q,%v; want the origin echoed", tc.Origin, allow, ok)
+		}
+		if !tc.Loopback && (ok || allow != "") {
+			t.Errorf("AllowOrigin(%q) = %q,%v; want refused", tc.Origin, allow, ok)
+		}
+	}
+	// The switch is part of the policy: with CORS off it admits nothing.
+	off := config.HTTPCORSConfig{Enabled: false, AllowLoopback: true}
+	if _, ok := off.AllowOrigin("http://localhost:5173"); ok {
+		t.Error("allow_loopback with enable: false admitted an origin")
+	}
+	// The list is consulted first and "*" still wins over the echo.
+	star := config.HTTPCORSConfig{Enabled: true, AllowLoopback: true, AllowedOrigins: []string{"*"}}
+	if allow, ok := star.AllowOrigin("http://localhost:5173"); !ok || allow != "*" {
+		t.Errorf("with * in the list AllowOrigin = %q,%v; want *", allow, ok)
+	}
+	// Exact origins and the toggle compose: a listed remote page and the
+	// laptop's loopback pages are both admitted.
+	both := config.HTTPCORSConfig{Enabled: true, AllowLoopback: true, AllowedOrigins: []string{"https://ui.example"}}
+	for _, origin := range []string{"https://ui.example", "http://localhost:5173"} {
+		if allow, ok := both.AllowOrigin(origin); !ok || allow != origin {
+			t.Errorf("list + loopback AllowOrigin(%q) = %q,%v", origin, allow, ok)
+		}
+	}
+}
+
+// OpenToUnlistedOrigins names the two settings that admit pages nobody listed
+// - "*" and allow_loopback - which is what the startup warning and the dry run
+// ask before saying that a server without a credential is open to them.
+func TestHTTPCORSOpenToUnlistedOrigins(t *testing.T) {
+	for name, tc := range map[string]struct {
+		c    config.HTTPCORSConfig
+		want bool
+	}{
+		"off":            {config.HTTPCORSConfig{AllowLoopback: true, AllowedOrigins: []string{"*"}}, false},
+		"exact only":     {config.HTTPCORSConfig{Enabled: true, AllowedOrigins: []string{"http://localhost:12345"}}, false},
+		"loopback":       {config.HTTPCORSConfig{Enabled: true, AllowLoopback: true}, true},
+		"star":           {config.HTTPCORSConfig{Enabled: true, AllowedOrigins: []string{"https://ui.example", " * "}}, true},
+		"enabled, empty": {config.HTTPCORSConfig{Enabled: true}, false},
+	} {
+		if got := tc.c.OpenToUnlistedOrigins(); got != tc.want {
+			t.Errorf("%s: OpenToUnlistedOrigins() = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// The toggle is a setting like the rest of cors: it loads from the file and
+// survives the GET -> edit -> PUT round trip of the settings form.
+func TestHTTPCORSAllowLoopbackRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	yaml := httpAuthBaseYAML +
+		"httpserver:\n" +
+		"  cors:\n" +
+		"    enable: true\n" +
+		"    allow_loopback: true\n" +
+		"swarm:\n" +
+		"  cors:\n" +
+		"    enable: true\n" +
+		"    allow_loopback: true\n"
+	if err := os.WriteFile(f, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HTTPServer.CORS.AllowLoopback || !cfg.Swarm.CORS.AllowLoopback {
+		t.Fatalf("allow_loopback not parsed: http %+v swarm %+v", cfg.HTTPServer.CORS, cfg.Swarm.CORS)
+	}
+	raw, err := json.Marshal(config.ConfigToJSONDTO(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"allow_loopback":true`) {
+		t.Fatalf("the config document does not carry allow_loopback: %s", raw)
+	}
+	back, err := config.ParseConfigJSONPreservingSecrets(raw, cfg.Paths, cfg)
+	if err != nil {
+		t.Fatalf("round-trip parse: %v", err)
+	}
+	if !back.HTTPServer.CORS.AllowLoopback || !back.Swarm.CORS.AllowLoopback {
+		t.Fatalf("allow_loopback lost in round-trip: http %+v swarm %+v", back.HTTPServer.CORS, back.Swarm.CORS)
 	}
 }
 
@@ -1436,7 +1604,7 @@ func TestAgentWaitForLimitResetDefaults(t *testing.T) {
 
 // Regression for coddy-project/coddy-agent#146: ${CWD} is a session placeholder.
 // A config file that spells it out (skills.dirs, subagents.dirs, hooks.files,
-// prompts.dir, mcp_servers) must keep it verbatim through load so every session
+// prompts.dir) must keep it verbatim through load so every session
 // resolves it against its own workspace, while the process-scoped directories
 // (sessions, scheduler, memory, log file) still resolve it against the default
 // working directory at load time. An environment variable that happens to be
@@ -1477,20 +1645,6 @@ hooks:
 prompts:
   dir: "${CWD}/prompts"
 
-mcp_servers:
-  - name: fs
-    command: "${CWD}/bin/mcp-fs"
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"]
-    env:
-      - name: PROJECT
-        value: "${CWD}"
-  - name: docs
-    type: http
-    url: "http://127.0.0.1:8080/mcp?root=${CWD}"
-    headers:
-      - name: X-Workspace
-        value: "${CWD}"
-
 sessions:
   dir: "${CWD}/sessions"
 
@@ -1521,11 +1675,6 @@ logger:
 		{"subagents.dirs[0]", cfg.Subagents.Dirs[0], "${CWD}/.coddy/agents"},
 		{"hooks.files[0]", cfg.Hooks.Files[0], "${CWD}/.coddy/hooks.json"},
 		{"prompts.dir", cfg.Prompts.Dir, "${CWD}/prompts"},
-		{"mcp_servers[0].command", cfg.MCPServers[0].Command, "${CWD}/bin/mcp-fs"},
-		{"mcp_servers[0].args[2]", cfg.MCPServers[0].Args[2], "${CWD}"},
-		{"mcp_servers[0].env[0].value", cfg.MCPServers[0].Env[0].Value, "${CWD}"},
-		{"mcp_servers[1].url", cfg.MCPServers[1].URL, "http://127.0.0.1:8080/mcp?root=${CWD}"},
-		{"mcp_servers[1].headers[0].value", cfg.MCPServers[1].Headers[0].Value, "${CWD}"},
 	}
 	for _, tc := range perSession {
 		// ${CODDY_HOME} is substituted with forward slashes; compare slash-normalised.
@@ -1539,14 +1688,6 @@ logger:
 	if got, want := cfg.Prompts.ResolvedDir(sessionCWD), filepath.Join(sessionCWD, "prompts"); got != want {
 		t.Errorf("prompts.ResolvedDir(session): got %q want %q", got, want)
 	}
-	// internal/mcp resolves command, args, env, url and headers with the same
-	// config.ExpandCWD at connect time (see stdioSpec and expandHeaders there).
-	if got, want := config.ExpandCWD(cfg.MCPServers[0].Args[2], sessionCWD), sessionCWD; got != want {
-		t.Errorf("mcp arg ExpandCWD(session): got %q want %q", got, want)
-	}
-	if got, want := config.ExpandCWD(cfg.MCPServers[1].URL, sessionCWD), "http://127.0.0.1:8080/mcp?root="+sessionCWD; got != want {
-		t.Errorf("mcp url ExpandCWD(session): got %q want %q", got, want)
-	}
 
 	processScoped := []struct {
 		name string
@@ -1554,7 +1695,6 @@ logger:
 		want string
 	}{
 		{"sessions.dir", cfg.Sessions.Dir, filepath.Join(launch, "sessions")},
-		{"scheduler.dir", cfg.Scheduler.Dir, filepath.Join(launch, ".scheduler")},
 		{"memory.dir", cfg.Memory.Dir, filepath.Join(launch, "memory")},
 		{"logger.file", cfg.Logger.File, filepath.Join(launch, "coddy.log")},
 	}
@@ -1730,19 +1870,15 @@ agent:
 
 // TestInstructionsDefaultMatchesTheSchema is the guard against the drift this
 // test was written for: the loader, the UI defaults and the embedded schema all
-// have to name the same pair, or a config.yaml validates against a default the
-// binary does not apply.
+// have to name the same default, or a config.yaml validates against a default
+// the binary does not apply. Since issue #425 that default is nothing: the
+// AGENTS.md and DESIGN.md documents are read without being listed, and the
+// list only adds.
 func TestInstructionsDefaultMatchesTheSchema(t *testing.T) {
-	want := []string{"AGENTS.md", "DESIGN.md"}
 	assertFiles := func(what string, got []string) {
 		t.Helper()
-		if len(got) != len(want) {
-			t.Fatalf("%s = %v, want %v", what, got, want)
-		}
-		for i := range want {
-			if got[i] != want[i] {
-				t.Fatalf("%s = %v, want %v", what, got, want)
-			}
+		if got == nil || len(got) != 0 {
+			t.Fatalf("%s = %#v, want an empty list", what, got)
 		}
 	}
 
@@ -1835,5 +1971,213 @@ func TestLoadAgentModelOptional(t *testing.T) {
 	}
 	if cfg.Agent.Model != "" {
 		t.Fatalf("agent.model materialized: %q", cfg.Agent.Model)
+	}
+}
+
+// Every workspace reads four folders, lowest priority first: the user's agents
+// skills, the project's agents skills, Coddy's own, the project's Coddy
+// skills. skills.dirs only adds directories after them, which win a name over
+// the defaults; an absent key adds none.
+func TestSkillsDirsAddToTheFourDefaults(t *testing.T) {
+	want := []string{
+		"${HOME}/.agents/skills",
+		"${CWD}/.agents/skills",
+		"${CODDY_HOME}/skills",
+		"${CWD}/.coddy/skills",
+	}
+	if got := config.DefaultSkillDirs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("DefaultSkillDirs() = %q, want %q", got, want)
+	}
+	var unset config.Skills
+	unset.ApplyDefaults("/home/dev/.coddy", func(s string) string { return s })
+	if len(unset.Dirs) != 0 {
+		t.Fatalf("an absent skills.dirs must stay empty, got %q", unset.Dirs)
+	}
+	if got := unset.SearchDirs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("absent skills.dirs reads %q, want the defaults %q", got, want)
+	}
+	set := config.Skills{Dirs: []string{"/srv/team-skills"}}
+	set.ApplyDefaults("/home/dev/.coddy", func(s string) string { return s })
+	if got := set.SearchDirs(); !reflect.DeepEqual(got, append(append([]string(nil), want...), "/srv/team-skills")) {
+		t.Fatalf("a set skills.dirs must come after the defaults, got %q", got)
+	}
+}
+
+// Skill marketplaces are declared in two files of one shape: the operator's
+// <home>/marketplaces.json and the project's .coddy/marketplaces.json. A
+// missing file declares nothing; one that does not parse is an error, so
+// nothing writes over what it holds.
+func TestMarketplacesFileReadAndWrite(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	if got := config.GlobalMarketplacesPath(home); got != filepath.Join(home, "marketplaces.json") {
+		t.Fatalf("GlobalMarketplacesPath = %q", got)
+	}
+	if got := config.ProjectMarketplacesPath(cwd); got != filepath.Join(cwd, ".coddy", "marketplaces.json") {
+		t.Fatalf("ProjectMarketplacesPath = %q", got)
+	}
+	empty, err := config.ReadMarketplacesFile(config.ProjectMarketplacesPath(cwd))
+	if err != nil || len(empty.Sources) != 0 || len(empty.Marketplaces) != 0 {
+		t.Fatalf("a missing file = %+v, %v", empty, err)
+	}
+	want := config.MarketplacesFile{
+		Sources:      []string{"owner/whole"},
+		Marketplaces: []config.DeclaredMarketplace{{Name: "catalog", Source: "owner/catalog"}},
+	}
+	path := config.ProjectMarketplacesPath(cwd)
+	if err := config.WriteMarketplacesFile(path, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := config.ReadMarketplacesFile(path)
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("read back %+v, %v; want %+v", got, err, want)
+	}
+	if err := os.WriteFile(path, []byte(`{"sources": [`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.ReadMarketplacesFile(path); err == nil {
+		t.Fatal("a file that does not parse must be an error")
+	}
+}
+
+// skills.sources left config.yaml: a config that still has it hands the list
+// to <home>/marketplaces.json on load (a source the file has already, in any
+// case, and the system source are not repeated), the key and its comment
+// leave the file, the rest of the section stays, and one backup of the old
+// file covers this move and the mcp_servers one.
+func TestLegacySkillsSourcesMoveIntoHomeMarketplacesJSON(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	if err := config.WriteMarketplacesFile(config.GlobalMarketplacesPath(home), config.MarketplacesFile{Sources: []string{"Owner/Kept"}}); err != nil {
+		t.Fatal(err)
+	}
+	body := "agent:\n  model: local/m\nskills:\n  dirs:\n    - /opt/team-skills\n  # Remote marketplaces\n  sources:\n    - owner/kept\n    - owner/new\n    - " + config.SystemSkillsSource + "\n  auto_discovery: false\nmcp_servers: []\nrules:\n  enable: true\n"
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: dir, ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Skills.AutoDiscoveryEnabled() || len(cfg.Skills.Dirs) != 1 {
+		t.Fatalf("the rest of the skills section was lost: %+v", cfg.Skills)
+	}
+	got, err := config.ReadMarketplacesFile(config.GlobalMarketplacesPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Sources, []string{"Owner/Kept", "owner/new"}) {
+		t.Fatalf("home marketplaces.json sources = %v", got.Sources)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "agent:\n  model: local/m\nskills:\n  dirs:\n    - /opt/team-skills\n  auto_discovery: false\nrules:\n  enable: true\n"; string(after) != want {
+		t.Fatalf("config.yaml after the moves:\n%s\nwant:\n%s", after, want)
+	}
+	if backups, _ := filepath.Glob(path + ".bak-*"); len(backups) != 1 {
+		t.Fatalf("want one backup for both moves, got %v", backups)
+	}
+}
+
+// scheduler.dir left config.yaml: the user jobs folder is fixed at
+// ${CODDY_HOME}/scheduler. A config that still names another folder has its
+// jobs and their .state sidecars copied there on load - a job the target has
+// with the same bytes is skipped, one with other bytes lands as
+// <id>-migrated.md - the old folder left as it was, and the key cut out.
+func TestLegacySchedulerDirCopiesJobsIntoTheHome(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	old := filepath.Join(dir, "jobs")
+	userDir := filepath.Join(home, "scheduler")
+	for _, d := range []string{old, userDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(old, "nightly.md"), "---\nschedule: \"0 3 * * *\"\n---\nold nightly\n")
+	write(filepath.Join(old, "nightly.state"), "{\"session_id\":\"sess_x\"}\n")
+	write(filepath.Join(old, "taken.md"), "---\nschedule: \"0 4 * * *\"\n---\nold taken\n")
+	write(filepath.Join(old, "taken.state"), "{\"session_id\":\"sess_old\"}\n")
+	write(filepath.Join(userDir, "taken.md"), "---\nschedule: \"0 5 * * *\"\n---\nhome taken\n")
+	write(filepath.Join(old, "same.md"), "---\nschedule: \"0 6 * * *\"\n---\nsame\n")
+	write(filepath.Join(userDir, "same.md"), "---\nschedule: \"0 6 * * *\"\n---\nsame\n")
+	write(filepath.Join(old, "same.state"), "{\"session_id\":\"sess_same\"}\n")
+	write(filepath.Join(old, "twice.md"), "---\nschedule: \"0 7 * * *\"\n---\nold twice\n")
+	write(filepath.Join(userDir, "twice.md"), "---\nschedule: \"0 7 * * *\"\n---\nhome twice\n")
+	write(filepath.Join(userDir, "twice-migrated.md"), "---\nschedule: \"0 7 * * *\"\n---\nan earlier copy\n")
+
+	body := "agent:\n  model: local/m\nscheduler:\n  enable: true\n  dir: " + old + "\n  max_queue: 3\n"
+	path := filepath.Join(dir, "config.yaml")
+	write(path, body)
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: dir, ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Scheduler.MaxQueue != 3 || !cfg.Scheduler.Enabled {
+		t.Fatalf("the rest of the scheduler section was lost: %+v", cfg.Scheduler)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "nightly.md")); !strings.Contains(string(got), "old nightly") {
+		t.Fatalf("nightly.md not copied: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "nightly.state")); !strings.Contains(string(got), "sess_x") {
+		t.Fatalf("nightly.state not copied: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "taken.md")); !strings.Contains(string(got), "home taken") {
+		t.Fatalf("a job the home already had was overwritten: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "taken-migrated.md")); !strings.Contains(string(got), "old taken") {
+		t.Fatalf("a clashing job was not copied aside: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "taken-migrated.state")); !strings.Contains(string(got), "sess_old") {
+		t.Fatalf("the clashing job's state did not follow it: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(userDir, "same-migrated.md")); err == nil {
+		t.Fatal("a job with the same bytes was copied aside")
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "same.state")); !strings.Contains(string(got), "sess_same") {
+		t.Fatalf("the checkpoint of a job the home already had was not carried: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "twice-migrated-2.md")); !strings.Contains(string(got), "old twice") {
+		t.Fatalf("a job whose -migrated name was taken was dropped: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(old, "nightly.md")); err != nil {
+		t.Fatalf("the old folder was touched: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "agent:\n  model: local/m\nscheduler:\n  enable: true\n  max_queue: 3\n"; string(after) != want {
+		t.Fatalf("config.yaml after the move:\n%s\nwant:\n%s", after, want)
+	}
+}
+
+// A scheduler.dir that already names ${CODDY_HOME}/scheduler only leaves the
+// file.
+func TestLegacySchedulerDirAtTheDefaultIsCutOnly(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	body := "scheduler:\n  dir: ${CODDY_HOME}/scheduler\n  enable: false\n"
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.LoadWithPaths(config.Paths{Home: home, CWD: dir, ConfigPath: path}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "scheduler:\n  enable: false\n"; string(after) != want {
+		t.Fatalf("config.yaml after the move:\n%s\nwant:\n%s", after, want)
 	}
 }

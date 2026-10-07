@@ -132,11 +132,16 @@ describe("SignInScreen", () => {
       configurable: true,
       value: { ...window.location, reload },
     });
+    let signedIn = false;
     respond = (url) => {
       if (url === "/coddy/auth/login") {
+        signedIn = true;
         return jsonResponse(200, { ok: true, user: "operator" });
       }
-      return jsonResponse(200, { login_required: true, authenticated: false });
+      return jsonResponse(200, {
+        login_required: true,
+        authenticated: signedIn,
+      });
     };
     renderGate();
     await screen.findByTestId("sign-in-screen");
@@ -154,6 +159,49 @@ describe("SignInScreen", () => {
     expect(post?.body).toBe(
       JSON.stringify({ user: "operator", password: "correct-horse" }),
     );
+  });
+
+  // A page embedded in another site (Telegram Web runs a Mini App in an
+  // iframe) gets the cookie of a sign-in the server accepted, and the browser
+  // does not send it back. A reload would only bring the form back with no
+  // word of why; the screen says what happened and offers a tab of its own.
+  it("says the browser did not keep the sign-in when the session does not come back", async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...window.location,
+        reload,
+        href: "https://coddy.example.com/#/s/sess_1",
+      },
+    });
+    respond = (url) => {
+      if (url === "/coddy/auth/login") {
+        return jsonResponse(200, { ok: true, user: "operator" });
+      }
+      return jsonResponse(200, { login_required: true, authenticated: false });
+    };
+    renderGate();
+    await screen.findByTestId("sign-in-screen");
+    fireEvent.change(screen.getByLabelText("User"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("did not keep it");
+    const link = screen.getByRole("link", {
+      name: "Open Coddy in a tab of its own",
+    });
+    expect(link).toHaveAttribute(
+      "href",
+      "https://coddy.example.com/#/s/sess_1",
+    );
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it("says the credentials were wrong and clears the password", async () => {
@@ -237,5 +285,38 @@ describe("SignInScreen", () => {
     renderGate();
     await screen.findByTestId("sign-in-screen");
     expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+  });
+});
+
+describe("SignInScreen after a Telegram Mini App sign-in", () => {
+  afterEach(() => {
+    cleanup();
+    resetAuthStateForTests();
+  });
+
+  async function renderWith(state: Partial<import("./authState").AuthState>) {
+    const { setAuthState, snapshotAuth } = await import("./authState");
+    const { SignInScreen } = await import("./SignInScreen");
+    setAuthState({ ...snapshotAuth(), loaded: true, ...state });
+    initLocale("en");
+    render(
+      <I18nProvider>
+        <SignInScreen />
+      </I18nProvider>,
+    );
+  }
+
+  it("asks to reopen the Mini App above the password form", async () => {
+    await renderWith({ loginRequired: true, telegramProblem: "retry" });
+    expect(screen.getByTestId("telegram-note").textContent).toMatch(
+      /open it again/,
+    );
+    expect(document.querySelector("form")).not.toBeNull();
+  });
+
+  it("offers a tab of its own instead of a useless form when the session was not kept", async () => {
+    await renderWith({ loginRequired: false, telegramProblem: "not_kept" });
+    expect(document.querySelector("form")).toBeNull();
+    expect(screen.getByRole("link").getAttribute("target")).toBe("_blank");
   });
 });

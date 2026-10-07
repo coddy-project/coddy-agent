@@ -271,6 +271,55 @@ func TestWokenTurnEventFrameShape(t *testing.T) {
 	}
 }
 
+func TestQuestionPendingEventFrameShape(t *testing.T) {
+	frame := string(questionPendingFrame("sess_question"))
+	if !strings.HasPrefix(frame, "event: session_question_pending\ndata: ") || !strings.HasSuffix(frame, "\n\n") {
+		t.Fatalf("frame %q is not a well-formed session_question_pending SSE frame", frame)
+	}
+	for _, want := range []string{`"object":"coddy.session_question_pending"`, `"sessionId":"sess_question"`} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("frame %q missing %s", frame, want)
+		}
+	}
+	if strings.Contains(frame, "private question") || strings.Contains(frame, "questions") {
+		t.Fatalf("global question event must not include question text: %q", frame)
+	}
+}
+
+func TestCoddyEventsStreamPublishesQuestionPendingLifecycle(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body, closeEvents := subscribeEvents(t, ts, "")
+	defer closeEvents()
+	readEventFrames(t, body, "event: ready")
+
+	sender := srv.configureSender(NewSender(&config.Config{}, &syncBuffer{}, true, "agent-model"))
+	done := make(chan error, 1)
+	go func() {
+		_, err := sender.RequestQuestion(context.Background(), acp.QuestionRequestParams{
+			SessionID: "s-events-question",
+			RequestID: "r-events-question",
+		})
+		done <- err
+	}()
+	started := readEventFrames(t, body, "event: session_question_pending")
+	if !strings.Contains(started, `"sessionId":"s-events-question"`) {
+		t.Fatalf("question pending event did not name the session: %s", started)
+	}
+	if !CompleteQuestionAnswer("s-events-question", "r-events-question", &acp.QuestionResult{}) {
+		t.Fatal("CompleteQuestionAnswer failed")
+	}
+	settled := readEventFrames(t, body, "event: session_question_pending")
+	if strings.Contains(settled, "private question") {
+		t.Fatalf("settled global event included question text: %s", settled)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestConfigReloadedFrameShape(t *testing.T) {
 	at := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
 	frame := string(configReloadedFrame(at))

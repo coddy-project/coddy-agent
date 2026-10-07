@@ -26,7 +26,7 @@ func ConfigSetTool() *tooling.Tool {
 			Name: "config_set",
 			Description: "Stage edits to Coddy's active YAML configuration using OpenWrt-uci-like commands: " +
 				"\"set <path>=<value>\", \"add_list <path>=<value>\", \"del_list <path>=<value>\", \"delete <path>\". " +
-				"Paths are dotted, e.g. agent.max_turns or mcp_servers[name=context7].command; values are JSON or plain scalars. " +
+				"Paths are dotted, e.g. agent.max_turns or providers[name=local].api_base; values are JSON or plain scalars. " +
 				"Nothing is applied until config_commit: stage, review with config_changes, ask the user to confirm saving, then commit.",
 			InputSchema: map[string]interface{}{
 				"type": "object",

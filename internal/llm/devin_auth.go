@@ -627,7 +627,7 @@ func devinUnary(ctx context.Context, hc *http.Client, endpoint string, body []by
 	req.Header.Set("Content-Type", "application/proto")
 	req.Header.Set("Connect-Protocol-Version", "1")
 	if hc == nil {
-		hc = http.DefaultClient
+		return nil, fmt.Errorf("devin: provider http client is required; build it with llm.HTTPClientForProviderProxy")
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
@@ -655,7 +655,11 @@ func devinUnary(ctx context.Context, hc *http.Client, endpoint string, body []by
 
 // VerifyDevinCredential resolves the credential a devin provider would use
 // and proves it by minting a user JWT. It reports the source and the account.
-func VerifyDevinCredential(ctx context.Context, hc *http.Client, explicitKey, authPath string, cliLogin bool) (DevinAuthStatus, DevinAccount, error) {
+func VerifyDevinCredential(ctx context.Context, proxyOrClient any, explicitKey, authPath string, cliLogin bool) (DevinAuthStatus, DevinAccount, error) {
+	hc, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return DevinAuthStatus{}, DevinAccount{}, err
+	}
 	cred, err := resolveDevinCredential(explicitKey, authPath, cliLogin)
 	if err != nil {
 		return DevinAuthStatus{}, DevinAccount{}, err
@@ -696,7 +700,11 @@ type DevinSignInOptions struct {
 // The state is compared in constant time and a mismatching callback is
 // answered 400 while the wait goes on, so a local process cannot abort the
 // sign-in; the PKCE verifier never leaves this process until the exchange.
-func DevinSignIn(ctx context.Context, hc *http.Client, authPath string, opts DevinSignInOptions) (DevinAccount, error) {
+func DevinSignIn(ctx context.Context, proxyOrClient any, authPath string, opts DevinSignInOptions) (DevinAccount, error) {
+	hc, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return DevinAccount{}, err
+	}
 	if strings.TrimSpace(authPath) == "" {
 		return DevinAccount{}, errors.New("devin auth: credential path is empty")
 	}
@@ -874,9 +882,10 @@ func devinCodeFromPaste(line, state string) (string, error) {
 // session token at the Devin API (the endpoint the Devin CLI's browser flow
 // uses). An API that no longer serves it (404, 405) falls back to the
 // Connect method of the API server that does the same exchange.
-func exchangeDevinCode(ctx context.Context, hc *http.Client, code, verifier string) (token, apiServer string, err error) {
-	if hc == nil {
-		hc = http.DefaultClient
+func exchangeDevinCode(ctx context.Context, proxyOrClient any, code, verifier string) (token, apiServer string, err error) {
+	hc, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return "", "", err
 	}
 	body, _ := json.Marshal(map[string]string{"code": code, "code_verifier": verifier})
 	status, raw, err := devinPostJSON(ctx, hc, envOr(EnvDevinAPIURL, devinDefaultAPIURL)+"/auth/cli/token", body)
@@ -915,7 +924,11 @@ func exchangeDevinCode(ctx context.Context, hc *http.Client, code, verifier stri
 	return token, apiServer, nil
 }
 
-func devinPostJSON(ctx context.Context, hc *http.Client, endpoint string, body []byte) (int, []byte, error) {
+func devinPostJSON(ctx context.Context, proxyOrClient any, endpoint string, body []byte) (int, []byte, error) {
+	hc, err := providerHTTPClientArg(proxyOrClient)
+	if err != nil {
+		return 0, nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, devinRPCTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))

@@ -142,7 +142,10 @@ func (s *dryRunState) providerRejecting(name string) error {
 }
 
 func (s *dryRunState) mcpCommand(server, command string) error {
-	return s.write(dryRunModeline + fmt.Sprintf("mcp_servers:\n  - name: %s\n    command: %s\n", server, command))
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.home), server, config.MCPJSONServer{Command: command}); err != nil {
+		return err
+	}
+	return s.write(dryRunModeline + "agent:\n  max_turns: 5\n")
 }
 
 func (s *dryRunState) telegramAccepting(username string) error {
@@ -311,7 +314,7 @@ func initializeDryRunScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a config\.yaml whose provider "([^"]*)" points at a model server listing "([^"]*)"$`, s.providerListing)
 	sc.Step(`^the config uses model "([^"]*)"$`, s.usesModel)
 	sc.Step(`^a config\.yaml whose provider "([^"]*)" points at a model server that rejects every request$`, s.providerRejecting)
-	sc.Step(`^a config\.yaml with an MCP server "([^"]*)" whose command is "([^"]*)"$`, s.mcpCommand)
+	sc.Step(`^a home mcp\.json with an MCP server "([^"]*)" whose command is "([^"]*)"$`, s.mcpCommand)
 	sc.Step(`^a config\.yaml enabling the Telegram gateway with a token the Bot API accepts as "([^"]*)"$`, s.telegramAccepting)
 	sc.Step(`^a config\.yaml whose prompts\.dir points at a folder that does not exist$`, s.promptsDirMissing)
 	sc.Step(`^a config\.yaml whose httpserver section says "enabled: true" on line (\d+)$`, s.misspelledHTTPServerKey)

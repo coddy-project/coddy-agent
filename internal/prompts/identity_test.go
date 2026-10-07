@@ -114,11 +114,14 @@ func TestBuiltInTemplatesIdentifyCoddyWithLongCWD(t *testing.T) {
 	}
 }
 
-// RenderWithFallback returns a generic stub when a custom template is broken;
+// RenderChecked returns a generic stub when a custom template is broken;
 // that stub has no name of its own and depends on WithIdentity.
 func TestFallbackPromptIsIdentifiedByWithIdentity(t *testing.T) {
-	fallback := prompts.RenderWithFallback("agent", "/nonexistent-prompts-dir",
+	fallback, rendered := prompts.RenderChecked("agent", "/nonexistent-prompts-dir",
 		defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/tmp", UTCNow: fixtureUTC})
+	if rendered {
+		t.Fatal("a missing template reported as rendered")
+	}
 
 	assertIdentified(t, prompts.WithIdentity(fallback), "render fallback")
 }

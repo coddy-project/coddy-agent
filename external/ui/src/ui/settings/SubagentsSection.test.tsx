@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -9,6 +10,10 @@ import {
 import { initLocale } from "../i18n/i18n";
 import type { JsonSchema } from "./SchemaForm";
 import { SubagentsSection } from "./SubagentsSection";
+import {
+  noteSettingsConfigSaved,
+  resetSettingsConfigForTests,
+} from "./settingsConfigStore";
 
 beforeEach(() => {
   initLocale("en");
@@ -18,6 +23,7 @@ afterEach(() => {
   cleanup();
   initLocale("en");
   vi.unstubAllGlobals();
+  resetSettingsConfigForTests();
 });
 
 const schema: JsonSchema = {
@@ -113,31 +119,206 @@ test("lists every definition of the session workspace with its scope, descriptio
   expect(screen.getByText("Project definitions")).toBeInTheDocument();
 });
 
-test("the list only reads: a row folds, nothing acts on a definition", async () => {
+test("a row folds its bounds open; only a project definition under ask has a shield", async () => {
   stubFetch();
   renderSection("/work/repo");
   const catalog = await screen.findByTestId("subagents-catalog");
   await screen.findByTestId("subagents-list");
-  // The (i) of the legend explains the list and each row's chevron folds its
-  // bounds open; there is no other control.
+  // The (i) of the legend explains the list, each row's chevron folds its
+  // bounds open, and the project file the policy holds carries the MCP
+  // shield. Nothing else acts on a definition.
   const buttons = [...catalog.querySelectorAll("button:not(.field-hint)")];
-  expect(buttons).toHaveLength(2);
-  for (const b of buttons) {
-    expect(b.className).toBe("subagents-toggle");
-    expect(b).toHaveAttribute("aria-expanded");
-  }
+  expect(buttons).toHaveLength(3);
+  const toggles = buttons.filter((b) => b.className === "subagents-toggle");
+  expect(toggles).toHaveLength(2);
+  for (const b of toggles) expect(b).toHaveAttribute("aria-expanded");
+  const shield = screen.getByTestId("subagent-trust-reviewer");
+  expect(buttons).toContain(shield);
+  expect(shield.querySelector("svg")).not.toBeNull();
+  expect(screen.queryByTestId("subagent-trust-general")).toBeNull();
 });
 
-test("a definition awaiting approval says so and how, with nothing to click", async () => {
+test("a definition awaiting approval says so and how", async () => {
   stubFetch();
   renderSection("/work/repo");
   const badge = await screen.findByTestId("subagent-pending-reviewer");
   expect(badge).toHaveTextContent("needs approval");
   expect(badge).toHaveAttribute(
     "title",
-    "Spawning it is refused until it is approved for this workspace: coddy agents trust reviewer",
+    "Spawning it is refused until it is approved for this workspace: the shield, or coddy agents trust reviewer",
   );
   expect(screen.queryByTestId("subagent-pending-general")).toBeNull();
+  const shield = screen.getByTestId("subagent-trust-reviewer");
+  expect(shield).toHaveClass("settings-btn-approve");
+  expect(shield).not.toHaveClass("is-trusted");
+  expect(shield).toHaveAttribute(
+    "title",
+    "Approve spawning reviewer in this workspace",
+  );
+  expect(shield).toHaveAttribute("aria-label", "Approve subagent reviewer");
+});
+
+type Call = { url: string; method: string; body: unknown };
+
+// Answers the catalog GET with the listing current at the time, and records
+// every request; a trust or untrust POST answers with the given response and
+// moves the listing to the given next state.
+function stubTrustFlow(opts: {
+  after: unknown;
+  trustResponse?: { ok: boolean; status: number; body: unknown };
+}) {
+  const calls: Call[] = [];
+  let listing: unknown = listResponse;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      calls.push({ url: String(url), method, body });
+      if (method === "POST") {
+        const res = opts.trustResponse ?? { ok: true, status: 200, body: {} };
+        if (res.ok) listing = opts.after;
+        return Promise.resolve({
+          ok: res.ok,
+          status: res.status,
+          json: async () => res.body,
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => listing });
+    }),
+  );
+  return calls;
+}
+
+const approvedListing = {
+  ...listResponse,
+  items: listResponse.items.map((item) =>
+    item.name === "reviewer"
+      ? { ...item, trust: "trusted", trusted: true, needs_approval: false }
+      : item,
+  ),
+};
+
+test("the shield approves a project definition for the workspace, bound to the file it showed", async () => {
+  const calls = stubTrustFlow({ after: approvedListing });
+  renderSection("/work/repo");
+  fireEvent.click(await screen.findByTestId("subagent-trust-reviewer"));
+
+  await waitFor(() =>
+    expect(screen.getByTestId("subagent-trust-reviewer")).toHaveClass(
+      "is-trusted",
+    ),
+  );
+  const post = calls.find((c) => c.method === "POST");
+  expect(post?.url).toBe("/coddy/subagents/reviewer/trust");
+  // The digest of the file the row showed: a file the checkout rewrote since
+  // is refused rather than approved unseen.
+  expect(post?.body).toEqual({ cwd: "/work/repo", digest: "9f2ca1b3d4e5f607" });
+  // The list is read again after the change.
+  expect(calls.filter((c) => c.method === "GET")).toHaveLength(2);
+  expect(screen.queryByTestId("subagent-pending-reviewer")).toBeNull();
+  expect(screen.getByTestId("subagent-trust-reviewer")).toHaveAttribute(
+    "title",
+    "Approved for this workspace, click to withdraw",
+  );
+});
+
+test("the shield of an approved definition withdraws the approval", async () => {
+  const calls = stubTrustFlow({ after: listResponse });
+  // Start from the approved listing: the first GET answers with it.
+  vi.mocked(fetch).mockImplementationOnce(() =>
+    Promise.resolve({
+      ok: true,
+      json: async () => approvedListing,
+    } as Response),
+  );
+  renderSection("/work/repo");
+  const shield = await screen.findByTestId("subagent-trust-reviewer");
+  await waitFor(() => expect(shield).toHaveClass("is-trusted"));
+  expect(shield).toHaveAttribute(
+    "aria-label",
+    "Withdraw the approval of subagent reviewer",
+  );
+  fireEvent.click(shield);
+
+  await screen.findByTestId("subagent-pending-reviewer");
+  const post = calls.find((c) => c.method === "POST");
+  expect(post?.url).toBe("/coddy/subagents/reviewer/untrust");
+  expect(post?.body).toEqual({ cwd: "/work/repo" });
+});
+
+test("a refused approval says why and leaves the definition held", async () => {
+  stubTrustFlow({
+    after: approvedListing,
+    trustResponse: {
+      ok: false,
+      status: 409,
+      body: {
+        error: {
+          message:
+            "subagent reviewer changed since it was listed; review it again",
+        },
+      },
+    },
+  });
+  renderSection("/work/repo");
+  fireEvent.click(await screen.findByTestId("subagent-trust-reviewer"));
+
+  await screen.findByText(
+    "subagent reviewer changed since it was listed; review it again",
+  );
+  expect(screen.getByTestId("subagent-pending-reviewer")).toBeInTheDocument();
+  expect(screen.getByTestId("subagent-trust-reviewer")).not.toHaveClass(
+    "is-trusted",
+  );
+});
+
+test("no shield where approving means nothing: allow, deny, a built-in or a file of yours", async () => {
+  const mine = {
+    name: "mine",
+    description: "One of my own.",
+    scope: "user",
+    path: "/home/me/.coddy/agents/mine.md",
+    digest: "0011223344556677",
+    builtin: false,
+    hidden: false,
+    trust: "trusted",
+    trusted: true,
+    needs_approval: false,
+  };
+  for (const policy of ["allow", "deny"]) {
+    cleanup();
+    stubFetch({
+      ...listResponse,
+      policy,
+      items: [
+        ...listResponse.items.map((item) =>
+          item.name === "reviewer"
+            ? {
+                ...item,
+                trust: policy === "allow" ? "trusted" : "denied",
+                trusted: policy === "allow",
+                needs_approval: false,
+              }
+            : item,
+        ),
+        mine,
+      ],
+    });
+    renderSection("/work/repo");
+    await screen.findByTestId("subagent-row-mine");
+    expect(screen.queryByTestId("subagent-trust-reviewer")).toBeNull();
+    expect(screen.queryByTestId("subagent-trust-mine")).toBeNull();
+    expect(screen.queryByTestId("subagent-trust-general")).toBeNull();
+  }
+  // Under ask a file of yours or a built-in still has none.
+  cleanup();
+  stubFetch({ ...listResponse, items: [...listResponse.items, mine] });
+  renderSection("/work/repo");
+  await screen.findByTestId("subagent-row-mine");
+  expect(screen.getByTestId("subagent-trust-reviewer")).toBeInTheDocument();
+  expect(screen.queryByTestId("subagent-trust-mine")).toBeNull();
+  expect(screen.queryByTestId("subagent-trust-general")).toBeNull();
 });
 
 // The name is the fold: the app's chevron in front of it, no line of its own
@@ -247,4 +428,17 @@ test("the subagent settings sit in their own fieldset above the definitions", as
   );
   const rule = /^\.settings-subagents-section\s*\{([^}]*)\}/m.exec(css);
   expect(rule?.[1]).toMatch(/gap:\s*12px/);
+});
+
+// A save of the settings may change subagents.project_trust: the catalog is
+// read again, so the shields and badges follow the saved policy.
+test("a save of the settings reads the catalog again", async () => {
+  const urls = stubFetch();
+  renderSection("/work/repo");
+  await screen.findByTestId("subagents-list");
+  expect(urls).toHaveLength(1);
+  act(() => {
+    noteSettingsConfigSaved({ subagents: { project_trust: "allow" } });
+  });
+  await waitFor(() => expect(urls).toHaveLength(2));
 });

@@ -1,0 +1,14 @@
+---
+description: ACP session readiness, notifications, and wire compatibility
+paths:
+  - "internal/acp/**/*.go"
+  - "cmd/coddy/acp*.go"
+  - "examples/acp/**/*.py"
+  - "docs/reference/acp-protocol.md"
+---
+# ACP protocol readiness and compatibility
+
+- Completion of a JSON-RPC response does not mean that session-ready notifications have already arrived.
+- After `session/new` or `session/load`, a consumer expecting `available_commands_update` keeps reading until that notification arrives and preserves every intervening notification.
+- Do not diagnose an immediately empty catalog as a skill or rule discovery failure before reading the post-response notification.
+- Preserve ACP schema wire names and generated camelCase fields.

@@ -1,8 +1,9 @@
 package llm
 
 // Godog harness for features/llm_stream_stall.feature: exercises the real
-// OpenAI provider, built through NewProvider with a stream idle timeout,
-// against a stub upstream that starts answering and then goes quiet. The
+// OpenAI and Codex providers, built through NewProvider with a stream idle
+// timeout, against a stub upstream that starts answering and then goes
+// quiet. The
 // guard has to cut the stream after the idle time, keep the delivered text
 // next to a stall error, and repeat the request only while no delta reached
 // the caller.
@@ -13,6 +14,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -28,6 +31,9 @@ type streamStallState struct {
 	idle     time.Duration
 	resp     *Response
 	callErr  error
+	// restoreCodexBaseURL puts the process-wide Codex redirect back after a
+	// codex scenario; nil when the scenario did not set it.
+	restoreCodexBaseURL func()
 }
 
 func (s *streamStallState) reset() {
@@ -43,6 +49,10 @@ func (s *streamStallState) cleanup() {
 	if s.server != nil {
 		s.server.Close()
 		s.server = nil
+	}
+	if s.restoreCodexBaseURL != nil {
+		s.restoreCodexBaseURL()
+		s.restoreCodexBaseURL = nil
 	}
 }
 
@@ -93,6 +103,63 @@ func (s *streamStallState) aProviderStallingAfterTextDeltas(idleMS int) error {
 		<-r.Context().Done()
 	}))
 	return s.newProvider(idleMS)
+}
+
+// aCodexProviderStallingWithoutContentType plays the Codex backend, which
+// answers its stream with no Content-Type header: two deltas, then nothing
+// until the client gives up.
+func (s *streamStallState) aCodexProviderStallingWithoutContentType(idleMS int) error {
+	s.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.requests.Add(1)
+		flusher, _ := w.(http.Flusher)
+		// A nil value keeps net/http from sniffing one in.
+		w.Header()["Content-Type"] = nil
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w,
+			"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\n"+
+				"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\" fr\"}\n\n")
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	dir, err := os.MkdirTemp("", "coddy-codex-stall-*")
+	if err != nil {
+		return err
+	}
+	// Installed before anything else can fail, so cleanup removes the
+	// folder and restores the variable whichever step returns early.
+	prev, had := os.LookupEnv(EnvCodexBaseURL)
+	s.restoreCodexBaseURL = func() {
+		if had {
+			_ = os.Setenv(EnvCodexBaseURL, prev)
+		} else {
+			_ = os.Unsetenv(EnvCodexBaseURL)
+		}
+		_ = os.RemoveAll(dir)
+	}
+	authPath := filepath.Join(dir, "codex-auth.json")
+	auth := fmt.Sprintf(`{"auth_mode":"chatgpt","tokens":{"access_token":%q,"refresh_token":"rt","account_id":"acct"}}`,
+		makeJWT(time.Now().Add(time.Hour)))
+	if err := os.WriteFile(authPath, []byte(auth), 0o600); err != nil {
+		return err
+	}
+	if err := os.Setenv(EnvCodexBaseURL, s.server.URL); err != nil {
+		return err
+	}
+	s.idle = time.Duration(idleMS) * time.Millisecond
+	provider, err := NewProvider(ProviderInput{
+		Type:              "codex",
+		Model:             "gpt-5.5",
+		AuthPath:          authPath,
+		RetryMax:          1,
+		RetryBase:         time.Millisecond,
+		RetryMaxDelay:     time.Millisecond,
+		StreamIdleTimeout: s.idle,
+	})
+	if err != nil {
+		return fmt.Errorf("create codex provider: %w", err)
+	}
+	s.provider = provider
+	return nil
 }
 
 // aProviderStallingOnceAfterEmptyFrame answers the first request with a
@@ -175,6 +242,7 @@ func initializeStreamStallScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^an "openai" provider with a stream idle timeout of (\d+) ms pointed at a stub server that stalls after text deltas$`, s.aProviderStallingAfterTextDeltas)
+	sc.Step(`^a "codex" provider with a stream idle timeout of (\d+) ms pointed at a backend that names no content type and stalls after text deltas$`, s.aCodexProviderStallingWithoutContentType)
 	sc.Step(`^an "openai" provider with a stream idle timeout of (\d+) ms whose upstream stalls once after an empty first frame and then streams a completion$`, s.aProviderStallingOnceAfterEmptyFrame)
 	sc.Step(`^a streaming completion is requested$`, s.aStreamingCompletionIsRequested)
 	sc.Step(`^the call fails with a stall error that names the idle time$`, s.theCallFailsWithAStallError)

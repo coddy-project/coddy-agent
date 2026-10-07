@@ -31,6 +31,13 @@ export const messagesEn: Record<string, string> = {
     "Sign-in is switched on but no account is configured. Run `coddy serve set-password` on the server.",
   "auth.signIn.crossSite": "That request did not come from this page.",
   "auth.signIn.failed": "Sign-in failed ({status}).",
+  "auth.signIn.notKept":
+    "The server accepted the sign-in, but this browser did not keep it in this frame, because the page is embedded in another site such as Telegram Web.",
+  "auth.signIn.openInTab": "Open Coddy in a tab of its own",
+  "auth.signIn.telegramNotAdmin":
+    "Only the bot's admins can open Coddy from Telegram.",
+  "auth.signIn.telegramRetry":
+    "Telegram's sign-in did not go through. Close the Mini App and open it again.",
   "auth.signOut.action": "Sign out",
   "auth.signOut.tooltipUser": "Sign out ({user})",
 
@@ -82,7 +89,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.tools.label": "Tools and permissions",
   "settings.section.mcp_servers.label": "MCP servers",
   "settings.section.skills.label": "Skills",
-  "settings.section.memory.label": "Memory copilot",
+  "settings.section.memory.label": "Memory",
   "settings.section.system.label": "Prompts",
   "settings.section.compaction.label": "Context compaction",
   "settings.section.subagents.label": "Subagents",
@@ -134,6 +141,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.swarm.cors.enable.label": "Enable CORS",
   "settings.schema.swarm.cors.enable.desc":
     "Answer cross-origin requests from the origins below.",
+  "settings.schema.swarm.cors.allow_loopback.label": "Allow loopback origins",
+  "settings.schema.swarm.cors.allow_loopback.desc":
+    "Also admit any page from the browser's own machine - localhost, *.localhost, 127.0.0.0/8 or [::1] on any port - such as a laptop's coddy serve, whatever port it took. The client token still applies.",
   "settings.schema.swarm.cors.allowed_origins.label": "Allowed origins",
   "settings.schema.swarm.cors.allowed_origins.desc":
     "Exact origins, for example http://localhost:12345, or * for any.",
@@ -223,7 +233,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.logger.label": "Logger",
   "settings.section.logger.desc": "Level, outputs, rotation",
   "settings.section.gateways.label": "Gateways",
-  "settings.section.gateways.desc": "Telegram bot",
+  "settings.section.gateways.desc": "Telegram and Pachca bots",
   "settings.group.agent.turn": "Model and turns",
   "settings.group.agent.retries": "Retries",
   "settings.group.agent.timeouts": "Stream timeouts",
@@ -386,23 +396,33 @@ export const messagesEn: Record<string, string> = {
     "Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise.",
   "settings.schema.models.reasoning_default.ph":
     "medium when offered, else the first level",
+  "settings.schema.models.allow_reasoning_off.label":
+    "Allow disabling reasoning",
+  "settings.schema.models.allow_reasoning_off.desc":
+    "Show Off in this model's reasoning selector. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically.",
   "settings.schema.models.stream.label": "Stream responses",
   "settings.schema.models.stream.desc":
     "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
 
   "settings.schema.agent.model.label": "Default model",
   "settings.schema.supervisor.enable.label": "Enable watchdog",
-  "settings.schema.supervisor.enable.desc": "Watch ordinary turns even without a /goal. A session goal activates supervision regardless of this switch.",
+  "settings.schema.supervisor.enable.desc":
+    "Watch ordinary turns even without a /goal. A session goal activates supervision regardless of this switch.",
   "settings.schema.supervisor.model.label": "Supervisor model",
-  "settings.schema.supervisor.model.desc": "Configured model used for short completion checks. Empty uses the session model.",
+  "settings.schema.supervisor.model.desc":
+    "Configured model used for short completion checks. Empty uses the session model.",
   "settings.schema.supervisor.stall_seconds.label": "Stall seconds",
-  "settings.schema.supervisor.stall_seconds.desc": "Silence before interrupting a turn, excluding permission prompts and running background work. 0 disables stall detection.",
+  "settings.schema.supervisor.stall_seconds.desc":
+    "Silence before interrupting a turn, excluding permission prompts and running background work. 0 disables stall detection.",
   "settings.schema.supervisor.max_nudges.label": "Max nudges",
-  "settings.schema.supervisor.max_nudges.desc": "Maximum stall or loop recovery prompts per user request.",
+  "settings.schema.supervisor.max_nudges.desc":
+    "Maximum stall or loop recovery prompts per user request.",
   "settings.schema.supervisor.max_continuations.label": "Max continuations",
-  "settings.schema.supervisor.max_continuations.desc": "Maximum automatic follow-up turns per user request.",
+  "settings.schema.supervisor.max_continuations.desc":
+    "Maximum automatic follow-up turns per user request.",
   "settings.schema.supervisor.loop_repeat.label": "Loop repeat",
-  "settings.schema.supervisor.loop_repeat.desc": "Consecutive identical tool operations before a loop nudge.",
+  "settings.schema.supervisor.loop_repeat.desc":
+    "Consecutive identical tool operations before a loop nudge.",
   "settings.schema.agent.model.desc":
     "Logical model id from the models list used when the client omits a model.",
   "settings.schema.agent.queue_mode.label": "Queue mode",
@@ -410,7 +430,7 @@ export const messagesEn: Record<string, string> = {
     "What Enter does with a message written while a turn runs: steer joins the running turn at its next step, after_turn starts a prompt of its own after the answer. Tab sends the other way. Unset, the browser and the console ask on the first such message.",
   "settings.schema.agent.max_turns.label": "Max turns",
   "settings.schema.agent.max_turns.desc":
-    "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request; 0 means no limit.",
+    "Cap on ReAct iterations (LLM calls plus tool rounds) for one user request. The default is 165; 0 disables the cap.",
   "settings.schema.agent.llm_retry_max.label": "LLM retry max",
   "settings.schema.agent.llm_retry_max.desc":
     "Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.",
@@ -434,7 +454,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.agent.loop_tool_repeat_limit.label":
     "Loop tool repeat limit",
   "settings.schema.agent.loop_tool_repeat_limit.desc":
-    "Consecutive identical tool calls before the loop guard steps in (0 disables the check).",
+    "Consecutive identical tool calls in successive ReAct responses before the loop guard steps in (0 disables the check).",
   "settings.schema.agent.loop_stream_repeat_cycles.label":
     "Loop stream repeat cycles",
   "settings.schema.agent.loop_stream_repeat_cycles.desc":
@@ -524,10 +544,10 @@ export const messagesEn: Record<string, string> = {
     "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
   "settings.schema.subagents.dirs.label": "Definition directories",
   "settings.schema.subagents.dirs.desc":
-    "Lowest priority first; later entries override earlier ones by name. ${CODDY_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
+    "Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${CODDY_HOME}/agents, the project's .coddy/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${CODDY_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy.",
   "settings.schema.subagents.project_trust.label": "Project definitions",
   "settings.schema.subagents.project_trust.desc":
-    'Definitions found inside the workspace travel with the checkout. "ask": load them but refuse to spawn one until it is approved for this workspace on the machine running coddy (coddy agents trust there, or POST /coddy/subagents/{name}/trust). "allow": treat them like your own files. "deny": never read them.',
+    'Definitions found inside the workspace travel with the checkout. "ask": load them but refuse to spawn one until it is approved for this workspace (the shield of its row in Definitions, coddy agents trust on the machine running coddy, or POST /coddy/subagents/{name}/trust). "allow": treat them like your own files. "deny": never read them.',
   "settings.schema.subagents.max_concurrent.label": "Max concurrent",
   "settings.schema.subagents.max_concurrent.desc":
     "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued.",
@@ -565,7 +585,10 @@ export const messagesEn: Record<string, string> = {
 
   "settings.schema.skills.dirs.label": "Skill directories",
   "settings.schema.skills.dirs.desc":
-    "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${CODDY_HOME}/skills (coddy-specific), ${CWD}/.coddy/skills (project-local). ${CODDY_HOME} and ${CWD} expand at runtime.",
+    "Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${CODDY_HOME}/skills (Coddy's own and installed skills), the project's .coddy/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${CODDY_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included).",
+  "settings.schema.skills.project_trust.label": "Project marketplaces",
+  "settings.schema.skills.project_trust.desc":
+    'The project\'s .coddy/marketplaces.json travels with the checkout. "ask": leave its sources and marketplaces out of every sync until each entry is approved for this workspace (the shield in the list below, or coddy plugin marketplace trust). "allow": treat them like your own ~/.coddy/marketplaces.json. "deny": never use them; they are listed as switched off. What they install goes to ~/.coddy/skills; the project\'s skill folders are not affected.',
   "settings.schema.skills.auto_discovery.desc":
     "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name. Defaults to on.",
 
@@ -603,6 +626,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.memory.max_search_hits.label": "Max search hits",
   "settings.schema.memory.max_search_hits.desc":
     "Maximum snippets returned by memory search tools.",
+  "settings.schema.memory.max_note_chars.label": "Note size cap (characters)",
+  "settings.schema.memory.max_note_chars.desc":
+    "Longest body one saved note may have, in characters; 0 means no cap (default 900).",
   "settings.schema.memory.additional_prompt.label": "Additional instructions",
   "settings.schema.memory.additional_prompt.desc":
     "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them.",
@@ -648,9 +674,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.scheduler.enable.label": "Enabled",
   "settings.schema.scheduler.enable.desc":
     "When true, this process may run the scheduler daemon and REST.",
-  "settings.schema.scheduler.dir.label": "Jobs directory",
-  "settings.schema.scheduler.dir.desc":
-    "Directory of job markdown definitions.",
+  "settings.schema.scheduler.project_trust.label": "Project jobs",
+  "settings.schema.scheduler.project_trust.desc":
+    'Jobs in a workspace\'s .coddy/scheduler travel with the checkout. "ask": list them but run nothing until that exact job is approved for this workspace (the shield in the scheduler drawer). "allow": run them like your own jobs. "deny": never run them.',
   "settings.schema.scheduler.max_queue.label": "Max queue",
   "settings.schema.scheduler.max_queue.desc":
     "Maximum concurrent scheduled agent runs.",
@@ -677,7 +703,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.system.instructions.label": "Instructions",
   "settings.schema.system.instructions.files.label": "Instruction files",
   "settings.schema.system.instructions.files.desc":
-    'Filenames relative to session CWD to read as instructions. Defaults to ["AGENTS.md"].',
+    "Extra files added to the prompt after the AGENTS.md and DESIGN.md documents, which are always read (the agent home's, the session folder's, the nested ones). Empty by default; a relative path is read from the session folder, and a file already in the prompt is not read twice.",
   "settings.schema.logger.label": "Logger",
   "settings.schema.logger.level.label": "Level",
   "settings.schema.logger.level.desc":
@@ -756,6 +782,52 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.gateways.telegram.chats.access.label": "Access",
   "settings.schema.gateways.telegram.chats.access.desc":
     "Per-chat access override: all, admins, or group:<name>.",
+  "settings.schema.gateways.pachca.label": "Pachca",
+  "settings.schema.gateways.pachca.desc": "Pachca integration bot settings.",
+  "settings.schema.gateways.pachca.enable.label": "Enabled",
+  "settings.schema.gateways.pachca.enable.desc":
+    "Run the Pachca bot (requires the gateway or gateway.pachca build tag).",
+  "settings.schema.gateways.pachca.token.label": "Bot token",
+  "settings.schema.gateways.pachca.token.desc":
+    "The access token of a Pachca integration bot. Optional here: leave empty to read it from the PACHCA_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.",
+  "settings.schema.gateways.pachca.proxy.label": "Proxy URL",
+  "settings.schema.gateways.pachca.proxy.desc":
+    "Optional proxy for the Pachca API requests: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5. A URL here replaces the system proxy for the bot. Left empty, the bot follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY).",
+  "settings.schema.gateways.pachca.poll_interval_seconds.label":
+    "Poll interval, seconds",
+  "settings.schema.gateways.pachca.poll_interval_seconds.desc":
+    "How often the bot reads its events history, 1 to 60 seconds (default 2).",
+  "settings.schema.gateways.pachca.admins.label": "Admins",
+  "settings.schema.gateways.pachca.admins.desc":
+    "Pachca user IDs with elevated rights; admins always pass access checks.",
+  "settings.schema.gateways.pachca.default_access.label": "Default access",
+  "settings.schema.gateways.pachca.default_access.desc":
+    "Fallback access level for chats without an override: all, admins, or group:<name>.",
+  "settings.schema.gateways.pachca.default_isolation.label":
+    "Default isolation",
+  "settings.schema.gateways.pachca.default_isolation.desc":
+    "Fallback session isolation for group chats.",
+  "settings.schema.gateways.pachca.user_groups.label": "User groups",
+  "settings.schema.gateways.pachca.user_groups.desc":
+    "Named sets of user IDs referenced by access as group:<name>.",
+  "settings.schema.gateways.pachca.user_groups.name.label": "Group name",
+  "settings.schema.gateways.pachca.user_groups.name.desc":
+    "Name referenced by access as group:<name>.",
+  "settings.schema.gateways.pachca.user_groups.user_ids.label": "User IDs",
+  "settings.schema.gateways.pachca.user_groups.user_ids.desc":
+    "Pachca user IDs that belong to this group.",
+  "settings.schema.gateways.pachca.chats.label": "Per-chat overrides",
+  "settings.schema.gateways.pachca.chats.desc":
+    "Override isolation and access for specific chats.",
+  "settings.schema.gateways.pachca.chats.chat_id.label": "Chat ID",
+  "settings.schema.gateways.pachca.chats.chat_id.desc":
+    "Pachca chat id: a conversation, a channel, a direct chat or a thread's own chat.",
+  "settings.schema.gateways.pachca.chats.isolation.label": "Isolation",
+  "settings.schema.gateways.pachca.chats.isolation.desc":
+    "Per-chat session isolation override.",
+  "settings.schema.gateways.pachca.chats.access.label": "Access",
+  "settings.schema.gateways.pachca.chats.access.desc":
+    "Per-chat access override: all, admins, or group:<name>.",
 
   "settings.combobox.toggleAria": "Toggle options",
 
@@ -826,6 +898,8 @@ export const messagesEn: Record<string, string> = {
   "mcp.error.delete": "Failed to delete {name}",
   "mcp.error.invalidEntry": "Invalid entry.",
   "mcp.error.saveServer": "Failed to save server",
+  "mcp.error.saveChanged":
+    "The entry changed in its file since this editor opened. Cancel and open it again to see what it holds now.",
   "mcp.error.load": "Could not load the MCP servers: {message}",
   "mcp.error.request": "MCP request failed: {message}",
   "mcp.discovery.legend": "MCP discovery",
@@ -849,11 +923,8 @@ export const messagesEn: Record<string, string> = {
   "mcp.switch.disableAria": "Disable MCP server {name}",
   "mcp.switch.enableAria": "Enable MCP server {name}",
   "mcp.edit.title": "Edit entry ({origin})",
-  "mcp.edit.readonlyTitle":
-    "Defined in config.yaml — edit it in the config sections",
   "mcp.edit.aria": "Edit {name}",
   "mcp.delete.title": "Delete from {origin}",
-  "mcp.delete.readonlyTitle": "Defined in config.yaml — cannot delete here",
   "mcp.delete.aria": "Delete {name}",
   "mcp.note.denied":
     "Project MCP servers are switched off by mcp.project_trust: deny. This entry is never started.",
@@ -872,11 +943,11 @@ export const messagesEn: Record<string, string> = {
   "mcp.editor.save": "Save",
   "mcp.editor.cancel": "Cancel",
   "mcp.discovery.description":
-    "The project-local ./.coddy/mcp.json arrives with the checkout, so the repository — not you — picks the command a session would start. On Ask its servers are neither started nor contacted until you approve that exact declaration for this workspace (shield button in the list below); rewriting an approved entry asks again. Servers you add here are approved by the act of writing them. Entries from config.yaml and ~/.coddy/mcp.json are yours and are never gated.",
+    "The project-local ./.coddy/mcp.json arrives with the checkout, so the repository — not you — picks the command a session would start. On Ask its servers are neither started nor contacted until you approve that exact declaration for this workspace (shield button in the list below); rewriting an approved entry asks again. Servers you add here are approved by the act of writing them. Entries from ~/.coddy/mcp.json are yours and are never gated.",
   "mcp.servers.description":
-    "Model Context Protocol servers from three levels: config.yaml (mcp_servers) and the global ~/.coddy/mcp.json, merged with the local ./.coddy/mcp.json of the project (Cursor-compatible; later levels override by name). Switch off a whole server or individual tools. A global server's switch is saved in the file that defines it, a project server's in ~/.coddy/mcp-overrides.json, so the checkout stays as it is. A server switch reaches running sessions at once, a tool switch on their next turn.",
+    "Model Context Protocol servers come from two files: the global ~/.coddy/mcp.json and the project's ./.coddy/mcp.json, which overrides a server of the same name (Cursor-compatible). Switch off a whole server or individual tools. A global server's switch is saved in ~/.coddy/mcp.json, a project server's in ~/.coddy/mcp-overrides.json, so the checkout stays as it is. A server switch reaches running sessions at once, a tool switch on their next turn, and an edit of ~/.coddy/mcp.json made outside this screen within a few seconds.",
   "mcp.empty":
-    "No MCP servers configured. Add one here (saved to the local ./.coddy/mcp.json or the global ~/.coddy/mcp.json) or declare it under mcp_servers in config.yaml.",
+    "No MCP servers configured. Add one here: it is saved to the project's ./.coddy/mcp.json or the global ~/.coddy/mcp.json.",
   "mcp.note.declaredBy":
     "Declared by {path}, which travels with the checkout, so it is neither started nor contacted yet. Approving covers exactly this declaration:",
   "mcp.note.namesOnly":
@@ -884,6 +955,8 @@ export const messagesEn: Record<string, string> = {
   "mcp.note.workspaceFallback": "the session workspace",
   "mcp.editor.formatDescription":
     "One mcpServers entry in Cursor format: command/args/env (object), optional disabled and disabledTools. Saved to {path}.",
+  "mcp.editor.valuesHint":
+    "Env and header values are never shown. {placeholder} keeps the saved value, a new value replaces it, and a key you remove is deleted from the entry.",
 
   "mcp.trustOption.ask": "Ask — approve each project server once",
   "mcp.trustOption.allow": "Allow — start project servers automatically",
@@ -893,7 +966,7 @@ export const messagesEn: Record<string, string> = {
   "mcp.fact.contacts": "contacts",
   "mcp.fact.env": "env",
   "mcp.fact.headers": "headers",
-  "mcp.origin.config": "config.yaml",
+  "mcp.fact.reads": "reads",
   "mcp.origin.home": "~/.coddy/mcp.json",
   "mcp.origin.project": "./.coddy/mcp.json",
   // Settings -> Subagents: the definition catalog
@@ -902,7 +975,7 @@ export const messagesEn: Record<string, string> = {
     "The rules of the delegation pool: whether definitions that came with the checkout may run, how many runs go at once, how deep spawning nests, and how much time and how many rounds one run gets when its definition and the call leave them out.",
   "subagents.catalog.legend": "Definitions",
   "subagents.catalog.description":
-    'Every definition a session in this workspace can spawn: the built-ins, your own files under ~/.coddy/agents, and the .coddy/agents and .claude/agents files that came with the checkout. Under "ask" a project file runs only once it is approved for this workspace, from a terminal on the machine running coddy: coddy agents trust <name>.',
+    'Every definition a session in this workspace can spawn: the built-ins, your own files under ~/.agents/agents and ~/.coddy/agents, and the .agents/agents and .coddy/agents files that came with the checkout. Under "ask" a project file runs only once it is approved for this workspace: with its shield here, or with coddy agents trust <name> on the machine running coddy. Rewriting an approved file asks again.',
   "subagents.catalog.loading": "Loading definitions…",
   "subagents.catalog.empty":
     "No subagent definitions are visible from this workspace.",
@@ -916,7 +989,13 @@ export const messagesEn: Record<string, string> = {
   "subagents.badge.hidden": "hidden",
   "subagents.badge.needsApproval": "needs approval",
   "subagents.badge.needsApprovalTitle":
-    "Spawning it is refused until it is approved for this workspace: coddy agents trust {name}",
+    "Spawning it is refused until it is approved for this workspace: the shield, or coddy agents trust {name}",
+  "subagents.trust.approveTitle": "Approve spawning {name} in this workspace",
+  "subagents.trust.approvedTitle":
+    "Approved for this workspace, click to withdraw",
+  "subagents.trust.approveAria": "Approve subagent {name}",
+  "subagents.trust.withdrawAria": "Withdraw the approval of subagent {name}",
+  "subagents.error.trust": "Could not change the approval of {name}.",
   "subagents.fact.file": "file",
   "subagents.fact.model": "model",
   "subagents.fact.modelInherits": "the parent's model",
@@ -975,20 +1054,53 @@ export const messagesEn: Record<string, string> = {
   "skills.error.install": "Failed to install {name}",
   "skills.status.updated": "Updated {name}.",
   "skills.status.installed": "Installed {name}.",
-  "skills.sources.legend": "Remote skill sources",
+  "skills.trust.legend": "Marketplace discovery",
+  "skills.trust.description":
+    "The project's .coddy/marketplaces.json arrives with the checkout, so the repository - not you - picks what a sync installs into ~/.coddy/skills. On ask its entries are neither synced nor offered until you approve each one for this workspace (the shield in the list below); rewriting an approved entry asks again. Entries you add to the project here are approved as you write them, and ~/.coddy/marketplaces.json is yours and never gated. Saved with the rest of the settings.",
+  "skills.sources.legend": "Marketplaces",
   "skills.sources.add": "Add",
+  "skills.sources.addAria": "Source to add",
+  "skills.sources.scopeAria": "Where to declare it",
+  "skills.sources.scope.global": "Yours (~/.coddy)",
+  "skills.sources.scope.local": "This project",
   "skills.sources.syncAll": "Sync all",
-  "skills.sources.syncAllTitle": "Fetch every configured marketplace",
+  "skills.sources.syncAllTitle": "Fetch every source and marketplace in effect",
   "skills.sources.completed": "Completed",
   "skills.sources.syncedTitle": "Synced",
   "skills.sources.syncTitle": "Sync {source}",
+  "skills.sources.heldSyncTitle": "Approve it for this workspace first",
+  "skills.sources.deniedSyncTitle":
+    "Project marketplaces are switched off by skills.project_trust: deny",
+  "skills.sources.scope.noSessionTitle":
+    "Send the first message of a chat in the project to declare a marketplace for it; until then this adds to yours",
   "skills.sources.syncAria": "Sync this marketplace",
-  "skills.sources.removeTitle": "Remove",
+  "skills.sources.removeTitle": "Remove from {path}",
   "skills.sources.systemTitle":
-    "Built into Coddy: in effect without being in config.yaml, and not removable",
+    "Built into Coddy: always in effect, always trusted, not removable",
   "skills.sources.removeAria": "Remove marketplace",
+  "skills.sources.kind.source": "all plugins",
+  "skills.sources.kind.marketplace": "catalog",
+  "skills.sources.origin.system": "built in",
+  "skills.sources.origin.home": "yours",
+  "skills.sources.origin.project": "from the project",
+  "skills.sources.trust.systemAria":
+    "{source} is built into Coddy and always trusted",
+  "skills.sources.trust.approveTitle":
+    "Approve syncing {source} in this workspace",
+  "skills.sources.trust.approvedTitle":
+    "Approved for this workspace, click to withdraw",
+  "skills.sources.trust.approveAria": "Approve {source} for this workspace",
+  "skills.sources.trust.withdrawAria": "Withdraw the approval of {source}",
+  "skills.sources.note.held":
+    "Declared by {path}, which travels with the checkout, so it is not synced until you approve it for this workspace with the shield.",
+  "skills.sources.note.denied":
+    "Project marketplaces are switched off by skills.project_trust: deny.",
+  "skills.sources.error.load": "Could not load the marketplaces.",
+  "skills.sources.error.add": "Could not add {source}.",
+  "skills.sources.error.remove": "Could not remove {source}.",
+  "skills.sources.error.trust": "Could not change the approval of {source}.",
   "skills.sources.description":
-    "GitHub repos (owner/repo[@ref]), git URLs, or an agents-standard marketplace.json URL. Saved to skills.sources; fetched only when you sync. The greyed-out rows are built into Coddy and cannot be removed.",
+    'Where remote skills come from. A source installs every plugin it publishes and keeps them in sync; a catalog (coddy plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.coddy/marketplaces.json, the project\'s in its .coddy/marketplaces.json, which travels with the checkout: under "ask" a project entry is synced only once you approve it with the shield. Everything installs into ~/.coddy/skills, and nothing is fetched until you sync. The built-in rpa-skills marketplace is always in effect and always trusted.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
   "skills.install.cliHint":
     "You can also install skills via npx skills or npx skillsbd - they land in ~/.agents/skills/ and are picked up automatically.",
@@ -1005,6 +1117,7 @@ export const messagesEn: Record<string, string> = {
   "skills.badge.syncedFrom": "Synced from {source}",
   "app.chatBusy": "This chat is busy in another client. Try again in a moment.",
   "app.stopFailed": "Could not stop generation. Try again.",
+  "app.undoEditFailed": "Could not undo the edit: {error}",
   "app.emptyResponseBody": "Empty response body",
 
   "nav.ariaLabel": "Nav",
@@ -1017,6 +1130,10 @@ export const messagesEn: Record<string, string> = {
   "nav.wideSidebarTooltip": "Wide sidebar",
   "nav.history": "History",
   "nav.scheduler": "Scheduler",
+  "nav.activeSessions.one": "{count} active session",
+  "nav.activeSessions.other": "{count} active sessions",
+  "nav.activeRuns.one": "{count} active run",
+  "nav.activeRuns.other": "{count} active runs",
   "nav.swarm": "Swarm",
   "nav.docs": "Docs",
   "nav.schedulerAriaLabel": "Scheduler jobs",
@@ -1034,6 +1151,8 @@ export const messagesEn: Record<string, string> = {
   "sessions.turnRunning": "Turn running",
   "sessions.backgroundRunning": "Background tasks running",
   "sessions.unreadCompletion": "Unread completion",
+  "sessions.stateFinished": "Finished",
+  "sessions.stateError": "Last turn ended with an error",
   "sessions.newChatFallback": "New chat",
   "sessions.deleteConversation": "Delete conversation",
   "sessions.delete": "Delete",
@@ -1120,10 +1239,8 @@ export const messagesEn: Record<string, string> = {
   "sessions.group.untagged": "No tags",
   "sessions.group.collapse": "Collapse {group}",
   "sessions.group.expand": "Expand {group}",
-  "sessions.dragPin": "Drag to reorder",
   "sessions.pin": "Pin to the top",
   "sessions.unpin": "Unpin",
-  "sessions.pinnedBadge": "pinned",
   "sessions.rowMenu": "Conversation actions",
   "sessions.archive": "Archive",
   "sessions.unarchive": "Unarchive",
@@ -1146,13 +1263,14 @@ export const messagesEn: Record<string, string> = {
 
   "chat.newChat": "New chat",
   "chat.chatTitleAriaLabel": "Chat title",
+  "chat.views.label": "Views of this chat",
+  "chat.views.filesTitle": "Workspace files ({key})",
   "chat.archived.notice":
     "This conversation is archived. Take it out of the archive to keep working in it.",
   "chat.archived.unarchive": "Unarchive",
-  "chat.subagentReadOnly.notice":
-    "Read-only transcript of subagent {name}. Prompts go to the parent chat.",
-  "chat.subagentReadOnly.noticeUnnamed":
-    "Read-only subagent transcript. Prompts go to the parent chat.",
+  "chat.subagentReadOnly.notice": "Read-only transcript of subagent {name}.",
+  "chat.subagentReadOnly.noticeUnnamed": "Read-only subagent transcript.",
+  "chat.subagentReadOnly.model": "Effective model: {model}",
   "chat.subagentReadOnly.openParent": "Open parent chat",
   "chat.subagentTitle": "Subagent {name}",
   "chat.subagentTitleUnnamed": "Subagent transcript",
@@ -1232,6 +1350,15 @@ export const messagesEn: Record<string, string> = {
     "Could not read the attached file {name}, nothing was sent ({reason}).",
   "composer.queueFailed": "The message could not be queued.",
   "composer.send": "Send",
+  "composer.sendEdit": "Send edit",
+  "composer.editingMessage": "Editing message",
+  "composer.editingHint": "Sending rewinds the conversation to this message",
+  "composer.cancelEdit": "Cancel edit (Esc)",
+  "composer.messageEdited": "Message edited.",
+  "composer.undoEditHint":
+    "Undo restores the conversation as it was; file changes are not reverted",
+  "composer.undoEdit": "Undo",
+  "composer.undoDismiss": "Hide",
   "composer.stopGeneration": "Stop generation",
   "composer.enhance": "Improve prompt",
   "composer.enhanceNoModel":
@@ -1349,35 +1476,38 @@ export const messagesEn: Record<string, string> = {
   "composer.atRangeMenuHint": "Add “:” after a file to pick lines",
   "composer.atRangeTruncated": "Showing first {shown} of {total} lines",
   "composer.requestFailed": "request failed",
-  "composer.env.ariaLabel": "Environment",
-  "composer.env.title": "Environment (local or remote coddy serve)",
-  "composer.env.local": "Local",
-  "composer.env.localThisOrigin": "Local (this origin)",
-  "composer.env.groupEnvironment": "Environment",
-  "composer.env.groupRemote": "Remote",
-  "composer.env.addFormTitle": "Connect to a server",
-  "composer.env.addRemote": "Connect to…",
-  "composer.env.namePlaceholder": "name",
-  "composer.env.tokenPlaceholder": "bearer token (empty if none)",
-  "composer.env.connect": "Connect",
-  "composer.env.cancel": "Cancel",
-  "composer.env.enterToken": "Enter token",
-  "composer.env.hint.down": "Does not answer.",
-  "composer.env.hint.agentToken":
+  "env.ariaLabel": "Environment: {name}",
+  "env.tooltip": "Environment: {name}",
+  "env.local": "Local",
+  "env.localThisOrigin": "Local (this origin)",
+  "env.groupEnvironment": "Environment",
+  "env.groupRemote": "Remote",
+  "env.addFormTitle": "Connect to a server",
+  "env.addRemote": "Connect to…",
+  "env.namePlaceholder": "name",
+  "env.tokenPlaceholder": "bearer token (empty if none)",
+  "env.connect": "Connect",
+  "env.cancel": "Cancel",
+  "env.enterToken": "Enter token",
+  "env.hint.down": "Does not answer.",
+  "env.hint.agentToken":
     "Refuses the token. It takes the token of its httpserver.auth_token.",
-  "composer.env.hint.relayToken":
+  "env.hint.relayToken":
     "The relay refuses the token. It takes its client token, swarm.auth_token.",
-  "composer.env.hint.configToken":
+  "env.hint.configToken":
     "The token of this entry in httpserver.remotes is refused.",
-  "composer.env.hint.cors":
+  "env.hint.cors":
     "Blocked by CORS. Allow {origin} in swarm.cors.allowed_origins (relay) or httpserver.cors.allowed_origins (coddy serve).",
-  "composer.env.relay": "relay",
-  "composer.env.nodeOffline": "offline",
+  "env.hint.corsLoopback":
+    "Blocked by CORS. This page is on a loopback address: set swarm.cors.allow_loopback (relay) or httpserver.cors.allow_loopback (coddy serve) to true, or allow {origin} exactly in allowed_origins.",
+  "env.relay": "relay",
+  "env.nodeOffline": "offline",
   "composer.folderModal.title": "Open folder",
   "composer.folderModal.close": "Close folder browser",
   "composer.folderModal.pathLabel": "Folder path",
   "composer.folderModal.pathPlaceholder": "Path",
   "composer.folderModal.drivesPlaceholder": "This PC",
+  "composer.folderModal.showHidden": "Show hidden",
   "composer.folderModal.noSubfolders": "No subfolders",
   "composer.folderModal.noDrives": "No drives",
   "composer.folderModal.cannotList": "Cannot list {path}",
@@ -1401,6 +1531,10 @@ export const messagesEn: Record<string, string> = {
     "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} on the relay.",
   "env.banner.corsEither":
     "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} if it is a relay, or to {agentCors} if it is a coddy serve.",
+  "env.banner.corsRelayLoopback":
+    "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} on the relay, or set {relayLoopback} to true there: this page is on a loopback address, and that admits it on any port.",
+  "env.banner.corsEitherLoopback":
+    "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} if it is a relay, or to {agentCors} if it is a coddy serve - or set {relayLoopback} / {agentLoopback} to true: this page is on a loopback address, and that admits it on any port.",
   "env.banner.switchLocal": "Switch to Local",
 
   "prompts.questions": "Questions",
@@ -1439,6 +1573,29 @@ export const messagesEn: Record<string, string> = {
   "scheduler.loading": "Loading…",
   "scheduler.noDescription": "—",
   "scheduler.paused": "paused",
+  "scheduler.group.user": "Global",
+  "scheduler.group.userEmpty": "No global jobs",
+  "scheduler.group.thisProject": "This project · {name}",
+  "scheduler.group.project": "Project · {name}",
+  "scheduler.trust.trusted": "Approved",
+  "scheduler.trust.needsApproval": "needs approval",
+  "scheduler.trust.denied": "denied",
+  "scheduler.trust.conflict": "id conflict",
+  "scheduler.trust.invalid": "invalid",
+  "scheduler.trust.review": "Review and approve",
+  "scheduler.trust.reviewAria": "Review and approve project job {jobId}",
+  "scheduler.trust.approveTitle": "Approve this job for this workspace",
+  "scheduler.trust.withdrawTitle": "Withdraw the approval",
+  "scheduler.trust.from": "Project job from {workspace}",
+  "scheduler.trust.reviewNote":
+    "It came with the repository and runs an agent with your permissions on a timer. Approving trusts exactly the file below; any later change needs approving again.",
+  "scheduler.field.scope": "Where the job lives",
+  "scheduler.field.scopeHelp":
+    "Global jobs live in your Coddy home. A project job is saved in the repository (.coddy/scheduler) and travels with it; it is approved for you, others approve it themselves.",
+  "scheduler.field.scopeNoSession":
+    "Open a chat in a project to create a project job there.",
+  "scheduler.scope.user": "Global",
+  "scheduler.scope.project": "This project ({name})",
   "scheduler.addJob": "Add job",
   "scheduler.runJobNow": "Run job now",
   "scheduler.stopJob": "Stop job",
@@ -1455,7 +1612,7 @@ export const messagesEn: Record<string, string> = {
   "scheduler.field.schedulePlaceholder": "0 * * * *",
   "scheduler.field.cwd": "cwd (optional)",
   "scheduler.field.cwdHelp":
-    "Defaults to the agent working directory for this instance.",
+    "Defaults to the agent working directory for this instance; a project job's cwd is relative to its workspace.",
   "scheduler.field.mode": "mode",
   "scheduler.mode.agent": "agent",
   "scheduler.mode.ask": "ask",
@@ -1494,6 +1651,83 @@ export const messagesEn: Record<string, string> = {
   "scheduler.permission.acceptEdits": "accept_edits",
   "scheduler.permission.ask": "ask",
   "scheduler.permission.bypass": "bypass",
+
+  "changes.offline": "Coddy is not reachable",
+  "changes.invalidResponse": "Could not read the server response.",
+  "changes.skipped.one": "{count} new file is not shown.",
+  "changes.skipped.other": "{count} new files are not shown.",
+  "changes.discardFileTitle": "Put {name} back as it is in the last commit",
+  "changes.discardFileConfirm": "Discard the changes to {name}?",
+  "changes.discardRestoreMessage":
+    "The file goes back to its last committed content. This cannot be undone.",
+  "changes.discardDeleteMessage":
+    "The file is new since the last commit, so it is deleted. This cannot be undone.",
+  "changes.discardAll": "Discard all",
+  "changes.discardAllTitle":
+    "Put every uncommitted change back as it is in the last commit",
+  "changes.discardAllConfirm": "Discard every uncommitted change?",
+  "changes.discardAllMessage":
+    "Every changed file goes back to its last committed content and new files are deleted. Files git ignores stay. This cannot be undone.",
+  "changes.discardYes": "Discard",
+  "changes.discardFailed": "Could not discard: {message}",
+  "workspaceBar.label": "Where this chat works",
+  "workspaceBar.branchTitle": "Branch {branch}",
+  "workspaceBar.worktreeTitle": "Worktree {path} on branch {branch}",
+  "workspaceBar.editsLabel.one": "Show the edits: {count} file changed",
+  "workspaceBar.editsLabel.other": "Show the edits: {count} files changed",
+  "files.title": "Files",
+  "files.workspace": "Workspace {path}",
+  "files.openFiles": "Open files",
+  "files.closeTab": "Close {name}",
+  "files.empty.title": "Open files appear here",
+  "files.empty.hint":
+    "Pick a file in the tree, or click a file path in the conversation.",
+  "files.showTree": "Show the file tree",
+  "files.hideTree": "Hide the file tree",
+  "files.expand": "Expand the window",
+  "files.restore": "Restore the window",
+  "files.more": "More actions",
+  "files.copyPath": "Copy path",
+  "files.searching": "Searching…",
+  "files.noMatches": "No file matches",
+  "files.link": "A link: it is not previewed",
+  "files.close": "Close files",
+  "files.search": "Filter files",
+  "files.hidden": "Show hidden files",
+  "files.moreEntries": "Load more files",
+  "files.reload": "Reload",
+  "files.download": "Download",
+  "files.loading": "Loading…",
+  "files.changed": "This file changed. The preview has been refreshed.",
+  "files.binary": "Preview is unavailable. You can download this file.",
+  "files.pdfDownload": "Download this PDF to open it in your PDF viewer.",
+  "files.wrap": "Wrap lines",
+  "files.imageUnavailable":
+    "Image preview is unavailable or exceeds 20 MB. Download it to view the original.",
+  "files.actualSize": "Actual size",
+  "files.fit": "Fit image",
+  "changes.binary": "binary",
+  "changes.binaryBody": "Binary file: no line diff to show.",
+  "changes.truncated": "shortened",
+  "changes.empty": "No uncommitted changes in this folder.",
+  "changes.status.added": "added",
+  "changes.status.modified": "modified",
+  "changes.status.deleted": "deleted",
+  "changes.viewer.title": "Edits",
+  "changes.viewer.close": "Close the edits window",
+  "changes.viewer.expandAll": "Expand all diffs",
+  "changes.viewer.collapseAll": "Collapse all diffs",
+  "changes.viewer.split": "Side by side",
+  "changes.viewer.showFiles": "Show the changed files",
+  "changes.viewer.hideFiles": "Hide the changed files",
+  "changes.viewer.files": "Changed files",
+  "changes.viewer.filterFiles": "Filter changed files",
+  "changes.viewer.copyPath": "Copy path",
+  "changes.viewer.copied": "Path copied",
+  "changes.viewer.loadingFile": "Loading the diff...",
+  "changes.viewer.noMatches": "No file matches",
+  "changes.viewer.noVcs":
+    "This folder is not in a git repository, so there are no edits to show.",
 
   "tasks.panelTitle": "Background tasks",
   "tasks.closePanel": "Close background tasks",
@@ -1541,6 +1775,9 @@ export const messagesEn: Record<string, string> = {
   "messages.copyMessage": "Copy message",
   "messages.copyErrorMessage": "Copy error message",
   "messages.editMessage": "Edit message",
+  "messages.undoEdit": "Undo edit",
+  "messages.undoEditTitle":
+    "Restore the conversation as it was before this edit. File changes are not reverted.",
   "messages.attachedFiles": "Attached files",
   "messages.openAttachmentImage": "Open {fileName} enlarged",
   "messages.toolImages": "Pictures the call showed the model",
@@ -1735,6 +1972,7 @@ export const messagesEn: Record<string, string> = {
   "messages.spawnAgentDetails": "Agent details",
   "messages.spawnAgentPrompt": "Agent prompt",
   "messages.spawnAgentTimeout": "Timeout {seconds}s",
+  "messages.spawnAgentReasoning": "Reasoning: {reasoning}",
   "messages.spawnAgentTimeoutHint": "Maximum agent execution time",
   "messages.toolDetailsAriaLabel": "Tool call details",
   "messages.toolResultAriaLabel": "Tool result",
@@ -1766,8 +2004,6 @@ export const messagesEn: Record<string, string> = {
   "messages.toolQuestionOwnAnswer": "an answer of their own",
   "messages.toolQuestionMirrorHint":
     "Answer using the Questions card in this chat. This row only mirrors the tool state.",
-  "messages.toolBgTaskOpen": "Open in Tasks",
-  "messages.toolBgTaskStop": "Stop",
   "messages.fileType.image": "Image",
   "messages.fileType.video": "Video",
   "messages.fileType.audio": "Audio",
@@ -1789,6 +2025,10 @@ export const messagesEn: Record<string, string> = {
   "workspace.worktreeInactiveTitle":
     "Open branch switches in a dedicated worktree",
   "workspace.recent": "Recent",
+  "workspace.filterRecent": "Filter recent folders",
+  "workspace.filterBranches": "Filter branches",
+  "workspace.noRecentMatch": "No recent folders match",
+  "workspace.noBranchesMatch": "No branches match",
   "workspace.openFolder": "Open folder…",
   "workspace.noBranches": "No branches",
 
@@ -1983,4 +2223,33 @@ export const messagesEn: Record<string, string> = {
   "status.waitingStuck": "Still no response from the server",
   "status.turnTokens.one": "{shown} token",
   "status.turnTokens.other": "{shown} tokens",
+  "messages.toolArtifacts": "Shared files",
+  "messages.downloadArtifact": "Download {fileName}",
+  "messages.downloadArtifactButton": "Download",
+  "messages.artifactDownloading": "Downloading…",
+  "messages.artifactUnavailable": "Download unavailable",
+  "messages.openArtifactImage": "Open {fileName}",
+  "messages.artifactActions": "Actions for {fileName}",
+  "messages.artifactMention": "Mention source",
+  "messages.artifactCopyName": "Copy name",
+  "messages.artifactCopyRelative": "Copy relative path",
+  "messages.artifactCopyAbsolute": "Copy absolute path",
+  "messages.artifactReveal": "Reveal on server",
+  "messages.artifactRevealUnavailable":
+    "Reveal is unavailable for this remote or headless server",
+  "messages.artifactRevealFailed": "Reveal failed",
+  "markdown.figure.mermaid": "Mermaid diagram",
+  "markdown.figure.svg": "SVG image",
+  "markdown.figure.showSource": "Show the source code",
+  "markdown.figure.showPicture": "Show the picture",
+  "markdown.figure.downloadSource": "Download the source (.mmd)",
+  "markdown.figure.downloadSvg": "Download as SVG (.svg)",
+  "markdown.figure.open": "Open the picture",
+  "markdown.figure.rendering": "Drawing…",
+  "markdown.figure.error": "Could not draw the picture: {message}",
+  "markdown.figure.loadError":
+    "Could not load the diagram renderer: reload the page",
+  "markdown.math.label": "Formula",
+  "markdown.math.copySource": "Copy the formula source",
+  "markdown.math.inlineTitle": "{source} (click to copy)",
 };

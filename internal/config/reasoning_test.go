@@ -364,11 +364,12 @@ func TestReasoningOffOfferedOnlyWithARealSwitch(t *testing.T) {
 		entry config.ModelEntry
 		want  bool
 	}{
-		{config.ModelEntry{Model: "nd/qwen3.8-27b"}, true},
-		{config.ModelEntry{Model: "anthropic/claude-sonnet-4-5"}, true},
-		{config.ModelEntry{Model: "anthropic/claude-opus-5"}, true},
-		{config.ModelEntry{Model: "codex/gpt-5.6-sol"}, true},
-		{config.ModelEntry{Model: "openai/gpt-5.1", ReasoningLevels: &none}, true},
+		// A provider/model name does not claim a deployment honours its off request.
+		{config.ModelEntry{Model: "nd/qwen3.8-27b"}, false},
+		{config.ModelEntry{Model: "anthropic/claude-sonnet-4-5"}, false},
+		{config.ModelEntry{Model: "anthropic/claude-opus-5"}, false},
+		{config.ModelEntry{Model: "codex/gpt-5.6-sol"}, false},
+		{config.ModelEntry{Model: "openai/gpt-5.1", ReasoningLevels: &none}, false},
 		// minimal is not off, and o-series / gpt-oss have no switch.
 		{config.ModelEntry{Model: "openai/gpt-5"}, false},
 		{config.ModelEntry{Model: "openai/o3"}, false},
@@ -387,6 +388,47 @@ func TestReasoningOffOfferedOnlyWithARealSwitch(t *testing.T) {
 		if hasOff != c.want {
 			t.Errorf("%s: ReasoningChoicesFor = %v, off offered %v, want %v", entry.Model, choices, hasOff, c.want)
 		}
+	}
+}
+
+func TestAllowReasoningOffSurvivesSettingsSave(t *testing.T) {
+	p := writeConfig(t, reasoningYAML("    allow_reasoning_off: true\n"))
+
+	cfg, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := cfg.FindModelEntry("valera/qwen3.8-27b")
+	if entry == nil || !cfg.ReasoningOffOffered(entry) {
+		t.Fatal("allow_reasoning_off must expose off for the configured model")
+	}
+
+	body, err := json.Marshal(config.ConfigToJSONDTO(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"allow_reasoning_off":true`) {
+		t.Fatalf("GET /coddy/config dropped allow_reasoning_off:\n%s", body)
+	}
+
+	reloaded := saveThroughSettings(t, p, body)
+	entry = reloaded.FindModelEntry("valera/qwen3.8-27b")
+	if entry == nil || !reloaded.ReasoningOffOffered(entry) {
+		t.Fatal("allow_reasoning_off was lost in the settings save round trip")
+	}
+}
+
+func TestReasoningChoicesReserveOffForAllowReasoningOff(t *testing.T) {
+	levels := []string{"low", config.ReasoningOff, "high"}
+	cfg := &config.Config{}
+	without := config.ModelEntry{Model: "openai/gpt-5", ReasoningLevels: &levels}
+	if got := cfg.ReasoningChoicesFor(&without); !reflect.DeepEqual(got, []string{"low", "high"}) {
+		t.Fatalf("choices without opt-in = %v", got)
+	}
+	with := without
+	with.AllowReasoningOff = true
+	if got := cfg.ReasoningChoicesFor(&with); !reflect.DeepEqual(got, []string{"low", "high", config.ReasoningOff}) {
+		t.Fatalf("choices with opt-in = %v", got)
 	}
 }
 

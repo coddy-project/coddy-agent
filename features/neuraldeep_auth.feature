@@ -45,6 +45,29 @@ Feature: NeuralDeep hub sign-in feeds the neuraldeep provider
     And the sign-in reached the hub through that proxy
 
   @http
+  Scenario: Signing in from Settings follows the proxy posted in the form
+    The settings form signs a row in before it is saved, and the proxy field
+    on it may differ from the saved row's - or belong to a row that is not
+    saved yet. The sign-in has to follow what the form posts.
+
+    Given a coddy HTTP server with a neuraldeep provider that has no proxy setting, and a stand-in hub
+    And a recording proxy
+    When I sign in to NeuralDeep through the device flow over REST with the recording proxy in the body
+    Then the neuraldeep provider reports connected with a masked key
+    And the recording proxy carried the hub's device requests
+
+  @http
+  Scenario: Signing out goes through the proxy named in the query
+    The sign-out revokes the key on the hub, so it honours the same proxy the
+    form carries - as a query parameter, because a DELETE has no body.
+
+    Given a coddy HTTP server with a neuraldeep provider that has no proxy setting, and a stand-in hub
+    And a recording proxy
+    When I sign in to NeuralDeep through the device flow over REST
+    And I sign out of NeuralDeep over REST with the recording proxy in the query
+    Then the recording proxy carried the revoke request
+
+  @http
   Scenario: The provider is pinned to the international mirror
     NeuralDeep serves the same API from two deployments: api.neuraldeep.ru for
     Russia and api.neuraldeep.tech for everywhere else. Settings picks one, and

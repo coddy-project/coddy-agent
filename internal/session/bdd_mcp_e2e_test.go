@@ -230,23 +230,22 @@ func (s *acpMCPE2EState) startManager() error {
 	s.beta = &fakeBetaHandler{token: acpE2EBetaToken}
 	s.betaTS = httptest.NewServer(s.beta)
 
+	homeMCP := config.GlobalMCPJSONPath(s.home)
+	if err := config.UpsertMCPJSONServer(homeMCP, "alpha", config.MCPJSONServer{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestHelperMCPServerACP"},
+		Env:     map[string]string{"GO_WANT_MCP_HELPER": "1", "MCP_HELPER_TOKEN": acpE2EAlphaToken},
+	}); err != nil {
+		return err
+	}
+	if err := config.UpsertMCPJSONServer(homeMCP, "beta", config.MCPJSONServer{Type: "http", URL: s.betaTS.URL}); err != nil {
+		return err
+	}
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: s.home, CWD: s.cwd},
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 200}},
 		Agent:     config.Agent{Model: "fake/model"},
-		MCPServers: []config.MCPServerConfig{
-			{
-				Name:    "alpha",
-				Command: os.Args[0],
-				Args:    []string{"-test.run=TestHelperMCPServerACP"},
-				Env: []config.EnvVarConfig{
-					{Name: "GO_WANT_MCP_HELPER", Value: "1"},
-					{Name: "MCP_HELPER_TOKEN", Value: acpE2EAlphaToken},
-				},
-			},
-			{Name: "beta", Type: "http", URL: s.betaTS.URL},
-		},
 	}
 
 	log := slog.Default()

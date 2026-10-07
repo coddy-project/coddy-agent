@@ -9,11 +9,17 @@ const backend = (process.env.CODDY_UI_BACKEND || "").trim();
 
 // Retain vendored grammar notices in the embedded JS distribution. The minifier
 // otherwise strips source comments, including comments marked as licenses.
-const grammarDirectory = path.resolve(import.meta.dirname, "src/ui/markdown/grammars");
+const grammarDirectory = path.resolve(
+  import.meta.dirname,
+  "src/ui/markdown/grammars",
+);
 const syntaxLicenseBanner = readdirSync(grammarDirectory)
   .filter((name) => name.endsWith(".LICENSE"))
   .sort()
-  .map((name) => `/* ${name}\n${readFileSync(path.join(grammarDirectory, name), "utf8")}\n*/`)
+  .map(
+    (name) =>
+      `/* ${name}\n${readFileSync(path.join(grammarDirectory, name), "utf8")}\n*/`,
+  )
   .join("\n");
 
 const syntaxLicensePlugin: Plugin = {
@@ -21,15 +27,33 @@ const syntaxLicensePlugin: Plugin = {
   enforce: "post",
   generateBundle(_options, bundle) {
     for (const output of Object.values(bundle)) {
-      if (output.type === "chunk") output.code += `\n${syntaxLicenseBanner}\n`;
+      // The grammars are bundled into the entry; the lazy chunks carry their
+      // own libraries' notices.
+      if (output.type === "chunk" && output.isEntry)
+        output.code += `\n${syntaxLicenseBanner}\n`;
     }
+  },
+};
+
+// KaTeX's stylesheet lists every font three times (woff2, woff, ttf), and Vite
+// emits whatever a stylesheet names, so the binary would embed all sixty files.
+// Every browser the SPA supports reads woff2: keep that source only.
+const katexWoff2OnlyPlugin: Plugin = {
+  name: "katex-woff2-only",
+  enforce: "pre",
+  transform(code, id) {
+    if (!/[\\/]katex[\\/]dist[\\/]katex(\.min)?\.css$/.test(id)) return null;
+    return code.replace(
+      /,\s*url\([^)]*\.woff\)\s*format\("woff"\)\s*,\s*url\([^)]*\.ttf\)\s*format\("truetype"\)/g,
+      "",
+    );
   },
 };
 
 export default defineConfig({
   root: "src",
   publicDir: path.resolve(import.meta.dirname, "public"),
-  plugins: [react(), syntaxLicensePlugin],
+  plugins: [react(), syntaxLicensePlugin, katexWoff2OnlyPlugin],
   test: {
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
@@ -67,10 +91,16 @@ export default defineConfig({
           if (assetInfo.name === "style.css") {
             return "styles.css";
           }
+          // KaTeX's fonts: fetched from the chunk folder on first use.
+          if (/\.(woff2?|ttf)$/.test(assetInfo.name || "")) {
+            return "chunks/[name]-[hash][extname]";
+          }
           return "[name][extname]";
         },
-        chunkFileNames: "app.js",
-        inlineDynamicImports: true,
+        // The renderers loaded on demand (Mermaid, KaTeX) and what they share.
+        // Content-hashed, so ui.Handler() lets a browser keep them for good;
+        // app.js itself keeps its fixed name.
+        chunkFileNames: "chunks/[name]-[hash].js",
       },
     },
   },

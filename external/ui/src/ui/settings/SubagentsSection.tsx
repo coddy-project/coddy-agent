@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Chevron } from "../components/Chevron";
 import { useT } from "../i18n/I18nProvider";
 import { SchemaForm, type JsonSchema } from "./SchemaForm";
@@ -6,17 +12,23 @@ import {
   scopeBadgeKey,
   subagentDeclaredFacts,
   type SubagentCatalog,
+  type SubagentCatalogEntry,
 } from "./subagentCatalog";
-import { fetchSubagentCatalog } from "./subagentsApi";
+import { fetchSubagentCatalog, setSubagentTrust } from "./subagentsApi";
 import { LegendWithHint } from "./FieldHint";
+import { IconShield } from "./icons";
+import {
+  snapshotSettingsConfig,
+  subscribeSettingsConfig,
+} from "./settingsConfigStore";
 
 /**
  * SubagentsSection is the Settings -> Subagents tab. Hybrid, like the Skills
  * tab: the generated form edits the `subagents` config section, and below it
  * the catalog (/coddy/subagents) lists every definition the viewed session's
- * workspace can spawn. The list only reads. A project file awaiting approval
- * says so and names the command that approves it, which runs on the machine
- * that runs coddy - the web UI records no approvals.
+ * workspace can spawn. A project file under ask carries the MCP shield: it
+ * approves the file for the workspace, bound to the digest shown (a file the
+ * checkout rewrote since is refused), and withdraws that approval again.
  *
  * A row is the definition's name behind the app's chevron, its badges, its
  * description and its file; the chevron and the name together fold open what
@@ -40,8 +52,16 @@ export function SubagentsSection(props: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [trustError, setTrustError] = useState<string | null>(null);
   const factsId = useId();
   const workspacePath = props.workspacePath;
+  // The saved settings: subagents.project_trust decides which definitions
+  // need approval, so a save reads the catalog again.
+  const savedSettings = useSyncExternalStore(
+    subscribeSettingsConfig,
+    snapshotSettingsConfig,
+  ).config;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,9 +79,30 @@ export function SubagentsSection(props: {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, savedSettings]);
 
   const items = catalog?.items ?? [];
+  const policy = catalog?.policy ?? "ask";
+
+  const onToggleTrust = (entry: SubagentCatalogEntry) => {
+    setBusy((b) => ({ ...b, [entry.name]: true }));
+    setTrustError(null);
+    void (async () => {
+      const res = await setSubagentTrust(
+        entry.name,
+        workspacePath,
+        !entry.trusted,
+        entry.digest,
+      );
+      if (!res.ok) {
+        setTrustError(
+          res.error || t("subagents.error.trust", { name: entry.name }),
+        );
+      }
+      await load();
+      setBusy((b) => ({ ...b, [entry.name]: false }));
+    })();
+  };
 
   return (
     <div className="settings-subagents-section">
@@ -88,6 +129,7 @@ export function SubagentsSection(props: {
           description={t("subagents.catalog.description")}
         />
         {error ? <p className="settings-error">{error}</p> : null}
+        {trustError ? <p className="settings-error">{trustError}</p> : null}
 
         {items.length === 0 ? (
           <p className="settings-muted" data-testid="subagents-empty">
@@ -142,6 +184,30 @@ export function SubagentsSection(props: {
                       >
                         {t("subagents.badge.needsApproval")}
                       </span>
+                    ) : null}
+                    {entry.scope === "project" && policy === "ask" ? (
+                      <button
+                        type="button"
+                        className={`settings-btn settings-btn-icon subagents-trust${entry.trusted ? " is-trusted" : " settings-btn-approve"}`}
+                        disabled={!!busy[entry.name]}
+                        onClick={() => onToggleTrust(entry)}
+                        title={
+                          entry.trusted
+                            ? t("subagents.trust.approvedTitle")
+                            : t("subagents.trust.approveTitle", {
+                                name: entry.name,
+                              })
+                        }
+                        aria-label={t(
+                          entry.trusted
+                            ? "subagents.trust.withdrawAria"
+                            : "subagents.trust.approveAria",
+                          { name: entry.name },
+                        )}
+                        data-testid={`subagent-trust-${entry.name}`}
+                      >
+                        <IconShield />
+                      </button>
                     ) : null}
                   </div>
                   <div className="subagents-item-body">

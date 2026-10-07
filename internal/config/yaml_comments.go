@@ -153,11 +153,48 @@ func marshalOverDocument(cfg *Config, existing []byte, edit *editBase) ([]byte, 
 	// file was deleted) stays just as sparse - and defaultsBaseline degrades to
 	// nil on error, which only widens what is kept.
 	pruneUndocumentedDefaults(&next, prevRoot, defaultsBaseline(cfg), loaded, cfg.Paths)
+	keepUnmovedLegacyKeys(prevRoot, &next)
 	out, err := marshalConfigDocument(doc)
 	if err != nil {
 		return nil, fmt.Errorf("serialize config: %w", err)
 	}
 	return applyLineEnding(ensureSchemaModeline(out), configLineEnding(original)), nil
+}
+
+// keepUnmovedLegacyKeys carries a key that left config.yaml but is still in
+// the file - its move could not run (the file it moves into does not read) or
+// must not (a workspace's config.yaml, legacy_keys.go) - from the previous
+// document into the one a save writes, as the file has it. The typed
+// configuration no longer has the key, and a save that dropped it would lose
+// what it declares before it ever moved.
+func keepUnmovedLegacyKeys(prevRoot, next *yaml.Node) {
+	if prevRoot == nil || next == nil || next.Kind != yaml.MappingNode {
+		return
+	}
+	if k, v := mappingEntry(prevRoot, "mcp_servers"); k != nil {
+		if have, _ := mappingEntry(next, "mcp_servers"); have == nil {
+			next.Content = append(next.Content, cloneYAMLNode(k), cloneYAMLNode(v))
+		}
+	}
+	prevSkillsKey, prevSkills := mappingEntry(prevRoot, "skills")
+	if prevSkills == nil || prevSkills.Kind != yaml.MappingNode {
+		return
+	}
+	k, v := mappingEntry(prevSkills, "sources")
+	if k == nil {
+		return
+	}
+	_, skills := mappingEntry(next, "skills")
+	if skills == nil {
+		skills = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		next.Content = append(next.Content, cloneYAMLNode(prevSkillsKey), skills)
+	}
+	if skills.Kind != yaml.MappingNode {
+		return
+	}
+	if have, _ := mappingEntry(skills, "sources"); have == nil {
+		skills.Content = append(skills.Content, cloneYAMLNode(k), cloneYAMLNode(v))
+	}
 }
 
 // savedForm renders c the way a save renders the configuration it writes: through the

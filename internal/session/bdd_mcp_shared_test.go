@@ -203,8 +203,7 @@ func (s *mcpSharedState) openSession(i int) error {
 }
 
 func (s *mcpSharedState) globalDeclares(name string) error {
-	s.cfg.MCPServers = []config.MCPServerConfig{s.server(name)}
-	return nil
+	return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.cfg.Paths.Home), name, config.MCPJSONFromServer(s.server(name)))
 }
 
 func (s *mcpSharedState) startGlobals() error {
@@ -348,7 +347,7 @@ func initializeMCPSharedScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 
-	sc.Step(`^the global configuration declares the MCP server "([^"]*)"$`, s.globalDeclares)
+	sc.Step(`^the home mcp\.json declares the MCP server "([^"]*)"$`, s.globalDeclares)
 	sc.Step(`^the process starts its global MCP servers$`, s.startGlobals)
 	sc.Step(`^the MCP server "([^"]*)" runs before any session opens$`, s.runsBeforeAnySession)
 	sc.Step(`^a session opens in one workspace$`, s.sessionInFirst)

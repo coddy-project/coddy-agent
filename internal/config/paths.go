@@ -72,6 +72,10 @@ type Paths struct {
 	CWD string
 	// ConfigPath is the YAML file to load (default: <Home>/config.yaml).
 	ConfigPath string
+	// ConfigFromWorkspace says ConfigPath is the workspace's config.yaml, read
+	// because the home has none and no file was named: a file that may have
+	// come with a checkout, which the loader reads but never rewrites.
+	ConfigFromWorkspace bool
 }
 
 // CLIPaths captures CLI flag overrides. Empty fields fall back to env then built-in defaults.
@@ -152,7 +156,7 @@ func Resolve(cli CLIPaths) (Paths, error) {
 }
 
 // ExpandPathVars substitutes ${CODDY_HOME} and ${CWD}, then expands ~.
-// Use for process-scoped path fields (sessions.dir, scheduler.dir, memory.dir,
+// Use for process-scoped path fields (sessions.dir, memory.dir,
 // logger.file) whose ${CWD} means the default working directory. The raw config
 // body goes through expandConfigBody instead, which keeps ${CWD} in place for
 // the per-session consumers (skills, subagents, hooks, prompts, MCP servers).

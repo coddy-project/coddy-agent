@@ -23,7 +23,10 @@ func userMessageWithAttachments() Message {
 
 func TestAnthropicSendsThePicturesOfAUserMessage(t *testing.T) {
 	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "")
-	_, conv := p.splitMessages([]Message{userMessageWithAttachments()})
+	_, conv, err := p.splitMessages([]Message{userMessageWithAttachments()})
+	if err != nil {
+		t.Fatal(err)
+	}
 	raw, err := json.Marshal(conv)
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +49,10 @@ func TestAnthropicSendsThePicturesOfAUserMessage(t *testing.T) {
 
 func TestAnthropicKeepsATextOnlyUserMessageAsItWas(t *testing.T) {
 	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "")
-	_, conv := p.splitMessages([]Message{{Role: RoleUser, Content: "hi"}})
+	_, conv, err := p.splitMessages([]Message{{Role: RoleUser, Content: "hi"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	raw, _ := json.Marshal(conv)
 	if string(raw) != `[{"content":[{"text":"hi","type":"text"}],"role":"user"}]` {
 		t.Errorf("a plain prompt changed on the wire: %s", raw)
@@ -85,7 +91,10 @@ func TestPicturesAProviderCannotTakeGoAsText(t *testing.T) {
 		{Name: "raw.png", DataURL: "data:image/png,not-base64"},
 	}}
 	anthropic := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "")
-	_, conv := anthropic.splitMessages([]Message{msg})
+	_, conv, err := anthropic.splitMessages([]Message{msg})
+	if err != nil {
+		t.Fatal(err)
+	}
 	codex := newCodexProvider("gpt-5.6", filepath.Join(t.TempDir(), "auth.json"), true, "", nil, 0, "")
 	params := codex.buildParams([]Message{msg}, nil)
 	for name, v := range map[string]any{"anthropic": conv, "codex": params.Input} {
@@ -147,7 +156,10 @@ func TestTheBase64FlagOfADataURLIsReadExactly(t *testing.T) {
 	}
 
 	msg := Message{Role: RoleUser, Content: "look", ImageParts: []ImagePart{{Name: "odd.png", DataURL: "data:image/png;base64x,AAAA"}}}
-	_, conv := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "").splitMessages([]Message{msg})
+	_, conv, err := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "").splitMessages([]Message{msg})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if raw, _ := json.Marshal(conv); strings.Contains(string(raw), `"type":"image"`) || !strings.Contains(string(raw), "odd.png") {
 		t.Errorf("Anthropic sends a data URL with no base64 flag as %s", raw)
 	}

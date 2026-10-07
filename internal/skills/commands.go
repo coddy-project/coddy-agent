@@ -46,13 +46,13 @@ func List(cfg *config.Config) error {
 	home := cfg.Paths.Home
 	cwd := "."
 
-	loader := NewLoader(cfg.Skills.Dirs)
+	loader := NewLoader(cfg.Skills.SearchDirs())
 	loaded, err := loader.LoadAll(cwd, home, managedDir)
 	if err != nil {
 		return err
 	}
 
-	printSkillSearchRoots(cfg.Skills.Dirs, cwd, home)
+	printSkillSearchRoots(cfg.Skills.SearchDirs(), cwd, home)
 
 	if len(loaded) == 0 {
 		fmt.Println("No skills found.")
@@ -133,16 +133,13 @@ func stdoutCols() int {
 	return n
 }
 
+// printSkillSearchRoots prints the folders the loader reads, in its order and
+// each once at its last place (SearchRoots), so the list says which folder
+// wins a name.
 func printSkillSearchRoots(skillDirs []string, cwd, home string) {
 	fmt.Println("Search roots:")
-	seen := make(map[string]bool)
-	for _, d := range skillDirs {
-		p := filepath.Clean(ExpandConfiguredPath(d, cwd, home))
-		if seen[p] {
-			continue
-		}
-		seen[p] = true
-		fmt.Printf("  %s\n", p)
+	for _, p := range SearchRoots(skillDirs, cwd, home) {
+		fmt.Printf("  %s\n", filepath.Clean(p))
 	}
 	fmt.Println()
 }

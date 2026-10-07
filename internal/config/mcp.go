@@ -61,7 +61,8 @@ func ApplyProjectTrustFlag(fs *flag.FlagSet, cfg *Config, val *string) error {
 }
 
 // MCP holds MCP settings that are not tied to a single server entry
-// (YAML key mcp; per-server definitions live under mcp_servers).
+// (YAML key mcp; the servers themselves are declared in <home>/mcp.json and
+// the project's .coddy/mcp.json).
 type MCP struct {
 	// ProjectTrust is the trust policy for <cwd>/.coddy/mcp.json:
 	// ask (default), allow, or deny.

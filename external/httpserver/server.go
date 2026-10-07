@@ -5,6 +5,7 @@ package httpserver
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +37,7 @@ var errInvalidSessionHeader = errors.New("invalid X-Coddy-Session-ID")
 
 // Server serves OpenAI-compatible HTTP endpoints.
 type Server struct {
+	workspaceMediaKey    string
 	cfgAt                atomic.Pointer[config.Config]
 	mgr                  *session.Manager
 	log                  *slog.Logger
@@ -67,6 +69,10 @@ type Server struct {
 	// than to a configuration, so saving settings from the page - which reloads
 	// the config but keeps this process - never signs anybody out.
 	sessions *webauth.SessionStore
+	// tgSessions holds the browsers a Telegram admin opened as the bot's Mini
+	// App (auth_telegram.go), and tgReplay the launches already used.
+	tgSessions *webauth.SessionStore
+	tgReplay   webauth.ReplayGuard
 	// loginThrottle slows repeated wrong passwords per source address.
 	loginThrottle *webauth.Throttle
 	// served remembers the configurations GET /coddy/config handed out, so a
@@ -76,10 +82,10 @@ type Server struct {
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
 
-	// mcpProbeCache holds probed MCP tool inventories for /coddy/mcp (keyed
-	// by server name, invalidated on config fingerprint change or edit).
+	// mcpProbeCache holds /coddy/mcp inventories by origin, resolved pool key,
+	// and canonical workspace, so same-named project declarations do not leak.
 	mcpProbeMu    sync.Mutex
-	mcpProbeCache map[string]mcpProbeEntry
+	mcpProbeCache map[mcpProbeKey]mcpProbeEntry
 
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
@@ -160,6 +166,7 @@ func (s *Server) Drain() {
 // server, and so does one the manager made before the server subscribed.
 func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
 	s := &Server{
+		workspaceMediaKey:    rand.Text(),
 		mgr:                  mgr,
 		log:                  log,
 		defaultCWD:           defaultCWD,
@@ -176,6 +183,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		events:               newServerEventsHub(),
 		served:               configapi.NewRevisions(),
 		sessions:             webauth.NewSessionStore(),
+		tgSessions:           webauth.NewSessionStore(),
 		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
@@ -413,7 +421,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				OwnedBy:          ent.ProviderName(),
 				MaxContextTokens: s.contextWindowFor(cfg, mid),
 				Multimodal:       ent.Multimodal,
-				ReasoningLevels:  cfg.ReasoningLevelsFor(ent),
+				ReasoningLevels:  cfg.ReasoningChoicesFor(ent),
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
 				Default:          defaultModel != "" && mid == defaultModel,
 			})
@@ -665,12 +673,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// The caller reads the strict OpenAI contract; the relay keeps the
 			// whole coddy stream for whoever watches this turn.
 			client := newOpenAIStreamFilter(w, model, req.includeUsage())
-			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: client, relay: rel}, true, model)
+			bridge = s.configureSender(NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: client, relay: rel}, true, model))
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata)}
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
@@ -730,6 +738,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				"finish_reason": "stop",
 			}},
 		}
+		if usage := bridge.CompletionUsage(); usage != nil {
+			resp["usage"] = usage
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 		return
@@ -737,7 +748,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	if req.Stream {
 		writeSSEHeaders(w)
-		bridge = NewSender(s.activeCfg(), newOpenAIStreamFilter(w, model, req.includeUsage()), true, model)
+		bridge = s.configureSender(NewSender(s.activeCfg(), newOpenAIStreamFilter(w, model, req.includeUsage()), true, model))
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}
@@ -816,6 +827,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		"model":    model,
 		"metadata": meta,
 		"choices":  []map[string]interface{}{{"index": 0, "message": message, "finish_reason": finish}},
+	}
+	if usage := completionUsageFromResponse(directRes).openAI(); usage != nil {
+		resp["usage"] = usage
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
@@ -1235,12 +1249,12 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		defer s.endComposerRelay(sid, rel)
 		if body.Stream {
 			writeSSEHeaders(w)
-			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
+			bridge = s.configureSender(NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model))
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata)}
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,
@@ -1315,7 +1329,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	var bridge *Sender
 	if body.Stream {
 		writeSSEHeaders(w)
-		bridge = NewSender(s.activeCfg(), w, true, model)
+		bridge = s.configureSender(NewSender(s.activeCfg(), w, true, model))
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}

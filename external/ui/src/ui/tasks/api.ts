@@ -5,7 +5,8 @@ import type {
 import { t } from "../i18n/i18n";
 
 export type TasksApiResult<T> =
-  { ok: true; data: T } | { ok: false; status: number; message: string };
+  | { ok: true; data: T }
+  | { ok: false; status: number; message: string };
 
 async function readErrorMessage(res: Response): Promise<string> {
   try {

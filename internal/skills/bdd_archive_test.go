@@ -253,7 +253,8 @@ func (s *archiveFeatureState) startServer() {
 	s.restores = append(s.restores, func() { remoteGuard, remoteTransport = prevGuard, prevTransport })
 }
 
-// writeHome writes the home's config.yaml with sources and loads it.
+// writeHome writes the home's config.yaml and its marketplaces.json, which
+// declares sources, and loads the configuration.
 func (s *archiveFeatureState) writeHome(sources ...string) error {
 	if s.root == "" {
 		root, err := os.MkdirTemp("", "coddy-archive-feature-*")
@@ -271,17 +272,11 @@ func (s *archiveFeatureState) writeHome(sources ...string) error {
 		s.restores = append(s.restores, func() { SystemSources = prev })
 	}
 	cfgPath := filepath.Join(s.home, "config.yaml")
-	var b strings.Builder
-	fmt.Fprintf(&b, "skills:\n  dirs:\n    - %q\n  sources:", filepath.Join(s.home, "skills"))
-	if len(sources) == 0 {
-		b.WriteString(" []\n")
-	} else {
-		b.WriteString("\n")
-		for _, src := range sources {
-			fmt.Fprintf(&b, "    - %q\n", src)
-		}
+	body := fmt.Sprintf("skills:\n  dirs:\n    - %q\n", filepath.Join(s.home, "skills"))
+	if err := os.WriteFile(cfgPath, []byte(body), 0o644); err != nil {
+		return err
 	}
-	if err := os.WriteFile(cfgPath, []byte(b.String()), 0o644); err != nil {
+	if err := config.WriteMarketplacesFile(config.GlobalMarketplacesPath(s.home), config.MarketplacesFile{Sources: sources}); err != nil {
 		return err
 	}
 	cfg, err := config.LoadWithPaths(config.Paths{Home: s.home, ConfigPath: cfgPath, CWD: s.root})
@@ -375,6 +370,75 @@ func (s *archiveFeatureState) run(command string) error {
 		return fmt.Errorf("plugin %s: %w", command, err)
 	}
 	s.answer = out
+	return nil
+}
+
+// runInTerminal runs a plugin command the way `coddy plugin` does, which
+// may approve a project marketplace.
+func (s *archiveFeatureState) runInTerminal(command string) error {
+	s.mu.Lock()
+	for name := range s.markets {
+		command = strings.ReplaceAll(command, "<"+name+">", s.marketURL(name))
+	}
+	s.mu.Unlock()
+	out, err := RunPluginCommandWith(context.Background(), s.cfg, s.root, strings.Fields(command), PluginOptions{AllowTrust: true})
+	if err != nil {
+		return fmt.Errorf("plugin %s: %w", command, err)
+	}
+	s.answer = out
+	return nil
+}
+
+// projectDeclares writes the workspace's .coddy/marketplaces.json with the
+// marketplace's address as a source, the way a checkout brings it.
+func (s *archiveFeatureState) projectDeclares(market string) error {
+	return config.WriteMarketplacesFile(config.ProjectMarketplacesPath(s.root), config.MarketplacesFile{Sources: []string{s.marketURL(market)}})
+}
+
+// operatorAddsToProject declares the source in the project's file through the
+// API the CLI's `skills add --project` and Settings use.
+func (s *archiveFeatureState) operatorAddsToProject(market string) error {
+	_, err := AddSource(s.cfg, s.root, s.marketURL(market), ScopeLocal)
+	return err
+}
+
+// legacyConfig writes a config.yaml that still lists the source in
+// skills.sources.
+func (s *archiveFeatureState) legacyConfig(market string) error {
+	body := fmt.Sprintf("skills:\n  dirs:\n    - %q\n  sources:\n    - %q\n", filepath.Join(s.home, "skills"), s.marketURL(market))
+	return os.WriteFile(filepath.Join(s.home, "config.yaml"), []byte(body), 0o644)
+}
+
+func (s *archiveFeatureState) loadConfig() error {
+	cfg, err := config.LoadWithPaths(config.Paths{Home: s.home, ConfigPath: filepath.Join(s.home, "config.yaml"), CWD: s.root})
+	if err != nil {
+		return err
+	}
+	s.cfg = cfg
+	return nil
+}
+
+func (s *archiveFeatureState) homeDeclaresSource(market string) error {
+	file, err := config.ReadMarketplacesFile(config.GlobalMarketplacesPath(s.home))
+	if err != nil {
+		return err
+	}
+	for _, src := range file.Sources {
+		if sameSource(src, s.marketURL(market)) {
+			return nil
+		}
+	}
+	return fmt.Errorf("the home marketplaces.json declares %v, not %s", file.Sources, s.marketURL(market))
+}
+
+func (s *archiveFeatureState) configHasNoSources() error {
+	data, err := os.ReadFile(filepath.Join(s.home, "config.yaml"))
+	if err != nil {
+		return err
+	}
+	if strings.Contains(string(data), "sources") {
+		return fmt.Errorf("config.yaml still lists sources:\n%s", data)
+	}
 	return nil
 }
 
@@ -480,7 +544,7 @@ func (s *archiveFeatureState) publishesNewArchive(market, plugin string) error {
 }
 
 func (s *archiveFeatureState) updateStatus(name string) (UpdateStatus, error) {
-	statuses, err := CheckUpdates(context.Background(), s.cfg)
+	statuses, err := CheckUpdates(context.Background(), s.cfg, "")
 	if err != nil {
 		return UpdateStatus{}, err
 	}
@@ -556,9 +620,16 @@ func initializeArchiveScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an https marketplace "([^"]*)" publishing the plugin "([^"]*)" as a zip archive (with the plugin at its root|wrapped in one folder|with its sha256|of its author's repository with a SKILL\.md in its test data|with its skill at the plugin root)$`, s.publishes)
 	sc.Step(`^an https marketplace "([^"]*)" publishing the plugins "([^"]*)" and "([^"]*)" as zip archives$`, s.publishesTwo)
 	sc.Step(`^the marketplace "([^"]*)" also publishes the plugin "([^"]*)" as a zip archive$`, s.alsoPublishes)
-	sc.Step(`^the address of the marketplace "([^"]*)" is in skills\.sources$`, s.sourceInConfig)
+	sc.Step(`^the address of the marketplace "([^"]*)" is a source of the home marketplaces\.json$`, s.sourceInConfig)
 	sc.Step(`^I (?:have )?run the plugin command "([^"]*)" for the marketplace "([^"]*)"$`, s.runForMarketplace)
+	sc.Step(`^I run the plugin command "([^"]*)" in a terminal$`, s.runInTerminal)
 	sc.Step(`^I (?:have )?run the plugin command "([^"]*)"$`, s.run)
+	sc.Step(`^the workspace's marketplaces\.json declares the marketplace "([^"]*)" as a source$`, s.projectDeclares)
+	sc.Step(`^the operator adds the marketplace "([^"]*)" to the workspace's marketplaces\.json$`, s.operatorAddsToProject)
+	sc.Step(`^a config\.yaml whose skills\.sources names the marketplace "([^"]*)"$`, s.legacyConfig)
+	sc.Step(`^coddy loads the configuration$`, s.loadConfig)
+	sc.Step(`^the home marketplaces\.json declares the marketplace "([^"]*)" as a source$`, s.homeDeclaresSource)
+	sc.Step(`^config\.yaml no longer has skills\.sources$`, s.configHasNoSources)
 	sc.Step(`^the plugin command answers "([^"]*)"$`, s.answers)
 	sc.Step(`^the skill "([^"]*)" is installed$`, s.installed)
 	sc.Step(`^the skill "([^"]*)" is installed with its executable script "([^"]*)"$`, s.installedWithScript)
@@ -593,4 +664,8 @@ func TestPluginArchiveSourceFeature(t *testing.T) {
 
 func TestPluginMarketplaceCommandsFeature(t *testing.T) {
 	runArchiveFeature(t, "plugin-marketplace-commands", "../../features/plugin_marketplace_commands.feature")
+}
+
+func TestSkillsMarketplaceTrustFeature(t *testing.T) {
+	runArchiveFeature(t, "skills-marketplace-trust", "../../features/skills_marketplace_trust.feature")
 }

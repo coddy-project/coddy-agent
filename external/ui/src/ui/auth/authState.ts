@@ -7,6 +7,7 @@
 // mode entirely.
 
 import { getEnv, localFetch, onLocalApiUnauthorized } from "../env/remoteEnv";
+import { telegramLaunch } from "../telegram/launch";
 
 export type AuthState = {
   /** A password form is configured and this browser has not passed it. */
@@ -17,6 +18,19 @@ export type AuthState = {
   authenticated: boolean;
   /** The signed-in account, when there is one. */
   user: string;
+  /**
+   * The page was opened as the Telegram bot's Mini App by somebody who is not
+   * one of the bot's admins: the server refused the launch data, and only
+   * the bot's admins open Coddy from the chat.
+   */
+  telegramRefused: boolean;
+  /**
+   * The Mini App sign-in of an admin did not end in a session: "not_kept"
+   * when the server opened one and the browser did not keep its cookie (a
+   * Mini App in a frame of another site), "retry" when the launch was
+   * refused (used before, too old) and the Mini App has to be opened again.
+   */
+  telegramProblem: "" | "not_kept" | "retry";
   /**
    * Whether the server has been asked yet. The app waits for it rather than
    * rendering and then yanking itself away to a sign-in screen.
@@ -29,6 +43,8 @@ const initial: AuthState = {
   authRequired: false,
   authenticated: false,
   user: "",
+  telegramRefused: false,
+  telegramProblem: "",
   loaded: false,
 };
 
@@ -55,6 +71,9 @@ export function setAuthState(next: AuthState): void {
 /** resetAuthStateForTests puts the module back to its initial snapshot. */
 export function resetAuthStateForTests(): void {
   inflight = null;
+  telegramTried = false;
+  telegramRefused = false;
+  telegramProblem = "";
   setAuthState(initial);
 }
 
@@ -63,7 +82,40 @@ type AuthMeResponse = {
   auth_required?: boolean;
   authenticated?: boolean;
   user?: string;
+  telegram_login?: boolean;
 };
+
+// telegramTried keeps the Mini App sign-in to one attempt per page: Telegram
+// signs a launch once, and the server takes each launch once.
+let telegramTried = false;
+let telegramRefused = false;
+let telegramProblem: AuthState["telegramProblem"] = "";
+
+/**
+ * signInWithTelegram posts the Mini App's launch data. It reports whether a
+ * session was opened; a refusal for not being an admin is remembered.
+ */
+async function signInWithTelegram(initData: string): Promise<boolean> {
+  try {
+    const res = await localFetch("/coddy/auth/telegram", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ init_data: initData }),
+    });
+    if (res.status === 403) {
+      telegramRefused = true;
+    } else if (!res.ok) {
+      telegramProblem = "retry";
+    }
+    return res.ok;
+  } catch {
+    telegramProblem = "retry";
+    return false;
+  }
+}
 
 // inflight is the read that is already on its way. A burst of 401s - every
 // request the page had in the air when the session ended - must ask the server
@@ -89,26 +141,57 @@ export function refreshAuthState(): Promise<AuthState> {
 }
 
 async function readAuthState(): Promise<AuthState> {
-  let next: AuthState = { ...initial, loaded: true };
+  let next = await askAuthMe();
+  // Opened as the Telegram bot's Mini App: the launch data signs an admin in
+  // before any form is shown.
+  if (next.wantsTelegram && !next.state.authenticated && !telegramTried) {
+    const launch = telegramLaunch();
+    if (launch?.initData) {
+      telegramTried = true;
+      if (await signInWithTelegram(launch.initData)) {
+        next = await askAuthMe();
+        if (!next.state.authenticated) {
+          telegramProblem = "not_kept";
+        }
+      }
+    }
+  }
+  const state = {
+    ...next.state,
+    telegramRefused: telegramRefused && !next.state.authenticated,
+    telegramProblem: next.state.authenticated ? "" : telegramProblem,
+  };
+  setAuthState(state);
+  return state;
+}
+
+async function askAuthMe(): Promise<{
+  state: AuthState;
+  wantsTelegram: boolean;
+}> {
   try {
     const res = await localFetch("/coddy/auth/me", {
       headers: { Accept: "application/json" },
     });
     if (res.ok) {
       const body = (await res.json()) as AuthMeResponse;
-      next = {
-        loginRequired: body.login_required === true,
-        authRequired: body.auth_required === true,
-        authenticated: body.authenticated === true,
-        user: typeof body.user === "string" ? body.user : "",
-        loaded: true,
+      return {
+        state: {
+          loginRequired: body.login_required === true,
+          authRequired: body.auth_required === true,
+          authenticated: body.authenticated === true,
+          user: typeof body.user === "string" ? body.user : "",
+          telegramRefused: false,
+          telegramProblem: "",
+          loaded: true,
+        },
+        wantsTelegram: body.telegram_login === true,
       };
     }
   } catch {
     /* treated as "no sign-in", see above */
   }
-  setAuthState(next);
-  return next;
+  return { state: { ...initial, loaded: true }, wantsTelegram: false };
 }
 
 export type SignInResult = { ok: boolean; status: number; error?: string };
