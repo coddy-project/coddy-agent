@@ -78,49 +78,70 @@ func (s *Server) registerMountRoutes() {
 
 // handleMount proxies one request to one node.
 func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
+	// A request let in on a media capability alone has shown the relay no
+	// credential, so it learns nothing from the relay: every refusal of the
+	// relay's own is the gate's plain 401 - no node named, no path rule, no
+	// node's state. Only the node's own answer reaches such a caller.
+	anonymous := s.mediaCapabilityOnly(r)
+	refuse := func(write func()) {
+		if anonymous {
+			writeUnauthorized(w)
+			return
+		}
+		write()
+	}
+
 	name := r.PathValue("node")
 	if err := swarmdto.ValidateNodeName(name); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		refuse(func() { writeError(w, http.StatusBadRequest, err.Error()) })
 		return
 	}
 
 	rest, err := mountRemainder(r, name)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		refuse(func() { writeError(w, http.StatusBadRequest, err.Error()) })
 		return
 	}
 	// A chain composes by writing hops into the path, so a client could write
 	// an arbitrarily long one - round a ring, indefinitely. The fan-out has a
 	// hop budget in its own header; a hand-written path needs the same bound.
 	if hops := strings.Count(rest, swarmdto.MountPath) + 1; hops > swarmMaxHops {
-		writeError(w, http.StatusLoopDetected,
-			fmt.Sprintf("path walks %d relays, more than the %d this swarm carries", hops, swarmMaxHops))
+		refuse(func() {
+			writeError(w, http.StatusLoopDetected,
+				fmt.Sprintf("path walks %d relays, more than the %d this swarm carries", hops, swarmMaxHops))
+		})
 		return
 	}
 	if !mountAllows(r.Method, rest) {
 		// Saying which plane the route belongs to is more useful than a bare
 		// 404, and reveals nothing the caller could not learn by reading the
 		// docs for the relay they are already talking to.
-		writeError(w, http.StatusNotFound, fmt.Sprintf("route %q is not carried by a node mount", rest))
+		refuse(func() {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("route %q is not carried by a node mount", rest))
+		})
 		return
 	}
 
 	node, ok := s.registry.Node(name)
 	if !ok {
-		writeHopError(w, http.StatusNotFound, name, "no such node in this relay", "")
+		refuse(func() { writeHopError(w, http.StatusNotFound, name, "no such node in this relay", "") })
 		return
 	}
 	if refuseRelaySettingsWrite(w, r, node, rest) {
 		return
 	}
 	if !node.Info.Online || node.Transport == nil || !node.Transport.Alive() {
-		writeHopError(w, http.StatusBadGateway, name, "node is registered but not reachable", node.Info.LastSeen)
+		refuse(func() {
+			writeHopError(w, http.StatusBadGateway, name, "node is registered but not reachable", node.Info.LastSeen)
+		})
 		return
 	}
 
 	target := node.Transport.TargetURL()
 	if target == nil {
-		writeHopError(w, http.StatusBadGateway, name, "node has no usable transport", node.Info.LastSeen)
+		refuse(func() {
+			writeHopError(w, http.StatusBadGateway, name, "node has no usable transport", node.Info.LastSeen)
+		})
 		return
 	}
 
@@ -163,7 +184,7 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 			// there is no way to turn a failure into a status code; the stream
 			// simply ends and the client treats the outcome as unknown.
 			s.log.Warn("swarm mount failed", "node", name, "path", rest, "error", err)
-			writeHopError(w, http.StatusBadGateway, name, err.Error(), node.Info.LastSeen)
+			refuse(func() { writeHopError(w, http.StatusBadGateway, name, err.Error(), node.Info.LastSeen) })
 		},
 	}
 	proxy.ServeHTTP(w, r)
@@ -196,6 +217,11 @@ func (b *declaredBody) Close() error { return b.rc.Close() }
 // rewriteFor builds the request the node will see.
 func (s *Server) rewriteFor(node Node, target *url.URL, rest string) func(*httputil.ProxyRequest) {
 	return func(pr *httputil.ProxyRequest) {
+		// Decided on the request alone, whether this relay asks a client token
+		// or not: a relay without one, mounted under a relay with one, must not
+		// vouch for a request the outer relay let in on a capability, or the
+		// outer gate could be walked around through it.
+		capability := s.workspaceMediaCapability(pr.In)
 		out := pr.Out
 		out.URL.Scheme = target.Scheme
 		out.URL.Host = target.Host
@@ -220,7 +246,11 @@ func (s *Server) rewriteFor(node Node, target *url.URL, rest string) func(*httpu
 		// query because an EventSource cannot set headers. Forwarding that
 		// token would write the relay's own credential into the node's access
 		// log, for no benefit: the node authenticates the relay, not the client.
-		query.Del("access_token")
+		// A media capability is the exception, since it is the node's own
+		// credential and the node has to see it.
+		if !capability {
+			query.Del("access_token")
+		}
 		out.URL.RawQuery = query.Encode()
 
 		for _, h := range hopByHopHeaders {
@@ -237,9 +267,11 @@ func (s *Server) rewriteFor(node Node, target *url.URL, rest string) func(*httpu
 		}
 
 		// The caller's credential is replaced, never forwarded: it authorises
-		// them against this relay and means nothing to the node.
+		// them against this relay and means nothing to the node. For a media
+		// capability the relay vouches for nothing, the node checks the
+		// capability itself.
 		out.Header.Del("Authorization")
-		if node.Token != "" {
+		if !capability && node.Token != "" {
 			out.Header.Set("Authorization", "Bearer "+node.Token)
 		}
 	}

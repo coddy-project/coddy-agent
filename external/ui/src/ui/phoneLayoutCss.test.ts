@@ -136,23 +136,30 @@ describe("phone composer", () => {
     expectDecl(llm, "max-width", /\S/);
   });
 
-  test("the context chips are one sideways-scrolling strip and do not squeeze", () => {
-    expectDecl(declarations(phone, ".composer-context-row"), "flex-wrap", /^nowrap$/);
-    const strip = declarations(phone, ".composer-context-scroll");
-    expectDecl(strip, "display", /^flex$/);
-    expectDecl(strip, "flex", /^1 1 auto$/);
-    expectDecl(strip, "min-width", /^0$/);
-    expectDecl(strip, "overflow-x", /^auto$/);
-    expectDecl(strip, "scrollbar-width", /^none$/);
-    expectDecl(declarations(phone, ".composer-context-chips > *"), "flex-shrink", /^0$/);
+  // The composer card holds no row of chips: the folder, the branch and the
+  // worktree are on the plate over it, so the field starts at the card's top.
+  test("the composer has no chip row left to scroll", () => {
+    expect(css).not.toContain(".composer-context-row");
+    expect(css).not.toContain(".composer-context-scroll");
   });
 
-  test("on a wide shell the strip is not a box at all, so the row wraps as before", () => {
-    expectDecl(declarations(topLevel, ".composer-context-scroll"), "display", /^contents$/);
-  });
-
-  test("the enhance button is no longer pulled out of the row on a phone", () => {
-    expect(declarations(phone, ".composer-enhance-btn")).not.toMatch(/position\s*:\s*absolute/);
+  // A finger needs a target of its own: on a phone and on any touch screen the
+  // picks of the plate are tall (they have no ground at rest, so the plate only
+  // grows), and git's count keeps its slim framed look with an invisible hit
+  // area 40px tall laid over it.
+  test("the plate's picks and git's count are finger-sized on a touch screen or a phone", () => {
+    const touch = mediaBlocks(
+      new RegExp(`^@media\\s*\\(max-width:\\s*${PHONE_MAX_WIDTH_PX}px\\),\\s*\\(any-hover:\\s*none\\)\\s*and\\s*\\(any-pointer:\\s*coarse\\)\\s*$`),
+    );
+    for (const sel of [".workspace-bar-pick", ".workspace-bar-check"]) {
+      expectDecl(declarations(touch, sel), "min-height", /^(3[4-9]|4\d)px$/);
+    }
+    const count = declarations(touch, ".workspace-bar-edits");
+    expect(count).not.toMatch(/min-height/);
+    expectDecl(count, "position", /^relative$/);
+    const hit = declarations(touch, ".workspace-bar-edits::after");
+    expectDecl(hit, "position", /^absolute$/);
+    expectDecl(hit, "height", /^(3[6-9]|4\d)px$/);
   });
 });
 

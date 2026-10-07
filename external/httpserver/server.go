@@ -5,6 +5,7 @@ package httpserver
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +37,7 @@ var errInvalidSessionHeader = errors.New("invalid X-Coddy-Session-ID")
 
 // Server serves OpenAI-compatible HTTP endpoints.
 type Server struct {
+	workspaceMediaKey    string
 	cfgAt                atomic.Pointer[config.Config]
 	mgr                  *session.Manager
 	log                  *slog.Logger
@@ -164,6 +166,7 @@ func (s *Server) Drain() {
 // server, and so does one the manager made before the server subscribed.
 func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
 	s := &Server{
+		workspaceMediaKey:    rand.Text(),
 		mgr:                  mgr,
 		log:                  log,
 		defaultCWD:           defaultCWD,

@@ -18,6 +18,7 @@
     "check:queue": "node scripts/queue-modes-check.mjs",
     "check:telegram": "node scripts/telegram-mini-app-check.mjs",
     "check:diagrams": "node scripts/diagram-check.mjs",
+    "check:files": "node scripts/files-check.mjs",
     "fmt": "prettier -w ."
   },
   "keywords": [],

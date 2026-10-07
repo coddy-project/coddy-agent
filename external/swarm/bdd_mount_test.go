@@ -355,6 +355,45 @@ func (s *mountFeatureState) responseAllowsOriginOnce(origin string) error {
 	return nil
 }
 
+// The Files window reads these back from a workspace file; across origins a
+// browser hides every response header the answer does not expose.
+func (s *mountFeatureState) responseExposes(list string) error {
+	exposed := strings.ToLower(s.header.Get("Access-Control-Expose-Headers"))
+	for _, name := range strings.Split(list, ",") {
+		if name = strings.ToLower(strings.TrimSpace(name)); !strings.Contains(exposed, name) {
+			return fmt.Errorf("Access-Control-Expose-Headers = %q, missing %s", exposed, name)
+		}
+	}
+	return nil
+}
+
+// relayPreflightAllows sends the preflight a browser sends before a request
+// with those headers, the way the Files window revalidates a file.
+func (s *mountFeatureState) relayPreflightAllows(list, method string) error {
+	req, err := http.NewRequest(http.MethodOptions, s.relay.URL+swarmdto.MountPath+"nas02/coddy/sessions/s1/workspace/raw", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Origin", s.header.Get("Access-Control-Allow-Origin"))
+	req.Header.Set("Access-Control-Request-Method", method)
+	req.Header.Set("Access-Control-Request-Headers", strings.ToLower(strings.ReplaceAll(list, " ", "")))
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	_ = res.Body.Close()
+	allowed := strings.ToLower(res.Header.Get("Access-Control-Allow-Headers"))
+	for _, name := range strings.Split(list, ",") {
+		if name = strings.ToLower(strings.TrimSpace(name)); !strings.Contains(allowed, name) {
+			return fmt.Errorf("preflight allows headers %q, missing %s", allowed, name)
+		}
+	}
+	if !strings.Contains(res.Header.Get("Access-Control-Allow-Methods"), method) {
+		return fmt.Errorf("preflight allows methods %q, missing %s", res.Header.Get("Access-Control-Allow-Methods"), method)
+	}
+	return nil
+}
+
 func (s *mountFeatureState) callWithClientToken(path, node string) error {
 	return s.callOnNode(path, node, s.client)
 }
@@ -521,6 +560,8 @@ func TestSwarmMountFeature(t *testing.T) {
 			ctx.Step(`^the node answers with CORS headers of its own$`, st.nodeAnswersWithCORS)
 			ctx.Step(`^a browser at "([^"]*)" calls "([^"]*)" on node "([^"]*)" with the client token$`, st.browserCallsOnNode)
 			ctx.Step(`^the response allows the origin "([^"]*)" exactly once$`, st.responseAllowsOriginOnce)
+			ctx.Step(`^the response lets the browser read "([^"]*)"$`, st.responseExposes)
+			ctx.Step(`^the relay lets a browser send "([^"]*)" on a "([^"]*)"$`, st.relayPreflightAllows)
 			ctx.Step(`^a browser using only the outer client token reads the mounted child relay endpoints$`, st.browserReadsChildRelayEndpoints)
 			ctx.Step(`^the mounted child relay identifies itself as "([^"]*)"$`, st.mountedChildIdentifiesItself)
 			ctx.Step(`^the child relay saw "([^"]*)", not the outer client token$`, st.childSawCredential)

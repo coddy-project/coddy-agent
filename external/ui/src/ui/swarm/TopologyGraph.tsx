@@ -185,7 +185,7 @@ export function TopologyGraph(props: {
   // What the drawing says, in words, for the tooltip a hover shows.
   const kindOf = (n: PlacedNode): string => {
     if (n.kind === "client") {
-      return t("composer.env.local");
+      return t("env.local");
     }
     if (isCurrent(n)) {
       return t("swarm.node.here");

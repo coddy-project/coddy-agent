@@ -154,6 +154,16 @@ jobs:
         if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
         run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:queue
 
+      # The views of a chat through the same kind of stand, the node asking for
+      # a token of its own: the header's views menu, the edits and the
+      # background tasks in the dock without a tab strip, and the Files window -
+      # its tree, its tabs, a search over the whole workspace, every tier of the
+      # grid in English and in Russian, and a sound playing through the relay
+      # from its signed address alone.
+      - name: Drive the views of a chat through a swarm relay
+        if: matrix.tags == 'http,scheduler,ui,memory,cli,swarm'
+        run: CODDY_BIN="$PWD/build/coddy" npm --prefix external/ui run check:files
+
       # The gateway suite runs the bot against the fake Bot API in-process. In
       # the combination that is the gateway alone, the real binary is started
       # against cmd/tgfake on a port and has to answer a message, so the

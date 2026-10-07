@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { Composer } from "./Composer";
@@ -839,7 +840,9 @@ function stubMatchMediaMobile(isMobile: boolean) {
   }));
 }
 
-test("enhance button shares the composer context row with workspace controls", () => {
+// The card holds the field and the bar, nothing above the field: the wand
+// stands in the field's top right corner, so the placeholder starts at the top.
+test("the improve-prompt button stands in the field's corner and the card has no chip row", () => {
   stubMatchMediaMobile(false);
   render(
     <Composer
@@ -852,38 +855,89 @@ test("enhance button shares the composer context row with workspace controls", (
       onSend={() => {}}
     />,
   );
-
   const button = screen.getByTestId("composer-enhance-btn");
   expect(button).toHaveAttribute("title", "Improve prompt");
-  expect(button.closest(".composer-context-row")).not.toBeNull();
-  expect(button.closest(".composer-field-wrap")).toBeNull();
+  expect(button.parentElement).toHaveClass("composer-field-wrap");
   expect(button.closest(".composer-bar")).toBeNull();
+  expect(document.querySelector(".composer-context-row")).toBeNull();
+  // The environment is an item of the nav rail, not a chip of the composer.
+  expect(screen.queryByTestId("nav-environment")).toBeNull();
   vi.unstubAllGlobals();
 });
 
-test("the context chips sit in their own strip and the enhance button stays outside it", () => {
-  // On a phone the strip scrolls sideways while the enhance button keeps its
-  // place at the row's end, so the button must not be inside the strip.
+const pickCtx = {
+  path: "/w/demo",
+  name: "demo",
+  is_git_repo: true,
+  is_worktree: false,
+  repo_root: "/w/demo",
+  branch: "main",
+  branches: ["main", "feat/x"],
+};
+
+// Before the chat starts, where it will work is still a choice: the plate over
+// the card offers the folder and the branch as picks and the worktree as a
+// checkbox. Git's count waits for a session.
+test("before a chat starts the folder, branch and worktree are picks on the plate over the card", () => {
   stubMatchMediaMobile(false);
+  const onWorkspacePickBranch = vi.fn();
   render(
     <Composer
-      value="fix memory thing"
-      isEmpty={false}
+      value=""
+      isEmpty={true}
       mode="agent"
       modes={["agent", "plan"]}
       onModeChange={() => {}}
       onChange={() => {}}
       onSend={() => {}}
+      workspaceCtx={pickCtx}
+      onWorkspacePickFolder={() => {}}
+      onWorkspacePickBranch={onWorkspacePickBranch}
+      onWorktreeToggle={() => {}}
     />,
   );
+  const plate = screen.getByTestId("workspace-bar");
+  expect(plate).toHaveClass("workspace-bar--pick");
+  const card = document.querySelector(".composer-card")!;
+  expect(plate.nextElementSibling).toBe(card);
+  expect(card).toHaveClass("composer-card--joined");
+  const folder = within(plate).getByTestId("composer-workspace-chip");
+  expect(folder.tagName).toBe("BUTTON");
+  expect(folder.textContent).toBe("demo");
+  const branch = within(plate).getByTestId("composer-branch-chip");
+  expect(branch.textContent).toBe("main");
+  expect(within(plate).getByTestId("composer-worktree-checkbox")).toBeTruthy();
+  expect(within(plate).queryByTestId("workspace-bar-edits")).toBeNull();
+  fireEvent.click(branch);
+  fireEvent.click(screen.getByTestId("workspace-branch-row-feat/x"));
+  expect(onWorkspacePickBranch).toHaveBeenCalledWith("feat/x", false);
+  vi.unstubAllGlobals();
+});
 
-  const button = screen.getByTestId("composer-enhance-btn");
-  const row = button.parentElement!;
-  expect(row).toHaveClass("composer-context-row");
-  const strip = row.querySelector(":scope > .composer-context-scroll");
-  expect(strip).not.toBeNull();
-  expect(strip!.contains(screen.getByRole("button", { name: "Environment" }))).toBe(true);
-  expect(strip!.contains(button)).toBe(false);
+// The worktree choice is the browser's for every folder, but a folder with no
+// git index has no branch to switch: the plate offers the folder alone, even
+// with the worktree checkbox switched on.
+test("a folder in no repository: the plate offers the folder alone", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      worktreePref={true}
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      workspaceCtx={{ path: "/tmp/plain", name: "plain", is_git_repo: false, is_worktree: false }}
+      onWorkspacePickFolder={() => {}}
+    />,
+  );
+  const plate = screen.getByTestId("workspace-bar");
+  expect(within(plate).getByTestId("composer-workspace-chip").textContent).toBe("plain");
+  expect(within(plate).queryByTestId("composer-branch-chip")).toBeNull();
+  expect(within(plate).queryByTestId("composer-worktree-checkbox")).toBeNull();
+  expect(within(plate).queryByTestId("workspace-bar-edits")).toBeNull();
   vi.unstubAllGlobals();
 });
 

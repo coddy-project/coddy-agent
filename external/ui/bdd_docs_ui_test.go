@@ -46,6 +46,10 @@ func TestBuiltinDocsWebUIFeature(t *testing.T) {
 				return runVitestScenario("src/ui/messages/ToolCallMessage.test.tsx",
 					"the documentation tools say what they do and name the query or the page")
 			})
+			sc.Step(`^the reader's close button stays where it stood as a page loads$`, func() error {
+				return runVitestScenario("src/ui/docs/docsReaderCss.test.ts",
+					"the reader keeps the scrollbar's room before the page scrolls")
+			})
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
