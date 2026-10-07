@@ -1,5 +1,11 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { ConfirmProvider } from "./components/useConfirm";
@@ -57,7 +63,8 @@ vi.mock("./env/remoteEnv", async (importOriginal) => {
       }
       relayAsked.push({
         url,
-        auth: new Headers(init?.headers ?? undefined).get("Authorization") ?? "",
+        auth:
+          new Headers(init?.headers ?? undefined).get("Authorization") ?? "",
       });
       const path = url.slice(RELAY.length);
       if (path === "/swarm/info") {
@@ -117,12 +124,26 @@ const nodeFetch = vi.fn(
       if (schedulerAnswer) {
         return schedulerAnswer();
       }
-      return json({ scheduler: { enabled: true, dir: "/tmp", timeout: "30m", max_queue: 1, runs_active: 0, retain_sessions: 1 }, jobs: [] });
+      return json({
+        scheduler: {
+          enabled: true,
+          dir: "/tmp",
+          timeout: "30m",
+          max_queue: 1,
+          runs_active: 0,
+          retain_sessions: 1,
+        },
+        jobs: [],
+      });
     }
     if (path.startsWith("/coddy/sessions?")) return json({ sessions: [] });
     // The page's own server (localFetch falls back to this fetch in a test).
     if (path === "/coddy/info") {
-      return json({ object: "coddy.info", version: "1.2.3", hostname: "pasha-lt" });
+      return json({
+        object: "coddy.info",
+        version: "1.2.3",
+        hostname: "pasha-lt",
+      });
     }
     // A node is not a relay.
     return json({}, 404);
@@ -237,9 +258,9 @@ test("History origin filters the active swarm node without switching environment
   nodeFetch.mockClear();
   switched.mockClear();
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
-  expect(screen.getByTestId("sessions-filter-section-environment")).toHaveTextContent(
-    "input-relay · Gateway",
-  );
+  expect(
+    screen.getByTestId("sessions-filter-section-environment"),
+  ).toHaveTextContent("input-relay · Gateway");
   fireEvent.click(screen.getByTestId("sessions-filter-section-environment"));
   expect(screen.getByTestId(`sessions-filter-env-${RELAY}`)).toHaveAttribute(
     "aria-current",
@@ -288,9 +309,9 @@ test("History environment selects the exact mounted remote over its parent", asy
   expect(exact).toHaveAttribute("aria-current", "true");
   expect(parent).not.toHaveAttribute("aria-current");
   expect(
-    exact.closest(".sessions-filter-submenu")?.querySelectorAll(
-      '[aria-current="true"]',
-    ),
+    exact
+      .closest(".sessions-filter-submenu")
+      ?.querySelectorAll('[aria-current="true"]'),
   ).toHaveLength(1);
 });
 
@@ -325,9 +346,9 @@ test("History environment selects the deepest nested remote regardless of order"
   expect(deepest).toHaveAttribute("aria-current", "true");
   expect(parent).not.toHaveAttribute("aria-current");
   expect(
-    deepest.closest(".sessions-filter-submenu")?.querySelectorAll(
-      '[aria-current="true"]',
-    ),
+    deepest
+      .closest(".sessions-filter-submenu")
+      ?.querySelectorAll('[aria-current="true"]'),
   ).toHaveLength(1);
 });
 
@@ -340,15 +361,26 @@ test("the swarm map opens over a node without leaving it", async () => {
   fireEvent.click(await screen.findByTestId("nav-swarm"));
   await screen.findByTestId("swarm-view");
   await waitFor(() =>
-    expect(relayAsked.some((r) => r.url === RELAY + "/swarm/topology")).toBe(true),
+    expect(relayAsked.some((r) => r.url === RELAY + "/swarm/topology")).toBe(
+      true,
+    ),
   );
   // Straight to the relay, with the client token the mount takes.
-  expect(relayAsked.every((r) => r.auth === "Bearer client" || r.url.endsWith("/swarm/info"))).toBe(true);
+  expect(
+    relayAsked.every(
+      (r) => r.auth === "Bearer client" || r.url.endsWith("/swarm/info"),
+    ),
+  ).toBe(true);
   // Nothing was switched: no reload, and the node's screens are still there.
   expect(switched).not.toHaveBeenCalled();
   expect(screen.getByTestId("nav-history")).toBeTruthy();
-  expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "true");
-  expect(JSON.parse(localStorage.getItem("coddy_env") || "{}").swarmNode).toBe("worker-a");
+  expect(screen.getByTestId("nav-swarm")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(JSON.parse(localStorage.getItem("coddy_env") || "{}").swarmNode).toBe(
+    "worker-a",
+  );
 });
 
 // History lies under the map in the stack of the rail's screens, so opening it
@@ -364,7 +396,10 @@ test("History opened from the rail over the map takes its place", async () => {
   await screen.findByTestId("swarm-view");
   fireEvent.click(screen.getByTestId("nav-history"));
   await waitFor(() => expect(screen.queryByTestId("swarm-view")).toBeNull());
-  expect(screen.getByTestId("nav-history")).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByTestId("nav-history")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   expect(switched).not.toHaveBeenCalled();
 });
 
@@ -407,7 +442,13 @@ test("another node is switched to with the map kept open", async () => {
   fireEvent.click(await screen.findByTestId("nav-swarm"));
   await screen.findByTestId("swarm-view");
   fireEvent.click(await mapNode("worker-b"));
-  expect(switched).toHaveBeenCalledWith("node", RELAY, ["worker-b"], "client", "#/swarm");
+  expect(switched).toHaveBeenCalledWith(
+    "node",
+    RELAY,
+    ["worker-b"],
+    "client",
+    "#/swarm",
+  );
 });
 
 async function mapNode(name: string): Promise<Element> {
@@ -446,11 +487,19 @@ test("the relay the map connects to keeps the name the configuration gives it", 
   fireEvent.click(await screen.findByTestId("nav-swarm"));
   await screen.findByTestId("swarm-view");
   await waitFor(() =>
-    expect(nodeFetch.mock.calls.some(([u]) => String(u) === "/coddy/config")).toBe(true),
+    expect(
+      nodeFetch.mock.calls.some(([u]) => String(u) === "/coddy/config"),
+    ).toBe(true),
   );
   await waitFor(() => {
     fireEvent.click(document.querySelector(".swarm-node-relay") as Element);
-    expect(switched).toHaveBeenLastCalledWith("relay", RELAY, [], "client", "hq");
+    expect(switched).toHaveBeenLastCalledWith(
+      "relay",
+      RELAY,
+      [],
+      "client",
+      "hq",
+    );
   });
 });
 

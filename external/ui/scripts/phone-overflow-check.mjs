@@ -31,7 +31,9 @@ const URL_BASE = (process.env.CODDY_UI_URL || "http://127.0.0.1:5241").replace(
 const ENGINE = process.env.CODDY_ENGINE || "chromium";
 const BROWSER_PATH = process.env.CODDY_BROWSER_PATH || "";
 if (BROWSER_PATH && ENGINE !== "chromium") {
-  console.error("CODDY_BROWSER_PATH points at a Chromium; WebKit and Firefox run Playwright's own builds");
+  console.error(
+    "CODDY_BROWSER_PATH points at a Chromium; WebKit and Firefox run Playwright's own builds",
+  );
   process.exit(2);
 }
 
@@ -41,7 +43,11 @@ if (BROWSER_PATH && ENGINE !== "chromium") {
 const WIDTHS = [360, 375, 393, 430, 599, 600, 834, 1199, 1280];
 const LANGS = ["ru", "en"];
 // Built-in tools with a short label: their rows keep one line at every width.
-const SHORT_LABEL_ROWS = ["tool-details-tc-command", "tool-details-tc-glob", "tool-details-tc-short-target"];
+const SHORT_LABEL_ROWS = [
+  "tool-details-tc-command",
+  "tool-details-tc-glob",
+  "tool-details-tc-short-target",
+];
 
 let playwright;
 try {
@@ -99,42 +105,55 @@ async function probe(page) {
         what: `${el.tagName.toLowerCase()}.${(el.getAttribute("class") || "").split(" ")[0]} by ${Math.round(Math.max(r.right - edge.right, edge.left - r.left))}px`,
       });
     }
-    const rows = [...column.querySelectorAll(".coddy-tool-call-row")].map((row) => {
-      const id = row.querySelector("details")?.dataset.testid || "(a row without a test id)";
-      const headEl = row.querySelector(".thinking-head");
-      if (!headEl) return { id, error: "no .thinking-head" };
-      const head = headEl.getBoundingClientRect();
-      const label = row.querySelector(".thinking-label").getBoundingClientRect();
-      const trail = row.querySelector(".thinking-trail");
-      const parts = trail ? [...trail.children].map((el) => el.getBoundingClientRect()) : [];
-      const dur = row.querySelector(".thinking-dur")?.getBoundingClientRect();
-      const target = row.querySelector(".tool-summary-target");
-      const tb = target?.getBoundingClientRect();
-      // A read of part of a file: the path takes the ellipsis, the range is whole.
-      const range = row.querySelector(".tool-summary-target-range");
-      const rb = range?.getBoundingClientRect();
-      return {
-        id,
-        durInside: !dur || (dur.right <= head.right + 0.5 && dur.left >= head.left - 0.5),
-        // The target, the marker and the duration move together or not at all.
-        trailTogether: parts.every((b) => Math.abs(b.top - parts[0].top) < 4),
-        // A target is readable or on the next line, never a sliver.
-        targetWidth: tb ? Math.round(tb.width) : null,
-        targetNeeds: target ? Math.min(target.scrollWidth, 24) : 0,
-        hasRange: !!range,
-        rangeWhole:
-          !!range &&
-          rb.right <= tb.right + 0.5 &&
-          rb.width >= range.scrollWidth - 0.5 &&
-          rb.width > 0,
-        // The rows whose label is short keep one line at every width.
-        oneLine: !trail || Math.abs(trail.getBoundingClientRect().top - label.top) < 4,
-        shortLabel: shortLabelRows.includes(id),
-      };
-    });
+    const rows = [...column.querySelectorAll(".coddy-tool-call-row")].map(
+      (row) => {
+        const id =
+          row.querySelector("details")?.dataset.testid ||
+          "(a row without a test id)";
+        const headEl = row.querySelector(".thinking-head");
+        if (!headEl) return { id, error: "no .thinking-head" };
+        const head = headEl.getBoundingClientRect();
+        const label = row
+          .querySelector(".thinking-label")
+          .getBoundingClientRect();
+        const trail = row.querySelector(".thinking-trail");
+        const parts = trail
+          ? [...trail.children].map((el) => el.getBoundingClientRect())
+          : [];
+        const dur = row.querySelector(".thinking-dur")?.getBoundingClientRect();
+        const target = row.querySelector(".tool-summary-target");
+        const tb = target?.getBoundingClientRect();
+        // A read of part of a file: the path takes the ellipsis, the range is whole.
+        const range = row.querySelector(".tool-summary-target-range");
+        const rb = range?.getBoundingClientRect();
+        return {
+          id,
+          durInside:
+            !dur ||
+            (dur.right <= head.right + 0.5 && dur.left >= head.left - 0.5),
+          // The target, the marker and the duration move together or not at all.
+          trailTogether: parts.every((b) => Math.abs(b.top - parts[0].top) < 4),
+          // A target is readable or on the next line, never a sliver.
+          targetWidth: tb ? Math.round(tb.width) : null,
+          targetNeeds: target ? Math.min(target.scrollWidth, 24) : 0,
+          hasRange: !!range,
+          rangeWhole:
+            !!range &&
+            rb.right <= tb.right + 0.5 &&
+            rb.width >= range.scrollWidth - 0.5 &&
+            rb.width > 0,
+          // The rows whose label is short keep one line at every width.
+          oneLine:
+            !trail ||
+            Math.abs(trail.getBoundingClientRect().top - label.top) < 4,
+          shortLabel: shortLabelRows.includes(id),
+        };
+      },
+    );
     return {
       pageOverflow:
-        document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
       offenders: out.map((o) => o.what),
       rows,
     };
@@ -157,7 +176,9 @@ try {
       // turn is wider than itself.
       await page.evaluate(async () => {
         await document.fonts.ready;
-        await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {})));
+        await Promise.all(
+          document.getAnimations().map((a) => a.finished.catch(() => {})),
+        );
       });
 
       const got = await probe(page);
@@ -167,20 +188,34 @@ try {
         await page.close();
         continue;
       }
-      check(`${at} the page does not scroll sideways`, got.pageOverflow <= 0, `${got.pageOverflow}px`);
+      check(
+        `${at} the page does not scroll sideways`,
+        got.pageOverflow <= 0,
+        `${got.pageOverflow}px`,
+      );
       check(
         `${at} nothing sticks out of the transcript`,
         got.offenders.length === 0,
         got.offenders.join(", "),
       );
-      check(`${at} the stand mounts every tool row`, got.rows.length >= 3, `${got.rows.length} rows`);
+      check(
+        `${at} the stand mounts every tool row`,
+        got.rows.length >= 3,
+        `${got.rows.length} rows`,
+      );
       for (const row of got.rows) {
         if (row.error) {
           check(`${at} ${row.id} is measurable`, false, row.error);
           continue;
         }
-        check(`${at} ${row.id} keeps its duration inside the row`, row.durInside);
-        check(`${at} ${row.id} keeps its target, marker and duration together`, row.trailTogether);
+        check(
+          `${at} ${row.id} keeps its duration inside the row`,
+          row.durInside,
+        );
+        check(
+          `${at} ${row.id} keeps its target, marker and duration together`,
+          row.trailTogether,
+        );
         if (row.targetWidth !== null) {
           check(
             `${at} ${row.id} shows a readable target`,

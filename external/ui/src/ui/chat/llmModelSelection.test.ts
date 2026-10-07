@@ -74,10 +74,14 @@ test("sessionScopedModelCommand reads a session-scoped pick", () => {
 test("sessionScopedModelCommand skips non-picks and turn-scoped forms", () => {
   expect(sessionScopedModelCommand("/model")).toBeNull();
   expect(sessionScopedModelCommand("/model --once openai/gpt-4o")).toBeNull();
-  expect(sessionScopedModelCommand("/model openai/gpt-4o --once hi")).toBeNull();
+  expect(
+    sessionScopedModelCommand("/model openai/gpt-4o --once hi"),
+  ).toBeNull();
   expect(
     sessionScopedModelCommand("/model openai/gpt-4o --count=3 hi"),
   ).toBeNull();
-  expect(sessionScopedModelCommand("/model openai/gpt-4o --count 3 hi")).toBeNull();
+  expect(
+    sessionScopedModelCommand("/model openai/gpt-4o --count 3 hi"),
+  ).toBeNull();
   expect(sessionScopedModelCommand("say /model openai/gpt-4o")).toBeNull();
 });

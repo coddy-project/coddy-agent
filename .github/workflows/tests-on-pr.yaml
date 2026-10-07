@@ -484,7 +484,7 @@ jobs:
 
   # The passes of `make lint` and `make lint-windows`: the untagged tree, every
   # tag but ui, and the shipped set, each for the host and for the Windows
-  # build, then the TypeScript check of the web UI. The two tag lists come from
+  # build, then the TypeScript and the Prettier checks of the web UI. The two tag lists come from
   # the Makefile (print-full-tags, print-lint-tags-no-ui), so they cannot drift
   # from what `make lint` compiles; the shipped set embeds the SPA, so the
   # assets are built first.
@@ -562,3 +562,6 @@ jobs:
 
       - name: Type-check the web UI
         run: make ui-typecheck
+
+      - name: Check the web UI's formatting
+        run: make ui-format-check

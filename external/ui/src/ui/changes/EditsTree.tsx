@@ -45,8 +45,10 @@ export function EditsTree(props: {
     if (!tree || !row) return;
     const port = tree.getBoundingClientRect();
     const box = row.getBoundingClientRect();
-    if (box.top < port.top) tree.scrollTop -= port.top - box.top + ROW_MARGIN_PX;
-    else if (box.bottom > port.bottom) tree.scrollTop += box.bottom - port.bottom + ROW_MARGIN_PX;
+    if (box.top < port.top)
+      tree.scrollTop -= port.top - box.top + ROW_MARGIN_PX;
+    else if (box.bottom > port.bottom)
+      tree.scrollTop += box.bottom - port.bottom + ROW_MARGIN_PX;
   }, [props.active]);
 
   const statuses = useMemo(() => {
@@ -156,7 +158,11 @@ export function EditsTree(props: {
             <p className="files-note">{t("changes.viewer.noMatches")}</p>
           ) : null
         ) : (
-          <ul className="files-tree-level" role="tree" aria-label={t("changes.viewer.files")}>
+          <ul
+            className="files-tree-level"
+            role="tree"
+            aria-label={t("changes.viewer.files")}
+          >
             {nodes.map((node) => row(node, 0))}
           </ul>
         )}

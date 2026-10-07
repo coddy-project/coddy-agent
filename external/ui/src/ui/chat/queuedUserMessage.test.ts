@@ -2,7 +2,10 @@ import { expect, test } from "vitest";
 import { queuedUserMessageItem } from "./queuedUserMessage";
 
 const frame = (text: string) =>
-  JSON.stringify({ sessionUpdate: "user_message_chunk", content: { type: "text", text } });
+  JSON.stringify({
+    sessionUpdate: "user_message_chunk",
+    content: { type: "text", text },
+  });
 
 test("a queued message read with an image shows the image as a file chip", () => {
   const item = queuedUserMessageItem(
@@ -18,7 +21,9 @@ test("a queued message read with an image shows the image as a file chip", () =>
 
 test("a message of an image alone still gets a row", () => {
   const item = queuedUserMessageItem(
-    frame("\n\n<coddy_session_assets>Uploaded files:\n- /tmp/assets/only.png\n</coddy_session_assets>"),
+    frame(
+      "\n\n<coddy_session_assets>Uploaded files:\n- /tmp/assets/only.png\n</coddy_session_assets>",
+    ),
     "u2",
     "2026-09-26T12:00:00Z",
   );
@@ -26,7 +31,9 @@ test("a message of an image alone still gets a row", () => {
 });
 
 test("a plain message has no chips, and an empty or broken frame no row", () => {
-  expect(queuedUserMessageItem(frame("check the path"), "u3", "t")?.files).toBeUndefined();
+  expect(
+    queuedUserMessageItem(frame("check the path"), "u3", "t")?.files,
+  ).toBeUndefined();
   expect(queuedUserMessageItem(frame("   "), "u4", "t")).toBeNull();
   expect(queuedUserMessageItem("{not json", "u5", "t")).toBeNull();
 });

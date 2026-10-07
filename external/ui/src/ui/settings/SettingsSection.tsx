@@ -225,12 +225,7 @@ function gatewaysFieldOverride(ctx: FieldOverrideContext) {
     <ProxySettingField
       value={ctx.value}
       onChange={ctx.onChange}
-      label={schemaFieldLabel(
-        "gateways",
-        ctx.path,
-        ctx.schema.title,
-        "proxy",
-      )}
+      label={schemaFieldLabel("gateways", ctx.path, ctx.schema.title, "proxy")}
       description={schemaFieldDesc(
         "gateways",
         ctx.path,
@@ -267,7 +262,10 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
       return (
         <CodexAuthField
           providerName={providerName}
-          {...(Object.prototype.hasOwnProperty.call(ctx.parentObj ?? {}, "proxy")
+          {...(Object.prototype.hasOwnProperty.call(
+            ctx.parentObj ?? {},
+            "proxy",
+          )
             ? { proxy: String(ctx.parentObj?.proxy ?? "") }
             : {})}
         />

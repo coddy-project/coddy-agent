@@ -246,7 +246,7 @@ test("a relay's settings leave out the Sessions tab and name the swarm section",
 // On a relay that predates its settings page the schema is not there at all;
 // the app knows it is on a relay and still leaves the Sessions tab out.
 test("a relay without a settings page keeps only Appearance", () => {
-  expect(deriveSettingsSections(null, { relay: true }).map((s) => s.id)).toEqual([
-    "appearance",
-  ]);
+  expect(
+    deriveSettingsSections(null, { relay: true }).map((s) => s.id),
+  ).toEqual(["appearance"]);
 });

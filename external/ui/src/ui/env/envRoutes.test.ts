@@ -94,7 +94,9 @@ describe("the route of each environment", () => {
   // browser's per-remote list would outlive a token the configuration stops
   // handing out (connectConfiguredRemote leaves it out for the same reason).
   it("keeps the token of a swarm switch out of the browser's list", () => {
-    connectRemote("http://relay:1", "from-config", "relay", { rememberToken: false });
+    connectRemote("http://relay:1", "from-config", "relay", {
+      rememberToken: false,
+    });
     connectSwarmNode("http://relay:1", ["worker-a"], "from-config");
     connectSwarmRelay("http://relay:1", [], "from-config");
     expect(localStorage.getItem("coddy_env_tokens")).toBeNull();
@@ -122,7 +124,9 @@ describe("the route of each environment", () => {
 describe("switching in place", () => {
   it("moves between two remotes without reloading the page", () => {
     connectRemote("http://relay:1", "t", "relay");
-    const reload = window.location.reload as unknown as ReturnType<typeof vi.fn>;
+    const reload = window.location.reload as unknown as ReturnType<
+      typeof vi.fn
+    >;
     reload.mockClear();
     const forgot = vi.fn();
     const stop = onEnvironmentSwitch(forgot);
@@ -164,7 +168,9 @@ describe("switching in place", () => {
   });
 
   it("reloads the page to and from Local", () => {
-    const reload = window.location.reload as unknown as ReturnType<typeof vi.fn>;
+    const reload = window.location.reload as unknown as ReturnType<
+      typeof vi.fn
+    >;
     connectRemote("http://box:1", "t", "box");
     expect(reload).toHaveBeenCalledTimes(1);
     connectLocal();

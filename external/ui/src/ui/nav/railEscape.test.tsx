@@ -35,19 +35,30 @@ function Step(props: { screen: RailScreenId; step: (() => void) | null }) {
 }
 
 /** Escape as a keyboard sends it, at the page; false when something claimed it. */
-function pressEscape(init: Record<string, unknown> = {}, target: Element = document.body) {
+function pressEscape(
+  init: Record<string, unknown> = {},
+  target: Element = document.body,
+) {
   return fireEvent.keyDown(target, { key: "Escape", ...init });
 }
 
 describe("the screens of the rail", () => {
   it("are every item of the rail but sign-out, the topmost first", () => {
-    expect([...RAIL_SCREENS]).toEqual(["docs", "settings", "swarm", "scheduler", "history"]);
+    expect([...RAIL_SCREENS]).toEqual([
+      "docs",
+      "settings",
+      "swarm",
+      "scheduler",
+      "history",
+    ]);
   });
 
   it("put the open screen drawn highest on top", () => {
     expect(railScreenOnTop(screensWith())).toBeNull();
     expect(railScreenOnTop(screensWith("history"))).toBe("history");
-    expect(railScreenOnTop(screensWith("history", "scheduler"))).toBe("scheduler");
+    expect(railScreenOnTop(screensWith("history", "scheduler"))).toBe(
+      "scheduler",
+    );
     expect(railScreenOnTop(screensWith("history", "docs"))).toBe("docs");
     expect(railScreenOnTop(screensWith("swarm", "settings"))).toBe("settings");
   });
@@ -69,11 +80,19 @@ describe("an Escape a screen may take", () => {
   });
 
   it("is not a held key, a composition's or one with a modifier", () => {
-    expect(isUnclaimedEscape(keydown({ key: "Escape", repeat: true }))).toBe(false);
-    expect(isUnclaimedEscape(keydown({ key: "Escape", isComposing: true }))).toBe(false);
-    expect(isUnclaimedEscape(keydown({ key: "Escape", keyCode: 229 }))).toBe(false);
+    expect(isUnclaimedEscape(keydown({ key: "Escape", repeat: true }))).toBe(
+      false,
+    );
+    expect(
+      isUnclaimedEscape(keydown({ key: "Escape", isComposing: true })),
+    ).toBe(false);
+    expect(isUnclaimedEscape(keydown({ key: "Escape", keyCode: 229 }))).toBe(
+      false,
+    );
     for (const mod of ["altKey", "ctrlKey", "metaKey", "shiftKey"] as const) {
-      expect(isUnclaimedEscape(keydown({ key: "Escape", [mod]: true }))).toBe(false);
+      expect(isUnclaimedEscape(keydown({ key: "Escape", [mod]: true }))).toBe(
+        false,
+      );
     }
   });
 });

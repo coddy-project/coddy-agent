@@ -19,7 +19,9 @@ import {
  */
 let sessionHeaders: Record<string, string> = {};
 
-export function setSchedulerSessionHeaders(headers: Record<string, string>): void {
+export function setSchedulerSessionHeaders(
+  headers: Record<string, string>,
+): void {
   sessionHeaders = { ...headers };
 }
 
@@ -108,8 +110,7 @@ export async function schedulerListJobs(
 export async function schedulerGetJob(
   jobId: string,
 ): Promise<ApiResult<SchedulerJob>> {
-  const res = await jobFetch(jobId, "",
-  );
+  const res = await jobFetch(jobId, "");
   return parseJson<SchedulerJob>(res);
 }
 
@@ -153,25 +154,19 @@ export async function schedulerUntrustJob(
 export async function schedulerPatchJob(
   jobId: string,
   patch: SchedulerJobPatch,
-): Promise<
-  ApiResult<{ object?: string; job_id?: string }>
-> {
-  const res = await jobFetch(jobId, "",
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    },
-  );
+): Promise<ApiResult<{ object?: string; job_id?: string }>> {
+  const res = await jobFetch(jobId, "", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
   return parseJson(res);
 }
 
 export async function schedulerDeleteJob(
   jobId: string,
 ): Promise<ApiResult<null>> {
-  const res = await jobFetch(jobId, "",
-    { method: "DELETE" },
-  );
+  const res = await jobFetch(jobId, "", { method: "DELETE" });
   if (res.ok && (res.status === 204 || res.status === 200)) {
     return { ok: true, data: null };
   }
@@ -185,29 +180,21 @@ export async function schedulerDeleteJob(
 export async function schedulerPauseJob(
   jobId: string,
 ): Promise<ApiResult<{ object?: string; job_id?: string }>> {
-  const res = await jobFetch(jobId, "/pause",
-    { method: "POST" },
-  );
+  const res = await jobFetch(jobId, "/pause", { method: "POST" });
   return parseJson(res);
 }
 
 export async function schedulerResumeJob(
   jobId: string,
 ): Promise<ApiResult<{ object?: string; job_id?: string }>> {
-  const res = await jobFetch(jobId, "/resume",
-    { method: "POST" },
-  );
+  const res = await jobFetch(jobId, "/resume", { method: "POST" });
   return parseJson(res);
 }
 
 export async function schedulerRunJob(
   jobId: string,
-): Promise<
-  ApiResult<{ object?: string; job_id?: string; status?: string }>
-> {
-  const res = await jobFetch(jobId, "/run",
-    { method: "POST" },
-  );
+): Promise<ApiResult<{ object?: string; job_id?: string; status?: string }>> {
+  const res = await jobFetch(jobId, "/run", { method: "POST" });
   return parseJson(res);
 }
 
@@ -216,9 +203,7 @@ export async function schedulerCancelJob(
 ): Promise<
   ApiResult<{ object?: string; job_id?: string; cancelled?: boolean }>
 > {
-  const res = await jobFetch(jobId, "/cancel",
-    { method: "POST" },
-  );
+  const res = await jobFetch(jobId, "/cancel", { method: "POST" });
   return parseJson(res);
 }
 
@@ -230,8 +215,6 @@ export async function schedulerCancelJob(
 export async function schedulerClearJobRuns(
   jobId: string,
 ): Promise<ApiResult<{ object?: string; job_id?: string; cleared?: number }>> {
-  const res = await jobFetch(jobId, "/runs",
-    { method: "DELETE" },
-  );
+  const res = await jobFetch(jobId, "/runs", { method: "DELETE" });
   return parseJson(res);
 }

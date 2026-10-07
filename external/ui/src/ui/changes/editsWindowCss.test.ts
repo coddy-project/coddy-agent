@@ -31,8 +31,17 @@ test("a file's actions are never hidden until hovered", () => {
 
 /** The four sides of a `padding` shorthand, in pixels. */
 function padding(block: string): number[] {
-  const values = /padding:\s*([^;]+);/.exec(block)![1]!.trim().split(/\s+/).map((v) => parseFloat(v));
-  const [top, right = top, bottom = top, left = right] = values as [number, number?, number?, number?];
+  const values = /padding:\s*([^;]+);/
+    .exec(block)![1]!
+    .trim()
+    .split(/\s+/)
+    .map((v) => parseFloat(v));
+  const [top, right = top, bottom = top, left = right] = values as [
+    number,
+    number?,
+    number?,
+    number?,
+  ];
   return [top, right, bottom, left];
 }
 

@@ -712,10 +712,11 @@ function RelayDisc(props: {
       />
       <RouterMark cx={0} />
       <StatusDot x={r * 0.7} y={-r * 0.7} online={n.online} />
-      {n.transport === "tunnel" ? (
-        <DialBadge x={-r * 0.7} y={r * 0.7} />
-      ) : null}
-      <g className="swarm-node-chip" transform={`translate(0,${M.relayChipDrop})`}>
+      {n.transport === "tunnel" ? <DialBadge x={-r * 0.7} y={r * 0.7} /> : null}
+      <g
+        className="swarm-node-chip"
+        transform={`translate(0,${M.relayChipDrop})`}
+      >
         <rect
           x={-chip / 2}
           y={-M.chipHeight / 2}

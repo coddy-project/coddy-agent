@@ -78,7 +78,10 @@ describe("edit banner", () => {
       />,
     );
     expect(screen.queryByTestId("composer-edit-banner")).toBeNull();
-    expect(document.getElementById("btn-send")).toHaveAttribute("aria-label", "Send");
+    expect(document.getElementById("btn-send")).toHaveAttribute(
+      "aria-label",
+      "Send",
+    );
   });
 });
 

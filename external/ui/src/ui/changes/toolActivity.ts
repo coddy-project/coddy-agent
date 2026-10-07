@@ -10,7 +10,9 @@ export function finishedToolCalls(items: readonly TranscriptItem[]): number {
   for (const it of items) {
     if (
       it.type === "tool_call" &&
-      (it.status === "completed" || it.status === "failed" || it.status === "cancelled")
+      (it.status === "completed" ||
+        it.status === "failed" ||
+        it.status === "cancelled")
     ) {
       n += 1;
     }

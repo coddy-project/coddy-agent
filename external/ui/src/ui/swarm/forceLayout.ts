@@ -128,10 +128,8 @@ export function layoutTopologyGraph(
     .sort((a, b) => compare(a.name, b.name) || compare(a.uuid, b.uuid));
   if (stranded.length > 0) {
     const y =
-      Math.max(
-        ...tree.nodes.map((n) => n.y),
-        ...(client ? [client.y] : []),
-      ) + STRANDED_DROP;
+      Math.max(...tree.nodes.map((n) => n.y), ...(client ? [client.y] : [])) +
+      STRANDED_DROP;
     stranded.forEach((node, i) => {
       node.x = root.x + (i - (stranded.length - 1) / 2) * STRANDED_STEP;
       node.y = y;

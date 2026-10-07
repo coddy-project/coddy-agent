@@ -560,39 +560,39 @@ export function SessionsSidebar(props: {
                   />
                 )
               ) : null}
-                {showsPermission ? (
-                  <span
-                    className="session-permission-icon"
-                    role="img"
-                    aria-label={t("sessions.permissionRequired")}
-                    data-testid={`session-permission-${s.id}`}
-                    title={t("sessions.permissionRequired")}
-                  >
-                    ?
-                  </span>
-                ) : null}
-                {showsQuestion ? (
-                  <span
-                    className="session-question-icon"
-                    role="img"
-                    aria-label={t("sessions.questionPending")}
-                    data-testid={`session-question-${s.id}`}
-                    title={t("sessions.questionPending")}
-                  >
-                    ?
-                  </span>
-                ) : null}
-                {s.archived ? (
-                  <span
-                    className="session-archived-mark"
-                    role="img"
-                    data-testid={`session-archived-${s.id}`}
-                    aria-label={t("sessions.archivedBadge")}
-                    title={t("sessions.archivedBadge")}
-                  >
-                    <IconArchiveRow />
-                  </span>
-                ) : null}
+              {showsPermission ? (
+                <span
+                  className="session-permission-icon"
+                  role="img"
+                  aria-label={t("sessions.permissionRequired")}
+                  data-testid={`session-permission-${s.id}`}
+                  title={t("sessions.permissionRequired")}
+                >
+                  ?
+                </span>
+              ) : null}
+              {showsQuestion ? (
+                <span
+                  className="session-question-icon"
+                  role="img"
+                  aria-label={t("sessions.questionPending")}
+                  data-testid={`session-question-${s.id}`}
+                  title={t("sessions.questionPending")}
+                >
+                  ?
+                </span>
+              ) : null}
+              {s.archived ? (
+                <span
+                  className="session-archived-mark"
+                  role="img"
+                  data-testid={`session-archived-${s.id}`}
+                  aria-label={t("sessions.archivedBadge")}
+                  title={t("sessions.archivedBadge")}
+                >
+                  <IconArchiveRow />
+                </span>
+              ) : null}
             </span>
             <div className="session-row-leading">
               <span
@@ -871,7 +871,10 @@ export function SessionsSidebar(props: {
                       }
                     >
                       <span className="session-group-label">{label}</span>
-                      <Chevron open={!isCollapsed} className="session-group-caret" />
+                      <Chevron
+                        open={!isCollapsed}
+                        className="session-group-caret"
+                      />
                     </button>
                     {/* A folder heading is also where a conversation about that
                       folder starts: the plus opens a new chat already pointed

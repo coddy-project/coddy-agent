@@ -98,17 +98,15 @@ test("arrows move the highlight and Enter puts the model into the draft instead 
 
   typeDraft(ta, "/compact --model qw");
   await waitFor(() => {
-    expect(screen.getByTestId("command-arg-row-hub_qwen3-coder")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(
+      screen.getByTestId("command-arg-row-hub_qwen3-coder"),
+    ).toHaveAttribute("aria-selected", "true");
   });
   fireEvent.keyDown(ta, { key: "ArrowDown" });
   await waitFor(() => {
-    expect(screen.getByTestId("command-arg-row-hub_qwen3-mini")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(
+      screen.getByTestId("command-arg-row-hub_qwen3-mini"),
+    ).toHaveAttribute("aria-selected", "true");
   });
   fireEvent.keyDown(ta, { key: "Enter" });
 
@@ -192,10 +190,9 @@ test("keys an input method is composing with leave the list and the draft alone"
 
   typeDraft(ta, "/compact --model qw");
   await waitFor(() => {
-    expect(screen.getByTestId("command-arg-row-hub_qwen3-coder")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(
+      screen.getByTestId("command-arg-row-hub_qwen3-coder"),
+    ).toHaveAttribute("aria-selected", "true");
   });
   onChange.mockClear();
   fireEvent.keyDown(ta, { key: "ArrowDown", isComposing: true });

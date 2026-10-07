@@ -233,7 +233,12 @@ describe("deriveLiveStatus", () => {
   it("reports writing while the turn's last row is its answer text", () => {
     const s = deriveLiveStatus([
       user(),
-      { id: "a1", type: "assistant_message", content: "The price is", streaming: true },
+      {
+        id: "a1",
+        type: "assistant_message",
+        content: "The price is",
+        streaming: true,
+      },
     ]);
     expect(s.kind).toBe("writing");
     expect(s.key).toBe("status.writing");
@@ -242,7 +247,12 @@ describe("deriveLiveStatus", () => {
   it("text earlier in the turn does not hide the step running after it", () => {
     const s = deriveLiveStatus([
       user(),
-      { id: "a1", type: "assistant_message", content: "Checking.", streaming: true },
+      {
+        id: "a1",
+        type: "assistant_message",
+        content: "Checking.",
+        streaming: true,
+      },
       tool({ title: "webfetch", argsText: '{"url":"https://coddy.dev/"}' }),
     ]);
     expect(s.kind).toBe("tool");
@@ -378,7 +388,12 @@ describe("the turn's start, for a line that has not heard from the server yet", 
   test("is the creation time of the turn's user message, whatever step is running", () => {
     const createdAtUtc = new Date(Date.now() - 90_000).toISOString();
     const items: TranscriptItem[] = [
-      { id: "u0", type: "user_message", content: "earlier", createdAtUtc: new Date(Date.now() - 900_000).toISOString() },
+      {
+        id: "u0",
+        type: "user_message",
+        content: "earlier",
+        createdAtUtc: new Date(Date.now() - 900_000).toISOString(),
+      },
       { id: "a0", type: "assistant_message", content: "earlier answer" },
       { id: "u1", type: "user_message", content: "go", createdAtUtc },
       {
@@ -402,7 +417,12 @@ describe("the turn's start, for a line that has not heard from the server yet", 
     expect(deriveLiveStatus(items).turnStartedAtMs).toBeUndefined();
     expect(
       deriveLiveStatus([
-        { id: "u1", type: "user_message", content: "go", createdAtUtc: new Date(Date.now() + 3_600_000).toISOString() },
+        {
+          id: "u1",
+          type: "user_message",
+          content: "go",
+          createdAtUtc: new Date(Date.now() + 3_600_000).toISOString(),
+        },
       ]).turnStartedAtMs,
     ).toBeUndefined();
   });
@@ -410,7 +430,13 @@ describe("the turn's start, for a line that has not heard from the server yet", 
   test("only a tool call and the memory run keep a clock of their own", () => {
     expect(stepShowsItsOwnClock("tool")).toBe(true);
     expect(stepShowsItsOwnClock("memory")).toBe(true);
-    for (const kind of ["waiting", "thinking", "writing", "permission", "question"] as const) {
+    for (const kind of [
+      "waiting",
+      "thinking",
+      "writing",
+      "permission",
+      "question",
+    ] as const) {
       expect(stepShowsItsOwnClock(kind)).toBe(false);
     }
     expect(stepShowsItsOwnClock(undefined)).toBe(false);

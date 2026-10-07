@@ -168,12 +168,18 @@ test("a visual viewport panned down the page counts from where it stands", () =>
 test("the keyboard inset is the part of the layout viewport the keyboard covers", () => {
   const view = (vv: Record<string, number> | undefined) =>
     ({ innerHeight: 844, visualViewport: vv }) as unknown as Window;
-  expect(keyboardInset(view({ height: 500, offsetTop: 0, scale: 1 }))).toBe(344);
+  expect(keyboardInset(view({ height: 500, offsetTop: 0, scale: 1 }))).toBe(
+    344,
+  );
   // Panned so its bottom meets the layout viewport's: nothing is covered.
-  expect(keyboardInset(view({ height: 500, offsetTop: 344, scale: 1 }))).toBe(0);
+  expect(keyboardInset(view({ height: 500, offsetTop: 344, scale: 1 }))).toBe(
+    0,
+  );
   // No keyboard, a keyboard that resizes the page, or no API at all.
   expect(keyboardInset(view({ height: 844, offsetTop: 0, scale: 1 }))).toBe(0);
   expect(keyboardInset(view(undefined))).toBe(0);
   // A pinch zoom shrinks the visual viewport too, and is not a keyboard.
-  expect(keyboardInset(view({ height: 422, offsetTop: 100, scale: 2 }))).toBe(0);
+  expect(keyboardInset(view({ height: 422, offsetTop: 100, scale: 2 }))).toBe(
+    0,
+  );
 });

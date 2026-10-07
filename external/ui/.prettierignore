@@ -1,0 +1,13 @@
+# Prettier reads this file and .gitignore of this folder only, so the build
+# output the repository root's .gitignore keeps out of git is named here too:
+# vite's dist and the copy next to embed.go (scripts-sync-to-go.mjs).
+/dist/
+/chunks/
+/app.js
+/styles.css
+/index.html
+/events-worker.js
+# Vendored grammars stay byte for byte as published, next to their notices.
+/src/ui/markdown/grammars/
+# npm writes the lockfile in its own format.
+/package-lock.json

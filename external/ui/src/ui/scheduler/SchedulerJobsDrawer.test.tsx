@@ -53,9 +53,7 @@ test("no active row when selectedJobId is null", () => {
 
 test("drawer footer has Add job control without Refresh", () => {
   renderDrawer(null, [baseJob("a")]);
-  expect(
-    screen.getByRole("button", { name: "Add job" }),
-  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Add job" })).toBeInTheDocument();
   expect(screen.queryByTestId("scheduler-refresh")).toBeNull();
 });
 
@@ -100,7 +98,9 @@ test("job row main control exposes scheduler hash href", () => {
 test("a running job's Stop carries the drawn stop square", () => {
   renderDrawer(null, [{ ...baseJob("busy"), running: true }]);
   const stop = screen.getByTestId("scheduler-stop-busy");
-  expect(stop.querySelector(".composer-send-glyph .composer-stop-square")).toBeTruthy();
+  expect(
+    stop.querySelector(".composer-send-glyph .composer-stop-square"),
+  ).toBeTruthy();
   expect(stop.textContent?.trim()).toBe("");
 });
 

@@ -67,7 +67,10 @@ export async function readJson<T>(
     const body = (await res.json().catch(() => null)) as {
       error?: { message?: string };
     } | null;
-    throw new HttpError(body?.error?.message || `HTTP ${res.status}`, res.status);
+    throw new HttpError(
+      body?.error?.message || `HTTP ${res.status}`,
+      res.status,
+    );
   }
   return res.json() as Promise<T>;
 }
@@ -104,8 +107,16 @@ export async function rereadTree(
   // A page that brings nothing, or names the cursor it was asked from, ends
   // the walk: a server that says "more" and gives nothing must not hold it.
   for (let i = 0; i < 50 && page.has_more && page.entries.length < rows; i++) {
-    const next = await readTree(id, path, page.next_cursor, hidden, signal, limit);
-    const stuck = next.entries.length === 0 || next.next_cursor === page.next_cursor;
+    const next = await readTree(
+      id,
+      path,
+      page.next_cursor,
+      hidden,
+      signal,
+      limit,
+    );
+    const stuck =
+      next.entries.length === 0 || next.next_cursor === page.next_cursor;
     page = { ...next, entries: [...page.entries, ...next.entries] };
     if (stuck) break;
   }

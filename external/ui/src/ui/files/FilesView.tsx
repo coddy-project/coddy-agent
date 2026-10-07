@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
 import { useEscapeCloses } from "../components/useEscapeCloses";
@@ -106,7 +113,8 @@ export function FilesView(props: {
   }));
   // On a phone a file asked for by its address shows at once, not under the tree.
   const [treeOpen, setTreeOpen] = useState(
-    () => !(onPhone() && (props.initialPath || openFilesMemory.get(key)?.active)),
+    () =>
+      !(onPhone() && (props.initialPath || openFilesMemory.get(key)?.active)),
   );
   const [expandedWindow, setExpandedWindow] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -127,7 +135,8 @@ export function FilesView(props: {
   // Opened without a file, the window shows the one it was on; the address
   // learns it, so a reload comes back to it.
   useEffect(() => {
-    if (!props.initialPath && active) props.onNavigate?.(active, lines[active] || 1);
+    if (!props.initialPath && active)
+      props.onNavigate?.(active, lines[active] || 1);
     // Once, as the window opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -229,9 +238,7 @@ export function FilesView(props: {
 
   return (
     <div
-      className={
-        "files-dock-cluster" + (expandedWindow ? " is-expanded" : "")
-      }
+      className={"files-dock-cluster" + (expandedWindow ? " is-expanded" : "")}
       data-testid="files-view"
       role="dialog"
       aria-label={t("files.title")}
@@ -424,7 +431,9 @@ export function FilesView(props: {
                 return (
                   <div
                     key={path}
-                    className={"files-tab" + (path === active ? " is-active" : "")}
+                    className={
+                      "files-tab" + (path === active ? " is-active" : "")
+                    }
                     title={path}
                   >
                     <button
@@ -487,7 +496,11 @@ export function FilesView(props: {
  * a finger swipes it, an end that has more fades out, and the tab on show is
  * brought into view whenever it changes.
  */
-function TabStrip(props: { active: string; count: number; children: React.ReactNode }) {
+function TabStrip(props: {
+  active: string;
+  count: number;
+  children: React.ReactNode;
+}) {
   const { t } = useT();
   const stripRef = useRef<HTMLDivElement | null>(null);
   const [ends, setEnds] = useState({ left: false, right: false });
@@ -497,7 +510,9 @@ function TabStrip(props: { active: string; count: number; children: React.ReactN
     if (!strip) return;
     const left = strip.scrollLeft > 1;
     const right = strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1;
-    setEnds((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+    setEnds((prev) =>
+      prev.left === left && prev.right === right ? prev : { left, right },
+    );
   }, []);
 
   useEffect(() => {
@@ -514,7 +529,10 @@ function TabStrip(props: { active: string; count: number; children: React.ReactN
       measure();
     };
     strip.addEventListener("wheel", onWheel, { passive: false });
-    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    const ro =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
     ro?.observe(strip);
     return () => {
       strip.removeEventListener("wheel", onWheel);
@@ -530,7 +548,8 @@ function TabStrip(props: { active: string; count: number; children: React.ReactN
     if (!strip || !tab) return;
     const start = tab.offsetLeft;
     const end = start + tab.offsetWidth;
-    if (start < strip.scrollLeft) strip.scrollLeft = Math.max(0, start - TAB_MARGIN_PX);
+    if (start < strip.scrollLeft)
+      strip.scrollLeft = Math.max(0, start - TAB_MARGIN_PX);
     else if (end > strip.scrollLeft + strip.clientWidth) {
       strip.scrollLeft = end - strip.clientWidth + TAB_MARGIN_PX;
     }
@@ -542,7 +561,9 @@ function TabStrip(props: { active: string; count: number; children: React.ReactN
       <div
         ref={stripRef}
         className={
-          "files-tabs" + (ends.left ? " has-more-left" : "") + (ends.right ? " has-more-right" : "")
+          "files-tabs" +
+          (ends.left ? " has-more-left" : "") +
+          (ends.right ? " has-more-right" : "")
         }
         role="tablist"
         aria-label={t("files.openFiles")}
@@ -621,7 +642,9 @@ function FilesSidebar(props: {
         if (result.status === "rejected") gone.add(dirs[i]!);
       });
       setTreeError(
-        gone.has("") ? String((results[dirs.indexOf("")] as PromiseRejectedResult).reason) : "",
+        gone.has("")
+          ? String((results[dirs.indexOf("")] as PromiseRejectedResult).reason)
+          : "",
       );
       // Merged, not replaced: a folder opened or paged while this read was on
       // its way keeps what it loaded.
@@ -635,7 +658,9 @@ function FilesSidebar(props: {
       });
       if (gone.size > 0) {
         setExpanded((prev) => {
-          const kept = new Set([...prev].filter((d) => d === "" || !gone.has(d)));
+          const kept = new Set(
+            [...prev].filter((d) => d === "" || !gone.has(d)),
+          );
           return kept.size === prev.size ? prev : kept;
         });
       }
@@ -761,7 +786,9 @@ function FilesSidebar(props: {
             </span>
           ) : null}
         </button>
-        {isDir && expanded.has(entry.path_rel) ? level(entry.path_rel, depth + 1) : null}
+        {isDir && expanded.has(entry.path_rel)
+          ? level(entry.path_rel, depth + 1)
+          : null}
       </li>
     );
   };
@@ -811,10 +838,18 @@ function FilesSidebar(props: {
         />
       </div>
       <div className="files-tree" data-testid="files-tree">
-        {treeError ? <p role="alert" className="files-note">{treeError}</p> : null}
+        {treeError ? (
+          <p role="alert" className="files-note">
+            {treeError}
+          </p>
+        ) : null}
         {hits ? (
           hits.length > 0 ? (
-            <ul className="files-tree-level" role="listbox" aria-label={t("files.search")}>
+            <ul
+              className="files-tree-level"
+              role="listbox"
+              aria-label={t("files.search")}
+            >
               {hits.map((hit) => (
                 <li key={`${hit.kind}:${hit.path}`} role="none">
                   <button
@@ -827,11 +862,17 @@ function FilesSidebar(props: {
                     }
                     title={hit.path}
                     onClick={() =>
-                      hit.kind === "directory" ? reveal(hit.path) : props.onOpen(hit.path)
+                      hit.kind === "directory"
+                        ? reveal(hit.path)
+                        : props.onOpen(hit.path)
                     }
                   >
                     <span className="files-tree-glyph" aria-hidden>
-                      {hit.kind === "directory" ? <IconFolderSmall /> : <IconFile path={hit.path} />}
+                      {hit.kind === "directory" ? (
+                        <IconFolderSmall />
+                      ) : (
+                        <IconFile path={hit.path} />
+                      )}
                     </span>
                     <span className="files-tree-name">{hit.path}</span>
                   </button>

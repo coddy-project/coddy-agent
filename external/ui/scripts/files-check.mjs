@@ -43,7 +43,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const BIN = path.resolve(process.env.CODDY_BIN || path.join(here, "../../../build/coddy"));
+const BIN = path.resolve(
+  process.env.CODDY_BIN || path.join(here, "../../../build/coddy"),
+);
 const BROWSER_PATH = process.env.CODDY_BROWSER_PATH || "";
 const ENGINE = process.env.CODDY_ENGINE || "chromium";
 const PORT_BASE = Number(process.env.CODDY_PORT_BASE || 19890);
@@ -61,11 +63,15 @@ let playwright;
 try {
   playwright = await import("playwright");
 } catch {
-  console.error("playwright is not installed. Run: npm i --no-save playwright && npx playwright install chromium");
+  console.error(
+    "playwright is not installed. Run: npm i --no-save playwright && npx playwright install chromium",
+  );
   process.exit(2);
 }
 if (!fs.existsSync(BIN)) {
-  console.error(`${BIN} not found; build it with: make build TAGS="http ui swarm"`);
+  console.error(
+    `${BIN} not found; build it with: make build TAGS="http ui swarm"`,
+  );
   process.exit(2);
 }
 
@@ -81,7 +87,10 @@ function toneWav() {
   const samples = rate / 2;
   const data = Buffer.alloc(samples * 2);
   for (let i = 0; i < samples; i++) {
-    data.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 8000), i * 2);
+    data.writeInt16LE(
+      Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 8000),
+      i * 2,
+    );
   }
   const head = Buffer.alloc(44);
   head.write("RIFF", 0);
@@ -111,7 +120,10 @@ function seedWorkspace(dir) {
     "README.md",
     "# Demo workspace\n\nA small project the agent works in. The plan is in [the notes](notes/plan.md).\n\n![Logo](assets/logo.png)\n\n```mermaid\nflowchart LR\n  Plan --> Build --> Ship\n```\n",
   );
-  write("notes/plan.md", "# Plan\n\n1. Read the code\n2. Write the release notes\n3. Ship\n");
+  write(
+    "notes/plan.md",
+    "# Plan\n\n1. Read the code\n2. Write the release notes\n3. Ship\n",
+  );
   write(
     "src/main.go",
     [
@@ -131,11 +143,23 @@ function seedWorkspace(dir) {
       "",
     ].join("\n"),
   );
-  write("src/deep/nested/util.ts", "export function clamp(n: number, lo: number, hi: number) {\n  return Math.min(hi, Math.max(lo, n));\n}\n");
+  write(
+    "src/deep/nested/util.ts",
+    "export function clamp(n: number, lo: number, hi: number) {\n  return Math.min(hi, Math.max(lo, n));\n}\n",
+  );
   write("assets/logo.png", PNG);
   write("media/tone.wav", toneWav());
-  write("docs/changelog.txt", Array.from({ length: 700 }, (_, i) => `entry ${i + 1}: a change worth a line`).join("\n") + "\n");
-  write("docs/brief.pdf", "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n");
+  write(
+    "docs/changelog.txt",
+    Array.from(
+      { length: 700 },
+      (_, i) => `entry ${i + 1}: a change worth a line`,
+    ).join("\n") + "\n",
+  );
+  write(
+    "docs/brief.pdf",
+    "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n",
+  );
   write(".hidden/secret.txt", "not listed until hidden files are shown\n");
   // A repository on a feature branch: the Edits view is what git reports.
   const git = (...args) => {
@@ -151,7 +175,8 @@ function seedWorkspace(dir) {
         GIT_COMMITTER_EMAIL: "demo@example.com",
       },
     });
-    if (res.status !== 0) throw new Error(`git ${args.join(" ")}: ${res.stderr}`);
+    if (res.status !== 0)
+      throw new Error(`git ${args.join(" ")}: ${res.stderr}`);
   };
   git("init", "-q", "-b", "main");
   git("add", "-A");
@@ -178,8 +203,16 @@ function startModel(port) {
     req.on("data", (c) => (body += c));
     req.on("end", async () => {
       if (req.url.endsWith("/models")) {
-        res.writeHead(200, { "Content-Type": "application/json", Connection: "close" });
-        res.end(JSON.stringify({ object: "list", data: [{ id: "coddy-demo", object: "model" }] }));
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          Connection: "close",
+        });
+        res.end(
+          JSON.stringify({
+            object: "list",
+            data: [{ id: "coddy-demo", object: "model" }],
+          }),
+        );
         return;
       }
       let parsed = {};
@@ -193,33 +226,92 @@ function startModel(port) {
       // Coddy follows the typed prompt with a turn context of its own, so the
       // prompt is looked for among every user message, and a tool result in the
       // conversation means the file is already written.
-      const asked = messages.filter((m) => m.role === "user").map(textOf).join("\n");
+      const asked = messages
+        .filter((m) => m.role === "user")
+        .map(textOf)
+        .join("\n");
       const wrote = messages.some((m) => m.role === "tool");
       if (!parsed.stream) {
-        res.writeHead(200, { "Content-Type": "application/json", Connection: "close" });
-        res.end(JSON.stringify({ id: "x", object: "chat.completion", model: "coddy-demo", choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: "Release notes" } }], usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } }));
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          Connection: "close",
+        });
+        res.end(
+          JSON.stringify({
+            id: "x",
+            object: "chat.completion",
+            model: "coddy-demo",
+            choices: [
+              {
+                index: 0,
+                finish_reason: "stop",
+                message: { role: "assistant", content: "Release notes" },
+              },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+          }),
+        );
         return;
       }
-      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "close" });
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "close",
+      });
       const send = (v) => res.write(`data: ${JSON.stringify(v)}\n\n`);
-      const chunk = (delta, finish = null) => ({ id: "x", object: "chat.completion.chunk", model: "coddy-demo", choices: [{ index: 0, delta, finish_reason: finish }] });
+      const chunk = (delta, finish = null) => ({
+        id: "x",
+        object: "chat.completion.chunk",
+        model: "coddy-demo",
+        choices: [{ index: 0, delta, finish_reason: finish }],
+      });
       send(chunk({ role: "assistant", content: "" }));
       if (!wrote && /release notes/i.test(asked)) {
-        const args = JSON.stringify({ path: "notes/release.md", content: "# Release notes\n\n- Files open in a window of their own.\n- Edits and background tasks share the dock.\n" });
-        send(chunk({ tool_calls: [{ index: 0, id: "call_write_1", type: "function", function: { name: "write", arguments: args } }] }));
+        const args = JSON.stringify({
+          path: "notes/release.md",
+          content:
+            "# Release notes\n\n- Files open in a window of their own.\n- Edits and background tasks share the dock.\n",
+        });
+        send(
+          chunk({
+            tool_calls: [
+              {
+                index: 0,
+                id: "call_write_1",
+                type: "function",
+                function: { name: "write", arguments: args },
+              },
+            ],
+          }),
+        );
         send(chunk({}, "tool_calls"));
       } else {
-        for (const piece of ["Done:", "the", "notes", "are", "in", "notes/release.md."]) {
+        for (const piece of [
+          "Done:",
+          "the",
+          "notes",
+          "are",
+          "in",
+          "notes/release.md.",
+        ]) {
           await new Promise((r) => setTimeout(r, 20));
           send(chunk({ content: piece + " " }));
         }
         send(chunk({}, "stop"));
       }
-      send({ id: "x", object: "chat.completion.chunk", model: "coddy-demo", choices: [], usage: { prompt_tokens: 1, completion_tokens: 3, total_tokens: 4 } });
+      send({
+        id: "x",
+        object: "chat.completion.chunk",
+        model: "coddy-demo",
+        choices: [],
+        usage: { prompt_tokens: 1, completion_tokens: 3, total_tokens: 4 },
+      });
       res.end("data: [DONE]\n\n");
     });
   });
-  return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));
+  return new Promise((resolve) =>
+    server.listen(port, "127.0.0.1", () => resolve(server)),
+  );
 }
 
 // ------------------------------------------------------------------- stand
@@ -229,7 +321,10 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "coddy-files-check-"));
 
 function start(args, name) {
   const log = fs.openSync(path.join(scratch, `${name}.log`), "w");
-  const proc = spawn(BIN, args, { stdio: ["ignore", log, log], detached: false });
+  const proc = spawn(BIN, args, {
+    stdio: ["ignore", log, log],
+    detached: false,
+  });
   procs.push(proc);
   return proc;
 }
@@ -277,7 +372,8 @@ const relayHome = path.join(scratch, "relay");
 const shotsHome = path.join(scratch, "shots");
 const workspace = path.join(scratch, "demo-workspace");
 const shotsWorkspace = path.join(scratch, "shots", "demo-workspace");
-for (const d of [nodeHome, relayHome, shotsHome, workspace, shotsWorkspace]) fs.mkdirSync(d, { recursive: true });
+for (const d of [nodeHome, relayHome, shotsHome, workspace, shotsWorkspace])
+  fs.mkdirSync(d, { recursive: true });
 seedWorkspace(workspace);
 seedWorkspace(shotsWorkspace);
 
@@ -302,7 +398,9 @@ fs.writeFileSync(path.join(nodeHome, "config.yaml"), nodeConfig);
 fs.writeFileSync(path.join(shotsHome, "config.yaml"), nodeConfig);
 // The relay lets the node's own web UI read through it from the node's origin:
 // the cross-origin case, where the relay's CORS answer is all the browser has.
-fs.writeFileSync(path.join(relayHome, "config.yaml"), `swarm:
+fs.writeFileSync(
+  path.join(relayHome, "config.yaml"),
+  `swarm:
   name: "relay"
   cors:
     enable: true
@@ -315,26 +413,85 @@ fs.writeFileSync(path.join(relayHome, "config.yaml"), `swarm:
 logger:
   level: warn
   outputs: [stderr]
-`);
-start(["serve", "--config", path.join(nodeHome, "config.yaml"), "--home", nodeHome, "--cwd", workspace, "-H", "127.0.0.1", "-P", String(NODE_PORT), "--auth-token", NODE_TOKEN], "node");
-start(["serve", "--config", path.join(relayHome, "config.yaml"), "--home", relayHome, "--swarm", "--http=false", "--swarm-host", "127.0.0.1", "--swarm-port", String(RELAY_PORT), "--swarm-auth-token", RELAY_TOKEN], "relay");
+`,
+);
+start(
+  [
+    "serve",
+    "--config",
+    path.join(nodeHome, "config.yaml"),
+    "--home",
+    nodeHome,
+    "--cwd",
+    workspace,
+    "-H",
+    "127.0.0.1",
+    "-P",
+    String(NODE_PORT),
+    "--auth-token",
+    NODE_TOKEN,
+  ],
+  "node",
+);
+start(
+  [
+    "serve",
+    "--config",
+    path.join(relayHome, "config.yaml"),
+    "--home",
+    relayHome,
+    "--swarm",
+    "--http=false",
+    "--swarm-host",
+    "127.0.0.1",
+    "--swarm-port",
+    String(RELAY_PORT),
+    "--swarm-auth-token",
+    RELAY_TOKEN,
+  ],
+  "relay",
+);
 // A plain node without a token: the screenshots are taken on it, and the
 // documentation reader is read from it on every run.
-start(["serve", "--config", path.join(shotsHome, "config.yaml"), "--home", shotsHome, "--cwd", shotsWorkspace, "-H", "127.0.0.1", "-P", String(SHOTS_NODE_PORT)], "shots-node");
+start(
+  [
+    "serve",
+    "--config",
+    path.join(shotsHome, "config.yaml"),
+    "--home",
+    shotsHome,
+    "--cwd",
+    shotsWorkspace,
+    "-H",
+    "127.0.0.1",
+    "-P",
+    String(SHOTS_NODE_PORT),
+  ],
+  "shots-node",
+);
 await waitFor(`${SHOTS_NODE}/v1/models`, "the screenshot node");
-await waitFor(`${NODE}/v1/models`, "the node", { Authorization: `Bearer ${NODE_TOKEN}` });
+await waitFor(`${NODE}/v1/models`, "the node", {
+  Authorization: `Bearer ${NODE_TOKEN}`,
+});
 await waitFor(`${RELAY}/swarm/info`, "the relay");
 let mounted = false;
 for (let i = 0; i < 80 && !mounted; i++) {
-  const res = await fetch(`${MOUNT}/v1/models`, { headers: { Authorization: `Bearer ${RELAY_TOKEN}` } }).catch(() => null);
+  const res = await fetch(`${MOUNT}/v1/models`, {
+    headers: { Authorization: `Bearer ${RELAY_TOKEN}` },
+  }).catch(() => null);
   mounted = !!res && res.ok;
   if (!mounted) await new Promise((r) => setTimeout(r, 250));
 }
-if (!mounted) throw new Error(`the node never came up behind the relay's mount; logs in ${scratch}`);
+if (!mounted)
+  throw new Error(
+    `the node never came up behind the relay's mount; logs in ${scratch}`,
+  );
 
 // ----------------------------------------------------------------- browser
 
-const browser = await playwright[ENGINE].launch(BROWSER_PATH && ENGINE === "chromium" ? { executablePath: BROWSER_PATH } : {});
+const browser = await playwright[ENGINE].launch(
+  BROWSER_PATH && ENGINE === "chromium" ? { executablePath: BROWSER_PATH } : {},
+);
 console.log(`engine: ${ENGINE}`);
 
 /**
@@ -342,7 +499,14 @@ console.log(`engine: ${ENGINE}`);
  * `from` is the origin the page is served from: the relay's own (same origin as
  * the mount) unless a test asks for another.
  */
-async function openPage({ throughRelay = true, width = 1280, height = 820, theme = "dark", from = "", using = browser } = {}) {
+async function openPage({
+  throughRelay = true,
+  width = 1280,
+  height = 820,
+  theme = "dark",
+  from = "",
+  using = browser,
+} = {}) {
   const context = await using.newContext({
     viewport: { width, height },
     deviceScaleFactor: 1,
@@ -356,7 +520,9 @@ async function openPage({ throughRelay = true, width = 1280, height = 820, theme
     { name: "coddy_ui_lang", value: "en", url: origin },
   ]);
   if (throughRelay) {
-    await context.addInitScript(`localStorage.setItem("coddy_env", ${JSON.stringify(JSON.stringify({ mode: "remote", baseUrl: MOUNT, token: RELAY_TOKEN }))});`);
+    await context.addInitScript(
+      `localStorage.setItem("coddy_env", ${JSON.stringify(JSON.stringify({ mode: "remote", baseUrl: MOUNT, token: RELAY_TOKEN }))});`,
+    );
   }
   const page = await context.newPage();
   const errors = [];
@@ -365,11 +531,13 @@ async function openPage({ throughRelay = true, width = 1280, height = 820, theme
     console.log(`     page error: ${err.message}`);
   });
   page.on("console", (msg) => {
-    if (msg.type() === "error") console.log(`     console error: ${msg.text().slice(0, 300)}`);
+    if (msg.type() === "error")
+      console.log(`     console error: ${msg.text().slice(0, 300)}`);
   });
   const mountRequests = [];
   page.on("request", (r) => {
-    if (r.url().startsWith(MOUNT)) mountRequests.push(`${r.method()} ${r.url().slice(MOUNT.length)}`);
+    if (r.url().startsWith(MOUNT))
+      mountRequests.push(`${r.method()} ${r.url().slice(MOUNT.length)}`);
   });
   return { context, page, origin, mountRequests, errors };
 }
@@ -377,7 +545,11 @@ async function openPage({ throughRelay = true, width = 1280, height = 820, theme
 async function shoot(page, name) {
   if (!SHOTS) return;
   fs.mkdirSync(SHOTS, { recursive: true });
-  await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+  await page.evaluate(
+    () =>
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.blur(),
+  );
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(SHOTS, `${name}.png`) });
   console.log(`     shot ${name}.png`);
@@ -407,7 +579,10 @@ async function writeReleaseNotes(page) {
   await composer(page).waitFor();
   await composer(page).fill("Write the release notes, see @notes/plan.md:3");
   await composer(page).press("Enter");
-  await page.getByText("Done: the notes are in").first().waitFor({ timeout: 30000 });
+  await page
+    .getByText("Done: the notes are in")
+    .first()
+    .waitFor({ timeout: 30000 });
   return sessionIdOf(page);
 }
 
@@ -418,7 +593,9 @@ async function writeReleaseNotes(page) {
  */
 const viewButtons = (page) =>
   page.$$eval("[data-testid=chat-views] button", (buttons) => {
-    const header = document.querySelector(".chat-header").getBoundingClientRect();
+    const header = document
+      .querySelector(".chat-header")
+      .getBoundingClientRect();
     const title = document.querySelector(".chat-title").getBoundingClientRect();
     return buttons.map((b) => {
       const r = b.getBoundingClientRect();
@@ -433,17 +610,30 @@ const viewButtons = (page) =>
         // The name is a run of text inside the button: whole when it ends
         // inside the button's box (an inline span has no client width to
         // compare its scroll width with in every engine).
-        labelFits: !shown || (() => {
-          const l = label.getBoundingClientRect();
-          return l.left >= r.left - 0.5 && l.right <= r.right + 0.5;
-        })(),
+        labelFits:
+          !shown ||
+          (() => {
+            const l = label.getBoundingClientRect();
+            return l.left >= r.left - 0.5 && l.right <= r.right + 0.5;
+          })(),
         tip: b.parentElement.querySelector(".chat-view-tip")?.textContent || "",
         dot: glyph.classList.contains("bgtask-dot"),
         count: count ? count.textContent : "",
         pressed: b.getAttribute("aria-pressed"),
         icon: Math.round(icon.width),
-        box: { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height },
-        inHeader: r.left >= header.left - 0.5 && r.right <= header.right + 0.5 && r.top >= header.top - 0.5 && r.bottom <= header.bottom + 0.5,
+        box: {
+          left: r.left,
+          right: r.right,
+          top: r.top,
+          bottom: r.bottom,
+          width: r.width,
+          height: r.height,
+        },
+        inHeader:
+          r.left >= header.left - 0.5 &&
+          r.right <= header.right + 0.5 &&
+          r.top >= header.top - 0.5 &&
+          r.bottom <= header.bottom + 0.5,
         besideTitle: r.left >= title.right - 0.5 && title.width > 40,
       };
     });
@@ -460,12 +650,16 @@ const viewButtons = (page) =>
 function iconOffsets(page) {
   return page.evaluate(() => {
     const out = [];
-    for (const item of document.querySelectorAll(".chat-view-btn, .workspace-bar-item")) {
+    for (const item of document.querySelectorAll(
+      ".chat-view-btn, .workspace-bar-item",
+    )) {
       const label = item.querySelector(".chat-view-label, .workspace-bar-text");
       const icon = item.querySelector("svg, .bgtask-dot");
-      if (!label || !icon || label.getBoundingClientRect().width === 0) continue;
+      if (!label || !icon || label.getBoundingClientRect().width === 0)
+        continue;
       const probe = document.createElement("span");
-      probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+      probe.style.cssText =
+        "display:inline-block;width:0;height:0;vertical-align:baseline";
       label.appendChild(probe);
       const baseline = probe.getBoundingClientRect().bottom;
       probe.remove();
@@ -474,7 +668,10 @@ function iconOffsets(page) {
       ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
       const xMid = baseline - ctx.measureText("x").actualBoundingBoxAscent / 2;
       const r = icon.getBoundingClientRect();
-      out.push({ id: item.getAttribute("data-testid"), off: Math.round(((r.top + r.bottom) / 2 - xMid) * 100) / 100 });
+      out.push({
+        id: item.getAttribute("data-testid"),
+        off: Math.round(((r.top + r.bottom) / 2 - xMid) * 100) / 100,
+      });
     }
     return out;
   });
@@ -500,33 +697,57 @@ function plate(page) {
     const countCs = count ? getComputedStyle(count) : null;
     return {
       repo: el.querySelector("[data-testid=workspace-bar-repo]")?.textContent,
-      branch: el.querySelector("[data-testid=workspace-bar-branch]")?.textContent,
+      branch: el.querySelector("[data-testid=workspace-bar-branch]")
+        ?.textContent,
       edits: count?.textContent,
       joined: Math.abs(c.top - b.bottom) <= 1,
-      sameEdges: Math.abs(b.left - c.left) <= 1 && Math.abs(b.right - c.right) <= 1,
-      cardSquareTop: parseFloat(cardCs.borderTopLeftRadius) === 0 && parseFloat(cardCs.borderTopRightRadius) === 0,
-      countAtRight: !!k && el.lastElementChild === count && Math.abs(b.right - padRight - 1 - k.right) <= 1.5,
+      sameEdges:
+        Math.abs(b.left - c.left) <= 1 && Math.abs(b.right - c.right) <= 1,
+      cardSquareTop:
+        parseFloat(cardCs.borderTopLeftRadius) === 0 &&
+        parseFloat(cardCs.borderTopRightRadius) === 0,
+      countAtRight:
+        !!k &&
+        el.lastElementChild === count &&
+        Math.abs(b.right - padRight - 1 - k.right) <= 1.5,
       // How tall the count looks, and whether a finger 8px above it still
       // lands on it (the hit area a touch screen lays over it).
       countHeight: k ? Math.round(k.height) : 0,
       // The repository's icon stands on the placeholder's left edge.
       repoOnPlaceholder: (() => {
-        const icon = el.querySelector("[data-testid=workspace-bar-repo] .workspace-bar-icon")?.getBoundingClientRect();
+        const icon = el
+          .querySelector("[data-testid=workspace-bar-repo] .workspace-bar-icon")
+          ?.getBoundingClientRect();
         const ta = document.querySelector("textarea#composer");
         if (!icon || !ta) return false;
-        return Math.abs(icon.left - (ta.getBoundingClientRect().left + parseFloat(getComputedStyle(ta).paddingLeft))) <= 1;
+        return (
+          Math.abs(
+            icon.left -
+              (ta.getBoundingClientRect().left +
+                parseFloat(getComputedStyle(ta).paddingLeft)),
+          ) <= 1
+        );
       })(),
-      hitAbove: !!k && !!document.elementFromPoint((k.left + k.right) / 2, k.top - 8)?.closest("[data-testid=workspace-bar-edits]"),
+      hitAbove:
+        !!k &&
+        !!document
+          .elementFromPoint((k.left + k.right) / 2, k.top - 8)
+          ?.closest("[data-testid=workspace-bar-edits]"),
       // Git's count and the improve-prompt wand under it end on one line.
       countOverWand: (() => {
-        const wand = card.querySelector("[data-testid=composer-enhance-btn]")?.getBoundingClientRect();
+        const wand = card
+          .querySelector("[data-testid=composer-enhance-btn]")
+          ?.getBoundingClientRect();
         return !!k && !!wand && Math.abs(k.right - wand.right) <= 1;
       })(),
       rest: countCs
         ? {
             outline: countCs.outlineStyle,
-            transparent: /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(countCs.backgroundColor),
-            border: countCs.borderTopStyle === "solid" ? countCs.borderTopColor : "",
+            transparent: /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(
+              countCs.backgroundColor,
+            ),
+            border:
+              countCs.borderTopStyle === "solid" ? countCs.borderTopColor : "",
           }
         : null,
       folderChip: !!card.querySelector("[data-testid=composer-workspace-chip]"),
@@ -548,7 +769,9 @@ async function pressedLook(page, testId) {
   await page.waitForFunction(
     (id) => {
       const btn = document.querySelector(`[data-testid=${id}]`);
-      return !!btn && btn.getAnimations().every((a) => a.playState !== "running");
+      return (
+        !!btn && btn.getAnimations().every((a) => a.playState !== "running")
+      );
     },
     testId,
     { timeout: 5000 },
@@ -567,7 +790,10 @@ async function pressedLook(page, testId) {
     twin.className = "chat-view-btn";
     btn.parentElement.appendChild(twin);
     const rest = getComputedStyle(twin);
-    const restLook = { border: rest.borderTopColor, background: rest.backgroundColor };
+    const restLook = {
+      border: rest.borderTopColor,
+      background: rest.backgroundColor,
+    };
     twin.remove();
     const cs = getComputedStyle(btn);
     return {
@@ -588,7 +814,9 @@ async function pressedLook(page, testId) {
  * their ink low and read as sunk on the middle).
  */
 function iconSitsRight(o) {
-  return o.id.startsWith("workspace-bar-") ? o.off >= -1.75 && o.off <= -0.25 : Math.abs(o.off) <= 0.75;
+  return o.id.startsWith("workspace-bar-")
+    ? o.off >= -1.75 && o.off <= -0.25
+    : Math.abs(o.off) <= 0.75;
 }
 
 /** Where a window over the chat stands in the viewport. */
@@ -596,7 +824,14 @@ function frameOf(page, selector) {
   return page.evaluate((sel) => {
     const r = document.querySelector(sel).getBoundingClientRect();
     const round = (n) => Math.round(n * 10) / 10;
-    return { top: round(r.top), bottom: round(r.bottom), left: round(r.left), right: round(r.right), vw: window.innerWidth, vh: window.innerHeight };
+    return {
+      top: round(r.top),
+      bottom: round(r.bottom),
+      left: round(r.left),
+      right: round(r.right),
+      vw: window.innerWidth,
+      vh: window.innerHeight,
+    };
   }, selector);
 }
 
@@ -608,8 +843,17 @@ function sideways(page) {
   return page.evaluate(() => ({
     pageScroll: document.documentElement.scrollWidth - window.innerWidth,
     window: (() => {
-      const r = document.querySelector("[data-testid=files-view]")?.getBoundingClientRect();
-      return r ? { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom) } : null;
+      const r = document
+        .querySelector("[data-testid=files-view]")
+        ?.getBoundingClientRect();
+      return r
+        ? {
+            left: Math.round(r.left),
+            right: Math.round(r.right),
+            top: Math.round(r.top),
+            bottom: Math.round(r.bottom),
+          }
+        : null;
     })(),
     inner: { w: window.innerWidth, h: window.innerHeight },
   }));
@@ -627,9 +871,15 @@ async function startScreen(page) {
   await page.getByTestId("workspace-bar").waitFor({ timeout: 15000 });
   return page.evaluate(() => {
     const plate = document.querySelector("[data-testid=workspace-bar]");
-    const card = document.querySelector(".composer-card").getBoundingClientRect();
-    const field = document.querySelector("textarea#composer").getBoundingClientRect();
-    const wand = document.querySelector("[data-testid=composer-enhance-btn]").getBoundingClientRect();
+    const card = document
+      .querySelector(".composer-card")
+      .getBoundingClientRect();
+    const field = document
+      .querySelector("textarea#composer")
+      .getBoundingClientRect();
+    const wand = document
+      .querySelector("[data-testid=composer-enhance-btn]")
+      .getBoundingClientRect();
     const pick = (id) => plate.querySelector(`[data-testid=${id}]`);
     return {
       pick: plate.classList.contains("workspace-bar--pick"),
@@ -639,17 +889,31 @@ async function startScreen(page) {
       count: !!pick("workspace-bar-edits"),
       chipRow: !!document.querySelector(".composer-context-row"),
       fieldAtTop: Math.abs(field.top - (card.top + 1)) <= 1,
-      wandInCorner: wand.top >= field.top && wand.top - field.top <= 14 && Math.abs(card.right - 1 - 12 - wand.right) <= 1,
+      wandInCorner:
+        wand.top >= field.top &&
+        wand.top - field.top <= 14 &&
+        Math.abs(card.right - 1 - 12 - wand.right) <= 1,
       // The folder's icon stands on the placeholder's left edge.
       folderOnPlaceholder: (() => {
-        const icon = plate.querySelector("[data-testid=composer-workspace-chip] .workspace-bar-icon").getBoundingClientRect();
-        const cs = getComputedStyle(document.querySelector("textarea#composer"));
-        return Math.abs(icon.left - (field.left + parseFloat(cs.paddingLeft))) <= 1;
+        const icon = plate
+          .querySelector(
+            "[data-testid=composer-workspace-chip] .workspace-bar-icon",
+          )
+          .getBoundingClientRect();
+        const cs = getComputedStyle(
+          document.querySelector("textarea#composer"),
+        );
+        return (
+          Math.abs(icon.left - (field.left + parseFloat(cs.paddingLeft))) <= 1
+        );
       })(),
       // The middle of the field's first line is the middle of the wand.
       firstLineLevel: (() => {
-        const cs = getComputedStyle(document.querySelector("textarea#composer"));
-        const lineMiddle = field.top + parseFloat(cs.paddingTop) + parseFloat(cs.lineHeight) / 2;
+        const cs = getComputedStyle(
+          document.querySelector("textarea#composer"),
+        );
+        const lineMiddle =
+          field.top + parseFloat(cs.paddingTop) + parseFloat(cs.lineHeight) / 2;
         return Math.abs(lineMiddle - (wand.top + wand.bottom) / 2) <= 1;
       })(),
     };
@@ -662,47 +926,87 @@ async function scenarioViews() {
   const start = await startScreen(a.page);
   check(
     "on the start screen the plate offers the folder, the branch and the worktree, and no count",
-    start.pick && start.folder === "BUTTON" && start.branch === "BUTTON" && start.worktree && !start.count,
+    start.pick &&
+      start.folder === "BUTTON" &&
+      start.branch === "BUTTON" &&
+      start.worktree &&
+      !start.count,
     JSON.stringify(start),
   );
   check(
     "the card has no chip row: the field starts at its top, the wand in its corner, the first line level with it",
-    !start.chipRow && start.fieldAtTop && start.wandInCorner && start.firstLineLevel && start.folderOnPlaceholder,
+    !start.chipRow &&
+      start.fieldAtTop &&
+      start.wandInCorner &&
+      start.firstLineLevel &&
+      start.folderOnPlaceholder,
     JSON.stringify(start),
   );
   const sid = await writeReleaseNotes(a.page);
-  check("the turn runs through the relay's mount", a.mountRequests.some((r) => r.startsWith("POST /v1/responses")));
-  check("the turn wrote its file on the node", fs.existsSync(path.join(workspace, "notes/release.md")));
+  check(
+    "the turn runs through the relay's mount",
+    a.mountRequests.some((r) => r.startsWith("POST /v1/responses")),
+  );
+  check(
+    "the turn wrote its file on the node",
+    fs.existsSync(path.join(workspace, "notes/release.md")),
+  );
 
   // The header shows the views as buttons in a row: files, tasks.
   const buttons = await viewButtons(a.page);
   check(
     "the header shows files and background tasks as buttons, in that order, and no Edits button",
-    JSON.stringify(buttons.map((b) => b.id)) === JSON.stringify(["chat-views-files", "chat-views-tasks"]),
+    JSON.stringify(buttons.map((b) => b.id)) ===
+      JSON.stringify(["chat-views-files", "chat-views-tasks"]),
     JSON.stringify(buttons.map((b) => b.id)),
   );
   check(
     "on a desktop Files shows an 18px icon and a short name, Tasks the dot and its word",
     buttons.map((b) => b.label).join(",") === "Files,Tasks" &&
       buttons.every((b) => b.labelFits) &&
-      buttons[0].icon === 18 && !buttons[0].dot && buttons[1].dot,
-    JSON.stringify(buttons.map((b) => [b.label, b.labelFits, b.icon, b.dot, b.count])),
+      buttons[0].icon === 18 &&
+      !buttons[0].dot &&
+      buttons[1].dot,
+    JSON.stringify(
+      buttons.map((b) => [b.label, b.labelFits, b.icon, b.dot, b.count]),
+    ),
   );
   check(
     "on a desktop the buttons sit in one row inside the header, beside the title",
-    buttons.every((b) => b.inHeader && b.besideTitle && Math.round(b.box.height) === 36) && new Set(buttons.map((b) => Math.round(b.box.top))).size === 1,
+    buttons.every(
+      (b) => b.inHeader && b.besideTitle && Math.round(b.box.height) === 36,
+    ) && new Set(buttons.map((b) => Math.round(b.box.top))).size === 1,
     JSON.stringify(buttons.map((b) => b.box)),
   );
-  check("the Files tooltip names its key", /Ctrl\+Shift\+F|⇧⌘F/.test(buttons[0]?.tip || ""), buttons[0]?.tip);
+  check(
+    "the Files tooltip names its key",
+    /Ctrl\+Shift\+F|⇧⌘F/.test(buttons[0]?.tip || ""),
+    buttons[0]?.tip,
+  );
   // Hovering a button shows its tooltip, inside the window.
   await a.page.getByTestId("chat-views-files").hover();
   await a.page.waitForTimeout(300);
   const tip = await a.page.evaluate(() => {
-    const el = document.querySelector("[data-testid=chat-views-files]").parentElement.querySelector(".chat-view-tip");
+    const el = document
+      .querySelector("[data-testid=chat-views-files]")
+      .parentElement.querySelector(".chat-view-tip");
     const r = el.getBoundingClientRect();
-    return { opacity: getComputedStyle(el).opacity, text: el.textContent, left: r.left, right: r.right, vw: window.innerWidth };
+    return {
+      opacity: getComputedStyle(el).opacity,
+      text: el.textContent,
+      left: r.left,
+      right: r.right,
+      vw: window.innerWidth,
+    };
   });
-  check("hovering a button shows its tooltip inside the window", tip.opacity === "1" && /^Workspace files/.test(tip.text) && tip.left >= 0 && tip.right <= tip.vw, JSON.stringify(tip));
+  check(
+    "hovering a button shows its tooltip inside the window",
+    tip.opacity === "1" &&
+      /^Workspace files/.test(tip.text) &&
+      tip.left >= 0 &&
+      tip.right <= tip.vw,
+    JSON.stringify(tip),
+  );
   await a.page.mouse.move(5, 400);
   await shoot(a.page, "views-toolbar-relay-dark-1280");
 
@@ -710,30 +1014,58 @@ async function scenarioViews() {
   const bar = await plate(a.page);
   check(
     "the plate over the composer names the repository, the branch and git's count",
-    !!bar && bar.repo === "demo-workspace" && bar.branch === "feat/release-notes" && /^\+\d+−\d+$/.test(bar.edits || "") && !bar.folderChip,
+    !!bar &&
+      bar.repo === "demo-workspace" &&
+      bar.branch === "feat/release-notes" &&
+      /^\+\d+−\d+$/.test(bar.edits || "") &&
+      !bar.folderChip,
     JSON.stringify(bar),
   );
   check(
     "the plate is joined to the top of the composer card, edge to edge, its first word over the placeholder's",
-    !!bar && bar.joined && bar.sameEdges && bar.cardSquareTop && bar.repoOnPlaceholder,
+    !!bar &&
+      bar.joined &&
+      bar.sameEdges &&
+      bar.cardSquareTop &&
+      bar.repoOnPlaceholder,
     JSON.stringify(bar),
   );
-  check("git's count sits at the right edge of the plate", !!bar && bar.countAtRight, JSON.stringify(bar));
-  check("git's count ends on the line the improve-prompt wand under it ends on", !!bar && bar.countOverWand, JSON.stringify(bar));
+  check(
+    "git's count sits at the right edge of the plate",
+    !!bar && bar.countAtRight,
+    JSON.stringify(bar),
+  );
+  check(
+    "git's count ends on the line the improve-prompt wand under it ends on",
+    !!bar && bar.countOverWand,
+    JSON.stringify(bar),
+  );
   check(
     "at rest the count is framed in a light border, with no ground and no outline",
-    !!bar && bar.rest.outline === "none" && bar.rest.transparent && !!bar.rest.border && !/^rgba\(0, 0, 0, 0\)$/.test(bar.rest.border),
+    !!bar &&
+      bar.rest.outline === "none" &&
+      bar.rest.transparent &&
+      !!bar.rest.border &&
+      !/^rgba\(0, 0, 0, 0\)$/.test(bar.rest.border),
     JSON.stringify(bar?.rest),
   );
   await a.page.getByTestId("workspace-bar-edits").hover();
   await a.page.waitForTimeout(250);
   const hovered = await a.page.evaluate(() => {
-    const cs = getComputedStyle(document.querySelector("[data-testid=workspace-bar-edits]"));
-    return { outline: cs.outlineStyle, background: cs.backgroundColor, border: cs.borderTopColor };
+    const cs = getComputedStyle(
+      document.querySelector("[data-testid=workspace-bar-edits]"),
+    );
+    return {
+      outline: cs.outlineStyle,
+      background: cs.backgroundColor,
+      border: cs.borderTopColor,
+    };
   });
   check(
     "hovering the count brightens its frame and ground, no outline",
-    hovered.outline === "none" && !/^rgba\(0, 0, 0, 0\)$|^transparent$/.test(hovered.background) && hovered.border !== bar?.rest.border,
+    hovered.outline === "none" &&
+      !/^rgba\(0, 0, 0, 0\)$|^transparent$/.test(hovered.background) &&
+      hovered.border !== bar?.rest.border,
     JSON.stringify(hovered),
   );
   await a.page.mouse.move(5, 400);
@@ -749,26 +1081,46 @@ async function scenarioViews() {
   await a.page.getByTestId("workspace-bar-edits").click();
   const edits = a.page.getByTestId("edits-view");
   await edits.waitFor();
-  await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
+  await edits
+    .getByTestId("dv-file-notes/release.md")
+    .waitFor({ timeout: 15000 });
   check("the count opens the edits window, with the file the turn wrote", true);
-  check("no dock face for the edits, and no tab strip anywhere", (await a.page.locator('[data-testid=changes-panel], [role="tablist"], .dock-tabs').count()) === 0);
-  check("the address names the edits", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`);
+  check(
+    "no dock face for the edits, and no tab strip anywhere",
+    (await a.page
+      .locator('[data-testid=changes-panel], [role="tablist"], .dock-tabs')
+      .count()) === 0,
+  );
+  check(
+    "the address names the edits",
+    (await a.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`,
+  );
   // Headed like the Files window: the tree switch and the title on the left,
   // the menu, the expand button and the close button on the right.
   const editsHead = await edits.evaluate((el) =>
-    [...el.querySelectorAll(".files-header button[data-testid]")].map((b) => b.getAttribute("data-testid")),
+    [...el.querySelectorAll(".files-header button[data-testid]")].map((b) =>
+      b.getAttribute("data-testid"),
+    ),
   );
   check(
     "the edits window is headed like the Files window",
-    editsHead.join(",") === "edits-toggle-tree,edits-more,edits-expand,edits-close",
+    editsHead.join(",") ===
+      "edits-toggle-tree,edits-more,edits-expand,edits-close",
     editsHead.join(","),
   );
   // The tree beside the diffs holds the changed files and nothing else.
   const listed = await edits.evaluate((el) => ({
-    tree: [...el.querySelectorAll("[data-testid^=edits-tree-file-]")].map((b) => b.dataset.testid.slice("edits-tree-file-".length)).sort(),
-    diffs: [...el.querySelectorAll(".dv-file[data-testid^=dv-file-]")].map((d) => d.dataset.testid.slice("dv-file-".length)).sort(),
+    tree: [...el.querySelectorAll("[data-testid^=edits-tree-file-]")]
+      .map((b) => b.dataset.testid.slice("edits-tree-file-".length))
+      .sort(),
+    diffs: [...el.querySelectorAll(".dv-file[data-testid^=dv-file-]")]
+      .map((d) => d.dataset.testid.slice("dv-file-".length))
+      .sort(),
   }));
-  check("a file's head has no status dot before its name", (await edits.locator(".dv-file-head .dv-file-badge").count()) === 0);
+  check(
+    "a file's head has no status dot before its name",
+    (await edits.locator(".dv-file-head .dv-file-badge").count()) === 0,
+  );
   // The diffs keep the tree's distances: the first card starts where the
   // filter does, its head's line is level with the filter's bottom edge, and
   // the cards stand 10px from their column's sides, as the filter does.
@@ -789,7 +1141,10 @@ async function scenarioViews() {
   });
   check(
     "the diffs keep the tree's distances: the head as tall as the filter, 10px from the column's sides",
-    editsRhythm.top === 0 && editsRhythm.line === 0 && editsRhythm.cardLeft === editsRhythm.filterLeft && editsRhythm.cardRight >= editsRhythm.filterLeft,
+    editsRhythm.top === 0 &&
+      editsRhythm.line === 0 &&
+      editsRhythm.cardLeft === editsRhythm.filterLeft &&
+      editsRhythm.cardRight >= editsRhythm.filterLeft,
     JSON.stringify(editsRhythm),
   );
   check(
@@ -800,42 +1155,72 @@ async function scenarioViews() {
   await edits.getByTestId("edits-tree-file-notes/release.md").click();
   check(
     "a file picked in the tree is marked in it",
-    (await edits.getByTestId("edits-tree-file-notes/release.md").getAttribute("aria-selected")) === "true",
+    (await edits
+      .getByTestId("edits-tree-file-notes/release.md")
+      .getAttribute("aria-selected")) === "true",
   );
   await edits.getByTestId("edits-more").click();
-  const editsMenu = await edits.locator("[role=menu] [data-testid]").evaluateAll((items) => items.map((i) => i.getAttribute("data-testid")));
-  check("the menu holds side by side, collapse all and discard all", editsMenu.join(",") === "edits-split,edits-toggle-all,edits-discard-all", editsMenu.join(","));
+  const editsMenu = await edits
+    .locator("[role=menu] [data-testid]")
+    .evaluateAll((items) => items.map((i) => i.getAttribute("data-testid")));
+  check(
+    "the menu holds side by side, collapse all and discard all",
+    editsMenu.join(",") === "edits-split,edits-toggle-all,edits-discard-all",
+    editsMenu.join(","),
+  );
   await a.page.keyboard.press("Escape");
-  check("Escape puts the menu away first", (await edits.locator("[role=menu]").count()) === 0 && (await edits.count()) === 1);
+  check(
+    "Escape puts the menu away first",
+    (await edits.locator("[role=menu]").count()) === 0 &&
+      (await edits.count()) === 1,
+  );
   // The same frame as the Files window: as far from the top and the bottom of
   // the window as the documentation and the files are.
   editsFrame = await frameOf(a.page, "[data-testid=edits-view]");
   check(
     "the edits window keeps the 14px the other windows keep from the top and the bottom",
-    Math.abs(editsFrame.top - 14) <= 1 && Math.abs(editsFrame.vh - editsFrame.bottom - 14) <= 1,
+    Math.abs(editsFrame.top - 14) <= 1 &&
+      Math.abs(editsFrame.vh - editsFrame.bottom - 14) <= 1,
     JSON.stringify(editsFrame),
   );
   await edits.getByTestId("edits-expand").click();
   const expanded = await frameOf(a.page, "[data-testid=edits-view]");
-  check("expanded, the edits window takes the whole width", Math.abs(expanded.left - 14) <= 1 && Math.abs(expanded.vw - expanded.right - 14) <= 1, JSON.stringify(expanded));
+  check(
+    "expanded, the edits window takes the whole width",
+    Math.abs(expanded.left - 14) <= 1 &&
+      Math.abs(expanded.vw - expanded.right - 14) <= 1,
+    JSON.stringify(expanded),
+  );
   await edits.getByTestId("edits-expand").click();
   await a.page.keyboard.press("Escape");
   await until("the edits put away", async () => (await edits.count()) === 0);
-  check("Escape puts the edits away and gives the address back to the chat", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}`);
+  check(
+    "Escape puts the edits away and gives the address back to the chat",
+    (await a.page.evaluate(() => location.hash)) === `#/s/${sid}`,
+  );
 
   // Background tasks: in the dock, its own title, no tab strip.
   await a.page.getByTestId("chat-views-tasks").click();
   const tasks = a.page.getByTestId("bgtasks-panel");
   await tasks.waitFor();
-  check("Background tasks open in the dock with their title", /Background tasks/i.test(await tasks.locator(".sessions-head").innerText()));
-  check("still no tab strip", (await a.page.locator('[role="tablist"], .dock-tabs').count()) === 0);
+  check(
+    "Background tasks open in the dock with their title",
+    /Background tasks/i.test(await tasks.locator(".sessions-head").innerText()),
+  );
+  check(
+    "still no tab strip",
+    (await a.page.locator('[role="tablist"], .dock-tabs').count()) === 0,
+  );
   // The button of the view on show brightens - its text, border and ground -
   // and keeps off the accent, which says that work runs.
   const pressed = await pressedLook(a.page, "chat-views-tasks");
   check(
     "the pressed Tasks button is brighter, not in the accent",
-    pressed.pressed === "true" && pressed.color === pressed.text && pressed.color !== pressed.accent &&
-      pressed.border !== pressed.rest.border && pressed.background !== pressed.rest.background,
+    pressed.pressed === "true" &&
+      pressed.color === pressed.text &&
+      pressed.color !== pressed.accent &&
+      pressed.border !== pressed.rest.border &&
+      pressed.background !== pressed.rest.background,
     JSON.stringify(pressed),
   );
   await a.page.getByTestId("bgtasks-panel-close").click();
@@ -845,29 +1230,67 @@ async function scenarioViews() {
   await a.page.getByTestId("chat-views-files").click();
   const win = a.page.getByTestId("files-view");
   await win.waitFor();
-  check("Files open in a window over the chat, not in the dock", (await win.getAttribute("role")) === "dialog" && (await a.page.getByTestId("bgtasks-panel").count()) === 0);
+  check(
+    "Files open in a window over the chat, not in the dock",
+    (await win.getAttribute("role")) === "dialog" &&
+      (await a.page.getByTestId("bgtasks-panel").count()) === 0,
+  );
   const filesPressed = await pressedLook(a.page, "chat-views-files");
   check(
     "the pressed Files button is brighter, not in the accent",
-    filesPressed.pressed === "true" && filesPressed.color === filesPressed.text && filesPressed.color !== filesPressed.accent,
+    filesPressed.pressed === "true" &&
+      filesPressed.color === filesPressed.text &&
+      filesPressed.color !== filesPressed.accent,
     JSON.stringify(filesPressed),
   );
-  check("the address names the window", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}/files`);
+  check(
+    "the address names the window",
+    (await a.page.evaluate(() => location.hash)) === `#/s/${sid}/files`,
+  );
   const filter = win.getByRole("searchbox", { name: "Filter files" });
-  check("the filter has the focus", await filter.evaluate((el) => el === document.activeElement));
+  check(
+    "the filter has the focus",
+    await filter.evaluate((el) => el === document.activeElement),
+  );
   const tree = win.getByTestId("files-tree");
   await tree.getByText("README.md", { exact: true }).waitFor();
-  const top = await tree.locator(":scope > ul > li > button .files-tree-name").allInnerTexts();
-  check("the tree lists the top of the workspace, folders first", top.join(",").startsWith("assets,docs,media,notes,src") && top.includes("README.md"), top.join(","));
+  const top = await tree
+    .locator(":scope > ul > li > button .files-tree-name")
+    .allInnerTexts();
+  check(
+    "the tree lists the top of the workspace, folders first",
+    top.join(",").startsWith("assets,docs,media,notes,src") &&
+      top.includes("README.md"),
+    top.join(","),
+  );
   check("hidden folders stay out of the tree", !top.includes(".hidden"));
-  check("an empty preview says where open files go", /Open files appear here/.test(await win.getByTestId("files-empty").innerText()));
+  check(
+    "an empty preview says where open files go",
+    /Open files appear here/.test(
+      await win.getByTestId("files-empty").innerText(),
+    ),
+  );
   const geo = await sideways(a.page);
-  const railRight = await a.page.evaluate(() => Math.round(document.querySelector(".rail-pill")?.getBoundingClientRect().right || 0));
-  check("the window sits right of the rail and inside the viewport", geo.window && geo.window.left > railRight && geo.window.right <= geo.inner.w && geo.window.bottom <= geo.inner.h, JSON.stringify({ ...geo, railRight }));
+  const railRight = await a.page.evaluate(() =>
+    Math.round(
+      document.querySelector(".rail-pill")?.getBoundingClientRect().right || 0,
+    ),
+  );
+  check(
+    "the window sits right of the rail and inside the viewport",
+    geo.window &&
+      geo.window.left > railRight &&
+      geo.window.right <= geo.inner.w &&
+      geo.window.bottom <= geo.inner.h,
+    JSON.stringify({ ...geo, railRight }),
+  );
   const filesFrame = await frameOf(a.page, "[data-testid=files-view]");
   check(
     "the edits window and the Files window stand in one frame",
-    !!editsFrame && ["top", "bottom", "left", "right"].every((k) => Math.abs(filesFrame[k] - editsFrame[k]) <= 1),
+    !!editsFrame &&
+      ["top", "bottom", "left", "right"].every(
+        (k) => Math.abs(filesFrame[k] - editsFrame[k]) <= 1,
+      ),
     JSON.stringify({ files: filesFrame, edits: editsFrame }),
   );
   await shoot(a.page, "files-window-empty-relay-dark-1280");
@@ -880,60 +1303,93 @@ async function scenarioViews() {
   check("the filter finds a file in a folder nobody opened", true);
   await hit.click();
   await win.locator('[data-file-line="2"] code').waitFor();
-  check("the file opens in a tab with its lines", (await win.getByRole("tab", { selected: true }).innerText()).trim() === "util.ts");
+  check(
+    "the file opens in a tab with its lines",
+    (await win.getByRole("tab", { selected: true }).innerText()).trim() ===
+      "util.ts",
+  );
   // A line's number and its text stand in one line box, in one monospaced
   // font, and no line is painted as the one asked for.
   const lineBoxes = await win.evaluate((el) =>
-    [...el.querySelectorAll(".files-code > [data-file-line]")].slice(0, 3).map((row) => {
-      const no = row.querySelector(".files-line-no");
-      const code = row.querySelector("code");
-      const a = getComputedStyle(no);
-      const b = getComputedStyle(code);
-      const r1 = no.getBoundingClientRect();
-      const r2 = code.getBoundingClientRect();
-      return {
-        sameFont: a.fontFamily === b.fontFamily && a.fontSize === b.fontSize && a.lineHeight === b.lineHeight,
-        mono: /monospace/.test(a.fontFamily),
-        topDiff: Math.abs(r1.top - r2.top),
-        heightDiff: Math.abs(r1.height - r2.height),
-        painted: getComputedStyle(row).backgroundColor,
-      };
-    }),
+    [...el.querySelectorAll(".files-code > [data-file-line]")]
+      .slice(0, 3)
+      .map((row) => {
+        const no = row.querySelector(".files-line-no");
+        const code = row.querySelector("code");
+        const a = getComputedStyle(no);
+        const b = getComputedStyle(code);
+        const r1 = no.getBoundingClientRect();
+        const r2 = code.getBoundingClientRect();
+        return {
+          sameFont:
+            a.fontFamily === b.fontFamily &&
+            a.fontSize === b.fontSize &&
+            a.lineHeight === b.lineHeight,
+          mono: /monospace/.test(a.fontFamily),
+          topDiff: Math.abs(r1.top - r2.top),
+          heightDiff: Math.abs(r1.height - r2.height),
+          painted: getComputedStyle(row).backgroundColor,
+        };
+      }),
   );
   check(
     "a line's number and its text share one monospaced font and one line box",
-    lineBoxes.length === 3 && lineBoxes.every((l) => l.sameFont && l.mono && l.topDiff <= 0.5 && l.heightDiff <= 0.5),
+    lineBoxes.length === 3 &&
+      lineBoxes.every(
+        (l) => l.sameFont && l.mono && l.topDiff <= 0.5 && l.heightDiff <= 0.5,
+      ),
     JSON.stringify(lineBoxes),
   );
   check(
     "no line of the file is painted as the one asked for",
-    lineBoxes.every((l) => /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(l.painted)),
+    lineBoxes.every((l) =>
+      /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(l.painted),
+    ),
     JSON.stringify(lineBoxes.map((l) => l.painted)),
   );
   const fileView = await win.evaluate((el) => ({
     head: el.querySelectorAll(".files-file-head").length,
     buttons: el.querySelectorAll("[data-testid=files-file] button").length,
-    size: /\bbytes\b/.test(el.querySelector("[data-testid=files-file]")?.textContent || ""),
+    size: /\bbytes\b/.test(
+      el.querySelector("[data-testid=files-file]")?.textContent || "",
+    ),
     time: el.querySelectorAll("[data-testid=files-file] time").length,
   }));
   check(
     "the file is its lines alone: no second name, no size or time, no buttons over it",
-    fileView.head === 0 && fileView.buttons === 0 && !fileView.size && fileView.time === 0,
+    fileView.head === 0 &&
+      fileView.buttons === 0 &&
+      !fileView.size &&
+      fileView.time === 0,
     JSON.stringify(fileView),
   );
   await filter.press("Escape");
-  check("Escape in the filter clears it and keeps the window", (await filter.inputValue()) === "" && (await win.count()) === 1);
+  check(
+    "Escape in the filter clears it and keeps the window",
+    (await filter.inputValue()) === "" && (await win.count()) === 1,
+  );
 
   // README: Markdown is its source, line by line, nothing rendered or loaded.
   await tree.getByText("README.md", { exact: true }).click();
-  await win.locator('[data-file-line="1"] code', { hasText: "# Demo workspace" }).waitFor();
+  await win
+    .locator('[data-file-line="1"] code', { hasText: "# Demo workspace" })
+    .waitFor();
   const markdown = await win.evaluate((el) => ({
     heading: el.querySelectorAll(".files-file-body h1").length,
     images: el.querySelectorAll(".files-file-body img").length,
   }));
-  check("Markdown opens as its source: no heading drawn, no picture loaded", markdown.heading === 0 && markdown.images === 0, JSON.stringify(markdown));
+  check(
+    "Markdown opens as its source: no heading drawn, no picture loaded",
+    markdown.heading === 0 && markdown.images === 0,
+    JSON.stringify(markdown),
+  );
   const tabs = await win.getByRole("tab").allInnerTexts();
-  check("two files are open side by side in tabs", JSON.stringify(tabs.map((t) => t.trim())) === JSON.stringify(["util.ts", "README.md"]), JSON.stringify(tabs));
+  check(
+    "two files are open side by side in tabs",
+    JSON.stringify(tabs.map((t) => t.trim())) ===
+      JSON.stringify(["util.ts", "README.md"]),
+    JSON.stringify(tabs),
+  );
   // The tabs stand as far under the head as the filter, and the marked row of
   // the tree is as wide as the filter over it.
   const rhythm = await win.evaluate((el) => {
@@ -953,7 +1409,10 @@ async function scenarioViews() {
   });
   check(
     "the tabs start as far under the head as the filter, and the marked row is as wide as the filter",
-    Math.abs(rhythm.filterGap - rhythm.tabGap) <= 1 && rhythm.tabLine === 0 && Math.abs(rhythm.rowLeft) <= 1 && Math.abs(rhythm.rowRight) <= 1,
+    Math.abs(rhythm.filterGap - rhythm.tabGap) <= 1 &&
+      rhythm.tabLine === 0 &&
+      Math.abs(rhythm.rowLeft) <= 1 &&
+      Math.abs(rhythm.rowRight) <= 1,
     JSON.stringify(rhythm),
   );
   await shoot(a.page, "files-window-markdown-relay-dark-1280");
@@ -961,12 +1420,22 @@ async function scenarioViews() {
   // A picture comes as authenticated bytes through the relay.
   await tree.getByText("assets", { exact: true }).click();
   await tree.getByText("logo.png", { exact: true }).click();
-  const imgWidth = await until("the picture", () =>
-    win.evaluate((el) => {
-      const img = el.querySelector(".files-file-body img");
-      return img && img.complete && img.naturalWidth > 0 ? img.naturalWidth : 0;
-    }), 15000).catch(() => 0);
-  check("a picture of the workspace loads through the relay", imgWidth === 32, String(imgWidth));
+  const imgWidth = await until(
+    "the picture",
+    () =>
+      win.evaluate((el) => {
+        const img = el.querySelector(".files-file-body img");
+        return img && img.complete && img.naturalWidth > 0
+          ? img.naturalWidth
+          : 0;
+      }),
+    15000,
+  ).catch(() => 0);
+  check(
+    "a picture of the workspace loads through the relay",
+    imgWidth === 32,
+    String(imgWidth),
+  );
 
   // A sound plays from its signed address, through the relay, with no header.
   await tree.getByText("media", { exact: true }).click();
@@ -974,34 +1443,75 @@ async function scenarioViews() {
   const audio = win.locator("audio");
   await audio.waitFor();
   const src = await audio.getAttribute("src");
-  check("the audio address goes through the relay's mount and carries a capability", !!src && src.startsWith(MOUNT) && src.includes("access_token="), (src || "").slice(0, 120));
-  const duration = await until("the audio metadata", () =>
-    audio.evaluate((el) => (el.readyState >= 1 && el.duration > 0 ? el.duration : 0)), 15000).catch(() => 0);
-  check("the audio plays from its address alone through the relay", Math.abs(duration - 0.5) < 0.05, String(duration));
+  check(
+    "the audio address goes through the relay's mount and carries a capability",
+    !!src && src.startsWith(MOUNT) && src.includes("access_token="),
+    (src || "").slice(0, 120),
+  );
+  const duration = await until(
+    "the audio metadata",
+    () =>
+      audio.evaluate((el) =>
+        el.readyState >= 1 && el.duration > 0 ? el.duration : 0,
+      ),
+    15000,
+  ).catch(() => 0);
+  check(
+    "the audio plays from its address alone through the relay",
+    Math.abs(duration - 0.5) < 0.05,
+    String(duration),
+  );
   // Coming back to the page checks the file; unchanged, the sound keeps its address.
   await a.page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await a.page.waitForTimeout(600);
-  check("coming back to the page leaves a playing sound alone", (await audio.getAttribute("src")) === src);
+  check(
+    "coming back to the page leaves a playing sound alone",
+    (await audio.getAttribute("src")) === src,
+  );
   const bare = await fetch(src, { headers: { Range: "bytes=0-3" } });
-  check("the signed address answers without any header", bare.status === 206 && (await bare.text()) === "RIFF", String(bare.status));
-  const forged = await fetch(src.replace(/access_token=[^&]+/, "access_token=eyJ2IjoxfQ.Zm9yZ2Vk"));
-  check("a forged address is refused by the node through the relay", forged.status === 401, String(forged.status));
+  check(
+    "the signed address answers without any header",
+    bare.status === 206 && (await bare.text()) === "RIFF",
+    String(bare.status),
+  );
+  const forged = await fetch(
+    src.replace(/access_token=[^&]+/, "access_token=eyJ2IjoxfQ.Zm9yZ2Vk"),
+  );
+  check(
+    "a forged address is refused by the node through the relay",
+    forged.status === 401,
+    String(forged.status),
+  );
 
   // Download from the window's menu, through the same kind of address.
   await win.getByTestId("files-more").click();
-  const [download] = await Promise.all([a.page.waitForEvent("download", { timeout: 15000 }), win.getByTestId("files-download").click()]);
-  check("Download saves the file under its name", download.suggestedFilename() === "tone.wav", download.suggestedFilename());
+  const [download] = await Promise.all([
+    a.page.waitForEvent("download", { timeout: 15000 }),
+    win.getByTestId("files-download").click(),
+  ]);
+  check(
+    "Download saves the file under its name",
+    download.suggestedFilename() === "tone.wav",
+    download.suggestedFilename(),
+  );
 
   // Expanded, the window takes the whole viewport, the rail included.
   await win.getByTestId("files-expand").click();
   const big = await sideways(a.page);
-  check("expanded, the window covers the rail", big.window && big.window.left <= 16 && big.window.right >= big.inner.w - 16, JSON.stringify(big.window));
+  check(
+    "expanded, the window covers the rail",
+    big.window && big.window.left <= 16 && big.window.right >= big.inner.w - 16,
+    JSON.stringify(big.window),
+  );
   await win.getByTestId("files-expand").click();
 
   // Escape puts the window away and the address goes back to the chat.
   await a.page.keyboard.press("Escape");
   await until("the window put away", async () => (await win.count()) === 0);
-  check("Escape closes the window, and the address is the chat's again", (await a.page.evaluate(() => location.hash)) === `#/s/${sid}`);
+  check(
+    "Escape closes the window, and the address is the chat's again",
+    (await a.page.evaluate(() => location.hash)) === `#/s/${sid}`,
+  );
 
   // The key opens and closes it, and the window comes back with its tabs.
   await composer(a.page).click();
@@ -1010,21 +1520,44 @@ async function scenarioViews() {
   const kept = await win.getByRole("tab").allInnerTexts();
   check(
     "Ctrl+Shift+F opens the window with the files it had open",
-    JSON.stringify(kept.map((t) => t.trim())) === JSON.stringify(["util.ts", "README.md", "logo.png", "tone.wav"]),
+    JSON.stringify(kept.map((t) => t.trim())) ===
+      JSON.stringify(["util.ts", "README.md", "logo.png", "tone.wav"]),
     JSON.stringify(kept),
   );
   await a.page.keyboard.press("Control+Shift+F");
-  await until("the window put away by the key", async () => (await win.count()) === 0);
+  await until(
+    "the window put away by the key",
+    async () => (await win.count()) === 0,
+  );
   check("Ctrl+Shift+F closes it again", true);
 
   // A mention in the conversation opens its file at its line.
-  await a.page.locator(".msg-user-body").getByText("@notes/plan.md:3").first().click();
+  await a.page
+    .locator(".msg-user-body")
+    .getByText("@notes/plan.md:3")
+    .first()
+    .click();
   await win.waitFor();
   await until("the mentioned file at its line", () =>
-    win.evaluate((el) => el.querySelector('[data-file-line="3"]') !== null));
-  check("a mention opens its file in the window", (await win.getByRole("tab", { selected: true }).innerText()).trim() === "plan.md");
-  check("the address keeps the file and the line", /files\?path=notes%2Fplan\.md&line=3$/.test(await a.page.evaluate(() => location.hash)), await a.page.evaluate(() => location.hash));
-  check("no page errors on the way", a.errors.length === 0, a.errors.join(" | "));
+    win.evaluate((el) => el.querySelector('[data-file-line="3"]') !== null),
+  );
+  check(
+    "a mention opens its file in the window",
+    (await win.getByRole("tab", { selected: true }).innerText()).trim() ===
+      "plan.md",
+  );
+  check(
+    "the address keeps the file and the line",
+    /files\?path=notes%2Fplan\.md&line=3$/.test(
+      await a.page.evaluate(() => location.hash),
+    ),
+    await a.page.evaluate(() => location.hash),
+  );
+  check(
+    "no page errors on the way",
+    a.errors.length === 0,
+    a.errors.join(" | "),
+  );
   await a.context.close();
   return sid;
 }
@@ -1038,23 +1571,46 @@ async function scenarioDiscard(sid) {
   await d.page.goto(`${RELAY}/#/s/${sid}`);
   await d.page.getByTestId("workspace-bar-edits").click();
   const edits = d.page.getByTestId("edits-view");
-  await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
-  check("the count on the plate opens the edits", (await d.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`);
+  await edits
+    .getByTestId("dv-file-notes/release.md")
+    .waitFor({ timeout: 15000 });
+  check(
+    "the count on the plate opens the edits",
+    (await d.page.evaluate(() => location.hash)) === `#/s/${sid}/changes`,
+  );
   await edits.getByTestId("dv-file-notes/release.md").hover();
   await edits.getByTestId("dv-discard-notes/release.md").click();
   const dialog = d.page.locator(".confirm-dialog");
   await dialog.waitFor();
   check("discarding asks first", /release\.md/.test(await dialog.innerText()));
   await dialog.getByRole("button", { name: "Discard" }).click();
-  await until("the file is gone on the node", async () => !fs.existsSync(path.join(workspace, "notes/release.md")));
-  check("the discard went through the relay's mount", d.mountRequests.some((r) => r.startsWith(`POST /coddy/sessions/${sid}/changes/revert`)));
+  await until(
+    "the file is gone on the node",
+    async () => !fs.existsSync(path.join(workspace, "notes/release.md")),
+  );
+  check(
+    "the discard went through the relay's mount",
+    d.mountRequests.some((r) =>
+      r.startsWith(`POST /coddy/sessions/${sid}/changes/revert`),
+    ),
+  );
   await edits.getByTestId("dv-empty").waitFor({ timeout: 15000 });
   check("the window says the working copy is clean", true);
   await d.page.keyboard.press("Escape");
   await until("the edits put away", async () => (await edits.count()) === 0);
-  await until("the count goes", async () => (await d.page.getByTestId("workspace-bar-edits").count()) === 0);
-  check("with nothing left the count leaves the plate, which stays", (await d.page.getByTestId("workspace-bar").count()) === 1);
-  check("no page errors on the way", d.errors.length === 0, d.errors.join(" | "));
+  await until(
+    "the count goes",
+    async () => (await d.page.getByTestId("workspace-bar-edits").count()) === 0,
+  );
+  check(
+    "with nothing left the count leaves the plate, which stays",
+    (await d.page.getByTestId("workspace-bar").count()) === 1,
+  );
+  check(
+    "no page errors on the way",
+    d.errors.length === 0,
+    d.errors.join(" | "),
+  );
   await d.context.close();
 }
 
@@ -1065,16 +1621,23 @@ async function scenarioNoEdits() {
   await composer(c.page).waitFor();
   await composer(c.page).fill("Say hello");
   await composer(c.page).press("Enter");
-  await c.page.getByText("Done: the notes are in").first().waitFor({ timeout: 30000 });
+  await c.page
+    .getByText("Done: the notes are in")
+    .first()
+    .waitFor({ timeout: 30000 });
   await c.page.waitForTimeout(800);
   const row = await viewButtons(c.page);
   check(
     "a chat without edits shows Files and Tasks in the header",
-    JSON.stringify(row.map((b) => b.id)) === JSON.stringify(["chat-views-files", "chat-views-tasks"]),
+    JSON.stringify(row.map((b) => b.id)) ===
+      JSON.stringify(["chat-views-files", "chat-views-tasks"]),
     JSON.stringify(row.map((b) => b.id)),
   );
   await c.page.getByTestId("workspace-bar").waitFor();
-  check("and the plate over the composer has no count", (await c.page.getByTestId("workspace-bar-edits").count()) === 0);
+  check(
+    "and the plate over the composer has no count",
+    (await c.page.getByTestId("workspace-bar-edits").count()) === 0,
+  );
   await c.context.close();
 }
 
@@ -1085,14 +1648,42 @@ async function scenarioPhone(sid) {
   await win.waitFor();
   await win.locator('[data-file-line="7"]').waitFor({ timeout: 15000 });
   const geo = await sideways(p.page);
-  check("on a phone the window fits the screen and nothing scrolls sideways", geo.pageScroll <= 0 && geo.window && geo.window.left >= 0 && geo.window.right <= geo.inner.w, JSON.stringify(geo));
-  check("on a phone a file opened by its address shows without the tree", (await win.getByTestId("files-tree").count()) === 0 || !(await win.getByTestId("files-tree").isVisible()));
+  check(
+    "on a phone the window fits the screen and nothing scrolls sideways",
+    geo.pageScroll <= 0 &&
+      geo.window &&
+      geo.window.left >= 0 &&
+      geo.window.right <= geo.inner.w,
+    JSON.stringify(geo),
+  );
+  check(
+    "on a phone a file opened by its address shows without the tree",
+    (await win.getByTestId("files-tree").count()) === 0 ||
+      !(await win.getByTestId("files-tree").isVisible()),
+  );
   await win.getByTestId("files-toggle-tree").click();
-  await win.getByTestId("files-tree").getByText("README.md", { exact: true }).waitFor();
-  check("the tree switch brings the tree back over the file", await win.getByTestId("files-tree").isVisible());
-  await win.getByTestId("files-tree").getByText("README.md", { exact: true }).click();
-  await win.locator('[data-file-line="1"] code', { hasText: "# Demo workspace" }).waitFor();
-  check("a file picked on a phone puts the tree away again", !(await win.getByTestId("files-tree").isVisible().catch(() => false)));
+  await win
+    .getByTestId("files-tree")
+    .getByText("README.md", { exact: true })
+    .waitFor();
+  check(
+    "the tree switch brings the tree back over the file",
+    await win.getByTestId("files-tree").isVisible(),
+  );
+  await win
+    .getByTestId("files-tree")
+    .getByText("README.md", { exact: true })
+    .click();
+  await win
+    .locator('[data-file-line="1"] code', { hasText: "# Demo workspace" })
+    .waitFor();
+  check(
+    "a file picked on a phone puts the tree away again",
+    !(await win
+      .getByTestId("files-tree")
+      .isVisible()
+      .catch(() => false)),
+  );
   // On a phone Files is the icon alone, in the 40px square of the top bar, and
   // Background tasks the dot with its word, both beside the title, which keeps
   // its room.
@@ -1103,11 +1694,22 @@ async function scenarioPhone(sid) {
   check(
     "on a phone Files is a 40px icon and Tasks the dot, beside the title, inside the header",
     phoneButtons.length === 2 &&
-      phoneButtons.every((b) => b.inHeader && b.besideTitle && Math.round(b.box.height) === 40 && b.box.right <= 390) &&
-      pf.label === "" && pf.icon === 18 && Math.round(pf.box.width) === 40 &&
-      pt.dot && pt.label === "Tasks" &&
+      phoneButtons.every(
+        (b) =>
+          b.inHeader &&
+          b.besideTitle &&
+          Math.round(b.box.height) === 40 &&
+          b.box.right <= 390,
+      ) &&
+      pf.label === "" &&
+      pf.icon === 18 &&
+      Math.round(pf.box.width) === 40 &&
+      pt.dot &&
+      pt.label === "Tasks" &&
       new Set(phoneButtons.map((b) => Math.round(b.box.top))).size === 1,
-    JSON.stringify(phoneButtons.map((b) => [b.id, b.label, b.icon, b.dot, b.box])),
+    JSON.stringify(
+      phoneButtons.map((b) => [b.id, b.label, b.icon, b.dot, b.box]),
+    ),
   );
   await p.page.getByTestId("chat-views-files").click();
   await win.waitFor();
@@ -1122,52 +1724,106 @@ async function scenarioPhone(sid) {
   await p.page.keyboard.press("Control+Shift+F");
   await win.waitFor();
   const onTop = await p.page.evaluate(() => {
-    const r = document.querySelector("[data-testid=files-view]").getBoundingClientRect();
-    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const r = document
+      .querySelector("[data-testid=files-view]")
+      .getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      r.left + r.width / 2,
+      r.top + r.height / 2,
+    );
     return !!hit?.closest("[data-testid=files-view]");
   });
-  check("on a tablet the files window is drawn over the background tasks", onTop);
+  check(
+    "on a tablet the files window is drawn over the background tasks",
+    onTop,
+  );
   await p.page.keyboard.press("Escape");
   await until("the window put away", async () => (await win.count()) === 0);
-  check("on a tablet Escape takes the window and leaves the tasks open", await p.page.getByTestId("bgtasks-panel").isVisible());
-  check("and the address is the tasks' again", (await p.page.evaluate(() => location.hash)).endsWith("/tasks"));
+  check(
+    "on a tablet Escape takes the window and leaves the tasks open",
+    await p.page.getByTestId("bgtasks-panel").isVisible(),
+  );
+  check(
+    "and the address is the tasks' again",
+    (await p.page.evaluate(() => location.hash)).endsWith("/tasks"),
+  );
   await p.page.keyboard.press("Escape");
-  await until("the tasks put away", async () => (await p.page.getByTestId("bgtasks-panel").count()) === 0);
+  await until(
+    "the tasks put away",
+    async () => (await p.page.getByTestId("bgtasks-panel").count()) === 0,
+  );
   // On a phone the plate keeps its shape, and the edits window fits the screen too.
   await p.page.setViewportSize({ width: 390, height: 844 });
   const phonePlate = await plate(p.page);
   check(
     "on a phone the plate is joined to the composer card, git's count at its right edge, nothing sideways",
-    !!phonePlate && phonePlate.joined && phonePlate.sameEdges && phonePlate.countAtRight && phonePlate.box.left >= 0 && phonePlate.box.right <= 390 &&
-      (await p.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 0,
+    !!phonePlate &&
+      phonePlate.joined &&
+      phonePlate.sameEdges &&
+      phonePlate.countAtRight &&
+      phonePlate.box.left >= 0 &&
+      phonePlate.box.right <= 390 &&
+      (await p.page.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
+      )) <= 0,
     JSON.stringify(phonePlate),
   );
   check(
     "on a phone git's count keeps its slim look and a finger above it still lands on it",
     !!phonePlate && phonePlate.countHeight <= 22 && phonePlate.hitAbove,
-    JSON.stringify({ height: phonePlate?.countHeight, hitAbove: phonePlate?.hitAbove }),
+    JSON.stringify({
+      height: phonePlate?.countHeight,
+      hitAbove: phonePlate?.hitAbove,
+    }),
   );
   await p.page.getByTestId("workspace-bar-edits").click();
   const edits = p.page.getByTestId("edits-view");
-  await edits.getByTestId("dv-file-notes/release.md").waitFor({ timeout: 15000 });
-  check("on a phone the edits window opens on the diffs, the tree put away", (await edits.getByTestId("edits-tree").count()) === 0);
+  await edits
+    .getByTestId("dv-file-notes/release.md")
+    .waitFor({ timeout: 15000 });
+  check(
+    "on a phone the edits window opens on the diffs, the tree put away",
+    (await edits.getByTestId("edits-tree").count()) === 0,
+  );
   const totals = await edits.evaluate((el) => {
-    const count = el.querySelector("[data-testid=edits-totals]").getBoundingClientRect();
+    const count = el
+      .querySelector("[data-testid=edits-totals]")
+      .getBoundingClientRect();
     const line = el.querySelector(".files-subtitle").getBoundingClientRect();
-    return { width: Math.round(count.width), countRight: Math.round(count.right), lineRight: Math.round(line.right) };
+    return {
+      width: Math.round(count.width),
+      countRight: Math.round(count.right),
+      lineRight: Math.round(line.right),
+    };
   });
-  check("on a phone git's count under the title stays whole", totals.width > 0 && totals.countRight <= totals.lineRight, JSON.stringify(totals));
+  check(
+    "on a phone git's count under the title stays whole",
+    totals.width > 0 && totals.countRight <= totals.lineRight,
+    JSON.stringify(totals),
+  );
   await edits.getByTestId("edits-toggle-tree").click();
   await edits.getByTestId("edits-tree-file-notes/release.md").click();
   check(
     "on a phone a file picked in the tree gives the screen back to the diffs",
-    (await edits.getByTestId("edits-tree").count()) === 0 && (await edits.getByTestId("dv-file-notes/release.md").isVisible()),
+    (await edits.getByTestId("edits-tree").count()) === 0 &&
+      (await edits.getByTestId("dv-file-notes/release.md").isVisible()),
   );
   const fits = await p.page.evaluate(() => {
-    const r = document.querySelector("[data-testid=edits-view]").getBoundingClientRect();
-    return { scroll: document.documentElement.scrollWidth - window.innerWidth, left: r.left, right: r.right, vw: window.innerWidth };
+    const r = document
+      .querySelector("[data-testid=edits-view]")
+      .getBoundingClientRect();
+    return {
+      scroll: document.documentElement.scrollWidth - window.innerWidth,
+      left: r.left,
+      right: r.right,
+      vw: window.innerWidth,
+    };
   });
-  check("on a phone the edits window fits the screen", fits.scroll <= 0 && fits.left >= 0 && fits.right <= fits.vw, JSON.stringify(fits));
+  check(
+    "on a phone the edits window fits the screen",
+    fits.scroll <= 0 && fits.left >= 0 && fits.right <= fits.vw,
+    JSON.stringify(fits),
+  );
   await p.page.keyboard.press("Escape");
   await until("the edits put away", async () => (await edits.count()) === 0);
   await p.context.close();
@@ -1187,23 +1843,39 @@ async function scenarioCrossOrigin(sid) {
   const textReads = [];
   x.page.on("response", (r) => {
     if (r.url().includes("/workspace/text")) textReads.push(r.status());
-    if (r.request().method() !== "HEAD" || !r.url().includes("/workspace/raw")) return;
+    if (r.request().method() !== "HEAD" || !r.url().includes("/workspace/raw"))
+      return;
     const inm = r.request().headers()["if-none-match"];
     if (inm === '"stale"') return;
     etags.push({ status: r.status(), conditional: !!inm });
   });
   await x.page.goto(`${NODE}/#/s/${sid}/files?path=notes%2Fplan.md&line=2`);
   const win = x.page.getByTestId("files-view");
-  await win.locator('[data-file-line="1"] code', { hasText: "# Plan" }).waitFor({ timeout: 20000 });
+  await win
+    .locator('[data-file-line="1"] code', { hasText: "# Plan" })
+    .waitFor({ timeout: 20000 });
   check("from another origin the Files window reads through the relay", true);
-  const exposed = await x.page.evaluate(async ({ mount, token, sid }) => {
-    const res = await fetch(`${mount}/coddy/sessions/${sid}/workspace/raw?path_rel=notes%2Fplan.md`, {
-      method: "HEAD",
-      headers: { Authorization: `Bearer ${token}`, "If-None-Match": '"stale"' },
-    });
-    return { status: res.status, etag: res.headers.get("ETag") };
-  }, { mount: MOUNT, token: RELAY_TOKEN, sid });
-  check("a cross-origin HEAD with If-None-Match passes the relay's preflight and reads the ETag", exposed.status === 200 && !!exposed.etag, JSON.stringify(exposed));
+  const exposed = await x.page.evaluate(
+    async ({ mount, token, sid }) => {
+      const res = await fetch(
+        `${mount}/coddy/sessions/${sid}/workspace/raw?path_rel=notes%2Fplan.md`,
+        {
+          method: "HEAD",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "If-None-Match": '"stale"',
+          },
+        },
+      );
+      return { status: res.status, etag: res.headers.get("ETag") };
+    },
+    { mount: MOUNT, token: RELAY_TOKEN, sid },
+  );
+  check(
+    "a cross-origin HEAD with If-None-Match passes the relay's preflight and reads the ETag",
+    exposed.status === 200 && !!exposed.etag,
+    JSON.stringify(exposed),
+  );
   // Coming back to the page revalidates the open file with its ETag: a new,
   // conditional HEAD, counted from the focus on, and the text not read again.
   // Chromium hands the page the node's 304; WebKit answers the same request
@@ -1212,15 +1884,25 @@ async function scenarioCrossOrigin(sid) {
   const beforeFocus = etags.length;
   const textBefore = textReads.length;
   await x.page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await until("a revalidation", async () => etags.slice(beforeFocus).some((e) => e.conditional), 10000).catch(() => false);
+  await until(
+    "a revalidation",
+    async () => etags.slice(beforeFocus).some((e) => e.conditional),
+    10000,
+  ).catch(() => false);
   await x.page.waitForTimeout(500);
   const after = etags.slice(beforeFocus);
   check(
     "the open file is revalidated across origins and not read again",
-    after.some((e) => e.conditional && (e.status === 304 || e.status === 200)) && textReads.length === textBefore,
+    after.some(
+      (e) => e.conditional && (e.status === 304 || e.status === 200),
+    ) && textReads.length === textBefore,
     JSON.stringify({ after, textReads: textReads.slice(textBefore) }),
   );
-  check("no page errors from another origin", x.errors.length === 0, x.errors.join(" | "));
+  check(
+    "no page errors from another origin",
+    x.errors.length === 0,
+    x.errors.join(" | "),
+  );
   await x.context.close();
 }
 
@@ -1234,14 +1916,24 @@ async function scenarioWidths(sid) {
   for (const lang of ["en", "ru"]) {
     for (const width of [600, 768, 1024, 1199, 1200, 1440, 1920]) {
       const w = await openPage({ width, height: 900 });
-      await w.context.addCookies([{ name: "coddy_ui_lang", value: lang, url: RELAY }]);
+      await w.context.addCookies([
+        { name: "coddy_ui_lang", value: lang, url: RELAY },
+      ]);
       await w.page.goto(`${RELAY}/#/s/${sid}/files?path=src%2Fmain.go&line=7`);
       const win = w.page.getByTestId("files-view");
       await win.locator('[data-file-line="7"]').waitFor({ timeout: 15000 });
       const geo = await w.page.evaluate(() => {
         const box = (sel) => {
           const r = document.querySelector(sel)?.getBoundingClientRect();
-          return r ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width } : null;
+          return r
+            ? {
+                left: r.left,
+                right: r.right,
+                top: r.top,
+                bottom: r.bottom,
+                width: r.width,
+              }
+            : null;
         };
         return {
           scroll: document.documentElement.scrollWidth - window.innerWidth,
@@ -1254,28 +1946,62 @@ async function scenarioWidths(sid) {
           close: box("[data-testid=files-close]"),
         };
       });
-      const inside = geo.win && geo.win.left >= 0 && geo.win.right <= geo.vw && geo.win.bottom <= geo.vh;
-      const sideBySide = geo.sidebar && geo.main && geo.sidebar.right <= geo.main.left + 1 && geo.main.width >= 320;
-      const filterFits = geo.filter && geo.sidebar && geo.filter.right <= geo.sidebar.right;
-      const closeInside = geo.close && geo.win && geo.close.right <= geo.win.right && geo.close.left >= geo.win.left;
+      const inside =
+        geo.win &&
+        geo.win.left >= 0 &&
+        geo.win.right <= geo.vw &&
+        geo.win.bottom <= geo.vh;
+      const sideBySide =
+        geo.sidebar &&
+        geo.main &&
+        geo.sidebar.right <= geo.main.left + 1 &&
+        geo.main.width >= 320;
+      const filterFits =
+        geo.filter && geo.sidebar && geo.filter.right <= geo.sidebar.right;
+      const closeInside =
+        geo.close &&
+        geo.win &&
+        geo.close.right <= geo.win.right &&
+        geo.close.left >= geo.win.left;
       check(
         `${lang} ${width}px: the window fits, the tree sits beside the file, the head's controls are inside`,
         geo.scroll <= 0 && inside && sideBySide && filterFits && closeInside,
-        inside && sideBySide && filterFits && closeInside ? "" : JSON.stringify(geo),
+        inside && sideBySide && filterFits && closeInside
+          ? ""
+          : JSON.stringify(geo),
       );
       await w.page.keyboard.press("Escape");
       await until("the window put away", async () => (await win.count()) === 0);
       // The chat under the window may still be loading its session.
-      await w.page.locator(".chat-header [data-testid=chat-views]").waitFor({ timeout: 15000 });
+      await w.page
+        .locator(".chat-header [data-testid=chat-views]")
+        .waitFor({ timeout: 15000 });
       const row = await viewButtons(w.page);
       const height = width < 1200 ? 42 : 36;
       check(
         `${lang} ${width}px: the view buttons sit beside the title in one row, icon and short name whole`,
         row.length === 2 &&
-          row.every((b) => b.inHeader && b.besideTitle && b.label !== "" && b.labelFits && Math.round(b.box.height) === height) &&
-          row[0].icon === 18 && row[1].dot &&
+          row.every(
+            (b) =>
+              b.inHeader &&
+              b.besideTitle &&
+              b.label !== "" &&
+              b.labelFits &&
+              Math.round(b.box.height) === height,
+          ) &&
+          row[0].icon === 18 &&
+          row[1].dot &&
           new Set(row.map((b) => Math.round(b.box.top))).size === 1,
-        JSON.stringify(row.map((b) => [b.label, b.labelFits, b.icon, Math.round(b.box.height), b.inHeader, b.besideTitle])),
+        JSON.stringify(
+          row.map((b) => [
+            b.label,
+            b.labelFits,
+            b.icon,
+            Math.round(b.box.height),
+            b.inHeader,
+            b.besideTitle,
+          ]),
+        ),
       );
       const iconRow = await iconOffsets(w.page);
       check(
@@ -1298,7 +2024,10 @@ async function scenarioShots() {
   await d.page.goto(`${SHOTS_NODE}/`);
   const sid = await writeReleaseNotes(d.page);
   const both = async (name, show) => {
-    for (const [width, height] of [[1280, 820], [390, 844]]) {
+    for (const [width, height] of [
+      [1280, 820],
+      [390, 844],
+    ]) {
       await d.page.setViewportSize({ width, height });
       // A hash alone does not reload: the page starts over with nothing open.
       await d.page.goto(`${SHOTS_NODE}/#/s/${sid}`);
@@ -1313,7 +2042,11 @@ async function scenarioShots() {
   });
   await both("session-changes-review-window", async () => {
     await d.page.getByTestId("workspace-bar-edits").click();
-    await d.page.getByTestId("edits-view").locator(".dv-file-body").first().waitFor({ timeout: 15000 });
+    await d.page
+      .getByTestId("edits-view")
+      .locator(".dv-file-body")
+      .first()
+      .waitFor({ timeout: 15000 });
     await d.page.mouse.move(5, 5);
   });
   await both("background-tasks-dock", async () => {
@@ -1322,14 +2055,22 @@ async function scenarioShots() {
   });
   await both("workspace-files-window-empty", async () => {
     await d.page.keyboard.press("Control+Shift+F");
-    await d.page.getByTestId("files-view").getByText("README.md", { exact: true }).waitFor();
+    await d.page
+      .getByTestId("files-view")
+      .getByText("README.md", { exact: true })
+      .waitFor();
   });
   await d.page.setViewportSize({ width: 1280, height: 820 });
   await d.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=README.md`);
   const win = d.page.getByTestId("files-view");
-  await win.locator('[data-file-line="1"] code', { hasText: "# Demo workspace" }).waitFor();
+  await win
+    .locator('[data-file-line="1"] code', { hasText: "# Demo workspace" })
+    .waitFor();
   await win.getByTestId("files-tree").getByText("src", { exact: true }).click();
-  await win.getByTestId("files-tree").getByText("main.go", { exact: true }).click();
+  await win
+    .getByTestId("files-tree")
+    .getByText("main.go", { exact: true })
+    .click();
   await win.getByRole("tab", { name: "README.md" }).click();
   await d.page.waitForTimeout(800);
   await shoot(d.page, "workspace-files-window-dark-1280");
@@ -1339,12 +2080,18 @@ async function scenarioShots() {
     ["media/tone.wav", "audio", ".files-file-body audio"],
     ["docs/brief.pdf", "pdf", ".files-file-body .files-note"],
   ]) {
-    await d.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=${encodeURIComponent(file)}`);
+    await d.page.goto(
+      `${SHOTS_NODE}/#/s/${sid}/files?path=${encodeURIComponent(file)}`,
+    );
     await d.page.reload();
     await win.locator(ready).first().waitFor({ timeout: 15000 });
     if (name === "audio") {
-      await until("the sound's length", () =>
-        win.evaluate((el) => (el.querySelector("audio")?.duration || 0) > 0), 15000);
+      await until(
+        "the sound's length",
+        () =>
+          win.evaluate((el) => (el.querySelector("audio")?.duration || 0) > 0),
+        15000,
+      );
     }
     await d.page.waitForTimeout(500);
     await shoot(d.page, `workspace-files-window-${name}-dark-1280`);
@@ -1354,32 +2101,76 @@ async function scenarioShots() {
   await win.locator('[data-file-line="7"]').waitFor();
   await shoot(d.page, "workspace-files-window-dark-390");
   // A chat that runs in a linked worktree: the plate names it in the branch's tooltip.
-  const worktree = path.join(shotsWorkspace, ".coddy", "worktrees", "feat-docs-refresh");
-  const res = spawnSync("git", ["worktree", "add", "-q", "-b", "feat/docs-refresh", worktree], {
-    cwd: shotsWorkspace,
-    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_SYSTEM: os.devNull },
-  });
+  const worktree = path.join(
+    shotsWorkspace,
+    ".coddy",
+    "worktrees",
+    "feat-docs-refresh",
+  );
+  const res = spawnSync(
+    "git",
+    ["worktree", "add", "-q", "-b", "feat/docs-refresh", worktree],
+    {
+      cwd: shotsWorkspace,
+      env: {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: os.devNull,
+        GIT_CONFIG_SYSTEM: os.devNull,
+      },
+    },
+  );
   if (res.status !== 0) throw new Error(`git worktree add: ${res.stderr}`);
-  fs.writeFileSync(path.join(shotsWorkspace, ".coddy", "worktrees", ".gitignore"), "*\n");
-  fs.appendFileSync(path.join(worktree, "README.md"), "\nThe docs are being refreshed.\n");
-  const wtSid = "sess_" + Array.from({ length: 36 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+  fs.writeFileSync(
+    path.join(shotsWorkspace, ".coddy", "worktrees", ".gitignore"),
+    "*\n",
+  );
+  fs.appendFileSync(
+    path.join(worktree, "README.md"),
+    "\nThe docs are being refreshed.\n",
+  );
+  const wtSid =
+    "sess_" +
+    Array.from({ length: 36 }, () =>
+      Math.floor(Math.random() * 16).toString(16),
+    ).join("");
   const post = (route, body, headers = {}) =>
-    fetch(`${SHOTS_NODE}${route}`, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
-  const moved = await post(`/coddy/sessions/${wtSid}/workspace`, { path: worktree });
-  if (!moved.ok) throw new Error(`move the session into the worktree: ${moved.status} ${await moved.text()}`);
-  const turn = await post("/v1/responses", { model: "agent", input: "Refresh the docs", stream: false }, { "X-Coddy-Session-ID": wtSid });
+    fetch(`${SHOTS_NODE}${route}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+  const moved = await post(`/coddy/sessions/${wtSid}/workspace`, {
+    path: worktree,
+  });
+  if (!moved.ok)
+    throw new Error(
+      `move the session into the worktree: ${moved.status} ${await moved.text()}`,
+    );
+  const turn = await post(
+    "/v1/responses",
+    { model: "agent", input: "Refresh the docs", stream: false },
+    { "X-Coddy-Session-ID": wtSid },
+  );
   if (!turn.ok) throw new Error(`the worktree turn: ${turn.status}`);
   await d.page.setViewportSize({ width: 1280, height: 820 });
   await d.page.goto(`${SHOTS_NODE}/#/s/${wtSid}`);
   await d.page.reload();
-  await d.page.getByTestId("workspace-bar-worktree").waitFor({ timeout: 15000 });
+  await d.page
+    .getByTestId("workspace-bar-worktree")
+    .waitFor({ timeout: 15000 });
   await d.page.getByTestId("workspace-bar-edits").waitFor({ timeout: 15000 });
-  check("a chat in a linked worktree is named in the tooltip of the branch on the plate", true);
+  check(
+    "a chat in a linked worktree is named in the tooltip of the branch on the plate",
+    true,
+  );
   await shoot(d.page, "workspace-bar-worktree-dark-1280");
   await d.context.close();
   const l = await openPage({ throughRelay: false, theme: "light" });
   await l.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=README.md`);
-  await l.page.getByTestId("files-view").locator('[data-file-line="1"] code', { hasText: "# Demo workspace" }).waitFor();
+  await l.page
+    .getByTestId("files-view")
+    .locator('[data-file-line="1"] code', { hasText: "# Demo workspace" })
+    .waitFor();
   await l.page.waitForTimeout(800);
   await shoot(l.page, "workspace-files-window-light-1280");
   await l.context.close();
@@ -1407,29 +2198,51 @@ async function scenarioDocsClose() {
     window.__closeAt = [];
     const tick = () => {
       const el = document.querySelector("[data-testid=docs-close]");
-      if (el) window.__closeAt.push(Math.round(el.getBoundingClientRect().right * 10) / 10);
+      if (el)
+        window.__closeAt.push(
+          Math.round(el.getBoundingClientRect().right * 10) / 10,
+        );
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
   });
   const settle = async () => {
-    await r.page.getByTestId("docs-article").locator("h1").first().waitFor({ timeout: 15000 });
+    await r.page
+      .getByTestId("docs-article")
+      .locator("h1")
+      .first()
+      .waitFor({ timeout: 15000 });
     await r.page.waitForTimeout(800);
     return r.page.evaluate(() => [...new Set(window.__closeAt)]);
   };
   await r.page.goto(`${SHOTS_NODE}/#/docs/getting-started/quickstart`);
   const cold = await settle();
   const gutter = await r.page.evaluate(() =>
-    document.querySelector("[data-testid=docs-view]").style.getPropertyValue("--docs-scrollbar"),
+    document
+      .querySelector("[data-testid=docs-view]")
+      .style.getPropertyValue("--docs-scrollbar"),
   );
-  if (own) check("the reader's body shows a scrollbar that takes room", parseFloat(gutter) > 0, gutter);
-  check("the reader's close button does not move as a page loads", cold.length === 1, JSON.stringify(cold));
+  if (own)
+    check(
+      "the reader's body shows a scrollbar that takes room",
+      parseFloat(gutter) > 0,
+      gutter,
+    );
+  check(
+    "the reader's close button does not move as a page loads",
+    cold.length === 1,
+    JSON.stringify(cold),
+  );
   await r.page.goto(`${SHOTS_NODE}/?again=1`);
   await composer(r.page).waitFor();
   await r.page.evaluate(() => (window.__closeAt = []));
   await r.page.getByTestId("nav-docs").click();
   const warm = await settle();
-  check("nor as the reader opens from the rail", warm.length === 1, JSON.stringify(warm));
+  check(
+    "nor as the reader opens from the rail",
+    warm.length === 1,
+    JSON.stringify(warm),
+  );
   await r.context.close();
   await own?.close();
 }
@@ -1443,17 +2256,35 @@ async function scenarioLongFile(sid) {
   await l.page.goto(`${RELAY}/#/s/${sid}/files?path=docs%2Fchangelog.txt`);
   const win = l.page.getByTestId("files-view");
   await win.locator('[data-file-line="1"]').waitFor({ timeout: 15000 });
-  check("a long file shows its first lines and no page buttons", (await win.locator(".files-pages").count()) === 0 && (await win.locator('[data-file-line="301"]').count()) === 0);
-  for (let i = 0; i < 20 && (await win.locator('[data-file-line="700"]').count()) === 0; i++) {
-    await win.locator(".files-file-body").evaluate((el) => (el.scrollTop = el.scrollHeight));
+  check(
+    "a long file shows its first lines and no page buttons",
+    (await win.locator(".files-pages").count()) === 0 &&
+      (await win.locator('[data-file-line="301"]').count()) === 0,
+  );
+  for (
+    let i = 0;
+    i < 20 && (await win.locator('[data-file-line="700"]').count()) === 0;
+    i++
+  ) {
+    await win
+      .locator(".files-file-body")
+      .evaluate((el) => (el.scrollTop = el.scrollHeight));
     await l.page.waitForTimeout(250);
   }
   const read = await win.evaluate((el) => ({
     lines: el.querySelectorAll("[data-file-line]").length,
     first: el.querySelector("[data-file-line]")?.getAttribute("data-file-line"),
   }));
-  check("scrolled to its end, the file has read every line on", read.lines >= 700 && read.first === "1", JSON.stringify(read));
-  check("no page errors on the way", l.errors.length === 0, l.errors.join(" | "));
+  check(
+    "scrolled to its end, the file has read every line on",
+    read.lines >= 700 && read.first === "1",
+    JSON.stringify(read),
+  );
+  check(
+    "no page errors on the way",
+    l.errors.length === 0,
+    l.errors.join(" | "),
+  );
   await l.context.close();
 }
 
@@ -1463,17 +2294,36 @@ async function scenarioLongFile(sid) {
  */
 async function scenarioTabStrip(sid) {
   const t = await openPage({ width: 390, height: 844 });
-  const files = ["README.md", "notes/plan.md", "src/main.go", "docs/changelog.txt", "src/deep/nested/util.ts", "notes/release.md"];
-  await t.page.goto(`${RELAY}/#/s/${sid}/files?path=${encodeURIComponent(files[0])}`);
+  const files = [
+    "README.md",
+    "notes/plan.md",
+    "src/main.go",
+    "docs/changelog.txt",
+    "src/deep/nested/util.ts",
+    "notes/release.md",
+  ];
+  await t.page.goto(
+    `${RELAY}/#/s/${sid}/files?path=${encodeURIComponent(files[0])}`,
+  );
   const win = t.page.getByTestId("files-view");
   await win.locator('[data-file-line="1"]').waitFor({ timeout: 15000 });
   for (const file of files.slice(1)) {
-    await t.page.evaluate((hash) => (location.hash = hash), `#/s/${sid}/files?path=${encodeURIComponent(file)}`);
-    await until(`the tab of ${file}`, async () => (await win.getByRole("tab", { selected: true }).innerText()).trim() === file.split("/").pop());
+    await t.page.evaluate(
+      (hash) => (location.hash = hash),
+      `#/s/${sid}/files?path=${encodeURIComponent(file)}`,
+    );
+    await until(
+      `the tab of ${file}`,
+      async () =>
+        (await win.getByRole("tab", { selected: true }).innerText()).trim() ===
+        file.split("/").pop(),
+    );
   }
   const strip = await win.evaluate((el) => {
     const s = el.querySelector(".files-tabs");
-    const tab = el.querySelector(".files-tab.is-active").getBoundingClientRect();
+    const tab = el
+      .querySelector(".files-tab.is-active")
+      .getBoundingClientRect();
     const r = s.getBoundingClientRect();
     return {
       overflow: s.scrollWidth > s.clientWidth,
@@ -1485,7 +2335,11 @@ async function scenarioTabStrip(sid) {
   });
   check(
     "on a phone tabs that do not fit scroll sideways, no arrows, the tab on show in view",
-    strip.overflow && strip.fadeLeft && strip.arrows === 0 && strip.activeInView && strip.pageScroll <= 0,
+    strip.overflow &&
+      strip.fadeLeft &&
+      strip.arrows === 0 &&
+      strip.activeInView &&
+      strip.pageScroll <= 0,
     JSON.stringify(strip),
   );
   await t.context.close();
@@ -1503,8 +2357,14 @@ async function scenarioManyEdits(sid) {
     fs.mkdirSync(path.join(workspace, "pkg", dir), { recursive: true });
     for (let n = 1; n <= 8; n++) {
       const rel = `pkg/${dir}/helper${n}.go`;
-      const body = Array.from({ length: 12 }, (_, k) => `func helper${n}_${k}() int { return ${n * k} }`).join("\n");
-      fs.writeFileSync(path.join(workspace, rel), `package ${dir}\n\n${body}\n`);
+      const body = Array.from(
+        { length: 12 },
+        (_, k) => `func helper${n}_${k}() int { return ${n * k} }`,
+      ).join("\n");
+      fs.writeFileSync(
+        path.join(workspace, rel),
+        `package ${dir}\n\n${body}\n`,
+      );
       made.push(rel);
     }
   }
@@ -1519,40 +2379,72 @@ async function scenarioManyEdits(sid) {
   await m.page.goto(`${RELAY}/#/s/${sid}/changes`);
   const edits = m.page.getByTestId("edits-view");
   const target = "pkg/web/helper4.go";
-  await edits.getByTestId(`edits-tree-file-${target}`).waitFor({ timeout: 15000 });
-  const loadingAtPick = await edits.locator(".dv-file-body .dv-note", { hasText: "Loading the diff" }).count();
+  await edits
+    .getByTestId(`edits-tree-file-${target}`)
+    .waitFor({ timeout: 15000 });
+  const loadingAtPick = await edits
+    .locator(".dv-file-body .dv-note", { hasText: "Loading the diff" })
+    .count();
   await edits.getByTestId(`edits-tree-file-${target}`).click();
   const place = () =>
     edits.evaluate((el, target) => {
       const scroller = el.querySelector(".dv-scroll").getBoundingClientRect();
-      const section = el.querySelector(`[data-testid="dv-file-${target}"]`).getBoundingClientRect();
+      const section = el
+        .querySelector(`[data-testid="dv-file-${target}"]`)
+        .getBoundingClientRect();
       return {
         gap: Math.round(section.top - scroller.top),
-        head: Math.round(el.querySelector(".files-header").getBoundingClientRect().top),
-        overflow: el.querySelector(".dv-scroll").scrollHeight > el.querySelector(".dv-scroll").clientHeight,
-        loading: [...el.querySelectorAll(".dv-file-body .dv-note")].filter((n) => n.textContent.startsWith("Loading the diff")).length,
+        head: Math.round(
+          el.querySelector(".files-header").getBoundingClientRect().top,
+        ),
+        overflow:
+          el.querySelector(".dv-scroll").scrollHeight >
+          el.querySelector(".dv-scroll").clientHeight,
+        loading: [...el.querySelectorAll(".dv-file-body .dv-note")].filter(
+          (n) => n.textContent.startsWith("Loading the diff"),
+        ).length,
       };
     }, target);
   // Settled: every patch in, and the file where the pick put it.
   let jumped = await place();
-  for (let i = 0; i < 60 && (jumped.loading > 0 || Math.abs(jumped.gap - 10) > 1); i++) {
+  for (
+    let i = 0;
+    i < 60 && (jumped.loading > 0 || Math.abs(jumped.gap - 10) > 1);
+    i++
+  ) {
     await m.page.waitForTimeout(250);
     jumped = await place();
   }
   check(
     "with many files a pick made while the diffs load scrolls to the file and keeps it 10px under their top, the window still",
     // WebKit scrolls by whole pixels, so a card on a fractional offset lands a pixel off.
-    loadingAtPick > 0 && jumped.loading === 0 && jumped.overflow && Math.abs(jumped.gap - 10) <= 1 && jumped.head === 15,
+    loadingAtPick > 0 &&
+      jumped.loading === 0 &&
+      jumped.overflow &&
+      Math.abs(jumped.gap - 10) <= 1 &&
+      jumped.head === 15,
     JSON.stringify({ loadingAtPick, ...jumped }),
   );
-  await edits.locator(".dv-scroll").evaluate((el) => (el.scrollTop = el.scrollHeight));
+  await edits
+    .locator(".dv-scroll")
+    .evaluate((el) => (el.scrollTop = el.scrollHeight));
   await m.page.waitForTimeout(400);
   const kept = await edits.evaluate((el) => {
-    const tree = el.querySelector("[data-testid=edits-tree]").getBoundingClientRect();
-    const row = el.querySelector("[data-testid=edits-tree] .files-tree-row.is-active")?.getBoundingClientRect();
-    return row ? { inView: row.top >= tree.top - 1 && row.bottom <= tree.bottom + 1 } : { inView: false };
+    const tree = el
+      .querySelector("[data-testid=edits-tree]")
+      .getBoundingClientRect();
+    const row = el
+      .querySelector("[data-testid=edits-tree] .files-tree-row.is-active")
+      ?.getBoundingClientRect();
+    return row
+      ? { inView: row.top >= tree.top - 1 && row.bottom <= tree.bottom + 1 }
+      : { inView: false };
   });
-  check("the row the scroll marks stays in the tree's view", kept.inView, JSON.stringify(kept));
+  check(
+    "the row the scroll marks stays in the tree's view",
+    kept.inView,
+    JSON.stringify(kept),
+  );
   await m.context.close();
   for (const rel of made) fs.rmSync(path.join(workspace, rel));
   fs.rmSync(path.join(workspace, "pkg"), { recursive: true, force: true });
@@ -1573,7 +2465,11 @@ try {
   await scenarioNoEdits();
   await scenarioShots();
 } catch (err) {
-  check("the run finished", false, err instanceof Error ? err.message : String(err));
+  check(
+    "the run finished",
+    false,
+    err instanceof Error ? err.message : String(err),
+  );
 } finally {
   await browser.close();
   // A stand left for a look keeps its model, so a turn there still answers.
@@ -1582,14 +2478,18 @@ try {
     modelServer.close();
   }
   if (KEEP) {
-    console.log(`stand left running: node ${NODE} (token ${NODE_TOKEN}), relay ${RELAY} (token ${RELAY_TOKEN}), home ${scratch}`);
+    console.log(
+      `stand left running: node ${NODE} (token ${NODE_TOKEN}), relay ${RELAY} (token ${RELAY_TOKEN}), home ${scratch}`,
+    );
     await new Promise(() => {});
   }
 }
 
 cleanup();
 if (failures.length > 0) {
-  console.error(`\n${failures.length} check(s) failed:\n- ${failures.join("\n- ")}`);
+  console.error(
+    `\n${failures.length} check(s) failed:\n- ${failures.join("\n- ")}`,
+  );
   process.exit(1);
 }
 console.log("\nviews of a session: all checks passed");

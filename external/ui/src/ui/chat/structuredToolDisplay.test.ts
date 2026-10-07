@@ -131,8 +131,12 @@ test("an http request shows the address it really goes to and every setting that
 
 test("an http request's JSON body is the text the model wrote, indented", () => {
   // Printed back from the parsed arguments, the id came out as 12345678901234567000.
-  const raw = '{"url":"https://x.test/","json":{"id":12345678901234567891,"note":"caf\\u00e9"}}';
-  const view = httpRequestView(JSON.parse(raw) as Record<string, unknown>, parseJsonDocument(raw));
+  const raw =
+    '{"url":"https://x.test/","json":{"id":12345678901234567891,"note":"caf\\u00e9"}}';
+  const view = httpRequestView(
+    JSON.parse(raw) as Record<string, unknown>,
+    parseJsonDocument(raw),
+  );
   expect(view.body).toMatchObject({
     kind: "json",
     content: '{\n  "id": 12345678901234567891,\n  "note": "caf\\u00e9"\n}',

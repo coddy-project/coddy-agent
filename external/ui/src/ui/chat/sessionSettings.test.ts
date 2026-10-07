@@ -15,12 +15,17 @@ const snapshot = {
   mode: "plan",
   permissionMode: "bypass",
   configuredPermissionMode: "ask",
-  overrides: [{ setting: "model", value: "nd/gpt-oss-120b", turnsLeft: 2, active: true }],
+  overrides: [
+    { setting: "model", value: "nd/gpt-oss-120b", turnsLeft: 2, active: true },
+  ],
 };
 
 test("a snapshot is read whole, overrides included", () => {
   const snap = parseSessionSettings(snapshot);
-  expect(snap).toEqual({ ...snapshot, overrides: [{ ...snapshot.overrides[0] }] });
+  expect(snap).toEqual({
+    ...snapshot,
+    overrides: [{ ...snapshot.overrides[0] }],
+  });
   expect(parseSessionSettings({ version: 3 })).toBeNull();
   expect(parseSessionSettings(null)).toBeNull();
 });
@@ -58,7 +63,12 @@ test("only a newer snapshot of the viewed session replaces what a tab shows", ()
 test("the events stream parses and dispatches session_settings", () => {
   const event = parseServerEvent({
     event: "session_settings",
-    data: JSON.stringify({ sessionId: "sess_a", settings: snapshot, notice: "", source: "web" }),
+    data: JSON.stringify({
+      sessionId: "sess_a",
+      settings: snapshot,
+      notice: "",
+      source: "web",
+    }),
   });
   expect(event?.type).toBe("session_settings");
   const seen: string[] = [];
@@ -66,7 +76,8 @@ test("the events stream parses and dispatches session_settings", () => {
     {
       onTurnStarted: () => {},
       onTurnEnded: () => {},
-      onSessionSettings: (e) => seen.push(`${e.sessionId}:${e.settings.version}`),
+      onSessionSettings: (e) =>
+        seen.push(`${e.sessionId}:${e.settings.version}`),
     },
     event!,
   );

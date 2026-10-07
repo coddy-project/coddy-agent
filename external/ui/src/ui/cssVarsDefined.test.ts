@@ -24,21 +24,29 @@ function walk(dir: string, out: string[] = []): string[] {
 test("every var() without a fallback names a custom property that is defined", () => {
   const files = walk(src);
   const css = files.filter((f) => f.endsWith(".css"));
-  const code = files.filter((f) => /\.(tsx?|mjs)$/.test(f) && !f.endsWith(".test.ts") && !f.endsWith(".test.tsx"));
+  const code = files.filter(
+    (f) =>
+      /\.(tsx?|mjs)$/.test(f) &&
+      !f.endsWith(".test.ts") &&
+      !f.endsWith(".test.tsx"),
+  );
   const defined = new Set<string>();
   for (const f of css) {
-    for (const m of readFileSync(f, "utf8").matchAll(/(--[\w-]+)\s*:/g)) defined.add(m[1]!);
+    for (const m of readFileSync(f, "utf8").matchAll(/(--[\w-]+)\s*:/g))
+      defined.add(m[1]!);
   }
   // Properties the code sets on an element (style.setProperty, style objects).
   for (const f of code) {
-    for (const m of readFileSync(f, "utf8").matchAll(/["'`](--[\w-]+)["'`]/g)) defined.add(m[1]!);
+    for (const m of readFileSync(f, "utf8").matchAll(/["'`](--[\w-]+)["'`]/g))
+      defined.add(m[1]!);
   }
   const missing: string[] = [];
   for (const f of css) {
     const lines = readFileSync(f, "utf8").split("\n");
     lines.forEach((line, i) => {
       for (const m of line.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)) {
-        if (!defined.has(m[1]!)) missing.push(`${f.slice(src.length + 1)}:${i + 1} ${m[1]}`);
+        if (!defined.has(m[1]!))
+          missing.push(`${f.slice(src.length + 1)}:${i + 1} ${m[1]}`);
       }
     });
   }

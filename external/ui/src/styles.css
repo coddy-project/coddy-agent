@@ -1541,8 +1541,7 @@ a.rail-brand {
   border-radius: 50%;
   flex-shrink: 0;
   background: var(--coddy-danger);
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--coddy-danger) 25%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--coddy-danger) 25%, transparent);
 }
 
 .session-error-dot.is-seen {
@@ -2486,7 +2485,6 @@ a.rail-brand {
 .chat-view-label {
   line-height: 1;
 }
-
 
 /* running / total beside the dot. Tabular digits, so a count that changes
    does not move the row. */
@@ -4040,7 +4038,10 @@ a.rail-brand {
 }
 
 .tool-artifact-card {
-  transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
 }
 
 .tool-artifact-card:hover {
@@ -4049,7 +4050,9 @@ a.rail-brand {
   transform: translateY(-1px);
 }
 
-.inline-artifact-card .tool-artifact-info { padding-top: 22px; }
+.inline-artifact-card .tool-artifact-info {
+  padding-top: 22px;
+}
 .inline-artifact-extension {
   position: absolute;
   top: var(--artifact-badge-inset);
@@ -4059,7 +4062,8 @@ a.rail-brand {
   width: var(--artifact-badge-size);
   height: var(--artifact-badge-size);
   box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, var(--accent) 46%, var(--coddy-blend-base));
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 46%, var(--coddy-blend-base));
   border-radius: 6px;
   background: color-mix(in srgb, var(--bg) 74%, transparent);
   color: var(--accent);
@@ -4069,10 +4073,35 @@ a.rail-brand {
   line-height: 1;
   pointer-events: none;
 }
-.inline-artifact-image { position: absolute; inset: 0; padding: 0; overflow: hidden; border: 0; background: transparent; cursor: zoom-in; }
-.inline-artifact-thumb { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; }
-.inline-artifact-card:has(.inline-artifact-image) .tool-artifact-info { position: relative; z-index: 1; padding: 32px 0 0; pointer-events: none; text-shadow: 0 1px 2px #000; }
-.inline-artifact-card:has(.inline-artifact-image) .tool-artifact-meta { padding: 4px; margin: 0 -4px -4px; border-radius: 5px; background: color-mix(in srgb, #000 56%, transparent); }
+.inline-artifact-image {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.inline-artifact-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+.inline-artifact-card:has(.inline-artifact-image) .tool-artifact-info {
+  position: relative;
+  z-index: 1;
+  padding: 32px 0 0;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}
+.inline-artifact-card:has(.inline-artifact-image) .tool-artifact-meta {
+  padding: 4px;
+  margin: 0 -4px -4px;
+  border-radius: 5px;
+  background: color-mix(in srgb, #000 56%, transparent);
+}
 /* The badge mirrored across the card: level with it and as far from the right
    edge as the badge is from the left, centred on the badge's box when the
    trigger is larger (a phone's touch target). The dots are an svg centred in
@@ -4080,8 +4109,14 @@ a.rail-brand {
 .inline-artifact-menu-trigger {
   position: absolute;
   z-index: 2;
-  top: calc(var(--artifact-badge-inset) + (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2);
-  right: calc(var(--artifact-badge-inset) + (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2);
+  top: calc(
+    var(--artifact-badge-inset) +
+      (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2
+  );
+  right: calc(
+    var(--artifact-badge-inset) +
+      (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2
+  );
   display: grid;
   place-items: center;
   width: var(--artifact-trigger-size);
@@ -4110,10 +4145,40 @@ a.rail-brand {
    (placeArtifactMenu in ToolArtifactCards.tsx): the card clips what overflows
    it, and a menu inside it was never seen. A window shorter than the menu
    scrolls its items instead of cutting the last ones off. */
-.inline-artifact-menu { position: fixed; z-index: 1000; display: grid; min-width: 180px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; box-sizing: border-box; padding: 4px; border: 1px solid var(--coddy-glass-panel-border); border-radius: 10px; background: var(--coddy-tip-bg); box-shadow: var(--coddy-tip-shadow); }
-.inline-artifact-menu button { padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
-.inline-artifact-menu button:hover:not(:disabled), .inline-artifact-menu button:focus-visible { background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base)); }
-.inline-artifact-menu button:disabled { opacity: 0.45; cursor: default; }
+.inline-artifact-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  min-width: 180px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: var(--coddy-tip-bg);
+  box-shadow: var(--coddy-tip-shadow);
+}
+.inline-artifact-menu button {
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.inline-artifact-menu button:hover:not(:disabled),
+.inline-artifact-menu button:focus-visible {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+}
+.inline-artifact-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 
 @media (max-width: 599px) {
   .tool-artifact-card {
@@ -4612,7 +4677,8 @@ a.rail-brand {
   align-items: center;
   gap: 6px 8px;
   padding: 5px 5px 5px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
   font-size: 12px;
   line-height: 18px;
 }
@@ -4723,7 +4789,8 @@ a.rail-brand {
   font-size: 12px;
   line-height: 18px;
   color: var(--coddy-danger);
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
   overflow-wrap: anywhere;
 }
 
@@ -4930,7 +4997,8 @@ code.md-math-pending {
   background: var(--coddy-glass-panel-bg);
   backdrop-filter: var(--coddy-glass-panel-backdrop);
   -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--coddy-glass-panel-border));
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 55%, var(--coddy-glass-panel-border));
   box-shadow: var(--coddy-glass-panel-shadow);
   color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
   font-size: 12px;
@@ -5384,10 +5452,19 @@ textarea#composer {
   width: 100%;
 }
 
+/* The mirror draws the text the masked textarea above it hides, so their
+   text boxes must be the same width to the fraction of a pixel, or the two
+   wrap a line at different words and the caret stands away from the text.
+   The textarea keeps a stable scrollbar gutter; the mirror reserves its own
+   the same way instead of a width measured in script, which offsetWidth and
+   clientWidth round to whole pixels and which goes stale when the page zoom
+   or the screen density changes - a classic scrollbar keeps its device
+   pixels, so it takes 13.6 CSS pixels at 110% and 8.6 at 175%. */
 .composer-mirror {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  scrollbar-gutter: stable;
   pointer-events: none;
   z-index: 0;
 }
@@ -5422,7 +5499,8 @@ textarea#composer.composer-ta-masked::selection {
 .composer-code-editing {
   border-radius: 8px;
   background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
 }
 
 .composer-code-editing .composer-mirror-inner,
@@ -13418,7 +13496,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   position: relative;
   z-index: 3;
   display: grid;
-  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(170px, 210px);
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(
+      170px,
+      210px
+    );
   grid-template-areas: "title search actions";
   column-gap: 32px;
   align-items: center;
@@ -13541,7 +13622,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   box-sizing: border-box;
   padding: var(--docs-top) 0 var(--docs-bottom);
   display: grid;
-  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(170px, 210px);
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr) minmax(
+      170px,
+      210px
+    );
   gap: 32px;
   align-items: start;
 }
@@ -16214,7 +16298,8 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 /* The file on show: a brighter row with a light outline, not the accent. */
 .files-tree-row.is-active {
   background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
   color: var(--text);
 }
 
@@ -16306,8 +16391,20 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 }
 
 .files-tabs.has-more-left.has-more-right {
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
 }
 
 /* 33px and the strip's 1px line under it: as tall as the filter beside it, so
@@ -16746,7 +16843,8 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   gap: 8px;
   padding: 0 12px 0 4px;
   background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
 }
 
 .dv-file-title {
@@ -16879,8 +16977,10 @@ html:not([data-theme="light"]) .swarm-graph-panel {
    "N unmodified lines" here, which is a number the reader cannot act on. */
 .dv-gap {
   height: 10px;
-  border-top: 1px dashed color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
-  border-bottom: 1px dashed color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  border-top: 1px dashed
+    color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  border-bottom: 1px dashed
+    color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
   background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
 }
 
@@ -16907,7 +17007,8 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   flex: 1 1 50%;
   min-width: 0;
   overflow: hidden;
-  border-right: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-right: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
 .dv-side--add {
@@ -16929,5 +17030,3 @@ html:not([data-theme="light"]) .swarm-graph-panel {
 .dv-side--del .dv-num {
   color: var(--diff-del-no);
 }
-
-

@@ -26,10 +26,7 @@ export function sessionRowAttentionMarker(
   ) {
     return "permission";
   }
-  if (
-    row.questionPending === true ||
-    questionPendingSessionIds.has(row.id)
-  ) {
+  if (row.questionPending === true || questionPendingSessionIds.has(row.id)) {
     return "question";
   }
   return null;

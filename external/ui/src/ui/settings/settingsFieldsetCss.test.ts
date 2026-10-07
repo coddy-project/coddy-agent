@@ -12,9 +12,18 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
 const dir = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(dir, "../../styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const css = readFileSync(join(dir, "../../styles.css"), "utf8").replace(
+  /\/\*[\s\S]*?\*\//g,
+  "",
+);
 
 test("every settings fieldset may shrink below its content", () => {
-  const body = [...css.matchAll(/(?:^|\})\s*\.settings-fieldset\s*\{([^}]*)\}/g)].map((m) => m[1]).join(";");
-  expect(body).toMatch(/(?:^|[;\s])(?:min-inline-size|min-width)\s*:\s*0(?:px)?\s*(?:;|$)/);
+  const body = [
+    ...css.matchAll(/(?:^|\})\s*\.settings-fieldset\s*\{([^}]*)\}/g),
+  ]
+    .map((m) => m[1])
+    .join(";");
+  expect(body).toMatch(
+    /(?:^|[;\s])(?:min-inline-size|min-width)\s*:\s*0(?:px)?\s*(?:;|$)/,
+  );
 });

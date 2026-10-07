@@ -60,7 +60,10 @@ describe("commandArgDraftAtCaret", () => {
     ["a bare command keeps Enter for sending it", "/compact |"],
     ["the value is complete", "/compact --model qwen |"],
     ["the instructions began", "/compact keep --model |"],
-    ["inside the instructions after a value", "/compact --model qwen keep --mo|"],
+    [
+      "inside the instructions after a value",
+      "/compact --model qwen keep --mo|",
+    ],
     ["another command", "/export --model |"],
     ["a longer command name", "/compacted --model |"],
     ["the command is not the start of the draft", "please /compact --model |"],

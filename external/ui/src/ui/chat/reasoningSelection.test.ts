@@ -37,9 +37,9 @@ test("falls back to medium when nothing else valid", () => {
 });
 
 test("falls back to first level when medium not offered", () => {
-  expect(
-    pickReasoningLevel({ levels: ["low", "high"], cookie: null }),
-  ).toBe("low");
+  expect(pickReasoningLevel({ levels: ["low", "high"], cookie: null })).toBe(
+    "low",
+  );
 });
 
 test("session level invalid for model falls through to cookie", () => {
@@ -58,5 +58,7 @@ test("a session holds a level its snapshot offers beyond the menu's, such as off
     }),
   ).toBe("off");
   // Without the snapshot's word for it, off is not a level of the model.
-  expect(pickReasoningLevel({ levels, cookie: null, sessionLevel: "off" })).toBe("medium");
+  expect(
+    pickReasoningLevel({ levels, cookie: null, sessionLevel: "off" }),
+  ).toBe("medium");
 });

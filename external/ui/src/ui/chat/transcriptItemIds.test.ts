@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
-import { preserveTranscriptItemIds, stableToolCallItemId } from "./transcriptItemIds";
+import {
+  preserveTranscriptItemIds,
+  stableToolCallItemId,
+} from "./transcriptItemIds";
 import type { TranscriptItem } from "./types";
 
 test("stableToolCallItemId", () => {

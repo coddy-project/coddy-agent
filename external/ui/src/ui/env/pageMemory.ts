@@ -91,7 +91,10 @@ export function swarmPicture(relayKey: string): SwarmPicture | undefined {
   return swarmPictures.get(relayKey);
 }
 
-export function rememberSwarmPicture(relayKey: string, picture: SwarmPicture): void {
+export function rememberSwarmPicture(
+  relayKey: string,
+  picture: SwarmPicture,
+): void {
   swarmPictures.set(relayKey, picture);
 }
 

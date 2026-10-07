@@ -14,7 +14,11 @@ export type NavItemId =
   | "environment"
   | "signOut";
 
-export const NAV_ALWAYS: readonly NavItemId[] = ["history", "swarm", "environment"];
+export const NAV_ALWAYS: readonly NavItemId[] = [
+  "history",
+  "swarm",
+  "environment",
+];
 export const NAV_RETURN_ORDER: readonly NavItemId[] = [
   "settings",
   "scheduler",
@@ -43,9 +47,14 @@ export function splitNavItems(
   const always = present.filter((id) => NAV_ALWAYS.includes(id));
   // The More button takes one of the slots.
   const room = Math.max(0, slots - always.length - 1);
-  const back = NAV_RETURN_ORDER.filter((id) => present.includes(id)).slice(0, room);
+  const back = NAV_RETURN_ORDER.filter((id) => present.includes(id)).slice(
+    0,
+    room,
+  );
   const bar = present.filter((id) => always.includes(id) || back.includes(id));
-  const menu = NAV_MENU_ORDER.filter((id) => present.includes(id) && !bar.includes(id));
+  const menu = NAV_MENU_ORDER.filter(
+    (id) => present.includes(id) && !bar.includes(id),
+  );
   return { bar, menu };
 }
 

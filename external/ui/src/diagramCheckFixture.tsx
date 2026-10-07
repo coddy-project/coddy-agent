@@ -23,9 +23,12 @@ import type { UiThemeMode } from "./ui/theme/themeCookie";
 const params = new URLSearchParams(location.search);
 const lang = params.get("lang") || "";
 initLocale(isUiLocale(lang) ? lang : UI_LOCALE_DEFAULT);
-applyUiTheme(resolveUiThemeMode((params.get("theme") as UiThemeMode | null) || null));
+applyUiTheme(
+  resolveUiThemeMode((params.get("theme") as UiThemeMode | null) || null),
+);
 
-const fence = (lang: string, body: string) => ["```" + lang, body, "```"].join("\n");
+const fence = (lang: string, body: string) =>
+  ["```" + lang, body, "```"].join("\n");
 
 export const CASES: Record<string, string> = {
   flowchart: [
@@ -60,7 +63,16 @@ export const CASES: Record<string, string> = {
   // draw inside an <img> too, WebKit included.
   mindmap: fence(
     "mermaid",
-    ["mindmap", "  root((Coddy))", "    Surfaces", "      Web UI", "      Console", "    Features", "      Diagrams", "      Formulas"].join("\n"),
+    [
+      "mindmap",
+      "  root((Coddy))",
+      "    Surfaces",
+      "      Web UI",
+      "      Console",
+      "    Features",
+      "      Diagrams",
+      "      Formulas",
+    ].join("\n"),
   ),
   gantt: fence(
     "mermaid",
@@ -75,10 +87,29 @@ export const CASES: Record<string, string> = {
       "  Screenshots :crit, d3, 2026-10-05, 2d",
     ].join("\n"),
   ),
-  pie: fence("mermaid", ['pie title Where the week went', '  "Code" : 45', '  "Review" : 25', '  "Docs" : 20', '  "Meetings" : 10'].join("\n")),
+  pie: fence(
+    "mermaid",
+    [
+      "pie title Where the week went",
+      '  "Code" : 45',
+      '  "Review" : 25',
+      '  "Docs" : 20',
+      '  "Meetings" : 10',
+    ].join("\n"),
+  ),
   classes: fence(
     "mermaid",
-    ["classDiagram", "  class Session {", "    +id string", "    +run(prompt)", "  }", "  class Message {", "    +role string", "  }", '  Session "1" --> "*" Message'].join("\n"),
+    [
+      "classDiagram",
+      "  class Session {",
+      "    +id string",
+      "    +run(prompt)",
+      "  }",
+      "  class Message {",
+      "    +role string",
+      "  }",
+      '  Session "1" --> "*" Message',
+    ].join("\n"),
   ),
   svg: fence(
     "svg",
@@ -102,7 +133,8 @@ export const CASES: Record<string, string> = {
   ].join("\n"),
   wide: [
     "$$",
-    Array.from({ length: 18 }, (_, i) => `a_{${i}} x^{${i}}`).join(" + ") + " = 0",
+    Array.from({ length: 18 }, (_, i) => `a_{${i}} x^{${i}}`).join(" + ") +
+      " = 0",
     "$$",
   ].join("\n"),
 };
@@ -115,7 +147,13 @@ function Fixture() {
     // 920px stripe on the desktop.
     <div
       className="diagram-check-stand"
-      style={{ boxSizing: "border-box", width: "100%", maxWidth: 920, margin: "0 auto", padding: "0 14px" }}
+      style={{
+        boxSizing: "border-box",
+        width: "100%",
+        maxWidth: 920,
+        margin: "0 auto",
+        padding: "0 14px",
+      }}
     >
       <div className="messages-inner">
         {answers.map((text, i) => (

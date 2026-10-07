@@ -55,7 +55,11 @@ function bareJobId(ref: string | null | undefined): string {
 /** The reference of the same job under a new id (a rename keeps the scope). */
 function refWithId(ref: string, id: string): string {
   const p = parseSchedulerJobRef(ref);
-  return schedulerJobRef({ job_id: id, scope: p.scope, workspace: p.workspace });
+  return schedulerJobRef({
+    job_id: id,
+    scope: p.scope,
+    workspace: p.workspace,
+  });
 }
 
 /** What the approval block of a project job shows. */
@@ -85,7 +89,9 @@ function normalizePermissionMode(raw: string | undefined): JobPermissionMode {
 // parseSessionMode); anything else falls back to agent the same way it does.
 function normalizeJobMode(raw: string | undefined): JobMode {
   const v = (raw || "agent").toLowerCase();
-  return (JOB_MODES as readonly string[]).includes(v) ? (v as JobMode) : "agent";
+  return (JOB_MODES as readonly string[]).includes(v)
+    ? (v as JobMode)
+    : "agent";
 }
 
 function validateJobId(raw: string): string | null {
@@ -394,10 +400,18 @@ export function SchedulerJobEditorSheet(props: {
         return;
       }
       createdOnceRef.current = true;
-      const created = res.data as { job_id?: string; scope?: string; workspace?: string };
+      const created = res.data as {
+        job_id?: string;
+        scope?: string;
+        workspace?: string;
+      };
       const ref =
         created && created.scope === "project"
-          ? schedulerJobRef({ job_id: jid, scope: "project", workspace: created.workspace || "" })
+          ? schedulerJobRef({
+              job_id: jid,
+              scope: "project",
+              workspace: created.workspace || "",
+            })
           : jid;
       const hp = parseAppHash();
       setSchedulerJobHash(ref, {
@@ -712,8 +726,13 @@ export function SchedulerJobEditorSheet(props: {
           {!loadErr && (props.mode === "create" || !loading) ? (
             <div className="scheduler-editor-form">
               {props.mode === "create" ? (
-                <fieldset className="scheduler-field scheduler-scope-field" data-testid="scheduler-scope">
-                  <legend className="scheduler-field-label">{t("scheduler.field.scope")}</legend>
+                <fieldset
+                  className="scheduler-field scheduler-scope-field"
+                  data-testid="scheduler-scope"
+                >
+                  <legend className="scheduler-field-label">
+                    {t("scheduler.field.scope")}
+                  </legend>
                   <span className="scheduler-field-help">
                     {(props.workspacePath || "").trim()
                       ? t("scheduler.field.scopeHelp")
@@ -751,7 +770,9 @@ export function SchedulerJobEditorSheet(props: {
                       />
                       <span>
                         {t("scheduler.scope.project", {
-                          name: workspaceName((props.workspacePath || "").trim()) || "-",
+                          name:
+                            workspaceName((props.workspacePath || "").trim()) ||
+                            "-",
                         })}
                       </span>
                     </label>
@@ -759,7 +780,9 @@ export function SchedulerJobEditorSheet(props: {
                 </fieldset>
               ) : null}
               <label className="scheduler-field">
-                <span className="scheduler-field-label">{t("scheduler.field.jobId")}</span>
+                <span className="scheduler-field-label">
+                  {t("scheduler.field.jobId")}
+                </span>
                 <span className="scheduler-field-help">
                   {t("scheduler.field.jobIdHelp")}
                 </span>
@@ -780,7 +803,9 @@ export function SchedulerJobEditorSheet(props: {
                 ) : null}
               </label>
               <label className="scheduler-field">
-                <span className="scheduler-field-label">{t("scheduler.field.description")}</span>
+                <span className="scheduler-field-label">
+                  {t("scheduler.field.description")}
+                </span>
                 <input
                   className={[
                     "scheduler-field-input",
@@ -831,7 +856,9 @@ export function SchedulerJobEditorSheet(props: {
                 {cronHint.ok ? cronHint.text : cronHint.error}
               </div>
               <label className="scheduler-field">
-                <span className="scheduler-field-label">{t("scheduler.field.cwd")}</span>
+                <span className="scheduler-field-label">
+                  {t("scheduler.field.cwd")}
+                </span>
                 <span className="scheduler-field-help">
                   {t("scheduler.field.cwdHelp")}
                 </span>
@@ -843,7 +870,9 @@ export function SchedulerJobEditorSheet(props: {
                 />
               </label>
               <label className="scheduler-field">
-                <span className="scheduler-field-label">{t("scheduler.field.mode")}</span>
+                <span className="scheduler-field-label">
+                  {t("scheduler.field.mode")}
+                </span>
                 <select
                   className="scheduler-field-input"
                   value={modeField}
@@ -855,7 +884,9 @@ export function SchedulerJobEditorSheet(props: {
                 </select>
               </label>
               <label className="scheduler-field">
-                <span className="scheduler-field-label">{t("scheduler.field.model")}</span>
+                <span className="scheduler-field-label">
+                  {t("scheduler.field.model")}
+                </span>
                 {props.availableModels.length > 0 ? (
                   <select
                     className="scheduler-field-input"
@@ -879,7 +910,9 @@ export function SchedulerJobEditorSheet(props: {
                 )}
               </label>
               <label className="scheduler-field">
-                <span className="scheduler-field-label">{t("scheduler.field.agent")}</span>
+                <span className="scheduler-field-label">
+                  {t("scheduler.field.agent")}
+                </span>
                 <span className="scheduler-field-help">
                   {t("scheduler.field.agentHelp")}
                 </span>
@@ -911,11 +944,15 @@ export function SchedulerJobEditorSheet(props: {
                     {t("scheduler.permission.acceptEdits")}
                   </option>
                   <option value="ask">{t("scheduler.permission.ask")}</option>
-                  <option value="bypass">{t("scheduler.permission.bypass")}</option>
+                  <option value="bypass">
+                    {t("scheduler.permission.bypass")}
+                  </option>
                 </select>
               </label>
               <div className="scheduler-field scheduler-field-stack">
-                <span className="scheduler-field-label">{t("scheduler.field.body")}</span>
+                <span className="scheduler-field-label">
+                  {t("scheduler.field.body")}
+                </span>
                 <div
                   className={[
                     "scheduler-body-editor-wrap",
@@ -956,7 +993,9 @@ export function SchedulerJobEditorSheet(props: {
             disabled={loading}
             data-testid="scheduler-editor-runs"
             title={t("scheduler.runs")}
-            aria-label={t("scheduler.openRuns", { jobId: (props.jobId || "").trim() })}
+            aria-label={t("scheduler.openRuns", {
+              jobId: (props.jobId || "").trim(),
+            })}
             onClick={() => {
               const jid = (props.jobId || "").trim();
               if (jid) {
@@ -1014,8 +1053,7 @@ function ProjectTrustBlock(props: {
   const trusted = v.trust === "trusted";
   const canToggle =
     props.policy === "ask" && (v.trust === "needs_approval" || trusted);
-  const stateKey =
-    v.trust === "needs_approval" ? "needsApproval" : v.trust;
+  const stateKey = v.trust === "needs_approval" ? "needsApproval" : v.trust;
   return (
     <div
       className={`scheduler-trust-block scheduler-trust-block--${v.trust}`}
@@ -1030,8 +1068,16 @@ function ProjectTrustBlock(props: {
           <button
             type="button"
             className={`settings-btn settings-btn-icon scheduler-trust-toggle${trusted ? " is-trusted" : " settings-btn-approve"}`}
-            title={trusted ? t("scheduler.trust.withdrawTitle") : t("scheduler.trust.approveTitle")}
-            aria-label={trusted ? t("scheduler.trust.withdrawTitle") : t("scheduler.trust.approveTitle")}
+            title={
+              trusted
+                ? t("scheduler.trust.withdrawTitle")
+                : t("scheduler.trust.approveTitle")
+            }
+            aria-label={
+              trusted
+                ? t("scheduler.trust.withdrawTitle")
+                : t("scheduler.trust.approveTitle")
+            }
             aria-pressed={trusted}
             disabled={props.busy}
             onClick={props.onToggle}
@@ -1049,8 +1095,15 @@ function ProjectTrustBlock(props: {
       ) : null}
       {!trusted ? (
         <>
-          <p className="scheduler-trust-note">{t("scheduler.trust.reviewNote")}</p>
-          <pre className="scheduler-trust-raw" data-testid="scheduler-trust-raw">{v.raw}</pre>
+          <p className="scheduler-trust-note">
+            {t("scheduler.trust.reviewNote")}
+          </p>
+          <pre
+            className="scheduler-trust-raw"
+            data-testid="scheduler-trust-raw"
+          >
+            {v.raw}
+          </pre>
         </>
       ) : null}
     </div>

@@ -99,23 +99,23 @@ test("no activity dot when session awaits user attention", () => {
 test("server-reported permission pending suppresses activity too", () => {
   const sets = emptySets();
   const row = base("srv", { turnActive: true, permissionPending: true });
-  expect(sessionRowNeedsUserAttention(row, sets.permission, sets.question)).toBe(
-    true,
-  );
   expect(
-    sessionRowShowsActivity(row, sets.permission, sets.question),
-  ).toBe(false);
+    sessionRowNeedsUserAttention(row, sets.permission, sets.question),
+  ).toBe(true);
+  expect(sessionRowShowsActivity(row, sets.permission, sets.question)).toBe(
+    false,
+  );
 });
 
 test("server-reported question pending suppresses activity too", () => {
   const sets = emptySets();
   const row = base("srv-question", { turnActive: true, questionPending: true });
-  expect(sessionRowNeedsUserAttention(row, sets.permission, sets.question)).toBe(
-    true,
-  );
   expect(
-    sessionRowShowsActivity(row, sets.permission, sets.question),
-  ).toBe(false);
+    sessionRowNeedsUserAttention(row, sets.permission, sets.question),
+  ).toBe(true);
+  expect(sessionRowShowsActivity(row, sets.permission, sets.question)).toBe(
+    false,
+  );
   expect(sessionRowShowsQuestionPending(row, sets.question)).toBe(true);
 });
 
@@ -190,9 +190,7 @@ test("permission attention takes priority over question attention", () => {
   expect(sessionRowAttentionMarker(row, new Set(), new Set())).toBe(
     "permission",
   );
-  expect(
-    sessionRowNeedsUserAttention(row, new Set(), new Set()),
-  ).toBe(true);
+  expect(sessionRowNeedsUserAttention(row, new Set(), new Set())).toBe(true);
 });
 
 test("unread dot when another session has unread completion", () => {

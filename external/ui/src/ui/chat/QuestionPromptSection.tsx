@@ -24,9 +24,8 @@ const OTHER_SENTINEL = "__coddy_other__";
 export function questionPromptFocusComposer(): void {
   window.requestAnimationFrame(() => {
     const el =
-      document.querySelector<HTMLElement>(
-        '[data-slot="composer"] textarea',
-      ) ?? document.querySelector<HTMLElement>('[data-slot="composer"]');
+      document.querySelector<HTMLElement>('[data-slot="composer"] textarea') ??
+      document.querySelector<HTMLElement>('[data-slot="composer"]');
 
     try {
       el?.focus?.({ preventScroll: true });
@@ -120,8 +119,7 @@ function readyToSubmit(args: {
       const picks = sel.filter((l) => l !== OTHER_SENTINEL);
       const ex = String(args.extraText[qi] ?? "").trim();
       if (wantsFree && ex.length === 0) return false;
-      const ok =
-        picks.length > 0 || (wantsFree && ex.length > 0);
+      const ok = picks.length > 0 || (wantsFree && ex.length > 0);
       if (!ok) return false;
     } else {
       const pick = String(args.singleSel[qi] ?? "").trim();
@@ -171,7 +169,10 @@ function formatResolvedSummaryLine(
  * card as much as outside it: Return on the focused Skip button has to skip, not
  * send the answer.
  */
-function keyBelongsToCard(el: EventTarget | null, card: HTMLElement | null): boolean {
+function keyBelongsToCard(
+  el: EventTarget | null,
+  card: HTMLElement | null,
+): boolean {
   if (el === null || el === document || el === document.body) return true;
   if (!(el instanceof HTMLElement)) return false;
   if (el.tagName.toLowerCase() === "html") return true;
@@ -183,7 +184,8 @@ function rowLettersForQuestion(q: CoddyQuestionItem): readonly string[] {
   const opts = Math.max(q.options?.length ?? 0, 0);
   const total = opts + (q.custom ? 1 : 0);
   const list: string[] = [];
-  for (let i = 0; i < Math.min(total, 26); i++) list.push(letterForOptionIndex(i));
+  for (let i = 0; i < Math.min(total, 26); i++)
+    list.push(letterForOptionIndex(i));
   return list;
 }
 
@@ -211,12 +213,8 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
   );
 
   const [multiSel, setMultiSel] = useState<string[][]>(() => qs.map(() => []));
-  const [singleSel, setSingleSel] = useState<string[]>(() =>
-    qs.map(() => ""),
-  );
-  const [extraText, setExtraText] = useState<string[]>(() =>
-    qs.map(() => ""),
-  );
+  const [singleSel, setSingleSel] = useState<string[]>(() => qs.map(() => ""));
+  const [extraText, setExtraText] = useState<string[]>(() => qs.map(() => ""));
   const [submitting, setSubmitting] = useState(false);
   const frameRef = useRef<HTMLElement | null>(null);
 
@@ -323,12 +321,16 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
           <div className="question-prompt-head">
             <div className="question-prompt-head-left">
               <span className="question-prompt-icon" aria-hidden />
-              <span className="question-prompt-title">{t("prompts.questions")}</span>
+              <span className="question-prompt-title">
+                {t("prompts.questions")}
+              </span>
             </div>
           </div>
           <div className="question-prompt-body question-prompt-resolved-body">
             {resolved.skipped ? (
-              <p className="question-prompt-skipped-note">{t("prompts.skipped")}</p>
+              <p className="question-prompt-skipped-note">
+                {t("prompts.skipped")}
+              </p>
             ) : null}
             {qs.map((q, qi) => {
               const parts = (resolved.answers[qi] ?? [])
@@ -340,9 +342,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                 <div
                   key={`${qi}-${q.question}`}
                   className={
-                    qi === 0
-                      ? undefined
-                      : "question-prompt-resolved-block"
+                    qi === 0 ? undefined : "question-prompt-resolved-block"
                   }
                 >
                   <div className="question-prompt-resolved-pair">
@@ -381,7 +381,9 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
             return (
               <div
                 key={`${qi}-${q.question}`}
-                className={qi === 0 ? undefined : "question-prompt-resolved-block"}
+                className={
+                  qi === 0 ? undefined : "question-prompt-resolved-block"
+                }
               >
                 <div className="question-prompt-qline">
                   {n > 1 ? (
@@ -390,7 +392,10 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                   <p className="question-prompt-qtext">{q.question}</p>
                 </div>
 
-                <ul className="question-prompt-rows" aria-label={t("prompts.optionsAriaLabel", { index: qi + 1 })}>
+                <ul
+                  className="question-prompt-rows"
+                  aria-label={t("prompts.optionsAriaLabel", { index: qi + 1 })}
+                >
                   {q.options.map((op, oi) => {
                     const bubble = letters[oi];
                     if (!bubble) return null;
@@ -422,11 +427,16 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                                 });
                               }}
                             />
-                            <span className="question-prompt-bubble">{bubble}</span>
+                            <span className="question-prompt-bubble">
+                              {bubble}
+                            </span>
                             <span className="question-prompt-row-text">
                               {op.label}
                               {op.description ? (
-                                <span className="muted"> - {op.description}</span>
+                                <span className="muted">
+                                  {" "}
+                                  - {op.description}
+                                </span>
                               ) : null}
                             </span>
                           </label>
@@ -466,7 +476,9 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                               });
                             }}
                           />
-                          <span className="question-prompt-bubble">{bubble}</span>
+                          <span className="question-prompt-bubble">
+                            {bubble}
+                          </span>
                           <span className="question-prompt-row-text">
                             {op.label}
                             {op.description ? (
@@ -638,7 +650,9 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
             onClick={() => void submit(false)}
           >
             {t("prompts.continue")}
-            <span className="question-prompt-continue-ic" aria-hidden>↵</span>
+            <span className="question-prompt-continue-ic" aria-hidden>
+              ↵
+            </span>
           </button>
         </div>
       </div>

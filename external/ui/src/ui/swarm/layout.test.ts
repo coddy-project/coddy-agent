@@ -624,10 +624,7 @@ describe("graphConnectorFor", () => {
       from.y + (dy / dist) * (nodeHalfHeight(from) + 10),
       0,
     );
-    expect(end.x).toBeCloseTo(
-      to.x - (dx / dist) * (nodeHalfWidth(to) + 10),
-      0,
-    );
+    expect(end.x).toBeCloseTo(to.x - (dx / dist) * (nodeHalfWidth(to) + 10), 0);
     expect(end.y).toBeCloseTo(
       to.y - (dy / dist) * (nodeHalfHeight(to) + 10),
       0,
@@ -691,9 +688,10 @@ describe("graphConnectorFor", () => {
     const end = points[points.length - 1]!;
     // The wire leaves the source's rim toward the target and reaches the
     // target's rim facing back, outside both shapes.
-    expect(
-      Math.hypot(start.x - from.x, start.y - from.y),
-    ).toBeCloseTo(nodeHalfWidth(from) + 10, 0);
+    expect(Math.hypot(start.x - from.x, start.y - from.y)).toBeCloseTo(
+      nodeHalfWidth(from) + 10,
+      0,
+    );
     expect(Math.hypot(end.x - to.x, end.y - to.y)).toBeCloseTo(
       nodeHalfWidth(to) + 10,
       0,

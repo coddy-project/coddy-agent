@@ -1,5 +1,12 @@
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { ConfirmProvider } from "./components/useConfirm";
@@ -28,7 +35,12 @@ type StoredSession = {
   permissionMode: string;
   /** What the running turn holds, when one does (top-level model/selectedReasoning). */
   turnModel?: string;
-  overrides?: Array<{ setting: string; value: string; turnsLeft: number; active?: boolean }>;
+  overrides?: Array<{
+    setting: string;
+    value: string;
+    turnsLeft: number;
+    active?: boolean;
+  }>;
 };
 
 const S_HIGH_BYPASS = "sess_high_bypass";
@@ -43,11 +55,26 @@ let newChatModelOffersOff: boolean;
 
 function resetSessions() {
   sessions = {
-    [S_HIGH_BYPASS]: { model: ALPHA, reasoning: "high", choices: LEVELS, permissionMode: "bypass" },
+    [S_HIGH_BYPASS]: {
+      model: ALPHA,
+      reasoning: "high",
+      choices: LEVELS,
+      permissionMode: "bypass",
+    },
     // A session started on another surface: no level of its own, on a model
     // that names no reasoning_default, so the server reports none.
-    [S_NO_LEVEL]: { model: ALPHA, reasoning: "", choices: LEVELS, permissionMode: "ask" },
-    [S_THINKING_OFF]: { model: ALPHA, reasoning: "off", choices: [...LEVELS, "off"], permissionMode: "ask" },
+    [S_NO_LEVEL]: {
+      model: ALPHA,
+      reasoning: "",
+      choices: LEVELS,
+      permissionMode: "ask",
+    },
+    [S_THINKING_OFF]: {
+      model: ALPHA,
+      reasoning: "off",
+      choices: [...LEVELS, "off"],
+      permissionMode: "ask",
+    },
     // A turn runs on beta for this turn only; the session's own model is alpha.
     [S_TURN_OVERRIDE]: {
       model: ALPHA,
@@ -55,12 +82,14 @@ function resetSessions() {
       choices: LEVELS,
       permissionMode: "ask",
       turnModel: BETA,
-      overrides: [{ setting: "model", value: BETA, turnsLeft: 0, active: true }],
+      overrides: [
+        { setting: "model", value: BETA, turnsLeft: 0, active: true },
+      ],
     },
   };
-	version = 10;
-	posted = [];
-	newChatModelOffersOff = false;
+  version = 10;
+  posted = [];
+  newChatModelOffersOff = false;
 }
 
 const json = (body: unknown, status = 200) =>
@@ -104,67 +133,86 @@ function snapshot(sid: string) {
   };
 }
 
-const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-  const path = String(input);
-  if (path === "/coddy/events") return eventsStream();
-  if (path === "/v1/responses") {
-    posted.push(JSON.parse(String(init?.body)));
-    return emptyStream();
-  }
-  if (path === "/v1/models") {
-    return json({
-      data: [
-        { id: "agent", owned_by: "coddy", max_context_tokens: 128000 },
-        // Levels configured, no default named; off is not a menu level.
-        {
-          id: ALPHA,
-          owned_by: "fake",
-          max_context_tokens: 128000,
-          reasoning_levels: newChatModelOffersOff ? [...LEVELS, "off"] : LEVELS,
-        },
-        { id: BETA, owned_by: "fake", max_context_tokens: 128000, reasoning_levels: LEVELS },
-      ],
-    });
-  }
-  if (path.startsWith("/coddy/sessions?")) {
-    return json({ sessions: Object.keys(sessions).map((id) => ({ id, title: id })) });
-  }
-  const match = path.match(/^\/coddy\/sessions\/([^/?]+)(.*)$/);
-  if (match) {
-    const sid = decodeURIComponent(match[1]!);
-    const suffix = match[2]!.split("?")[0];
-    if (suffix === "/messages") {
-      const s = sessions[sid]!;
+const fetchMock = vi.fn(
+  async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/coddy/events") return eventsStream();
+    if (path === "/v1/responses") {
+      posted.push(JSON.parse(String(init?.body)));
+      return emptyStream();
+    }
+    if (path === "/v1/models") {
       return json({
-        // Top level: what the running turn uses; the snapshot: the session's own.
-        model: s.turnModel ?? s.model,
-        selectedModelId: s.model,
-        selectedReasoning: s.reasoning,
-        settings: snapshot(sid),
-        messages: [{ role: "user", content: `prompt in ${sid}` }],
+        data: [
+          { id: "agent", owned_by: "coddy", max_context_tokens: 128000 },
+          // Levels configured, no default named; off is not a menu level.
+          {
+            id: ALPHA,
+            owned_by: "fake",
+            max_context_tokens: 128000,
+            reasoning_levels: newChatModelOffersOff
+              ? [...LEVELS, "off"]
+              : LEVELS,
+          },
+          {
+            id: BETA,
+            owned_by: "fake",
+            max_context_tokens: 128000,
+            reasoning_levels: LEVELS,
+          },
+        ],
       });
     }
-    if (!suffix && init?.method === "PATCH") {
-      const body = JSON.parse(String(init.body)) as {
-        permissionMode?: string;
-        selectedReasoning?: string;
-      };
-      if (body.permissionMode) sessions[sid]!.permissionMode = body.permissionMode;
-      if (body.selectedReasoning !== undefined) sessions[sid]!.reasoning = body.selectedReasoning;
-      return json({ object: "coddy.session_patched", id: sid, settings: snapshot(sid) });
+    if (path.startsWith("/coddy/sessions?")) {
+      return json({
+        sessions: Object.keys(sessions).map((id) => ({ id, title: id })),
+      });
     }
-    if (suffix === "/composer-stream") return emptyStream();
-    if (suffix === "/tool-calls") return json({ toolCalls: [] });
-    if (suffix === "/stats") return json({ stats: {} });
-    if (suffix === "/background-tasks") return json({ data: [], running: 0 });
-    if (suffix === "/activity") return json({ sessionId: sid, turnActive: false });
-    if (!suffix) return json({});
-  }
-  if (path === "/coddy/config") return json({});
-  if (path.startsWith("/coddy/slash-commands")) return json({ items: [] });
-  if (path === "/coddy/workspace/context") return json({ cwd: "/workspace", is_git_repo: false });
-  return json({}, 404);
-});
+    const match = path.match(/^\/coddy\/sessions\/([^/?]+)(.*)$/);
+    if (match) {
+      const sid = decodeURIComponent(match[1]!);
+      const suffix = match[2]!.split("?")[0];
+      if (suffix === "/messages") {
+        const s = sessions[sid]!;
+        return json({
+          // Top level: what the running turn uses; the snapshot: the session's own.
+          model: s.turnModel ?? s.model,
+          selectedModelId: s.model,
+          selectedReasoning: s.reasoning,
+          settings: snapshot(sid),
+          messages: [{ role: "user", content: `prompt in ${sid}` }],
+        });
+      }
+      if (!suffix && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body)) as {
+          permissionMode?: string;
+          selectedReasoning?: string;
+        };
+        if (body.permissionMode)
+          sessions[sid]!.permissionMode = body.permissionMode;
+        if (body.selectedReasoning !== undefined)
+          sessions[sid]!.reasoning = body.selectedReasoning;
+        return json({
+          object: "coddy.session_patched",
+          id: sid,
+          settings: snapshot(sid),
+        });
+      }
+      if (suffix === "/composer-stream") return emptyStream();
+      if (suffix === "/tool-calls") return json({ toolCalls: [] });
+      if (suffix === "/stats") return json({ stats: {} });
+      if (suffix === "/background-tasks") return json({ data: [], running: 0 });
+      if (suffix === "/activity")
+        return json({ sessionId: sid, turnActive: false });
+      if (!suffix) return json({});
+    }
+    if (path === "/coddy/config") return json({});
+    if (path.startsWith("/coddy/slash-commands")) return json({ items: [] });
+    if (path === "/coddy/workspace/context")
+      return json({ cwd: "/workspace", is_git_repo: false });
+    return json({}, 404);
+  },
+);
 
 beforeEach(() => {
   eventsController = null;
@@ -191,7 +239,8 @@ afterEach(() => {
 // file in a process of its own (pool forks, isolate on).
 
 const modelChip = () => screen.getByRole("button", { name: "Model" });
-const reasoningChip = () => screen.getByRole("button", { name: "Reasoning level" });
+const reasoningChip = () =>
+  screen.getByRole("button", { name: "Reasoning level" });
 const permissionChip = () => screen.getByTestId("composer-permission");
 const settle = () => act(async () => new Promise((r) => setTimeout(r, 50)));
 
@@ -231,7 +280,9 @@ async function pickOnStartPage(chip: () => HTMLElement, item: string | RegExp) {
 
 async function send(text: string) {
   posted = [];
-  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: text } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
+    target: { value: text },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(posted.length).toBeGreaterThan(0));
   return posted[0]!.metadata ?? {};
@@ -239,7 +290,11 @@ async function send(text: string) {
 
 async function pushEvent(name: string, data: unknown) {
   await act(async () => {
-    eventsController?.enqueue(new TextEncoder().encode(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`));
+    eventsController?.enqueue(
+      new TextEncoder().encode(
+        `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`,
+      ),
+    );
     await new Promise((r) => setTimeout(r, 0));
   });
 }
@@ -276,7 +331,9 @@ test("a new chat offers off only when its model listing explicitly includes it",
   await mountHome();
 
   fireEvent.click(reasoningChip());
-  expect(await screen.findByRole("menuitem", { name: "Off" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("menuitem", { name: "Off" }),
+  ).toBeInTheDocument();
 });
 
 test("a level picked in a session with none of its own is sent as its own", async () => {
@@ -326,7 +383,9 @@ test("the permission mode follows the session entered, not the start page", asyn
   fireEvent.click(permissionChip());
   const items = await screen.findAllByText("Accept edits");
   fireEvent.click(items[items.length - 1]!);
-  await waitFor(() => expect(permissionChip()).toHaveTextContent("Accept edits"));
+  await waitFor(() =>
+    expect(permissionChip()).toHaveTextContent("Accept edits"),
+  );
 
   await navigate(S_HIGH_BYPASS);
   await waitFor(() => expect(permissionChip()).toHaveTextContent("Bypass"));
@@ -340,10 +399,14 @@ test("thinking switched off stays off on entering, across a config reload and in
   await mountSession(S_THINKING_OFF);
   expect(reasoningChip()).toHaveTextContent("Off");
 
-  const before = fetchMock.mock.calls.filter((c) => String(c[0]) === "/v1/models").length;
+  const before = fetchMock.mock.calls.filter(
+    (c) => String(c[0]) === "/v1/models",
+  ).length;
   await pushEvent("config_reloaded", {});
   await waitFor(() =>
-    expect(fetchMock.mock.calls.filter((c) => String(c[0]) === "/v1/models").length).toBeGreaterThan(before),
+    expect(
+      fetchMock.mock.calls.filter((c) => String(c[0]) === "/v1/models").length,
+    ).toBeGreaterThan(before),
   );
   await settle();
   expect(reasoningChip()).toHaveTextContent("Off");
@@ -388,7 +451,9 @@ test("a transcript read older than the snapshot on screen moves nothing back", a
   await waitFor(() => expect(modelChip()).toHaveTextContent("beta-model"));
 
   const reads = () =>
-    fetchMock.mock.calls.filter((c) => String(c[0]).startsWith(`/coddy/sessions/${S_HIGH_BYPASS}/messages`)).length;
+    fetchMock.mock.calls.filter((c) =>
+      String(c[0]).startsWith(`/coddy/sessions/${S_HIGH_BYPASS}/messages`),
+    ).length;
   const before = reads();
   await pushEvent("session_rewound", { sessionId: S_HIGH_BYPASS });
   await waitFor(() => expect(reads()).toBeGreaterThan(before));
@@ -399,7 +464,9 @@ test("a transcript read older than the snapshot on screen moves nothing back", a
 test("a model the running turn holds is not taken for the session's", async () => {
   await mountSession(S_TURN_OVERRIDE);
   expect(modelChip()).toHaveTextContent("alpha-model");
-  expect(screen.getByTestId("composer-overrides")).toHaveTextContent("beta-model");
+  expect(screen.getByTestId("composer-overrides")).toHaveTextContent(
+    "beta-model",
+  );
 });
 
 test("leaving a session for a new chat starts from the start page's defaults", async () => {

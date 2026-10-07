@@ -124,7 +124,9 @@ export type SchedulerJobPatch = {
  */
 export type SchedulerJobRef = string;
 
-export function schedulerJobRef(job: Pick<SchedulerJob, "job_id" | "scope" | "workspace">): SchedulerJobRef {
+export function schedulerJobRef(
+  job: Pick<SchedulerJob, "job_id" | "scope" | "workspace">,
+): SchedulerJobRef {
   if (job.scope === "project" && (job.workspace || "").trim()) {
     return `${(job.workspace || "").trim()}/${job.job_id}`;
   }

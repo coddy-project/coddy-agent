@@ -574,7 +574,16 @@ function composerBlock(container: HTMLElement) {
   return {
     grow(height: number) {
       host.getBoundingClientRect = () =>
-        ({ height, width: 0, top: 0, left: 0, right: 0, bottom: height, x: 0, y: 0 }) as DOMRect;
+        ({
+          height,
+          width: 0,
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: height,
+          x: 0,
+          y: 0,
+        }) as DOMRect;
       act(() => resizeCallbacks.forEach((cb) => cb()));
     },
   };
@@ -603,7 +612,9 @@ class ResizeObserverStandIn {
 test("a banner rising over the composer keeps a transcript at the newest message there", () => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStandIn);
   try {
-    const { container } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
     const viewport = transcriptViewport(container, {
       scrollHeight: 1200,
       clientHeight: 400,
@@ -611,7 +622,10 @@ test("a banner rising over the composer keeps a transcript at the newest message
     viewport.scrollTop = 800;
     fireEvent.scroll(viewport);
 
-    Object.defineProperty(viewport, "scrollHeight", { value: 1260, configurable: true });
+    Object.defineProperty(viewport, "scrollHeight", {
+      value: 1260,
+      configurable: true,
+    });
     composerBlock(container).grow(250);
 
     expect(viewport.scrollTop).toBe(860);
@@ -624,7 +638,9 @@ test("a banner rising over the composer keeps a transcript at the newest message
 test("a banner rising over the composer leaves a reader who scrolled up where they are", () => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStandIn);
   try {
-    const { container } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
     const viewport = transcriptViewport(container, {
       scrollHeight: 1200,
       clientHeight: 400,
@@ -632,7 +648,10 @@ test("a banner rising over the composer leaves a reader who scrolled up where th
     viewport.scrollTop = 200;
     fireEvent.scroll(viewport);
 
-    Object.defineProperty(viewport, "scrollHeight", { value: 1260, configurable: true });
+    Object.defineProperty(viewport, "scrollHeight", {
+      value: 1260,
+      configurable: true,
+    });
     composerBlock(container).grow(250);
 
     expect(viewport.scrollTop).toBe(200);
@@ -647,8 +666,13 @@ test("a banner rising over the composer leaves a reader who scrolled up where th
 // on-screen keyboard that lets the page scroll past the old end) must not send
 // them back up the transcript.
 test("the scroll-to-bottom button never moves the transcript up", async () => {
-  const { container } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
-  const viewport = transcriptViewport(container, { scrollHeight: 1200, clientHeight: 400 });
+  const { container } = render(
+    <ChatScreen {...scrollBase} items={firstTurn} />,
+  );
+  const viewport = transcriptViewport(container, {
+    scrollHeight: 1200,
+    clientHeight: 400,
+  });
   viewport.scrollTop = 200;
   fireEvent.scroll(viewport);
   await waitFor(() => expect(scrollButtonShown()).toBe(true));
@@ -674,11 +698,20 @@ test("on the stacked shell the composer block rises above an overlaying keyboard
     removeListener: () => {},
     dispatchEvent: () => false,
   }));
-  const vv = Object.assign(new EventTarget(), { height: window.innerHeight, offsetTop: 0, scale: 1 });
-  Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+  const vv = Object.assign(new EventTarget(), {
+    height: window.innerHeight,
+    offsetTop: 0,
+    scale: 1,
+  });
+  Object.defineProperty(window, "visualViewport", {
+    value: vv,
+    configurable: true,
+  });
   const root = document.documentElement;
   try {
-    const { unmount } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+    const { unmount } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
     expect(root.style.getPropertyValue("--coddy-keyboard-inset")).toBe("0px");
     vv.height = window.innerHeight - 320;
     act(() => {
@@ -688,7 +721,10 @@ test("on the stacked shell the composer block rises above an overlaying keyboard
     unmount();
     expect(root.style.getPropertyValue("--coddy-keyboard-inset")).toBe("");
   } finally {
-    Object.defineProperty(window, "visualViewport", { value: undefined, configurable: true });
+    Object.defineProperty(window, "visualViewport", {
+      value: undefined,
+      configurable: true,
+    });
     vi.unstubAllGlobals();
   }
 });
@@ -923,8 +959,12 @@ test("a running chat names its repository, branch and changes over the composer"
   const onOpenEdits = vi.fn();
   render(turnLineScreen({ ...workspaceProps(true), onOpenEdits }));
   const bar = screen.getByTestId("workspace-bar");
-  expect(within(bar).getByTestId("workspace-bar-repo").textContent).toBe("coddy-agent");
-  expect(within(bar).getByTestId("workspace-bar-branch").textContent).toBe("feat/session-changes");
+  expect(within(bar).getByTestId("workspace-bar-repo").textContent).toBe(
+    "coddy-agent",
+  );
+  expect(within(bar).getByTestId("workspace-bar-branch").textContent).toBe(
+    "feat/session-changes",
+  );
   const edits = await within(bar).findByTestId("workspace-bar-edits");
   expect(edits.textContent).toBe("+2−0");
   fireEvent.click(edits);
@@ -946,10 +986,17 @@ test("a running chat names its repository, branch and changes over the composer"
 // no branch and no count to show, so it has no plate at all.
 test("a running chat in a folder with no git has no plate over the composer", () => {
   stubSessionChanges(0);
-  const plain = { path: "/tmp/plain", name: "plain", is_git_repo: false, is_worktree: false };
+  const plain = {
+    path: "/tmp/plain",
+    name: "plain",
+    is_git_repo: false,
+    is_worktree: false,
+  };
   render(turnLineScreen({ ...workspaceProps(true), workspaceCtx: plain }));
   expect(screen.queryByTestId("workspace-bar")).toBeNull();
-  expect(document.querySelector(".composer-card")).not.toHaveClass("composer-card--joined");
+  expect(document.querySelector(".composer-card")).not.toHaveClass(
+    "composer-card--joined",
+  );
   vi.unstubAllGlobals();
 });
 
@@ -961,8 +1008,12 @@ test("before the chat starts the folder, branch and worktree are picks on the pl
   render(turnLineScreen(workspaceProps(false)));
   const plate = screen.getByTestId("workspace-bar");
   expect(plate).toHaveClass("workspace-bar--pick");
-  expect(within(plate).getByTestId("composer-workspace-chip").tagName).toBe("BUTTON");
-  expect(within(plate).getByTestId("composer-branch-chip").tagName).toBe("BUTTON");
+  expect(within(plate).getByTestId("composer-workspace-chip").tagName).toBe(
+    "BUTTON",
+  );
+  expect(within(plate).getByTestId("composer-branch-chip").tagName).toBe(
+    "BUTTON",
+  );
   expect(within(plate).getByTestId("composer-worktree-checkbox")).toBeTruthy();
   expect(within(plate).queryByTestId("workspace-bar-edits")).toBeNull();
   vi.unstubAllGlobals();
@@ -1023,9 +1074,13 @@ test("the top of a transcript with history above offers it, says it is loading, 
   );
   const control = screen.getByTestId("transcript-earlier");
   // It stands above the first row, inside the transcript's column.
-  expect(control.parentElement?.classList.contains("messages-inner")).toBe(true);
+  expect(control.parentElement?.classList.contains("messages-inner")).toBe(
+    true,
+  );
   expect(control.nextElementSibling?.getAttribute("data-row-id")).toBe("u1");
-  fireEvent.click(screen.getByRole("button", { name: "Show earlier messages" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Show earlier messages" }),
+  );
   expect(onLoadOlder).toHaveBeenCalledTimes(1);
 
   rerender(
@@ -1037,7 +1092,9 @@ test("the top of a transcript with history above offers it, says it is loading, 
       onLoadOlderTranscript={onLoadOlder}
     />,
   );
-  expect(screen.getByRole("status")).toHaveTextContent("Loading earlier messages…");
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Loading earlier messages…",
+  );
 
   rerender(
     <ChatScreen
@@ -1048,7 +1105,9 @@ test("the top of a transcript with history above offers it, says it is loading, 
       onLoadOlderTranscript={onLoadOlder}
     />,
   );
-  expect(screen.getByRole("alert")).toHaveTextContent("Earlier messages did not load.");
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Earlier messages did not load.",
+  );
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(onLoadOlder).toHaveBeenCalledTimes(2);
 });
@@ -1061,7 +1120,11 @@ test("a transcript holding its whole history has nothing above it", () => {
 test("the reader reaching the newest message is reported, and leaving it too", () => {
   const onAtTail = vi.fn();
   const { container } = render(
-    <ChatScreen {...scrollBase} items={firstTurn} onReaderAtTailChange={onAtTail} />,
+    <ChatScreen
+      {...scrollBase}
+      items={firstTurn}
+      onReaderAtTailChange={onAtTail}
+    />,
   );
   const viewport = transcriptViewport(container, {
     scrollHeight: 1200,

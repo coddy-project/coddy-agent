@@ -38,7 +38,8 @@ export function permissionBodyText(payload: CoddyPermissionPayload): string {
 export function parseCoddyPermissionPayload(
   raw: Record<string, unknown>,
 ): CoddyPermissionPayload | null {
-  const sessionId = typeof raw.sessionId === "string" ? raw.sessionId.trim() : "";
+  const sessionId =
+    typeof raw.sessionId === "string" ? raw.sessionId.trim() : "";
   const tcRaw = raw.toolCall;
   if (!sessionId || !tcRaw || typeof tcRaw !== "object") return null;
   const tc = tcRaw as Record<string, unknown>;

@@ -111,7 +111,10 @@
   html[data-telegram-mini-app="true"]
     .context-breakdown-menu--sheet
     .context-breakdown-menu-scroll {
-    max-height: min(46vh, calc(var(--coddy-telegram-stable-height, 100dvh) * 0.55));
+    max-height: min(
+      46vh,
+      calc(var(--coddy-telegram-stable-height, 100dvh) * 0.55)
+    );
   }
 
   /* Dialogs and the image viewer centre in what is visible. */

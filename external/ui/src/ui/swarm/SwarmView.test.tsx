@@ -1233,9 +1233,7 @@ describe("SwarmView", () => {
       target: { value: "nas02" },
     });
     await waitFor(() => {
-      expect(
-        screen.getByTestId("swarm-node-hit-nas02"),
-      ).toBeInTheDocument();
+      expect(screen.getByTestId("swarm-node-hit-nas02")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByTestId("swarm-node-hit-nas02"));
     expect(onOpenNode).toHaveBeenCalledWith(["nas02"]);

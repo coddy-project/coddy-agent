@@ -26,8 +26,10 @@ const rows = (n: number, from = 0): TranscriptItem[] =>
     content: `row ${from + i}`,
   }));
 
-const resolve = (items: TranscriptItem[], w: Parameters<typeof resolveRenderWindow>[2]) =>
-  resolveRenderWindow(items, rowIndexById(items), w);
+const resolve = (
+  items: TranscriptItem[],
+  w: Parameters<typeof resolveRenderWindow>[2],
+) => resolveRenderWindow(items, rowIndexById(items), w);
 
 test("a conversation opens on its last rows, attached to the tail", () => {
   const items = rows(300);
@@ -50,7 +52,10 @@ test("an older page put in front does not move the window", () => {
   const items = rows(100, 50);
   const w = tailRenderWindow(items);
   const withOlder = [...rows(50), ...items];
-  expect(resolve(withOlder, w)).toEqual({ start: 150 - INITIAL_ROWS, end: 150 });
+  expect(resolve(withOlder, w)).toEqual({
+    start: 150 - INITIAL_ROWS,
+    end: 150,
+  });
 });
 
 test("the window grows toward the reader and attaches on reaching the end", () => {
@@ -109,7 +114,10 @@ test("a row that left the list leaves the window where it was", () => {
   expect(resolve(renamed, w)).toEqual({ start: 50, end: 170 });
   // Attached to the tail, it keeps as many of the newest rows.
   const attached = growRenderWindowUp(items, { start: 150, end: 200 }, true);
-  expect(resolve(renamed, attached)).toEqual({ start: 150 - CHUNK_ROWS, end: 200 });
+  expect(resolve(renamed, attached)).toEqual({
+    start: 150 - CHUNK_ROWS,
+    end: 200,
+  });
 });
 
 test("only a prompt of the turn in flight holds the bottom of the window", () => {
@@ -122,9 +130,15 @@ test("only a prompt of the turn in flight holds the bottom of the window", () =>
         toolCall: { toolCallId: id, title: "run_command" },
         options: [],
       },
-      ...(resolved ? { resolved: { outcome: "selected", optionId: "allow" } } : {}),
+      ...(resolved
+        ? { resolved: { outcome: "selected", optionId: "allow" } }
+        : {}),
     }) as unknown as TranscriptItem;
-  const user = (id: string): TranscriptItem => ({ id, type: "user_message", content: id });
+  const user = (id: string): TranscriptItem => ({
+    id,
+    type: "user_message",
+    content: id,
+  });
   // An old turn cut off before its result left a prompt nobody will answer.
   const stale = [user("u1"), prompt("p1"), user("u2"), ...rows(3)];
   expect(promptWaitsInLastTurn(stale)).toBe(false);

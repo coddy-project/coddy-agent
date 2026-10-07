@@ -149,7 +149,9 @@ export const UserMessage = memo(function UserMessage(props: {
   return (
     <div
       className={
-        props.editing ? "msg-user-stack msg-user-stack--editing" : "msg-user-stack"
+        props.editing
+          ? "msg-user-stack msg-user-stack--editing"
+          : "msg-user-stack"
       }
       data-row-id={props.rowId}
     >

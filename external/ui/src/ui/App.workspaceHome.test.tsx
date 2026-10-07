@@ -43,7 +43,11 @@ vi.mock("./chat/ChatScreen", () => ({
       >
         {props.sessionId || "home"}:{props.workspaceCtx?.path || ""}
       </output>
-      <button type="button" data-testid="toggle-worktree" onClick={() => props.onWorktreeToggle?.()}>
+      <button
+        type="button"
+        data-testid="toggle-worktree"
+        onClick={() => props.onWorktreeToggle?.()}
+      >
         worktree
       </button>
       <button
@@ -89,7 +93,9 @@ const fetchMock = vi.fn(
       });
     }
     if (path.startsWith("/coddy/workspace/context?path=")) {
-      const picked = decodeURIComponent(path.slice("/coddy/workspace/context?path=".length));
+      const picked = decodeURIComponent(
+        path.slice("/coddy/workspace/context?path=".length),
+      );
       if (picked === "/projects/gone") {
         return json({ error: { message: "folder not found" } }, 400);
       }
@@ -176,7 +182,9 @@ const state = () => screen.getByTestId("workspace-state");
 test("a new chat starts in the folder last picked in this browser, not the chat's", async () => {
   writeLastWorkspaceDir(PICKED);
   mountApp();
-  await waitFor(() => expect(state().textContent).toBe(`sess_active:${ACTIVE_WORKSPACE}`));
+  await waitFor(() =>
+    expect(state().textContent).toBe(`sess_active:${ACTIVE_WORKSPACE}`),
+  );
   fireEvent.click(screen.getByTestId("new-chat"));
   await waitFor(() => expect(state().textContent).toBe(`home:${PICKED}`));
   // Never posted to the chat being left.
@@ -192,10 +200,14 @@ test("a new chat starts in the folder last picked in this browser, not the chat'
 test("with no folder picked in this browser a new chat starts in the server's default", async () => {
   history.replaceState(null, "", "/#/s/sess_wt");
   mountApp();
-  await waitFor(() => expect(state().textContent).toBe(`sess_wt:${LINKED_WORKTREE}`));
+  await waitFor(() =>
+    expect(state().textContent).toBe(`sess_wt:${LINKED_WORKTREE}`),
+  );
   // The chat's linked worktree is its own: the next chat does not inherit it.
   fireEvent.click(screen.getByTestId("new-chat"));
-  await waitFor(() => expect(state().textContent).toBe(`home:${DEFAULT_WORKSPACE}`));
+  await waitFor(() =>
+    expect(state().textContent).toBe(`home:${DEFAULT_WORKSPACE}`),
+  );
 });
 
 // The start screen names the branch the folder is on now: one switched with
@@ -206,13 +218,19 @@ test("the start screen shows the branch the folder is on now", async () => {
   await waitFor(() => expect(state().getAttribute("data-branch")).toBe("main"));
   headBranch = "feat/switched";
   fireEvent.click(screen.getByTestId("new-chat"));
-  await waitFor(() => expect(state().textContent).toBe(`home:${DEFAULT_WORKSPACE}`));
-  await waitFor(() => expect(state().getAttribute("data-branch")).toBe("feat/switched"));
+  await waitFor(() =>
+    expect(state().textContent).toBe(`home:${DEFAULT_WORKSPACE}`),
+  );
+  await waitFor(() =>
+    expect(state().getAttribute("data-branch")).toBe("feat/switched"),
+  );
   headBranch = "fix/later";
   await act(async () => {
     window.dispatchEvent(new Event("focus"));
   });
-  await waitFor(() => expect(state().getAttribute("data-branch")).toBe("fix/later"));
+  await waitFor(() =>
+    expect(state().getAttribute("data-branch")).toBe("fix/later"),
+  );
   expect(state().textContent).toBe(`home:${DEFAULT_WORKSPACE}`);
 });
 
@@ -221,7 +239,9 @@ test("the start screen shows the branch the folder is on now", async () => {
 test("the folder picked and the worktree checkbox are remembered in this browser", async () => {
   history.replaceState(null, "", "/");
   const first = mountApp();
-  await waitFor(() => expect(state().textContent).toBe(`home:${DEFAULT_WORKSPACE}`));
+  await waitFor(() =>
+    expect(state().textContent).toBe(`home:${DEFAULT_WORKSPACE}`),
+  );
   fireEvent.click(screen.getByTestId("pick-folder"));
   await waitFor(() => expect(state().textContent).toBe(`home:${PICKED}`));
   expect(readLastWorkspaceDir()).toBe(PICKED);
@@ -233,7 +253,9 @@ test("the folder picked and the worktree checkbox are remembered in this browser
     history.replaceState(null, "", "/#/s/sess_active");
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   });
-  await waitFor(() => expect(state().textContent).toBe(`sess_active:${ACTIVE_WORKSPACE}`));
+  await waitFor(() =>
+    expect(state().textContent).toBe(`sess_active:${ACTIVE_WORKSPACE}`),
+  );
   fireEvent.click(screen.getByTestId("new-chat"));
   await waitFor(() => expect(state().textContent).toBe(`home:${PICKED}`));
   expect(state().getAttribute("data-worktree")).toBe("true");
@@ -251,6 +273,8 @@ test("a remembered folder that is gone falls back to the server's default", asyn
   writeLastWorkspaceDir("/projects/gone");
   history.replaceState(null, "", "/");
   mountApp();
-  await waitFor(() => expect(state().textContent).toBe(`home:${DEFAULT_WORKSPACE}`));
+  await waitFor(() =>
+    expect(state().textContent).toBe(`home:${DEFAULT_WORKSPACE}`),
+  );
   expect(readLastWorkspaceDir()).toBe("");
 });

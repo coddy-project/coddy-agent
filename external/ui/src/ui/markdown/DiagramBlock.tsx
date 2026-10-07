@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { ImageLightbox } from "../components/ImageLightbox";
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
@@ -46,7 +54,14 @@ export function downloadText(name: string, text: string, type: string) {
 /** Angle brackets: the source behind a picture. */
 function SourceGlyph() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="md-copy__glyph">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden
+      className="md-copy__glyph"
+    >
       <path
         d="M5.5 4L1.5 8l4 4M10.5 4l4 4-4 4"
         stroke="currentColor"
@@ -63,9 +78,15 @@ function SourceGlyph() {
  * shown, pressed while the source is. A figure whose picture cannot be drawn
  * shows its source with the button pressed and disabled.
  */
-export function SourceToggle(props: { showingSource: boolean; onToggle: () => void; disabled?: boolean }) {
+export function SourceToggle(props: {
+  showingSource: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}) {
   const { t } = useT();
-  const label = props.showingSource ? t("markdown.figure.showPicture") : t("markdown.figure.showSource");
+  const label = props.showingSource
+    ? t("markdown.figure.showPicture")
+    : t("markdown.figure.showSource");
   return (
     <button
       type="button"
@@ -83,7 +104,12 @@ export function SourceToggle(props: { showingSource: boolean; onToggle: () => vo
 }
 
 /** A file format to save a figure as, named by its extension. */
-function FormatButton(props: { ext: string; title: string; testId: string; onClick: () => void }) {
+function FormatButton(props: {
+  ext: string;
+  title: string;
+  testId: string;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
@@ -102,11 +128,20 @@ function FormatButton(props: { ext: string; title: string; testId: string; onCli
  * A figure's source: the text in a box that scrolls once it is long, with the
  * copy button in the box's top right corner, as on a code block.
  */
-export function FigureSource(props: { source: string; children?: ReactNode; copyTestId: string }) {
+export function FigureSource(props: {
+  source: string;
+  children?: ReactNode;
+  copyTestId: string;
+}) {
   return (
     <div className="md-figure-source">
-      <CodeBlockCopyButton textToCopy={props.source} dataTestId={props.copyTestId} />
-      <pre className="md-figure-code">{props.children ?? <code>{props.source}</code>}</pre>
+      <CodeBlockCopyButton
+        textToCopy={props.source}
+        dataTestId={props.copyTestId}
+      />
+      <pre className="md-figure-code">
+        {props.children ?? <code>{props.source}</code>}
+      </pre>
     </div>
   );
 }
@@ -115,10 +150,18 @@ export function FigureSource(props: { source: string; children?: ReactNode; copy
  * A fenced Mermaid or SVG block: drawn as a picture by default, with the
  * source a click away to read, copy or download.
  */
-export function DiagramBlock(props: { kind: PictureKind; source: string; children?: ReactNode }) {
+export function DiagramBlock(props: {
+  kind: PictureKind;
+  source: string;
+  children?: ReactNode;
+}) {
   const { t } = useT();
   const { kind, source } = props;
-  const theme = useSyncExternalStore(subscribeAppliedUiTheme, readAppliedUiTheme, SERVER_SNAPSHOT);
+  const theme = useSyncExternalStore(
+    subscribeAppliedUiTheme,
+    readAppliedUiTheme,
+    SERVER_SNAPSHOT,
+  );
   const [view, setView] = useState<"picture" | "code">("picture");
   const [picture, setPicture] = useState<RenderedPicture | null>(
     () => cachedPicture(kind, source, theme) ?? null,
@@ -165,10 +208,18 @@ export function DiagramBlock(props: { kind: PictureKind; source: string; childre
 
   const pictureUnavailable = error !== null;
   const showing = pictureUnavailable ? "code" : view;
-  const label = kind === "mermaid" ? t("markdown.figure.mermaid") : t("markdown.figure.svg");
+  const label =
+    kind === "mermaid"
+      ? t("markdown.figure.mermaid")
+      : t("markdown.figure.svg");
 
   return (
-    <figure className="md-figure" data-testid="md-figure" data-kind={kind} data-view={showing}>
+    <figure
+      className="md-figure"
+      data-testid="md-figure"
+      data-kind={kind}
+      data-view={showing}
+    >
       <div className="md-figure-head">
         <span className="md-figure-label">{label}</span>
         {!picture && !error ? (
@@ -205,7 +256,11 @@ export function DiagramBlock(props: { kind: PictureKind; source: string; childre
         </div>
       </div>
       {error ? (
-        <p className="md-figure-error" role="status" data-testid="md-figure-error">
+        <p
+          className="md-figure-error"
+          role="status"
+          data-testid="md-figure-error"
+        >
           {error.kind === "load"
             ? t("markdown.figure.loadError")
             : t("markdown.figure.error", { message: error.message })}
@@ -233,7 +288,11 @@ export function DiagramBlock(props: { kind: PictureKind; source: string; childre
         </FigureSource>
       )}
       {zoomed && picture ? (
-        <ImageLightbox src={svgDataUrl(picture.svg)} alt={label} onClose={() => setZoomed(false)} />
+        <ImageLightbox
+          src={svgDataUrl(picture.svg)}
+          alt={label}
+          onClose={() => setZoomed(false)}
+        />
       ) : null}
     </figure>
   );
@@ -242,12 +301,22 @@ export function DiagramBlock(props: { kind: PictureKind; source: string; childre
 function describeError(err: unknown): FigureError {
   const message = err instanceof Error ? err.message : String(err ?? "");
   // A chunk that did not arrive: the browser's message names the import.
-  if (/dynamically imported module|Failed to fetch|Importing a module script failed|error loading dynamically/i.test(message)) {
+  if (
+    /dynamically imported module|Failed to fetch|Importing a module script failed|error loading dynamically/i.test(
+      message,
+    )
+  ) {
     return { kind: "load", message };
   }
   // Mermaid's parse errors are "Parse error on line N:", the line, a caret and
   // "Expecting ..., got ...": the first and the last line say what happened.
-  const lines = message.split("\n").map((l) => l.trim()).filter(Boolean);
-  const summary = lines.length > 1 ? `${lines[0]} ${lines[lines.length - 1]}` : lines[0] || message;
+  const lines = message
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const summary =
+    lines.length > 1
+      ? `${lines[0]} ${lines[lines.length - 1]}`
+      : lines[0] || message;
   return { kind: "render", message: summary.slice(0, 300) };
 }

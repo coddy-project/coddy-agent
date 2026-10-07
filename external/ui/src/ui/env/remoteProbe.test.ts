@@ -76,7 +76,6 @@ describe("probeRemote", () => {
     expect(seen.some((s) => s.init?.mode === "no-cors")).toBe(false);
   });
 
-
   it("calls an agent that lists its models with the token up", async () => {
     respond = (url) =>
       url.endsWith("/v1/models")

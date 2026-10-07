@@ -1830,7 +1830,11 @@ export function App() {
       const picked = pendingWorkspaceRef.current;
       setWorkspaceCtx(
         picked?.branch
-          ? { ...ctx, branch: picked.branch, is_worktree: Boolean(picked.worktree) }
+          ? {
+              ...ctx,
+              branch: picked.branch,
+              is_worktree: Boolean(picked.worktree),
+            }
           : ctx,
       );
     } catch {
@@ -2084,7 +2088,9 @@ export function App() {
   // Requests about one project job carry the chat's session, so a job of the
   // chat's workspace opens and is approved before the scheduler scans it.
   useEffect(() => {
-    setSchedulerSessionHeaders(workspaceScope(sessionId, chatWorkspace).headers);
+    setSchedulerSessionHeaders(
+      workspaceScope(sessionId, chatWorkspace).headers,
+    );
   }, [sessionId, chatWorkspace]);
 
   const refreshSchedulerJobs = useCallback(
@@ -2187,7 +2193,9 @@ export function App() {
       setTasksOpen(
         (wasOpen) =>
           p.tasksOpen ||
-          ((p.filesOpen === true || p.editsOpen === true || !isStackedShell()) &&
+          ((p.filesOpen === true ||
+            p.editsOpen === true ||
+            !isStackedShell()) &&
             wasOpen),
       );
       if (p.filesOpen) {
@@ -4221,10 +4229,7 @@ export function App() {
       ]);
     };
     try {
-      if (
-        turnActivity.get(sid) ??
-        activeComposerSidRef.current.has(sid)
-      ) {
+      if (turnActivity.get(sid) ?? activeComposerSidRef.current.has(sid)) {
         // Releases this tab's stream of the turn; the server cancels the turn
         // and waits for it to end before restoring anyway.
         await stopActiveGeneration();
@@ -6923,26 +6928,26 @@ export function App() {
           </div>
         ) : null}
         {dockOpen ? (
-            <BackgroundTasksPanel
-              open
-              focus={
-                tasksFocus && tasksFocus.sid === sessionId.trim()
-                  ? tasksFocus
-                  : null
-              }
-              onFocusHonoured={spendTasksFocus}
-              tasks={backgroundTasks}
-              loadOutput={loadBackgroundTaskOutput}
-              listError={backgroundListError}
-              loading={backgroundListLoading}
-              nowMs={backgroundNowMs}
-              onClose={closeTasksDrawer}
-              onStopTask={stopBackgroundTaskById}
-              onClearFinished={() => {
-                void clearFinishedTasks();
-              }}
-              onOpenSession={openSessionInPlace}
-            />
+          <BackgroundTasksPanel
+            open
+            focus={
+              tasksFocus && tasksFocus.sid === sessionId.trim()
+                ? tasksFocus
+                : null
+            }
+            onFocusHonoured={spendTasksFocus}
+            tasks={backgroundTasks}
+            loadOutput={loadBackgroundTaskOutput}
+            listError={backgroundListError}
+            loading={backgroundListLoading}
+            nowMs={backgroundNowMs}
+            onClose={closeTasksDrawer}
+            onStopTask={stopBackgroundTaskById}
+            onClearFinished={() => {
+              void clearFinishedTasks();
+            }}
+            onOpenSession={openSessionInPlace}
+          />
         ) : null}
 
         {/* After the dock, so on the stacked shell, where both are sheets over

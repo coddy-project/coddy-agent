@@ -19,7 +19,10 @@ import type { BackgroundTask } from "../tasks/types";
 import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
-import { artifactMarkerIds, artifactMarkersForAssistant } from "../chat/inlineArtifacts";
+import {
+  artifactMarkerIds,
+  artifactMarkersForAssistant,
+} from "../chat/inlineArtifacts";
 
 /**
  * The turn's clock and tokens for the live line: what the server reported, and until it
@@ -169,7 +172,11 @@ export function MessageList(props: {
     const ids = new Set<string>();
     props.items.forEach((item, index) => {
       if (item.type === "assistant_message") {
-        for (const id of artifactMarkerIds(item.content, artifactMarkersForAssistant(props.items, index))) ids.add(id);
+        for (const id of artifactMarkerIds(
+          item.content,
+          artifactMarkersForAssistant(props.items, index),
+        ))
+          ids.add(id);
       }
     });
     return ids;
@@ -255,7 +262,9 @@ export function MessageList(props: {
               rowId={it.id}
               content={it.content}
               artifacts={artifactMarkersForAssistant(props.items, idx)}
-              {...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {})}
+              {...(props.onMentionArtifact
+                ? { onMentionArtifact: props.onMentionArtifact }
+                : {})}
               showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"
                 ? { streaming: it.streaming }
@@ -389,7 +398,13 @@ export function MessageList(props: {
               : {})}
             {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
             {...(it.images !== undefined ? { images: it.images } : {})}
-            {...(it.artifacts !== undefined ? { artifacts: it.artifacts.filter((artifact) => !inlineArtifactIds.has(artifact.id)) } : {})}
+            {...(it.artifacts !== undefined
+              ? {
+                  artifacts: it.artifacts.filter(
+                    (artifact) => !inlineArtifactIds.has(artifact.id),
+                  ),
+                }
+              : {})}
             {...(typeof it.durationMs === "number"
               ? { durationMs: it.durationMs }
               : {})}

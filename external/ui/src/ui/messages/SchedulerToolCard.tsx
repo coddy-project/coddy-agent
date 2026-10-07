@@ -32,13 +32,16 @@ function JobFields(props: { job: SchedulerJobView }) {
   const { job } = props;
   const human = job.schedule ? describeCronScheduleUTC(job.schedule) : null;
   const rows: Array<[string, React.ReactNode]> = [];
-  if (job.description) rows.push([t("schedulerTool.field.description"), job.description]);
+  if (job.description)
+    rows.push([t("schedulerTool.field.description"), job.description]);
   if (job.schedule) {
     rows.push([
       t("schedulerTool.field.schedule"),
       <>
         <code className="scheduler-tool-cron">{job.schedule}</code>
-        {human ? <span className="scheduler-tool-muted"> · {human}</span> : null}
+        {human ? (
+          <span className="scheduler-tool-muted"> · {human}</span>
+        ) : null}
       </>,
     ]);
   }
@@ -46,7 +49,10 @@ function JobFields(props: { job: SchedulerJobView }) {
     rows.push([t("schedulerTool.field.state"), <JobState job={job} />]);
   }
   if (job.nextRunUtc) {
-    rows.push([t("schedulerTool.field.nextRun"), formatNextRunUtc(job.nextRunUtc)]);
+    rows.push([
+      t("schedulerTool.field.nextRun"),
+      formatNextRunUtc(job.nextRunUtc),
+    ]);
   }
   if (job.mode) rows.push([t("schedulerTool.field.mode"), job.mode]);
   if (job.model) rows.push([t("schedulerTool.field.model"), job.model]);
@@ -75,12 +81,16 @@ function JobFields(props: { job: SchedulerJobView }) {
 function JobRows(props: { jobs: SchedulerJobView[] }) {
   const { t } = useT();
   if (props.jobs.length === 0) {
-    return <div className="scheduler-tool-muted">{t("schedulerTool.noJobs")}</div>;
+    return (
+      <div className="scheduler-tool-muted">{t("schedulerTool.noJobs")}</div>
+    );
   }
   return (
     <ul className="scheduler-tool-rows">
       {props.jobs.map((job, i) => {
-        const human = job.schedule ? describeCronScheduleUTC(job.schedule) : null;
+        const human = job.schedule
+          ? describeCronScheduleUTC(job.schedule)
+          : null;
         return (
           <li className="scheduler-tool-row" key={job.jobId || i}>
             <span className="scheduler-tool-row-id">{job.jobId}</span>
@@ -106,7 +116,9 @@ function JobRows(props: { jobs: SchedulerJobView[] }) {
 function RunRows(props: { runs: SchedulerRunView[] }) {
   const { t } = useT();
   if (props.runs.length === 0) {
-    return <div className="scheduler-tool-muted">{t("schedulerTool.noRuns")}</div>;
+    return (
+      <div className="scheduler-tool-muted">{t("schedulerTool.noRuns")}</div>
+    );
   }
   return (
     <ul className="scheduler-tool-rows">
@@ -178,7 +190,10 @@ export const SchedulerToolCard = memo(function SchedulerToolCard(props: {
   }
 
   return (
-    <div className="permission-preview scheduler-tool-card" data-testid="scheduler-tool-card">
+    <div
+      className="permission-preview scheduler-tool-card"
+      data-testid="scheduler-tool-card"
+    >
       <div
         className={
           "permission-preview-bar" +

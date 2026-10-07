@@ -14,7 +14,9 @@ const css = readFileSync(join(dir, "../../styles.css"), "utf8");
 
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|\\n)${escaped}\\s*\\{[^}]*\\}`, "s").exec(css)?.[0] ?? "";
+  return (
+    new RegExp(`(^|\\n)${escaped}\\s*\\{[^}]*\\}`, "s").exec(css)?.[0] ?? ""
+  );
 }
 
 test("the undo banner puts the title and the note on one line", () => {
@@ -26,5 +28,7 @@ test("the undo banner puts the title and the note on one line", () => {
 
 test("Undo and the cross are centred on that line", () => {
   expect(rule(".composer-edit-banner--done")).toMatch(/align-items:\s*center/);
-  expect(rule(".composer-edit-banner--done > *")).toMatch(/align-self:\s*center/);
+  expect(rule(".composer-edit-banner--done > *")).toMatch(
+    /align-self:\s*center/,
+  );
 });

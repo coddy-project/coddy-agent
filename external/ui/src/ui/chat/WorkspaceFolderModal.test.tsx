@@ -25,9 +25,7 @@ const rootListing = {
 };
 
 function jsonResponse(body: unknown) {
-  return Promise.resolve(
-    new Response(JSON.stringify(body), { status: 200 }),
-  );
+  return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
 }
 
 function renderModal() {
@@ -120,7 +118,9 @@ describe("WorkspaceFolderModal", () => {
     expect(row).toHaveTextContent("→ /targets/project");
     // A link wears the folder glyph with an arrow cut out of it; a plain folder
     // does not.
-    expect(row.querySelector(".workspace-modal-symlink-icon svg")).not.toBeNull();
+    expect(
+      row.querySelector(".workspace-modal-symlink-icon svg"),
+    ).not.toBeNull();
     expect(
       screen
         .getByTestId("workspace-modal-row-visible")
@@ -134,9 +134,9 @@ describe("WorkspaceFolderModal", () => {
       ),
     );
     await waitFor(() =>
-      expect(
-        screen.getByTestId("workspace-modal-path"),
-      ).toHaveValue("/targets/project"),
+      expect(screen.getByTestId("workspace-modal-path")).toHaveValue(
+        "/targets/project",
+      ),
     );
   });
 });

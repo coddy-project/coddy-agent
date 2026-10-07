@@ -268,7 +268,10 @@ export function ContextBreakdownPopover(props: {
           ×
         </button>
       </div>
-      <div className="context-breakdown-usage-row" data-testid="context-breakdown-usage-row">
+      <div
+        className="context-breakdown-usage-row"
+        data-testid="context-breakdown-usage-row"
+      >
         <span className="context-breakdown-used">
           {t("chat.contextPercentUsed", {
             percent: idle ? "0.0" : fillPct.toFixed(1),
@@ -278,7 +281,9 @@ export function ContextBreakdownPopover(props: {
           type="button"
           className="context-breakdown-compact"
           onClick={() => void compactNow()}
-          disabled={compacting || !props.sessionId || props.compactAvailable !== true}
+          disabled={
+            compacting || !props.sessionId || props.compactAvailable !== true
+          }
           data-testid="context-breakdown-compact"
         >
           {compacting

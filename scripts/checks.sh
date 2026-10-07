@@ -24,9 +24,10 @@
 #   CODDY_HOOK_FORMAT 0|1              (default: 1)   when the commit stages SPA sources
 #                                      (external/ui: .ts, .tsx, .js, .jsx, .mjs, .cjs, .css,
 #                                      .json, .html; package-lock.json and build output aside),
-#                                      check those files with Prettier (`prettier --check`).
-#                                      Only the staged files: the tree is formatted file by file
-#                                      as it is touched, never in one sweep
+#                                      check the whole SPA with Prettier (`prettier --check .`,
+#                                      what `make ui-format-check` and CI run): the tree is
+#                                      Prettier-clean, and a file left out of the commit is
+#                                      held to it too
 #
 #   CODDY_HOOK_SKIP   1                bypass the whole gate (prints a warning)
 #
@@ -75,10 +76,10 @@ if [ "$lint" = "1" ]; then
   fi
 fi
 
-# --- format: Prettier over the SPA sources the commit stages ---
-# The working-tree copy of each staged file is checked, as the linter checks
-# the working tree. node_modules comes from `make ui-deps` when the lint stage
-# above did not install it already.
+# --- format: Prettier over the whole SPA when the commit stages SPA sources ---
+# The working tree is checked, as the linter checks it; external/ui/.prettierignore
+# keeps the build output and the vendored grammars out. node_modules comes from
+# `make ui-deps` when the lint stage above did not install it already.
 format="${CODDY_HOOK_FORMAT:-1}"
 format_ran=0
 if [ "$format" = "1" ]; then
@@ -99,10 +100,10 @@ if [ "$format" = "1" ]; then
       make ui-deps >/dev/null || { status=1; log "format: make ui-deps failed"; }
     fi
     if [ -x "$prettier" ]; then
-      log "format: prettier --check (${#fmt_files[@]} staged SPA file(s))"
-      if ! (cd external/ui && ./node_modules/.bin/prettier --check "${fmt_files[@]}"); then
+      log "format: prettier --check over external/ui (the commit stages ${#fmt_files[@]} SPA file(s))"
+      if ! (cd external/ui && ./node_modules/.bin/prettier --check .); then
         status=1
-        log "format: run 'cd external/ui && npx prettier --write <file>...' for the files above, then re-stage"
+        log "format: run 'cd external/ui && npm run fmt' (or npx prettier --write <file>...), then re-stage"
       fi
     else
       status=1

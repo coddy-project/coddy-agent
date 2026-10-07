@@ -49,7 +49,10 @@ export type DocsResult<T> =
   | { ok: true; data: T }
   | { ok: false; status: number; message: string };
 
-async function getJSON<T>(path: string, signal?: AbortSignal): Promise<DocsResult<T>> {
+async function getJSON<T>(
+  path: string,
+  signal?: AbortSignal,
+): Promise<DocsResult<T>> {
   const init: RequestInit = { headers: { Accept: "application/json" } };
   if (signal) {
     init.signal = signal;
@@ -84,7 +87,10 @@ export function fetchDocsContents(signal?: AbortSignal) {
 }
 
 export function fetchDocsPage(ref: string, signal?: AbortSignal) {
-  return getJSON<DocsPage>(`/coddy/docs/page?ref=${encodeURIComponent(ref)}`, signal);
+  return getJSON<DocsPage>(
+    `/coddy/docs/page?ref=${encodeURIComponent(ref)}`,
+    signal,
+  );
 }
 
 export async function searchDocs(

@@ -155,7 +155,12 @@ test("a desync frame is reported without ending the stream", async () => {
 test("a provider_usage frame on the turn stream reaches the usage callback", async () => {
   vi.stubGlobal("requestAnimationFrame", () => 0);
   const seen: string[] = [];
-  const usage = { sessionUpdate: "provider_usage", provider: "neuraldeep", providerType: "neuraldeep", plan: "pro" };
+  const usage = {
+    sessionUpdate: "provider_usage",
+    provider: "neuraldeep",
+    providerType: "neuraldeep",
+    plan: "pro",
+  };
   const sse = `event: provider_usage\ndata: ${JSON.stringify(usage)}\n\n${textEvent("hi")}data: [DONE]\n\n`;
   const items: TranscriptItem[] = [];
   await consumeComposerSseReader({

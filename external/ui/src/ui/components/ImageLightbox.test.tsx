@@ -24,14 +24,25 @@ describe("ImageLightbox gesture arithmetic", () => {
   it("pans the stage against the pointer and stops at the edges", () => {
     const max = { left: 400, top: 200 };
     // The picture follows the hand, so the stage scrolls the other way.
-    expect(panScroll({ left: 100, top: 100 }, -30, -40, max)).toEqual({ left: 130, top: 140 });
-    expect(panScroll({ left: 100, top: 100 }, 300, 300, max)).toEqual({ left: 0, top: 0 });
-    expect(panScroll({ left: 100, top: 100 }, -1000, -1000, max)).toEqual({ left: 400, top: 200 });
-    // Nothing to scroll: a picture smaller than the stage stays put.
-    expect(panScroll({ left: 0, top: 0 }, 60, 60, { left: 0, top: 0 })).toEqual({
+    expect(panScroll({ left: 100, top: 100 }, -30, -40, max)).toEqual({
+      left: 130,
+      top: 140,
+    });
+    expect(panScroll({ left: 100, top: 100 }, 300, 300, max)).toEqual({
       left: 0,
       top: 0,
     });
+    expect(panScroll({ left: 100, top: 100 }, -1000, -1000, max)).toEqual({
+      left: 400,
+      top: 200,
+    });
+    // Nothing to scroll: a picture smaller than the stage stays put.
+    expect(panScroll({ left: 0, top: 0 }, 60, 60, { left: 0, top: 0 })).toEqual(
+      {
+        left: 0,
+        top: 0,
+      },
+    );
   });
 
   it("counts a press that barely moved as a click, not a drag", () => {
@@ -42,7 +53,10 @@ describe("ImageLightbox gesture arithmetic", () => {
   });
 
   it("takes a pinch from the point between the two fingers", () => {
-    expect(touchMidpoint({ x: 10, y: 20 }, { x: 30, y: 60 })).toEqual({ x: 20, y: 40 });
+    expect(touchMidpoint({ x: 10, y: 20 }, { x: 30, y: 60 })).toEqual({
+      x: 20,
+      y: 40,
+    });
     expect(touchSpan({ x: 0, y: 0 }, { x: 3, y: 4 })).toBe(5);
   });
 
@@ -144,8 +158,18 @@ function pointer(
   fireEvent(el, e);
 }
 
-const mouse = (x: number, y: number) => ({ id: 1, kind: "mouse" as const, x, y });
-const finger = (id: number, x: number, y: number) => ({ id, kind: "touch" as const, x, y });
+const mouse = (x: number, y: number) => ({
+  id: 1,
+  kind: "mouse" as const,
+  x,
+  y,
+});
+const finger = (id: number, x: number, y: number) => ({
+  id,
+  kind: "touch" as const,
+  x,
+  y,
+});
 
 describe("ImageLightbox gestures", () => {
   it("pans a zoomed picture on a press that travelled, and swallows its click", () => {

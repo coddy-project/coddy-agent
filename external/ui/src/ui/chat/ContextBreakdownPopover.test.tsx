@@ -130,10 +130,13 @@ test("context popover uses modal head chrome and keeps usage and compaction in o
 test("context action says nothing to compact when the endpoint folds nothing", async () => {
   const fetchMock = vi.fn(async () =>
     Promise.resolve(
-      new Response(JSON.stringify({ compacted: false, reason: "nothing_to_compact" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({ compacted: false, reason: "nothing_to_compact" }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     ),
   );
   vi.stubGlobal("fetch", fetchMock);
@@ -165,7 +168,11 @@ test("Escape closes the breakdown before the drawer open beside the chat", () =>
   render(
     <>
       <OpenRailScreen id="history" onClose={closeHistory} />
-      <ContextBreakdownPopover open onClose={onClose} maxContextTokens={128000} />
+      <ContextBreakdownPopover
+        open
+        onClose={onClose}
+        maxContextTokens={128000}
+      />
     </>,
   );
   fireEvent.keyDown(document.body, { key: "Escape" });

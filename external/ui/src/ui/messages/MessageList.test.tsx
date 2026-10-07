@@ -196,13 +196,20 @@ test("the live line names reasoning under a reasoning row", () => {
 
   render(<MessageList items={items} generating />);
 
-  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent("Thinking…");
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
+    "Thinking…",
+  );
 });
 
 test("the live line stays while the answer streams and names it", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "hi" },
-    { id: "a1", type: "assistant_message", content: "The price", streaming: true },
+    {
+      id: "a1",
+      type: "assistant_message",
+      content: "The price",
+      streaming: true,
+    },
   ];
 
   render(<MessageList items={items} generating />);
@@ -215,7 +222,12 @@ test("the live line stays while the answer streams and names it", () => {
 test("the live line stays under text written earlier in the turn", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "hi" },
-    { id: "a1", type: "assistant_message", content: "Checking.", streaming: true },
+    {
+      id: "a1",
+      type: "assistant_message",
+      content: "Checking.",
+      streaming: true,
+    },
     {
       id: "t1",
       type: "tool_call",
@@ -326,12 +338,17 @@ test("untouched memoized rows skip re-render when another item streams", () => {
   // Streaming delta: only the assistant item gets a new object reference.
   const next: TranscriptItem[] = [
     items[0]!,
-    { id: "a1", type: "assistant_message", content: "streaming", streaming: true },
+    {
+      id: "a1",
+      type: "assistant_message",
+      content: "streaming",
+      streaming: true,
+    },
   ];
   rerender(<MessageList items={next} onEdit={onEdit} />);
-  expect(
-    vi.mocked(stripCoddyAttachmentsForUserDisplay).mock.calls.length,
-  ).toBe(userRenders);
+  expect(vi.mocked(stripCoddyAttachmentsForUserDisplay).mock.calls.length).toBe(
+    userRenders,
+  );
   expect(screen.getByText("streaming")).toBeInTheDocument();
 });
 
@@ -436,11 +453,15 @@ test("every finished turn keeps the action row on the answer that closed it", ()
   // One per turn: the older answer stays copyable, the mid-turn one does not.
   expect(screen.getAllByTestId("assistant-message-copy")).toHaveLength(2);
   expect(
-    screen.getByText("First answer.").closest(".msg-assistant")!
+    screen
+      .getByText("First answer.")
+      .closest(".msg-assistant")!
       .querySelector(".msg-assistant-foot"),
   ).not.toBeNull();
   expect(
-    screen.getByText("Looking.").closest(".msg-assistant")!
+    screen
+      .getByText("Looking.")
+      .closest(".msg-assistant")!
       .querySelector(".msg-assistant-foot"),
   ).toBeNull();
 });
@@ -455,7 +476,9 @@ test("a new turn does not strip the action row off the previous answer", () => {
   render(<MessageList items={items} generating />);
 
   expect(
-    screen.getByText("First answer.").closest(".msg-assistant")!
+    screen
+      .getByText("First answer.")
+      .closest(".msg-assistant")!
       .querySelector(".msg-assistant-foot"),
   ).not.toBeNull();
 });
@@ -465,9 +488,21 @@ test("a new turn does not strip the action row off the previous answer", () => {
 test("a whitespace-only assistant row takes no place in the transcript", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "Hello" },
-    { id: "t1", type: "tool_call", toolCallId: "tc1", title: "read", status: "completed" },
+    {
+      id: "t1",
+      type: "tool_call",
+      toolCallId: "tc1",
+      title: "read",
+      status: "completed",
+    },
     { id: "a1", type: "assistant_message", content: "\n\n", streaming: true },
-    { id: "t2", type: "tool_call", toolCallId: "tc2", title: "read", status: "completed" },
+    {
+      id: "t2",
+      type: "tool_call",
+      toolCallId: "tc2",
+      title: "read",
+      status: "completed",
+    },
   ];
   const { container } = render(<MessageList items={items} />);
   expect(container.querySelectorAll(".msg-assistant-stack")).toHaveLength(0);
@@ -476,12 +511,23 @@ test("a whitespace-only assistant row takes no place in the transcript", () => {
 test("a woken turn shows neither a note nor a user bubble, only the agent carrying on", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "start the tests" },
-    { id: "a1", type: "assistant_message", content: "Started them in the background." },
+    {
+      id: "a1",
+      type: "assistant_message",
+      content: "Started them in the background.",
+    },
     {
       id: "w1",
       type: "background_wake",
       tasks: [
-        { id: "bg_3", kind: "command", label: "make test", status: "failed", exitCode: 2, durationMs: 90000 },
+        {
+          id: "bg_3",
+          kind: "command",
+          label: "make test",
+          status: "failed",
+          exitCode: 2,
+          durationMs: 90000,
+        },
       ],
     },
     { id: "a2", type: "assistant_message", content: "The tests failed." },
@@ -499,7 +545,11 @@ test("a message typed after a wake is edited by the index the server knows it by
   const onEdit = vi.fn();
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "start the tests" },
-    { id: "w1", type: "background_wake", tasks: [{ id: "bg_3", status: "failed" }] },
+    {
+      id: "w1",
+      type: "background_wake",
+      tasks: [{ id: "bg_3", status: "failed" }],
+    },
     { id: "u2", type: "user_message", content: "fix it" },
   ];
   render(<MessageList items={items} onEdit={onEdit} />);
@@ -517,7 +567,12 @@ test("a window renders its slice of the rows, each one stamped with its id", () 
     content: `answer ${i}`,
   }));
   const { container } = render(
-    <MessageList items={items} renderStart={6} renderEnd={9} generating={true} />,
+    <MessageList
+      items={items}
+      renderStart={6}
+      renderEnd={9}
+      generating={true}
+    />,
   );
   expect(
     [...container.querySelectorAll("[data-row-id]")].map(
@@ -531,7 +586,11 @@ test("a window renders its slice of the rows, each one stamped with its id", () 
 test("an edit names the prompt by the server's index when the list holds only the end of the history", () => {
   const onEdit = vi.fn();
   const items: TranscriptItem[] = [
-    { id: "a_before", type: "assistant_message", content: "the end of an older turn" },
+    {
+      id: "a_before",
+      type: "assistant_message",
+      content: "the end of an older turn",
+    },
     { id: "u_375", type: "user_message", content: "the first prompt held" },
     { id: "wake_376", type: "background_wake", tasks: [] },
     { id: "u_377", type: "user_message", content: "typed after a wake" },

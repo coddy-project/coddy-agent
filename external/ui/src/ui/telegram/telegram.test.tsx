@@ -3,14 +3,29 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { useState } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { Composer } from "../chat/Composer";
 import { ImageLightbox } from "../components/ImageLightbox";
 import { CODDY_UI_THEME_COOKIE } from "../theme/themeCookie";
-import { createTelegramBridge, parentOrigin, TELEGRAM_WEB_ORIGIN, versionAtLeast } from "./bridge";
-import { backButtonWanted, pressBack, TELEGRAM_BACK_LAYERS } from "./backButton";
+import {
+  createTelegramBridge,
+  parentOrigin,
+  TELEGRAM_WEB_ORIGIN,
+  versionAtLeast,
+} from "./bridge";
+import {
+  backButtonWanted,
+  pressBack,
+  TELEGRAM_BACK_LAYERS,
+} from "./backButton";
 import {
   captureTelegramLaunch,
   parseLaunchAddress,
@@ -18,7 +33,11 @@ import {
   TELEGRAM_LAUNCH_STORAGE_KEY,
   telegramLaunch,
 } from "./launch";
-import { followTelegramTheme, initTelegramMiniApp, isDarkColor } from "./miniApp";
+import {
+  followTelegramTheme,
+  initTelegramMiniApp,
+  isDarkColor,
+} from "./miniApp";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -50,17 +69,21 @@ type Posted = { type: string; data: unknown };
 /** installProxy stands in for the native app: what the page posts, and a way to answer it. */
 function installProxy(): Posted[] {
   const posted: Posted[] = [];
-  (window as unknown as { TelegramWebviewProxy: unknown }).TelegramWebviewProxy = {
-    postEvent: (type: string, data: string) => posted.push({ type, data: JSON.parse(data) }),
+  (
+    window as unknown as { TelegramWebviewProxy: unknown }
+  ).TelegramWebviewProxy = {
+    postEvent: (type: string, data: string) =>
+      posted.push({ type, data: JSON.parse(data) }),
   };
   return posted;
 }
 
 function receive(type: string, data: unknown) {
-  (window as unknown as { Telegram: { WebView: { receiveEvent: (t: string, d: unknown) => void } } }).Telegram.WebView.receiveEvent(
-    type,
-    data,
-  );
+  (
+    window as unknown as {
+      Telegram: { WebView: { receiveEvent: (t: string, d: unknown) => void } };
+    }
+  ).Telegram.WebView.receiveEvent(type, data);
 }
 
 let dispose: (() => void) | null = null;
@@ -76,10 +99,13 @@ afterEach(() => {
   cleanup();
   dispose?.();
   dispose = null;
-  delete (window as unknown as { TelegramWebviewProxy?: unknown }).TelegramWebviewProxy;
+  delete (window as unknown as { TelegramWebviewProxy?: unknown })
+    .TelegramWebviewProxy;
   delete (window as unknown as { Telegram?: unknown }).Telegram;
-  delete (window as unknown as { TelegramGameProxy?: unknown }).TelegramGameProxy;
-  delete (window as unknown as { TelegramGameProxy_receiveEvent?: unknown }).TelegramGameProxy_receiveEvent;
+  delete (window as unknown as { TelegramGameProxy?: unknown })
+    .TelegramGameProxy;
+  delete (window as unknown as { TelegramGameProxy_receiveEvent?: unknown })
+    .TelegramGameProxy_receiveEvent;
   document.documentElement.dataset.theme = "dark";
   document.body.innerHTML = "";
   vi.restoreAllMocks();
@@ -94,8 +120,12 @@ describe("launch parameters", () => {
       platform: "ios",
       themeParams: { bg_color: "#212121" },
     });
-    expect(parseLaunchAddress("", "#tgWebAppVersion=7.0").launch?.version).toBe("7.0");
-    expect(parseLaunchAddress("?tgWebAppVersion=6.0", "").launch?.version).toBe("6.0");
+    expect(parseLaunchAddress("", "#tgWebAppVersion=7.0").launch?.version).toBe(
+      "7.0",
+    );
+    expect(parseLaunchAddress("?tgWebAppVersion=6.0", "").launch?.version).toBe(
+      "6.0",
+    );
     expect(parseLaunchAddress("", "#/s/sess_1?history=1").launch).toBeNull();
     // A start parameter alone can be typed into any address.
     expect(parseLaunchAddress("?tgWebAppStartParam=x", "").launch).toBeNull();
@@ -103,7 +133,10 @@ describe("launch parameters", () => {
   });
 
   test("the address keeps its own route and loses Telegram's parameters", () => {
-    const after = parseLaunchAddress("?lang=ru", `#/s/sess_1?history=1&${launchHash()}`);
+    const after = parseLaunchAddress(
+      "?lang=ru",
+      `#/s/sess_1?history=1&${launchHash()}`,
+    );
     expect(after.launch?.version).toBe("10.1");
     expect(after.cleanSearch).toBe("?lang=ru");
     expect(after.cleanHash).toBe("#/s/sess_1?history=1");
@@ -119,19 +152,30 @@ describe("launch parameters", () => {
     expect(link.session).toBe("sess_abc");
     expect(link.cleanSearch).toBe("");
     expect(link.cleanHash).toBe("#/s/sess_abc");
-    const direct = parseLaunchAddress("?tgWebAppStartParam=sess_def", `#${launchHash()}`);
+    const direct = parseLaunchAddress(
+      "?tgWebAppStartParam=sess_def",
+      `#${launchHash()}`,
+    );
     expect(direct.session).toBe("sess_def");
     expect(direct.cleanHash).toBe("#/s/sess_def");
-    expect(parseLaunchAddress("?tgWebAppStartParam=promo", `#${launchHash()}`).session).toBe("");
+    expect(
+      parseLaunchAddress("?tgWebAppStartParam=promo", `#${launchHash()}`)
+        .session,
+    ).toBe("");
     // A group gets the link as a plain button: it opens the browser, no launch.
     const browser = parseLaunchAddress("?session=sess_abc", "");
     expect(browser.launch).toBeNull();
     expect(browser.cleanHash).toBe("#/s/sess_abc");
     // Outside a launch a start parameter is just a query key.
-    expect(parseLaunchAddress("?tgWebAppStartParam=sess_def", "").session).toBe("");
+    expect(parseLaunchAddress("?tgWebAppStartParam=sess_def", "").session).toBe(
+      "",
+    );
     // Only the alphabet of a session id is taken; the rest is dropped.
     for (const bad of ["../etc", "sess_1<script>", "a b", "x".repeat(257)]) {
-      const parsed = parseLaunchAddress(`?session=${encodeURIComponent(bad)}`, "#/settings");
+      const parsed = parseLaunchAddress(
+        `?session=${encodeURIComponent(bad)}`,
+        "#/settings",
+      );
       expect(parsed.session).toBe("");
       expect(parsed.cleanSearch).toBe("");
       expect(parsed.cleanHash).toBe("#/settings");
@@ -145,7 +189,11 @@ describe("launch parameters", () => {
     expect(window.location.search).toBe("");
     expect(window.location.hash).toBe("#/s/sess_abc");
     expect(window.location.href).not.toContain("tgWebAppData");
-    expect(JSON.parse(window.sessionStorage.getItem(TELEGRAM_LAUNCH_STORAGE_KEY) ?? "{}").initData).toBe(DATA);
+    expect(
+      JSON.parse(
+        window.sessionStorage.getItem(TELEGRAM_LAUNCH_STORAGE_KEY) ?? "{}",
+      ).initData,
+    ).toBe(DATA);
 
     // A reload inside the Mini App: the address has only the route now.
     resetTelegramLaunchForTests();
@@ -191,10 +239,11 @@ describe("bridge", () => {
     ]);
     expect(seen).toEqual([{ height: 500, is_state_stable: true }]);
     // The older entry points of the clients reach the same handlers.
-    (window as unknown as { TelegramGameProxy_receiveEvent: (t: string, d: unknown) => void }).TelegramGameProxy_receiveEvent(
-      "viewport_changed",
-      { height: 400 },
-    );
+    (
+      window as unknown as {
+        TelegramGameProxy_receiveEvent: (t: string, d: unknown) => void;
+      }
+    ).TelegramGameProxy_receiveEvent("viewport_changed", { height: 400 });
     expect(seen).toHaveLength(2);
   });
 
@@ -202,7 +251,9 @@ describe("bridge", () => {
     const parentPost = vi.fn();
     const fakeParent = { postMessage: parentPost } as unknown as Window;
     vi.spyOn(window, "parent", "get").mockReturnValue(fakeParent);
-    vi.spyOn(document, "referrer", "get").mockReturnValue("http://127.0.0.1:19890/chat");
+    vi.spyOn(document, "referrer", "get").mockReturnValue(
+      "http://127.0.0.1:19890/chat",
+    );
     const bridge = createTelegramBridge(window);
     dispose = () => bridge.dispose();
     expect(JSON.parse(parentPost.mock.calls[0]?.[0] as string)).toEqual({
@@ -211,18 +262,45 @@ describe("bridge", () => {
     });
     expect(parentPost.mock.calls[0]?.[1]).toBe("http://127.0.0.1:19890");
     bridge.post("web_app_expand");
-    expect(JSON.parse(parentPost.mock.calls[1]?.[0] as string)).toEqual({ eventType: "web_app_expand", eventData: "" });
+    expect(JSON.parse(parentPost.mock.calls[1]?.[0] as string)).toEqual({
+      eventType: "web_app_expand",
+      eventData: "",
+    });
     expect(parentPost.mock.calls[1]?.[1]).toBe("http://127.0.0.1:19890");
 
     const seen: unknown[] = [];
     bridge.on("theme_changed", (d) => seen.push(d));
-    const msg = JSON.stringify({ eventType: "theme_changed", eventData: { theme_params: { bg_color: "#ffffff" } } });
-    window.dispatchEvent(new MessageEvent("message", { data: msg, source: fakeParent, origin: "http://127.0.0.1:19890" }));
-    window.dispatchEvent(new MessageEvent("message", { data: msg, source: window, origin: "http://127.0.0.1:19890" }));
-    window.dispatchEvent(new MessageEvent("message", { data: msg, source: fakeParent, origin: "https://elsewhere.example" }));
+    const msg = JSON.stringify({
+      eventType: "theme_changed",
+      eventData: { theme_params: { bg_color: "#ffffff" } },
+    });
     window.dispatchEvent(
       new MessageEvent("message", {
-        data: JSON.stringify({ eventType: "set_custom_style", eventData: "body{display:none}" }),
+        data: msg,
+        source: fakeParent,
+        origin: "http://127.0.0.1:19890",
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: msg,
+        source: window,
+        origin: "http://127.0.0.1:19890",
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: msg,
+        source: fakeParent,
+        origin: "https://elsewhere.example",
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          eventType: "set_custom_style",
+          eventData: "body{display:none}",
+        }),
         source: fakeParent,
         origin: "http://127.0.0.1:19890",
       }),
@@ -232,11 +310,22 @@ describe("bridge", () => {
 
   test("the parent's origin is the browser's record of it, else the page the frame came from, else Telegram Web", () => {
     const framedBy = (ancestors: string[] | undefined, referrer: string) =>
-      ({ location: { ancestorOrigins: ancestors }, document: { referrer } }) as unknown as Window;
-    expect(parentOrigin(framedBy(["https://web.telegram.org"], "http://127.0.0.1:19890/"))).toBe("https://web.telegram.org");
-    expect(parentOrigin(framedBy(undefined, "http://127.0.0.1:19890/chat?x=1"))).toBe("http://127.0.0.1:19890");
+      ({
+        location: { ancestorOrigins: ancestors },
+        document: { referrer },
+      }) as unknown as Window;
+    expect(
+      parentOrigin(
+        framedBy(["https://web.telegram.org"], "http://127.0.0.1:19890/"),
+      ),
+    ).toBe("https://web.telegram.org");
+    expect(
+      parentOrigin(framedBy(undefined, "http://127.0.0.1:19890/chat?x=1")),
+    ).toBe("http://127.0.0.1:19890");
     expect(parentOrigin(framedBy([], ""))).toBe(TELEGRAM_WEB_ORIGIN);
-    expect(parentOrigin(framedBy(["null"], "not an address"))).toBe(TELEGRAM_WEB_ORIGIN);
+    expect(parentOrigin(framedBy(["null"], "not an address"))).toBe(
+      TELEGRAM_WEB_ORIGIN,
+    );
     expect(TELEGRAM_WEB_ORIGIN).toBe("https://web.telegram.org");
   });
 
@@ -256,7 +345,9 @@ describe("the Mini App window", () => {
     expect(initTelegramMiniApp(window, document)).toBeNull();
     expect(posted).toEqual([]);
     expect(document.documentElement.dataset.telegramMiniApp).toBeUndefined();
-    expect((window as unknown as { Telegram?: unknown }).Telegram).toBeUndefined();
+    expect(
+      (window as unknown as { Telegram?: unknown }).Telegram,
+    ).toBeUndefined();
   });
 
   test("the start sequence: requests, expand, swipes off, colours, back button, ready last", () => {
@@ -278,8 +369,12 @@ describe("the Mini App window", () => {
       expect(types).toContain(want);
     }
     expect(types.at(-1)).toBe("web_app_ready");
-    expect(posted.find((p) => p.type === "web_app_setup_swipe_behavior")?.data).toEqual({ allow_vertical_swipe: false });
-    expect(types.indexOf("web_app_expand")).toBeLessThan(types.indexOf("web_app_ready"));
+    expect(
+      posted.find((p) => p.type === "web_app_setup_swipe_behavior")?.data,
+    ).toEqual({ allow_vertical_swipe: false });
+    expect(types.indexOf("web_app_expand")).toBeLessThan(
+      types.indexOf("web_app_ready"),
+    );
   });
 
   test("an old client is not sent what it does not know", () => {
@@ -306,43 +401,79 @@ describe("the Mini App window", () => {
     const v = (name: string) => root.style.getPropertyValue(name);
     expect(v("--coddy-telegram-hidden-bottom")).toBe("0px");
 
-    receive("viewport_changed", { height: 440, is_state_stable: true, is_expanded: false });
+    receive("viewport_changed", {
+      height: 440,
+      is_state_stable: true,
+      is_expanded: false,
+    });
     expect(v("--coddy-telegram-viewport-height")).toBe("440px");
     expect(v("--coddy-telegram-stable-height")).toBe("440px");
     expect(v("--coddy-telegram-hidden-bottom")).toBe("360px");
 
     // A drag in progress moves the visible height, not the stable one.
-    receive("viewport_changed", { height: 600, is_state_stable: false, is_expanded: false });
+    receive("viewport_changed", {
+      height: 600,
+      is_state_stable: false,
+      is_expanded: false,
+    });
     expect(v("--coddy-telegram-viewport-height")).toBe("600px");
     expect(v("--coddy-telegram-stable-height")).toBe("440px");
 
-    receive("viewport_changed", { height: 800, is_state_stable: true, is_expanded: true });
+    receive("viewport_changed", {
+      height: 800,
+      is_state_stable: true,
+      is_expanded: true,
+    });
     expect(v("--coddy-telegram-hidden-bottom")).toBe("0px");
 
     receive("safe_area_changed", { top: 47, bottom: 34, left: 0, right: 0 });
-    receive("content_safe_area_changed", { top: 46, bottom: 0, left: 0, right: 0 });
+    receive("content_safe_area_changed", {
+      top: 46,
+      bottom: 0,
+      left: 0,
+      right: 0,
+    });
     expect(v("--coddy-telegram-safe-top")).toBe("93px");
     expect(v("--coddy-telegram-safe-bottom")).toBe("34px");
   });
 
   test("the header takes the theme's colours, again when the theme changes", async () => {
     const posted = installProxy();
-    document.documentElement.style.setProperty("--coddy-canvas-gradient-top", "#0f0f10");
-    document.documentElement.style.setProperty("--coddy-canvas-gradient-bottom", "#0b0b0c");
+    document.documentElement.style.setProperty(
+      "--coddy-canvas-gradient-top",
+      "#0f0f10",
+    );
+    document.documentElement.style.setProperty(
+      "--coddy-canvas-gradient-bottom",
+      "#0b0b0c",
+    );
     go(`/#${launchHash()}`);
     captureTelegramLaunch(window);
     dispose = initTelegramMiniApp(window, document);
-    expect(posted.find((p) => p.type === "web_app_set_header_color")?.data).toEqual({ color: "#0f0f10" });
-    expect(posted.find((p) => p.type === "web_app_set_background_color")?.data).toEqual({ color: "#0b0b0c" });
-    expect(posted.find((p) => p.type === "web_app_set_bottom_bar_color")?.data).toEqual({ color: "#0b0b0c" });
+    expect(
+      posted.find((p) => p.type === "web_app_set_header_color")?.data,
+    ).toEqual({ color: "#0f0f10" });
+    expect(
+      posted.find((p) => p.type === "web_app_set_background_color")?.data,
+    ).toEqual({ color: "#0b0b0c" });
+    expect(
+      posted.find((p) => p.type === "web_app_set_bottom_bar_color")?.data,
+    ).toEqual({ color: "#0b0b0c" });
 
-    document.documentElement.style.setProperty("--coddy-canvas-gradient-top", "#ffffff");
+    document.documentElement.style.setProperty(
+      "--coddy-canvas-gradient-top",
+      "#ffffff",
+    );
     document.documentElement.dataset.theme = "light";
     await new Promise((r) => setTimeout(r, 0));
     const headers = posted.filter((p) => p.type === "web_app_set_header_color");
     expect(headers.at(-1)?.data).toEqual({ color: "#ffffff" });
-    document.documentElement.style.removeProperty("--coddy-canvas-gradient-top");
-    document.documentElement.style.removeProperty("--coddy-canvas-gradient-bottom");
+    document.documentElement.style.removeProperty(
+      "--coddy-canvas-gradient-top",
+    );
+    document.documentElement.style.removeProperty(
+      "--coddy-canvas-gradient-bottom",
+    );
   });
 
   test("the theme follows Telegram until the user picks one", () => {
@@ -375,12 +506,24 @@ describe("the Mini App window", () => {
     try {
       dispose = initTelegramMiniApp(window, document);
       expect(resizes).not.toHaveBeenCalled();
-      receive("viewport_changed", { height: 440, is_state_stable: true, is_expanded: false });
+      receive("viewport_changed", {
+        height: 440,
+        is_state_stable: true,
+        is_expanded: false,
+      });
       expect(resizes).toHaveBeenCalledTimes(1);
-      receive("viewport_changed", { height: 440, is_state_stable: true, is_expanded: false });
+      receive("viewport_changed", {
+        height: 440,
+        is_state_stable: true,
+        is_expanded: false,
+      });
       receive("safe_area_changed", { top: 0, bottom: 34, left: 0, right: 0 });
       expect(resizes).toHaveBeenCalledTimes(1);
-      receive("viewport_changed", { height: 800, is_state_stable: true, is_expanded: true });
+      receive("viewport_changed", {
+        height: 800,
+        is_state_stable: true,
+        is_expanded: true,
+      });
       expect(resizes).toHaveBeenCalledTimes(2);
     } finally {
       window.removeEventListener("resize", resizes);
@@ -458,7 +601,13 @@ describe("the back button", () => {
       expect(window.location.hash).toBe("#/s/sess_1");
       // A real Escape from a keyboard afterwards reaches the page as always:
       // no listener of the press is left behind to take it.
-      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
       expect(questionCard).toHaveBeenCalledOnce();
       expect(window.location.hash).toBe("#/s/sess_1");
     } finally {
@@ -486,8 +635,14 @@ describe("the back button", () => {
       "fetch",
       vi.fn((input: string) => {
         const path = new URL(String(input), "http://x").pathname;
-        const items = path === "/coddy/slash-commands" ? [{ name: "review", description: "review skill" }] : [];
-        return Promise.resolve({ ok: true, json: async () => ({ items, has_more: false, page: 1 }) });
+        const items =
+          path === "/coddy/slash-commands"
+            ? [{ name: "review", description: "review skill" }]
+            : [];
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ items, has_more: false, page: 1 }),
+        });
       }),
     );
     function Docked() {
@@ -509,11 +664,17 @@ describe("the back button", () => {
     render(<Docked />);
     const field = screen.getByRole("textbox", { name: "Message" });
     field.focus();
-    fireEvent.change(field, { target: { value: "/rev", selectionStart: 4, selectionEnd: 4 } });
-    await waitFor(() => expect(document.querySelector(".slash-menu--sheet")).not.toBeNull());
+    fireEvent.change(field, {
+      target: { value: "/rev", selectionStart: 4, selectionEnd: 4 },
+    });
+    await waitFor(() =>
+      expect(document.querySelector(".slash-menu--sheet")).not.toBeNull(),
+    );
     field.blur();
     expect(pressBack(window, document)).toBe("escape");
-    await waitFor(() => expect(document.querySelector(".slash-menu--sheet")).toBeNull());
+    await waitFor(() =>
+      expect(document.querySelector(".slash-menu--sheet")).toBeNull(),
+    );
     expect(window.location.hash).toBe("#/s/sess_1");
   });
 
@@ -534,7 +695,9 @@ describe("the back button", () => {
     captureTelegramLaunch(window);
     dispose = initTelegramMiniApp(window, document);
     const visibility = () =>
-      posted.filter((p) => p.type === "web_app_setup_back_button").map((p) => (p.data as { is_visible: boolean }).is_visible);
+      posted
+        .filter((p) => p.type === "web_app_setup_back_button")
+        .map((p) => (p.data as { is_visible: boolean }).is_visible);
     expect(visibility()).toEqual([false]);
     go("/#/s/sess_1");
     window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -547,12 +710,17 @@ describe("the back button", () => {
 });
 
 describe("telegram.css", () => {
-  const css = readFileSync(join(here, "telegram.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const css = readFileSync(join(here, "telegram.css"), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
   const styles = readFileSync(join(here, "../../styles.css"), "utf8");
   const indexHtml = readFileSync(join(here, "../../index.html"), "utf8");
 
   test("every rule is scoped to a Mini App and to the stacked shell", () => {
-    const selectors = [...css.matchAll(/([^{}]+)\{[^{}]*\}/g)].map((m) => (m[1] ?? "").trim());
+    const selectors = [...css.matchAll(/([^{}]+)\{[^{}]*\}/g)].map((m) =>
+      (m[1] ?? "").trim(),
+    );
     expect(selectors.length).toBeGreaterThan(5);
     for (const sel of selectors) {
       for (const part of sel.split(/,(?![^(]*\))/)) {
@@ -567,8 +735,12 @@ describe("telegram.css", () => {
   });
 
   test("the docked composer and the sheets are lifted by the keyboard or the hidden part, whichever is more", () => {
-    expect(css).toMatch(/--coddy-telegram-lift:\s*max\(\s*var\(--coddy-keyboard-inset, 0px\),\s*var\(--coddy-telegram-hidden-bottom, 0px\)\s*\)/);
-    const rule = (sel: RegExp) => css.match(new RegExp(sel.source + String.raw`[^{]*\{([^}]*)\}`))?.[1] ?? "";
+    expect(css).toMatch(
+      /--coddy-telegram-lift:\s*max\(\s*var\(--coddy-keyboard-inset, 0px\),\s*var\(--coddy-telegram-hidden-bottom, 0px\)\s*\)/,
+    );
+    const rule = (sel: RegExp) =>
+      css.match(new RegExp(sel.source + String.raw`[^{]*\{([^}]*)\}`))?.[1] ??
+      "";
     // The composer keeps its bottom on the keyboard inset, and the block over
     // the transcript - whose height ChatScreen measures as the transcript's
     // reserve - grows by what Telegram hides beyond the keyboard.
@@ -576,20 +748,31 @@ describe("telegram.css", () => {
     expect(composer).not.toMatch(/(^|[^-])bottom:/);
     // A block of its own, not padding: the reserve is read by a ResizeObserver,
     // which a change of padding does not wake.
-    const inner = rule(/\.chat-bottom:has\(\.composer-wrap-docked\)\s+\.chat-bottom-inner::after/);
+    const inner = rule(
+      /\.chat-bottom:has\(\.composer-wrap-docked\)\s+\.chat-bottom-inner::after/,
+    );
     expect(inner).toMatch(
       /height:\s*max\(\s*0px,\s*var\(--coddy-telegram-hidden-bottom, 0px\)\s*-\s*var\(--coddy-keyboard-inset, 0px\)\s*\)/,
     );
     expect(inner).toMatch(/display:\s*block/);
-    const chatScreen = readFileSync(join(here, "../chat/ChatScreen.tsx"), "utf8");
-    expect(chatScreen).toMatch(/className="chat-bottom-inner" ref=\{composerHostRef\}/);
-    expect(rule(/\.mode-menu--sheet,/)).toMatch(/bottom:\s*var\(--coddy-telegram-lift\)/);
+    const chatScreen = readFileSync(
+      join(here, "../chat/ChatScreen.tsx"),
+      "utf8",
+    );
+    expect(chatScreen).toMatch(
+      /className="chat-bottom-inner" ref=\{composerHostRef\}/,
+    );
+    expect(rule(/\.mode-menu--sheet,/)).toMatch(
+      /bottom:\s*var\(--coddy-telegram-lift\)/,
+    );
     // Sheets stay sheets: nothing turns them into centred panels.
     expect(css).not.toMatch(/translateY\(-50%\)/);
   });
 
   test("the top inset is set where the stacked shell sets it", () => {
-    expect(css).toMatch(/html\[data-telegram-mini-app="true"\] \{[^}]*--coddy-mobile-bar-h:/);
+    expect(css).toMatch(
+      /html\[data-telegram-mini-app="true"\] \{[^}]*--coddy-mobile-bar-h:/,
+    );
     expect(css).not.toMatch(/--coddy-mobile-top-inset:/);
   });
 

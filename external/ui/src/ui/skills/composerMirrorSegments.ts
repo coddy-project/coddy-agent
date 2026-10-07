@@ -52,7 +52,11 @@ function segmentStaticAtAndSlash(
     let pathRel = sp.path;
     if (marks) {
       const mark = marks.get(text.slice(sp.start, sp.end));
-      if (!mark || mark.typed === "" || !text.startsWith(mark.typed, sp.start)) {
+      if (
+        !mark ||
+        mark.typed === "" ||
+        !text.startsWith(mark.typed, sp.start)
+      ) {
         continue;
       }
       end = sp.start + mark.typed.length;

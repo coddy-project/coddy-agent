@@ -155,7 +155,11 @@ export function schedulerReadout(
       if (!completed) return null;
       const runs = objects(result?.runs);
       return runs
-        ? { kind: "runs", jobId: str(result!, "job_id") || jobId, runs: runs.map(runView) }
+        ? {
+            kind: "runs",
+            jobId: str(result!, "job_id") || jobId,
+            runs: runs.map(runView),
+          }
         : null;
     }
     case "job_create":
@@ -179,7 +183,11 @@ export function schedulerReadout(
           if (renamed && renamed !== jobId) readout.renamedTo = renamed;
         }
       }
-      if (tool === "job_create" || tool === "job_replace" || tool === "job_patch") {
+      if (
+        tool === "job_create" ||
+        tool === "job_replace" ||
+        tool === "job_patch"
+      ) {
         readout.job = jobView(args);
       }
       return readout;
@@ -189,7 +197,10 @@ export function schedulerReadout(
   }
 }
 
-function outcomeOf(tool: string, result: Record<string, unknown>): SchedulerOutcome {
+function outcomeOf(
+  tool: string,
+  result: Record<string, unknown>,
+): SchedulerOutcome {
   switch (tool) {
     case "job_create":
       return "created";

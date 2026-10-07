@@ -41,7 +41,8 @@ export function uiLogNoticeFeed(
   beforeMessageAt: (createdAtUtc: string | undefined) => SystemNotice[];
   end: () => SystemNotice[];
 } {
-  const pending: Array<{ turn: number; order: number; item: SystemNotice }> = [];
+  const pending: Array<{ turn: number; order: number; item: SystemNotice }> =
+    [];
   (rows || []).forEach((raw, order) => {
     const message = typeof raw.message === "string" ? raw.message.trim() : "";
     if (!message) return;
@@ -56,7 +57,9 @@ export function uiLogNoticeFeed(
         ? Math.floor(raw.userTurnIndex)
         : 1;
     const id =
-      typeof raw.id === "string" && raw.id.trim() !== "" ? raw.id.trim() : newId("s");
+      typeof raw.id === "string" && raw.id.trim() !== ""
+        ? raw.id.trim()
+        : newId("s");
     const createdAtUtc = typeof raw.createdAt === "string" ? raw.createdAt : "";
     pending.push({
       turn,

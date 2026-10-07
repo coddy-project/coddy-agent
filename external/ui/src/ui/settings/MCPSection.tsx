@@ -33,7 +33,10 @@ type MCPList = {
 /** A listing, or why there is none: the server's own message when it sent one. */
 type MCPListResult = { list: MCPList } | { error: string };
 
-function sessionHeaders(sessionID: string, contentType = false): HeadersInit | undefined {
+function sessionHeaders(
+  sessionID: string,
+  contentType = false,
+): HeadersInit | undefined {
   // A draft kept in the browser is no session of the server's: naming it
   // would get a 404 instead of the server's default workspace.
   const id = liveSessionId(sessionID) ?? "";
@@ -48,12 +51,12 @@ async function fetchServers(
   sessionID: string,
   refresh = false,
 ): Promise<MCPListResult> {
-	let res: Response;
-	try {
-		const init: RequestInit = {};
-		const headers = sessionHeaders(sessionID);
-		if (headers) init.headers = headers;
-		res = await fetch(`/coddy/mcp${refresh ? "?refresh=1" : ""}`, init);
+  let res: Response;
+  try {
+    const init: RequestInit = {};
+    const headers = sessionHeaders(sessionID);
+    if (headers) init.headers = headers;
+    res = await fetch(`/coddy/mcp${refresh ? "?refresh=1" : ""}`, init);
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
@@ -80,16 +83,16 @@ async function fetchServers(
 }
 
 async function apiSend(
-	sessionID: string,
-	path: string,
-	method: "POST" | "PUT" | "DELETE",
-	body?: unknown,
+  sessionID: string,
+  path: string,
+  method: "POST" | "PUT" | "DELETE",
+  body?: unknown,
 ): Promise<{ ok: boolean; error?: string; status?: number }> {
-	const init: RequestInit = { method };
-	const headers = sessionHeaders(sessionID, body !== undefined);
-	if (headers) init.headers = headers;
-	if (body !== undefined) {
-		init.body = JSON.stringify(body);
+  const init: RequestInit = { method };
+  const headers = sessionHeaders(sessionID, body !== undefined);
+  if (headers) init.headers = headers;
+  if (body !== undefined) {
+    init.body = JSON.stringify(body);
   }
   const res = await fetch(path, init);
   if (!res.ok) {
@@ -124,7 +127,6 @@ function IconPencil() {
     </svg>
   );
 }
-
 
 function statusTitle(row: MCPServerRow): string {
   switch (row.status) {
@@ -175,8 +177,8 @@ type EditorState = {
  * to /coddy/mcp* directly; nothing here touches the settings document.
  */
 export function MCPSection(props: { activeSessionId?: string }) {
-	const { t } = useT();
-	const activeSessionId = props.activeSessionId ?? "";
+  const { t } = useT();
+  const activeSessionId = props.activeSessionId ?? "";
   const [servers, setServers] = useState<MCPServerRow[]>([]);
   const [projectTrust, setProjectTrust] = useState<ProjectTrust>("ask");
   const [workspace, setWorkspace] = useState("");
@@ -205,7 +207,7 @@ export function MCPSection(props: { activeSessionId?: string }) {
       if (firstLoad) setLoading(true);
       if (refresh) setRefreshing(true);
       try {
-			const result = await fetchServers(activeSessionId, refresh);
+        const result = await fetchServers(activeSessionId, refresh);
         if (seq !== loadSeq.current) return;
         if ("list" in result) {
           setServers(result.list.items);
@@ -226,8 +228,8 @@ export function MCPSection(props: { activeSessionId?: string }) {
         if (firstLoad) setLoading(false);
         if (refresh) setRefreshing(false);
       }
-	},
-	[activeSessionId],
+    },
+    [activeSessionId],
   );
 
   useEffect(() => {
@@ -254,10 +256,10 @@ export function MCPSection(props: { activeSessionId?: string }) {
 
   const onToggleServer = (row: MCPServerRow) => {
     withBusy(row.name, async () => {
-		const action = row.enabled ? "disable" : "enable";
-		const res = await apiSend(
-			activeSessionId,
-			`/coddy/mcp/${encodeURIComponent(row.name)}/${action}`,
+      const action = row.enabled ? "disable" : "enable";
+      const res = await apiSend(
+        activeSessionId,
+        `/coddy/mcp/${encodeURIComponent(row.name)}/${action}`,
         "POST",
       );
       if (!res.ok) {
@@ -271,10 +273,10 @@ export function MCPSection(props: { activeSessionId?: string }) {
 
   const onToggleTool = (row: MCPServerRow, tool: string, enabled: boolean) => {
     withBusy(`${row.name}__${tool}`, async () => {
-		const action = enabled ? "disable" : "enable";
-		const res = await apiSend(
-			activeSessionId,
-			`/coddy/mcp/${encodeURIComponent(row.name)}/tools/${encodeURIComponent(tool)}/${action}`,
+      const action = enabled ? "disable" : "enable";
+      const res = await apiSend(
+        activeSessionId,
+        `/coddy/mcp/${encodeURIComponent(row.name)}/tools/${encodeURIComponent(tool)}/${action}`,
         "POST",
       );
       if (!res.ok) {
@@ -290,9 +292,14 @@ export function MCPSection(props: { activeSessionId?: string }) {
   // MCP API, so it never joins the settings document Save all flow.
   const onProjectTrustChange = (next: ProjectTrust) => {
     withBusy("project-trust", async () => {
-		const res = await apiSend(activeSessionId, "/coddy/mcp/project-trust", "POST", {
-        policy: next,
-      });
+      const res = await apiSend(
+        activeSessionId,
+        "/coddy/mcp/project-trust",
+        "POST",
+        {
+          policy: next,
+        },
+      );
       if (!res.ok) {
         setError(res.error || translate("mcp.error.changeTrustPolicy"));
       } else await loadServers();
@@ -307,9 +314,9 @@ export function MCPSection(props: { activeSessionId?: string }) {
       // An approval names the declaration the note showed by its fingerprint,
       // so the server refuses it (409) when the checkout rewrote the entry
       // between the listing and the click.
-		const res = await apiSend(
-			activeSessionId,
-			`/coddy/mcp/${encodeURIComponent(row.name)}/${action}`,
+      const res = await apiSend(
+        activeSessionId,
+        `/coddy/mcp/${encodeURIComponent(row.name)}/${action}`,
         "POST",
         row.trusted ? undefined : { fingerprint: row.fingerprint ?? "" },
       );
@@ -324,9 +331,9 @@ export function MCPSection(props: { activeSessionId?: string }) {
 
   const onDelete = (row: MCPServerRow) => {
     withBusy(row.name, async () => {
-		const res = await apiSend(
-			activeSessionId,
-			`/coddy/mcp/${encodeURIComponent(row.name)}`,
+      const res = await apiSend(
+        activeSessionId,
+        `/coddy/mcp/${encodeURIComponent(row.name)}`,
         "DELETE",
       );
       if (!res.ok) {
@@ -376,13 +383,13 @@ export function MCPSection(props: { activeSessionId?: string }) {
     setEditorError(null);
     void (async () => {
       try {
-		const query = new URLSearchParams({ scope: editor.scope });
-		if (!editor.isNew && editor.fingerprint) {
-			query.set("fingerprint", editor.fingerprint);
-		}
-		const res = await apiSend(
-			activeSessionId,
-			`/coddy/mcp/${encodeURIComponent(editor.name.trim())}?${query.toString()}`,
+        const query = new URLSearchParams({ scope: editor.scope });
+        if (!editor.isNew && editor.fingerprint) {
+          query.set("fingerprint", editor.fingerprint);
+        }
+        const res = await apiSend(
+          activeSessionId,
+          `/coddy/mcp/${encodeURIComponent(editor.name.trim())}?${query.toString()}`,
           "PUT",
           entry,
         );
@@ -815,10 +822,7 @@ function MCPEditorCard(props: {
         })}
       </p>
       {editor.isNew ? null : (
-        <p
-          className="settings-field-desc"
-          data-testid="mcp-editor-values-hint"
-        >
+        <p className="settings-field-desc" data-testid="mcp-editor-values-hint">
           {t("mcp.editor.valuesHint", { placeholder: "<redacted>" })}
         </p>
       )}

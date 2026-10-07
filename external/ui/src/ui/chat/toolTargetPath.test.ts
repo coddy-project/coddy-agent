@@ -9,7 +9,9 @@ const ROOTS = [CWD, `${CWD}/.coddy/worktrees/fix-session-stop-queue`, WORKTREE];
 
 test("a path under the session directory drops the shared prefix", () => {
   expect(
-    relativeToolTarget("/storage/Repository/coddy/coddy-agent/docs/nav.yaml", [CWD]),
+    relativeToolTarget("/storage/Repository/coddy/coddy-agent/docs/nav.yaml", [
+      CWD,
+    ]),
   ).toBe("docs/nav.yaml");
 });
 
@@ -46,9 +48,9 @@ test("outside every worktree the session directory is the root", () => {
 });
 
 test("a sibling of the session directory walks up while that stays shorter", () => {
-  expect(relativeToolTarget("/storage/Repository/coddy/other/main.go", [CWD])).toBe(
-    "../other/main.go",
-  );
+  expect(
+    relativeToolTarget("/storage/Repository/coddy/other/main.go", [CWD]),
+  ).toBe("../other/main.go");
 });
 
 test("a path far from the session keeps the absolute spelling", () => {
@@ -87,10 +89,9 @@ test("without a session directory nothing is rewritten", () => {
 
 test("a Windows path is matched case-insensitively and keeps its separator", () => {
   expect(
-    relativeToolTarget(
-      "C:\\Users\\Pasha\\Repository\\coddy\\docs\\nav.yaml",
-      ["c:\\users\\pasha\\repository\\coddy"],
-    ),
+    relativeToolTarget("C:\\Users\\Pasha\\Repository\\coddy\\docs\\nav.yaml", [
+      "c:\\users\\pasha\\repository\\coddy",
+    ]),
   ).toBe("docs\\nav.yaml");
 });
 

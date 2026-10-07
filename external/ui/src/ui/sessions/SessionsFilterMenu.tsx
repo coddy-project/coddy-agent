@@ -245,7 +245,7 @@ export function SessionsFilterMenu(props: {
       ? originIsDefault || !activeOrigin
         ? activeSwitch.label
         : `${activeSwitch.label} · ${activeOrigin.label}`
-      : activeOrigin?.label ?? "";
+      : (activeOrigin?.label ?? "");
     sections.push({
       key: "environment",
       label: t("sessions.filter.environment"),
@@ -406,7 +406,9 @@ export function SessionsFilterMenu(props: {
                       key={option.key}
                       type="button"
                       className={`sessions-filter-item${option.startsGroup ? " starts-group" : ""}`}
-                      role={option.kind === "switch" ? "menuitem" : "menuitemradio"}
+                      role={
+                        option.kind === "switch" ? "menuitem" : "menuitemradio"
+                      }
                       {...(option.kind === "switch"
                         ? option.active
                           ? { "aria-current": "true" as const }

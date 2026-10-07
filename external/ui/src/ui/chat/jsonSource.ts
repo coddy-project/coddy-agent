@@ -46,7 +46,8 @@ function literalEnd(source: string, at: number): number {
   let j = at + 1;
   const n = source.length;
   for (let k = source.charCodeAt(j); j < n; k = source.charCodeAt(++j)) {
-    if (isSpace(k) || k === COMMA || k === CLOSE_BRACE || k === CLOSE_BRACKET) break;
+    if (isSpace(k) || k === COMMA || k === CLOSE_BRACE || k === CLOSE_BRACKET)
+      break;
   }
   return j;
 }
@@ -76,7 +77,11 @@ export function parseJsonSource(text: string): JsonNode | undefined {
     if (c === QUOTE) {
       i = stringEnd(source, i);
       const literal = source.slice(start, i);
-      return { kind: "string", source: literal, value: JSON.parse(literal) as string };
+      return {
+        kind: "string",
+        source: literal,
+        value: JSON.parse(literal) as string,
+      };
     }
     if (c === OPEN_BRACE) {
       i++;
@@ -150,7 +155,8 @@ export function indentJson(text: string): string {
   const parts: string[] = [];
   const indents: string[] = ["\n"];
   const newline = (depth: number) => {
-    while (indents.length <= depth) indents.push(indents[indents.length - 1] + "  ");
+    while (indents.length <= depth)
+      indents.push(indents[indents.length - 1] + "  ");
     return indents[depth]!;
   };
   const n = source.length;
@@ -166,7 +172,10 @@ export function indentJson(text: string): string {
       // An empty container stays on its line, as JSON.stringify prints it.
       let j = i + 1;
       while (j < n && isSpace(source.charCodeAt(j))) j++;
-      if (source.charCodeAt(j) === (c === OPEN_BRACE ? CLOSE_BRACE : CLOSE_BRACKET)) {
+      if (
+        source.charCodeAt(j) ===
+        (c === OPEN_BRACE ? CLOSE_BRACE : CLOSE_BRACKET)
+      ) {
         parts.push(c === OPEN_BRACE ? "{}" : "[]");
         i = j + 1;
       } else {

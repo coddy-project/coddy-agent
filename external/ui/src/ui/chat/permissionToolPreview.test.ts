@@ -296,7 +296,10 @@ test("toolCallTargetText names the one thing each call acts on", () => {
     toolCallTargetText({ title: "websearch", argsText: '{"query":"go slog"}' }),
   ).toBe("go slog");
   expect(
-    toolCallTargetText({ title: "coddy_docs_search", argsText: '{"query":"telegram proxy"}' }),
+    toolCallTargetText({
+      title: "coddy_docs_search",
+      argsText: '{"query":"telegram proxy"}',
+    }),
   ).toBe("telegram proxy");
   expect(
     toolCallTargetText({
@@ -353,7 +356,10 @@ test("toolCallTargetText stays empty when there is nothing to name", () => {
 // tells two pages of the same file apart.
 test("toolCallTargetRange spells the lines a read takes", () => {
   const read = (args: Record<string, unknown>) =>
-    toolCallTargetRange({ title: "read", argsText: JSON.stringify({ path: "a.go", ...args }) });
+    toolCallTargetRange({
+      title: "read",
+      argsText: JSON.stringify({ path: "a.go", ...args }),
+    });
   expect(read({ offset: 120, limit: 61 })).toBe(":120-180");
   // One line is still a range a mention can hold.
   expect(read({ offset: 120, limit: 1 })).toBe(":120-120");
@@ -396,7 +402,10 @@ test("only a file read carries a line range", () => {
   ).toBe("");
   // The path itself stays the target: the live status line reads it alone.
   expect(
-    toolCallTargetText({ title: "read", argsText: '{"path":"a.go","offset":3,"limit":2}' }),
+    toolCallTargetText({
+      title: "read",
+      argsText: '{"path":"a.go","offset":3,"limit":2}',
+    }),
   ).toBe("a.go");
 });
 
@@ -495,9 +504,10 @@ test("the action card names a no-argument tool the way its row does", () => {
     header: "calling list_repos on the MCP server github",
     kind: "action",
   });
-  expect(
-    buildToolCallPreview({ title: "something_new" }, ""),
-  ).toMatchObject({ header: "something_new", kind: "action" });
+  expect(buildToolCallPreview({ title: "something_new" }, "")).toMatchObject({
+    header: "something_new",
+    kind: "action",
+  });
 });
 
 test("localizes the action card", () => {
@@ -604,7 +614,9 @@ test("config calls name the key or the command they act on", () => {
     }),
   ).toBe("scheduler.enable");
   // config_commit, config_changes and config_rollback take no arguments at all.
-  expect(toolCallTargetText({ title: "config_commit", argsText: "{}" })).toBe("");
+  expect(toolCallTargetText({ title: "config_commit", argsText: "{}" })).toBe(
+    "",
+  );
 
   for (const context of [
     { title: "config_get", argsText: '{"path":"scheduler.enable"}' },

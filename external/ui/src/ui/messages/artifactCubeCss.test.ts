@@ -8,9 +8,21 @@ const css = readFileSync(
   "utf8",
 );
 
+/**
+ * A declaration block on one line: Prettier breaks a long value over several,
+ * indented, so the assertions read it with runs of whitespace as one space and
+ * none inside the parentheses.
+ */
+function squash(body: string): string {
+  return body
+    .replace(/\s+/g, " ")
+    .replace(/\(\s+/g, "(")
+    .replace(/\s+\)/g, ")");
+}
+
 function block(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+  return squash(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "");
 }
 
 test("inline artifact cards are compact cubes with low clamped file names", () => {

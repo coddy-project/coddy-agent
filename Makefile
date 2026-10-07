@@ -1,4 +1,4 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -68,6 +68,13 @@ ui-test: ui-deps
 # `make lint`. vite only transpiles, so a type error ships unless this runs.
 ui-typecheck: ui-deps
 	cd external/ui && npm run typecheck
+
+# Prettier over the whole SPA at its defaults, external/ui/.prettierignore
+# keeping the build output and the vendored grammars out: the format gate of
+# the pre-commit hook and of CI's Lint job. `npm run fmt` in external/ui fixes
+# what it reports.
+ui-format-check: ui-deps
+	cd external/ui && npm run format:check
 
 # Build the coddy CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:
@@ -454,5 +461,5 @@ lint-windows: ui-build
 # Bypass a single commit with: git commit --no-verify
 hooks:
 	git config core.hooksPath .githooks
-	@echo "Enabled .githooks — 'git commit' now runs the linter and Prettier over the staged SPA files (scripts/checks.sh)."
+	@echo "Enabled .githooks — 'git commit' now runs the linter, and Prettier over the SPA when it stages SPA files (scripts/checks.sh)."
 	@echo "Add tests with CODDY_HOOK_TESTS=fast|full|matrix; skip lint with CODDY_HOOK_LINT=0, Prettier with CODDY_HOOK_FORMAT=0; bypass once with --no-verify."

@@ -51,7 +51,9 @@ export function useProviderUsage(params: {
 }) {
   const provider = usageProviderOf(params.llmModel);
   const [usage, setUsage] = useState<ProviderUsage | null>(null);
-  const [dismissedKey, setDismissedKey] = useState<string>(() => readDismissed());
+  const [dismissedKey, setDismissedKey] = useState<string>(() =>
+    readDismissed(),
+  );
   // Rows that answered "unsupported", each with the time the mark expires.
   const unsupportedRef = useRef<Map<string, number>>(new Map());
   // Sequence of the reads issued: only the latest one issued applies.
@@ -89,10 +91,15 @@ export function useProviderUsage(params: {
         const answer = await fetchProviderUsage(name, refresh, fetchImpl);
         if (providerRef.current !== name) return;
         if (!answer.ok && "unsupported" in answer) {
-          unsupportedRef.current.set(name, Date.now() + USAGE_UNSUPPORTED_TTL_MS);
+          unsupportedRef.current.set(
+            name,
+            Date.now() + USAGE_UNSUPPORTED_TTL_MS,
+          );
           // The row has no usage now (no source, or its usage limits panel
           // switched off in config): a snapshot shown for it must go too.
-          setUsage((current) => (current && current.provider === name ? null : current));
+          setUsage((current) =>
+            current && current.provider === name ? null : current,
+          );
           return;
         }
         if (seq !== seqRef.current) return;

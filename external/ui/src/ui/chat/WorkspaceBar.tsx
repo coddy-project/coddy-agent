@@ -100,8 +100,12 @@ export function WorkspaceBar(props: {
           data-testid="workspace-bar-edits"
           onClick={() => props.onOpenEdits?.()}
         >
-          <span className="changes-add">{"+" + number.format(totals.additions)}</span>
-          <span className="changes-del">{"−" + number.format(totals.deletions)}</span>
+          <span className="changes-add">
+            {"+" + number.format(totals.additions)}
+          </span>
+          <span className="changes-del">
+            {"−" + number.format(totals.deletions)}
+          </span>
         </button>
       ) : null}
     </div>

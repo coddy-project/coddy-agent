@@ -18,7 +18,9 @@ test("an unreadable successful response becomes a recoverable error", async () =
     ok: false,
     status: 200,
   });
-  await expect(discardSessionChanges("s1", { all: true })).resolves.toMatchObject({
+  await expect(
+    discardSessionChanges("s1", { all: true }),
+  ).resolves.toMatchObject({
     ok: false,
     status: 200,
   });
