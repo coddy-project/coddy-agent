@@ -208,7 +208,8 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 	}
 	switch cmd.Kind {
 	case GoalCommandShow:
-		return nil, nil, GoalStatusText(st.GetGoal(), cfg.Supervisor.ContinuationLimit(), cfg.Supervisor.EffectiveTokenBudget()), nil
+		g := st.GetGoal()
+		return nil, nil, GoalStatusText(g, GoalCheckerFor(cfg, st, g), cfg.Supervisor.ContinuationLimit(), cfg.Supervisor.EffectiveTokenBudget()), nil
 	case GoalCommandClear:
 		return nil, nil, m.clearGoal(st), nil
 	case GoalCommandPause:

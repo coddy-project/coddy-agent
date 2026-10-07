@@ -8,6 +8,7 @@ Feature: A browser follows the session goal over HTTP
     When the browser sends "/goal ship the fix" as a streamed prompt
     Then the stream carries the goal kickoff and the goal updates
     And the goal route reports the goal complete after one continuation
+    And the goal route names the checker "fake/model" at its default level "medium"
     And the session messages carry the goal and both goal turns
     When the browser sets the objective "write the docs" through the goal route
     And the browser pauses the goal through the goal route

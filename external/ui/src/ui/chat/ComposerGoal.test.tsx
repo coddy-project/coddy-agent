@@ -321,6 +321,50 @@ test("/goal with anything after it is the server's and is sent as typed", () => 
   expect(screen.queryByTestId("goal-popover")).toBeNull();
 });
 
+test("the card names the checker and, beside it, the level the check runs at", () => {
+  for (const [over, model, level] of [
+    [
+      { checkModel: "hub/think", checkReasoning: "medium" },
+      "hub/think",
+      "medium",
+    ],
+    [
+      { checkModel: "hub/think", checkReasoning: "default" },
+      "hub/think",
+      "default",
+    ],
+    [{ checkModel: "hub/plain" }, "hub/plain", null],
+    [
+      {
+        model: "hub/think",
+        reasoning: "high",
+        checkModel: "hub/think",
+        checkReasoning: "high",
+      },
+      "hub/think",
+      "high",
+    ],
+  ] as const) {
+    render(<Harness goal={goalOf(over)} actions={actionsMock()} />);
+    fireEvent.click(chip());
+    expect(within(popover()).getByTestId("goal-checker")).toHaveTextContent(
+      new RegExp(`^${model}$`),
+    );
+    const reasoning = within(popover()).queryByTestId("goal-reasoning");
+    if (level === null) {
+      // A model without reasoning levels has no Reasoning section.
+      expect(reasoning).toBeNull();
+    } else {
+      expect(reasoning).toHaveTextContent(new RegExp(`^${level}$`));
+    }
+    // The two sit together after the numbers, in a list of their own.
+    expect(
+      within(popover()).getByTestId("goal-checker").closest("dl"),
+    ).toHaveClass("goal-checker-numbers");
+    cleanup();
+  }
+});
+
 test("Edit keeps the model and the level that check the goal", () => {
   const actions = actionsMock();
   render(
@@ -331,7 +375,10 @@ test("Edit keeps the model and the level that check the goal", () => {
   );
   fireEvent.click(chip());
   expect(within(popover()).getByTestId("goal-checker")).toHaveTextContent(
-    "hub/qwen3-coder · reasoning high",
+    "hub/qwen3-coder",
+  );
+  expect(within(popover()).getByTestId("goal-reasoning")).toHaveTextContent(
+    "high",
   );
   fireEvent.click(within(popover()).getByTestId("goal-edit"));
   fireEvent.change(within(popover()).getByTestId("goal-objective-input"), {

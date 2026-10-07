@@ -190,8 +190,9 @@ func goalCommandOf(prompt []acp.ContentBlock) GoalCommand {
 	return ParseGoalCommand(prompt[0].Text)
 }
 
-// GoalStatusText is the answer to a bare /goal on a surface that shows text.
-func GoalStatusText(g GoalState, maxContinuations, tokenBudget int) string {
+// GoalStatusText is the answer to a bare /goal on a surface that shows text;
+// checker is the model and the level that check it (GoalCheckerFor).
+func GoalStatusText(g GoalState, checker GoalChecker, maxContinuations, tokenBudget int) string {
 	if !g.Set() {
 		return "No goal is set. /goal <objective> sets one and starts working on it."
 	}
@@ -200,8 +201,11 @@ func GoalStatusText(g GoalState, maxContinuations, tokenBudget int) string {
 	if r := strings.TrimSpace(g.StatusReason); r != "" {
 		fmt.Fprintf(&b, "\nReason: %s", r)
 	}
-	if g.Model != "" || g.Reasoning != "" {
-		fmt.Fprintf(&b, "\nChecked by: %s", strings.TrimSpace(firstNonEmpty(g.Model, "the supervisor's model")+" "+goalReasoningNote(g.Reasoning)))
+	if checker.Model != "" {
+		fmt.Fprintf(&b, "\nChecked by: %s", checker.Model)
+	}
+	if checker.Reasoning != "" {
+		fmt.Fprintf(&b, "\nReasoning: %s", checker.Reasoning)
 	}
 	fmt.Fprintf(&b, "\nContinuations: %d of %d · checks: %d", g.Continuations, maxContinuations, g.Checks)
 	// What counts against the budget: since the last resume, like every
@@ -320,11 +324,4 @@ func (m *Manager) resumeGoal(st *State, model, reasoning string) error {
 		return true
 	})
 	return nil
-}
-
-func goalReasoningNote(level string) string {
-	if level == "" {
-		return ""
-	}
-	return "(reasoning " + level + ")"
 }

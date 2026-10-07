@@ -85,16 +85,48 @@ func TestParseGoalCommand(t *testing.T) {
 }
 
 func TestGoalStatusText(t *testing.T) {
-	if got := GoalStatusText(GoalState{}, 10, 0); !strings.Contains(got, "No goal is set") {
+	if got := GoalStatusText(GoalState{}, GoalChecker{}, 10, 0); !strings.Contains(got, "No goal is set") {
 		t.Fatalf("empty = %q", got)
 	}
 	g, _ := NewGoal("ship it")
 	g.Status, g.StatusReason, g.Continuations = GoalBlocked, "which DB?", 3
 	g.LastCheck = &GoalCheck{Verdict: GoalVerdictNeedsUser, Reason: "which DB?", Remaining: []string{"ask the operator"}}
-	got := GoalStatusText(g, 10, 0)
-	for _, want := range []string{"Goal (blocked): ship it", "Reason: which DB?", "3 of 10", "needs_user", "- ask the operator", "/goal resume"} {
+	got := GoalStatusText(g, GoalChecker{Model: "p/think", Reasoning: "medium"}, 10, 0)
+	for _, want := range []string{"Goal (blocked): ship it", "Reason: which DB?", "Checked by: p/think\nReasoning: medium", "3 of 10", "needs_user", "- ask the operator", "/goal resume"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("status lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+// The checker a surface shows is the one the next check runs on: the goal's
+// model and level, else supervisor.model or the session's model at that
+// model's default level.
+func TestGoalCheckerNamesTheModelAndItsLevel(t *testing.T) {
+	levels := []string{"low", "medium", "high"}
+	cfg := &config.Config{
+		Models: []config.ModelEntry{
+			{Model: "p/plain"},
+			{Model: "p/think", ReasoningLevels: &levels, ReasoningDefault: "medium"},
+			{Model: "p/nodefault", ReasoningLevels: &levels},
+		},
+		Agent: config.Agent{Model: "p/plain"},
+	}
+	st := &State{ID: "s", Mode: ModeAgent}
+	g, _ := NewGoal("ship it")
+	for _, tc := range []struct {
+		name, supervisor, model, reasoning string
+		want                               GoalChecker
+	}{
+		{name: "the session model without levels", want: GoalChecker{Model: "p/plain"}},
+		{name: "the model's default level", supervisor: "p/think", want: GoalChecker{Model: "p/think", Reasoning: "medium"}},
+		{name: "a level the goal chose", model: "p/think", reasoning: "high", want: GoalChecker{Model: "p/think", Reasoning: "high"}},
+		{name: "levels without a configured default", supervisor: "p/nodefault", want: GoalChecker{Model: "p/nodefault", Reasoning: config.ReasoningDefault}},
+	} {
+		cfg.Supervisor.Model = tc.supervisor
+		g.Model, g.Reasoning = tc.model, tc.reasoning
+		if got := GoalCheckerFor(cfg, st, g); got != tc.want {
+			t.Errorf("%s: checker = %+v, want %+v", tc.name, got, tc.want)
 		}
 	}
 }

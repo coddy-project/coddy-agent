@@ -7765,6 +7765,17 @@ html:not([data-theme="light"]) .context-breakdown-error {
   font-variant-numeric: tabular-nums;
 }
 
+/* The checker after the numbers: the model takes the room, its reasoning
+   level its own width; pulled up to the numbers' row gap. */
+.goal-checker-numbers {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: -4px;
+}
+
+.goal-checker-numbers dd {
+  overflow-wrap: anywhere;
+}
+
 .goal-popover-actions {
   flex: none;
   display: flex;

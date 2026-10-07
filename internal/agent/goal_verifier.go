@@ -68,7 +68,7 @@ func (a *Agent) verifyGoal(ctx context.Context, req session.GoalCheckRequest) (s
 			SelectedModelID: model,
 			// The level /goal --reasoning chose for the check; empty keeps the
 			// model's default.
-			SelectedReasoning: session.GoalCheckReasoning(st),
+			SelectedReasoning: session.GoalCheckReasoning(cfg, st),
 			Title:             "Goal verification",
 			Tools:             goalVerifierTools,
 			Depth:             a.subagentDepth() + 1,

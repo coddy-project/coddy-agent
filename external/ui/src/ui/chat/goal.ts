@@ -78,6 +78,12 @@ export type SessionGoal = {
    * check this goal; empty when it follows the configuration. */
   model: string;
   reasoning: string;
+  /** What the next check runs on, as the server resolved it: the model, and
+   * its level - the goal's own, else the model's default, "default" when the
+   * model configures none, empty when it has no levels. Empty from a server
+   * that does not send them. */
+  checkModel: string;
+  checkReasoning: string;
 };
 
 /** The envelope every surface of the server delivers a goal in. */
@@ -164,6 +170,8 @@ export function parseSessionGoal(raw: unknown): SessionGoal | null {
     checklist,
     model: str(o.model),
     reasoning: str(o.reasoning),
+    checkModel: str(o.checkModel),
+    checkReasoning: str(o.checkReasoning),
   };
 }
 

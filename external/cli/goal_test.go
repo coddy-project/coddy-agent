@@ -334,9 +334,12 @@ func TestGoalMenuBodyNamesTheChecker(t *testing.T) {
 		goal acp.SessionGoal
 		want string
 	}{
-		{acp.SessionGoal{Objective: "x", Status: "active", Model: "hub/qwen", Reasoning: "high"}, "Checked by: hub/qwen, reasoning high"},
-		{acp.SessionGoal{Objective: "x", Status: "active", Reasoning: "low"}, "Checked by: the session model, reasoning low"},
-		{acp.SessionGoal{Objective: "x", Status: "active", LastCheck: &acp.GoalCheck{Verdict: "met", Model: "p/judge"}}, "Checked by: p/judge"},
+		{acp.SessionGoal{Objective: "x", Status: "active", Model: "hub/qwen", Reasoning: "high"}, "Checked by: hub/qwen\nReasoning: high"},
+		{acp.SessionGoal{Objective: "x", Status: "active", Reasoning: "low"}, "Checked by: the session model\nReasoning: low"},
+		{acp.SessionGoal{Objective: "x", Status: "active", LastCheck: &acp.GoalCheck{Verdict: "met", Model: "p/judge"}}, "Checked by: p/judge\ncontinuations"},
+		// The server's resolved checker: the model's default level, as it is.
+		{acp.SessionGoal{Objective: "x", Status: "active", CheckModel: "hub/think", CheckReasoning: "medium"}, "Checked by: hub/think\nReasoning: medium"},
+		{acp.SessionGoal{Objective: "x", Status: "active", CheckModel: "hub/think", CheckReasoning: "default"}, "Checked by: hub/think\nReasoning: default"},
 	} {
 		if body := plain(goalMenuBody(newTheme("dark"), &tc.goal)); !strings.Contains(body, tc.want) {
 			t.Errorf("the menu body lacks %q:\n%s", tc.want, body)

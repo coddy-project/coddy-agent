@@ -199,9 +199,44 @@ func GoalCheckModelFor(cfg *config.Config, st *State, g GoalState) string {
 }
 
 // GoalCheckReasoning is the reasoning level the check runs at: the goal's own
-// (/goal --reasoning), else the checking model's default (empty).
-func GoalCheckReasoning(st *State) string {
-	return strings.TrimSpace(st.GetGoal().Reasoning)
+// (/goal --reasoning), else the checking model's default level, the one a
+// session on that model runs at when nothing is chosen. Empty for a model
+// without reasoning levels or without a configured default.
+func GoalCheckReasoning(cfg *config.Config, st *State) string {
+	return goalCheckReasoningFor(cfg, st, st.GetGoal())
+}
+
+func goalCheckReasoningFor(cfg *config.Config, st *State, g GoalState) string {
+	if r := strings.TrimSpace(g.Reasoning); r != "" {
+		return r
+	}
+	if cfg == nil {
+		return ""
+	}
+	return cfg.DefaultReasoningLevelFor(cfg.FindModelEntry(GoalCheckModelFor(cfg, st, g)))
+}
+
+// GoalChecker is the model and the reasoning level the next check of a goal
+// runs on, as the surfaces show them.
+type GoalChecker struct {
+	Model string
+	// Reasoning is the goal's own level, else the model's default;
+	// config.ReasoningDefault when the model offers levels but configures no
+	// default, so the provider's own applies; empty for a model without
+	// reasoning levels.
+	Reasoning string
+}
+
+// GoalCheckerFor resolves the checker of g in a session.
+func GoalCheckerFor(cfg *config.Config, st *State, g GoalState) GoalChecker {
+	if cfg == nil {
+		return GoalChecker{Model: strings.TrimSpace(g.Model), Reasoning: strings.TrimSpace(g.Reasoning)}
+	}
+	c := GoalChecker{Model: GoalCheckModelFor(cfg, st, g), Reasoning: goalCheckReasoningFor(cfg, st, g)}
+	if c.Reasoning == "" && len(cfg.ReasoningChoicesFor(cfg.FindModelEntry(c.Model))) > 0 {
+		c.Reasoning = config.ReasoningDefault
+	}
+	return c
 }
 
 // judgeSessionGoal is the default check: one call, no tools, through the same
@@ -219,7 +254,7 @@ func judgeSessionGoal(ctx context.Context, cfg *config.Config, st *State, req Go
 		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
 		AuthPath: rm.AuthPath, NoCLILogin: rm.NoCLILogin,
 		MaxTokens: goalJudgeMaxTokens(rm.MaxTokens), Temperature: rm.Temperature,
-		ReasoningEffort: GoalCheckReasoning(st),
+		ReasoningEffort: GoalCheckReasoning(cfg, st),
 		DisableStream:   !rm.Stream, Timeout: time.Duration(rm.TimeoutMS) * time.Millisecond,
 	}
 	if rm.Stream {

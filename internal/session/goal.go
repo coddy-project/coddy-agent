@@ -292,10 +292,19 @@ func (m *Manager) SessionGoal(sessionID string) (acp.SessionGoalUpdate, error) {
 }
 
 func (m *Manager) goalUpdate(st *State, notice string) acp.SessionGoalUpdate {
+	cfg := m.activeCfg()
+	g := st.GetGoal()
+	snap := GoalSnapshot(g, cfg)
+	if snap != nil && cfg != nil {
+		// The checker the next check runs on, resolved here because it may be
+		// the session's own model.
+		checker := GoalCheckerFor(cfg, st, g)
+		snap.CheckModel, snap.CheckReasoning = checker.Model, checker.Reasoning
+	}
 	return acp.SessionGoalUpdate{
 		SessionUpdate: acp.UpdateTypeSessionGoal,
 		SessionID:     st.ID,
-		Goal:          GoalSnapshot(st.GetGoal(), m.activeCfg()),
+		Goal:          snap,
 		Version:       goalVersionSeq.Add(1),
 		Notice:        notice,
 	}

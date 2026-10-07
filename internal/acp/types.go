@@ -434,6 +434,12 @@ type SessionGoal struct {
 	// session's model and its default level.
 	Model     string `json:"model,omitempty"`
 	Reasoning string `json:"reasoning,omitempty"`
+	// CheckModel and CheckReasoning are what the next check runs on: Model,
+	// else supervisor.model, else the session's model; Reasoning, else that
+	// model's default level, "default" when it offers levels but configures
+	// no default, empty when it offers none.
+	CheckModel     string `json:"checkModel,omitempty"`
+	CheckReasoning string `json:"checkReasoning,omitempty"`
 }
 
 // GoalCheck is one supervisor verdict.

@@ -86,6 +86,19 @@ function ChecklistIcon(props: { status: string }) {
   );
 }
 
+/**
+ * The level the check runs at: the one the goal chose, else the model's
+ * default; "default" when the model configures none, nothing for a model
+ * without levels. An older server sends only the goal's own choice.
+ */
+function checkerLevel(
+  goal: SessionGoal,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  const level = goal.checkReasoning || goal.reasoning;
+  return level === "default" ? t("goal.reasoningDefault") : level;
+}
+
 function checklistStatusKey(status: string): string {
   if (status === "met") return "goal.item.met";
   if (status === "not_met") return "goal.item.notMet";
@@ -460,6 +473,14 @@ export function GoalPopover(props: {
     </form>
   );
 
+  // The model the next check runs on and its reasoning level.
+  const checker = goal
+    ? goal.checkModel ||
+      goal.model ||
+      goal.lastCheck?.model ||
+      (goal.reasoning ? t("goal.checkerDefault") : "")
+    : "";
+  const level = goal ? checkerLevel(goal, t) : "";
   const details = goal ? (
     <>
       <section className="goal-section">
@@ -533,21 +554,6 @@ export function GoalPopover(props: {
           <dt>{t("goal.checks")}</dt>
           <dd>{goal.checks}</dd>
         </div>
-        {goal.model || goal.reasoning || goal.lastCheck?.model ? (
-          <div>
-            <dt>{t("goal.checkedBy")}</dt>
-            <dd data-testid="goal-checker">
-              {[
-                goal.model || goal.lastCheck?.model || t("goal.checkerDefault"),
-                goal.reasoning
-                  ? t("goal.checkerLevel", { level: goal.reasoning })
-                  : "",
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </dd>
-          </div>
-        ) : null}
         <div>
           <dt>{t("goal.activeTime")}</dt>
           <dd>{formatElapsedSeconds(goal.activeMs)}</dd>
@@ -568,6 +574,22 @@ export function GoalPopover(props: {
           </div>
         ) : null}
       </dl>
+      {checker ? (
+        // A row of its own after the numbers: a model id does not fit a
+        // number's column. The model takes the room, its level sits beside.
+        <dl className="goal-numbers goal-checker-numbers">
+          <div>
+            <dt>{t("goal.checkedBy")}</dt>
+            <dd data-testid="goal-checker">{checker}</dd>
+          </div>
+          {level ? (
+            <div>
+              <dt>{t("goal.reasoning")}</dt>
+              <dd data-testid="goal-reasoning">{level}</dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : null}
     </>
   ) : null;
 

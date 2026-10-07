@@ -342,28 +342,42 @@ func goalMenuBody(th *tui.Theme, g *acp.SessionGoal) string {
 			lines = append(lines, "  "+goalItemMark(th, item.Status)+" "+tui.SanitizeText(item.Text))
 		}
 	}
-	if checker := goalChecker(g); checker != "" {
-		lines = append(lines, th.Fg(roleDim, "Checked by: ")+tui.SanitizeText(checker))
+	checker := goalChecker(g)
+	if checker.Model != "" {
+		lines = append(lines, th.Fg(roleDim, "Checked by: ")+tui.SanitizeText(checker.Model))
+	}
+	if checker.Reasoning != "" {
+		lines = append(lines, th.Fg(roleDim, "Reasoning: ")+tui.SanitizeText(checker.Reasoning))
 	}
 	lines = append(lines, th.Fg(roleDim, goalNumbers(g)))
 	return strings.Join(lines, "\n")
 }
 
-// goalChecker names the model and the reasoning level that check the goal:
-// what /goal --model and --reasoning chose, else the model that answered the
-// last check; empty when neither is known.
-func goalChecker(g *acp.SessionGoal) string {
-	model := strings.TrimSpace(g.Model)
-	if model == "" && g.LastCheck != nil {
-		model = strings.TrimSpace(g.LastCheck.Model)
+// goalChecker is the model and the reasoning level that check the goal: the
+// server's resolved checker, else what /goal --model and --reasoning chose,
+// else the model that answered the last check; empty fields where none is
+// known.
+func goalChecker(g *acp.SessionGoal) session.GoalChecker {
+	c := session.GoalChecker{
+		Model:     firstNonBlank(g.CheckModel, g.Model),
+		Reasoning: firstNonBlank(g.CheckReasoning, g.Reasoning),
 	}
-	if level := strings.TrimSpace(g.Reasoning); level != "" {
-		if model == "" {
-			model = "the session model"
+	if c.Model == "" && g.LastCheck != nil {
+		c.Model = strings.TrimSpace(g.LastCheck.Model)
+	}
+	if c.Model == "" && c.Reasoning != "" {
+		c.Model = "the session model"
+	}
+	return c
+}
+
+func firstNonBlank(values ...string) string {
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
 		}
-		return model + ", reasoning " + level
 	}
-	return model
+	return ""
 }
 
 // goalItemMark is the mark of a checklist item: met, not met, not verified.

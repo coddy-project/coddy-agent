@@ -115,6 +115,25 @@ func TestJudgeRunsAtTheGoalsReasoningLevel(t *testing.T) {
 	}
 }
 
+// A goal that names no level is checked at the checking model's default, the
+// level a session on that model runs at when nothing else is chosen.
+func TestJudgeRunsAtTheModelsDefaultLevel(t *testing.T) {
+	srv, requests := judgeServer(t, `{"verdict":"met"}`)
+	cfg := judgeConfig(srv.URL)
+	levels := []string{"low", "medium", "high"}
+	cfg.Models[0].ReasoningLevels = &levels
+	cfg.Models[0].ReasoningDefault = "medium"
+	st := &State{ID: "s", Mode: ModeAgent}
+	g, _ := NewGoal("x")
+	st.SetGoal(g)
+	if _, err := judgeSessionGoal(context.Background(), cfg, st, GoalCheckRequest{Objective: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*requests)[0]["reasoning_effort"]; got != "medium" {
+		t.Fatalf("reasoning_effort = %v, want the model's default medium", got)
+	}
+}
+
 func TestJudgeAsksAgainForABadFormat(t *testing.T) {
 	srv, requests := judgeServer(t, "Looks complete.", `{"verdict":"not_met","remaining":["add docs"]}`)
 	got, err := judgeSessionGoal(context.Background(), judgeConfig(srv.URL), &State{ID: "s", Mode: ModeAgent}, GoalCheckRequest{Objective: "x"})

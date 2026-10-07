@@ -160,7 +160,7 @@ func TestGoalCommandChoosesTheCheckingModelAndLevel(t *testing.T) {
 	h.mgr.Cfg().Models[1].ReasoningLevels = &levels // p2/gpt-4o-mini
 	var checkedBy, level string
 	h.mgr.SetGoalJudge(func(_ context.Context, cfg *config.Config, st *session.State, _ session.GoalCheckRequest) (session.GoalCheckResult, error) {
-		checkedBy, level = session.GoalCheckModel(cfg, st), session.GoalCheckReasoning(st)
+		checkedBy, level = session.GoalCheckModel(cfg, st), session.GoalCheckReasoning(cfg, st)
 		return session.GoalCheckResult{Verdict: session.GoalVerdictMet}, nil
 	})
 	h.prompt("/goal --model mini --reasoning high ship the fix")
@@ -168,8 +168,11 @@ func TestGoalCommandChoosesTheCheckingModelAndLevel(t *testing.T) {
 	if goal.Objective != "ship the fix" || goal.Model != "p2/gpt-4o-mini" || goal.Reasoning != "high" || checkedBy != "p2/gpt-4o-mini" || level != "high" {
 		t.Fatalf("goal=%+v checked by %q at %q", goal, checkedBy, level)
 	}
-	if !strings.Contains(session.GoalStatusText(goal, 10, 0), "Checked by: p2/gpt-4o-mini (reasoning high)") {
-		t.Fatalf("status = %q", session.GoalStatusText(goal, 10, 0))
+	if u, _ := h.mgr.SessionGoal(h.st().ID); u.Goal == nil || u.Goal.CheckModel != "p2/gpt-4o-mini" || u.Goal.CheckReasoning != "high" {
+		t.Fatalf("snapshot checker = %+v", u.Goal)
+	}
+	if text := session.GoalStatusText(goal, session.GoalCheckerFor(h.mgr.Cfg(), h.st(), goal), 10, 0); !strings.Contains(text, "Checked by: p2/gpt-4o-mini\nReasoning: high") {
+		t.Fatalf("status = %q", text)
 	}
 
 	// A resume keeps the pair unless it names another one; a model without

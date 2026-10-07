@@ -53,7 +53,7 @@ func (s *goalHTTPState) server() error {
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: s.root, CWD: s.root},
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
-		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, ReasoningLevels: &[]string{"low", "medium", "high"}, ReasoningDefault: "medium"}},
 		Agent:     config.Agent{Model: "fake/model"},
 	}
 	factory := func(llm.ProviderInput) (llm.Provider, error) { return cannedSummaryProvider{}, nil }
@@ -143,6 +143,20 @@ func (s *goalHTTPState) completeAfterOne() error {
 	return nil
 }
 
+// checkerAtDefault reads the checker the goal route names: no /goal option
+// chose one, so the session's model checks at its default level.
+func (s *goalHTTPState) checkerAtDefault(model, level string) error {
+	out, err := s.goalRoute(http.MethodGet, nil)
+	if err != nil {
+		return err
+	}
+	goal, _ := out["goal"].(map[string]interface{})
+	if goal == nil || goal["checkModel"] != model || goal["checkReasoning"] != level || goal["reasoning"] != nil {
+		return fmt.Errorf("GET goal checker = %v", goal)
+	}
+	return nil
+}
+
 func (s *goalHTTPState) messagesCarryGoal() error {
 	res, err := http.Get(s.ts.URL + "/coddy/sessions/" + s.sid + "/messages")
 	if err != nil {
@@ -220,6 +234,7 @@ func TestSessionGoalHTTPFeature(t *testing.T) {
 			sc.Step(`^the stream carries the goal kickoff and the goal updates$`, s.streamCarriesGoal)
 			sc.Step(`^the goal route reports the goal complete after one continuation$`, s.completeAfterOne)
 			sc.Step(`^the session messages carry the goal and both goal turns$`, s.messagesCarryGoal)
+			sc.Step(`^the goal route names the checker "([^"]*)" at its default level "([^"]*)"$`, s.checkerAtDefault)
 			sc.Step(`^the browser sets the objective "([^"]*)" through the goal route$`, s.setObjective)
 			sc.Step(`^the browser pauses the goal through the goal route$`, s.pause)
 			sc.Step(`^the goal route reports the goal "([^"]*)" as paused$`, s.pausedWith)
