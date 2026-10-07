@@ -2,7 +2,7 @@
 
 Coddy executes what the model decides on the machine it runs on, with the rights of the user who started it. This page gathers in one place what bounds that: the permission gate and the modes, the trust receipts for files that arrive with a checkout, where secrets live and where they are redacted, what the HTTP, Telegram and swarm surfaces expose, hooks as a policy layer, the loop guards, and what is not sandboxed at all. Each section points at the page that carries the detail.
 
-For the repository's own AppSec posture — trivy and semgrep run locally and in CI, the severity gate and triage — see [AppSec scanning](../contributing/security-scanning.md).
+For the repository's own AppSec posture — trivy, semgrep and govulncheck run locally and in CI, the severity gate and triage — see [AppSec scanning](../contributing/security-scanning.md).
 
 ## What is not sandboxed
 

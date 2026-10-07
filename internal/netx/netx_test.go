@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -497,12 +499,23 @@ func TestEgressPolicyRefusesSharedAddressSpace(t *testing.T) {
 	}
 }
 
+// setProxyEnv sets a proxy variable in both spellings for the test's lifetime.
+// The lookup falls back to the other spelling when one is empty, so a test
+// that set one alone (NO_PROXY="" above all) inherited the other from the
+// developer's shell, and which spelling wins first has changed between
+// golang.org/x/net releases (see environmentProxyConfig).
+func setProxyEnv(t *testing.T, name, value string) {
+	t.Helper()
+	t.Setenv(name, value)
+	t.Setenv(strings.ToLower(name), value)
+}
+
 // Which proxy variable applies depends on the scheme, so a caller dialling a
 // plain relay must not be routed by the rule meant for TLS.
 func TestProxyFromEnvironmentFollowsTheScheme(t *testing.T) {
-	t.Setenv("HTTP_PROXY", "http://plain-proxy:3128")
-	t.Setenv("HTTPS_PROXY", "http://tls-proxy:3129")
-	t.Setenv("NO_PROXY", "")
+	setProxyEnv(t, "HTTP_PROXY", "http://plain-proxy:3128")
+	setProxyEnv(t, "HTTPS_PROXY", "http://tls-proxy:3129")
+	setProxyEnv(t, "NO_PROXY", "")
 
 	plain, err := proxyFromEnvironment("relay.example:80", "http")
 	if err != nil {
@@ -521,8 +534,8 @@ func TestProxyFromEnvironmentFollowsTheScheme(t *testing.T) {
 }
 
 func TestProxyFromEnvironmentHonoursNoProxy(t *testing.T) {
-	t.Setenv("HTTPS_PROXY", "http://tls-proxy:3129")
-	t.Setenv("NO_PROXY", "relay.example")
+	setProxyEnv(t, "HTTPS_PROXY", "http://tls-proxy:3129")
+	setProxyEnv(t, "NO_PROXY", "relay.example")
 	got, err := proxyFromEnvironment("relay.example:443", "https")
 	if err != nil {
 		t.Fatal(err)
@@ -536,8 +549,8 @@ func TestProxyFromEnvironmentHonoursNoProxy(t *testing.T) {
 // the first as if it were the second yields a connection that looks established
 // and then answers nothing intelligible.
 func TestEnvironmentProxySchemeIsRespected(t *testing.T) {
-	t.Setenv("HTTPS_PROXY", "socks5://127.0.0.1:1")
-	t.Setenv("NO_PROXY", "")
+	setProxyEnv(t, "HTTPS_PROXY", "socks5://127.0.0.1:1")
+	setProxyEnv(t, "NO_PROXY", "")
 	dial, err := (Options{Scheme: "https"}).DialFunc()
 	if err != nil {
 		t.Fatal(err)
@@ -555,13 +568,56 @@ func TestEnvironmentProxySchemeIsRespected(t *testing.T) {
 // A malformed proxy variable is a configuration mistake; going direct instead
 // would quietly leave the network the operator said to go through.
 func TestEnvironmentProxyErrorIsNotSilentlyIgnored(t *testing.T) {
-	t.Setenv("HTTPS_PROXY", "://not-a-url")
-	t.Setenv("NO_PROXY", "")
+	setProxyEnv(t, "HTTPS_PROXY", "://not-a-url")
+	setProxyEnv(t, "NO_PROXY", "")
 	dial, err := (Options{Scheme: "https"}).DialFunc()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := dial(context.Background(), "tcp", "relay.example:443"); err == nil {
 		t.Fatal("a malformed proxy variable should not fall through to a direct dial")
+	}
+}
+
+// A leg whose proxy comes from the environment dials its tunnel through
+// proxyFromEnvironment and sends its ordinary requests through net/http's
+// ProxyFromEnvironment (Transport); both must leave through the same proxy,
+// including on a machine that exports both spellings of a variable with
+// different values. net/http reads the variables once per process, so the
+// comparison runs in a child that sets them before anything reads them.
+func TestProxyFromEnvironmentAgreesWithNetHTTP(t *testing.T) {
+	if os.Getenv("CODDY_NETX_PROXY_PARITY") == "1" {
+		for _, c := range []struct{ scheme, addr string }{
+			{"http", "relay.example:80"},
+			{"https", "relay.example:443"},
+			{"https", "skipped.example:443"},
+		} {
+			own, err := proxyFromEnvironment(c.addr, c.scheme)
+			if err != nil {
+				t.Fatalf("%s %s: %v", c.scheme, c.addr, err)
+			}
+			std, err := http.ProxyFromEnvironment(&http.Request{
+				URL: &url.URL{Scheme: c.scheme, Host: c.addr, Path: "/"},
+			})
+			if err != nil {
+				t.Fatalf("%s %s: net/http: %v", c.scheme, c.addr, err)
+			}
+			if fmt.Sprint(own) != fmt.Sprint(std) {
+				t.Errorf("%s %s: the tunnel goes through %v, the requests beside it through %v",
+					c.scheme, c.addr, own, std)
+			}
+		}
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestProxyFromEnvironmentAgreesWithNetHTTP$", "-test.count=1")
+	cmd.Env = append(os.Environ(),
+		"CODDY_NETX_PROXY_PARITY=1",
+		"REQUEST_METHOD=",
+		"HTTP_PROXY=http://upper-plain:3128", "http_proxy=http://lower-plain:3128",
+		"HTTPS_PROXY=http://upper-tls:3129", "https_proxy=http://lower-tls:3129",
+		"NO_PROXY=skipped.example", "no_proxy=other.example",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("netx and net/http disagree on the environment proxy: %v\n%s", err, out)
 	}
 }
