@@ -9,9 +9,11 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 func TestParseSource(t *testing.T) {
@@ -47,6 +49,27 @@ func TestParseSource(t *testing.T) {
 		if got.kind != tt.kind || got.url != tt.url || got.ref != tt.ref {
 			t.Errorf("parseSource(%q) = %+v, want kind=%s url=%s ref=%s", tt.in, got, tt.kind, tt.url, tt.ref)
 		}
+	}
+}
+
+func TestPluginCloneURLAllowed(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		parent string
+		plugin string
+		want   bool
+	}{
+		{name: "remote parent blocks file plugin", parent: "https://github.com/team/marketplace", plugin: "file:///private/repo", want: false},
+		{name: "remote parent blocks ssh plugin", parent: "https://github.com/team/marketplace", plugin: "git@internal.example:team/repo.git", want: false},
+		{name: "remote parent permits https plugin", parent: "https://github.com/team/marketplace", plugin: "https://github.com/team/plugin", want: true},
+		{name: "local parent permits file plugin", parent: "file:///tmp/marketplace", plugin: "file:///tmp/plugin", want: true},
+		{name: "ssh parent permits ssh plugin", parent: "git@github.com:team/marketplace.git", plugin: "git@github.com:team/plugin.git", want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := pluginCloneURLAllowed(tc.parent, tc.plugin); got != tc.want {
+				t.Fatalf("pluginCloneURLAllowed(%q, %q) = %t, want %t", tc.parent, tc.plugin, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -350,6 +373,89 @@ func TestSyncFromLocalMarketplaceGit(t *testing.T) {
 	}
 	if _, ok := readRemoteLock(managed)["demo"]; !ok {
 		t.Fatalf("lockfile missing demo entry")
+	}
+}
+
+func TestRemoteStagingDirUsesCoddyHome(t *testing.T) {
+	home := t.TempDir()
+	managed := filepath.Join(home, "skills")
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing-tmp"))
+
+	staging, cleanup, err := remoteStagingDir(managed, "coddy-test-")
+	if err != nil {
+		t.Fatalf("create staging directory: %v", err)
+	}
+	t.Cleanup(cleanup)
+
+	wantRoot := filepath.Join(home, remoteStagingDirName)
+	if got := filepath.Dir(staging); got != wantRoot {
+		t.Fatalf("staging directory = %q, want it below %q", staging, wantRoot)
+	}
+	if got := filepath.Base(staging); !strings.HasPrefix(got, "coddy-test-") {
+		t.Fatalf("staging directory name = %q, want coddy-test prefix", got)
+	}
+}
+
+func TestRemoteStagingDirRemovesStaleDirectories(t *testing.T) {
+	if !platform.FileLockingAvailable {
+		t.Skip("the platform cannot prove a stale directory is not active")
+	}
+	home := t.TempDir()
+	managed := filepath.Join(home, "skills")
+	root := filepath.Join(home, remoteStagingDirName)
+	stale := filepath.Join(root, "coddy-0-stale")
+	if err := os.MkdirAll(stale, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-remoteStagingMaxAge - time.Minute)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	active, cleanup, err := remoteStagingDir(managed, "coddy-z-active-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	if err := os.Chtimes(active, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh, freshCleanup, err := remoteStagingDir(managed, "coddy-fresh-")
+	if err != nil {
+		t.Fatalf("create staging directory beside active one: %v", err)
+	}
+	t.Cleanup(freshCleanup)
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale staging directory stat = %v, want not exist", err)
+	}
+	if _, err := os.Stat(active); err != nil {
+		t.Fatalf("active staging directory was removed: %v", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("fresh staging directory was not created: %v", err)
+	}
+	cleanup()
+}
+
+func TestRemoteStagingDirToleratesMissingStaleDirectory(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, remoteStagingDirName)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatalf("create staging directory: %v", err)
+	}
+	stale := filepath.Join(root, "coddy-stale")
+	if err := os.Mkdir(stale, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-remoteStagingMaxAge - time.Minute)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(stale); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeStaleRemoteStaging(root, time.Now()); err != nil {
+		t.Fatalf("remove stale staging: %v", err)
 	}
 }
 

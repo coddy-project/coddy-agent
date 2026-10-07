@@ -130,7 +130,7 @@ func AddMarketplace(ctx context.Context, cfg *config.Config, cwd, source, scope 
 	}
 	syncMu.Lock()
 	defer syncMu.Unlock()
-	om, err := openMarketplace(ctx, source)
+	om, err := openMarketplace(ctx, source, cfg.Skills.ManagedDir(cfg.Paths.Home))
 	if errors.Is(err, errNoMarketplace) {
 		return AddedMarketplace{}, false, fmt.Errorf("%s publishes no marketplace.json, so there is no marketplace to add; install its skills with `plugin install %s`", source, source)
 	}
@@ -186,7 +186,7 @@ func InstallFromMarketplace(ctx context.Context, cfg *config.Config, cwd, plugin
 		return nil, notAddedError(market, plugin, ms)
 	}
 	m := ms[i]
-	om, err := openMarketplace(ctx, m.Source)
+	om, err := openMarketplace(ctx, m.Source, managedDir)
 	if err != nil {
 		return nil, fmt.Errorf("read marketplace %q from %s: %w", m.Name, m.Source, err)
 	}
@@ -275,7 +275,7 @@ func UpdateMarketplace(ctx context.Context, cfg *config.Config, cwd, key string)
 // plugins the lock records as installed from it. Callers hold syncMu, and write
 // the lock and the list afterwards.
 func updateAddedLocked(ctx context.Context, m *AddedMarketplace, managedDir string, lock map[string]RemoteEntry, res *SyncResult) error {
-	om, err := openMarketplace(ctx, m.Source)
+	om, err := openMarketplace(ctx, m.Source, managedDir)
 	if err != nil {
 		return fmt.Errorf("read marketplace %q from %s: %w", m.Name, m.Source, err)
 	}
@@ -297,7 +297,7 @@ func updateAddedLocked(ctx context.Context, m *AddedMarketplace, managedDir stri
 // updatePluginLocked reinstalls the one plugin ent was installed from, reading
 // its marketplace again. Callers hold syncMu and write the lock afterwards.
 func updatePluginLocked(ctx context.Context, ent RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult) error {
-	om, err := openMarketplace(ctx, ent.Source)
+	om, err := openMarketplace(ctx, ent.Source, managedDir)
 	if err != nil {
 		return err
 	}

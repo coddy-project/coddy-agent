@@ -14,6 +14,13 @@ Feature: Skill marketplace versioning and management
     Then the skills list shows "demo" at version "1.0.0"
     And skill "demo" reports no update available
 
+  Scenario: Install a git marketplace without Git or a system temporary directory
+    Given a local marketplace "shop" publishing skill "demo" at version "1.0.0"
+    And git is unavailable to Coddy
+    And the system temporary directory is unavailable
+    When I add the marketplace "shop" as a skill source and sync
+    Then the skills list shows "demo" at version "1.0.0"
+
   Scenario: Detect an available update after a new version is published
     Given a local marketplace "shop" publishing skill "demo" at version "1.0.0"
     And I have added and synced the marketplace "shop"
