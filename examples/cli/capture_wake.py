@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Capture a background wake in the console and the /tasks marks it leaves.
 
-Runs the scripted model of cmd/tgfake (`--llm`, rules from a JSON script), so
+Runs the scripted model of tgfake (`--llm`, rules from a JSON script), so
 the shots need no provider and no key. The model starts `make test` in the
 background with notify_on_finish; the target fails after a few seconds and the
 console's waker starts a turn in which the agent reports the failure. That turn
@@ -11,8 +11,9 @@ under the transcript, where the build says `wakes the agent` and the failed
 test run `woke the agent`.
 
 Usage: python3 capture_wake.py [repo] [outdir]   (default docs/assets/cli-tui)
-Needs a cli-tagged build/coddy (make build TAGS=cli), a Go toolchain for
-cmd/tgfake, pexpect, pyte and chromium for the PNG.
+Needs a cli-tagged build/coddy (make build TAGS=cli), tgfake (CODDY_TGFAKE_BIN,
+else a Go toolchain builds the version go.mod pins), pexpect, pyte and chromium
+for the PNG.
 """
 import json, os, shutil, signal, subprocess, sys, tempfile, time
 from pathlib import Path
@@ -50,10 +51,12 @@ work.mkdir(parents=True, exist_ok=True)
     "test:\n\t@echo '=== RUN   TestParseHeaders'; sleep 3; echo '--- FAIL: TestParseHeaders (3.01s)'; exit 1\n"
     "build:\n\t@echo 'building...'; sleep 900\n")
 
-tgfake = tmp / "tgfake"
-subprocess.run(["go", "build", "-o", str(tgfake), "./cmd/tgfake"], cwd=REPO, check=True)
+tgfake = os.environ.get("CODDY_TGFAKE_BIN") or str(tmp / "tgfake")
+if not os.environ.get("CODDY_TGFAKE_BIN"):
+    subprocess.run(["go", "build", "-o", tgfake, "github.com/EvilFreelancer/tgfake/cmd/tgfake"], cwd=REPO, check=True)
 model_port = free_port()
-model = subprocess.Popen([str(tgfake), "--addr", f"127.0.0.1:{model_port}", "--llm",
+model = subprocess.Popen([tgfake, "--addr", f"127.0.0.1:{model_port}", "--llm",
+                          "--llm-model", "coddy-demo", "--llm-strip-tag", "turn_context",
                           "--llm-script", str(tmp / "rules.json"), "--llm-delay", "20ms"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 (home / "config.yaml").write_text(f"""providers:

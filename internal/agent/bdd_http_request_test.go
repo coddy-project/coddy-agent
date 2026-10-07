@@ -23,6 +23,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
 
@@ -31,7 +32,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake/llmstub"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
 
@@ -514,7 +514,7 @@ func TestHTTPRequestDefaultHeadersStayOffTheModelProvider(t *testing.T) {
 	}))
 	t.Cleanup(service.Close)
 
-	model := &llmstub.Server{Rules: []llmstub.Rule{{
+	model := &llmstub.Server{Model: "coddy-demo", StripTags: []string{"turn_context"}, Rules: []llmstub.Rule{{
 		Tool:   &llmstub.ToolCall{Name: "http_request", Arguments: json.RawMessage(`{"url":"` + service.URL + `/items"}`)},
 		Answer: "done",
 	}}}

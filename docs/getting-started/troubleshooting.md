@@ -128,7 +128,7 @@ coddy serve --log-level "info,gateway.telegram=debug"
 
 or the same in the file under `logger.levels`. At `debug` every update is recorded with the reason it was dropped (access denied, an admin-only chat, a group message not addressed to the bot, a full queue). Silence at `warn` and nothing at `debug` means the update never arrived: check the token, the access lists and other pollers. Guide: [Telegram gateway](../surfaces/gateway.md#debugging-a-chat).
 
-To separate Telegram from the bot, run the bot against the fake Bot API of `cmd/tgfake` with `CODDY_TELEGRAM_API_BASE` set: you send the messages from a page on your machine, every Bot API call is listed, and a fault can be injected on demand. Guide: [Debugging against a fake Bot API](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
+To separate Telegram from the bot, run the bot against the fake Bot API of [tgfake](https://github.com/EvilFreelancer/tgfake) with `CODDY_TELEGRAM_API_BASE` set: you send the messages from a page on your machine, every Bot API call is listed, and a fault can be injected on demand. Guide: [Debugging against a fake Bot API](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
 
 ## Hooks or subagent definitions are ignored
 

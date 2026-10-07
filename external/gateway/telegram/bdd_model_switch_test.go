@@ -4,7 +4,7 @@ package telegram
 
 // Godog harness for features/gateway_telegram_model_switch.feature: drives
 // /model and the inline-keyboard tap through the real handlers against the
-// fake Bot API (internal/tgfake), and asserts on the session model plus the
+// fake Bot API (tgfake), and asserts on the session model plus the
 // debug trail. The keyboard a tap presses is the one the bot really sent, on
 // the message it really sent it with. No LLM and no network beyond the local
 // httptest server.
@@ -21,13 +21,13 @@ import (
 	"sync"
 	"testing"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 const (

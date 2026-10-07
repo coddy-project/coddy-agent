@@ -17,8 +17,9 @@ const TelegramBotTokenEnvVar = "TELEGRAM_BOT_TOKEN"
 
 // TelegramAPIBaseEnv overrides the Bot API origin (default https://api.telegram.org)
 // for the Telegram gateway and for the --dry-run probe alike: a self-hosted Bot
-// API server, or the offline stand cmd/tgfake. The value is an origin such as
-// "http://127.0.0.1:18790"; a trailing slash is tolerated.
+// API server, or the offline stand tgfake (github.com/EvilFreelancer/tgfake).
+// The value is an origin such as "http://127.0.0.1:18790"; a trailing slash is
+// tolerated.
 const TelegramAPIBaseEnv = "CODDY_TELEGRAM_API_BASE"
 
 // PachcaBotTokenEnvVar is the environment variable consulted for the Pachca bot

@@ -389,33 +389,40 @@ A switch that lands is reported at `info`, so the confirmation is in the log wit
 ### Debugging against a fake Bot API
 
 The log tells what the bot did with an update; it does not let you send one
-without a phone, a token and a model behind the answer. `cmd/tgfake` does: a
+without a phone, a token and a model behind the answer.
+[tgfake](https://github.com/EvilFreelancer/tgfake), the offline Telegram stand
+this repository tests its bot with and a project of its own, does: a
 stand-in Bot API server that answers every method the gateway calls
 (`getMe`, `getUpdates` with real long polling, `sendMessage`,
 `editMessageText`, `answerCallbackQuery`, the Bot API 10.1 `sendRichMessage`
 and `sendRichMessageDraft`, ...), keeps the chats it is sent, and serves a page
 where you are the person in the chat - the bot's inline keyboards are buttons.
 With `--llm` it also serves a scripted model, so the whole stand runs with no
-network at all:
+network at all. Take a release binary (the
+[install script](https://github.com/EvilFreelancer/tgfake#install) or the
+releases page), or run the version this checkout pins from its root with
+`go tool tgfake`:
 
 ```bash
-go run ./cmd/tgfake --llm --llm-delay 50ms      # Bot API + model on 127.0.0.1:18790
+tgfake --llm --llm-strip-tag turn_context --llm-delay 50ms           # a release binary: Bot API + model on 127.0.0.1:18790
+go tool tgfake --llm --llm-strip-tag turn_context --llm-delay 50ms   # the same, the version go.mod pins
 ```
 
-Point `coddy serve` at it with **`CODDY_TELEGRAM_API_BASE`**, the origin the
-`--dry-run` probe honours as well, and give it the stub as its provider (the
-command prints this snippet on start):
+`--llm-strip-tag turn_context` tells the model to skip the `<turn_context>`
+block Coddy appends to every request, so it answers what the person wrote.
+Point `coddy serve` at the stand with **`CODDY_TELEGRAM_API_BASE`**, the origin
+the `--dry-run` probe honours as well, and give it the stub as its provider:
 
 ```yaml
 providers:
   - name: stub
     type: openai
     api_base: "http://127.0.0.1:18790/v1"
-    api_key: "sk-tgfake"
+    api_key: "sk-tgfake"            # any key; the stub checks none
 models:
-  - model: stub/coddy-demo
+  - model: stub/tgfake-demo
 agent:
-  model: stub/coddy-demo
+  model: stub/tgfake-demo
 httpserver:
   enable: false                     # the stand is the bot alone; drop this to watch the chat in the web UI too
 gateways:
@@ -431,7 +438,7 @@ logger:
 
 ```bash
 export CODDY_TELEGRAM_API_BASE=http://127.0.0.1:18790   # PowerShell: $env:CODDY_TELEGRAM_API_BASE="http://127.0.0.1:18790"
-coddy serve --dry-run --config stand.yaml               # ok  gateways.telegram: token accepted by the Bot API, bot @coddy_fake_bot
+coddy serve --dry-run --config stand.yaml               # ok  gateways.telegram: token accepted by the Bot API, bot @tgfake_bot
 coddy serve --gateway --http=false --config stand.yaml  # telegram: api base override ... telegram bot connected
 ```
 
@@ -440,11 +447,13 @@ model (add a second entry to `models` for the keyboard to offer a choice), try
 a settings command such as `/plan --once What can you do?`, and read the Bot
 API calls on the right as the log fills on the left.
 
-![The chat page of cmd/tgfake on the dark scheme: the person's side of the chat on the left with the bot's /model keyboard as buttons and a /plan --once message answered, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
+![The chat page of tgfake on the dark scheme: the person's side of the chat on the left with the bot's /model keyboard as buttons and a /plan --once message answered, every Bot API call the bot made listed on the right](../assets/tgfake-chat-dark-1280.png)
 
-*The chat page of `cmd/tgfake`: a greeting answered by the scripted model, the `/model` keyboard with the tap applied, a message sent in plan mode for one turn, the notice of a bare `/ask`, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
+*The chat page of tgfake: a greeting answered by the scripted model, the `/model` keyboard with the tap applied, a message sent in plan mode for one turn, the notice of a bare `/ask`, and on the right every Bot API call the bot made, `getUpdates` polls hidden.*
 
-The same page is an HTTP API, which is what a script or a coding agent drives:
+The same page is an HTTP API, which is what a script or a coding agent drives
+(the full reference is tgfake's
+[simulation API](https://github.com/EvilFreelancer/tgfake/blob/main/docs/sim-api.md)):
 
 | Route | Body / answer |
 |-------|---------------|
@@ -476,7 +485,7 @@ once ran under another framework may be subscribed to messages alone, and a
 poll that names no kinds inherits that: text arrives, keyboard taps are
 dropped before anyone sees them. The gateway therefore asks for `message` and
 `callback_query` on every poll. `GET /sim/state` shows the subscription in
-force; `tgfake.Options.AllowedUpdates` starts a bot under a stale one, which
+force; `Options.AllowedUpdates` of tgfake's `pkg/server` starts a bot under a stale one, which
 is how the polling feature reproduces the case. On a real bot,
 `getWebhookInfo` reports the same field.
 The subscription is applied when an update is created: changing it preserves
@@ -511,9 +520,9 @@ cross-site frame, the way Telegram Web is. `npm run check:telegram` drives the
 same stand from a script (*Checking the Telegram Mini App* on the
 [web UI page](web-ui.md)).
 
-![The chat page of cmd/tgfake with a Mini App open: the chat on the left with the bot's answers, the web UI in a half-open phone frame in the middle with the mode sheet over its docked composer and Telegram's header with Back and Close above it, the Bot API calls on the right](../assets/tgfake-mini-app-dark-1280.png)
+![The chat page of tgfake with a Mini App open: the chat on the left with the bot's answers, the web UI in a half-open phone frame in the middle with the mode sheet over its docked composer and Telegram's header with Back and Close above it, the Bot API calls on the right](../assets/tgfake-mini-app-dark-1280.png)
 
-*The chat page of `cmd/tgfake` with the web UI open as the bot's Mini App, half open: the mode sheet and the composer stay in the part the phone shows, the chat above it.*
+*The chat page of tgfake with the web UI open as the bot's Mini App, half open: the mode sheet and the composer stay in the part the phone shows, the chat above it.*
 
 Rich-message previews expire 30 seconds after their last successful revision.
 The chat page and `/sim/chat/{id}` stop showing expired drafts; reading the
@@ -523,7 +532,8 @@ The outbox retains the calls for debugging, and persistent messages remain.
 `--llm-answer` (repeatable) scripts the model's replies in turn, `--llm-script
 rules.json` matches them by substring (`[{"match": "weather", "answer":
 "Sunny."}]`), and without either the model echoes the prompt - the person's
-message, not the `<turn_context>` block Coddy appends to every request. Rules are the
+message, not the `<turn_context>` block, as long as `--llm-strip-tag
+turn_context` is given. Rules are the
 reliable choice: the title a session derives from its first message is one more
 model call, so a list of answers advances a step earlier than the chat shows.
 A rule can also make the model act: with `"tool": {"name": "run_command",
@@ -535,7 +545,8 @@ live `editMessageText` path, or the draft path with `rich_messages: true`, to
 run.
 
 **`examples/gateway/tg_e2e_offline.sh`** does all of the above in one go -
-builds `tgfake`, writes a temporary home, boots `coddy serve` against it, sends
+starts tgfake (the binary in `CODDY_TGFAKE_BIN`, else the version `go.mod`
+pins, built), writes a temporary home, boots `coddy serve` against it, sends
 `hello` and checks the reply, then leaves the session with `/clear`, comes back
 to it from the `/resume` keyboard and checks that the next message landed in
 that bundle, and finally asks the agent to "start the tests" - a tool rule

@@ -11,12 +11,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/EvilFreelancer/tgfake/pkg/botapi"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
+
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 // An id that fills callback_data exactly travels as itself; one byte more and
@@ -273,7 +275,7 @@ func miniAppBot(t *testing.T, app string, store string) *Bot {
 }
 
 // lastKeyboard returns the first button of the newest bot message with a keyboard.
-func lastButton(t *testing.T, f *fakeAPI, chatID int64) tgfake.InlineKeyboardButton {
+func lastButton(t *testing.T, f *fakeAPI, chatID int64) botapi.InlineKeyboardButton {
 	t.Helper()
 	msgs := f.fake.Chat(chatID).Messages
 	for i := len(msgs) - 1; i >= 0; i-- {
@@ -282,7 +284,7 @@ func lastButton(t *testing.T, f *fakeAPI, chatID int64) tgfake.InlineKeyboardBut
 		}
 	}
 	t.Fatalf("no bot message with a keyboard:\n%s", f.fake.Chat(chatID).Text())
-	return tgfake.InlineKeyboardButton{}
+	return botapi.InlineKeyboardButton{}
 }
 
 func TestAppCommandOpensTheChatsConversation(t *testing.T) {

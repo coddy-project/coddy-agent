@@ -2,7 +2,7 @@
 """HTTP e2e for the background wake (issue #305), against a real `coddy serve`.
 
 Self-boots its own stand (examples/shared/wake_e2e_common.py): the scripted
-model of cmd/tgfake and `coddy serve` with the HTTP API, no key and no
+model of tgfake and `coddy serve` with the HTTP API, no key and no
 network. The model starts a failing command in the background with
 notify_on_finish; when it ends the server wakes the agent.
 
