@@ -66,6 +66,10 @@ type compactHTTPFeatureState struct {
 	eventsMu   sync.Mutex
 	turnEdges  []string
 	stopEvents func()
+	// efforts are the providers the summaries were asked of, as
+	// "<model>=<reasoning effort>".
+	effortsMu sync.Mutex
+	efforts   []string
 }
 
 func (s *compactHTTPFeatureState) reset() error {
@@ -82,6 +86,9 @@ func (s *compactHTTPFeatureState) reset() error {
 	s.respText = ""
 	s.beforeUsed = 0
 	s.streamUsage = nil
+	s.effortsMu.Lock()
+	s.efforts = nil
+	s.effortsMu.Unlock()
 	return nil
 }
 
@@ -133,11 +140,14 @@ func (s *compactHTTPFeatureState) startServerWithProvider(provider config.Provid
 		Models: []config.ModelEntry{
 			{Model: "fake/model", MaxTokens: 100, Temperature: 0.2, MaxContextTokens: maxContextTokens},
 			// No session runs on it: a summary it wrote was asked for by name.
-			{Model: "fake/summarizer-qwen", MaxTokens: 100, MaxContextTokens: maxContextTokens},
+			{Model: "fake/summarizer-qwen", MaxTokens: 100, MaxContextTokens: maxContextTokens, ReasoningLevels: &[]string{"low", "high"}},
 		},
 		Agent: config.Agent{Model: "fake/model"},
 	}
-	fakeFactory := func(llm.ProviderInput) (llm.Provider, error) {
+	fakeFactory := func(in llm.ProviderInput) (llm.Provider, error) {
+		s.effortsMu.Lock()
+		s.efforts = append(s.efforts, in.Model+"="+in.ReasoningEffort)
+		s.effortsMu.Unlock()
 		return cannedSummaryProvider{}, nil
 	}
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
@@ -291,6 +301,23 @@ func (s *compactHTTPFeatureState) postCompactEndpoint() error {
 
 func (s *compactHTTPFeatureState) postCompactEndpointWithModel(model string) error {
 	return s.postCompactBody(fmt.Sprintf(`{"model":%q}`, model))
+}
+
+func (s *compactHTTPFeatureState) postCompactEndpointWithModelAndReasoning(model, reasoning string) error {
+	return s.postCompactBody(fmt.Sprintf(`{"model":%q,"reasoning":%q}`, model, reasoning))
+}
+
+// summaryWrittenAt checks that the summarizer was asked at the level: model is
+// the provider's own model name, as the provider input carries it.
+func (s *compactHTTPFeatureState) summaryWrittenAt(model, level string) error {
+	s.effortsMu.Lock()
+	defer s.effortsMu.Unlock()
+	for _, e := range s.efforts {
+		if e == model+"="+level {
+			return nil
+		}
+	}
+	return fmt.Errorf("provider inputs = %v, want %s at %q", s.efforts, model, level)
 }
 
 func (s *compactHTTPFeatureState) promptResponseNamesSummarizer(model string) error {
@@ -560,10 +587,12 @@ func initializeCompactionHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the user sends "/compact" as a prompt$`, s.sendCompactPrompt)
 	sc.Step(`^the prompt response confirms the compaction$`, s.promptResponseConfirmsCompaction)
 	sc.Step(`^the client posts to the session compact endpoint$`, s.postCompactEndpoint)
-	sc.Step(`^the user sends "(/compact --model [^"]+)" as a prompt$`, s.sendPrompt)
+	sc.Step(`^the user sends "(/compact -[^"]+)" as a prompt$`, s.sendPrompt)
 	sc.Step(`^the prompt response names the summarizer "([^"]+)"$`, s.promptResponseNamesSummarizer)
 	sc.Step(`^the client posts to the session compact endpoint with the model "([^"]+)"$`, s.postCompactEndpointWithModel)
 	sc.Step(`^the compact response names the model "([^"]+)"$`, s.compactResponseNamesModel)
+	sc.Step(`^the client posts to the session compact endpoint with the model "([^"]+)" and the reasoning "([^"]+)"$`, s.postCompactEndpointWithModelAndReasoning)
+	sc.Step(`^the summary was written by "([^"]+)" at the reasoning level "([^"]+)"$`, s.summaryWrittenAt)
 	sc.Step(`^the compact request succeeds$`, s.compactRequestSucceeds)
 	sc.Step(`^the compact response reports the summary and message counts$`, s.compactResponseReportsSummaryAndCounts)
 	sc.Step(`^the session transcript contains a compaction summary row$`, s.transcriptHasSummaryRow)

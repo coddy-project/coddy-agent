@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -49,6 +50,10 @@ type CompactOptions struct {
 	// substring naming exactly one (config.MatchModelID). Empty follows the
 	// configuration. The configured chain stays behind it as the fallback.
 	Model string
+	// Reasoning is the reasoning level the summarizer runs at for this one
+	// compaction: a level its model offers, "default" or empty for the
+	// model's own.
+	Reasoning string
 	// Force is a manual compaction: it folds whatever exists, down to keeping
 	// no turn verbatim. The automatic trigger passes false.
 	Force bool
@@ -110,6 +115,10 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 			return nil, fmt.Errorf("%w: %v", ErrCompactionModel, err)
 		}
 		override = id
+	}
+	reasoning, err := a.compactionReasoning(override, opts.Reasoning)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCompactionModel, err)
 	}
 	// PreCompact hooks see the trigger and may veto: the manual command
 	// reports the veto, an automatic compaction is skipped for this check.
@@ -174,7 +183,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	projected := a.prunedForLLM(visible)
 	head := projected[:splitIdx-visibleStart]
 
-	chain, err := a.compactionChain(override)
+	chain, err := a.compactionChain(override, reasoning)
 	if err != nil {
 		return nil, fmt.Errorf("compaction model: %w", err)
 	}
@@ -270,13 +279,18 @@ const CompactCommandName = "compact"
 const CompactCommandDescription = "Summarize older conversation history to free context; recent turns stay verbatim"
 
 // compactUsage closes every reply that could not run the command as typed.
-const compactUsage = "Usage: /compact [--model <id>] [instructions]. --model names the summarizer for this one " +
-	"compaction: a configured models[].model, or a part of one that matches exactly one model."
+const compactUsage = "Usage: /compact [-m|--model <id>] [-r|--reasoning <level>] [instructions]. --model names the summarizer " +
+	"for this one compaction: a configured models[].model, or a part of one that matches exactly one model; --reasoning " +
+	"the reasoning level it runs at, one its model offers (default for its own)."
 
 // compactCommandArgs is the parsed form of one /compact invocation.
 type compactCommandArgs struct {
-	// Model is the value of --model, as typed.
+	// Model is the value of --model (-m), as typed.
 	Model string
+	// Reasoning is the value of --reasoning (-r), as typed.
+	Reasoning string
+	// ReasoningMissing reports --reasoning with no value after it.
+	ReasoningMissing bool
 	// Instructions is everything after the options, verbatim.
 	Instructions string
 	// UnknownOptions are the leading --words the command does not know.
@@ -286,10 +300,11 @@ type compactCommandArgs struct {
 }
 
 // parseCompactCommand reports whether the prompt text invokes the built-in
-// /compact command. Options come first: --model <id> or --model=<id>. The
-// first word that is not an option starts the summarizer instructions, which
-// run to the end of the prompt untouched, so an instruction may mention an
-// option without being read as one.
+// /compact command. Options come first: --model <id> (-m), --reasoning
+// <level> (-r), each also as --name=value. The first word that is not an
+// option starts the summarizer instructions, which run to the end of the
+// prompt untouched, so an instruction may mention an option without being
+// read as one.
 func parseCompactCommand(text string) (compactCommandArgs, bool) {
 	t := strings.TrimSpace(text)
 	const cmd = "/" + CompactCommandName
@@ -303,29 +318,55 @@ func parseCompactCommand(text string) (compactCommandArgs, bool) {
 		}
 		var args compactCommandArgs
 		rest = strings.TrimSpace(rest)
-		for strings.HasPrefix(rest, "--") {
+		for isCommandOption(rest) {
 			var word string
 			word, rest = cutCompactWord(rest)
-			switch {
-			case word == "--model":
-				if rest == "" || strings.HasPrefix(rest, "--") {
-					args.ModelMissing = true
-					continue
-				}
-				args.Model, rest = cutCompactWord(rest)
-			case strings.HasPrefix(word, "--model="):
-				args.Model = strings.TrimPrefix(word, "--model=")
-				if args.Model == "" {
-					args.ModelMissing = true
-				}
-			default:
+			name, value, inline := strings.Cut(word, "=")
+			name = commandOptionName(name)
+			if name != "--model" && name != "--reasoning" {
 				args.UnknownOptions = append(args.UnknownOptions, word)
+				continue
+			}
+			if !inline {
+				if rest == "" || isCommandOption(rest) {
+					value = ""
+				} else {
+					value, rest = cutCompactWord(rest)
+				}
+			}
+			if name == "--model" {
+				args.Model, args.ModelMissing = value, value == ""
+			} else {
+				args.Reasoning, args.ReasoningMissing = value, value == ""
 			}
 		}
 		args.Instructions = rest
 		return args, true
 	}
 	return compactCommandArgs{}, false
+}
+
+// isCommandOption reports whether text starts with an option word of a
+// built-in command: a --word, or the short -m and -r (alone or as -m=value).
+// A lone dash or any other -word is text: an instruction may be a list.
+func isCommandOption(text string) bool {
+	if strings.HasPrefix(text, "--") {
+		return true
+	}
+	word, _ := cutCompactWord(text)
+	name, _, _ := strings.Cut(word, "=")
+	return name == "-m" || name == "-r"
+}
+
+// commandOptionName spells a short option out: -m is --model, -r --reasoning.
+func commandOptionName(name string) string {
+	switch name {
+	case "-m":
+		return "--model"
+	case "-r":
+		return "--reasoning"
+	}
+	return name
 }
 
 // cutCompactWord splits s at its first run of whitespace: the word before it
@@ -349,7 +390,7 @@ func (a *Agent) runCompactCommand(ctx context.Context, args compactCommandArgs, 
 	var err error
 	usageErr := compactArgsProblem(args)
 	if usageErr == "" {
-		res, err = a.CompactSession(ctx, CompactOptions{Instructions: args.Instructions, Model: args.Model, Force: true})
+		res, err = a.CompactSession(ctx, CompactOptions{Instructions: args.Instructions, Model: args.Model, Reasoning: args.Reasoning, Force: true})
 	}
 	// Show the command in the transcript, regardless of the outcome.
 	a.addUserCommandMessage(rawCommand)
@@ -393,6 +434,9 @@ func compactArgsProblem(args compactCommandArgs) string {
 	}
 	if args.ModelMissing {
 		problems = append(problems, "--model needs a model id.")
+	}
+	if args.ReasoningMissing {
+		problems = append(problems, "--reasoning needs a level.")
 	}
 	return strings.Join(problems, " ")
 }
@@ -488,7 +532,7 @@ type compactionCandidate struct {
 // left out rather than failing the chain - a compaction is what a session out
 // of room has left, and one bad entry must not be the end of it (issue #247).
 // The error is returned only when nothing in the chain resolves.
-func (a *Agent) compactionChain(override string) ([]compactionCandidate, error) {
+func (a *Agent) compactionChain(override, reasoning string) ([]compactionCandidate, error) {
 	sessionModel := a.state.EffectiveModelID(a.cfg)
 	configured := strings.TrimSpace(a.cfg.Compaction.Model)
 	if configured == "" {
@@ -514,8 +558,14 @@ func (a *Agent) compactionChain(override string) ([]compactionCandidate, error) 
 		seen[modelID] = true
 		rm, err := a.cfg.ResolveLLM(modelID)
 		if err == nil {
+			in := a.llmProviderInput(rm)
+			// The level asked for goes to every model of the chain that
+			// offers it; a fallback that does not runs at its own.
+			if reasoning != "" && offersReasoning(a.cfg, modelID, reasoning) {
+				in.ReasoningEffort = reasoning
+			}
 			var provider llm.Provider
-			provider, err = mk(a.llmProviderInput(rm))
+			provider, err = mk(in)
 			if err == nil {
 				out = append(out, compactionCandidate{provider: provider, modelID: modelID})
 				continue
@@ -632,4 +682,45 @@ func withGoalSummaryInstructions(state SessionState, instructions string) string
 		return note
 	}
 	return instructions + "\n\n" + note
+}
+
+func (a *Agent) compactionReasoning(override, level string) (string, error) {
+	return CompactionReasoning(a.cfg, a.state, override, level)
+}
+
+// CompactionReasoning checks the --reasoning of a /compact against the model
+// that writes the summary: override (a configured models[].model, already
+// matched), else compaction.model, else the session's. "default" and empty
+// leave the model at its own level. The HTTP endpoint calls it to refuse a
+// level before it admits the session.
+func CompactionReasoning(cfg *config.Config, st SessionState, override, level string) (string, error) {
+	level = strings.ToLower(strings.TrimSpace(level))
+	if level == "" || level == config.ReasoningDefault {
+		return "", nil
+	}
+	model := override
+	if model == "" {
+		model = strings.TrimSpace(cfg.Compaction.Model)
+	}
+	if model == "" {
+		model = st.EffectiveModelID(cfg)
+	}
+	choices := cfg.ReasoningChoicesFor(cfg.FindModelEntry(model))
+	if len(choices) == 0 {
+		return "", fmt.Errorf("model %q offers no reasoning levels", model)
+	}
+	if !offersReasoning(cfg, model, level) {
+		return "", fmt.Errorf("reasoning %q is not offered by model %q (offered: %s, default)", level, model, strings.Join(choices, ", "))
+	}
+	return level, nil
+}
+
+// offersReasoning reports whether model offers level.
+func offersReasoning(cfg *config.Config, model, level string) bool {
+	for _, c := range cfg.ReasoningChoicesFor(cfg.FindModelEntry(model)) {
+		if c == level {
+			return true
+		}
+	}
+	return false
 }

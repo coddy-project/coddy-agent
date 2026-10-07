@@ -1451,6 +1451,9 @@ export const messagesEn: Record<string, string> = {
   "composer.filterModelsPlaceholder": "Filter models…",
   "composer.commandArgModelsTitle": "Summarizer model",
   "composer.commandArgOptionsTitle": "Options",
+  "composer.commandArgSummaryReasoningTitle": "Reasoning level of the summary",
+  "composer.commandArgSummaryReasoningFlagDesc":
+    "the reasoning level the summary is written at",
   "composer.commandArgReasoningTitle": "Reasoning level of the check",
   "composer.commandArgGoalModelsTitle": "Model that checks the goal",
   "composer.commandArgReasoningFlagDesc":

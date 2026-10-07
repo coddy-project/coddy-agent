@@ -1493,6 +1493,9 @@ export const messagesRu: Record<string, string> = {
   "composer.filterModelsPlaceholder": "Фильтр моделей…",
   "composer.commandArgModelsTitle": "Модель суммаризации",
   "composer.commandArgOptionsTitle": "Опции",
+  "composer.commandArgSummaryReasoningTitle": "Уровень рассуждений сводки",
+  "composer.commandArgSummaryReasoningFlagDesc":
+    "уровень рассуждений, с которым пишется сводка",
   "composer.commandArgReasoningTitle": "Уровень рассуждений проверки",
   "composer.commandArgGoalModelsTitle": "Модель, которая проверяет цель",
   "composer.commandArgReasoningFlagDesc":

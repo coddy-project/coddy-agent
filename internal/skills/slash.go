@@ -35,7 +35,7 @@ func BuiltinCommands(compactionEnabled bool) []SkillSummary {
 	}
 	cmds = append(cmds, SkillSummary{
 		Name:        "goal",
-		Description: "Work on a goal until a second model confirms it: /goal [--model <id>] [--reasoning <level>] <objective>, /goal, /goal pause|resume|clear",
+		Description: "Work on a goal until a second model confirms it: /goal [-m <id>] [-r <level>] <objective>, /goal, /goal pause|resume|clear",
 	})
 	cmds = append(cmds, SkillSummary{
 		Name:        "export",

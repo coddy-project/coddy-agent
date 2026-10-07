@@ -43,7 +43,7 @@ import {
   COMMAND_FLAGS,
   applyCommandArg,
   commandArgDraftAtCaret,
-  goalReasoningChoices,
+  commandReasoningChoices,
   type CommandArgDraft,
 } from "../skills/draftCommandArg";
 import type { TurnOverride } from "./sessionSettings";
@@ -843,7 +843,7 @@ export function Composer(props: {
     }
     if (argDraft.kind === "reasoning") {
       const want = argDraft.prefix.toLowerCase();
-      return goalReasoningChoices(
+      return commandReasoningChoices(
         argDraft.model,
         props.llmReasoningLevelsByModel ?? {},
         props.llmReasoningLevels ?? [],
@@ -2544,7 +2544,9 @@ export function Composer(props: {
           {argIsFlag
             ? t("composer.commandArgOptionsTitle")
             : argDraft.open && argDraft.kind === "reasoning"
-              ? t("composer.commandArgReasoningTitle")
+              ? argDraft.command === "/goal"
+                ? t("composer.commandArgReasoningTitle")
+                : t("composer.commandArgSummaryReasoningTitle")
               : argDraft.open && argDraft.command === "/goal"
                 ? t("composer.commandArgGoalModelsTitle")
                 : t("composer.commandArgModelsTitle")}
@@ -2562,7 +2564,9 @@ export function Composer(props: {
             const detail = !argIsFlag
               ? ""
               : value === "--reasoning"
-                ? t("composer.commandArgReasoningFlagDesc")
+                ? argDraft.open && argDraft.command === "/goal"
+                  ? t("composer.commandArgReasoningFlagDesc")
+                  : t("composer.commandArgSummaryReasoningFlagDesc")
                 : argDraft.open && argDraft.command === "/goal"
                   ? t("composer.commandArgGoalModelFlagDesc")
                   : t("composer.commandArgModelFlagDesc");

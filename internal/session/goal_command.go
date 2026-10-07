@@ -39,8 +39,8 @@ type GoalCommand struct {
 }
 
 // GoalUsage closes the answer to a /goal command that could not run as typed.
-const GoalUsage = "Usage: /goal [--model <id>] [--reasoning <level>] <objective> sets a goal and starts working on it; " +
-	"/goal shows it; /goal pause, /goal resume [--model <id>] [--reasoning <level>], /goal clear. --model and --reasoning " +
+const GoalUsage = "Usage: /goal [-m|--model <id>] [-r|--reasoning <level>] <objective> sets a goal and starts working on it; " +
+	"/goal shows it; /goal pause, /goal resume [-m <id>] [-r <level>], /goal clear. --model and --reasoning " +
 	"name the model and the reasoning level that check this goal: a configured models[].model (or a part of one that " +
 	"matches exactly one model) and a level that model offers."
 
@@ -65,13 +65,14 @@ func ParseGoalCommand(text string) GoalCommand {
 	var cmd GoalCommand
 	arg := strings.TrimSpace(rest)
 	optioned := false
-	for strings.HasPrefix(arg, "--") {
+	for isGoalOption(arg) {
 		optioned = true
 		var word string
 		word, arg = cutGoalWord(arg)
 		name, value, inline := strings.Cut(word, "=")
+		name = goalOptionName(name)
 		if !inline {
-			if arg == "" || strings.HasPrefix(arg, "--") {
+			if arg == "" || isGoalOption(arg) {
 				cmd.Err = fmt.Sprintf("%s needs a value", name)
 				continue
 			}
@@ -109,6 +110,29 @@ func ParseGoalCommand(text string) GoalCommand {
 		cmd.Err = "--model and --reasoning go with a new goal or /goal resume"
 	}
 	return cmd
+}
+
+// isGoalOption reports whether text starts with an option word: a --word, or
+// the short -m and -r (alone or as -m=value). A lone dash or any other -word
+// starts the objective.
+func isGoalOption(text string) bool {
+	if strings.HasPrefix(text, "--") {
+		return true
+	}
+	word, _ := cutGoalWord(text)
+	name, _, _ := strings.Cut(word, "=")
+	return name == "-m" || name == "-r"
+}
+
+// goalOptionName spells a short option out: -m is --model, -r --reasoning.
+func goalOptionName(name string) string {
+	switch name {
+	case "-m":
+		return "--model"
+	case "-r":
+		return "--reasoning"
+	}
+	return name
 }
 
 // cutGoalWord splits s at its first run of whitespace.

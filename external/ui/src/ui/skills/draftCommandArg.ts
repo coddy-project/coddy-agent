@@ -1,11 +1,13 @@
 /**
  * Option completion for a built-in command that is already typed: the
- * `--model` option of `/compact`, and `--model` and `--reasoning` of `/goal`.
- * The grammar is the one `parseCompactCommand` (`internal/agent/compact.go`)
- * and `ParseGoalCommand` (`internal/session/goal_command.go`) read: the
- * command opens the draft, options come first, and the first word that is
- * not an option starts the instructions or the objective, where nothing is
- * completed any more.
+ * `--model` and `--reasoning` options of `/compact` and `/goal`, also spelt
+ * `-m` and `-r`. The grammar is the one `parseCompactCommand`
+ * (`internal/agent/compact.go`) and `ParseGoalCommand`
+ * (`internal/session/goal_command.go`) read: the command opens the draft,
+ * options come first, and the first word that is not an option starts the
+ * instructions or the objective, where nothing is completed any more. Only a
+ * `--` word, `-m` and `-r` are options: any other dash word is text, since an
+ * instruction may be a list.
  */
 
 /** What a completion row is: an option name, a model id or a reasoning level. */
@@ -32,12 +34,18 @@ const REASONING_FLAG = "--reasoning";
 
 /** The option names each command takes, for the `flag` rows. */
 export const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
-  "/compact": [MODEL_FLAG],
+  "/compact": [MODEL_FLAG, REASONING_FLAG],
   "/goal": [MODEL_FLAG, REASONING_FLAG],
 };
 
 /** The option names `/compact` takes (kept for its callers). */
 export const COMPACT_FLAGS: readonly string[] = COMMAND_FLAGS["/compact"]!;
+
+/** The short spellings the server reads: `-m` is `--model`, `-r` `--reasoning`. */
+const SHORT_FLAGS: Readonly<Record<string, string>> = {
+  "-m": MODEL_FLAG,
+  "-r": REASONING_FLAG,
+};
 
 /** What kind of value an option takes. */
 const VALUE_KIND: Readonly<Record<string, CommandArgKind>> = {
@@ -50,6 +58,20 @@ const isSpace = (ch: string | undefined) => ch !== undefined && /\s/.test(ch);
 /** What may follow the command word: the separators the parsers cut at. */
 const isCommandSeparator = (ch: string | undefined) =>
   ch !== undefined && " \t\n\r".includes(ch);
+
+/** The option a token is, by its name before any `=`, or null for text. */
+function optionOf(
+  token: string,
+): { name: string; inline: string | null } | null {
+  const eq = token.indexOf("=");
+  const raw = eq < 0 ? token : token.slice(0, eq);
+  const inline = eq < 0 ? null : token.slice(eq + 1);
+  if (raw.startsWith("--")) {
+    return { name: raw, inline };
+  }
+  const long = SHORT_FLAGS[raw];
+  return long ? { name: long, inline } : null;
+}
 
 export function commandArgDraftAtCaret(
   text: string,
@@ -106,44 +128,44 @@ export function commandArgDraftAtCaret(
       end++;
     }
     const token = text.slice(pos, end);
+    const option = optionOf(token);
     if (caret <= end) {
       if (awaiting) {
         // An option where the value goes leaves the first option without a
         // value, which the server refuses: nothing to offer there.
-        return token.startsWith("--")
+        return option
           ? { open: false }
           : opened(VALUE_KIND[awaiting]!, pos, end);
       }
-      const eq = token.indexOf("=");
-      if (token.startsWith("--") && eq > 0) {
-        const name = token.slice(0, eq);
-        const valueStart = pos + eq + 1;
-        if (flags.includes(name) && caret >= valueStart) {
-          return opened(VALUE_KIND[name]!, valueStart, end);
+      if (option && option.inline !== null && flags.includes(option.name)) {
+        const valueStart = pos + token.indexOf("=") + 1;
+        if (caret >= valueStart) {
+          return opened(VALUE_KIND[option.name]!, valueStart, end);
         }
       }
-      // Only a `--` word is an option; a lone dash may open a list in the
-      // instructions.
+      // Option names are offered while a `--` word is typed; a lone dash may
+      // open a list in the text.
       return token.startsWith("--")
         ? opened("flag", pos, end)
         : { open: false };
     }
     // A whole token before the caret.
-    if (awaiting && !token.startsWith("--")) {
+    if (awaiting && !option) {
       if (awaiting === MODEL_FLAG) {
         model = token;
       }
       awaiting = null;
-    } else if (flags.includes(token)) {
-      awaiting = token;
-    } else if (
-      token.startsWith(`${MODEL_FLAG}=`) &&
-      flags.includes(MODEL_FLAG)
-    ) {
-      model = token.slice(MODEL_FLAG.length + 1);
-      awaiting = null;
-    } else if (token.startsWith("--")) {
-      awaiting = null;
+    } else if (option && flags.includes(option.name)) {
+      if (option.inline === null) {
+        awaiting = option.name;
+      } else {
+        if (option.name === MODEL_FLAG) {
+          model = option.inline;
+        }
+        awaiting = null;
+      }
+    } else if (option) {
+      awaiting = null; // an option the command does not know
     } else {
       return { open: false }; // the instructions or the objective began
     }
@@ -152,12 +174,12 @@ export function commandArgDraftAtCaret(
 }
 
 /**
- * The reasoning levels `/goal --reasoning` may take: those of the model the
- * draft names with `--model` (resolved like the server does - the exact id,
- * else the one id that contains it), else the session's, with `default`
- * first, which goes back to the model's own level.
+ * The reasoning levels `--reasoning` may take: those of the model the draft
+ * names with `--model` (resolved like the server does - the exact id, else
+ * the one id that contains it), else the session's, with `default` first,
+ * which goes back to the model's own level.
  */
-export function goalReasoningChoices(
+export function commandReasoningChoices(
   model: string | undefined,
   levelsByModel: Readonly<Record<string, readonly string[]>>,
   sessionLevels: readonly string[],

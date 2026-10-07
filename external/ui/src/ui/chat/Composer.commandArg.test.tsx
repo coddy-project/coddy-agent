@@ -248,3 +248,27 @@ test("/goal offers both options, the models and the levels of the model it names
   expect(screen.getByTestId("command-arg-row-low")).toBeTruthy();
   expect(screen.queryByTestId("command-arg-row-minimal")).toBeNull();
 });
+
+test("/compact -m and -r complete the summarizer and its level", async () => {
+  stubStackedShell();
+  render(
+    <Harness
+      onChange={() => {}}
+      levelsByModel={{ "hub/qwen3-coder": ["low", "high"] }}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "/compact --");
+  await waitFor(() => {
+    expect(screen.getByTestId("command-arg-row---reasoning")).toBeTruthy();
+  });
+  typeDraft(ta, "/compact -m ");
+  await waitFor(() => {
+    expect(screen.getByTestId("command-arg-row-hub_qwen3-coder")).toBeTruthy();
+  });
+  typeDraft(ta, "/compact -m coder -r ");
+  await waitFor(() => {
+    expect(screen.getByTestId("command-arg-row-high")).toBeTruthy();
+  });
+  expect(screen.getByText("Reasoning level of the summary")).toBeTruthy();
+});

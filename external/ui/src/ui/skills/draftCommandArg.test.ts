@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   applyCommandArg,
   commandArgDraftAtCaret,
-  goalReasoningChoices,
+  commandReasoningChoices,
 } from "./draftCommandArg";
 
 /** The draft with `|` marking the caret. */
@@ -130,20 +130,50 @@ describe("/goal options", () => {
   });
 });
 
-describe("goalReasoningChoices", () => {
+describe("short options and /compact --reasoning", () => {
+  test("-m and -r read like their long names", () => {
+    expect(at("/compact -m |")).toMatchObject({ kind: "model" });
+    expect(at("/compact -m qwen -r |")).toEqual({
+      open: true,
+      kind: "reasoning",
+      command: "/compact",
+      from: 20,
+      to: 20,
+      prefix: "",
+      model: "qwen",
+    });
+    expect(at("/goal -m=hub/q -r=h|")).toMatchObject({
+      kind: "reasoning",
+      model: "hub/q",
+      prefix: "h",
+    });
+    expect(at("/compact --|")).toMatchObject({
+      kind: "flag",
+      command: "/compact",
+    });
+  });
+
+  test("any other dash word starts the text", () => {
+    expect(at("/compact -x |")).toEqual({ open: false });
+    expect(at("/goal - fix it -m |")).toEqual({ open: false });
+    expect(at("/compact -m -r|")).toEqual({ open: false });
+  });
+});
+
+describe("commandReasoningChoices", () => {
   const byModel = {
     "p/mini": ["low", "medium", "high"],
     "p/big": ["minimal", "high"],
   };
 
   test("the levels of the model --model names, default first", () => {
-    expect(goalReasoningChoices("mini", byModel, ["x"])).toEqual([
+    expect(commandReasoningChoices("mini", byModel, ["x"])).toEqual([
       "default",
       "low",
       "medium",
       "high",
     ]);
-    expect(goalReasoningChoices("P/BIG", byModel, [])).toEqual([
+    expect(commandReasoningChoices("P/BIG", byModel, [])).toEqual([
       "default",
       "minimal",
       "high",
@@ -151,11 +181,11 @@ describe("goalReasoningChoices", () => {
   });
 
   test("the session's levels without a model, or for an unknown one", () => {
-    expect(goalReasoningChoices(undefined, byModel, ["low"])).toEqual([
+    expect(commandReasoningChoices(undefined, byModel, ["low"])).toEqual([
       "default",
       "low",
     ]);
-    expect(goalReasoningChoices("p/", byModel, ["low"])).toEqual([
+    expect(commandReasoningChoices("p/", byModel, ["low"])).toEqual([
       "default",
       "low",
     ]);
