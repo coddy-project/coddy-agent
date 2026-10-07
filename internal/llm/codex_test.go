@@ -748,6 +748,109 @@ func TestCodexCompleteRetriesACutStream(t *testing.T) {
 	}
 }
 
+// TestCodexStreamSkipsFramesWithoutData covers the frames that carry no
+// event: the ": keep-alive" comment the backend sends while the model is
+// silent, a run of blank lines, a frame that names an event but carries no
+// data, and data lines with nothing in them. The openai-go decoder dispatched
+// each of them as an event with empty data, and its decode failed as
+// "unexpected end of JSON input", which read as an event cut inside its JSON
+// and cut the turn. Each is skipped, wherever it falls, and the answer reads
+// on to its terminal event, through Stream and Complete alike.
+func TestCodexStreamSkipsFramesWithoutData(t *testing.T) {
+	cases := []struct {
+		name  string
+		frame string
+	}{
+		{"keep-alive comment", ": keep-alive\n\n"},
+		{"comment run", ": keep-alive\n: keep-alive\n\n"},
+		{"blank lines", "\n\n\n"},
+		{"event name without data", "event: keepalive\n\n"},
+		{"empty data line", "data:\n\n"},
+		{"data line holding a space", "data:  \n\n"},
+		{"comment ahead of an id", ": keep-alive\nid: 7\n\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, tc.frame)
+				sse(w, "response.created", map[string]any{"response": map[string]any{"status": "in_progress"}})
+				_, _ = io.WriteString(w, tc.frame)
+				sse(w, "response.reasoning_summary_text.delta", map[string]any{"delta": "Thinking"})
+				_, _ = io.WriteString(w, tc.frame)
+				sse(w, "response.output_text.delta", map[string]any{"delta": "Hello"})
+				_, _ = io.WriteString(w, tc.frame)
+				sse(w, "response.output_text.delta", map[string]any{"delta": " world"})
+				_, _ = io.WriteString(w, tc.frame)
+				sseCompleted(w)
+				_, _ = io.WriteString(w, tc.frame)
+			}))
+			defer srv.Close()
+
+			p := newCodexTestProvider(t, srv.URL)
+			messages := []Message{{Role: RoleUser, Content: "hi"}}
+			var streamed string
+			resp, err := p.Stream(context.Background(), messages, nil, func(c StreamChunk) { streamed += c.TextDelta })
+			if err != nil {
+				t.Fatalf("Stream: %v", err)
+			}
+			if resp.Content != "Hello world" || streamed != "Hello world" || resp.Reasoning != "Thinking" || resp.StopReason != "end_turn" {
+				t.Fatalf("Stream = %q (streamed %q, reasoning %q, stop %q), want the whole answer", resp.Content, streamed, resp.Reasoning, resp.StopReason)
+			}
+			resp, err = p.Complete(context.Background(), messages, nil)
+			if err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+			if resp.Content != "Hello world" || resp.StopReason != "end_turn" {
+				t.Fatalf("Complete = %q (stop %q), want the whole answer", resp.Content, resp.StopReason)
+			}
+			if got := calls.Load(); got != 2 {
+				t.Fatalf("requests = %d, want one per call", got)
+			}
+		})
+	}
+}
+
+// TestCodexStreamInBandErrorThroughTheDecoder pins the error event the live
+// backend sends when it is overloaded, a whole frame with a top-level "error"
+// member: it still reaches the SDK's stream, which answers it with its own
+// "received error while streaming: <member>" spelling, and it is a real
+// in-band error, not an event cut inside its JSON.
+func TestCodexStreamInBandErrorThroughTheDecoder(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header()["Content-Type"] = nil
+		_, _ = io.WriteString(w, ": keep-alive\n\n")
+		sse(w, "error", map[string]any{"error": map[string]any{
+			"type": "service_unavailable_error", "code": "server_is_overloaded",
+			"message": "Our servers are currently overloaded. Please try again later.",
+		}})
+	}))
+	defer srv.Close()
+
+	_, err := newCodexTestProvider(t, srv.URL).Stream(context.Background(),
+		[]Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err == nil || !strings.Contains(err.Error(), "received error while streaming: ") || !strings.Contains(err.Error(), "server_is_overloaded") {
+		t.Fatalf("Stream error = %v, want the in-band error in the SDK's spelling", err)
+	}
+	if IsStreamTruncated(err) {
+		t.Errorf("a whole in-band error event is classified as a truncation: %v", err)
+	}
+}
+
+// TestCodexEventDecoderWithoutABody mirrors ssestream.NewDecoder: a request
+// that failed before a response hands the SDK's stream a nil Decoder, which
+// it neither reads nor closes, never a typed nil it would call into.
+func TestCodexEventDecoderWithoutABody(t *testing.T) {
+	if d := newCodexEventDecoder(nil); d != nil {
+		t.Errorf("no response: decoder = %#v, want nil", d)
+	}
+	if d := newCodexEventDecoder(&http.Response{}); d != nil {
+		t.Errorf("no body: decoder = %#v, want nil", d)
+	}
+}
+
 // TestCodexConfiguredMaxTokensNeverReachesTheWire builds a codex provider the
 // way every surface does - a models[] entry, ResolveLLM, NewProvider - and
 // reads the request the backend received: a configured max_tokens (and

@@ -8,10 +8,19 @@ Feature: A streamed answer that goes silent is cut after a bounded idle time
   request only while nothing reached the caller, so no text is streamed
   twice. The wait for the first byte is not the guard's business: that is
   the first-token guard's, and a blocking (stream: false) answer arrives in
-  one piece and is never guarded.
+  one piece and is never guarded. The Codex backend answers its stream with
+  no Content-Type at all, so a successful response that names none is
+  guarded when its request asked for an event stream.
 
   Scenario: A stream that stalls after text deltas fails with a stall error and keeps the partial text
     Given an "openai" provider with a stream idle timeout of 200 ms pointed at a stub server that stalls after text deltas
+    When a streaming completion is requested
+    Then the call fails with a stall error that names the idle time
+    And the partial response preserves text "Hello fr"
+    And the stub server received 1 request
+
+  Scenario: A Codex stream that names no content type and stalls after text deltas fails with a stall error
+    Given a "codex" provider with a stream idle timeout of 200 ms pointed at a backend that names no content type and stalls after text deltas
     When a streaming completion is requested
     Then the call fails with a stall error that names the idle time
     And the partial response preserves text "Hello fr"

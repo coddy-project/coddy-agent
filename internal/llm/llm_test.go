@@ -281,8 +281,9 @@ func TestOpenAIStreamedErrorRetryClassification(t *testing.T) {
 }
 
 // TestSSEScannerFrameAssembly pins the lenient scanner's frame handling:
-// SSE-spec behaviors (CRLF, multi-line data join, comments, leading BOM) and
-// the llama.cpp dialect ("error:" field, unterminated final frame).
+// SSE-spec behaviors (CRLF, multi-line data join, comments, leading BOM, the
+// event name of each frame) and the llama.cpp dialect ("error:" field,
+// unterminated final frame).
 func TestSSEScannerFrameAssembly(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -310,6 +311,9 @@ func TestSSEScannerFrameAssembly(t *testing.T) {
 		{"field without colon or value is harmless",
 			"data\n\ndata: x\n\n",
 			[]sseFrame{{data: []byte("\n")}, {data: []byte("x\n")}}},
+		{"event name rides with its frame only",
+			"event: response.created\ndata: x\n\nevent: keepalive\n\n: keep-alive\n\ndata: y\n\n",
+			[]sseFrame{{event: "response.created", data: []byte("x\n")}, {data: []byte("y\n")}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -318,6 +322,7 @@ func TestSSEScannerFrameAssembly(t *testing.T) {
 			for sc.Next() {
 				f := sc.Frame()
 				got = append(got, sseFrame{
+					event:   f.event,
 					data:    append([]byte(nil), f.data...),
 					errData: append([]byte(nil), f.errData...),
 				})
@@ -329,9 +334,9 @@ func TestSSEScannerFrameAssembly(t *testing.T) {
 				t.Fatalf("frames = %d, want %d (%q)", len(got), len(tc.want), got)
 			}
 			for i := range got {
-				if string(got[i].data) != string(tc.want[i].data) || string(got[i].errData) != string(tc.want[i].errData) {
-					t.Errorf("frame %d = {data:%q err:%q}, want {data:%q err:%q}",
-						i, got[i].data, got[i].errData, tc.want[i].data, tc.want[i].errData)
+				if got[i].event != tc.want[i].event || string(got[i].data) != string(tc.want[i].data) || string(got[i].errData) != string(tc.want[i].errData) {
+					t.Errorf("frame %d = {event:%q data:%q err:%q}, want {event:%q data:%q err:%q}",
+						i, got[i].event, got[i].data, got[i].errData, tc.want[i].event, tc.want[i].data, tc.want[i].errData)
 				}
 			}
 		})
