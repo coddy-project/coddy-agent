@@ -1841,6 +1841,18 @@ async function scenarioCrossOrigin(sid) {
   // lands in the count after the moment it is read); the script's own probe
   // with a stale ETag is not the window's.
   const textReads = [];
+  // Reads of the text still on their way: the window shows the file before
+  // the last of them lands, and one landing after the count below starts
+  // would read as a read the focus caused.
+  let textInFlight = 0;
+  const textSettled = (r) => {
+    if (r.url().includes("/workspace/text")) textInFlight--;
+  };
+  x.page.on("request", (r) => {
+    if (r.url().includes("/workspace/text")) textInFlight++;
+  });
+  x.page.on("requestfinished", textSettled);
+  x.page.on("requestfailed", textSettled);
   x.page.on("response", (r) => {
     if (r.url().includes("/workspace/text")) textReads.push(r.status());
     if (r.request().method() !== "HEAD" || !r.url().includes("/workspace/raw"))
@@ -1881,6 +1893,11 @@ async function scenarioCrossOrigin(sid) {
   // Chromium hands the page the node's 304; WebKit answers the same request
   // from its own cache with a 200 and the same ETag, which the window takes
   // for "unchanged" just as well.
+  await until(
+    "the window's reads of the text have landed",
+    async () => textInFlight === 0,
+    10000,
+  );
   const beforeFocus = etags.length;
   const textBefore = textReads.length;
   await x.page.evaluate(() => window.dispatchEvent(new Event("focus")));
