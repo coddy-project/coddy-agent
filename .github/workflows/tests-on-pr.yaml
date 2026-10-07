@@ -200,7 +200,7 @@ jobs:
 
       - name: Install tgfake
         id: tgfake
-        uses: EvilFreelancer/tgfake@v0.1.0
+        uses: EvilFreelancer/tgfake@v1.0.0
         with:
           version: ${{ steps.pin.outputs.version }}
 
