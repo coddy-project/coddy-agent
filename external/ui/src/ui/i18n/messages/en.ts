@@ -955,7 +955,7 @@ export const messagesEn: Record<string, string> = {
     "The rules of the delegation pool: whether definitions that came with the checkout may run, how many runs go at once, how deep spawning nests, and how much time and how many rounds one run gets when its definition and the call leave them out.",
   "subagents.catalog.legend": "Definitions",
   "subagents.catalog.description":
-    "Every definition a session in this workspace can spawn: the built-ins, your own files under ~/.agents/agents and ~/.coddy/agents, and the .agents/agents and .coddy/agents files that came with the checkout. Under \"ask\" a project file runs only once it is approved for this workspace: with its shield here, or with coddy agents trust <name> on the machine running coddy. Rewriting an approved file asks again.",
+    'Every definition a session in this workspace can spawn: the built-ins, your own files under ~/.agents/agents and ~/.coddy/agents, and the .agents/agents and .coddy/agents files that came with the checkout. Under "ask" a project file runs only once it is approved for this workspace: with its shield here, or with coddy agents trust <name> on the machine running coddy. Rewriting an approved file asks again.',
   "subagents.catalog.loading": "Loading definitions…",
   "subagents.catalog.empty":
     "No subagent definitions are visible from this workspace.",
@@ -1063,8 +1063,10 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.origin.system": "built in",
   "skills.sources.origin.home": "yours",
   "skills.sources.origin.project": "from the project",
-  "skills.sources.trust.systemAria": "{source} is built into Coddy and always trusted",
-  "skills.sources.trust.approveTitle": "Approve syncing {source} in this workspace",
+  "skills.sources.trust.systemAria":
+    "{source} is built into Coddy and always trusted",
+  "skills.sources.trust.approveTitle":
+    "Approve syncing {source} in this workspace",
   "skills.sources.trust.approvedTitle":
     "Approved for this workspace, click to withdraw",
   "skills.sources.trust.approveAria": "Approve {source} for this workspace",
@@ -1078,7 +1080,7 @@ export const messagesEn: Record<string, string> = {
   "skills.sources.error.remove": "Could not remove {source}.",
   "skills.sources.error.trust": "Could not change the approval of {source}.",
   "skills.sources.description":
-    "Where remote skills come from. A source installs every plugin it publishes and keeps them in sync; a catalog (coddy plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.coddy/marketplaces.json, the project's in its .coddy/marketplaces.json, which travels with the checkout: under \"ask\" a project entry is synced only once you approve it with the shield. Everything installs into ~/.coddy/skills, and nothing is fetched until you sync. The built-in rpa-skills marketplace is always in effect and always trusted.",
+    'Where remote skills come from. A source installs every plugin it publishes and keeps them in sync; a catalog (coddy plugin marketplace add) installs its plugins one by one. Yours are kept in ~/.coddy/marketplaces.json, the project\'s in its .coddy/marketplaces.json, which travels with the checkout: under "ask" a project entry is synced only once you approve it with the shield. Everything installs into ~/.coddy/skills, and nothing is fetched until you sync. The built-in rpa-skills marketplace is always in effect and always trusted.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
   "skills.install.cliHint":
     "You can also install skills via npx skills or npx skillsbd - they land in ~/.agents/skills/ and are picked up automatically.",
@@ -1333,7 +1335,8 @@ export const messagesEn: Record<string, string> = {
   "composer.editingHint": "Sending rewinds the conversation to this message",
   "composer.cancelEdit": "Cancel edit (Esc)",
   "composer.messageEdited": "Message edited.",
-  "composer.undoEditHint": "Undo restores the conversation as it was; file changes are not reverted",
+  "composer.undoEditHint":
+    "Undo restores the conversation as it was; file changes are not reverted",
   "composer.undoEdit": "Undo",
   "composer.undoDismiss": "Hide",
   "composer.stopGeneration": "Stop generation",
@@ -1635,12 +1638,16 @@ export const messagesEn: Record<string, string> = {
   "changes.skipped.other": "{count} new files are not shown.",
   "changes.discardFileTitle": "Put {name} back as it is in the last commit",
   "changes.discardFileConfirm": "Discard the changes to {name}?",
-  "changes.discardRestoreMessage": "The file goes back to its last committed content. This cannot be undone.",
-  "changes.discardDeleteMessage": "The file is new since the last commit, so it is deleted. This cannot be undone.",
+  "changes.discardRestoreMessage":
+    "The file goes back to its last committed content. This cannot be undone.",
+  "changes.discardDeleteMessage":
+    "The file is new since the last commit, so it is deleted. This cannot be undone.",
   "changes.discardAll": "Discard all",
-  "changes.discardAllTitle": "Put every uncommitted change back as it is in the last commit",
+  "changes.discardAllTitle":
+    "Put every uncommitted change back as it is in the last commit",
   "changes.discardAllConfirm": "Discard every uncommitted change?",
-  "changes.discardAllMessage": "Every changed file goes back to its last committed content and new files are deleted. Files git ignores stay. This cannot be undone.",
+  "changes.discardAllMessage":
+    "Every changed file goes back to its last committed content and new files are deleted. Files git ignores stay. This cannot be undone.",
   "changes.discardYes": "Discard",
   "changes.discardFailed": "Could not discard: {message}",
   "workspaceBar.label": "Where this chat works",
@@ -1653,7 +1660,8 @@ export const messagesEn: Record<string, string> = {
   "files.openFiles": "Open files",
   "files.closeTab": "Close {name}",
   "files.empty.title": "Open files appear here",
-  "files.empty.hint": "Pick a file in the tree, or click a file path in the conversation.",
+  "files.empty.hint":
+    "Pick a file in the tree, or click a file path in the conversation.",
   "files.showTree": "Show the file tree",
   "files.hideTree": "Hide the file tree",
   "files.expand": "Expand the window",
@@ -1674,7 +1682,8 @@ export const messagesEn: Record<string, string> = {
   "files.binary": "Preview is unavailable. You can download this file.",
   "files.pdfDownload": "Download this PDF to open it in your PDF viewer.",
   "files.wrap": "Wrap lines",
-  "files.imageUnavailable": "Image preview is unavailable or exceeds 20 MB. Download it to view the original.",
+  "files.imageUnavailable":
+    "Image preview is unavailable or exceeds 20 MB. Download it to view the original.",
   "files.actualSize": "Actual size",
   "files.fit": "Fit image",
   "changes.binary": "binary",
@@ -1697,7 +1706,8 @@ export const messagesEn: Record<string, string> = {
   "changes.viewer.copied": "Path copied",
   "changes.viewer.loadingFile": "Loading the diff...",
   "changes.viewer.noMatches": "No file matches",
-  "changes.viewer.noVcs": "This folder is not in a git repository, so there are no edits to show.",
+  "changes.viewer.noVcs":
+    "This folder is not in a git repository, so there are no edits to show.",
 
   "tasks.panelTitle": "Background tasks",
   "tasks.closePanel": "Close background tasks",
@@ -1746,7 +1756,8 @@ export const messagesEn: Record<string, string> = {
   "messages.copyErrorMessage": "Copy error message",
   "messages.editMessage": "Edit message",
   "messages.undoEdit": "Undo edit",
-  "messages.undoEditTitle": "Restore the conversation as it was before this edit. File changes are not reverted.",
+  "messages.undoEditTitle":
+    "Restore the conversation as it was before this edit. File changes are not reverted.",
   "messages.attachedFiles": "Attached files",
   "messages.openAttachmentImage": "Open {fileName} enlarged",
   "messages.toolImages": "Pictures the call showed the model",
@@ -2204,7 +2215,8 @@ export const messagesEn: Record<string, string> = {
   "messages.artifactCopyRelative": "Copy relative path",
   "messages.artifactCopyAbsolute": "Copy absolute path",
   "messages.artifactReveal": "Reveal on server",
-  "messages.artifactRevealUnavailable": "Reveal is unavailable for this remote or headless server",
+  "messages.artifactRevealUnavailable":
+    "Reveal is unavailable for this remote or headless server",
   "markdown.figure.mermaid": "Mermaid diagram",
   "markdown.figure.svg": "SVG image",
   "markdown.figure.showSource": "Show the source code",
@@ -2214,7 +2226,8 @@ export const messagesEn: Record<string, string> = {
   "markdown.figure.open": "Open the picture",
   "markdown.figure.rendering": "Drawing…",
   "markdown.figure.error": "Could not draw the picture: {message}",
-  "markdown.figure.loadError": "Could not load the diagram renderer: reload the page",
+  "markdown.figure.loadError":
+    "Could not load the diagram renderer: reload the page",
   "markdown.math.label": "Formula",
   "markdown.math.copySource": "Copy the formula source",
   "markdown.math.inlineTitle": "{source} (click to copy)",

@@ -220,9 +220,7 @@ export function EnvironmentSwitcher(props: {
   };
 
   const label =
-    env.mode === "local"
-      ? t("env.local")
-      : env.name || hostLabel(env.baseUrl);
+    env.mode === "local" ? t("env.local") : env.name || hostLabel(env.baseUrl);
   const health = env.mode === "local" ? "local" : activeHealth;
   const useSheet = isMobileShell;
 
@@ -243,9 +241,7 @@ export function EnvironmentSwitcher(props: {
         // admitted by cors.allow_loopback, on any port, so that is named too.
         const origin = window.location.origin;
         return t(
-          isLoopbackOrigin(origin)
-            ? "env.hint.corsLoopback"
-            : "env.hint.cors",
+          isLoopbackOrigin(origin) ? "env.hint.corsLoopback" : "env.hint.cors",
           { origin },
         );
       }
@@ -266,7 +262,8 @@ export function EnvironmentSwitcher(props: {
         ? "up"
         : "down";
     const active = env.mode === "remote" && env.baseUrl === key;
-    const hint = done && done.probe.reach !== "up" ? hintFor(r, done.probe) : "";
+    const hint =
+      done && done.probe.reach !== "up" ? hintFor(r, done.probe) : "";
     const token = tokenForRemote(r);
     const relayUp = !!done && done.probe.relay && done.probe.reach === "up";
     // The configured name, else what the remote calls itself, else its

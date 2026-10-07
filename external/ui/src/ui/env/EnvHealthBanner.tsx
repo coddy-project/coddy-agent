@@ -84,7 +84,9 @@ export function EnvHealthBanner() {
       root.style.setProperty(HEIGHT_VAR, `${Math.ceil(el.offsetHeight)}px`);
     publish();
     const observer =
-      typeof ResizeObserver !== "undefined" ? new ResizeObserver(publish) : null;
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(publish)
+        : null;
     observer?.observe(el);
     return () => {
       observer?.disconnect();
