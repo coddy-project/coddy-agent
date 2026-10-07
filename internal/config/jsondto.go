@@ -106,6 +106,7 @@ type ProviderJSON struct {
 	APIKeyCommand string `json:"api_key_command,omitempty"`
 	Proxy         string `json:"proxy,omitempty"`
 	TimeoutMS     int    `json:"timeout_ms,omitempty"`
+	BusyWaitMS    int    `json:"busy_wait_ms,omitempty"`
 	// UsageLimitsPanel keeps the three states of the YAML key: absent (on),
 	// true, false. omitempty leaves an unset switch out of the document.
 	UsageLimitsPanel *bool `json:"usage_limits_panel,omitempty"`
@@ -128,6 +129,11 @@ type ModelJSON struct {
 	// Stream keeps the unset/explicit distinction of ModelEntry.Stream: a settings
 	// round trip must not turn an omitted key into an explicit false.
 	Stream *bool `json:"stream,omitempty"`
+	// SharedAs and SharedSubscriptionAck are the sharing keys of the row: an
+	// alias that offers it to other Coddys, and the acknowledgement a
+	// subscription login needs next to it.
+	SharedAs              string `json:"shared_as,omitempty"`
+	SharedSubscriptionAck bool   `json:"shared_subscription_ack,omitempty"`
 }
 
 // AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit
@@ -150,6 +156,9 @@ type AgentJSON struct {
 	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
 	WaitForLimitReset      bool   `json:"wait_for_limit_reset,omitempty"`
 	WaitForLimitResetMaxMS *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
+	// SharedBusyWaitMS keeps the unset/explicit distinction: absent is 30000,
+	// an explicit 0 is no waiting.
+	SharedBusyWaitMS *int `json:"shared_busy_wait_ms,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -344,6 +353,20 @@ type HTTPServerJSON struct {
 	AllowInsecure   bool             `json:"allow_insecure,omitempty"`
 	CORS            HTTPCORSJSON     `json:"cors,omitempty"`
 	Remotes         []HTTPRemoteJSON `json:"remotes,omitempty"`
+	SharedModels    SharedModelsJSON `json:"shared_models,omitempty"`
+}
+
+// SharedModelsJSON mirrors SharedModelsConfig. Tokens are write-only, like the
+// swarm's pairing tokens: reading the config reports only how many are set
+// (TokensConfigured), a document sent back without them keeps the ones stored,
+// and a document that carries tokens replaces them all. MaxCallMS keeps the
+// unset/explicit distinction: absent is thirty minutes, an explicit 0 is the
+// eight hour ceiling.
+type SharedModelsJSON struct {
+	Tokens           []string `json:"tokens,omitempty"`
+	TokensConfigured int      `json:"tokens_configured,omitempty"`
+	MaxStreams       int      `json:"max_streams,omitempty"`
+	MaxCallMS        *int     `json:"max_call_ms,omitempty"`
 }
 
 // HTTPLoginJSON mirrors HTTPLoginConfig. PasswordHash is write-only: reading
@@ -501,6 +524,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LoopNudgeMax:           cloneIntPtr(c.Agent.LoopNudgeMax),
 		WaitForLimitReset:      c.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
+		SharedBusyWaitMS:       cloneIntPtr(c.Agent.SharedBusyWaitMS),
 	}
 	out.Supervisor = c.Supervisor.clone()
 	out.Prompts = PromptsJSON{
@@ -605,6 +629,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Enabled:        c.HTTPServer.CORS.Enabled,
 			AllowLoopback:  c.HTTPServer.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), c.HTTPServer.CORS.AllowedOrigins...),
+		},
+		SharedModels: SharedModelsJSON{
+			// The tokens are intentionally redacted; report only how many are set.
+			TokensConfigured: len(c.HTTPServer.EffectiveSharedTokens()),
+			MaxStreams:       c.HTTPServer.SharedModels.MaxStreams,
+			MaxCallMS:        cloneIntPtr(c.HTTPServer.SharedModels.MaxCallMS),
 		},
 	}
 	for _, rm := range c.HTTPServer.Remotes {
@@ -730,6 +760,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		LoopNudgeMax:           cloneIntPtr(j.Agent.LoopNudgeMax),
 		WaitForLimitReset:      j.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
+		SharedBusyWaitMS:       cloneIntPtr(j.Agent.SharedBusyWaitMS),
 	}
 	cfg.Supervisor = j.Supervisor.clone()
 	if j.Agent.MaxTurns != nil {
@@ -835,6 +866,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Enabled:        j.HTTPServer.CORS.Enabled,
 			AllowLoopback:  j.HTTPServer.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), j.HTTPServer.CORS.AllowedOrigins...),
+		},
+		SharedModels: SharedModelsConfig{
+			Tokens:     append([]string(nil), j.HTTPServer.SharedModels.Tokens...),
+			MaxStreams: j.HTTPServer.SharedModels.MaxStreams,
+			MaxCallMS:  cloneIntPtr(j.HTTPServer.SharedModels.MaxCallMS),
 		},
 	}
 	for _, rm := range j.HTTPServer.Remotes {
@@ -1023,6 +1059,12 @@ func preserveRedactedSecrets(next, current *Config) {
 	// lock the operator out of the page they were saving from.
 	if strings.TrimSpace(next.HTTPServer.Login.PasswordHash) == "" && strings.TrimSpace(current.HTTPServer.Login.PasswordHash) != "" {
 		next.HTTPServer.Login.PasswordHash = current.HTTPServer.Login.PasswordHash
+	}
+	// The shared-model tokens are write-only as well: a settings screen that
+	// read the config and saved it back sends none, and would otherwise cut off
+	// every Coddy that borrows this node's models.
+	if len(next.HTTPServer.SharedModels.Tokens) == 0 && len(current.HTTPServer.SharedModels.Tokens) > 0 {
+		next.HTTPServer.SharedModels.Tokens = append([]string(nil), current.HTTPServer.SharedModels.Tokens...)
 	}
 	preserveSwarmSecrets(&next.Swarm, &current.Swarm)
 }

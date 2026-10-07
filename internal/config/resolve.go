@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"time"
 )
 
 // ResolvedLLM is provider settings merged with one model entry for llm.NewProvider.
@@ -29,6 +30,10 @@ type ResolvedLLM struct {
 	// Stream is the transport chosen for this model (models[].stream); false means
 	// one blocking request instead of an SSE stream.
 	Stream bool
+	// BusyWait is how long a call to a provider of type coddy waits for a free
+	// slot of the remote (providers[].busy_wait_ms over agent.shared_busy_wait_ms,
+	// see BusyWaitBudget). Other provider types ignore it.
+	BusyWait time.Duration
 }
 
 // FindProvider returns the provider with the given name, or nil.
@@ -204,6 +209,7 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		Temperature:  entry.Temperature,
 		TimeoutMS:    prov.TimeoutMS,
 		Stream:       entry.EffectiveStream(),
+		BusyWait:     BusyWaitBudget(prov.BusyWaitMS, c.Agent.SharedBusyWaitMS),
 	}, nil
 }
 
@@ -275,6 +281,7 @@ func (c *Config) ValidateModelsProvidersAndAgent() error {
 	}
 
 	seenModel := make(map[string]struct{}, len(c.Models))
+	sharedBy := make(map[string]string)
 	for i := range c.Models {
 		c.Models[i].Normalize()
 		if err := c.Models[i].Validate(); err != nil {
@@ -294,6 +301,9 @@ func (c *Config) ValidateModelsProvidersAndAgent() error {
 		// combination instead of quietly buffering a stream and calling it non-streaming.
 		if prov.Type == "codex" && !c.Models[i].EffectiveStream() {
 			return fmt.Errorf("models[%s]: stream: false is unsupported by the codex provider, whose backend is streaming-only", c.Models[i].Model)
+		}
+		if err := c.Models[i].validateSharing(prov, sharedBy); err != nil {
+			return err
 		}
 	}
 
