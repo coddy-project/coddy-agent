@@ -276,6 +276,28 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			t.h.mirrorSettings(t.sessionID, u.Settings)
 		}
+	case "session_goal":
+		// The goal changed during this turn: set, checked, continued. The
+		// events stream carries the same change, and the surface keeps the
+		// highest version; this copy is what a client without that stream
+		// (coddy acp --remote) hears.
+		var u acp.SessionGoalUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			u.SessionUpdate = acp.UpdateTypeSessionGoal
+			if u.SessionID == "" {
+				u.SessionID = t.sessionID
+			}
+			t.h.mirrorGoal(u.SessionID, u.Goal, u.Version)
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "goal_turn":
+		// The first frame of a turn the supervisor started: the row that
+		// stands for its instruction message.
+		var u acp.GoalTurnUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			u.SessionUpdate = acp.UpdateTypeGoalTurn
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
 	case "available_commands":
 		var u acp.AvailableCommandsUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {

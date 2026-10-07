@@ -29,6 +29,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			a.turnActive = false
 			a.turnStartedAt = time.Time{}
 			a.turnTokens = 0
+			// A goal command that changed nothing (already paused, no goal
+			// to clear) leaves no notice of its own to answer for.
+			a.goalEcho = false
 			a.stopSpinner()
 			// What the turn left running is what the footer names from here on.
 			a.refreshTasks()
@@ -123,6 +126,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.adoptSession(u.id, u.modes, u.opts)
 		if u.settings != nil {
 			a.adoptSettingsSnapshot(*u.settings)
+		}
+		if u.goal != nil {
+			a.adoptGoalSnapshot(*u.goal)
 		}
 		a.populateHeader()
 		a.refreshFooterModel()
@@ -287,6 +293,15 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 	case settingsApplied:
 		a.applySettingsSnapshot(u.settings)
+	case acp.SessionGoalUpdate:
+		// A change of the session goal, whoever made it: a command here, the
+		// goal menu, the supervisor checking or continuing, another surface.
+		// The footer follows every one; the notice is printed once.
+		a.applyGoalUpdate(u)
+	case acp.GoalTurnUpdate:
+		// A turn the supervisor started, live or replayed: a row instead of
+		// the instruction message the model reads.
+		a.applyGoalTurn(u)
 	case session.MCPConnectUpdate:
 		a.applyMCPConnect(u)
 	case acp.AvailableCommandsUpdate:
