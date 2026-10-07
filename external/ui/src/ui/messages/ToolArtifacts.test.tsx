@@ -288,6 +288,56 @@ test("closes the menu once something else covers its trigger", () => {
   }
 });
 
+// The focused item goes with the menu; without a hand-back the focus fell to
+// the body and the next Tab started over from the top of the page.
+test("a menu closed by its trigger scrolling out of sight hands the focus back to the trigger", () => {
+  render(<ArtifactCard inline artifact={artifact} />);
+  const trigger = screen.getByRole("button", {
+    name: "Actions for release-notes.pdf",
+  });
+  const rect = vi
+    .spyOn(trigger, "getBoundingClientRect")
+    .mockReturnValue(
+      DOMRect.fromRect({ x: 272, y: 300, width: 28, height: 28 }),
+    );
+  fireEvent.click(trigger);
+  expect(screen.getByRole("menuitem", { name: "Copy name" })).toHaveFocus();
+
+  rect.mockReturnValue(
+    DOMRect.fromRect({ x: 272, y: -80, width: 28, height: 28 }),
+  );
+  fireEvent.scroll(window);
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(trigger).toHaveFocus();
+});
+
+// A reveal that fails says so, and the session's copy stays downloadable: it
+// used to mark the card "Download unavailable" and disable Download.
+test("a failed reveal leaves the download available", async () => {
+  vi.spyOn(window, "fetch").mockResolvedValue(
+    new Response(null, { status: 500 }),
+  );
+  render(
+    <ArtifactCard
+      inline
+      artifact={{
+        ...artifact,
+        revealUrl: "/coddy/sessions/s1/artifacts/artifact-1/reveal",
+      }}
+    />,
+  );
+  const trigger = screen.getByRole("button", {
+    name: "Actions for release-notes.pdf",
+  });
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Reveal on server" }));
+
+  expect(await screen.findByText("Reveal failed")).toBeVisible();
+  expect(screen.queryByText("Download unavailable")).toBeNull();
+  fireEvent.click(trigger);
+  expect(screen.getByRole("menuitem", { name: "Download" })).toBeEnabled();
+});
+
 test("Tab closes the menu and leaves the focus moving on from the trigger", () => {
   render(<ArtifactCard inline artifact={artifact} />);
   const trigger = screen.getByRole("button", {

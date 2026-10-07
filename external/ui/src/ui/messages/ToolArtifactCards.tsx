@@ -135,7 +135,9 @@ export function ArtifactCard(props: {
   onMention?: (path: string) => void;
 }) {
   const { t } = useT();
-  const [failed, setFailed] = useState(false);
+  // What last failed: a download (the copy is gone: Download is disabled) or a
+  // reveal (only that action failed: the copy can still be downloaded).
+  const [failed, setFailed] = useState<"download" | "reveal" | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [menu, setMenu] = useState(false);
   const [lightbox, setLightbox] = useState(false);
@@ -146,7 +148,7 @@ export function ArtifactCard(props: {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const artifact = props.artifact;
   const image = isImage(artifact);
-  const unavailable = !artifact.url || failed;
+  const unavailable = !artifact.url || failed === "download";
   const extension = artifact.name.includes(".")
     ? artifact.name.split(".").pop()!.toUpperCase()
     : "FILE";
@@ -177,6 +179,10 @@ export function ArtifactCard(props: {
       const trigger = triggerRef.current;
       const panel = menuRef.current;
       if (trigger && panel && !triggerShows(trigger, panel)) {
+        // The focused item goes with the menu: hand the focus back, or the
+        // next Tab starts over from the top of the page.
+        if (panel.contains(document.activeElement))
+          trigger.focus({ preventScroll: true });
         setMenu(false);
         return;
       }
@@ -243,12 +249,19 @@ export function ArtifactCard(props: {
     );
     if (!response.ok) throw new Error(`reveal failed (${response.status})`);
   };
-  const action = (fn: () => void | Promise<void>) => {
+  const action = (
+    fn: () => void | Promise<void>,
+    failure?: "download" | "reveal",
+  ) => {
     setMenu(false);
     // Back to the trigger before the action runs, so an action that moves the
     // focus itself (a mention focuses the composer) keeps it.
     triggerRef.current?.focus({ preventScroll: true });
-    void Promise.resolve(fn()).catch(() => setFailed(true));
+    if (failure === "reveal")
+      setFailed((was) => (was === "reveal" ? null : was));
+    void Promise.resolve(fn()).catch(() => {
+      if (failure) setFailed(failure);
+    });
   };
   return (
     <article
@@ -288,16 +301,18 @@ export function ArtifactCard(props: {
         </span>
         <span
           className={
-            unavailable
+            unavailable || failed === "reveal"
               ? "tool-artifact-meta tool-artifact-meta--error"
               : "tool-artifact-meta"
           }
         >
           {unavailable
             ? t("messages.artifactUnavailable")
-            : props.inline
-              ? formatBytes(artifact.size)
-              : `${typeLabel} · ${formatBytes(artifact.size)}`}
+            : failed === "reveal"
+              ? t("messages.artifactRevealFailed")
+              : props.inline
+                ? formatBytes(artifact.size)
+                : `${typeLabel} · ${formatBytes(artifact.size)}`}
         </span>
       </span>
       <button
@@ -366,7 +381,7 @@ export function ArtifactCard(props: {
                     } finally {
                       setDownloading(false);
                     }
-                  })
+                  }, "download")
                 }
               >
                 {downloading
@@ -382,7 +397,7 @@ export function ArtifactCard(props: {
                     ? t("messages.artifactRevealUnavailable")
                     : undefined
                 }
-                onClick={() => action(reveal)}
+                onClick={() => action(reveal, "reveal")}
               >
                 {t("messages.artifactReveal")}
               </button>
