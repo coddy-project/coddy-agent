@@ -286,7 +286,7 @@ func (e *streamUndecodableError) Unwrap() error { return e.cause }
 // same way they do for a user cancellation.
 func IsStreamTruncated(err error) bool {
 	var trunc *streamTruncatedError
-	return errors.As(err, &trunc)
+	return errors.As(err, &trunc) || coddyStreamTruncated(err)
 }
 
 // streamTransportError wraps a transport-level failure that killed an SSE

@@ -241,6 +241,22 @@ type ProviderInput struct {
 	// no such guard. A blocking answer (stream: false) arrives in one piece
 	// and is never guarded.
 	StreamIdleTimeout time.Duration
+
+	// BusyWait is the effective budget a coddy row waits for a free stream
+	// slot of the remote (providers[].busy_wait_ms over agent.shared_busy_wait_ms,
+	// resolved by the caller): the time one Stream call may spend sending the
+	// request again while the remote answers busy. Zero fails at the first busy
+	// after one request. Other types ignore it.
+	BusyWait time.Duration
+	// ExpectedRevision is the revision of the row in the listing the caller
+	// last read; a coddy row sends it so a remote whose row changed answers
+	// stale_revision before generating. Empty means no check.
+	ExpectedRevision string
+	// RefreshCapabilities reads the row's current listing entry, for a coddy
+	// row answered stale_revision: the call is rebuilt from it and sent once
+	// more. Nil leaves the stale answer as the error; a nil entry means the
+	// alias is no longer listed.
+	RefreshCapabilities func(ctx context.Context) (*ModelEntry, error)
 }
 
 // neuralDeepBaseURL is the default NeuralDeep deployment; neuralDeepEndpoints
@@ -305,17 +321,33 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// A Devin session token reaches the Devin API server only: api_base is
 		// ignored, and CODDY_DEVIN_API_SERVER_URL moves the process as a whole.
 		inner = newDevinProvider(p, hc)
+	case "coddy":
+		// A model a remote Coddy shares: api_base is its origin or a relay
+		// mount, api_key the token it issued. The wire is always a stream, so
+		// DisableStream is ignored and the stall guard of hc applies whatever it
+		// says.
+		cp, err := newCoddyProvider(p, hc)
+		if err != nil {
+			return nil, err
+		}
+		inner = cp
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}
-	if p.DisableStream {
+	if p.DisableStream && p.Type != "coddy" {
 		// Inside the resilient wrap: a retry then re-issues a blocking call that has
 		// emitted nothing yet, instead of replaying deltas a caller already consumed.
 		inner = newBlockingProvider(inner)
 	}
+	wrapped := applyResilientWrap(inner, p)
+	if p.Type == "coddy" {
+		// Outside the resilient wrap too: one Stream call of this layer is one
+		// wait for a free slot, however many attempts the wrapper makes.
+		wrapped = newCoddyScope(wrapped)
+	}
 	// Outside the resilient wrap: retry classification reads the untouched
 	// upstream error, and only what leaves for the caller carries the label.
-	return labelProvider(applyResilientWrap(inner, p), p), nil
+	return labelProvider(wrapped, p), nil
 }
 
 // UnsupportedProviderError is returned when the provider type is unknown.

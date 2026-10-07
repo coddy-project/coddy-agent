@@ -424,6 +424,13 @@ func isRetryableLLMError(err error) bool {
 	if errors.Is(err, context.Canceled) {
 		return false
 	}
+	if coddyNeverRetried(err) {
+		// A remote Coddy's answer (coddyAPIError) or the spent wait for its
+		// slot (coddyBusyError), by type and never by the words in it: the
+		// remote already retried its own upstream, and a restart of a spent
+		// wait would multiply it (coddy_errors.go).
+		return false
+	}
 	// Ahead of the deadline gate: a dial that ran out of time matches
 	// context.DeadlineExceeded just like the caller's own timer does, and
 	// the caller's timer is already ruled out by the ctx.Err() check in
@@ -560,6 +567,11 @@ func isDialFailure(err error) bool {
 
 func httpStatusFromError(err error) int {
 	if err == nil {
+		return 0
+	}
+	if coddyNeverRetried(err) {
+		// Typed like the streamed errors below, and ahead of them: the
+		// remote's text can hold any digits, and its status is informational.
 		return 0
 	}
 	var oai *openai.Error

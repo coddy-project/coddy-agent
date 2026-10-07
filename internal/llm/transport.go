@@ -75,7 +75,7 @@ func (e *streamStalledError) Error() string {
 // do for a truncation and name the stall to the user.
 func IsStreamStalled(err error) bool {
 	var stalled *streamStalledError
-	return errors.As(err, &stalled)
+	return errors.As(err, &stalled) || coddyStreamStalled(err)
 }
 
 // stallGuardTransport wraps the response body of every server-sent-events

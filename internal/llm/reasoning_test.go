@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
@@ -336,6 +337,28 @@ func TestRequestOptionsCapAgainstAnthropicThinking(t *testing.T) {
 	RequestOptions{ReasoningEffort: "none"}.Apply(&in)
 	if in.ReasoningEffort != "none" {
 		t.Fatalf("reasoning level not applied: %+v", in)
+	}
+}
+
+// The caller's remaining retry budget rides in the request options too, so the one
+// provider factory carries it: a nil budget leaves the input alone, and a set one
+// (zero included) turns the budget on.
+func TestRequestOptionsApplyTheRetryBudget(t *testing.T) {
+	in := ProviderInput{}
+	RequestOptions{}.Apply(&in)
+	if in.RetryBudgetSet || in.RetryBudget != 0 {
+		t.Fatalf("no budget asked, the input changed: %+v", in)
+	}
+	for _, d := range []time.Duration{0, 1500 * time.Millisecond} {
+		in = ProviderInput{}
+		RequestOptions{RetryBudget: &d}.Apply(&in)
+		if !in.RetryBudgetSet || in.RetryBudget != d {
+			t.Fatalf("budget %v not applied: %+v", d, in)
+		}
+	}
+	d := time.Second
+	if err := (RequestOptions{RetryBudget: &d}).Validate("openai"); err != nil {
+		t.Fatalf("a retry budget is not a generation option to refuse: %v", err)
 	}
 }
 

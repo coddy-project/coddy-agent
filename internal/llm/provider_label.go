@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -32,6 +33,8 @@ func ProviderEndpoint(providerType, configured string) string {
 		return codexBaseURL()
 	case "devin":
 		return DevinAPIServerURL()
+	case "coddy":
+		return coddyDisplayBase(configured)
 	}
 	if base := strings.TrimSpace(configured); base != "" {
 		return base
@@ -95,4 +98,16 @@ func (p *labelledProvider) Complete(ctx context.Context, messages []Message, too
 func (p *labelledProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
 	resp, err := p.inner.Stream(ctx, messages, tools, onChunk)
 	return resp, p.wrap(err)
+}
+
+// coddyDisplayBase is the address of a coddy row as an error names it: the
+// configured api_base without a trailing slash and without the credential an
+// address may carry (https://user:secret@host).
+func coddyDisplayBase(configured string) string {
+	base := strings.TrimSpace(configured)
+	if u, err := url.Parse(base); err == nil && u.User != nil {
+		u.User = nil
+		base = u.String()
+	}
+	return strings.TrimRight(base, "/")
 }
