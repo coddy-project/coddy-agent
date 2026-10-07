@@ -1317,10 +1317,11 @@ func (a *Agent) runReActLoop(
 		totalInputTokens += response.InputTokens
 		totalOutputTokens += response.OutputTokens
 		_ = a.server.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
-			SessionUpdate: acp.UpdateTypeTokenUsage,
-			InputTokens:   response.InputTokens,
-			OutputTokens:  response.OutputTokens,
-			TotalTokens:   totalInputTokens + totalOutputTokens,
+			SessionUpdate:     acp.UpdateTypeTokenUsage,
+			InputTokens:       response.InputTokens,
+			OutputTokens:      response.OutputTokens,
+			TotalTokens:       totalInputTokens + totalOutputTokens,
+			CachedInputTokens: response.CachedInputTokens,
 		})
 		a.progress.finishCall(response.OutputTokens)
 
