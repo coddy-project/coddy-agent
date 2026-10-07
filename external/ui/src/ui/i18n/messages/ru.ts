@@ -1493,6 +1493,11 @@ export const messagesRu: Record<string, string> = {
   "composer.filterModelsPlaceholder": "Фильтр моделей…",
   "composer.commandArgModelsTitle": "Модель суммаризации",
   "composer.commandArgOptionsTitle": "Опции",
+  "composer.commandArgReasoningTitle": "Уровень рассуждений проверки",
+  "composer.commandArgGoalModelsTitle": "Модель, которая проверяет цель",
+  "composer.commandArgReasoningFlagDesc":
+    "уровень рассуждений, с которым проверяется цель",
+  "composer.commandArgGoalModelFlagDesc": "модель, которая проверяет эту цель",
   "composer.commandArgModelFlagDesc":
     "Модель, которая напишет сводку, только для этого сжатия",
   "composer.commandArgAriaLabel": "Дополнить опцию команды",
@@ -2364,6 +2369,9 @@ export const messagesRu: Record<string, string> = {
   "goal.item.evidenceHint": "Показать подтверждение",
   "goal.continuations": "Продолжения",
   "goal.checks": "Проверки",
+  "goal.checkedBy": "Проверяет",
+  "goal.checkerDefault": "модель сессии",
+  "goal.checkerLevel": "рассуждения: {level}",
   "goal.activeTime": "Время работы",
   "goal.tokens": "Токены",
   "goal.ofLimit": "{value} из {limit}",

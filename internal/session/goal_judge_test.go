@@ -98,6 +98,23 @@ func TestJudgeChecksTheGoalWithoutTools(t *testing.T) {
 	}
 }
 
+func TestJudgeRunsAtTheGoalsReasoningLevel(t *testing.T) {
+	srv, requests := judgeServer(t, `{"verdict":"met"}`)
+	cfg := judgeConfig(srv.URL)
+	levels := []string{"low", "medium", "high"}
+	cfg.Models[0].ReasoningLevels = &levels
+	st := &State{ID: "s", Mode: ModeAgent}
+	g, _ := NewGoal("x")
+	g.Reasoning = "high"
+	st.SetGoal(g)
+	if _, err := judgeSessionGoal(context.Background(), cfg, st, GoalCheckRequest{Objective: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*requests)[0]["reasoning_effort"]; got != "high" {
+		t.Fatalf("reasoning_effort = %v, want high", got)
+	}
+}
+
 func TestJudgeAsksAgainForABadFormat(t *testing.T) {
 	srv, requests := judgeServer(t, "Looks complete.", `{"verdict":"not_met","remaining":["add docs"]}`)
 	got, err := judgeSessionGoal(context.Background(), judgeConfig(srv.URL), &State{ID: "s", Mode: ModeAgent}, GoalCheckRequest{Objective: "x"})

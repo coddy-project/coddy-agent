@@ -176,6 +176,9 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 	if cmd.Kind != GoalCommandShow && opts != nil && opts.Restriction != nil {
 		return nil, nil, "", fmt.Errorf("only the bot's admins can change the session goal")
 	}
+	if cmd.Err != "" {
+		return nil, nil, "", fmt.Errorf("%s. %s", cmd.Err, GoalUsage)
+	}
 	switch cmd.Kind {
 	case GoalCommandShow:
 		return nil, nil, GoalStatusText(st.GetGoal(), cfg.Supervisor.ContinuationLimit()), nil
@@ -185,7 +188,11 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 		notice, err := m.pauseGoal(st, "paused by the operator")
 		return nil, nil, notice, err
 	case GoalCommandResume:
-		if err := m.resumeGoal(st); err != nil {
+		model, reasoning, err := resolveGoalChecker(cfg, st, cmd, st.GetGoal())
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("%v. %s", err, GoalUsage)
+		}
+		if err := m.resumeGoal(st, model, reasoning); err != nil {
 			return nil, nil, "", err
 		}
 		g := st.GetGoal()
@@ -198,6 +205,9 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 		goal, err := NewGoal(cmd.Objective)
 		if err != nil {
 			return nil, nil, "", err
+		}
+		if goal.Model, goal.Reasoning, err = resolveGoalChecker(cfg, st, cmd, GoalState{}); err != nil {
+			return nil, nil, "", fmt.Errorf("%v. %s", err, GoalUsage)
 		}
 		st.SetGoalWithNotice(goal, "Goal set: "+goal.Objective)
 		marker := &llm.GoalTurn{Kind: acp.GoalTurnKickoff, Objective: goal.Objective, Limit: cfg.Supervisor.ContinuationLimit()}

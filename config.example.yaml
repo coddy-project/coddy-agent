@@ -170,11 +170,13 @@ agent:
 
 # Session goal and supervisor: /goal <objective> starts work on a goal, and a
 # second model checks every turn against it, continues unfinished work and
-# hands the goal back to you when it needs you. enable also checks ordinary
-# turns against the latest request.
+# hands the goal back to you when it needs you. No key is needed for that:
+# without this section, or with "supervisor: {}", the session's own model
+# checks the work. /goal --model <id> --reasoning <level> picks the checker of
+# one goal. enable also checks ordinary turns against the latest request.
 # supervisor:
 #   enable: false
-#   model: "openai/gpt-5.6-terra"  # the checking model; another family than the worker's is best
+#   model: ""                     # the checking model; empty uses the session's (another family judges best)
 #   verify: true                  # a read-only subagent confirms a met goal against the files
 #   max_continuations: 10         # automatic turns per goal, then one wrap-up turn
 #   token_budget: 0               # uncached input + output tokens per goal; 0 = no cap

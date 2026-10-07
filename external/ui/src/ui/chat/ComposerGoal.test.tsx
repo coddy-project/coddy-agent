@@ -320,3 +320,25 @@ test("/goal with anything after it is the server's and is sent as typed", () => 
   expect(onSend).toHaveBeenCalledWith("/goal pause");
   expect(screen.queryByTestId("goal-popover")).toBeNull();
 });
+
+test("Edit keeps the model and the level that check the goal", () => {
+  const actions = actionsMock();
+  render(
+    <Harness
+      goal={goalOf({ model: "hub/qwen3-coder", reasoning: "high" })}
+      actions={actions}
+    />,
+  );
+  fireEvent.click(chip());
+  expect(within(popover()).getByTestId("goal-checker")).toHaveTextContent(
+    "hub/qwen3-coder · reasoning high",
+  );
+  fireEvent.click(within(popover()).getByTestId("goal-edit"));
+  fireEvent.change(within(popover()).getByTestId("goal-objective-input"), {
+    target: { value: "Ship the lexer too" },
+  });
+  fireEvent.click(within(popover()).getByTestId("goal-submit"));
+  expect(actions.sendPrompt).toHaveBeenCalledWith(
+    "/goal --model hub/qwen3-coder --reasoning high Ship the lexer too",
+  );
+});

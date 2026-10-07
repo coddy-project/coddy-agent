@@ -11,6 +11,7 @@ import {
   isGoalCommand,
   isNewerGoal,
   parseGoalTurn,
+  goalSetPrompt,
   parseSessionGoal,
   parseSessionGoalUpdate,
   sessionGoalEventOf,
@@ -263,4 +264,21 @@ test("a continuation opens a turn after the answer before it, and a replayed row
       goalRow("g4", { kind: "kickoff", objective: "y" }),
     ).map((it) => it.type),
   ).toEqual(["user_message", "goal_turn"]);
+});
+
+test("a goal set again carries the checker it was set with", () => {
+  expect(goalSetPrompt("  ship it ")).toBe("/goal ship it");
+  expect(goalSetPrompt("ship it", { model: "p/m", reasoning: "high" })).toBe(
+    "/goal --model p/m --reasoning high ship it",
+  );
+  expect(goalSetPrompt("ship it", { model: "", reasoning: "low" })).toBe(
+    "/goal --reasoning low ship it",
+  );
+  const g = parseSessionGoal({
+    objective: "x",
+    model: "p/m",
+    reasoning: "high",
+  });
+  expect(g?.model).toBe("p/m");
+  expect(g?.reasoning).toBe("high");
 });

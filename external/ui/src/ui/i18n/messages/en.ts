@@ -1451,6 +1451,11 @@ export const messagesEn: Record<string, string> = {
   "composer.filterModelsPlaceholder": "Filter models…",
   "composer.commandArgModelsTitle": "Summarizer model",
   "composer.commandArgOptionsTitle": "Options",
+  "composer.commandArgReasoningTitle": "Reasoning level of the check",
+  "composer.commandArgGoalModelsTitle": "Model that checks the goal",
+  "composer.commandArgReasoningFlagDesc":
+    "the reasoning level the goal is checked at",
+  "composer.commandArgGoalModelFlagDesc": "the model that checks this goal",
   "composer.commandArgModelFlagDesc":
     "The model that writes the summary, for this one compaction",
   "composer.commandArgAriaLabel": "Complete the command option",
@@ -2283,6 +2288,9 @@ export const messagesEn: Record<string, string> = {
   "goal.item.evidenceHint": "Show the evidence",
   "goal.continuations": "Continuations",
   "goal.checks": "Checks",
+  "goal.checkedBy": "Checked by",
+  "goal.checkerDefault": "the session model",
+  "goal.checkerLevel": "reasoning {level}",
   "goal.activeTime": "Time worked",
   "goal.tokens": "Tokens",
   "goal.ofLimit": "{value} of {limit}",

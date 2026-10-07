@@ -154,6 +154,55 @@ func TestGoalCommandSetsTheGoalAndStartsWorking(t *testing.T) {
 	}
 }
 
+func TestGoalCommandChoosesTheCheckingModelAndLevel(t *testing.T) {
+	h := newGoalHarness(t)
+	levels := []string{"low", "medium", "high"}
+	h.mgr.Cfg().Models[1].ReasoningLevels = &levels // p2/gpt-4o-mini
+	var checkedBy, level string
+	h.mgr.SetGoalJudge(func(_ context.Context, cfg *config.Config, st *session.State, _ session.GoalCheckRequest) (session.GoalCheckResult, error) {
+		checkedBy, level = session.GoalCheckModel(cfg, st), session.GoalCheckReasoning(st)
+		return session.GoalCheckResult{Verdict: session.GoalVerdictMet}, nil
+	})
+	h.prompt("/goal --model mini --reasoning high ship the fix")
+	goal := h.st().GetGoal()
+	if goal.Objective != "ship the fix" || goal.Model != "p2/gpt-4o-mini" || goal.Reasoning != "high" || checkedBy != "p2/gpt-4o-mini" || level != "high" {
+		t.Fatalf("goal=%+v checked by %q at %q", goal, checkedBy, level)
+	}
+	if !strings.Contains(session.GoalStatusText(goal, 10), "Checked by: p2/gpt-4o-mini (reasoning high)") {
+		t.Fatalf("status = %q", session.GoalStatusText(goal, 10))
+	}
+
+	// A resume keeps the pair unless it names another one; a model without
+	// a level drops the level chosen for the model before it.
+	h.st().UpdateGoal("", func(g *session.GoalState) bool { g.Status = session.GoalPaused; return true })
+	h.prompt("/goal resume")
+	if g := h.st().GetGoal(); g.Model != "p2/gpt-4o-mini" || g.Reasoning != "high" {
+		t.Fatalf("resume dropped the checker: %+v", g)
+	}
+	h.st().UpdateGoal("", func(g *session.GoalState) bool { g.Status = session.GoalPaused; return true })
+	h.prompt("/goal --model claude resume")
+	if g := h.st().GetGoal(); g.Model != "p3/claude-3" || g.Reasoning != "" || checkedBy != "p3/claude-3" {
+		t.Fatalf("resume with --model: goal=%+v checked by %q", g, checkedBy)
+	}
+}
+
+func TestGoalCommandRefusesBadOptions(t *testing.T) {
+	levels := []string{"low", "high"}
+	for text, want := range map[string]string{
+		"/goal --model nope ship it":                  `model "nope"`,
+		"/goal --model gpt-4o --reasoning ultra ship": "is not offered by model",
+		"/goal --frob x ship it":                      "unknown option --frob",
+		"/goal --model mini":                          "the goal objective is empty",
+	} {
+		h := newGoalHarness(t)
+		h.mgr.Cfg().Models[0].ReasoningLevels = &levels
+		res := h.prompt(text)
+		if h.st().GetGoal().Set() || len(h.prompts) != 0 || !strings.Contains(res.SettingsNotice, want) || !strings.Contains(res.SettingsNotice, "Usage: /goal") {
+			t.Errorf("%s: notice=%q goal=%+v runs=%d", text, res.SettingsNotice, h.st().GetGoal(), len(h.prompts))
+		}
+	}
+}
+
 func TestGoalContinuesUntilTheCheckIsMet(t *testing.T) {
 	h := newGoalHarness(t)
 	h.verdict(notMet("tests still fail", "fix TestParse"), met())

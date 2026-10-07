@@ -97,6 +97,7 @@ export function ChatScreen(props: {
   llmModelMultimodal?: boolean;
   /** Reasoning levels offered by the current model (empty hides the selector). */
   llmReasoningLevels?: string[];
+  llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;
   llmReasoning?: string;
   onLlmReasoningChange?: (level: string) => void;
   onModeChange: (mode: string) => void;
@@ -762,6 +763,12 @@ export function ChatScreen(props: {
                       llmModel: props.llmModel,
                       onLlmModelChange: props.onLlmModelChange,
                       llmModelMultimodal: props.llmModelMultimodal,
+                      ...(props.llmReasoningLevelsByModel !== undefined
+                        ? {
+                            llmReasoningLevelsByModel:
+                              props.llmReasoningLevelsByModel,
+                          }
+                        : {}),
                       ...(props.llmReasoningLevels !== undefined &&
                       props.llmReasoningLevels.length > 0 &&
                       props.onLlmReasoningChange !== undefined
@@ -967,6 +974,12 @@ export function ChatScreen(props: {
                         llmModel: props.llmModel,
                         onLlmModelChange: props.onLlmModelChange,
                         llmModelMultimodal: props.llmModelMultimodal,
+                        ...(props.llmReasoningLevelsByModel !== undefined
+                          ? {
+                              llmReasoningLevelsByModel:
+                                props.llmReasoningLevelsByModel,
+                            }
+                          : {}),
                         ...(props.llmReasoningLevels !== undefined &&
                         props.llmReasoningLevels.length > 0 &&
                         props.onLlmReasoningChange !== undefined

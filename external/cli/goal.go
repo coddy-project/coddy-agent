@@ -316,8 +316,28 @@ func goalMenuBody(th *tui.Theme, g *acp.SessionGoal) string {
 			lines = append(lines, "  "+goalItemMark(th, item.Status)+" "+tui.SanitizeText(item.Text))
 		}
 	}
+	if checker := goalChecker(g); checker != "" {
+		lines = append(lines, th.Fg(roleDim, "Checked by: ")+tui.SanitizeText(checker))
+	}
 	lines = append(lines, th.Fg(roleDim, goalNumbers(g)))
 	return strings.Join(lines, "\n")
+}
+
+// goalChecker names the model and the reasoning level that check the goal:
+// what /goal --model and --reasoning chose, else the model that answered the
+// last check; empty when neither is known.
+func goalChecker(g *acp.SessionGoal) string {
+	model := strings.TrimSpace(g.Model)
+	if model == "" && g.LastCheck != nil {
+		model = strings.TrimSpace(g.LastCheck.Model)
+	}
+	if level := strings.TrimSpace(g.Reasoning); level != "" {
+		if model == "" {
+			model = "the session model"
+		}
+		return model + ", reasoning " + level
+	}
+	return model
 }
 
 // goalItemMark is the mark of a checklist item: met, not met, not verified.

@@ -76,6 +76,11 @@ type GoalState struct {
 	TokensBase int        `json:"tokensBase,omitempty"`
 	LastCheck  *GoalCheck `json:"lastCheck,omitempty"`
 	Checklist  []GoalItem `json:"checklist,omitempty"`
+	// Model and Reasoning are the model and the reasoning level that check
+	// this goal (/goal --model, --reasoning); empty falls back to
+	// supervisor.model, then the session's model, and to its default level.
+	Model     string `json:"model,omitempty"`
+	Reasoning string `json:"reasoning,omitempty"`
 }
 
 // Set reports whether the state holds a goal.
@@ -224,6 +229,8 @@ func GoalSnapshot(g GoalState, cfg *config.Config) *acp.SessionGoal {
 		ActiveMs:         g.ActiveMs,
 		TokensUsed:       g.BudgetTokens(),
 		TokenBudget:      sup.EffectiveTokenBudget(),
+		Model:            g.Model,
+		Reasoning:        g.Reasoning,
 	}
 	if c := g.LastCheck; c != nil {
 		out.LastCheck = &acp.GoalCheck{

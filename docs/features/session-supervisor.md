@@ -8,10 +8,10 @@ The supervisor is a second model rather than the worker grading itself. It judge
 
 | Command | What it does |
 |---|---|
-| `/goal <objective>` | Sets the goal, replacing any earlier one, and starts a turn on it right away. The objective is limited to 4000 characters; put longer specifications in a file and name it. |
+| `/goal [--model <id>] [--reasoning <level>] <objective>` | Sets the goal, replacing any earlier one, and starts a turn on it right away. The objective is limited to 4000 characters; put longer specifications in a file and name it. `--model` and `--reasoning` choose the model and the reasoning level that check this goal, like `/compact --model`: a configured `models[].model` (or a part of one that matches exactly one model) and a level that model offers (`default` for its own). |
 | `/goal` | Shows the goal: its status and why, continuations used, the last check's verdict, and what is still open. The web UI and the console open their goal menu instead. |
 | `/goal pause` | Stops the automatic continuations and keeps the goal. A turn working on it finishes the step it is in. |
-| `/goal resume` | Makes a paused, blocked or limited goal active again with a fresh continuation and token budget, and starts a turn. |
+| `/goal resume [--model <id>] [--reasoning <level>]` | Makes a paused, blocked or limited goal active again with a fresh continuation and token budget, and starts a turn. The goal keeps the checker it was set with unless the options name another. |
 | `/goal clear` | Removes the goal. `stop`, `off`, `cancel`, `reset` and `none` work as well. |
 
 The commands work in the web composer, the console, ACP editors, `POST /v1/responses`, Telegram and Pachca. In a messenger, only the bot's admins can set, pause, resume or clear a goal; any permitted user can show it. A goal is worked on in agent mode. It is saved with the session, so it survives a restart, and a compaction keeps the progress toward it in the summary.
@@ -54,10 +54,18 @@ Recoveries count against `max_nudges` per run. When they run out, the goal is bl
 
 ## Configuration
 
+A goal needs no configuration: without a `supervisor` section, or with an empty one, the session's own model checks the work with every bound at its default.
+
+```yaml
+supervisor: {}
+```
+
+Every key, with its default:
+
 ```yaml
 supervisor:
   enable: false              # check ordinary turns against the latest request too
-  model: "devin/claude-sonnet-5"   # the checking model; another family than the worker's is best
+  model: ""                  # the checking model; empty uses the session's model
   verify: true               # confirm a met verdict against the workspace
   max_continuations: 10      # automatic turns per goal, then a wrap-up turn
   token_budget: 0            # uncached input + output tokens per goal; 0 = no cap
@@ -66,14 +74,14 @@ supervisor:
   loop_repeat: 3             # 0 turns loop detection off
 ```
 
-`model` names a configured `models[].model`. Left empty, the session's own model checks its own work. Research on model judges finds that a model rates its own output higher, so a model of another family is the better choice even when it is smaller. The check runs without tools, through the same retries and proxy as the agent's own calls. An answer without valid JSON is asked for once more, and a check that fails twice pauses the goal. **Settings → Session goal** in the web UI edits the same keys.
+The checking model is chosen per goal first: `/goal --model <id> --reasoning <level>` wins over `supervisor.model`, which wins over the session's model. `model` names a configured `models[].model`. Left empty, the session's own model checks its own work. Research on model judges finds that a model rates its own output higher, so a model of another family is the better choice even when it is smaller. The check runs without tools, through the same retries and proxy as the agent's own calls. An answer without valid JSON is asked for once more, and a check that fails twice pauses the goal. **Settings → Session goal** in the web UI edits the same keys.
 
 `enable: true` puts ordinary turns under the same checks, with the latest request as the objective. Nothing is stored for them: a `blocked` or limited run ends with a notice. A goal is checked whatever `enable` says.
 
 ## The goal on every surface
 
-- **Web UI**: a goal chip in the composer toolbar shows the status. It opens the goal menu with the objective, the status and its reason, the last check with the verifier's mark, the checklist, the numbers, and **Pause**, **Resume**, **Edit** and **Clear**. A bare `/goal` opens the same menu.
-- **Console**: the footer shows the goal's status and continuations; a bare `/goal` opens the goal modal with the same details and actions. Under `--remote` both follow the server.
+- **Web UI**: a goal chip in the composer toolbar shows the status. It opens the goal menu with the objective, the status and its reason, the last check with the verifier's mark, the checklist, the model and the level that check it, the numbers, and **Pause**, **Resume**, **Edit** (keeps the checker) and **Clear**. A bare `/goal` opens the same menu. Typing `/goal --` completes `--model` with the configured models and `--reasoning` with the levels of the model `--model` names.
+- **Console**: the footer shows the goal's status and continuations; a bare `/goal` opens the goal modal with the same details (the checker on a **Checked by** line) and actions. Under `--remote` both follow the server.
 - **HTTP**: `GET`, `PATCH` (`{"status":"paused"}` or `{"objective":"..."}`) and `DELETE /coddy/sessions/{id}/goal`, the `session_goal` and `goal_turn` events of a turn's stream, `event: session_goal` on `GET /coddy/events`, and `goal` in `GET /coddy/sessions/{id}/messages`; see [HTTP API](../reference/http-api.md).
 - **ACP editors**: the `session_goal` and `goal_turn` session updates; an editor that renders neither still gets the command's answer as text.
 

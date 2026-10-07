@@ -3,8 +3,10 @@ package session
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // GoalCommandKind is what a /goal command asks for.
@@ -27,14 +29,30 @@ const (
 type GoalCommand struct {
 	Kind      GoalCommandKind
 	Objective string
+	// Model and Reasoning are the --model and --reasoning options, as typed:
+	// the model and the reasoning level that check this goal.
+	Model     string
+	Reasoning string
+	// Err is what was wrong with the options; the command is answered with
+	// it and the usage.
+	Err string
 }
+
+// GoalUsage closes the answer to a /goal command that could not run as typed.
+const GoalUsage = "Usage: /goal [--model <id>] [--reasoning <level>] <objective> sets a goal and starts working on it; " +
+	"/goal shows it; /goal pause, /goal resume [--model <id>] [--reasoning <level>], /goal clear. --model and --reasoning " +
+	"name the model and the reasoning level that check this goal: a configured models[].model (or a part of one that " +
+	"matches exactly one model) and a level that model offers."
 
 // goalClearWords are the arguments that remove the goal, the same set Claude
 // Code accepts, so muscle memory carries over.
 var goalClearWords = map[string]bool{"clear": true, "stop": true, "off": true, "cancel": true, "reset": true, "none": true}
 
 // ParseGoalCommand reads a /goal command from typed text. Anything else is
-// GoalCommandNone.
+// GoalCommandNone. Options come first, like /compact's: --model <id>,
+// --reasoning <level> (or --model=<id>, --reasoning=<level>); the first word
+// that is not an option starts the objective or names the subcommand, so an
+// objective may mention an option without being read as one.
 func ParseGoalCommand(text string) GoalCommand {
 	text = strings.TrimSpace(text)
 	if !strings.HasPrefix(text, "/goal") {
@@ -44,20 +62,98 @@ func ParseGoalCommand(text string) GoalCommand {
 	if rest != "" && !strings.ContainsAny(rest[:1], " \t\r\n") {
 		return GoalCommand{} // "/goals", "/goal-x": another command
 	}
+	var cmd GoalCommand
 	arg := strings.TrimSpace(rest)
+	optioned := false
+	for strings.HasPrefix(arg, "--") {
+		optioned = true
+		var word string
+		word, arg = cutGoalWord(arg)
+		name, value, inline := strings.Cut(word, "=")
+		if !inline {
+			if arg == "" || strings.HasPrefix(arg, "--") {
+				cmd.Err = fmt.Sprintf("%s needs a value", name)
+				continue
+			}
+			value, arg = cutGoalWord(arg)
+		}
+		switch name {
+		case "--model":
+			cmd.Model = value
+		case "--reasoning":
+			cmd.Reasoning = value
+		default:
+			cmd.Err = fmt.Sprintf("unknown option %s", name)
+			continue
+		}
+		if strings.TrimSpace(value) == "" {
+			cmd.Err = fmt.Sprintf("%s needs a value", name)
+		}
+	}
 	word := strings.ToLower(arg)
 	switch {
+	case arg == "" && optioned:
+		cmd.Kind, cmd.Err = GoalCommandSet, firstNonEmpty(cmd.Err, "the goal objective is empty")
 	case arg == "":
-		return GoalCommand{Kind: GoalCommandShow}
+		cmd.Kind = GoalCommandShow
 	case goalClearWords[word]:
-		return GoalCommand{Kind: GoalCommandClear}
+		cmd.Kind = GoalCommandClear
 	case word == "pause":
-		return GoalCommand{Kind: GoalCommandPause}
+		cmd.Kind = GoalCommandPause
 	case word == "resume":
-		return GoalCommand{Kind: GoalCommandResume}
+		cmd.Kind = GoalCommandResume
 	default:
-		return GoalCommand{Kind: GoalCommandSet, Objective: arg}
+		cmd.Kind, cmd.Objective = GoalCommandSet, arg
 	}
+	if optioned && cmd.Err == "" && (cmd.Kind == GoalCommandClear || cmd.Kind == GoalCommandPause) {
+		cmd.Err = "--model and --reasoning go with a new goal or /goal resume"
+	}
+	return cmd
+}
+
+// cutGoalWord splits s at its first run of whitespace.
+func cutGoalWord(s string) (word, rest string) {
+	i := strings.IndexFunc(s, unicode.IsSpace)
+	if i < 0 {
+		return s, ""
+	}
+	return s[:i], strings.TrimSpace(s[i:])
+}
+
+// resolveGoalChecker turns the --model and --reasoning of a /goal command
+// into the configured model and a level it offers. An empty option keeps what
+// keep holds (the goal's own pair on a resume); "default" clears the level.
+func resolveGoalChecker(cfg *config.Config, st *State, cmd GoalCommand, keep GoalState) (model, reasoning string, err error) {
+	model, reasoning = keep.Model, keep.Reasoning
+	if m := strings.TrimSpace(cmd.Model); m != "" {
+		if model, err = cfg.MatchModelID(m); err != nil {
+			return "", "", err
+		}
+		if strings.TrimSpace(cmd.Reasoning) == "" {
+			reasoning = "" // a level chosen for another model may not exist on this one
+		}
+	}
+	level := strings.ToLower(strings.TrimSpace(cmd.Reasoning))
+	if level == "" {
+		return model, reasoning, nil
+	}
+	if level == config.ReasoningDefault {
+		return model, "", nil
+	}
+	checker := model
+	if checker == "" {
+		checker = GoalCheckModelFor(cfg, st, GoalState{})
+	}
+	choices := cfg.ReasoningChoicesFor(cfg.FindModelEntry(checker))
+	if len(choices) == 0 {
+		return "", "", fmt.Errorf("model %q offers no reasoning levels", checker)
+	}
+	for _, c := range choices {
+		if c == level {
+			return model, level, nil
+		}
+	}
+	return "", "", fmt.Errorf("reasoning %q is not offered by model %q (offered: %s, default)", level, checker, strings.Join(choices, ", "))
 }
 
 // goalCommandOf is the /goal command a prompt is: one text block and nothing
@@ -78,6 +174,9 @@ func GoalStatusText(g GoalState, maxContinuations int) string {
 	fmt.Fprintf(&b, "Goal (%s): %s", g.Status, g.Objective)
 	if r := strings.TrimSpace(g.StatusReason); r != "" {
 		fmt.Fprintf(&b, "\nReason: %s", r)
+	}
+	if g.Model != "" || g.Reasoning != "" {
+		fmt.Fprintf(&b, "\nChecked by: %s", strings.TrimSpace(firstNonEmpty(g.Model, "the supervisor's model")+" "+goalReasoningNote(g.Reasoning)))
 	}
 	fmt.Fprintf(&b, "\nContinuations: %d of %d · checks: %d", g.Continuations, maxContinuations, g.Checks)
 	if g.TokensUsed > 0 {
@@ -172,7 +271,7 @@ func (m *Manager) pauseGoal(st *State, reason string) (string, error) {
 
 // resumeGoal makes the goal active again with a fresh continuation and token
 // budget; the caller starts the turn.
-func (m *Manager) resumeGoal(st *State) error {
+func (m *Manager) resumeGoal(st *State, model, reasoning string) error {
 	g := st.GetGoal()
 	if !g.Set() {
 		return fmt.Errorf("no goal is set; /goal <objective> sets one")
@@ -184,7 +283,15 @@ func (m *Manager) resumeGoal(st *State) error {
 		g.Status, g.StatusReason = GoalActive, ""
 		g.Continuations = 0
 		g.TokensBase = g.TokensUsed
+		g.Model, g.Reasoning = model, reasoning
 		return true
 	})
 	return nil
+}
+
+func goalReasoningNote(level string) string {
+	if level == "" {
+		return ""
+	}
+	return "(reasoning " + level + ")"
 }

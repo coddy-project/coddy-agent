@@ -723,12 +723,14 @@ Verification use cases
 
 Once **`/compact`** opens the draft, the composer completes what the command takes. Two dashes after it (**`/compact --`**) offer the option **`--model`** (a lone **`-`** offers nothing, since the instructions may be a list); after **`--model `** or **`--model=`** the list holds the configured models (the ids the composer's model selector offers, **`props.llmModels`**), narrowed as the id is typed by a case-insensitive substring match, the broadest of the rules the server resolves a name by (a whole id or a model name without its provider wins first, see [Context compaction](../features/compaction.md#the-compact-command)). **ArrowDown** / **ArrowUp** move the highlight, **Enter** and **Tab** put the row into the draft with a space after it, **Escape** closes the list and leaves the draft alone. Picking **`--model`** opens the models at once.
 
+**`/goal`** takes two options the same way: **`--model`**, completed from the configured models, and **`--reasoning`**, completed from **`default`** and the levels of the model the draft's **`--model`** names (resolved like the server does: the exact id, else the one id that contains it), or of the session's model when the draft names none (**`goalReasoningChoices`**). The levels come from **`GET /v1/models`** (**`reasoning_levels`** of every row, **`llmReasoningLevelsByModel`**). See [Session goal and supervisor](../features/session-supervisor.md#commands).
+
 ![The model list under the composer after /compact --model](../assets/compact-model-picker-open-dark-1280.png)
 
 *The composer completing the value of `--model` (Dark, 1280 px).*
 
 - The list is the third face of the picker shell (**`.slash-menu`**, the bottom sheet on the stacked shell), **`data-testid="command-arg-menu"`**, rows **`command-arg-row-<id>`**; it needs no request.
-- Visibility, the replaced range and the typed prefix come from **`commandArgDraftAtCaret`** in **`external/ui/src/ui/skills/draftCommandArg.ts`**, which mirrors **`parseCompactCommand`** (**`internal/agent/compact.go`**): the command opens the draft, options come first, and the first word that is not an option starts the instructions, where nothing is completed. A bare **`/compact `** opens nothing, so **Enter** still sends the command.
+- Visibility, the replaced range and the typed prefix come from **`commandArgDraftAtCaret`** in **`external/ui/src/ui/skills/draftCommandArg.ts`**, which mirrors **`parseCompactCommand`** (**`internal/agent/compact.go`**) and **`ParseGoalCommand`** (**`internal/session/goal_command.go`**): the command opens the draft, options come first, and the first word that is not an option starts the instructions or the objective, where nothing is completed. A bare **`/compact `** or **`/goal `** opens nothing, so **Enter** still sends the command.
 - Tests: **`draftCommandArg.test.ts`**, **`Composer.commandArg.test.tsx`**.
 
 ## Composer **`@`** mentions

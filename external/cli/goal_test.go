@@ -329,6 +329,24 @@ func TestGoalMenuBodyShowsTheCheckTheChecklistAndTheNumbers(t *testing.T) {
 	}
 }
 
+func TestGoalMenuBodyNamesTheChecker(t *testing.T) {
+	for _, tc := range []struct {
+		goal acp.SessionGoal
+		want string
+	}{
+		{acp.SessionGoal{Objective: "x", Status: "active", Model: "hub/qwen", Reasoning: "high"}, "Checked by: hub/qwen, reasoning high"},
+		{acp.SessionGoal{Objective: "x", Status: "active", Reasoning: "low"}, "Checked by: the session model, reasoning low"},
+		{acp.SessionGoal{Objective: "x", Status: "active", LastCheck: &acp.GoalCheck{Verdict: "met", Model: "p/judge"}}, "Checked by: p/judge"},
+	} {
+		if body := plain(goalMenuBody(newTheme("dark"), &tc.goal)); !strings.Contains(body, tc.want) {
+			t.Errorf("the menu body lacks %q:\n%s", tc.want, body)
+		}
+	}
+	if body := plain(goalMenuBody(newTheme("dark"), &acp.SessionGoal{Objective: "x", Status: "active"})); strings.Contains(body, "Checked by") {
+		t.Errorf("a goal with no checker known names one:\n%s", body)
+	}
+}
+
 // A bare /goal opens the menu and sends nothing: no turn starts, no prompt
 // reaches the session.
 func TestBareGoalOpensTheMenuAndSendsNothing(t *testing.T) {

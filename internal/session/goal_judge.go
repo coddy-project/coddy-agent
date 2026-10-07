@@ -181,13 +181,27 @@ func extractJSONObject(text string) string {
 	return ""
 }
 
-// GoalCheckModel is the model that checks a session's goal: supervisor.model,
-// else the session's own.
+// GoalCheckModel is the model that checks a session's goal: the goal's own
+// (/goal --model), else supervisor.model, else the session's.
 func GoalCheckModel(cfg *config.Config, st *State) string {
+	return GoalCheckModelFor(cfg, st, st.GetGoal())
+}
+
+// GoalCheckModelFor is GoalCheckModel for a goal the caller holds.
+func GoalCheckModelFor(cfg *config.Config, st *State, g GoalState) string {
+	if m := strings.TrimSpace(g.Model); m != "" {
+		return m
+	}
 	if m := strings.TrimSpace(cfg.Supervisor.Model); m != "" {
 		return m
 	}
 	return st.EffectiveModelID(cfg)
+}
+
+// GoalCheckReasoning is the reasoning level the check runs at: the goal's own
+// (/goal --reasoning), else the checking model's default (empty).
+func GoalCheckReasoning(st *State) string {
+	return strings.TrimSpace(st.GetGoal().Reasoning)
 }
 
 // judgeSessionGoal is the default check: one call, no tools, through the same
@@ -205,7 +219,8 @@ func judgeSessionGoal(ctx context.Context, cfg *config.Config, st *State, req Go
 		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
 		AuthPath: rm.AuthPath, NoCLILogin: rm.NoCLILogin,
 		MaxTokens: goalJudgeMaxTokens(rm.MaxTokens), Temperature: rm.Temperature,
-		DisableStream: !rm.Stream, Timeout: time.Duration(rm.TimeoutMS) * time.Millisecond,
+		ReasoningEffort: GoalCheckReasoning(st),
+		DisableStream:   !rm.Stream, Timeout: time.Duration(rm.TimeoutMS) * time.Millisecond,
 	}
 	if rm.Stream {
 		base.StreamIdleTimeout = cfg.Agent.EffectiveLLMStreamIdleTimeout()

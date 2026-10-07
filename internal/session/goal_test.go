@@ -61,9 +61,16 @@ func TestParseGoalCommand(t *testing.T) {
 		"/goal ship the fix":    {Kind: GoalCommandSet, Objective: "ship the fix"},
 		"/goal\nmulti\nline":    {Kind: GoalCommandSet, Objective: "multi\nline"},
 		"/goal clear the cache": {Kind: GoalCommandSet, Objective: "clear the cache"},
-		"/goals":                {},
-		"/goal-x":               {},
-		"set a goal":            {},
+		"/goal --model mini --reasoning high ship it":  {Kind: GoalCommandSet, Objective: "ship it", Model: "mini", Reasoning: "high"},
+		"/goal --model=p2/gpt-4o-mini ship --model it": {Kind: GoalCommandSet, Objective: "ship --model it", Model: "p2/gpt-4o-mini"},
+		"/goal --reasoning=low resume":                 {Kind: GoalCommandResume, Reasoning: "low"},
+		"/goal --model":                                {Kind: GoalCommandSet, Err: "--model needs a value"},
+		"/goal --model mini":                           {Kind: GoalCommandSet, Model: "mini", Err: "the goal objective is empty"},
+		"/goal --frob x ship":                          {Kind: GoalCommandSet, Objective: "ship", Err: "unknown option --frob"},
+		"/goal --model mini clear":                     {Kind: GoalCommandClear, Model: "mini", Err: "--model and --reasoning go with a new goal or /goal resume"},
+		"/goals":                                       {},
+		"/goal-x":                                      {},
+		"set a goal":                                   {},
 	} {
 		if got := ParseGoalCommand(text); got != want {
 			t.Errorf("%q: got %+v, want %+v", text, got, want)

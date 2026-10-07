@@ -5506,6 +5506,18 @@ export function App() {
     return row?.multimodal ?? false;
   }, [modelInfos, llmModel]);
 
+  // Every configured model's levels: /goal --reasoning completes the levels
+  // of the model its --model names.
+  const llmReasoningLevelsByModel = useMemo(() => {
+    const out: Record<string, readonly string[]> = {};
+    for (const m of modelInfos) {
+      if (m.ownedBy !== "coddy") {
+        out[m.id] = m.reasoningLevels ?? [];
+      }
+    }
+    return out;
+  }, [modelInfos]);
+
   const llmReasoningLevels = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
     const levels = row?.reasoningLevels ?? [];
@@ -7192,6 +7204,7 @@ export function App() {
                   llmModel,
                   onLlmModelChange,
                   llmModelMultimodal,
+                  llmReasoningLevelsByModel,
                   ...(llmReasoningLevels.length > 0
                     ? {
                         llmReasoningLevels,

@@ -40,9 +40,10 @@ import {
 } from "../skills/draftSlash";
 import { filterCommandRows } from "../skills/commandRows";
 import {
-  COMPACT_FLAGS,
+  COMMAND_FLAGS,
   applyCommandArg,
   commandArgDraftAtCaret,
+  goalReasoningChoices,
   type CommandArgDraft,
 } from "../skills/draftCommandArg";
 import type { TurnOverride } from "./sessionSettings";
@@ -404,6 +405,8 @@ export function Composer(props: {
   modes: string[];
   /** Configured backends (`owned_by` != **`coddy`**). Omitted when empty. */
   llmModels?: string[];
+  /** Reasoning levels of every configured model, for `/goal --reasoning`. */
+  llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;
   /** Selected **`models[].model`** id (`metadata.model` on profile requests). */
   llmModel?: string;
   onLlmModelChange?: (modelId: string) => void;
@@ -834,13 +837,28 @@ export function Composer(props: {
       return [];
     }
     if (argDraft.kind === "flag") {
-      return COMPACT_FLAGS.filter((f) => f.startsWith(argDraft.prefix));
+      return (COMMAND_FLAGS[argDraft.command] ?? []).filter((f) =>
+        f.startsWith(argDraft.prefix),
+      );
+    }
+    if (argDraft.kind === "reasoning") {
+      const want = argDraft.prefix.toLowerCase();
+      return goalReasoningChoices(
+        argDraft.model,
+        props.llmReasoningLevelsByModel ?? {},
+        props.llmReasoningLevels ?? [],
+      ).filter((level) => level.toLowerCase().startsWith(want));
     }
     return filterLlmModels(
       orderLlmModels(props.llmModels ?? []),
       argDraft.prefix,
     );
-  }, [argDraft, props.llmModels]);
+  }, [
+    argDraft,
+    props.llmModels,
+    props.llmReasoningLevelsByModel,
+    props.llmReasoningLevels,
+  ]);
   const argOpen =
     argDraft.open &&
     (argDraft.kind === "model"
@@ -2525,7 +2543,11 @@ export function Composer(props: {
         <div className="slash-menu-title">
           {argIsFlag
             ? t("composer.commandArgOptionsTitle")
-            : t("composer.commandArgModelsTitle")}
+            : argDraft.open && argDraft.kind === "reasoning"
+              ? t("composer.commandArgReasoningTitle")
+              : argDraft.open && argDraft.command === "/goal"
+                ? t("composer.commandArgGoalModelsTitle")
+                : t("composer.commandArgModelsTitle")}
         </div>
         {argItems.length === 0 ? (
           <div className="slash-muted">
@@ -2537,9 +2559,13 @@ export function Composer(props: {
         <ul className="slash-rows" ref={argListRef}>
           {argItems.map((value, idx) => {
             // A model row is its full id, which already names the vendor.
-            const detail = argIsFlag
-              ? t("composer.commandArgModelFlagDesc")
-              : "";
+            const detail = !argIsFlag
+              ? ""
+              : value === "--reasoning"
+                ? t("composer.commandArgReasoningFlagDesc")
+                : argDraft.open && argDraft.command === "/goal"
+                  ? t("composer.commandArgGoalModelFlagDesc")
+                  : t("composer.commandArgModelFlagDesc");
             return (
               <li key={value}>
                 <button

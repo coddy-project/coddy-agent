@@ -429,6 +429,11 @@ type SessionGoal struct {
 	TokenBudget int        `json:"tokenBudget,omitempty"`
 	LastCheck   *GoalCheck `json:"lastCheck,omitempty"`
 	Checklist   []GoalItem `json:"checklist,omitempty"`
+	// Model and Reasoning are what /goal --model and --reasoning chose to
+	// check this goal; empty when the goal follows supervisor.model or the
+	// session's model and its default level.
+	Model     string `json:"model,omitempty"`
+	Reasoning string `json:"reasoning,omitempty"`
 }
 
 // GoalCheck is one supervisor verdict.

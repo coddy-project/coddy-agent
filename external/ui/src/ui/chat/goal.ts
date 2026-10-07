@@ -74,6 +74,10 @@ export type SessionGoal = {
   tokenBudget: number;
   lastCheck: GoalCheck | null;
   checklist: GoalChecklistItem[];
+  /** The model and the reasoning level /goal --model and --reasoning chose to
+   * check this goal; empty when it follows the configuration. */
+  model: string;
+  reasoning: string;
 };
 
 /** The envelope every surface of the server delivers a goal in. */
@@ -158,6 +162,8 @@ export function parseSessionGoal(raw: unknown): SessionGoal | null {
     tokenBudget: num(o.tokenBudget),
     lastCheck,
     checklist,
+    model: str(o.model),
+    reasoning: str(o.reasoning),
   };
 }
 
@@ -287,9 +293,20 @@ export function isBareGoalCommand(text: string): boolean {
   return text.trim() === "/goal";
 }
 
-/** The prompt that sets (or replaces) a goal and starts working on it. */
-export function goalSetPrompt(objective: string): string {
-  return `/goal ${objective.trim()}`;
+/**
+ * The prompt that sets (or replaces) a goal and starts working on it. The
+ * checker a goal was set with goes with it, so an edited objective is checked
+ * by the same model at the same level.
+ */
+export function goalSetPrompt(
+  objective: string,
+  checker?: { model?: string; reasoning?: string },
+): string {
+  const options = [
+    checker?.model ? `--model ${checker.model}` : "",
+    checker?.reasoning ? `--reasoning ${checker.reasoning}` : "",
+  ].filter(Boolean);
+  return ["/goal", ...options, objective.trim()].join(" ");
 }
 
 export const GOAL_RESUME_PROMPT = "/goal resume";

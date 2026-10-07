@@ -340,7 +340,12 @@ export function GoalPopover(props: {
     draft.trim() !== "" && !tooLong && !props.generating && !busy;
   const submit = () => {
     if (!canSubmit) return;
-    props.actions.sendPrompt(goalSetPrompt(draft));
+    props.actions.sendPrompt(
+      goalSetPrompt(
+        draft,
+        goal ? { model: goal.model, reasoning: goal.reasoning } : undefined,
+      ),
+    );
     setEditing(false);
     props.onClose();
   };
@@ -528,6 +533,21 @@ export function GoalPopover(props: {
           <dt>{t("goal.checks")}</dt>
           <dd>{goal.checks}</dd>
         </div>
+        {goal.model || goal.reasoning || goal.lastCheck?.model ? (
+          <div>
+            <dt>{t("goal.checkedBy")}</dt>
+            <dd data-testid="goal-checker">
+              {[
+                goal.model || goal.lastCheck?.model || t("goal.checkerDefault"),
+                goal.reasoning
+                  ? t("goal.checkerLevel", { level: goal.reasoning })
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </dd>
+          </div>
+        ) : null}
         <div>
           <dt>{t("goal.activeTime")}</dt>
           <dd>{formatElapsedSeconds(goal.activeMs)}</dd>
