@@ -121,6 +121,11 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	if reason, vetoed := a.runPreCompactHooks(ctx, mode, trigger, instructions); vetoed {
 		return nil, fmt.Errorf("%w: %s", ErrCompactionBlocked, reason)
 	}
+	// An active session goal is what the turns after this one work toward:
+	// the summary keeps the progress on it in the goal's own terms, so the
+	// supervisor's next continuation and the model read the same story. Added
+	// after the hooks, which see the operator's own words only.
+	instructions = withGoalSummaryInstructions(a.state, instructions)
 
 	msgs := a.state.GetMessages()
 	keep := a.cfg.Compaction.EffectiveKeepRecentTurns()
@@ -608,4 +613,23 @@ func compactionRequest(carry, body, instructions string) []llm.Message {
 		{Role: llm.RoleSystem, Content: prompts.WithIdentity(compactionSystemPrompt)},
 		{Role: llm.RoleUser, Content: b.String()},
 	}
+}
+
+// withGoalSummaryInstructions adds the session's active goal to what the
+// summarizer is asked to keep.
+func withGoalSummaryInstructions(state SessionState, instructions string) string {
+	st := sessionStatePtr(state)
+	if st == nil {
+		return instructions
+	}
+	goal := st.GetGoal()
+	if !goal.Active() {
+		return instructions
+	}
+	note := "The session has an active goal the next turns keep working toward: " + goal.Objective +
+		"\nKeep in the summary, under its own heading, what has been done toward that goal (with the evidence: files, commands and their results), what is still open, and what failed and why."
+	if strings.TrimSpace(instructions) == "" {
+		return note
+	}
+	return instructions + "\n\n" + note
 }

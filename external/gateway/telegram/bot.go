@@ -213,7 +213,7 @@ func botCommands(cfg *config.TelegramGatewayConfig) []tgbotapi.BotCommand {
 		{Command: "plan", Description: "Plan mode: read-only, plans the work"},
 		{Command: "ask", Description: "Ask mode: read-only answers"},
 		{Command: "context", Description: "Show context window usage"},
-		{Command: "goal", Description: "Set, show or clear the session goal"},
+		{Command: "goal", Description: "Work on a goal until it is checked done"},
 		{Command: "resume", Description: "Continue another session (pick from the list or name it)"},
 	}
 	if cfg.MiniApp.URL != "" {
@@ -237,7 +237,7 @@ func helpText(cfg *config.TelegramGatewayConfig, botName string) string {
 		"/think, /nothink, /reasoning <level> — thinking and reasoning level\n" +
 		"Add --once or --count=N to change a setting for the next messages only, and write the message after it.\n" +
 		"/context — show context window usage\n" +
-		"/goal <text>, /goal, /goal clear — set, show or clear the session goal\n" +
+		"/goal <objective> — work on a goal until a second model confirms it; /goal shows it, /goal pause, /goal resume, /goal clear\n" +
 		"/resume [id or title] — continue another session\n" +
 		app +
 		"/clear — start a new session (forgets previous context)\n" +

@@ -256,6 +256,7 @@ func Run(args []string, deps CommandDeps) error {
 			return newTurnAgent(mgr, nil, st, snd, log).Run(rctx, prompt)
 		}
 		mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+		mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: stdout, errOut: stderr}
 		startScheduler(ctx, cfg, mgr, log)
 		defer mgr.CloseMCP()
@@ -325,6 +326,7 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	}
 	lateSender := &lateBoundSender{}
 	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+	mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 	wireLocalManager(mgr)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()

@@ -563,6 +563,11 @@ func (m *SchedulerRunMeta) clone() *SchedulerRunMeta {
 // turn starts to recall and persist long-term memory.
 const SubagentKindMemory = "memory"
 
+// SubagentKindGoalVerifier is the Kind of the goal verifier, the child the
+// session supervisor starts to confirm a met goal against the workspace
+// (internal/agent/goal_verifier.go).
+const SubagentKindGoalVerifier = "goal-verifier"
+
 // SetSubagentMeta marks the session as a child run. It does not persist by
 // itself: the manager saves the state right after building it.
 func (s *State) SetSubagentMeta(meta SubagentMeta) {

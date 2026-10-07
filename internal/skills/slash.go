@@ -35,7 +35,7 @@ func BuiltinCommands(compactionEnabled bool) []SkillSummary {
 	}
 	cmds = append(cmds, SkillSummary{
 		Name:        "goal",
-		Description: "Set, show or clear the session goal: /goal <text>, /goal, /goal clear",
+		Description: "Work on a goal until a second model confirms it: /goal <objective>, /goal, /goal pause|resume|clear",
 	})
 	cmds = append(cmds, SkillSummary{
 		Name:        "export",

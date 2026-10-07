@@ -95,6 +95,7 @@ The banner names the bot (`gateway     pachca`), and the log says `pachca bot co
 | `/clear` | Starts a new session for the conversation; the old one stays on disk. |
 | `/model` | Posts the configured models as buttons; a click switches the conversation's model, and the next new conversation of the bot starts on it when an admin picked it (anybody else's pick stays in their own session). `/model <id>` sets it directly. |
 | `/context` | The context window usage of the conversation's session. |
+| `/goal <objective>`, `/goal`, `/goal pause`, `/goal resume`, `/goal clear` | The session goal: set it and start working on it, show it, pause, resume or remove it ([Session goal and supervisor](../features/session-supervisor.md)). Only the bot's admins change it; every turn the supervisor starts is announced with a message of its own. |
 | `/agent`, `/plan`, `/ask`, `/think`, `/nothink`, `/reasoning <level>` | Settings commands, handed to the session like on every surface; `--once` and `--count=N` limit them to the next messages. |
 
 In a group chat a command needs the bot's mention (`@nickname /clear`) or a reply to its message, and what changes the settings - the settings commands, `/model` and its buttons, `/clear` - is the admins' (`admins`): anybody else is answered *Only the bot's admins can change settings in this chat.* In a direct chat each person changes their own session. `/permissions` is not taken from a chat: the bot approves its own agent's requests itself.
