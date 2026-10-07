@@ -99,13 +99,20 @@ httpserver:
   auth_token: "${CODDY_HTTP_TOKEN}"
   cors:
     enable: true
-    allowed_origins: ["http://localhost:12345", "https://my-ui.example"]   # or ["*"]
+    allow_loopback: true          # the laptop's own coddy serve, on any loopback address and port
+    allowed_origins: ["https://my-ui.example"]   # exact origins elsewhere; or ["*"]
   remotes:                       # optional: offered in this server's own UI
     - name: "prod box"
       url: "https://box.example:12345"
 ```
 
-With `cors.enable` on, a preflight from an allowed origin gets `204` with `Access-Control-Allow-Origin` (the origin echoed, or `*` when configured) and `Access-Control-Allow-Headers: Authorization, Content-Type, X-Coddy-Session-ID`; an origin that is not listed gets no CORS headers, which the browser reports as a blocked request. The bearer token still applies to the real request. A swarm relay has CORS of its own, `swarm.cors`, with the same two keys: a page served elsewhere that talks to a relay needs its origin there, and a node behind the relay is answered by the relay's CORS, never by the node's. Because `EventSource` cannot send a header, the two SSE subscription routes, `GET /coddy/sessions/{id}/composer-stream` and `GET /coddy/events`, also accept `?access_token=`; the bundled UI fetches those streams instead, so its header applies and no token lands in a URL. Reference: [HTTP API](../reference/http-api.md#authentication-optional).
+With `cors.enable` on, a preflight from an allowed origin gets `204` with `Access-Control-Allow-Origin` (the origin echoed, or `*` when configured) and `Access-Control-Allow-Headers: Authorization, Content-Type, X-Coddy-Session-ID`; an origin that is not listed gets no CORS headers, which the browser reports as a blocked request. Three settings say which origins are allowed. `allowed_origins` names them exactly, and `http://localhost:12345`, `http://127.0.0.1:12345` and `http://localhost:5173` are three different origins. `allow_loopback` admits every page served from the browser's own machine - an `http` or `https` origin whose host is `localhost`, a `*.localhost` name, `127.0.0.0/8` or `[::1]`, on any port - which is the laptop case: the web UI comes from the laptop's own `coddy serve`, and its port moves between installations; the origin is echoed, never widened to `*`. `"*"` admits any page anywhere, and since the list is read first, a `"*"` in it answers loopback origins with `*` too, whether or not `allow_loopback` is on. The bearer token still applies to the real request whichever of the three admits the page: CORS decides whether the browser shows a page the answer, not whether the server gives one, so `allow_loopback` and `"*"` are only as safe as the token or the sign-in form behind the API - `coddy serve` warns at start, and `--dry-run` reports it, when either is on and the server asks for no credential ([Security and trust](security.md#the-http-surface)). A swarm relay has CORS of its own, `swarm.cors`, with the same three keys: a page served elsewhere that talks to a relay needs its origin there, and a node behind the relay is answered by the relay's CORS, never by the node's.
+
+![The health alert for a remote that CORS keeps from a page on a loopback address](../assets/remote/env-banner-cors-loopback-dark-1280.png)
+
+*A page served by the laptop's own coddy serve: the alert names the exact-origin list and the `allow_loopback` toggle that admits the page on any port*
+
+Because `EventSource` cannot send a header, the two SSE subscription routes, `GET /coddy/sessions/{id}/composer-stream` and `GET /coddy/events`, also accept `?access_token=`; the bundled UI fetches those streams instead, so its header applies and no token lands in a URL. Reference: [HTTP API](../reference/http-api.md#authentication-optional).
 
 ## The environment menu
 
@@ -119,7 +126,7 @@ Each remote is asked on menu open whether it can be used, and a dot says the ans
 
 - **does not answer**: nothing is listening at that address, or the address is wrong;
 - **refuses the token**: an agent wants its `httpserver.auth_token`, a relay its client token (`swarm.auth_token`); for a remote without a token in the configuration, **Enter token** opens the connect form filled in for it;
-- **blocked by CORS**: something answers, but the browser keeps the answer from this page, which is what CORS off (or this origin missing from it) looks like from a browser. The line names this page's origin and the key to add it to: `swarm.cors.allowed_origins` on a relay, `httpserver.cors.allowed_origins` on a coddy serve.
+- **blocked by CORS**: something answers, but the browser keeps the answer from this page, which is what CORS off (or this origin missing from it) looks like from a browser. The line names this page's origin and the key to add it to: `swarm.cors.allowed_origins` on a relay, `httpserver.cors.allowed_origins` on a coddy serve - and, when this page is itself on a loopback address (the laptop's own `coddy serve`), the `allow_loopback` toggle that admits it on any port.
 
 A relay is recognised by its public `GET /swarm/info`: it serves no `/v1` of its own, so its model catalog is not what is asked. Its token is checked on `GET /swarm/nodes`, and once it is accepted the menu lists the agents behind it, every hop deep, so a node is one click away rather than behind the relay's map ([Swarm, The UI](swarm.md#the-ui)).
 
@@ -145,7 +152,7 @@ Trust decisions are the server's too. A project MCP server, hooks file or subage
 - A permission mode a remote client switches (`/permissions`, `--permission-mode`, the dialog's session switch) applies to the server's session for every client of it, and lives in the server's memory: a restart of `coddy serve` returns the session to `tools.permission_mode`.
 - A dropped connection leaves the server turn, its children and any open prompt running; `/resume` shows the outcome once the turn ends, and an answer to a prompt the server has already withdrawn is ignored. Quitting the console mid-turn waits briefly for the cancel to reach the server.
 - A session is one turn at a time: a second client prompting the same session gets `409` while the first turn holds the lock.
-- The web UI reaches a remote only when that server lists the UI's origin in `cors.allowed_origins` (`swarm.cors.allowed_origins` on a relay); the menu says so on the remote's line when that is what stands in the way.
+- The web UI reaches a remote only when that server admits the UI's origin through its `cors` (`swarm.cors` on a relay): the exact origin in `allowed_origins`, or `allow_loopback` for a page served from the laptop's own `coddy serve`; the menu says so on the remote's line when that is what stands in the way.
 
 ## Checking a remote from the command line
 

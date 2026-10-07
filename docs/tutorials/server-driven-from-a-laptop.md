@@ -11,7 +11,7 @@
      auth_token: "${CODDY_HTTP_TOKEN}"
      cors:
        enable: true
-       allowed_origins: ["http://localhost:12345"]   # the origin the laptop's UI is served from
+       allow_loopback: true   # the laptop's UI is served by its own coddy serve: any loopback address, any port
    ```
 
    ```bash
@@ -21,6 +21,8 @@
    ```
 
    The startup banner says what is reachable and how: `httpserver  http://0.0.0.0:12345  (bearer auth)`. Binding a non-loopback address without a token logs a warning at start, and clients warn when they send a token over plain http to an address that is not loopback: put TLS in front of the server, a reverse proxy is enough, when the path crosses a network you do not control.
+
+   Nothing on the laptop has to be reachable, so a laptop behind NAT or on an address that changes works the same: the console dials the server (step 2), the browser dials it from the laptop's own `coddy serve` (step 4), and a laptop that joins a swarm leaves `advertise_url` out of its `swarm.join` entry and dials the relay, which carries requests back down that connection ([Swarm, Two transports](../operate/swarm.md#two-transports)). `allow_loopback` is what makes step 4 independent of the laptop's spelling and port: `http://localhost:12345`, `http://127.0.0.1:12345` and Vite's `http://localhost:5173` are three origins, and the toggle admits them all. It is only as safe as the token this step set ([Security and trust](../operate/security.md)).
 
 2. **Drive it from the laptop's console.** `--remote` takes a bare `host:port` (scheme defaults to http), a full URL, or the name of a remote listed under `httpserver.remotes` in the laptop's own `config.yaml`. The token comes from `--remote-token`, then from the `token` of that remote's entry when it has one, then from `CODDY_REMOTE_TOKEN`.
 

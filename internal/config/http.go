@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +33,9 @@ type HTTPServerConfig struct {
 	Login HTTPLoginConfig `yaml:"login"`
 	// PublicDocs keeps /docs and /openapi.* reachable without a token even when auth is enabled.
 	PublicDocs bool `yaml:"public_docs"`
-	// AllowInsecure silences the startup warning about a non-loopback bind without authentication.
+	// AllowInsecure silences the two startup warnings about a server without
+	// authentication - a non-loopback bind, and CORS that admits pages nobody
+	// listed (allow_loopback or "*") - and the --dry-run findings that mirror them.
 	AllowInsecure bool `yaml:"allow_insecure"`
 	// CORS controls cross-origin access so a browser UI on another origin can call this API.
 	CORS HTTPCORSConfig `yaml:"cors"`
@@ -142,10 +146,23 @@ func (l *HTTPLoginConfig) SessionTTL() time.Duration {
 	return time.Duration(l.SessionTTLHours) * time.Hour
 }
 
-// HTTPCORSConfig is the optional cross-origin policy for the HTTP gateway.
+// HTTPCORSConfig is the optional cross-origin policy for the HTTP gateway and,
+// as swarm.cors, for the relay. CORS decides whether a browser shows a page the
+// answer; the token or the sign-in form decides whether the server gives one,
+// so none of these settings is a credential.
 type HTTPCORSConfig struct {
 	// Enabled turns on CORS handling (preflight + Access-Control-* headers).
 	Enabled bool `yaml:"enable"`
+	// AllowLoopback also admits every page served from the browser's own
+	// machine: an http or https origin whose host is localhost, a *.localhost
+	// name, 127.0.0.0/8 or [::1], on any port (an IPv4-mapped IPv6 spelling
+	// such as [::ffff:127.0.0.1] is none of those: list it in AllowedOrigins if
+	// it is wanted). It is the laptop case of a remote coddy serve - the web UI
+	// comes from the laptop's own coddy serve, and its port moves between
+	// installations - where AllowedOrigins would need the exact string of each.
+	// Narrower than "*", and like "*" only as safe as the credential behind the
+	// API.
+	AllowLoopback bool `yaml:"allow_loopback"`
 	// AllowedOrigins are exact origins permitted to call the API (e.g. "http://localhost:5173").
 	// A single "*" allows any origin (bearer auth still applies).
 	AllowedOrigins []string `yaml:"allowed_origins"`
@@ -171,7 +188,9 @@ func (h *HTTPServerConfig) CORSAllowOrigin(origin string) (string, bool) {
 }
 
 // AllowOrigin answers the same question for any surface holding this policy,
-// which the swarm relay needs because it carries its own CORS settings.
+// which the swarm relay needs because it carries its own CORS settings. The
+// list is consulted first, so "*" keeps winning; a loopback origin admitted by
+// AllowLoopback is echoed, never widened to "*".
 func (c HTTPCORSConfig) AllowOrigin(origin string) (string, bool) {
 	if !c.Enabled || strings.TrimSpace(origin) == "" {
 		return "", false
@@ -185,7 +204,112 @@ func (c HTTPCORSConfig) AllowOrigin(origin string) (string, bool) {
 			return origin, true
 		}
 	}
+	if c.AllowLoopback && isLoopbackOrigin(origin) {
+		return origin, true
+	}
 	return "", false
+}
+
+// OpenToUnlistedOrigins reports whether the policy admits pages nobody named:
+// "*" in the list, or AllowLoopback. Either is only as safe as the credential
+// behind the API, which is what the startup warning and the dry run say when
+// there is none.
+func (c HTTPCORSConfig) OpenToUnlistedOrigins() bool {
+	if !c.Enabled {
+		return false
+	}
+	if c.AllowLoopback {
+		return true
+	}
+	for _, o := range c.AllowedOrigins {
+		if strings.TrimSpace(o) == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+// isLoopbackOrigin reports whether origin is a serialized http or https origin
+// - scheme, host, optional port and nothing else - whose host is loopback. The
+// test is syntactic: no DNS, so a name that resolves to loopback on the
+// browser's machine but is not spelled as loopback is refused, and so is a URL
+// with a path, a query, a fragment or user information, which a browser never
+// sends as Origin and which must not be echoed into Access-Control-Allow-Origin.
+func isLoopbackOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	// A serialized origin is the scheme, the host and an optional port and
+	// nothing else. Rebuilding it from the parsed parts and comparing drops a
+	// path, a query (an empty one leaves only ForceQuery behind), a fragment,
+	// user information and a trailing slash in one check.
+	if u.ForceQuery || !strings.EqualFold(u.Scheme+"://"+u.Host, origin) {
+		return false
+	}
+	host := u.Host
+	if h, port, err := net.SplitHostPort(host); err == nil {
+		if p, err := strconv.ParseUint(port, 10, 16); err != nil || p == 0 {
+			return false
+		}
+		host = h
+	} else if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	} else if strings.Contains(host, ":") {
+		// An IPv6 literal belongs in brackets; bare colons are neither a
+		// port nor an origin a browser would send.
+		return false
+	}
+	if host == "" {
+		return false
+	}
+	// Brackets belong to an IPv6 literal, with or without a port; [localhost]
+	// and [127.0.0.1] are not origins a browser sends.
+	if strings.HasPrefix(u.Host, "[") && !strings.Contains(host, ":") {
+		return false
+	}
+	return isLoopbackOriginHost(host)
+}
+
+// isLoopbackOriginHost is the host half of the origin test: localhost, a
+// *.localhost name, an address of 127.0.0.0/8 in dotted form, or ::1 in any
+// spelling of it. It is narrower than isLoopbackHostname on purpose. A bind
+// address is judged by that one; a page's origin, which the echo makes a
+// statement about, by this:
+//   - net.IP.IsLoopback also admits an IPv4-mapped IPv6 address, and the page
+//     at [::ffff:127.0.0.1] has the origin http://[::ffff:7f00:1]:<port>, which
+//     is neither spelling the setting names;
+//   - url.Parse tolerates characters in a host (a bracket, a non-ASCII letter)
+//     that no browser sends in a name, so a name is checked for the characters
+//     of a host name before its suffix is read.
+func isLoopbackOriginHost(host string) bool {
+	if ip := net.ParseIP(host); ip != nil {
+		if strings.Contains(host, ":") {
+			return ip.Equal(net.IPv6loopback)
+		}
+		return ip.IsLoopback()
+	}
+	if !isHostNameText(host) {
+		return false
+	}
+	// RFC 6761 reserves *.localhost for loopback and browsers resolve it so
+	// without a hosts entry, which is what makes it a usable alias scheme.
+	host = strings.ToLower(host)
+	return host == "localhost" || strings.HasSuffix(host, ".localhost")
+}
+
+// isHostNameText reports whether s is made only of the characters a host name
+// is written with: letters, digits, hyphen, underscore and dot.
+func isHostNameText(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_', c == '.':
+		default:
+			return false
+		}
+	}
+	return s != ""
 }
 
 // EffectiveAuthTokens returns the configured token as a slice (empty when unset), so callers can

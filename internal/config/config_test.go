@@ -850,6 +850,124 @@ func TestHTTPServerCORSAndRemotesRoundTrip(t *testing.T) {
 	}
 }
 
+// allow_loopback admits a page served from the browser's own machine on any
+// port and in each spelling of loopback the setting names, without naming each
+// origin. The echo is the origin itself, never "*", so a browser keeps treating
+// the answer as one for this page alone. The host test is syntactic: no DNS, so
+// a name that happens to resolve to loopback on the laptop is still refused
+// here.
+func TestHTTPCORSAllowLoopbackOrigins(t *testing.T) {
+	c := config.HTTPCORSConfig{Enabled: true, AllowLoopback: true}
+	// The origins live in testdata/loopback_origin_cases.json, which
+	// external/ui/src/ui/env/loopbackOrigin.test.ts reads too: the server and the
+	// SPA's hint are held to the same literals. A browser sends a serialized
+	// origin and nothing more, and the echo goes into Access-Control-Allow-Origin,
+	// which must be an origin, not a URL; the hosts admitted are the ones the
+	// contract names - localhost, *.localhost, 127.0.0.0/8 in dotted form and
+	// ::1 - and not every address net.IP.IsLoopback calls loopback.
+	raw, err := os.ReadFile(filepath.Join("testdata", "loopback_origin_cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Origin   string `json:"origin"`
+		Loopback bool   `json:"loopback"`
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) < 40 {
+		t.Fatalf("only %d shared cases", len(cases))
+	}
+	for _, tc := range cases {
+		allow, ok := c.AllowOrigin(tc.Origin)
+		if tc.Loopback && (!ok || allow != tc.Origin) {
+			t.Errorf("AllowOrigin(%q) = %q,%v; want the origin echoed", tc.Origin, allow, ok)
+		}
+		if !tc.Loopback && (ok || allow != "") {
+			t.Errorf("AllowOrigin(%q) = %q,%v; want refused", tc.Origin, allow, ok)
+		}
+	}
+	// The switch is part of the policy: with CORS off it admits nothing.
+	off := config.HTTPCORSConfig{Enabled: false, AllowLoopback: true}
+	if _, ok := off.AllowOrigin("http://localhost:5173"); ok {
+		t.Error("allow_loopback with enable: false admitted an origin")
+	}
+	// The list is consulted first and "*" still wins over the echo.
+	star := config.HTTPCORSConfig{Enabled: true, AllowLoopback: true, AllowedOrigins: []string{"*"}}
+	if allow, ok := star.AllowOrigin("http://localhost:5173"); !ok || allow != "*" {
+		t.Errorf("with * in the list AllowOrigin = %q,%v; want *", allow, ok)
+	}
+	// Exact origins and the toggle compose: a listed remote page and the
+	// laptop's loopback pages are both admitted.
+	both := config.HTTPCORSConfig{Enabled: true, AllowLoopback: true, AllowedOrigins: []string{"https://ui.example"}}
+	for _, origin := range []string{"https://ui.example", "http://localhost:5173"} {
+		if allow, ok := both.AllowOrigin(origin); !ok || allow != origin {
+			t.Errorf("list + loopback AllowOrigin(%q) = %q,%v", origin, allow, ok)
+		}
+	}
+}
+
+// OpenToUnlistedOrigins names the two settings that admit pages nobody listed
+// - "*" and allow_loopback - which is what the startup warning and the dry run
+// ask before saying that a server without a credential is open to them.
+func TestHTTPCORSOpenToUnlistedOrigins(t *testing.T) {
+	for name, tc := range map[string]struct {
+		c    config.HTTPCORSConfig
+		want bool
+	}{
+		"off":            {config.HTTPCORSConfig{AllowLoopback: true, AllowedOrigins: []string{"*"}}, false},
+		"exact only":     {config.HTTPCORSConfig{Enabled: true, AllowedOrigins: []string{"http://localhost:12345"}}, false},
+		"loopback":       {config.HTTPCORSConfig{Enabled: true, AllowLoopback: true}, true},
+		"star":           {config.HTTPCORSConfig{Enabled: true, AllowedOrigins: []string{"https://ui.example", " * "}}, true},
+		"enabled, empty": {config.HTTPCORSConfig{Enabled: true}, false},
+	} {
+		if got := tc.c.OpenToUnlistedOrigins(); got != tc.want {
+			t.Errorf("%s: OpenToUnlistedOrigins() = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// The toggle is a setting like the rest of cors: it loads from the file and
+// survives the GET -> edit -> PUT round trip of the settings form.
+func TestHTTPCORSAllowLoopbackRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	yaml := httpAuthBaseYAML +
+		"httpserver:\n" +
+		"  cors:\n" +
+		"    enable: true\n" +
+		"    allow_loopback: true\n" +
+		"swarm:\n" +
+		"  cors:\n" +
+		"    enable: true\n" +
+		"    allow_loopback: true\n"
+	if err := os.WriteFile(f, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HTTPServer.CORS.AllowLoopback || !cfg.Swarm.CORS.AllowLoopback {
+		t.Fatalf("allow_loopback not parsed: http %+v swarm %+v", cfg.HTTPServer.CORS, cfg.Swarm.CORS)
+	}
+	raw, err := json.Marshal(config.ConfigToJSONDTO(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"allow_loopback":true`) {
+		t.Fatalf("the config document does not carry allow_loopback: %s", raw)
+	}
+	back, err := config.ParseConfigJSONPreservingSecrets(raw, cfg.Paths, cfg)
+	if err != nil {
+		t.Fatalf("round-trip parse: %v", err)
+	}
+	if !back.HTTPServer.CORS.AllowLoopback || !back.Swarm.CORS.AllowLoopback {
+		t.Fatalf("allow_loopback lost in round-trip: http %+v swarm %+v", back.HTTPServer.CORS, back.Swarm.CORS)
+	}
+}
+
 // A remote may carry the token the browser presents to it (issue #401): the admin
 // who writes the entry chooses to keep it in the file, usually as a ${ENV}
 // reference. It travels to the page through the config document, like a

@@ -138,6 +138,10 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.swarm.cors.enable.label": "Включить CORS",
   "settings.schema.swarm.cors.enable.desc":
     "Отвечать на кросс-доменные запросы с адресов ниже.",
+  "settings.schema.swarm.cors.allow_loopback.label":
+    "Разрешить loopback-origin",
+  "settings.schema.swarm.cors.allow_loopback.desc":
+    "Также допускать любую страницу с машины самого браузера — localhost, *.localhost, 127.0.0.0/8 или [::1] на любом порту, например coddy serve на ноутбуке, какой бы порт он ни занял. Клиентский токен по-прежнему обязателен.",
   "settings.schema.swarm.cors.allowed_origins.label": "Разрешённые origin",
   "settings.schema.swarm.cors.allowed_origins.desc":
     "Точные origin, например http://localhost:12345, или * для любого.",
@@ -613,7 +617,8 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.max_search_hits.label": "Максимум результатов поиска",
   "settings.schema.memory.max_search_hits.desc":
     "Максимум фрагментов, возвращаемых инструментами поиска по памяти.",
-  "settings.schema.memory.max_note_chars.label": "Предел размера заметки (символы)",
+  "settings.schema.memory.max_note_chars.label":
+    "Предел размера заметки (символы)",
   "settings.schema.memory.max_note_chars.desc":
     "Наибольшая длина тела одной сохраняемой заметки в символах; 0 без предела (по умолчанию 900).",
   "settings.schema.memory.additional_prompt.label": "Дополнительные инструкции",
@@ -936,7 +941,7 @@ export const messagesRu: Record<string, string> = {
   "mcp.editor.save": "Сохранить",
   "mcp.editor.cancel": "Отмена",
   "mcp.discovery.description":
-    "Проектный ./.coddy/mcp.json приходит вместе с чекаутом, поэтому команду, которую запустит сессия, выбирает репозиторий, а не вы. В режиме \"Спрашивать\" его серверы не запускаются и не опрашиваются, пока вы не одобрите именно это объявление для данного рабочего пространства (кнопка-щит в списке ниже); изменение одобренной записи снова потребует одобрения. Серверы, добавленные здесь, одобряются самим фактом записи. Записи из ~/.coddy/mcp.json ваши и никогда не блокируются.",
+    'Проектный ./.coddy/mcp.json приходит вместе с чекаутом, поэтому команду, которую запустит сессия, выбирает репозиторий, а не вы. В режиме "Спрашивать" его серверы не запускаются и не опрашиваются, пока вы не одобрите именно это объявление для данного рабочего пространства (кнопка-щит в списке ниже); изменение одобренной записи снова потребует одобрения. Серверы, добавленные здесь, одобряются самим фактом записи. Записи из ~/.coddy/mcp.json ваши и никогда не блокируются.',
   "mcp.servers.description":
     "Серверы Model Context Protocol берутся из двух файлов, это глобальный ~/.coddy/mcp.json и ./.coddy/mcp.json проекта, который переопределяет сервер с тем же именем (формат Cursor). Можно отключить весь сервер или отдельные инструменты. Переключатель глобального сервера сохраняется в ~/.coddy/mcp.json, переключатель проектного в ~/.coddy/mcp-overrides.json, поэтому checkout остаётся как есть. Переключатель сервера применяется в работающих сессиях сразу, переключатель инструмента на их следующем ходе, а правка ~/.coddy/mcp.json в обход этого экрана доходит до них за несколько секунд.",
   "mcp.empty":
@@ -970,7 +975,7 @@ export const messagesRu: Record<string, string> = {
     "Правила пула делегирования, то есть можно ли запускать определения, пришедшие с чекаутом, сколько запусков идёт одновременно, насколько глубоко они вкладываются и сколько времени и итераций получает один запуск, если ни определение, ни вызов их не задают.",
   "subagents.catalog.legend": "Определения",
   "subagents.catalog.description":
-    "Все определения, которые может запустить сессия этого рабочего пространства, это встроенные, ваши файлы в ~/.agents/agents и ~/.coddy/agents и файлы .agents/agents и .coddy/agents, пришедшие вместе с чекаутом. При значении \"ask\" проектный файл запускается только после одобрения для этого рабочего пространства щитом здесь или командой coddy agents trust <name> на машине, где работает coddy. Изменённый одобренный файл потребует одобрения снова.",
+    'Все определения, которые может запустить сессия этого рабочего пространства, это встроенные, ваши файлы в ~/.agents/agents и ~/.coddy/agents и файлы .agents/agents и .coddy/agents, пришедшие вместе с чекаутом. При значении "ask" проектный файл запускается только после одобрения для этого рабочего пространства щитом здесь или командой coddy agents trust <name> на машине, где работает coddy. Изменённый одобренный файл потребует одобрения снова.',
   "subagents.catalog.loading": "Загрузка определений…",
   "subagents.catalog.empty":
     "Из этого рабочего пространства не видно ни одного определения субагента.",
@@ -985,7 +990,8 @@ export const messagesRu: Record<string, string> = {
   "subagents.badge.needsApproval": "нужно одобрение",
   "subagents.badge.needsApprovalTitle":
     "Запуск отклоняется, пока определение не одобрено для этого рабочего пространства щитом или командой coddy agents trust {name}",
-  "subagents.trust.approveTitle": "Разрешить запуск {name} в этом рабочем пространстве",
+  "subagents.trust.approveTitle":
+    "Разрешить запуск {name} в этом рабочем пространстве",
   "subagents.trust.approvedTitle":
     "Одобрено для этого рабочего пространства, нажмите, чтобы отозвать",
   "subagents.trust.approveAria": "Одобрить субагента {name}",
@@ -1060,11 +1066,13 @@ export const messagesRu: Record<string, string> = {
   "skills.sources.scope.global": "Ваш (~/.coddy)",
   "skills.sources.scope.local": "Этот проект",
   "skills.sources.syncAll": "Синхронизировать все",
-  "skills.sources.syncAllTitle": "Получить все действующие источники и маркетплейсы",
+  "skills.sources.syncAllTitle":
+    "Получить все действующие источники и маркетплейсы",
   "skills.sources.completed": "Готово",
   "skills.sources.syncedTitle": "Синхронизировано",
   "skills.sources.syncTitle": "Синхронизировать {source}",
-  "skills.sources.heldSyncTitle": "Сначала одобрите его для этого рабочего пространства",
+  "skills.sources.heldSyncTitle":
+    "Сначала одобрите его для этого рабочего пространства",
   "skills.sources.deniedSyncTitle":
     "Маркетплейсы проектов выключены настройкой skills.project_trust: deny",
   "skills.sources.scope.noSessionTitle":
@@ -1079,11 +1087,14 @@ export const messagesRu: Record<string, string> = {
   "skills.sources.origin.system": "встроенный",
   "skills.sources.origin.home": "ваш",
   "skills.sources.origin.project": "из проекта",
-  "skills.sources.trust.systemAria": "{source} встроен в Coddy и всегда доверенный",
-  "skills.sources.trust.approveTitle": "Разрешить синхронизацию {source} в этом рабочем пространстве",
+  "skills.sources.trust.systemAria":
+    "{source} встроен в Coddy и всегда доверенный",
+  "skills.sources.trust.approveTitle":
+    "Разрешить синхронизацию {source} в этом рабочем пространстве",
   "skills.sources.trust.approvedTitle":
     "Одобрено для этого рабочего пространства, нажмите, чтобы отозвать",
-  "skills.sources.trust.approveAria": "Одобрить {source} для этого рабочего пространства",
+  "skills.sources.trust.approveAria":
+    "Одобрить {source} для этого рабочего пространства",
   "skills.sources.trust.withdrawAria": "Отозвать одобрение {source}",
   "skills.sources.note.held":
     "Объявлено в {path}; этот файл приходит вместе с чекаутом, поэтому запись не синхронизируется, пока вы не одобрите её щитом для этого рабочего пространства.",
@@ -1094,7 +1105,7 @@ export const messagesRu: Record<string, string> = {
   "skills.sources.error.remove": "Не удалось удалить {source}.",
   "skills.sources.error.trust": "Не удалось изменить одобрение {source}.",
   "skills.sources.description":
-    "Откуда берутся удалённые скилы. Источник ставит все плагины, которые публикует, и держит их в актуальном виде, каталог (coddy plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.coddy/marketplaces.json, записи проекта в его .coddy/marketplaces.json, который приходит вместе с чекаутом, и при значении \"ask\" запись проекта синхронизируется только после одобрения щитом. Всё ставится в ~/.coddy/skills, и ничего не запрашивается до синхронизации. Встроенный маркетплейс rpa-skills действует всегда и всегда доверенный.",
+    'Откуда берутся удалённые скилы. Источник ставит все плагины, которые публикует, и держит их в актуальном виде, каталог (coddy plugin marketplace add) ставит плагины по одному. Ваши записи хранятся в ~/.coddy/marketplaces.json, записи проекта в его .coddy/marketplaces.json, который приходит вместе с чекаутом, и при значении "ask" запись проекта синхронизируется только после одобрения щитом. Всё ставится в ~/.coddy/skills, и ничего не запрашивается до синхронизации. Встроенный маркетплейс rpa-skills действует всегда и всегда доверенный.',
   "skills.sources.placeholder": "owner/repo  ·  https://…/marketplace.json",
   "skills.install.cliHint":
     "Скилы можно также установить через npx skills или npx skillsbd — они попадают в ~/.agents/skills/ и подхватываются автоматически.",
@@ -1362,7 +1373,8 @@ export const messagesRu: Record<string, string> = {
   "composer.editingHint": "При отправке разговор откатится к этому сообщению",
   "composer.cancelEdit": "Отменить правку (Esc)",
   "composer.messageEdited": "Сообщение изменено.",
-  "composer.undoEditHint": "Отмена вернёт разговор как был, изменения в файлах не откатываются",
+  "composer.undoEditHint":
+    "Отмена вернёт разговор как был, изменения в файлах не откатываются",
   "composer.undoEdit": "Отменить",
   "composer.undoDismiss": "Скрыть",
   "composer.stopGeneration": "Остановить генерацию",
@@ -1504,10 +1516,11 @@ export const messagesRu: Record<string, string> = {
     "Не принимает токен. Нужен токен из его httpserver.auth_token.",
   "env.hint.relayToken":
     "Релей не принимает токен. Нужен его клиентский токен из swarm.auth_token.",
-  "env.hint.configToken":
-    "Токен этой записи в httpserver.remotes не принят.",
+  "env.hint.configToken": "Токен этой записи в httpserver.remotes не принят.",
   "env.hint.cors":
     "Ответ заблокирован CORS. Разрешите {origin} в swarm.cors.allowed_origins (релей) или httpserver.cors.allowed_origins (coddy serve).",
+  "env.hint.corsLoopback":
+    "Ответ заблокирован CORS. Эта страница открыта с loopback-адреса: включите swarm.cors.allow_loopback (релей) или httpserver.cors.allow_loopback (coddy serve) либо разрешите {origin} точно в allowed_origins.",
   "env.relay": "релей",
   "env.nodeOffline": "не в сети",
   "composer.folderModal.title": "Открыть папку",
@@ -1539,6 +1552,10 @@ export const messagesRu: Record<string, string> = {
     "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors} на релее.",
   "env.banner.corsEither":
     "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors}, если это релей, или в {agentCors}, если это coddy serve.",
+  "env.banner.corsRelayLoopback":
+    "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors} на релее или включите там {relayLoopback}: эта страница открыта с loopback-адреса, и так она будет допущена с любого порта.",
+  "env.banner.corsEitherLoopback":
+    "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors}, если это релей, или в {agentCors}, если это coddy serve, — либо включите {relayLoopback} / {agentLoopback}: эта страница открыта с loopback-адреса, и так она будет допущена с любого порта.",
   "env.banner.switchLocal": "Переключиться на локальное",
 
   "prompts.questions": "Вопросы",
@@ -1587,7 +1604,8 @@ export const messagesRu: Record<string, string> = {
   "scheduler.trust.conflict": "конфликт id",
   "scheduler.trust.invalid": "ошибка",
   "scheduler.trust.review": "Проверить и одобрить",
-  "scheduler.trust.reviewAria": "Проверить и одобрить проектное задание {jobId}",
+  "scheduler.trust.reviewAria":
+    "Проверить и одобрить проектное задание {jobId}",
   "scheduler.trust.approveTitle": "Одобрить задание для этой папки",
   "scheduler.trust.withdrawTitle": "Отозвать одобрение",
   "scheduler.trust.from": "Проектное задание из {workspace}",
@@ -1664,12 +1682,16 @@ export const messagesRu: Record<string, string> = {
   "changes.skipped.other": "{count} нового файла не показаны.",
   "changes.discardFileTitle": "Вернуть {name} к последнему коммиту",
   "changes.discardFileConfirm": "Отменить правки в {name}?",
-  "changes.discardRestoreMessage": "Файл вернётся к содержимому последнего коммита. Это нельзя отменить.",
-  "changes.discardDeleteMessage": "Файла не было в последнем коммите, поэтому он будет удалён. Это нельзя отменить.",
+  "changes.discardRestoreMessage":
+    "Файл вернётся к содержимому последнего коммита. Это нельзя отменить.",
+  "changes.discardDeleteMessage":
+    "Файла не было в последнем коммите, поэтому он будет удалён. Это нельзя отменить.",
   "changes.discardAll": "Отменить все",
-  "changes.discardAllTitle": "Вернуть все незакоммиченные правки к последнему коммиту",
+  "changes.discardAllTitle":
+    "Вернуть все незакоммиченные правки к последнему коммиту",
   "changes.discardAllConfirm": "Отменить все незакоммиченные правки?",
-  "changes.discardAllMessage": "Все изменённые файлы вернутся к содержимому последнего коммита, новые файлы будут удалены, а файлы из .gitignore останутся. Это нельзя отменить.",
+  "changes.discardAllMessage":
+    "Все изменённые файлы вернутся к содержимому последнего коммита, новые файлы будут удалены, а файлы из .gitignore останутся. Это нельзя отменить.",
   "changes.discardYes": "Отменить правки",
   "changes.discardFailed": "Не удалось отменить правки: {message}",
   "workspaceBar.label": "Где работает этот чат",
@@ -1684,7 +1706,8 @@ export const messagesRu: Record<string, string> = {
   "files.openFiles": "Открытые файлы",
   "files.closeTab": "Закрыть {name}",
   "files.empty.title": "Здесь появятся открытые файлы",
-  "files.empty.hint": "Выберите файл в дереве или нажмите на путь к файлу в разговоре.",
+  "files.empty.hint":
+    "Выберите файл в дереве или нажмите на путь к файлу в разговоре.",
   "files.showTree": "Показать дерево файлов",
   "files.hideTree": "Скрыть дерево файлов",
   "files.expand": "Развернуть окно",
@@ -1703,9 +1726,11 @@ export const messagesRu: Record<string, string> = {
   "files.loading": "Загрузка…",
   "files.changed": "Файл изменился. Превью обновлено.",
   "files.binary": "Превью недоступно. Файл можно скачать.",
-  "files.pdfDownload": "Скачайте PDF, чтобы открыть его в программе для просмотра.",
+  "files.pdfDownload":
+    "Скачайте PDF, чтобы открыть его в программе для просмотра.",
   "files.wrap": "Перенос строк",
-  "files.imageUnavailable": "Превью изображения недоступно или превышает 20 МБ. Скачайте оригинал.",
+  "files.imageUnavailable":
+    "Превью изображения недоступно или превышает 20 МБ. Скачайте оригинал.",
   "files.actualSize": "Исходный размер",
   "files.fit": "Вписать изображение",
   "changes.binary": "бинарный",
@@ -1776,7 +1801,8 @@ export const messagesRu: Record<string, string> = {
   "messages.copyErrorMessage": "Копировать сообщение об ошибке",
   "messages.editMessage": "Редактировать сообщение",
   "messages.undoEdit": "Отменить правку",
-  "messages.undoEditTitle": "Вернуть разговор к виду до этой правки. Изменения в файлах не откатываются.",
+  "messages.undoEditTitle":
+    "Вернуть разговор к виду до этой правки. Изменения в файлах не откатываются.",
   "messages.attachedFiles": "Прикреплённые файлы",
   "messages.openAttachmentImage": "Открыть {fileName} крупнее",
   "messages.toolImages": "Картинки, которые вызов показал модели",
@@ -2266,7 +2292,8 @@ export const messagesRu: Record<string, string> = {
   "messages.artifactCopyRelative": "Копировать относительный путь",
   "messages.artifactCopyAbsolute": "Копировать абсолютный путь",
   "messages.artifactReveal": "Показать на сервере",
-  "messages.artifactRevealUnavailable": "Показ на удалённом сервере или сервере без интерфейса недоступен",
+  "messages.artifactRevealUnavailable":
+    "Показ на удалённом сервере или сервере без интерфейса недоступен",
   "messages.downloadArtifact": "Скачать {fileName}",
   "messages.downloadArtifactButton": "Скачать",
   "messages.artifactDownloading": "Скачивание…",
@@ -2280,7 +2307,8 @@ export const messagesRu: Record<string, string> = {
   "markdown.figure.open": "Открыть картинку",
   "markdown.figure.rendering": "Рисую…",
   "markdown.figure.error": "Не удалось нарисовать картинку: {message}",
-  "markdown.figure.loadError": "Не удалось загрузить отрисовщик диаграмм, перезагрузите страницу",
+  "markdown.figure.loadError":
+    "Не удалось загрузить отрисовщик диаграмм, перезагрузите страницу",
   "markdown.math.label": "Формула",
   "markdown.math.copySource": "Скопировать исходник формулы",
   "markdown.math.inlineTitle": "{source} (нажмите, чтобы скопировать)",

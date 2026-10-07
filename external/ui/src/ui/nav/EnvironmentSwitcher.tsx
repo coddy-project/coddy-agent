@@ -28,6 +28,7 @@ import {
   subscribeShellStack,
 } from "../shellBreakpoint";
 import { useActiveEnvHealth } from "../env/activeHealth";
+import { isLoopbackOrigin } from "../env/loopbackOrigin";
 import { rememberRelayHome } from "../env/pageMemory";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 
@@ -219,9 +220,7 @@ export function EnvironmentSwitcher(props: {
   };
 
   const label =
-    env.mode === "local"
-      ? t("env.local")
-      : env.name || hostLabel(env.baseUrl);
+    env.mode === "local" ? t("env.local") : env.name || hostLabel(env.baseUrl);
   const health = env.mode === "local" ? "local" : activeHealth;
   const useSheet = isMobileShell;
 
@@ -237,8 +236,15 @@ export function EnvironmentSwitcher(props: {
         return probe.relay
           ? t("env.hint.relayToken")
           : t("env.hint.agentToken");
-      case "cors":
-        return t("env.hint.cors", { origin: window.location.origin });
+      case "cors": {
+        // A page on a loopback address - a laptop's own coddy serve - is also
+        // admitted by cors.allow_loopback, on any port, so that is named too.
+        const origin = window.location.origin;
+        return t(
+          isLoopbackOrigin(origin) ? "env.hint.corsLoopback" : "env.hint.cors",
+          { origin },
+        );
+      }
       case "down":
         return t("env.hint.down");
       default:
@@ -256,7 +262,8 @@ export function EnvironmentSwitcher(props: {
         ? "up"
         : "down";
     const active = env.mode === "remote" && env.baseUrl === key;
-    const hint = done && done.probe.reach !== "up" ? hintFor(r, done.probe) : "";
+    const hint =
+      done && done.probe.reach !== "up" ? hintFor(r, done.probe) : "";
     const token = tokenForRemote(r);
     const relayUp = !!done && done.probe.relay && done.probe.reach === "up";
     // The configured name, else what the remote calls itself, else its

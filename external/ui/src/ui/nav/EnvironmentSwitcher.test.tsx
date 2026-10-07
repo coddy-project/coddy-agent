@@ -10,7 +10,9 @@ import {
 } from "@testing-library/react";
 import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
 
-const Switcher = () => <EnvironmentSwitcher className="rail-hit" wide={false} />;
+const Switcher = () => (
+  <EnvironmentSwitcher className="rail-hit" wide={false} />
+);
 
 // The item stands at the foot of the desktop rail: its menu opens beside the
 // rail, its foot level with the item's, and grows upward into the room above.
@@ -73,7 +75,8 @@ describe("EnvironmentSwitcher menu direction", () => {
   it("stays inside the window when the item is near the right edge", async () => {
     render(<Switcher />);
     const btn = screen.getByTestId("nav-environment");
-    btn.getBoundingClientRect = () => rect(window.innerHeight - 60, window.innerWidth - 60);
+    btn.getBoundingClientRect = () =>
+      rect(window.innerHeight - 60, window.innerWidth - 60);
     fireEvent.click(btn);
     const menu = await screen.findByTestId("env-menu");
     const width = Math.min(300, window.innerWidth - 24);
@@ -107,18 +110,29 @@ describe("EnvironmentSwitcher icon", () => {
     render(<Switcher />);
     const btn = screen.getByTestId("nav-environment");
     expect(btn.getAttribute("data-env")).toBe("local");
-    expect(btn.querySelector(".rail-env-status")?.getAttribute("data-state")).toBe("local");
+    expect(
+      btn.querySelector(".rail-env-status")?.getAttribute("data-state"),
+    ).toBe("local");
     expect(btn.getAttribute("aria-label")).toBe("Environment: Local");
-    expect(btn.parentElement?.querySelector(".rail-tip")?.textContent).toBe("Environment: Local");
+    expect(btn.parentElement?.querySelector(".rail-tip")?.textContent).toBe(
+      "Environment: Local",
+    );
   });
 
   it("is the two chevrons on a remote host, named in the tooltip", () => {
-    setEnv({ mode: "remote", baseUrl: "http://box.lan:12345", token: "", name: "box" });
+    setEnv({
+      mode: "remote",
+      baseUrl: "http://box.lan:12345",
+      token: "",
+      name: "box",
+    });
     render(<Switcher />);
     const btn = screen.getByTestId("nav-environment");
     expect(btn.getAttribute("data-env")).toBe("remote");
     expect(btn.getAttribute("aria-label")).toBe("Environment: box");
-    const paths = Array.from(btn.querySelectorAll("svg path")).map((p) => p.getAttribute("d"));
+    const paths = Array.from(btn.querySelectorAll("svg path")).map((p) =>
+      p.getAttribute("d"),
+    );
     expect(paths).toEqual(["M4 5l6 5-6 5", "M20 9l-6 5 6 5"]);
   });
 
@@ -249,13 +263,18 @@ describe("EnvironmentSwitcher with a relay as a remote (issue #401)", () => {
   // A relay serves no /v1 at all: probing its model catalog left a healthy,
   // authorized relay red for good.
   it("shows a relay that accepts the saved token as reachable", async () => {
-    localStorage.setItem("coddy_env_tokens", JSON.stringify({ [RELAY]: "client" }));
+    localStorage.setItem(
+      "coddy_env_tokens",
+      JSON.stringify({ [RELAY]: "client" }),
+    );
     network = fleet({ remotes: [{ name: "office-relay", url: RELAY }] });
     render(<Switcher />);
     await openEnvMenu();
     await waitFor(() =>
       expect(
-        remoteRow("office-relay").querySelector(".env-status")?.getAttribute("data-state"),
+        remoteRow("office-relay")
+          .querySelector(".env-status")
+          ?.getAttribute("data-state"),
       ).toBe("up"),
     );
   });
@@ -266,7 +285,9 @@ describe("EnvironmentSwitcher with a relay as a remote (issue #401)", () => {
     const menu = await openEnvMenu();
     await within(menu).findByText(/swarm\.auth_token/);
     expect(
-      remoteRow("office-relay").querySelector(".env-status")?.getAttribute("data-state"),
+      remoteRow("office-relay")
+        .querySelector(".env-status")
+        ?.getAttribute("data-state"),
     ).toBe("down");
     fireEvent.click(within(menu).getByRole("button", { name: /token/i }));
     expect(screen.getByTestId("env-add-url")).toHaveValue(RELAY);
@@ -275,12 +296,19 @@ describe("EnvironmentSwitcher with a relay as a remote (issue #401)", () => {
   // With swarm.cors off the browser gets no answer at all, which used to look
   // exactly like a machine that is off.
   it("names the CORS setting and this page's origin when the browser is kept from the answer", async () => {
-    network = fleet({ remotes: [{ name: "office-relay", url: RELAY }], cors: false });
+    network = fleet({
+      remotes: [{ name: "office-relay", url: RELAY }],
+      cors: false,
+    });
     render(<Switcher />);
     const menu = await openEnvMenu();
     const hint = await within(menu).findByText(/swarm\.cors/);
     expect(hint.textContent).toContain(window.location.origin);
     expect(hint.textContent).toContain("httpserver.cors");
+    // jsdom serves the page from http://localhost:3000 - the laptop case - so
+    // the line also names the toggle that admits this page on any port.
+    expect(window.location.origin).toMatch(/^http:\/\/localhost/);
+    expect(hint.textContent).toContain("allow_loopback");
   });
 
   it("uses the token the configuration carries for the remote", async () => {
@@ -293,7 +321,9 @@ describe("EnvironmentSwitcher with a relay as a remote (issue #401)", () => {
     await openEnvMenu();
     await waitFor(() =>
       expect(
-        remoteRow("office-relay").querySelector(".env-status")?.getAttribute("data-state"),
+        remoteRow("office-relay")
+          .querySelector(".env-status")
+          ?.getAttribute("data-state"),
       ).toBe("up"),
     );
     fireEvent.click(remoteRow("office-relay"));
@@ -305,12 +335,19 @@ describe("EnvironmentSwitcher with a relay as a remote (issue #401)", () => {
   // The nice-to-have of the issue: a node under the relay is one click away.
   it("lists the agents of an authorized relay and enters one in one click", async () => {
     stubLocation();
-    localStorage.setItem("coddy_env_tokens", JSON.stringify({ [RELAY]: "client" }));
+    localStorage.setItem(
+      "coddy_env_tokens",
+      JSON.stringify({ [RELAY]: "client" }),
+    );
     network = fleet({ remotes: [{ name: "office-relay", url: RELAY }] });
     render(<Switcher />);
     const menu = await openEnvMenu();
-    const node = await within(menu).findByRole("menuitem", { name: /worker-a/ });
-    expect(within(menu).getByRole("menuitem", { name: /worker-b/ })).toBeTruthy();
+    const node = await within(menu).findByRole("menuitem", {
+      name: /worker-a/,
+    });
+    expect(
+      within(menu).getByRole("menuitem", { name: /worker-b/ }),
+    ).toBeTruthy();
     fireEvent.click(node);
     const env = getEnv();
     if (env.mode !== "remote") throw new Error("expected a remote environment");
@@ -330,13 +367,19 @@ describe("EnvironmentSwitcher with a relay as a remote (issue #401)", () => {
       "coddy_env_tokens",
       JSON.stringify({ [RELAY]: "client", [AGENT]: "agent" }),
     );
-    const relayNet = fleet({ remotes: [{ url: RELAY }, { url: AGENT }, { url: DEAD }] });
+    const relayNet = fleet({
+      remotes: [{ url: RELAY }, { url: AGENT }, { url: DEAD }],
+    });
     network = (url, init) => {
       if (url.startsWith(AGENT)) {
         if (bearer(init) !== "Bearer agent") return json(401, {});
         if (url === AGENT + "/v1/models") return json(200, { data: [] });
         if (url === AGENT + "/coddy/info") {
-          return json(200, { object: "coddy.info", version: "1.2.36", hostname: "gpu-box" });
+          return json(200, {
+            object: "coddy.info",
+            version: "1.2.36",
+            hostname: "gpu-box",
+          });
         }
         return json(404, {});
       }
@@ -345,10 +388,16 @@ describe("EnvironmentSwitcher with a relay as a remote (issue #401)", () => {
     render(<Switcher />);
     const menu = await openEnvMenu();
     await within(menu).findByRole("menuitem", { name: /^office/ });
-    const agent = await within(menu).findByRole("menuitem", { name: /^gpu-box/ });
-    expect(agent.querySelector(".mode-env-sub")?.textContent).toBe("gpu-box.lan:12345");
+    const agent = await within(menu).findByRole("menuitem", {
+      name: /^gpu-box/,
+    });
+    expect(agent.querySelector(".mode-env-sub")?.textContent).toBe(
+      "gpu-box.lan:12345",
+    );
     // Nothing names the one that does not answer: its address is its name.
-    const dead = within(menu).getByRole("menuitem", { name: /^10\.0\.0\.9:12345/ });
+    const dead = within(menu).getByRole("menuitem", {
+      name: /^10\.0\.0\.9:12345/,
+    });
     expect(dead.querySelector(".mode-env-sub")?.textContent ?? "").toBe("");
     // The chip carries the same name once the remote is chosen.
     fireEvent.click(agent);
@@ -364,7 +413,9 @@ describe("EnvironmentSwitcher with a relay as a remote (issue #401)", () => {
     render(<Switcher />);
     const first = await openEnvMenu();
     await waitFor(() =>
-      expect(within(first).queryByRole("menuitem", { name: /office-relay/ })).toBeNull(),
+      expect(
+        within(first).queryByRole("menuitem", { name: /office-relay/ }),
+      ).toBeNull(),
     );
     fireEvent.click(screen.getByTestId("nav-environment"));
     network = fleet({ remotes: [{ name: "office-relay", url: RELAY }] });
@@ -385,10 +436,22 @@ describe("EnvironmentSwitcher menu height", () => {
     render(<Switcher />);
     const btn = screen.getByTestId("nav-environment");
     btn.getBoundingClientRect = () =>
-      ({ left: 40, top: 300, bottom: 328, right: 160, width: 120, height: 28, x: 40, y: 300, toJSON: () => ({}) }) as DOMRect;
+      ({
+        left: 40,
+        top: 300,
+        bottom: 328,
+        right: 160,
+        width: 120,
+        height: 28,
+        x: 40,
+        y: 300,
+        toJSON: () => ({}),
+      }) as DOMRect;
     fireEvent.click(btn);
     const menu = await screen.findByTestId("env-menu");
     expect(menu).toHaveClass("opens-down");
-    expect(parseFloat(menu.style.maxHeight)).toBe(window.innerHeight - 300 - 12);
+    expect(parseFloat(menu.style.maxHeight)).toBe(
+      window.innerHeight - 300 - 12,
+    );
   });
 });

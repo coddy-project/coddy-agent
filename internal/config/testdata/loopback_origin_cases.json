@@ -1,0 +1,302 @@
+[
+  {
+    "origin": "http://localhost",
+    "loopback": true
+  },
+  {
+    "origin": "http://localhost:1",
+    "loopback": true
+  },
+  {
+    "origin": "https://LOCALHOST:443",
+    "loopback": true,
+    "note": "host in any case"
+  },
+  {
+    "origin": "HTTP://localhost:3000",
+    "loopback": true,
+    "note": "scheme in any case"
+  },
+  {
+    "origin": "http://127.0.0.1:12345",
+    "loopback": true
+  },
+  {
+    "origin": "http://127.1.2.3:80",
+    "loopback": true,
+    "note": "anywhere in 127.0.0.0/8"
+  },
+  {
+    "origin": "http://127.255.255.254",
+    "loopback": true
+  },
+  {
+    "origin": "http://[::1]:5173",
+    "loopback": true
+  },
+  {
+    "origin": "http://[::1]",
+    "loopback": true
+  },
+  {
+    "origin": "http://[0:0:0:0:0:0:0:1]:80",
+    "loopback": true,
+    "note": "::1 in another spelling"
+  },
+  {
+    "origin": "http://app.localhost:3000",
+    "loopback": true,
+    "note": "*.localhost"
+  },
+  {
+    "origin": "http://my_app.localhost",
+    "loopback": true,
+    "note": "an underscore is a legal host character"
+  },
+  {
+    "origin": "http://localhost.evil.com",
+    "loopback": false
+  },
+  {
+    "origin": "http://evil.com",
+    "loopback": false
+  },
+  {
+    "origin": "http://10.0.0.5:12345",
+    "loopback": false
+  },
+  {
+    "origin": "http://0.0.0.0:1",
+    "loopback": false
+  },
+  {
+    "origin": "ftp://localhost",
+    "loopback": false,
+    "note": "scheme"
+  },
+  {
+    "origin": "localhost:12345",
+    "loopback": false,
+    "note": "no scheme"
+  },
+  {
+    "origin": "null",
+    "loopback": false,
+    "note": "a sandboxed page"
+  },
+  {
+    "origin": "",
+    "loopback": false,
+    "note": "no Origin"
+  },
+  {
+    "origin": "http://localhost:abc",
+    "loopback": false,
+    "note": "port is not a number"
+  },
+  {
+    "origin": "http://localhost:0",
+    "loopback": false,
+    "note": "port 0"
+  },
+  {
+    "origin": "http://127.0.0.1:0",
+    "loopback": false,
+    "note": "port 0"
+  },
+  {
+    "origin": "http://localhost:65536",
+    "loopback": false,
+    "note": "port out of range"
+  },
+  {
+    "origin": "http://localhost:",
+    "loopback": false,
+    "note": "an empty port is not an origin a browser sends"
+  },
+  {
+    "origin": "http://[::1]:",
+    "loopback": false,
+    "note": "an empty port"
+  },
+  {
+    "origin": "http://localhost:80:80",
+    "loopback": false,
+    "note": "two ports"
+  },
+  {
+    "origin": "http://localhost:5173/path",
+    "loopback": false,
+    "note": "a path"
+  },
+  {
+    "origin": "http://localhost:5173/",
+    "loopback": false,
+    "note": "a trailing slash"
+  },
+  {
+    "origin": "http://localhost:5173?q=1",
+    "loopback": false,
+    "note": "a query"
+  },
+  {
+    "origin": "http://localhost?",
+    "loopback": false,
+    "note": "an empty query"
+  },
+  {
+    "origin": "http://localhost:5173#f",
+    "loopback": false,
+    "note": "a fragment"
+  },
+  {
+    "origin": "http://localhost#",
+    "loopback": false,
+    "note": "an empty fragment"
+  },
+  {
+    "origin": "http://user@localhost:5173",
+    "loopback": false,
+    "note": "user information"
+  },
+  {
+    "origin": "http://@localhost",
+    "loopback": false,
+    "note": "empty user information"
+  },
+  {
+    "origin": "http://::1",
+    "loopback": false,
+    "note": "an IPv6 literal belongs in brackets"
+  },
+  {
+    "origin": "http://[::ffff:127.0.0.1]",
+    "loopback": false,
+    "note": "IPv4-mapped IPv6 is not one of the spellings the contract names"
+  },
+  {
+    "origin": "http://[::ffff:7f00:1]:3000",
+    "loopback": false,
+    "note": "IPv4-mapped IPv6, the form a browser serializes"
+  },
+  {
+    "origin": "http://[::127.0.0.1]",
+    "loopback": false,
+    "note": "IPv4-compatible IPv6"
+  },
+  {
+    "origin": "http://127.1",
+    "loopback": false,
+    "note": "a short IPv4 form"
+  },
+  {
+    "origin": "http://0x7f.1",
+    "loopback": false,
+    "note": "a hexadecimal IPv4 form"
+  },
+  {
+    "origin": "http://2130706433",
+    "loopback": false,
+    "note": "a decimal IPv4 form"
+  },
+  {
+    "origin": "http://127.000.000.001",
+    "loopback": false,
+    "note": "leading zeros"
+  },
+  {
+    "origin": "http://127.0.0.256",
+    "loopback": false,
+    "note": "an octet above 255"
+  },
+  {
+    "origin": "http://localhost.",
+    "loopback": false,
+    "note": "a trailing dot"
+  },
+  {
+    "origin": "http://127.0.0.1.",
+    "loopback": false,
+    "note": "a trailing dot"
+  },
+  {
+    "origin": "http:\\\\localhost",
+    "loopback": false,
+    "note": "backslashes"
+  },
+  {
+    "origin": "http:localhost",
+    "loopback": false,
+    "note": "no slashes"
+  },
+  {
+    "origin": " http://localhost",
+    "loopback": false,
+    "note": "leading space"
+  },
+  {
+    "origin": "http://localhost ",
+    "loopback": false,
+    "note": "trailing space"
+  },
+  {
+    "origin": "http://loc\talhost",
+    "loopback": false,
+    "note": "a tab inside"
+  },
+  {
+    "origin": "http://ｌｏｃａｌｈｏｓｔ",
+    "loopback": false,
+    "note": "full-width letters that fold to localhost"
+  },
+  {
+    "origin": "http://%6cocalhost",
+    "loopback": false,
+    "note": "percent-encoding"
+  },
+  {
+    "origin": "https://éapp.localhost",
+    "loopback": false,
+    "note": "a non-ASCII character in the name: a browser sends the punycode form"
+  },
+  {
+    "origin": "https://a]pp.localhost",
+    "loopback": false,
+    "note": "a bracket outside an IPv6 literal"
+  },
+  {
+    "origin": "https://a[pp.localhost",
+    "loopback": false,
+    "note": "a bracket outside an IPv6 literal"
+  },
+  {
+    "origin": "http://a!b.localhost",
+    "loopback": false,
+    "note": "outside the host-name alphabet the contract uses (letters, digits, hyphen, underscore, dot)"
+  },
+  {
+    "origin": "http://[localhost]",
+    "loopback": false,
+    "note": "brackets belong to an IPv6 literal"
+  },
+  {
+    "origin": "http://[localhost]:80",
+    "loopback": false,
+    "note": "brackets around a name, with a port"
+  },
+  {
+    "origin": "http://[127.0.0.1]",
+    "loopback": false,
+    "note": "brackets around an IPv4 address"
+  },
+  {
+    "origin": "http://[127.0.0.1]:3000",
+    "loopback": false,
+    "note": "brackets around an IPv4 address, with a port"
+  },
+  {
+    "origin": "http://[foo.localhost]",
+    "loopback": false,
+    "note": "brackets around a *.localhost name"
+  }
+]

@@ -66,6 +66,33 @@ describe("EnvHealthBanner says why the environment is not usable (issue #401)", 
     expect(banner.textContent).toContain(window.location.origin);
   });
 
+  // jsdom serves the test page from http://localhost:3000, which is the laptop
+  // case: the page is on a loopback address, so the toggle that admits it on
+  // any port is named beside the exact-origin list.
+  it("names the allow_loopback toggle when this page is on a loopback address", () => {
+    expect(window.location.origin).toMatch(/^http:\/\/localhost/);
+    const banner = show(agentEnv, { reach: "cors", relay: false });
+    expect(banner.textContent).toContain("httpserver.cors.allow_loopback");
+    expect(banner.textContent).toContain("swarm.cors.allow_loopback");
+    expect(banner.textContent).toContain("httpserver.cors.allowed_origins");
+  });
+
+  it("names only the relay's loopback toggle inside a node reached through a relay", () => {
+    const banner = show(
+      {
+        mode: "remote",
+        baseUrl: "http://relay.lan:12346/swarm/nodes/worker-a",
+        token: "t",
+        name: "worker-a",
+        swarmRelay: "http://relay.lan:12346",
+        swarmNode: "worker-a",
+      },
+      { reach: "cors", relay: false },
+    );
+    expect(banner.textContent).toContain("swarm.cors.allow_loopback");
+    expect(banner.textContent).not.toContain("httpserver.cors");
+  });
+
   // A node reached through a relay is answered by the relay's CORS.
   it("names only the relay's CORS setting inside a node reached through a relay", () => {
     const banner = show(
