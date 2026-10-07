@@ -376,7 +376,8 @@ func (s *Server) coddyAuthLogoutPost(w http.ResponseWriter, r *http.Request) {
 // plain-HTTP loopback deployments that are the common case, and a browser that
 // never sends the cookie back cannot sign in at all.
 func sessionCookie(r *http.Request, token string, ttl time.Duration) *http.Cookie {
-	c := &http.Cookie{
+	// Secure follows the request's TLS on purpose (see above); HttpOnly is set.
+	c := &http.Cookie{ // nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
 		Name:     sessionCookieName(r),
 		Value:    token,
 		Path:     "/",

@@ -3491,7 +3491,7 @@ func TestHTTPCORSLoopbackCookieWriteFromAnotherPortIsRefused(t *testing.T) {
 
 	cookie := httptest.NewRequest(http.MethodPost, "/coddy/sessions/abc/workspace", nil)
 	cookie.Host = host
-	cookie.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	cookie.AddCookie(c)
 	cookie.Header.Set("Origin", "http://localhost:5173")
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, cookie)
