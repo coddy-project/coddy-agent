@@ -295,7 +295,9 @@ test("the window opens on the file and the line the address names", async () => 
   const row = document.querySelector('[data-file-line="3"]');
   expect(row).toBeTruthy();
   expect(row?.className || "").toBe("");
-  expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  // The scroll is a passive effect of the render that put the line in, which
+  // a loaded runner can run after findByText has already returned.
+  await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
   expect(screen.getByRole("tab", { selected: true }).textContent).toBe(
     "notes.txt",
   );
@@ -539,7 +541,7 @@ test("the window opened again shows its file at the line it was on, and says so 
   await screen.findByText("third note");
   // The window goes to the line; for now a file is only read, so nothing marks it.
   const line = document.querySelector('[data-file-line="3"]');
-  expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
   expect(line?.className || "").toBe("");
   expect(onNavigate).toHaveBeenCalledWith("notes.txt", 3);
 });
@@ -613,13 +615,16 @@ test("a long file reads on as it is scrolled, with no pages to click", async () 
 
 // A view still at the end once the lines went in reads on by itself: no
 // second scroll event comes when the reader already stands at the bottom.
+// Two reads and two renders of a growing list stand between the scroll and
+// line 700, which outlasts the default second of findByText on a loaded
+// runner (the full suite beside other work); with time it always arrives.
 test("a view still at the end after a read reads on without another scroll", async () => {
   contents["long.txt"] = Array.from({ length: 700 }, (_, i) => `line ${i + 1}`).join("\n");
   render(view({ initialPath: "long.txt" }));
   await screen.findByText("line 1");
   scrollBody(5500);
-  await screen.findByText("line 700");
-});
+  await screen.findByText("line 700", {}, { timeout: 10000 });
+}, 20000);
 
 // Opened in the middle (an address, a link), the file reads back up as the
 // reader scrolls to the top of what is on screen.

@@ -4,9 +4,9 @@ This page is for people: the environment, the build, the test runs, the flow of 
 
 ## Development environment
 
-- **Go** - the version `go.mod` declares (1.25 today); CI reads it from the same file.
+- **Go** - 1.26 or newer, the `go` line of `go.mod`. Its `toolchain` line (`go1.26.8` today) is the oldest release any build links: CI and the release archives install the `go` line's release and switch to exactly that one, and with the default `GOTOOLCHAIN=auto` an older local `go` downloads it on first use. A newer local Go, or a newer patch in the `golang:1.26` image, builds with itself, which only adds fixes.
 - **Node.js and npm** (CI uses Node 22) - for a build with the `ui` tag, where `make ui-build` bundles the SPA that `go:embed` picks up; for `make test-agent-rules`, whose OpenCode half uses Node's test runner; for `make test`, which builds the SPA and runs vitest; and for `make lint`, whose shipped-tag pass embeds those assets and ends with `tsc`.
-- **golangci-lint v2.x** (CI pins v2.12.2), built with Go 1.25 or newer - for `make lint`.
+- **golangci-lint v2.x** (CI pins v2.12.2), built with Go 1.26 or newer - for `make lint`.
 - **ripgrep** - the CI test job installs it before `go test`; keep `rg` on `PATH` for the same run locally.
 - **Python 3** - for `make test-agent-rules` and the end-to-end harnesses in `examples/`; the console driver needs `pip install -r examples/cli/requirements.txt`.
 
@@ -102,7 +102,7 @@ The one-page version is the paired code-style rule ([Cursor](.cursor/rules/code-
 
 Commit messages follow `type(scope): summary`, as the log does: `feat(config): --dry-run probes what config.yaml points at before anything starts`, `fix(update): refresh the man page and the completions beside the binary`, `docs(swarm): ...`, `test(agent): ...`, `chore(test): ...`, `ci: ...`. The scope is the package or surface, the summary is one lower-case line in the imperative, and an issue goes at the end in parentheses (`(issue #195)`).
 
-Every commit passes through the gate `make hooks` enabled: `.githooks/pre-commit` calls `scripts/checks.sh`, which runs `make lint` for a commit that touches code and, for a commit that touches the documentation (`docs/`, `README.md`, `AGENTS.md`, `DESIGN.md`, this file, the config schema), the documentation check instead (`go run ./cmd/docsgen -skip-cli`: the navigation map, links and anchors, assets, generated pages). Tests are opt-in on commit: `CODDY_HOOK_TESTS=fast` adds `go test ./...`, `full` the express `make test`, `matrix` every combination; `CODDY_HOOK_LINT=0` and `CODDY_HOOK_DOCS=0` switch one check off; `CODDY_HOOK_SKIP=1` bypasses everything, and `git commit --no-verify` bypasses one commit.
+Every commit passes through the gate `make hooks` enabled: `.githooks/pre-commit` calls `scripts/checks.sh`, which runs `make lint` for a commit that touches code, `prettier --check` over the SPA files it stages (only those: the SPA is formatted file by file as it is touched; `cd external/ui && npx prettier --write <file>` fixes one) and, for a commit that touches the documentation (`docs/`, `README.md`, `AGENTS.md`, `DESIGN.md`, this file, the config schema), the documentation check instead (`go run ./cmd/docsgen -skip-cli`: the navigation map, links and anchors, assets, generated pages). Tests are opt-in on commit: `CODDY_HOOK_TESTS=fast` adds `go test ./...`, `full` the express `make test`, `matrix` every combination; `CODDY_HOOK_LINT=0`, `CODDY_HOOK_FORMAT=0` and `CODDY_HOOK_DOCS=0` switch one check off; `CODDY_HOOK_SKIP=1` bypasses everything, and `git commit --no-verify` bypasses one commit.
 
 Before the push: `make test` and `make lint` green, and `make docs-check` when documentation moved. After the push, read the **Tests on PR** run with `gh pr checks` and fix whichever job it names:
 

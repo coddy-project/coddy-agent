@@ -1,4 +1,6 @@
-# AppSec gate (issue #374): trivy and semgrep over the checkout.
+# AppSec gate (issue #374): trivy, semgrep and govulncheck over the checkout.
+# govulncheck's report rides in the security-reports artifact; only trivy and
+# semgrep upload SARIF to code scanning.
 #
 # One implementation runs everywhere: this workflow calls `make security`,
 # which is `scripts/security-scan.sh` — the same versions, flags and gate a
@@ -40,8 +42,9 @@ jobs:
         uses: actions/checkout@v4
 
       # The docker fallback of scripts/security-scan.sh: the runner ships
-      # docker, the images are pinned tag@sha256 in the script.
-      - name: Run trivy and semgrep
+      # docker, the images are pinned tag@sha256 in the script (govulncheck
+      # runs a pinned release inside the pinned Go image).
+      - name: Run trivy, semgrep and govulncheck
         env:
           # Optional: fork pull requests receive no repository secrets, which
           # is fine because semgrep is report-only until its backlog is triaged.

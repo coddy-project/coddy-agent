@@ -1,6 +1,6 @@
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterAll, afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
@@ -186,11 +186,9 @@ afterEach(() => {
 // does, and its last reads (the transcript, the usage) must still meet the
 // stub rather than the real fetch of a torn-down page, however late they come
 // on a loaded machine. So the stub stays for the whole file (each test stubs
-// it again) and goes only once the last of them had time to land.
-afterAll(async () => {
-  await new Promise((r) => setTimeout(r, 200));
-  vi.unstubAllGlobals();
-});
+// it again) and is never taken down: no wait is long enough on every runner
+// (200 ms was not), and nothing needs it gone, because vitest runs each test
+// file in a process of its own (pool forks, isolate on).
 
 const modelChip = () => screen.getByRole("button", { name: "Model" });
 const reasoningChip = () => screen.getByRole("button", { name: "Reasoning level" });
