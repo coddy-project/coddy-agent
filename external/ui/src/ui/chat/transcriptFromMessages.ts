@@ -1,4 +1,5 @@
 import { parseBackgroundWakeTasks } from "./backgroundWake";
+import { parseGoalTurn } from "./goal";
 import { pickRicherQuestionToolArgs } from "./questionPromptSessionStore";
 import { sessionMessageFiles } from "./sessionMessageFiles";
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
@@ -9,6 +10,7 @@ import {
   partialTurnThinkingItemId,
   stableAssistantItemId,
   stableCompactionItemId,
+  stableGoalTurnItemId,
   stablePlanDocumentItemId,
   stableThinkingItemId,
   stableToolCallItemId,
@@ -150,6 +152,20 @@ export function transcriptItemsFromMessages(p: {
           id: stableWakeItemId(userTurnIdx),
           type: "background_wake",
           tasks: wakeTasks,
+          ...(cat ? { createdAtUtc: cat } : {}),
+        });
+        return;
+      }
+      // Nobody typed the first message of a turn the session supervisor
+      // started for the goal either: its content is the instruction the model
+      // read, and a goal row stands in its place. It opens a turn of its own,
+      // as the server counts it.
+      const goalTurn = parseGoalTurn((m as Record<string, unknown>).goal_turn);
+      if (goalTurn) {
+        next.push({
+          id: stableGoalTurnItemId(userTurnIdx),
+          type: "goal_turn",
+          turn: goalTurn,
           ...(cat ? { createdAtUtc: cat } : {}),
         });
         return;

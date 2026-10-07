@@ -1,3 +1,4 @@
+import { opensTurn } from "./backgroundWake";
 import type { TranscriptItem } from "./types";
 
 /**
@@ -41,7 +42,7 @@ export function applyMemoryRunToItems(
   let userIdx = -1;
   for (let i = prev.length - 1; i >= 0; i--) {
     const it = prev[i];
-    if (it && (it.type === "user_message" || it.type === "background_wake")) {
+    if (opensTurn(it)) {
       userIdx = i;
       break;
     }

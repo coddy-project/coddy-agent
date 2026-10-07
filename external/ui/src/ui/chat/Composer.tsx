@@ -46,6 +46,14 @@ import {
   type CommandArgDraft,
 } from "../skills/draftCommandArg";
 import type { TurnOverride } from "./sessionSettings";
+import { GoalPopover, type GoalActions } from "./GoalPopover";
+import {
+  goalStatusKey,
+  goalTone,
+  isBareGoalCommand,
+  type SessionGoal,
+} from "./goal";
+import { TargetIcon } from "../components/TargetIcon";
 import {
   segmentComposerMirrorSpans,
   type MentionMark,
@@ -446,6 +454,14 @@ export function Composer(props: {
   onPermissionModeChange?: (mode: string) => void;
   /** Settings changed for the running and the next turns (--once, --count=N). */
   settingsOverrides?: TurnOverride[];
+  /**
+   * The session's goal (chat/goal.ts): the chip in the toolbar while there is
+   * one, and the goal popover it opens. A bare `/goal` opens the popover too,
+   * with the form that sets a goal when there is none. Both need goalActions;
+   * without them the chip is hidden and `/goal` goes to the server as typed.
+   */
+  goal?: SessionGoal | null;
+  goalActions?: GoalActions;
   onChange: (v: string) => void;
   /** files is non-empty only when the user attached files via the file picker. */
   onSend: (text: string, files?: File[]) => void;
@@ -513,6 +529,9 @@ export function Composer(props: {
   const [llmQuery, setLlmQuery] = useState("");
   const llmFilterRef = useRef<HTMLInputElement | null>(null);
   const [contextPopoverOpen, setContextPopoverOpen] = useState(false);
+  /** The goal popover, opened by the goal chip or a bare `/goal`. */
+  const [goalPopoverOpen, setGoalPopoverOpen] = useState(false);
+  const goalChipRef = useRef<HTMLButtonElement | null>(null);
   /** After closing the breakdown, hide hover tooltip until pointer leaves the ring. */
   const [contextTipSuppressed, setContextTipSuppressed] = useState(false);
 
@@ -556,12 +575,23 @@ export function Composer(props: {
     (props.value.trim().length > 0 || sendableAttachedFiles.length > 0);
   /**
    * Runs a draft that is a command of this composer - `/docs [words]` opens
-   * the reader, `/mcp` opens Settings -> MCP servers - in the browser; false
-   * when the draft is anything else. Like the console, `/mcp` ignores what
-   * follows it rather than send it to the model. A draft with files attached
-   * is always a message, so a command never swallows the attachments.
+   * the reader, `/mcp` opens Settings -> MCP servers, a bare `/goal` opens
+   * the goal popover - in the browser; false when the draft is anything else.
+   * Like the console, `/mcp` ignores what follows it rather than send it to
+   * the model; `/goal` with anything after it (an objective, pause, resume,
+   * clear) is the server's and goes as typed. A draft with files attached is
+   * always a message, so a command never swallows the attachments.
    */
   const runLocalCommandFromDraft = (): boolean => {
+    if (
+      props.goalActions &&
+      sendableAttachedFiles.length === 0 &&
+      isBareGoalCommand(props.value)
+    ) {
+      props.onChange("");
+      setGoalPopoverOpen(true);
+      return true;
+    }
     if (
       props.onMCPCommand &&
       sendableAttachedFiles.length === 0 &&
@@ -902,6 +932,12 @@ export function Composer(props: {
       closeContextPopover();
     }
   }, [pickerOpen, contextPopoverOpen, closeContextPopover]);
+
+  // The goal popover belongs to the chat it was opened in.
+  useEffect(() => {
+    setGoalPopoverOpen(false);
+  }, [props.sessionId]);
+  const closeGoalPopover = useCallback(() => setGoalPopoverOpen(false), []);
   const measurePickerFloat = useCallback(() => {
     if (!pickerOpen) {
       setPickerFloatRect(null);
@@ -2050,6 +2086,37 @@ export function Composer(props: {
   const llmLabel = llmVal
     ? displayLlmId(llmVal, t("composer.model"))
     : t("composer.model");
+  // The goal chip: the target, the status word in the status's tone and the
+  // objective cut to one line. It shrinks before anything else in the strip,
+  // and on a phone it keeps the target and the status only.
+  const goal = props.goalActions ? (props.goal ?? null) : null;
+  const goalStatusWord = goal ? t(goalStatusKey(goal.status)) : "";
+  const goalChip = goal ? (
+    <div className="mode composer-goal-host">
+      <button
+        type="button"
+        ref={goalChipRef}
+        className={`composer-tab composer-goal goal-tone-${goalTone(goal.status)}`}
+        data-testid="composer-goal"
+        data-goal-status={goal.status}
+        aria-haspopup="dialog"
+        aria-expanded={goalPopoverOpen}
+        aria-label={t("goal.chipLabel", { status: goalStatusWord })}
+        title={t("goal.chipTitle", {
+          status: goalStatusWord,
+          objective:
+            goal.objective.length > 200
+              ? `${goal.objective.slice(0, 200)}…`
+              : goal.objective,
+        })}
+        onClick={() => setGoalPopoverOpen((open) => !open)}
+      >
+        <TargetIcon className="composer-goal-icon" size={14} />
+        <span className="composer-goal-status">{goalStatusWord}</span>
+        <span className="composer-goal-objective">{goal.objective}</span>
+      </button>
+    </div>
+  ) : null;
   const contextIdle = props.contextIdle === true;
   const maxCtx =
     typeof props.maxContextTokens === "number" && props.maxContextTokens > 0
@@ -3398,6 +3465,8 @@ export function Composer(props: {
                 </div>
               ) : null}
 
+              {goalChip}
+
               {overrideLines.length > 0 ? (
                 <span
                   className="composer-overrides"
@@ -3546,6 +3615,18 @@ export function Composer(props: {
           onCompacted={props.onContextCompacted}
           usage={props.providerUsage ?? null}
           modelId={llmVal || ""}
+        />
+      ) : null}
+      {goalPopoverOpen && props.goalActions ? (
+        <GoalPopover
+          open={goalPopoverOpen}
+          onClose={closeGoalPopover}
+          goal={props.goal ?? null}
+          useSheet={menuUseSheet}
+          anchorRef={goal ? goalChipRef : composerCardRef}
+          toggleRef={goalChipRef}
+          generating={props.generating === true}
+          actions={props.goalActions}
         />
       ) : null}
       {menuOpen && (menuUseSheet || menuAnchorRect)

@@ -87,11 +87,12 @@
     );
   }
 
-  /* Bottom sheets: the composer's menus, and the slash, @ and context
-     pickers on the start screen (above the docked composer they are placed
-     from its card, which is lifted already). Capped to what is visible under
-     the top bar. */
+  /* Bottom sheets: the composer's menus and the goal popover, and the slash,
+     @ and context pickers on the start screen (above the docked composer they
+     are placed from its card, which is lifted already). Capped to what is
+     visible under the top bar. */
   html[data-telegram-mini-app="true"] .mode-menu--sheet,
+  html[data-telegram-mini-app="true"] .goal-popover--sheet,
   html[data-telegram-mini-app="true"]
     .slash-menu--sheet:not(.slash-menu--above-composer),
   html[data-telegram-mini-app="true"]
