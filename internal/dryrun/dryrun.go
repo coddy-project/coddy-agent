@@ -89,7 +89,15 @@ type Prepared struct {
 // Prepared and the report that says why: probing what a broken file names
 // would only bury the first mistake under its consequences.
 func Prepare(cli config.CLIPaths) (*Prepared, *config.CheckReport, error) {
-	rep, err := config.Check(cli)
+	return PrepareWith(cli, config.ExtraTokens{})
+}
+
+// PrepareWith is Prepare for a command that also holds credentials the file and
+// the environment do not show (--auth-token, --swarm-auth-token): the static
+// check takes them into the rules that compare token classes and ask for a
+// credential in front of shared models.
+func PrepareWith(cli config.CLIPaths, extra config.ExtraTokens) (*Prepared, *config.CheckReport, error) {
+	rep, err := config.CheckWith(cli, extra)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -219,7 +227,13 @@ func (r *runner) subsystems() {
 // configuration (--scheduler, --gateway, ...); build shapes the request from
 // the prepared configuration.
 func RunAndReport(w io.Writer, cli config.CLIPaths, verbose bool, customize func(*config.Config) error, build func(*Prepared) (Request, error)) error {
-	prep, rep, err := Prepare(cli)
+	return RunAndReportWith(w, cli, config.ExtraTokens{}, verbose, customize, build)
+}
+
+// RunAndReportWith is RunAndReport for a command that holds credentials out of
+// band, which its static check counts (see PrepareWith).
+func RunAndReportWith(w io.Writer, cli config.CLIPaths, extra config.ExtraTokens, verbose bool, customize func(*config.Config) error, build func(*Prepared) (Request, error)) error {
+	prep, rep, err := PrepareWith(cli, extra)
 	if err != nil {
 		return err
 	}

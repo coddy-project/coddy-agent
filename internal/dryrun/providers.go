@@ -85,8 +85,14 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 			return append(out, r.skipModels(models, "provider "+prov.Name+" was not probed")...)
 		}
 		msg, fix := classifyProviderError(prov, base, err)
+		if prov.Type == "coddy" {
+			msg, fix = classifyCoddyProviderError(prov, base, key != "", err)
+		}
 		out = append(out, r.check(StatusError, path, path, msg, fix))
 		return append(out, r.skipModels(models, "provider "+prov.Name+" failed")...)
+	}
+	if prov.Type == "coddy" {
+		return append(out, r.coddyModels(prov, base, listed, models)...)
 	}
 
 	ids := make(map[string]bool, len(listed))
@@ -112,6 +118,72 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 		}
 	}
 	return out
+}
+
+// coddyModels reports what a remote Coddy shares and checks every configured
+// model of the row against it. The alias is the only name the remote knows: an
+// alias it does not list is refused with a 404 at the first request, so
+// unlike the id of another server's list, which may still be served, it is an
+// error, not a warning.
+func (r *runner) coddyModels(prov *config.ProviderConfig, base string, listed []llm.ModelEntry, models []int) []Check {
+	path := "providers[" + prov.Name + "]"
+	ids := make(map[string]bool, len(listed))
+	names := make([]string, 0, len(listed))
+	for _, m := range listed {
+		ids[m.ID] = true
+		names = append(names, m.ID)
+	}
+	var out []Check
+	if len(listed) == 0 {
+		out = append(out, r.check(StatusWarning, path, path, "the remote coddy at "+base+" shares no models",
+			"set shared_as on the models[] rows the remote should lend, and shared_models.tokens for the clients that borrow them"))
+	} else {
+		out = append(out, r.check(StatusOK, path, path, fmt.Sprintf("coddy remote at %s shares %s", base, plural(len(listed), "model")), ""))
+	}
+	for _, mi := range models {
+		m := r.req.Cfg.Models[mi]
+		mpath := "models[" + m.Model + "]"
+		_, alias, _ := strings.Cut(strings.TrimSpace(m.Model), "/")
+		if ids[alias] {
+			out = append(out, r.check(StatusOK, mpath, mpath, "shared by provider "+prov.Name, ""))
+			continue
+		}
+		fix := "the remote shares no models yet; set shared_as on a models[] row of the remote"
+		if len(names) > 0 {
+			fix = "use an alias the remote shares: " + sample(names, 8)
+		}
+		out = append(out, r.check(StatusError, mpath, mpath,
+			fmt.Sprintf("the remote does not share an alias %q: it answers a request for it with a 404", alias), fix))
+	}
+	return out
+}
+
+// classifyCoddyProviderError turns the failure of a remote Coddy's model list
+// into what is wrong and how to fix it: a refused credential, a protocol the
+// two Coddys do not share, a remote that does not offer shared models, and an
+// unreachable one. hasKey says the row carries a credential, which changes the
+// advice for a refused one. Nothing of the credential is ever shown.
+func classifyCoddyProviderError(prov *config.ProviderConfig, base string, hasKey bool, err error) (string, string) {
+	switch kind := llm.CoddyErrorKind(err); kind {
+	case llm.WireKindAuth:
+		fix := "check api_key: a shared-model token of the remote (its httpserver.shared_models.tokens), or the relay's client token when api_base is a swarm relay mount"
+		if !hasKey {
+			fix = "the remote asks for a credential: set api_key (or api_key_command, or " + config.ProviderAPIKeyEnvVarName(prov.Name) + ") to one of its shared-model tokens"
+		}
+		return fmt.Sprintf("the remote at %s refused the credential", base), fix
+	case llm.CoddyKindUnsupported:
+		return fmt.Sprintf("%s does not offer shared models", base),
+			"api_base must be the address of a remote coddy serve that shares a model (models[].shared_as), or a swarm relay mount (https://relay/swarm/nodes/<node>)"
+	case llm.WireKindInvalid:
+		if llm.CoddyErrorCode(err) == llm.WireCodeProtocolMismatch {
+			return err.Error(), "update the older of the two Coddys so that both speak the same shared-model protocol"
+		}
+		return fmt.Sprintf("the remote at %s refused the request: %s", base, err), "check api_base"
+	case "":
+		return classifyProviderError(prov, base, err)
+	default:
+		return fmt.Sprintf("the remote at %s answered with an error (%s): %s", base, kind, err), "check api_base and the remote's logs"
+	}
 }
 
 // skipModels marks the models of a provider that could not be probed.
