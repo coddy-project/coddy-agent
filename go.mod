@@ -2,6 +2,8 @@ module github.com/EvilFreelancer/coddy-agent
 
 go 1.26.0
 
+toolchain go1.26.8
+
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.1
 	github.com/anthropics/anthropic-sdk-go v1.27.1
