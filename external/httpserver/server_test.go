@@ -3676,6 +3676,11 @@ func TestCompactEndpointRefusesAReasoningLevelBeforeTheTurn(t *testing.T) {
 			t.Fatalf("%s: status = %d, want 400 (%v)", body, code, parsed)
 		}
 	}
+	// With the summarizer named, the session is not needed to refuse the
+	// level: the request is answered like an unknown model, before a 404.
+	if code, parsed := postCompact(t, ts, "sess_does_not_exist", `{"model":"qwen","reasoning":"ultra"}`); code != http.StatusBadRequest {
+		t.Fatalf("unknown session: status = %d, want 400 (%v)", code, parsed)
+	}
 }
 
 func TestCompactEndpointUnknownSession(t *testing.T) {

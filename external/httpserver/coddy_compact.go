@@ -48,6 +48,21 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 		}
 		summarizer = matched
 	}
+	// The level is checked against the summarizer. When the body or
+	// compaction.model names it, the session is not needed and a bad level
+	// is refused here, like an unknown model; otherwise the session's model
+	// writes the summary and the check waits for the session below.
+	checkLevel := func(st agent.SessionState) bool {
+		if _, err := agent.CompactionReasoning(s.activeCfg(), st, summarizer, body.Reasoning); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, fmt.Errorf("%w: %v", agent.ErrCompactionModel, err).Error()), http.StatusBadRequest)
+			return false
+		}
+		return true
+	}
+	levelChecked := summarizer != "" || strings.TrimSpace(s.activeCfg().Compaction.Model) != ""
+	if levelChecked && !checkLevel(nil) {
+		return
+	}
 
 	st := s.mgr.SessionByID(id)
 	if st == nil {
@@ -69,14 +84,11 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Compaction builds an agent on the session; a child transcript is read-only.
-	if rejectSubagentTurn(w, st) {
+	if !levelChecked && !checkLevel(st) {
 		return
 	}
-	// The level is checked against the summarizer, which may be the session's
-	// own model: refused here, still before the session is admitted.
-	if _, err := agent.CompactionReasoning(s.activeCfg(), st, summarizer, body.Reasoning); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, fmt.Errorf("%w: %v", agent.ErrCompactionModel, err).Error()), http.StatusBadRequest)
+	// Compaction builds an agent on the session; a child transcript is read-only.
+	if rejectSubagentTurn(w, st) {
 		return
 	}
 

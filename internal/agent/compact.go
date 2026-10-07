@@ -692,7 +692,8 @@ func (a *Agent) compactionReasoning(override, level string) (string, error) {
 // that writes the summary: override (a configured models[].model, already
 // matched), else compaction.model, else the session's. "default" and empty
 // leave the model at its own level. The HTTP endpoint calls it to refuse a
-// level before it admits the session.
+// level before it admits the session, with st nil while override or
+// compaction.model names the summarizer.
 func CompactionReasoning(cfg *config.Config, st SessionState, override, level string) (string, error) {
 	level = strings.ToLower(strings.TrimSpace(level))
 	if level == "" || level == config.ReasoningDefault {
@@ -702,7 +703,7 @@ func CompactionReasoning(cfg *config.Config, st SessionState, override, level st
 	if model == "" {
 		model = strings.TrimSpace(cfg.Compaction.Model)
 	}
-	if model == "" {
+	if model == "" && st != nil {
 		model = st.EffectiveModelID(cfg)
 	}
 	choices := cfg.ReasoningChoicesFor(cfg.FindModelEntry(model))

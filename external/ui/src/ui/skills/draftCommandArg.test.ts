@@ -158,6 +158,18 @@ describe("short options and /compact --reasoning", () => {
     expect(at("/goal - fix it -m |")).toEqual({ open: false });
     expect(at("/compact -m -r|")).toEqual({ open: false });
   });
+
+  test("a command the server will refuse completes nothing past the fault", () => {
+    // An option where a value goes leaves the first without one.
+    expect(at("/compact -m -r |")).toEqual({ open: false });
+    expect(at("/goal --reasoning --model |")).toEqual({ open: false });
+    // An empty inline value is a missing one.
+    expect(at("/compact -m= -r |")).toEqual({ open: false });
+    expect(at("/goal --model= --reasoning |")).toEqual({ open: false });
+    // An option the command does not take, which takes no value either.
+    expect(at("/compact --frob -m |")).toEqual({ open: false });
+    expect(at("/goal --frob --reasoning |")).toEqual({ open: false });
+  });
 });
 
 describe("commandReasoningChoices", () => {

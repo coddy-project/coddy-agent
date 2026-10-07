@@ -71,6 +71,11 @@ func ParseGoalCommand(text string) GoalCommand {
 		word, arg = cutGoalWord(arg)
 		name, value, inline := strings.Cut(word, "=")
 		name = goalOptionName(name)
+		if name != "--model" && name != "--reasoning" {
+			// Like /compact's: an unknown option takes no value.
+			cmd.Err = fmt.Sprintf("unknown option %s", name)
+			continue
+		}
 		if !inline {
 			if arg == "" || isGoalOption(arg) {
 				cmd.Err = fmt.Sprintf("%s needs a value", name)
@@ -78,14 +83,10 @@ func ParseGoalCommand(text string) GoalCommand {
 			}
 			value, arg = cutGoalWord(arg)
 		}
-		switch name {
-		case "--model":
+		if name == "--model" {
 			cmd.Model = value
-		case "--reasoning":
+		} else {
 			cmd.Reasoning = value
-		default:
-			cmd.Err = fmt.Sprintf("unknown option %s", name)
-			continue
 		}
 		if strings.TrimSpace(value) == "" {
 			cmd.Err = fmt.Sprintf("%s needs a value", name)

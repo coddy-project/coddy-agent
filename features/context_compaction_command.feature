@@ -39,6 +39,7 @@ Feature: Manual context compaction command
   Scenario: The REST endpoint compacts at the reasoning level the request names
     When the client posts to the session compact endpoint with the model "qwen" and the reasoning "low"
     Then the compact request succeeds
+    And the compact response names the model "fake/summarizer-qwen"
     And the summary was written by "summarizer-qwen" at the reasoning level "low"
 
   Scenario: The REST endpoint compacts the session directly

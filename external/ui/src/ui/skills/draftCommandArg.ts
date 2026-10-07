@@ -7,7 +7,9 @@
  * options come first, and the first word that is not an option starts the
  * instructions or the objective, where nothing is completed any more. Only a
  * `--` word, `-m` and `-r` are options: any other dash word is text, since an
- * instruction may be a list.
+ * instruction may be a list. An option the command does not take, an empty
+ * value or an option where a value goes makes the server refuse the command
+ * with its usage line, so nothing is completed after one.
  */
 
 /** What a completion row is: an option name, a model id or a reasoning level. */
@@ -155,17 +157,18 @@ export function commandArgDraftAtCaret(
         model = token;
       }
       awaiting = null;
+    } else if (awaiting) {
+      return { open: false }; // the option before went without a value
     } else if (option && flags.includes(option.name)) {
       if (option.inline === null) {
         awaiting = option.name;
-      } else {
-        if (option.name === MODEL_FLAG) {
-          model = option.inline;
-        }
-        awaiting = null;
+      } else if (option.inline === "") {
+        return { open: false }; // an empty value is a missing one
+      } else if (option.name === MODEL_FLAG) {
+        model = option.inline;
       }
     } else if (option) {
-      awaiting = null; // an option the command does not know
+      return { open: false }; // an option the command does not take
     } else {
       return { open: false }; // the instructions or the objective began
     }
