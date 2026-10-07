@@ -247,8 +247,35 @@ func proxyFromEnvironment(addr, scheme string) (*url.URL, error) {
 		scheme = "https"
 	}
 	target := &url.URL{Scheme: scheme, Host: addr, Path: "/"}
-	cfg := httpproxy.FromEnvironment()
-	return cfg.ProxyFunc()(target)
+	return environmentProxyConfig().ProxyFunc()(target)
+}
+
+// environmentProxyConfig reads the proxy variables in the order net/http does,
+// the uppercase spelling first, because the ordinary requests of the same leg
+// go through http.ProxyFromEnvironment (Transport) and the tunnel must leave
+// through the same proxy they do. httpproxy.FromEnvironment reads the
+// lowercase spelling first since golang.org/x/net v0.58.0, while the standard
+// library of Go 1.26 and 1.27 still reads the uppercase one; a machine that
+// exports both with different values would otherwise split the two.
+// TestProxyFromEnvironmentAgreesWithNetHTTP holds them to one answer, and
+// fails the day the standard library changes its order.
+func environmentProxyConfig() *httpproxy.Config {
+	return &httpproxy.Config{
+		HTTPProxy:  firstEnv("HTTP_PROXY", "http_proxy"),
+		HTTPSProxy: firstEnv("HTTPS_PROXY", "https_proxy"),
+		NoProxy:    firstEnv("NO_PROXY", "no_proxy"),
+		CGI:        os.Getenv("REQUEST_METHOD") != "",
+	}
+}
+
+// firstEnv returns the first of the named variables that is set and not empty.
+func firstEnv(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // dialThrough reaches addr through whatever kind of proxy the URL names.
