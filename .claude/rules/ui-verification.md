@@ -71,6 +71,18 @@ authenticated relay, plays a sound from its signed address through the relay, an
 the buttons and the window at every tier of the grid in English and in Russian. Run it once more with
 **`CODDY_ENGINE=webkit`** when the change touches the window's layout.
 
+## The shared file cards
+
+The card of a shared file is `overflow: hidden`, so its actions menu is portalled to the document
+and placed from the trigger, and the trigger is placed from the extension badge's own numbers
+(**`DESIGN.md`**, *Shared file cards*). Whether a menu can be seen and reached is a layout fact jsdom
+cannot answer: while the menu sat inside the card, a click on the trigger drew nothing and every
+vitest still passed. When the change touches **`messages/ToolArtifactCards.tsx`** or the card's
+styles, run **`external/ui/scripts/artifact-card-check.mjs`** (**`npm run check:artifacts`**)
+against a **`vite`** dev server (setup in **`docs/surfaces/web-ui.md`**, *Checking the shared file
+cards*): it measures the cards, the trigger against the badge and the open menu on desktops and on
+emulated phones driven by taps, down to 320px, and fails past **1px**.
+
 ## Capture isolation and redaction
 
 - Captures use a temporary browser-context page, never the operator's main tab, and close it afterward.

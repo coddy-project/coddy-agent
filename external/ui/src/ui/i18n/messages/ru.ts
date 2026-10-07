@@ -2294,6 +2294,7 @@ export const messagesRu: Record<string, string> = {
   "messages.artifactReveal": "Показать на сервере",
   "messages.artifactRevealUnavailable":
     "Показ на удалённом сервере или сервере без интерфейса недоступен",
+  "messages.artifactRevealFailed": "Не удалось показать",
   "messages.downloadArtifact": "Скачать {fileName}",
   "messages.downloadArtifactButton": "Скачать",
   "messages.artifactDownloading": "Скачивание…",

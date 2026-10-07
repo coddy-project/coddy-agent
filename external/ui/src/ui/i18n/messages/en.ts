@@ -2217,6 +2217,7 @@ export const messagesEn: Record<string, string> = {
   "messages.artifactReveal": "Reveal on server",
   "messages.artifactRevealUnavailable":
     "Reveal is unavailable for this remote or headless server",
+  "messages.artifactRevealFailed": "Reveal failed",
   "markdown.figure.mermaid": "Mermaid diagram",
   "markdown.figure.svg": "SVG image",
   "markdown.figure.showSource": "Show the source code",
