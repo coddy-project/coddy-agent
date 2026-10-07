@@ -267,7 +267,8 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 				}
 			}
 			if r.nudges >= sup.NudgeLimit() {
-				r.finish(GoalBlocked, reason, "Goal blocked: "+reason)
+				blocked := r.stuckReason(reason)
+				r.finish(GoalBlocked, blocked, "Goal blocked: "+blocked)
 				return string(acp.StopReasonEndTurn), nil
 			}
 			r.nudges++
@@ -526,6 +527,17 @@ func (r *goalRun) publishNotice(notice string) {
 	if r.persist {
 		r.m.PublishSessionGoal(r.st, notice)
 	}
+}
+
+// stuckReason is what a goal blocked after its recovery turns ran out tells
+// the operator: what the supervisor's last check found open comes first, the
+// way the turns failed after it.
+func (r *goalRun) stuckReason(cause string) string {
+	head := fmt.Sprintf("stuck after %d recovery turns (%s)", r.nudges, strings.TrimPrefix(cause, "the previous turn "))
+	if c := r.goal().LastCheck; c != nil && strings.TrimSpace(c.Reason) != "" {
+		return strings.TrimSpace(c.Reason) + " - " + head
+	}
+	return head
 }
 
 func overBudget(g GoalState, sup config.Supervisor) bool {

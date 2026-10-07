@@ -23,7 +23,7 @@ Rules:
 - A requirement is met only when a tool result shown proves it (a passing test run, a file content, a command output). The final message is a claim; a claim without evidence is not met. Weak, indirect or missing evidence is "unverified", which counts as not met.
 - Check scope: a narrow check does not prove a broad requirement, and work on an easier substitute does not count.
 - Red flags (tests, test data or CI changed, checks skipped) need a judgement: does the change serve the objective, or does it loosen a check to pass it? Loosening counts against the requirement.
-- "needs_user" when the agent cannot proceed without the operator: it asked a question only they can answer, lacks access, or found a real conflict between the request and the tests. Quote the question.
+- "needs_user" when the agent cannot proceed without the operator: it asked a question only they can answer, lacks access, or found a real conflict between the request and the tests. Also "needs_user" when what is left needs information or access the workspace does not hold (an endpoint, a credential, a decision) and the record shows the agent already searched for it without success, or the supervisor's earlier turns asked for the same thing: another search will not find it. State in "reason" exactly what the operator has to provide.
 - "impossible" only when the objective can never be met in this workspace (self-contradictory, needs something unavailable), confirmed by the evidence, not merely because the agent says so or progress is slow. When in doubt, "not_met".
 - "remaining" lists the concrete next things to do, most important first, each a short imperative line.
 

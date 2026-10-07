@@ -493,7 +493,8 @@ func TestGoalStuckTurnIsCheckedBeforeARecovery(t *testing.T) {
 		h.verdict(notMet("still stuck"))
 		h.prompt("/goal upload the build")
 		goal := h.st().GetGoal()
-		if strings.Join(h.kinds(), ",") != "kickoff,recover" || goal.Status != session.GoalBlocked || !strings.Contains(goal.StatusReason, "kept requesting") {
+		if strings.Join(h.kinds(), ",") != "kickoff,recover" || goal.Status != session.GoalBlocked ||
+			!strings.HasPrefix(goal.StatusReason, "still stuck - stuck after 1 recovery turns") || !strings.Contains(goal.StatusReason, "kept requesting") {
 			t.Fatalf("turns=%v goal=%+v", h.kinds(), goal)
 		}
 	})
