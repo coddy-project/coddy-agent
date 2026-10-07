@@ -53,3 +53,29 @@ test("the goal's action icons are rounded squares a finger can hit", () => {
   expect(body).toContain("height: 36px");
   expect(body).toContain("border-radius: 10px");
 });
+
+test("the goal mark is the improve-prompt wand's size, so the two read as a pair", () => {
+  const box = (selector: string) => {
+    const rule = css.match(
+      new RegExp(`(?:^|\\n)${selector.replace(/\./g, "\\.")}\\s*\\{([^}]*)\\}`),
+    );
+    const body = squash(rule?.[1] ?? "");
+    const pick = (prop: string) =>
+      body.match(new RegExp(`(?:^|;\\s*)${prop}:\\s*([^;]+)`))?.[1]?.trim();
+    return {
+      width: pick("width"),
+      height: pick("height"),
+      radius: pick("border-radius"),
+    };
+  };
+  const wand = box(".composer-enhance-btn");
+  expect(wand.width).toBe("24px");
+  expect(box(".composer-goal")).toEqual(wand);
+});
+
+test("the larger mark does not make the plate taller", () => {
+  const rule = css.match(
+    /\.workspace-bar > \.composer-goal-tip-host\s*\{([^}]*)\}/,
+  );
+  expect(squash(rule?.[1] ?? "")).toContain("margin-block: -1px");
+});

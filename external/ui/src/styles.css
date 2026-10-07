@@ -5728,7 +5728,8 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 }
 
 /* The goal mark: the target in the status's tone on the plate over the card,
-   left of git's count, a 22px button. Its tip is the context ring's: the
+   left of git's count, a 24px button: the improve-prompt wand's size, so
+   the two read as a pair. Its tip is the context ring's: the
    status, then the objective, above the mark. */
 .composer-goal-tip-host {
   position: relative;
@@ -5743,11 +5744,12 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   color: var(--goal-tone);
   cursor: pointer;
@@ -5772,6 +5774,8 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 .workspace-bar > .composer-goal-tip-host {
   flex: none;
   margin-left: auto;
+  /* The 24px mark takes no more height than the plate's 22px row had. */
+  margin-block: -1px;
 }
 
 .workspace-bar > .composer-goal-tip-host + .workspace-bar-edits {
