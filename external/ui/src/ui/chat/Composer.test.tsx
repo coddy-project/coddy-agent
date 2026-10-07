@@ -2982,3 +2982,93 @@ describe("cwd-scoped requests follow the chat workspace", () => {
     vi.unstubAllGlobals();
   });
 });
+
+// The mirror under the masked textarea draws the draft; the caret is the
+// textarea's. jsdom has no layout, so these pin the wiring that keeps the two
+// together, and npm run check:caret measures the pixels in a real engine.
+describe("the mirror follows the textarea", () => {
+  function renderDraft() {
+    const view = render(
+      <Composer
+        value={"first line\nsecond line"}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={() => {}}
+      />,
+    );
+    const ta = view.container.querySelector("#composer") as HTMLTextAreaElement;
+    const mirror = view.container.querySelector(
+      ".composer-mirror",
+    ) as HTMLDivElement;
+    const inner = view.container.querySelector(
+      ".composer-mirror-inner",
+    ) as HTMLDivElement;
+    return { ta, mirror, inner };
+  }
+
+  test("the mirror keeps the stylesheet's padding and takes the textarea's height", () => {
+    const { ta, mirror, inner } = renderDraft();
+    // The right padding is the stylesheet's, the same as the textarea's; a
+    // width measured in script (the old 16px plus the scrollbar) left the
+    // mirror 28px wider than the field it draws for.
+    expect(inner.style.paddingRight).toBe("");
+    expect(inner.style.transform).toBe("");
+    // The stack under the inline textarea is a few pixels taller than it, so
+    // the mirror is cut to the field's own height, fraction included.
+    ta.style.height = "131.5px";
+    fireEvent(window, new Event("resize"));
+    expect(mirror.style.height).toBe("131.5px");
+  });
+
+  test("the mirror scrolls with the textarea", () => {
+    const { ta, mirror } = renderDraft();
+    ta.scrollTop = 42;
+    fireEvent.scroll(ta);
+    expect(mirror.scrollTop).toBe(42);
+  });
+
+  test("a page zoom or another screen density lines the mirror up again", () => {
+    const listeners = new Map<string, () => void>();
+    const matchMedia = vi.mocked(window.matchMedia);
+    const setupImplementation = matchMedia.getMockImplementation();
+    matchMedia.mockImplementation(
+      (query: string) =>
+        ({
+          matches: true,
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: (_: string, fn: () => void) =>
+            listeners.set(query, fn),
+          removeEventListener: () => listeners.delete(query),
+          dispatchEvent: vi.fn(),
+        }) as unknown as MediaQueryList,
+    );
+    try {
+      const { ta, mirror } = renderDraft();
+      const density = [...listeners.keys()].find((q) =>
+        q.startsWith("(resolution:"),
+      );
+      expect(density).toBe(`(resolution: ${window.devicePixelRatio}dppx)`);
+      // The window moved to another screen: the field scrolled while
+      // laying its text out again, and no scroll event says so.
+      ta.scrollTop = 17;
+      listeners.get(density!)!();
+      expect(mirror.scrollTop).toBe(17);
+      // It goes on listening on the new density.
+      expect(listeners.has(density!)).toBe(true);
+      // A page zoom resizes the window.
+      ta.scrollTop = 23;
+      fireEvent(window, new Event("resize"));
+      expect(mirror.scrollTop).toBe(23);
+    } finally {
+      if (setupImplementation) {
+        matchMedia.mockImplementation(setupImplementation);
+      }
+    }
+  });
+});

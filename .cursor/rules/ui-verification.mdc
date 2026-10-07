@@ -46,6 +46,18 @@ change touches the chevron, the rows it sits on or the type around them, run
 chevron's ink centre against the label's on a transcript row and on the Tasks panel toggle, and
 fails past **1px**.
 
+## The composer caret
+
+The composer's textarea keeps the caret and paints its glyphs transparent; the mirror under it
+draws the draft (**`DESIGN.md`**, *Composer mirror and caret sync*). Whether the two put a glyph on
+the same pixel is a layout fact, and page zoom or a screen density moves it: a classic scrollbar
+keeps its device pixels and scroll offsets turn fractional. When the change touches the composer's
+field, its mirror, its padding or its type, run **`external/ui/scripts/composer-caret-check.mjs`**
+(**`npm run check:caret`**) against a **`vite`** dev server (setup in **`docs/surfaces/web-ui.md`**,
+*Checking the composer caret at every zoom*): it compares the textarea's glyphs with the mirror's at
+device scale factors 1 to 3 and page zoom 110% to 175%, scrolled and changed under an open page,
+and fails on any pixel that differs.
+
 ## A long transcript
 
 Only a bounded slice of a transcript is in the DOM, and a long session holds only the end of its

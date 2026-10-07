@@ -692,7 +692,7 @@ Picker and segmentation
 Mirror and caret alignment
 
 - Non-empty drafts: textarea text is drawn **transparent**; **`.composer-mirror-inner`** shows the visible line including **`.composer-skill-chip-inline`** (**`data-testid="composer-skill-chip"`**).
-- Composer chips **must not** use horizontal **padding**, **margin**, or a **border** that changes inline width. Use **`box-shadow`** for outline. **`font-family`**, **`font-size`**, **`line-height`**, **`font-weight`**, **`letter-spacing`** on chip and **`#composer`** must match so the caret lines up (**`ResizeObserver`** syncs scrollbar gutter).
+- Composer chips **must not** use horizontal **padding**, **margin**, or a **border** that changes inline width. Use **`box-shadow`** for outline. **`font-family`**, **`font-size`**, **`line-height`**, **`font-weight`**, **`letter-spacing`** on chip and **`#composer`** must match so the caret lines up. The scrollbar gutter is reserved by the stylesheet on both the textarea and the mirror (**`scrollbar-gutter: stable`**), the mirror scrolls itself with the field and takes its height, and it lines up again on a window resize and a change of screen density (**`DESIGN.md`**, *Composer mirror and caret sync*).
 
 Transcript vs composer
 
@@ -1751,6 +1751,23 @@ CODDY_UI_URL=http://127.0.0.1:5241 npm --prefix external/ui run check:chevron
 ```
 
 **`CODDY_ENGINE=webkit`** (or **`firefox`**) runs the same measurements in another engine, and **`CODDY_CHEVRON_TOLERANCE_PX`** raises the allowance. Like the WebKit harness above, this one is **not part of `make test`**: it is a manual check, run when a change touches the chevron, the rows it sits on or the type around them.
+
+### Checking the composer caret at every zoom
+
+The composer's textarea keeps the caret and paints its glyphs transparent; the mirror under it draws the draft with its chips (**`DESIGN.md`**, *Composer mirror and caret sync*). When the two lay the text out differently - a text box of another width wraps a line at another word, a scroll offset snapped to another device pixel moves the lines - the caret stands away from the text the user reads. That showed under a browser's page zoom and after a window was dragged to a monitor of another density, in Chrome and Yandex Browser alike. **`external/ui/scripts/composer-caret-check.mjs`** measures it in a real engine: for every case it screenshots the field twice, the textarea's glyphs painted red with the mirror hidden and then the mirror's, and fails when any pixel differs. The cases are a new chat and a docked chat at 1280 px and a phone at 390 px, device scale factors 1 to 3, page zoom 110% to 175% (emulated with the root's CSS **`zoom`**, which keeps the scrollbar in device pixels the way a page zoom does), a draft that scrolls and one that does not, the field scrolled part of the way back with the wheel, a zoom changed after typing and, in Chromium, a density changed under the open page with no resize of the window.
+
+It drives **`src/composer-caret-check.html`**, a stand that mounts the real **`Composer`** against the real stylesheet, so it needs a **`vite`** dev server and no backend at all.
+
+```bash
+cd external/ui && npm i --no-save playwright && npx playwright install chromium
+```
+
+```bash
+cd external/ui && npx vite --port 5241 &
+CODDY_UI_URL=http://127.0.0.1:5241 npm --prefix external/ui run check:caret
+```
+
+**`CODDY_ENGINE=webkit`** (or **`firefox`**) runs it in another engine, **`CODDY_BROWSER_PATH`** points it at an installed Chromium (Yandex Browser's binary included), and **`CODDY_CARET_TOLERANCE`** raises the count of pixels that may differ. Firefox skips the zoom changed after typing: it keeps a fractional scroll offset in a textarea and rounds a div's when only the CSS **`zoom`** changes, which its own page zoom, a change of density, does not do. Like the other harnesses here, it is a manual check, run when a change touches the composer's field, its mirror or the type around them.
 
 ### Checking a long transcript
 

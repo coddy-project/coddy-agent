@@ -5384,10 +5384,19 @@ textarea#composer {
   width: 100%;
 }
 
+/* The mirror draws the text the masked textarea above it hides, so their
+   text boxes must be the same width to the fraction of a pixel, or the two
+   wrap a line at different words and the caret stands away from the text.
+   The textarea keeps a stable scrollbar gutter; the mirror reserves its own
+   the same way instead of a width measured in script, which offsetWidth and
+   clientWidth round to whole pixels and which goes stale when the page zoom
+   or the screen density changes - a classic scrollbar keeps its device
+   pixels, so it takes 13.6 CSS pixels at 110% and 8.6 at 175%. */
 .composer-mirror {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  scrollbar-gutter: stable;
   pointer-events: none;
   z-index: 0;
 }

@@ -521,6 +521,7 @@ export function Composer(props: {
   const composerFieldWrapRef = useRef<HTMLDivElement | null>(null);
   const composerCardRef = useRef<HTMLDivElement | null>(null);
   const contextHostRef = useRef<HTMLDivElement | null>(null);
+  const mirrorRef = useRef<HTMLDivElement | null>(null);
   const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
   const attachedFiles = props.attachedFiles ?? localAttachedFiles;
@@ -624,7 +625,6 @@ export function Composer(props: {
     },
     [],
   );
-  const [composerScrollTop, setComposerScrollTop] = useState(0);
   /** True while the prompt-improvement request is in flight. */
   const [enhancing, setEnhancing] = useState(false);
   /** Request failure shown without changing the user's draft. */
@@ -1643,21 +1643,38 @@ export function Composer(props: {
     setCaretPos(el.selectionStart ?? el.value.length);
   }, [props.value]);
 
+  // The mirror scrolls itself rather than being moved by a transform: two
+  // scroll containers snap a fractional offset (a zoomed page's scrollTop,
+  // 214 CSS px at 125% is 267.5 device px) to the same device pixel, a
+  // translated layer does not, and the lines then stand half a pixel apart.
+  const syncMirrorScroll = useCallback(() => {
+    const ta = taRef.current;
+    const mirror = mirrorRef.current;
+    if (ta && mirror) {
+      mirror.scrollTop = ta.scrollTop;
+    }
+  }, []);
+
   const adjustMirrorToTextarea = useCallback(() => {
     const ta = taRef.current;
+    const mirror = mirrorRef.current;
     const inner = mirrorInnerRef.current;
-    if (!ta || !inner) {
+    if (!ta || !mirror || !inner) {
       return;
     }
-    const sw = Math.max(0, ta.offsetWidth - ta.clientWidth);
-    inner.style.paddingRight = `${16 + sw}px`;
-    inner.style.minHeight = `${Math.max(ta.clientHeight, ta.scrollHeight)}px`;
-    setComposerScrollTop(ta.scrollTop);
-  }, []);
+    // The inline-block textarea leaves the stack a few pixels taller than
+    // itself, and a mirror filling the stack showed the next line there
+    // while the field had already clipped it. Its own height, to the
+    // fraction (131.5px for five rows), keeps the two clipped alike.
+    mirror.style.height = getComputedStyle(ta).height;
+    // Room below the text so the mirror can always scroll as far as the
+    // field does.
+    inner.style.minHeight = `${ta.scrollHeight + mirror.clientHeight}px`;
+    syncMirrorScroll();
+  }, [syncMirrorScroll]);
 
   useLayoutEffect(() => {
     if (!maskComposerText) {
-      setComposerScrollTop(0);
       return;
     }
     adjustMirrorToTextarea();
@@ -1673,15 +1690,37 @@ export function Composer(props: {
     }
     const ro = new ResizeObserver(() => adjustMirrorToTextarea());
     ro.observe(ta);
-    return () => ro.disconnect();
+    // A page zoom or a window moved to a screen of another density lays the
+    // text out again - a classic scrollbar keeps its device pixels, glyphs
+    // are hinted for the new scale - without the field changing its size in
+    // CSS pixels, which is all the observer reports. The textarea then
+    // wraps and scrolls anew and the mirror has to follow it.
+    window.addEventListener("resize", adjustMirrorToTextarea);
+    let density: MediaQueryList | null = null;
+    const onDensity = () => {
+      adjustMirrorToTextarea();
+      watchDensity();
+    };
+    const watchDensity = () => {
+      density?.removeEventListener("change", onDensity);
+      density =
+        typeof window.matchMedia === "function"
+          ? window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+          : null;
+      density?.addEventListener("change", onDensity);
+    };
+    watchDensity();
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", adjustMirrorToTextarea);
+      density?.removeEventListener("change", onDensity);
+    };
   }, [maskComposerText, adjustMirrorToTextarea]);
 
   function syncComposerScroll() {
-    const ta = taRef.current;
-    if (!ta || !maskComposerText) {
-      return;
+    if (maskComposerText) {
+      syncMirrorScroll();
     }
-    setComposerScrollTop(ta.scrollTop);
   }
 
   // A settings command whose value the composer already has a control for
@@ -2886,12 +2925,12 @@ export function Composer(props: {
               className={`composer-stack${codeFenceEditing ? " composer-code-editing" : ""}`}
             >
               {maskComposerText ? (
-                <div className="composer-mirror" aria-hidden="true">
-                  <div
-                    ref={mirrorInnerRef}
-                    className="composer-mirror-inner"
-                    style={{ transform: `translateY(-${composerScrollTop}px)` }}
-                  >
+                <div
+                  ref={mirrorRef}
+                  className="composer-mirror"
+                  aria-hidden="true"
+                >
+                  <div ref={mirrorInnerRef} className="composer-mirror-inner">
                     {composerSegments.map((seg, idx) =>
                       seg.type === "text" ? (
                         <span key={idx}>{seg.value}</span>
