@@ -200,10 +200,10 @@ func UISchemaMap() map[string]interface{} {
 		"type": map[string]interface{}{
 			"type":        "string",
 			"title":       "Provider type",
-			"description": "Wire protocol for this provider entry.",
-			"enum":        []string{"openai", "anthropic", "neuraldeep", "codex", "devin"},
+			"description": "Wire protocol for this provider entry. coddy is a model that another Coddy shares: its API base URL is the address of that coddy serve or of a swarm relay mount.",
+			"enum":        []string{"openai", "anthropic", "neuraldeep", "codex", "devin", "coddy"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints."),
+		"api_base": strProp("API base URL", "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints. Required for coddy: the address of the remote coddy serve, https://host:12345, or of a swarm relay mount, https://relay/swarm/nodes/<node>. A plain http:// address that is not loopback sends the token and the whole conversation in clear text."),
 		"api_key":  providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential helper, run through the host shell when the API key is empty; its trimmed stdout is the key, like git or docker credential helpers. On failure the environment variable is read instead."),
@@ -213,6 +213,8 @@ func UISchemaMap() map[string]interface{} {
 			"Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly."),
 		"timeout_ms": intProp("Request timeout ms",
 			"Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout."),
+		"busy_wait_ms": intProp("Wait for a free slot ms",
+			"coddy providers only: how long one call waits for a free slot of the remote when it answers busy. Above zero it wins; 0 follows the agent's shared busy wait (30000 unless set)."),
 		// Defaults to true when the key is absent, like models[].stream: the
 		// form seeds new rows from schema defaults and renders an unset switch
 		// from them.
@@ -220,6 +222,11 @@ func UISchemaMap() map[string]interface{} {
 			"Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
 			true),
 	}
+	sharedAs := strProp("Shared as",
+		"Offer this model to other Coddys that reach this server, under this alias: the only name that leaves the host. Empty keeps the model private. Letters, digits, dots, underscores and hyphens, starting with a letter or a digit, at most 64; unique across models. Needs a credential on the HTTP API (httpserver.shared_models.tokens or httpserver.auth_token), which is set in the file.")
+	// An HTML pattern attribute is checked only for a non-empty value, but a
+	// form that tests the whole string needs the empty alias to match too.
+	sharedAs["pattern"] = sharedAliasSchemaPattern
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
 		"max_tokens": intProp("Max tokens",
@@ -247,6 +254,10 @@ func UISchemaMap() map[string]interface{} {
 		"stream": boolPropDefault("Stream responses",
 			"Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
 			true),
+		"shared_as": sharedAs,
+		"shared_subscription_ack": boolPropDefault("I accept sharing a subscription login",
+			"Required to share a model whose credential is a subscription login: a codex or devin provider, or a neuraldeep provider with no API key of its own. Sharing a login hands its quota to every holder of a shared-model token and may breach the vendor's terms; without this the configuration is refused. Does nothing while the model is not shared.",
+			false),
 	}
 	isolationEnum := []string{string(IsolationIndividual), string(IsolationShared), string(IsolationAdmin)}
 	telegramUserGroupProps := map[string]interface{}{
@@ -375,7 +386,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
+				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "busy_wait_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -383,7 +394,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off"},
+				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "shared_as", "shared_subscription_ack"},
 				[]string{"model"}),
 		},
 		"agent": objectSchema("ReAct loop", "Defaults for the main agent loop (model id and safety caps).",
@@ -414,11 +425,13 @@ func UISchemaMap() map[string]interface{} {
 					"Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile."),
 				"wait_for_limit_reset_max_ms": intProp("Wait for limit reset max ms",
 					"Longest time one turn spends waiting for limits in total, in milliseconds (default four hours); a pause that would exceed it ends the turn at once, 0 never waits."),
+				"shared_busy_wait_ms": intProp("Shared model busy wait ms",
+					"How long a call to a coddy provider waits for a free slot of the remote when it answers busy (default 30000); 0 means no waiting. A provider's own wait above zero wins."),
 			},
 			[]string{
 				"model", "queue_mode", "max_turns", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
 				"llm_first_token_timeout_ms", "llm_stream_idle_timeout_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
-				"wait_for_limit_reset", "wait_for_limit_reset_max_ms",
+				"wait_for_limit_reset", "wait_for_limit_reset_max_ms", "shared_busy_wait_ms",
 			},
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",

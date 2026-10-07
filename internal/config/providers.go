@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -26,6 +27,9 @@ var AllowedLLMProviderTypes = map[string]struct{}{
 	"neuraldeep": {},
 	"codex":      {},
 	"devin":      {},
+	// coddy is a model shared by another Coddy: api_base is the origin of that
+	// server (or a relay mount) and every model turn is one streamed call to it.
+	"coddy": {},
 }
 
 // ProviderConfig is one entry under YAML key providers.
@@ -50,6 +54,10 @@ type ProviderConfig struct {
 	// so slow prompt processing on large contexts is never cut short; the turn
 	// context stays the only bound.
 	TimeoutMS int `yaml:"timeout_ms"`
+	// BusyWaitMS is how long a call to a provider of type coddy waits for a free
+	// slot of the remote when the remote answers busy. A value above zero wins;
+	// 0 or absent falls back to agent.shared_busy_wait_ms (BusyWaitBudget).
+	BusyWaitMS int `yaml:"busy_wait_ms,omitempty"`
 	// UsageLimitsPanel switches the account usage panel of this row: the
 	// console footer line and /usage, the web UI's usage section and banner,
 	// and the reads behind them (GET /v1/limits for a neuraldeep row). A nil
@@ -192,6 +200,25 @@ func (p *ProviderConfig) Validate() error {
 	}
 	if p.TimeoutMS < 0 {
 		return fmt.Errorf("providers[%s]: timeout_ms must be >= 0", p.Name)
+	}
+	if p.BusyWaitMS < 0 {
+		return fmt.Errorf("providers[%s].busy_wait_ms: must be >= 0", p.Name)
+	}
+	if p.Type == "coddy" {
+		return p.validateCoddyBase()
+	}
+	return nil
+}
+
+// validateCoddyBase checks the api_base of a provider of type coddy: the origin
+// of the remote coddy serve, or of a relay mount, as an http or https URL.
+func (p *ProviderConfig) validateCoddyBase() error {
+	if p.APIBase == "" {
+		return fmt.Errorf("providers[%s]: api_base is required for type coddy: the address of the remote coddy serve (https://host:12345) or of a relay mount (https://relay/swarm/nodes/<node>)", p.Name)
+	}
+	u, err := url.Parse(p.APIBase)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return fmt.Errorf("providers[%s].api_base: not an http or https URL of the remote coddy serve (https://host:12345 or https://relay/swarm/nodes/<node>)", p.Name)
 	}
 	return nil
 }

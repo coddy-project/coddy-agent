@@ -48,6 +48,18 @@ type ModelEntry struct {
 	// false makes the runtime issue one blocking completion request and deliver the
 	// finished answer in one piece, for servers and proxies that handle SSE badly.
 	Stream *bool `yaml:"stream,omitempty"`
+	// SharedAs offers this model to other Coddys that reach this server, under
+	// this alias: the only name that leaves the host (the listing id, the model
+	// of a request, every error). Empty or absent keeps the row private. The
+	// alias matches ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ and is unique across
+	// models[]; a row served by a provider of type coddy cannot be shared.
+	SharedAs string `yaml:"shared_as,omitempty"`
+	// SharedSubscriptionAck is the operator's written acceptance that sharing a
+	// subscription login (provider types codex and devin, and a neuraldeep row
+	// that has no key of its own) hands its quota to every holder of a
+	// shared-model token and may breach the vendor's terms. It is required next
+	// to SharedAs for such a row and does nothing without SharedAs.
+	SharedSubscriptionAck bool `yaml:"shared_subscription_ack,omitempty"`
 }
 
 // SplitModelRef parses model into provider name and API model id.
@@ -66,12 +78,15 @@ func SplitModelRef(model string) (providerName, apiModel string, err error) {
 // Normalize trims string fields in place.
 func (m *ModelEntry) Normalize() {
 	m.Model = strings.TrimSpace(m.Model)
+	m.SharedAs = strings.TrimSpace(m.SharedAs)
 }
 
 // Validate checks a single model entry after Normalize (provider existence checked separately).
 func (m *ModelEntry) Validate() error {
-	_, _, err := SplitModelRef(m.Model)
-	return err
+	if _, _, err := SplitModelRef(m.Model); err != nil {
+		return err
+	}
+	return m.validateSharedAlias()
 }
 
 // ProviderName returns the providers[].name segment from Model.

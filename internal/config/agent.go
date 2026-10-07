@@ -94,6 +94,11 @@ type Agent struct {
 	// means the default (four hours); a pause longer than this ends the turn
 	// at once, and an explicit 0 never waits.
 	WaitForLimitResetMaxMS *int `yaml:"wait_for_limit_reset_max_ms"`
+	// SharedBusyWaitMS is the global default of how long a call to a provider of
+	// type coddy waits for a free slot of the remote that answers busy. A nil
+	// pointer means 30000; an explicit 0 means no waiting. providers[].busy_wait_ms
+	// above zero wins over it (BusyWaitBudget).
+	SharedBusyWaitMS *int `yaml:"shared_busy_wait_ms"`
 }
 
 // UnmarshalYAML records whether max_turns appeared in the document. YAML
@@ -224,6 +229,9 @@ func (c *Agent) Validate() error {
 	}
 	if c.LoopNudgeMax != nil && *c.LoopNudgeMax < 0 {
 		return fmt.Errorf("agent.loop_nudge_max: must be >= 0")
+	}
+	if c.SharedBusyWaitMS != nil && *c.SharedBusyWaitMS < 0 {
+		return fmt.Errorf("agent.shared_busy_wait_ms: must be >= 0")
 	}
 	return nil
 }

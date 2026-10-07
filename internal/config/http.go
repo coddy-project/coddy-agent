@@ -44,6 +44,9 @@ type HTTPServerConfig struct {
 	// the token to present to it; without one the UI keeps the token client-side per
 	// remote and the console takes it from --remote-token or CODDY_REMOTE_TOKEN.
 	Remotes []HTTPRemote `yaml:"remotes"`
+	// SharedModels configures the routes that serve the models[] rows carrying
+	// shared_as to other Coddys: the LLM-only token class and the limits.
+	SharedModels SharedModelsConfig `yaml:"shared_models"`
 }
 
 // LoginMode names how a browser proves who it is.
@@ -326,6 +329,7 @@ func (h *HTTPServerConfig) Normalize() {
 	h.Host = strings.TrimSpace(h.Host)
 	h.AuthToken = strings.TrimSpace(h.AuthToken)
 	h.Login.Normalize()
+	h.SharedModels.Normalize()
 	for i := range h.CORS.AllowedOrigins {
 		h.CORS.AllowedOrigins[i] = strings.TrimSpace(h.CORS.AllowedOrigins[i])
 	}
@@ -340,6 +344,9 @@ func (h *HTTPServerConfig) Normalize() {
 func (h *HTTPServerConfig) Validate() error {
 	if h.Port < 0 || h.Port > 65535 {
 		return fmt.Errorf("httpserver.port out of range")
+	}
+	if err := h.SharedModels.Validate(); err != nil {
+		return err
 	}
 	return h.Login.Validate()
 }

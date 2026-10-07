@@ -38,6 +38,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			LoopStreamRepeatCycles: intPtr(AgentDefaultLoopStreamRepeatCycles),
 			LoopNudgeMax:           intPtr(AgentDefaultLoopNudgeMax),
 			WaitForLimitResetMaxMS: intPtr(AgentDefaultWaitForLimitResetMaxMS),
+			SharedBusyWaitMS:       intPtr(AgentDefaultSharedBusyWaitMS),
 		},
 		Prompts: PromptsJSON{
 			Dir:         "",

@@ -25,22 +25,23 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), or \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server; see https://coddy.dev/docs/features/devin.",
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), or \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server; see https://coddy.dev/docs/features/devin, or \"coddy\" for a model that another Coddy shares (its models[].shared_as): api_base is the address of that remote coddy serve, or of a swarm relay mount, and every model turn is one streamed call to it.",
             "enum": [
               "openai",
               "anthropic",
               "neuraldeep",
               "codex",
-              "devin"
+              "devin",
+              "coddy"
             ]
           },
           "api_base": {
             "type": "string",
-            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for types \"codex\" and \"devin\", which always use their official endpoints."
+            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for types \"codex\" and \"devin\", which always use their official endpoints. Required for type \"coddy\": the origin of the remote coddy serve (https://host:12345) or of a swarm relay mount (https://relay/swarm/nodes/<node>), an http or https URL; the type appends /coddy/llm/... to it. A plain http:// address whose host is not loopback sends the token and the whole conversation in clear text, and coddy -t warns about it."
           },
           "api_key": {
             "type": "string",
-            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. Ignored for type \"codex\", which signs in with ChatGPT."
+            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. Ignored for type \"codex\", which signs in with ChatGPT. For type \"coddy\" it is the token the remote accepts (a shared-model token is enough), or the relay's client token through a mount; leave it empty for a remote without authentication."
           },
           "api_key_command": {
             "type": "string",
@@ -54,6 +55,12 @@
           "timeout_ms": {
             "type": "integer",
             "description": "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short.",
+            "default": 0,
+            "minimum": 0
+          },
+          "busy_wait_ms": {
+            "type": "integer",
+            "description": "How long, in milliseconds, one call to a provider of type coddy waits for a free slot of the remote when the remote answers busy (it runs at most httpserver.shared_models.max_streams calls per credential at once). A value above zero wins; 0 or absent falls back to agent.shared_busy_wait_ms, which is 30000 unless set. Other provider types ignore it.",
             "default": 0,
             "minimum": 0
           },
@@ -128,6 +135,16 @@
             ],
             "description": "Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only.",
             "default": true
+          },
+          "shared_as": {
+            "type": "string",
+            "description": "Offers this model to other Coddys that reach this server, under this alias: the only name that leaves the host, in the listing, in requests and in errors, never the provider/model selector. Empty or absent keeps the model private. 1 to 64 letters, digits, dots, underscores or hyphens, starting with a letter or a digit; unique across models; not allowed on a model of a provider of type coddy. The shared routes need a credential: httpserver.shared_models.tokens (opens only the LLM routes) or httpserver.auth_token; coddy -t reports shared_as without one as an error. The alias is a name, not an access boundary: the main token still reaches every model by its selector on the rest of the API.",
+            "pattern": "^$|^[A-Za-z0-9][A-Za-z0-9._\\-]{0,63}$"
+          },
+          "shared_subscription_ack": {
+            "type": "boolean",
+            "description": "Required next to shared_as on a model whose credential is a subscription login: providers of type codex and devin, and a neuraldeep provider with no api_key, api_key_command or NAME_API_KEY (the stored hub login fills in). Sharing a login hands its quota to every holder of a shared-model token and may breach the vendor's terms; without this key the configuration is refused at load. It has no effect without shared_as.",
+            "default": false
           }
         }
       }
@@ -239,6 +256,15 @@
           ],
           "description": "Longest time one turn spends waiting for limits in total, in milliseconds, the retry wrapper's own sleeps on a limit included; a pause that would exceed it ends the turn at once with the error. An explicit 0 never waits.",
           "default": 14400000,
+          "minimum": 0
+        },
+        "shared_busy_wait_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "How long, in milliseconds, a call to a provider of type coddy waits for a free slot of the remote when it answers busy, unless the provider's own busy_wait_ms (above zero) says otherwise. Omit for 30000; an explicit 0 means no waiting: the call fails at the first busy answer. The wait is bounded, shown while it lasts and cut by Stop.",
+          "default": 30000,
           "minimum": 0
         }
       }
@@ -1175,6 +1201,38 @@
             }
           },
           "default": []
+        },
+        "shared_models": {
+          "type": "object",
+          "title": "Shared models",
+          "description": "Serves the models[] rows that carry shared_as to other Coddys: GET /coddy/llm/models, POST /coddy/llm/completions, reachable directly or through a swarm relay mount. The usage route GET /coddy/llm/models/{alias}/usage is reserved and answers 404 for now. The credentials and the limits of those routes are set here; which rows are shared is set on the rows.",
+          "additionalProperties": false,
+          "properties": {
+            "tokens": {
+              "type": "array",
+              "description": "LLM-only bearer tokens, \"${ENV}\" references expanded at load as for auth_token; never echoed back by GET /coddy/config. A token listed here opens only GET /coddy/llm/models and POST /coddy/llm/completions (and, once it exists, the usage route of the second step) and is refused on every other route, where httpserver.auth_token opens the whole API. Any token listed here turns authentication on: with no main token and no login, every other route is closed to every caller. A token cannot also be httpserver.auth_token or a swarm token: the loader refuses it. The tokens of --auth-token / CODDY_HTTP_TOKEN and of the swarm flags are known only to the process, so coddy -t (environment), serve at start-up, a reload and PUT /coddy/config refuse a duplicate of those; a duplicate that reaches the gate is read as a shared-model token (least privilege).",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            },
+            "max_streams": {
+              "type": "integer",
+              "description": "How many shared-model calls one credential (any token class, or anonymous when authentication is off) may have running at once, all aliases together. A further call is refused at once with 429 kind busy, before anything reaches the provider; the calling Coddy waits for a slot (providers[].busy_wait_ms). 0 or omitted means 5; a negative value is refused. Through a relay the node sees one credential, so the limit then counts every client of that relay together.",
+              "default": 5,
+              "minimum": 0
+            },
+            "max_call_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Longest time, in milliseconds, one blocking (stream: false) call of a shared model may run, from the start of the provider call to its result; a call that exceeds it ends as an upstream timeout and frees its slot. Omit for 1800000 (30 minutes). At most 28800000 (8 hours); an explicit 0 means that ceiling, never \"no bound\". A streamed model is bounded by agent.llm_stream_idle_timeout_ms per gap instead. coddy -t warns about a value above 1800000 together with a shared stream: false model whose provider has no timeout_ms.",
+              "default": 1800000,
+              "minimum": 0,
+              "maximum": 28800000
+            }
+          }
         }
       }
     },

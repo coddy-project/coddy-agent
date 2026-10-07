@@ -146,8 +146,17 @@ func AddCheckFlag(fs *flag.FlagSet) *bool {
 // LoadFromCLI would read, <home>/.env loaded first so ${VAR} references see
 // its values - without loading it: no backup is written and none is restored.
 // The error is only about resolving the paths; problems in the file are
-// findings.
+// findings. The credentials of the environment (CODDY_HTTP_TOKEN, the swarm
+// tokens, the web sign-in account) count as the process would count them.
 func Check(cli CLIPaths) (*CheckReport, error) {
+	return CheckWith(cli, ExtraTokens{})
+}
+
+// CheckWith is Check for a caller that also holds credentials the file and the
+// environment do not show, such as the values of --auth-token and
+// --swarm-auth-token: they take part in the rules that compare token classes and
+// that ask for a credential in front of shared models.
+func CheckWith(cli CLIPaths, extra ExtraTokens) (*CheckReport, error) {
 	paths, err := resolveConfigFile(cli)
 	if err != nil {
 		return nil, err
@@ -169,7 +178,7 @@ func Check(cli CLIPaths) (*CheckReport, error) {
 		})
 		return rep, nil
 	}
-	rep.Findings = checkConfigBytes(data, paths)
+	rep.Findings = checkConfigBytesWith(data, paths, extra.merge(ExtraTokensFromEnv()))
 	return rep, nil
 }
 
@@ -177,7 +186,13 @@ func Check(cli CLIPaths) (*CheckReport, error) {
 // when the file has errors, so the process exits non-zero. Warnings alone
 // leave it succeeding.
 func RunCheck(w io.Writer, cli CLIPaths) error {
-	rep, err := Check(cli)
+	return RunCheckWith(w, cli, ExtraTokens{})
+}
+
+// RunCheckWith is RunCheck for a caller that holds credentials out of band (see
+// CheckWith).
+func RunCheckWith(w io.Writer, cli CLIPaths, extra ExtraTokens) error {
+	rep, err := CheckWith(cli, extra)
 	if err != nil {
 		return err
 	}
@@ -188,8 +203,15 @@ func RunCheck(w io.Writer, cli CLIPaths) error {
 	return nil
 }
 
-// checkConfigBytes runs the stages of the check over the raw file content.
+// checkConfigBytes runs the stages of the check over the raw file content, for
+// a process that holds no credential beyond the file.
 func checkConfigBytes(data []byte, paths Paths) []Finding {
+	return checkConfigBytesWith(data, paths, ExtraTokens{})
+}
+
+// checkConfigBytesWith is checkConfigBytes for a process that also holds the
+// credentials of extra.
+func checkConfigBytesWith(data []byte, paths Paths, extra ExtraTokens) []Finding {
 	if enc := utf16Encoding(data); enc != "" {
 		return []Finding{{
 			Severity: SeverityError, Line: 1, Column: 1,
@@ -258,14 +280,16 @@ func checkConfigBytes(data []byte, paths Paths) []Finding {
 	}
 	cfg.Paths = paths
 	applyDefaults(&cfg)
-	if err := validateSubconfigs(&cfg); err != nil {
-		f := loaderFinding(err, body, &cfg)
+	loadErr := validateSubconfigs(&cfg)
+	if loadErr != nil {
+		f := loaderFinding(loadErr, body, &cfg)
 		if !coveredAtLine(findings, f.Line) {
 			findings = append(findings, f)
 		}
 	}
 	findings = append(findings, unsentSettingFindings(&cfg, body)...)
 	findings = append(findings, memoryAddendumFindings(&cfg, body)...)
+	findings = append(findings, sharedModelFindings(&cfg, body, extra, loadErr)...)
 	return sortFindings(findings)
 }
 
@@ -709,6 +733,14 @@ func collectScalars(n *yaml.Node, out []*yaml.Node) []*yaml.Node {
 // does not already spell out.
 func loaderFix(msg string, cfg *Config) string {
 	switch {
+	case strings.Contains(msg, ".shared_as: alias") && strings.Contains(msg, "already shared by"):
+		return "give each shared model an alias of its own, or remove shared_as from one of the two rows"
+	case strings.Contains(msg, ".shared_as: provider") && strings.Contains(msg, "shared_subscription_ack"):
+		return "add shared_subscription_ack: true next to shared_as to accept it, or remove shared_as to keep the model private"
+	case strings.Contains(msg, ".shared_as: a model served by a provider of type coddy"):
+		return "remove shared_as: a model reached through another Coddy cannot be lent on"
+	case strings.Contains(msg, ".shared_as: ") && strings.Contains(msg, "is not a valid alias"):
+		return "write an alias of 1 to 64 letters, digits, dots, underscores or hyphens, starting with a letter or a digit"
 	case strings.Contains(msg, "unknown provider"):
 		names := providerNames(cfg)
 		if len(names) == 0 {

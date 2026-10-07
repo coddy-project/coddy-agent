@@ -150,6 +150,11 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.HTTPServer.Validate(); err != nil {
 		return fmt.Errorf("httpserver: %w", err)
 	}
+	// What the configuration alone knows: the flags and the environment are
+	// added by the callers that see them (the config check, coddy serve).
+	if err := CheckSharedTokenClasses(cfg, ExtraTokens{}); err != nil {
+		return err
+	}
 	if err := cfg.ValidateModelsProvidersAndAgent(); err != nil {
 		return err
 	}

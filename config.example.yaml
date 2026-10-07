@@ -92,6 +92,25 @@ providers:
   #   api_base: "https://api.deepseek.com/v1"
   #   api_key: "${DEEPSEEK_API_KEY}"
 
+  # A model that another Coddy shares (that server's models[].shared_as). The whole
+  # harness stays here - prompt, rules, tools, history, the tool loop; each model
+  # turn is one streamed call to the remote, which answers it with the provider it
+  # has configured for that model. api_base is the remote coddy serve, or a swarm
+  # relay mount (https://relay.example/swarm/nodes/<node>); api_key is the token it
+  # accepts, a shared-model token (httpserver.shared_models.tokens there) is enough,
+  # or the relay's client token through a mount. The models of this provider are
+  # picked from the remote's listing in Settings, and are written <provider>/<alias>.
+  # A plain http:// address that is not loopback sends the token and the whole
+  # conversation in clear text; coddy -t warns about it.
+  # - name: workstation
+  #   type: coddy
+  #   api_base: "https://workstation.example:12345"
+  #   api_key: "${WORKSTATION_SHARED_TOKEN}"
+  #   # When the remote answers busy (it runs at most max_streams calls per credential),
+  #   # this call waits for a free slot for up to this long. Above zero it wins over
+  #   # agent.shared_busy_wait_ms; 0 or absent follows that key (30000 unless set).
+  #   # busy_wait_ms: 60000
+
 models:
   - model: "openai/gpt-5.6-terra"
     max_tokens: 8192
@@ -134,6 +153,25 @@ models:
   #   max_tokens: 8192
   #   stream: false
 
+  # Lend a model of this server to other Coddys (they list it with a provider of
+  # type coddy). shared_as is both the switch and the name: the alias is the only
+  # name that leaves this host (1-64 letters, digits, . _ -, unique across models);
+  # an empty or absent key keeps the model private. The shared routes need a
+  # credential - httpserver.shared_models.tokens below, or httpserver.auth_token -
+  # and coddy -t reports shared_as without one as an error. A model served by a
+  # provider of type coddy cannot be shared again.
+  # - model: "openai/gpt-5.6-terra"
+  #   shared_as: "terra"
+  #
+  # A model that runs on a subscription login (a codex or devin provider, or a
+  # neuraldeep provider with no api_key, api_key_command or NEURALDEEP_API_KEY, so
+  # the stored hub login fills in) also needs shared_subscription_ack: true. Sharing
+  # a login hands its quota to every holder of a shared-model token and may breach
+  # the vendor's terms; without the acknowledgement the configuration is refused.
+  # - model: "codex/gpt-5.6-sol"
+  #   shared_as: "sol"
+  #   shared_subscription_ack: true
+
 agent:
   model: "openai/gpt-5.6-terra"
   max_turns: 165           # ReAct steps per prompt; set 0 to disable the limit
@@ -167,6 +205,11 @@ agent:
   # wait_for_limit_reset_max_ms: 14400000  # total per turn (4 h), the retry wrapper's sleeps on a limit
   #                                          # included; under 60 s it also bounds ordinary 429 retries;
   #                                          # a longer pause ends the turn; 0 never waits
+  # Models of a remote Coddy (provider type coddy): when the remote answers that all
+  # of its slots for this credential are busy, the call waits for a free one for up to
+  # this long, shown while it lasts and cut by Stop. Absent means 30000; 0 means no
+  # waiting. providers[].busy_wait_ms above zero wins for that provider.
+  # shared_busy_wait_ms: 30000
 
 sessions:
   # Directory to store session bundles.
@@ -490,6 +533,21 @@ tools:
 #     - name: "office relay"
 #       url: "http://relay.lan:12346"
 #       token: "${CODDY_RELAY_TOKEN}"   # the relay's client token (its swarm.auth_token)
+#   # Serving models[] rows that carry shared_as to other Coddys (GET /coddy/llm/models,
+#   # POST /coddy/llm/completions). A shared-model token opens only those routes and
+#   # nothing else; httpserver.auth_token opens the whole API, so give a borrower one of
+#   # these. Any token listed here turns authentication on: with no auth_token and no
+#   # login, every other route is closed to every caller. A token cannot also be
+#   # auth_token, the token of --auth-token / CODDY_HTTP_TOKEN or a swarm token. Never
+#   # returned by GET /coddy/config. Through a swarm relay a node joins with one of
+#   # these as swarm.join[].token; keep nodes that only share models on a relay of their own.
+#   shared_models:
+#     tokens:
+#       - "${CODDY_SHARED_MODELS_TOKEN}"
+#     max_streams: 5         # concurrent calls per credential, all aliases together; 0 or absent = 5
+#                            # a further call is answered busy at once and the caller waits for a slot
+#     max_call_ms: 1800000   # longest blocking (stream: false) call of a shared model; absent = 30 min,
+#                            # at most 28800000 (8 h), 0 = that ceiling, never "no bound"
 
 # Embedded web UI (only with -tags http,ui). Set enable: false to run an API-only server
 # (e.g. a remote box) — the SPA at GET / is replaced by a short notice, and the API keeps
