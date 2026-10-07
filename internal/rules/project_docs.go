@@ -1,12 +1,20 @@
 package rules
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
 const projectDocMaxBytes = 256 * 1024
+
+// ErrDocIsFolder reports a document path that names a folder.
+var ErrDocIsFolder = errors.New("is a folder, not a file")
+
+// ErrDocEmpty reports a document that holds nothing but white space: it is
+// there and adds nothing to the prompt.
+var ErrDocEmpty = errors.New("is empty")
 
 // ProjectDoc holds preamble content for an AGENTS.md or a DESIGN.md.
 type ProjectDoc struct {
@@ -50,8 +58,8 @@ func LoadStanding(home, cwd string, userPaths []string) Standing {
 		if key == "" || st.Keys[key] {
 			return ProjectDoc{}, false
 		}
-		doc, ok := readProjectDoc(path, "")
-		if !ok {
+		doc, err := loadProjectDoc(path)
+		if err != nil {
 			return ProjectDoc{}, false
 		}
 		st.Keys[key] = true
@@ -79,7 +87,7 @@ func LoadStanding(home, cwd string, userPaths []string) Standing {
 			continue
 		}
 		if doc, ok := take(p); ok {
-			doc.Label = userDocLabel(cwd, p)
+			doc.Label = UserDocLabel(cwd, p)
 			st.User = append(st.User, doc)
 		}
 	}
@@ -96,38 +104,48 @@ func RenderDocs(docs []ProjectDoc) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// RenderUserDocs renders the files of instructions.files the way the
-// instructions block has always carried them: their text, one after the other.
+// RenderUserDocs renders the files of instructions.files the way RenderDocs
+// renders the documents: each under a "### <label>" heading that names it.
+// Without the name the model holds the text but cannot tell it is the file
+// the operator talks about, and asked to follow infrastructure.md it reads a
+// file it already has.
 func RenderUserDocs(docs []ProjectDoc) string {
-	parts := make([]string, 0, len(docs))
-	for _, d := range docs {
-		parts = append(parts, d.Content)
-	}
-	return strings.Join(parts, "\n\n")
+	return RenderDocs(docs)
 }
 
-// readProjectDoc reads one preamble document, reporting false for a file that
-// is absent or holds nothing.
-func readProjectDoc(path, label string) (ProjectDoc, bool) {
+// CheckDoc reports why the document at path would not reach the prompt - it
+// does not exist, cannot be read, names a folder (ErrDocIsFolder) or holds
+// nothing (ErrDocEmpty) - and nil when it would.
+func CheckDoc(path string) error {
+	_, err := loadProjectDoc(path)
+	return err
+}
+
+// loadProjectDoc reads one preamble document, cut at projectDocMaxBytes, or
+// says why it has nothing to give.
+func loadProjectDoc(path string) (ProjectDoc, error) {
+	if st, err := os.Stat(path); err == nil && st.IsDir() {
+		return ProjectDoc{}, ErrDocIsFolder
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return ProjectDoc{}, false
+		return ProjectDoc{}, err
 	}
 	content := strings.TrimSpace(string(b))
 	if content == "" {
-		return ProjectDoc{}, false
+		return ProjectDoc{}, ErrDocEmpty
 	}
 	if len(content) > projectDocMaxBytes {
 		content = content[:projectDocMaxBytes] + "\n\n...(truncated)"
 	}
-	return ProjectDoc{Label: label, Path: path, Content: content}, true
+	return ProjectDoc{Path: path, Content: content}, nil
 }
 
-// userDocLabel names a file of instructions.files for a reader: relative to
+// UserDocLabel names a file of instructions.files for a reader: relative to
 // the session folder when it lives there, else the way homeDocLabel names it.
-// The prompt carries the text of such a file without a heading, so the label
-// is for surfaces that list what a session reads (the console header).
-func userDocLabel(cwd, path string) string {
+// It heads the file's text in the prompt (RenderUserDocs) and names it on the
+// surfaces that list what a session reads (the console header).
+func UserDocLabel(cwd, path string) string {
 	if strings.TrimSpace(cwd) != "" {
 		if rel, err := filepath.Rel(cwd, path); err == nil && rel != "." && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel) {
 			return filepath.ToSlash(rel)

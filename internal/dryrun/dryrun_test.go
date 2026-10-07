@@ -582,6 +582,31 @@ func TestRelativeDirsAreProbedInTheWorkspace(t *testing.T) {
 	}
 }
 
+// instructions.files is how several agents with configurations of their own
+// share one set of instructions, and a session skips a file it cannot read
+// without a word. The check is where the operator learns that an entry
+// naming the same file in every workspace points at nothing; a workspace
+// entry missing from the folder the check runs in is only skipped, since the
+// list may serve workspaces that carry it.
+func TestInstructionFilesAreProbed(t *testing.T) {
+	shared := t.TempDir()
+	readable := filepath.Join(shared, "house-style.md")
+	if err := os.WriteFile(readable, []byte("HOUSE STYLE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(shared, "infrastructure.md")
+	rep := run(t, fmt.Sprintf("instructions:\n  files:\n    - %q\n    - %q\n    - \"docs/STYLE.md\"\n", readable, missing), nil)
+	if c := find(t, rep, "instructions.files[0]"); c.Status != StatusOK || !strings.Contains(c.Message, readable) {
+		t.Errorf("readable file %+v", c)
+	}
+	if c := find(t, rep, "instructions.files[1]"); c.Status != StatusWarning || !strings.Contains(c.Message, missing+" does not exist") || c.Line != 5 || c.Fix == "" {
+		t.Errorf("missing absolute file %+v", c)
+	}
+	if c := find(t, rep, "instructions.files[2]"); c.Status != StatusSkipped {
+		t.Errorf("workspace file absent from the default workspace %+v", c)
+	}
+}
+
 func TestHooksFileParses(t *testing.T) {
 	dir := t.TempDir()
 	good := filepath.Join(dir, "good.json")

@@ -19,6 +19,7 @@ type header struct {
 	expanded bool
 
 	contextFiles []string
+	unreadFiles  []string
 	skillNames   []string
 	rulesCount   int
 	mcpNames     []string
@@ -30,9 +31,12 @@ func newHeader(theme *tui.Theme) *header {
 	return h
 }
 
-// SetSections sets the resource lists shown under the hints.
-func (h *header) SetSections(contextFiles, skillNames []string, rulesCount int, mcpNames []string) {
+// SetSections sets the resource lists shown under the hints. unreadFiles are
+// the instruction files the session cannot read, each with the reason, listed
+// under [Context] after the files it carries.
+func (h *header) SetSections(contextFiles, unreadFiles, skillNames []string, rulesCount int, mcpNames []string) {
 	h.contextFiles = contextFiles
+	h.unreadFiles = unreadFiles
 	h.skillNames = skillNames
 	h.rulesCount = rulesCount
 	h.mcpNames = mcpNames
@@ -86,10 +90,15 @@ func (h *header) rebuild() {
 	h.AddChild(tui.NewSpacer(1))
 	h.AddChild(tui.NewText(th.Fg(roleDim, "Coddy drives this workspace with the same agent as ACP and HTTP. Ask it anything about the code."), 1, 0, nil))
 
-	if len(h.contextFiles) > 0 {
+	if len(h.contextFiles) > 0 || len(h.unreadFiles) > 0 {
 		h.AddChild(tui.NewSpacer(1))
 		h.AddChild(tui.NewText(th.Fg(roleMdHeading, "[Context]"), 0, 0, nil))
-		h.AddChild(tui.NewText(th.Fg(roleDim, strings.Join(sanitizeAll(h.contextFiles), "\n")), 2, 0, nil))
+		if len(h.contextFiles) > 0 {
+			h.AddChild(tui.NewText(th.Fg(roleDim, strings.Join(sanitizeAll(h.contextFiles), "\n")), 2, 0, nil))
+		}
+		if len(h.unreadFiles) > 0 {
+			h.AddChild(tui.NewText(th.Fg(roleWarning, strings.Join(sanitizeAll(h.unreadFiles), "\n")), 2, 0, nil))
+		}
 	}
 	if len(h.skillNames) > 0 {
 		h.AddChild(tui.NewSpacer(1))

@@ -190,7 +190,10 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		Content:  full,
 		SkillsMD: skillsMD,
 		ToolsMD:  toolsMD,
-		RulesMD:  rulesMD,
+		// The context estimate counts the files of instructions.files with
+		// the rules: they are instructions the operator wrote, and a rules
+		// share that leaves them out reads as rules that were not loaded.
+		RulesMD:  joinNonEmptyPromptBlocks(rulesMD, standing.User),
 		ToolDefs: toolDefs,
 		Clock:    clock,
 		Volatile: prompts.RendersVolatile(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()),

@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,6 +38,14 @@ type globalInstructionsFeatureState struct {
 	promptsDir       string
 	instructionFiles []string
 	tweak            func(*config.Config)
+	// sharedFile is a file of instructions.files that lives outside the
+	// agent home and the project, the way several agents share one.
+	sharedFile string
+	// missingFile is an absolute entry of instructions.files with nothing
+	// behind it.
+	missingFile string
+	// logs is what the agent logged during the scenario.
+	logs bytes.Buffer
 }
 
 func (s *globalInstructionsFeatureState) reset() error {
@@ -58,6 +67,9 @@ func (s *globalInstructionsFeatureState) close() {
 	s.promptsDir = ""
 	s.instructionFiles = nil
 	s.tweak = nil
+	s.sharedFile = ""
+	s.missingFile = ""
+	s.logs.Reset()
 }
 
 func (s *globalInstructionsFeatureState) tempDir() (string, error) {
@@ -189,7 +201,7 @@ func (s *globalInstructionsFeatureState) agentSessionInThatProject() error {
 		s.tweak(cfg)
 	}
 	s.st.ReplaceRulesCatalog(session.DiscoverRules(cfg, s.cwd))
-	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, nil)
+	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, slog.New(slog.NewTextHandler(&s.logs, nil)))
 	return nil
 }
 
@@ -235,6 +247,86 @@ func (s *globalInstructionsFeatureState) projectAlsoHas(nameA, bodyA, nameB, bod
 func (s *globalInstructionsFeatureState) instructionFilesList(tail string) error {
 	s.instructionFiles = quotedTokens(tail)
 	return nil
+}
+
+// sharedFolderHolds writes a file into a folder that is neither the agent
+// home nor the project, the way several agents with configurations of their
+// own share one set of instructions. The text is long enough that the context
+// estimate cannot count it under rules by accident.
+func (s *globalInstructionsFeatureState) sharedFolderHolds(name, token string) error {
+	dir, err := s.tempDir()
+	if err != nil {
+		return err
+	}
+	body := token + "\n\n" + strings.Repeat("Every agent of this fleet follows the house style. ", 80)
+	s.sharedFile = filepath.Join(dir, filepath.FromSlash(name))
+	return os.WriteFile(s.sharedFile, []byte(body+"\n"), 0o644)
+}
+
+func (s *globalInstructionsFeatureState) instructionFilesListsShared() error {
+	if s.sharedFile == "" {
+		return fmt.Errorf("no shared file prepared")
+	}
+	s.instructionFiles = []string{s.sharedFile}
+	return nil
+}
+
+func (s *globalInstructionsFeatureState) instructionFilesListsMissing() error {
+	dir, err := s.tempDir()
+	if err != nil {
+		return err
+	}
+	s.missingFile = filepath.Join(dir, "shared", "infrastructure.md")
+	s.instructionFiles = []string{s.missingFile}
+	return nil
+}
+
+// requestNamesSharedFile is what lets the model connect the text it was
+// given with the file the operator talks about: without the name, "follow
+// infrastructure.md" sends it to read a file it already holds.
+func (s *globalInstructionsFeatureState) requestNamesSharedFile() error {
+	sp, err := s.systemPrompt(len(s.seen) - 1)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(s.sharedFile)
+	if err != nil {
+		return err
+	}
+	want := "### " + rules.UserDocLabel(s.cwd, s.sharedFile) + "\n\n" + strings.TrimSpace(string(data))
+	if !strings.Contains(sp, want) {
+		return fmt.Errorf("the request does not carry the shared file under %q", "### "+rules.UserDocLabel(s.cwd, s.sharedFile))
+	}
+	return nil
+}
+
+// contextCountsSharedUnderRules reads the estimate the context ring and the
+// stats endpoint show: an instruction file is a rule the operator wrote, so
+// its tokens belong to the rules share, not to the system prompt.
+func (s *globalInstructionsFeatureState) contextCountsSharedUnderRules() error {
+	b := s.st.GetLastContextBreakdown()
+	if b == nil {
+		return fmt.Errorf("no context estimate was published")
+	}
+	data, err := os.ReadFile(s.sharedFile)
+	if err != nil {
+		return err
+	}
+	want := session.EstimateContextTokens(strings.TrimSpace(string(data)))
+	if b.Rules < want {
+		return fmt.Errorf("the rules share is %d tokens, want at least the %d of the shared file (system prompt %d)", b.Rules, want, b.SystemPrompt)
+	}
+	return nil
+}
+
+func (s *globalInstructionsFeatureState) logWarnsUnread() error {
+	logs := s.logs.String()
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, "level=WARN") && strings.Contains(line, "instructions file not read") && strings.Contains(line, s.missingFile) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no warning names %s; the log was:\n%s", s.missingFile, logs)
 }
 
 // templateWithoutBlocks is an operator's prompts.dir whose templates print
@@ -475,6 +567,12 @@ func initializeGlobalInstructionsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a project whose AGENTS\.md is a link to the agent home's$`, s.projectLinkingHomeAgentsMD)
 	sc.Step(`^the project also has "([^"]*)" holding "([^"]*)" and "([^"]*)" holding "([^"]*)"$`, s.projectAlsoHas)
 	sc.Step(`^instructions\.files lists ("[^"]+"(?:(?:,| and) "[^"]+")*)$`, s.instructionFilesList)
+	sc.Step(`^a folder outside the agent home and the project holds "([^"]*)" with "([^"]*)"$`, s.sharedFolderHolds)
+	sc.Step(`^instructions\.files lists that shared file by its absolute path$`, s.instructionFilesListsShared)
+	sc.Step(`^instructions\.files lists an absolute path that does not exist$`, s.instructionFilesListsMissing)
+	sc.Step(`^the request names the shared file in a heading above its text$`, s.requestNamesSharedFile)
+	sc.Step(`^the context estimate counts the shared file under rules$`, s.contextCountsSharedUnderRules)
+	sc.Step(`^the log warns that the instructions file was not read and names its path$`, s.logWarnsUnread)
 	sc.Step(`^the operator's prompts\.dir template prints neither \{\{\.Rules\}\} nor \{\{\.Instructions\}\}$`, s.templateWithoutBlocks)
 	sc.Step(`^the configuration sets (.+)$`, s.configurationSets)
 	sc.Step(`^every request carries "([^"]+)" exactly once$`, s.everyRequestCarriesOnce)
