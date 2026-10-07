@@ -422,6 +422,10 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 *Four rows, each naming its question and the answer in force; only a value moved off its default is coloured, and the choices open beside the row*
 
+![The History filter menu on a phone](../assets/sessions-history-filters-phone-dark-390.png)
+
+*On a phone neither side of the menu has room for a list, so the choices fold out under their row, inside the screen*
+
 ![The shared confirmation dialog before a chat is deleted](../assets/confirm-delete-chat-dark-1280.png)
 
 *The shared confirmation dialog before a chat is deleted*
@@ -429,7 +433,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **History** panel lists sessions via `GET /coddy/sessions` (still a **drawer**, not a persistent second column).
 - Pagination uses `limit` and `cursor`, with **infinite scroll** for older rows.
 - Optional **`q`** query string (**title, workspace path, a tag, or the first **`user`** message content**, case insensitive substring; **not** full-chat search). Search input updates use client debouncing.
-- **Everything that decides what the list shows is one control**: the sliders button at the right end of the search row opens a menu of four rows (**`SessionsFilterMenu.tsx`**). It sits with the search because both narrow the list below; the drawer head keeps only its close button. Each row names its question and the answer in force, and its choices open beside it - hover or click a row, and the one before it folds. The menu is rendered into the document rather than into the drawer, which clips what overflows it, so a submenu reaches past the drawer's edge (and flips to the other side near the window's).
+- **Everything that decides what the list shows is one control**: the sliders button at the right end of the search row opens a menu of four rows (**`SessionsFilterMenu.tsx`**). It sits with the search because both narrow the list below; the drawer head keeps only its close button. Each row names its question and the answer in force, and its choices open beside it - hover a row with the mouse, or click or tap it, and the one before it folds; clicking the row the mouse has just opened keeps it open. The menu is rendered into the document rather than into the drawer, which clips what overflows it, so a submenu reaches past the drawer's edge. A list opens on whichever side has its whole width, the right first and the left near the window's edge; on a phone, where neither side has it, the choices fold out under their row inside the menu, and a tap on a row opens or folds it. The menu is never wider than the room left of its control, and with a list folded in it scrolls rather than run off the bottom of the screen.
   - **Status** - **Active** (the default), **Archived**, **All**: the **`archived`** query parameter. It leads, because it is the question asked most often.
   - **Environment** - **All**, **Local**, **Gateway**, then one row per configured remote. The first three narrow the listing of whichever server is being read (**`origin`**): every conversation, the ones opened on this host, or the chats a messenger gateway is holding. They are a **filter**, so they reload nothing. A remote row is a **switch**: it points the whole app at that server, the same one the composer's environment chip makes, and that does reload - the origin filter goes with everything else. The section is left out entirely when there is only one row to choose from.
   - **Group by** - **None**, **Date**, **Folder** (the default - a conversation is remembered by which checkout it was about far more often than by which day it happened on), **Tag**.

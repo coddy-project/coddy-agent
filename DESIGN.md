@@ -348,18 +348,34 @@ A phone gives the shell 360 to 430 CSS px. Everything below lives in one **`@med
   looking at the archive" is the question asked most often. It belongs with the search because both
   narrow the list below, and not in the head, where its neighbour would be a close button that does
   something else entirely. It takes the **height and corner radius of the search field** beside it
-  (36px, 12px) so the row reads as one strip of controls. The search row is the menu's positioning
-  context (**`position: relative`**), and the menu hangs under it at **`right: 8px`**.
+  (36px, 12px) so the row reads as one strip of controls. The menu hangs 6px under the trigger, its
+  right edge on the trigger's (see **Portaled, not nested**).
 - **Four rows deep, not four lists long.** Each row (**`.sessions-filter-row`**) carries its question on
   the left, the **answer in force** in the accent colour (**`.sessions-filter-value`**) and a chevron;
-  the choices open beside it as **`.sessions-filter-submenu`**, on hover or on click, one at a time.
+  the choices open beside it as **`.sessions-filter-submenu`**, on a mouse hover or on a click or tap,
+  one at a time. Only a mouse opens a row by hovering it: a touch opens it by its tap, because iOS
+  drops the click of a tap whose emulated hover shows new content. The click that follows the mouse
+  onto a row it has just opened keeps the row open rather than folding it straight back; a later
+  click, or Enter or Space on the focused row, folds it.
   A hairline above **`.starts-group`** separates the two rows that decide *what is listed* from the two
   that decide *how it is arranged* - a rule rather than headings, because all four are questions of the
   same kind. A section with only one row to choose from is not rendered at all.
 - **Portaled, not nested.** The drawer is **`overflow: hidden`**, so a submenu inside it would be cut at
   its edge: the menu is rendered into the document (**`createPortal`**) and placed **`position: fixed`**
-  from the trigger's rectangle, the same way the composer's menus are. Near the right edge of the window
-  the submenus flip to the other side (**`.opens-left`**).
+  from the trigger's rectangle, the same way the composer's menus are. The menu is never wider than the
+  room left of its trigger (**`max-width`** from the trigger's right edge less 8px).
+- **A list opens where its whole width fits.** A list's width depends on the locale and on the names of
+  the remotes, so it is measured in a layout pass before it is painted (**`placeFilterSubmenu`**) and
+  opened beside the menu on the right (the drawer sits at the left of the window), on the left near the
+  window's right edge (**`.opens-left`**), each 8px clear of the window's edge. Where neither side has
+  the room - a phone, where the drawer is the width of the screen and the trigger sits at its right
+  edge - the choices **fold out under their row**, inside the menu (**`.opens-inline`**): indented under
+  the question, no panel of their own, the row's chevron turned down as a disclosure's is. The menu then
+  scrolls as a whole instead of running past the bottom of the window (**`.has-inline-submenu`**), and
+  until it closes a click, not a hover, switches sections, since a list folding away under the pointer
+  would move the rows beneath it. In a 393px window a list used to start at -100px, leaving only the
+  check marks on the screen (issue #460). Pinned by **`SessionsFilterMenu.test.tsx`** and
+  **`features/web_ui_menus.feature`**.
 - **Only a value moved off its default is coloured.** The answer on a row is the accent colour when it
   differs from the default (**Active**, the first environment, **Folder**, **Last activity**) and a
   muted 42% text otherwise (**`.sessions-filter-value.is-default`**): a menu where every row is accented

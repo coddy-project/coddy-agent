@@ -1593,8 +1593,8 @@ a.rail-brand {
   color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
 }
 
-/* The filter control sits in the search row - both narrow the list below - so
-   that row is what the menu hangs off. */
+/* The filter control sits in the search row - both narrow the list below. Its
+   menu is portaled out of the drawer and placed from the control's rectangle. */
 .sessions-search-row {
   position: relative;
 }
@@ -1738,9 +1738,36 @@ a.rail-brand {
   overflow-y: auto;
 }
 
-.sessions-filter-menu.opens-left .sessions-filter-submenu {
+.sessions-filter-submenu.opens-left {
   left: auto;
   right: calc(100% + 4px);
+}
+
+/* Neither side of the menu has the room - a phone, where the drawer is the
+   width of the screen and the trigger sits at its right edge - so the choices
+   fold out under their row, inside the menu, indented under the question they
+   answer. The menu scrolls as a whole rather than nest a second scroller. */
+.sessions-filter-submenu.opens-inline {
+  position: static;
+  min-width: 0;
+  max-height: none;
+  overflow: visible;
+  margin: 2px 0 4px;
+  padding: 0 0 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sessions-filter-menu.has-inline-submenu {
+  overflow-y: auto;
+}
+
+.sessions-filter-submenu.opens-inline .sessions-filter-item > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sessions-filter-item {
