@@ -44,17 +44,23 @@ func offlineSystemSources(t *testing.T) {
 }
 
 type skFeatureState struct {
-	root     string
-	home     string
-	ts       *httptest.Server
-	mgr      *session.Manager
-	srv      *Server
-	markets  map[string]string // marketplace name -> repo path
-	updates  map[string]map[string]interface{}
-	sources  []string
-	status   int
-	body     map[string]interface{}
-	prevHOME string
+	root        string
+	home        string
+	ts          *httptest.Server
+	mgr         *session.Manager
+	srv         *Server
+	markets     map[string]string // marketplace name -> repo path
+	updates     map[string]map[string]interface{}
+	sources     []string
+	status      int
+	body        map[string]interface{}
+	prevHOME    string
+	prevPATH    string
+	hadPATH     bool
+	pathChanged bool
+	prevTMP     string
+	hadTMP      bool
+	tmpChanged  bool
 }
 
 func (s *skFeatureState) reset() error {
@@ -86,6 +92,22 @@ func (s *skFeatureState) close() {
 	if s.prevHOME != "" {
 		_ = os.Setenv("CODDY_HOME", s.prevHOME)
 	}
+	if s.pathChanged {
+		if s.hadPATH {
+			_ = os.Setenv("PATH", s.prevPATH)
+		} else {
+			_ = os.Unsetenv("PATH")
+		}
+	}
+	if s.tmpChanged {
+		if s.hadTMP {
+			_ = os.Setenv("TMPDIR", s.prevTMP)
+		} else {
+			_ = os.Unsetenv("TMPDIR")
+		}
+	}
+	s.prevPATH, s.hadPATH, s.pathChanged = "", false, false
+	s.prevTMP, s.hadTMP, s.tmpChanged = "", false, false
 	if s.root != "" {
 		_ = os.RemoveAll(s.root)
 		s.root = ""
@@ -220,6 +242,28 @@ func (s *skFeatureState) givenMarketplace(market, skill, version string) error {
 
 func (s *skFeatureState) republishMarketplace(market, skill, version string) error {
 	return s.publishMarketplace(market, skill, version)
+}
+
+func (s *skFeatureState) gitUnavailableToCoddy() error {
+	empty := filepath.Join(s.root, "no-git-bin")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		return err
+	}
+	s.prevPATH, s.hadPATH = os.LookupEnv("PATH")
+	s.pathChanged = true
+	if err := os.Setenv("PATH", empty); err != nil {
+		return err
+	}
+	if gitws.GitAvailable() {
+		return fmt.Errorf("git is still found on the PATH")
+	}
+	return nil
+}
+
+func (s *skFeatureState) systemTemporaryDirectoryUnavailable() error {
+	s.prevTMP, s.hadTMP = os.LookupEnv("TMPDIR")
+	s.tmpChanged = true
+	return os.Setenv("TMPDIR", filepath.Join(s.root, "missing-tmp"))
 }
 
 func (s *skFeatureState) addSourceAndSync(market string) error {
@@ -441,6 +485,8 @@ func initializeSkillsScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a running coddy HTTP server$`, s.startServer)
 	sc.Step(`^a local marketplace "([^"]*)" publishing skill "([^"]*)" at version "([^"]*)"$`, s.givenMarketplace)
+	sc.Step(`^git is unavailable to Coddy$`, s.gitUnavailableToCoddy)
+	sc.Step(`^the system temporary directory is unavailable$`, s.systemTemporaryDirectoryUnavailable)
 	sc.Step(`^I have added and synced the marketplace "([^"]*)"$`, s.addSourceAndSync)
 	sc.Step(`^I add the marketplace "([^"]*)" as a skill source and sync$`, s.addSourceAndSync)
 	sc.Step(`^the marketplace "([^"]*)" republishes skill "([^"]*)" at version "([^"]*)"$`, s.republishMarketplace)

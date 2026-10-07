@@ -3,11 +3,15 @@
 package platform
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"golang.org/x/sys/windows"
 )
+
+// FileLockingAvailable reports whether this platform has an advisory file lock.
+const FileLockingAvailable = true
 
 // LockFile takes an exclusive lock on path (created when missing) and returns
 // the release function. The console, the CLI and coddy serve are separate
@@ -29,4 +33,27 @@ func LockFile(path string) (func(), error) {
 		_ = windows.UnlockFileEx(handle, 0, 1, 0, ol)
 		_ = f.Close()
 	}, nil
+}
+
+// TryLockFile takes an exclusive lock when it is immediately available. It
+// reports acquired=false when another process holds the lock.
+func TryLockFile(path string) (func(), bool, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- the lock sits next to a state file in the coddy home
+	if err != nil {
+		return nil, false, fmt.Errorf("lock %s: %w", path, err)
+	}
+	handle := windows.Handle(f.Fd())
+	ol := new(windows.Overlapped)
+	flags := uint32(windows.LOCKFILE_EXCLUSIVE_LOCK | windows.LOCKFILE_FAIL_IMMEDIATELY)
+	if err := windows.LockFileEx(handle, flags, 0, 1, 0, ol); err != nil {
+		_ = f.Close()
+		if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("lock %s: %w", path, err)
+	}
+	return func() {
+		_ = windows.UnlockFileEx(handle, 0, 1, 0, ol)
+		_ = f.Close()
+	}, true, nil
 }
