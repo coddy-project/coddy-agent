@@ -200,6 +200,22 @@ func TestAnthropicParseResponseCapturesThinking(t *testing.T) {
 	}
 }
 
+func TestAnthropicCompletionIncludesCacheInInputUsage(t *testing.T) {
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0, "")
+	var response anthropic.Message
+	raw := `{"content":[{"type":"text","text":"answer"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"cache_creation_input_tokens":7,"cache_read_input_tokens":11,"output_tokens":5}}`
+	if err := json.Unmarshal([]byte(raw), &response); err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.parseResponse(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.InputTokens != 21 || got.OutputTokens != 5 || got.CachedInputTokens != 11 {
+		t.Fatalf("usage = in %d out %d cached %d, want 21/5/11", got.InputTokens, got.OutputTokens, got.CachedInputTokens)
+	}
+}
+
 func TestAnthropicThinkingBudgetBumpsMaxTokens(t *testing.T) {
 	// Tiny max_tokens still yields a valid budget < max_tokens after bump.
 	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 512, 0, "high")
