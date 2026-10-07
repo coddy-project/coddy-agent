@@ -300,3 +300,34 @@ test("a bare /goal opens the goal popover and sends nothing", async () => {
       .value,
   ).toBe("");
 });
+
+test("a new chat forgets the goal version, so a restarted server's snapshot is read on return", async () => {
+  await mountSession();
+  await pushEvent("session_goal", {
+    object: "coddy.session_goal",
+    sessionId: SID,
+    goal: activeGoal({ status: "blocked", statusReason: "Which branch?" }),
+    version: 5000,
+  });
+  await waitFor(() => expect(chip()).toHaveTextContent("needs you"));
+
+  // The server restarts (its version counter starts over) while the
+  // operator is on a new chat, then the operator comes back.
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("nav-home"));
+  });
+  await settle();
+  expect(screen.queryByTestId("composer-goal")).toBeNull();
+  version = 1;
+  goal = activeGoal({
+    status: "paused",
+    statusReason: "paused by the operator",
+  });
+  await act(async () => {
+    history.replaceState(null, "", `/#/s/${SID}?r=1`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  await screen.findByText("Fixed the lexer too.");
+  await settle();
+  await waitFor(() => expect(chip()).toHaveTextContent("paused"));
+});

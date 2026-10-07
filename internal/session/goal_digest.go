@@ -60,6 +60,12 @@ func buildGoalDigest(msgs []llm.Message, goal GoalState, implicit bool) string {
 				steps = append(steps, "[background] "+BackgroundWakeNote(BackgroundWakeUpdate(m.BackgroundWake)))
 				continue
 			}
+			if m.CompactionSummary {
+				// Written by the worker's own model when the history was
+				// folded: its account of the work, not the operator's words.
+				steps = append(steps, "[summary of earlier turns, written by the worker: claims, not evidence] "+clipRunes(strings.TrimSpace(m.Content), goalDigestText))
+				continue
+			}
 			if text := strings.TrimSpace(UserMessageDisplayText(m.Content)); text != "" {
 				steps = append(steps, "[operator] "+clipRunes(text, goalDigestText))
 			}

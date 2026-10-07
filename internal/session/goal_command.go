@@ -166,7 +166,7 @@ func goalCommandOf(prompt []acp.ContentBlock) GoalCommand {
 }
 
 // GoalStatusText is the answer to a bare /goal on a surface that shows text.
-func GoalStatusText(g GoalState, maxContinuations int) string {
+func GoalStatusText(g GoalState, maxContinuations, tokenBudget int) string {
 	if !g.Set() {
 		return "No goal is set. /goal <objective> sets one and starts working on it."
 	}
@@ -179,8 +179,13 @@ func GoalStatusText(g GoalState, maxContinuations int) string {
 		fmt.Fprintf(&b, "\nChecked by: %s", strings.TrimSpace(firstNonEmpty(g.Model, "the supervisor's model")+" "+goalReasoningNote(g.Reasoning)))
 	}
 	fmt.Fprintf(&b, "\nContinuations: %d of %d · checks: %d", g.Continuations, maxContinuations, g.Checks)
-	if g.TokensUsed > 0 {
-		fmt.Fprintf(&b, " · tokens: %d", g.TokensUsed)
+	// What counts against the budget: since the last resume, like every
+	// other surface shows it.
+	if tokens := g.BudgetTokens(); tokens > 0 || tokenBudget > 0 {
+		fmt.Fprintf(&b, " · tokens: %d", tokens)
+		if tokenBudget > 0 {
+			fmt.Fprintf(&b, " of %d", tokenBudget)
+		}
 	}
 	if c := g.LastCheck; c != nil {
 		line := string(c.Verdict)
@@ -260,6 +265,9 @@ func (m *Manager) pauseGoal(st *State, reason string) (string, error) {
 	}
 	if g.Status == GoalPaused {
 		return "Goal is already paused.", nil
+	}
+	if g.Status == GoalComplete {
+		return "", fmt.Errorf("the goal is complete; /goal <objective> sets a new one")
 	}
 	notice := "Goal paused: " + g.Objective
 	st.UpdateGoal(notice, func(g *GoalState) bool {

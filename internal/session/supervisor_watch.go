@@ -142,14 +142,33 @@ func (w *turnWatch) fingerprint(event acp.ToolCallStatusUpdate) string {
 	if !ok {
 		return ""
 	}
-	var result strings.Builder
-	result.WriteString(event.Status)
-	for _, item := range event.Content {
-		result.WriteString("\x00")
-		result.WriteString(item.Content.Text)
+	return call.Name + "\x00" + canonicalArgs(call.InputJSON) + "\x00" + event.Status + "\x00" + resultDigest(event)
+}
+
+// ToolResultDigestMetaKey names the digest of a tool call's whole result in
+// the coddy part of a completed tool_call_update's _meta.
+const ToolResultDigestMetaKey = "resultDigest"
+
+// ToolResultDigest is the digest of a whole tool result.
+func ToolResultDigest(result string) string {
+	sum := sha256.Sum256([]byte(result))
+	return hex.EncodeToString(sum[:12])
+}
+
+// resultDigest is the digest the agent put on the update, else one of the
+// preview the update carries.
+func resultDigest(event acp.ToolCallStatusUpdate) string {
+	if coddy, ok := event.Meta["coddy"].(map[string]interface{}); ok {
+		if d, ok := coddy[ToolResultDigestMetaKey].(string); ok && d != "" {
+			return d
+		}
 	}
-	sum := sha256.Sum256([]byte(result.String()))
-	return call.Name + "\x00" + canonicalArgs(call.InputJSON) + "\x00" + hex.EncodeToString(sum[:8])
+	var preview strings.Builder
+	for _, item := range event.Content {
+		preview.WriteString("\x00")
+		preview.WriteString(item.Content.Text)
+	}
+	return ToolResultDigest(preview.String())
 }
 
 func (w *turnWatch) findCall(id string) (llm.ToolCall, bool) {

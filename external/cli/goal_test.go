@@ -483,7 +483,7 @@ func TestTypedGoalCommandGoesToTheSession(t *testing.T) {
 	if n := strings.Count(transcript, "Goal set: write the docs"); n != 1 || !strings.Contains(transcript, "◎ Goal set: write the docs") {
 		t.Fatalf("the new goal is named %d times:\n%s", n, transcript)
 	}
-	if g.app.goalEcho {
+	if len(g.app.goalEchoes) != 0 {
 		t.Fatal("the command's turn ended and the console still waits for its notice")
 	}
 }
@@ -516,5 +516,25 @@ func TestRemoteConsoleFollowsTheGoalOnTheEventsStream(t *testing.T) {
 	held, err := f.h.SessionGoal(sharedControlSession)
 	if err != nil || held.Goal == nil || held.Version != 12 {
 		t.Fatalf("the remote client holds %+v (%v)", held, err)
+	}
+}
+
+// A goal command sent from this console - typed, or queued while a turn runs
+// - answers for the change it makes: its notice is not printed a second time,
+// while the same change made elsewhere still is.
+func TestGoalCommandsFromHereAreAnsweredOnce(t *testing.T) {
+	g := newGoalStand(t)
+	g.app.expectGoalEcho("/goal pause")
+	g.app.expectGoalEcho("/goal clear")
+	g.app.applyGoalUpdate(acp.SessionGoalUpdate{SessionUpdate: acp.UpdateTypeSessionGoal, Version: 901, Notice: "Goal paused: ship it"})
+	g.app.applyGoalUpdate(acp.SessionGoalUpdate{SessionUpdate: acp.UpdateTypeSessionGoal, Version: 902, Notice: "Goal cleared: ship it"})
+	g.app.applyGoalUpdate(acp.SessionGoalUpdate{SessionUpdate: acp.UpdateTypeSessionGoal, Version: 903, Notice: "Goal paused: from the browser"})
+	g.app.applyGoalUpdate(acp.SessionGoalUpdate{SessionUpdate: acp.UpdateTypeSessionGoal, Version: 904, Notice: "Goal check: the supervisor is reviewing the turn"})
+	text := transcriptText(g.app)
+	if strings.Contains(text, "Goal paused: ship it") || strings.Contains(text, "Goal cleared: ship it") || strings.Contains(text, "Goal check:") {
+		t.Fatalf("a notice the command answered for, or a check's progress, was printed:\n%s", text)
+	}
+	if !strings.Contains(text, "Goal paused: from the browser") {
+		t.Fatalf("a change made elsewhere was not printed:\n%s", text)
 	}
 }

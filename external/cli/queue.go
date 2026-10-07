@@ -157,6 +157,9 @@ func (a *App) enqueuePromptWithMode(text string, mode session.QueueMode, savePre
 	if body == "" {
 		return
 	}
+	// A queued goal command runs at the turn boundary and answers for itself
+	// there, like a typed one.
+	a.expectGoalEcho(body)
 	sessionID, mgr, local := a.sessionID, a.mgr, a.remoteURL == ""
 	preferred := a.queuePreference
 	a.runQueueRequest(sessionID, func() queueResult {

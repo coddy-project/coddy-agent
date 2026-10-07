@@ -456,13 +456,13 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	text = strings.TrimSpace(stripMention(text, b.botName))
 	// A reply asks about the message it answers: the session receives that
 	// message quoted in front of what the person wrote, and a mention alone
-	// under a reply asks about the quoted message. A settings command is not
-	// quoted - the manager reads it off the start of the text.
+	// under a reply asks about the quoted message. A settings command and
+	// /goal are not quoted - the manager reads them off the start of the text.
 	author, quoted := replyContext(msg.ReplyToMessage)
 	if text == "" && quoted == "" {
 		return
 	}
-	if !isSettingsCommand(msg) {
+	if !isSettingsCommand(msg) && !isCommand(msg, "goal") {
 		text = replyquote.Prompt(author, quoted, text)
 	}
 

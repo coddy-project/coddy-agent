@@ -36,6 +36,8 @@ type GoalCheckResult struct {
 	Checklist []GoalItem
 	// Model is the model that answered.
 	Model string
+	// unverified is why the verifier could not confirm a met verdict.
+	unverified string
 }
 
 // GoalJudge checks a finished goal turn against the objective, without tools.
@@ -99,8 +101,22 @@ type goalRun struct {
 	// of supervisor.enable, which lives only as long as the run.
 	persist  bool
 	implicit GoalState
-	nudges   int
-	idle     int
+	// goalID is the goal this run works on. The operator may pause, clear
+	// or replace it from another surface while a check runs, outside the
+	// turn lock: the run then leaves it alone.
+	goalID string
+	nudges int
+	idle   int
+}
+
+// stillOurs reports whether the goal is still the one this run started on
+// and still active.
+func (r *goalRun) stillOurs() bool {
+	if !r.persist {
+		return true
+	}
+	g := r.st.GetGoal()
+	return g.ID == r.goalID && g.Active()
 }
 
 func (r *goalRun) goal() GoalState {
@@ -110,12 +126,18 @@ func (r *goalRun) goal() GoalState {
 	return r.implicit
 }
 
-func (r *goalRun) update(notice string, fn func(*GoalState) bool) {
+// update changes this run's goal while it is still ours and active; a goal
+// paused, cleared or replaced meanwhile is left as the operator left it.
+func (r *goalRun) update(notice string, fn func(*GoalState) bool) bool {
 	if r.persist {
-		r.st.UpdateGoal(notice, fn)
-		return
+		return r.st.UpdateGoal(notice, func(g *GoalState) bool {
+			if g.ID != r.goalID || !g.Active() {
+				return false
+			}
+			return fn(g)
+		})
 	}
-	fn(&r.implicit)
+	return fn(&r.implicit)
 }
 
 // runSupervisedTurn runs one prompt of a top-level agent session. A /goal
@@ -179,9 +201,14 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 	if cmd.Err != "" {
 		return nil, nil, "", fmt.Errorf("%s. %s", cmd.Err, GoalUsage)
 	}
+	// A goal is worked on in agent mode: setting or resuming one elsewhere
+	// would start its turn unsupervised, in a mode that cannot edit.
+	if (cmd.Kind == GoalCommandSet || cmd.Kind == GoalCommandResume) && st.GetMode() != string(ModeAgent) {
+		return nil, nil, "", fmt.Errorf("a goal is worked on in agent mode; switch to agent mode first (/agent)")
+	}
 	switch cmd.Kind {
 	case GoalCommandShow:
-		return nil, nil, GoalStatusText(st.GetGoal(), cfg.Supervisor.ContinuationLimit()), nil
+		return nil, nil, GoalStatusText(st.GetGoal(), cfg.Supervisor.ContinuationLimit(), cfg.Supervisor.EffectiveTokenBudget()), nil
 	case GoalCommandClear:
 		return nil, nil, m.clearGoal(st), nil
 	case GoalCommandPause:
@@ -199,9 +226,6 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 		marker := &llm.GoalTurn{Kind: acp.GoalTurnResume, Objective: g.Objective, Limit: cfg.Supervisor.ContinuationLimit()}
 		return goalPrompt(goalResumeText(g, cfg)), marker, "", nil
 	case GoalCommandSet:
-		if st.GetMode() != string(ModeAgent) {
-			return nil, nil, "", fmt.Errorf("a goal is worked on in agent mode; switch to agent mode first (/agent)")
-		}
 		goal, err := NewGoal(cmd.Objective)
 		if err != nil {
 			return nil, nil, "", err
@@ -225,17 +249,24 @@ func goalPrompt(text string) []acp.ContentBlock {
 func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *llm.GoalTurn) (string, error) {
 	st, cfg := r.st, r.cfg
 	sup := cfg.Supervisor
+	r.goalID = r.goal().ID
 	for {
 		stop, watch, err := r.runStep(ctx, prompt, marker)
 		if ctx.Err() != nil || st.IsUserCancelledTurn() || errors.Is(err, context.Canceled) && watch.cause() == "" {
 			return stop, err
 		}
-		goal := r.goal()
-		if !goal.Active() {
+		if !r.stillOurs() {
 			// Cleared, paused or replaced while the turn ran.
 			return stop, err
 		}
+		goal := r.goal()
 		if marker != nil && marker.Kind == acp.GoalTurnWrapUp {
+			// The last turn of a used-up budget: how it ended still counts -
+			// a usage limit pauses the goal, an error is the run's answer.
+			_, kind, fatal := r.unfinished(stop, err, watch)
+			if kind == turnFatal {
+				return stop, fatal
+			}
 			r.finish(GoalLimited, limitReason(goal, sup), "Goal stopped: "+limitReason(goal, sup))
 			return string(acp.StopReasonEndTurn), nil
 		}
@@ -260,13 +291,13 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 				if ctx.Err() != nil || st.IsUserCancelledTurn() {
 					return string(acp.StopReasonCancelled), nil
 				}
-				if len(st.QueuedMessages()) > 0 {
+				if len(st.QueuedMessages()) > 0 || !r.stillOurs() {
 					return string(acp.StopReasonEndTurn), nil
 				}
 				if checkErr == nil {
 					switch result.Verdict {
 					case GoalVerdictMet:
-						r.finish(GoalComplete, "", "Goal complete: "+goal.Objective)
+						r.finish(GoalComplete, "", r.completeNotice(goal, result))
 						return string(acp.StopReasonEndTurn), nil
 					case GoalVerdictNeedsUser, GoalVerdictImpossible:
 						question := firstNonEmpty(result.Reason, reason)
@@ -287,7 +318,7 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 			prompt = goalPrompt(goalRecoveryText(goal, reason, remaining, cfg))
 			continue
 		}
-		if runningBackgroundWork(st.ID) {
+		if awaitedBackgroundWork(st.ID) {
 			// The result is not in yet: the wake that reports the work
 			// starts the next supervised turn.
 			r.publishNotice("Goal check deferred: background work is still running")
@@ -298,7 +329,7 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 		if ctx.Err() != nil || st.IsUserCancelledTurn() {
 			return string(acp.StopReasonCancelled), nil
 		}
-		if len(st.QueuedMessages()) > 0 {
+		if len(st.QueuedMessages()) > 0 || !r.stillOurs() {
 			return stop, nil
 		}
 		if checkErr != nil {
@@ -313,7 +344,7 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 		}
 		switch result.Verdict {
 		case GoalVerdictMet:
-			r.finish(GoalComplete, "", "Goal complete: "+goal.Objective)
+			r.finish(GoalComplete, "", r.completeNotice(goal, result))
 			return stop, nil
 		case GoalVerdictNeedsUser, GoalVerdictImpossible:
 			reason := firstNonEmpty(result.Reason, "the supervisor needs your decision")
@@ -336,10 +367,12 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 			continue
 		}
 		used := goal.Continuations + 1
-		r.update("", func(g *GoalState) bool {
+		if !r.update("", func(g *GoalState) bool {
 			g.Continuations = used
 			return true
-		})
+		}) {
+			return stop, nil
+		}
 		marker = &llm.GoalTurn{Kind: acp.GoalTurnContinue, Index: used, Limit: sup.ContinuationLimit(), Objective: goal.Objective,
 			Reason: result.Reason, Remaining: result.Remaining}
 		prompt = goalPrompt(goalContinuationText(r.goal(), result, used, cfg))
@@ -352,7 +385,7 @@ func (r *goalRun) runStep(ctx context.Context, prompt []acp.ContentBlock, marker
 	sup := r.cfg.Supervisor
 	stepCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	watch := newTurnWatch(r.sender, r.st, cancel, sup.StallTimeout(), sup.LoopRepeatLimit())
+	watch := newTurnWatch(r.sender, r.st, cancel, r.stallTimeout(), sup.LoopRepeatLimit())
 	done := make(chan struct{})
 	watchDone := make(chan struct{})
 	go func() {
@@ -369,7 +402,7 @@ func (r *goalRun) runStep(ctx context.Context, prompt []acp.ContentBlock, marker
 	elapsed, tokens := time.Since(started), watch.tokens()
 	if r.persist {
 		r.st.UpdateGoal("", func(g *GoalState) bool {
-			if !g.Set() {
+			if g.ID != r.goalID {
 				return false
 			}
 			g.ActiveMs += elapsed.Milliseconds()
@@ -395,6 +428,25 @@ const (
 	// the error.
 	turnFatal
 )
+
+// stallTimeout is how long the turn may stay silent. A model row that does
+// not stream sends nothing while it answers, so its own timeout bounds the
+// call and the stall timer waits at least that long; with no timeout on the
+// row the timer is off, rather than cutting an answer on its way.
+func (r *goalRun) stallTimeout() time.Duration {
+	stall := r.cfg.Supervisor.StallTimeout()
+	if stall <= 0 {
+		return 0
+	}
+	rm, err := r.cfg.ResolveLLM(r.st.EffectiveModelID(r.cfg))
+	if err != nil || rm.Stream {
+		return stall
+	}
+	if rm.TimeoutMS <= 0 {
+		return 0
+	}
+	return max(stall, time.Duration(rm.TimeoutMS)*time.Millisecond+30*time.Second)
+}
 
 // unfinished classifies how a turn ended; reason says why for every outcome
 // but turnDone, fatal is the error of a turnFatal one.
@@ -482,6 +534,7 @@ func (r *goalRun) check(ctx context.Context) (GoalCheckResult, error) {
 		case verr != nil:
 			r.m.log.Warn("goal verification failed; the check's verdict stands", "session", r.st.ID, "error", verr)
 			result.Reason = strings.TrimSpace(result.Reason + " (not verified: " + verr.Error() + ")")
+			result.unverified = verr.Error()
 		default:
 			vres.Verdict = normalizeVerdict(vres.Verdict)
 			if vres.Verdict == GoalVerdictMet {
@@ -521,16 +574,24 @@ func (r *goalRun) finish(status GoalStatus, reason, notice string) {
 		}
 		return
 	}
-	r.st.UpdateGoal(notice, func(g *GoalState) bool {
-		if !g.Set() {
-			return false
-		}
+	if !r.update(notice, func(g *GoalState) bool {
 		g.Status, g.StatusReason = status, strings.TrimSpace(reason)
 		return true
-	})
+	}) {
+		return
+	}
 	if notice != "" {
 		r.st.AppendUILogNotice(CountUserTurns(r.st.GetMessages()), notice)
 	}
+}
+
+// completeNotice says the goal is done, and when the verifier could not
+// confirm it, that it was not verified and why.
+func (r *goalRun) completeNotice(goal GoalState, result GoalCheckResult) string {
+	if c := r.goal().LastCheck; c != nil && !c.Verified && result.unverified != "" {
+		return "Goal complete (not verified: " + result.unverified + "): " + goal.Objective
+	}
+	return "Goal complete: " + goal.Objective
 }
 
 func (r *goalRun) publishNotice(notice string) {
@@ -593,11 +654,32 @@ func firstNonEmpty(values ...string) string {
 }
 
 // runningBackgroundWork reports whether the session has a command or a
-// subagent run in flight. A preview server runs until stopped and is no
-// result anybody waits for.
+// subagent run in flight: the stall timer waits for it. A preview server runs
+// until stopped and is no result anybody waits for.
 func runningBackgroundWork(sessionID string) bool {
 	for _, task := range bgtask.Default().List(sessionID) {
 		if task.Kind != bgtask.KindServer && (task.Status == bgtask.StatusRunning || task.Status == bgtask.StatusQueued) {
+			return true
+		}
+	}
+	return false
+}
+
+// awaitedBackgroundWork reports whether the check of a goal turn waits for
+// running work: only work whose end wakes the session again, so the deferred
+// check is sure to run. A system task (the memory run of every turn), a task
+// started without notify_on_finish, or a process with no waker would leave
+// the goal active and never checked.
+func awaitedBackgroundWork(sessionID string) bool {
+	pool := bgtask.Default()
+	if !pool.CanWake() {
+		return false
+	}
+	for _, task := range pool.List(sessionID) {
+		if task.Kind == bgtask.KindServer || task.SystemTask() || !task.NotifyOnFinish {
+			continue
+		}
+		if task.Status == bgtask.StatusRunning || task.Status == bgtask.StatusQueued {
 			return true
 		}
 	}

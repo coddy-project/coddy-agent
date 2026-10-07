@@ -2168,6 +2168,21 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 		previewMeta = session.ToolImagesMeta(previewMeta, toolImagesForSurfaces(sessionID, a.callImages))
 	}
 
+	// The digest of the whole result, not of the preview the update carries:
+	// the session supervisor tells a repeated call that returned the same
+	// thing from one whose output changed past the preview's lines.
+	if payload != "" {
+		if previewMeta == nil {
+			previewMeta = map[string]interface{}{}
+		}
+		coddyMeta, _ := previewMeta["coddy"].(map[string]interface{})
+		if coddyMeta == nil {
+			coddyMeta = map[string]interface{}{}
+			previewMeta["coddy"] = coddyMeta
+		}
+		coddyMeta[session.ToolResultDigestMetaKey] = session.ToolResultDigest(payload)
+	}
+
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 		SessionUpdate: acp.UpdateTypeToolCallUpdate,
 		ToolCallID:    tc.ID,

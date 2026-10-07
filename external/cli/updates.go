@@ -31,7 +31,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			a.turnTokens = 0
 			// A goal command that changed nothing (already paused, no goal
 			// to clear) leaves no notice of its own to answer for.
-			a.goalEcho = false
+			a.goalEchoes = nil
 			a.stopSpinner()
 			// What the turn left running is what the footer names from here on.
 			a.refreshTasks()

@@ -168,8 +168,8 @@ func TestGoalCommandChoosesTheCheckingModelAndLevel(t *testing.T) {
 	if goal.Objective != "ship the fix" || goal.Model != "p2/gpt-4o-mini" || goal.Reasoning != "high" || checkedBy != "p2/gpt-4o-mini" || level != "high" {
 		t.Fatalf("goal=%+v checked by %q at %q", goal, checkedBy, level)
 	}
-	if !strings.Contains(session.GoalStatusText(goal, 10), "Checked by: p2/gpt-4o-mini (reasoning high)") {
-		t.Fatalf("status = %q", session.GoalStatusText(goal, 10))
+	if !strings.Contains(session.GoalStatusText(goal, 10, 0), "Checked by: p2/gpt-4o-mini (reasoning high)") {
+		t.Fatalf("status = %q", session.GoalStatusText(goal, 10, 0))
 	}
 
 	// A resume keeps the pair unless it names another one; a model without
@@ -679,21 +679,39 @@ func (h *heldTask) Stop(time.Duration) error {
 func (*heldTask) PID() int                    { return 0 }
 func (*heldTask) ProcessStartedAt() time.Time { return time.Time{} }
 
-func TestGoalCheckWaitsForRunningBackgroundWork(t *testing.T) {
-	h := newGoalHarness(t)
-	pool := bgtask.Default()
-	held := &heldTask{release: make(chan struct{})}
-	started := make(chan struct{})
-	if _, err := pool.Launch(bgtask.Spec{SessionID: h.sid, Kind: bgtask.KindCommand, Label: "build", Command: "test-build", NoTimeout: true},
-		func(string, io.Writer) (bgtask.Handle, error) { close(started); return held, nil }); err != nil {
-		t.Fatal(err)
+func TestGoalCheckWaitsOnlyForWorkThatWakesTheSession(t *testing.T) {
+	launch := func(t *testing.T, h *goalHarness, notify bool) {
+		t.Helper()
+		pool := bgtask.Default()
+		held := &heldTask{release: make(chan struct{})}
+		started := make(chan struct{})
+		if _, err := pool.Launch(bgtask.Spec{SessionID: h.sid, Kind: bgtask.KindCommand, Label: "build", Command: "test-build", NoTimeout: true, NotifyOnFinish: notify},
+			func(string, io.Writer) (bgtask.Handle, error) { close(started); return held, nil }); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { pool.StopSession(h.sid) })
+		<-started
 	}
-	t.Cleanup(func() { pool.StopSession(h.sid) })
-	<-started
-	h.prompt("/goal wait for the build")
-	if len(h.checks) != 0 || h.st().GetGoal().Status != session.GoalActive {
-		t.Fatalf("background work was evaluated: checks=%d goal=%+v", len(h.checks), h.st().GetGoal())
-	}
+	// The process has a waker, as coddy serve, the console and coddy acp do.
+	bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, func(bgtask.Snapshot) {})
+	t.Cleanup(func() { bgtask.Default().SubscribeKeyed(bgtask.WakeWatcherKey, nil) })
+
+	t.Run("a task that wakes the session defers the check", func(t *testing.T) {
+		h := newGoalHarness(t)
+		launch(t, h, true)
+		h.prompt("/goal wait for the build")
+		if len(h.checks) != 0 || h.st().GetGoal().Status != session.GoalActive {
+			t.Fatalf("the check ran before the wake: checks=%d goal=%+v", len(h.checks), h.st().GetGoal())
+		}
+	})
+	t.Run("a task that wakes nobody does not", func(t *testing.T) {
+		h := newGoalHarness(t)
+		launch(t, h, false)
+		h.prompt("/goal wait for the build")
+		if len(h.checks) != 1 || h.st().GetGoal().Status != session.GoalComplete {
+			t.Fatalf("a check that no wake would ever start was deferred: checks=%d goal=%+v", len(h.checks), h.st().GetGoal())
+		}
+	})
 }
 
 func TestSupervisorEnableChecksTheLatestRequestWithoutAGoal(t *testing.T) {
@@ -779,4 +797,87 @@ func (s *holdingPermissionSender) RequestPermission(ctx context.Context, _ acp.P
 }
 func (*holdingPermissionSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
 	return &acp.QuestionResult{}, nil
+}
+
+// The operator pauses, clears or replaces the goal from another surface while
+// the check runs: the verdict changes nothing and starts nothing.
+func TestGoalChangedDuringTheCheckIsLeftAlone(t *testing.T) {
+	for name, change := range map[string]func(*goalHarness){
+		"paused":   func(h *goalHarness) { _, _ = h.mgr.PauseGoal(h.sid) },
+		"cleared":  func(h *goalHarness) { _ = h.mgr.ClearGoal(h.sid) },
+		"replaced": func(h *goalHarness) { _, _ = h.mgr.SetGoalObjective(h.sid, "another goal") },
+	} {
+		for _, verdict := range []goalVerdictStep{met(), notMet("open", "more work")} {
+			t.Run(name+"/"+string(verdict.result.Verdict), func(t *testing.T) {
+				h := newGoalHarness(t)
+				h.mgr.SetGoalJudge(func(context.Context, *config.Config, *session.State, session.GoalCheckRequest) (session.GoalCheckResult, error) {
+					change(h)
+					return verdict.result, nil
+				})
+				h.prompt("/goal ship it")
+				goal := h.st().GetGoal()
+				if len(h.prompts) != 1 {
+					t.Fatalf("a continuation ran for a goal the operator %s: runs=%d", name, len(h.prompts))
+				}
+				switch name {
+				case "paused":
+					if goal.Status != session.GoalPaused || goal.Checks != 0 {
+						t.Fatalf("goal = %+v", goal)
+					}
+				case "cleared":
+					if goal.Set() {
+						t.Fatalf("goal = %+v", goal)
+					}
+				case "replaced":
+					if goal.Objective != "another goal" || goal.Status != session.GoalActive || goal.LastCheck != nil || goal.Checks != 0 {
+						t.Fatalf("the new goal inherited the old check: %+v", goal)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestGoalCommandRulesAboutCompleteGoalsAndModes(t *testing.T) {
+	h := newGoalHarness(t)
+	h.prompt("/goal ship it")
+	if res := h.prompt("/goal pause"); h.st().GetGoal().Status != session.GoalComplete || !strings.Contains(res.SettingsNotice, "complete") {
+		t.Fatalf("a complete goal was paused: notice=%q goal=%+v", res.SettingsNotice, h.st().GetGoal())
+	}
+	g := mustGoal(t, "second")
+	g.Status = session.GoalPaused
+	h.st().SetGoal(g)
+	plan := "plan"
+	if _, err := h.mgr.ApplySessionSettings(context.Background(), h.sid, session.SettingsChange{Mode: &plan}); err != nil {
+		t.Fatal(err)
+	}
+	runs := len(h.prompts)
+	res := h.prompt("/goal resume")
+	if len(h.prompts) != runs || h.st().GetGoal().Status != session.GoalPaused || !strings.Contains(res.SettingsNotice, "agent mode") {
+		t.Fatalf("a goal resumed in plan mode: notice=%q runs=%d goal=%+v", res.SettingsNotice, len(h.prompts)-runs, h.st().GetGoal())
+	}
+}
+
+// A /goal command written while a goal turn runs waits for the boundary, in
+// whatever mode it was queued, and is run there before any continuation.
+func TestGoalCommandQueuedDuringATurnRunsAtTheBoundary(t *testing.T) {
+	h := newGoalHarness(t)
+	h.steps[0] = func(_ context.Context, st *session.State, snd acp.UpdateSender, _ int) (string, error) {
+		msg, _, err := h.mgr.EnqueueTurnMessageWithMode(st.ID, "/goal pause", session.QueueModeSteer, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if msg.Mode != session.QueueModeAfterTurn {
+			t.Errorf("a queued /goal command reads into the running step: mode %s", msg.Mode)
+		}
+		if _, err := h.mgr.SetQueuedTurnMessageMode(st.ID, msg.ID, session.QueueModeSteer); err != session.ErrGoalCommandAfterTurn {
+			t.Errorf("switching it to steer: %v", err)
+		}
+		return toolTurn(st, snd, `{"path":"a"}`, "ok"), nil
+	}
+	h.verdict(notMet("open"))
+	h.prompt("/goal ship it")
+	if goal := h.st().GetGoal(); goal.Status != session.GoalPaused || len(h.prompts) != 1 || len(h.checks) != 0 {
+		t.Fatalf("goal=%+v runs=%d checks=%d", goal, len(h.prompts), len(h.checks))
+	}
 }

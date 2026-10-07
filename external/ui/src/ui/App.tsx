@@ -3863,6 +3863,10 @@ export function App() {
     reasoningImpliedRef.current = false;
     // A new chat runs under the configured permission mode until it is changed.
     settingsVersionRef.current = { sid: "", version: 0 };
+    // Nor does it hold the goal of the chat just left: the next snapshot of
+    // that session is read afresh, whatever version a restarted server gives.
+    goalVersionRef.current = { sid: "", version: 0 };
+    setViewedGoal({ sid: "", goal: null });
     pendingPermissionModeRef.current = "";
     setPermissionMode(configuredPermissionMode);
     setSettingsOverrides([]);

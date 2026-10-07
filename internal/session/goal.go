@@ -397,3 +397,17 @@ func (s *State) takeGoalCommandNotice() string {
 	s.goalCommandNotice = ""
 	return n
 }
+
+// GoalEndNote is the line a chat posts for a goal update: how the goal ended
+// or where the supervisor left it. Empty for an update that says nothing new
+// there - a plain resend, a goal set or resumed (its turn's note says so),
+// the progress of a check.
+func GoalEndNote(u acp.SessionGoalUpdate) string {
+	n := strings.TrimSpace(u.Notice)
+	for _, prefix := range []string{"Goal set:", "Goal resumed:", "Goal check:", "Goal verification:"} {
+		if strings.HasPrefix(n, prefix) {
+			return ""
+		}
+	}
+	return n
+}

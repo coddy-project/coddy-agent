@@ -60,7 +60,7 @@ type App struct {
 	goal        *acp.SessionGoal
 	goalVersion uint64
 	goalNoticed []uint64
-	goalEcho    bool
+	goalEchoes  []string
 	goalMenu    *selectorModal
 	log         *slog.Logger
 
@@ -903,7 +903,7 @@ func (a *App) submitPrompt(text string) {
 	a.chat.AddChild(newUserMessage(a.theme, text))
 	// A goal command answers for itself in its turn (goal.go), so the notice
 	// of the change it makes is not printed a second time.
-	a.goalEcho = goalCommandAnswersItself(text)
+	a.expectGoalEcho(text)
 	a.startTurnWorker(acp.SessionPromptParams{
 		SessionID: a.sessionID,
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},

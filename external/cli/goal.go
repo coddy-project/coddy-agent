@@ -55,11 +55,12 @@ func (a *App) goalBackend() goalBackend {
 // turn's stream and the events stream alike, with the same version - and a
 // snapshot older than the one on screen is not adopted.
 func (a *App) applyGoalUpdate(u acp.SessionGoalUpdate) {
-	if notice := strings.TrimSpace(u.Notice); notice != "" && a.firstGoalNotice(u.Version) {
-		if a.goalEcho {
-			// The goal command typed here answers itself: its goal row, or
-			// the agent's line saying what the command did.
-			a.goalEcho = false
+	// A goal set or resumed is named by its turn's row, the progress of a
+	// check is the spinner's; what is left is how the goal ended or moved.
+	if notice := session.GoalEndNote(u); notice != "" && a.firstGoalNotice(u.Version) {
+		if a.takeGoalEcho(notice) {
+			// The goal command typed or queued here answers itself: the
+			// agent's line saying what the command did.
 		} else {
 			role := roleDim
 			if u.Goal != nil && u.Goal.Status == acp.GoalStatusBlocked {
@@ -105,7 +106,7 @@ func (a *App) adoptGoalSnapshot(u acp.SessionGoalUpdate) {
 func (a *App) resetGoal() {
 	a.goalVersion = 0
 	a.goalNoticed = nil
-	a.goalEcho = false
+	a.goalEchoes = nil
 	a.setGoal(nil)
 }
 
@@ -126,10 +127,35 @@ func (a *App) setGoal(g *acp.SessionGoal) {
 // says what it did: setting or resuming a goal opens with the goal row, a pause
 // or a clear is answered by the agent's line. A bare /goal never reaches the
 // manager from here.
-func goalCommandAnswersItself(text string) bool {
+// goalEchoPrefix is the notice a goal command's own answer already says: a
+// pause and a clear answer with the line the change publishes. A set and a
+// resume answer with their turn's row, whose notice GoalEndNote leaves out.
+func goalEchoPrefix(text string) string {
 	switch session.ParseGoalCommand(text).Kind {
-	case session.GoalCommandSet, session.GoalCommandResume, session.GoalCommandPause, session.GoalCommandClear:
-		return true
+	case session.GoalCommandPause:
+		return "Goal paused:"
+	case session.GoalCommandClear:
+		return "Goal cleared:"
+	}
+	return ""
+}
+
+// expectGoalEcho remembers that a goal command sent from here will answer
+// for the change it makes.
+func (a *App) expectGoalEcho(text string) {
+	if p := goalEchoPrefix(text); p != "" {
+		a.goalEchoes = append(a.goalEchoes, p)
+	}
+}
+
+// takeGoalEcho reports whether notice is the change a goal command sent from
+// here makes, and forgets that command.
+func (a *App) takeGoalEcho(notice string) bool {
+	for i, p := range a.goalEchoes {
+		if strings.HasPrefix(notice, p) {
+			a.goalEchoes = append(a.goalEchoes[:i], a.goalEchoes[i+1:]...)
+			return true
+		}
 	}
 	return false
 }

@@ -76,8 +76,8 @@ func (p *printSender) SendSessionUpdate(_ string, update interface{}) error {
 	case acp.SessionGoalUpdate:
 		// How the goal ended: complete, blocked with the question, paused,
 		// out of budget.
-		if p.errOut != nil && u.Notice != "" && !strings.HasPrefix(u.Notice, "Goal set:") {
-			_, _ = fmt.Fprintln(p.errOut, "[goal] "+u.Notice)
+		if note := session.GoalEndNote(u); p.errOut != nil && note != "" {
+			_, _ = fmt.Fprintln(p.errOut, "[goal] "+note)
 		}
 		return nil
 	}

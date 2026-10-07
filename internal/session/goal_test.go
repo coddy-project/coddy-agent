@@ -79,13 +79,13 @@ func TestParseGoalCommand(t *testing.T) {
 }
 
 func TestGoalStatusText(t *testing.T) {
-	if got := GoalStatusText(GoalState{}, 10); !strings.Contains(got, "No goal is set") {
+	if got := GoalStatusText(GoalState{}, 10, 0); !strings.Contains(got, "No goal is set") {
 		t.Fatalf("empty = %q", got)
 	}
 	g, _ := NewGoal("ship it")
 	g.Status, g.StatusReason, g.Continuations = GoalBlocked, "which DB?", 3
 	g.LastCheck = &GoalCheck{Verdict: GoalVerdictNeedsUser, Reason: "which DB?", Remaining: []string{"ask the operator"}}
-	got := GoalStatusText(g, 10)
+	got := GoalStatusText(g, 10, 0)
 	for _, want := range []string{"Goal (blocked): ship it", "Reason: which DB?", "3 of 10", "needs_user", "- ask the operator", "/goal resume"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("status lacks %q:\n%s", want, got)
