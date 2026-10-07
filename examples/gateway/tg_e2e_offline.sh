@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# Telegram gateway e2e with no Telegram: starts cmd/tgfake (fake Bot API plus a
-# scripted model), boots coddy serve against it in a temporary home, sends a
-# message through the fake and checks that the bot answered. Expects a coddy
-# built with a gateway tag (examples/build_coddy.sh). Works in Git Bash on
-# Windows too: paths handed to coddy go through cygpath when it exists.
+# Telegram gateway e2e with no Telegram: starts tgfake (a fake Bot API plus a
+# scripted model, github.com/EvilFreelancer/tgfake: the binary in
+# CODDY_TGFAKE_BIN, else built from the version go.mod pins), boots coddy serve
+# against it in a temporary home, sends a message through the fake and checks
+# that the bot answered. Expects a coddy built with a gateway tag
+# (examples/build_coddy.sh). Works in Git Bash on Windows too: paths handed to
+# coddy go through cygpath when it exists.
 #
 #   ./examples/gateway/tg_e2e_offline.sh            # run and clean up
 #   TG_E2E_KEEP=1 ./examples/gateway/tg_e2e_offline.sh   # leave the stand up, print the page URL
 #   RICH_MESSAGES=true ./examples/gateway/tg_e2e_offline.sh
 #
 # Knobs: TG_PORT (18790), LLM_DELAY (50ms), RICH_MESSAGES (false), TG_VERBOSE
-# (unset), CODDY_BIN (build/coddy).
+# (unset), CODDY_BIN (build/coddy), CODDY_TGFAKE_BIN (a prebuilt tgfake, as CI
+# installs it; unset builds the pinned version).
 
 set -euo pipefail
 
@@ -77,9 +80,15 @@ cat >"$RULES" <<'EOF_RULES'
 EOF_RULES
 
 # Built rather than `go run`: on Windows a kill of the go run parent leaves
-# the child listening.
-go build -o "$TMP/tgfake$EXE" ./cmd/tgfake
-"$TMP/tgfake$EXE" --addr "127.0.0.1:$TG_PORT" --llm --llm-script "$(hostpath "$RULES")" --llm-delay "$LLM_DELAY" ${TG_VERBOSE:+--verbose} &
+# the child listening. The model is told to ignore the <turn_context> block
+# Coddy appends to every request, so a rule matches what the person wrote.
+TGFAKE="${CODDY_TGFAKE_BIN:-}"
+if [[ -z "$TGFAKE" ]]; then
+  go build -o "$TMP/tgfake$EXE" github.com/EvilFreelancer/tgfake/cmd/tgfake
+  TGFAKE="$TMP/tgfake$EXE"
+fi
+"$TGFAKE" --addr "127.0.0.1:$TG_PORT" --llm --llm-model coddy-demo --llm-strip-tag turn_context \
+  --llm-script "$(hostpath "$RULES")" --llm-delay "$LLM_DELAY" ${TG_VERBOSE:+--verbose} &
 TGFAKE_PID=$!
 for _ in $(seq 1 40); do
   if curl -sf -o /dev/null "$ORIGIN/bot1/getMe"; then break; fi

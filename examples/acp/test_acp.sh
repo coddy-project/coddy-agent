@@ -28,7 +28,7 @@ python3 "$ACP_DIR/acp_e2e_mentions.py"
 python3 "$ACP_DIR/acp_e2e_config.py"
 python3 "$ACP_DIR/acp_e2e_memory.py"
 python3 "$ACP_DIR/acp_e2e_background.py"
-# Self-boots the scripted model of cmd/tgfake: no key.
+# Self-boots the scripted model of tgfake: no key.
 python3 "$ACP_DIR/acp_e2e_background_wake.py"
 python3 "$ACP_DIR/acp_e2e_subagents.py"
 python3 "$ACP_DIR/acp_e2e_hooks.py"

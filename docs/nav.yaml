@@ -229,6 +229,9 @@ groups:
       - path: contributing/build.md
         title: Build from source
         summary: Prerequisites, make build, TAGS against go build -tags, the release binaries and the distribution packages.
+      - path: contributing/tgfake.md
+        title: Integration tests with tgfake
+        summary: The fake Telegram Bot API the bot is tested against - the version go.mod pins, the in-process suites, the end-to-end scripts, the CI job and moving to a new tgfake.
       - path: contributing/security-scanning.md
         title: AppSec scanning
         summary: Trivy, semgrep and govulncheck locally and in CI through one script, the severity gate, the pinned Go toolchain, triage and suppression.

@@ -53,6 +53,11 @@ func WorktreeCreateTool() *tooling.Tool {
 			env.CWD = path
 			env.WorkspaceChanged = true
 			info := gitws.Describe(path)
+			// The worktree's own branch: a remote branch asked for by its
+			// remote-tracking name (origin/feature) opens as feature.
+			if info.Branch != "" {
+				branch = info.Branch
+			}
 			out, err := json.Marshal(map[string]interface{}{
 				"path": path, "branch": branch, "created": created,
 				"main_checkout": info.RepoRoot, "base_branch": info.BaseBranch,

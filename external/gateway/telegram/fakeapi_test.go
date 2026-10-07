@@ -3,8 +3,9 @@
 package telegram
 
 // The one stand-in for Telegram this package's tests share: the fake Bot API
-// of internal/tgfake on httptest, plus a tgbotapi client pointed at it. A test
-// that needs Telegram to behave in a new way extends the fake; it does not
+// of tgfake (github.com/EvilFreelancer/tgfake, the version go.mod pins) on
+// httptest, plus a tgbotapi client pointed at it. A test that needs Telegram
+// to behave in a new way extends tgfake and bumps the version; it does not
 // write another http.HandlerFunc.
 
 import (
@@ -16,9 +17,8 @@ import (
 	"testing"
 	"time"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 // fakeToken is the token stubBot sends. A test that wants the path checked

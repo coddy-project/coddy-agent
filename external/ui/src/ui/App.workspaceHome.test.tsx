@@ -34,12 +34,18 @@ vi.mock("./chat/ChatScreen", () => ({
     worktreePref?: boolean;
     onWorktreeToggle?: () => void;
     onWorkspacePickFolder?: (path: string) => void;
+    onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
+    onWorkspaceRefreshBranches?: () => Promise<{ status: string } | null>;
   }) => (
     <>
       <output
         data-testid="workspace-state"
         data-branch={props.workspaceCtx?.branch || ""}
         data-worktree={String(props.worktreePref === true)}
+        data-remote={(
+          (props.workspaceCtx as { remote_branches?: string[] } | null)
+            ?.remote_branches || []
+        ).join(",")}
       >
         {props.sessionId || "home"}:{props.workspaceCtx?.path || ""}
       </output>
@@ -56,6 +62,24 @@ vi.mock("./chat/ChatScreen", () => ({
         onClick={() => props.onWorkspacePickFolder?.("/projects/picked")}
       >
         pick
+      </button>
+      <button
+        type="button"
+        data-testid="pick-remote-branch"
+        onClick={() => props.onWorkspacePickBranch?.("feat/fresh", false)}
+      >
+        pick branch
+      </button>
+      <button
+        type="button"
+        data-testid="refresh-branches"
+        onClick={() => {
+          void props.onWorkspaceRefreshBranches?.().then((outcome) => {
+            document.body.dataset.refresh = outcome?.status ?? "none";
+          });
+        }}
+      >
+        refresh
       </button>
     </>
   ),
@@ -134,6 +158,23 @@ const fetchMock = vi.fn(
         is_git_repo: true,
         is_worktree: false,
         branch: headBranch,
+      });
+    }
+    if (path.startsWith("/coddy/workspace/fetch")) {
+      const query = path.includes("?path=")
+        ? decodeURIComponent(path.slice(path.indexOf("?path=") + 6))
+        : "";
+      const sid = new Headers(init?.headers).get("X-Coddy-Session-ID");
+      const where =
+        query || (sid === "sess_active" ? ACTIVE_WORKSPACE : DEFAULT_WORKSPACE);
+      return json({
+        path: where,
+        name: where.split("/").at(-1),
+        is_git_repo: true,
+        is_worktree: false,
+        branch: headBranch,
+        remote_branches: ["feat/fresh"],
+        fetch: { status: "ok", remotes: ["origin"] },
       });
     }
     if (path === "/coddy/config") return json({});
@@ -277,4 +318,129 @@ test("a remembered folder that is gone falls back to the server's default", asyn
     expect(state().textContent).toBe(`home:${DEFAULT_WORKSPACE}`),
   );
   expect(readLastWorkspaceDir()).toBe("");
+});
+
+const fetchCalls = () =>
+  fetchMock.mock.calls.filter(([input]) =>
+    String(input).startsWith("/coddy/workspace/fetch"),
+  );
+
+// Before a session exists the branch list belongs to the folder the new chat
+// picked: the refresh is asked for that folder, and a branch already picked
+// there stays the choice over the folder's own.
+test("a new chat refreshes the branches of the folder it picked", async () => {
+  writeLastWorkspaceDir(PICKED);
+  history.replaceState(null, "", "/");
+  mountApp();
+  await waitFor(() => expect(state().textContent).toBe(`home:${PICKED}`));
+  fireEvent.click(screen.getByTestId("pick-remote-branch"));
+  await waitFor(() =>
+    expect(state().getAttribute("data-branch")).toBe("feat/fresh"),
+  );
+
+  fireEvent.click(screen.getByTestId("refresh-branches"));
+  await waitFor(() => expect(document.body.dataset.refresh).toBe("ok"));
+
+  const calls = fetchCalls();
+  expect(calls).toHaveLength(1);
+  const [input, init] = calls[0]!;
+  expect(String(input)).toBe(
+    "/coddy/workspace/fetch?path=" + encodeURIComponent(PICKED),
+  );
+  expect((init as RequestInit).method).toBe("POST");
+  expect(
+    new Headers((init as RequestInit).headers).get("X-Coddy-Session-ID"),
+  ).toBeNull();
+  expect(state().getAttribute("data-remote")).toBe("feat/fresh");
+  expect(state().getAttribute("data-branch")).toBe("feat/fresh");
+  expect(state().textContent).toBe(`home:${PICKED}`);
+  delete document.body.dataset.refresh;
+});
+
+test("a session's branch list is refreshed for the session's folder", async () => {
+  mountApp();
+  await waitFor(() =>
+    expect(state().textContent).toBe(`sess_active:${ACTIVE_WORKSPACE}`),
+  );
+  fireEvent.click(screen.getByTestId("refresh-branches"));
+  await waitFor(() => expect(document.body.dataset.refresh).toBe("ok"));
+  const [input, init] = fetchCalls()[0]!;
+  expect(String(input)).toBe("/coddy/workspace/fetch");
+  expect(
+    new Headers((init as RequestInit).headers).get("X-Coddy-Session-ID"),
+  ).toBe("sess_active");
+  expect(state().getAttribute("data-remote")).toBe("feat/fresh");
+  delete document.body.dataset.refresh;
+});
+
+test("a refresh the server refuses is reported as failed", async () => {
+  mountApp();
+  await waitFor(() =>
+    expect(state().textContent).toBe(`sess_active:${ACTIVE_WORKSPACE}`),
+  );
+  fetchMock.mockImplementationOnce(async () =>
+    json({ error: { message: "boom" } }, 500),
+  );
+  fireEvent.click(screen.getByTestId("refresh-branches"));
+  await waitFor(() => expect(document.body.dataset.refresh).toBe("failed"));
+  delete document.body.dataset.refresh;
+});
+
+// The start screen reads its folder again when the page gets the focus back.
+// A read that lands while the fetch runs saw the refs from before it: the
+// context the fetch answers with is the fresh one and is what the list shows,
+// whether that read answers before the fetch or after it.
+test("a context read during the refresh does not hide the fetched branches", async () => {
+  writeLastWorkspaceDir(PICKED);
+  history.replaceState(null, "", "/");
+  mountApp();
+  await waitFor(() => expect(state().textContent).toBe(`home:${PICKED}`));
+
+  let releaseFetch: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    releaseFetch = resolve;
+  });
+  let releaseRead: () => void = () => {};
+  const readHeld = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  const passthrough = fetchMock.getMockImplementation()!;
+  let reads = 0;
+  fetchMock.mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path.startsWith("/coddy/workspace/fetch")) {
+      await held;
+    }
+    if (path.startsWith("/coddy/workspace/context?path=")) {
+      reads += 1;
+      // The second read answers only after the fetch did.
+      if (reads === 2) {
+        await readHeld;
+      }
+    }
+    return passthrough(input, init);
+  });
+
+  fireEvent.click(screen.getByTestId("refresh-branches"));
+  // A read that answers before the fetch.
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await waitFor(() => expect(reads).toBe(1));
+  // A read that is still out when the fetch answers.
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await act(async () => {
+    releaseFetch();
+  });
+  await waitFor(() => expect(document.body.dataset.refresh).toBe("ok"));
+  expect(state().getAttribute("data-remote")).toBe("feat/fresh");
+  await act(async () => {
+    releaseRead();
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(state().getAttribute("data-remote")).toBe("feat/fresh");
+  fetchMock.mockImplementation(passthrough);
+  delete document.body.dataset.refresh;
 });

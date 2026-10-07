@@ -857,7 +857,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Workspace context for the composer chips (folder, git branch, worktree)",
 					"description": "Describes the workspace of the session in **`X-Coddy-Session-ID`** (or the server default cwd without the header). " +
 						"With **`path`** the given folder is described instead (pre-session preview); a missing folder yields **400**. " +
-						"Inside a git repository the payload adds **`repo_root`** (the main checkout path), **`base_branch`** (the branch named by origin/HEAD, when available), **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. **`shell`** is the interpreter `run_command` executes through on the server host.",
+						"Inside a git repository the payload adds **`repo_root`** (the main checkout path), **`base_branch`** (the branch named by origin/HEAD, when available), **`branch`**, **`branches`** (local), **`remote_branches`** (branches that exist on a configured remote and not locally, named as a local branch would be, each once, as the last fetch left them; **POST /coddy/workspace/fetch** refreshes them), and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. **`shell`** is the interpreter `run_command` executes through on the server host.",
 					"operationId": "coddyWorkspaceContextGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -874,6 +874,44 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Workspace context",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/CoddyWorkspaceContext",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/workspace/fetch": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Refresh the remote branches before the branch list opens",
+					"description": "Fetches every configured remote of the workspace's git repository, the way `git fetch --all --prune` does, and answers with the workspace context read afterwards plus a **`fetch`** block. " +
+						"Only remote-tracking refs move: the working tree, the index, HEAD, local branches and tags are never touched (tags are not fetched, a remote whose fetch refspec writes outside `refs/remotes/` is left out and reported, remotes with `skipFetchAll` are left out). " +
+						"Credentials come from the repository's own git configuration (credential helpers, the ssh agent); nothing is prompted for, no askpass program included. Without the git binary (the go-git fallback) only remotes that need no credentials, or take ssh keys from the agent, can be refreshed. Concurrent calls for one repository share a single fetch; the whole refresh is bounded to 20 seconds. " +
+						"**`fetch.status`** is **`ok`** (with **`remotes`** and **`fetched_at`**), **`failed`** (with **`remotes`** it set out to fetch and **`error`**, credentials in URLs masked; the branches in the context are the cached ones and must not be presented as fresh), or **`skipped`** (with **`reason`**: **`not a git repository`**, or **`no remotes to fetch`** when there is none or every one is marked **`skipFetchAll`**). A failed fetch is still **200**. " +
+						"The folder is chosen like **GET /coddy/workspace/context**: **`path`** when given (a new chat before its session exists), else the session in **`X-Coddy-Session-ID`**, else the server default cwd. A missing folder yields **400**.",
+					"operationId": "coddyWorkspaceFetchPost",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is refreshed (ignored when **`path`** is set).",
+						},
+						map[string]interface{}{
+							"name": "path", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute folder to refresh instead of the session cwd.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Workspace context after the refresh, with the **`fetch`** outcome",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -2082,6 +2120,7 @@ func openAPISpec() map[string]interface{} {
 					"description": "Body **`{\"path\": dir}`** switches the session cwd to an existing folder — validated before the session exists, so a fresh session is created straight in the target workspace — and re-derives workspace-scoped state: skills, project rules, slash commands, the SessionStart hook context (re-fired with source `workspace`), and the configured MCP servers, which are re-dialed for the new cwd through the trust gate (the new workspace's `.coddy/mcp.json` is merged and freshly gated) while the previous workspace's configured clients are closed and ACP client-supplied servers are preserved. " +
 						"Body **`{\"branch\": b}`** checks the branch out in place and runs the same workspace-scoped reload; when the branch is already checked out in another worktree (including the main one) the session cwd jumps there instead. " +
 						"Body **`{\"branch\": b, \"worktree\": true}`** ensures a dedicated worktree for the branch (created on demand under **`<repo>/.coddy/worktrees/<branch>/`**, below a self-ignoring folder) and moves the session cwd into it. " +
+						"A **`b`** that exists only on a remote (an entry of **`remote_branches`**) creates the local branch tracking the remote one, **origin**'s when origin has it, else that of the first remote by name. A **`b`** written as a remote-tracking branch (`<remote>/<branch>`) with no local branch of that name means the local **`<branch>`** tracking that remote: created when it does not exist, the existing one when it already tracks that remote branch, and **409** when an unrelated local **`<branch>`** is in the way. Either way the same in-place or worktree rules apply to that local branch. " +
 						"The workspace is chosen **once per session**: as soon as the conversation has messages, or a turn is in flight, switching yields **409** (`workspace is locked once the conversation starts` / `while a turn is running`). " +
 						"A missing folder or a branch switch outside a git repository yields **400**; git checkout/worktree failures yield **409**. The session is created on demand (draft flow). Responds with the fresh workspace context.",
 					"operationId": "coddySessionWorkspacePost",
@@ -4286,8 +4325,31 @@ func openAPISpec() map[string]interface{} {
 						"base_branch": map[string]string{"type": "string"},
 						"branch":      map[string]string{"type": "string"},
 						"branches": map[string]interface{}{
-							"type":  "array",
-							"items": map[string]string{"type": "string"},
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Local branches.",
+						},
+						"remote_branches": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Branches that exist on a configured remote and not locally, named as a local branch would be (feature/x, not origin/feature/x), each once however many remotes have it, sorted, as the last fetch left them. Picking one in POST /coddy/sessions/{id}/workspace creates the local branch tracking the remote one (origin's when origin has it).",
+							"example":     []string{"feature/search", "fix/typo"},
+						},
+						"fetch": map[string]interface{}{
+							"type":        "object",
+							"description": "Present on POST /coddy/workspace/fetch answers only: the outcome of the refresh of the remote branches.",
+							"properties": map[string]interface{}{
+								"status": map[string]interface{}{"type": "string", "enum": []string{"ok", "failed", "skipped"}},
+								"remotes": map[string]interface{}{
+									"type":        "array",
+									"items":       map[string]string{"type": "string"},
+									"description": "The remotes fetched (ok), or the ones it set out to fetch (failed): after a timeout some of them may not have been tried.",
+								},
+								"fetched_at": map[string]interface{}{"type": "string", "format": "date-time", "description": "When the refresh finished (ok only)."},
+								"error":      map[string]string{"type": "string", "description": "Why the refresh failed, credentials in URLs masked (failed only)."},
+								"reason":     map[string]string{"type": "string", "description": "Why nothing was fetched: `not a git repository`, or `no remotes to fetch` (skipped only)."},
+							},
+							"required": []string{"status"},
 						},
 						"worktrees": map[string]interface{}{
 							"type": "array",

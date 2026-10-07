@@ -2101,6 +2101,12 @@ export const messagesRu: Record<string, string> = {
   "workspace.noBranchesMatch": "Подходящих веток нет",
   "workspace.openFolder": "Открыть папку…",
   "workspace.noBranches": "Веток нет",
+  "workspace.fetchingBranches": "Получаю ветки с удалённых репозиториев…",
+  "workspace.fetchFailed":
+    "Не удалось обновить ветки с удалённых репозиториев. Список может быть устаревшим.",
+  "workspace.remoteOnly": "Только на удалённом репозитории",
+  "workspace.remoteOnlyHint":
+    "Локально этой ветки ещё нет: при выборе будет создана локальная ветка, которая отслеживает удалённую",
 
   "permission.preview.patch": "Предпросмотр патча",
   "permission.preview.edit": "Предпросмотр изменения",

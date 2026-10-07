@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   branchChipVisible,
+  branchRows,
   cleanPathInput,
+  firstLine,
   folderChipLabel,
   isWorktreeBadgeActive,
   pathParent,
@@ -59,6 +61,34 @@ describe("workspaceContext helpers", () => {
       "feature/login",
       "main",
     ]);
+  });
+
+  it("lists remote-only branches among the local ones, current first", () => {
+    expect(
+      branchRows({
+        ...gitCtx,
+        remote_branches: ["alpha", "feature/login", "main/x"],
+      }),
+    ).toEqual([
+      { name: "main", remoteOnly: false },
+      { name: "alpha", remoteOnly: true },
+      { name: "feature/login", remoteOnly: false },
+      { name: "main/x", remoteOnly: true },
+      { name: "zeta", remoteOnly: false },
+    ]);
+    // A detached checkout has no current row to lift.
+    expect(
+      branchRows({ ...gitCtx, branch: "", remote_branches: ["beta"] }).map(
+        (row) => row.name,
+      ),
+    ).toEqual(["beta", "feature/login", "main", "zeta"]);
+  });
+
+  it("keeps the first meaningful line of a reason", () => {
+    expect(firstLine("\n  fatal: no such remote\nsecond")).toBe(
+      "fatal: no such remote",
+    );
+    expect(firstLine(undefined)).toBe("");
   });
 
   it("finds a non-main worktree for a branch", () => {

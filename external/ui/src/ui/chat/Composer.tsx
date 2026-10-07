@@ -16,7 +16,10 @@ import { useT } from "../i18n/I18nProvider";
 import { ImageLightbox } from "../components/ImageLightbox";
 import { PaperclipIcon } from "../components/PaperclipIcon";
 import { useEscapeCloses } from "../components/useEscapeCloses";
-import type { WorkspaceContext } from "./workspaceContext";
+import type {
+  WorkspaceBranchFetch,
+  WorkspaceContext,
+} from "./workspaceContext";
 import {
   ContextBreakdownPopover,
   type ContextBreakdown,
@@ -501,6 +504,10 @@ export function Composer(props: {
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
+  /** Fetches the remotes before the branch list shows; resolves with the outcome. */
+  onWorkspaceRefreshBranches?:
+    | (() => Promise<WorkspaceBranchFetch | null>)
+    | undefined;
   /** A plate joined to the top edge of the card (the plate of a running chat,
    *  naming where it works): under the queue and the banners, flush with the
    *  card. Without one, a chat that has not started gets the plate of picks. */
@@ -2728,6 +2735,7 @@ export function Composer(props: {
           onPickFolder: props.onWorkspacePickFolder,
           onPickBranch: props.onWorkspacePickBranch ?? (() => {}),
           onWorktreeToggle: props.onWorktreeToggle ?? (() => {}),
+          onRefreshBranches: props.onWorkspaceRefreshBranches,
           opensUp: !props.isEmpty,
         }}
       />

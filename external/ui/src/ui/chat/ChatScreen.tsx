@@ -200,6 +200,10 @@ export function ChatScreen(props: {
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
+  /** Fetches the remotes before the branch list shows; resolves with the outcome. */
+  onWorkspaceRefreshBranches?: () => Promise<
+    import("./workspaceContext").WorkspaceBranchFetch | null
+  >;
   /** Set when this session is a subagent's transcript: the composer gives way to a read-only notice. */
   subagentTranscript?: SubagentTranscriptMeta | null;
   /** True when the conversation on screen is archived: the composer gives way to the notice that offers to take it back out. */
@@ -838,6 +842,8 @@ export function ChatScreen(props: {
                       workspaceLocked: props.workspaceLocked ?? false,
                       onWorkspacePickFolder: props.onWorkspacePickFolder,
                       onWorkspacePickBranch: props.onWorkspacePickBranch,
+                      onWorkspaceRefreshBranches:
+                        props.onWorkspaceRefreshBranches,
                       onWorktreeToggle: props.onWorktreeToggle,
                     }
                   : {})}
@@ -1077,6 +1083,8 @@ export function ChatScreen(props: {
                         workspaceLocked: props.workspaceLocked ?? false,
                         onWorkspacePickFolder: props.onWorkspacePickFolder,
                         onWorkspacePickBranch: props.onWorkspacePickBranch,
+                        onWorkspaceRefreshBranches:
+                          props.onWorkspaceRefreshBranches,
                         onWorktreeToggle: props.onWorktreeToggle,
                       }
                     : {})}

@@ -126,7 +126,10 @@ import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { applyMemoryRunToItems } from "./chat/memoryRun";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
-import type { WorkspaceContext } from "./chat/workspaceContext";
+import type {
+  WorkspaceBranchFetch,
+  WorkspaceContext,
+} from "./chat/workspaceContext";
 import { setHostShell } from "./chat/hostShell";
 import { NavRail } from "./nav/NavRail";
 import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
@@ -1867,6 +1870,69 @@ export function App() {
       // ignore: the plate keeps the context it has
     }
   }, [refreshWorkspaceContext]);
+
+  /**
+   * Fetches the remotes of the folder the branch list is about - the session's,
+   * or before a session exists the folder the new chat picked - and takes the
+   * context the server read after the fetch, so a branch pushed since the last
+   * fetch is listed. A branch picked on the start screen stays the choice. The
+   * outcome goes back to the list, which warns when the refresh failed: the
+   * context it shows then is the one from before.
+   */
+  // The chat on screen now, for an answer that arrives after it may have
+  // changed (the branch refresh below).
+  const viewedSessionRef = useRef(sessionId);
+  useEffect(() => {
+    viewedSessionRef.current = sessionId;
+  }, [sessionId]);
+
+  const refreshWorkspaceBranches =
+    useCallback(async (): Promise<WorkspaceBranchFetch | null> => {
+      const sid = sessionId.trim();
+      const path = sid ? "" : (pendingWorkspaceRef.current?.path ?? "");
+      const gen = ++workspaceCtxGenRef.current;
+      try {
+        const res = await fetch(
+          "/coddy/workspace/fetch" +
+            (path ? "?path=" + encodeURIComponent(path) : ""),
+          { method: "POST", headers: sid ? { [HDR]: sid } : {} },
+        );
+        if (!res.ok) {
+          return { status: "failed", error: `HTTP ${res.status}` };
+        }
+        const body = (await res.json()) as WorkspaceContext & {
+          fetch?: WorkspaceBranchFetch;
+        };
+        const { fetch: outcome, ...ctx } = body;
+        // Another chat or another folder since: the list this was for is gone.
+        const stillHere =
+          viewedSessionRef.current.trim() === sid &&
+          (sid || (pendingWorkspaceRef.current?.path ?? "") === path);
+        if (!stillHere) {
+          return null;
+        }
+        // A read of the same folder that started while the fetch ran (the
+        // page got the focus back) saw the refs from before it: the fetched
+        // context wins whichever answered first, and a read still out is
+        // dropped by taking a newer ticket.
+        if (gen !== workspaceCtxGenRef.current) {
+          workspaceCtxGenRef.current += 1;
+        }
+        const picked = sid ? null : pendingWorkspaceRef.current;
+        setWorkspaceCtx(
+          picked?.branch
+            ? {
+                ...ctx,
+                branch: picked.branch,
+                is_worktree: Boolean(picked.worktree),
+              }
+            : ctx,
+        );
+        return outcome ?? null;
+      } catch {
+        return { status: "failed" };
+      }
+    }, [sessionId]);
 
   // Load the workspace context whenever the viewed session changes. A pending
   // home workspace survives the route change so the next chat starts where the
@@ -7158,6 +7224,7 @@ export function App() {
             onWorkspacePickBranch={(b: string, wt: boolean) =>
               void switchWorkspace({ branch: b, worktree: wt })
             }
+            onWorkspaceRefreshBranches={refreshWorkspaceBranches}
             onWorktreeToggle={() =>
               setWorktreePref((v) => {
                 writeWorktreePref(!v);

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
@@ -18,7 +19,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 func sessionRow(id, title, updated string) acp.SessionListInfo {

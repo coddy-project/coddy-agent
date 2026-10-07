@@ -2,8 +2,9 @@
 /**
  * Telegram Mini App check (issue #320): the web UI opened by the Telegram bot
  * as its Mini App, end to end and with no Telegram - the real `coddy serve`
- * with its bot pointed at the offline stand `cmd/tgfake`, whose chat page is
- * the Telegram client and opens the app in its phone frame.
+ * with its bot pointed at the offline stand tgfake
+ * (github.com/EvilFreelancer/tgfake), whose chat page is the Telegram client
+ * and opens the app in its phone frame.
  *
  * What it checks, in a real engine:
  *   bot      the bot points its menu button at the web UI and answers /app
@@ -35,8 +36,8 @@
  *
  * Environment:
  *   CODDY_BIN           the coddy binary (default ../../build/coddy from external/ui)
- *   CODDY_TGFAKE_BIN    the tgfake binary (default: built into the scratch
- *                       directory with `go build ./cmd/tgfake`)
+ *   CODDY_TGFAKE_BIN    the tgfake binary (default: the version go.mod pins,
+ *                       built into the scratch directory)
  *   CODDY_BROWSER_PATH  an installed Chromium instead of Playwright's download
  *   CODDY_PORT_BASE     first of three loopback ports (default 19890)
  *   CODDY_SCENARIOS     a comma list (bot, open, half, sheets, theme, signin); all by default
@@ -175,10 +176,14 @@ for (const url of [
 let tgfake = process.env.CODDY_TGFAKE_BIN || "";
 if (!tgfake) {
   tgfake = path.join(scratch, "tgfake");
-  execFileSync("go", ["build", "-o", tgfake, "./cmd/tgfake"], {
-    cwd: repo,
-    stdio: "inherit",
-  });
+  execFileSync(
+    "go",
+    ["build", "-o", tgfake, "github.com/EvilFreelancer/tgfake/cmd/tgfake"],
+    {
+      cwd: repo,
+      stdio: "inherit",
+    },
+  );
 }
 start(
   tgfake,
@@ -186,6 +191,10 @@ start(
     "--addr",
     `127.0.0.1:${TG_PORT}`,
     "--llm",
+    "--llm-model",
+    "coddy-demo",
+    "--llm-strip-tag",
+    "turn_context",
     "--llm-delay",
     "5ms",
     "--llm-chunk-words",

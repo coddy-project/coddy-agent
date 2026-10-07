@@ -4,7 +4,7 @@ package telegram
 
 // Godog harness for features/gateway_telegram_mcp.feature: drives /mcp and the
 // tap on its keyboard through the real handlers against the fake Bot API
-// (internal/tgfake), over a home and a workspace of the scenario's own. The
+// (tgfake), over a home and a workspace of the scenario's own. The
 // global server is this test binary re-executed as a small MCP server
 // (TestHelperTelegramMCPServer), so the menu shows one connected with its
 // tools. No LLM and no network beyond the local httptest server.
@@ -20,12 +20,12 @@ import (
 	"strings"
 	"testing"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 const (

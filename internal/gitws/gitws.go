@@ -266,27 +266,23 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 	// decision whenever origin/HEAD is already resolved; it must not wait on
 	// the network. A base git has not resolved yet is checked again after
 	// the fetch below.
-	if err := refuseDefaultBranch(repoDir, branch, defaultBranch(repoDir)); err != nil {
+	raw := branch
+	if err := refuseDefaultBranch(repoDir, raw, defaultBranch(repoDir)); err != nil {
 		return "", false, err
 	}
+	// A remote branch picked by its remote-tracking name (upstream/fix/x), or
+	// by its name alone when only a remote has it, stands for the local
+	// branch fix/x, created tracking it when there is none; the checks apply
+	// to that local name.
+	target, dirName, err := resolveWorktreeBranch(repoDir, raw)
+	if err != nil {
+		return "", false, err
+	}
+	branch = target.Branch
 	// Reusing an existing worktree needs no origin at all: keep the fast
 	// path offline-capable.
-	for _, wt := range list {
-		if wt.Branch != branch {
-			continue
-		}
-		if wt.Main {
-			return "", false, fmt.Errorf("branch %q is checked out in the main checkout; switch it away before creating a worktree", branch)
-		}
-		// One of ours that lost its ignore file - `git clean -xdf` deletes the
-		// file and keeps the worktrees - would stay visible in git status
-		// forever, because every later call ends here. Put it back.
-		if isInside(root, wt.Path) {
-			if err := writeWorktreesIgnore(root); err != nil {
-				return "", false, err
-			}
-		}
-		return wt.Path, false, nil
+	if path, found, err := reuseWorktree(list, root, branch); found || err != nil {
+		return path, false, err
 	}
 
 	if _, err := runGit(repoDir, "fetch", "origin"); err != nil {
@@ -294,6 +290,28 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 	}
 	if _, err := runGit(repoDir, "remote", "set-head", "origin", "-a"); err != nil {
 		return "", false, fmt.Errorf("resolve origin/HEAD: %w", err)
+	}
+	// A remote-tracking name the first look could not resolve - a branch
+	// pushed since the last fetch, or one of a remote other than origin that
+	// was never fetched - is looked up again once its remote is fetched, and
+	// refused when the remote does not have it: creating a local branch called
+	// origin/<name> at the default branch is never what was asked for.
+	if remote, _, ok := splitRemoteName(listRemotes(repoDir), raw); ok && target.Remote == "" && target.Branch == raw && !refExists(repoDir, "refs/heads/"+raw) {
+		if remote != "origin" {
+			if _, err := runGit(repoDir, "fetch", "--", remote); err != nil {
+				return "", false, fmt.Errorf("refresh %s before creating a worktree: %w", remote, err)
+			}
+		}
+		if target, dirName, err = resolveWorktreeBranch(repoDir, raw); err != nil {
+			return "", false, err
+		}
+		if target.Branch == raw {
+			return "", false, fmt.Errorf("no branch %q on remote %s", strings.TrimPrefix(raw, remote+"/"), remote)
+		}
+		branch = target.Branch
+		if path, found, err := reuseWorktree(list, root, branch); found || err != nil {
+			return path, false, err
+		}
 	}
 	base := defaultBranch(repoDir)
 	if base == "" {
@@ -324,6 +342,10 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 		// A local branch is reused at its own tip; it is not rebased onto
 		// the fetched default branch.
 		args = append(args, "--", path, branch)
+	case target.Remote != "":
+		// A branch of a named remote with no local tip yet: the same as the
+		// origin case below, for whichever remote was picked.
+		args = append(args, "--track", "-b", branch, "--", path, target.upstreamRef())
 	case refExists(repoDir, "refs/remotes/origin/"+branch):
 		// The branch exists on origin but has no local tip: materialize it
 		// instead of silently redefining it at origin/<base>.
@@ -336,6 +358,53 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 		return "", false, err
 	}
 	return path, true, nil
+}
+
+// resolveWorktreeBranch resolves the branch a worktree is asked for (see
+// ResolveBranch) and checks the local name it comes to: not the default
+// branch, a usable folder name, a valid branch name.
+func resolveWorktreeBranch(repoDir, name string) (BranchTarget, string, error) {
+	target, err := ResolveBranch(repoDir, name)
+	if err != nil {
+		return BranchTarget{}, "", err
+	}
+	dirName := BranchDirName(target.Branch)
+	if target.Branch == name {
+		return target, dirName, nil
+	}
+	if err := refuseDefaultBranch(repoDir, target.Branch, defaultBranch(repoDir)); err != nil {
+		return BranchTarget{}, "", err
+	}
+	if dirName == "" {
+		return BranchTarget{}, "", fmt.Errorf("branch name has no usable directory name: %q", target.Branch)
+	}
+	if _, err := runGit(repoDir, "check-ref-format", "--branch", target.Branch); err != nil {
+		return BranchTarget{}, "", fmt.Errorf("invalid branch name %q: %w", target.Branch, err)
+	}
+	return target, dirName, nil
+}
+
+// reuseWorktree finds the worktree already holding branch. The main checkout
+// holding it is an error: a worktree cannot check out the same branch.
+func reuseWorktree(list []Worktree, root, branch string) (string, bool, error) {
+	for _, wt := range list {
+		if wt.Branch != branch {
+			continue
+		}
+		if wt.Main {
+			return "", false, fmt.Errorf("branch %q is checked out in the main checkout; switch it away before creating a worktree", branch)
+		}
+		// One of ours that lost its ignore file - `git clean -xdf` deletes the
+		// file and keeps the worktrees - would stay visible in git status
+		// forever, because every later call ends here. Put it back.
+		if isInside(root, wt.Path) {
+			if err := writeWorktreesIgnore(root); err != nil {
+				return "", false, err
+			}
+		}
+		return wt.Path, true, nil
+	}
+	return "", false, nil
 }
 
 // refuseDefaultBranch rejects the default branch itself and local branches

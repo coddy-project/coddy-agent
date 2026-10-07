@@ -18,7 +18,27 @@ export type WorkspaceContext = {
   base_branch?: string;
   branch?: string;
   branches?: string[];
+  /**
+   * Branches that exist on a configured remote and not locally, named as a
+   * local branch would be (`feature/x`, not `origin/feature/x`), as the last
+   * fetch left them; absent on older servers. Picking one creates the local
+   * branch tracking it.
+   */
+  remote_branches?: string[];
   worktrees?: WorkspaceWorktree[];
+};
+
+/**
+ * The outcome of POST /coddy/workspace/fetch, the refresh of the remote
+ * branches the branch list waits for. A failed one leaves the list as it was
+ * and must not be presented as fresh.
+ */
+export type WorkspaceBranchFetch = {
+  status: "ok" | "failed" | "skipped";
+  remotes?: string[];
+  fetched_at?: string;
+  error?: string;
+  reason?: string;
 };
 
 export type WorkspaceFolderRow = {
@@ -104,6 +124,41 @@ export function sortedBranches(ctx: WorkspaceContext): string[] {
     return branches;
   }
   return [current, ...branches.filter((b) => b !== current)];
+}
+
+/** One row of the branch list: a local branch, or one that is only on a remote. */
+export type BranchRow = { name: string; remoteOnly: boolean };
+
+// branchRows is the branch list: the current branch first, then the local
+// branches and the ones only on a remote in one alphabetical list, the latter
+// marked so the menu can say so.
+export function branchRows(ctx: WorkspaceContext): BranchRow[] {
+  const local = new Set(ctx.branches || []);
+  const rows: BranchRow[] = [
+    ...[...local].map((name) => ({ name, remoteOnly: false })),
+    ...(ctx.remote_branches || [])
+      .filter((name) => !local.has(name))
+      .map((name) => ({ name, remoteOnly: true })),
+  ];
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+  const current = (ctx.branch || "").trim();
+  const head = rows.find((row) => row.name === current);
+  if (!head) {
+    return rows;
+  }
+  return [head, ...rows.filter((row) => row !== head)];
+}
+
+// firstLine keeps the first non-empty line of a message: git's reasons run
+// over several lines, and the branch list shows only the gist.
+export function firstLine(text: string | undefined): string {
+  for (const line of (text || "").split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return "";
 }
 
 // worktreeForBranch returns the linked (non-main) worktree holding branch.

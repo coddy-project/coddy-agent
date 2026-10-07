@@ -2047,6 +2047,12 @@ export const messagesEn: Record<string, string> = {
   "workspace.noBranchesMatch": "No branches match",
   "workspace.openFolder": "Open folder…",
   "workspace.noBranches": "No branches",
+  "workspace.fetchingBranches": "Fetching branches from the remotes…",
+  "workspace.fetchFailed":
+    "Could not refresh the remote branches. The list may be out of date.",
+  "workspace.remoteOnly": "On the remote only",
+  "workspace.remoteOnlyHint":
+    "Not checked out here yet: picking it creates a local branch that tracks the remote one",
 
   "permission.preview.patch": "Patch preview",
   "permission.preview.edit": "Edit preview",
