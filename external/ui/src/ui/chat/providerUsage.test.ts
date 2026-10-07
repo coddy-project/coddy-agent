@@ -5,6 +5,7 @@ import {
   formatRub,
   modelBlocked,
   modelUnlimited,
+  remoteBusy,
   summarizeUsage,
   usageBannerKey,
   usageBlockKind,
@@ -341,5 +342,60 @@ describe("a model blocked on a green account", () => {
     expect(usageBannerKey(blocked(), "neuraldeep/kimi-k2.6")).not.toBe(
       usageBannerKey(fixture(), "neuraldeep/kimi-k2.6"),
     );
+  });
+});
+
+// The wait of a call to a model another Coddy shares for a free stream slot of
+// the remote: the agent reports it as a provider_usage update with resuming
+// and the blocker remote_busy, whatever agent.wait_for_limit_reset says. It is
+// no account limit, and nothing in it is the account's to read again.
+describe("a wait for a free slot of the remote", () => {
+  function busy(extra: Partial<ProviderUsage> = {}): ProviderUsage {
+    return {
+      sessionUpdate: "provider_usage",
+      provider: "lab",
+      providerType: "coddy",
+      fetchedAt: "2026-09-06T17:47:10Z",
+      blocked: true,
+      blockers: ["remote_busy"],
+      retryAt: "2026-09-06T17:47:42Z",
+      retryInSec: 30,
+      resuming: true,
+      ...extra,
+    };
+  }
+
+  test("the blocker is told apart from a usage limit", () => {
+    expect(usageBlockKind(busy())).toBe("busy");
+    expect(remoteBusy(busy())).toBe(true);
+    expect(remoteBusy(fixture())).toBe(false);
+    expect(remoteBusy(null)).toBe(false);
+  });
+
+  test("the summary of the selected row is a block of that kind", () => {
+    const s = summarizeUsage(busy(), "lab/terra");
+    expect(s.kind).toBe("blocked");
+    if (s.kind !== "blocked") return;
+    expect(s.block).toBe("busy");
+    expect(s.blocker).toBe("remote_busy");
+    expect(s.retryAt).toBe("2026-09-06T17:47:42Z");
+    expect(summarizeUsage(busy(), "other/terra").kind).toBe("none");
+  });
+
+  test("a countdown that is re-sent keeps one dismissal key and schedules no read", () => {
+    expect(usageBannerKey(busy(), "lab/terra")).toBe("lab@remote_busy");
+    expect(
+      usageBannerKey(
+        busy({ retryAt: "2026-09-06T17:47:43Z", retryInSec: 29 }),
+        "lab/terra",
+      ),
+    ).toBe("lab@remote_busy");
+    // The remote's slot is not the account's window: nothing to read again
+    // when the budget ends, the clearing update takes the notice down.
+    expect(usageNextReadMs(busy())).toEqual({ delayMs: 0, forced: false });
+    // A limit wait still schedules its read at the reset.
+    expect(
+      usageNextReadMs({ ...fixture(), blocked: true, retryInSec: 30 }).delayMs,
+    ).toBeGreaterThan(0);
   });
 });

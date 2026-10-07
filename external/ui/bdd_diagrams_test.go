@@ -18,7 +18,10 @@ import (
 // appJSBudget is the most app.js may weigh. Mermaid and KaTeX live in lazy
 // chunks; the entry only gains the Markdown math parser and the components that
 // call the renderers. Raise it deliberately, never to make room for a renderer.
-const appJSBudget = 1_850_000
+// 1_850_000 held the build before the shared-models settings (alias and
+// acknowledgement fields, the busy-wait banner, their en/ru strings, about
+// 10 KB); the entry stood 1 KB under it then, so any settings work crossed it.
+const appJSBudget = 1_870_000
 
 // Strings only the renderers' own code carries: their error messages.
 var rendererMarkers = map[string]string{

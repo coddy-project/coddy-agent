@@ -325,3 +325,53 @@ test("an unsupported answer for the shown provider clears the snapshot", async (
   await waitFor(() => expect(result.current.usage).toBeNull());
   expect(calls.length).toBe(2);
 });
+
+// A call to a model another Coddy shares that waits for a free stream slot is
+// shown from pushed updates alone (the row has no usage source to read), and
+// the end of the wait is pushed too: an update saying the row has no usage.
+test("a pushed wait for a free slot of the remote shows and the pushed end of it takes it down", async () => {
+  const { impl, calls } = fetchStub([]);
+  const { result } = renderHook(() =>
+    useProviderUsage({
+      sessionId: "s1",
+      llmModel: "lab/terra",
+      turnEpoch: 0,
+      fetchImpl: impl,
+    }),
+  );
+  await waitFor(() => expect(calls).toEqual(["/coddy/providers/lab/usage"]));
+  const wait: ProviderUsage = {
+    provider: "lab",
+    providerType: "coddy",
+    fetchedAt: "2026-09-06T17:47:10Z",
+    blocked: true,
+    blockers: ["remote_busy"],
+    resuming: true,
+    retryAt: "2026-09-06T17:47:42Z",
+    retryInSec: 30,
+  };
+  act(() => result.current.applyPushed(wait));
+  expect(result.current.usage?.blockers).toEqual(["remote_busy"]);
+  // Nothing is read when the budget runs out: the clearing update ends it.
+  await new Promise((r) => setTimeout(r, 30));
+  expect(calls).toEqual(["/coddy/providers/lab/usage"]);
+
+  // The update of another row says nothing about this one.
+  act(() =>
+    result.current.applyPushed({
+      provider: "elsewhere",
+      providerType: "coddy",
+      unsupported: true,
+    }),
+  );
+  expect(result.current.usage?.blockers).toEqual(["remote_busy"]);
+
+  act(() =>
+    result.current.applyPushed({
+      provider: "lab",
+      providerType: "coddy",
+      unsupported: true,
+    }),
+  );
+  expect(result.current.usage).toBeNull();
+});

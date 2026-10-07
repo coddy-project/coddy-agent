@@ -7,6 +7,17 @@ import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { ProviderModelList } from "./ProviderModelList";
+import {
+  CoddyAPIBaseField,
+  SharedAsField,
+  SharedSubscriptionAckField,
+} from "./SharedModelFields";
+import {
+  CODDY_PROVIDER_TYPE,
+  contextWindowToPin,
+  providerRowOfModel,
+  sharedSubscriptionAckNeeded,
+} from "./sharedModels";
 import type { ProviderRow } from "./useProviderModels";
 import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
@@ -72,11 +83,17 @@ const USAGE_PANEL_PROVIDER_TYPES = new Set(["neuraldeep", "codex", "devin"]);
  * the server-side detection, and a freshly added model has no such choice
  * yet. Both the Add button of Logical models and the provider form's model
  * list go through it, so a model added either way starts the same.
+ *
+ * A row of a provider of type coddy is seeded with none of the capabilities
+ * its remote lists: the listing is their source, and a number or a written
+ * false copied into the row would pin it to what was true on the day it was
+ * added (docs/features/shared-models.md).
  */
 function seedLogicalModel(
   itemSchema: JsonSchema | undefined,
   id: string,
   contextWindow?: number | undefined,
+  providerType?: string | undefined,
 ): Record<string, unknown> {
   const seed = defaultForSchema(itemSchema ?? {});
   const row: Record<string, unknown> =
@@ -85,8 +102,13 @@ function seedLogicalModel(
       : {};
   delete row.reasoning_levels;
   row.model = id;
-  if (contextWindow && itemSchema?.properties?.max_context_tokens) {
-    row.max_context_tokens = contextWindow;
+  const window = contextWindowToPin(providerType, contextWindow);
+  if (window && itemSchema?.properties?.max_context_tokens) {
+    row.max_context_tokens = window;
+  }
+  if (providerType?.trim() === CODDY_PROVIDER_TYPE) {
+    delete row.multimodal;
+    delete row.allow_reasoning_off;
   }
   return row;
 }
@@ -249,6 +271,32 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
     !USAGE_PANEL_PROVIDER_TYPES.has(providerType)
   ) {
     return false;
+  }
+  // The wait for a free slot of the remote means something only for a model
+  // another Coddy shares.
+  if (ctx.path === "busy_wait_ms" && providerType !== CODDY_PROVIDER_TYPE) {
+    return false;
+  }
+  if (providerType === CODDY_PROVIDER_TYPE && ctx.path === "api_base") {
+    return (
+      <CoddyAPIBaseField
+        value={ctx.value}
+        onChange={(v) => ctx.onChange(v)}
+        label={
+          schemaFieldLabel(
+            "providers",
+            "api_base",
+            ctx.schema.title,
+            "api_base",
+          ) || translate("settings.field.apiBaseFallback")
+        }
+        description={schemaFieldDesc(
+          "providers",
+          "api_base",
+          ctx.schema.description,
+        )}
+      />
+    );
   }
   if (providerType === "codex") {
     if (ctx.path === "api_key" || ctx.path === "api_key_command") {
@@ -522,6 +570,51 @@ export function SettingsSection(props: {
                 />
               );
             }
+            if (ctx.path === "shared_as") {
+              return (
+                <SharedAsField
+                  value={ctx.value}
+                  onChange={(v) => ctx.onChange(v)}
+                  label={schemaFieldLabel(
+                    key,
+                    "shared_as",
+                    ctx.schema.title,
+                    "shared_as",
+                  )}
+                  description={schemaFieldDesc(
+                    key,
+                    "shared_as",
+                    ctx.schema.description,
+                  )}
+                />
+              );
+            }
+            // Asked only of a shared model on a subscription login: the
+            // server refuses the document without it, and the key does
+            // nothing otherwise.
+            if (ctx.path === "shared_subscription_ack") {
+              if (!sharedSubscriptionAckNeeded(ctx.parentObj, providerRows)) {
+                return false;
+              }
+              const provider = providerRowOfModel(
+                String(ctx.parentObj?.["model"] ?? ""),
+                providerRows,
+              );
+              return (
+                <SharedSubscriptionAckField
+                  checked={ctx.value === true}
+                  onChange={(v) => ctx.onChange(v)}
+                  label={schemaFieldLabel(
+                    key,
+                    "shared_subscription_ack",
+                    ctx.schema.title,
+                    "shared_subscription_ack",
+                  )}
+                  providerName={String(provider?.name ?? "").trim()}
+                  providerType={String(provider?.type ?? "").trim()}
+                />
+              );
+            }
             return null;
           }
         : key === "providers"
@@ -563,7 +656,12 @@ export function SettingsSection(props: {
                 {
                   id: "advanced",
                   legend: t("settings.providers.group.advanced"),
-                  paths: ["api_key_command", "proxy", "timeout_ms"],
+                  paths: [
+                    "api_key_command",
+                    "proxy",
+                    "timeout_ms",
+                    "busy_wait_ms",
+                  ],
                   collapsible: true,
                 },
               ]
@@ -590,6 +688,12 @@ export function SettingsSection(props: {
                       "allow_reasoning_off",
                     ],
                   },
+                  // Offering the model to other Coddys that reach this server.
+                  {
+                    id: "sharing",
+                    legend: t("settings.models.group.sharing"),
+                    paths: ["shared_as", "shared_subscription_ack"],
+                  },
                 ]
               : undefined
         }
@@ -610,6 +714,7 @@ export function SettingsSection(props: {
                           props_["models"]?.items,
                           id,
                           contextWindow,
+                          String(asObject(item).type ?? ""),
                         ),
                       ]),
                     );
@@ -750,6 +855,11 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
         id: "limits",
         legend: translate("settings.group.agent.limits"),
         paths: ["wait_for_limit_reset", "wait_for_limit_reset_max_ms"],
+      },
+      {
+        id: "shared",
+        legend: translate("settings.group.agent.shared"),
+        paths: ["shared_busy_wait_ms"],
       },
     ];
   }

@@ -9157,6 +9157,18 @@ html:not([data-theme="light"]) .context-usage-note--error {
   cursor: default;
 }
 
+/* "required" after the name of an acknowledgement switch, and the warning the
+   acknowledgement is for, standing under it in whichever tone its state has. */
+.settings-required-mark {
+  margin-left: 2px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.shared-ack .settings-field-desc {
+  margin: 4px 0 0;
+}
+
 /* A settings field's name with the (i) that carries its description
    (FieldLabel, LegendWithHint): the two centred on one line, the (i) right
    after the text. */

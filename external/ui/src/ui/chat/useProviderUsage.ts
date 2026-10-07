@@ -161,8 +161,17 @@ export function useProviderUsage(params: {
 
   const applyPushed = useCallback(
     (pushed: ProviderUsage) => {
-      if (!pushed || pushed.unsupported) return;
-      if (pushed.provider !== providerRef.current) return;
+      if (!pushed || pushed.provider !== providerRef.current) return;
+      if (pushed.unsupported) {
+        // The row has no usage now, as a REST answer of unsupported says, so
+        // a snapshot shown for it must go. That is how the end of a call's
+        // wait for a free slot of a remote Coddy takes its notice down: such
+        // a row has no usage source, only this one pushed update.
+        setUsage((current) =>
+          current && current.provider === pushed.provider ? null : current,
+        );
+        return;
+      }
       accept(pushed);
     },
     [accept],

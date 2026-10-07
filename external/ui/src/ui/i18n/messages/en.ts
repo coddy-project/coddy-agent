@@ -237,6 +237,7 @@ export const messagesEn: Record<string, string> = {
   "settings.group.agent.timeouts": "Stream timeouts",
   "settings.group.agent.loop": "Loop guard",
   "settings.group.agent.limits": "Usage limits",
+  "settings.group.agent.shared": "Shared models",
   "settings.group.hooks.main": "Hook settings",
   "settings.group.hooks.mainDesc":
     "How hooks run: whether files that came with the checkout may run, how long one hook process may take when its definition gives no timeout, how many times a Stop hook may send the agent back to work, and how much text one hook may hand over.",
@@ -293,6 +294,14 @@ export const messagesEn: Record<string, string> = {
   "settings.models.group.model": "Model",
   "settings.models.group.generation": "Generation",
   "settings.models.group.reasoning": "Reasoning",
+  "settings.models.group.sharing": "Sharing",
+  "settings.sharedAs.invalid":
+    "Not a valid alias: use 1 to 64 letters, digits, dots, underscores or hyphens, starting with a letter or a digit.",
+  "settings.sharedAs.placeholder": "e.g. terra; empty keeps the model private",
+  "settings.sharedAck.required": "required",
+  "settings.sharedAck.warning":
+    "{provider} ({type}) runs on a subscription login. Sharing a login hands its quota to every holder of a shared-model token and may breach the vendor's terms of service. The configuration is refused without this.",
+  "settings.coddyApiBase.placeholder": "https://host:12345",
   "settings.providerModels.legend": "Models",
   "settings.providerModels.needsNameAndType":
     "Give the provider an id and pick its type to list its models.",
@@ -342,11 +351,11 @@ export const messagesEn: Record<string, string> = {
     "Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.",
   "settings.schema.providers.type.label": "Provider type",
   "settings.schema.providers.type.desc":
-    "Wire protocol for this provider entry.",
+    "Wire protocol for this provider entry. coddy is a model that another Coddy shares: its API base URL is the address of that coddy serve or of a swarm relay mount.",
   "settings.schema.providers.api_base.label": "API base URL",
   "settings.schema.providers.api_base.ph": "https://api.openai.com/v1",
   "settings.schema.providers.api_base.desc":
-    "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints.",
+    "Optional override of the provider's default API base URL. For neuraldeep it picks the deployment (Russia or the international mirror); ignored by codex and devin, which use their official endpoints. Required for coddy: the address of the remote coddy serve, https://host:12345, or of a swarm relay mount, https://relay/swarm/nodes/<node>. A plain http:// address that is not loopback sends the token and the whole conversation in clear text.",
   "settings.schema.providers.api_key.label": "API key",
   "settings.schema.providers.api_key.desc":
     "A literal key, a ${ENV} reference expanded when the file is loaded, or empty to read the environment variable the placeholder names at call time.",
@@ -365,6 +374,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.timeout_ms.label": "Request timeout ms",
   "settings.schema.providers.timeout_ms.desc":
     "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
+  "settings.schema.providers.busy_wait_ms.label": "Wait for a free slot ms",
+  "settings.schema.providers.busy_wait_ms.desc":
+    "coddy providers only: how long one call waits for a free slot of the remote when it answers busy. Above zero it wins; 0 follows the agent's shared busy wait (30000 unless set).",
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
     "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
@@ -401,6 +413,11 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.models.stream.label": "Stream responses",
   "settings.schema.models.stream.desc":
     "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
+  "settings.schema.models.shared_as.label": "Shared as",
+  "settings.schema.models.shared_as.desc":
+    "Offer this model to other Coddys that reach this server, under this alias: the only name that leaves the host. Empty keeps the model private. Letters, digits, dots, underscores and hyphens, starting with a letter or a digit, at most 64; unique across models. Needs a credential on the HTTP API (httpserver.shared_models.tokens or httpserver.auth_token), which is set in the file.",
+  "settings.schema.models.shared_subscription_ack.label":
+    "I accept sharing a subscription login",
 
   "settings.schema.agent.model.label": "Default model",
   "settings.schema.agent.model.desc":
@@ -442,6 +459,10 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.agent.loop_nudge_max.label": "Loop nudge max",
   "settings.schema.agent.loop_nudge_max.desc":
     "How many times one turn may be nudged back on track before the loop guard stops it.",
+  "settings.schema.agent.shared_busy_wait_ms.label":
+    "Shared model busy wait ms",
+  "settings.schema.agent.shared_busy_wait_ms.desc":
+    "How long a call to a coddy provider waits for a free slot of the remote when it answers busy (default 30000); 0 means no waiting. A provider's own wait above zero wins.",
 
   "settings.schema.tools.permission_mode.label": "Permission mode",
   "settings.schema.tools.permission_mode.desc":
@@ -1411,6 +1432,10 @@ export const messagesEn: Record<string, string> = {
   "usage.bannerAccountBlocked": "The account is blocked on the hub",
   "usage.bannerResumingAt": "Usage limit reached · Auto-resuming at {time}",
   "usage.bannerResuming": "Usage limit reached · Auto-resuming when it resets",
+  "usage.remoteBusy":
+    "Waiting for a free slot on the remote · resumes on its own",
+  "usage.remoteBusyUntil":
+    "Waiting for a free slot on the remote · resumes on its own, gives up at {time}",
   "composer.composerOptions": "Composer options",
   "composer.skillsTitle": "Skills",
   "composer.loading": "Loading…",

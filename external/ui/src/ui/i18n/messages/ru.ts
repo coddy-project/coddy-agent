@@ -238,6 +238,7 @@ export const messagesRu: Record<string, string> = {
   "settings.group.agent.timeouts": "Таймауты потока",
   "settings.group.agent.loop": "Защита от зацикливания",
   "settings.group.agent.limits": "Лимиты использования",
+  "settings.group.agent.shared": "Общие модели",
   "settings.group.hooks.main": "Настройки хуков",
   "settings.group.hooks.mainDesc":
     "Как выполняются хуки, то есть можно ли запускать файлы, пришедшие с чекаутом, сколько может длиться один процесс хука без своего таймаута, сколько раз хук Stop может вернуть агента к работе и сколько текста может передать один хук.",
@@ -295,6 +296,15 @@ export const messagesRu: Record<string, string> = {
   "settings.models.group.model": "Модель",
   "settings.models.group.generation": "Генерация",
   "settings.models.group.reasoning": "Рассуждение",
+  "settings.models.group.sharing": "Общий доступ",
+  "settings.sharedAs.invalid":
+    "Недопустимый псевдоним: от 1 до 64 латинских букв, цифр, точек, подчёркиваний или дефисов, первая буква или цифра.",
+  "settings.sharedAs.placeholder":
+    "например, terra; пусто оставляет модель закрытой",
+  "settings.sharedAck.required": "обязательно",
+  "settings.sharedAck.warning":
+    "{provider} ({type}) работает по входу с подпиской. Общий доступ отдаёт её квоту каждому, у кого есть токен общих моделей, и может нарушить условия поставщика. Без этого подтверждения конфигурация будет отклонена.",
+  "settings.coddyApiBase.placeholder": "https://host:12345",
   "settings.providerModels.legend": "Модели",
   "settings.providerModels.needsNameAndType":
     "Укажите ID и тип провайдера, чтобы получить список его моделей.",
@@ -345,11 +355,11 @@ export const messagesRu: Record<string, string> = {
     "Префикс идентификаторов моделей этого провайдера, как в provider/model-id. Латинские буквы, цифры, дефис и подчёркивание, первая буква.",
   "settings.schema.providers.type.label": "Тип провайдера",
   "settings.schema.providers.type.desc":
-    "Сетевой протокол для этой записи провайдера.",
+    "Сетевой протокол для этой записи провайдера. coddy — модель, которой делится другой Coddy: базовый URL API — адрес его coddy serve или точки монтирования swarm-релея.",
   "settings.schema.providers.api_base.label": "Базовый URL API",
   "settings.schema.providers.api_base.ph": "https://api.openai.com/v1",
   "settings.schema.providers.api_base.desc":
-    "Необязательное переопределение базового URL API провайдера. Для neuraldeep выбирает развёртывание (Россия или международное зеркало); для codex и devin игнорируется, у них официальные адреса.",
+    "Необязательное переопределение базового URL API провайдера. Для neuraldeep выбирает развёртывание (Россия или международное зеркало); для codex и devin игнорируется, у них официальные адреса. Обязательно для coddy: адрес удалённого coddy serve, https://host:12345, или точки монтирования swarm-релея, https://relay/swarm/nodes/<node>. Обычный http:// адрес, не loopback, отправляет токен и весь разговор открытым текстом.",
   "settings.schema.providers.api_key.label": "API-ключ",
   "settings.schema.providers.api_key.desc":
     "Ключ напрямую, ссылка ${ENV}, которая разворачивается при загрузке файла, или пусто, чтобы в момент вызова читать переменную окружения из подсказки в поле.",
@@ -369,6 +379,10 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.providers.timeout_ms.label": "Таймаут запроса, мс",
   "settings.schema.providers.timeout_ms.desc":
     "Необязательный предел на каждый HTTP-запрос к LLM этого провайдера, включая чтение потокового тела ответа. 0 (по умолчанию) — без клиентского таймаута.",
+  "settings.schema.providers.busy_wait_ms.label":
+    "Ожидание свободного слота, мс",
+  "settings.schema.providers.busy_wait_ms.desc":
+    "Только для провайдеров coddy: сколько один вызов ждёт свободный слот удалённого Coddy, когда тот отвечает «занято». Значение больше нуля главнее; 0 следует общему ожиданию агента (30000, если не задано).",
   "settings.schema.providers.usage_limits_panel.label": "Панель лимитов",
   "settings.schema.providers.usage_limits_panel.desc":
     "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex или Devin здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Выключено скрывает панель и прекращает эти запросы для данной строки.",
@@ -406,6 +420,11 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.models.stream.label": "Потоковые ответы",
   "settings.schema.models.stream.desc":
     "Оставьте включённым, чтобы получать ответ токен за токеном по SSE. Выключите, чтобы отправлять один блокирующий запрос и ждать ответ целиком — для серверов и прокси, которые плохо работают с потоками событий; транскрипт тогда заполнится разом, а не по мере набора. Недоступно для моделей codex: их бэкенд работает только в потоковом режиме.",
+  "settings.schema.models.shared_as.label": "Общий доступ под именем",
+  "settings.schema.models.shared_as.desc":
+    "Открывает эту модель другим Coddy, которые подключаются к этому серверу, под этим псевдонимом: это единственное имя, которое выходит за пределы хоста. Пусто оставляет модель закрытой. Латинские буквы, цифры, точки, подчёркивания и дефисы, первая буква или цифра, не больше 64; уникально среди моделей. Нужен токен HTTP API (httpserver.shared_models.tokens или httpserver.auth_token), который задаётся в файле.",
+  "settings.schema.models.shared_subscription_ack.label":
+    "Я согласен делиться входом по подписке",
 
   "settings.schema.agent.model.label": "Модель по умолчанию",
   "settings.schema.agent.model.desc":
@@ -447,6 +466,10 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.agent.loop_nudge_max.label": "Максимум поправок",
   "settings.schema.agent.loop_nudge_max.desc":
     "Сколько раз за один шаг модель можно вернуть на путь, прежде чем защита от зацикливания остановит его.",
+  "settings.schema.agent.shared_busy_wait_ms.label":
+    "Ожидание слота общей модели, мс",
+  "settings.schema.agent.shared_busy_wait_ms.desc":
+    "Сколько вызов провайдера coddy ждёт свободный слот удалённого Coddy, когда тот отвечает «занято» (по умолчанию 30000); 0 — не ждать. Собственное ожидание провайдера, если оно больше нуля, главнее.",
 
   "settings.schema.tools.permission_mode.label": "Режим разрешений",
   "settings.schema.tools.permission_mode.desc":
@@ -1449,6 +1472,10 @@ export const messagesRu: Record<string, string> = {
     "Лимит использования исчерпан · Продолжим автоматически в {time}",
   "usage.bannerResuming":
     "Лимит использования исчерпан · Продолжим автоматически после сброса",
+  "usage.remoteBusy":
+    "Ждём свободный слот на удалённом Coddy · продолжим автоматически",
+  "usage.remoteBusyUntil":
+    "Ждём свободный слот на удалённом Coddy · продолжим автоматически, ждать будем до {time}",
   "composer.contextTipInput": "Ввод {count}",
   "composer.contextTipOutput": "Вывод {count}",
   "composer.contextTipTotal": "Всего {count}",

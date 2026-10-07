@@ -158,7 +158,10 @@ type App struct {
 	// the timer factory tests replace.
 	usageTimer func() bool
 	// usageResume is the pending note that a waiting turn's reset passed.
-	usageResume   func() bool
+	usageResume func() bool
+	// remoteBusy names the provider row whose call waits for a free stream
+	// slot of the remote, while the status row says so ("" otherwise).
+	remoteBusy    string
 	usageNotified map[string]bool
 	usageFollowUp string
 	usageAfterFn  func(time.Duration, func()) func() bool

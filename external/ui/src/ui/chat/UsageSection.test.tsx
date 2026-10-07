@@ -213,3 +213,29 @@ test("the reader's language names the windows", () => {
     setLocale("en");
   }
 });
+
+test("the context popover says the call waits for a free slot of the remote", () => {
+  const waiting: ProviderUsage = {
+    provider: "lab",
+    providerType: "coddy",
+    blocked: true,
+    blockers: ["remote_busy"],
+    resuming: true,
+    retryAt: "2026-09-06T17:48:12Z",
+    retryInSec: 60,
+  };
+  const { container } = render(
+    <UsageSection usage={waiting} modelId="lab/terra" now={now} />,
+  );
+  const note = container.querySelector(
+    "[data-testid=context-usage-note]",
+  ) as HTMLElement;
+  expect(note.textContent).toContain("Waiting for a free slot on the remote");
+  expect(note.textContent).toContain("gives up at");
+  expect(note.textContent).not.toMatch(/usage limit|auto-resuming/i);
+  expect(note.classList.contains("context-usage-note--warn")).toBe(true);
+  // The title names the row, there is no account behind it to brand.
+  expect(container.querySelector(".context-usage-title")?.textContent).toBe(
+    "lab",
+  );
+});

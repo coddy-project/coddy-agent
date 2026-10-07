@@ -135,6 +135,23 @@ The **Settings** drawer (**`#/settings`**, **`Settings.tsx`**) is **tabbed**, no
   - **Partial failure** is the normal answer when one session is mid-turn: the response lists **`deleted`** and **`failed`** separately, the failed rows stay, and the reason is reported in **`.settings-error`** (**`…-error`**) **after** the list re-reads, never before - the refresh clears the error slot.
 - Object sections render their sub-schema fields directly (the tab already names the section); custom model editors are injected via the **`SchemaForm`** **`fieldOverride`** hook, not by forking the generic renderer.
 
+#### Sharing a model (model row)
+
+A model row of the Models tab carries a **Sharing** block (`SharedModelFields.tsx`): one text field for
+the alias (`shared_as`, pattern `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`, checked on the trimmed value as the
+server checks it; empty means private and is not an error; an invalid alias sets `aria-invalid` and a
+message under the field, Save is not blocked because the server is the judge). When an alias is set on a
+subscription-backed row (provider type `codex` or `devin`, or `neuraldeep` without `api_key` and
+`api_key_command`; `settings/sharedModels.ts` mirrors `config.ProviderUsesSubscriptionLogin`) a **required**
+switch (`shared_subscription_ack`, a `SwitchField` marked required, `aria-required`) appears with a visible
+warning that sharing a login hands its quota to every holder of a shared-model token and may breach the
+vendor's terms; while the switch is off the warning takes the error tone. A provider of type `coddy`
+shows `api_base` with its own placeholder, and `busy_wait_ms` under Advanced settings; the global
+`agent.shared_busy_wait_ms` sits in its own **Shared models** block. The model picker never copies the
+listing's context window into `max_context_tokens` of a `coddy` row: the remote listing is the source and
+a copied number would pin the row. Shared-model tokens are not in the form (the `httpserver` block is
+hidden); they are edited in the file.
+
 ### Session identifier in URL
 
 `#/s/<sessionId>` survives reload/share as long as the browser hits the **same Coddy http instance** backing the **`sessions`** root hash. SPA keeps **`X-Coddy-Session-ID`** synced with whichever id anchors the fragment.
@@ -927,6 +944,13 @@ something needs the user.
   `blockedModels` the same way: a model the account may not call right now
   reads as blocked even while the account itself is healthy.
 
+
+- **Waiting for a free slot** (`provider_usage` with the blocker `remote_busy`, sent while a call to a
+  `coddy` row waits for a slot on the remote): the banner and the popover note read
+  `Waiting for a free slot on the remote · resumes on its own, gives up at 20:59`, never
+  `Usage limit reached`. It is a notice of the wait, not of a quota: it has no close button, its dismissal
+  key is stable, and the pushed `unsupported` update that ends the wait removes it at once. The console
+  status line says the same and returns to `waiting for model` when the wait ends.
 ### Transcript scroll-to-bottom button
 
 - **Placement** - `button.chat-scroll-bottom` (`data-testid="chat-scroll-bottom"`) is a child of **`.chat-bottom-inner`**, positioned **`absolute`** with **`right: 0`** and **`bottom: 100%`** plus a **`10px`** margin. It is anchored to the composer's column, **not** to the viewport, so one rule carries it through the absolute desktop dock, the **`position: fixed`** composer below **`1200px`** and the **`padding-right`** the background tasks panel adds. Its right edge is flush with **`.composer-card`**; do **not** re-anchor it to `.chat-stack`, `.chat-scroll` or the viewport.
