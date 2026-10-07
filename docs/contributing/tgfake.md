@@ -61,7 +61,7 @@ go list -m -f '{{.Version}}' github.com/EvilFreelancer/tgfake
 ```
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/EvilFreelancer/tgfake/main/scripts/install.sh | sh -s -- -b ./build vX.Y.Z
+curl -sSfL https://raw.githubusercontent.com/EvilFreelancer/tgfake/vX.Y.Z/scripts/install.sh | sh -s -- -b ./build vX.Y.Z
 ```
 
 ```bash

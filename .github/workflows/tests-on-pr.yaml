@@ -207,10 +207,14 @@ jobs:
       - name: Build the gateway
         run: make build TAGS=gateway
 
+      # The script builds tgfake from source when CODDY_TGFAKE_BIN is empty,
+      # which would prove nothing about the release binary.
       - name: Run the bot against tgfake
         env:
           CODDY_TGFAKE_BIN: ${{ steps.tgfake.outputs.path }}
-        run: CODDY_BIN="$PWD/build/coddy" examples/gateway/tg_e2e_offline.sh
+        run: |
+          test -x "$CODDY_TGFAKE_BIN" || { echo "the action gave no tgfake binary" >&2; exit 1; }
+          CODDY_BIN="$PWD/build/coddy" examples/gateway/tg_e2e_offline.sh
 
   # The race detector, `make test-race`: the whole tree with every tag but ui.
   # The races fixed so far lived mostly in test harnesses - a backend swapped

@@ -404,7 +404,8 @@ releases page), or run the version this checkout pins from its root with
 `go tool tgfake`:
 
 ```bash
-tgfake --llm --llm-strip-tag turn_context --llm-delay 50ms   # Bot API + model on 127.0.0.1:18790
+tgfake --llm --llm-strip-tag turn_context --llm-delay 50ms           # a release binary: Bot API + model on 127.0.0.1:18790
+go tool tgfake --llm --llm-strip-tag turn_context --llm-delay 50ms   # the same, the version go.mod pins
 ```
 
 `--llm-strip-tag turn_context` tells the model to skip the `<turn_context>`
