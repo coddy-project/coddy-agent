@@ -512,10 +512,14 @@ test("hovering a section opens it and closes the one before it", () => {
   renderDrawer();
   fireEvent.click(screen.getByTestId("sessions-filter-trigger"));
 
-  fireEvent.mouseEnter(screen.getByTestId("sessions-filter-section-group"));
+  pointer(screen.getByTestId("sessions-filter-section-group"), "pointerover", {
+    y: 0,
+  });
   expect(screen.getByTestId("sessions-filter-group-tag")).toBeInTheDocument();
 
-  fireEvent.mouseEnter(screen.getByTestId("sessions-filter-section-sort"));
+  pointer(screen.getByTestId("sessions-filter-section-sort"), "pointerover", {
+    y: 0,
+  });
   expect(screen.queryByTestId("sessions-filter-group-tag")).toBeNull();
   expect(screen.getByTestId("sessions-filter-sort-title")).toBeInTheDocument();
 });

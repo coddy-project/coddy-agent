@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Universal pre-commit gate: run the tests and the linter before every commit.
+# Universal pre-commit gate: run the linter (and Prettier over the staged SPA
+# sources) before every commit.
 #
 # Enable once per clone:   make hooks     (or: git config core.hooksPath .githooks)
 # Emergency bypass:        git commit --no-verify
@@ -19,6 +20,7 @@ while IFS= read -r -d '' f; do
   case "$f" in
     *.go | go.mod | go.sum | Makefile | \
     external/ui/src/* | external/ui/package.json | external/ui/package-lock.json | external/ui/tsconfig.json | \
+    external/ui/*.ts | external/ui/*.mjs | \
     features/* | scripts/checks.sh | .githooks/pre-commit)
       code_changed=1 ;;
   esac

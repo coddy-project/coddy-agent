@@ -3,3 +3,9 @@
 # hold but CI never sees belong here — anything else hides real code.
 .venv/
 examples/.venv/
+# semgrep honors .gitignore only where git works, and the docker fallback of
+# scripts/security-scan.sh mounts the checkout alone: in a git worktree, whose
+# .git points outside the mount, it would walk the SPA's dependencies and the
+# Go module cache govulncheck keeps under dist/security/.cache.
+node_modules/
+dist/
