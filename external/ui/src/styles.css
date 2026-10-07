@@ -3950,7 +3950,8 @@ a.rail-brand {
   border-radius: inherit;
 }
 
-/* Verified shared files render as compact cubes in assistant answers. */
+/* Verified shared files render as compact cubes in assistant answers
+   (DESIGN.md, Shared file cards). */
 .tool-artifacts {
   display: flex;
   flex-wrap: wrap;
@@ -3960,14 +3961,21 @@ a.rail-brand {
 }
 
 .tool-artifact-card {
+  /* The badge's numbers place the actions trigger too, so the two stay level
+     and mirror each other across the card whatever size either takes. */
+  --artifact-badge-inset: 10px;
+  --artifact-badge-size: 28px;
+  --artifact-trigger-size: 28px;
   position: relative;
   display: grid;
   grid-template-rows: 1fr auto;
-  width: 168px;
-  height: 176px;
+  width: 134px;
+  height: 140px;
   box-sizing: border-box;
+  /* Clips a thumbnail to the corners; the actions menu is portalled out of
+     the card for that reason. */
   overflow: hidden;
-  padding: 14px;
+  padding: 12px;
   border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
   border-radius: 12px;
   background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
@@ -4019,6 +4027,14 @@ a.rail-brand {
   margin: 12px 0 16px;
 }
 
+/* The 16px are for the paragraph after the cards. The answer's foot keeps its
+   own margin, and both together stood it twice as far from the cards as from
+   a paragraph. */
+.inline-artifacts:last-child,
+.inline-artifacts:has(+ .msg-assistant-foot) {
+  margin-bottom: 0;
+}
+
 .inline-artifact-card {
   display: grid;
 }
@@ -4036,12 +4052,12 @@ a.rail-brand {
 .inline-artifact-card .tool-artifact-info { padding-top: 22px; }
 .inline-artifact-extension {
   position: absolute;
-  top: 9px;
-  left: 10px;
+  top: var(--artifact-badge-inset);
+  left: var(--artifact-badge-inset);
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: var(--artifact-badge-size);
+  height: var(--artifact-badge-size);
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--accent) 46%, var(--coddy-blend-base));
   border-radius: 6px;
@@ -4057,21 +4073,55 @@ a.rail-brand {
 .inline-artifact-thumb { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; }
 .inline-artifact-card:has(.inline-artifact-image) .tool-artifact-info { position: relative; z-index: 1; padding: 32px 0 0; pointer-events: none; text-shadow: 0 1px 2px #000; }
 .inline-artifact-card:has(.inline-artifact-image) .tool-artifact-meta { padding: 4px; margin: 0 -4px -4px; border-radius: 5px; background: color-mix(in srgb, #000 56%, transparent); }
-.inline-artifact-menu-trigger { position: absolute; z-index: 2; top: 5px; right: 5px; width: 24px; height: 24px; border: 0; border-radius: 6px; background: color-mix(in srgb, var(--bg) 74%, transparent); color: var(--text); cursor: pointer; opacity: 0; }
-.inline-artifact-menu-trigger:focus-visible, .inline-artifact-menu-trigger[aria-expanded="true"] { opacity: 1; }
-.inline-artifact-menu { position: absolute; z-index: 1000; top: calc(100% + 4px); right: 0; display: grid; min-width: 180px; padding: 4px; border: 1px solid var(--coddy-glass-panel-border); border-radius: 10px; background: var(--coddy-tip-bg); box-shadow: var(--coddy-tip-shadow); }
-.inline-artifact-menu button { padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; font: inherit; font-size: 12px; }
+/* The badge mirrored across the card: level with it and as far from the right
+   edge as the badge is from the left, centred on the badge's box when the
+   trigger is larger (a phone's touch target). The dots are an svg centred in
+   its viewBox; the "⋮" glyph sat wherever the platform's font put its ink. */
+.inline-artifact-menu-trigger {
+  position: absolute;
+  z-index: 2;
+  top: calc(var(--artifact-badge-inset) + (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2);
+  right: calc(var(--artifact-badge-inset) + (var(--artifact-badge-size) - var(--artifact-trigger-size)) / 2);
+  display: grid;
+  place-items: center;
+  width: var(--artifact-trigger-size);
+  height: var(--artifact-trigger-size);
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 74%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+}
+.tool-artifact-card:hover .inline-artifact-menu-trigger,
+.tool-artifact-card:focus-within .inline-artifact-menu-trigger,
+.inline-artifact-menu-trigger:focus-visible,
+.inline-artifact-menu-trigger[aria-expanded="true"] {
+  opacity: 1;
+}
+/* A screen without hover would never show it. */
+@media (hover: none) {
+  .inline-artifact-menu-trigger {
+    opacity: 1;
+  }
+}
+/* Portalled to the document and placed from the trigger
+   (placeArtifactMenu in ToolArtifactCards.tsx): the card clips what overflows
+   it, and a menu inside it was never seen. */
+.inline-artifact-menu { position: fixed; z-index: 1000; display: grid; min-width: 180px; max-width: calc(100vw - 16px); box-sizing: border-box; padding: 4px; border: 1px solid var(--coddy-glass-panel-border); border-radius: 10px; background: var(--coddy-tip-bg); box-shadow: var(--coddy-tip-shadow); }
+.inline-artifact-menu button { padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
 .inline-artifact-menu button:hover:not(:disabled), .inline-artifact-menu button:focus-visible { background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base)); }
+.inline-artifact-menu button:disabled { opacity: 0.45; cursor: default; }
 
 @media (max-width: 599px) {
   .tool-artifact-card {
-    width: min(148px, calc(50vw - 28px));
-    height: 164px;
+    --artifact-trigger-size: 32px;
+    width: min(118px, calc(50vw - 28px));
+    height: 132px;
   }
 
   .inline-artifact-menu-trigger {
-    width: 32px;
-    height: 32px;
     opacity: 1;
   }
 }

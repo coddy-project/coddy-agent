@@ -868,7 +868,11 @@ A `read` that showed the model a picture ([Images](../features/images.md)) previ
 
 `share_file` gives the agent an explicit, permission-gated way to hand a report or other workspace file back to the operator. A successful call renders a downloadable file card under its tool row. The browser downloads an immutable copy kept in the session bundle, so the link does not follow later workspace changes; in a remote environment the same action fetches through the configured bearer-authenticated API route. A missing copy stays visible as unavailable rather than becoming a broken image or link.
 
-When a later assistant answer refers to verified shared files, their cards render inline with that answer. Adjacent file markers form one responsive row, which wraps on narrow screens and keeps a 16px gap before the next paragraph. Image artifacts show a thumbnail and open the shared image lightbox at their verified inline preview URL; non-image files keep their type tile. Every card keeps the same actions menu for download, mention, copying paths, and revealing the source on the server host.
+When a later assistant answer refers to verified shared files, their cards render inline with that answer. Adjacent file markers form one responsive row, which wraps on narrow screens and keeps a 16px gap before the next paragraph; a row that ends the answer leaves the gap above the answer's copy button and time to their own 8px. A card is 134x140px (at most 118x132px on a phone, two to a row). Image artifacts show a thumbnail and open the shared image lightbox at their verified inline preview URL; non-image files keep their type tile. Every card keeps the same actions menu for download, mention, copying paths, and revealing the source on the server host. Its **⋮** sits in the top right corner level with the extension badge in the top left, shows under the pointer, and is always shown on a phone or another screen without hover; the menu opens under it (above it near the bottom of the window), stays inside the window, follows the card while the page scrolls, and closes on a second press of **⋮**, a press elsewhere, **Escape**, or when the card scrolls out of the window. A right click on a card opens the same menu.
+
+![A shared file card inline in an answer, its actions menu open under the trigger](../assets/web-ui/shared-file-menu-open-dark-1280.png)
+
+*A shared file card inline in an answer, its actions menu open under the trigger*
 
 `spawn_agent` has a dedicated argument card: agent icon and name, optional description, a labelled timeout badge, and an inset panel for the multiline prompt. The prompt starts as a compact preview; **More…** opens a bounded, scrollable viewport and **Less** restores the preview, so a long subagent instruction does not take over the transcript. When the spawned task has a child session, the card offers **Show transcript**; the same action is below captured output on the opened background-task card. The timeout is the supplied execution limit in seconds, separate from the elapsed duration beside the tool title. The layout wraps on narrow screens and follows the active light/dark theme. Calls with truncated history arguments load the full arguments once per incomplete preview, including running calls; malformed arguments or failed fetches retain the plain argument preview. Card labels follow the active English/Russian UI locale.
 
@@ -1881,6 +1885,19 @@ CODDY_UI_URL=http://127.0.0.1:5241 npm --prefix external/ui run check:overflow
 ```
 
 The Playwright install is the one of the chevron check above. **`CODDY_BROWSER_PATH`** points the script at an installed browser (**`/usr/bin/chromium`**) instead of the one Playwright downloads, and **`CODDY_ENGINE=webkit`** runs it in WebKit. It is **not part of `make test`**: run it when a change touches the transcript's rows, the Markdown styles or the grid.
+
+### Checking the shared file cards
+
+The card of a shared file clips what overflows it (its thumbnail to its corners), so its actions menu is rendered into the document and placed from **⋮** (**`DESIGN.md`**, *Shared file cards*); while the menu was inside the card, a click on **⋮** drew nothing. Whether a menu can be seen and reached, and where a mark lands, are layout facts jsdom cannot answer. **`external/ui/scripts/artifact-card-check.mjs`** measures them in a real engine, in a wide and a narrow desktop window and on emulated phones (touch, no hover) of **390**, **360** and **320px** held upright and **844** and **568px** on their side, in both shipped languages: every card is its design size, **⋮** is level with the extension badge and mirrors it across the card, its dots are centred in it, it shows under the pointer and always on a touch screen, a click or a tap opens one menu inside the window whose every item answers the pointer at its centre and none is cut off, the menu takes the focus, a second press, a press elsewhere and **Escape** (which hands the focus back to **⋮**) close it, a right click opens it, near the bottom of the window it opens upward, it follows its card through a scroll and closes once the card has left the window, the copy button under an answer that ends with cards stands only its own margin below them, and the page never scrolls sideways. It exits non-zero on any of them.
+
+It drives **`src/artifact-card-check.html`**, a stand that mounts a row of cards inline in an answer, one under a **`share_file`** row and one ending an answer at the foot of a long page from the real components against the real stylesheet, so it needs a **`vite`** dev server and no backend.
+
+```bash
+cd external/ui && npx vite --port 5243 &
+CODDY_UI_URL=http://127.0.0.1:5243 npm --prefix external/ui run check:artifacts
+```
+
+The Playwright install is the one of the chevron check above. **`CODDY_BROWSER_PATH`** and **`CODDY_ENGINE=webkit`** (or **`firefox`**) work as in the checks above, and **`CODDY_ARTIFACT_TOLERANCE_PX`** raises the **1px** allowance. It is **not part of `make test`**: run it when a change touches the shared file cards, their menu or their styles.
 
 ## UI test scenarios
 
