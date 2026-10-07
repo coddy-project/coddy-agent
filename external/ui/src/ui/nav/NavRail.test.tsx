@@ -212,7 +212,7 @@ describe("NavRail on a relay", () => {
   // The rail splits at the spacer: what belongs to this session above it,
   // what belongs to the installation below. Swarm is the fleet, so it sits
   // with Settings.
-  it("puts swarm at the foot of the rail, above settings", () => {
+  it("puts swarm at the foot of the rail, above settings and the environment", () => {
     render(<NavRail {...base} showSwarm showScheduler />);
     const order = Array.from(
       document.querySelectorAll("[data-testid^='nav-']"),
@@ -223,6 +223,7 @@ describe("NavRail on a relay", () => {
       "nav-scheduler",
       "nav-swarm",
       "nav-settings",
+      "nav-environment",
     ]);
     const spacer = document.querySelector(".rail-spacer-between");
     const swarm = screen.getByTestId("nav-swarm");
@@ -242,7 +243,12 @@ describe("NavRail on a relay", () => {
     const order = Array.from(
       document.querySelectorAll("[data-testid^='nav-']"),
     ).map((e) => e.getAttribute("data-testid"));
-    expect(order.slice(-3)).toEqual(["nav-swarm", "nav-docs", "nav-settings"]);
+    expect(order.slice(-4)).toEqual([
+      "nav-swarm",
+      "nav-docs",
+      "nav-settings",
+      "nav-environment",
+    ]);
     const docs = screen.getByTestId("nav-docs");
     expect(docs.getAttribute("href")).toBe("#/docs");
     fireEvent.click(docs);
@@ -370,6 +376,7 @@ describe("NavRail on a phone: the More menu", () => {
       "nav-scheduler",
       "nav-docs",
       "nav-settings",
+      "nav-environment",
       "nav-sign-out",
     ]);
     expect(screen.queryByTestId("nav-more")).toBeNull();
@@ -377,13 +384,14 @@ describe("NavRail on a phone: the More menu", () => {
 
   it("folds what does not fit behind More, sign-out last under a separator", () => {
     signIn();
-    // 220 - 60 for the brand = 160: four 40px slots, one of them the More button.
+    // 220 - 60 for the brand = 160: four 40px slots, one of them the More
+    // button and one the environment, which never folds.
     stubLayout({ stacked: true, pill: 220 });
     render(<NavRail {...base} onOpenDocs={() => {}} />);
     expect(barIds()).toEqual([
       "nav-history",
-      "nav-scheduler",
       "nav-settings",
+      "nav-environment",
       "nav-more",
     ]);
     const more = screen.getByTestId("nav-more");
@@ -398,7 +406,12 @@ describe("NavRail on a phone: the More menu", () => {
     const rows = Array.from(menu.children).map(
       (e) => e.getAttribute("data-testid") ?? e.getAttribute("role"),
     );
-    expect(rows).toEqual(["nav-more-docs", "separator", "nav-more-sign-out"]);
+    expect(rows).toEqual([
+      "nav-more-docs",
+      "nav-more-scheduler",
+      "separator",
+      "nav-more-sign-out",
+    ]);
     expect(screen.getByTestId("nav-more-docs")).toHaveAttribute(
       "href",
       "#/docs",
@@ -414,11 +427,11 @@ describe("NavRail on a phone: the More menu", () => {
     );
   });
 
-  it("with less room settings stays and the rest folds, history never does", () => {
+  it("with less room the rest folds, history and the environment never do", () => {
     stubLayout({ stacked: true, pill: 140 });
     render(<NavRail {...base} onOpenDocs={() => {}} />);
-    // 80px: two slots, one for More.
-    expect(barIds()).toEqual(["nav-history", "nav-more"]);
+    // 80px: two slots, and still history, the environment and More.
+    expect(barIds()).toEqual(["nav-history", "nav-environment", "nav-more"]);
     fireEvent.click(screen.getByTestId("nav-more"));
     expect(
       Array.from(
@@ -504,6 +517,7 @@ describe("NavRail on a phone: the More menu", () => {
       "nav-scheduler",
       "nav-docs",
       "nav-settings",
+      "nav-environment",
       "nav-sign-out",
     ]);
     expect(screen.queryByTestId("nav-more")).toBeNull();

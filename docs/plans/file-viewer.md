@@ -1,7 +1,8 @@
 # Plan: workspace file viewer panel
 
-Status: design record written 2026-09-08 on branch `claude/rpa-file-viewer-ui-2bf4d3`,
-not implemented. Cross-reviewed by Codex (`gpt-5.6-sol`), Cursor Agent (`auto`) and
+Status: stages 1–5 implemented on 2026-10-06, with the operator-approved PDF
+download fallback. The original design record was written 2026-09-08 on branch
+`claude/rpa-file-viewer-ui-2bf4d3`. Cross-reviewed by Codex (`gpt-5.6-sol`), Cursor Agent (`auto`) and
 Coddy (`neuraldeep/qwen3.8-27b`); every finding was re-verified against the code
 before being accepted or rejected, and section 2 records the ones that did not hold.
 
@@ -327,3 +328,140 @@ SPA at a second `coddy http` and asserts an image actually renders.
 - PDF: accept the cross-browser sandbox spike, or ship PDF as download-only?
 - Separate untrusted-content origin: accept the deployment cost for the stronger boundary, or
   stay with forced attachment plus regression tests?
+
+## 13. Implementation decisions and verification
+
+Stages 1–3 use session-scoped tree/raw/text/media-token endpoints, `os.Root`,
+nonblocking Unix opens and post-open regular-file checks. The line API fixes offset
+at zero-based and the displayed line at one-based. ETags are weak metadata validators;
+reading checks the current pathname too, so an atomic replacement cannot silently
+continue a previous page. Capabilities also bind the workspace, covering the empty
+session's workspace-change window. The configured auth credential provides a stable,
+domain-separated signing key across restarts and replicas.
+
+The shared dock has Tasks, Changed files and Files routes, focus return and Escape.
+The image byte reader is reused for remote session assets. Relative Markdown images
+use it with an explicit raster MIME allowlist; external images remain click-to-load.
+
+Stage 4 uses native audio/video controls with scoped URLs and ranges. A sandboxed
+native PDF iframe was probed in Chromium, Firefox and WebKit. The sandbox did not
+yield a usable portable viewer (Chromium returns an error frame; WebKit refuses the
+sandboxed download; Firefox has no usable frame). The operator accepted safe download
+on 2026-10-05, so the product keeps PDF download-only and does not relax sandbox flags.
+
+Stage 5 reuses the existing chat renderers. The earlier single-file build assumption
+in section 9 is historical: Mermaid, KaTeX and their dependencies already ship as
+lazy hashed embedded chunks. Adding Temml would introduce a second math renderer;
+retaining KaTeX adds **zero** renderer/font assets for Files and preserves chat output.
+The production build measured the KaTeX chunk at **258925 bytes**, **76782 bytes gzip**
+(Node's default gzip level), and all its WOFF2 fonts at **256168 bytes**. A plain chat
+requested no `/chunks/` assets. A Markdown fixture with a flowchart and formula loaded
+the appropriate chunks and fonts only on opening it. These are measurements of emitted
+files, not npm package sizes; the server itself does not enable compression.
+
+Happy paths are executable in `features/workspace_viewer.feature`. Unit tests cover
+large streaming text, encoding boundaries, ETag drift, HEAD/Range/416, MIME mismatch,
+capability mutation/expiry/session/workspace binding, typed bounded image bytes and
+shared URL lifetime. Browser checks use isolated fixtures at 390px and 1280px in
+Chromium, Firefox and WebKit, local and authenticated remote mode with a path prefix.
+The transcript overflow stand is checked across every layout-grid width. Stage 6
+(semantic navigation) remains outside this implementation.
+
+## 14. Revision: view buttons and a Files window (2026-10-06)
+
+The operator's review of the first build turned down two of its shapes, and the decision
+recorded here replaces §8.3 where they differ.
+
+- **No tab strip in the dock.** The switcher between Tasks, Changed files and Files lived in
+  the head of every dock face, so each panel repeated it. The views of a chat are now a row of
+  buttons in the chat header, as the views of a session sit at the top of Claude's app:
+  **Edits** (the face formerly called Changed files; shown only while the session has edits),
+  Files, and Background tasks at the right edge, the dot and the running / total count the
+  header always had. Edits and Files are an 18px icon (the size of the rail's and the top bar's
+  icons) with a short name on a desktop and a tablet, the icon alone on a phone; the full name is
+  in a tooltip everywhere; the pressed one is the view on show, a second press puts it away. A
+  dropdown menu was tried first and dropped: the operator wants the views at the top, in a row,
+  one press away on any device. The dock keeps two faces, Tasks and Edits.
+- **Files is a window, not a dock face.** The tree and the preview did not fit a 520px column.
+  Files now opens over the chat in the documentation reader's frame: the tree on the left with a
+  filter over the whole workspace (the composer's `@` index, not only loaded folders), the files
+  opened from it as tabs on the right, an empty state that says where open files come from, a
+  head with the tree switch, More, Expand and close. The address stays
+  `#/s/<id>/files?path=&line=`; the window is a state of its own and leaves the dock as it was.
+  `Ctrl+Shift+F` opens and closes it.
+- **Folders first.** The tree route lists folders before files, each group by name. The cursor
+  became opaque (`d/<name>` or `f/<name>`), because a page may end inside either group.
+- **Swarm.** A native media element cannot send a header, so its signed address could not pass
+  a relay: the relay asked for its own client token and removed `access_token` before the hop.
+  The relay now carries a `GET` / `HEAD` of `/coddy/sessions/{id}/workspace/raw` with an
+  `access_token` and no bearer to the node as it came, capability in the query and no credential
+  of the relay's, and the node decides. A relay's own client token is never carried that way.
+  The relay's CORS answer, the only one a browser on another origin hears through a mount, now
+  allows `HEAD`, `Range` and `If-None-Match` and exposes `ETag`, `Content-Range`, `Accept-Ranges`
+  and `Content-Disposition`, so the Files window revalidates a file from the node's own web UI too.
+
+Checks: `features/web_ui_session_views.feature`, the folders-first scenario of
+`features/workspace_viewer.feature`, the relay scenario of `features/swarm_file_transfer.feature`,
+the CORS scenario of `features/swarm_mount.feature`,
+`external/swarm/media_capability_test.go`, and `npm run check:files` in a real browser through an
+authenticated relay at every tier of the grid, in Chromium and WebKit.
+
+## 15. Revision: the edits are what git reports (2026-10-06)
+
+The operator's next review replaced how the edits are known, and the decision recorded here
+replaces the recorded change set where they differ.
+
+- **Git only.** The workspace snapshot around every turn, its stored diffs, the session and
+  last-turn scopes, the live diff of a running turn, the snapshot-based Undo, the changed-files
+  card under the transcript with its `Ctrl+S` toggle and the `ui.session_changes` key are gone,
+  with no compatibility kept. The Edits view is git's report of the session's folder: tracked
+  files that differ from `HEAD`, staged or not, and new files git does not ignore, whoever made
+  them. A folder in no repository has no edits, and git's count on the plate over the composer
+  shows only while git reports changes.
+- **Git without the binary.** `internal/gitws` drives the `git` binary when it is on PATH and
+  answers through a built-in implementation on go-git (`v5.19.2`, the newest that keeps the
+  module on Go 1.25) when it is not, per call. The built-in one detects no renames and cannot
+  open a linked worktree, which it refuses by name (`ErrNeedsGitBinary`). A repository nested
+  in the folder stays one entry in both, as git lists it.
+- **Discarding.** The Edits views can discard uncommitted changes, one file or all of them,
+  after a question: `POST /coddy/sessions/{id}/changes/revert` takes `{"paths":[...]}` or
+  `{"all":true}`, never an empty body, refuses a path git does not report before touching
+  anything, puts tracked files back at `HEAD` with their index entries, deletes the new ones
+  and leaves ignored files alone. A commit is not offered.
+- **No Edits dock, no Edits button.** The dock beside the chat holds the background tasks only,
+  and the chat header has Files and Background tasks. The edits have one view, the window with
+  every diff (the former review window), opened by git's count on the plate over the composer,
+  with `#/s/<id>/changes` as its address; discarding a file or everything happens there.
+- **The plate over the composer.** Once a chat runs, the folder, branch and worktree chips leave
+  the composer for a plate over it, after Claude's app: the repository, the branch (in a linked
+  worktree a worktree mark in place of the branch icon) and, at its right edge, git's `+A −D`,
+  which opens the edits. The plate is cut like a queued message and joined to the top edge of
+  the composer card, whose top corners are squared to meet it; the count is a plain button whose
+  background lightens on hover, with no outline. The composer keeps its environment chip; the
+  start screen keeps the chips and the worktree checkbox, a choice still to make. The
+  composer's Files chip went too: the header has Files.
+- **The pressed look and the open file.** A pressed view button brightens like a
+  pointed-at one instead of taking the accent, which stays the mark of running tasks. An
+  open file is its body alone: no head with the name the tab already shows, no size or
+  time, no line field, and Markdown is its source rather than a rendering with a switch, so
+  the window loads and runs nothing a workspace file names.
+- **One plate, the environment in the rail.** The composer card has no chip row. Before the
+  first message the plate over it offers the folder and the branch as picks and the worktree
+  as a checkbox (the last two only in git), with no git count until a session exists; once the
+  chat runs the plate names the repository and the branch with git's count, and a chat in a
+  folder outside git has no plate. The improve-prompt wand stands in the field's top right
+  corner, so the placeholder starts at the top, and the count above ends on its right edge.
+  On a phone or a touch screen the picks are 36px tall and the count keeps its slim look
+  under an invisible 40px hit area. The environment left
+  the composer for the foot of the nav rail: a laptop for this server, two chevrons for a
+  remote host, the menu beside the rail.
+- **What the start screen remembers.** Only what the operator picked, in cookies of this
+  browser: the folder (one per environment) and the worktree checkbox (one for every folder
+  with git). A chat left for the start screen hands nothing over, its linked worktree
+  included, and the branch is the one the folder is on now, read again on arrival and on the
+  page's focus.
+
+Checks: `internal/gitws/backend_test.go` (every scenario with the binary and with it hidden),
+`features/session_changes.feature`, `external/httpserver/coddy_changes_test.go`,
+`changes/workingCopy.test.tsx`, `chat/WorkspaceBar.test.tsx`, and `npm run check:files`, which
+discards an edit through an authenticated relay.

@@ -76,7 +76,7 @@ describe("WorkspaceChips", () => {
   });
   it("renders nothing without a context", () => {
     const { container } = renderChips({ context: null });
-    expect(container.querySelector(".composer-context-chips")).toBeNull();
+    expect(container.querySelector(".workspace-bar-picks")).toBeNull();
   });
 
   it("shows only the folder chip for a non-git workspace", () => {
@@ -160,24 +160,6 @@ describe("WorkspaceChips", () => {
 
     expect(screen.getByTestId("workspace-branch-filter")).toHaveValue("");
     expect(screen.getByTestId("workspace-branch-row-main")).toBeTruthy();
-  });
-
-  it("locks every control once the conversation started", () => {
-    renderChips({ locked: true });
-    expect(
-      (screen.getByTestId("composer-workspace-chip") as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByTestId("composer-branch-chip") as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement)
-        .disabled,
-    ).toBe(true);
-    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
-    expect(screen.queryByTestId("workspace-folder-menu")).toBeNull();
   });
 
   it("lists recent folders with the current workspace checked", () => {

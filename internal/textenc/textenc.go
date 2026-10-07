@@ -331,6 +331,17 @@ func isBinary(data []byte) bool {
 	return bytes.IndexByte(data, 0) >= 0
 }
 
+// LooksBinary reports whether the content reads as binary rather than text, so
+// a caller with a legacy fallback of its own can tell "not text at all" from
+// "text in an encoding nobody could name". It answers for the bytes as they
+// stand: content with a byte-order mark is text, whatever follows the mark.
+func LooksBinary(data []byte) bool {
+	if _, _, ok := decodeBOM(data); ok {
+		return false
+	}
+	return isBinary(data)
+}
+
 // looksLikeUTF16 reports whether the bytes carry the interleaved pattern of
 // BOM-less UTF-16: one of the two byte positions holds the code point's high
 // byte, which for ordinary text is a control byte - 0x00 for Latin, 0x04 for

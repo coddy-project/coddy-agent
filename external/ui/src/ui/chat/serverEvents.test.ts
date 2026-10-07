@@ -216,6 +216,37 @@ test("a message_queue frame reaches its handler with the session and the version
   ]);
 });
 
+// The Edits views read the folder again when this says its changes were
+// discarded, from this window or another.
+test("a session_changes frame reaches its handler with the session", async () => {
+  const settled: string[] = [];
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: ready\ndata: {"object":"coddy.events_ready"}\n\n` +
+        `event: session_changes\ndata: ${JSON.stringify({
+          object: "coddy.session_changes",
+          sessionId: "sess_c",
+          at: "2026-09-27T12:00:00Z",
+        })}\n\n`,
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onSessionChanges: (sid) => {
+      settled.push(sid);
+      ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(settled).toEqual(["sess_c"]);
+});
+
 test("a config reload tells the client to re-read what the config decides", async () => {
   let reloads = 0;
   const ctl = new AbortController();

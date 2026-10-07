@@ -180,7 +180,7 @@ Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api
 
 ## Environment (local / remote server)
 
-- **Workspace-row chip:** an environment selector sits in the composer workspace-context row above the input, next to the folder / branch / worktree chips (**`EnvironmentChip.tsx`**, rendered inside **`.composer-context-row`**, styled as a **`.workspace-chip--env`**, **`data-testid="composer-env-btn"`**), Claude-Code style — **not** in Settings. The chip shows **`Local`** or the remote's name. It opens a portal menu (**`data-testid="composer-env-menu"`**, mode-menu family; bottom sheet on mobile) with an **Environment** section (**Local**) and a **Remote** section (configured remotes + **`Connect to…`**). The menu hangs from the chip's left edge and stays inside the window: in the swarm header of a relay the chip is the last control on the right. It is as tall as the room between the chip and the window's edge and scrolls past it, since a relay's agents and the hints under a remote that cannot be used can outgrow the window.
+- **Rail item:** the environment is an item of the nav rail (**`nav/EnvironmentSwitcher.tsx`**, **`data-testid="nav-environment"`**) at its foot, below Settings and above **Sign out** when there is one, the last item otherwise; the composer has no environment chip. Its icon is the host - a laptop for this browser's own server, two chevrons pointing at each other, one a little above the other, for another host - with the active environment's dot on its corner; the tooltip reads **`Environment: Local`** or the remote's name, and the wide rail shows the name beside the icon. On the top bar of a tablet or a phone it is one of the icons and never folds behind **More**. It opens a portal menu (**`data-testid="env-menu"`**, mode-menu family; a bottom sheet on the stacked shell) with an **Environment** section (**Local**) and a **Remote** section (configured remotes + **`Connect to…`**). On the desktop the menu opens beside the rail with its foot level with the item's, grows upward and stays inside the window; it is as tall as the room above the item's foot and scrolls past it, since a relay's agents and the hints under a remote that cannot be used can outgrow the window. The menu with every kind of remote is shown in [Remote mode](../operate/remote.md#the-environment-menu).
 - **Select = connect:** choosing **Local** or a remote connects **immediately** (no confirm step); there is no per-select token prompt. Between two remotes the app starts over on the new one in place, without reloading the page (**`EnvScope`**, **`onEnvironmentSwitch`**); to or from Local the page reloads. A **bearer token** comes from the remote's `httpserver.remotes` entry when it carries one, else it is entered in **`Connect to…`** (name / URL / token) and remembered per-remote in the browser. A remote that refuses its token and has none in the configuration offers **Enter token**, which opens that form filled in for it.
 - **Where each environment was left:** switching the environment starts the app over, so the route is remembered per environment (**`coddy_env_routes`**): back on Local the app opens the conversation Local was left in, a remote opens where it was left or at its home, and a relay's map never follows the app to a plain agent.
 - **Reachability dots:** each remote is probed on menu open (**`env/remoteProbe.ts`**) - **green** when it answers and accepts the token, **red** when it does not, **amber** while probing; **Local** is always green. A red remote says why on a line under it: it does not answer, it refuses the token (an agent's **`httpserver.auth_token`**, a relay's **`swarm.auth_token`**), or the browser keeps its answer from the page, which is how a CORS setting that leaves this origin out looks from a browser (the line names the origin and the two keys, and, when the page itself is on a loopback address - the laptop's own `coddy serve` - the `allow_loopback` toggle that admits it on any port, **`isLoopbackOrigin`** in **`env/loopbackOrigin.ts`**). An agent is asked for **`GET /v1/models`**; a relay, which serves no **`/v1`**, is recognised by its public **`GET /swarm/info`** and its token is checked on **`GET /swarm/nodes`**, and a no-CORS request tells a remote that answers from one that does not.
@@ -206,7 +206,7 @@ Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api
 
 ![A chat on the mobile shell](../assets/screenshot-mobile-chat.png)
 
-*A chat on a phone: both chip rows of the composer are one line and scroll sideways, Send stays in place*
+*A chat on a phone: the plate over the composer with git's count as a pill, the selector chips one line, Send in place*
 
 Desktop layout
 
@@ -237,8 +237,8 @@ The shell has four tiers by the width of the window: a **phone** up to **599px**
 
 *A chat at 375 px: the MCP tool row wraps its label and moves its target and duration under it, and the long link in the answer breaks instead of widening the page.*
 
-- **Top bar.** The brand drops its second word and shows **Coddy** alone, the icons are **40px** with a **4px** gap and keep to the right edge. What does not fit next to the brand folds behind a **More** button (three dots): **History** and **Swarm** always stay in the bar, the others come back as room grows in the order **Settings**, **Scheduler**, **Docs**, **Sign out**, and the menu lists the folded ones as **Docs**, **Scheduler**, **Settings** and, under a separator, **Sign out**. A pick, **Escape** or a press outside closes it; the button is highlighted while a folded panel is open. With 40px icons five items fit from about 290px, so on most phones the menu only appears on a relay or a very narrow screen. The split is **`nav/navOverflow.ts`**, measured by **`NavRail`** on the stacked shell only.
-- **Composer, context row.** The environment, folder, branch and worktree chips sit in their own strip, **`.composer-context-scroll`**, which is **`display: contents`** on wider shells (the row wraps as it always did) and a one-line strip scrolling sideways on a phone. The improve-prompt button stays outside the strip, at the end of the row.
+- **Top bar.** The brand drops its second word and shows **Coddy** alone, the icons are **40px** with a **4px** gap and keep to the right edge. What does not fit next to the brand folds behind a **More** button (three dots): **History**, **Swarm** and the environment always stay in the bar, the others come back as room grows in the order **Settings**, **Scheduler**, **Docs**, **Sign out**, and the menu lists the folded ones as **Docs**, **Scheduler**, **Settings** and, under a separator, **Sign out**. A pick, **Escape** or a press outside closes it; the button is highlighted while a folded panel is open. With 40px icons five items fit from about 290px, so on most phones the menu only appears on a relay or a very narrow screen. The split is **`nav/navOverflow.ts`**, measured by **`NavRail`** on the stacked shell only.
+- **Composer, plate.** The composer card has no chip row: the workspace is on the plate over it, one line whose folder and branch shrink with an ellipsis. On a phone and on any touch screen the plate's picks and the worktree checkbox are **36px** tall, and git's count keeps its slim framed look with an invisible **40px** hit area over it, so a finger can hit them; the improve-prompt wand stands in the field's top right corner.
 - **Composer, selector chips.** The attach button of a multimodal model, then mode, model, reasoning and permission (this order on every width) form one strip that scrolls sideways under a fade at its right edge; the context ring and **Send** never shrink, so no chip is ever drawn under them. A long model name ends in an ellipsis.
 - **Start screen.** The hero is one grid track that cannot grow past its container (**`grid-template-columns: minmax(0, 1fr)`**), so the page never scrolls sideways and the title stays centred.
 - **Transcript.** On the stacked shell the transcript is the page, so a row wider than it scrolled the whole page sideways - a tool row named after an MCP tool did it by 400px on a 360px phone, and so did a long link or identifier in an answer. Nothing in the transcript is wider than it now, at every width: a tool row whose label leaves no room on its line moves the target, the failure marker and the duration under it together, a label longer than the row wraps inside it, and prose, links and inline code break where they have to, while tables and code blocks keep their width and scroll in their own box. Tool rows stay folded until tapped.
@@ -369,7 +369,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **Use auto-detected** appears whenever the key is present and removes it, so the next save omits **`reasoning_levels`** and detection resumes. Removing the last level by hand is the way to reach the **`[]`** opt-out on purpose.
 - The **`[]`** opt-out and the auto-detect default survive a Settings save in both directions: **`ModelEntry.ReasoningLevels`** and **`ModelJSON.ReasoningLevels`** are **`*[]string`**, so an omitted key stays omitted in the written **`config.yaml`** instead of being serialized as **`reasoning_levels: []`**.
 
-### Per-session workspace (folder / branch / worktree chips)
+### Per-session workspace (folder / branch / worktree)
 
 ![The Open folder dialog with New folder and Show hidden on the left of the footer](../assets/ui-folder-picker/folder-picker-after-dark-1280.png)
 
@@ -383,17 +383,18 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 *The Open folder dialog on a phone, opened where History opens*
 
-- A chip row renders at the top of the composer card (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**): **folder chip** (main project basename and path for a worktree, otherwise the current folder), **branch chip** (current git branch; only when the workspace is a git repository), and a **worktree checkbox**. The session cwd remains inside its worktree.
-- **Wrapping**: the chips share one **`flex-wrap`** row (**`.composer-context-row`**) with the environment chip and the improve-prompt control; **`.composer-context-chips`** is **`display: contents`** so each chip wraps on its own. On a narrow viewport only the overflow moves down (e.g. environment+folder, then branch+worktree), and the worktree checkbox stays beside the branch until the branch name is long enough to push it.
+- Before the first message the folder, the branch and the worktree are **picks on the plate over the composer** (**`WorkspaceChips.tsx`** inside the plate's pick mode, helpers in **`chat/workspaceContext.ts`**): the **folder** (main project basename and path for a worktree, otherwise the current folder), the **branch** (current git branch) and a **worktree checkbox**, the last two only when the workspace is a git repository. The composer card itself has no chip row, so the field starts at its top. The session cwd remains inside its worktree.
+- **One line**: the picks are the plate's own items; the folder and the branch shrink with an ellipsis, a lighter ground marks a pick on hover and while its menu is open, and there is no git count before a session. On a phone and on a touch screen the picks and the checkbox are **36px** tall, and git's count keeps its slim look with an invisible **40px** hit area over it, so a finger can hit them.
 - Context loads from **`GET /coddy/workspace/context`** with **`X-Coddy-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
+- **What the start screen remembers**: the folder last picked for a new chat, in this browser (cookie **`coddy_workspace_dir`**, one per environment), else the server's default folder, and the worktree checkbox (cookie **`coddy_worktree`**), one choice for every folder with git. A chat left for the start screen hands it nothing of its own: not its folder, not its linked worktree, not its branch. The branch shown is the one the folder is on now, read again when the start screen opens and when the page gets the focus back, so a `git switch` in a terminal shows; it can be changed there for the new chat.
 - **A new chat follows the folder it picked**: before the first message there is no session, and the pick is kept in **`App.tsx`** (**`pendingWorkspaceRef`**, mirrored in the **`pendingWorkspacePath`** state) and applied on the first send. Everything the composer lists while you type is asked for that folder: every cwd-scoped request (**`/coddy/slash-commands`**, **`/coddy/mentions`**, **`POST /coddy/mentions/check`**, **`/coddy/workspace/file`**) carries **`cwd=<folder>`** next to **`X-Coddy-Session-ID`** (helper **`chat/workspaceScope.ts`**), so the **`/`** menu lists that folder's **`.coddy/skills`**, **`@agent:`** its subagents and **`@`** its files. The known skill names that mark a **`/name`** as a skill in the composer and in the transcript follow the same folder: another pick drops them at once and asks again, and an answer for a folder left since is discarded; a slower preview of an earlier pick never paints over a later one. Settings → Skills and Subagents list the same folder.
-- **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the chips lock (**`workspaceLocked`** — controls disabled, menus closed) and the server answers **409** to **`POST .../workspace`**, and a turn already in flight answers **409** as well.
-- **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`coddy_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, a local filter field for a long recent list, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /coddy/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. The folder list is the dialog's only scrollport: it is the one child allowed to shrink (**`min-height: 0`**), so **Cancel** / **Open** stay reachable on a short browser window instead of being clipped by the dialog's height cap, and a wheel gesture past the last folder stays in the list instead of scrolling the page behind it. Verified in WebKit with **`external/ui/scripts/webkit-scroll-check.mjs`** (see below).
+- **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages (**`workspaceLocked`**) the picks give way to [the plate of a running chat](#the-plate-over-the-composer), which names where the chat works; the server answers **409** to **`POST .../workspace`**, and a turn already in flight answers **409** as well.
+- **The folder pick** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`coddy_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, a local filter field for a long recent list, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /coddy/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. The folder list is the dialog's only scrollport: it is the one child allowed to shrink (**`min-height: 0`**), so **Cancel** / **Open** stay reachable on a short browser window instead of being clipped by the dialog's height cap, and a wheel gesture past the last folder stays in the list instead of scrolling the page behind it. Verified in WebKit with **`external/ui/scripts/webkit-scroll-check.mjs`** (see below).
 - **Size**: a centred card 560px wide (less on a narrow window) from the tablet width up; on a phone it opens where History opens, as the same glass panel under the top bar, so the folder list gets the full height of the screen. The head is drawn like the heads of History and the Scheduler, and the field, the rows and the buttons use the app's font.
 - **Links to folders**: a directory symlink in the list carries an arrow on its folder icon and its target after the name (**`→ /path/to/target`**), so a link does not read as an ordinary folder; clicking it browses the link's path.
 - **New folder** (the square **+** at the left of the footer, on the colours of the Scheduler's add button, with the **Show hidden** switch right after it; **Cancel** / **Open** sit on the right) opens an inline name row **between the path field and the list** - a sibling of the list, not a row inside it, so it never scrolls away under you and it stays whole on a short window where the list itself has shrunk to nothing. **Enter** or **Create folder** posts **`POST /coddy/workspace/folders`** **`{"path": <browsed folder>, "name"}`**; the dialog then shows the listing the server answers with, which is the **new folder**, so **Open** picks it straight away. **Escape** or the row's **×** abandons it; with no row open, **Escape** closes the dialog as **Cancel** does. The button is disabled on the drive level (there is no directory to create in) and while the row is already open; **Create folder** stays disabled until a name is typed. A name that is already taken (**409**) keeps the row open with the typed text and says so, and so does any other failure - nothing is created and the browsed folder does not change.
 - **Leaving the drive (Windows)** — **`..`** from a drive root opens the **drive level** (**`?path=:drives:`**, **`drives:true`** in the response): one row per volume (**`C:`**, **`D:`**, …), no **`..`** above it, and **Open** disabled because it is a place to navigate, not a workspace. The **path row is an editable field** (**`workspace-modal-path`**): typing or pasting a path and pressing **Enter** jumps there, surrounding quotes from Explorer's *Copy as path* are stripped (**`cleanPathInput`**), and while the field holds an unvisited path the primary button reads **Go** instead of **Open**, so a pasted path is never mistaken for the folder being opened. The browser starts at **`pathParent(ctx.path)`**, which keeps the current drive (it used to collapse Windows paths to **`/`**). Picking calls **`POST /coddy/sessions/{id}/workspace`** **`{"path"}`** — the session cwd switches and persists; skills, project rules, slash commands, configured MCP servers (re-dialed for the new workspace through its trust gate, the old workspace's closed) and the SessionStart hook context re-derive from the new cwd.
-- **Branch chip** opens the branch list (current first, marked selected) with a local filter for long lists. Picking one posts **`{"branch", "worktree": <checkbox>}`**: in-place checkout by default, or a dedicated feature worktree under **`<repo>/.coddy/worktrees/<branch>/`** when the checkbox is on. Worktree creation fetches `origin`, starts a new branch from the fresh `origin/HEAD` default and refuses the default branch or one tracking it. Without the checkbox, selecting a branch already checked out in another worktree jumps there (including back to the main checkout).
+- **The branch pick** opens the branch list (current first, marked selected) with a local filter for long lists. Picking one posts **`{"branch", "worktree": <checkbox>}`**: in-place checkout by default, or a dedicated feature worktree under **`<repo>/.coddy/worktrees/<branch>/`** when the checkbox is on. Worktree creation fetches `origin`, starts a new branch from the fresh `origin/HEAD` default and refuses the default branch or one tracking it. Without the checkbox, selecting a branch already checked out in another worktree jumps there (including back to the main checkout).
 - **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
 - **History folder grouping** uses the main checkout path returned as `repoRoot` on each git session row. A conversation in `main` and conversations in its worktrees appear under one project heading, while each session keeps its own cwd. See [Git worktrees](../features/worktrees.md).
 - **Pre-session (draft/home)**: picks are stored client-side, previewed via **`GET /coddy/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Returning from a project conversation to the start screen keeps that conversation's folder as the next-chat preview; switching to another session drops pending picks.
@@ -570,9 +571,9 @@ Scrolling up in a long chat leaves the newest messages off screen, and dragging 
 
 ## Composer primary action (`#btn-send`)
 
-![The improve-prompt wand at the right end of the composer's chip row](../assets/composer-improve-prompt-dark-1280.png)
+![The improve-prompt wand in the top right corner of the composer's field](../assets/composer-improve-prompt-dark-1280.png)
 
-*The improve-prompt wand at the right end of the composer's chip row, lit while the draft has text*
+*The improve-prompt wand in the field's top right corner, lit while the draft has text*
 
 Context ring and breakdown popover
 
@@ -594,7 +595,7 @@ Behavior
 - **Enter** submits when idle and queues the draft while the session has an active turn, on every device with a keyboard, a desktop window narrower than **1200px** included; **`Shift+Enter`** inserts a newline. **`Ctrl+Enter`** or **`Alt+Enter`** inserts a newline too, except on a line containing only **`````**, where it opens an empty fenced code block and puts the caret inside its monospace field; arrow keys naturally leave the block through its line boundary. What Enter does follows the input device, not the width: on a **touch-only** device (**`(any-hover: none) and (any-pointer: coarse)`**, a phone) Return inserts a newline and the primary button sends or queues, because a phone keyboard has no Shift+Enter; **`Cmd+Enter`** still sends from an attached keyboard. The textarea's **`enterkeyhint`** says the same to the on-screen keyboard (**`send`**, or **`enter`** on a touch-only device). Enter that confirms an input-method candidate (**`isComposing`**, **`keyCode` 229**) never sends. The rule is **`chat/composerEnter.ts`**. No key the input method is composing with reaches the rest of the composer either (the check opens the textarea's **`onKeyDown`** in **`Composer.tsx`**): the slash, **`@`**, command option and line-range pickers take no row, move no highlight and do not close on it, and Ctrl+Z does not restore the draft from before Improve prompt. A keydown counts as composing when it carries **`isComposing`**, or when it is a **`keyCode` 229** keydown within 100 ms of **`compositionend`**, the key Safari sends after ending a composition. Any other 229, which Android keyboards send for ordinary keys, works the pickers as an ordinary key, while the send rule above still declines an Enter that carries it.
 - **Stop** sends **`POST /coddy/sessions/{id}/cancel`** and aborts the tab's own reader at once, so the request does not wait for a connection that reader holds. Failure remains visible and retryable, and the tab rejoins the running turn; acknowledgement alone does not mark the turn idle. Partial assistant persistence and transcript merging follow [Parallel sessions and generation cancel](#parallel-sessions-and-generation-cancel).
 - **A send the server never took** comes back to the composer: the text, ahead of anything typed since, and the attached files. That covers a refusal by status (**409** busy, a **4xx** or **5xx**), a request that failed on the way (a dropped upload, a refused connection) and an attachment the browser could not read (a file moved or changed on disk after it was picked, a cloud photo not on the device), in which case nothing is sent. The optimistic bubble leaves the transcript, and a red notice says why, with the browser's reason or the server's message in parentheses (`Failed to fetch`, `request body too large`), so a failure that never reached the server, and therefore left nothing in its log, can still be told apart from a stopped server. After a request that failed on the way the transcript is not read again, since that read would wipe the notice; if the server did take the turn after all, the activity refresh attaches to it and its end reloads the transcript. The rule is **`streamResponses`** in **`App.tsx`**.
-- **Improve prompt**: the compact **24×24px** wand button (**`data-testid="composer-enhance-btn"`**) lives at the **right edge** of the workspace-context row, next to the Local / folder / branch / worktree controls — not in the textarea or lower composer bar. On a phone it stays at the end of that row, outside the chip strip that scrolls sideways. It has `title` and accessible name **`Improve prompt`**, is disabled for blank drafts and while a request or generation is active, calls **`POST /coddy/enhance-prompt`**, and replaces the draft only on success. **Ctrl+Z** / **⌘Z** restores the pre-improvement draft; a failure leaves it unchanged and displays an inline error.
+- **Improve prompt**: the compact **24×24px** wand button (**`data-testid="composer-enhance-btn"`**) stands in the **top right corner of the field**, 8px under the plate's seam and 12px from the card's edge (the two read alike), so the field and its placeholder start at the top of the card, the first line level with the wand; the text keeps clear of it, and git's count on the plate above ends on its right edge. It is not in the lower composer bar. It has `title` and accessible name **`Improve prompt`**, is disabled for blank drafts and while a request or generation is active, calls **`POST /coddy/enhance-prompt`**, and replaces the draft only on success. **Ctrl+Z** / **⌘Z** restores the pre-improvement draft; a failure leaves it unchanged and displays an inline error.
 
 Regression
 
@@ -953,7 +954,7 @@ The panel is docked **inside the session**, to the right of the transcript (`.bg
 - **The card is one control and opens in place.** The opener button is stretched over the card's summary, so a click anywhere expands it and the summary tints under the pointer; Stop is a sibling above that surface and never toggles the card. The open card shows the command with a copy control (neither an agent run nor a preview server has a shell behind it, and nothing is shown there), the error unless it only repeats the exit code (`taskErrorText`), the output in a box with its own scroll, and once the task has finished a foot with the outcome and the exit code (`Failed · Exit code 2`; no exit code for an agent run or a preview server: the pool's code for them is synthetic). How long the task ran and the way into the task are the summary's and are not said again inside the card. Any number of cards are open at once, each reading its own output through the panel's `loadOutput` (again every 2.5 s while its task runs, once more when it ends); there is no detail pane. Which cards are open is the panel's state, not the address: the route is `#/s/<id>/tasks`, and a link that still names a task (`#/s/<id>/tasks/<task_id>`) or **Open in Tasks** on a transcript row opens that card through the panel's `focus` prop, after which the address drops the id. The pointer names its chat and is good for one use (`onFocusHonoured`): every session numbers its tasks from `bg_1` and the panel unmounts with the drawer, so a pointer the shell kept would open a card again on the next opening, in whichever chat is on screen.
 - **Finished N** is a counter; expanding it shows the same cards, capped at 40 rendered with a note naming what stays on disk - a card that is open is shown wherever it stands, so **Open in Tasks** on an early row of a long session does not open a card nobody can see - and an open card whose task has just ended opens the section with it. **Clear** drops the finished history for the session.
 - Ordering is purely by start time, newest first, among the live cards and inside the finished history alike.
-- The **opener** is the **Tasks** control at the right edge of the sticky chat header (`chat-header-tasks`), not a nav rail entry. It is rendered from the first message (`Tasks`), adds `running / total` once the chat has tasks (`Tasks 1 / 3`), is a toggle with `aria-expanded`, and at phone width keeps the dot and the numbers. While a turn runs the live status line names the running tasks and opens the same panel. Both count through `countTasks` (`tasks/taskStatus.ts`), which leaves out system tasks such as the memory run of a turn. Nothing is rendered under the transcript.
+- The **opener** is the **Tasks** button at the right edge of the sticky chat header (`chat-views-tasks`), not a nav rail entry. It is rendered from the first message (`Tasks`), adds `running / total` once the chat has tasks (`Tasks 1 / 3`), is a toggle with `aria-pressed`, and at phone width keeps the dot and the numbers. While a turn runs the live status line names the running tasks and opens the same panel. Both count through `countTasks` (`tasks/taskStatus.ts`), which leaves out system tasks such as the memory run of a turn. Nothing is rendered under the transcript.
 - On `max-width: 1199px` the panel takes the screen, the cards take more padding, Stop grows to 30px and the output box to 46vh.
 - A transcript `run_command` row that started a task reads like any other command row: the label says it is a background run (*running a command in the background*) and the duration slot carries the task's ticking clock instead of the call's meaningless `0ms`. The outcome is **not** on the row - status, estimate, exit code and error are read on the task's card in this panel, which **Open in Tasks** opens. Expanding the row gives **Open in Tasks** and, while running, **Stop**: tab buttons attached to the bottom edge of the card above them. Driven by the same poll.
 - An agent task is read without opening its card: the model, the tokens, the elapsed time and **Show transcript** are all on the folded card. Opening it adds only the child's live progress log, which ends with the `=== subagent report ===` block. A preview server reads the same way - its address is on the folded card - and opening it adds only the request log.
@@ -963,7 +964,7 @@ Automated checks:
 - **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers)
 - **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (one card shape for every task, the tag and the title, the card as one control with Stop apart, expanding in place with the command, copy, output and foot, several cards open at once, a card the shell points at, output re-read while a task runs, the finished counter, Clear, Show transcript on the folded card and said once, empty and error states)
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
-- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the header control: present in an empty chat, `running / total` without system tasks, `aria-expanded`) and **ChatScreen.test.tsx** (the toggle, nothing under the transcript)
+- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the view buttons: Files and Tasks in that order and no Edits button, Tasks with the dot and `running / total` without system tasks, icon, short name and tooltip, `aria-pressed`), **external/ui/src/ui/changes/workingCopy.test.tsx** (one read of git's report per chat, read again on the server's word, a finished tool call and the page's focus) and **ChatScreen.test.tsx** (the toggle, the count on the plate only while git reports changes, nothing under the transcript)
 - **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (panel docking, the tag, the stretched click surface with Stop above it, the hover tint, the bounded output box, the header control, the live line on a phone, reduced motion)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (the background row: its label, the task clock in the duration slot, and that no outcome leaks onto the row)
 
@@ -1011,6 +1012,204 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 
 - **external/ui/src/ui/messages/SystemNoticeMessage.test.tsx** (notice row: status role, notice class, no retry)
 - **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `hooks` config tab)
+
+## Views of a chat
+
+A chat has three views beside the conversation: its **files**, its **background
+tasks** and its **edits**. Files and background tasks are a row of buttons at the top
+of the chat: **Files**, and **Tasks** at the right edge. On a desktop and a tablet
+Files is an icon with a short name; a phone shows the icon alone, the size of its top
+bar's buttons. Tasks is the control the header always had: a dot and, once the chat
+has tasks, how many run out of how many there are, the dot lit while work is in
+flight. Every button has its full name in a tooltip, the Files one with its key. A
+button opens its view, and pressed again puts it away; the button of the view on show brightens, its
+text, border and ground, the way a pointed-at one does, and the accent is kept for
+tasks that run. The background tasks open in the dock beside the chat, the files in a window
+over the chat. The edits have no button in the header: git's count on [the plate over
+the composer](#the-plate-over-the-composer) opens them. Each icon beside a word sits on
+the middle of its lowercase letters, not of the capitals: the words are mostly
+lowercase, and centred on the line the icon reads a pixel high.
+
+![A running chat: the view buttons Files and Tasks at the top, and the plate over the composer naming the repository, the branch and git's count](../assets/views-toolbar-dark-1280.png)
+
+*The view buttons at the top of a chat, and the plate over its composer*
+
+On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
+(`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
+the composer included.
+
+## Workspace files
+
+The **Files** window shows the session's workspace over the chat, the way the
+documentation reader does: the tree on the left, the files opened from it as tabs on
+the right. Open it with the **Files** button of the chat header, with `Ctrl+Shift+F`,
+or by clicking a workspace mention in a sent message or a file tool's path. Its address keeps the file and an
+optional line, `#/s/<id>/files?path=notes/readme.md&line=15`, so a reload opens it
+there. Escape or the close button returns to the chat and gives the focus back to
+what opened the window; whatever the dock showed stays under it, on a phone or a
+tablet too, and a click beside the window closes it the same way. Reopened, the window
+shows the files it had open, each at its line, and the address names the one on show.
+
+![The Files window: the workspace tree beside two open files, README.md on show as its source with numbered lines](../assets/workspace-files-window-dark-1280.png)
+
+*The Files window over a chat: folders first in the tree, the open files as tabs*
+
+Additional captures: [Light theme, 1280 px](../assets/workspace-files-window-light-1280.png)
+and [phone, 390 px](../assets/workspace-files-window-dark-390.png).
+
+The tree lists folders first, then files, and loads each folder as it opens. The
+filter above it searches the **whole workspace by name**, folders nobody opened
+included, with the same index as the composer's `@` picker; Escape clears it. The
+window's **⋮** menu shows hidden files (dotfiles, `node_modules`, `vendor`), wraps
+long lines, and for the file on show reloads it, copies its path or downloads it.
+Showing hidden files does not restrict access: an explicit workspace path may still
+open a hidden file. Symlinks and special files are listed with ↗ but are not opened.
+The tree switch at the left of the head folds the tree away, and the arrows at the
+right expand the window over the whole screen. The open files stay open for the life
+of the page, so closing and reopening the window finds them where they were. Tabs that
+do not fit scroll sideways with the wheel or a swipe, and the tab on show is brought
+into view.
+
+An open file is its content and nothing over it: the tab names it, so the window shows
+no second name, no size or time and no switch of views. Text files show numbered,
+highlighted line windows, a line's number level with its text; a line an address or a
+link names is scrolled to, not marked, since for now a file is only read. A long file
+scrolls through without the old 512 KiB file limit: the next lines are read as you near
+the end of those on screen, so there are no pages to click. Markdown is text like any other: its source, line by line, so a
+picture or HTML in it is a line to read and nothing is loaded or run. Raster images
+have fit and actual size controls; images above 20 MiB remain downloadable.
+
+Audio and video use native controls and byte ranges, including on an authenticated
+remote server and through a swarm relay, which carries the file's temporary signed
+address to the node without vouching for it ([Swarm](../operate/swarm.md)). The
+address expires after one hour; **Reload** renews it. PDF and unsupported binary
+formats can be downloaded safely. PDF remains a download because a sandboxed native
+viewer did not work across all three supported engines.
+
+Returning to the page or finishing a tool call checks the open file and the open folders again. A file that
+did not change is not read again, so the text stays where it is and a sound or a
+film keeps playing; a changed file shows **File changed** and starts over at its top
+instead of combining lines from different versions. Folders keep the rows **Load
+more files** added, and a folder that is gone folds away. The filter offers files of
+the workspace only, never paths above it or elsewhere on the disk. Selected remote environments apply to file previews and session image thumbnails. On a phone the window shows the tree or the file, one at a
+time: a file picked in the tree takes its place, and the tree switch brings the tree
+back.
+
+## Edits of a chat
+
+The edits of a chat are what git reports for its folder: every tracked file that
+differs from `HEAD`, staged or not, and every new file git does not ignore. Nothing is
+recorded per turn, so a file written by the `edit` tool, by a shell command or by an
+editor beside Coddy reads the same, and a folder that is not in a git repository has
+no edits to show. Without the `git` binary on PATH the server answers through its
+built-in implementation (go-git); that one detects no renames, so a staged rename
+reads as a deletion plus an addition.
+
+- Data comes from `GET /coddy/sessions/{id}/changes`. One copy per chat
+  (`changes/workingCopy.ts`) serves every view that shows it: git's count on the
+  plate over the composer and the edits window. It is read when
+  the chat opens, after every turn of any chat (`event: turn_ended` on
+  `GET /coddy/events`, whichever surface ran the turn: chats share folders, so another
+  chat's turn moves this one's too), after a discard (`event: session_changes`),
+  shortly after a burst of finished tool calls, and when the page gets the focus back,
+  since the folder may have been edited elsewhere. A failed read keeps the last answer
+  on screen, since a restarting server must not look like a clean folder, and the
+  edits window says why the read failed when it has nothing to show yet.
+- New files are read up to 500 of them and 2 MB each; the edits window says how many
+  it left out. A repository nested in the folder is one entry, the way
+  git lists it: nothing in it is read or discarded. Files git ignores never appear.
+- When the session runs in a subfolder of a repository, only that subfolder is
+  reported, by paths relative to it.
+
+### The plate over the composer
+
+![A running chat in a linked worktree: the plate joined to the top of the composer names the repository, the worktree's branch, and git's count framed at its right edge](../assets/workspace-bar-worktree-dark-1280.png)
+
+*The plate over the composer of a chat that runs in a linked worktree*
+
+Before the first message the plate offers the folder, the branch and the worktree as a
+choice ([Per-session workspace](#per-session-workspace-folder--branch--worktree)); there
+is no git count before a session. Once a chat runs, where it works is a fact rather than
+a choice, and the plate names it (`WorkspaceBar.tsx`). The plate looks like a queued message and is joined to the top edge of the composer card,
+the card's top border being the seam between them. On the left it names the
+repository (the main checkout's name in a linked worktree, with the full path in the
+tooltip) and the branch; at the right edge, while the folder has uncommitted changes,
+git's `+A −D` for it. The count sits in a light frame so it reads as a button; on hover
+the frame and the ground brighten, and it opens the edits window. A chat that runs in a
+linked worktree shows the same branch icon, and the tooltip names the worktree's
+folder. The plate is git's: a running chat in a folder that is in no git repository has
+no plate, and its composer card keeps its rounded top. The count's right edge is the
+improve-prompt wand's under it, and on a phone or a touch screen the count keeps its slim
+look with an invisible 40px hit area laid over it.
+
+### The edits window
+
+The edits have one view: a window over the chat (`EditsView.tsx`) holding every diff
+of the folder's uncommitted changes in one scrollable document. It is framed and
+headed the way the [Files window](#workspace-files) is, in the same place and at
+the same distance from the edges of the browser window: on the left of its head the
+tree switch and the title **Edits** over the folder's name and git's `+A −D`, on the
+right the **⋮** menu, the expand button and the close button. The menu holds **Side by
+side** (the split view, not offered on a phone or a tablet, where every diff reads
+inline), **Collapse all** / **Expand all** and **Discard all**. Git's count on the plate
+over the composer opens the window; Escape, the close button or a click beside it puts
+it away. Its address is `#/s/<id>/changes`, so a reload opens it again. There is no dock
+face for the edits: the dock beside the chat holds the background tasks, and stays as
+it was under the window.
+
+On the left the tree lists the changed files and only them, git's uncommitted changes
+in the folders they sit in, each with git's letter at the end of its row (**A** added,
+**M** modified, **D** deleted). The diffs follow in the same order. Its filter narrows the list by path; a
+file picked there scrolls the diffs to it and stays put while the diffs above it are
+still loading, and as you scroll the tree marks the file at the top, scrolling itself
+to keep that row in view when the list is long. On a
+phone the window opens on the diffs and the tree switch brings the list over them.
+
+A file section has a sticky header: the name, which folds the diff, then copy-path and
+discard, always in sight, and the file's `+a −b` at the right end. Between hunks sits a wordless separator
+rather than an `N unmodified lines` filler row. In a folder with nothing to show it says
+so: clean, or not in a git repository.
+
+![The edits window: the changed files in the tree on the left, one section per changed file on the right](../assets/session-changes-review-window-dark-1280.png)
+
+*The edits window over the folder's uncommitted changes: the tree of the changed files beside every diff in one scrollable document*
+
+**Discard** in a file's header puts that file back at `HEAD`, and **Discard all** in the
+menu every change. Each asks first in the shared confirmation dialog, which says whether the file
+goes back to its last committed content or, new since that commit, is deleted; Escape
+there answers the question and leaves the window open. Then the page posts
+`.../changes/revert` with `{"paths":[...]}` or `{"all":true}`: a tracked file gets its
+content and index entry from `HEAD` back, a file `HEAD` does not hold is deleted along
+with any folder it leaves empty, and files git ignores are never touched. A turn running in
+that folder, in this chat or in another one working there, refuses the discard
+(**409**); so does a file git no longer reports - committed or put
+back meanwhile - and then nothing of the request is applied. A commit is not offered:
+the window reads, and discarding is the one thing it writes.
+
+Code is coloured by `lowlight` (highlight.js behind a tree API, the same engine
+`rehype-highlight` gives the markdown renderer), so the `hljs-*` styles already
+in the stylesheet apply and the viewer never injects markup. The grammar comes
+from the file extension via `diffLanguage.ts`; an unknown extension renders as
+plain text rather than being guessed at.
+
+The detail route reads only the file it was asked for (`gitws.WorktreeChangeFor`):
+the viewer loads one patch at a time, and resolving the whole set per request meant a
+git subprocess per changed file on every one of them. A new file is only read once
+git has named it, so the route cannot be pointed at an arbitrary file. When git's
+report moves, the window reads again only the files whose state moved.
+
+Automated checks:
+
+- **external/ui/src/ui/changes/workingCopy.test.tsx** (one read for every view of a chat, the reads on the server's word, a tool call and the page's focus, a failed read, a folder in no repository, another environment)
+- **external/ui/src/ui/chat/WorkspaceBar.test.tsx** (the repository, the branch and the worktree in its tooltip, the count and its language)
+- **external/ui/src/ui/changes/sessionChangesText.test.ts** (path splitting) and **plurals.test.ts** (file counts by locale)
+- **external/ui/src/ui/changes/diffRows.test.ts** (unified and split row building, uneven runs, hunk gaps)
+- **external/ui/src/ui/changes/fileTree.test.ts** (directory grouping and single-child chain collapsing)
+- **external/ui/src/ui/changes/EditsView.test.tsx** (the frame and head of the Files window, the menu: side by side, collapse all, discard all; the tree of the changed files only, its filter, a pick scrolled to and marked; copy path, the skipped banner, the no-git notice, colouring on and off, a re-read only of the files that moved, discarding a file and everything after a question)
+- **external/ui/src/ui/changes/diffLanguage.test.ts** + **highlightLine.test.ts** (grammar choice, and that colouring reproduces the line exactly)
+- **internal/linediff** (unified diff and line stats; Myers' O(ND) algorithm in linear space, so a scattered edit in a large file stays a scattered edit - the old LCS table had to be abandoned above a size cap and reported such a file as a whole rewrite. The search is bounded by `snakeBudget`, which only a pair that is both enormous and almost entirely different can exhaust; that pair falls back to a wholesale replacement)
+- **internal/gitws** (`changes_test.go`, `backend_test.go`: every scenario with the git binary and again with it hidden from PATH - working-copy statuses, untracked files and the read caps, .gitignore, whitespace-preserving blob reads, a nested repository, discarding a file, a subfolder or everything, and paths outside the change set refused before anything is touched; renames with the binary only)
+- **features/session_changes.feature** (end to end over a repository: a turn edits a file and git reports it, an edit made outside the agent too, the viewer reads the diff, one file and then everything is discarded)
 
 ### Subagent transcripts
 
@@ -1362,9 +1561,9 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   agent never shows it. It sits at the foot of the rail, above **Docs** and **Settings**.
 - On a relay the swarm map **is** the home screen: no composer, no `ChatScreen`,
   no History entry and no Scheduler entry, because a relay holds no sessions of
-  its own. Its header carries the environment selector, which normally lives in
-  the composer; the selector remains there in the map's empty and error states
-  as well, so an unavailable relay does not remove the way to change environments.
+  its own. The environment menu stays at the foot of the rail there too, in the
+  map's empty and error states as well, so an unavailable relay does not remove
+  the way to change environments.
 - **Clicking a node on the map switches to it** and leaves the map open over
   it, the node now ringed; what to do there is the next click. There is no list
   of nodes under the map and no filter chips: from a node, every ordinary screen
@@ -1412,9 +1611,6 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   changed bounds.
 - Built with `-tags "swarm ui"` the relay serves this SPA at its own address;
   without the `ui` tag its root explains how to rebuild.
-- The environment selector in the map header opens **downward**, because on a
-  relay the chip sits at the top of the window rather than in the composer at
-  the foot.
 
 ## Documentation screen
 
@@ -1589,6 +1785,61 @@ CODDY_BIN=build/coddy npm --prefix external/ui run check:queue
 ```
 
 **`CODDY_SHOTS_DIR`** also takes the screenshots of [Message queue](../features/message-queue.md) on a second node reached directly, **`CODDY_BROWSER_PATH`** points at an installed Chromium, **`CODDY_PORT_BASE`** moves its four ports and **`CODDY_E2E_KEEP=1`** leaves the stand running. CI runs it in the **`http,scheduler,ui,memory,cli,swarm`** job of the test matrix, after the transcript check.
+
+### Checking the views of a chat through a swarm relay
+
+The view buttons, the dock and the Files window are checked against the real binary by
+**`external/ui/scripts/files-check.mjs`**: it serves a scripted model whose first
+answer writes a file through the `write` tool, starts a **`coddy serve`** node that
+asks for a bearer token and a **`coddy serve --swarm`** relay that mounts it with its
+own client token, and drives a browser through the relay's mount only. It checks:
+
+- **the view buttons** show Files and Tasks in that order beside the title and no
+  Edits button, Files an 18px icon with its short name on a desktop, Tasks the dot,
+  the tooltip in the window on hover (the Files one with its key), the pressed one for
+  the view on show, brighter and not in the accent, which a second press puts away;
+- **the plate over the composer** names the repository and the branch, is joined to
+  the top of the composer card with the same left and right edges, carries git's count
+  at its right edge with no outline, and lightens the count's background on hover; a
+  chat in a clean folder has the plate without a count;
+- **the edits window** opens from the count, with the file the turn wrote and its
+  address, and Escape puts it away; **the dock** shows the background tasks, with no
+  tab strip anywhere; every icon beside a word sits on the middle of its lowercase
+  letters, at every width;
+- **discarding** a file from the edits window asks first, goes through the relay, and
+  with nothing left the window says the folder is clean and the count leaves the
+  plate;
+- **the Files window** opens over the chat with the filter focused, lists folders
+  first, finds a file three folders down by name, opens files as tabs with nothing over
+  the file, shows a README as its source with no picture loaded, loads a picture of the
+  workspace through the relay, expands over the rail, closes
+  on Escape, opens and closes on `Ctrl+Shift+F` with its tabs kept, and opens a
+  mention of the conversation at its line;
+- **a sound plays through the relay** from its signed address alone, the address
+  answers a range with no header, a forged one is refused by the node, and
+  **Download** saves the file under its name;
+- **on a phone** the window fits the screen, shows a file opened by its address
+  without the tree, Files is a 40 px icon beside the title, Tasks the dot and its word,
+  and the plate stays joined to the composer card with the count at its right edge;
+- **from another origin** (the node's own web UI with the relay as its environment)
+  the window reads through the relay, a `HEAD` with `If-None-Match` passes the
+  relay's preflight, the `ETag` is readable, and an open file is revalidated;
+- **at every tier of the grid** (600 to 1920 px), in English and in Russian, the
+  window fits the viewport with the tree beside the file, and the view buttons sit
+  beside the title in one row, icon and short name whole, at the top bar's height.
+
+```bash
+make build TAGS="http ui swarm"
+npm --prefix external/ui i --no-save playwright && npx --prefix external/ui playwright install chromium
+CODDY_BIN=build/coddy npm --prefix external/ui run check:files
+```
+
+**`CODDY_ENGINE=webkit`** runs it in WebKit, **`CODDY_SHOTS_DIR`** also takes the
+screenshots of this page on a third node reached directly, **`CODDY_BROWSER_PATH`**
+points at an installed Chromium, **`CODDY_PORT_BASE`** moves its four ports and
+**`CODDY_E2E_KEEP=1`** leaves the stand running. CI runs it in the
+**`http,scheduler,ui,memory,cli,swarm`** job of the test matrix, after the message
+queue check.
 
 ### Checking the Telegram Mini App
 

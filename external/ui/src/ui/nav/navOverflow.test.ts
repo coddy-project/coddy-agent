@@ -43,6 +43,21 @@ describe("splitNavItems", () => {
     });
   });
 
+  // The environment says where the page works and whether that host answers,
+  // so it is always in sight: at the foot of the rail, above sign-out.
+  test("the environment never folds and stands between settings and sign-out", () => {
+    const withEnv: NavItemId[] = ["history", "scheduler", "docs", "settings", "environment", "signOut"];
+    expect(splitNavItems(withEnv, 0)).toEqual({
+      bar: ["history", "environment"],
+      menu: ["docs", "scheduler", "settings", "signOut"],
+    });
+    expect(splitNavItems(withEnv, 4)).toEqual({
+      bar: ["history", "settings", "environment"],
+      menu: ["docs", "scheduler", "signOut"],
+    });
+    expect(splitNavItems(withEnv, 6).bar).toEqual(withEnv);
+  });
+
   test("the menu lists docs, scheduler, settings and ends with sign-out", () => {
     expect(splitNavItems(relay, 2).menu).toEqual(["docs", "scheduler", "settings", "signOut"]);
   });

@@ -130,7 +130,7 @@ The `token` line is optional. With it, the environment menu and `coddy --remote 
 
 *The relay in the laptop's environment menu: green, with its workers under it*
 
-Open the environment chip in the composer. `office` has a green dot and says `relay · 2 agents`, with `gpu01` and `gpu02` under it. Click `gpu01`: the page reloads onto that worker - its sessions in History, its folder and its models in the composer, its configuration in Settings - through the relay. A turn you start runs on `gpu01`.
+Open the environment menu from the foot of the rail. `office` has a green dot and says `relay · 2 agents`, with `gpu01` and `gpu02` under it. Click `gpu01`: the page reloads onto that worker - its sessions in History, its folder and its models in the composer, its configuration in Settings - through the relay. A turn you start runs on `gpu01`.
 
 The **Swarm** entry in the rail opens the relay's map over the worker without leaving it. Your laptop sits at the top, named by its host name, the relay under it and the workers under that; the worker you are on is ringed. Click `gpu02` to move there - the map stays open, now ringing `gpu02`, and the page does not reload - the laptop to go back to Local, the relay to connect to the relay itself.
 

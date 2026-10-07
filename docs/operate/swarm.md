@@ -147,6 +147,9 @@ nothing else: the `Access-Control-*` headers of a node's own answer stay behind 
 node that browsers also reach directly has `httpserver.cors` on, and passed through, its
 headers would sit next to the relay's - a browser refuses a response that names the allowed
 origin twice. The same rule keeps a node's policy from opening a relay whose own CORS is off.
+Since the relay's answer is the only one, it carries what the web UI's Files window needs from
+another origin: `HEAD` among the methods, `Range` and `If-None-Match` among the request headers,
+and `ETag`, `Content-Range`, `Accept-Ranges` and `Content-Disposition` exposed to the page.
 
 A hand-written path is capped at the same hop budget the fan-out uses, so a client cannot
 walk a ring indefinitely by writing hops out one after another.
@@ -166,7 +169,10 @@ Each row carries **both** an identity and a route:
 - `agent_uuid` + `id` - the agent that owns the session and the id that agent knows it by.
   This pair survives a rename, a failover, or a relay restart.
 - `node_path` - how this relay could reach it just now. In a ring there may be several, and
-  the shortest is the one reported.
+  the shortest is the one reported. Of two equally short ones, the route whose first differing
+  hop sorts first by name wins, compared hop by hop rather than as one joined path. That is how
+  the topology picks a node's route too, so a row does not change routes from one request to
+  the next.
 
 Session ids are chosen per node and **do** collide, so nothing keyed on a bare id is safe.
 
@@ -265,10 +271,9 @@ transit relay readable as part of the connection without implying that it is the
 **A relay's home screen is the swarm.** Of an agent's API a relay serves only its own settings
 (`/coddy/config*`) - no sessions, no workspace, no model, no documentation - so there is nothing
 for a composer to send to and nothing for a history drawer to list. Pointed at a relay the app therefore drops the chat screen, hides History and
-Scheduler in the rail, and shows the map instead. The environment selector moves into the
-map's header, since the composer that usually carries it is not on screen. The selector remains in
-that header even while the map reports an error, including a relay that needs a token, so the
-operator can switch environments or supply the needed credentials. Enter a node and all of it
+Scheduler in the rail, and shows the map instead. The environment menu stays where it always is,
+at the foot of the rail, so even while the map reports an error, including a relay that needs a
+token, the operator can switch environments or supply the needed credentials. Enter a node and all of it
 comes back, because the node does have those things.
 
 **Working on a node.** Click a node on the map and the app points at that node's mount, with the
@@ -393,6 +398,19 @@ hop-by-hop and forwarding headers, removes an SSE query token before the hop, an
 follows a redirect. Path segments are judged **after decoding**: `%2e%2e` passes any check of
 the escaped form and becomes `..` the moment something decodes it, which is how a request
 aimed at a node's API would climb back out into the relay's own routes.
+
+One request is carried without the client token: a `GET` or `HEAD` of a node's
+`/coddy/sessions/{id}/workspace/raw` with an `access_token` and no `Authorization` header. That is
+how the web UI's Files window plays a video or an audio file and downloads a file: a media element
+cannot send a header, so the node signs a capability for one file of one session, valid for an hour,
+and the browser puts it in the address. The relay cannot check that signature and does not vouch for
+it either: the request reaches the node with the capability in its query and without the relay's own
+credential, and the node accepts or refuses it. A request with two `access_token` values is not
+that exception, and a relay's client token is never carried that way, on any route. Without a client
+token such a request gets nothing from the relay itself but the gate's plain `401` for whatever the
+relay would refuse (an unknown or unreachable node, a path it does not carry); only the node answers it
+otherwise. A relay that asks no client token hands such a request on the same way, without its own
+credential, so a relay with a gate above it in a chain cannot be walked around through it.
 
 Credentials are preserved across a config save by **destination**, not by label: renaming an
 entry keeps its token, pointing it at a new address does not.

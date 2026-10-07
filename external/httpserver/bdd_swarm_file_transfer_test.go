@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,14 @@ type swarmFileTransferState struct {
 	fileRequestAuth   []string
 	previewURL        string
 	artifactURL       string
+	mediaAddress      string
+	rawRequests       []rawRequest
+}
+
+// rawRequest is what the node was asked on its workspace raw route.
+type rawRequest struct {
+	authorization string
+	accessToken   string
 }
 
 const swarmFileTransferPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -69,7 +78,9 @@ func (s *swarmFileTransferState) reset() {
 	s.mu.Lock()
 	s.uploadRequestAuth = ""
 	s.fileRequestAuth = nil
+	s.rawRequests = nil
 	s.mu.Unlock()
+	s.mediaAddress = ""
 	s.previewURL = ""
 	s.artifactURL = ""
 }
@@ -116,6 +127,14 @@ func (s *swarmFileTransferState) mountedFileCapableNode() error {
 		if r.Method == http.MethodPost && r.URL.Path == "/v1/responses" {
 			s.mu.Lock()
 			s.uploadRequestAuth = r.Header.Get("Authorization")
+			s.mu.Unlock()
+		}
+		if strings.HasSuffix(r.URL.Path, "/workspace/raw") {
+			s.mu.Lock()
+			s.rawRequests = append(s.rawRequests, rawRequest{
+				authorization: r.Header.Get("Authorization"),
+				accessToken:   r.URL.Query().Get("access_token"),
+			})
 			s.mu.Unlock()
 		}
 		if strings.Contains(r.URL.Path, "/assets/") || strings.Contains(r.URL.Path, "/artifacts/") {
@@ -331,6 +350,79 @@ func (s *swarmFileTransferState) nodeReceivedOwnCredentialForFileRequests() erro
 	return nil
 }
 
+// The web UI asks the node, through the relay, for a short-lived address of one
+// workspace file: a native <video> or <audio> element cannot send a header.
+func (s *swarmFileTransferState) mintMediaAddress(path string) error {
+	raw, err := json.Marshal(map[string]interface{}{"path_rel": path, "download": false})
+	if err != nil {
+		return err
+	}
+	res, err := s.request(http.MethodPost, "/coddy/sessions/"+s.sessionID+"/workspace/media-token", bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("media token: status %d: %s", res.StatusCode, body)
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		return err
+	}
+	if body.Token == "" {
+		return fmt.Errorf("media token: empty token")
+	}
+	s.mediaAddress = s.mountedURL("/coddy/sessions/" + s.sessionID + "/workspace/raw?path_rel=" + url.QueryEscape(path) + "&download=0&access_token=" + url.QueryEscape(body.Token))
+	return nil
+}
+
+// The address alone is what the browser has: no Authorization header.
+func (s *swarmFileTransferState) mediaStreamsFromAddressAlone(path string) error {
+	if s.mediaAddress == "" {
+		return fmt.Errorf("no media address was minted")
+	}
+	req, err := http.NewRequest(http.MethodGet, s.mediaAddress, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Range", "bytes=0-5")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, _ := io.ReadAll(res.Body)
+	want, err := os.ReadFile(filepath.Join(s.workspace, path))
+	if err != nil {
+		return err
+	}
+	if res.StatusCode != http.StatusPartialContent || string(body) != string(want[:6]) {
+		return fmt.Errorf("media through the relay: status %d, body %q, want 206 and %q", res.StatusCode, body, want[:6])
+	}
+	return nil
+}
+
+// The relay cannot check the node's signature, so it must not vouch for the
+// request with its own credential: the node checks the capability itself.
+func (s *swarmFileTransferState) nodeChecksMediaAddress() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.rawRequests) == 0 {
+		return fmt.Errorf("the media request never reached the node")
+	}
+	last := s.rawRequests[len(s.rawRequests)-1]
+	if last.accessToken == "" {
+		return fmt.Errorf("the node received no capability to check")
+	}
+	if last.authorization != "" {
+		return fmt.Errorf("the node received authorization %q with the capability", last.authorization)
+	}
+	return nil
+}
+
 func TestSwarmFileTransferFeature(t *testing.T) {
 	state := &swarmFileTransferState{}
 	suite := godog.TestSuite{
@@ -343,6 +435,9 @@ func TestSwarmFileTransferFeature(t *testing.T) {
 			sc.Step(`^the uploaded image thumbnail is available through the relay$`, state.uploadedThumbnailAvailable)
 			sc.Step(`^the shared report is downloadable through the relay$`, state.sharedReportDownloadAvailable)
 			sc.Step(`^the node receives its own credential for every file request$`, state.nodeReceivedOwnCredentialForFileRequests)
+			sc.Step(`^I ask the mounted node for a media address of "([^"]*)"$`, state.mintMediaAddress)
+			sc.Step(`^the first six bytes of "([^"]*)" stream through the relay from that address alone$`, state.mediaStreamsFromAddressAlone)
+			sc.Step(`^the node checks the media address itself$`, state.nodeChecksMediaAddress)
 			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 				state.reset()
 				return ctx, nil
