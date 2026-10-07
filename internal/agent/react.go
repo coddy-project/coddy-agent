@@ -892,7 +892,8 @@ func (a *Agent) runReActLoop(
 		// configured with stream: false produces nothing until the whole completion is
 		// ready, so the guard would cut every slow blocking answer: it is not armed for
 		// that transport, and the turn context remains the bound. An explicit 0 disables
-		// the guard for streaming too. firstTokenTimedOut
+		// the guard for streaming too. A model a remote Coddy shares never arms it
+		// (llmTransport.firstTokenGuard). firstTokenTimedOut
 		// records that this timer, and not the user or the loop guard, did the
 		// cancelling, which the error paths below cannot otherwise tell apart.
 		firstTokenTimeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout()
@@ -903,9 +904,16 @@ func (a *Agent) runReActLoop(
 		callReason := nextCallReason
 		nextCallReason = "step"
 		streamCtx, streamCancel := context.WithCancel(llm.WithRetryAllowance(ctx, retryAllowance))
+		// A call to a model a remote Coddy shares may wait for a free stream
+		// slot inside the provider; the countdown is shown the way a limit wait
+		// is, and Stop cancels the wait through this context.
+		busyNotice := a.newBusyWaitNotice(sessionID, transport)
+		if busyNotice != nil {
+			streamCtx = llm.WithBusyWaitNotify(streamCtx, busyNotice.report)
+		}
 		var firstTokenTimedOut atomic.Bool
 		var firstTokenTimer *time.Timer
-		if transport.streaming && firstTokenTimeout > 0 {
+		if transport.streaming && transport.firstTokenGuard && firstTokenTimeout > 0 {
 			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
 				firstTokenTimedOut.Store(true)
 				streamCancel()
@@ -1001,6 +1009,10 @@ func (a *Agent) runReActLoop(
 		a.progress.beginCall()
 		inputProgress := make(map[string]*toolInputProgress)
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
+			// A chunk means the call is admitted and streaming: a countdown of
+			// the wait for a free slot must not outlive it, whether or not the
+			// provider reported the admission (idempotent, nil-safe).
+			busyNotice.clear()
 			if streamCtx.Err() != nil {
 				return
 			}
@@ -1109,6 +1121,7 @@ func (a *Agent) runReActLoop(
 		}
 		stopFirstTokenTimer()
 		streamCancel()
+		busyNotice.clear()
 		attemptsAfter := retryAllowance.Snapshot()
 		a.logLLMCall(callStart, firstChunkAt, chunkCount, response, streamErr, callReason, llm.RetrySnapshot{
 			Attempts:         attemptsAfter.Attempts - attemptsBefore.Attempts,
@@ -2484,6 +2497,19 @@ func reasoningForStorage(trimmed, exact string, response *llm.Response) (text, s
 type llmTransport struct {
 	provider  llm.Provider
 	streaming bool
+	// firstTokenGuard says the loop arms its first-token timer for a streamed
+	// call of this transport. It is false for a model a remote Coddy shares
+	// (provider type coddy): the remote owns model progress and the wait for
+	// a free stream slot lives in the provider, so a timer here would cut a
+	// live remote that only heartbeats. It is a field of its own and not a
+	// reading of streaming, which also drives the reasoning clock and is true
+	// for that row (docs/plans/remote-model-provider.md, 4.1b).
+	firstTokenGuard bool
+	// providerName and providerType name the row the transport was built for,
+	// for the notices a call of it shows (the wait for a free stream slot of a
+	// remote Coddy).
+	providerName string
+	providerType string
 	// model is the models[].model the transport was built for: the name an
 	// answer it wrote is stored under, whatever the session switched to while
 	// the answer streamed (#362).
@@ -2521,11 +2547,16 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	}
 	provider = a.withChildFallbacks(provider, modelID, mk)
 	return llmTransport{
-		provider:  provider,
-		streaming: rm.Stream,
-		model:     modelID,
-		key:       modelID + "|" + reasoning,
-		rev:       rev,
+		provider: provider,
+		// The wire of a model a remote Coddy shares is always an event stream,
+		// whatever the row's own stream flag says, so its reasoning clock runs.
+		streaming:       rm.Stream || rm.ProviderType == coddyProviderType,
+		firstTokenGuard: rm.ProviderType != coddyProviderType,
+		providerName:    rm.ProviderName,
+		providerType:    rm.ProviderType,
+		model:           modelID,
+		key:             modelID + "|" + reasoning,
+		rev:             rev,
 	}, nil
 }
 
@@ -2673,7 +2704,11 @@ func (a *Agent) turnProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	// The first-token timer cuts a streamed call that stays silent, retry
 	// waits included: a server-requested pause the timer would cut anyway
 	// is reported as a quota reset instead of being slept through in vain.
-	if rm.Stream {
+	//
+	// A model a remote Coddy shares has no such timer, so it has no call budget
+	// either: retry_budget_ms carries only what is left of the retry budget
+	// under agent.wait_for_limit_reset, below.
+	if rm.Stream && rm.ProviderType != coddyProviderType {
 		if timeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout(); timeout > 0 {
 			in.CallBudget = timeout
 		}
@@ -2708,9 +2743,14 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	}
 	// The stall guard (agent.llm_stream_idle_timeout_ms) watches the gaps
 	// between the bytes of a streamed answer; a blocking answer arrives in
-	// one piece and has no gaps to watch.
-	if rm.Stream {
+	// one piece and has no gaps to watch. The wire of a model a remote Coddy
+	// shares is always a stream, so its guard applies whatever the row's
+	// stream flag says.
+	if rm.Stream || rm.ProviderType == coddyProviderType {
 		in.StreamIdleTimeout = a.cfg.Agent.EffectiveLLMStreamIdleTimeout()
+	}
+	if rm.ProviderType == coddyProviderType {
+		a.coddyProviderInput(&in, rm)
 	}
 	return llm.WithAgentResilience(in, a.cfg.Agent.EffectiveLLMRetryMax(), a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
 }
