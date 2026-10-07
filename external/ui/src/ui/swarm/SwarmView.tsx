@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import {
   fetchNodes,
   fetchSwarmSessions,
@@ -72,12 +71,6 @@ export function SwarmView(props: {
    * node carries when the app is on that node.
    */
   rootCurrent?: boolean;
-  /**
-   * Rendered in the header. On a relay opened as the app's home there is no
-   * composer, so the environment selector that normally lives there has to be
-   * reachable from here instead.
-   */
-  headerSlot?: ReactNode;
   /**
    * Closes the screen back to what was under it. Absent on a relay's home:
    * the map is the home screen there and has nothing under it to go back to.
@@ -261,7 +254,6 @@ export function SwarmView(props: {
           </div>
           <div className="swarm-search-box" />
           <div className="swarm-header-actions">
-            {props.headerSlot}
             {props.onClose ? (
               <button
                 type="button"
@@ -422,7 +414,6 @@ export function SwarmView(props: {
         </div>
 
         <div className="swarm-header-actions">
-          {props.headerSlot}
           {props.onClose ? (
             <button
               type="button"

@@ -201,6 +201,40 @@ func (s *Server) publishConfigReloaded() {
 	}
 }
 
+// sessionChangesFrame says that the uncommitted changes of one session's
+// folder were discarded. The end of a turn, the other moment the folder may
+// have moved, is turn_ended, which every turn already sends.
+//
+// Thin like configReloadedFrame: what git reports stays behind
+// GET /coddy/sessions/{id}/changes, and the event only tells the edits window
+// and the count on the plate over the composer to read it again.
+func sessionChangesFrame(sessionID string, at time.Time) []byte {
+	body, err := json.Marshal(map[string]interface{}{
+		"object":    "coddy.session_changes",
+		"sessionId": sessionID,
+		"at":        at.UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return nil
+	}
+	frame := make([]byte, 0, len(body)+40)
+	frame = append(frame, "event: session_changes\ndata: "...)
+	frame = append(frame, body...)
+	frame = append(frame, "\n\n"...)
+	return frame
+}
+
+// publishSessionChanges tells every events subscriber to read the session's
+// working copy again.
+func (s *Server) publishSessionChanges(sessionID string) {
+	if s.events == nil || sessionID == "" {
+		return
+	}
+	if frame := sessionChangesFrame(sessionID, time.Now()); frame != nil {
+		s.events.publish(frame)
+	}
+}
+
 // sessionRewoundFrame renders an in-place history truncation as one SSE frame.
 func sessionRewoundFrame(sessionID string, messagesRev uint64) []byte {
 	body, err := json.Marshal(map[string]interface{}{

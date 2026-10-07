@@ -123,7 +123,6 @@ import { setHostShell } from "./chat/hostShell";
 import { NavRail } from "./nav/NavRail";
 import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
 import { SwarmView } from "./swarm/SwarmView";
-import { EnvironmentChip } from "./chat/EnvironmentChip";
 import { probeSwarm } from "./swarm/api";
 import {
   connectLocal,
@@ -256,6 +255,22 @@ import {
   setDocsHash,
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
+import { FilesView } from "./files/FilesView";
+import { isFilesHotkey } from "./files/filesHotkey";
+import {
+  readLastWorkspaceDir,
+  readWorktreePref,
+  writeLastWorkspaceDir,
+  writeWorktreePref,
+} from "./chat/workspaceCookies";
+import { onOpenWorkspaceFile } from "./files/fileBus";
+import { relativeFilePath } from "./files/api";
+import { useRightDock, useRightDockEscape } from "./components/useRightDock";
+import { finishedToolCalls } from "./changes/toolActivity";
+import {
+  setSessionFilesHash,
+  setSessionChangesHash,
+} from "./scheduler/hashRoute";
 import { fetchDocsPage } from "./docs/api";
 import { docsCommandOpensPage } from "./docs/docsCommand";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
@@ -264,6 +279,8 @@ import {
   BackgroundTasksPanel,
   type TaskFocus,
 } from "./tasks/BackgroundTasksPanel";
+import { EditsView } from "./changes/EditsView";
+import { emitChangesSettled } from "./changes/sessionChangesBus";
 import {
   clearFinishedBackgroundTasks,
   getBackgroundTask,
@@ -492,7 +509,8 @@ export function App() {
   const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(
     null,
   );
-  const [worktreePref, setWorktreePref] = useState(false);
+  // The worktree checkbox is this browser's choice for every folder (cookie).
+  const [worktreePref, setWorktreePref] = useState(() => readWorktreePref());
   // Pre-session workspace choices, applied right before the first send creates the session.
   const pendingWorkspaceRef = useRef<{
     path?: string;
@@ -538,7 +556,11 @@ export function App() {
   const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
     SessionStats["contextBreakdown"]
   > | null>(null);
-  const [compactionSettings, setCompactionSettings] = useState({ enabled: true, autoEnabled: true, threshold: 80 });
+  const [compactionSettings, setCompactionSettings] = useState({
+    enabled: true,
+    autoEnabled: true,
+    threshold: 80,
+  });
   // A provider listing can arrive after /v1/models returned its fallback.
   // Keep the live window per session, scoped to its model and config version;
   // stats refreshes must not replace it with the earlier model-list value.
@@ -1173,8 +1195,27 @@ export function App() {
     null,
   );
   const [schedulerRunsLoading, setSchedulerRunsLoading] = useState(false);
-  const [tasksOpen, setTasksOpen] = useState(
-    () => initialRoute.branch === "session" && initialRoute.tasksOpen,
+  const { open: tasksOpen, setOpen: setTasksOpen } = useRightDock(
+    initialRoute.branch === "session" && initialRoute.tasksOpen,
+  );
+  // The Files window over the chat: open, and on which file and line. It is not
+  // a face of the dock, whose tasks stay as they were under it.
+  const [filesOpen, setFilesOpen] = useState(
+    initialRoute.branch === "session" && initialRoute.filesOpen === true,
+  );
+  // Bumps on every request to show a file, so the same path asked for again
+  // (its tab closed meanwhile) opens again.
+  const [fileOpenSeq, setFileOpenSeq] = useState(0);
+  const [filePath, setFilePath] = useState(
+    initialRoute.branch === "session" ? initialRoute.filePath || "" : "",
+  );
+  const [fileLine, setFileLine] = useState(
+    initialRoute.branch === "session" ? initialRoute.fileLine || 1 : 1,
+  );
+  // The edits window (EditsView) is the one view of the edits, a window over
+  // the chat framed like the Files window.
+  const [changesViewerOpen, setChangesViewerOpen] = useState(
+    initialRoute.branch === "session" && initialRoute.editsOpen === true,
   );
   // A card the shell asks the Tasks panel to open from a task-targeted link. Which
   // cards are open otherwise is the panel's own business and is not part of the address.
@@ -1272,7 +1313,7 @@ export function App() {
   );
   // The remotes this server offers as environments, read from the local config
   // rather than the active one - the list of places to go must not travel with
-  // the place you are. Shared with the composer's environment chip and read
+  // the place you are. Shared with the rail's environment menu and read
   // again on every config reload (env/configuredRemotes.ts).
   const configuredRemotes = useConfiguredRemotes();
   // A folder picked from a History heading, waiting for the conversation on
@@ -1750,9 +1791,56 @@ export function App() {
     [isAppEnvironment],
   );
 
+  /**
+   * Reads the start screen's folder again - the pending pick, else the
+   * server's default - so it names the branch the folder is on now: one
+   * switched with git switch since it was last read shows. A branch picked on
+   * the start screen stays the choice over the folder's own.
+   */
+  const refreshHomeWorkspace = useCallback(async () => {
+    const path = pendingWorkspaceRef.current?.path;
+    if (!path) {
+      await refreshWorkspaceContext("");
+      return;
+    }
+    const gen = ++workspaceCtxGenRef.current;
+    try {
+      const res = await fetch(
+        "/coddy/workspace/context?path=" + encodeURIComponent(path),
+      );
+      if (gen !== workspaceCtxGenRef.current) {
+        return;
+      }
+      if (res.status === 400) {
+        // The folder is gone: forget it and fall back to the server's default.
+        if (readLastWorkspaceDir() === path) {
+          writeLastWorkspaceDir("");
+        }
+        setPendingWorkspace(null);
+        await refreshWorkspaceContext("");
+        return;
+      }
+      if (!res.ok) {
+        return;
+      }
+      const ctx = (await res.json()) as WorkspaceContext;
+      if (gen !== workspaceCtxGenRef.current) {
+        return;
+      }
+      const picked = pendingWorkspaceRef.current;
+      setWorkspaceCtx(
+        picked?.branch
+          ? { ...ctx, branch: picked.branch, is_worktree: Boolean(picked.worktree) }
+          : ctx,
+      );
+    } catch {
+      // ignore: the plate keeps the context it has
+    }
+  }, [refreshWorkspaceContext]);
+
   // Load the workspace context whenever the viewed session changes. A pending
-  // home workspace is already being previewed and must survive the route
-  // change so the next chat starts where the user left off.
+  // home workspace survives the route change so the next chat starts where the
+  // user left off, and is read again for the branch it is on now.
   //
   // A folder picked from a History heading is applied here rather than where it
   // was picked: leaving a conversation is asynchronous, and a workspace change
@@ -1767,6 +1855,14 @@ export function App() {
       return;
     }
     if (!sessionId && pendingWorkspaceRef.current?.path) {
+      void refreshHomeWorkspace();
+      return;
+    }
+    // The start screen opens on the folder last picked in this browser.
+    const remembered = sessionId ? "" : readLastWorkspaceDir();
+    if (remembered) {
+      setPendingWorkspace({ path: remembered });
+      void refreshHomeWorkspace();
       return;
     }
     setPendingWorkspace(null);
@@ -1774,9 +1870,28 @@ export function App() {
   }, [
     sessionId,
     refreshWorkspaceContext,
+    refreshHomeWorkspace,
     newChatWorkspaceEpoch,
     setPendingWorkspace,
   ]);
+
+  // On the start screen, coming back to the page reads the folder again: its
+  // branch may have been switched in a terminal meanwhile.
+  useEffect(() => {
+    if (sessionId.trim()) {
+      return undefined;
+    }
+    const reread = () => void refreshHomeWorkspace();
+    const visible = () => {
+      if (document.visibilityState === "visible") reread();
+    };
+    window.addEventListener("focus", reread);
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      window.removeEventListener("focus", reread);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [sessionId, refreshHomeWorkspace]);
 
   async function switchWorkspace(payload: {
     path?: string;
@@ -1786,6 +1901,10 @@ export function App() {
     const sid = sessionId.trim();
     if (!sid) {
       // No session yet: remember the choice and preview the target context.
+      // A folder picked is this browser's for the next start screen too.
+      if (payload.path) {
+        writeLastWorkspaceDir(payload.path);
+      }
       setPendingWorkspace({
         ...(pendingWorkspaceRef.current || {}),
         ...payload,
@@ -2033,6 +2152,10 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    // The Files and the edits windows have addresses of their own; any other
+    // one puts them away.
+    if (!(p.branch === "session" && p.filesOpen)) setFilesOpen(false);
+    if (!(p.branch === "session" && p.editsOpen)) setChangesViewerOpen(false);
     if (p.branch === "docs") {
       setDocsRoute({ slug: p.slug, anchor: p.anchor });
       if (p.slug) {
@@ -2050,15 +2173,29 @@ export function App() {
     if (p.branch === "session") {
       setSettingsRoute(false);
       setActiveDraftId("");
+      const switchingSession =
+        viewedSessionIdRef.current !== p.sessionId.trim();
       viewedSessionIdRef.current = p.sessionId.trim();
       setSessionId(p.sessionId);
-      setSessionLoading(true);
+      if (switchingSession) setSessionLoading(true);
       void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen((wasOpen) =>
-        p.tasksOpen || (!isStackedShell() && wasOpen),
+      // The Files and the edits windows open over the dock and leave it as it
+      // was, on the stacked shell too, where any other chat address puts the
+      // dock away.
+      setTasksOpen(
+        (wasOpen) =>
+          p.tasksOpen ||
+          ((p.filesOpen === true || p.editsOpen === true || !isStackedShell()) &&
+            wasOpen),
       );
+      if (p.filesOpen) {
+        setFilesOpen(true);
+        setFilePath(p.filePath || "");
+        setFileLine(p.fileLine || 1);
+      }
+      setChangesViewerOpen(p.editsOpen === true);
       if (p.tasksOpen && p.taskId) {
         // A link that names a task opens its card once; the address goes back to
         // saying only that the panel is showing.
@@ -2211,6 +2348,8 @@ export function App() {
 
   const closeAllShellDrawers = useCallback(() => {
     setSessionsOpen(false);
+    setFilesOpen(false);
+    setChangesViewerOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     // On desktop Tasks is the side panel of the chat on screen, not a screen of
@@ -3029,12 +3168,17 @@ export function App() {
           notifyLocalApiUnauthorized();
       },
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
-      onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onTurnEnded: (sid) => {
+        // Whatever surface ran it, the turn may have edited the folder.
+        emitChangesSettled(sid);
+        serverEventHandlersRef.current.turnEnded(sid);
+      },
       onProviderUsage: (_sid, usage) =>
         serverEventHandlersRef.current.providerUsage(usage),
       onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
       onMessageQueue: (sid, queue) =>
         serverEventHandlersRef.current.messageQueue(sid, queue),
+      onSessionChanges: (sid) => emitChangesSettled(sid),
       onSessionSettings: (event) =>
         serverEventHandlersRef.current.sessionSettings(event),
       onSubagentPermission: (parentSid) =>
@@ -3641,10 +3785,10 @@ export function App() {
   }
 
   function goHome() {
+    // The chat left hands nothing of its workspace to the next one: the start
+    // screen opens on the folder last picked in this browser (the effect on
+    // the session id reads it once the chat is gone), on that folder's branch.
     persistComposerDraftBeforeLeave();
-    if (sessionId && workspaceCtx?.path && !pendingWorkspaceRef.current?.path) {
-      setPendingWorkspace({ path: workspaceCtx.path });
-    }
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -5597,10 +5741,40 @@ export function App() {
     }
   }, [sessionId]);
 
+  /** Opens the edits window, from git's count in the bar over the composer;
+   *  it takes the Files window's place, so one Escape never closes two
+   *  layers. */
+  const openEditsWindow = useCallback(() => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSettingsRoute(false);
+    setDocsRoute(null);
+    setSwarmRoute(false);
+    setFilesOpen(false);
+    setChangesViewerOpen(true);
+    setSessionChangesHash(sid);
+  }, [sessionId]);
+
+  /** Puts the edits window away; the address goes back to the chat, or to the
+   *  tasks when the dock under it shows them on the stacked shell. */
+  const closeEditsWindow = useCallback(() => {
+    setChangesViewerOpen(false);
+    const sid = sessionId.trim();
+    if (!sid) return;
+    if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
+    else setSessionHashInLocation(sid);
+  }, [sessionId, tasksOpen]);
+
   const closeTasksDrawer = useCallback(() => {
     setTasksOpen(false);
     // A pointer at a task that never showed up does not wait for the next opening.
     setTasksFocus(null);
+    setSessionHashInLocation(sessionId.trim());
     if (!isStackedShell()) {
       return;
     }
@@ -5619,6 +5793,71 @@ export function App() {
       );
     }
   }, [sessionId, sessionsOpen]);
+
+  /** Opens the Files window over the chat. Without a path it opens on the
+   *  files it had open; with one, on that file and line. */
+  const openFilesWindow = useCallback(
+    (path?: string, line?: number) => {
+      const sid = sessionId.trim();
+      if (!sid) return;
+      setSessionsOpen(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setSettingsRoute(false);
+      setDocsRoute(null);
+      setSwarmRoute(false);
+      // One window over the chat at a time: the files take the edits' place.
+      setChangesViewerOpen(false);
+      setFilePath(path || "");
+      setFileLine(line || 1);
+      if (path) setFileOpenSeq((n) => n + 1);
+      setFilesOpen(true);
+      setSessionFilesHash(sid, path || "", line || 1);
+    },
+    [sessionId],
+  );
+
+  /** Puts the Files window away. The address goes back to the chat, or to the
+   *  tasks when the dock under it shows them on the stacked shell. */
+  const closeFilesWindow = useCallback(() => {
+    setFilesOpen(false);
+    const sid = sessionId.trim();
+    if (!sid) return;
+    if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
+    else setSessionHashInLocation(sid);
+  }, [sessionId, tasksOpen]);
+
+  // Ctrl+Shift+F (Cmd+Shift+F) opens and closes the Files window of the chat
+  // on screen, wherever the focus is, the composer included.
+  useEffect(() => {
+    if (!sessionId.trim()) return undefined;
+    const onKey = (ev: KeyboardEvent) => {
+      if (!isFilesHotkey(ev)) return;
+      ev.preventDefault();
+      if (filesOpen) closeFilesWindow();
+      else openFilesWindow();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [sessionId, filesOpen, openFilesWindow, closeFilesWindow]);
+
+  useEffect(
+    () =>
+      onOpenWorkspaceFile((request) => {
+        if (!sessionId.trim()) return;
+        const match = /^(.*?)(?:(?::|#L)(\d+)(?:-L?\d*)?)?$/i.exec(
+          request.path,
+        );
+        const raw = (match?.[1] || request.path).replace(
+          /^(["'])(.*)\1$/,
+          "$2",
+        );
+        const path = relativeFilePath(raw, "", workspaceCtx?.path || "");
+        if (path === null) return;
+        openFilesWindow(path, request.line || Number(match?.[2]) || 1);
+      }),
+    [sessionId, workspaceCtx?.path, openFilesWindow],
+  );
 
   /** Opens a session in this tab: the child transcript behind an agent task,
    *  or the parent chat from a read-only notice. Same path as a History pick,
@@ -5701,7 +5940,7 @@ export function App() {
     if (localServer !== "agent" || getEnv().mode !== "remote") {
       return undefined;
     }
-    return { name: localHost || t("composer.env.local") };
+    return { name: localHost || t("env.local") };
   }, [localServer, localHost, t]);
 
   // Entering a node points the whole app at that node's mount, so every screen
@@ -5737,9 +5976,7 @@ export function App() {
       // same-origin: the relay is then this page's origin. Without that fallback
       // the one entry point this screen exists for silently did nothing.
       const relay =
-        env.mode === "remote"
-          ? swarmRootRelay(env)
-          : window.location.origin;
+        env.mode === "remote" ? swarmRootRelay(env) : window.location.origin;
       if (!relay) {
         return;
       }
@@ -5773,9 +6010,7 @@ export function App() {
         return;
       }
       const relay =
-        env.mode === "remote"
-          ? swarmRootRelay(env)
-          : window.location.origin;
+        env.mode === "remote" ? swarmRootRelay(env) : window.location.origin;
       if (!relay) {
         return;
       }
@@ -5996,13 +6231,24 @@ export function App() {
 
   // The panel belongs to a chat, so it only exists when one is open.
   const tasksPanelOpen = tasksOpen && !!sessionId.trim();
+  // The dock beside the chat holds the background tasks; `tasksOpen` is its
+  // open state, which every Escape path and stacked-shell rule speaks.
+  const dockOpen = tasksPanelOpen;
 
+  // A window over the chat - the files or the edits - is one more layer the
+  // shell's backdrop covers the chat under.
+  const chatWindowOpen = (filesOpen || changesViewerOpen) && !!sessionId.trim();
   const shellBackdropOpen =
+    chatWindowOpen ||
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute ||
     swarmRoute ||
     docsRoute !== null;
+
+  // A window over the dock (FilesView, EditsView) takes Escape itself, and the
+  // backdrop covers it, so the dock waits for the next one.
+  useRightDockEscape(dockOpen && !shellBackdropOpen, closeTasksDrawer);
 
   const filteredSchedulerJobs = useMemo(() => {
     const q = schedulerFilterQ.trim().toLowerCase();
@@ -6026,8 +6272,8 @@ export function App() {
    * The environments the History filter offers. Two kinds share the list,
    * because to an operator they are one question - where is this conversation:
    * the origin rows narrow the listing of whichever server is being read, and a
-   * remote row points the whole app at another server, the way the composer's
-   * environment chip does.
+   * remote row points the whole app at another server, the way the rail's
+   * environment menu does.
    */
   const sessionEnvironments = useMemo<SessionsEnvironmentOption[]>(() => {
     const onRemote = activeEnv.mode === "remote";
@@ -6486,7 +6732,7 @@ export function App() {
         className={[
           "shell-main",
           sessionsOpen ? "shell-history-open" : "",
-          tasksPanelOpen ? "shell-tasks-open" : "",
+          dockOpen ? "shell-tasks-open" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -6501,9 +6747,16 @@ export function App() {
         <div
           className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
           onClick={() => {
-            if (shellBackdropOpen) {
-              closeAllShellDrawers();
-            }
+            if (!shellBackdropOpen) return;
+            // Over the chat a window is all the backdrop covers: closing it
+            // gives the address back to what the dock under it shows.
+            if (chatWindowOpen) {
+              if (filesOpen) closeFilesWindow();
+              else closeEditsWindow();
+              setSessionsOpen(false);
+              setSchedulerOpen(false);
+              setSchedulerEditor(null);
+            } else closeAllShellDrawers();
           }}
           aria-hidden={!shellBackdropOpen}
         />
@@ -6669,26 +6922,52 @@ export function App() {
             />
           </div>
         ) : null}
-        {tasksPanelOpen ? (
-          <BackgroundTasksPanel
-            open
-            focus={
-              tasksFocus && tasksFocus.sid === sessionId.trim()
-                ? tasksFocus
-                : null
+        {dockOpen ? (
+            <BackgroundTasksPanel
+              open
+              focus={
+                tasksFocus && tasksFocus.sid === sessionId.trim()
+                  ? tasksFocus
+                  : null
+              }
+              onFocusHonoured={spendTasksFocus}
+              tasks={backgroundTasks}
+              loadOutput={loadBackgroundTaskOutput}
+              listError={backgroundListError}
+              loading={backgroundListLoading}
+              nowMs={backgroundNowMs}
+              onClose={closeTasksDrawer}
+              onStopTask={stopBackgroundTaskById}
+              onClearFinished={() => {
+                void clearFinishedTasks();
+              }}
+              onOpenSession={openSessionInPlace}
+            />
+        ) : null}
+
+        {/* After the dock, so on the stacked shell, where both are sheets over
+            the chat, the window is the one on top. */}
+        {changesViewerOpen && sessionId.trim() ? (
+          <EditsView
+            key={`edits:${sessionId}`}
+            sessionId={sessionId}
+            workspacePath={workspaceCtx?.path || ""}
+            onClose={closeEditsWindow}
+          />
+        ) : null}
+        {filesOpen && sessionId.trim() ? (
+          <FilesView
+            key={`${sessionId}:${workspaceCtx?.path || ""}`}
+            sessionId={sessionId}
+            workspacePath={workspaceCtx?.path || ""}
+            initialPath={filePath}
+            initialLine={fileLine}
+            openSeq={fileOpenSeq}
+            toolActivity={finishedToolCalls(transcriptItems)}
+            onNavigate={(path, line) =>
+              setSessionFilesHash(sessionId, path, line)
             }
-            onFocusHonoured={spendTasksFocus}
-            tasks={backgroundTasks}
-            loadOutput={loadBackgroundTaskOutput}
-            listError={backgroundListError}
-            loading={backgroundListLoading}
-            nowMs={backgroundNowMs}
-            onClose={closeTasksDrawer}
-            onStopTask={stopBackgroundTaskById}
-            onClearFinished={() => {
-              void clearFinishedTasks();
-            }}
-            onOpenSession={openSessionInPlace}
+            onClose={closeFilesWindow}
           />
         ) : null}
 
@@ -6696,6 +6975,11 @@ export function App() {
           <ChatScreen
             title={currentTitle}
             sessionId={sessionId}
+            onOpenEdits={openEditsWindow}
+            onOpenFiles={() =>
+              filesOpen ? closeFilesWindow() : openFilesWindow()
+            }
+            filesOpen={filesOpen}
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
             onBackgroundTasksChanged={() => {
@@ -6722,7 +7006,12 @@ export function App() {
             onWorkspacePickBranch={(b: string, wt: boolean) =>
               void switchWorkspace({ branch: b, worktree: wt })
             }
-            onWorktreeToggle={() => setWorktreePref((v) => !v)}
+            onWorktreeToggle={() =>
+              setWorktreePref((v) => {
+                writeWorktreePref(!v);
+                return !v;
+              })
+            }
             sessionLoading={sessionLoading}
             sessionFadingOut={sessionFadingOut}
             heroAccentVerb={heroAccentVerb}
@@ -6785,8 +7074,8 @@ export function App() {
             settingsOverrides={settingsOverrides}
             onDraftChange={setDraft}
             onMentionArtifact={(path: string) =>
-              setDraft((current) =>
-                `${current}${current.trim() ? " " : ""}@${path}`,
+              setDraft(
+                (current) => `${current}${current.trim() ? " " : ""}@${path}`,
               )
             }
             generating={generating}

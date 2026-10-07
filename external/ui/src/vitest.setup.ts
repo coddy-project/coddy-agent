@@ -1,11 +1,21 @@
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, vi } from "vitest";
 import { resetPageMemoryForTests } from "./ui/env/pageMemory";
+import { forgetWorkingCopies } from "./ui/changes/workingCopy";
+import {
+  CODDY_WORKSPACE_DIR_COOKIE,
+  CODDY_WORKTREE_COOKIE,
+} from "./ui/chat/workspaceCookies";
 
 // What a page keeps while it is open starts empty for every test, as it does
-// for every page.
+// for every page; so does what the browser remembers for the start screen (a
+// folder picked in one test must not open the next one's start screen).
 beforeEach(() => {
   resetPageMemoryForTests();
+  forgetWorkingCopies();
+  for (const name of [CODDY_WORKSPACE_DIR_COOKIE, CODDY_WORKTREE_COOKIE]) {
+    document.cookie = `${name}=; Path=/; Max-Age=0`;
+  }
 });
 
 Object.defineProperty(window, "matchMedia", {

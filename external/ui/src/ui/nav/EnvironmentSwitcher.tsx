@@ -57,15 +57,70 @@ function normUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
 }
 
+/** This browser's own server: a laptop, the screen over its base. */
+function IconLocalHost(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="4.5" y="5" width="15" height="10.5" rx="1.5" />
+      <path d="M2.5 19h19" />
+    </svg>
+  );
+}
+
 /**
- * EnvironmentChip is the composer environment selector, shown in the workspace-context row above
- * the input (next to the folder / branch / worktree chips), Claude-Code style. Selecting an entry
- * connects immediately (no confirm step): the choice and per-remote token live in this browser
- * only, and the app reloads so sessions, models, and mode all come from the chosen backend. The
- * menu shows a reachability dot per remote (green up, red down, yellow while probing), says why a
- * red one is red, and lists the agents of a relay so a node is one click away (issue #401).
+ * Another host: two chevrons pointing at each other, one a little above the
+ * other, the way a remote connection is usually drawn.
  */
-export function EnvironmentChip() {
+function IconRemoteHost(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 5l6 5-6 5" />
+      <path d="M20 9l-6 5 6 5" />
+    </svg>
+  );
+}
+
+/**
+ * The environment the page drives, as an item of the nav rail: at the foot of
+ * the rail, above Sign out when there is one. Its icon says where the page
+ * works - a laptop for this browser's own server, two chevrons for another
+ * host - and a dot on it says whether that host answers. It opens the
+ * environment menu beside the rail on a desktop and as a sheet from the
+ * bottom on the stacked shell. Selecting an entry connects immediately (no
+ * confirm step): the choice and per-remote token live in this browser only,
+ * and the app reloads so sessions, models, and mode all come from the chosen
+ * backend. The menu shows a reachability dot per remote (green up, red down,
+ * yellow while probing), says why a red one is red, and lists the agents of a
+ * relay so a node is one click away (issue #401).
+ */
+export function EnvironmentSwitcher(props: {
+  /** The rail's classes for its items, narrow or wide. */
+  className: string;
+  /** The wide rail shows the environment's name beside the icon. */
+  wide: boolean;
+}) {
   const { t, tp } = useT();
   const env = useSyncExternalStore(subscribeEnv, snapshotEnv, snapshotEnv);
   const activeHealth = useActiveEnvHealth();
@@ -77,18 +132,17 @@ export function EnvironmentChip() {
   const remotes = useConfiguredRemotes();
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
-  // The chip usually sits in the composer at the foot of the screen, where a
-  // menu has to grow upward. On a relay the composer is gone and the chip is in
-  // the swarm header, where growing upward puts the whole menu off the top.
+  // The item sits at the foot of the desktop rail, so the menu opens beside
+  // the rail with its foot level with the item's and grows upward; an item in
+  // the upper half of a short window hangs the menu from its top instead.
   const opensUp = !!anchor && anchor.top > window.innerHeight / 2;
-  // The menu hangs from the chip's left edge, but in the swarm header the chip
-  // is the last thing on the right, so the menu is kept inside the window. The
-  // width is the one styles.css gives .mode-menu--portal.mode-menu--env.
+  // Beside the rail, kept inside the window. The width is the one styles.css
+  // gives .mode-menu--portal.mode-menu--env.
   const menuLeft = anchor
     ? Math.max(
         12,
         Math.min(
-          anchor.left,
+          anchor.right + 10,
           window.innerWidth - Math.min(300, window.innerWidth - 24) - 12,
         ),
       )
@@ -152,7 +206,7 @@ export function EnvironmentChip() {
     setOpen(false);
     setAdding(false);
   };
-  // The menu opens from a click, so the focus stays on the chip: Escape is
+  // The menu opens from a click, so the focus stays on the item: Escape is
   // heard on the page, not on the menu.
   useEscapeCloses(open, closeMenu);
 
@@ -166,8 +220,9 @@ export function EnvironmentChip() {
 
   const label =
     env.mode === "local"
-      ? t("composer.env.local")
+      ? t("env.local")
       : env.name || hostLabel(env.baseUrl);
+  const health = env.mode === "local" ? "local" : activeHealth;
   const useSheet = isMobileShell;
 
   const dot = (state: Health | "local") => (
@@ -178,14 +233,14 @@ export function EnvironmentChip() {
   const hintFor = (r: ConfiguredRemote, probe: RemoteProbe) => {
     switch (probe.reach) {
       case "unauthorized":
-        if (r.token) return t("composer.env.hint.configToken");
+        if (r.token) return t("env.hint.configToken");
         return probe.relay
-          ? t("composer.env.hint.relayToken")
-          : t("composer.env.hint.agentToken");
+          ? t("env.hint.relayToken")
+          : t("env.hint.agentToken");
       case "cors":
-        return t("composer.env.hint.cors", { origin: window.location.origin });
+        return t("env.hint.cors", { origin: window.location.origin });
       case "down":
-        return t("composer.env.hint.down");
+        return t("env.hint.down");
       default:
         return "";
     }
@@ -209,7 +264,7 @@ export function EnvironmentChip() {
     const address = hostLabel(r.url);
     const shown = r.name || done?.name || address;
     const sub = relayUp
-      ? `${t("composer.env.relay")} · ${tp("swarm.summary.agents", done.agents.length)}`
+      ? `${t("env.relay")} · ${tp("swarm.summary.agents", done.agents.length)}`
       : shown === address
         ? ""
         : address;
@@ -217,7 +272,7 @@ export function EnvironmentChip() {
       <div
         key={key}
         className="mode-env-entry"
-        data-testid="composer-env-remote"
+        data-testid="env-remote"
         data-reach={done ? done.probe.reach : "checking"}
       >
         <button
@@ -240,7 +295,7 @@ export function EnvironmentChip() {
                 className="mode-env-hint-action"
                 onClick={() => enterTokenFor(r)}
               >
-                {t("composer.env.enterToken")}
+                {t("env.enterToken")}
               </button>
             ) : null}
           </div>
@@ -271,7 +326,7 @@ export function EnvironmentChip() {
                       ? a.path.length > 1
                         ? route
                         : ""
-                      : t("composer.env.nodeOffline")}
+                      : t("env.nodeOffline")}
                   </span>
                 </button>
               );
@@ -283,30 +338,38 @@ export function EnvironmentChip() {
   };
 
   return (
-    <div className="workspace-chip-wrap">
+    <div className="rail-tip-host rail-env-host">
       <button
         ref={btnRef}
         type="button"
-        className="workspace-chip workspace-chip--env"
-        aria-label={t("composer.env.ariaLabel")}
-        title={t("composer.env.title")}
+        className={`${props.className} rail-env-btn ${open ? "is-active" : ""}`}
+        aria-label={t("env.ariaLabel", { name: label })}
         aria-haspopup="menu"
         aria-expanded={open}
-        data-testid="composer-env-btn"
+        data-testid="nav-environment"
+        data-env={env.mode}
+        data-state={health}
         onClick={() => (open ? closeMenu() : openMenu())}
       >
-        <span className="workspace-chip-icon" aria-hidden="true">
-          <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
-            <path d="M2.5 2.75c0-.41.34-.75.75-.75h9.5c.41 0 .75.34.75.75v7.5c0 .41-.34.75-.75.75h-9.5a.75.75 0 0 1-.75-.75v-7.5Zm1 .75v6h8v-6h-8ZM1 12.5h14v1H1v-1Z" />
-          </svg>
+        <span className="rail-env-icon">
+          {env.mode === "local" ? (
+            <IconLocalHost className="rail-svg rail-nav-hit-svg" />
+          ) : (
+            <IconRemoteHost className="rail-svg rail-nav-hit-svg" />
+          )}
+          <span
+            className="env-status rail-env-status"
+            aria-hidden="true"
+            data-state={health}
+          />
         </span>
-        <span className="workspace-chip-label">{label}</span>
-        <span
-          className="env-status"
-          aria-hidden="true"
-          data-state={env.mode === "local" ? "local" : activeHealth}
-        />
+        {props.wide ? <span className="rail-nav-label">{label}</span> : null}
       </button>
+      {!props.wide && !open ? (
+        <span className="rail-tip" role="tooltip">
+          {t("env.tooltip", { name: label })}
+        </span>
+      ) : null}
       {open && (useSheet || anchor)
         ? createPortal(
             <>
@@ -324,45 +387,45 @@ export function EnvironmentChip() {
                 className={`mode-menu mode-menu--env ${
                   useSheet
                     ? "mode-menu--sheet"
-                    : `mode-menu--portal ${opensUp ? "opens-up" : "opens-down"}`
+                    : `mode-menu--portal opens-right ${opensUp ? "opens-up" : "opens-down"}`
                 }`}
                 role="menu"
-                data-testid="composer-env-menu"
+                data-testid="env-menu"
                 style={
                   useSheet || !anchor
                     ? undefined
                     : opensUp
                       ? {
                           left: menuLeft,
-                          bottom: window.innerHeight - anchor.top + 8,
-                          maxHeight: roomFor(anchor.top - 8),
+                          bottom: window.innerHeight - anchor.bottom,
+                          maxHeight: roomFor(anchor.bottom),
                         }
                       : {
                           left: menuLeft,
-                          top: anchor.bottom + 8,
-                          maxHeight: roomFor(window.innerHeight - anchor.bottom - 8),
+                          top: anchor.top,
+                          maxHeight: roomFor(window.innerHeight - anchor.top),
                         }
                 }
               >
                 <div className="mode-menu-group-label">
-                  {t("composer.env.groupEnvironment")}
+                  {t("env.groupEnvironment")}
                 </div>
                 <button
                   type="button"
                   role="menuitem"
                   className={`mode-item mode-env-item ${env.mode === "local" ? "is-selected" : ""}`}
-                  data-testid="composer-env-local"
+                  data-testid="env-local"
                   onClick={() => connectLocal()}
                 >
                   {dot("local")}
                   <span className="mode-env-name">
-                    {t("composer.env.localThisOrigin")}
+                    {t("env.localThisOrigin")}
                   </span>
                 </button>
 
                 {remotes.length ? (
                   <div className="mode-menu-group-label">
-                    {t("composer.env.groupRemote")}
+                    {t("env.groupRemote")}
                   </div>
                 ) : null}
                 {remotes.length ? (
@@ -374,12 +437,12 @@ export function EnvironmentChip() {
                 {adding ? (
                   <div className="mode-menu-form">
                     <div className="mode-menu-form-title">
-                      {t("composer.env.addFormTitle")}
+                      {t("env.addFormTitle")}
                     </div>
                     <input
                       className="mode-menu-filter"
                       type="text"
-                      placeholder={t("composer.env.namePlaceholder")}
+                      placeholder={t("env.namePlaceholder")}
                       value={addName}
                       onChange={(e) => setAddName(e.target.value)}
                     />
@@ -388,14 +451,14 @@ export function EnvironmentChip() {
                       type="text"
                       placeholder="https://box.example:12345"
                       value={addUrl}
-                      data-testid="composer-env-add-url"
+                      data-testid="env-add-url"
                       onChange={(e) => setAddUrl(e.target.value)}
                     />
                     <input
                       className="mode-menu-filter"
                       type="password"
                       autoComplete="off"
-                      placeholder={t("composer.env.tokenPlaceholder")}
+                      placeholder={t("env.tokenPlaceholder")}
                       value={addToken}
                       // Opened for a remote whose token is missing, the form
                       // already names the remote: the token is what is left.
@@ -425,14 +488,14 @@ export function EnvironmentChip() {
                           )
                         }
                       >
-                        {t("composer.env.connect")}
+                        {t("env.connect")}
                       </button>
                       <button
                         type="button"
                         className="mode-item"
                         onClick={() => setAdding(false)}
                       >
-                        {t("composer.env.cancel")}
+                        {t("env.cancel")}
                       </button>
                     </div>
                   </div>
@@ -441,7 +504,7 @@ export function EnvironmentChip() {
                     type="button"
                     role="menuitem"
                     className="mode-item mode-env-add"
-                    data-testid="composer-env-add"
+                    data-testid="env-add"
                     onClick={() => {
                       setAddName("");
                       setAddUrl("");
@@ -449,7 +512,7 @@ export function EnvironmentChip() {
                       setAdding(true);
                     }}
                   >
-                    {t("composer.env.addRemote")}
+                    {t("env.addRemote")}
                   </button>
                 )}
               </div>
