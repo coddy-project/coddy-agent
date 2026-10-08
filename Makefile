@@ -1,4 +1,4 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -171,6 +171,17 @@ brew-formula:
 
 brew-check:
 	scripts/check-homebrew-submission.sh --version "$(VERSION)"
+
+# `check-image` builds the runtime image (Dockerfile) for every platform the
+# release publishes and checks that each one carries a coddy binary of its own
+# platform; the binary of the host's platform must also print $(VERSION). Docker
+# with buildx is all it needs: the build stages run natively and cross-compile,
+# so a plain docker driver builds linux/arm64 on an amd64 host and back. The
+# release runs the same script before it pushes (docker-build-push.yaml).
+IMAGE_PLATFORMS ?= linux/amd64,linux/arm64
+
+check-image:
+	scripts/check-image.sh --version "$(VERSION)" --platforms "$(IMAGE_PLATFORMS)" --out "$(DIST_DIR)/image"
 
 # Publish internal/config/config.schema.json (the schema embedded into the
 # binary for -t / --test-config) to the site repository, which serves it at

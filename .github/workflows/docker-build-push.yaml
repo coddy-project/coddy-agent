@@ -33,6 +33,7 @@ defaults:
 env:
   REGISTRY: ghcr.io
   BUILD_TAGS: "http,scheduler,ui,memory,cli,gateway,swarm"
+  PLATFORMS: "linux/amd64,linux/arm64"
 
 jobs:
   test-and-publish:
@@ -176,6 +177,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Docker labels a variant with the platform it was asked for, whatever the
+      # binary inside is, so the binaries are read before anything is pushed
+      # (issue #482: the arm64 variant carried an x86-64 binary). Same script as
+      # the "Docker image" job of every pull request; the push below takes these
+      # builds from the builder's cache.
+      - name: Check the binary of every platform
+        if: steps.meta.outputs.push == 'true'
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: scripts/check-image.sh --version "$VERSION" --build-tags "$BUILD_TAGS" --platforms "$PLATFORMS"
+
       - name: Build and push multi-arch distroless image
         if: steps.meta.outputs.push == 'true'
         uses: docker/build-push-action@v6
@@ -183,7 +195,7 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ env.PLATFORMS }}
           tags: ${{ steps.meta.outputs.tags }}
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}

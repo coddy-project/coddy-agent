@@ -40,6 +40,8 @@ Run **`make android`** for the Android (Termux) binaries, **`build/coddy-android
 
 Run **`make deb`** / **`make rpm`** for the Linux packages (**`PKG_ARCHS`**, **`PKG_TAGS`**, **`DIST_DIR`** knobs; nfpm is fetched on demand, nothing to install) and **`make brew VERSION=X.Y.Z`** to render the Homebrew cask for a release. CI builds the Linux packages on every pull request.
 
+Run **`make check-image`** to build the runtime image for **`linux/amd64`** and **`linux/arm64`** and check that each variant carries a **`/bin/coddy`** of its own platform (**`scripts/check-image.sh`** reads the ELF header; Docker with buildx is all it needs, the build stages cross-compile and nothing runs under emulation). The **Docker image** job runs it on every pull request and the release workflow runs it before it pushes. Guide: **`docs/getting-started/docker.md`** (Checking the platforms of the image).
+
 Swagger lives at **`/docs/`**, OpenAPI YAML at **`/openapi.yaml`**.
 
 ## Pre-commit gate
@@ -123,6 +125,10 @@ Every reviewer applies this section to changed files. Keep entries behavioral an
 - Do not add a file to the release **`.tar.gz`** layout without checking the Homebrew cask: **`packaging/homebrew/coddy.rb.tmpl`** links artefacts out of that archive by name.
 - Do not move the man page or the completions inside the repository without updating **`packaging/homebrew/coddy-formula.rb.tmpl`**. The formula installs them from their source paths, and a from-source build is the only packaging route that reads the tree rather than a staged archive. Its **`test do`** block is coupled the same way: it asserts on the output of **`coddy -v`**, **`coddy sessions list`** (the **`SESSION_ID`** header) and **`coddy skills list`** (the **`Search roots:`** line), and once the formula is in homebrew/core those strings are checked by Homebrew's CI, not ours.
 - Do not conflate the two Homebrew artefacts. The **cask** installs prebuilt macOS archives and is upgraded with **`brew upgrade --cask coddy`** out of a **`Caskroom`**; the **formula** builds from source and is upgraded with **`brew upgrade coddy`** out of a **`Cellar`**. **`internal/update`** reads which of the two owns the running executable off its path, so a change to that detection has to keep both hints correct - the wrong flag fails on the user's machine.
+
+### Docker image
+
+- Do not give an automatic platform argument (**`TARGETOS`**, **`TARGETARCH`**, **`TARGETPLATFORM`**, **`BUILDPLATFORM`** and the rest) a default value in the **`Dockerfile`**. A default wins over the value BuildKit passes, and the **`linux/arm64`** image shipped an x86-64 binary that way for months (issue #482): Docker still labels the variant arm64, and a host with **`qemu-user-static`** even runs it. Keep the build stages on **`--platform=$BUILDPLATFORM`** with **`GOOS`** / **`GOARCH`** taken from **`TARGETOS`** / **`TARGETARCH`**, so the Go stage cross-compiles and no step runs under emulation. Safe path: **`make check-image`**.
 
 ### Documentation
 
