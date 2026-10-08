@@ -95,19 +95,8 @@ func isSharedCompletions(method, rest string) bool {
 	if method != http.MethodPost {
 		return false
 	}
-	if decoded, err := url.PathUnescape(rest); err == nil {
-		rest = decoded
-	}
-	for strings.HasPrefix(rest, swarmdto.MountPath) {
-		// Drop "/swarm/nodes/<name>" and look at what follows.
-		after := strings.TrimPrefix(rest, swarmdto.MountPath)
-		slash := strings.IndexByte(after, '/')
-		if slash < 0 {
-			return false
-		}
-		rest = after[slash:]
-	}
-	return rest == sharedCompletionsRoute
+	_, route, ok := splitHops("", rest)
+	return ok && route == sharedCompletionsRoute
 }
 
 // probeSharedCall bounds the peer of one shared-model call at its source: a
@@ -202,6 +191,21 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, fmt.Sprintf("route %q is not carried by a node mount", rest))
 		})
 		return
+	}
+
+	// A scoped client is judged before the registry is looked at, so that what it hears about a node outside its list is what it
+	// hears about a node that does not exist: the allowlist first (exact hop paths, every hop of the chain), then the closed
+	// table of shared-model routes.
+	if p := principalFrom(r.Context()); p.class == principalScoped {
+		hops, route, split := splitHops(name, rest)
+		if !split || !clientAdmitsHops(*p.client, hops) {
+			writeHopError(w, http.StatusNotFound, name, "no such node in this relay", "")
+			return
+		}
+		if !sharedRoute(r.Method, route) {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("route %q is not carried by a node mount", rest))
+			return
+		}
 	}
 
 	node, ok := s.registry.Node(name)

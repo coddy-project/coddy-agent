@@ -80,6 +80,15 @@ func Serve(ctx context.Context, opts Options) error {
 		"tls", cfg.Swarm.TLS.Enabled(), "nodes", srv.Registry().Len(), "parents", len(cfg.Swarm.Join))
 
 	server := httpx.NewServer(opts.ListenAddr, srv.Handler())
+	// Client certificates: the relay verifies them against swarm.tls.client_ca_file and maps their names to a scoped entry per
+	// request (principal.go). Without swarm.tls.cert_file and key_file there is no TLS to carry one (the config check refuses it).
+	clientTLS, cerr := ClientCertTLS(cfg.Swarm.TLS)
+	if cerr != nil {
+		return cerr
+	}
+	if clientTLS != nil {
+		server.TLSConfig = clientTLS
+	}
 	errs := make(chan error, 1)
 	go func() {
 		if cfg.Swarm.TLS.Enabled() {

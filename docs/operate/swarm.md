@@ -413,6 +413,10 @@ Three credentials, three jobs:
 | `swarm.pairing_tokens` | nodes | joining this relay |
 | per-node `token` | the relay | acting as that node |
 
+**Scoped clients narrow the door for borrowers.** `swarm.clients` lists clients with a token (and, optionally, certificate names) of their own that open
+only the three shared-model routes of the nodes the entry lists: [Scoped clients](#scoped-clients). The paragraph below is about the full client token,
+`swarm.auth_token`, which is unchanged.
+
 **A relay is a fleet-wide door.** It holds every node's credential, so whoever holds its
 client token controls every node it reaches, transitively through every hop - its sessions, its
 tools and its settings, the secrets a node's `GET /coddy/config` hands back (provider keys,
@@ -464,6 +468,53 @@ The relay's own Settings (above) edit it with the client token, which already co
 it reaches; they add no power the token did not have, and they cannot be reached through a parent
 relay's mount.
 
+## Scoped clients
+
+A borrower of a shared model does not need the relay's fleet-wide token. A `swarm.clients` entry gives it a credential that reaches the three
+shared-model routes of the nodes you name and nothing else:
+
+```yaml
+swarm:
+  auth_token: "${RELAY_CLIENT_TOKEN}"          # the full class, unchanged
+  clients:
+    - name: acme                               # the label of logs and counters; lower case, unique
+      token: "${ACME_RELAY_TOKEN}"             # a token belongs to one class only
+      scope: shared_models                     # the only scope
+      nodes: [workstation, edge/gpu-box]       # exact hop paths
+      cert_names: []                           # certificate names that map to this entry (below)
+```
+
+- **What the entry opens.** `GET /coddy/llm/models`, `GET /coddy/llm/models/{alias}/usage` and `POST /coddy/llm/completions` of a node the entry lists,
+  matched exactly on the decoded path with the route's method: no `HEAD` or `OPTIONS`, no trailing slash, no `;x=1`, and no route a later release adds under
+  `/coddy/llm/` until the table of the relay lists it. On every other route of the relay, the node list, the sessions, the topology, a delete, the client
+  gets the plain `401` an unknown token gets, so it learns nothing about the relay.
+- **`nodes` are exact hop paths.** `workstation` admits the node `workstation` directly below this relay and nothing else; `edge/gpu-box` admits the
+  node `gpu-box` through the chained relay `edge` and nothing else (a child forwards with its own full token, so this relay judges the whole path, every
+  hop); `*` admits any single-hop path. It does not admit a longer chain that starts with an entry, nor a node with the same name at another place: a node
+  name is not an identity.
+- **A node outside the list sounds like a node that does not exist.** The client gets the same `404` ("no such node in this relay") for both.
+- **The node never sees the client.** The relay replaces the credential with the node's own, as for the full class, so what a node sees is the relay.
+- **A token belongs to one class.** It must differ from the main, swarm, pairing and shared-model tokens and from every other entry's: `coddy -t` and the
+  load refuse a duplicate.
+
+### Client certificates
+
+With `swarm.tls.client_ca_file` the relay asks the peer for a certificate and verifies it against that authority. `swarm.tls.client_auth: optional` (the default
+with a CA) lets a peer without one in for the routes that need none; `required` refuses every peer without a verified certificate at the handshake: nodes that
+join and browsers included, so a node then needs `dial.cert_file` and `dial.key_file` ([Encryption and proxies](#encryption-and-proxies)).
+
+A verified certificate maps to an entry by `cert_names`, matched exactly against the leaf's DNS and URI names (the CN is not consulted):
+
+- an entry with only a `token` is a bearer entry; with only `cert_names` a certificate entry; with both, **both are required** and the certificate must map to
+  that same entry, so a stolen token without the key (or the key without the token) opens nothing;
+- the match is made **on every request** against the live entries, never cached in the connection: removing a name or an entry takes effect on the next request of
+  an open connection, a resumed connection is judged like a fresh one, and a certificate past its end has no identity;
+- a certificate never opens the full class: a request with a full token and a certificate is full, a request with only a certificate is at most the scoped entry
+  it maps to, and a chain-valid certificate no entry names reaches nothing.
+
+The design record with the verdicts of the model checks behind these rules is
+[`docs/plans/remote-model-provider-phase3.md`](../plans/remote-model-provider-phase3.md) (D1, D2 and D5).
+
 ## Encryption and proxies
 
 Relays usually sit in different networks.
@@ -499,7 +550,7 @@ relay, wrap in TLS, upgrade, invert roles. The HTTP/2 layer above is unaware of 
 - **One relay process per endpoint.** Two replicas behind a load balancer would split the
   registry and the tunnels.
 - **No relay-wide HTTP/2 health check.** The relay pings its tunnels and a node pings its relay, but the listener that serves browsers and clients is not pinged and is not HTTP/1.x only, so a quiet stream survives a silent link. The cost is that an HTTP/2 client of a TLS relay is not bounded for a shared call ([Liveness](#liveness-of-a-tunnel-and-of-a-shared-call)).
-- **No per-node client authorisation.** See the blast radius above. It holds for shared models too: a client of the relay reaches every node's mount, and a node that shares models is protected only by the token it joined with ([Sharing models through a relay](#sharing-models-through-a-relay)).
+- **No per-node authorisation for the full client token.** See the blast radius above; a scoped client has it ([Scoped clients](#scoped-clients)). It holds for shared models too: a client of the relay reaches every node's mount, and a node that shares models is protected only by the token it joined with ([Sharing models through a relay](#sharing-models-through-a-relay)).
 
 ## Reference
 
