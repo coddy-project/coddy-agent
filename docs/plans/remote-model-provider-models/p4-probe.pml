@@ -36,9 +36,11 @@
 
    Properties (ghost latches, monotone; one is asserted per run with -D ASSERT_PROP=<latch>, expected to stay 0)
      S1 gFalseCut  the guard cancelled a call whose client had not vanished (also with BROKEN 1)
-     S2 gLate      an opted-in client vanished AFTER its first ping had been accepted and its call still held the slot more than
-                   DMAX + G + 1 ticks after it vanished (the provider not having completed it); the exact worst case is
-                   vanish + DMAX + G + 1, cut at the first tick past the deadline
+     S2 gLate      an opted-in client whose guard was armed by a ping sent before it vanished (armed by tick vAt + DMAX at the
+                   latest, a ping in flight at the vanish included) still held the slot more than DMAX + G + SLACK ticks after it
+                   vanished, the provider not having completed it. SLACK 1 is the model's continuous-time convention (the guard of
+                   the code is G + 1 s); the model's own tight bound is DMAX + G (SLACK 0 verifies, SLACK -1 is violated), because
+                   the discrete tick puts the last ping a tick before the vanish
      sUnguarded    a client vanished before its first ping was accepted: with ARM 1 the call has no guard (it falls back to the
                    transport bound), reachable by design
      S3 gCutNonOpt the guard cancelled a call that had not opted in
@@ -85,7 +87,7 @@
 #define TIE 0               /* 0: a ping on the tick the grace ends wins (cut at the first tick past it); 1: the cut wins the tie (mutant) */
 #endif
 #ifndef SLACK
-#define SLACK 1             /* the cut comes at the first tick past the deadline: a mutant with 0 shows the bound is tight */
+#define SLACK 1             /* the convention of the plan (the code cuts at G + 1 s); SLACK 0 still verifies, SLACK -1 is violated: the tight bound */
 #endif
 #ifndef BROKEN
 #define BROKEN 0
@@ -114,11 +116,10 @@ byte rel;                       /* releases                                     
 bit guardOn, guardFired, compDone, aDone;
 byte deadline;
 byte nextSend, lostRun;
-bit guardWasArmedAtVanish;       /* the guard was armed when the client vanished */
 byte infl[3];                   /* delivery ticks of the pings in flight, 255 empty                                         */
 
 bit gFalseCut, gLate, gCutNonOpt, gDouble, gForeign;
-bit firstAccepted;               /* a ping has been accepted: the guard (ARM 1) is armed from it */
+bit armedInTime;                 /* ghost for S2: the guard was armed by a tick no later than vAt + DMAX (a ping sent before the vanish) */
 bit sCut, sDel, sLost, sVan, sDone, sUnguarded;
 
 #define CONFIRMED (OPT == 1 && NODE == 1)
@@ -136,7 +137,7 @@ inline release() {
 
 inline checkLate() {
     if
-    :: CONFIRMED && vanished && RUNNING && !compDone && guardWasArmedAtVanish && now > vAt + DMAX + G + SLACK -> gLate = 1
+    :: CONFIRMED && vanished && RUNNING && !compDone && guardOn && armedInTime && now > vAt + DMAX + G + SLACK -> gLate = 1
     :: else -> skip
     fi
 }
@@ -189,7 +190,7 @@ proctype Node() {
          if
          :: RUNNING ->
               if :: ARM == 1 -> guardOn = (STRICT == 1 || CONFIRMED) :: else -> skip fi;
-              firstAccepted = 1;
+              if :: guardOn && now <= vAt + DMAX -> armedInTime = 1 :: else -> skip fi;
               deadline = now + G
          :: else -> skip
          fi;
@@ -201,7 +202,7 @@ proctype Node() {
          if
          :: RUNNING && (AUTH == 0 || ATT == 2) ->
               deadline = now + G;
-              if :: ARM == 1 && guardOn == 0 && (STRICT == 1 || CONFIRMED) -> guardOn = 1 :: else -> skip fi;
+              if :: ARM == 1 && guardOn == 0 && (STRICT == 1 || CONFIRMED) -> guardOn = 1; if :: now <= vAt + DMAX -> armedInTime = 1 :: else -> skip fi :: else -> skip fi;
               if :: vanished -> gForeign = 1 :: else -> skip fi
          :: else -> skip
          fi;
@@ -235,7 +236,7 @@ proctype Clock() {
          !(guardOn && !guardFired && RUNNING && now + TIE > deadline) &&
          !(!compDone && now >= compAt) ->
          now++;
-         if :: now == vAt -> vanished = 1; sVan = 1; guardWasArmedAtVanish = guardOn; if :: guardOn == 0 -> sUnguarded = 1 :: else -> skip fi :: else -> skip fi;
+         if :: now == vAt -> vanished = 1; sVan = 1; if :: guardOn == 0 -> sUnguarded = 1 :: else -> skip fi :: else -> skip fi;
          latch()
        }
     :: now >= T -> break
@@ -252,6 +253,7 @@ init {
 #else
         guardOn = (ARM == 0 && CONFIRMED);
 #endif
+        if :: guardOn -> armedInTime = 1 :: else -> skip fi
     }
     /* the tick the client vanishes, the provider completes, the attacker pings: each chosen once, T+1 means never */
     x = 0; do :: x < T + 1 -> x++ :: break od; compAt = x;
@@ -266,7 +268,7 @@ init {
     aAt = T + 1;
 #endif
     atomic {
-        if :: vAt == 0 -> vanished = 1; sVan = 1; guardWasArmedAtVanish = guardOn; if :: guardOn == 0 -> sUnguarded = 1 :: else -> skip fi :: else -> skip fi;
+        if :: vAt == 0 -> vanished = 1; sVan = 1; if :: guardOn == 0 -> sUnguarded = 1 :: else -> skip fi :: else -> skip fi;
         run Client(); run Node(); run Clock()
     }
 }
