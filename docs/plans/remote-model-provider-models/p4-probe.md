@@ -12,14 +12,21 @@ Commands (`M=p4-probe.pml`, flags `--no-timing --budget-states 20000000 --budget
 # S1, a live client is never cut
 mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0                          # verified (25077 states)
 mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D G=7                   # G - 1: violated
-mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D TIE=1                 # the cut wins the tie: violated; with G=9 verified
+mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D TIE=1                 # the cut wins the tie: violated
+mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D TIE=1 -D G=9          # ... and verified again one tick later
 mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D BROKEN=1              # a path that carries no ping, ARM=1: verified (1645)
 mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D BROKEN=1 -D ARM=0     # the same, armed at the start: violated
 mcd check --promela $M -D ASSERT_PROP=gFalseCut                                   # with a vanish later in the run: verified (418031)
 mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D L=2 -D DMAX=1 -D G=10 -D T=30   # verified;  G=9: violated
 mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D I=4 -D G=10 -D T=30            # verified;  G=9: violated
-# S2, a client that vanished after a ping is freed within DMAX + G + 1 ticks
-mcd check --promela $M -D ASSERT_PROP=gLate                                       # verified (418031); also -D G=7 and -D SLACK=0
+mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D I=10 -D L=2 -D DMAX=5 -D G=35 -D T=90   # the plan's own constants, no scaling: verified (5.1 M states)
+mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D I=10 -D L=2 -D DMAX=5 -D G=34 -D T=90   # G - 1: violated
+# S2, a client whose guard was armed by a ping sent before it vanished is freed within DMAX + G + SLACK ticks
+mcd check --promela $M -D ASSERT_PROP=gLate                                       # verified (418031)
+mcd check --promela $M -D ASSERT_PROP=gLate -D G=7                                # verified: the bound follows G
+mcd check --promela $M -D ASSERT_PROP=gLate -D SLACK=0                            # verified: the model's tight bound is DMAX + G
+mcd check --promela $M -D ASSERT_PROP=gLate -D SLACK=-1                           # violated: one tick less is not enough
+mcd check --promela $M -D ASSERT_PROP=gLate -D ARM=0                              # armed at the start: verified too (and S1 is what it costs)
 # S3, a call that did not opt in is not cut
 mcd check --promela $M -D ASSERT_PROP=gCutNonOpt -D OPT=0                         # verified
 mcd check --promela $M -D ASSERT_PROP=gCutNonOpt -D OPT=0 -D STRICT=1             # a guard on every call: violated
@@ -40,7 +47,7 @@ mcd check --promela $M -D ASSERT_PROP=<sCut|sDel|sLost|sVan|sDone|sUnguarded>
 
 - **P1, who is cut: (a), only a call that opted in and was confirmed.** With a guard on every call a foreign client that never pings is cut (S3, and with it S1). A client of an old node, which never confirms, has no guard.
 - **P2, when the guard is armed: (b), at the first accepted ping.** Armed at the start, a ping path that carries nothing (`BROKEN`) cuts every live client (S1 violated); armed by the first ping it cuts none (verified), and a client that vanished after its first ping is freed within `DMAX + G + 1` (S2 verified). What is given up is a client that vanishes before its first ping (`sUnguarded`, reachable by design): it falls back to the transport bound, as today.
-- **P3, the grace: `G = (L + 1) I + DMAX` is the exact boundary.** Verified at (I, L, DMAX) = (3, 1, 2), (3, 2, 1) and (4, 1, 2) with G = 8, 10 and 10, each G - 1 violated: a live client whose pings are delayed by 0 and then by DMAX, with L lost between, has a gap of `(L + 1) I + DMAX`. The tie rule is part of the boundary: a guard that wins the tie (`TIE = 1`, a timer of exactly G) is the G - 1 case. The plan's constants follow: I = 10 s, L = 2, DMAX = 5 s give G = 35 s, implemented as G + 1 s on the monotonic clock so that a ping on the tick the grace ends wins; the bound after a vanish is G + DMAX + that second, 41 s (the model's discrete ticks put the last ping a tick before the vanish, which is why its latch also holds with `SLACK = 0`).
+- **P3, the grace: `G = (L + 1) I + DMAX` is the exact boundary.** Verified at (I, L, DMAX) = (3, 1, 2), (3, 2, 1) and (4, 1, 2) with G = 8, 10 and 10, each G - 1 violated: a live client whose pings are delayed by 0 and then by DMAX, with L lost between, has a gap of `(L + 1) I + DMAX`. The tie rule is part of the boundary: a guard that wins the tie (`TIE = 1`, a timer of exactly G) is the G - 1 case. The plan's constants follow: I = 10 s, L = 2, DMAX = 5 s give G = 35 s, implemented as G + 1 s on the monotonic clock so that a ping on the tick the grace ends wins; the bound after a vanish is G + DMAX + that second, 41 s in continuous time (the model's discrete ticks put the last ping a tick before the vanish, so its own tight bound is DMAX + G: `SLACK = 0` verifies and `SLACK = -1` is violated). The bound holds if every delivered ping arrives within DMAX: the client's per-ping deadline is DMAX (I / 2), so a slower ping counts as lost; with an intermediary that holds a ping longer, the cut comes G + 1 s after the last ping the node accepted.
 - **P4, what proves a ping: the id and the credential of the call on a direct listener; the id alone through a relay.** A foreign pinger without the id never re-arms a guard (verified). With the id and another credential it does when the id alone proves a ping (`AUTH = 0`) and does not when the credential is part of the proof (`AUTH = 1`, verified). With the id **and** the call's credential it does in both, which is the capability's meaning: through a relay every client shares the node's credential, so the id (128 random bits, in the response of the call only, carried in a header and not in a path) is the proof.
 - **S4, exactly-once release.** A guard that fires at the same tick as the completion releases the slot once when `release()` is guarded (verified) and twice when every path releases (violated). The code keeps its existing guarded release.
 
@@ -50,8 +57,13 @@ mcd check --promela $M -D ASSERT_PROP=<sCut|sDel|sLost|sVan|sDone|sUnguarded>
 - Reordering beyond the delay choice. `DMAX >= I` (a ping delayed past the next one) is excluded by an `#error`, since the model's slots would drop it without counting a loss; the plan's constants keep DMAX at half of I.
 - Guessing the id (128 random bits, a boolean in the model), a client that leaks it, and a balancer that sends the pings of one call to different instances (the plan's section 6).
 - The stream's heartbeat and the transport bound; the probe is an additional bound on the calls that opted in.
+- A ping that an intermediary holds for longer than DMAX and then delivers: the node cannot tell it from a fresh one (it carries no time), so the bound is then G + 1 s after the last accepted ping (the plan's 3.1).
 - A longer horizon than T = 24: the model is invariant under translation of time, so a vanish after tick 12 adds no behaviour the earlier ones do not have.
 - The decisions P1, P2 and P4 follow from how the switches are encoded as much as from a search; P3, the tie rule and S4 carry the search content. The wording of the verdicts says so.
+
+## Round 2 of the review
+
+Three reviewers on the revised plan and two on the revised model (qwen on the plan only). Every claim was re-run. Taken: the S2 latch missed a client whose first ping was in flight when it vanished (a mutant that armed the guard late after the vanish stayed verified); the latch is now conditioned on a ghost bit, the guard having been armed by a tick no later than `vAt + DMAX`, and the dead variable is gone; the comment that called `vanish + DMAX + G + 1` exact is corrected (the tight bound is `DMAX + G`); the plan's constants run directly. Not taken, with the evidence in the review: the S3 control does not inherit `ARM = 1` (`STRICT = 1` sets the guard in `init`), and `ARM = 0` is not broken (its `BROKEN` run violates S1, as claimed). The model's `#error` for `DMAX >= I` is reported as a syntax error by `mcd` 0.3.1 and still stops the run.
 
 ## Found while modelling
 
