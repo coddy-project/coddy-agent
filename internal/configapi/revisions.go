@@ -9,17 +9,23 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
-// RevisionsKept bounds how many configurations GET /coddy/config remembers. A
-// document older than that - a form left open across more swaps of the live
-// configuration - is measured against the live one, as every save used to be.
-const RevisionsKept = 32
+// RevisionsKept bounds how many configurations GET /coddy/config and the
+// answers of PUT remember. A document older than that - a form left open
+// across more swaps of the live configuration - is measured against the live
+// one, as every save used to be. Each save of the settings form takes two (its
+// answer and the read after it), and the form saves on its own after every
+// pause in editing, so a form holding a change for Save outlives some sixty
+// saves of another browser.
+const RevisionsKept = 128
 
 // Revisions remembers the configurations GET /coddy/config handed out, each
-// under the revision the document carries (config.ConfigJSON.Revision). A PUT
-// compares what a client sends back with what that client read, rather than with
-// whatever is live when the PUT arrives: another save, the agent's config_commit or
-// a hand edit may have replaced it in between, and a value the client never touched
-// must not put back what it was shown.
+// under the revision the document carries (config.ConfigJSON.Revision), and the
+// configuration each PUT wrote as its client sent it, under the revision the PUT
+// answers with. A PUT compares what a client sends back with what that client
+// read or last saved, rather than with whatever is live when the PUT arrives:
+// another save, the agent's config_commit or a hand edit may have replaced it in
+// between, and a value the client never touched must not put back what it was
+// shown.
 type Revisions struct {
 	mu sync.Mutex
 	// epoch tells this process's revisions from the ones a client may still hold

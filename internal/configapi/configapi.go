@@ -240,7 +240,7 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 	// under the process-wide config file lock shared with the agent's
 	// config_commit / config_rollback tools. Anything less lets two writers
 	// interleave and install runtime state that no longer matches the file.
-	var cfgPath string
+	var cfgPath, revision string
 	txErr := config.WithConfigFileLock(func() error {
 		c := b.Live()
 		if c == nil {
@@ -292,6 +292,18 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 			}
 			return err
 		}
+		// The answer names the configuration as this save's client sent it.
+		// A form that goes on editing after the save sends its next document
+		// under that revision, so the next save is measured against what this
+		// one wrote rather than against what the form read before it: a value
+		// put back as it was is written back. It is the sent document, not the
+		// live configuration, because the live one is not what the client
+		// holds - the process may run with values the file does not carry (a
+		// flag, the relay address coddy serve fills in), and measured against
+		// it the client's copy of those would read as edits.
+		if b.Revisions != nil {
+			revision = b.Revisions.Revision(newCfg)
+		}
 		return nil
 	})
 	switch {
@@ -325,8 +337,12 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.log().Info("config updated", "path", cfgPath)
+	answer := map[string]interface{}{"ok": true}
+	if revision != "" {
+		answer["revision"] = revision
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+	_ = json.NewEncoder(w).Encode(answer)
 }
 
 // WriteError answers with the error document of the configuration routes:
