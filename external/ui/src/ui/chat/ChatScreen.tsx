@@ -41,7 +41,7 @@ import {
   snapshotTouchOnly,
   serverSnapshotTouchOnly,
 } from "../shellBreakpoint";
-import { COMPOSER_EXPANDED_GAP_PX } from "./composerHeight";
+import { ComposerExpandButton } from "./ComposerExpandButton";
 import { appendQuoteToDraft, quoteMarkdown } from "./quoteDraft";
 import { TranscriptQuoteButton } from "./TranscriptQuoteButton";
 import { transcriptItemsAffectAutoScroll } from "./transcriptAutoScroll";
@@ -60,6 +60,9 @@ import {
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
 import { openWorkspaceFile } from "../files/fileBus";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
+
+/** The composer's expand control: the scroll-to-bottom circle's size. */
+const COMPOSER_EXPAND_BUTTON_PX = 34;
 
 export function ChatScreen(props: {
   title: string;
@@ -250,6 +253,9 @@ export function ChatScreen(props: {
   // #342): toward the start it offers the top, toward the end the newest
   // message, never both.
   const [scrollingUp, setScrollingUp] = useState(false);
+  // The docked composer expanded over the chat (issue #342): its control
+  // stands over the jumps of the transcript, which an expanded composer hides.
+  const [composerExpanded, setComposerExpanded] = useState(false);
   const [atTop, setAtTop] = useState(true);
   // Shared by hero and docked composers so disabled files survive the first text turn.
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
@@ -291,10 +297,22 @@ export function ChatScreen(props: {
       window.innerHeight,
     [],
   );
-  const expandRoomPx = useCallback(
-    () => dockTop() - headerBottom() - COMPOSER_EXPANDED_GAP_PX,
-    [dockTop, headerBottom],
-  );
+  // An expanded composer reaches one step of the top rhythm under the header,
+  // its control in that strip with a step on either side: the same distance
+  // as from the window's edge to the top bar and from the bar to the header.
+  // With an on-screen keyboard that overlays the page (iOS Safari), the
+  // visible area may start below the header: the composer keeps to it.
+  const expandRoomPx = useCallback(() => {
+    const rhythm =
+      parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          "--coddy-top-rhythm",
+        ),
+      ) || 10;
+    const visibleTop = window.visualViewport?.offsetTop ?? 0;
+    const top = Math.max(headerBottom(), visibleTop);
+    return dockTop() - top - rhythm - COMPOSER_EXPAND_BUTTON_PX - rhythm;
+  }, [dockTop, headerBottom]);
   const readerAtTailRef = useRef<boolean | null>(null);
   const onReaderAtTailChangeRef = useRef(props.onReaderAtTailChange);
   onReaderAtTailChangeRef.current = props.onReaderAtTailChange;
@@ -566,6 +584,7 @@ export function ChatScreen(props: {
     openingRef.current = true;
     setShowScrollToBottom(false);
     setScrollingUp(false);
+    setComposerExpanded(false);
   }, [props.sessionId, cancelTranscriptJump]);
 
   useEffect(() => {
@@ -1127,14 +1146,24 @@ export function ChatScreen(props: {
           <div className="chat-bottom">
             <div className="chat-bottom-inner" ref={composerHostRef}>
               <ScrollToBottomButton
-                visible={showScrollToBottom && !headingUp}
+                visible={showScrollToBottom && !headingUp && !composerExpanded}
                 onClick={jumpToNewestMessage}
               />
               <ScrollToBottomButton
                 direction="up"
-                visible={offerTop}
+                visible={offerTop && !composerExpanded}
                 onClick={jumpToTop}
               />
+              {readOnlyNotice ? null : (
+                <ComposerExpandButton
+                  expanded={composerExpanded}
+                  lifted={
+                    !composerExpanded &&
+                    ((showScrollToBottom && !headingUp) || offerTop)
+                  }
+                  onToggle={() => setComposerExpanded((v) => !v)}
+                />
+              )}
               {readOnlyNotice ? null : (
                 <UsageBanner
                   usage={props.providerUsage}
@@ -1222,6 +1251,8 @@ export function ChatScreen(props: {
                   onChange={props.onDraftChange}
                   onSend={props.onSend}
                   expandRoomPx={expandRoomPx}
+                  expanded={composerExpanded}
+                  onExpandedChange={setComposerExpanded}
                   caretToEndEpoch={quoteEpoch}
                   {...(props.onDocsCommand
                     ? { onDocsCommand: props.onDocsCommand }

@@ -116,6 +116,15 @@ async function geometry(page) {
       head: box(".chat-title-column"),
       wand: box('[data-testid="composer-enhance-btn"]'),
       expand: box('[data-testid="composer-expand"]'),
+      pill: box(".rail-pill"),
+      bar: box(".composer-bar"),
+      stacked: window.matchMedia("(max-width: 1199px)").matches,
+      rhythm:
+        parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--coddy-top-rhythm",
+          ),
+        ) || 0,
       lineHeight: parseFloat(cs.lineHeight),
       chrome:
         parseFloat(cs.paddingTop) +
@@ -215,6 +224,25 @@ try {
     await page.fill("#composer", "");
     const empty = await geometry(page);
     const floor = empty.field.height;
+    // One step from the window's edge to the top bar and from the bar to the
+    // header (the stacked shell; a desktop has its rail at the side).
+    if (empty.stacked) {
+      check(
+        `${at}: the top bar and the header keep one step of the top rhythm`,
+        near(empty.pill.top, empty.rhythm) &&
+          near(empty.head.top - empty.pill.bottom, empty.rhythm),
+        `edge->bar ${empty.pill.top.toFixed(1)}, bar->header ${(empty.head.top - empty.pill.bottom).toFixed(1)}, step ${empty.rhythm}`,
+      );
+    }
+    // The expand control stands over the composer's right edge, apart from
+    // the field, one jump slot above the block when no jump is offered.
+    check(
+      `${at}: the expand control stands over the composer's right edge`,
+      near(empty.expand.right, empty.card.right) &&
+        near(empty.dock.top - empty.expand.bottom, 10) &&
+        empty.expand.bottom <= empty.card.top,
+      `control ${empty.expand.top.toFixed(0)}-${empty.expand.bottom.toFixed(0)}, block top ${empty.dock.top.toFixed(0)}`,
+    );
     await page.fill("#composer", "one\ntwo\nthree\nfour");
     const four = await geometry(page);
     check(
@@ -224,8 +252,9 @@ try {
     );
     await page.fill("#composer", "a long prompt\n".repeat(60));
     const long = await geometry(page);
-    // The block never rides over the header: the room it has at the floor.
-    const room = empty.dock.top - empty.head.bottom - 8;
+    // The block never rides over the header: the room it has at the floor,
+    // less the strip the expand control stands in.
+    const room = empty.dock.top - empty.head.bottom - 2 * empty.rhythm - 34;
     const ceiling = Math.max(
       floor,
       Math.min(
@@ -240,9 +269,9 @@ try {
       `${long.field.height.toFixed(1)}px, ceiling ${ceiling.toFixed(1)}px`,
     );
 
-    // Expanded, the block reaches 8px under the header; folded, it is back.
-    // The caret stays in the field through the press, so a phone's keyboard
-    // stays open over the expanded field.
+    // Expanded, the control stands one step under the header and the card one
+    // step under it; folded, the field is back. The caret stays in the field
+    // through the press, so a phone's keyboard stays open.
     await page.focus("#composer");
     await press(page, touch, '[data-testid="composer-expand"]');
     await page.waitForTimeout(150);
@@ -253,17 +282,44 @@ try {
     );
     const open = await geometry(page);
     check(
-      `${at}: expanded, the docked block reaches the header`,
-      near(open.dock.top, open.head.bottom + 8),
-      `dock top ${open.dock.top.toFixed(1)}, header bottom ${open.head.bottom.toFixed(1)}`,
+      `${at}: expanded, header, control and card stand one step apart`,
+      near(open.expand.top - open.head.bottom, open.rhythm) &&
+        near(open.card.top - open.expand.bottom, open.rhythm),
+      `header->control ${(open.expand.top - open.head.bottom).toFixed(1)}, control->card ${(open.card.top - open.expand.bottom).toFixed(1)}, step ${open.rhythm}`,
     );
-    check(
-      `${at}: the expand control stands on the wand's vertical line`,
-      near(open.expand.right, open.wand.right) &&
-        near(open.card.right - open.expand.right, 12) &&
-        open.expand.bottom <= open.field.bottom + 6,
-      `wand right ${open.wand.right.toFixed(1)}, control right ${open.expand.right.toFixed(1)}`,
-    );
+    // The skills picker opens inside the expanded field, at its foot, and
+    // dims nothing.
+    await page.fill("#composer", "/");
+    await page.waitForTimeout(800);
+    const picker = await page.evaluate(() => {
+      const m = document.querySelector(
+        ".slash-menu--sheet, .slash-menu--portal",
+      );
+      const bd = document.querySelector(".slash-sheet-backdrop");
+      if (!m) return null;
+      const r = m.getBoundingClientRect();
+      return {
+        top: r.top,
+        bottom: r.bottom,
+        dim: bd ? getComputedStyle(bd).backgroundColor : "rgba(0, 0, 0, 0)",
+      };
+    });
+    if (picker) {
+      check(
+        `${at}: expanded, the skills picker opens at the field's foot`,
+        picker.top >= open.card.top - 1 && picker.bottom <= open.bar.top + 1,
+        `picker ${picker.top.toFixed(0)}-${picker.bottom.toFixed(0)}, card top ${open.card.top.toFixed(0)}, bar ${open.bar.top.toFixed(0)}`,
+      );
+      check(
+        `${at}: the skills picker dims nothing`,
+        picker.dim === "rgba(0, 0, 0, 0)" || picker.dim === "transparent",
+        picker.dim,
+      );
+    } else {
+      console.log(`skip ${at}: the server lists no skills, no picker to place`);
+    }
+    await page.keyboard.press("Escape");
+    await page.fill("#composer", "a long prompt\n".repeat(60));
     await press(page, touch, '[data-testid="composer-expand"]');
     await page.waitForTimeout(150);
     const folded = await geometry(page);
@@ -406,7 +462,108 @@ try {
       );
     }
 
+    // An on-screen keyboard that resizes the page (Android's
+    // interactive-widget=resizes-content, emulated by a shorter window): the
+    // expanded composer keeps its steps and ends above the keyboard.
+    if (touch) {
+      await page.fill("#composer", "");
+      await page.focus("#composer");
+      await press(page, touch, '[data-testid="composer-expand"]');
+      await page.setViewportSize({ width, height: Math.round(height * 0.6) });
+      await page.waitForTimeout(400);
+      const kb = await geometry(page);
+      check(
+        `${at}: a keyboard that resizes the page keeps the expanded composer above it`,
+        kb.card.bottom <= Math.round(height * 0.6) + 1 &&
+          // Keeps its step under the header, unless the room left is less
+          // than the field's floor and there is nothing more it can give.
+          (near(kb.expand.top - kb.head.bottom, kb.rhythm) ||
+            near(kb.field.height, floor)),
+        `card ${kb.card.top.toFixed(0)}-${kb.card.bottom.toFixed(0)} in ${Math.round(height * 0.6)}`,
+      );
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(300);
+    }
+
     check(`${at}: no sideways scroll`, !(await geometry(page)).sideways);
+    await context.close();
+  }
+
+  // A keyboard that overlays the page (iOS Safari): the layout keeps its
+  // height and only the visual viewport shrinks, which a stand-in emulates.
+  {
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+      isMobile: true,
+      locale: "en-US",
+    });
+    await context.addInitScript(() => {
+      const target = new EventTarget();
+      const state = { height: window.innerHeight, offsetTop: 0 };
+      const vv = {
+        get height() {
+          return state.height;
+        },
+        get width() {
+          return window.innerWidth;
+        },
+        get offsetTop() {
+          return state.offsetTop;
+        },
+        get offsetLeft() {
+          return 0;
+        },
+        get pageTop() {
+          return window.scrollY + state.offsetTop;
+        },
+        get pageLeft() {
+          return 0;
+        },
+        get scale() {
+          return 1;
+        },
+        addEventListener: (...a) => target.addEventListener(...a),
+        removeEventListener: (...a) => target.removeEventListener(...a),
+        dispatchEvent: (e) => target.dispatchEvent(e),
+      };
+      Object.defineProperty(window, "visualViewport", {
+        configurable: true,
+        get: () => vv,
+      });
+      window.__keyboard = (keyboardPx, offsetTop = 0) => {
+        state.height = window.innerHeight - keyboardPx;
+        state.offsetTop = offsetTop;
+        target.dispatchEvent(new Event("resize"));
+        target.dispatchEvent(new Event("scroll"));
+      };
+    });
+    const page = await context.newPage();
+    await page.goto(`${URL_BASE}/?lang=en#/s/${first}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForSelector('[data-testid="user-message-body"]');
+    await page.waitForTimeout(800);
+    await page.focus("#composer");
+    await page.tap('[data-testid="composer-expand"]');
+    for (const [keyboardPx, offsetTop] of [
+      [336, 0],
+      [336, 120],
+    ]) {
+      await page.evaluate(
+        ([k, o]) => window.__keyboard(k, o),
+        [keyboardPx, offsetTop],
+      );
+      await page.waitForTimeout(400);
+      const kb = await geometry(page);
+      const visibleBottom = offsetTop + 844 - keyboardPx;
+      check(
+        `390x844 overlaying keyboard (page pushed ${offsetTop}px): the expanded composer stays in the visible area`,
+        kb.card.bottom <= visibleBottom + 1 &&
+          kb.expand.top >= Math.max(kb.head.bottom, offsetTop) - 1,
+        `card ${kb.card.top.toFixed(0)}-${kb.card.bottom.toFixed(0)}, visible ${offsetTop}-${visibleBottom}`,
+      );
+    }
     await context.close();
   }
 } finally {

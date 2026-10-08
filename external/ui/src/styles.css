@@ -687,6 +687,14 @@
   --rail-pill-pad-inline: 10px;
 }
 
+:root {
+  /* One step of the top rhythm, the same in every theme: from the window's
+     edge to the chat header on a desktop (to the top bar on the stacked shell,
+     where it is 10px), from the bar to the header, and around the expand
+     control of an expanded composer. */
+  --coddy-top-rhythm: 14px;
+}
+
 @media (min-width: 761px) {
   :root {
     --rail-pill-track: 76px;
@@ -2921,6 +2929,72 @@ a.rail-brand {
   pointer-events: auto;
 }
 
+/* Expand / collapse of the docked composer (issue #342,
+   chat/ComposerExpandButton.tsx): the scroll-to-bottom circle's size, glass and
+   shadow, in the same slot over the composer's right edge, and lifted above
+   the jump while one is offered, so the two read as a pair of different
+   controls (arrows to the corners here, an arrow down there). Expanded, the
+   jumps are hidden and the control stands one step of the top rhythm over the
+   card, the header one step above it. */
+.chat-expand-composer {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  z-index: 2;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, 0.32),
+    0 1px 2px rgba(0, 0, 0, 0.24);
+  color: color-mix(in srgb, var(--text) 76%, var(--coddy-blend-base));
+  cursor: pointer;
+  transition:
+    transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1),
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chat-expand-composer.is-lifted {
+  transform: translateY(-44px);
+}
+
+.chat-expand-composer.is-expanded {
+  margin-bottom: var(--coddy-top-rhythm);
+  color: var(--text);
+}
+
+.chat-expand-composer:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 24%, var(--coddy-blend-base));
+}
+
+.chat-expand-composer:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+[data-theme="light"] .chat-expand-composer {
+  box-shadow:
+    0 3px 10px rgba(15, 23, 42, 0.14),
+    0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+/* Expanded, the card is the top of the docked block: the strip over it holds
+   the control alone. */
+.composer-wrap.composer-wrap--expanded {
+  padding-top: 0;
+}
+
 /* Quote: the button a text selection in the transcript offers (issue #342,
    chat/TranscriptQuoteButton.tsx). Fixed to the viewport by the selection's
    box - above it with a mouse, below it on a touch screen, where the
@@ -3037,6 +3111,12 @@ a.rail-brand {
 @media (prefers-reduced-motion: reduce) {
   .chat-scroll-bottom,
   .chat-scroll-bottom.is-visible {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-expand-composer {
     transition: none;
   }
 }
@@ -5144,6 +5224,13 @@ code.md-math-pending {
   background: var(--coddy-overlay-scrim-bg);
 }
 
+/* The composer's own pickers (skills, commands, mentions, line ranges, command
+   options) dim nothing: the reader keeps seeing the chat and the draft while
+   choosing, and a press outside still closes the list. */
+.slash-sheet-backdrop--clear {
+  background: transparent;
+}
+
 /* Transparent catch-all so an open mode/model/reasoning menu closes on outside click. */
 .mode-menu-backdrop {
   position: fixed;
@@ -5636,40 +5723,6 @@ textarea#composer {
   border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
   border-radius: 7px;
   cursor: pointer;
-}
-
-/* Expand / collapse of the docked field (issue #342): in the field's bottom
-   right corner, the wand's twin on the same vertical line - same size, frame
-   and ground, 12px from the card's edge - so the right gutter the text keeps
-   clear holds both. The chevron points up to expand and down to fold back. */
-.composer-expand-btn {
-  position: absolute;
-  right: 12px;
-  bottom: 8px;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
-  background: var(--coddy-surface-muted);
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  border-radius: 7px;
-  cursor: pointer;
-}
-
-.composer-expand-btn:hover,
-.composer-expand-btn.is-expanded {
-  color: var(--text);
-  background: color-mix(in srgb, var(--text) 9%, var(--coddy-surface-muted));
-  border-color: color-mix(in srgb, var(--text) 30%, var(--coddy-blend-base));
-}
-
-.composer-expand-btn:focus-visible {
-  outline: 1.5px solid var(--accent);
-  outline-offset: 2px;
 }
 
 .composer-enhance-btn:hover:not(:disabled) {
@@ -7505,14 +7558,18 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 .slash-menu--sheet.slash-menu--above-composer {
   max-height: min(
     42vh,
-    calc(100dvh - var(--context-sheet-bottom, 120px) - 16px)
+    calc(100dvh - var(--context-sheet-bottom, 120px) - 16px),
+    var(--slash-sheet-room, 100dvh)
   );
 }
 
+/* --slash-sheet-room: the height of an expanded field, which the picker
+   opens inside of (Composer.tsx, measureSheetBottom). */
 .slash-menu--sheet.slash-menu--above-composer .slash-menu-scroll {
   max-height: min(
     40vh,
-    calc(100dvh - var(--context-sheet-bottom, 120px) - 24px)
+    calc(100dvh - var(--context-sheet-bottom, 120px) - 24px),
+    calc(var(--slash-sheet-room, 100dvh) - 8px)
   );
 }
 
@@ -8400,6 +8457,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
      both. Declared on :root rather than .shell so a dialog portalled into
      <body> (the folder browser) is placed by the same inset as the drawers. */
   :root {
+    --coddy-top-rhythm: 10px;
     --coddy-mobile-bar-h: calc(78px + env(safe-area-inset-top, 0px));
     --coddy-mobile-top-inset: calc(
       var(--coddy-mobile-bar-h) + var(--coddy-env-banner-h, 0px)
@@ -8408,8 +8466,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   .shell {
     /* Same rhythm as title row to first message (.messages-inner gap, sticky-head padding-bottom) */
     --coddy-mobile-chat-stack-gap: 12px;
+    /* The title sits one step of the top rhythm under the pill, as the pill
+       sits one step under the window's edge: the bar's 78px are the pill's
+       64px with that step above them and 4px below. */
     --coddy-mobile-title-sticky-top: calc(
-      var(--coddy-mobile-top-inset) + var(--coddy-mobile-chat-stack-gap)
+      var(--coddy-mobile-top-inset) - 4px + var(--coddy-top-rhythm)
     );
     flex: 1 1 auto;
     display: flex;
@@ -8432,7 +8493,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
     align-self: stretch;
     min-height: 78px;
     height: auto;
-    padding: calc(10px + env(safe-area-inset-top, 0px)) 10px 0;
+    padding: calc(var(--coddy-top-rhythm) + env(safe-area-inset-top, 0px)) 10px
+      0;
     justify-content: stretch;
     box-sizing: border-box;
     background: transparent;

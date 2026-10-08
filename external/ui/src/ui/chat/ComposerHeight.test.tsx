@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, type ComponentProps } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   act,
@@ -64,21 +64,49 @@ function fieldHeight(el: HTMLTextAreaElement): number {
   return Number.isFinite(set) ? set : 76;
 }
 
+/**
+ * The docked composer as the chat screen holds it: the expanded state lives
+ * outside, toggled by the control over the jump buttons (stood in for here by
+ * a plain button with its test id), and the composer folds it.
+ */
+function Docked(
+  props: Partial<ComponentProps<typeof Composer>> & { value: string },
+) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="composer-expand"
+        aria-pressed={expanded}
+        onClick={() => setExpanded((v) => !v)}
+      />
+      <Composer
+        isEmpty={false}
+        sessionId="sess_a"
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={() => {}}
+        expandRoomPx={() => room}
+        expanded={expanded}
+        onExpandedChange={setExpanded}
+        {...props}
+      />
+    </>
+  );
+}
+
 function docked(
   value: string,
   o: { onSend?: (text: string) => void; sessionId?: string } = {},
 ) {
   return (
-    <Composer
+    <Docked
       value={value}
-      isEmpty={false}
       sessionId={o.sessionId ?? "sess_a"}
-      mode="agent"
-      modes={["agent", "plan"]}
-      onModeChange={() => {}}
-      onChange={() => {}}
       onSend={o.onSend ?? (() => {})}
-      expandRoomPx={() => room}
     />
   );
 }
@@ -115,12 +143,10 @@ test("the expand control gives the field the chat under its header, and a send f
   expect(field().style.height).toBe("100px");
 
   const expand = screen.getByTestId("composer-expand");
-  expect(expand).toHaveAccessibleName("Expand the message field");
   expect(expand).toHaveAttribute("aria-pressed", "false");
   fireEvent.click(expand);
   // 500px of room above the docked block at the field's floor.
   expect(field().style.height).toBe("576px");
-  expect(expand).toHaveAccessibleName("Collapse the message field");
   expect(expand).toHaveAttribute("aria-pressed", "true");
 
   // Escape in the field folds it back, and so does the control.
@@ -135,15 +161,6 @@ test("the expand control gives the field the chat under its header, and a send f
   fireEvent.click(expand);
   fireEvent.keyDown(field(), { key: "Enter" });
   expect(onSend).toHaveBeenCalledWith("a draft\nof\nthree lines");
-  expect(field().style.height).toBe("100px");
-});
-
-test("another chat opens with the field folded", () => {
-  contentPx = 100;
-  const { rerender } = render(docked("draft"));
-  fireEvent.click(screen.getByTestId("composer-expand"));
-  expect(field().style.height).toBe("576px");
-  rerender(docked("draft", { sessionId: "sess_b" }));
   expect(field().style.height).toBe("100px");
 });
 
@@ -210,22 +227,14 @@ test("queueing the prompt while a turn runs folds the field too", () => {
   const onQueue = vi.fn();
   contentPx = 100;
   render(
-    <Composer
+    <Docked
       value="steer it this way"
-      isEmpty={false}
-      sessionId="sess_a"
-      mode="agent"
-      modes={["agent", "plan"]}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={() => {}}
       generating
       onStop={() => {}}
       queuedMessages={[]}
       onQueue={onQueue}
       queueMode="steer"
       onCancelQueued={() => {}}
-      expandRoomPx={() => room}
     />,
   );
   fireEvent.click(screen.getByTestId("composer-expand"));
@@ -276,4 +285,25 @@ test("a field grown by itself gives way to what grows in the docked block", () =
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+test("an Escape something else already took does not fold the field too", () => {
+  contentPx = 100;
+  render(docked("draft"));
+  fireEvent.click(screen.getByTestId("composer-expand"));
+  expect(field().style.height).toBe("576px");
+  // A picker or a popover listening before the field claims the key.
+  const claim = (e: KeyboardEvent) => {
+    if (e.key === "Escape") e.preventDefault();
+  };
+  document.addEventListener("keydown", claim, true);
+  try {
+    fireEvent.keyDown(field(), { key: "Escape" });
+  } finally {
+    document.removeEventListener("keydown", claim, true);
+  }
+  expect(field().style.height).toBe("576px");
+  // The next Escape is the field's.
+  fireEvent.keyDown(field(), { key: "Escape" });
+  expect(field().style.height).toBe("100px");
 });

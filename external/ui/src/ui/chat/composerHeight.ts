@@ -20,9 +20,6 @@ export const COMPOSER_AUTO_MAX_LINES = 8;
  */
 export const COMPOSER_AUTO_MAX_VIEWPORT_SHARE = 0.4;
 
-/** Room kept between the expanded composer and the chat header above it. */
-export const COMPOSER_EXPANDED_GAP_PX = 8;
-
 export type ComposerFieldMetrics = {
   /** The height the rows and the CSS minimum give the field. */
   floorPx: number;

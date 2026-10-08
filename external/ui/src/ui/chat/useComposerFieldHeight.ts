@@ -114,14 +114,28 @@ export function useComposerFieldHeight(o: {
           })
         : null;
     if (block) blockRo?.observe(block);
+    // A keyboard opening moves the docked block (the chat screen lifts it by
+    // the keyboard's inset in its own handler of the same event): the room is
+    // measured a frame later, once the block stands where it will stay.
+    let frame: number | null = null;
+    const fitSoon = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        fit();
+      });
+    };
     const vv = window.visualViewport;
-    window.addEventListener("resize", fit);
-    vv?.addEventListener("resize", fit);
+    window.addEventListener("resize", fitSoon);
+    vv?.addEventListener("resize", fitSoon);
+    vv?.addEventListener("scroll", fitSoon);
     return () => {
       ro?.disconnect();
       blockRo?.disconnect();
-      window.removeEventListener("resize", fit);
-      vv?.removeEventListener("resize", fit);
+      if (frame !== null) cancelAnimationFrame(frame);
+      window.removeEventListener("resize", fitSoon);
+      vv?.removeEventListener("resize", fitSoon);
+      vv?.removeEventListener("scroll", fitSoon);
     };
   }, [fit, taRef, o.layoutKey]);
 }

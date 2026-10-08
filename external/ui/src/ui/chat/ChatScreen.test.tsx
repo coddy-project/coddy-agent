@@ -1413,3 +1413,50 @@ test("with a mouse the transcript offers only the jump to the newest message", a
   await waitFor(() => expect(jumpShown("chat-scroll-bottom")).toBe(true));
   expect(jumpShown("chat-scroll-top")).toBe(false);
 });
+
+test("the expand control stands over the jump to the newest message, lifted while it shows, and another chat opens folded", async () => {
+  const { container, rerender } = render(
+    <ChatScreen {...scrollBase} items={firstTurn} />,
+  );
+  const viewport = transcriptViewport(container, {
+    scrollHeight: 1200,
+    clientHeight: 400,
+  });
+  viewport.scrollTop = 800;
+  fireEvent.scroll(viewport);
+  const expand = screen.getByTestId("composer-expand");
+  // Its own circle in the composer's column, beside the jump - not a control
+  // of the field.
+  expect(expand.closest(".chat-bottom-inner")).toBeTruthy();
+  expect(expand.closest(".composer-card")).toBeNull();
+  expect(expand).toHaveAccessibleName("Expand the message field");
+  expect(expand).toHaveAttribute("aria-pressed", "false");
+  expect(expand).not.toHaveClass("is-lifted");
+
+  // The jump down shows: the control is lifted above it.
+  viewport.scrollTop = 200;
+  fireEvent.scroll(viewport);
+  await waitFor(() => expect(scrollButtonShown()).toBe(true));
+  expect(expand).toHaveClass("is-lifted");
+
+  // Expanded, the transcript is under the composer: no jump is offered.
+  fireEvent.click(expand);
+  expect(expand).toHaveAccessibleName("Collapse the message field");
+  expect(expand).toHaveAttribute("aria-pressed", "true");
+  expect(expand).not.toHaveClass("is-lifted");
+  expect(scrollButtonShown()).toBe(false);
+  expect(container.querySelector(".composer-wrap--expanded")).not.toBeNull();
+
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s2"
+      items={[{ type: "user_message", id: "s2-u1", content: "another chat" }]}
+    />,
+  );
+  expect(screen.getByTestId("composer-expand")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  expect(container.querySelector(".composer-wrap--expanded")).toBeNull();
+});
