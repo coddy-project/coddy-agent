@@ -1,0 +1,492 @@
+# Russian titles and summaries of docs/nav.yaml, keyed by group id and page
+# path. Order and membership come from docs/nav.yaml alone. Each entry keeps
+# the English title and summary it translates under `en:`; make docs-check
+# reports an entry whose English text has changed since.
+groups:
+  getting-started:
+    title: "Начало работы"
+    summary: "Установите Coddy, подключите к нему модель, запустите его в первый раз и обновляйте до новых версий."
+    en:
+      title: "Getting started"
+      summary: "Install Coddy, give it a model, run it for the first time and keep it updated."
+  surfaces:
+    title: "Интерфейсы"
+    summary: "Один и тот же агент и те же сессии из терминала, браузера, редактора или мессенджера."
+    en:
+      title: "Surfaces"
+      summary: "The same agent and the same sessions from a terminal, a browser, an editor or a messenger."
+  operate:
+    title: "Эксплуатация"
+    summary: "Запуск Coddy как сервиса, доступ к нему с других машин и ограничение того, что ему разрешено делать."
+    en:
+      title: "Operate"
+      summary: "Running Coddy as a service, reaching it from elsewhere and bounding what it may do."
+  features:
+    title: "Возможности"
+    summary: "Что умеет агент и как настраивается каждая его возможность."
+    en:
+      title: "Features"
+      summary: "What the agent can do and how each capability is configured."
+  reference:
+    title: "Справочник"
+    summary: "Полные списки, сгенерированные из кода везде, где первоисточником служит сам код."
+    en:
+      title: "Reference"
+      summary: "Complete lists, generated from the code wherever the code is the source of truth."
+  tutorials:
+    title: "Руководства"
+    summary: "Руководства под конкретные задачи, каждое - полный путь от цели до работающего результата с конфигурациями и командами для копирования, проверкой того, что всё сработало, и тем, что обычно идёт не так."
+    en:
+      title: "Tutorials"
+      summary: "Task-shaped guides, each a complete path from a goal to a working result, with the configs and commands to copy, the check that it worked and what tends to go wrong."
+  contributing:
+    title: "Участие в разработке"
+    summary: "Как Coddy собирают, тестируют, документируют и выпускают."
+    en:
+      title: "Contributing"
+      summary: "How Coddy is built, tested, documented and released."
+pages:
+  getting-started/quickstart.md:
+    title: "Быстрый старт"
+    summary: "От свежей установки до первого ответа за пять минут - в консоли, в браузере и из редактора."
+    en:
+      title: "Quickstart"
+      summary: "From a fresh install to the first answer in five minutes, on the console, in the browser and from an editor."
+  getting-started/install.md:
+    title: "Установка"
+    summary: "Установщики одной командой, архивы релизов, пакеты .deb и .rpm для Linux, Homebrew, Termux на Android, пути в Windows, установка вручную."
+    en:
+      title: "Install"
+      summary: "One-line installers, release archives, Linux .deb and .rpm packages, Homebrew, Termux on Android, Windows paths, manual placement."
+  getting-started/configuration.md:
+    title: "Конфигурация"
+    summary: "Где лежит config.yaml и как проверить его с -t и --dry-run, провайдеры и модели, удалённое выполнение по SSH, файл .env."
+    en:
+      title: "Configuration"
+      summary: "Where config.yaml lives, how to check it with -t and --dry-run, providers and models, SSH remote execution, the .env file."
+  getting-started/update.md:
+    title: "Обновление"
+    summary: "coddy update, файлы релиза, установки под управлением пакетного менеджера, отчёт о том, что изменилось."
+    en:
+      title: "Update"
+      summary: "coddy update, release assets, installations owned by a package manager, the report of what changed."
+  getting-started/docker.md:
+    title: "Docker"
+    summary: "Образ в GHCR, docker compose, тома и окружение, встроенный веб-интерфейс на порту 12345."
+    en:
+      title: "Docker"
+      summary: "The GHCR image, docker compose, volumes and environment, the bundled UI on port 12345."
+  getting-started/homebrew.md:
+    title: "Homebrew"
+    summary: "Cask и формула, какой репозиторий Homebrew что принимает, заявка в homebrew/core."
+    en:
+      title: "Homebrew"
+      summary: "The cask against the formula, which Homebrew repository takes what, the homebrew/core submission."
+  getting-started/android.md:
+    title: "Android (Termux)"
+    summary: "Сборка для Termux на Android, почему архив для Linux там не запускается и что Coddy подстраивает на устройстве."
+    en:
+      title: "Android (Termux)"
+      summary: "The Android build for Termux, why the Linux archive does not start there, and what Coddy adapts on the device."
+  getting-started/troubleshooting.md:
+    title: "Устранение неполадок"
+    summary: "Что проверить, если бинарника нет в PATH, конфигурация не загружается, провайдер отвергает ключ, порт занят или нужного интерфейса нет в сборке."
+    en:
+      title: "Troubleshooting"
+      summary: "What to check when the binary is not on PATH, the config does not load, a provider rejects the key, a port is busy or a surface is missing from the build."
+  getting-started/changelog.md:
+    title: "История изменений"
+    summary: "Описания каждого опубликованного релиза, сгенерированные из GitHub Releases."
+    en:
+      title: "Changelog"
+      summary: "Release notes of every published version, generated from GitHub Releases."
+  surfaces/console.md:
+    title: "Консоль (TUI)"
+    summary: "coddy без аргументов в терминале, раскладка экрана, клавиши, слэш-команды, локальная оболочка, режим печати и удалённый режим."
+    en:
+      title: "Console (TUI)"
+      summary: "Bare coddy in a terminal, the layout, keys, slash commands, the local shell, print mode and remote mode."
+  surfaces/web-ui.md:
+    title: "Веб-интерфейс"
+    summary: "Встроенное одностраничное приложение, которое отдаёт coddy serve, - сессии, поле ввода, режимы и модели, вложения, настройки, темы и языки."
+    en:
+      title: "Web UI"
+      summary: "The embedded single-page app served by coddy serve, with sessions, the composer, modes and models, attachments, settings, themes and languages."
+  surfaces/editors.md:
+    title: "Редакторы (ACP)"
+    summary: "Zed, VS Code, Obsidian и скрипты как ACP-клиенты coddy acp и что у них общего с другими интерфейсами."
+    en:
+      title: "Editors (ACP)"
+      summary: "Zed, VS Code, Obsidian and scripts as ACP clients of coddy acp, and what they share with the other surfaces."
+  surfaces/gateway.md:
+    title: "Telegram-шлюз"
+    summary: "Адаптер Telegram-бота, настройка, уровни доступа, изоляция сессий, Rich Messages, тот же чат вживую в браузере, как написать новый адаптер."
+    en:
+      title: "Telegram gateway"
+      summary: "The Telegram bot adapter, setup, access levels, session isolation, rich messages, the same chat live in the browser, writing a new adapter."
+  surfaces/pachca.md:
+    title: "Шлюз Pachca"
+    summary: "Интеграционный бот Pachca (Пачка), настройка в пространстве Pachca, опрос истории событий, группы, треды и личные чаты, команды, ограничения."
+    en:
+      title: "Pachca gateway"
+      summary: "The Pachca (Пачка) integration bot, setup in the workspace, the events history poll, groups, threads and direct chats, commands, limits."
+  operate/serve.md:
+    title: "coddy serve и демон"
+    summary: "Один процесс для всех включённых подсистем, пользовательский сервис systemd (serve install и uninstall), --daemon со status, stop и restart, перезагрузка конфигурации."
+    en:
+      title: "coddy serve and the daemon"
+      summary: "One process for every enabled subsystem, the systemd user service (serve install and uninstall), --daemon with status, stop and restart, and configuration reloads."
+  operate/remote.md:
+    title: "Удалённый режим"
+    summary: "Управление удалённым coddy serve из консоли, ACP или веб-интерфейса через --remote, токены, CORS и меню окружения."
+    en:
+      title: "Remote mode"
+      summary: "Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment menu."
+  operate/swarm.md:
+    title: "Рой"
+    summary: "Релеи и узлы, монтирование узлов, общий список сессий, кольца и маршруты, обратный туннель."
+    en:
+      title: "Swarm"
+      summary: "Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel."
+  operate/scheduler.md:
+    title: "Планировщик"
+    summary: "Файлы cron-заданий, правила срабатывания в UTC, запуски как фоновые агентные задачи в сессии задания, панель запусков, инструменты планировщика и REST."
+    en:
+      title: "Scheduler"
+      summary: "Cron job files, UTC firing rules, runs as background agent tasks under a job session, the runs panel, the scheduler tools and REST."
+  operate/security.md:
+    title: "Безопасность и доверие"
+    summary: "Что агенту разрешено выполнять и как это ограничить, режимы разрешений, доверие к проекту для MCP-серверов, хуков и субагентов, токены и CORS, что не изолировано песочницей."
+    en:
+      title: "Security and trust"
+      summary: "What the agent may execute and how to bound it, permission modes, project trust for MCP servers, hooks and subagents, tokens and CORS, what is not sandboxed."
+  features/modes.md:
+    title: "Режимы работы"
+    summary: "Режимы \"Агент\", \"План\" и \"Чат\", какие инструменты разрешает каждый из них и как переключать режим в каждом интерфейсе."
+    en:
+      title: "Operating modes"
+      summary: "agent, plan and ask, which tools each mode allows and how to switch on every surface."
+  features/session-settings.md:
+    title: "Настройки сессии"
+    summary: "Смена модели, уровня рассуждения, режима и режима разрешений прямо из диалога командами /model, /reasoning, /think, /nothink, /agent, /plan, /ask и /permissions - на всю сессию или на следующие ходы, переключатель сессии в окне разрешения и сама смена модели."
+    en:
+      title: "Session settings"
+      summary: "Switching the model, reasoning level, mode and permission mode from the conversation with /model, /reasoning, /think, /nothink, /agent, /plan, /ask and /permissions, for the session or the next turns, the permission dialog's session switch, and the model switching itself."
+  features/session-supervisor.md:
+    title: "Цель сессии и супервизор"
+    summary: "/goal держит агента за работой, пока вторая модель, оценив факты, не признает цель достигнутой, а проверяющий с правами только на чтение не подтвердит это; продолжения, бюджеты, сторож от зависаний и циклов."
+    en:
+      title: "Session goal and supervisor"
+      summary: "/goal keeps the agent working until a second model, judging the evidence, finds the objective met and a read-only verifier confirms it; continuations, budgets, the watchdog for stalls and loops."
+  features/sessions.md:
+    title: "Сессии"
+    summary: "Бандлы сессий на диске, возобновление, откат истории при правке сообщения, чек-листы задач, команда sessions."
+    en:
+      title: "Sessions"
+      summary: "Session bundles on disk, resuming, history rewind on message edit, todo lists, the sessions CLI."
+  features/worktrees.md:
+    title: "Git worktree"
+    summary: "Новые ветки для задач от origin, перенос сессий, поле ввода веб-интерфейса и группировка по проектам."
+    en:
+      title: "Git worktrees"
+      summary: "Fresh feature branches from origin, session moves, the web composer and project grouping."
+  features/rules.md:
+    title: "Правила и инструкции"
+    summary: "Правила из папок .coddy, .agents, .cursor, .claude и .codex, AGENTS.md и DESIGN.md папки, в которую заходит агент, ваша собственная пара и правила в домашнем каталоге агента, файлы инструкций, диалекты по расширению, активация."
+    en:
+      title: "Rules and instructions"
+      summary: "Rules from the .coddy, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation."
+  features/skills.md:
+    title: "Скилы"
+    summary: "Пакеты SKILL.md как слэш-команды, skills.dirs, реестры и команда plugin."
+    en:
+      title: "Skills"
+      summary: "SKILL.md packs as slash commands, skills.dirs, the registries and the plugin command."
+  features/subagents.md:
+    title: "Субагенты"
+    summary: "spawn_agent, файлы определений, встроенные субагенты, расписки о доверии к проекту, сужение возможностей, дочерние сессии."
+    en:
+      title: "Subagents"
+      summary: "spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions."
+  features/hooks.md:
+    title: "Хуки"
+    summary: "Хуки жизненного цикла в формате hooks.json из Claude Code, события, матчеры, данные на stdin, коды выхода и JSON-ответы, доверие к проекту."
+    en:
+      title: "Hooks"
+      summary: "Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust."
+  features/mcp.md:
+    title: "MCP-серверы"
+    summary: "Подключение MCP-серверов по stdio, streamable HTTP и SSE, файлы mcp.json, доверие к рабочей папке, переключатели, API управления."
+    en:
+      title: "MCP servers"
+      summary: "Connecting MCP servers over stdio, streamable HTTP and SSE, mcp.json files, workspace trust, enable switches, the management API."
+  features/devin.md:
+    title: "Devin"
+    summary: "Модели аккаунта Devin (Cognition) - вход через браузер или вход из Devin CLI, одна модель на семейство с уровнями рассуждения, сопоставленными её вариантам, и откуда берётся токен сессии."
+    en:
+      title: "Devin"
+      summary: "Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from."
+  features/web-search.md:
+    title: "Веб-поиск"
+    summary: "Какие поисковые системы опрашивает websearch, как заблокированный бэкенд попадает в отчёт, а не считается пустой выдачей, порог релевантности и подключение собственного SearXNG."
+    en:
+      title: "Web search"
+      summary: "The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG."
+  features/http-requests.md:
+    title: "HTTP-запросы"
+    summary: "Инструмент http_request - любой метод, заголовки, тела, загрузка файлов multipart и скачивание, прокси и проверка сертификата для отдельного запроса, заголовки, которые конфигурация добавляет к каждому запросу, - и окно разрешения, где видно, куда уходит запрос и что в нём передаётся."
+    en:
+      title: "HTTP requests"
+      summary: "The http_request tool - any method, headers, bodies, multipart uploads and downloads, a proxy and the certificate check per request, headers the configuration adds to every request - and the permission prompt that shows where a request goes and what it carries."
+  features/mentions.md:
+    title: "Упоминания"
+    summary: "Ссылки через @ в промпте на файлы в любом месте диска, диапазоны строк, папки, другие сессии, правила, субагентов и веб-страницы, которые один раз подставляются в сообщение, с автодополнением в каждом интерфейсе."
+    en:
+      title: "Mentions"
+      summary: "Pointing at things with @ in a prompt - files anywhere on disk, line ranges, folders, other sessions, rules, subagents, web pages - resolved once into the message, with completion on every surface."
+  features/images.md:
+    title: "Изображения"
+    summary: "Модель смотрит на картинку - read файла PNG, JPEG, GIF или WebP для модели с пометкой multimodal, ограничения, что уходит провайдеру, и предпросмотр в веб-интерфейсе и в чате Telegram."
+    en:
+      title: "Images"
+      summary: "The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat."
+  features/built-in-docs.md:
+    title: "Встроенная документация"
+    summary: "Эта документация внутри бинарника - читалка веб-интерфейса, F1 в консоли, coddy docs, инструменты агента coddy_docs и упоминания @coddy:<page> - с поиском по BM25 и без обращения к сайту."
+    en:
+      title: "Built-in documentation"
+      summary: "This documentation inside the binary - the web UI's reader, F1 in the console, coddy docs, the agent's coddy_docs tools and @coddy:<page> mentions - searched with BM25, with no site involved."
+  features/message-queue.md:
+    title: "Очередь сообщений"
+    summary: "Как написать следующее сообщение, пока агент работает, когда текущий ход его прочитает, как забрать сообщение обратно, поле ввода и консоль, маршруты очереди."
+    en:
+      title: "Message queue"
+      summary: "Writing a follow-up while the agent works, when the running turn reads it, taking one back, the composer and console surfaces, the queue routes."
+  features/background-tasks.md:
+    title: "Фоновые задачи"
+    summary: "Отсоединённые команды, пул задач, тайм-ауты, подхват долгих команд переднего плана, разрешения на всю программу."
+    en:
+      title: "Background tasks"
+      summary: "Detached commands, the task pool, timeouts, adoption of long foreground commands, program-wide permission grants."
+  features/preview-server.md:
+    title: "Сервер предпросмотра"
+    summary: "Раздача папки проекта на свободном порту localhost, чтобы открыть работу на HTML, JS и CSS в браузере; сервер как фоновая задача, что он отказывается отдавать, адрес привязки."
+    en:
+      title: "Preview server"
+      summary: "Serving a project directory on a free localhost port so you can open HTML, JS and CSS work in a browser; the server as a background task, what it refuses to serve, the bind host."
+  features/compaction.md:
+    title: "Сжатие контекста"
+    summary: "/compact и автоматическое резюмирование по порогу, сохраняемые последние ходы, вытеснение результатов и keep_result."
+    en:
+      title: "Context compaction"
+      summary: "/compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result."
+  features/memory.md:
+    title: "Долговременная память"
+    summary: "Субагент памяти, который запускается на каждом ходе в пуле задач, что он вспоминает и сохраняет, как его отчёт попадает в ход, устройство хранилища, настройка и стоимость."
+    en:
+      title: "Long-term memory"
+      summary: "The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost."
+  features/session-export.md:
+    title: "Экспорт сессии"
+    summary: "/export и coddy sessions export, форматы, правила путей, параметры обрезки, JSON-документ."
+    en:
+      title: "Session export"
+      summary: "/export and coddy sessions export, formats, path rules, trimming options, the JSON document."
+  reference/cli.md:
+    title: "Справочник по CLI"
+    summary: "Все команды, подкоманды и флаги бинарника coddy, сгенерированные из --help."
+    en:
+      title: "CLI reference"
+      summary: "Every command, verb and flag of the coddy binary, generated from --help."
+  reference/config.md:
+    title: "Справочник config.yaml"
+    summary: "Все поля config.yaml с типом, значением по умолчанию и описанием, сгенерированные из схемы, и инструменты самонастройки."
+    en:
+      title: "config.yaml reference"
+      summary: "Every field of config.yaml with its type, default and description, generated from the schema, plus the self-configuration tools."
+  reference/environment-variables.md:
+    title: "Переменные окружения"
+    summary: "Все переменные, которые читает бинарник, что они переопределяют и где они описаны."
+    en:
+      title: "Environment variables"
+      summary: "Every variable the binary reads, what it overrides and where it is documented."
+  reference/slash-commands.md:
+    title: "Слэш-команды"
+    summary: "Встроенные команды каждого интерфейса и то, как скилы становятся командами."
+    en:
+      title: "Slash commands"
+      summary: "The built-in commands on each surface and how skills become commands."
+  reference/keyboard.md:
+    title: "Клавиатура"
+    summary: "Клавиши консольного TUI и поля ввода веб-интерфейса."
+    en:
+      title: "Keyboard"
+      summary: "The keys of the console TUI and of the web UI composer."
+  reference/tools.md:
+    title: "Инструменты"
+    summary: "Встроенные инструменты, которые может вызывать модель, их аргументы, разрешения и режимы, в которых они доступны."
+    en:
+      title: "Tools"
+      summary: "The built-in tools the model can call, their arguments, permissions and the modes that expose them."
+  reference/http-api.md:
+    title: "HTTP API"
+    summary: "OpenAI-совместимые эндпоинты и REST-интерфейс /coddy, аутентификация, сессии и заголовки, документ OpenAPI."
+    en:
+      title: "HTTP API"
+      summary: "The OpenAI-compatible endpoints and the /coddy REST surface, authentication, sessions and headers, the OpenAPI document."
+  reference/acp-protocol.md:
+    title: "Протокол ACP"
+    summary: "Как coddy acp реализует Agent Client Protocol - методы, уведомления, запросы разрешений и вопросов."
+    en:
+      title: "ACP protocol"
+      summary: "How coddy acp implements the Agent Client Protocol, methods, notifications, permission and question requests."
+  tutorials/coddy-in-ci.md:
+    title: "Coddy в CI"
+    summary: "Файл workflow, который запускает coddy -p на каждом пул-реквесте, с ключом в секрете и ответом в логе задания."
+    en:
+      title: "Coddy in CI"
+      summary: "A workflow file that runs coddy -p on every pull request, with the key in a secret and the answer in the job log."
+  tutorials/telegram-bot-for-a-team.md:
+    title: "Telegram-бот для команды"
+    summary: "Один бот для команды на coddy serve - токен, кто может с ним говорить, изоляция групп и тот же чат вживую в браузере."
+    en:
+      title: "A Telegram bot for a team"
+      summary: "One bot for a team with coddy serve: the token, who may talk to it, group isolation, and the same chat live in the browser."
+  tutorials/project-set-up-for-agents.md:
+    title: "Проект, подготовленный для агентов"
+    summary: "Репозиторий, который объясняет любому агенту, как он устроен, - правила, AGENTS.md, скилы, MCP-сервер и расписки о доверии."
+    en:
+      title: "A project set up for agents"
+      summary: "A repository that teaches any agent how it works: rules, AGENTS.md, skills, an MCP server and the trust receipts."
+  tutorials/server-driven-from-a-laptop.md:
+    title: "Сервер, которым управляют с ноутбука"
+    summary: "coddy serve на машине с моделями и рабочей папкой, которым управляют с ноутбука из консоли, редактора и браузера."
+    en:
+      title: "A server driven from a laptop"
+      summary: "A coddy serve on a machine with the models and the workspace, driven from a laptop over the console, an editor and the browser."
+  tutorials/coddy-as-a-model-in-vs-code.md:
+    title: "Coddy как модель в VS Code Copilot"
+    summary: "Запущенный coddy serve, зарегистрированный в chatLanguageModels.json, так что его модели и его агент появляются в выборе модели Copilot, с сессией на каждый запрос и проверкой разрешений агента."
+    en:
+      title: "Coddy as a model in VS Code Copilot"
+      summary: "A running coddy serve registered in chatLanguageModels.json, so its models and its agent sit in Copilot's model picker, with sessions per request and the agent's permission gate."
+  tutorials/a-skill-of-your-own.md:
+    title: "Собственный скил"
+    summary: "SKILL.md, который становится слэш-командой в каждом интерфейсе, от первого файла до установки из реестра."
+    en:
+      title: "A skill of your own"
+      summary: "A SKILL.md that becomes a slash command on every surface, from the first file to a registry install."
+  tutorials/swarm-across-machines.md:
+    title: "Рой на нескольких ваших машинах"
+    summary: "Воркеры на нескольких машинах подключаются к одному релею, а ноутбук управляет любым из них из своих веб-интерфейса и консоли, с релеем и его агентами в меню окружения и картой, до которой один щелчок."
+    en:
+      title: "A swarm across your machines"
+      summary: "Workers on several machines join one relay, and a laptop drives any of them from its own web UI and console, with the relay and its agents in the environment menu and the map one click away."
+  tutorials/swarm-relay-and-nodes.md:
+    title: "Релей и его узлы в Docker"
+    summary: "Стенд на Compose с релеем и узлами, которые сами подключаются к нему, токены, проверки, смонтированный узел из консоли и браузера, масштабирование добавлением безымянных воркеров."
+    en:
+      title: "A relay and its nodes in Docker"
+      summary: "A Compose stand with a relay and nodes that dial out to it, the tokens, the checks, a mounted node from the console and the browser, scaling by adding nameless workers."
+  tutorials/swarm-multi-hop.md:
+    title: "Цепочка релеев"
+    summary: "Второй релей за первым со своими узлами, монтирование через два перехода, рекурсивный список сессий, кольца и альтернативные маршруты."
+    en:
+      title: "A chain of relays"
+      summary: "A second relay behind the first with its own nodes, two-hop mounts, the recursive session list, rings and alternates."
+  tutorials/swarm-remote-nodes.md:
+    title: "Работа с удалёнными узлами"
+    summary: "Управление узлом за релеем из консоли, редактора и браузера, что где выполняется и какие учётные данные что открывают."
+    en:
+      title: "Working with remote nodes"
+      summary: "Driving a node behind a relay from the console, an editor and the browser, what runs where, and which credential opens what."
+  tutorials/swarm-android-nodes.md:
+    title: "Телефоны на Android как узлы роя"
+    summary: "Телефон с Coddy в Termux подключается к релею на ноутбуке или сервере, и им управляют из веб-интерфейса и консоли релея, без открытого порта на телефоне."
+    en:
+      title: "Android phones as swarm nodes"
+      summary: "A phone running Coddy in Termux joins a relay on a laptop or a server and is driven from the relay's web UI and the console, with no open port on the phone."
+  ../CONTRIBUTING.md:
+    title: "Руководство для участников"
+    summary: "Окружение разработки, работа с ветками и пул-реквестами, что должно входить в каждое изменение."
+    en:
+      title: "Contributing guide"
+      summary: "The development environment, the branch and pull request flow, what every change must carry."
+  contributing/documentation.md:
+    title: "Как писать документацию"
+    summary: "Типы страниц, карта навигации, скриншоты и видео, указатель ассетов, сгенерированные справочники и проверки, которые их охраняют."
+    en:
+      title: "Writing documentation"
+      summary: "Page types, the navigation map, screenshots and videos, the assets index, generated references and the checks that guard them."
+  contributing/architecture.md:
+    title: "Архитектура"
+    summary: "Устройство системы и обзор компонентов, границы пакетов, режимы сессий, структура каталогов."
+    en:
+      title: "Architecture"
+      summary: "System design and component overview, package boundaries, session modes, the directory structure."
+  contributing/build.md:
+    title: "Сборка из исходников"
+    summary: "Требования, make build, TAGS и go build -tags, бинарники релиза и пакеты дистрибутивов."
+    en:
+      title: "Build from source"
+      summary: "Prerequisites, make build, TAGS against go build -tags, the release binaries and the distribution packages."
+  contributing/tgfake.md:
+    title: "Интеграционные тесты с tgfake"
+    summary: "Поддельный Telegram Bot API, на котором тестируется бот, - версия, закреплённая в go.mod, внутрипроцессные наборы тестов, сквозные скрипты, задание CI и переход на новую версию tgfake."
+    en:
+      title: "Integration tests with tgfake"
+      summary: "The fake Telegram Bot API the bot is tested against - the version go.mod pins, the in-process suites, the end-to-end scripts, the CI job and moving to a new tgfake."
+  contributing/security-scanning.md:
+    title: "Сканирование AppSec"
+    summary: "Trivy, semgrep и govulncheck локально и в CI через один скрипт, порог по серьёзности, закреплённый тулчейн Go, разбор и подавление находок."
+    en:
+      title: "AppSec scanning"
+      summary: "Trivy, semgrep and govulncheck locally and in CI through one script, the severity gate, the pinned Go toolchain, triage and suppression."
+  contributing/custom-tools.md:
+    title: "Собственные инструменты"
+    summary: "Как добавить встроенный инструмент в реестр, описать его схему и подключить разрешения, с полным примером."
+    en:
+      title: "Custom tools"
+      summary: "Adding a built-in tool to the registry, its schema and permission wiring, with a complete example."
+  contributing/react-agent.md:
+    title: "ReAct-агент"
+    summary: "Устройство цикла, структура системного промпта, контракт вызова инструментов и поведение в каждом режиме."
+    en:
+      title: "ReAct agent"
+      summary: "The loop design, the system prompt structure, the tool-calling contract and mode-specific behaviour."
+  ../DESIGN.md:
+    title: "Дизайн веб-интерфейса"
+    summary: "Токены, раскладка и контракты компонентов встроенного SPA."
+    en:
+      title: "Web UI design"
+      summary: "Tokens, layout and component contracts of the embedded SPA."
+  contributing/codex-hooks.md:
+    title: "Хуки Codex"
+    summary: "Как правила Cursor попадают в сессию Codex CLI, которая работает с этим репозиторием."
+    en:
+      title: "Codex hooks"
+      summary: "How the Cursor rules reach a Codex CLI session working on this repository."
+  contributing/opencode-hooks.md:
+    title: "Хуки OpenCode"
+    summary: "Детерминированная доставка правил Cursor в сессии OpenCode, которые работают с этим репозиторием."
+    en:
+      title: "OpenCode hooks"
+      summary: "Deterministic delivery of the Cursor rules to OpenCode sessions working on this repository."
+  contributing/zcode-hooks.md:
+    title: "Хуки ZCode"
+    summary: "Детерминированная доставка правил Cursor в сессии ZCode, которые работают с этим репозиторием."
+    en:
+      title: "ZCode hooks"
+      summary: "Deterministic delivery of the Cursor rules to ZCode sessions working on this repository."
+  contributing/syntax-highlighting-audit.md:
+    title: "Аудит подсветки синтаксиса"
+    summary: "Аудит подсветки кода в семи темах от NeuralDeep, его фикстуры и как запустить его повторно."
+    en:
+      title: "Syntax highlighting audit"
+      summary: "The NeuralDeep audit of code highlighting across the seven themes, its fixtures and how to re-run it."
+  ../AGENTS.md:
+    title: "Заметки для агентов"
+    summary: "Карта репозитория и заметки для агентов, которые пишут код."
+    en:
+      title: "Agent notes"
+      summary: "The repository map and contributor notes for coding agents."

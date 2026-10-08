@@ -1,0 +1,763 @@
+# Russian descriptions of internal/config/config.schema.json, keyed like the
+# rows of the configuration reference (docs/ru/reference/config.md). `en` is
+# the English description the entry translates; make docs-check reports an
+# entry whose English text has changed since, and a key without an entry.
+providers:
+  en: "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores); a row of type \"codex\" signs in with ChatGPT and reads no key."
+  ru: "Учётные данные API и выбор транспорта для внешних LLM-провайдеров. Если api_key пуст, Coddy читает переменную окружения NAME_API_KEY (NAME - имя провайдера в верхнем регистре, дефисы заменены подчёркиваниями); строка типа \"codex\" входит через ChatGPT и ключ не читает."
+providers[].name:
+  en: "Logical id used as the first segment of models[].model. ASCII letters, digits, hyphen, underscore; must start with a letter."
+  ru: "Логический идентификатор, который служит первым сегментом models[].model. Латинские буквы ASCII, цифры, дефис и подчёркивание; первой должна идти буква."
+providers[].type:
+  en: "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API), or \"devin\" for a Devin (Cognition) account signed in through the browser or the Devin CLI, served by the Devin API server; see https://coddy.dev/docs/features/devin."
+  ru: "Протокол обмена с этим провайдером. \"openai\" - для настраиваемых OpenAI-совместимых эндпоинтов (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" - для Anthropic, \"neuraldeep\" - для OpenAI-совместимого API NeuralDeep на одном из двух официальных развёртываний (выбирается через api_base), \"codex\" - для OAuth ChatGPT с официальным бэкендом Codex (Responses API), \"devin\" - для аккаунта Devin (Cognition) со входом через браузер или Devin CLI, который обслуживает сервер Devin API; см. https://coddy.dev/docs/features/devin."
+providers[].api_base:
+  en: "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for types \"codex\" and \"devin\", which always use their official endpoints."
+  ru: "Необязательное переопределение базового URL. Для типа \"openai\" включите /v1 (например, http://localhost:11434/v1); для типа \"anthropic\" укажите Anthropic-совместимый шлюз (по умолчанию https://api.anthropic.com). Для типа \"neuraldeep\" значение выбирает развёртывание - https://api.neuraldeep.ru/v1 (Россия, по умолчанию) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение сводится к значению по умолчанию. Для типов \"codex\" и \"devin\" игнорируется, они всегда используют свои официальные эндпоинты."
+providers[].api_key:
+  en: "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY. For type \"devin\" it is a Devin session token and, when set, wins over the browser login and the Devin CLI login. Ignored for type \"codex\", which signs in with ChatGPT."
+  ru: "Секрет провайдера. Ключ напрямую, ссылка \"${ENV}\", которая разворачивается при загрузке, или пусто, чтобы читать NAME_API_KEY в момент вызова LLM. Порядок разрешения - api_key -> stdout api_key_command -> NAME_API_KEY. Для типа \"devin\" это токен сессии Devin, и если он задан, он важнее входа через браузер и входа Devin CLI. Для типа \"codex\" игнорируется, он входит через ChatGPT."
+providers[].api_key_command:
+  en: "Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY. Never run for type \"codex\", which takes no key."
+  ru: "Необязательная команда-помощник для учётных данных. Если api_key пуст, она запускается через обнаруженную оболочку хоста (pwsh, powershell или cmd в Windows; bash или sh в остальных системах), и её stdout без краевых пробелов становится ключом. При ошибке ключ берётся из NAME_API_KEY. Для типа \"codex\", который ключ не принимает, не запускается никогда."
+providers[].proxy:
+  en: "inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects directly and ignores those variables. A proxy URL sends every request of this row through that proxy, NO_PROXY and loopback included; with SOCKS the proxy resolves host names. The setting covers every request of the provider: its completions, its model list, its account usage and its sign-in."
+  ru: "inherit (по умолчанию, то же, что отсутствие ключа), none или URL прокси со схемой http://, https://, socks5:// или socks5h://. inherit следует прокси, который задаёт окружение процесса Coddy, - HTTPS_PROXY, HTTP_PROXY и NO_PROXY, но никогда для loopback-адреса; ALL_PROXY не читается. none подключается напрямую и игнорирует эти переменные. URL прокси направляет через этот прокси каждый запрос строки, включая адреса из NO_PROXY и loopback; с SOCKS имена хостов разрешает прокси. Настройка покрывает все запросы провайдера - генерацию ответов, список моделей, расход лимитов аккаунта и вход."
+providers[].timeout_ms:
+  en: "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short."
+  ru: "Необязательный предел для каждого HTTP-запроса к LLM этого провайдера, включая чтение потокового тела ответа. 0 (по умолчанию) не задаёт клиентского тайм-аута, поэтому медленная обработка промпта на больших контекстах никогда не обрывается."
+providers[].usage_limits_panel:
+  en: "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected."
+  ru: "Показывать панель расхода лимитов аккаунта этого провайдера (строку в футере консоли и /usage, раздел лимитов и баннер в веб-интерфейсе) и читать для неё эндпоинт расхода провайдера (GET /v1/limits для типа neuraldeep, эндпоинт расхода бэкенда Codex для типа codex, RPC статуса управления местами для типа devin). Без значения или true панель включена; false скрывает её и прекращает эти чтения для этой строки. Влияет только на провайдеров, у типа которых есть источник данных о расходе."
+models:
+  en: "Named model entries the agent and UI can select."
+  ru: "Именованные записи моделей, которые могут выбирать агент и интерфейс."
+models[].model:
+  en: "\"provider_name/api_model_id\": the first path segment must match a providers[].name; the remainder is sent to the LLM API (may itself contain slashes)."
+  ru: "\"provider_name/api_model_id\" - первый сегмент пути должен совпадать с одним из providers[].name, остаток отправляется в API LLM (и сам может содержать слэши)."
+models[].max_tokens:
+  en: "Upper bound on completion tokens per assistant message. A codex model never sends it (the Codex backend rejects max_output_tokens), so there it bounds nothing, and coddy -t and --dry-run warn about such a value."
+  ru: "Верхний предел токенов завершения на одно сообщение ассистента. Модель codex его никогда не отправляет (бэкенд Codex отвергает max_output_tokens), поэтому там он ничего не ограничивает, а coddy -t и --dry-run предупреждают о таком значении."
+models[].temperature:
+  en: "Sampling temperature (0 = deterministic; higher = more random)."
+  ru: "Температура сэмплирования (0 = детерминированно; выше = случайнее)."
+models[].max_context_tokens:
+  en: "Context window of the model in tokens: what the web UI context ring, the console context percentage and the automatic compaction trigger measure against. 0 reads it from the provider's model listing when the provider reports one (the NeuralDeep hub, vLLM, OpenRouter, LM Studio), else 128000."
+  ru: "Окно контекста модели в токенах, относительно которого считают кольцо контекста в веб-интерфейсе, процент контекста в консоли и порог автоматического сжатия контекста. 0 берёт его из списка моделей провайдера, если провайдер его сообщает (хаб NeuralDeep, vLLM, OpenRouter, LM Studio), иначе 128000."
+models[].multimodal:
+  en: "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary."
+  ru: "Модель принимает на вход изображения и файлы в дополнение к тексту; интерфейс показывает для этой модели кнопку прикрепления файла, и read показывает ей картинку из файла PNG, JPEG, GIF или WebP вместо отказа читать его как двоичный."
+models[].reasoning_levels:
+  en: "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button."
+  ru: "Переопределяет уровни рассуждения, которые предлагаются для этой модели. Если не задано, уровни определяются по id модели (gpt-5* -> minimal,low,medium,high; серия o от OpenAI, gpt-oss*, qwen3* и модели Claude с расширенным мышлением -> low,medium,high). Явный пустой список скрывает выбор уровня. Экран настроек заполняет это поле из GET /coddy/config/reasoning-levels по кнопке \"Получить уровни ризонинга\"."
+models[].reasoning_default:
+  en: "Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored."
+  ru: "Уровень рассуждения, выбранный заранее для новых чатов; должен быть одним из итоговых уровней, иначе игнорируется."
+models[].allow_reasoning_off:
+  en: "Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically."
+  ru: "Показывать Off в выборе уровня рассуждения этой модели. Включайте, только если это развёртывание провайдера и модели выполняет специфичный для провайдера запрос Coddy на отключение рассуждения; автоматически Coddy проверить это не может."
+models[].stream:
+  en: "Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only."
+  ru: "Транспорт для обмена с этой моделью. Без значения (или true) ответ передаётся потоком по SSE. false отправляет один блокирующий запрос и выдаёт ответ целиком - для серверов и прокси, которые плохо работают с потоками событий. Для провайдеров типа codex не принимается, их бэкенд работает только в потоковом режиме."
+agent:
+  en: "Defaults for the main agent loop (model id and safety caps)."
+  ru: "Значения по умолчанию для основного цикла агента (id модели и защитные пределы)."
+agent.queue_mode:
+  en: "Preferred queue mode for Enter during a running turn: steer joins the next ReAct step, after_turn starts a new turn after the current answer. When absent, interactive surfaces ask on first use."
+  ru: "Предпочтительный режим очереди для Enter во время хода - steer встраивает сообщение в следующий шаг ReAct, after_turn начинает новый ход после текущего ответа. Если значения нет, интерактивные интерфейсы спрашивают при первом использовании."
+agent.model:
+  en: "Optional default models[].model id. Interactive surfaces (web UI, console) pick a model per session; unattended calls that name no model (coddy -p, coddy acp, API requests without a model selector) need it set - they report 'no model configured' when it is empty."
+  ru: "Необязательный id из models[].model по умолчанию. Интерактивные интерфейсы (веб-интерфейс, консоль) выбирают модель для каждой сессии; вызовам без участия человека, которые не называют модель (coddy -p, coddy acp, API-запросы без выбора модели), он нужен, и при пустом значении они сообщают 'no model configured'."
+agent.max_turns:
+  en: "Cap on the ReAct steps (LLM calls) of one prompt turn. Defaults to 165; set 0 to disable the cap. A turn that reaches the cap ends with a notice that names it."
+  ru: "Предел шагов ReAct (вызовов LLM) за один ход. По умолчанию 165; 0 снимает предел. Ход, который дошёл до предела, завершается уведомлением, где этот предел назван."
+agent.llm_retry_max:
+  en: "Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits."
+  ru: "Дополнительные попытки, общие для повторов транспорта, восстановления после пустого ответа и повторной отправки без первого токена; они расходуются, пока инструменты не продвинут работу или не придёт новое сообщение. 0 отключает эти повторы. У защиты от зацикливания, Stop-хуков, резервных моделей и ожидания сброса квоты свои пределы."
+agent.llm_retry_base_ms:
+  en: "Initial backoff between LLM retries, in milliseconds. A server-provided pause (Retry-After-Ms / Retry-After headers, \"Limit resets at\" / \"retry in Ns\" body phrases) overrides the exponential backoff, capped at 60s."
+  ru: "Начальная пауза между повторами LLM в миллисекундах. Пауза, которую назначил сервер (заголовки Retry-After-Ms / Retry-After, фразы \"Limit resets at\" / \"retry in Ns\" в теле ответа), заменяет экспоненциальную паузу, но не дольше 60 с."
+agent.llm_min_interval_ms:
+  en: "Minimum gap between consecutive LLM calls in milliseconds, retry attempts included (0 disables pacing; e.g. 12000 on strict free tiers)."
+  ru: "Минимальный промежуток между последовательными вызовами LLM в миллисекундах, повторы включены (0 отключает выравнивание темпа; например, 12000 на строгих бесплатных тарифах)."
+agent.llm_first_token_timeout_ms:
+  en: "How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit 0 disables the guard; blocking (stream: false) transports are never guarded."
+  ru: "Сколько потоковый вызов LLM может молчать, прежде чем ход его отменит (защита от зависания API). Явный 0 отключает защиту; блокирующие транспорты (stream: false) под защиту не попадают."
+agent.llm_stream_idle_timeout_ms:
+  en: "How long a streamed LLM response may send nothing after its first bytes before the stream is cut as stalled (the mid-answer hang guard): the text already delivered is kept and the turn ends with the stall named. An explicit 0 disables the guard; the wait for the first byte belongs to llm_first_token_timeout_ms, and blocking (stream: false) transports are never guarded."
+  ru: "Сколько потоковый ответ LLM может ничего не присылать после первых байтов, прежде чем поток будет оборван как зависший (защита от зависания посреди ответа). Уже полученный текст сохраняется, а ход завершается с указанием на зависание. Явный 0 отключает защиту; ожидание первого байта ограничивает llm_first_token_timeout_ms, а блокирующие транспорты (stream: false) под защиту не попадают."
+agent.loop_guard:
+  en: "Runaway-loop protection: cut a streamed response that degenerates into repeating itself, and block a tool called over and over with identical arguments."
+  ru: "Защита от зацикливания - обрывает потоковый ответ, который вырождается в повторение самого себя, и блокирует инструмент, который вызывают снова и снова с одинаковыми аргументами."
+agent.loop_tool_repeat_limit:
+  en: "Consecutive identical tool calls in successive ReAct responses (same name, same canonical arguments) before the loop guard steps in. 0 disables the tool-repeat check."
+  ru: "Сколько одинаковых вызовов инструмента подряд в последовательных ответах ReAct (то же имя, те же канонические аргументы) допустимо, прежде чем вмешается защита от зацикливания. 0 отключает проверку повторов инструмента."
+agent.loop_stream_repeat_cycles:
+  en: "Identical back-to-back output cycles inside one streamed response before the stream is cut. 0 disables the stream check."
+  ru: "Сколько одинаковых циклов вывода подряд внутри одного потокового ответа допустимо, прежде чем поток будет оборван. 0 отключает проверку потока."
+agent.loop_nudge_max:
+  en: "How many times one turn may be nudged back on track before the loop guard stops it with a notice."
+  ru: "Сколько раз один ход можно вернуть в нужное русло, прежде чем защита от зацикливания остановит его с уведомлением."
+agent.wait_for_limit_reset:
+  en: "Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget (a 429 with Retry-After or \"Limit resets at\"); the turn lock and the client stream stay open while it waits, so it is off by default."
+  ru: "Дождаться снятия исчерпанного лимита использования и повторить вызов, вместо того чтобы завершать ход ошибкой провайдера. Действует для хода верхнего уровня, провайдер которого называет паузу длиннее бюджета повторов (429 с Retry-After или \"Limit resets at\"); пока ход ждёт, блокировка хода и поток клиента остаются открытыми, поэтому по умолчанию настройка выключена."
+agent.wait_for_limit_reset_max_ms:
+  en: "Longest time one turn spends waiting for limits in total, in milliseconds, the retry wrapper's own sleeps on a limit included; a pause that would exceed it ends the turn at once with the error. An explicit 0 never waits."
+  ru: "Наибольшее общее время, которое один ход тратит на ожидание лимитов, в миллисекундах, включая собственные паузы обёртки повторов на лимите; если пауза превысила бы его, ход сразу завершается с ошибкой. Явный 0 не ждёт никогда."
+prompts:
+  en: "Override the built-in system prompt templates (Go text/template)."
+  ru: "Переопределение встроенных шаблонов системного промпта (Go text/template)."
+prompts.dir:
+  en: "Directory containing prompt template files. Empty uses embedded defaults. Supports ~ and ${CWD} (session cwd at render time)."
+  ru: "Каталог с файлами шаблонов промптов. Пусто - встроенные шаблоны. Поддерживает ~ и ${CWD} (cwd сессии на момент рендеринга)."
+prompts.agent_prompt:
+  en: "File name inside prompts.dir for agent mode."
+  ru: "Имя файла внутри prompts.dir для режима \"Агент\"."
+prompts.plan_prompt:
+  en: "File name inside prompts.dir for plan mode."
+  ru: "Имя файла внутри prompts.dir для режима \"План\"."
+prompts.ask_prompt:
+  en: "File name inside prompts.dir for ask mode."
+  ru: "Имя файла внутри prompts.dir для режима \"Чат\"."
+instructions:
+  en: "Files the operator adds to the system prompt (AGENTS.md convention), after the documents every session reads anyway: the AGENTS.md and DESIGN.md of the agent home, then those of the session folder, and the nested ones of a folder a tool enters, none of which is named here or can be turned off. A file already in the prompt is not read twice. See https://coddy.dev/docs/features/rules."
+  ru: "Файлы, которые оператор добавляет в системный промпт (по соглашению AGENTS.md), после документов, которые каждая сессия читает в любом случае, - AGENTS.md и DESIGN.md домашнего каталога агента, затем те же файлы папки сессии и вложенные файлы папки, в которую заходит инструмент; ни один из них здесь не указывается и не отключается. Файл, который уже есть в промпте, второй раз не читается. См. https://coddy.dev/docs/features/rules."
+instructions.files:
+  en: "Extra instruction files, appended after the AGENTS.md and DESIGN.md documents in the order listed; empty by default. ${CODDY_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. An entry naming a document the prompt already carries is skipped."
+  ru: "Дополнительные файлы инструкций, которые добавляются после документов AGENTS.md и DESIGN.md в порядке списка; по умолчанию список пуст. ${CODDY_HOME}, ${CWD} и ~ в начале разворачиваются; абсолютная запись читается как есть, относительная разрешается относительно CWD сессии. Запись, которая называет документ, уже попавший в промпт, пропускается."
+skills:
+  en: "Directories scanned for skills (SKILL.md and root .md/.mdc files)."
+  ru: "Каталоги, в которых ищутся скилы (SKILL.md и файлы .md/.mdc в корне)."
+skills.dirs:
+  en: "Extra skill directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/skills (shared with every agent, npx skills and npx skillsbd install there), the project's .agents/skills, ${CODDY_HOME}/skills (Coddy's own and installed skills), the project's .coddy/skills; then these entries in their order. A skill found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${CODDY_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace (the folder a new chat picked included)."
+  ru: "Дополнительные каталоги скилов; читаются после четырёх каталогов по умолчанию и важнее их. Каталоги по умолчанию читаются всегда, от низшего приоритета к высшему, - ${HOME}/.agents/skills (общий для всех агентов, туда ставят npx skills и npx skillsbd), .agents/skills проекта, ${CODDY_HOME}/skills (собственные и установленные скилы Coddy), .coddy/skills проекта; затем эти записи по порядку. Скил, найденный в нескольких каталогах, берётся из последнего по этому порядку, а каталог, указанный дважды, читается на последнем своём месте. ${CODDY_HOME} разворачивается при загрузке файла, ${HOME} и ~ - в вашу домашнюю папку, ${CWD} и относительный путь - относительно рабочей папки сессии (включая папку, выбранную для нового чата)."
+skills.project_trust:
+  en: "Trust policy for the project's .coddy/marketplaces.json, which travels with the checkout: \"ask\" (default) leaves its sources and marketplaces out of every sync until the operator approves that exact entry for that workspace; \"allow\" treats them like the operator's own ${CODDY_HOME}/marketplaces.json; \"deny\" never uses them (they are listed as switched off). What they install goes to ${CODDY_HOME}/skills. The project's skill folders (.coddy/skills, .agents/skills) are not affected. Skill marketplaces are not declared in config.yaml: they live in ${CODDY_HOME}/marketplaces.json and the project's .coddy/marketplaces.json, and an old skills.sources list is moved into the home file on load. See https://coddy.dev/docs/features/skills#project-marketplaces-and-trust."
+  ru: "Политика доверия для файла .coddy/marketplaces.json проекта, который приходит вместе с чекаутом. \"ask\" (по умолчанию) не включает его источники и маркетплейсы ни в одну синхронизацию, пока оператор не одобрит именно эту запись для этой рабочей папки; \"allow\" обращается с ними как с собственным ${CODDY_HOME}/marketplaces.json оператора; \"deny\" не использует их никогда (в списке они показаны выключенными). То, что они устанавливают, попадает в ${CODDY_HOME}/skills. Папки скилов проекта (.coddy/skills, .agents/skills) это не затрагивает. Маркетплейсы скилов не объявляются в config.yaml - они хранятся в ${CODDY_HOME}/marketplaces.json и в .coddy/marketplaces.json проекта, а старый список skills.sources при загрузке переносится в домашний файл. См. https://coddy.dev/docs/features/skills#project-marketplaces-and-trust."
+skills.auto_discovery:
+  en: "Offer the model-driven load_skill tool so the agent pulls a catalogued skill's full instructions into a turn on its own when the request matches, instead of requiring an explicit /name. Defaults to true."
+  ru: "Предлагать инструмент load_skill, которым управляет модель, чтобы агент сам подгружал в ход полные инструкции скила из каталога, когда запрос ему соответствует, без явной команды /name. По умолчанию true."
+rules:
+  en: "Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from one project folder under the session CWD, the first of .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules that holds a rule file; .mdc files are Cursor rules, .md files Claude Code rules. The AGENTS.md and DESIGN.md documents are not rules in this sense and none of these settings turns them off. See https://coddy.dev/docs/features/rules."
+  ru: "Поиск файлов правил в ${CODDY_HOME}/rules (собственные правила оператора, действуют в любой рабочей папке) и в одной папке проекта под CWD сессии - первой из .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules, в которой есть файл правила; файлы .mdc - правила Cursor, файлы .md - правила Claude Code. Документы AGENTS.md и DESIGN.md не считаются правилами в этом смысле, и ни одна из этих настроек их не отключает. См. https://coddy.dev/docs/features/rules."
+rules.auto_discover:
+  en: "Scan the rule folders automatically: ${CODDY_HOME}/rules and the project folder of the session CWD. The AGENTS.md and DESIGN.md documents are read either way."
+  ru: "Автоматически просматривать папки правил - ${CODDY_HOME}/rules и папку проекта в CWD сессии. Документы AGENTS.md и DESIGN.md читаются в любом случае."
+rules.systems:
+  en: "Restrict which rule systems are loaded: user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex. Empty means all. A project folder left out drops out of the chain; of the ones admitted, the first that holds a rule file is read. agents, which used to switch the nested AGENTS.md files, no longer affects them (they are always read); it is still accepted, and a list holding only agents loads no rule folder."
+  ru: "Ограничивает загружаемые системы правил; значения - user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex. Пустой список означает все. Папка проекта, которой нет в списке, выпадает из цепочки; из допущенных читается первая, в которой есть файл правила. agents, который раньше включал вложенные файлы AGENTS.md, на них больше не влияет (они читаются всегда); значение по-прежнему принимается, а список из одного agents не загружает ни одной папки правил."
+mcp:
+  en: "MCP settings that are not tied to a single server entry."
+  ru: "Настройки MCP, не привязанные к отдельной записи сервера."
+mcp.project_trust:
+  en: "Trust policy for the project-local <cwd>/.coddy/mcp.json, which travels with the checkout: \"ask\" keeps its servers cold until the operator approves that exact declaration for that workspace; \"allow\" starts them automatically (trusted workspaces only); \"deny\" never loads them."
+  ru: "Политика доверия для локального файла проекта <cwd>/.coddy/mcp.json, который приходит вместе с чекаутом. \"ask\" не запускает его серверы, пока оператор не одобрит именно это объявление для этой рабочей папки; \"allow\" запускает их автоматически (только для доверенных рабочих папок); \"deny\" не загружает их никогда."
+mcp.idle_timeout_seconds:
+  en: "Seconds an MCP server that no session holds any more keeps running before Coddy stops it: a project server once the last session of its workspace let it go, a server an ACP client sent once the last session that sent it closed. A session that takes the server in the meantime finds it running. The global servers that coddy serve, the console and coddy acp start with the process are not affected, and a server switched off, no longer approved, removed or declared differently stops at once. 0 stops a server as soon as the last session lets it go."
+  ru: "Сколько секунд MCP-сервер, который больше не держит ни одна сессия, продолжает работать, прежде чем Coddy его остановит. Сервер проекта отсчитывает это время с момента, когда его отпустила последняя сессия его рабочей папки, а сервер, который передал ACP-клиент, - с закрытия последней передавшей его сессии. Сессия, которая берёт сервер в этот промежуток, застаёт его работающим. Глобальных серверов, которые coddy serve, консоль и coddy acp запускают вместе с процессом, это не касается, а выключенный, больше не одобренный, удалённый или объявленный иначе сервер останавливается сразу. 0 останавливает сервер, как только его отпускает последняя сессия."
+tools:
+  en: "Filesystem and shell policy for built-in tools."
+  ru: "Политика файловой системы и оболочки для встроенных инструментов."
+tools.permission_mode:
+  en: "When the agent asks for user approval: \"ask\" prompts for commands and file writes; \"accept_edits\" auto-approves writes but prompts for commands; \"bypass\" never asks (trusted environments only). A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never written here."
+  ru: "Когда агент запрашивает одобрение пользователя - \"ask\" спрашивает о командах и записи файлов; \"accept_edits\" одобряет запись автоматически, но спрашивает о командах; \"bypass\" не спрашивает никогда (только для доверенных окружений). Сессия может переключить свой режим до перезапуска процесса (/permissions, чип в поле ввода, окно разрешения); в конфигурацию переключение не записывается."
+tools.command_allowlist:
+  en: "Commands that never require permission. Exact or prefix match (prefix + space + any args). \"*\" allows all commands."
+  ru: "Команды, которым никогда не нужно разрешение. Точное совпадение или совпадение по префиксу (префикс + пробел + любые аргументы). \"*\" разрешает все команды."
+tools.ssh_connect_timeout:
+  en: "TCP dial timeout for SSH connections (ssh_run_command tool), in seconds."
+  ru: "Тайм-аут TCP-подключения для SSH-соединений (инструмент ssh_run_command), в секундах."
+tools.output_limits:
+  en: "Maximum lines each tool result or error may return into the LLM context. Every enabled limit also applies a 64 KiB per-call byte safety ceiling so a huge single line cannot bypass it. 0 disables both limits for that tool. Unset fields fall back to the built-in defaults."
+  ru: "Максимум строк, которые результат или ошибка каждого инструмента может вернуть в контекст LLM. Каждый включённый лимит также накладывает страховочный потолок 64 КиБ на вызов, чтобы огромная одиночная строка не обошла его. 0 отключает оба лимита для этого инструмента. Незаданные поля берут встроенные значения по умолчанию."
+tools.output_limits.read:
+  en: "Max lines for a read file page or directory listing."
+  ru: "Максимум строк страницы прочитанного файла или листинга каталога."
+tools.output_limits.grep:
+  en: "Max path:line:content records returned by grep."
+  ru: "Максимум записей path:line:content, которые возвращает grep."
+tools.output_limits.glob:
+  en: "Max paths returned by glob."
+  ru: "Максимум путей, которые возвращает glob."
+tools.output_limits.print_tree:
+  en: "Max lines of a directory tree."
+  ru: "Максимум строк дерева каталогов."
+tools.output_limits.run_command:
+  en: "Max combined stdout+stderr lines of a shell command."
+  ru: "Максимум строк stdout+stderr команды оболочки."
+tools.output_limits.ssh_run_command:
+  en: "Max combined stdout+stderr lines of a remote SSH command."
+  ru: "Максимум строк stdout+stderr удалённой SSH-команды."
+tools.output_limits.webfetch:
+  en: "Max lines of fetched page markdown."
+  ru: "Максимум строк markdown загруженной страницы."
+tools.output_limits.websearch:
+  en: "Max lines of search results."
+  ru: "Максимум строк результатов поиска."
+tools.output_limits.default:
+  en: "Applies to any tool not named above, including MCP tools. 0 means unlimited."
+  ru: "Применяется к любому инструменту, не названному выше, включая инструменты MCP. 0 означает без ограничения."
+tools.background:
+  en: "Commands the agent runs detached in the session task pool instead of blocking a turn. The pool dies with the coddy process; each task's metadata and captured output stay in the session bundle, and a task interrupted by a restart is reported as orphaned."
+  ru: "Команды, которые агент запускает отсоединённо в пуле задач сессии, не блокируя ход. Пул завершается вместе с процессом coddy; метаданные каждой задачи и её захваченный вывод остаются в бандле сессии, а задача, прерванная перезапуском, помечается как осиротевшая."
+tools.background.enable:
+  en: "Offer the background option on run_command and expose the background task tools."
+  ru: "Предлагать опцию background у run_command и открывать инструменты фоновых задач."
+tools.background.max_concurrent:
+  en: "How many background tasks one session may run at once. 0 uses the default."
+  ru: "Сколько фоновых задач одна сессия может выполнять одновременно. 0 берёт значение по умолчанию."
+tools.background.default_timeout_seconds:
+  en: "Hard limit for a task started without an explicit timeout and without a duration estimate. 0 uses the default."
+  ru: "Жёсткий предел для задачи, запущенной без явного тайм-аута и без оценки длительности. 0 берёт значение по умолчанию."
+tools.background.max_timeout_seconds:
+  en: "Ceiling applied to any requested or estimate-derived timeout. 0 uses the default."
+  ru: "Потолок для любого запрошенного или выведенного из оценки тайм-аута. 0 берёт значение по умолчанию."
+tools.background.output_buffer_bytes:
+  en: "How much of each task's output stays in memory for the status ticker. The full log is still written to the session bundle. 0 uses the default."
+  ru: "Какая часть вывода каждой задачи остаётся в памяти для тикера статуса. Полный лог всё равно записывается в бандл сессии. 0 берёт значение по умолчанию."
+tools.preview_server:
+  en: "The preview_server tool: a static file server the agent starts over a project directory, on a free port, so the operator can open HTML, JS and CSS work in a browser. The server is a background task of the session and runs until it is stopped, the session is deleted or coddy exits."
+  ru: "Инструмент preview_server - статический файловый сервер, который агент поднимает над каталогом проекта на свободном порту, чтобы оператор мог открыть работу на HTML, JS и CSS в браузере. Сервер - фоновая задача сессии и работает, пока его не остановят, пока сессию не удалят или пока coddy не завершится."
+tools.preview_server.enable:
+  en: "Offer the preview_server tool. The server is a background task, so tools.background.enable: false turns it off as well."
+  ru: "Предлагать инструмент preview_server. Сервер - фоновая задача, поэтому tools.background.enable: false отключает и его."
+tools.preview_server.host:
+  en: "Address the server binds, without a port: the port is always a free one. Anything that is not loopback exposes the served directory to whoever can reach that address."
+  ru: "Адрес, к которому привязывается сервер, без порта - порт всегда берётся свободный. Любой адрес, кроме loopback, открывает отдаваемый каталог всем, кто может достучаться до этого адреса."
+tools.preview_server.public_host:
+  en: "Host written into the URL the agent hands out, for a coddy that runs where the operator's browser is not (a container, a remote machine). Empty uses the bind host."
+  ru: "Хост, который подставляется в URL, выдаваемый агентом, если coddy работает не там, где браузер оператора (в контейнере, на удалённой машине). Пусто - используется адрес привязки."
+tools.websearch:
+  en: "Which search engines the websearch tool asks, in what order their results merge, and what it may spend asking them. Each engine reports its own outcome next to the results, so a blocked backend is named rather than counted as \"the web has nothing\"."
+  ru: "Какие поисковые системы опрашивает инструмент websearch, в каком порядке объединяются их результаты и сколько он может потратить на опрос. Каждая система сообщает свой исход рядом с результатами, поэтому заблокированный бэкенд называется по имени, а не считается ответом \"в сети ничего нет\"."
+tools.websearch.engines:
+  en: "Search engines to ask, in merge order. Unset asks brave then bing. \"ddg\" and \"google\" are not asked by default: measured from a server, DuckDuckGo answers every query with an anti-bot interstitial and Google renders its results in the browser. \"searxng\" needs searxng_url."
+  ru: "Поисковые системы для опроса в порядке объединения результатов. Если не задано, опрашиваются brave, затем bing. \"ddg\" и \"google\" по умолчанию не опрашиваются - при замерах с сервера DuckDuckGo отвечает на любой запрос промежуточной страницей защиты от ботов, а Google отрисовывает результаты в браузере. Для \"searxng\" нужен searxng_url."
+tools.websearch.engine_timeout_seconds:
+  en: "Seconds one engine may take before it is reported as unavailable. 0 uses the default."
+  ru: "Сколько секунд может занять одна система, прежде чем она будет отмечена недоступной. 0 берёт значение по умолчанию."
+tools.websearch.total_timeout_seconds:
+  en: "Seconds the whole search may take, however many engines it asks. 0 uses the default."
+  ru: "Сколько секунд может занять весь поиск, сколько бы систем он ни опрашивал. 0 берёт значение по умолчанию."
+tools.websearch.max_concurrent_engines:
+  en: "How many engines are asked at once. 0 uses the default."
+  ru: "Сколько систем опрашивается одновременно. 0 берёт значение по умолчанию."
+tools.websearch.snippet_chars:
+  en: "Maximum characters of one result description. 0 uses the default."
+  ru: "Максимум символов в описании одного результата. 0 берёт значение по умолчанию."
+tools.websearch.cache_ttl_seconds:
+  en: "Seconds one engine answer is reused before the engine is asked again, so a repeated search does not repeat the request. 0 uses the default; a negative value turns caching off."
+  ru: "Сколько секунд ответ системы используется повторно, прежде чем её спросят снова, чтобы повторный поиск не повторял запрос. 0 берёт значение по умолчанию; отрицательное значение отключает кэш."
+tools.websearch.searxng_url:
+  en: "Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). A self-hosted aggregator is the durable answer to a scraped engine being turned away; localhost and LAN addresses are allowed on purpose."
+  ru: "Базовый адрес вашего собственного экземпляра SearXNG, который опрашивается через его JSON API (включите формат json в его settings.yml). Агрегатор на своём сервере - долговременное решение на случай, когда поисковик отказывает парсеру; адреса localhost и локальной сети разрешены намеренно."
+tools.websearch.brave_api_key:
+  en: "Brave Search API subscription token. With it the brave engine uses the official JSON API instead of reading the public result page, which has no parser to break when Brave redeploys. Empty reads the BRAVE_API_KEY environment variable (also from ${CODDY_HOME}/.env), so the key need not be stored here."
+  ru: "Токен подписки Brave Search API. С ним движок brave использует официальный JSON API вместо чтения публичной страницы результатов, и парсеру нечему ломаться, когда Brave обновляет сайт. Пусто - читается переменная окружения BRAVE_API_KEY (в том числе из ${CODDY_HOME}/.env), поэтому ключ не обязательно хранить здесь."
+tools.http_request:
+  en: "Policy of the http_request tool, the agent's curl: the destinations it reaches without asking and the headers every request sends. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://coddy.dev/docs/features/http-requests."
+  ru: "Политика инструмента http_request, curl агента, - адреса, к которым он обращается без вопроса, и заголовки, которые отправляет каждый запрос. При permission_mode ask или accept_edits запрос спрашивает оператора, если его адрес не разрешён здесь и не был одобрен в сессии; bypass не спрашивает никогда. См. https://coddy.dev/docs/features/http-requests."
+tools.http_request.allowlist:
+  en: "Destinations a request reaches without asking: a host (api.github.com), a subdomain wildcard (*.example.com), either with an optional :port, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/). \"*\" allows every destination. An entry also covers the files a request uploads and an unchecked certificate; a proxy needs an entry of its own, and a file the response is saved to follows the write policy."
+  ru: "Адреса, к которым запрос обращается без вопроса, - хост (api.github.com), шаблон поддоменов (*.example.com), оба с необязательным :port, origin (http://localhost:8080) или префикс адреса (https://api.example.com/v1/). \"*\" разрешает любой адрес. Запись покрывает и файлы, которые запрос загружает, и непроверенный сертификат; прокси нужна своя запись, а файл, в который сохраняется ответ, подчиняется политике записи."
+tools.http_request.default_headers:
+  en: "Headers every http_request call sends unless the call names the header itself: a browser User-Agent for a site that turns tools away, an Accept an internal service expects. They take the place of the tool's own defaults (its coddy-agent User-Agent), a call's headers take the place of them - an empty value in the call removes one - and an empty value here leaves the header out of every call that does not set it. A name is letters, digits, - and _, starting with a letter. Host, Content-Type, Content-Length and Transfer-Encoding describe a single request and are refused, and so are the hop-by-hop headers (Connection, Keep-Alive, Proxy-Connection, TE, Trailer, Upgrade) and Proxy-Authorization, which an https request would carry through the proxy's tunnel to every origin. The headers go to every destination the tool reaches, so a credential here reaches all of them; the permission prompt names them and shows the value only of one that describes the client (User-Agent, Accept...), config_get keeps their values from the model, and webfetch, URL mentions and the model providers never send them. See https://coddy.dev/docs/features/http-requests#default-headers."
+  ru: "Заголовки, которые отправляет каждый вызов http_request, если вызов не задаёт этот заголовок сам, например браузерный User-Agent для сайта, который не пускает инструменты, или Accept, которого ждёт внутренний сервис. Они заменяют собственные значения инструмента по умолчанию (его User-Agent coddy-agent), заголовки вызова заменяют их (пустое значение в вызове убирает заголовок), а пустое значение здесь исключает заголовок из каждого вызова, который его не задаёт. Имя состоит из букв, цифр, - и _ и начинается с буквы. Host, Content-Type, Content-Length и Transfer-Encoding описывают отдельный запрос и не принимаются, как и hop-by-hop-заголовки (Connection, Keep-Alive, Proxy-Connection, TE, Trailer, Upgrade) и Proxy-Authorization, который https-запрос пронёс бы через туннель прокси к каждому origin. Заголовки уходят на каждый адрес, к которому обращается инструмент, поэтому учётные данные здесь попадут ко всем; окно разрешения называет их и показывает значение только тех, что описывают клиента (User-Agent, Accept...), config_get скрывает их значения от модели, а webfetch, упоминания URL и провайдеры моделей их никогда не отправляют. См. https://coddy.dev/docs/features/http-requests#default-headers."
+subagents:
+  en: "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See https://coddy.dev/docs/features/subagents."
+  ru: "Пользовательские дочерние агенты, которым модель может передать работу через spawn_agent. Определения - markdown-файлы с YAML-фронтматтером; каждый запуск - фоновая задача родительской сессии со своей дочерней сессией и транскриптом. См. https://coddy.dev/docs/features/subagents."
+subagents.enable:
+  en: "Register the spawn_agent tool and list the subagent catalog in the system prompt."
+  ru: "Регистрировать инструмент spawn_agent и перечислять каталог субагентов в системном промпте."
+subagents.dirs:
+  en: "Extra definition directories, read after the four default folders and stronger than them. The defaults are always read, lowest priority first: ${HOME}/.agents/agents, the project's .agents/agents, ${CODDY_HOME}/agents, the project's .coddy/agents; then these entries in their order. A definition found in several directories is taken from the last one in this order, and a directory named twice is read at its last place. ${CODDY_HOME} expands when the file is loaded, ${HOME} and ~ to your home folder, ${CWD} and a relative path against the session's workspace. Directories inside the workspace are project scope and follow the trust policy."
+  ru: "Дополнительные каталоги определений; читаются после четырёх каталогов по умолчанию и важнее их. Каталоги по умолчанию читаются всегда, от низшего приоритета к высшему, - ${HOME}/.agents/agents, .agents/agents проекта, ${CODDY_HOME}/agents, .coddy/agents проекта; затем эти записи по порядку. Определение, найденное в нескольких каталогах, берётся из последнего по этому порядку, а каталог, указанный дважды, читается на последнем своём месте. ${CODDY_HOME} разворачивается при загрузке файла, ${HOME} и ~ - в вашу домашнюю папку, ${CWD} и относительный путь - относительно рабочей папки сессии. Каталоги внутри рабочей папки относятся к проекту и подчиняются политике доверия."
+subagents.project_trust:
+  en: "Trust policy for definitions found inside the workspace, which travel with the checkout: \"ask\" loads them but refuses to spawn one until the operator approved that exact file for that workspace (the shield in Settings -> Subagents, coddy agents trust on the machine running coddy, or POST /coddy/subagents/{name}/trust with the session workspace as cwd); \"allow\" treats them like the operator's own files; \"deny\" never reads them."
+  ru: "Политика доверия для определений, найденных внутри рабочей папки, которые приходят вместе с чекаутом. \"ask\" загружает их, но отказывается запускать определение, пока оператор не одобрит именно этот файл для этой рабочей папки (щит в разделе Настройки -> Субагенты, coddy agents trust на машине, где работает coddy, или POST /coddy/subagents/{name}/trust с рабочей папкой сессии в качестве cwd); \"allow\" обращается с ними как с собственными файлами оператора; \"deny\" не читает их никогда."
+subagents.max_concurrent:
+  en: "How many subagent runs the whole process may have in flight at once, whatever session started them. Starting past the limit is refused, not queued. 0 uses the default."
+  ru: "Сколько запусков субагентов может одновременно выполнять весь процесс, какая бы сессия их ни начала. Запуск сверх предела отклоняется, а не ставится в очередь. 0 берёт значение по умолчанию."
+subagents.max_depth:
+  en: "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further; 0 forbids spawning everywhere. Omit for the default."
+  ru: "Глубина вложенности запусков субагентов. 1 разрешает сессии запускать субагентов, которые сами запускать дальше не могут; 0 запрещает запуск везде. Без значения действует значение по умолчанию."
+subagents.default_timeout_seconds:
+  en: "Hard limit for one run whose definition and call give no timeout. Capped by tools.background.max_timeout_seconds. 0 uses the default."
+  ru: "Жёсткий предел для одного запуска, если ни определение, ни вызов не задают тайм-аут. Не больше tools.background.max_timeout_seconds. 0 берёт значение по умолчанию."
+subagents.max_turns:
+  en: "ReAct rounds a child may take. 0 follows agent.max_turns."
+  ru: "Сколько раундов ReAct может сделать дочерний агент. 0 следует agent.max_turns."
+hooks:
+  en: "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.coddy/hooks.json, .coddy/hooks.json, .claude/settings*.json). See https://coddy.dev/docs/features/hooks."
+  ru: "Команды оператора, которые выполняются в точках жизненного цикла сессии - до и после вызова инструмента, при отправке промпта, при остановке агента, на старте сессии и вокруг сжатия контекста. Определения - JSON-файлы в формате Claude Code (~/.coddy/hooks.json, .coddy/hooks.json, .claude/settings*.json). См. https://coddy.dev/docs/features/hooks."
+hooks.enable:
+  en: "Load and run hooks at all."
+  ru: "Загружать и запускать хуки вообще."
+hooks.files:
+  en: "Definition files, lowest priority first; every matching hook runs. ${CODDY_HOME} and ${CWD} expand; a relative entry resolves against the session cwd. Files inside the workspace are project scope and follow project_trust; only the hooks key of a Claude Code settings file is read."
+  ru: "Файлы определений, сначала с низшим приоритетом; выполняется каждый подходящий хук. ${CODDY_HOME} и ${CWD} разворачиваются; относительная запись разрешается относительно cwd сессии. Файлы внутри рабочей папки относятся к проекту и подчиняются project_trust; из файла настроек Claude Code читается только ключ hooks."
+hooks.project_trust:
+  en: "Trust policy for hook files found inside the workspace, which travel with the checkout: \"ask\" lists them but runs nothing until the operator approved that exact file for that workspace on the machine running coddy (coddy hooks trust there, or POST /coddy/hooks/trust with the session workspace as cwd); \"allow\" treats them like the operator's own file; \"deny\" never reads them."
+  ru: "Политика доверия для файлов хуков, найденных внутри рабочей папки, которые приходят вместе с чекаутом. \"ask\" показывает их, но ничего не запускает, пока оператор не одобрит именно этот файл для этой рабочей папки на машине, где работает coddy (там через coddy hooks trust или через POST /coddy/hooks/trust с рабочей папкой сессии в качестве cwd); \"allow\" обращается с ними как с собственным файлом оператора; \"deny\" не читает их никогда."
+hooks.default_timeout_seconds:
+  en: "Hard limit for one hook process whose definition gives no timeout. 0 uses the default."
+  ru: "Жёсткий предел для процесса хука, в определении которого нет тайм-аута. 0 берёт значение по умолчанию."
+hooks.stop_loop_limit:
+  en: "How many times per turn a Stop hook may send the agent back to work. 0 uses the default."
+  ru: "Сколько раз за ход хук Stop может вернуть агента к работе. 0 берёт значение по умолчанию."
+hooks.max_output_chars:
+  en: "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker. 0 uses the default."
+  ru: "Предел для контекста, сообщений и причин, которые один хук может передать модели или пользователю; более длинные значения обрезаются с пометкой. 0 берёт значение по умолчанию."
+logger:
+  en: "Process log level, outputs, format, and file rotation."
+  ru: "Уровень журнала процесса, места вывода, формат и ротация файла."
+logger.level:
+  en: "Minimum severity written to the configured outputs (\"warning\" is accepted as an alias of \"warn\")."
+  ru: "Минимальный уровень важности записей, которые попадают в настроенные места вывода (\"warning\" принимается как синоним \"warn\")."
+logger.levels:
+  en: "Per-component minimum severity. A component is the dotted name a record carries in its \"component\" attribute (gateway, gateway.telegram, session, agent, scheduler); a parent name covers everything nested under it and the longest configured prefix wins. Records with no component follow \"level\"."
+  ru: "Минимальный уровень важности для отдельных компонентов. Компонент - имя через точку, которое запись несёт в атрибуте \"component\" (gateway, gateway.telegram, session, agent, scheduler); родительское имя покрывает всё, что вложено в него, и побеждает самый длинный настроенный префикс. Записи без компонента следуют \"level\"."
+logger.levels[].component:
+  en: "Dotted component name, for example \"gateway.telegram\"."
+  ru: "Имя компонента через точку, например \"gateway.telegram\"."
+logger.levels[].level:
+  en: "Minimum severity for this component."
+  ru: "Минимальный уровень важности для этого компонента."
+logger.outputs:
+  en: "Where log records go; any combination of stdout, stderr, file. Empty means stderr only."
+  ru: "Куда идут записи журнала - любая комбинация stdout, stderr, file. Пусто означает только stderr."
+logger.file:
+  en: "Path for the file sink; required when outputs includes \"file\". Supports ${CODDY_HOME}."
+  ru: "Путь файлового вывода; обязателен, если outputs включает \"file\". Поддерживает ${CODDY_HOME}."
+logger.format:
+  en: "Log record format."
+  ru: "Формат записи журнала."
+logger.rotation:
+  en: "Size-based rotation for the file sink."
+  ru: "Ротация файлового вывода по размеру."
+logger.rotation.max_size_mb:
+  en: "Rotate after the file reaches this size in MB; 0 disables size-based rotation."
+  ru: "Ротировать файл, когда он достигает этого размера в МБ; 0 отключает ротацию по размеру."
+logger.rotation.max_files:
+  en: "Rotated backups to keep when max_size_mb > 0."
+  ru: "Сколько ротированных копий хранить при max_size_mb > 0."
+sessions:
+  en: "Where persisted session bundles are stored."
+  ru: "Где хранятся сохранённые бандлы сессий."
+sessions.dir:
+  en: "Sessions root directory. Empty resolves to ${CODDY_HOME}/sessions. Supports ${CODDY_HOME} and ~."
+  ru: "Корневой каталог сессий. Пусто - ${CODDY_HOME}/sessions. Поддерживает ${CODDY_HOME} и ~."
+compaction:
+  en: "Summarizes older conversation history so long sessions keep fitting the model context window. Manual compact command plus automatic trigger at a percent of the model's context window."
+  ru: "Сворачивает старую историю диалога в сводку, чтобы длинные сессии продолжали помещаться в окно контекста модели. Ручная команда сжатия и автоматический запуск при заданном проценте окна контекста модели."
+compaction.enable:
+  en: "Master switch for compaction (manual command and automatic trigger). Defaults to true."
+  ru: "Главный переключатель сжатия контекста (ручная команда и автоматический запуск). По умолчанию true."
+compaction.auto_enable:
+  en: "Enable automatic compaction at threshold_percent. Set false to keep manual /compact and the Context popover action available without automatic compaction. Defaults to true."
+  ru: "Включает автоматическое сжатие при threshold_percent. false оставляет доступными ручную команду /compact и действие во всплывающей панели \"Контекст\", но без автоматического сжатия. По умолчанию true."
+compaction.threshold_percent:
+  en: "Auto-compaction fires when the estimated context usage reaches this percent of the effective model's context window (1..100): its max_context_tokens, else the window its provider's model listing reports, else 128000 - the window the web UI context ring shows."
+  ru: "Автоматическое сжатие срабатывает, когда оценка занятого контекста достигает этого процента окна контекста действующей модели (1..100). Окном служит её max_context_tokens, иначе окно из списка моделей провайдера, иначе 128000; это же окно показывает кольцо контекста в веб-интерфейсе."
+compaction.keep_recent_turns:
+  en: "How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; only history before that boundary is summarized. 0 summarizes the whole window. When the window holds no more user turns than this, a compaction keeps fewer: the automatic trigger down to the prompt being answered, the manual command down to none."
+  ru: "Сколько последних ходов пользователя (каждый с ответами агента и работой инструментов после него) остаются дословно; в сводку попадает только история до этой границы. 0 сворачивает в сводку всё окно. Если в окне не больше ходов пользователя, чем это число, сжатие оставляет меньше - автоматический запуск вплоть до промпта, на который идёт ответ, ручная команда вплоть до нуля."
+compaction.model:
+  en: "Optional models[].model used for the summarization call. Empty uses the session's effective model."
+  ru: "Необязательная модель из models[].model для вызова, который составляет сводку. Пусто - действующая модель сессии."
+compaction.fallback_models:
+  en: "Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so a compaction is not blocked by one unreachable summarizer."
+  ru: "Модели для составления сводки, которые пробуются по порядку, если предыдущая не сработала (id из models[].model). Собственная модель сессии - последний вариант, указана она в списке или нет, поэтому одна недоступная модель не блокирует сжатие."
+compaction.result_eviction:
+  en: "Collapses superseded read/grep tool results to short placeholders when building the LLM request (the persisted transcript is never rewritten), so paging a large file or a wide search cannot pin dead lines in every later turn. Only results the model marks (keep_result, or keep:true) or the most recent working window survive; a write to a file invalidates earlier reads/greps that covered it."
+  ru: "При сборке запроса к LLM сворачивает устаревшие результаты read/grep в короткие заглушки (сохранённый транскрипт никогда не переписывается), чтобы постраничное чтение большого файла или широкий поиск не тащили мёртвые строки в каждый следующий ход. Сохраняются только результаты, которые модель пометила (keep_result или keep:true), и последнее рабочее окно; запись в файл делает недействительными прежние read/grep, которые его охватывали."
+compaction.result_eviction.enable:
+  en: "Master switch for read/grep result eviction. Defaults to true."
+  ru: "Главный переключатель вытеснения результатов read/grep. По умолчанию true."
+compaction.result_eviction.keep_recent:
+  en: "How many most recent evictable results (read pages, grep dumps) stay intact as a working window. 0 keeps none. The default of 2 keeps a read and a grep live at the same time; with 1, a model comparing two results keeps re-fetching whichever the other evicted."
+  ru: "Сколько последних вытесняемых результатов (страниц read, выдач grep) остаются нетронутыми как рабочее окно. 0 не оставляет ни одного. Значение по умолчанию 2 держит живыми одновременно read и grep; при 1 модель, которая сравнивает два результата, раз за разом запрашивает заново тот, который вытеснил другой."
+compaction.result_eviction.min_result_bytes:
+  en: "Results at or below this size are never evicted (too small to be worth a placeholder). 0 makes every result a candidate."
+  ru: "Результаты такого размера и меньше никогда не вытесняются (слишком малы, чтобы заменять их заглушкой). 0 делает кандидатом любой результат."
+compaction.result_eviction.start_percent:
+  en: "Evict only once the estimated context reaches this percent of the effective model's max_context_tokens. Below it the replayed history is sent untouched, so the provider's prompt cache keeps it; a placeholder appearing mid-history invalidates every cached token behind it. 0 evicts from the first result; a model without max_context_tokens always does."
+  ru: "Вытеснять, только когда оценка контекста достигла этого процента max_context_tokens действующей модели. Ниже порога история отправляется без изменений, и кэш промптов провайдера её сохраняет; заглушка, появившаяся посреди истории, делает недействительным каждый закэшированный токен после неё. 0 вытесняет с первого результата; модель без max_context_tokens вытесняет всегда."
+memory:
+  en: "Optional memory subagent (implementation in external/memory; enable at runtime with memory.enable)."
+  ru: "Необязательный субагент памяти (реализация в external/memory; включается во время работы через memory.enable)."
+memory.enable:
+  en: "Run the memory subagent on every user turn (needs the memory build tag)."
+  ru: "Запускать субагента памяти на каждом ходе пользователя (нужен тег сборки memory)."
+memory.model:
+  en: "Exact models[].model id the memory subagent runs on; empty uses the session's model."
+  ru: "Точный id из models[].model, на котором работает субагент памяти; пусто - модель сессии."
+memory.fallback_models:
+  en: "Memory subagent models tried in order when the one before them fails before answering (models[].model ids). The session's own model is the last resort whether or not it is listed, so one unreachable deployment does not take the memory run down with it."
+  ru: "Модели субагента памяти, которые пробуются по порядку, если предыдущая отказала до ответа (id из models[].model). Собственная модель сессии - последний вариант, указана она в списке или нет, поэтому одно недоступное развёртывание не обрушивает запуск памяти."
+memory.dir:
+  en: "Long-term memory root. Empty resolves to ${CODDY_HOME}/memory. Supports ${CODDY_HOME} and ~."
+  ru: "Корень долговременной памяти. Пусто - ${CODDY_HOME}/memory. Поддерживает ${CODDY_HOME} и ~."
+memory.wait_seconds:
+  en: "How long a user turn waits for the memory subagent's report before its first model call. An explicit 0 never waits: the report then reaches the turn only through a later step, or stays in the Tasks panel."
+  ru: "Сколько ход пользователя ждёт отчёт субагента памяти перед первым вызовом модели. Явный 0 не ждёт никогда, и тогда отчёт попадает в ход только на одном из следующих шагов или остаётся в панели задач."
+memory.timeout_seconds:
+  en: "Hard limit of one memory run in seconds, capped by tools.background.max_timeout_seconds like every task of the pool."
+  ru: "Жёсткий предел одного запуска памяти в секундах; как и любую задачу пула, его ограничивает tools.background.max_timeout_seconds."
+memory.keep_runs:
+  en: "Finished memory runs kept per session, task record and child transcript alike; the oldest beyond this number are removed when a run finishes. An explicit 0 keeps every run."
+  ru: "Сколько завершённых запусков памяти хранится на сессию, и запись задачи, и дочерний транскрипт; самые старые сверх этого числа удаляются, когда запуск завершается. Явный 0 хранит все запуски."
+memory.recall_max_turns:
+  en: "Bounds the memory subagent's ReAct rounds together with persist_max_turns; the child's cap is the larger of the two."
+  ru: "Вместе с persist_max_turns ограничивает раунды ReAct субагента памяти; предел дочернего агента - большее из двух значений."
+memory.persist_max_turns:
+  en: "Bounds the memory subagent's ReAct rounds together with recall_max_turns; the child's cap is the larger of the two."
+  ru: "Вместе с recall_max_turns ограничивает раунды ReAct субагента памяти; предел дочернего агента - большее из двух значений."
+memory.copilot_max_tokens:
+  en: "Completion token cap for the memory model's calls."
+  ru: "Предел токенов завершения для вызовов модели памяти."
+memory.max_search_hits:
+  en: "Maximum snippets returned by memory_search."
+  ru: "Максимум фрагментов, которые возвращает memory_search."
+memory.max_note_chars:
+  en: "Longest body one note saved by coddy_memory_save may have, in characters (not bytes). An explicit 0 removes the cap."
+  ru: "Наибольшая длина текста одной заметки, которую сохраняет coddy_memory_save, в символах (не байтах). Явный 0 снимает ограничение."
+memory.additional_prompt:
+  en: "Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing."
+  ru: "Инструкции оператора только для субагента памяти - раздел его системного промпта, который основной агент никогда не видит. Пусто ничего не добавляет."
+memory.additional_prompt_max_chars:
+  en: "Cap on additional_prompt in characters; a longer text is cut there, the agent log says so and coddy -t reports it. 0 means no cap."
+  ru: "Предел для additional_prompt в символах; более длинный текст обрезается на этом пределе, об этом сообщают лог агента и coddy -t. 0 означает без ограничения."
+httpserver:
+  en: "OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http; the embedded SPA needs -tags http,ui). See https://coddy.dev/docs/reference/http-api."
+  ru: "Значения по умолчанию для OpenAI-совместимого HTTP API (действуют только в бинарниках, собранных с -tags http; встроенному SPA нужен -tags http,ui). См. https://coddy.dev/docs/reference/http-api."
+httpserver.enable:
+  en: "Serve the HTTP API (and the embedded SPA) in this process. Omitted means true; set false on a node that only polls a messenger or relays a swarm."
+  ru: "Отдавать HTTP API (и встроенное SPA) в этом процессе. Без значения - true; false подходит для узла, который только опрашивает мессенджер или служит релеем роя."
+httpserver.host:
+  en: "Bind address for the HTTP API. Empty means 127.0.0.1; set 0.0.0.0 to accept connections from other machines."
+  ru: "Адрес привязки HTTP API. Пусто означает 127.0.0.1; 0.0.0.0 принимает подключения с других машин."
+httpserver.port:
+  en: "Default listen port when coddy serve does not pass -P/--port. 0 falls back to 12345."
+  ru: "Порт по умолчанию, если coddy serve не передаёт -P/--port. 0 сводится к 12345."
+httpserver.auth_token:
+  en: "Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a \"${ENV}\" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See https://coddy.dev/docs/operate/remote."
+  ru: "Необязательный bearer-токен для HTTP API. Пусто означает отсутствие аутентификации (исторически так по умолчанию). Ссылка \"${ENV}\" держит секрет вне файла; GET /coddy/config его никогда не возвращает. Лучше задавать его через --auth-token / CODDY_HTTP_TOKEN, чтобы его вообще не было в config.yaml. См. https://coddy.dev/docs/operate/remote."
+httpserver.login:
+  en: "Optional password sign-in for the browser, so a server on a network is not readable by everyone who finds the port. Off unless an account exists here or in CODDY_HTTP_USER / CODDY_HTTP_PASSWORD. API clients keep using auth_token. See https://coddy.dev/docs/operate/remote."
+  ru: "Необязательный вход по паролю для браузера, чтобы сервер в сети не мог прочитать любой, кто найдёт порт. Выключен, если нет учётной записи здесь или в CODDY_HTTP_USER / CODDY_HTTP_PASSWORD. API-клиенты по-прежнему используют auth_token. См. https://coddy.dev/docs/operate/remote."
+httpserver.login.enable:
+  en: "Turn the sign-in form on or off explicitly. Omitted follows the credentials: an account here or in the environment enables it. false keeps the form off with the variables still set."
+  ru: "Явно включает или выключает форму входа. Без значения следует учётным данным - учётная запись здесь или в окружении включает её. false оставляет форму выключенной, даже если переменные заданы."
+httpserver.login.mode:
+  en: "How a browser authenticates. Only \"password\" is implemented; the key exists so a trusted-proxy mode can be added without moving your configuration."
+  ru: "Как браузер проходит аутентификацию. Реализован только \"password\"; ключ существует, чтобы режим доверенного прокси можно было добавить, не меняя вашу конфигурацию."
+httpserver.login.user:
+  en: "Account name for the sign-in form. Supports \"${ENV}\" references, e.g. \"${CODDY_HTTP_USER}\"."
+  ru: "Имя учётной записи для формы входа. Поддерживает ссылки \"${ENV}\", например \"${CODDY_HTTP_USER}\"."
+httpserver.login.password_hash:
+  en: "argon2id hash of the password in PHC form (\"$argon2id$v=19$m=...$...\"), written by `coddy serve set-password`. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it. Put a plaintext password in CODDY_HTTP_PASSWORD instead of here."
+  ru: "Хеш пароля argon2id в формате PHC (\"$argon2id$v=19$m=...$...\"), который записывает `coddy serve set-password`. GET /coddy/config его никогда не возвращает, а при сохранении с экрана настроек он не теряется. Пароль открытым текстом задавайте в CODDY_HTTP_PASSWORD, а не здесь."
+httpserver.login.session_ttl_hours:
+  en: "How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session."
+  ru: "Сколько времени действует вход в браузере. 0 означает, что cookie удаляется при закрытии браузера; сервер всё равно сам завершает сессию через 30 дней, потому что запись, которую он хранит вечно, уже не сессия."
+httpserver.public_docs:
+  en: "When auth is enabled, keep /docs and /openapi.* reachable without a token."
+  ru: "Если аутентификация включена, оставлять /docs и /openapi.* доступными без токена."
+httpserver.allow_insecure:
+  en: "Silence the two startup warnings about a server without authentication - a non-loopback bind, and CORS that admits pages nobody listed (allow_loopback or \"*\") - and the --dry-run findings that mirror them."
+  ru: "Подавляет два предупреждения при запуске о сервере без аутентификации - о привязке не к loopback и о CORS, который пускает никем не перечисленные страницы (allow_loopback или \"*\"), - и соответствующие им находки --dry-run."
+httpserver.cors:
+  en: "Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies: CORS decides whether a browser shows a page the answer, never whether the server gives one."
+  ru: "Кросс-доменный доступ, чтобы браузерный интерфейс с другого origin мог вызывать этот API (например, встроенный интерфейс, направленный на удалённый сервер). Bearer-аутентификация продолжает действовать - CORS решает только, покажет ли браузер ответ странице; отдаёт ли сервер ответ, от CORS не зависит."
+httpserver.cors.enable:
+  en: "Handle CORS preflight and emit Access-Control-* headers for allowed origins."
+  ru: "Обрабатывать предварительные запросы CORS и отдавать заголовки Access-Control-* для разрешённых origin."
+httpserver.cors.allow_loopback:
+  en: "Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. The laptop case of a remote coddy serve, where the web UI comes from the laptop's own coddy serve and its port moves. Narrower than \"*\", and like \"*\" only as safe as the token or sign-in behind the API."
+  ru: "Также разрешать любую страницу, которую отдаёт машина самого браузера, - origin http или https с хостом localhost, именем *.localhost, 127.0.0.0/8 или [::1] на любом порту. Это случай ноутбука с удалённым coddy serve, когда веб-интерфейс приходит от собственного coddy serve ноутбука и его порт меняется. Уже, чем \"*\", и, как \"*\", безопасно ровно настолько, насколько надёжны токен или вход, которые защищают API."
+httpserver.cors.allowed_origins:
+  en: "Exact origins permitted to call the API, e.g. \"http://localhost:5173\". A single \"*\" allows any origin."
+  ru: "Точные origin, которым разрешено вызывать API, например \"http://localhost:5173\". Единственный \"*\" разрешает любой origin."
+httpserver.remotes:
+  en: "Remote coddy serve servers and swarm relays offered in the UI environment selector and resolved by `coddy --remote <name>`. An entry may carry the token to present; without one the UI keeps the token in the browser per remote and the console reads --remote-token or CODDY_REMOTE_TOKEN."
+  ru: "Удалённые серверы coddy serve и релеи роя, которые предлагает меню окружения в интерфейсе и которые разрешает `coddy --remote <name>`. Запись может содержать токен для предъявления; без него интерфейс хранит токен в браузере отдельно для каждого удалённого сервера, а консоль читает --remote-token или CODDY_REMOTE_TOKEN."
+httpserver.remotes[].name:
+  en: "Display label for the remote. Empty: the web UI shows the name the remote reports (a relay's swarm.name, else the host name it runs on; an agent's host name), else its address."
+  ru: "Отображаемое имя удалённого сервера. Если пусто, веб-интерфейс показывает имя, которое сообщает удалённый сервер (у релея - swarm.name, иначе имя хоста, на котором он работает; у агента - имя хоста), иначе его адрес."
+httpserver.remotes[].url:
+  en: "Base URL of the remote coddy serve server or relay, e.g. \"https://box.example:12345\"."
+  ru: "Базовый URL удалённого сервера coddy serve или релея, например \"https://box.example:12345\"."
+httpserver.remotes[].token:
+  en: "Bearer token to present to this remote: a relay's client token (swarm.auth_token) or a server's httpserver.auth_token, usually a ${ENV} reference. Optional and opt-in: every browser that reads this configuration receives it, and coddy --remote <name> uses it when --remote-token is not given. A node mounted under a relay (<url>/swarm/nodes/<name>) takes the relay's token."
+  ru: "Bearer-токен для предъявления этому удалённому серверу - клиентский токен релея (swarm.auth_token) или httpserver.auth_token сервера, обычно ссылка ${ENV}. Необязателен и задаётся только осознанно, потому что его получает каждый браузер, который читает эту конфигурацию, а coddy --remote <name> использует его, если не задан --remote-token. Узел, смонтированный под релеем (<url>/swarm/nodes/<name>), принимает токен релея."
+swarm:
+  en: "Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enable; the join list below is honoured by any coddy serve process, which is what makes an ordinary agent reachable through a relay. See https://coddy.dev/docs/operate/swarm."
+  ru: "Релей без состояния, в котором регистрируются узлы и который выстраивается в цепочку с другими релеями. Самому релею нужны -tags swarm и swarm.enable; список join ниже учитывает любой процесс coddy serve, и именно так обычный агент становится доступен через релей. См. https://coddy.dev/docs/operate/swarm."
+swarm.enable:
+  en: "Run the swarm relay in this process. Independent of swarm.join, which is how an agent registers into a parent relay."
+  ru: "Запускать релей роя в этом процессе. Не зависит от swarm.join, через который агент регистрируется в родительском релее."
+swarm.host:
+  en: "Bind address for the relay when the CLI does not pass --swarm-host. Empty falls back to 0.0.0.0."
+  ru: "Адрес привязки релея, если CLI не передаёт --swarm-host. Пусто сводится к 0.0.0.0."
+swarm.port:
+  en: "Listen port for the relay. 0 falls back to 12346."
+  ru: "Порт релея. 0 сводится к 12346."
+swarm.name:
+  en: "Label for this relay in topology views, in /swarm/info and in a child's node path. Empty: the host name it runs on."
+  ru: "Имя этого релея на карте топологии, в /swarm/info и в пути узла у дочернего релея. Пусто - имя хоста, на котором он работает."
+swarm.auth_token:
+  en: "Bearer credential clients present to this relay. A relay reaches every node with that node's own credential, so an unauthenticated relay bound off loopback is a fleet-wide open door and the server refuses to start unless allow_insecure is set. Never echoed back."
+  ru: "Bearer-токен, который клиенты предъявляют этому релею. Релей обращается к каждому узлу с собственными учётными данными этого узла, поэтому релей без аутентификации, привязанный не к loopback, открывает дверь ко всему парку машин, и сервер не запускается, если не задан allow_insecure. Никогда не отдаётся обратно."
+swarm.pairing_tokens:
+  en: "Credentials a node must present to register. Empty closes registration unless insecure_open_registration is set. Never echoed back."
+  ru: "Учётные данные, которые узел должен предъявить для регистрации. Пусто закрывает регистрацию, если не задан insecure_open_registration. Никогда не отдаются обратно."
+swarm.allow_insecure:
+  en: "Permit binding off loopback without a client token."
+  ru: "Разрешить привязку не к loopback без клиентского токена."
+swarm.insecure_open_registration:
+  en: "Let any caller register a node without a pairing token. Development only."
+  ru: "Разрешить любому, кто обращается к релею, регистрировать узел без токена присоединения. Только для разработки."
+swarm.allow_private_upstreams:
+  en: "Hosts a node may advertise even though they resolve into loopback or private ranges, which are otherwise refused so a registration cannot turn the relay into a probe of its own network."
+  ru: "Хосты, которые узел может объявлять, хотя они разрешаются в loopback или частные диапазоны; иначе такие адреса отклоняются, чтобы регистрация не превратила релей в зонд его собственной сети."
+swarm.cors:
+  en: "Cross-origin access for the relay API. The SPA reaches a relay from another origin by construction, so this usually has to be on. Allow-Headers includes Last-Event-ID so an SSE stream can be resumed through the relay."
+  ru: "Кросс-доменный доступ к API релея. SPA по самому своему устройству обращается к релею с другого origin, поэтому обычно эту настройку нужно включать. Allow-Headers включает Last-Event-ID, чтобы поток SSE можно было возобновить через релей."
+swarm.cors.enable:
+  en: "Handle CORS preflight and emit Access-Control-* headers for allowed origins."
+  ru: "Обрабатывать предварительные запросы CORS и отдавать заголовки Access-Control-* для разрешённых origin."
+swarm.cors.allow_loopback:
+  en: "Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. A laptop's web UI reaching this relay, whatever port its own coddy serve took. Narrower than \"*\"; the client token still applies."
+  ru: "Также разрешать любую страницу, которую отдаёт машина самого браузера, - origin http или https с хостом localhost, именем *.localhost, 127.0.0.0/8 или [::1] на любом порту. Это веб-интерфейс ноутбука, который обращается к этому релею, какой бы порт ни занял собственный coddy serve ноутбука. Уже, чем \"*\"; клиентский токен по-прежнему действует."
+swarm.cors.allowed_origins:
+  en: "Exact origins permitted to call the API, e.g. \"http://localhost:5173\". A single \"*\" allows any origin."
+  ru: "Точные origin, которым разрешено вызывать API, например \"http://localhost:5173\". Единственный \"*\" разрешает любой origin."
+swarm.tls:
+  en: "Serve the relay over HTTPS. Set both files or neither. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart."
+  ru: "Отдавать релей по HTTPS. Задайте оба файла или ни одного. Минимум TLS 1.2; сертификаты читаются при запуске, поэтому для их смены нужен перезапуск."
+swarm.tls.cert_file:
+  en: "PEM certificate chain."
+  ru: "Цепочка сертификатов в PEM."
+swarm.tls.key_file:
+  en: "PEM private key."
+  ru: "Закрытый ключ в PEM."
+swarm.lease_ttl_seconds:
+  en: "How long a registration survives without a heartbeat. 0 falls back to 90; nodes refresh at a third of it."
+  ru: "Сколько регистрация живёт без сигнала heartbeat. 0 сводится к 90; узлы обновляют регистрацию через треть этого срока."
+swarm.fanout_timeout_seconds:
+  en: "Per-node deadline for an aggregated call. A slower node degrades into a warning rather than stalling the answer. 0 falls back to 3."
+  ru: "Срок ответа каждого узла при сводном вызове. Более медленный узел превращается в предупреждение и не задерживает ответ. 0 сводится к 3."
+swarm.upstreams:
+  en: "Nodes configured by hand rather than registered, for an agent that cannot run the join loop."
+  ru: "Узлы, заданные вручную вместо регистрации, - для агента, который не может выполнять цикл присоединения."
+swarm.upstreams[].name:
+  en: "Node name; becomes a URL path segment, so letters, digits, underscore and hyphen only."
+  ru: "Имя узла; становится сегментом пути URL, поэтому допустимы только буквы, цифры, подчёркивание и дефис."
+swarm.upstreams[].url:
+  en: "Origin the relay dials to reach the node."
+  ru: "Origin, к которому подключается релей, чтобы достучаться до узла."
+swarm.upstreams[].kind:
+  en: "agent (default) or relay."
+  ru: "agent (по умолчанию) или relay."
+swarm.upstreams[].token:
+  en: "Bearer credential the relay presents to this node. Never echoed back."
+  ru: "Bearer-токен, который релей предъявляет этому узлу. Никогда не отдаётся обратно."
+swarm.upstreams[].dial:
+  en: "How this leg reaches the other side. Relays are expected to live in different networks, so a proxy hop and a private certificate authority are ordinary here."
+  ru: "Как это звено добирается до другой стороны. Релеи, как правило, живут в разных сетях, поэтому прокси на пути и частный удостоверяющий центр здесь обычное дело."
+swarm.upstreams[].dial.proxy:
+  en: "Route the connection through a proxy: http, https, socks5 or socks5h. Empty falls back to the standard environment variables. Never echoed back."
+  ru: "Направить соединение через прокси - http, https, socks5 или socks5h. Пусто - используются стандартные переменные окружения. Никогда не отдаётся обратно."
+swarm.upstreams[].dial.ca_file:
+  en: "Certificate authority used to verify a peer whose certificate is signed privately."
+  ru: "Удостоверяющий центр, которым проверяется другая сторона с сертификатом, подписанным частным образом."
+swarm.upstreams[].dial.insecure_skip_verify:
+  en: "Accept any certificate. For a lab only; every use is logged."
+  ru: "Принимать любой сертификат. Только для стенда; каждое использование пишется в журнал."
+swarm.join:
+  en: "Parent relays this process registers into on startup. Honoured whether or not this process runs a relay of its own, which is what lets relays chain."
+  ru: "Родительские релеи, в которых этот процесс регистрируется при запуске. Учитывается независимо от того, запускает ли процесс собственный релей, поэтому релеи и выстраиваются в цепочку."
+swarm.join[].url:
+  en: "Parent relay origin."
+  ru: "Origin родительского релея."
+swarm.join[].name:
+  en: "Name to claim in that relay. Empty falls back to the host name."
+  ru: "Имя, которое процесс занимает в этом релее. Пусто сводится к имени хоста."
+swarm.join[].pairing_token:
+  en: "Credential authorising the registration. Never echoed back."
+  ru: "Учётные данные, которые разрешают регистрацию. Никогда не отдаются обратно."
+swarm.join[].advertise_url:
+  en: "Where the relay can reach this process. Leave empty to select the tunnel transport: this process dials out and serves its API back over that connection, which is the only way in when the network accepts no inbound connections."
+  ru: "Адрес, по которому релей может достучаться до этого процесса. Оставьте пустым, чтобы выбрать транспорт через туннель - процесс сам подключается к релею и отдаёт свой API обратно по этому соединению; это единственный путь внутрь, когда сеть не принимает входящих подключений."
+swarm.join[].token:
+  en: "This process's own bearer credential, handed to the relay so it can authenticate when it proxies. Prefer a credential minted for the relay alone. Never echoed back."
+  ru: "Собственный bearer-токен этого процесса, который передаётся релею, чтобы тот проходил аутентификацию при проксировании. Лучше выпустить токен только для релея. Никогда не отдаётся обратно."
+swarm.join[].labels:
+  en: "Free-form tags shown in topology views."
+  ru: "Произвольные метки, которые показываются на карте топологии."
+swarm.join[].dial:
+  en: "How this leg reaches the other side. Relays are expected to live in different networks, so a proxy hop and a private certificate authority are ordinary here."
+  ru: "Как это звено добирается до другой стороны. Релеи, как правило, живут в разных сетях, поэтому прокси на пути и частный удостоверяющий центр здесь обычное дело."
+swarm.join[].dial.proxy:
+  en: "Route the connection through a proxy: http, https, socks5 or socks5h. Empty falls back to the standard environment variables. Never echoed back."
+  ru: "Направить соединение через прокси - http, https, socks5 или socks5h. Пусто - используются стандартные переменные окружения. Никогда не отдаётся обратно."
+swarm.join[].dial.ca_file:
+  en: "Certificate authority used to verify a peer whose certificate is signed privately."
+  ru: "Удостоверяющий центр, которым проверяется другая сторона с сертификатом, подписанным частным образом."
+swarm.join[].dial.insecure_skip_verify:
+  en: "Accept any certificate. For a lab only; every use is logged."
+  ru: "Принимать любой сертификат. Только для стенда; каждое использование пишется в журнал."
+ui:
+  en: "Controls the bundled single-page UI (only meaningful in binaries built with -tags http,ui)."
+  ru: "Управляет встроенным одностраничным интерфейсом (имеет смысл только в бинарниках, собранных с -tags http,ui)."
+ui.enable:
+  en: "Serve the embedded SPA at GET /. Defaults to true; set false to run an API-only server (the API still requires httpserver.auth_token when configured)."
+  ru: "Отдавать встроенное SPA по GET /. По умолчанию true; false запускает сервер только с API (API по-прежнему требует httpserver.auth_token, если он задан)."
+scheduler:
+  en: "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter in ${CODDY_HOME}/scheduler (user jobs) and <workspace>/.coddy/scheduler (project jobs, which run once approved); five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history."
+  ru: "Задания по расписанию cron (действуют только в бинарниках, собранных с -tags scheduler). Задания - плоские файлы *.md с YAML-фронтматтером в ${CODDY_HOME}/scheduler (задания пользователя) и в <workspace>/.coddy/scheduler (задания проекта, которые выполняются после одобрения); crontab из пяти полей в UTC. Каждый запуск - фоновая агентная задача в собственной сессии задания, которая и служит историей его запусков."
+scheduler.enable:
+  en: "Run the scheduler daemon and expose the coddy_scheduler_* tools. Can also be forced per process with coddy serve --scheduler (or coddy acp -scheduler)."
+  ru: "Запускать демон планировщика и открывать инструменты coddy_scheduler_*. Можно также включить принудительно для процесса через coddy serve --scheduler (или coddy acp -scheduler)."
+scheduler.max_queue:
+  en: "Runs in flight across all jobs at once; a due slot past the cap is skipped until a run finishes, and a manual run past it is refused."
+  ru: "Сколько запусков всех заданий может идти одновременно; слот по расписанию сверх предела пропускается, пока какой-нибудь запуск не завершится, а ручной запуск сверх предела отклоняется."
+scheduler.timeout:
+  en: "Wall-clock limit for one run, as a Go duration (e.g. \"30m\", \"1h30m\"); the background task pool still caps it at tools.background.max_timeout_seconds."
+  ru: "Предел реального времени одного запуска в формате длительности Go (например, \"30m\", \"1h30m\"); пул фоновых задач всё равно ограничивает его значением tools.background.max_timeout_seconds."
+scheduler.project_trust:
+  en: "Trust policy for project jobs, the *.md files in <workspace>/.coddy/scheduler that travel with the checkout: \"ask\" lists them but runs one only once the operator approved that exact file for that workspace (the shield in the scheduler drawer, or POST /coddy/scheduler/jobs/{job_id}/trust?scope=project from a session in it); a job the operator creates through Coddy is approved at once; \"allow\" runs them like the operator's own jobs; \"deny\" never runs them. See https://coddy.dev/docs/operate/scheduler#project-jobs-and-trust."
+  ru: "Политика доверия для заданий проекта - файлов *.md в <workspace>/.coddy/scheduler, которые приходят вместе с чекаутом. \"ask\" показывает их, но запускает задание, только когда оператор одобрил именно этот файл для этой рабочей папки (щит в панели планировщика или POST /coddy/scheduler/jobs/{job_id}/trust?scope=project из сессии в этой папке); задание, которое оператор создаёт через Coddy, одобряется сразу; \"allow\" запускает их как собственные задания оператора; \"deny\" не запускает их никогда. См. https://coddy.dev/docs/operate/scheduler#project-jobs-and-trust."
+scheduler.retain_sessions:
+  en: "Finished runs kept per job_id (their task records and transcripts under the job session); older runs are removed when a run finishes."
+  ru: "Сколько завершённых запусков хранится на job_id (их записи задач и транскрипты в сессии задания); более старые запуски удаляются, когда запуск завершается."
+gateways:
+  en: "Messenger bot adapters (used only by binaries built with -tags gateway, or -tags gateway.telegram / gateway.pachca for one adapter; started by coddy serve alongside every other enabled subsystem). See https://coddy.dev/docs/surfaces/gateway and https://coddy.dev/docs/surfaces/pachca."
+  ru: "Адаптеры ботов мессенджеров (действуют только в бинарниках, собранных с -tags gateway или с -tags gateway.telegram / gateway.pachca для одного адаптера; их запускает coddy serve вместе с остальными включёнными подсистемами). См. https://coddy.dev/docs/surfaces/gateway и https://coddy.dev/docs/surfaces/pachca."
+gateways.telegram:
+  en: "Telegram bot adapter."
+  ru: "Адаптер Telegram-бота."
+gateways.telegram.enable:
+  en: "Poll Telegram in this coddy serve process."
+  ru: "Опрашивать Telegram в этом процессе coddy serve."
+gateways.telegram.token:
+  en: "Bot token from @BotFather. Leave empty to read the TELEGRAM_BOT_TOKEN environment variable (e.g. via ~/.coddy/.env)."
+  ru: "Токен бота от @BotFather. Оставьте пустым, чтобы читать переменную окружения TELEGRAM_BOT_TOKEN (например, через ~/.coddy/.env)."
+gateways.telegram.proxy:
+  en: "inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://, read like providers[].proxy. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects the bot directly and ignores those variables. A proxy URL sends every Bot API request through that proxy; with SOCKS the proxy resolves host names."
+  ru: "inherit (по умолчанию, то же, что отсутствие ключа), none или URL прокси со схемой http://, https://, socks5:// или socks5h://; читается так же, как providers[].proxy. inherit следует прокси, который задаёт окружение процесса Coddy, - HTTPS_PROXY, HTTP_PROXY и NO_PROXY, но никогда для loopback-адреса; ALL_PROXY не читается. none подключает бота напрямую и игнорирует эти переменные. URL прокси направляет через этот прокси каждый запрос к Bot API; с SOCKS имена хостов разрешает прокси."
+gateways.telegram.rich_messages:
+  en: "Use Bot API 10.1 Rich Messages (native Markdown, streamed thinking placeholder, collapsible tool list). Falls back to legacy formatting when unsupported."
+  ru: "Использовать Rich Messages из Bot API 10.1 (нативный Markdown, потоковая заглушка для рассуждения, сворачиваемый список инструментов). Если они не поддерживаются, используется прежнее форматирование."
+gateways.telegram.admins:
+  en: "Telegram user IDs with elevated rights; admins always pass access checks."
+  ru: "ID пользователей Telegram с расширенными правами; администраторы всегда проходят проверки доступа."
+gateways.telegram.default_access:
+  en: "Fallback access level for chats without an override: \"all\", \"admins\", or \"group:<name>\"."
+  ru: "Уровень доступа по умолчанию для чатов без переопределения - \"all\", \"admins\" или \"group:<name>\"."
+gateways.telegram.default_isolation:
+  en: "Fallback session isolation for group chats: \"individual\" (session per user), \"shared\" (one session for all), \"admin\" (admins only, shared session)."
+  ru: "Изоляция сессий по умолчанию для групповых чатов - \"individual\" (сессия на пользователя), \"shared\" (одна сессия на всех), \"admin\" (только администраторы, общая сессия)."
+gateways.telegram.user_groups:
+  en: "Named sets of user IDs referenced from access fields as group:<name>."
+  ru: "Именованные наборы ID пользователей, на которые поля доступа ссылаются как group:<name>."
+gateways.telegram.user_groups[].name:
+  en: "Group name referenced as group:<name>."
+  ru: "Имя группы, на которое ссылаются как group:<name>."
+gateways.telegram.user_groups[].user_ids:
+  en: "Telegram numeric user IDs in this group."
+  ru: "Числовые ID пользователей Telegram в этой группе."
+gateways.telegram.chats:
+  en: "Per-chat overrides; chat_id is negative for groups and supergroups."
+  ru: "Переопределения для отдельных чатов; chat_id отрицательный у групп и супергрупп."
+gateways.telegram.chats[].chat_id:
+  en: "Telegram chat id (negative for groups/supergroups)."
+  ru: "ID чата Telegram (отрицательный у групп и супергрупп)."
+gateways.telegram.chats[].isolation:
+  en: "Per-chat session isolation override."
+  ru: "Переопределение изоляции сессий для чата."
+gateways.telegram.chats[].access:
+  en: "Per-chat access override: \"all\", \"admins\", or \"group:<name>\"."
+  ru: "Переопределение доступа для чата - \"all\", \"admins\" или \"group:<name>\"."
+gateways.telegram.mini_app:
+  en: "Makes the web UI of this coddy serve the bot's Telegram Mini App. The web UI adapts to Telegram by itself; these keys tell the bot where it is, so it can set its menu button and answer /app with a button that opens the chat's own conversation. Telegram opens Mini Apps over https only, so the web UI has to be published behind a TLS proxy, with sign-in on (httpserver.login). See https://coddy.dev/docs/surfaces/gateway#mini-app."
+  ru: "Делает веб-интерфейс этого coddy serve Telegram Mini App бота. Веб-интерфейс сам подстраивается под Telegram; эти ключи сообщают боту, где он находится, чтобы бот мог настроить свою кнопку меню и отвечать на /app кнопкой, которая открывает диалог этого чата. Telegram открывает Mini App только по https, поэтому веб-интерфейс нужно опубликовать за TLS-прокси и включить вход (httpserver.login). См. https://coddy.dev/docs/surfaces/gateway#mini-app."
+gateways.telegram.mini_app.url:
+  en: "The public https address the web UI is served at, for example https://coddy.example.com/. Plain http is accepted only for a loopback host (an offline stand such as tgfake). No fragment: Telegram puts its launch parameters there. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone."
+  ru: "Публичный https-адрес, по которому доступен веб-интерфейс, например https://coddy.example.com/. Обычный http принимается только для loopback-хоста (офлайн-стенд вроде tgfake). Без фрагмента, потому что туда Telegram кладёт свои параметры запуска. Если пусто, бот не предлагает Mini App и не трогает кнопку меню, заданную в @BotFather."
+gateways.telegram.mini_app.menu_button:
+  en: "Make the bot's menu button (beside the message field) open the web UI. Turned off, with url emptied or while the web UI asks for no sign-in, the bot puts back the menu button it replaced (a Mini App set in @BotFather, else the commands), as long as the button still opens the address the bot set."
+  ru: "Сделать так, чтобы кнопка меню бота (рядом с полем сообщения) открывала веб-интерфейс. Если настройка выключена, url очищен или веб-интерфейс не требует входа, бот возвращает кнопку меню, которую заменил (Mini App, заданный в @BotFather, иначе команды), при условии что кнопка всё ещё открывает адрес, который задал бот."
+gateways.pachca:
+  en: "Pachca integration bot adapter: reads the bot's events history and answers through the Pachca REST API. Turn on Save events history (events_history_enabled) in the bot's outgoing webhook settings. See https://coddy.dev/docs/surfaces/pachca."
+  ru: "Адаптер интеграционного бота Pachca - читает историю событий бота и отвечает через REST API Pachca. Включите сохранение истории событий (events_history_enabled) в настройках исходящего вебхука бота. См. https://coddy.dev/docs/surfaces/pachca."
+gateways.pachca.enable:
+  en: "Run the Pachca bot in this coddy serve process."
+  ru: "Запускать бота Pachca в этом процессе coddy serve."
+gateways.pachca.token:
+  en: "Access token of the Pachca integration bot. Leave empty to read the PACHCA_BOT_TOKEN environment variable (e.g. via ~/.coddy/.env)."
+  ru: "Токен доступа интеграционного бота Pachca. Оставьте пустым, чтобы читать переменную окружения PACHCA_BOT_TOKEN (например, через ~/.coddy/.env)."
+gateways.pachca.proxy:
+  en: "inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://, read like providers[].proxy. inherit follows HTTPS_PROXY, HTTP_PROXY and NO_PROXY of the Coddy process; none connects directly; a proxy URL sends every Pachca API request through that proxy."
+  ru: "inherit (по умолчанию, то же, что отсутствие ключа), none или URL прокси со схемой http://, https://, socks5:// или socks5h://; читается так же, как providers[].proxy. inherit следует HTTPS_PROXY, HTTP_PROXY и NO_PROXY процесса Coddy; none подключается напрямую; URL прокси направляет через этот прокси каждый запрос к API Pachca."
+gateways.pachca.poll_interval_seconds:
+  en: "How often the events history is read, in seconds (1 to 60). Pachca answers that method at about five requests per two seconds."
+  ru: "Как часто читается история событий, в секундах (от 1 до 60). Pachca обслуживает этот метод с частотой около пяти запросов за две секунды."
+gateways.pachca.admins:
+  en: "Pachca user IDs with elevated rights; admins always pass access checks."
+  ru: "ID пользователей Pachca с расширенными правами; администраторы всегда проходят проверки доступа."
+gateways.pachca.default_access:
+  en: "Fallback access level for chats without an override: \"all\", \"admins\", or \"group:<name>\"."
+  ru: "Уровень доступа по умолчанию для чатов без переопределения - \"all\", \"admins\" или \"group:<name>\"."
+gateways.pachca.default_isolation:
+  en: "Fallback session isolation for group chats: \"individual\" (session per user), \"shared\" (one session for all), \"admin\" (admins only, shared session)."
+  ru: "Изоляция сессий по умолчанию для групповых чатов - \"individual\" (сессия на пользователя), \"shared\" (одна сессия на всех), \"admin\" (только администраторы, общая сессия)."
+gateways.pachca.user_groups:
+  en: "Named sets of user IDs referenced from access fields as group:<name>."
+  ru: "Именованные наборы ID пользователей, на которые поля доступа ссылаются как group:<name>."
+gateways.pachca.user_groups[].name:
+  en: "Group name referenced as group:<name>."
+  ru: "Имя группы, на которое ссылаются как group:<name>."
+gateways.pachca.user_groups[].user_ids:
+  en: "Pachca user IDs in this group."
+  ru: "ID пользователей Pachca в этой группе."
+gateways.pachca.chats:
+  en: "Per-chat overrides keyed by the Pachca chat id (a thread has a chat id of its own)."
+  ru: "Переопределения для отдельных чатов по id чата Pachca (у треда свой id чата)."
+gateways.pachca.chats[].chat_id:
+  en: "Pachca chat id."
+  ru: "ID чата Pachca."
+gateways.pachca.chats[].isolation:
+  en: "Per-chat session isolation override."
+  ru: "Переопределение изоляции сессий для чата."
+gateways.pachca.chats[].access:
+  en: "Per-chat access override: \"all\", \"admins\", or \"group:<name>\"."
+  ru: "Переопределение доступа для чата - \"all\", \"admins\" или \"group:<name>\"."
+supervisor:
+  en: "Checks a session goal (/goal) after every turn with a second model, continues unfinished work within bounds, and watches for stalled or looping turns; see https://coddy.dev/docs/features/session-supervisor."
+  ru: "Проверяет цель сессии (/goal) после каждого хода второй моделью, продолжает незавершённую работу в заданных пределах и следит за зависшими и зациклившимися ходами; см. https://coddy.dev/docs/features/session-supervisor."
+supervisor.enable:
+  en: "Check ordinary turns against the latest request even without a /goal. A session goal is checked whatever this switch says."
+  ru: "Сверять обычные ходы с последним запросом и без /goal. Цель сессии проверяется независимо от этого переключателя."
+supervisor.model:
+  en: "Configured models[].model that checks the work. Empty uses the session's own model, which then grades its own work; a model of another family is the better judge."
+  ru: "Настроенная модель из models[].model, которая проверяет работу. Пусто - собственная модель сессии, которая тогда оценивает свою же работу; модель другого семейства судит лучше."
+supervisor.verify:
+  en: "Confirm a met verdict before the goal is closed: the goal-verifier subagent reads the workspace with read-only tools and checks every requirement. Unset means true."
+  ru: "Подтверждать вердикт о выполнении цели перед её закрытием - субагент goal-verifier читает рабочую папку инструментами только для чтения и проверяет каждое требование. Без значения - true."
+supervisor.stall_seconds:
+  en: "Seconds a goal turn may go without any update before the watchdog cuts it and starts a recovery turn. Permission prompts, running tools and running background tasks pause the timer. 0 disables it."
+  ru: "Сколько секунд ход цели может обходиться без обновлений, прежде чем сторож прервёт его и начнёт ход восстановления. Запросы разрешений, работающие инструменты и работающие фоновые задачи приостанавливают таймер. 0 отключает его."
+supervisor.max_nudges:
+  en: "Recovery turns after a stall, a tool loop or a failed turn, per run of the supervisor."
+  ru: "Ходы восстановления после зависания, зацикливания инструментов или неудачного хода на один запуск супервизора."
+supervisor.max_continuations:
+  en: "Automatic continuation turns one goal may use; when they run out the goal gets one wrap-up turn and stops as limited."
+  ru: "Сколько автоматических ходов продолжения может использовать одна цель; когда они заканчиваются, цель получает один завершающий ход и останавливается с исчерпанным бюджетом."
+supervisor.loop_repeat:
+  en: "How many times a repeating cycle of identical tool operations (same call, same result) may come round before the watchdog cuts the turn. 0 disables loop detection."
+  ru: "Сколько раз повторяющийся цикл одинаковых операций инструментов (тот же вызов, тот же результат) может пройти по кругу, прежде чем сторож прервёт ход. 0 отключает обнаружение циклов."
+supervisor.token_budget:
+  en: "Uncached input plus output tokens one goal's turns may spend; 0 means no cap."
+  ru: "Некэшированные входные плюс выходные токены, которые могут потратить ходы одной цели; 0 означает без ограничения."

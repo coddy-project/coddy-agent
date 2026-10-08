@@ -1,0 +1,347 @@
+# Справочник по CLI
+
+Все команды, подкоманды и флаги бинарника `coddy` в том виде, в каком их описывает сам бинарник. Общую справку печатает `coddy --help`; следующие за ней разделы содержат наборы флагов тех команд, у которых они есть, в том виде, в каком их печатает `coddy <command> --help`. `make docs` заново генерирует эту страницу из бинарника, собранного с полным набором тегов, а `make docs-check` падает, если она перестала совпадать, поэтому здесь описано ровно то, что отвечает релизный бинарник. Man-страница и автодополнения оболочки в `packaging/` описывают тот же набор команд, и их поддерживают в актуальном виде вручную (см. [Как писать документацию](../contributing/documentation.md)).
+
+Команды, которые печатают только однострочную подсказку по использованию (`skills`, `mcp`, `rules`, `agents`, `hooks`), покрыты общей справкой; руководства по ним - [Скилы](../features/skills.md), [MCP-серверы](../features/mcp.md), [Правила](../features/rules.md), [Субагенты](../features/subagents.md) и [Хуки](../features/hooks.md). Флаги `providers` ниже относятся к `providers login`; руководство по ним - [Конфигурация](../getting-started/configuration.md), а `sessions` описана на странице [Сессии](../features/sessions.md). Собственные команды и клавиши консоли описаны на страницах [Консоль](../surfaces/console.md), [Слэш-команды](slash-commands.md) и [Клавиатура](keyboard.md).
+
+## Экраны справки
+
+<!-- docsgen:cli:start -->
+Help screens of a binary built with `-tags=http,ui,scheduler,memory,cli,gateway,swarm`, the set the release binaries carry.
+
+### coddy
+
+```text
+Usage:
+  coddy (no arguments on a terminal: interactive console, build tag cli)
+  coddy -c | --continue (console: continue the latest session here)
+  coddy -p | --prompt "..." (console: one-shot prompt, print the answer;
+        -p - reads the prompt from stdin, and so does a bare -p when stdin is not a terminal;
+        data piped under a typed prompt is attached to it, --no-stdin leaves it out)
+  coddy -i | --prompt-file FILE (console: one-shot prompt read from FILE, - for stdin)
+  coddy -h | --help
+  coddy -v | --version
+  coddy -t | --test-config [--config PATH] [--home DIR] (check config.yaml against
+        the schema and the loader's rules, print each problem with its line and
+        how to fix it, then exit; cli, acp and serve take the same flag)
+  coddy --dry-run [--config PATH] [--home DIR] (check config.yaml and probe what it
+        points at: paths, model servers and credentials, MCP commands, the
+        Telegram token, and for serve the listen addresses; prints only the
+        problems and a status line, add --test-config for the full report;
+        exits without starting anything; cli, acp and serve take the same flag)
+  coddy cli [flags] (interactive console TUI)
+  coddy acp [flags] (Agent Client Protocol)
+  coddy serve [flags] (run every subsystem enabled in config.yaml:
+        the OpenAI-compatible HTTP API and web UI, the messenger gateway,
+        the swarm relay, the cron scheduler)
+  coddy serve -d | --daemon (the same, in the background under a dispatcher
+        that starts it again if it dies)
+  coddy serve install (Linux: run coddy serve as a systemd user service in
+        ~/Coddy - installs the unit when the package did not, enables and
+        starts it)
+  coddy serve uninstall (stop and disable that service and remove the unit
+        that install wrote; ~/.coddy and ~/Coddy are kept)
+  coddy serve status | stop | restart [--home DIR]
+  coddy serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
+        UI sign-in account into config.yaml; the password is read from the
+        terminal, or from stdin when it is a pipe)
+  coddy sessions list [flags]
+  coddy sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
+  coddy skills list
+  coddy skills enable <name>
+  coddy skills disable <name>
+  coddy skills add <owner/repo | git-url | marketplace-url> [--project]
+  coddy skills sync
+  coddy skills remove <name>
+  coddy plugin marketplace add <src> | list [marketplace] | update [marketplace] | remove <marketplace | src>
+  coddy plugin marketplace trust <marketplace | src> | untrust <marketplace | src>
+  coddy plugin install <plugin>@<marketplace> | <owner/repo | git-url | marketplace-url>
+  coddy plugin remove <name>
+  coddy plugin enable <name> | disable <name>
+  coddy mcp list | trust <name> | untrust <name> [--cwd DIR]
+  coddy providers list | login <name> [--type neuraldeep|codex|devin] [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  coddy rules list [--cwd DIR]
+  coddy agents list [--cwd DIR]
+  coddy agents trust <name> [--cwd DIR]
+  coddy agents untrust <name> [--cwd DIR]
+  coddy hooks list [--cwd DIR]
+  coddy hooks trust <file> [--cwd DIR]
+  coddy hooks untrust <file> [--cwd DIR]
+  coddy docs [list] [--lang en|ru] | search <words> [--limit N] [--lang en|ru] | show <page>[#section] [--lang en|ru] (the
+        documentation built into this binary; F1 in the console, Docs in the
+        web UI; without --lang it speaks the terminal's language: CODDY_LANG,
+        then LC_ALL, LC_MESSAGES, LANG)
+  coddy update [flags]
+```
+
+### coddy cli
+
+```text
+Usage of cli (interactive console, also the default for bare coddy on a terminal):
+  -c	shorthand for --continue
+  -config string
+    	path to config.yaml (CODDY_CONFIG, else <home>/config.yaml)
+  -continue
+    	continue the most recent session in this folder
+  -cwd string
+    	session working directory (CODDY_CWD, default process cwd)
+  -dry-run
+    	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram and Pachca tokens - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
+  -home string
+    	agent state directory (CODDY_HOME, default ~/.coddy)
+  -i file
+    	shorthand for --prompt-file
+  -log-file string
+    	log file path (default <home>/logs/cli.log)
+  -log-level string
+    	log level: a bare level (debug|info|warn|error), or a comma-separated spec with per-component overrides such as info,gateway.telegram=debug (default from config)
+  -mcp-project-trust string
+    	trust policy for project-local .coddy/mcp.json: ask (approve each declaration), allow (start them automatically), deny (never load them); overrides mcp.project_trust (default "ask")
+  -mode string
+    	start in this mode: agent|plan|ask
+  -model string
+    	select a configured model id (provider/model)
+  -no-stdin
+    	never read stdin in a one-shot run: nothing piped is attached (for loops such as while read ...; done < list, ssh, CI runners that feed the job script on stdin)
+  -p prompt
+    	shorthand for --prompt
+  -permission-mode string
+    	permission mode: ask|accept_edits|bypass
+  -plain
+    	deterministic rendering for tests: no terminal queries or protocol negotiation
+  -prompt prompt
+    	run one prompt non-interactively, print the answer, and exit; - (or -p with no value when stdin is not a terminal) reads the prompt from stdin, and data piped under a typed prompt is attached to it
+  -prompt-file file
+    	run one prompt read from this file (- for stdin), like -p but without passing it through the command line; data piped on stdin is attached to it
+  -remote string
+    	connect to a remote coddy serve server (configured remote name, host:port, or http(s) URL)
+  -remote-token string
+    	bearer token for --remote (default from CODDY_REMOTE_TOKEN)
+  -resume
+    	open the session picker before starting
+  -scheduler
+    	run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)
+  -session-id string
+    	reopen or create the session under this id
+  -sessions-dir string
+    	sessions root (empty uses config sessions.dir or ~/.coddy/sessions)
+  -skills-auto-discovery
+    	model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config (default true)
+  -t	alias of --test-config
+  -test-config
+    	check config.yaml against the schema and the loader's rules, print every problem with its line and how to fix it, then exit without starting anything
+  -theme string
+    	color theme: dark|light|auto (default "auto")
+```
+
+### coddy acp
+
+```text
+Usage of acp:
+  -config string
+    	path to config.yaml (CODDY_CONFIG, else <home>/config.yaml or legacy search paths)
+  -cwd string
+    	default session cwd when the client sends an empty cwd (CODDY_CWD, default process cwd)
+  -dry-run
+    	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram and Pachca tokens - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
+  -home string
+    	agent state directory (CODDY_HOME, default ~/.coddy)
+  -log-file string
+    	log file path when output includes file (default from config)
+  -log-format string
+    	text|json (default from config)
+  -log-level string
+    	log level: a bare level (debug|info|warn|error), or a comma-separated spec with per-component overrides such as info,gateway.telegram=debug (default from config)
+  -log-output string
+    	stdout|stderr|file|both (default from config)
+  -mcp-project-trust string
+    	trust policy for project-local .coddy/mcp.json: ask (approve each declaration), allow (start them automatically), deny (never load them); overrides mcp.project_trust (default "ask")
+  -remote string
+    	serve ACP against a remote coddy serve server (configured remote name, host:port, or http(s) URL)
+  -remote-token string
+    	bearer token for --remote (default from CODDY_REMOTE_TOKEN)
+  -scheduler
+    	run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)
+  -session-id string
+    	if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name
+  -sessions-dir string
+    	sessions root (empty uses config sessions.dir or ~/.coddy/sessions)
+  -skills-auto-discovery
+    	model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config (default true)
+  -t	alias of --test-config
+  -test-config
+    	check config.yaml against the schema and the loader's rules, print every problem with its line and how to fix it, then exit without starting anything
+```
+
+### coddy serve
+
+```text
+Usage of serve (runs every subsystem enabled in config.yaml):
+  -H string
+    	bind address for the HTTP API (default httpserver.host, else 127.0.0.1)
+  -P string
+    	listen port for the HTTP API (default httpserver.port, else 12345)
+  -auth-token string
+    	bearer token required on /v1/* and /coddy/* (else CODDY_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth
+  -config string
+    	path to config.yaml (CODDY_CONFIG, else <home>/config.yaml or legacy search paths)
+  -cwd string
+    	default session cwd when a client omits it (CODDY_CWD, default process cwd)
+  -d	alias of --daemon
+  -daemon coddy serve status|stop|restart
+    	run in the background under a dispatcher that restarts the process if it dies (see coddy serve status|stop|restart)
+  -dry-run
+    	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram and Pachca tokens - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
+  -gateway
+    	run the Telegram bot; overrides gateways.telegram.enable (the Pachca bot follows gateways.pachca.enable)
+  -home string
+    	agent state directory (CODDY_HOME, default ~/.coddy)
+  -host string
+    	alias of -H
+  -http
+    	run the HTTP API in this process; overrides httpserver.enable (default true)
+  -log-file string
+    	log file path when output includes file (default from config)
+  -log-format string
+    	text|json (default from config)
+  -log-level string
+    	log level: a bare level (debug|info|warn|error), or a comma-separated spec with per-component overrides such as info,gateway.telegram=debug (default from config)
+  -log-output string
+    	stdout|stderr|file|both (default from config)
+  -mcp-project-trust string
+    	trust policy for project-local .coddy/mcp.json: ask (approve each declaration), allow (start them automatically), deny (never load them); overrides mcp.project_trust (default "ask")
+  -port string
+    	alias of -P
+  -scheduler
+    	run the cron scheduler; overrides scheduler.enable
+  -session-id string
+    	optional session id for new sessions (folder name)
+  -sessions-dir string
+    	sessions root (empty uses config sessions.dir or ~/.coddy/sessions)
+  -skills-auto-discovery
+    	model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config (default true)
+  -swarm
+    	run the swarm relay; overrides swarm.enable
+  -swarm-allow-insecure
+    	permit binding the relay off loopback without a client token
+  -swarm-auth-token string
+    	bearer token clients must present to the relay (else CODDY_SWARM_TOKEN, else swarm.auth_token)
+  -swarm-host string
+    	bind address for the swarm relay (default swarm.host, else 0.0.0.0)
+  -swarm-pairing-token string
+    	credential nodes must present to register (else CODDY_SWARM_PAIRING_TOKEN, else swarm.pairing_tokens)
+  -swarm-port string
+    	listen port for the swarm relay (default swarm.port, else 12346)
+  -t	alias of --test-config
+  -test-config
+    	check config.yaml against the schema and the loader's rules, print every problem with its line and how to fix it, then exit without starting anything
+```
+
+### coddy serve install
+
+```text
+Usage: coddy serve install (check ~/.coddy/config.yaml, install the systemd user unit for this binary when the package did not, enable coddy.service and start it working in ~/Coddy)
+```
+
+### coddy serve uninstall
+
+```text
+Usage: coddy serve uninstall (stop and disable coddy.service and remove the unit that install wrote; ~/.coddy and ~/Coddy are kept)
+```
+
+### coddy serve status | stop | restart
+
+```text
+Usage of serve status:
+  -home string
+    	agent state directory (CODDY_HOME, default ~/.coddy)
+```
+
+### coddy sessions list
+
+```text
+Usage of sessions list:
+  -cwd string
+    	only list sessions saved with this cwd (absolute)
+  -sessions-dir string
+    	sessions root (empty uses config sessions.dir or ~/.coddy/sessions)
+```
+
+### coddy sessions export
+
+```text
+usage: coddy sessions export <session-id> [--format md|html|json|jsonl] [--out <path>] [--no-tools] [--no-thinking] [--sessions-dir <path>]
+  -format string
+    	export format: md, html, json, jsonl (default: from the --out extension, else md)
+  -no-thinking
+    	leave out the model's reasoning
+  -no-tools
+    	leave out tool calls and their results
+  -out string
+    	output file or directory (default: the current directory)
+  -sessions-dir string
+    	sessions root (empty uses config sessions.dir or ~/.coddy/sessions)
+```
+
+### coddy providers
+
+```text
+Usage of providers:
+  -api-base string
+    	neuraldeep: API endpoint to sign in against, one of https://api.neuraldeep.ru/v1, https://api.neuraldeep.tech/v1 (default: the provider's api_base, else the first)
+  -browser
+    	neuraldeep: sign in through a loopback browser callback instead of the device flow
+  -device
+    	neuraldeep: the device flow, which is the default (accepted for compatibility)
+  -devin-cli devin auth login
+    	devin: use the login devin auth login already holds instead of a browser sign-in
+  -home string
+    	override CODDY_HOME
+  -no-config
+    	login: do not add the provider and its models to config.yaml after login
+  -type string
+    	login: type of a provider config.yaml does not list yet (neuraldeep, codex or devin), so another profile of a type is created by signing it in
+flag: help requested
+```
+
+### coddy plugin
+
+```text
+plugin commands:
+  plugin marketplace add <owner/repo|url>     add a marketplace and read its plugin list (installs nothing)
+  plugin marketplace list [<marketplace>]     list marketplaces and sources, or the plugins of one marketplace
+  plugin marketplace update [<marketplace>]   refresh marketplaces and what is installed from them (alias: sync)
+  plugin marketplace remove <marketplace>     remove a marketplace or a source
+  plugin marketplace trust <marketplace>      approve a project marketplace or source for this workspace (terminal only)
+  plugin marketplace untrust <marketplace>    withdraw that approval
+  plugin install <plugin>@<marketplace>       install one plugin of an added marketplace
+  plugin install <owner/repo|url>             install every skill a source publishes and keep them in sync
+  plugin remove <name>                        remove an installed skill
+  plugin enable <name>                        enable a skill
+  plugin disable <name>                       disable a skill
+  plugin list                                 list installed skills with versions
+```
+
+### coddy update
+
+```text
+Usage of update:
+  -check
+    	report whether a newer release exists and exit
+  -no-notes
+    	do not print what changed after the update (also CODDY_UPDATE_NOTES=0)
+  -no-restart
+    	Windows only: install the update but do not start Coddy again
+  -repo string
+    	GitHub repository owner/name for releases (default "coddy-project/coddy-agent")
+  -version string
+    	install a specific release tag (X.Y.Z) instead of latest
+  -y	install without confirmation
+  -yes
+    	install without confirmation (same as -y)
+
+Downloads release assets from https://github.com/coddy-project/coddy-agent/releases
+```
+<!-- docsgen:cli:end -->
+
+<!-- docsgen:source sha256=7e8da0d76416dc24 -->
