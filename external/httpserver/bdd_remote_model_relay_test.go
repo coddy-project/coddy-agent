@@ -49,6 +49,9 @@ type relayData struct {
 	tokens    []string
 	nodeName  string
 	nodeToken string
+	// noLabel is a node of an older binary: it joins with a shared-model token
+	// and says nothing about it.
+	noLabel bool
 }
 
 // relayWithNode builds the relay and the node behind it, and waits until the
@@ -64,9 +67,10 @@ func relayWithNode(s *remoteModelState, rd *relayData, clients string, tunnel bo
 	case "requires its own token":
 		s.spec.auth = authMainOnly
 		rd.nodeToken = relayTestNodeOwn
-	case "joined with a shared-model token":
+	case "joined with a shared-model token", "joined with a shared-model token but says nothing about it":
 		s.spec.auth = authSharedOnly
 		rd.nodeToken = relayTestNodeShared
+		rd.noLabel = joined != "joined with a shared-model token"
 	default:
 		return fmt.Errorf("unknown node credential %q", joined)
 	}
@@ -99,8 +103,16 @@ func relayWithNode(s *remoteModelState, rd *relayData, clients string, tunnel bo
 	if !tunnel {
 		advertise = node.url()
 	}
+	// What the node's own process registers with: the label follows the token.
+	nodeCfg := &config.Config{}
+	nodeCfg.HTTPServer.SharedModels.Tokens = []string{relayTestNodeShared}
+	var labels map[string]string
+	if !rd.noLabel {
+		labels = swarmdto.DerivedLabels(nodeCfg, config.SwarmJoin{Token: rd.nodeToken}, swarmdto.KindAgent)
+	}
 	client, err := swarmdto.NewClient(swarmdto.JoinOptions{
 		RelayURL:     relay.URL,
+		Labels:       labels,
 		Name:         relayTestNodeName,
 		Kind:         swarmdto.KindAgent,
 		PairingToken: relayTestPairing,
@@ -161,6 +173,25 @@ func (rd *relayData) clientAsksMountForSessions(s *remoteModelState) error {
 	return err
 }
 
+func (rd *relayData) listCarriesNoWarning() error {
+	res, err := doHTTP(http.MethodGet, rd.url+"/swarm/sessions", rd.tokens[0], nil)
+	if err != nil {
+		return err
+	}
+	var body struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(res.body, &body); err != nil {
+		return fmt.Errorf("the aggregated session list is not JSON: %v: %s", err, res.body)
+	}
+	for _, w := range body.Warnings {
+		if strings.HasPrefix(w, rd.nodeName+":") {
+			return fmt.Errorf("the aggregated session list warns about %q: %q", rd.nodeName, body.Warnings)
+		}
+	}
+	return nil
+}
+
 func (rd *relayData) listCarriesWarning() error {
 	res, err := doHTTP(http.MethodGet, rd.url+"/swarm/sessions", rd.tokens[0], nil)
 	if err != nil {
@@ -213,7 +244,7 @@ func registerRelaySteps(sc *godog.ScenarioContext, s *remoteModelState) {
 		*rd = relayData{}
 		return ctx, nil
 	})
-	sc.Step(`^a swarm relay with (a client token|two client tokens) mounting a remote coddy node( over its tunnel)? that (requires its own token|joined with a shared-model token) and shares "([^"]*)" as "([^"]*)" whose (model|provider) (.+)$`,
+	sc.Step(`^a swarm relay with (a client token|two client tokens) mounting a remote coddy node( over its tunnel)? that (requires its own token|joined with a shared-model token|joined with a shared-model token but says nothing about it) and shares "([^"]*)" as "([^"]*)" whose (model|provider) (.+)$`,
 		func(clients, tunnel, joined, selector, alias, subject, behaviour string) error {
 			return relayWithNode(s, rd, clients, tunnel != "", joined, selector, alias, subject, behaviour)
 		})
@@ -226,6 +257,7 @@ func registerRelaySteps(sc *godog.ScenarioContext, s *remoteModelState) {
 		func() error { return rd.clientAsksMountForSessions(s) })
 	sc.Step(`^the node refuses it as unauthorized$`, s.refusedAsUnauthorized)
 	sc.Step(`^the relay's aggregated session list carries a warning for that node$`, rd.listCarriesWarning)
+	sc.Step(`^the relay's aggregated session list carries no warning for that node$`, rd.listCarriesNoWarning)
 	sc.Step(`^the node allows (\d+) shared-model streams at once$`, s.remoteAllows)
 	sc.Step(`^each client of the relay holds a stream from "([^"]*)" open through the mount$`,
 		func(alias string) error { return rd.eachClientHoldsAStream(s, alias) })

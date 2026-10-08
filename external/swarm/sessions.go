@@ -331,6 +331,14 @@ func (s *Server) askNode(ctx context.Context, node Node, p fanoutParams) nodeRep
 	}
 	defer func() { _ = res.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+	if res.StatusCode == http.StatusUnauthorized && swarmdto.SharedModelsOnly(node.Info.Labels, node.Info.Kind) {
+		// A node that joined with a token made for shared models answers 401 on
+		// its sessions route by design: the refusal is the token's scope, not a
+		// fault, so it raises no warning. The node is still asked, so one that
+		// is labelled and does hold sessions is listed, and any other outcome
+		// (a server error, a timeout, an unreachable node) warns as for any node.
+		return nodeReport{}
+	}
 	if res.StatusCode != http.StatusOK {
 		return nodeReport{warning: fmt.Sprintf("%s: %s", node.Info.Name, res.Status)}
 	}

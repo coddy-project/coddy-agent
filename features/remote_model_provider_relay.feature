@@ -36,6 +36,12 @@ Feature: A model shared by a remote Coddy is reachable through a swarm relay
     Then the local coddy assembles the answer "Hello through the relay."
     When a client of the relay asks the mount of that node for its sessions
     Then the node refuses it as unauthorized
+    And the relay's aggregated session list carries no warning for that node
+
+  Scenario: A node of an older version that says nothing about its shared-model token keeps its sessions warning
+    Given a swarm relay with a client token mounting a remote coddy node that joined with a shared-model token but says nothing about it and shares "stub/qwen3-secret" as "coder" whose model answers "Hello through the relay."
+    When a client of the relay asks the mount of that node for its sessions
+    Then the node refuses it as unauthorized
     And the relay's aggregated session list carries a warning for that node
 
   Scenario: A node that dialled out with a token made for shared models serves them through its tunnel
