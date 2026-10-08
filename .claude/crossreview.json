@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "min_reviewers": 2,
+  "timeout": 2700,
+  "reviewers": [
+    {
+      "kind": "cli",
+      "agent": "coddy",
+      "binary": "coddy",
+      "command": "coddy --model ndsub/gemma-4-31b --mode ask --no-stdin -i {brief} > {out}",
+      "model": "ndsub/gemma-4-31b"
+    },
+    {
+      "kind": "cli",
+      "agent": "coddy",
+      "binary": "coddy",
+      "command": "coddy --model ndlcdx/gpt-6.1-sol --mode ask --no-stdin -i {brief} > {out}",
+      "model": "ndlcdx/gpt-6.1-sol"
+    }
+  ]
+}
