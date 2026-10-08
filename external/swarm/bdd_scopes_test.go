@@ -7,16 +7,24 @@ package swarm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 )
 
 type scopesState struct {
+	gate   *gateNode
+	second struct {
+		status int
+		body   string
+		header http.Header
+	}
 	t       *testing.T
 	nodes   map[string]*recordingNode
 	srv     *Server
@@ -174,6 +182,107 @@ func (s *scopesState) relayAnswers(code int) error {
 	return nil
 }
 
+func (s *scopesState) limitedRelay(name string, streams, perMinute, burst int, holds bool) error {
+	s.reset()
+	g := newGateNode(s.t)
+	if !holds {
+		close(g.hold)
+	}
+	s.gate = g
+	srv, ts := limitRelay(s.t, g, nil, limited(name, scopedToken, streams, perMinute, burst))
+	s.srv, s.url = srv, ts.URL
+	s.t.Cleanup(func() {
+		select {
+		case <-g.hold:
+		default:
+			close(g.hold)
+		}
+	})
+	return nil
+}
+
+func (s *scopesState) slotRelay(name string, streams int) error {
+	return s.limitedRelay(name, streams, 0, 0, true)
+}
+
+func (s *scopesState) windowRelay(name string, perMinute, burst int) error {
+	return s.limitedRelay(name, 0, perMinute, burst, false)
+}
+
+func (s *scopesState) startCall(name string) error {
+	select {
+	case <-s.gate.hold:
+		// The node answers at once: the call is made and finished here.
+		res, _ := do(s.t, http.MethodPost, s.url+relayCompletions, scopedToken)
+		if res.StatusCode != http.StatusOK {
+			return fmt.Errorf("the first call: %d", res.StatusCode)
+		}
+	default:
+		go func() { do(s.t, http.MethodPost, s.url+relayCompletions, scopedToken) }()
+		select {
+		case <-s.gate.entered:
+		case <-time.After(5 * time.Second):
+			return fmt.Errorf("the first call never reached the node")
+		}
+	}
+	return nil
+}
+
+func (s *scopesState) startSecond(name string) error {
+	res, body := do(s.t, http.MethodPost, s.url+relayCompletions, scopedToken)
+	s.second.status, s.second.body, s.second.header = res.StatusCode, body, res.Header
+	return nil
+}
+
+func (s *scopesState) secondRefused(code string) error {
+	var e struct {
+		Kind string `json:"kind"`
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(s.second.body), &e); err != nil {
+		return fmt.Errorf("not the error object: %v: %s", err, s.second.body)
+	}
+	if s.second.status != http.StatusTooManyRequests || e.Kind != "busy" || e.Code != code {
+		return fmt.Errorf("the second call: %d %+v", s.second.status, e)
+	}
+	return nil
+}
+
+func (s *scopesState) retryHint(sec int) error {
+	if got := s.second.header.Get("Retry-After"); got != fmt.Sprint(sec) {
+		return fmt.Errorf("Retry-After %q, want %d", got, sec)
+	}
+	return nil
+}
+
+func (s *scopesState) nodeSawOnlyTheFirst() error {
+	if n := s.gate.calls.Load(); n != 1 {
+		return fmt.Errorf("the node saw %d calls, want 1", n)
+	}
+	return nil
+}
+
+func (s *scopesState) relayCounted(ok, lim int, client string) error {
+	_, rows := relayStats(s.t, s.url)
+	for _, w := range []struct {
+		outcome string
+		n       int
+	}{{"ok", ok}, {"limit", lim}} {
+		r, found := rowOf(rows, client, "nas02", w.outcome)
+		if !found || r.Calls != int64(w.n) {
+			return fmt.Errorf("row %s/%s: %+v (found %v), want %d", client, w.outcome, r, found, w.n)
+		}
+	}
+	return nil
+}
+
+func (s *scopesState) cannotReadCounters(string) error {
+	if res, _ := do(s.t, http.MethodGet, s.url+"/swarm/stats", scopedToken); res.StatusCode != http.StatusUnauthorized {
+		return fmt.Errorf("a scoped client read the counters: %d", res.StatusCode)
+	}
+	return nil
+}
+
 func TestSwarmClientScopesFeature(t *testing.T) {
 	st := &scopesState{t: t}
 	suite := godog.TestSuite{
@@ -196,6 +305,15 @@ func TestSwarmClientScopesFeature(t *testing.T) {
 			ctx.Step(`^no request reached the node$`, st.noRequestReached)
 			ctx.Step(`^the full client reads the relay's node list$`, st.fullReadsNodeList)
 			ctx.Step(`^the relay answers (\d+)$`, st.relayAnswers)
+			ctx.Step(`^a relay whose client "([^"]*)" may hold (\d+) shared-model call at a time, and a node that holds every call open$`, st.slotRelay)
+			ctx.Step(`^a relay whose client "([^"]*)" may start (\d+) shared-model calls a minute with a burst of (\d+), and a node that answers at once$`, st.windowRelay)
+			ctx.Step(`^the client "([^"]*)" starts a shared-model call$`, st.startCall)
+			ctx.Step(`^the client "([^"]*)" starts a second shared-model call$`, st.startSecond)
+			ctx.Step(`^the second call is refused with 429 busy and the code "([^"]*)"$`, st.secondRefused)
+			ctx.Step(`^the retry hint of the refusal is (\d+) seconds?$`, st.retryHint)
+			ctx.Step(`^the node saw only the first call$`, st.nodeSawOnlyTheFirst)
+			ctx.Step(`^the relay counted (\d+) "ok" and (\d+) "limit" calls? for the client "([^"]*)"$`, st.relayCounted)
+			ctx.Step(`^the scoped client "([^"]*)" cannot read the counters$`, st.cannotReadCounters)
 			ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
 				st.reset()
 				return ctx, nil

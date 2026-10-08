@@ -43,6 +43,9 @@ type Server struct {
 	extraTokens []string
 	// clients are the scoped relay clients (swarm.clients), read per request.
 	clients []config.SwarmClient
+	// limits and stats are the slots and windows of the scoped clients and the audit counters of the shared routes (limits.go, audit.go).
+	limits *clientLimits
+	stats  *relayCounters
 }
 
 // New builds a relay server from cfg.
@@ -63,6 +66,8 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 		startedAt: time.Now(),
 		hostName:  swarmdto.HostNodeName(),
 		clients:   append([]config.SwarmClient(nil), cfg.Swarm.Clients...),
+		limits:    newClientLimits(time.Now),
+		stats:     newRelayCounters(time.Now),
 	}
 	s.routes()
 	// An advertised address is somebody else's claim about where to dial, so
@@ -98,6 +103,7 @@ func (s *Server) Registry() *Registry { return s.registry }
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /swarm/info", s.handleInfo)
 	s.mux.HandleFunc("GET /swarm/nodes", s.handleNodes)
+	s.mux.HandleFunc("GET /swarm/stats", s.handleStats)
 	s.mux.HandleFunc("POST /swarm/register", s.handleRegister)
 	s.mux.HandleFunc("DELETE /swarm/nodes/{node}", s.handleUnregister)
 	s.registerSessionRoutes()
@@ -285,6 +291,10 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			}
 			next.ServeHTTP(w, withPrincipal(r, p))
 		default:
+			// A token the gate refuses on a shared route is counted, once, under the label unknown: the handler never runs.
+			if strings.HasPrefix(pattern, swarmdto.MountPath) && sharedRequest(r) {
+				s.stats.add(statClientUnknown, statNoNode, statAuth, 0)
+			}
 			writeUnauthorized(w)
 		}
 	})
