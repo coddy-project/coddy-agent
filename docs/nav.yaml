@@ -72,6 +72,9 @@ groups:
       - path: operate/swarm.md
         title: Swarm
         summary: Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel.
+      - path: operate/certificates.md
+        title: Certificates and TLS
+        summary: A field guide to mutual TLS on a node and a relay - self-signed, private authority, wildcard, personal, purchased, Microsoft CA and ACME certificates, passphrases, where to install them, the errors, and the rules for an agent doing the setup.
       - path: operate/scheduler.md
         title: Scheduler
         summary: Cron job files, UTC firing rules, runs as background agent tasks under a job session, the runs panel, the scheduler tools and REST.
