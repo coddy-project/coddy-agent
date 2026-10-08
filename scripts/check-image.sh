@@ -116,7 +116,11 @@ for platform in $(echo "$platforms" | tr ',' ' '); do
     echo "check-image: $platform: /bin/coddy is $(machine_name "$got")"
 
     if [ "$platform" = "$host_platform" ]; then
-        printed=$("$bin" --version)
+        if ! printed=$("$bin" --version 2>&1); then
+            echo "check-image: $platform: coddy --version failed: $printed" >&2
+            failed=1
+            continue
+        fi
         if [ "$printed" != "$version" ]; then
             echo "check-image: $platform: coddy --version printed '$printed', want '$version'" >&2
             failed=1

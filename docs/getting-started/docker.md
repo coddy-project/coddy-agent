@@ -26,6 +26,7 @@ General build instructions without Docker - **[docs/contributing/build.md](../co
 - **Docker** with **Compose V2** (**`docker compose`**, not only legacy **`docker-compose`**)
 - A **`config.yaml`** you mount read-only into the container (start from **`config.example.yaml`**). Do not commit secrets.
 - For the web UI, a browser on the machine that can reach the published host port (default **12345**)
+- To build the image from the [`Dockerfile`](../../Dockerfile) (**`docker-compose.dev.yml`**, **`make check-image`**), **BuildKit**: Docker Engine **23** or newer with the **`buildx`** plugin (**`docker buildx version`** answers), which Docker's own packages and Docker Desktop carry; Debian's and Ubuntu's **`docker.io`** needs **`docker-buildx`** installed next to it. The build stages run on **`$BUILDPLATFORM`**, which only BuildKit sets, so the legacy builder stops at the first **`FROM`** with **`failed to parse platform`**
 
 ## Docker Compose
 
@@ -284,6 +285,8 @@ make check-image IMAGE_PLATFORMS=linux/arm64
 ```
 
 **`make check-image`** ([`scripts/check-image.sh`](../../scripts/check-image.sh)) builds the image for every platform in **`IMAGE_PLATFORMS`** (default **`linux/amd64,linux/arm64`**, what the release pushes), one platform at a time, exports each filesystem to **`dist/image/<os>_<arch>/`**, and fails unless **`/bin/coddy`** there is a binary of that platform. The binary of the host's own platform is also run and must print the version it was built with. It needs Docker with **`buildx`** and nothing else: the build stages run natively and cross-compile, so an **amd64** host builds the **arm64** variant without emulation, and the plain **`docker`** driver will do. The **Docker image** job of every pull request runs the same script, and the release workflow runs it before it pushes.
+
+Without Docker, **`make test`** holds the same thing on the Dockerfile itself: [`features/docker_image_platforms.feature`](../../features/docker_image_platforms.feature) reads it the way BuildKit resolves its platform arguments and fails when the Go stage would compile for another platform than the one being built, or would run under emulation.
 
 ## Automated smoke test
 

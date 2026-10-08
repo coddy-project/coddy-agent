@@ -128,7 +128,7 @@ Every reviewer applies this section to changed files. Keep entries behavioral an
 
 ### Docker image
 
-- Do not give an automatic platform argument (**`TARGETOS`**, **`TARGETARCH`**, **`TARGETPLATFORM`**, **`BUILDPLATFORM`** and the rest) a default value in the **`Dockerfile`**. A default wins over the value BuildKit passes, and the **`linux/arm64`** image shipped an x86-64 binary that way for months (issue #482): Docker still labels the variant arm64, and a host with **`qemu-user-static`** even runs it. Keep the build stages on **`--platform=$BUILDPLATFORM`** with **`GOOS`** / **`GOARCH`** taken from **`TARGETOS`** / **`TARGETARCH`**, so the Go stage cross-compiles and no step runs under emulation. Safe path: **`make check-image`**.
+- Do not give an automatic platform argument (**`TARGETOS`**, **`TARGETARCH`**, **`TARGETPLATFORM`**, **`BUILDPLATFORM`** and the rest) a default value in the **`Dockerfile`**. A default wins over the value BuildKit passes, and the **`linux/arm64`** image shipped an x86-64 binary that way for months (issue #482): Docker still labels the variant arm64, and a host with **`qemu-user-static`** even runs it. Keep the build stages on **`--platform=$BUILDPLATFORM`** with **`GOOS`** / **`GOARCH`** taken from **`TARGETOS`** / **`TARGETARCH`**, so the Go stage cross-compiles and no step runs under emulation. Safe path: **`features/docker_image_platforms.feature`** (part of **`make test`**, it reads the Dockerfile the way BuildKit resolves those arguments) and **`make check-image`**, which builds the image and reads each binary.
 
 ### Documentation
 

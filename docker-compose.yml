@@ -13,8 +13,8 @@ services:
     # bot on is `gateways.telegram.enable: true` in the mounted config, not a
     # second container. Override only to change the flags:
     #   CODDY_COMMAND="serve -H 0.0.0.0 -P 12345 --cwd /workspace" docker compose up -d
-    # Note: the published GHCR image is built WITHOUT the `gateway` tag, so gateway mode
-    # needs an image built with it (docker-compose.dev.yml, or a custom BUILD_TAGS).
+    # The published GHCR image carries every surface, the messenger gateway
+    # included (BUILD_TAGS in .github/workflows/docker-build-push.yaml).
     command: ${CODDY_COMMAND:-serve -H 0.0.0.0 -P 12345}
     ports:
       - "${CODDY_HTTP_PORT:-12345}:12345"
