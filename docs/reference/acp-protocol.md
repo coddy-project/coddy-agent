@@ -536,8 +536,9 @@ define; a client that ignores unknown kinds keeps working.
   child), once the provider has a usage source and the row's panel is on
   (`providers[].usage_limits_panel`, default true); the types with a source
   today are `neuraldeep` (the hub's read-only `GET /v1/limits`), `codex`
-  (the Codex backend's usage endpoint) and `devin` (the seat-management
-  status RPC). The snapshot is account-wide
+  (the Codex backend's usage endpoint), `devin` (the seat-management
+  status RPC) and `coddy` (the account behind a model another Coddy
+  shares, read through that Coddy). The snapshot is account-wide
   and cached by the manager (20 s, a 15 s floor between reads); relative
   durations (`resetInSec`, `retryInSec`, `rate.resetInSec`) are corrected for
   the snapshot's age when it is delivered. No dollar figure and no credential
@@ -549,16 +550,38 @@ define; a client that ignores unknown kinds keeps working.
   re-issues the call, and the next turn-end snapshot replaces the update:
   `{"sessionUpdate": "provider_usage", "provider": "neuraldeep",
   "providerType": "neuraldeep", "blocked": true, "retryAt":
-  "2026-09-06T20:59:59Z", "retryInSec": 767, "resuming": true}`. A call to a
-  model that a remote Coddy shares (provider type `coddy`, see
-  [Shared models](../features/shared-models.md)) that waits for a free stream
-  slot of the remote sends the same update, whatever `agent.wait_for_limit_reset`
-  says: `blocked: true`, `blockers: ["remote_busy"]`, `retryAt` / `retryInSec`
-  as the end of the wait budget at the latest, and `resuming: true`, re-sent
-  every 20 s while the wait lasts; when the call returns, an update with
-  `unsupported: true` for that provider takes the line down, since a `coddy` row
-  has no usage source. `remote_busy` is not an account limit, and a client may
-  show it as a wait for the remote.
+  "2026-09-06T20:59:59Z", "retryInSec": 767, "resuming": true}`. For a row of
+  type `coddy` (a model another Coddy shares, see
+  [Shared models](../features/shared-models.md#the-account-usage-of-a-shared-model))
+  the usage belongs to one alias of the remote, not to the row, so the update
+  carries `model`, the alias the remote shares the model under (absent for
+  every other type): `{"sessionUpdate": "provider_usage", "provider":
+  "workstation", "providerType": "coddy", "model": "terra", "windows": [...]}`.
+  Its windows are the remote account's as the remote projects them -
+  `usedPercent` and `resetInSec` (`resetsAt` is anchored at the moment this
+  host received them), no counters, plan, key name, wallet or rate - and
+  `blockers` can carry `model_blocked`, the remote's own gate of that alias.
+  A client keys its snapshots by provider and `model` when `model` is set.
+  A call to a model of such a row that waits for a free stream
+  slot of the remote sends the same update, whatever
+  `agent.wait_for_limit_reset` says, as the countdown of that call:
+  `blocked: true`, `blockers: ["remote_busy"]`, `retryAt` / `retryInSec` as the
+  end of the wait budget at the latest, `resuming: true`, `fetchedAt` the
+  sender's clock and `provider`, `providerType: "coddy"` and `model` naming
+  the subject, re-sent every 20 s while the wait lasts. An update whose
+  `blockers` contain `remote_busy` is that countdown and never a usage
+  snapshot. The wait ends with the same update with `resuming` and `blocked`
+  absent, no retry fields and `fetchedAt` the clock at the moment of sending;
+  it carries no usage data and no `unsupported`, which a client would read as
+  "drop this subject's usage". A client keeps the countdown apart from the
+  snapshot of the same subject: it accepts a countdown whose `fetchedAt` is
+  greater than the latest end (or dropped countdown) it saw and not older than
+  the one it holds, accepts an end that is not older than the countdown held
+  (an end wins a tie), and drops the countdown when the turn ends or when
+  `retryInSec` plus two seconds have passed on its own clock. No snapshot and
+  no `unsupported` answer touches the countdown. `remote_busy` is not an
+  account limit, and a client may show it as a wait for the remote. A client
+  that predates the end update keeps the countdown until its turn ends.
 
 ```json
 {
@@ -602,7 +625,8 @@ previous windows with `stale: true` and `error` (`unavailable`, `invalid`),
 except a rejected key: `error: unauthorized` comes without windows, since
 numbers read with a key the hub no longer honours are not the account's
 numbers any more. `unsupported: true` is answered by the REST route for a
-provider type without a source, and together with `disabled: true` for a row
+provider type without a source (and for a `coddy` row whose remote reports no
+usage, with the alias as `model`), and together with `disabled: true` for a row
 whose usage limits panel is switched off (`providers[].usage_limits_panel:
 false`); such a row is never read and the update is never sent for it.
 
