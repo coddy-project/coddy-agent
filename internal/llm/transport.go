@@ -46,12 +46,12 @@ const (
 // library exposes no knob for them (net/http.Transport.HTTP2 has no effect
 // yet, go.dev/issue/67813).
 func enableHTTP2Liveness(t *http.Transport, readIdle, ping time.Duration) error {
-	h2, err := http2.ConfigureTransports(t)
+	h2, err := http2.ConfigureTransports(t) //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
 	if err != nil {
 		return fmt.Errorf("http2 liveness: %w", err)
 	}
-	h2.ReadIdleTimeout = readIdle
-	h2.PingTimeout = ping
+	h2.ReadIdleTimeout = readIdle //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
+	h2.PingTimeout = ping         //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
 	return nil
 }
 
