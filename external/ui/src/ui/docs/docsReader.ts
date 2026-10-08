@@ -3,6 +3,7 @@
  * are tested on their own.
  */
 
+import { quoteMarkdown } from "../chat/quoteDraft";
 import { appNavHrefDocs } from "../scheduler/hashRoute";
 import type { DocsFragment, DocsHeading } from "./api";
 
@@ -18,14 +19,8 @@ export function askDraftFor(
   selection: string,
 ): string {
   const ref = anchor ? `${slug}#${anchor}` : slug;
-  const text = selection.trim();
-  const quote = text
-    ? `${text
-        .split(/\r?\n/)
-        .map((line) => (line.trim() ? `> ${line}` : ">"))
-        .join("\n")}\n\n`
-    : "";
-  return `${quote}@coddy:${ref} `;
+  const quote = quoteMarkdown(selection);
+  return `${quote ? `${quote}\n\n` : ""}@coddy:${ref} `;
 }
 
 /** The headings an "On this page" list shows: the sections, two levels deep. */

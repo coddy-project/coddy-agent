@@ -37,7 +37,13 @@ import {
   subscribeShellStack,
   snapshotShellStack,
   serverSnapshotShellStack,
+  subscribeTouchOnly,
+  snapshotTouchOnly,
+  serverSnapshotTouchOnly,
 } from "../shellBreakpoint";
+import { COMPOSER_EXPANDED_GAP_PX } from "./composerHeight";
+import { appendQuoteToDraft, quoteMarkdown } from "./quoteDraft";
+import { TranscriptQuoteButton } from "./TranscriptQuoteButton";
 import { transcriptItemsAffectAutoScroll } from "./transcriptAutoScroll";
 import {
   documentScrollBottom,
@@ -47,7 +53,9 @@ import {
   elementScrollBottom,
   elementTranscriptMetrics,
   isTranscriptAtBottom,
+  isTranscriptAtTop,
   transcriptJumpDurationMs,
+  transcriptSwipeDirection,
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
 import { openWorkspaceFile } from "../files/fileBus";
@@ -234,6 +242,11 @@ export function ChatScreen(props: {
   const jumpFrameRef = useRef<number | null>(null);
   const [composerReserve, setComposerReserve] = useState(200);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  // On a touch screen the jump follows the way the reader scrolls (issue
+  // #342): toward the start it offers the top, toward the end the newest
+  // message, never both.
+  const [scrollingUp, setScrollingUp] = useState(false);
+  const [atTop, setAtTop] = useState(true);
   // Shared by hero and docked composers so disabled files survive the first text turn.
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
   const attachedFiles = props.attachedFiles ?? localAttachedFiles;
@@ -242,6 +255,41 @@ export function ChatScreen(props: {
     subscribeShellStack,
     snapshotShellStack,
     serverSnapshotShellStack,
+  );
+  const touchOnly = useSyncExternalStore(
+    subscribeTouchOnly,
+    snapshotTouchOnly,
+    serverSnapshotTouchOnly,
+  );
+  const titleColumnRef = useRef<HTMLDivElement | null>(null);
+  // A quote taken from the transcript goes after the draft, and the caret
+  // after the quote (issue #342).
+  const draftRef = useRef(props.draft);
+  draftRef.current = props.draft;
+  const onDraftChangeRef = useRef(props.onDraftChange);
+  onDraftChangeRef.current = props.onDraftChange;
+  const [quoteEpoch, setQuoteEpoch] = useState(0);
+  const quoteSelection = useCallback((text: string) => {
+    const quote = quoteMarkdown(text);
+    if (!quote) return;
+    onDraftChangeRef.current(appendQuoteToDraft(draftRef.current, quote));
+    setQuoteEpoch((n) => n + 1);
+  }, []);
+  // The band between the chat header and the docked block: the quote button
+  // keeps in it, and the expanded composer grows up to its top.
+  const headerBottom = useCallback(
+    () => titleColumnRef.current?.getBoundingClientRect().bottom ?? 0,
+    [],
+  );
+  const dockTop = useCallback(
+    () =>
+      composerHostRef.current?.getBoundingClientRect().top ??
+      window.innerHeight,
+    [],
+  );
+  const expandRoomPx = useCallback(
+    () => dockTop() - headerBottom() - COMPOSER_EXPANDED_GAP_PX,
+    [dockTop, headerBottom],
   );
   const readerAtTailRef = useRef<boolean | null>(null);
   const onReaderAtTailChangeRef = useRef(props.onReaderAtTailChange);
@@ -308,14 +356,15 @@ export function ChatScreen(props: {
     // A jump owns the position while it travels. Reading it mid-flight would
     // put the button back on screen for every frame above the band.
     if (jumpFrameRef.current !== null) return;
-    let atBottom: boolean;
-    if (mobileDocScroll) {
-      atBottom = isTranscriptAtBottom(documentTranscriptMetrics(window));
-    } else {
-      const el = messagesRef.current;
-      if (!el) return;
-      atBottom = isTranscriptAtBottom(elementTranscriptMetrics(el));
-    }
+    const el = messagesRef.current;
+    const metrics = mobileDocScroll
+      ? documentTranscriptMetrics(window)
+      : el
+        ? elementTranscriptMetrics(el)
+        : null;
+    if (!metrics) return;
+    const atBottom = isTranscriptAtBottom(metrics);
+    setAtTop(isTranscriptAtTop(metrics));
     // A window cut short of the newest rows is not at the newest message,
     // wherever its own end is.
     const atNewest = atBottom && transcriptAttached();
@@ -326,6 +375,7 @@ export function ChatScreen(props: {
 
   const jumpToNewestMessage = useCallback(() => {
     cancelTranscriptJump();
+    setScrollingUp(false);
     // Reading far up, the newest rows are not rendered: put them back and land
     // on them at once rather than travel through history that is not there.
     const transcript = transcriptRef.current;
@@ -382,6 +432,100 @@ export function ChatScreen(props: {
     writeTranscriptScrollTop,
   ]);
 
+  // The jump to the top of what the transcript holds: a window cut short of
+  // the first rows is put on them and lands at once, rather than travelling
+  // through rows that are not rendered; otherwise the same eased travel as the
+  // jump down. It never moves down. Older pages, if any, then load above the
+  // control at the top the way a scroll to it loads them.
+  const jumpToTop = useCallback(() => {
+    cancelTranscriptJump();
+    stickToBottomRef.current = false;
+    const land = () => {
+      writeTranscriptScrollTop(0);
+      syncTranscriptPosition();
+    };
+    const transcript = transcriptRef.current;
+    if (transcript && !transcript.atHead) {
+      transcript.attachToHead(land);
+      return;
+    }
+    const from = readTranscriptScrollTop();
+    if (from <= 0) {
+      syncTranscriptPosition();
+      return;
+    }
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) {
+      land();
+      return;
+    }
+    const duration = transcriptJumpDurationMs(from);
+    const started = performance.now();
+    const step = (now: number) => {
+      const progress = (now - started) / duration;
+      writeTranscriptScrollTop(from * (1 - easeTranscriptJump(progress)));
+      if (progress < 1) {
+        jumpFrameRef.current = requestAnimationFrame(step);
+        return;
+      }
+      jumpFrameRef.current = null;
+      syncTranscriptPosition();
+    };
+    jumpFrameRef.current = requestAnimationFrame(step);
+  }, [
+    cancelTranscriptJump,
+    readTranscriptScrollTop,
+    syncTranscriptPosition,
+    writeTranscriptScrollTop,
+  ]);
+
+  // Which way a finger moves the transcript decides which jump a touch screen
+  // offers. A finger on the docked block scrolls the composer, not the chat.
+  useEffect(() => {
+    if (!touchOnly || isEmpty) return undefined;
+    let lastY: number | null = null;
+    let travel = 0;
+    const start = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      const onDock =
+        e.target instanceof Element &&
+        e.target.closest(".chat-bottom-inner") !== null;
+      lastY = touch && !onDock ? touch.clientY : null;
+      travel = 0;
+    };
+    const move = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (lastY === null || !touch) return;
+      travel += touch.clientY - lastY;
+      lastY = touch.clientY;
+      const way = transcriptSwipeDirection(travel);
+      if (way) {
+        setScrollingUp(way === "up");
+        travel = 0;
+      }
+    };
+    const end = () => {
+      lastY = null;
+    };
+    const passive = { passive: true } as const;
+    window.addEventListener("touchstart", start, passive);
+    window.addEventListener("touchmove", move, passive);
+    window.addEventListener("touchend", end, passive);
+    window.addEventListener("touchcancel", end, passive);
+    return () => {
+      window.removeEventListener("touchstart", start);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("touchend", end);
+      window.removeEventListener("touchcancel", end);
+    };
+  }, [touchOnly, isEmpty]);
+  // Heading for the start, the jump down waits until the reader turns back,
+  // even at the top where there is no jump up left to offer.
+  const headingUp = touchOnly && scrollingUp;
+  const offerTop = headingUp && !atTop;
+
   // The reader reaching for the wheel, a finger or the scrollbar always wins
   // over a jump still in the air.
   useEffect(() => {
@@ -404,6 +548,20 @@ export function ChatScreen(props: {
       cancelTranscriptJump();
     };
   }, [cancelTranscriptJump]);
+
+  // Another conversation opens on its newest message, wherever the reader left
+  // the last one: the follow below then lands on the end of the new rows
+  // instead of keeping the offset the previous transcript was read at. It runs
+  // before that follow (a layout effect), in the render the id changes.
+  const openedSessionIdRef = useRef(props.sessionId);
+  useLayoutEffect(() => {
+    if (openedSessionIdRef.current === props.sessionId) return;
+    openedSessionIdRef.current = props.sessionId;
+    cancelTranscriptJump();
+    stickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+    setScrollingUp(false);
+  }, [props.sessionId, cancelTranscriptJump]);
 
   useEffect(() => {
     if (isEmpty) return;
@@ -876,7 +1034,7 @@ export function ChatScreen(props: {
             ref={messagesRef}
           >
             <div className="chat-scroll-sticky-head">
-              <div className="chat-title-column">
+              <div className="chat-title-column" ref={titleColumnRef}>
                 <ChatHeader
                   title={props.title}
                   editable={true}
@@ -936,12 +1094,30 @@ export function ChatScreen(props: {
             />
             <div className="chat-scroll-tail" aria-hidden />
           </div>
+          {readOnlyNotice ? null : (
+            <TranscriptQuoteButton
+              root={() =>
+                messagesRef.current?.querySelector<HTMLElement>(
+                  ".messages-inner",
+                ) ?? null
+              }
+              topLimit={headerBottom}
+              bottomLimit={dockTop}
+              touch={touchOnly}
+              onQuote={quoteSelection}
+            />
+          )}
 
           <div className="chat-bottom">
             <div className="chat-bottom-inner" ref={composerHostRef}>
               <ScrollToBottomButton
-                visible={showScrollToBottom}
+                visible={showScrollToBottom && !headingUp}
                 onClick={jumpToNewestMessage}
+              />
+              <ScrollToBottomButton
+                direction="up"
+                visible={offerTop}
+                onClick={jumpToTop}
               />
               {readOnlyNotice ? null : (
                 <UsageBanner
@@ -1029,6 +1205,8 @@ export function ChatScreen(props: {
                     : {})}
                   onChange={props.onDraftChange}
                   onSend={props.onSend}
+                  expandRoomPx={expandRoomPx}
+                  caretToEndEpoch={quoteEpoch}
                   {...(props.onDocsCommand
                     ? { onDocsCommand: props.onDocsCommand }
                     : {})}

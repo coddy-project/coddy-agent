@@ -13,6 +13,7 @@ import { fileTypeIcon } from "./fileTypeIcon";
 import { splitDocMentions } from "../docs/docMentions";
 import { appNavHrefDocs } from "../scheduler/hashRoute";
 import { openWorkspaceFile } from "../files/fileBus";
+import { splitQuoteBlocks } from "../chat/quoteDraft";
 
 const USER_MENTION =
   /(^|[\s([])(@(?:"[^"\n]+"|'[^'\n]+'|(?:[~./]|[a-zA-Z0-9_-])[\w./~:@#'"-]*)(?:(?::|#L)\d+(?:-L?\d*)?)?)/g;
@@ -141,10 +142,41 @@ export const UserMessage = memo(function UserMessage(props: {
     props.createdAtUtc && timeHM
       ? formatUtcToLocalFullDetail(props.createdAtUtc)
       : "";
-  const bodySegments =
-    props.knownSkillNames && props.knownSkillNames.size > 0
-      ? segmentSlashKnownSpans(display, props.knownSkillNames)
-      : null;
+  // Quotes the prompt carries (Markdown "> " lines, issue #342) read as quotes;
+  // the text around them keeps its chips and mentions.
+  const blocks = splitQuoteBlocks(display);
+  const hasQuotes = blocks.some((b) => b.quote);
+  const renderText = (text: string, key: string) => {
+    const segments =
+      props.knownSkillNames && props.knownSkillNames.size > 0
+        ? segmentSlashKnownSpans(text, props.knownSkillNames)
+        : null;
+    if (!segments) return withDocMentions(text, key);
+    return segments.map((seg, i) =>
+      seg.type === "slash" ? (
+        <span
+          key={`${key}-${i}`}
+          className="coddy-skill-chip"
+          data-testid="coddy-skill-span"
+          data-skill-name={seg.name}
+        >
+          <button
+            type="button"
+            className="msg-user-token"
+            data-testid={`user-token-skill-${seg.name}`}
+            title={seg.literal}
+            onClick={() => copyUserToken(seg.literal)}
+          >
+            {seg.literal}
+          </button>
+        </span>
+      ) : (
+        <span key={`${key}-${i}`}>
+          {withDocMentions(seg.value, `${key}-${i}`)}
+        </span>
+      ),
+    );
+  };
 
   return (
     <div
@@ -210,30 +242,23 @@ export const UserMessage = memo(function UserMessage(props: {
       ) : null}
       <div className="msg msg-user">
         <div className="msg-user-body" data-testid="user-message-body">
-          {bodySegments
-            ? bodySegments.map((seg, i) =>
-                seg.type === "slash" ? (
-                  <span
+          {hasQuotes
+            ? blocks.map((b, i) =>
+                b.quote ? (
+                  <blockquote
                     key={i}
-                    className="coddy-skill-chip"
-                    data-testid="coddy-skill-span"
-                    data-skill-name={seg.name}
+                    className="msg-user-quote"
+                    data-testid="user-message-quote"
                   >
-                    <button
-                      type="button"
-                      className="msg-user-token"
-                      data-testid={`user-token-skill-${seg.name}`}
-                      title={seg.literal}
-                      onClick={() => copyUserToken(seg.literal)}
-                    >
-                      {seg.literal}
-                    </button>
-                  </span>
+                    {renderText(b.text, `q${i}`)}
+                  </blockquote>
                 ) : (
-                  <span key={i}>{withDocMentions(seg.value, String(i))}</span>
+                  <div key={i} className="msg-user-text">
+                    {renderText(b.text, `t${i}`)}
+                  </div>
                 ),
               )
-            : withDocMentions(display, "b")}
+            : renderText(display, "b")}
         </div>
       </div>
       <div className="msg-user-foot">

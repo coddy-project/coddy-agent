@@ -369,3 +369,24 @@ test("the prompt of an undoable edit offers Undo", () => {
   fireEvent.click(btn);
   expect(onUndoEdit).toHaveBeenCalledTimes(1);
 });
+
+test("a sent prompt shows its quotes as quotes", () => {
+  const content =
+    "> The stream must flush after every frame\n>\n> or a proxy buffers it\n\nWhy is that? Ask /review too\n\n> A second passage";
+  render(
+    <UserMessage content={content} knownSkillNames={new Set(["review"])} />,
+  );
+  const quotes = screen.getAllByTestId("user-message-quote");
+  expect(quotes).toHaveLength(2);
+  expect(quotes[0]!.tagName).toBe("BLOCKQUOTE");
+  expect(quotes[0]!.textContent).toBe(
+    "The stream must flush after every frame\n\nor a proxy buffers it",
+  );
+  expect(quotes[1]!.textContent).toBe("A second passage");
+  const body = screen.getByTestId("user-message-body");
+  expect(body).toHaveTextContent("Why is that?");
+  // The text between the quotes keeps its skill chips.
+  expect(screen.getByTestId("coddy-skill-span")).toHaveTextContent("/review");
+  // Copy still hands back the prompt as it was sent.
+  expect(body.textContent).not.toContain("> ");
+});

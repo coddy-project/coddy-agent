@@ -12,6 +12,8 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
 import { WorkspaceBar } from "./WorkspaceBar";
+import { Chevron } from "../components/Chevron";
+import { useComposerFieldHeight } from "./useComposerFieldHeight";
 import { useT } from "../i18n/I18nProvider";
 import { ImageLightbox } from "../components/ImageLightbox";
 import { PaperclipIcon } from "../components/PaperclipIcon";
@@ -402,6 +404,17 @@ export function Composer(props: {
   isEmpty: boolean;
   /** Empty-state composer refocuses when this increments (e.g. each New Chat). */
   focusEpoch?: number;
+  /**
+   * The docked composer can be expanded over the chat (issue #342): with the
+   * field at its floor, the room between the top of the docked block and the
+   * chat header above it. Absent on the start screen.
+   */
+  expandRoomPx?: () => number;
+  /**
+   * The caret goes to the end of the draft (and the field takes the focus
+   * where the app may focus it) whenever this increments: a quote was added.
+   */
+  caretToEndEpoch?: number;
   /** When set, slash command requests send X-Coddy-Session-ID for cwd-scoped skills. */
   sessionId?: string;
   mode: string;
@@ -548,6 +561,24 @@ export function Composer(props: {
   const [contextTipSuppressed, setContextTipSuppressed] = useState(false);
 
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  // The docked field expanded over the chat for a long prompt (issue #342);
+  // it folds back when the prompt goes, and in another chat.
+  const canExpand = !props.isEmpty && props.expandRoomPx !== undefined;
+  const [expanded, setExpanded] = useState(false);
+  const fieldExpanded = canExpand && expanded;
+  useEffect(() => {
+    setExpanded(false);
+  }, [props.sessionId]);
+  const expandRoomRef = useRef(props.expandRoomPx);
+  expandRoomRef.current = props.expandRoomPx;
+  // Sized before the mirror reads the field's height (its effects run later).
+  useComposerFieldHeight({
+    taRef,
+    value: props.value,
+    layoutKey: props.isEmpty,
+    expanded: fieldExpanded,
+    roomAbove: () => expandRoomRef.current?.() ?? 0,
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerFieldWrapRef = useRef<HTMLDivElement | null>(null);
   const composerCardRef = useRef<HTMLDivElement | null>(null);
@@ -636,6 +667,7 @@ export function Composer(props: {
       return;
     }
     setQueueChoice(null);
+    setExpanded(false);
     const files = [...sendableAttachedFiles];
     if (files.length > 0) setAttachedFiles([]);
     props.onQueue(txt, chosen, files);
@@ -831,6 +863,17 @@ export function Composer(props: {
     }
     el.focus();
   }, [props.isEmpty, props.sessionId]);
+
+  const caretToEndEpoch = props.caretToEndEpoch ?? 0;
+  useLayoutEffect(() => {
+    const el = taRef.current;
+    if (!el || caretToEndEpoch === 0) return;
+    const end = el.value.length;
+    if (composerAutoFocusAllowed()) el.focus();
+    el.setSelectionRange(end, end);
+    el.scrollTop = el.scrollHeight;
+    setCaretPos(end);
+  }, [caretToEndEpoch]);
 
   // The range panel only counts as open once its file loaded, so a colon typed in
   // prose ("см. 10:30-11:00") never flashes an empty panel.
@@ -3197,6 +3240,21 @@ export function Composer(props: {
                     dismissSlashAtPickers();
                     return;
                   }
+                  // Escape folds an expanded field before it leaves an edit:
+                  // folding loses nothing.
+                  if (
+                    ev.key === "Escape" &&
+                    fieldExpanded &&
+                    !ev.repeat &&
+                    !ev.shiftKey &&
+                    !ev.altKey &&
+                    !ev.ctrlKey &&
+                    !ev.metaKey
+                  ) {
+                    ev.preventDefault();
+                    setExpanded(false);
+                    return;
+                  }
                   // Escape leaves an edit the way the banner's cross does,
                   // once no picker or popover above claimed it.
                   if (
@@ -3388,6 +3446,7 @@ export function Composer(props: {
                     if (!txt && sendableAttachedFiles.length === 0) {
                       return;
                     }
+                    setExpanded(false);
                     if (sendableAttachedFiles.length > 0) {
                       const files = [...sendableAttachedFiles];
                       setAttachedFiles([]);
@@ -3399,6 +3458,29 @@ export function Composer(props: {
                 }}
               />
             </div>
+            {canExpand ? (
+              <button
+                type="button"
+                className={
+                  fieldExpanded
+                    ? "composer-expand-btn is-expanded"
+                    : "composer-expand-btn"
+                }
+                data-testid="composer-expand"
+                aria-pressed={fieldExpanded}
+                aria-label={t(
+                  fieldExpanded ? "composer.collapse" : "composer.expand",
+                )}
+                title={t(
+                  fieldExpanded ? "composer.collapse" : "composer.expand",
+                )}
+                // The caret stays in the field, where the reader was writing.
+                onMouseDown={(ev) => ev.preventDefault()}
+                onClick={() => setExpanded((v) => !v)}
+              >
+                <Chevron pointing="down" open={!fieldExpanded} />
+              </button>
+            ) : null}
           </div>
 
           {enhanceErr ? (
@@ -3618,6 +3700,7 @@ export function Composer(props: {
                   if (!txt && sendableAttachedFiles.length === 0) {
                     return;
                   }
+                  setExpanded(false);
                   if (sendableAttachedFiles.length > 0) {
                     const files = [...sendableAttachedFiles];
                     setAttachedFiles([]);
