@@ -23,8 +23,9 @@ check, properties were classified by hand. A result is a statement about the mod
   plane) because the child presents its full token (`joinset.go:72-74`); A4 node names repeat across relays (`n1` on R1 and R2,
   `m1` on R1 and R3, `child` on every relay) and a name is not an identity; A5 the operator's intent `I` is a set of leaves, and
   the allowlist is the tightest writing of `I` in the grammar of the option. **Bounds.** Six leaves (and two dynamic ones), chains of
-  at most 4 hops, ten names; the verdicts of section 3 are over six intents of 64 (`1 4 5 20 34 40`, bit i = leaf i), chosen for one
-  leaf, a name collision (`n1`), a prefix (`n1` / `n1x`), a second collision (`m1`) and a leaf behind two relays.
+  at most 4 hops, ten names; the verdicts of section 3 are over fourteen intents of 64 (bit i = leaf i): six of one or two leaves (`1 4 5 20 34 40`, chosen for one
+  leaf, a name collision (`n1`), a prefix (`n1` / `n1x`), a second collision (`m1`) and a leaf behind two relays) and eight of three to six leaves
+  (`7 21 42 56 15 60 31 63`, section 3.5).
 
 Mapping (model -> code): `h[]` = the hops of `/swarm/nodes/a/swarm/nodes/b/...` walked by `isSharedCompletions` (`mount.go:101-109`);
 `scopedAdmit` = `entry.admits(hops)` of 3.2; `rt 0` = `sharedRoute` of 3.2; `kind/tgt` = the registry (`registry.go`, exact
@@ -56,7 +57,7 @@ in the engine's lasso search on violated safety (`cycle.go:998`, the known defec
 
 `ok` = `verified`, exhaustive; `VIOL` = `violated` with a counterexample. Intents in the order `1 4 5 20 34 40`. 367 runs, 288 `ok`,
 79 `VIOL`, none inconclusive. `gExact` and `gSpell` were run again after the three corrections of section 9 (every other property
-was not touched by them).
+was not touched by them). Engine: 0.2.0 for every row of this section.
 
 **3.1 The four options.**
 
@@ -94,6 +95,25 @@ allowlist is any single hop below R1): `gRoute`:ok `gRouteGate`:ok `gOut`:ok `gC
 must be. `sFull` is `ok` there only because the principal is scoped; with `PR=1` it is `VIOL` (reachable). `gDead` is `ok` for (b)
 (an exact path never walks to nothing) and `VIOL` with option (a) and with mutant 2, as the explanation in 3.2 says.
 
+**3.5 Intents of three or more leaves.** 298 runs (184 `ok`, 114 `VIOL`, none inconclusive, none missing) over eight more intents: three leaves
+`7` {0,1,2}, `21` {0,2,4}, `42` {1,3,5}, `56` {3,4,5}; four leaves `15` {0,1,2,3}, `60` {2,3,4,5}; five leaves `31` {0..4}; every leaf `63`. Intents in
+the order `7 21 42 56 15 60 31 63`:
+
+| option | property | verdict per intent |
+|---|---|---|
+| (b) | all nine safety properties and `cov` (80 runs) | `ok` on every intent |
+| (a) | `gOut` / `gTrav` / `gDup` / `gExact` | `VIOL` on every intent |
+| (a) | `gColl` | `VIOL` on every intent but `21` |
+| (c) | `gOut` / `gColl` | `VIOL` on every intent but `21` |
+| (c) | `gTrav` / `gDup` / `gExact` | `VIOL` on every intent |
+| (d) | `gOut` `gColl` `gTrav` `gDup` `gExact` | `ok` on every intent |
+| (d) | `cov` | `VIOL` on every intent |
+
+Option (b) holds with three, four, five and six leaves, including the intent of every leaf at once. Mutants of (b) on `7`, `15` and `63`: mutant 1 is caught by
+`gRoute`, `gOut`, `gColl` and `gExact` on all three; mutant 2 by `gExact` only; mutant 3 by `gOut` (on `7` and `15`: with every leaf in the intent, `n1x` is written, so
+the prefix admits nothing unwritten on `63`) and `gExact`; mutant 4 by `gExact` and `gSpell`; mutant 5 by `gFull`. These runs used engine 0.2.0, as the
+rows of 3.1 to 3.4 did; the plugin was updated to 0.3.0 afterwards and four runs of the matrix, repeated on it, gave the same verdicts.
+
 ## 4. Counterexamples, classified
 
 The engine's counterexamples are about 1400 low-level steps each; they were not decoded line by line. The classification below is
@@ -108,7 +128,7 @@ derived from the topology of the model (header, `setupTopology`) and confirmed b
 - **(d), L1.** A scoped client that may not cross a relay cannot reach any leaf behind one; every intent with such a leaf violates
   `AG EF cov`. Only intent `1` (a leaf directly below R1) holds. Option (d) is safe and says "no".
 - **`*`, P4.** `*` admits the one-hop chain `[child]` with an LLM route, which ends at relay R2 itself. The latch is set because that
-  relay is not on the path of a leaf of the intent. A relay serves no shared-model route (it answers 404), so nothing is reached: an
+  relay is not on the path of a leaf of the intent. A relay serves no shared-model route (it answers 404, or 405 for a method the root pattern does not take), so nothing is reached: an
   artefact of the abstraction, recorded as the accepted residual of `*` ("any node directly below this relay", the relay nodes included).
 
 ## 5. Commands (reproduce)
@@ -135,8 +155,9 @@ on 10 parallel workers.
 - CONFIRMED: option (c) violates P2 and P3 as well, and P3 on more intents than (a) (four of six against two): a flat set loses the place of a name, so a name that is written elsewhere is admitted here.
 - CONFIRMED: option (d) is safe and cannot express a node behind a relay.
 - CONFIRMED: every mutant of (b) is detected by one of the properties.
-- NOT DECIDABLE here: intents of three or more leaves, intents of 64 subsets, a fourth relay, names of other lengths. The argument that the
-  rule compares whole hop paths and never counts leaves is not proved.
+- CONFIRMED: option (b) holds with three, four, five and six leaves, the intent of every leaf included (section 3.5).
+- NOT DECIDABLE here: the other 50 of the 64 subsets of leaves (the rule compares whole hop paths and never counts leaves, which the fourteen intents
+  support and do not prove), a fourth relay, names of other lengths.
 
 ## 7. Decision
 
@@ -151,7 +172,7 @@ Options (a) and (c) are refused: they widen reach exactly where a name is reused
 - Section 3.2, the `nodes` key: state that an entry is an **exact hop path**; add "an entry of `n` segments admits the chain of those `n`
   names and nothing else; `*` admits any single-hop path; a name that appears at another place in the topology is not admitted by being
   an entry elsewhere".
-- Section 3.4: add the edge case "`*` admits a child relay node itself; a relay serves no shared-model route, so the request ends in a 404 and
+- Section 3.4: add the edge case "`*` admits a child relay node itself; a relay serves no shared-model route, so the request ends in a 404 or 405 and
   reaches nothing (model `p3-d1-allowlist-chain`, 3.3)".
 - Section 10, D1: mark closed, with this report as the verdict; the expectation of the plan ("(b) holds") stands.
 - Section 11, H2a: no change of owner or order; `entry.admits(hops)` is the exact-path comparison above.
@@ -163,7 +184,7 @@ Options (a) and (c) are refused: they widen reach exactly where a name is reused
   affected properties run again: `gSpell` was computed for full-access requests (guarded now); `gExact` caught over-admission only (it is
   two-sided now); the `#if OPT == 4` branches of `scopedAdmit` were identical (collapsed). The written set under option (d) now holds the one-hop
   entries only. Part 3 had one answering reviewer, so its review is advisory.
-- **Not asked.** Intents of three or more leaves; a larger name space; `DYN=0` rows; timing (the model has none by design); the second
+- **Not asked.** The other 50 subsets of leaves; a larger name space; `DYN=0` rows; timing (the model has none by design); the second
   dynamic registration. L1 for the mutants (they are about safety).
 - **The decision is about the model.** The tests of H2a are the conformance check: a table over method, route and spelling against the
   exhaustive expected set, and a chain whose child presents its full token upstream that a scoped client cannot drive outside the three routes
