@@ -75,6 +75,19 @@ func newGateNode(t *testing.T) *gateNode {
 	return g
 }
 
+// releaseOnCleanup frees every held call at the end of the test, after the relay
+// is up, so a failed assertion ends the test instead of hanging the relay's Close.
+func (g *gateNode) releaseOnCleanup(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		select {
+		case <-g.hold:
+		default:
+			close(g.hold)
+		}
+	})
+}
+
 func limitRelay(t *testing.T, g *gateNode, clock *fakeTime, clients ...config.SwarmClient) (*Server, *httptest.Server) {
 	t.Helper()
 	cfg := &config.Config{}
@@ -118,6 +131,7 @@ func decodeWire(t *testing.T, body string) llm.WireError {
 func TestAClientIsHeldToItsOwnSlots(t *testing.T) {
 	g := newGateNode(t)
 	srv, ts := limitRelay(t, g, nil, limited("acme", "acme-secret", 1, 0, 0), limited("beta", "beta-secret", 0, 0, 0))
+	g.releaseOnCleanup(t)
 
 	first := make(chan string, 1)
 	go func() { _, b := post(t, ts.URL+relayCompletions, "acme-secret"); first <- b }()
@@ -153,7 +167,7 @@ func TestAClientIsHeldToItsWindow(t *testing.T) {
 	g.status.Store(0)
 	close(g.hold) // the node answers at once
 	clock := &fakeTime{now: time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)}
-	_, ts := limitRelay(t, g, clock, limited("acme", "acme-secret", 0, 60, 2))
+	srv, ts := limitRelay(t, g, clock, limited("acme", "acme-secret", 0, 60, 2))
 	for i := 0; i < 2; i++ {
 		if res, _ := post(t, ts.URL+relayCompletions, "acme-secret"); res.StatusCode != http.StatusOK {
 			t.Fatalf("call %d of the burst: %d", i+1, res.StatusCode)
@@ -170,6 +184,9 @@ func TestAClientIsHeldToItsWindow(t *testing.T) {
 	}
 	if g.calls.Load() != before {
 		t.Error("the window refusal reached the node")
+	}
+	if n := srv.limits.inUse("acme"); n != 0 {
+		t.Errorf("a window refusal left %d slots taken", n)
 	}
 	clock.Advance(time.Second)
 	if res, _ := post(t, ts.URL+relayCompletions, "acme-secret"); res.StatusCode != http.StatusOK {

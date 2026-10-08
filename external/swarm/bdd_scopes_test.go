@@ -189,7 +189,12 @@ func (s *scopesState) limitedRelay(name string, streams, perMinute, burst int, h
 		close(g.hold)
 	}
 	s.gate = g
-	srv, ts := limitRelay(s.t, g, nil, limited(name, scopedToken, streams, perMinute, burst))
+	// A frozen clock: a pause between two calls never refills the window.
+	var clock *fakeTime
+	if !holds {
+		clock = &fakeTime{now: time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)}
+	}
+	srv, ts := limitRelay(s.t, g, clock, limited(name, scopedToken, streams, perMinute, burst))
 	s.srv, s.url = srv, ts.URL
 	s.t.Cleanup(func() {
 		select {
