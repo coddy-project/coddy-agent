@@ -80,6 +80,10 @@ type SwarmConfig struct {
 	// `coddy serve` process honours it, relay or not, which is what lets relays
 	// chain.
 	Join []SwarmJoin `yaml:"join"`
+
+	// Clients are relay clients limited to the shared-model routes of the nodes
+	// they list. AuthToken stays the full class.
+	Clients []SwarmClient `yaml:"clients"`
 }
 
 // SwarmTLSConfig serves the relay over HTTPS. Both files or neither.
@@ -224,6 +228,9 @@ func (s *SwarmConfig) Normalize() {
 		s.Join[i].AdvertiseURL = strings.TrimRight(strings.TrimSpace(s.Join[i].AdvertiseURL), "/")
 		s.Join[i].Token = strings.TrimSpace(s.Join[i].Token)
 	}
+	for i := range s.Clients {
+		s.Clients[i].normalize()
+	}
 }
 
 // Validate reports configuration a relay could not act on.
@@ -268,5 +275,20 @@ func (s *SwarmConfig) Validate() error {
 			return fmt.Errorf("swarm.join[%d]: url is required", i)
 		}
 	}
-	return nil
+	return s.validateClients()
+}
+
+// EffectiveClientTokens lists the full-class client tokens of the relay: the
+// configured one and the ones given out of band.
+func (s *SwarmConfig) EffectiveClientTokens(extra ExtraTokens) []string {
+	var out []string
+	if s != nil && strings.TrimSpace(s.AuthToken) != "" {
+		out = append(out, strings.TrimSpace(s.AuthToken))
+	}
+	for _, t := range extra.Swarm {
+		if t = strings.TrimSpace(t); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

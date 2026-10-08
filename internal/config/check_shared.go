@@ -86,6 +86,7 @@ func sharedModelFindings(cfg *Config, body *yaml.Node, extra ExtraTokens, loadEr
 	}
 
 	out = append(out, blankSharedTokenFindings(body)...)
+	out = append(out, swarmClientFindings(cfg, body, extra)...)
 
 	if len(cfg.HTTPServer.EffectiveSharedTokens()) > 0 && !hasMainCredential(&cfg.HTTPServer, extra) {
 		at(SeverityWarning, "httpserver.shared_models.tokens",
@@ -167,4 +168,35 @@ func locatedFinding(body *yaml.Node, sev Severity, path, msg, fix string) Findin
 		f.Doc = root.lookup(selectorRE.ReplaceAllString(path, "")).doc()
 	}
 	return f
+}
+
+// swarmClientFindings reports the warnings of swarm.clients that the loader
+// does not refuse: an entry nobody can authenticate as, a burst with no rate,
+// and scoped clients on a relay with no full token (whose own routes would then
+// be open or reachable only with a token generated per run).
+func swarmClientFindings(cfg *Config, body *yaml.Node, extra ExtraTokens) []Finding {
+	if len(cfg.Swarm.Clients) == 0 {
+		return nil
+	}
+	var out []Finding
+	at := func(path, msg, fix string) {
+		out = append(out, locatedFinding(body, SeverityWarning, path, msg, fix))
+	}
+	for i, c := range cfg.Swarm.Clients {
+		base := fmt.Sprintf("swarm.clients[%d]", i)
+		if !c.HasCredential() {
+			at(base+".token",
+				"the token is empty (an ${ENV} reference to an unset variable?) and the entry has no cert_names: nothing can authenticate as this client, so it is ignored",
+				"set the variable, add cert_names, or remove the entry")
+		}
+		if c.RateBurst > 0 && c.RatePerMinute == 0 {
+			at(base+".rate_burst", "rate_burst has no effect without rate_per_minute", "set rate_per_minute, or remove rate_burst")
+		}
+	}
+	if len(cfg.Swarm.EffectiveClientTokens(extra)) == 0 {
+		at("swarm.clients",
+			"no swarm.auth_token, --swarm-auth-token or CODDY_SWARM_TOKEN: the relay's own routes (node list, sessions, topology, settings) are then open, or reachable only with a token generated for each run, while the scoped clients below are configured",
+			"set swarm.auth_token (a ${ENV} reference) for the full class")
+	}
+	return out
 }
