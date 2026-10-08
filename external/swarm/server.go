@@ -79,6 +79,11 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 		// those hosts, not for every private address a node might claim.
 		AllowHosts: cfg.Swarm.AllowPrivateUpstreams,
 	})
+	s.registry.SetNodeDial(netx.Options{
+		CAFile:   cfg.Swarm.NodeTLS.CAFile,
+		CertFile: cfg.Swarm.NodeTLS.CertFile,
+		KeyFile:  cfg.Swarm.NodeTLS.KeyFile,
+	})
 	if err := s.seedUpstreams(); err != nil {
 		return nil, err
 	}

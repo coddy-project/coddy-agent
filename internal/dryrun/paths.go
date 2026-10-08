@@ -103,6 +103,20 @@ func (r *runner) paths() {
 		}
 	}
 
+	if cfg.Swarm.Enabled && !cfg.Swarm.NodeTLS.IsZero() {
+		nt := cfg.Swarm.NodeTLS
+		if strings.TrimSpace(nt.CertFile) != "" {
+			if _, err := tls.LoadX509KeyPair(nt.CertFile, nt.KeyFile); err != nil {
+				r.rep.add(r.check(StatusError, "swarm.node_tls", "swarm.node_tls", "certificate and key do not load: "+err.Error(), "check swarm.node_tls.cert_file and swarm.node_tls.key_file"))
+			} else {
+				r.rep.add(r.check(StatusOK, "swarm.node_tls", "swarm.node_tls", "client certificate and key load", ""))
+			}
+		}
+		if ca := strings.TrimSpace(nt.CAFile); ca != "" {
+			r.rep.add(r.caFileCheck("swarm.node_tls.ca_file", ca))
+		}
+	}
+
 	if cfg.Swarm.Enabled && cfg.Swarm.TLS.Enabled() {
 		if _, err := tls.LoadX509KeyPair(cfg.Swarm.TLS.CertFile, cfg.Swarm.TLS.KeyFile); err != nil {
 			r.rep.add(r.check(StatusError, "swarm.tls", "swarm.tls", "certificate and key do not load: "+err.Error(), "check swarm.tls.cert_file and swarm.tls.key_file"))

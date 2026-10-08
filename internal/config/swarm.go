@@ -65,6 +65,12 @@ type SwarmConfig struct {
 	// and carry every node's credential, so the link between them is the last
 	// place to leave in the clear.
 	TLS SwarmTLSConfig `yaml:"tls"`
+	// NodeTLS is how this relay reaches the nodes that registered themselves
+	// over a direct address: the authority their certificates are verified
+	// against and the client certificate the relay presents when a node asks
+	// for one. A node cannot ask for either itself, since that would be a
+	// claim about whom the relay should trust.
+	NodeTLS SwarmNodeTLSConfig `yaml:"node_tls"`
 
 	// LeaseTTLSeconds overrides how long a registration survives without a
 	// heartbeat.
@@ -142,6 +148,26 @@ func (t SwarmTLSConfig) EffectiveClientAuth() string {
 // Enabled reports whether TLS is configured.
 func (t SwarmTLSConfig) Enabled() bool {
 	return strings.TrimSpace(t.CertFile) != "" && strings.TrimSpace(t.KeyFile) != ""
+}
+
+// SwarmNodeTLSConfig is the TLS identity of the relay's own leg to a node that
+// registered itself over a direct address (the tunnel carries no TLS of its
+// own). A node with settings of its own, a hand-written swarm.upstreams entry
+// with a dial block, keeps them.
+type SwarmNodeTLSConfig struct {
+	// CAFile verifies the node's certificate when it is signed privately.
+	CAFile string `yaml:"ca_file"`
+	// CertFile and KeyFile are the client certificate the relay presents when
+	// a node asks for one (httpserver.tls.client_ca_file on the node). Both or
+	// neither; the pair is read at each handshake, so a renewed one is used
+	// without a restart.
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+}
+
+// IsZero reports whether no key of the block is set.
+func (n SwarmNodeTLSConfig) IsZero() bool {
+	return strings.TrimSpace(n.CAFile) == "" && strings.TrimSpace(n.CertFile) == "" && strings.TrimSpace(n.KeyFile) == ""
 }
 
 // SwarmDialConfig is how one leg of the swarm reaches the other side. Relays
@@ -301,6 +327,9 @@ func (s *SwarmConfig) Validate() error {
 	}
 	if err := s.TLS.validate("swarm.tls"); err != nil {
 		return err
+	}
+	if (strings.TrimSpace(s.NodeTLS.CertFile) == "") != (strings.TrimSpace(s.NodeTLS.KeyFile) == "") {
+		return fmt.Errorf("swarm.node_tls: cert_file and key_file must be set together")
 	}
 	seen := map[string]bool{}
 	for _, up := range s.Upstreams {
