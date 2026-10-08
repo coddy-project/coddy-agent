@@ -463,3 +463,33 @@ func TestScenarioClientCertificateRotationNeedsNoRestart(t *testing.T) {
 		t.Fatalf("after the rotation, on the same configuration: %q, want the renewed certificate", got)
 	}
 }
+
+// An imported self-signed file is an anchor, so whatever it is allowed to sign is accepted too: a file with CA:TRUE (what `openssl req -x509`
+// makes unless told otherwise) lets its holder issue a certificate with any name, including one another client is known by. The guide tells
+// the operator to import only files that say CA:FALSE.
+func TestScenarioAnImportedSelfSignedCAFileAcceptsWhatItSigns(t *testing.T) {
+	dir := t.TempDir()
+	serverCA := newScenarioCert(t, certSpec{cn: "server ca", ca: true})
+	bob := newScenarioCert(t, certSpec{cn: "bob", dns: []string{"bob.example"}, ca: true, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	alice := newScenarioCert(t, certSpec{cn: "alice", dns: []string{"alice.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	bundle := writePEM(t, dir, "clients.pem", alice, bob) // alice imported her certificate, bob imported his: his has CA:TRUE
+	server := startScenarioServer(t, pairOf(t, serverCertFor(t, serverCA, "relay.example"), dir, "srv2"), bundle, ClientAuthRequired)
+	trust := writePEM(t, dir, "server-ca.pem", serverCA)
+
+	// Bob signs a certificate that carries alice's name.
+	forged := newScenarioCert(t, certSpec{cn: "alice", dns: []string{"alice.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, parent: bob})
+	certPath, keyPath := forged.files(t, dir, "forged", bob)
+	got, err := server.get(t, Options{CAFile: trust, CertFile: certPath, KeyFile: keyPath}, "relay.example")
+	if err != nil || got != "alice.example" {
+		t.Fatalf("expected the demonstration to hold: a CA:TRUE import accepts a certificate it signed with alice's name: %q %v", got, err)
+	}
+	// The same attempt against a bundle whose self-signed file says CA:FALSE fails: the leaf is not an authority.
+	bobLeaf := newScenarioCert(t, certSpec{cn: "bob", dns: []string{"bob.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	safe := startScenarioServer(t, pairOf(t, serverCertFor(t, serverCA, "relay.example"), dir, "srv3"), writePEM(t, dir, "safe.pem", alice, bobLeaf), ClientAuthRequired)
+	// bobLeaf cannot sign (its x509 template has no CertSign), so the same forgery cannot even be made with it as the issuer by a verifier.
+	forged2 := newScenarioCert(t, certSpec{cn: "alice", dns: []string{"alice.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, parent: bobLeaf})
+	cert2, key2 := forged2.files(t, dir, "forged2", bobLeaf)
+	if got, err := safe.get(t, Options{CAFile: trust, CertFile: cert2, KeyFile: key2}, "relay.example"); err == nil {
+		t.Fatalf("a certificate signed by an imported CA:FALSE leaf was accepted: %q", got)
+	}
+}

@@ -29,7 +29,7 @@ These are facts about the code, not preferences. Most trouble comes from one of 
 - **Key usages are enforced by the TLS stack.** A server checks that a client certificate has the `clientAuth` extended key usage (or none at all); a client checks that a server certificate has `serverAuth` (or none). A certificate from a public certificate authority is made for servers and, increasingly, has `serverAuth` only: it cannot be a client certificate (section 7.6).
 - **The host name is checked against the SAN of the server certificate**, never the CN. A server reached by an address (`https://10.0.0.5:12346`) needs an **IP** entry in its SAN; one reached by a name needs that name (a wildcard covers exactly one label).
 - **`ca_file` replaces the system's roots for that leg.** With it, only the authorities in the file are trusted for that connection; without it, the system's roots are. A file may hold several certificates, and a **self-signed certificate is its own authority**: listing the file of a self-signed server certificate in `ca_file` is how a client trusts it.
-- **The system's roots are the operating system's.** On Linux that is the distribution's bundle (`/etc/ssl/certs`, `SSL_CERT_FILE` and `SSL_CERT_DIR` are honoured); on macOS the keychain's trust settings; on Windows the certificate store, enterprise roots pushed by a policy included. A private authority installed there is trusted by every program of the machine, which is why `ca_file` is the narrower choice.
+- **The system's roots are the operating system's.** On Linux that is the distribution's bundle (`/etc/ssl/certs`, `SSL_CERT_FILE` and `SSL_CERT_DIR` are honoured); on macOS the keychain's trust settings; on Windows the certificate store, enterprise roots pushed by a policy included. A private authority installed there is trusted by every program that reads the system's store (Java and Firefox keep stores of their own), which is why `ca_file` is the narrower choice.
 - **There is no revocation check.** Neither a CRL nor OCSP is consulted. A certificate is revoked on this side by removing its name from `cert_names` or its authority from `client_ca_file`, or by letting it expire: use short lifetimes.
 - **TLS 1.2 is the minimum**, and an HTTP/2 or HTTP/1.1 handshake is negotiated; a node's own listener serves HTTP/1.1 only, so that a shared call keeps a connection of its own ([the liveness bound](../features/shared-models.md#a-peer-that-vanishes)).
 
@@ -52,7 +52,7 @@ These are facts about the code, not preferences. Most trouble comes from one of 
 
 ## 4. The toolbox
 
-All of this is plain `openssl` (3.x; the same flags work in 1.1.1) and is what the end-to-end test of this page runs. Put key material in a directory only the account that runs Coddy can read, and do the commands on the machine that will **use** a key: a private key is created where it stays and never travels.
+All of this is plain `openssl` (written and run with 3.x; `-addext` and `-ext` need 1.1.1 or later, and `-legacy` exists only in 3.x) and is what the end-to-end test of this page runs. Put key material in a directory only the account that runs Coddy can read, and do the commands on the machine that will **use** a key: a private key is created where it stays and never travels.
 
 **A private authority** (a key that stays with whoever issues, and a certificate that is handed out):
 
@@ -64,20 +64,27 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
 chmod 600 ca.key
 ```
 
-**A leaf signed by it.** The extensions are what Coddy and the TLS stack read; write `SAN` and `EKU` for the case:
+**A leaf signed by it**, in two halves, so that a private key is made where it stays and never travels. **On the machine that will use the key** (the borrower's, the node's, the relay's) make the key and a request, and send only the request (`acme.csr`) to the authority:
 
 ```bash
-name=acme                      # the file name
-SAN="URI:urn:coddy:client:acme" # DNS:relay.example,IP:10.0.0.5 for a server; a URI or a DNS name for a client
-EKU=clientAuth                  # serverAuth for a server certificate
-
+name=acme
 openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
   -keyout $name.key -out $name.csr -subj "/CN=$name"
+chmod 600 $name.key
+```
+
+**On the machine of the authority** sign it, choosing the name and the usage (the extensions are what Coddy and the TLS stack read), and send back `acme.crt` and `ca.crt`, which are public:
+
+```bash
+name=acme
+SAN="URI:urn:coddy:client:acme"  # DNS:relay.example,IP:10.0.0.5 for a server; a URI or a DNS name for a client
+EKU=clientAuth                   # serverAuth for a server certificate; serverAuth,clientAuth for a host that is both
 printf "subjectAltName=%s\nextendedKeyUsage=%s\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature\n" "$SAN" "$EKU" > $name.ext
 openssl x509 -req -in $name.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
   -days 90 -extfile $name.ext -out $name.crt
-chmod 600 $name.key
 ```
+
+When one machine does both halves (a lab, the end-to-end test of this page), the two blocks run one after the other and nothing travels.
 
 **A self-signed leaf** (the certificate is its own authority; the peer that trusts it lists this very file):
 
@@ -102,7 +109,7 @@ openssl x509 -in acme.crt -noout -fingerprint -sha256         # to compare two c
 
 ```bash
 openssl x509 -inform der -in server.cer -out server.crt                       # a DER or .cer certificate
-openssl pkcs12 -in bundle.pfx -clcerts -nokeys -out leaf.crt                  # the leaf of a .pfx
+openssl pkcs12 -in bundle.pfx -clcerts -nokeys -out leaf.crt                  # the leaf of a .pfx (add -legacy to each read of an old .pfx under OpenSSL 3)
 openssl pkcs12 -in bundle.pfx -cacerts -nokeys -out chain.crt                 # its chain
 openssl pkcs12 -in bundle.pfx -nocerts -nodes -out leaf.key                   # its key, unencrypted (add -legacy for an old .pfx)
 cat leaf.crt chain.crt > fullchain.pem                                        # the leaf first, then the intermediates
@@ -118,15 +125,15 @@ Do not put a passphrase on the command line (`-passin pass:...`) outside a throw
 There are two different passwords in this story, and they behave differently.
 
 - **A passphrase on a private key** (`ENCRYPTED PRIVATE KEY`, or `Proc-Type: 4,ENCRYPTED` in the file). **Coddy cannot use it**, anywhere. It would have to be asked for at every handshake, from a process that runs unattended. Remove the passphrase on the machine that will use the key (`openssl pkey -in enc.key -out plain.key`) and protect the plain file the way you protect any secret: mode `0600`, owned by the account that runs `coddy serve`, in a directory no one else can list, never in a repository, never in an image layer. On a service manager, prefer its credentials store (systemd `LoadCredential=` puts a file in `$CREDENTIALS_DIRECTORY`, readable by the service only) or a `tmpfs` that a deploy step fills from your secret manager at start; point the key at that path. Hardware tokens, smart cards, the TPM and cloud HSMs are not supported: the key must be a file.
-- **The export password of a `.p12` / `.pfx`** is for moving a certificate and its key as one file, to a browser or to the operating system's store, which ask for it on import. Coddy does not read a `.pfx`: convert it first (section 4) and delete the intermediate files. Choose the export password freely; it protects the file in transit only.
+- **The export password of a `.p12` / `.pfx`** is for moving a certificate and its key as one file, to a browser or to the operating system's store, which ask for it on import. Coddy does not read a `.pfx`: convert it first (section 4) and delete the intermediate files. Choose a strong export password: it is the only protection of the bundle wherever it is kept, and a copy that stays on disk deserves the care of a key.
 
-A passphrase typed in a configuration file would be worse than no passphrase: there is no key in Coddy's configuration for one, and `coddy -t` refuses an encrypted key with the line to look for (section 9).
+A passphrase typed in a configuration file would be worse than no passphrase: there is no key in Coddy's configuration for one, and `coddy -t --dry-run` refuses an encrypted key with the line to look for (section 9; plain `coddy -t` checks only the pair of a `coddy` provider row, and says nothing of a listener's).
 
 ## 6. Where to install what: Coddy, the system, the browser
 
 | Material | Coddy | The system's store | A browser |
 |---|---|---|---|
-| **The authority that signed a server's certificate** (the CA, or the self-signed certificate itself) | **`ca_file`** of the leg that dials (`providers[].ca_file`, `dial.ca_file`, `node_tls.ca_file`): narrow, per leg, lost with the file | works too, for every program of the machine, `--remote` included; broad, and a private authority there can vouch for any site | import it once to get the lock icon, or accept the warning |
+| **The authority that signed a server's certificate** (the CA, or the self-signed certificate itself) | **`ca_file`** of the leg that dials (`providers[].ca_file`, `dial.ca_file`, `node_tls.ca_file`): narrow, per leg, lost with the file | works too, for every program that reads the system's store, `--remote` included; broad, and a private authority there can vouch for any site | import it once to get the lock icon, or accept the warning |
 | **A client certificate and its key** | **two PEM files** named in the configuration; this is the only way Coddy reads one | **not used**: installing a client certificate in the system's or a browser's store does **nothing** for Coddy | needed in the browser only when a server **requires** one at the handshake (`client_auth: required`); import the `.p12` |
 | **The authority that signed client certificates** (what a server checks them against) | `client_ca_file` of the server, a file | not used | not used |
 
@@ -156,7 +163,9 @@ swarm:
       cert_names: ["acme.example"]              # the name inside acme-self.crt
 ```
 
-Because the certificate is its own authority, **only that file is accepted**: another self-signed certificate with the very same name is not, and the name proves nothing without the anchor. To remove the client, delete its certificate from the bundle (a restart: `client_ca_file` is startup state) and its name from `cert_names` (at once). Renewing means sending a new file; there is no chain to keep.
+Because the certificate is its own authority, **only that file is accepted**: another self-signed certificate with the very same name is not, and the name proves nothing without the anchor.
+
+**Import only a file that says `CA:FALSE`.** A file in `client_ca_file` is a trust anchor, and an anchor that is allowed to sign is an authority: a self-signed certificate made with `openssl req -x509` and no `basicConstraints` option has `CA:TRUE`, and its holder could then sign a certificate carrying **another client's name** and be accepted as that client (the in-process tests demonstrate it). Before you append a client's file, run `openssl x509 -in acme-self.crt -noout -ext basicConstraints`: it must print `CA:FALSE` (or nothing). Have clients use the self-signed recipe of section 4, which sets it, or send you a request to sign with your own authority (7.3). To remove the client, delete its certificate from the bundle (a restart: `client_ca_file` is startup state) and its name from `cert_names` (at once). Renewing means sending a new file; there is no chain to keep.
 
 The borrower's side, with a certificate and key made for the purpose:
 
@@ -193,9 +202,9 @@ A browser does not trust it until it is imported or the warning is accepted; `co
 The relay (or the machine of whoever runs it) becomes a small private certificate authority: it signs the relay's own certificate, every node's, and every borrower's. Callers then trust **one file** (`ca.crt`), and a new borrower is a new leaf, not a new file on every server.
 
 1. **Make the authority** (section 4). Keep `ca.key` **off the relay** if you can: on an administrator's workstation or an offline machine. The relay needs only `ca.crt`. If a single machine does everything, keep the key `0600`, in a directory of its own.
-2. **Sign the relay's certificate** with `SAN=DNS:relay.example,IP:10.0.0.5`, `EKU=serverAuth`.
-3. **Sign a leaf per borrower and per node**, `EKU=clientAuth`, with a **URI or DNS name that identifies them**: `urn:coddy:client:acme`, `nas02.example`. These are the strings of `cert_names`.
-4. **Hand out** `ca.crt` (public) to every caller, and each leaf and its key **to its owner only**.
+2. **Decide the leaves.** Five roles appear in the example below. The relay is a server to borrowers and nodes **and** a client of the nodes: one leaf, `relay`, with `SAN=DNS:relay.example,IP:10.0.0.5` and `EKU=serverAuth,clientAuth`, serves both. A node is a server to the relay **and** a client of the relay when it joins: one leaf, `nas02`, with `SAN=DNS:nas02.example,IP:10.0.0.6` and `EKU=serverAuth,clientAuth`. A borrower is a client: `acme`, `EKU=clientAuth`, with a **URI or DNS name that identifies it** (`urn:coddy:client:acme`); that string is what goes in `cert_names`.
+3. **Each owner makes its own key and sends only a request** (the first block of the leaf recipe in section 4); you **sign** each request on the authority's machine (the second block) and send back the certificate and `ca.crt`, which are public.
+4. **Hand out** `ca.crt` to every caller. A key never travels: if one was made on the authority's machine, deliver it to its owner over a channel you would trust with a password, and delete your copy.
 5. **Configure** the relay and the nodes:
 
 ```yaml
@@ -208,8 +217,8 @@ swarm:
     client_auth: optional           # required, if every caller of the relay has a certificate and no browser opens it
   node_tls:                         # what the relay presents to nodes that ask for a certificate
     ca_file: /etc/coddy/ca.crt
-    cert_file: /etc/coddy/relay-client.crt
-    key_file: /etc/coddy/relay-client.key
+    cert_file: /etc/coddy/relay.crt
+    key_file: /etc/coddy/relay.key
   clients:
     - name: acme
       scope: shared_models
@@ -222,7 +231,7 @@ httpserver:
     cert_file: /etc/coddy/nas02.crt
     key_file: /etc/coddy/nas02.key
     client_ca_file: /etc/coddy/ca.crt
-    client_auth: required            # the relay is the only caller of this node
+    client_auth: required            # every certificate of this authority passes the handshake; tokens and cert_names say what each may do
 swarm:
   join:
     - url: https://relay.example:12346
@@ -230,7 +239,7 @@ swarm:
       pairing_token: "${CODDY_SWARM_PAIRING_TOKEN}"
       advertise_url: https://nas02.example:12345
       token: "${CODDY_SHARED_MODELS_TOKEN}"
-      dial: { ca_file: /etc/coddy/ca.crt, cert_file: /etc/coddy/nas02-client.crt, key_file: /etc/coddy/nas02-client.key }
+      dial: { ca_file: /etc/coddy/ca.crt, cert_file: /etc/coddy/nas02.crt, key_file: /etc/coddy/nas02.key }
 ```
 
 6. **Revoke** by removing a name from `cert_names` (immediately) and by letting short-lived leaves expire; there is no CRL. Choose lifetimes you can renew: 90 days for leaves, years for the authority.
@@ -249,12 +258,12 @@ Three cautions.
 
 ### 7.5 A personal certificate
 
-A personal certificate (issued to a person: an e-mail address, a name, often the S/MIME or "user" template of a company's authority) **verifies and has no name Coddy can use**, because its identity is an e-mail address or a user principal name, which Coddy does not read (section 2). Two ways to use a person as a client:
+A personal certificate (issued to a person: an e-mail address, a name, often the S/MIME or "user" template of a company's authority) **has no name Coddy can use**, and may not even pass the handshake: if it carries only the `emailProtection` usage (a public S/MIME certificate does) it is refused as a client certificate; one with `clientAuth` (a company's "user" template usually has it) verifies, but its identity is an e-mail address or a user principal name, which Coddy does not read (section 2). Two ways to use a person as a client:
 
 - **Have the authority issue a certificate with a URI or DNS name** for that person (`urn:coddy:user:alice`), through a template that allows a name to be supplied; then use that URI in `cert_names`. Section 7.7 has the Microsoft version.
 - **Make the person's certificate yourself** from the private authority of 7.3. This is the normal route, and it keeps the identity of a Coddy client out of the mail system.
 
-If the personal certificate has to live in the browser or the system's store as well (to sign in to something else), that does not make it usable by Coddy: Coddy reads only the two PEM files (section 6). Export a copy with `openssl pkcs12` (section 4) only if you mean to use this certificate for Coddy, and protect the key file like any other.
+If the personal certificate has to live in the browser or the system's store as well (to sign in to something else), that does not make it usable by Coddy: Coddy reads only the two PEM files (section 6). Export a `.pfx` from the store and convert it (section 4) only if you mean to use this certificate for Coddy, and protect the key file like any other.
 
 ### 7.6 A certificate you bought from a public authority
 
@@ -268,8 +277,8 @@ A purchased TLS certificate (DV, OV or EV) is a **server certificate for a name 
 
 An enterprise with AD CS can issue everything this page needs, with three points of care.
 
-- **The authority's chain, as PEM.** Callers on Windows machines in the domain already trust the enterprise root through the store, so a dialling Coddy there needs no `ca_file` for a certificate that chain issued. A server's `client_ca_file` needs the chain as a **Base-64 encoded X.509** file: download it from the authority's web enrolment page (*Download a CA certificate, certificate chain, or CRL*, encoding Base64), or `certutil -ca.cert root.cer` then `openssl x509 -inform der -in root.cer -out root.pem`; put the root **and the issuing authority** in the file.
-- **Pick a template that carries a DNS or URI name and the right key usage.** The built-in **Web Server** template (`serverAuth`) and a copy of **Computer** (both `serverAuth` and `clientAuth`, the machine's DNS name in the SAN) serve servers and machine clients. The built-in **User** template names the person by user principal name and e-mail only: Coddy reads neither (7.5). A client certificate for a person needs a **custom template** that allows the requester to supply the subject alternative name (a URI or a DNS name) and the `clientAuth` usage.
+- **The authority's chain, as PEM.** Callers on Windows machines in the domain already trust the enterprise root through the store, so a dialling Coddy there needs no `ca_file` for a certificate that chain issued. A server's `client_ca_file` needs the chain as a **Base-64 encoded X.509** file: download it from the authority's web enrolment page (*Download a CA certificate, certificate chain, or CRL*, encoding Base64), or `certutil -config "CAHOST\CA NAME" -ca.cert root.cer` (the `-config` is needed off the authority's own machine) then `openssl x509 -inform der -in root.cer -out root.pem`; put the root **and the issuing authority** in the file.
+- **Pick a template that carries a DNS or URI name and the right key usage.** The built-in **Web Server** template (`serverAuth`) and a copy of **Computer** (both `serverAuth` and `clientAuth`, the machine's DNS name in the SAN) serve servers and machine clients. The built-in **User** template names the person by user principal name and e-mail only: Coddy reads neither (7.5). A client certificate for a person needs a **custom template** that allows the requester to supply the subject alternative name (a URI or a DNS name) and the `clientAuth` usage. **Read this twice:** a template where the requester names the identity is the well-known misconfiguration (ESC1) that lets any user who may enrol request a certificate for any identity from an authority that is usually trusted for domain sign-in. Allow enrolment only to the group that needs it, require the approval of a CA manager or an issuance service that checks every name, and never grant it to *Domain Users*. If that is not acceptable, issue Coddy's client certificates from a separate private authority (7.3) and keep AD CS for servers.
 - **The key must be exportable.** Auto-enrolled certificates normally keep a non-exportable key inside the Windows store, and Coddy cannot read a key from there. Request with a policy that allows the private key to be exported (`Exportable = TRUE` in a `certreq` INF, or *Allow private key to be exported* on the template), export a `.pfx`, and convert it (section 4). Then remove the pair from the store if it has no other use.
 - **The authority's revocation is not consulted.** AD CS publishes a CRL; Coddy does not read it. Revoke on the Coddy side (remove the name) as well as at the authority.
 - **Paths on Windows** go in the YAML with forward slashes or in single quotes: `cert_file: 'C:\ProgramData\coddy\relay.crt'`.
@@ -287,11 +296,11 @@ certbot certonly --manual --preferred-challenges dns -d '*.corp.example'     # D
 ```yaml
 swarm:
   tls:
-    cert_file: /etc/letsencrypt/live/relay.example/fullchain.pem
-    key_file: /etc/letsencrypt/live/relay.example/privkey.pem
+    cert_file: /etc/coddy/tls/fullchain.pem   # copied by the deploy hook from /etc/letsencrypt/live/relay.example/
+    key_file: /etc/coddy/tls/privkey.pem      # owned by the account that runs Coddy, mode 0600
 ```
 
-- **Renewal needs a restart of Coddy**, because the server's pair is read once at start. Let certbot do it: `certbot renew --deploy-hook "systemctl --user restart coddy"` (or the unit your service runs under). A restart is a few seconds of refused connections and ends the calls in flight, so renew where that is acceptable, or put the ACME client in front (below).
+- **Renewal needs a restart of Coddy**, because the server's pair is read once at start. Let certbot do it: `certbot renew --deploy-hook "systemctl restart coddy"` when Coddy runs as a system unit with `User=`. A deploy hook runs as root, so `systemctl --user` would address root's user manager, not the account that runs Coddy; for a user service use `runuser -u coddy -- env XDG_RUNTIME_DIR=/run/user/$(id -u coddy) systemctl --user restart coddy`. A restart is a few seconds of refused connections and ends the calls in flight, so renew where that is acceptable, or put the ACME client in front (below).
 - **The account that runs Coddy must be able to read the key.** Files under `/etc/letsencrypt/live` are `0600` and owned by root; copy them in the deploy hook to a directory Coddy's account owns, or give a group access, rather than running Coddy as root.
 - **Callers need no `ca_file`**: the system trusts Let's Encrypt.
 - **An alternative that renews without a restart**: terminate TLS in a reverse proxy that does ACME by itself (Caddy, Traefik, nginx with an ACME module) and proxy to Coddy on loopback over plain HTTP. The cost: the proxy, not Coddy, sees the client certificate, so `cert_names` and `client_ca_file` do nothing behind it (a terminator in front carries none); require client certificates in the proxy, or use tokens.
@@ -301,9 +310,9 @@ swarm:
 
 When you want automation **and** client certificates, run an authority that speaks ACME or an API and issues `clientAuth`:
 
-- **A private ACME authority** (Smallstep `step-ca` and similar) issues short-lived server **and** client certificates, renewed by a small agent next to each Coddy. Client pairs are re-read at every handshake, so their renewal needs no restart; a server's renewal does (7.8's hook).
+- **A private ACME authority** (Smallstep `step-ca` and similar; public ACME authorities issue server certificates only) can issue short-lived server **and** client certificates, depending on its template and provisioner; check `extendedKeyUsage` of what it returns. A small agent next to each Coddy renews them. Client pairs are re-read at every handshake, so their renewal needs no restart; a server's renewal does (7.8's hook).
 - **HashiCorp Vault's PKI engine** issues leaves with a TTL and the names you ask for; render the files with Vault Agent templates and restart on change.
-- **Kubernetes with cert-manager** writes `tls.crt`, `tls.key` and `ca.crt` into a Secret you mount as files; roll the pod when it renews (a reloader does it).
+- **Kubernetes with cert-manager** writes `tls.crt` and `tls.key` into a Secret you mount as files (`ca.crt` too when the issuer is a CA or Vault issuer, usually not for ACME); roll the pod when it renews (a reloader does it).
 - **mkcert** makes a local authority and installs it in the system's and the browsers' stores: fine for a developer machine and `localhost`, wrong for anything shared (it puts an authority that can vouch for any site in the store).
 
 In every case the files Coddy reads are the same PEM pairs and a CA bundle.
@@ -316,36 +325,40 @@ Sometimes the right answer is not to use Coddy's TLS: a **reverse proxy** that t
 
 | You want | Server side | Dialling side |
 |---|---|---|
-| Encrypt a node's API, trust a private authority | `httpserver.tls.cert_file`, `key_file` | `providers[].ca_file` |
-| Know a borrower by its certificate, on a node | `httpserver.tls.client_ca_file`, `client_auth`, `httpserver.shared_models.cert_names` | `client_cert_file`, `client_key_file` |
-| Know a borrower by its certificate, on a relay | `swarm.tls.client_ca_file`, `client_auth`, `swarm.clients[].cert_names` | `client_cert_file`, `client_key_file` |
+| Encrypt a node's API, trust a private authority | `httpserver.tls.cert_file`, `key_file` | `providers[].ca_file` (a private or self-signed server certificate; none for a public one) |
+| Know a borrower by its certificate, on a node | `httpserver.tls.client_ca_file`, `client_auth`, `httpserver.shared_models.cert_names` | `client_cert_file`, `client_key_file`, plus `ca_file` when the node's certificate is private |
+| Know a borrower by its certificate, on a relay | `swarm.tls.client_ca_file`, `client_auth`, `swarm.clients[].cert_names` | `client_cert_file`, `client_key_file`, plus `ca_file` when the relay's certificate is private |
 | A node that requires certificates, behind a relay | node: `httpserver.tls.client_ca_file`, `client_auth: required` | relay: `swarm.node_tls.cert_file`, `key_file`, `ca_file`; node's join: `dial.*` |
 | Nodes that join a relay that requires certificates | relay: `swarm.tls.client_auth: required` | `swarm.join[].dial.cert_file`, `key_file`, `ca_file` |
 
-[The reference of every key](../reference/config.md) has the types and the defaults. `coddy -t` reports what is wrong with a block at its line; `coddy -t --dry-run` loads each pair and each authority file, reads the expiry of a `coddy` row's client certificate (a warning inside two weeks, an error once past), and dials the remote.
+[The reference of every key](../reference/config.md) has the types and the defaults. `coddy -t` reports what is wrong with a block at its line; `coddy -t --dry-run` loads each pair and each authority file (a listener's pair, a `coddy` row's, a join's, an upstream's, the relay's `node_tls`), reads the expiry of each certificate (a warning inside two weeks, an error once past, with the restart a server's renewal needs said in the hint), and dials the remote presenting the pair the real leg presents.
 
 ## 9. Checking it, and what the errors mean
 
 Check each leg from the outside before you trust it, then with Coddy's own tools:
 
 ```bash
-# what the server shows, and whether it accepts your certificate (look for "Verification: OK" and the alert, if any)
-openssl s_client -connect relay.example:12346 -servername relay.example -CAfile ca.crt \
-  -cert acme.crt -key acme.key -verify_return_error </dev/null 2>&1 | sed -n '/Verification/p;/alert/p'
+# what the server shows: does the certificate it presents verify, for this host name (this checks the SERVER's certificate)
+openssl s_client -connect relay.example:12346 -servername relay.example -verify_hostname relay.example \
+  -CAfile ca.crt -verify_return_error </dev/null 2>&1 | sed -n '/Verification/p'
+# does it accept YOUR certificate: under TLS 1.3 the refusal arrives after the handshake, so ask for 1.2 to see the alert
+openssl s_client -connect relay.example:12346 -tls1_2 -CAfile ca.crt -cert acme.crt -key acme.key </dev/null 2>&1 | sed -n '/alert/p;/Verification/p'
 
-# the API with the certificate, no token
+# the API with the certificate, no token: this is the real test
 curl --cacert ca.crt --cert acme.crt --key acme.key https://relay.example:12346/swarm/nodes/nas02/coddy/llm/models
 
-coddy -t --dry-run --config config.yaml       # every pair and bundle loads; each provider is dialled; the expiry is read
+# every server pair and every client pair of the configuration loads and has not expired (a server's pair expiring within two weeks is a
+# warning that says a renewal needs a restart); each provider row, join and upstream is dialled presenting its own pair
+coddy -t --dry-run --config config.yaml
 ```
 
 | What you see | Cause and fix |
 |---|---|
 | `x509: certificate signed by unknown authority` (the dialling side) | The server's certificate is not signed by anything in `ca_file` (or in the system's roots). Point `ca_file` at the authority's certificate, or at the self-signed certificate itself. |
-| `x509: certificate is valid for A, not B` / `certificate is not valid for any names` | The name or address you dial is not in the server certificate's SAN. Reissue with the right `DNS:` or `IP:` entries; the CN is not read. |
-| `tls: failed to parse private key` (`coddy -t`, `--dry-run`) | The key has a passphrase, or is not PEM (a `.pfx`, a DER file), or is not the key of that certificate. Remove the passphrase (section 5), convert (section 4), or use the right pair. |
-| `tls: private key does not match public key` | The two files are not a pair. Compare `openssl x509 -in c.crt -noout -pubkey` with `openssl pkey -in k.key -pubout`. |
-| `remote error: tls: bad certificate` / `certificate required` (the dialling side) | The server wants a client certificate and the one shown was refused or missing: not signed by `client_ca_file`, expired, or **without the `clientAuth` key usage** (a certificate bought for a web server). Check with `openssl verify -purpose sslclient`. |
+| `x509: certificate is valid for A, not B` / `certificate is not valid for any names` / `cannot validate certificate for 10.0.0.5 because it doesn't contain any IP SANs` / `certificate relies on legacy Common Name field, use SANs instead` | The name or address you dial is not in the server certificate's SAN (a certificate with only a CN is refused). Reissue with the right `DNS:` or `IP:` entries; the CN is not read. |
+| `tls: failed to parse private key` (`coddy -t` for a `coddy` provider row's pair, `coddy -t --dry-run` for every pair) | The key has a passphrase, or is not PEM (a `.pfx`, a DER file). Remove the passphrase (section 5) or convert (section 4). |
+| `tls: private key does not match public key` | The two files are not a pair (the key is of another certificate). Compare `openssl x509 -in c.crt -noout -pubkey` with `openssl pkey -in k.key -pubout`. |
+| `remote error: tls: bad certificate` / `certificate required` (the dialling side) | The server wants a client certificate and the one shown was refused or missing: not signed by `client_ca_file`, expired, or **with an extended key usage that excludes `clientAuth`** (a certificate bought for a web server). Check with `openssl verify -CAfile ca.crt -purpose sslclient acme.crt`. |
 | `certificate has expired or is not yet valid` | The clock of one side is wrong, or the certificate is past its dates. A client certificate is rechecked at every request. |
 | A certificate handshakes and every call is a `401` | The chain is fine and **no name matches**: the SAN has no DNS or URI entry, or it differs by a character from the one in `cert_names`. Compare `openssl x509 -noout -ext subjectAltName` with the list. An e-mail or a user principal name is never read (7.5). |
 | A node answers, but the web UI does not load in a browser | `client_auth: required` and the browser has no certificate. Use `optional`, or import one (section 6). |
@@ -361,7 +374,7 @@ This section is addressed to an AI agent that is setting up certificates for a p
 > 1. **Ask first which scenario this is** (the table in section 3 of `docs/operate/certificates.md`, or `coddy docs show operate/certificates` on a machine with Coddy): who serves, who dials, what kind of certificate exists already, and whether browsers open the node. Do not guess an authority.
 > 2. **Never read, print, paste or log a private key or a passphrase.** Refer to key files by path only. Do not `cat` them, do not put them in a commit, a ticket or this conversation, and do not put a passphrase in a command line or a configuration file (Coddy has no key for one). Keys are created, and stay, on the machine that uses them.
 > 3. **Create keys with the commands of section 4**, set the mode of every key to `0600` and its owner to the account that runs Coddy, and create the files in a directory only that account can read. If the key a person hands you has a passphrase, ask them to remove it on their machine (`openssl pkey -in enc.key -out plain.key`) rather than doing it where you can see the passphrase.
-> 4. **Verify before you configure**: `openssl x509 -noout -ext subjectAltName,extendedKeyUsage -enddate` on every certificate, `openssl verify -purpose sslclient|sslserver`, the names against the list you are about to write. A server certificate needs the host or IP that callers use; a client certificate needs a **DNS or URI** name and the `clientAuth` usage; a certificate bought from a public authority is **not** a client certificate.
+> 4. **Verify before you configure**: `openssl x509 -noout -ext subjectAltName,extendedKeyUsage -enddate` on every certificate, `openssl verify -CAfile ca.crt -purpose sslclient acme.crt` (`-purpose sslserver` for a server certificate; `-untrusted chain.pem` when there is an intermediate), the names against the list you are about to write. A server certificate needs the host or IP that callers use; a client certificate needs a **DNS or URI** name and the `clientAuth` usage (or none); a typical certificate bought from a public authority is a server certificate and not suitable as a client certificate.
 > 5. **Write the configuration with the keys of section 8, then run `coddy -t --dry-run --config <file>`** and read every finding. Fix the cause. **Never "fix" a certificate error with `insecure_skip_verify`**, never by trusting an authority system-wide when a `ca_file` would do, and never by loosening `client_auth` without saying so.
 > 6. **Do not touch the operating system's trust store, the browser's store, a service unit, or anything that needs `sudo`, without asking.** Say what you will change and why. Prefer files under the Coddy home or `/etc/coddy`.
 > 7. **A server's pair and its client CA are read at start**: tell the person that a restart is needed, and do not restart a service that other people use without asking. A dialling side's pair and a name in `cert_names` need none.

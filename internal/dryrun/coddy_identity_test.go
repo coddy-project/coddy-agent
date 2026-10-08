@@ -195,3 +195,82 @@ func TestCoddyIdentityNotYetValid(t *testing.T) {
 		t.Fatalf("a certificate that is not valid yet: %+v", c)
 	}
 }
+
+func joinYAML(url, ca, cert, key string) string {
+	return fmt.Sprintf("swarm:\n  join:\n    - url: %s\n      pairing_token: p\n      dial:\n        ca_file: %s\n        cert_file: %s\n        key_file: %s\n", url, ca, cert, key)
+}
+
+// A join (and an upstream) that dials a relay asking for client certificates presents its own pair in the probe, as the real join does;
+// the pair is loaded, its expiry read, and a pair that cannot be used is reported at its key instead of as an unreachable relay.
+func TestSwarmJoinDialIdentityIsPresentedByTheProbeAndItsPairIsChecked(t *testing.T) {
+	pki := newDryPKI(t)
+	var cn string
+	srv := pki.remote(t, &cn)
+	cert, key := pki.leaf(t, "node", false, time.Now().Add(90*24*time.Hour))
+	rep := run(t, joinYAML(srv.URL, pki.file, cert, key), func(r *Request) { r.Surface = SurfaceServe })
+	if cn != "node" {
+		t.Fatalf("the relay saw client %q, want node: the probe did not present the dial pair", cn)
+	}
+	if c := find(t, rep, "swarm.join[0]"); c.Status != StatusOK {
+		t.Fatalf("join probe: %+v", c)
+	}
+	if c := find(t, rep, "swarm.join[0].dial.cert_file"); c.Status != StatusOK || !strings.Contains(c.Message, "expires") {
+		t.Fatalf("pair check: %+v", c)
+	}
+	// An upstream the relay mounts is the same.
+	cn = ""
+	rep = run(t, "swarm:\n  enable: true\n  auth_token: t\n  upstreams:\n    - name: nas\n      url: "+srv.URL+"\n      token: t2\n      dial:\n        ca_file: "+pki.file+"\n        cert_file: "+cert+"\n        key_file: "+key+"\n",
+		func(r *Request) { r.Surface = SurfaceServe })
+	if cn != "node" {
+		t.Fatalf("the upstream probe presented %q, want node", cn)
+	}
+	if c := find(t, rep, "swarm.upstreams[0].dial.cert_file"); c.Status != StatusOK {
+		t.Fatalf("upstream pair check: %+v", c)
+	}
+}
+
+func TestSwarmJoinDialPairThatCannotBeUsedIsReportedAtItsKey(t *testing.T) {
+	pki := newDryPKI(t)
+	var cn string
+	srv := pki.remote(t, &cn)
+	cert, _ := pki.leaf(t, "node", false, time.Now().Add(90*24*time.Hour))
+	junk := filepath.Join(pki.dir, "junk.key")
+	if err := os.WriteFile(junk, []byte("not a key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep := run(t, joinYAML(srv.URL, pki.file, cert, junk), func(r *Request) { r.Surface = SurfaceServe })
+	c := find(t, rep, "swarm.join[0].dial.cert_file")
+	if c.Status != StatusError || !strings.Contains(c.Message, "cannot use the client certificate") || c.Line == 0 {
+		t.Fatalf("an unusable dial pair: %+v", c)
+	}
+	if p := find(t, rep, "swarm.join[0]"); p.Status != StatusSkipped {
+		t.Fatalf("the probe of a join whose pair is unusable only repeats it: %+v", p)
+	}
+	// An expiring pair warns, like a coddy row's.
+	soon, soonKey := pki.leaf(t, "soon", false, time.Now().Add(5*24*time.Hour))
+	rep = run(t, joinYAML(srv.URL, pki.file, soon, soonKey), func(r *Request) { r.Surface = SurfaceServe })
+	if c := find(t, rep, "swarm.join[0].dial.cert_file"); c.Status != StatusWarning {
+		t.Fatalf("a dial pair expiring in 5 days: %+v", c)
+	}
+}
+
+// The pair a listener serves with is checked and its expiry read, and the hint says a renewal needs a restart.
+func TestListenerServerPairExpiryIsReported(t *testing.T) {
+	pki := newDryPKI(t)
+	body := func(cert, key string) string {
+		return fmt.Sprintf("httpserver:\n  auth_token: t\n  tls:\n    cert_file: %s\n    key_file: %s\n", cert, key)
+	}
+	good, goodKey := pki.leaf(t, "good", true, time.Now().Add(90*24*time.Hour))
+	if c := find(t, run(t, body(good, goodKey), nil), "httpserver.tls"); c.Status != StatusOK || !strings.Contains(c.Message, "server certificate") || !strings.Contains(c.Message, "expires") {
+		t.Fatalf("a good server pair: %+v", c)
+	}
+	soon, soonKey := pki.leaf(t, "soon", true, time.Now().Add(5*24*time.Hour))
+	c := find(t, run(t, body(soon, soonKey), nil), "httpserver.tls")
+	if c.Status != StatusWarning || !strings.Contains(c.Fix, "restart") {
+		t.Fatalf("a server certificate expiring in 5 days: %+v", c)
+	}
+	past, pastKey := pki.leafFrom(t, "past", true, time.Now().Add(-48*time.Hour), time.Now().Add(-time.Hour))
+	if c := find(t, run(t, body(past, pastKey), nil), "httpserver.tls"); c.Status != StatusError || !strings.Contains(c.Message, "expired") {
+		t.Fatalf("an expired server certificate: %+v", c)
+	}
+}
