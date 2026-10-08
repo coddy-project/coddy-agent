@@ -7,7 +7,7 @@
             is now ARM 1 (the guard is armed by the first accepted ping), because a ping path that does not work at all (a relay
             that does not carry the route, a proxy that filters it) must leave the call as it is today and not cut a live client:
             the option BROKEN says so, and ARM 0 violates S1 under it.
-   Code     external/httpserver (the call's alive guard, POST /coddy/llm/calls/{id}/alive), internal/llm (the client's pings);
+   Code     external/httpserver (the call's alive guard, POST /coddy/llm/alive (the id in X-Coddy-Probe-Id)), internal/llm (the client's pings);
             to be written after this model, the tests of the plan's section 5 are the conformance check.
    Class    finite, discrete time. TIME IS A VARIABLE (`now`, ticks): a process acts at the tick at which its action is due and
             the clock advances only when NO process has an enabled action at the current tick. Not a timed automaton.

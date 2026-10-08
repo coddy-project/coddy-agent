@@ -110,7 +110,7 @@ func TestCoddyProbeIsAskedForOnEveryCompletion(t *testing.T) {
 
 func TestCoddyProbePingsWhileTheStreamRunsAndStopsAtItsEnd(t *testing.T) {
 	withProbeFloor(t, 0)
-	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=20; grace_ms=100")
+	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=100; grace_ms=500")
 	done, _ := runProbeCall(t, pr, coddyInput(pr.fakeRemote))
 	waitFor(t, 5*time.Second, "three pings", func() bool { return pr.pings.Load() >= 3 })
 	if got := pr.pingAuth.Load(); got != "Bearer shared-token" {
@@ -128,7 +128,7 @@ func TestCoddyProbePingsWhileTheStreamRunsAndStopsAtItsEnd(t *testing.T) {
 		t.Fatalf("the call: %v", res.err)
 	}
 	n := pr.pings.Load()
-	time.Sleep(120 * time.Millisecond)
+	time.Sleep(350 * time.Millisecond)
 	if pr.pings.Load() != n {
 		t.Errorf("the client kept pinging after the stream ended: %d then %d", n, pr.pings.Load())
 	}
@@ -136,11 +136,11 @@ func TestCoddyProbePingsWhileTheStreamRunsAndStopsAtItsEnd(t *testing.T) {
 
 func TestCoddyProbeANodeThatDoesNotConfirmIsNeverPinged(t *testing.T) {
 	withProbeFloor(t, 0)
-	for _, confirm := range []string{"", "garbage", "id=NOTHEX; every_ms=20; grace_ms=100", "id=" + probeTestID + "; every_ms=0; grace_ms=100", "id=" + probeTestID + "; every_ms=abc; grace_ms=1"} {
+	for _, confirm := range []string{"", "garbage", "id=NOTHEX; every_ms=100; grace_ms=500", "id=" + probeTestID + "; every_ms=0; grace_ms=500", "id=" + probeTestID + "; every_ms=99999999999999999; grace_ms=500", "id=" + probeTestID + "; every_ms=abc; grace_ms=1"} {
 		pr := newProbeRemote(t, confirm)
 		done, _ := runProbeCall(t, pr, coddyInput(pr.fakeRemote))
 		waitFor(t, 5*time.Second, "the request", func() bool { return pr.count() >= 1 })
-		time.Sleep(80 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 		pr.finish()
 		<-done
 		if n := pr.pings.Load(); n != 0 {
@@ -151,11 +151,11 @@ func TestCoddyProbeANodeThatDoesNotConfirmIsNeverPinged(t *testing.T) {
 
 func TestCoddyProbeAnUnknownCallStopsThePings(t *testing.T) {
 	withProbeFloor(t, 0)
-	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=20; grace_ms=100")
+	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=100; grace_ms=500")
 	pr.status.Store(http.StatusNotFound)
 	done, _ := runProbeCall(t, pr, coddyInput(pr.fakeRemote))
 	waitFor(t, 5*time.Second, "the first ping", func() bool { return pr.pings.Load() >= 1 })
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(450 * time.Millisecond)
 	if n := pr.pings.Load(); n != 1 {
 		t.Errorf("%d pings after a 404 unknown_call, want exactly the one that was answered", n)
 	}
@@ -168,7 +168,7 @@ func TestCoddyProbeAnUnknownCallStopsThePings(t *testing.T) {
 // A 404 that is not the node's unknown_call (a proxy that does not carry the route) is a failed ping, not the end of the call.
 func TestCoddyProbeABare404IsAFailedPingNotTheEnd(t *testing.T) {
 	withProbeFloor(t, 0)
-	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=20; grace_ms=100")
+	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=100; grace_ms=500")
 	pr.status.Store(http.StatusNotFound)
 	pr.bare404.Store(true)
 	done, _ := runProbeCall(t, pr, coddyInput(pr.fakeRemote))
@@ -181,7 +181,7 @@ func TestCoddyProbeABare404IsAFailedPingNotTheEnd(t *testing.T) {
 
 func TestCoddyProbeAFailingPingNeverEndsTheCall(t *testing.T) {
 	withProbeFloor(t, 0)
-	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=20; grace_ms=100")
+	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=100; grace_ms=500")
 	pr.status.Store(http.StatusInternalServerError)
 	done, _ := runProbeCall(t, pr, coddyInput(pr.fakeRemote))
 	waitFor(t, 5*time.Second, "pings through the errors", func() bool { return pr.pings.Load() >= 3 })
@@ -193,13 +193,13 @@ func TestCoddyProbeAFailingPingNeverEndsTheCall(t *testing.T) {
 
 func TestCoddyProbeStopsWhenTheCallIsCancelled(t *testing.T) {
 	withProbeFloor(t, 0)
-	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=20; grace_ms=100")
+	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=100; grace_ms=500")
 	done, cancel := runProbeCall(t, pr, coddyInput(pr.fakeRemote))
 	waitFor(t, 5*time.Second, "a ping", func() bool { return pr.pings.Load() >= 1 })
 	cancel()
 	<-done
 	n := pr.pings.Load()
-	time.Sleep(120 * time.Millisecond)
+	time.Sleep(350 * time.Millisecond)
 	if pr.pings.Load() != n {
 		t.Errorf("pings after the cancellation: %d then %d", n, pr.pings.Load())
 	}
@@ -207,7 +207,7 @@ func TestCoddyProbeStopsWhenTheCallIsCancelled(t *testing.T) {
 
 func TestCoddyProbeKeepsTheMountPrefixOfARelay(t *testing.T) {
 	withProbeFloor(t, 0)
-	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=20; grace_ms=100")
+	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=100; grace_ms=500")
 	in := coddyInput(pr.fakeRemote)
 	in.BaseURL += "/swarm/nodes/nas02/"
 	done, _ := runProbeCall(t, pr, in)
@@ -253,7 +253,7 @@ func TestCoddyProbeStopsWhenTheStreamBreaks(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		w.Header().Set(CoddyProbeHeader, "id="+probeTestID+"; every_ms=20; grace_ms=100")
+		w.Header().Set(CoddyProbeHeader, "id="+probeTestID+"; every_ms=100; grace_ms=500")
 		fw := startStream(w)
 		for pings.Load() < 2 {
 			time.Sleep(5 * time.Millisecond)
@@ -266,9 +266,27 @@ func TestCoddyProbeStopsWhenTheStreamBreaks(t *testing.T) {
 		t.Fatal("a malformed frame must fail the call")
 	}
 	n := pings.Load()
-	time.Sleep(120 * time.Millisecond)
+	time.Sleep(350 * time.Millisecond)
 	if pings.Load() != n {
 		t.Errorf("the pinger outlived a broken stream: %d then %d", n, pings.Load())
+	}
+}
+
+// A ping that is still in flight when the stream ends must not hold the call back: the pinger is cancelled and joined at the end.
+func TestCoddyProbeAHangingPingDoesNotDelayTheEndOfTheStream(t *testing.T) {
+	withProbeFloor(t, 0)
+	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=10000; grace_ms=35000")
+	pr.hang.Store(true) // the first ping hangs for its bound of 5 s
+	done, _ := runProbeCall(t, pr, coddyInput(pr.fakeRemote))
+	waitFor(t, 5*time.Second, "the hung ping", func() bool { return pr.pings.Load() >= 1 })
+	pr.finish()
+	select {
+	case res := <-done:
+		if res.err != nil {
+			t.Fatal(res.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a ping in flight delayed the end of the call")
 	}
 }
 
@@ -278,6 +296,9 @@ func TestCoddyProbeIntervalHasAFloor(t *testing.T) {
 	}
 	if got := probeInterval(10 * time.Second); got != 10*time.Second {
 		t.Errorf("%v", got)
+	}
+	if got := probePingBound(10 * time.Second); got != 5*time.Second {
+		t.Errorf("a ping is bound to DMAX = half the interval: %v", got)
 	}
 }
 
@@ -310,7 +331,7 @@ func (r *recordingTransport) saw(suffix string) int {
 // client certificate and the HTTP/1.1-only transport apply to it (the provider transport rule of the repository).
 func TestCoddyProbePingRidesTheRowsOwnHTTPClient(t *testing.T) {
 	withProbeFloor(t, 0)
-	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=20; grace_ms=100")
+	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=100; grace_ms=500")
 	rec := &recordingTransport{inner: pr.srv.Client().Transport}
 	cp, err := newCoddyProvider(coddyInput(pr.fakeRemote), &http.Client{Transport: rec})
 	if err != nil {

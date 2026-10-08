@@ -24,6 +24,10 @@ var coddyProbeFloor = time.Second
 // the bound of the model p4-probe true (a delivered ping arrives within DMAX), and a hung ping never lasts into the next tick.
 func probePingBound(every time.Duration) time.Duration { return every / 2 }
 
+// coddyProbeMaxEveryMS is the longest interval a confirmation may ask for (an hour): a larger value is not a probe this client reads, and
+// it keeps the conversion to a Duration far from overflow.
+const coddyProbeMaxEveryMS = int64(time.Hour / time.Millisecond)
+
 var coddyProbeConfirmRE = regexp.MustCompile(`^id=([0-9a-f]{32}); every_ms=(\d+); grace_ms=(\d+)$`)
 
 // parseProbeConfirmation reads the confirmation header of a response.
@@ -32,8 +36,8 @@ func parseProbeConfirmation(v string) (id string, every time.Duration, ok bool) 
 	if m == nil {
 		return "", 0, false
 	}
-	ms, err := strconv.Atoi(m[2])
-	if err != nil || ms <= 0 {
+	ms, err := strconv.ParseInt(m[2], 10, 64)
+	if err != nil || ms <= 0 || ms > coddyProbeMaxEveryMS {
 		return "", 0, false
 	}
 	return m[1], time.Duration(ms) * time.Millisecond, true
@@ -63,13 +67,14 @@ func (p *coddyProvider) startProbe(ctx context.Context, resp *http.Response) (st
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		// The first ping goes out at once, as the model p4-probe has it: a client that vanishes right after the headers is still cut
-		// by the grace from the call's start, and one that stays is known to be alive early.
+		// The first ping goes out at once, as the model p4-probe has it: the remote arms its guard at the first ping it accepts, so the
+		// sooner it comes the sooner the call is guarded. The ticker starts before it, so the pings are spaced start to start from the
+		// first one on, and a slow first ping does not push the second later.
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
 		if !p.ping(pctx, target, id, every) {
 			return
 		}
-		ticker := time.NewTicker(every)
-		defer ticker.Stop()
 		for {
 			select {
 			case <-pctx.Done():
