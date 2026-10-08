@@ -97,6 +97,9 @@ node.
 connection, and from then on the relay sends requests down it while the node answers them.
 This is the only way in when a network accepts no inbound connections, a phone on a mobile
 network among them ([Android phones as swarm nodes](../tutorials/swarm-android-nodes.md)).
+Both ends watch the tunnel: the relay pings the node after 30 s without a frame and gives it 15 s
+to answer, the node pings the relay after 15 s and gives it 30 s, and either closes a connection
+that does not answer ([Liveness](#liveness-of-a-tunnel-and-of-a-shared-call)).
 
 The tunnel is prior-knowledge HTTP/2 over a connection that started as an ordinary HTTP
 request, so there is no bespoke frame protocol and no new dependency. Everything above the
@@ -319,7 +322,7 @@ opened from any node and pointed at the relay.
 
 ## Sharing models through a relay
 
-A node can lend its models to other Coddys ([Shared models](../features/shared-models.md)), and a relay mount carries that traffic with no change to the relay: the borrower's provider has `api_base: https://relay.example/swarm/nodes/<node>` and `type: coddy`, the mount passes `/coddy/llm/models` and `/coddy/llm/completions` like any `/coddy/*` route, and it works for a node the relay dials and for one that dialled out through the tunnel alike. The streams are server-sent events through a proxy that flushes after every write, and the heartbeat of the shared stream keeps a hop that idles out at a minute alive. A relay rebuilt on a configuration change cuts the streams in flight, which the borrower sees as a transport failure and retries while nothing was shown.
+A node can lend its models to other Coddys ([Shared models](../features/shared-models.md)), and a relay mount carries that traffic with no change to the relay: the borrower's provider has `api_base: https://relay.example/swarm/nodes/<node>` and `type: coddy`, the mount passes `/coddy/llm/models` and `/coddy/llm/completions` like any `/coddy/*` route, and it works for a node the relay dials and for one that dialled out through the tunnel alike. The streams are server-sent events through a proxy that flushes after every write, and the heartbeat of the shared stream keeps a hop that idles out at a minute alive. A relay rebuilt on a configuration change cuts the streams in flight, which the borrower sees as a transport failure and retries while nothing was shown. A client or a tunnel that vanishes without a trace is cut within 45 seconds, and the relay bounds its own client for these calls ([Liveness](#liveness-of-a-tunnel-and-of-a-shared-call)).
 
 **The relay substitutes the credential.** The borrower's `api_key` is the relay's client token (`swarm.auth_token`). The relay replaces it with the token the node registered with - `swarm.join[].token`, or `swarm.upstreams[].token` for a node pinned from the relay's side - so the node sees one caller. Two things follow. The limit of `httpserver.shared_models.max_streams` calls per credential then counts every client of the relay together, so it protects the node and its provider, not one borrower from another; and a slow client can hold a slot while its request body arrives (the body deadline is 30 s), so up to `max_streams` of them can keep the credential busy for the other clients, repeatedly. Per-client scopes enforced by the relay are not part of this version.
 
@@ -348,6 +351,16 @@ curl -X DELETE -H "Authorization: Bearer $RELAY_CLIENT_TOKEN" https://relay.exam
 ```
 
 Editing the node's configuration alone is not enough. A registration that replaces the token even with an empty one is planned for a later step.
+
+### Liveness of a tunnel and of a shared call
+
+A peer that disappears without a FIN or a RST is invisible to a connection that only writes heartbeats, so a shared call is bounded on every leg its slot depends on, at most 45 seconds (B) after the peer vanished ([A peer that vanishes](../features/shared-models.md#a-peer-that-vanishes) has the reasoning):
+
+- **The tunnel, from the node.** The node is the HTTP/2 server on the tunnel. It pings the relay when no frame has arrived for 15 s and closes the connection when the ping is not answered within 30 s, so a relay that vanished while a call streams heartbeats is noticed at most 45 s after its last frame, whatever the heartbeat is, and every call on the tunnel ends with it (the slot is released, the node reconnects). Before this check nothing pinged in that direction, and the node's own 150 s watchdog counts the node's writes as activity, so a vanished relay looked alive until the kernel gave up on the socket. The split is 15 s and 30 s rather than the relay's own 30 s and 15 s: the sum is the same, but a ping written behind unacknowledged heartbeats is answered only when a retransmission gets through, and the longer timeout doubles the outage a live relay survives.
+- **The tunnel, from the relay.** The relay pings the node when no frame has arrived for 30 s and closes the connection when the ping is not answered within 15 s, as before.
+- **A client of the relay.** The relay answers everything its client sends, so a client that vanished is invisible to the node; the relay therefore sets a `TCP_USER_TIMEOUT` of 30 s on its own client connection for `POST /swarm/nodes/{node}/coddy/llm/completions` (and no other route), put back when the call ends. When the connection dies the relay cancels the upstream request - a reset stream on a tunnel, a closed connection on a direct dial - and the node frees the slot in the same round trip. A relay in front of a chain of relays does this for its own client.
+- **Only HTTP/1.1 clients are bounded.** An HTTP/2 connection carries many streams, so the option cannot be scoped to one call, and a TLS relay's listener negotiates HTTP/2 with any client that offers it. The local Coddy offers only HTTP/1.1 to a `coddy` remote, which keeps its calls bounded; a client that speaks HTTP/2 to a TLS relay is served unprobed, and the relay logs `shared call over HTTP/2: a vanished client is not detected before the call ends` once per connection at info level. A health check of the whole listener was rejected, because a ping per connection would cut a quiet browser stream through the relay on a silent link, and so was a listener that speaks HTTP/1.x only, which would take multiplexing from every browser stream.
+- **Platforms.** The option exists on Linux (Android included); on macOS, Windows and the BSDs the direct and the client legs keep the operating system's retransmission timeout, and only the tunnel's ping works everywhere.
 
 ## Where the settings live
 
@@ -485,6 +498,7 @@ relay, wrap in TLS, upgrade, invert roles. The HTTP/2 layer above is unaware of 
   single HTTP/2 connection per node and are not worked around.
 - **One relay process per endpoint.** Two replicas behind a load balancer would split the
   registry and the tunnels.
+- **No relay-wide HTTP/2 health check.** The relay pings its tunnels and a node pings its relay, but the listener that serves browsers and clients is not pinged and is not HTTP/1.x only, so a quiet stream survives a silent link. The cost is that an HTTP/2 client of a TLS relay is not bounded for a shared call ([Liveness](#liveness-of-a-tunnel-and-of-a-shared-call)).
 - **No per-node client authorisation.** See the blast radius above. It holds for shared models too: a client of the relay reaches every node's mount, and a node that shares models is protected only by the token it joined with ([Sharing models through a relay](#sharing-models-through-a-relay)).
 
 ## Reference

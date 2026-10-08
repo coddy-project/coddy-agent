@@ -309,6 +309,17 @@ says the API is open on purpose), or a shared-model token that is also a main or
 message names the key and never a value, and a reload that fails it keeps the running
 configuration ([Shared models](../features/shared-models.md#shared-model-tokens)).
 
+A shared-model call needs no setting for the liveness of its peer: on Linux the call puts a
+`TCP_USER_TIMEOUT` of 30 s on its own connection while it runs (and takes it off when it ends), so
+the slot of a client that vanished without a trace is freed at most 45 s after it, and a node on a
+relay tunnel pings the relay on its own. No other route of the server is touched, and a
+configuration reload changes nothing here. macOS, Windows, a peer behind a TLS terminator or an HTTP
+proxy, and a foreign HTTP/2 client of a TLS relay keep the longer bound their transport gives
+([A peer that vanishes](../features/shared-models.md#a-peer-that-vanishes)). The same page says
+what a lender shows its borrowers of its account
+([usage](../features/shared-models.md#the-account-usage-of-a-shared-model)); the lender's
+`providers[].usage_limits_panel: false` turns that off.
+
 ### Restarting itself
 
 A listen address is the one change no running process can adopt: the listener is what

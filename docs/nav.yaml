@@ -114,7 +114,7 @@ groups:
         summary: Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from.
       - path: features/shared-models.md
         title: Shared models
-        summary: A remote coddy serve lending models to other Coddys as a provider of type coddy - the harness stays local, shared_as aliases, LLM-only tokens, the limit of five calls and the wait for a free slot, direct or through a swarm relay, timers, privacy and limits of the first version.
+        summary: A remote coddy serve lending models to other Coddys as a provider of type coddy - the harness stays local, shared_as aliases, LLM-only tokens, the limit of five calls and the wait for a free slot, direct or through a swarm relay, capabilities and account usage read from the remote, timers, a peer that vanishes, privacy and what is not covered.
       - path: features/web-search.md
         title: Web search
         summary: The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.

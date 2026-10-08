@@ -1,6 +1,6 @@
 # Plan: models shared by a remote Coddy (provider type `coddy`)
 
-Status: design record; phase 1 is implemented on this branch (config, llm client and wire, server routes, agent and session wiring, dry-run, docs; see 6b), phases 2-4 are not. Branch `feat/remote-model-provider`, based on
+Status: design record; phases 1 and 2 are implemented on this branch (phase 1: config, llm client and wire, server routes, agent and session wiring, dry-run, docs; phase 2: capabilities from the listing, the usage projection and the liveness of a vanished peer; see 6b), phases 3 and 4 are not. Branch `feat/remote-model-provider`, based on
 `upstream/main` (`coddy-project/coddy-agent`). Written after a code survey of this repository and a web survey of LLM gateways, protocols and Go libraries (2026-10-07). Facts
 about this repository were checked against the code; facts about third-party projects (versions,
 licences, terms of service) were collected by research subagents and not re-verified, and the
@@ -503,7 +503,7 @@ points at another Coddy's `/v1` is **not** caught, and the documentation says so
 
 The executable specification is `features/remote_model_provider.feature` (direct) and
 `features/remote_model_provider_relay.feature` (through a relay, `-tags http,swarm`); scenarios
-tagged `@phase2` belong to step 2.
+that were tagged `@phase2` belong to step 2; they run now and the tag is gone.
 
 0. **Today, no code**: `type: openai`, `api_base: https://remote/v1` or
    `https://relay/swarm/nodes/<node>/v1`, with the losses listed in 2 and the open API of 4.5.
@@ -618,12 +618,14 @@ envelope), the **server** in `external/httpserver` (the two routes, the token cl
 snapshot per request, the limiter, the three timers, the key file), **agent and session wiring** (no
 first-token timer for a `coddy` row, the capability cache with `revision`, dry-run probe, serve-start
 checks), the **docs**, the **SPA and console** surfaces, and the **BDD harness**: the 22 untagged
-scenarios (16 direct, 6 relay) pass in strict mode; the six `@phase2` scenarios are excluded.
+scenarios (16 direct, 6 relay) pass in strict mode; the six `@phase2` scenarios were excluded then and run since phase 2.
 
-Not implemented (phase 2 and later, as planned): the usage projection route (it answers 404), reasoning
+Not implemented by phase 1 (phase 2 did the first four, see below): the usage projection route (it answered 404), reasoning
 levels and multimodal from the listing (the resolver and the tri-state keys), the liveness probe, the
-`--dry-run` warning for a local key that differs from the listing, the relay erasing a stale token,
+`--dry-run` warning for a local key that differs from the listing; and, still open, the relay erasing a stale token,
 per-client relay scopes, relay discovery.
+
+**Phase 2** is implemented too, by the plan [`remote-model-provider-phase2.md`](remote-model-provider-phase2.md), whose five open dilemmas were decided with the model-check engine (reports `p2-d1-config-source`, `p2-d2-usage-cache`, `p2-d3-vanished-peer`, `p2-d3b-h2-client` and `p2-d4-busy-notice` in `remote-model-provider-models/`): the reasoning levels, the default, `off` and multimodal of a `coddy` row come from the remote's listing, key by key, with `multimodal` and `allow_reasoning_off` three-state (`*bool`); `GET /coddy/llm/models/{alias}/usage` answers the allowlist projection (`reset_in_s`, no absolute time), read per alias by the local manager; a vanished peer's slot is freed within 45 s on Linux (per-call `TCP_USER_TIMEOUT`, the node's tunnel ping at 15 s and 30 s, the relay bounding its own client), with the local Coddy offering only HTTP/1.1 to a `coddy` remote and a foreign HTTP/2 client of a TLS relay as the documented residual; the busy countdown is state of its own beside the usage snapshot on every surface; `--dry-run` warns about a local key that differs from the listing. The six `@phase2` scenarios run and their tags are gone. The documentation is [`docs/features/shared-models.md`](../features/shared-models.md); what stays outside, the not-covered list of 5.2 of the phase 2 plan, is on that page too.
 
 Decisions taken where the plan was silent: the swarm token class is `swarm.auth_token`,
 `swarm.pairing_tokens`, `swarm.join[].pairing_token` and the swarm tokens of flags and environment

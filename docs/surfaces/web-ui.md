@@ -100,7 +100,8 @@ Clear the field to use the session model for summarization.
 
 *A logical model is a provider plus the id its API expects; the context window comes from the provider.*
 
-- The **Usage limits panel** switch (`providers[].usage_limits_panel`) renders only for provider types with a usage source (`neuraldeep`, `codex`, `devin`); for the others it would change nothing.
+- The **Usage limits panel** switch (`providers[].usage_limits_panel`) renders only for provider types with a usage source (`neuraldeep`, `codex`, `devin`, `coddy`); for the others it would change nothing.
+- On a model of a **`coddy`** provider (a model another Coddy shares) **Multimodal** and **Allow disabling reasoning** are a three-state control, **Remote / Yes / No**: **Remote** removes the key and the row follows the remote's listing, **Yes** and **No** write a value that wins (`TriStateField`, [Shared models](../features/shared-models.md#capabilities-from-the-listing)). The reasoning levels field has no **Fetch** button there, says the remote's listing decides, shows the levels the remote offers and offers **Follow the remote**. The model picker of the provider marks the models the remote lists as reading images and shows their levels. A `false` that an earlier save wrote stays a **No** until **Remote** is chosen.
 - The Settings drawer is 680px wide on a desktop: enough for three theme cards a row on **Appearance** and a readable measure for the forms.
 - Automated checks: **`ProviderModelList.test.tsx`** (the fetch with the row as the form holds it and without the command, the refetch for a new id or type only, add and remove, the stale row, the error line, the context badge, the filter, the containment rules), **`ModelField.test.tsx`**, **`ContextWindowField.test.tsx`** (the reported window as the placeholder, the explicit fetch writing it, a late answer for a changed id dropped), **`SettingsArraySection.test.tsx`** (the address in both directions, the back link), **`SettingsSection.test.tsx`** (the three blocks of the provider form, the reported window seeded on add, the usage switch per provider type, the row form not surviving a tab switch), **`features/provider_models_web_ui.feature`** (**`external/ui/bdd_provider_models_ui_test.go`**), and on the API side **`features/provider_models_fetch.feature`** with **`external/httpserver/providers_models_http_test.go`**. Live check at **390px**: the provider form scrolls vertically only (`.settings-scroll` has `scrollWidth` equal to `clientWidth`), long ids ellipsize.
 
@@ -1284,7 +1285,7 @@ Automated checks:
 *The Devin usage section as a bottom sheet on a phone*
 
 - When the selected model's provider reports account usage (today
-  `neuraldeep`, `codex` and `devin`), the **context popover** (the context ring next to Send)
+  `neuraldeep`, `codex`, `devin` and `coddy`), the **context popover** (the context ring next to Send)
   ends with a **usage section**, the way Claude Desktop lists its plan
   limits under the context window: the provider and plan (with the row
   next to the brand, **`Codex · codex-work · Plus`**, unless the row is
@@ -1311,12 +1312,13 @@ Automated checks:
   under the composer never reads through it, and when it appears over a
   chat that was at its newest message the chat moves up to keep that
   message in view.
+- A **`coddy`** row (a model another Coddy shares) is read per model: the block is titled with the row and the alias (**`workstation · terra`**), shows the windows the remote's account projects (percent used and the reset, no plan or wallet) and ends with the line `The remote's account, shared with everyone who borrows from it`; a refused token reads `The remote refused the token of workstation: check the API key of that provider in Settings`. While a call to the model waits for a free slot of the remote, that wait is a state of its own beside the snapshot: it takes over the note of the popover and the banner (`Waiting for a free slot on the remote · resumes on its own, gives up at 14:05`, no close button) and the meters stay as they are; the end of the wait, the end of the turn or the end of the wait budget plus two seconds takes it down, and no usage answer does. See [Shared models](../features/shared-models.md#the-account-usage-of-a-shared-model).
 - The row's **Usage limits panel** switch in Settings → LLM providers
   (`providers[].usage_limits_panel`, on by default) hides the section and
   the banner and stops the reads behind them: the route then answers
   `unsupported` with `disabled: true`, and the hook drops the snapshot it
   showed for that row.
-- Data comes from **`GET /coddy/providers/{name}/usage`** (session open,
+- Data comes from **`GET /coddy/providers/{name}/usage`** (with **`?model=<alias>`** for a `coddy` row; session open,
   model change, after each finished turn of the viewed session, one read
   after a window's reset, one cache read when the server deferred a refresh)
   and from **`event: provider_usage`** on **`GET /coddy/events`** between

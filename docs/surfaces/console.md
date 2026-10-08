@@ -201,7 +201,8 @@ Top to bottom:
   A third line appears while the active model's provider reports account
   usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`; `codex`,
   read from the Codex backend's usage endpoint; `devin`, read from the
-  seat-management status RPC):
+  seat-management status RPC; `coddy`, the account behind a model another
+  Coddy shares, read through that Coddy):
   `Pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
   the plan, each metered window as percent **used** with its reset time in
   your clock (time of day within 24 h, weekday within a week, date and time beyond),
@@ -237,6 +238,16 @@ Top to bottom:
   the provider row switches the panel off: the line stays hidden, `/usage`
   says so, and no request goes to the hub for that row; a configuration
   reload re-reads the cache, so a switched panel follows without a restart.
+  A `coddy` row (a model another Coddy shares) is read per model, so the
+  line and `/usage` follow `/model` between aliases of one row: the numbers
+  are the remote account's windows, percent used with the reset, with no plan
+  or wallet, and a `/usage` block is headed by the row and the alias
+  (`workstation · terra`). While a call to such a model waits for a free slot
+  of the remote, the status row reads `Waiting for a free slot on the remote ·
+  resumes on its own, gives up at 14:05` and the footer keeps the numbers; the
+  end of the wait, the end of the turn or the end of the wait budget plus two
+  seconds takes the note down, and no usage answer does ([Shared
+  models](../features/shared-models.md#the-account-usage-of-a-shared-model)).
   Design record: `docs/plans/neuraldeep-usage.md`.
 
 Rendering is pi's inline main-screen model: line-diff against the previous
