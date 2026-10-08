@@ -171,6 +171,34 @@ func (s *registryFeatureState) nodeRegistersAgainWithSecret(name string) error {
 	return nil
 }
 
+func (s *registryFeatureState) nodeRegistersAgainWithoutToken(name string) error {
+	req := s.registration(name, s.secrets[name])
+	req.Token = ""
+	if err := s.do(http.MethodPost, "/swarm/register", s.pair, req); err != nil {
+		return err
+	}
+	s.rememberLease(name)
+	return nil
+}
+
+func (s *registryFeatureState) relayHoldsToken(name string) error {
+	if n, ok := s.srv.Registry().Node(name); !ok || n.Token == "" {
+		return fmt.Errorf("the relay holds no token for %q", name)
+	}
+	return nil
+}
+
+func (s *registryFeatureState) relayHoldsNoToken(name string) error {
+	n, ok := s.srv.Registry().Node(name)
+	if !ok {
+		return fmt.Errorf("node %q is not registered", name)
+	}
+	if n.Token != "" {
+		return fmt.Errorf("the relay still holds a token for %q", name)
+	}
+	return nil
+}
+
 func (s *registryFeatureState) nodeRegistersAgainWithoutSecret(name string) error {
 	return s.do(http.MethodPost, "/swarm/register", s.pair, s.registration(name, ""))
 }
@@ -306,6 +334,9 @@ func TestSwarmRegistryFeature(t *testing.T) {
 			ctx.Step(`^the node "([^"]*)" has registered with the pairing token$`, st.nodeHasRegistered)
 			ctx.Step(`^the node "([^"]*)" registers again with its lease secret$`, st.nodeRegistersAgainWithSecret)
 			ctx.Step(`^the node "([^"]*)" registers again without a lease secret$`, st.nodeRegistersAgainWithoutSecret)
+			ctx.Step(`^the node "([^"]*)" registers again with its lease secret and no token$`, st.nodeRegistersAgainWithoutToken)
+			ctx.Step(`^the relay holds a token for the node "([^"]*)"$`, st.relayHoldsToken)
+			ctx.Step(`^the relay holds no token for the node "([^"]*)"$`, st.relayHoldsNoToken)
 			ctx.Step(`^the registration is accepted$`, st.registrationAccepted)
 			ctx.Step(`^the registration returns a lease secret$`, st.registrationReturnsLeaseSecret)
 			ctx.Step(`^the registration is rejected as unauthorized$`, st.registrationRejectedUnauthorized)
