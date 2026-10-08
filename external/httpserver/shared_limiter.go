@@ -126,3 +126,7 @@ func (s *sharedSlot) release() {
 	}
 	s.lim.free(s.key)
 }
+
+// sharedBearerKey is the limiter key of a bearer token. The token is prefixed, as a certificate name and a cookie are, so no
+// operator-chosen token can spell another credential's key and share its budget.
+func sharedBearerKey(token string) string { return sharedKeyFor("bearer:" + token) }

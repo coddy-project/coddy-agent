@@ -167,3 +167,12 @@ func TestSharedLimiterFollowsALoweredLimit(t *testing.T) {
 		t.Fatalf("in use: %d", got)
 	}
 }
+
+// A bearer token that spells another credential's key never shares its budget.
+func TestSharedBearerKeyIsSeparatedFromCertificateAndCookieKeys(t *testing.T) {
+	for _, spelled := range []string{"mtls:alice.example", "cookie:abc"} {
+		if sharedBearerKey(spelled) == sharedKeyFor(spelled) {
+			t.Errorf("a token %q shares the key of the credential it spells", spelled)
+		}
+	}
+}

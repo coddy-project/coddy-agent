@@ -300,7 +300,7 @@ func callBody(t *testing.T) string {
 
 // slotsInUse is the number of calls the shared token holds.
 func (fx *sharedFixture) slotsInUse() int {
-	return fx.srv.sharedLimit.inUse(sharedKeyFor(sharedTestSharedTok))
+	return fx.srv.sharedLimit.inUse(sharedBearerKey(sharedTestSharedTok))
 }
 
 // ---------------------------------------------------------------------------

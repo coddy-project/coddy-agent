@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -20,7 +21,7 @@ const (
 // empty: the listener then asks for no certificate. The server certificate is the caller's. The CA is startup state:
 // changing it takes a restart.
 func ClientCertTLS(caFile, mode, key string) (*tls.Config, error) {
-	if caFile == "" {
+	if strings.TrimSpace(caFile) == "" {
 		return nil, nil
 	}
 	pem, err := os.ReadFile(caFile)

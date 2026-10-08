@@ -56,10 +56,15 @@ func newMTLSCA(t *testing.T) *mtlsCA {
 
 func (ca *mtlsCA) leaf(t *testing.T, server bool, names ...string) tls.Certificate {
 	t.Helper()
+	return ca.leafUntil(t, server, time.Now().Add(time.Hour), names...)
+}
+
+func (ca *mtlsCA) leafUntil(t *testing.T, server bool, notAfter time.Time, names ...string) tls.Certificate {
+	t.Helper()
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: "leaf"}, DNSNames: names,
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature,
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: notAfter, KeyUsage: x509.KeyUsageDigitalSignature,
 	}
 	if server {
 		tmpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
@@ -143,6 +148,31 @@ func TestMTLSNameOpensTheThreeLLMRoutesAndNothingElse(t *testing.T) {
 	for _, p := range []string{"/coddy/config", "/coddy/sessions", "/v1/models", sharedStatsPattern[len("GET "):]} {
 		if got := mtlsDo(t, c, http.MethodGet, base+p, "", nil).StatusCode; got != http.StatusUnauthorized {
 			t.Errorf("%s with a certificate alone: %d, want 401", p, got)
+		}
+	}
+}
+
+func TestMTLSUsageRouteTakesTheCertificateToo(t *testing.T) {
+	_, ca, base := mtlsFixture(t, config.SwarmClientAuthOptional)
+	alice, carol := ca.leaf(t, false, "alice.example"), ca.leaf(t, false, "carol.example")
+	path := base + llm.CoddyModelsPath + "/" + sharedTestAlias + "/usage"
+	if got := mtlsDo(t, ca.client(&alice), http.MethodGet, path, "", nil).StatusCode; got == http.StatusUnauthorized {
+		t.Errorf("a listed certificate was refused on the usage route: %d", got)
+	}
+	if got := mtlsDo(t, ca.client(&carol), http.MethodGet, path, "", nil).StatusCode; got != http.StatusUnauthorized {
+		t.Errorf("an unlisted certificate on the usage route: %d, want 401", got)
+	}
+}
+
+// A connection outlives a certificate: the leaf is judged by its validity at the request, not at the handshake.
+func TestMTLSExpiredCertificateIsNotACredential(t *testing.T) {
+	_, ca, base := mtlsFixture(t, config.SwarmClientAuthOptional)
+	old := ca.leafUntil(t, false, time.Now().Add(-time.Minute), "alice.example")
+	resp, err := ca.client(&old).Get(base + llm.CoddyModelsPath)
+	if err == nil {
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			t.Fatal("an expired certificate opened the listing")
 		}
 	}
 }
