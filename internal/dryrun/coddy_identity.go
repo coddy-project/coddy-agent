@@ -45,6 +45,10 @@ func (r *runner) coddyIdentityChecks(prov *config.ProviderConfig) []Check {
 	}
 	left := time.Until(leaf.NotAfter)
 	switch {
+	case time.Now().Before(leaf.NotBefore):
+		return append(out, r.check(StatusError, loc, loc,
+			fmt.Sprintf("client certificate is not valid before %s", leaf.NotBefore.UTC().Format("2006-01-02 15:04")),
+			"issue a certificate that is valid now, or wait until it is; the remote refuses it until then"))
 	case left <= 0:
 		return append(out, r.check(StatusError, loc, loc,
 			fmt.Sprintf("client certificate expired on %s", leaf.NotAfter.UTC().Format("2006-01-02")),

@@ -330,7 +330,12 @@ func (s *Server) askNode(ctx context.Context, node Node, p fanoutParams) nodeRep
 		return nodeReport{warning: fmt.Sprintf("%s: %v", node.Info.Name, err)}
 	}
 	defer func() { _ = res.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+	body, rerr := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+	if rerr != nil {
+		// The answer did not arrive whole (the node stalled or the call ran out of time): that is a failure like any other, also for a
+		// labelled node whose status line said 401.
+		return nodeReport{warning: fmt.Sprintf("%s: %v", node.Info.Name, rerr)}
+	}
 	if res.StatusCode == http.StatusUnauthorized && swarmdto.SharedModelsOnly(node.Info.Labels, node.Info.Kind) {
 		// A node that joined with a token made for shared models answers 401 on
 		// its sessions route by design: the refusal is the token's scope, not a
