@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -68,6 +69,7 @@ func relayWithNodeTLS(t *testing.T, nodeTLS config.SwarmNodeTLSConfig) (*Server,
 	cfg.Swarm.Host = "127.0.0.1"
 	cfg.Swarm.AuthToken = fullToken
 	cfg.Swarm.NodeTLS = nodeTLS
+	cfg.Swarm.PairingTokens = []string{"pair-secret"}
 	srv, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -178,4 +180,47 @@ func encodeLeaf(t *testing.T, cert tls.Certificate) ([]byte, []byte) {
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}),
 		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+}
+
+func TestAnUnreadableNodeCAStopsTheRelayAtStart(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Swarm.Host = "127.0.0.1"
+	cfg.Swarm.AuthToken = fullToken
+	cfg.Swarm.NodeTLS = config.SwarmNodeTLSConfig{CAFile: filepath.Join(t.TempDir(), "missing.pem")}
+	_, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil || !strings.Contains(err.Error(), "swarm.node_tls") {
+		t.Fatalf("a relay with an unreadable node CA must refuse to start, naming the key: %v", err)
+	}
+}
+
+// A CA that disappears after the start fails the route of a registering node on the relay's side; the node is told so without the
+// relay's file path, which is the relay's business.
+func TestARouteThatCannotBeBuiltDoesNotLeakTheRelaysPaths(t *testing.T) {
+	serverCA := newTestCA(t)
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	data, err := os.ReadFile(serverCA.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ca, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv, ts := relayWithNodeTLS(t, config.SwarmNodeTLSConfig{CAFile: ca})
+	if err := os.Remove(ca); err != nil {
+		t.Fatal(err)
+	}
+	_ = srv
+	body := `{"name":"nas02","kind":"agent","transport":"direct","advertise_url":"https://127.0.0.1:9","instance_uuid":"u"}`
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/swarm/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer pair-secret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(res.Body)
+	if res.StatusCode < 500 || strings.Contains(string(raw), ca) || strings.Contains(string(raw), "ca_file") {
+		t.Fatalf("%d %s", res.StatusCode, raw)
+	}
 }

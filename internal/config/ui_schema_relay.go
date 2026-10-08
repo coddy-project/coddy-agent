@@ -143,7 +143,7 @@ func swarmUISchema() map[string]interface{} {
 				},
 				[]string{"cert_file", "key_file", "client_ca_file", "client_auth"},
 				nil),
-			"node_tls": objectSchema("Node certificates", "How this relay reaches the nodes that registered themselves over an address: the authority their certificates are verified against and the client certificate the relay presents when a node asks for one. A node with a dial block of its own keeps it. Takes a restart.",
+			"node_tls": objectSchema("Node certificates", "How this relay reaches the nodes that registered themselves over an address: the authority their certificates are verified against and the client certificate the relay presents when a node asks for one. A hand-written upstream with a dial block of its own keeps it and gets nothing from here; every other direct node gets this. A CA here replaces the system roots. Takes a restart.",
 				map[string]interface{}{
 					"ca_file":   strProp("CA file", "PEM bundle the nodes' server certificates are verified against, when they are signed privately."),
 					"cert_file": strProp("Client certificate file", "PEM certificate chain the relay presents to a node that asks for one (httpserver.tls.client_ca_file on the node). Needs the key below."),

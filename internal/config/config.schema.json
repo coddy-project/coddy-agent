@@ -1427,7 +1427,7 @@
         "node_tls": {
           "type": "object",
           "title": "Node certificates",
-          "description": "How this relay reaches the nodes that registered themselves over a direct address (a node that dials out through the tunnel carries no TLS of its own): the authority their certificates are verified against and the client certificate the relay presents when a node asks for one (httpserver.tls.client_ca_file on the node). A node cannot ask for either itself. A swarm.upstreams entry with a dial block of its own keeps it. The pair is read at each handshake; the CA is read when the node's route is built.",
+          "description": "How this relay reaches the nodes that registered themselves over a direct address (a node that dials out through the tunnel carries no TLS of its own): the authority their certificates are verified against and the client certificate the relay presents when a node asks for one (httpserver.tls.client_ca_file on the node). A node cannot ask for either itself. A swarm.upstreams entry with a dial block of its own keeps it and gets nothing from this block (they are not merged); one with no dial block gets it. A ca_file here replaces the system roots. The pair is read at each handshake; the CA is read when the node's route is built.",
           "additionalProperties": false,
           "properties": {
             "ca_file": {
