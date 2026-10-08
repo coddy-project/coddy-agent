@@ -53,6 +53,24 @@ func TestOpenAPIDescribesTheSharedModelRoutes(t *testing.T) {
 	if _, found := paths["/coddy/llm/models/{alias}/usage"]; !found {
 		t.Fatal("the usage route is not documented")
 	}
+	alive, found := paths["/coddy/llm/calls/{id}/alive"].(map[string]any)["post"].(map[string]any)
+	if !found {
+		t.Fatal("the ping of the application probe is not documented")
+	}
+	for _, code := range []string{"204", "401", "403", "404"} {
+		if _, ok := alive["responses"].(map[string]any)[code]; !ok {
+			t.Errorf("the ping does not document %s", code)
+		}
+	}
+	if !strings.Contains(completions["description"].(string), "X-Coddy-Probe") {
+		t.Error("the completions description does not mention the probe header")
+	}
+	if _, ok := responses["200"].(map[string]any)["headers"].(map[string]any)["X-Coddy-Probe"]; !ok {
+		t.Error("the 200 does not document the confirmation header")
+	}
+	if !strings.Contains(bodyString(t, fx.get("/openapi.yaml", sharedTestMainToken)), "- mtls") {
+		t.Error("the counters' class enum lacks mtls (the class of a client certificate, httpserver.shared_models.cert_names)")
+	}
 	if _, found := paths["/coddy/shared-models/stats"]; !found {
 		t.Fatal("the stats route is not documented")
 	}
