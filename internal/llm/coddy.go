@@ -42,8 +42,10 @@ const (
 type coddyProvider struct {
 	model    string
 	endpoint string
-	apiKey   string
-	hc       *http.Client
+	// base is the provider's api_base, the root the routes other than the completions are joined to.
+	base   string
+	apiKey string
+	hc     *http.Client
 
 	maxTokens      int
 	temperature    float64
@@ -80,6 +82,7 @@ func newCoddyProvider(p ProviderInput, hc *http.Client) (*coddyProvider, error) 
 	return &coddyProvider{
 		model:            p.Model,
 		endpoint:         endpoint,
+		base:             p.BaseURL,
 		apiKey:           p.APIKey,
 		hc:               hc,
 		maxTokens:        p.MaxTokens,
@@ -300,6 +303,9 @@ func (p *coddyProvider) attempt(ctx context.Context, st *busyWaitState, req Wire
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	// The application probe: when the remote confirmed it, the pings run until the stream is over.
+	stopProbe := p.startProbe(ctx, resp)
+	defer stopProbe()
 	return p.readFrames(resp.Body, onChunk)
 }
 
@@ -470,6 +476,9 @@ func (p *coddyProvider) post(ctx context.Context, body []byte) (*http.Response, 
 	// (ExpectContinueTimeout of the shared transport). Where a hop strips the
 	// header, a retry costs a re-upload.
 	req.Header.Set("Expect", "100-continue")
+	// The application probe of a vanished peer: this client will ping while the stream runs. A remote that does not know the header
+	// ignores it and never confirms.
+	req.Header.Set(CoddyProbeHeader, "1")
 	if p.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
