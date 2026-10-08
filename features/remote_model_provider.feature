@@ -193,3 +193,23 @@ Feature: A model shared by a remote Coddy serves another Coddy's harness
     When the local coddy streams "remote/coder" with the message "Hi" and the held stream ends once the local coddy has been told busy
     Then the local coddy assembles the answer "Done after the wait."
     And the provider was called once for the local coddy's request
+
+  Scenario: A window of calls per minute is spent and the remote says when to come back
+    Given a remote coddy sharing "stub/qwen3-secret" as "coder" whose model answers "Done."
+    And the remote admits 60 shared-model calls a minute with a burst of 2
+    When 2 streams are requested from "coder"
+    And a further stream is requested from "coder"
+    Then the remote answers 429 with the kind "busy", the code "rate_window" and a Retry-After of 1 second
+    And the provider was not called for the further stream
+    And the remote counted 1 "limited" call
+
+  Scenario: A local coddy waits out the window of the remote instead of failing
+    Given a remote coddy sharing "stub/qwen3-secret" as "coder" whose model answers "Done after the window."
+    And the remote admits 60 shared-model calls a minute with a burst of 1
+    And a local coddy with a provider "remote" of type coddy pointing at the remote with a busy wait of 5 seconds
+    When the local coddy streams "remote/coder" with the message "First"
+    And the local coddy streams "remote/coder" with the message "Second"
+    Then the local coddy assembles the answer "Done after the window."
+    And the remote counted 2 "ok" calls
+    And the remote counted 1 "limited" call
+

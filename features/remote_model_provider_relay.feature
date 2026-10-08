@@ -74,3 +74,14 @@ Feature: A model shared by a remote Coddy is reachable through a swarm relay
     Then it reports 62 percent of the quota used
     And the remote marks the reading as account-wide
     And the document never mentions the upstream model id, the provider name, the key name or any amount of money
+
+  Scenario: A local coddy waits out the node's window through the relay
+    Given a swarm relay with a client token mounting a remote coddy node that requires its own token and shares "stub/qwen3-secret" as "coder" whose model answers "Done through the relay."
+    And the node admits 60 shared-model calls a minute with a burst of 1
+    And a local coddy with a provider "remote" of type coddy pointing at the relay mount of that node with the relay's client token
+    When the local coddy streams "remote/coder" with the message "First"
+    And the local coddy streams "remote/coder" with the message "Second"
+    Then the local coddy assembles the answer "Done through the relay."
+    And the node counted 2 "ok" calls
+    And the node counted 1 "limited" call
+

@@ -322,6 +322,74 @@ func (s *remoteModelState) remoteAlsoHas(selector string) error {
 	return nil
 }
 
+// remoteAdmits is the window of calls per minute of the remote, beside its
+// stream limit: httpserver.shared_models.rate_per_minute and rate_burst.
+func (s *remoteModelState) remoteAdmits(perMinute, burst int) error {
+	s.mutateRemote(func(c *config.Config) {
+		c.HTTPServer.SharedModels.RatePerMinute = perMinute
+		c.HTTPServer.SharedModels.RateBurst = burst
+	})
+	return nil
+}
+
+// answersWindow checks the refusal of a call past the window: 429, kind busy,
+// the code that names the window, and the wait to the next token in the header.
+func (s *remoteModelState) answersWindow(kind, code string, seconds int) error {
+	if err := s.answerKind(http.StatusTooManyRequests, kind); err != nil {
+		return err
+	}
+	var e struct {
+		Code        string  `json:"code"`
+		RetryAfterS float64 `json:"retry_after_s"`
+	}
+	if err := json.Unmarshal(s.http.body, &e); err != nil {
+		return fmt.Errorf("the answer is not the error object: %v: %s", err, s.http.body)
+	}
+	if e.Code != code {
+		return fmt.Errorf("the code is %q, want %q", e.Code, code)
+	}
+	want := strconv.Itoa(seconds)
+	if got := s.http.header.Get("Retry-After"); got != want || int(e.RetryAfterS) != seconds {
+		return fmt.Errorf("Retry-After %q and retry_after_s %v, want %s", got, e.RetryAfterS, want)
+	}
+	return nil
+}
+
+func (s *remoteModelState) providerNotCalledForTheFurther() error {
+	if n := s.remote.stub.callCount(); n != len(s.held) {
+		return fmt.Errorf("the provider was called %d times, want %d (none for the refused call)", n, len(s.held))
+	}
+	return nil
+}
+
+// remoteCounted reads the node's audit counters with its main token and says
+// how many calls it counted with the outcome.
+func (s *remoteModelState) remoteCounted(want int, outcome string) error {
+	res, err := doHTTP(http.MethodGet, s.remote.url()+"/coddy/shared-models/stats", s.spec.mainToken, nil)
+	if err != nil {
+		return err
+	}
+	var doc struct {
+		Rows []struct {
+			Outcome string `json:"outcome"`
+			Calls   int    `json:"calls"`
+		} `json:"rows"`
+	}
+	if err := json.Unmarshal(res.body, &doc); err != nil {
+		return fmt.Errorf("the counters are not JSON: %v: %s", err, res.body)
+	}
+	got := 0
+	for _, r := range doc.Rows {
+		if r.Outcome == outcome {
+			got += r.Calls
+		}
+	}
+	if got != want {
+		return fmt.Errorf("the node counted %d %q calls, want %d: %s", got, outcome, want, res.body)
+	}
+	return nil
+}
+
 func (s *remoteModelState) remoteAllows(n int) error {
 	s.mutateRemote(func(c *config.Config) { c.HTTPServer.SharedModels.MaxStreams = n })
 	return nil
@@ -1412,6 +1480,11 @@ func registerRemoteModelSteps(sc *godog.ScenarioContext, s *remoteModelState) {
 	sc.Step(`^a sixth stream is requested from "([^"]*)"$`, s.sixthRequested)
 	sc.Step(`^the remote answers 429 with the kind "([^"]*)" and a Retry-After of 1 second$`, s.answers429Busy)
 	sc.Step(`^the provider was not called for the sixth$`, s.providerNotCalledForSixth)
+	sc.Step(`^the (?:remote|node) admits (\d+) shared-model calls a minute with a burst of (\d+)$`, s.remoteAdmits)
+	sc.Step(`^a further stream is requested from "([^"]*)"$`, s.sixthRequested)
+	sc.Step(`^the remote answers 429 with the kind "([^"]*)", the code "([^"]*)" and a Retry-After of (\d+) seconds?$`, s.answersWindow)
+	sc.Step(`^the provider was not called for the further stream$`, s.providerNotCalledForTheFurther)
+	sc.Step(`^the (?:remote|node) counted (\d+) "([^"]*)" calls?$`, s.remoteCounted)
 	sc.Step(`^one of the 5 streams ends$`, s.oneOfFiveEnds)
 	sc.Step(`^the sixth stream is served$`, s.sixthServed)
 	sc.Step(`^the provider was called once for the local coddy's request$`, s.providerCalledOnceForLocal)
