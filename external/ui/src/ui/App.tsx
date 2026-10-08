@@ -167,7 +167,7 @@ import {
   type PendingNewChatWorkspace,
 } from "./sessions/newChatWorkspace";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
-import { useRailScreenEscape } from "./nav/railEscape";
+import { railCloseGuard, useRailScreenEscape } from "./nav/railEscape";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
   pickDefaultLlmModelForNewChat,
@@ -7103,7 +7103,13 @@ export function App() {
               setSessionsOpen(false);
               setSchedulerOpen(false);
               setSchedulerEditor(null);
-            } else closeAllShellDrawers();
+            } else {
+              // Settings over unsaved edits asks first, as its close
+              // button does.
+              const guard = settingsRoute ? railCloseGuard("settings") : null;
+              if (guard) guard();
+              else closeAllShellDrawers();
+            }
           }}
           aria-hidden={!shellBackdropOpen}
         />

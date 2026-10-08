@@ -120,6 +120,50 @@ export function useRailEscapeStep(
   }, [screen, active]);
 }
 
+type Guard = { screen: RailScreenId; run: () => void };
+
+// What closing a screen by a gesture of the shell - a click on the backdrop
+// beside it - runs instead, while the screen asks to be asked first (Settings
+// over unsaved edits). Registered by the screen like its Escape step.
+let guards: Guard[] = [];
+
+/**
+ * useRailCloseGuard registers what a click on the backdrop beside the screen
+ * runs instead of closing it: the screen's own close, which may ask first.
+ * `null` while the screen may close without asking.
+ */
+export function useRailCloseGuard(
+  screen: RailScreenId,
+  guard: (() => void) | null,
+): void {
+  const guardRef = useRef(guard);
+  useLayoutEffect(() => {
+    guardRef.current = guard;
+  });
+  const active = guard !== null;
+  useLayoutEffect(() => {
+    if (!active) {
+      return undefined;
+    }
+    const entry: Guard = { screen, run: () => guardRef.current?.() };
+    guards = [...guards, entry];
+    return () => {
+      guards = guards.filter((g) => g !== entry);
+    };
+  }, [screen, active]);
+}
+
+/** railCloseGuard is the guard the screen registered, if it asks first now. */
+export function railCloseGuard(screen: RailScreenId): (() => void) | null {
+  for (let i = guards.length - 1; i >= 0; i--) {
+    const guard = guards[i];
+    if (guard && guard.screen === screen) {
+      return guard.run;
+    }
+  }
+  return null;
+}
+
 /**
  * Closes the screen on top, one step at a time, on an Escape nothing nearer
  * took. App calls it once, with every screen of the rail.

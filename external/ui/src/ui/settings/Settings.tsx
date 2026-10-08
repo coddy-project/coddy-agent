@@ -35,7 +35,10 @@ import {
 } from "../scheduler/hashRoute";
 import { useT } from "../i18n/I18nProvider";
 import { hasTranslation, translate } from "../i18n/i18n";
-import { useRailEscapeStep } from "../nav/railEscape";
+import { useRailCloseGuard, useRailEscapeStep } from "../nav/railEscape";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { environmentKey, getEnv } from "../env/remoteEnv";
+import { settingsFormDirty } from "./settingsDirty";
 
 type ValidateResponse = { ok: boolean; error?: string };
 
@@ -185,6 +188,8 @@ export function Settings(props: {
     doc: copy.config ?? {},
     replaced: 0,
   }));
+  // A save is on its way (Save, or Save and close).
+  const [busy, setBusy] = useState(false);
   // A newer copy - the first read landing, the server's config reloaded by
   // anyone - replaces a form that holds no edits of its own; unsaved edits
   // stay, and Reload is the deliberate way to drop them. It is taken while
@@ -192,7 +197,13 @@ export function Settings(props: {
   // would show a list with no rows, and the list reads an address naming one of
   // its rows as a stale one and rewrites it.
   if (copy.config !== null && copy.config !== draft.seen) {
-    const untouched = draft.base === null || draft.doc === draft.base;
+    // No edits of its own: compared by value, so a form whose edit was put
+    // back follows the server again - once no save is on its way, which may
+    // still answer for the value put back.
+    const untouched =
+      draft.base === null ||
+      draft.doc === draft.base ||
+      (!busy && !settingsFormDirty(draft.base, draft.doc, copy.schema));
     setDraft(
       untouched
         ? {
@@ -215,8 +226,19 @@ export function Settings(props: {
   useEffect(() => {
     void ensureSettingsConfig();
   }, []);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Whether the form holds edits that are not saved: Save stands out while it
+  // does, and closing over them asks first (issue #485).
+  const dirty = settingsFormDirty(draft.base, draft.doc, schema);
+  const [askClose, setAskClose] = useState(false);
+  // The server this form was read from. A switch to or from Local stores the
+  // new server and then reloads the page; a page kept by a stopped reload
+  // still shows this form while every request goes to the other server.
+  const [formEnv] = useState(() => environmentKey(getEnv()));
+  const onOtherServer = useCallback(
+    () => environmentKey(getEnv()) !== formEnv,
+    [formEnv],
+  );
   const { locale, t } = useT();
   const [activeTab, setActiveTab] = useState<string>(
     props.initialSection ?? "",
@@ -315,16 +337,49 @@ export function Settings(props: {
   const rowTitle = rowOpen && headSection ? itemFormTitle(headSection) : null;
   const closeRowForm = useCallback(() => setCloseRowSignal((n) => n + 1), []);
 
+  // Closing over unsaved edits asks first: they would be gone with the drawer.
+  const requestClose = useCallback(() => {
+    if (dirty) {
+      setAskClose(true);
+      return;
+    }
+    props.onClose();
+  }, [dirty, props]);
+
   // Escape takes the step the head's arrow takes while the head shows one,
-  // and closes the drawer when it shows none (nav/railEscape.ts).
+  // asks before it closes over unsaved edits, and closes the drawer otherwise
+  // (nav/railEscape.ts).
   useRailEscapeStep(
     "settings",
     rowTitle && headSection
       ? closeRowForm
       : isMobileShell && (mobileSection || mobilePending)
         ? backToGrid
-        : null,
+        : dirty
+          ? requestClose
+          : null,
   );
+
+  // The backdrop beside the drawer closes it like its close button does.
+  useRailCloseGuard("settings", dirty ? requestClose : null);
+
+  // A page reloaded or closed over unsaved edits asks the browser first. The
+  // reload of a switch to another server is not held up: the edits belong to
+  // the server being left.
+  useEffect(() => {
+    if (!dirty) {
+      return;
+    }
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (onOtherServer()) {
+        return;
+      }
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [dirty, onOtherServer]);
 
   // Reload with visible feedback: spin the refresh icon and replay the form
   // dissolve/reappear animation (key bump remounts the content) while re-fetching.
@@ -358,13 +413,18 @@ export function Settings(props: {
     }
   }, [doc]);
 
-  const onSave = useCallback(async () => {
+  const onSave = useCallback(async (): Promise<boolean> => {
+    if (onOtherServer()) {
+      setError(translate("settings.error.otherServer"));
+      return false;
+    }
     setBusy(true);
     setError(null);
     // The green of an earlier save says nothing about this one.
     clearSaved();
     const sent = doc;
     const editsAtSend = edits.current;
+    const replacedAtSend = draft.replaced;
     try {
       const body = JSON.stringify(sent);
       const v = await fetch("/coddy/config/validate", {
@@ -375,7 +435,13 @@ export function Settings(props: {
       const vj = (await v.json()) as ValidateResponse;
       if (!vj.ok) {
         setError(vj.error || translate("settings.error.validationFailed"));
-        return;
+        return false;
+      }
+      // Every request goes to the server the page talks to now: a switch
+      // while the validation ran must not take this form there.
+      if (onOtherServer()) {
+        setError(translate("settings.error.otherServer"));
+        return false;
       }
       const p = await fetch("/coddy/config", {
         method: "PUT",
@@ -388,7 +454,7 @@ export function Settings(props: {
           pj.error ||
             translate("settings.error.saveFailed", { status: p.status }),
         );
-        return;
+        return false;
       }
       // Green says the form on screen is saved. Edits typed while the request
       // was on its way are not in the file, so they leave the button as it is
@@ -400,22 +466,49 @@ export function Settings(props: {
       // once (a reopen before the read below lands draws it). The copy read
       // here, and the one config_reloaded brings, replaces it with what the
       // server made of the save, unless the operator types something first.
-      // A form a newer copy took over meanwhile is left as it is.
-      setDraft((d) => (d.doc === sent ? { ...d, base: sent } : d));
+      // An edit typed while the request was on its way - a value put back as
+      // it was included - stays unsaved against what was sent. A form a
+      // newer copy took over meanwhile is left as it is.
+      if (onOtherServer()) {
+        return false;
+      }
+      setDraft((d) =>
+        d.replaced === replacedAtSend ? { ...d, base: sent } : d,
+      );
       noteSettingsConfigSaved(sent);
       props.onConfigSaved?.();
       setBusy(false);
       void refreshSettingsConfig();
+      // The form is saved as it stands only when nothing was typed meanwhile:
+      // Save and close keeps the drawer open over edits the save did not take.
+      return edits.current === editsAtSend;
     } catch (e) {
       setError(
         e instanceof Error
           ? e.message
           : translate("settings.error.requestFailed"),
       );
+      return false;
     } finally {
       setBusy(false);
     }
-  }, [doc, clearSaved, flashSaved, props]);
+  }, [doc, draft.replaced, clearSaved, flashSaved, props, onOtherServer]);
+
+  const saveAndClose = useCallback(async () => {
+    setAskClose(false);
+    if (!dirty || (await onSave())) {
+      props.onClose();
+    }
+  }, [dirty, onSave, props]);
+
+  // A close asked for while a save was on its way: once that save leaves
+  // nothing unsaved, the drawer closes as it was asked to.
+  useEffect(() => {
+    if (askClose && !dirty && !busy) {
+      setAskClose(false);
+      props.onClose();
+    }
+  }, [askClose, dirty, busy, props]);
 
   // Renders the content panel for a section, reusing the schema-present and
   // appearance-without-schema paths for both the desktop rail and the mobile
@@ -552,7 +645,7 @@ export function Settings(props: {
           className="sessions-close"
           aria-label={t("settings.aria.close")}
           data-testid="settings-drawer-close"
-          onClick={props.onClose}
+          onClick={requestClose}
         >
           ×
         </button>
@@ -605,6 +698,12 @@ export function Settings(props: {
         )}
 
         <div className="scheduler-drawer-footer settings-footer-actions">
+          <span
+            className="settings-save-status"
+            data-testid="settings-save-status"
+          >
+            {dirty ? t("settings.status.unsaved") : ""}
+          </span>
           <button
             type="button"
             className="settings-btn settings-btn-icon"
@@ -620,11 +719,15 @@ export function Settings(props: {
           </button>
           <button
             type="button"
-            className={`settings-btn settings-btn-primary settings-btn-icon${justSaved ? " is-saved" : ""}`}
+            className={`settings-btn settings-btn-primary settings-btn-icon${justSaved && !dirty ? " is-saved" : ""}${dirty ? " is-dirty" : ""}`}
             data-testid="settings-save"
             disabled={busy || !schema}
-            title={t("settings.save.title")}
-            aria-label={t("settings.save.aria")}
+            title={
+              dirty ? t("settings.save.dirtyTitle") : t("settings.save.title")
+            }
+            aria-label={
+              dirty ? t("settings.save.dirtyAria") : t("settings.save.aria")
+            }
             onClick={() => void onSave()}
           >
             <IconSave className="settings-footer-icon-svg" />
@@ -632,10 +735,23 @@ export function Settings(props: {
           {/* The green button is the whole message on screen; a screen reader
               hears it here. */}
           <span className="sr-only" role="status">
-            {justSaved ? t("settings.save.saved") : ""}
+            {justSaved && !dirty ? t("settings.save.saved") : ""}
           </span>
         </div>
       </div>
+      <ConfirmDialog
+        open={askClose}
+        title={t("settings.close.title")}
+        message={t("settings.close.message")}
+        confirmLabel={t("settings.close.save")}
+        cancelLabel={t("settings.close.keep")}
+        variant="primary"
+        ariaLabel={t("settings.close.title")}
+        onConfirm={() => void saveAndClose()}
+        onCancel={() => setAskClose(false)}
+        confirming={busy}
+        dataTestId="settings-close-dialog"
+      />
     </aside>
   );
 }

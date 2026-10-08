@@ -22,6 +22,7 @@
     "check:artifacts": "node scripts/artifact-card-check.mjs",
     "check:caret": "node scripts/composer-caret-check.mjs",
     "check:long-prompts": "node scripts/long-prompts-check.mjs",
+    "check:settings-unsaved": "node scripts/settings-unsaved-check.mjs",
     "fmt": "prettier -w .",
     "format:check": "prettier --check ."
   },

@@ -63,6 +63,17 @@ export const messagesRu: Record<string, string> = {
   "settings.save.title": "Сохранить все разделы",
   "settings.save.aria": "Сохранить все разделы конфигурации",
   "settings.save.saved": "Сохранено",
+  "settings.save.dirtyTitle":
+    "Сохранить: изменения применятся только после этого",
+  "settings.save.dirtyAria": "Сохранить несохранённые изменения",
+  "settings.status.unsaved": "Есть несохранённые изменения",
+  "settings.close.title": "Сохранить перед закрытием?",
+  "settings.close.message":
+    "Изменения в форме не сохранены и применятся только после сохранения.",
+  "settings.close.save": "Сохранить и закрыть",
+  "settings.close.keep": "Вернуться к правке",
+  "settings.error.otherServer":
+    "Страница переключена на другой сервер, перезагрузите её, чтобы изменить его настройки.",
   "settings.error.schemaLoadFailed": "схема",
   "settings.error.configLoadFailed": "конфиг",
   "settings.error.validationFailed": "ошибка валидации",
