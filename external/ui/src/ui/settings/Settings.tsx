@@ -228,8 +228,10 @@ export function Settings(props: {
   }, []);
 
   // A Save that went through with nothing typed while it ran turns the button
-  // green; every save that went through, on its own or by Save, tells the app,
-  // which reads the model metadata again.
+  // green; every save that lands while the drawer is open, on its own or by
+  // Save, tells the app, which reads the model metadata again. A save that
+  // lands after the drawer closed reaches the app through config_reloaded,
+  // which the server announces after every save.
   const confirmedAtMount = useRef(draft.confirmedSaves);
   useEffect(() => {
     if (draft.confirmedSaves !== confirmedAtMount.current) {

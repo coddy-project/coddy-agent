@@ -26,7 +26,13 @@ const schema = {
       "x-coddy-save": "confirm-removal",
       items: {
         type: "object",
-        properties: { name: { type: "string", title: "Provider id" } },
+        required: ["name", "type"],
+        properties: {
+          // The served schema carries the example config's first provider as
+          // the defaults of a new row.
+          name: { type: "string", title: "Provider id", default: "demo" },
+          type: { type: "string", title: "Provider type", default: "openai" },
+        },
       },
     },
     agent: {
@@ -252,6 +258,26 @@ test("the next save goes out under the revision the last one answered with", asy
   await waitFor(() => expect(puts).toHaveLength(2));
   expect(puts[1]!.revision).toBe("rev-2");
   expect((puts[1]!.agent as Doc).max_turns).toBe(40);
+});
+
+test("a provider added with Add waits for its name, and the rest of the form saves without it", async () => {
+  render(<Settings onClose={() => {}} initialSection="providers" />);
+  fireEvent.click(await screen.findByTestId("settings-master-add"));
+  const name = screen.getByLabelText("Provider id") as HTMLInputElement;
+  expect(name.value).toBe("");
+  await pause(AUTOSAVE_MS + 50);
+  expect(puts).toHaveLength(0);
+  expect(status()).toBe("Unsaved changes");
+  expect(document.querySelector(".settings-lead-pane")).toBeNull();
+
+  fireEvent.change(name, { target: { value: "codex" } });
+  await pause(AUTOSAVE_MS + 50);
+  await waitFor(() => expect(puts).toHaveLength(1));
+  expect((puts[0]!.providers as Doc[]).map((p) => p.name)).toEqual([
+    "demo",
+    "spare",
+    "codex",
+  ]);
 });
 
 // Edge cases.

@@ -28,6 +28,7 @@ import {
   type SettingsConfigRead,
 } from "./settingsConfigStore";
 import {
+  autosaveDocument,
   collectSaveRules,
   freshRows,
   matchRows,
@@ -155,6 +156,8 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let chain: Promise<unknown> = Promise.resolve();
 let inFlight = 0;
 let confirmingInFlight = 0;
+/** The Save on its way or queued, which a second press waits for. */
+let confirmation: Promise<boolean> | null = null;
 /** Bumped by a reset: an answer to a save from before it is dropped. */
 let generation = 0;
 /**
@@ -201,7 +204,10 @@ function takeCopy(): void {
     }
   }
   if (copy.config !== null && copy.config !== next.seen) {
-    const untouched = next.base === null || next.doc === next.base;
+    // A form takes a copy only while no save of its own is on its way: a
+    // value put back meanwhile reads as no edit until that save lands.
+    const untouched =
+      next.base === null || (next.doc === next.base && !next.saving);
     next = untouched
       ? {
           ...next,
@@ -291,7 +297,11 @@ async function putConfig(doc: Doc): Promise<PutAnswer> {
  */
 async function save(kind: "auto" | "full"): Promise<boolean> {
   if (onOtherServer()) {
-    forgetSettingsDraft();
+    // The page kept the draft of the server it is leaving, and nothing of it
+    // goes to the other one: not now, and not by any later save. The draft
+    // stays pinned where it was read, so every save refuses until the page
+    // reloads.
+    publish({ ...state, error: translate("settings.error.otherServer") });
     return false;
   }
   const gen = generation;
@@ -302,16 +312,13 @@ async function save(kind: "auto" | "full"): Promise<boolean> {
   const out =
     kind === "full"
       ? { doc: at.doc, ids: at.rows.doc }
-      : withoutPending(at.rules, at.base, at.doc, at.rows);
+      : autosaveDocument(at.rules, at.base, at.doc, at.rows);
   if (kind === "auto" && sameDocument(out.doc, at.base)) {
     return true;
   }
   const sent = out.doc;
   const editsAtSend = at.edits;
   inFlight++;
-  if (kind === "full") {
-    confirmingInFlight++;
-  }
   // The refusal of an earlier save says nothing about this one.
   publish({
     ...state,
@@ -324,9 +331,6 @@ async function save(kind: "auto" | "full"): Promise<boolean> {
     return false;
   }
   inFlight--;
-  if (kind === "full") {
-    confirmingInFlight--;
-  }
   if (!answer.ok) {
     publish({
       ...state,
@@ -382,7 +386,10 @@ async function save(kind: "auto" | "full"): Promise<boolean> {
 }
 
 function enqueue(kind: "auto" | "full"): Promise<boolean> {
-  const run = chain.then(() => save(kind));
+  // A save asked for before a switch in place belongs to the server left:
+  // it is dropped, not run against the draft of the next one.
+  const gen = generation;
+  const run = chain.then(() => (gen === generation ? save(kind) : false));
   chain = run.catch(() => false);
   return run;
 }
@@ -424,7 +431,24 @@ function settleError(): void {
  */
 export function saveSettingsDraft(): Promise<boolean> {
   cancelTimer();
-  return enqueue("full");
+  // One Save at a time: a second press while one is queued or on its way
+  // waits for that one, and Save and Discard are held from the press on.
+  if (confirmation !== null) {
+    return confirmation;
+  }
+  const gen = generation;
+  confirmingInFlight++;
+  publish({ ...state, confirming: true });
+  const run = enqueue("full").finally(() => {
+    if (gen !== generation) {
+      return;
+    }
+    confirmingInFlight--;
+    confirmation = null;
+    publish({ ...state, confirming: confirmingInFlight > 0 });
+  });
+  confirmation = run;
+  return run;
 }
 
 /**
@@ -457,6 +481,7 @@ export function discardPendingSettings(): void {
  * was on its way. It is the deliberate way back to the server's config.
  */
 export async function reloadSettingsDraft(): Promise<SettingsConfigRead> {
+  const hadTimer = timer !== null;
   cancelTimer();
   const pressedOn = state.doc;
   publish({ ...state, error: null });
@@ -473,7 +498,9 @@ export async function reloadSettingsDraft(): Promise<SettingsConfigRead> {
         rows: freshRows(state.rules, fresh),
       });
     }
-  } else if (state.unsaved) {
+  } else if (hadTimer) {
+    // A read that failed gives back the pause it interrupted, and nothing
+    // more: a refused save is not sent again without an edit or Save.
     schedule();
   }
   return read;
@@ -486,6 +513,7 @@ function forgetSettingsDraft(): void {
   chain = Promise.resolve();
   inFlight = 0;
   confirmingInFlight = 0;
+  confirmation = null;
   draftEnv = environmentKey(getEnv());
   schemaSeen = null;
   state = derive(empty());

@@ -198,6 +198,22 @@ describe("withoutPending", () => {
     ]);
   });
 
+  test("held rows go back before the rows added since", () => {
+    const b = base();
+    const f = form(b);
+    f.edit((d) => ({
+      ...d,
+      providers: providers(d).filter((_, i) => i === 1),
+    }));
+    f.edit((d) => ({ ...d, providers: [...providers(d), { name: "d" }] }));
+    expect(names(withoutPending(rules, b, f.doc, f.rows).doc)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+  });
+
   test("a held switch goes back to the saved value, taken out when the document had none", () => {
     const b = base();
     const f = form(b);

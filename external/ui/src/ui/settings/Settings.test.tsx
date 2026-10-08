@@ -653,7 +653,7 @@ test("an open row form keeps its row when a reload reorders the list", async () 
 // A newer copy the untouched form takes while a save runs is no edit of the
 // operator's: the save still turns the button green, and the form keeps
 // following the server's config afterwards.
-test("a copy taken while a save runs does not keep the button from turning green", async () => {
+test("a copy that lands while a save runs waits for it and does not keep the button from turning green", async () => {
   const fetch = stubServer();
   render(<Settings onClose={() => {}} initialSection="agent" />);
   const input = (await screen.findByLabelText("Max turns")) as HTMLInputElement;
@@ -673,9 +673,14 @@ test("a copy taken while a save runs does not keep the button from turning green
   await act(async () => {
     fireEvent.click(save);
   });
+  // A copy that lands while the save is on its way waits for it: the save
+  // may still answer for a value the form is about to hold.
   server.config = { ...server.config, agent: { max_turns: 41 } };
   act(() => noteSettingsConfigReloaded());
-  await waitFor(() => expect(input.value).toBe("41"));
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  expect(input.value).toBe("40");
   await act(async () => {
     release();
     await held;

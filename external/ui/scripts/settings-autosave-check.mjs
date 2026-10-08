@@ -211,6 +211,49 @@ for (const c of CASES) {
   await ctx.close();
 }
 
+// A provider added with Add waits for its id: no save, no error meanwhile;
+// named, it saves itself; taken out again, it waits for Save.
+{
+  const c = CASES[0];
+  const where = "a provider added with Add";
+  console.log(where);
+  const name = `check${Date.now() % 100000}`;
+  const { ctx, page, puts } = await open(c, "/settings/providers");
+  await page.getByTestId("settings-master-add").click();
+  const id = page.locator('.settings-detail input[aria-label="Provider id"]');
+  await id.waitFor();
+  if ((await id.inputValue()) !== "")
+    fail(where, "a new provider starts with an id");
+  await page.waitForTimeout(PAUSE_MS);
+  if (puts.length > 0)
+    fail(where, `${puts.length} save(s) of a provider with no id`);
+  if (await page.locator(".settings-lead-pane .settings-error").count()) {
+    fail(where, "an error shows while the new provider has no id");
+  }
+  await id.fill(name);
+  await page.waitForTimeout(PAUSE_MS);
+  const listed = () =>
+    readConfig().then((d) => (d.providers || []).some((p) => p.name === name));
+  if (!(await listed()))
+    fail(where, "the named provider was not saved on its own");
+  await page.getByTestId("settings-head-back").click();
+  await page
+    .getByRole("button", { name: new RegExp(`${name}$`) })
+    .last()
+    .waitFor();
+  await page
+    .locator(".settings-master-row", { hasText: name })
+    .locator(".settings-btn-danger")
+    .click();
+  await page.waitForTimeout(PAUSE_MS);
+  if (!(await listed()))
+    fail(where, "taking the provider out did not wait for Save");
+  await page.getByTestId("settings-save").click();
+  await page.waitForTimeout(1200);
+  if (await listed()) fail(where, "Save did not take the provider out");
+  await ctx.close();
+}
+
 await browser.close();
 if (failures.length > 0) {
   console.error(`\n${failures.length} failure(s):\n${failures.join("\n")}`);

@@ -90,6 +90,8 @@ export const messagesRu: Record<string, string> = {
   "settings.pending.on": "{field}: включение",
   "settings.pending.off": "{field}: выключение",
   "settings.pending.unnamed": "(без имени)",
+  "settings.error.otherServer":
+    "Страница переключена на другой сервер, перезагрузите её, чтобы изменить его настройки.",
   "settings.close.title": "Сохранить перед закрытием?",
   "settings.close.pending": "Без сохранения не применится: {changes}.",
   "settings.close.refused":

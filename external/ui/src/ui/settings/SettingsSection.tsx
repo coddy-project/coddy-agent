@@ -534,8 +534,18 @@ export function SettingsSection(props: {
       key === "models"
         ? (v: unknown[]) => setDoc(applyModelsChange(doc, v))
         : (v: unknown[]) => setKey(key, v);
+    // A new row starts without a name: the schema's defaults are the example
+    // config's first entry, and a name taken from it would clash with a row
+    // already listed, or be saved on its own before it is the one meant.
     const newItem =
-      key === "models" ? () => seedLogicalModel(sub.items, "") : undefined;
+      key === "models"
+        ? () => seedLogicalModel(sub.items, "")
+        : key === "providers" && sub.items
+          ? () => ({
+              ...(defaultForSchema(sub.items!) as Record<string, unknown>),
+              name: "",
+            })
+          : undefined;
     // Keyed by section: the list and row form are one component for every
     // array tab, and without the key a row form opened under LLM providers
     // would still be showing when the operator switched to Logical models.

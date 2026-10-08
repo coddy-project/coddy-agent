@@ -9,6 +9,7 @@ import {
   AUTOSAVE_MS,
   discardPendingSettings,
   editSettingsDraft,
+  reloadSettingsDraft,
   saveSettingsDraft,
   snapshotSettingsDraft,
 } from "./settingsDraftStore";
@@ -24,7 +25,11 @@ const schema = {
     providers: {
       type: "array",
       "x-coddy-save": "confirm-removal",
-      items: { type: "object", properties: { name: { type: "string" } } },
+      items: {
+        type: "object",
+        required: ["name", "type"],
+        properties: { name: { type: "string" }, type: { type: "string" } },
+      },
     },
     agent: {
       type: "object",
@@ -83,7 +88,10 @@ beforeEach(async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   config = {
     revision: "rev-1",
-    providers: [{ name: "demo" }, { name: "spare" }],
+    providers: [
+      { name: "demo", type: "openai" },
+      { name: "spare", type: "openai" },
+    ],
     agent: { max_turns: 40 },
     gateways: { telegram: {} },
   };
@@ -168,12 +176,120 @@ test("a draft is never saved into another environment, and leaving for one does 
   };
   expect(leave()).toBe(true);
   // The page is on its way to another server: switchTo stores it before the
-  // reload, and a page kept by a cancelled reload must not write there.
+  // reload, and a page kept by a cancelled reload must not write there - not
+  // the first save, and not one after it either.
   setEnv({ mode: "remote", baseUrl: "http://other.test", token: "" });
   expect(leave()).toBe(false);
   expect(await saveSettingsDraft()).toBe(false);
+  expect(draft().error).toMatch(/another server/);
+  editSettingsDraft(setIn(doc(), ["agent", "max_turns"], 41));
+  await pause();
+  await settle();
+  expect(await saveSettingsDraft()).toBe(false);
   expect(puts).toEqual([]);
-  expect(draft().pending).toEqual([]);
+});
+
+test("a save queued before a switch in place does not run on the next server", async () => {
+  editSettingsDraft(setIn(doc(), ["agent", "max_turns"], 41));
+  const release = holdSaves();
+  await pause();
+  expect(puts).toHaveLength(1);
+  const queued = saveSettingsDraft();
+  setEnv({ mode: "remote", baseUrl: "http://b.test", token: "" });
+  // What a switch in place runs: every module forgets the old server.
+  const { resetSettingsDraftForTests } = await import("./settingsDraftStore");
+  resetSettingsConfigForTests();
+  resetSettingsDraftForTests();
+  // The app on the next server reads its settings, and a change there waits
+  // for its own Save.
+  await ensureSettingsConfig();
+  editSettingsDraft(setIn(doc(), ["gateways", "telegram", "enable"], true));
+  release();
+  expect(await queued).toBe(false);
+  await settle();
+  expect(puts).toHaveLength(1);
+  expect(draft().pending).toHaveLength(1);
+});
+
+test("a Save queued behind a save on its way holds Save and Discard and runs once", async () => {
+  editSettingsDraft(setIn(doc(), ["agent", "max_turns"], 41));
+  const release = holdSaves();
+  await pause();
+  editSettingsDraft(setIn(doc(), ["gateways", "telegram", "enable"], true));
+  const first = saveSettingsDraft();
+  expect(draft().confirming).toBe(true);
+  const second = saveSettingsDraft();
+  release();
+  expect(await first).toBe(true);
+  expect(await second).toBe(true);
+  await settle();
+  expect(puts).toHaveLength(2);
+  expect(draft().confirming).toBe(false);
+});
+
+test("a Reload that cannot read does not send a refused save again", async () => {
+  refuse = "agent.max_turns: too many";
+  editSettingsDraft(setIn(doc(), ["agent", "max_turns"], 41));
+  await pause();
+  await settle();
+  expect(puts).toHaveLength(1);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "GET") {
+        return { ok: false, status: 502, json: async () => ({}) };
+      }
+      puts.push(JSON.parse(String(init?.body)) as Doc);
+      return { ok: false, status: 400, json: async () => ({ ok: false }) };
+    }),
+  );
+  await reloadSettingsDraft();
+  await pause();
+  await settle();
+  expect(puts).toHaveLength(1);
+});
+
+test("a copy landing while a save is on its way does not take a value put back meanwhile", async () => {
+  editSettingsDraft(setIn(doc(), ["agent", "max_turns"], 41));
+  const release = holdSaves();
+  await pause();
+  editSettingsDraft(setIn(doc(), ["agent", "max_turns"], 40));
+  noteSettingsConfigReloaded();
+  await settle();
+  release();
+  await settle();
+  await pause();
+  await settle();
+  expect(puts.map(turns)).toEqual([41, 40]);
+  expect(turns(doc())).toBe(40);
+});
+
+test("a new row goes out on its own once it has what the schema requires", async () => {
+  const rows = doc().providers as Doc[];
+  editSettingsDraft(setIn(doc(), ["providers"], [...rows, { name: "" }]));
+  editSettingsDraft(setIn(doc(), ["agent", "max_turns"], 41));
+  await pause();
+  await settle();
+  // The rest of the form is saved; the row being filled in is not sent yet.
+  expect(puts).toHaveLength(1);
+  expect((puts[0]!.providers as Doc[]).map((p) => p.name)).toEqual([
+    "demo",
+    "spare",
+  ]);
+  expect(draft().error).toBeNull();
+  const filled = setIn(
+    doc(),
+    ["providers"],
+    [...rows, { name: "codex", type: "codex" }],
+  );
+  editSettingsDraft(filled);
+  await pause();
+  await settle();
+  expect((puts[1]!.providers as Doc[]).map((p) => p.name)).toEqual([
+    "demo",
+    "spare",
+    "codex",
+  ]);
 });
 
 test("a read of the same schema again keeps following the rows of a list", async () => {

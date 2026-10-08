@@ -430,6 +430,9 @@ export function withoutPending(
       if (i !== undefined && i >= next) {
         putBackUpTo(i);
         next = i + 1;
+      } else if (i === undefined) {
+        // Rows added since stand after every saved one.
+        putBackUpTo(baseList.length);
       }
       list.push(row);
       listIds.push(id);
@@ -437,6 +440,51 @@ export function withoutPending(
     putBackUpTo(baseList.length);
     out = setIn(out, r.path, list);
     ids = { ...ids, [key]: listIds };
+  }
+  return { doc: out, ids };
+}
+
+/**
+ * autosaveDocument is what a save on its own sends: the form's document with
+ * the changes that wait for Save undone (withoutPending), and without a row
+ * added to a watched list that does not have what its schema requires yet
+ * (a provider with no name or type, a model with no id). Such a row is being
+ * filled in: the server would refuse it, and with it the rest of the form.
+ * It goes out with the first save after it is complete; Save sends it as it
+ * is.
+ */
+export function autosaveDocument(
+  rules: SaveRule[],
+  base: Doc | null,
+  doc: Doc,
+  rows: DraftRows,
+): { doc: Doc; ids: RowIds } {
+  const held = withoutPending(rules, base, doc, rows);
+  let out = held.doc;
+  let ids = held.ids;
+  for (const r of rules) {
+    const required = r.schema.items?.required ?? [];
+    if (r.kind !== "removal" || required.length === 0) {
+      continue;
+    }
+    const key = ruleKey(r.path);
+    const saved = new Set(rows.base[key] ?? []);
+    const list = listAt(out, r.path);
+    const listIds = ids[key] ?? [];
+    const keep = list.map(
+      (row, i) =>
+        saved.has(listIds[i] ?? -1) ||
+        required.every((f) => labelOf(row, f) !== ""),
+    );
+    if (keep.every(Boolean)) {
+      continue;
+    }
+    out = setIn(
+      out,
+      r.path,
+      list.filter((_, i) => keep[i]),
+    );
+    ids = { ...ids, [key]: listIds.filter((_, i) => keep[i]) };
   }
   return { doc: out, ids };
 }

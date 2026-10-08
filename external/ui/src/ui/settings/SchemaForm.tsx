@@ -61,6 +61,8 @@ export type JsonSchema = {
   /** false closes an object to its properties; a schema describes every value of a map. */
   additionalProperties?: boolean | JsonSchema;
   items?: JsonSchema;
+  /** Fields an object must carry (a provider's name and type). */
+  required?: string[];
   enum?: unknown[];
   minimum?: number;
   maximum?: number;

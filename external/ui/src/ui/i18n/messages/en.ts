@@ -84,6 +84,8 @@ export const messagesEn: Record<string, string> = {
   "settings.pending.on": "{field}: turn on",
   "settings.pending.off": "{field}: turn off",
   "settings.pending.unnamed": "(unnamed)",
+  "settings.error.otherServer":
+    "This page has been switched to another server; reload it to edit that server's settings.",
   "settings.close.title": "Save before closing?",
   "settings.close.pending": "Not applied until saved: {changes}.",
   "settings.close.refused":
