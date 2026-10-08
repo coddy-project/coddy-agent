@@ -1307,6 +1307,11 @@ is the screen: there is no list of nodes under it, because everything the list d
   itself (**`rootCurrent`**, the app on the relay's home) the relay's card carries the ring, and
   the wire from this machine, when the map draws it, is the live path. Hovering or focusing another node previews its route the same way,
   weaker.
+- **A node that serves shared models only.** A node that joined with a token made for shared
+  models carries a quiet **`swarm-badge`** reading **shared models only** (**`swarm.node.sharedModels`**,
+  **`data-testid="swarm-node-shared-<name>"`**) in the node list, and the topology tooltip appends the
+  same words to its transport. It is the node's own report (**`token_class`**), a label and not a
+  warning: the sessions list of such a node does not show the relay's 401 as a fault.
 - **The machine the page runs on.** When the page's own server is an agent (not a relay serving its
   own page) and the app is on a remote environment, the map draws that machine one tier above the
   relay, wired to it - it is where the connection starts: a disc with a screen glyph, named by its

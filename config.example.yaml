@@ -561,6 +561,9 @@ tools:
 #       - "${CODDY_SHARED_MODELS_TOKEN}"
 #     max_streams: 5         # concurrent calls per credential, all aliases together; 0 or absent = 5
 #                            # a further call is answered busy at once and the caller waits for a slot
+#     rate_per_minute: 30    # calls one credential may start per minute; 0 or absent = no limit
+#                            # a call past the window is answered busy at once, with a Retry-After
+#     rate_burst: 5          # calls that may start at once before the rate applies
 #     max_call_ms: 1800000   # longest blocking (stream: false) call of a shared model; absent = 30 min,
 #                            # at most 28800000 (8 h), 0 = that ceiling, never "no bound"
 
@@ -705,6 +708,22 @@ logger:
 #   tls:
 #     cert_file: "/etc/coddy/relay.crt"
 #     key_file: "/etc/coddy/relay.key"
+#     # Client certificates: verified against this bundle; a certificate name that
+#     # a swarm.clients entry lists stands for that client (below).
+#     client_ca_file: "/etc/coddy/clients-ca.pem"
+#     client_auth: "optional"      # optional (peers without a certificate still get in) or required
+#   # A borrower of shared models gets a credential of its own that opens only
+#   # GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage and
+#   # POST /coddy/llm/completions of the nodes it names, with limits the relay holds it to.
+#   clients:
+#     - name: "acme"                     # the label of logs and GET /swarm/stats
+#       token: "${ACME_RELAY_TOKEN}"     # differs from every other token of the relay
+#       scope: "shared_models"           # the only scope
+#       nodes: ["nas02", "edge/gpu-box"] # exact hop paths; "*" is any single-hop path
+#       max_streams: 2                   # calls held at once; 0 = no limit
+#       rate_per_minute: 30              # calls started per minute; 0 = no limit
+#       rate_burst: 5
+#       cert_names: ["acme.example"]     # DNS or URI names of its client certificate
 #   # Nodes listed by hand, for one that cannot run the join loop.
 #   upstreams:
 #     - name: "nas02"
@@ -727,3 +746,5 @@ logger:
 #       dial:
 #         proxy: "socks5://127.0.0.1:1080"
 #         ca_file: "/etc/coddy/internal-ca.pem"
+#         cert_file: "/etc/coddy/node.crt"   # the client certificate a relay with swarm.tls.client_ca_file asks for
+#         key_file: "/etc/coddy/node.key"
