@@ -72,6 +72,8 @@ MCP servers started over stdio get Coddy's environment plus the `env` map of the
 
 | Variable | Read by | Meaning | Documented in |
 |---|---|---|---|
+| `CODDY_LANG` | `internal/docs/lang.go` (`LangFromEnv`) | The language of the documentation the console's F1 help, `coddy docs` and the console's turns read (`ru` or `en`, any spelling of a locale), before the locale variables below; the way to choose on a system that sets none of them, Windows included. `coddy docs --lang` wins over it. | [Built-in documentation](../features/built-in-docs.md#languages) |
+| `LC_ALL`, `LC_MESSAGES`, `LANG` | `internal/docs/lang.go` (`LangFromEnv`) | The terminal's locale, read in that order when `CODDY_LANG` is not set: the first one set picks the documentation language (`ru_RU.UTF-8` is Russian; `C`, an untranslated language or none is English). | [Built-in documentation](../features/built-in-docs.md#languages) |
 | `COLORFGBG` | `external/cli/run.go` | With `--theme auto`, a background of `7` or `15` selects the light theme; anything else falls back to dark. | [Console](../surfaces/console.md#flags) |
 | `COLORTERM` | `external/cli/theme.go` | `truecolor` or `24bit` switches the console palette to 24-bit colour. | [Console](../surfaces/console.md) |
 | `SSH_CONNECTION`, `SSH_TTY` | `external/cli/tui/terminal.go` | A lone Escape is resolved after 100 ms over SSH and 10 ms locally. | [Keyboard](keyboard.md) |

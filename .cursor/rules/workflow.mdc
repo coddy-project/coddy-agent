@@ -54,7 +54,7 @@ When adding or changing behavior (including words like feature, add, implement, 
    **The documentation layer.** Every page of **`docs/nav.yaml`** has a stable address on the site, **`coddy.dev/docs/<slug>`**, and nothing is duplicated there: the site's `404.html` loads the generated **`docs-redirect.js`**, which sends a person to the page on GitHub (fragment kept) and turns **`coddy.dev/docs/<slug>.md`** into the raw Markdown; **`llms.txt`** and **`llms-full.txt`** at the site root point at the raw Markdown on `main`. The binary (`coddy -t` hints, `--dry-run` findings), the schema descriptions and the bundled `configure-coddy` skill print those addresses. **`internal/docsgen`** renders the three files; whenever a page, `nav.yaml`, the schema or anything a generated file depends on changes, publish the layer with the same pull request:
 
    ```bash
-   make site-docs          # write docs-redirect.js, llms.txt and llms-full.txt into the site checkout
+   make site-docs          # write docs-redirect.js, docs-anchors-ru.json and the llms files of both languages into the site checkout
    make site-docs-check    # report drift without writing; non-zero when stale
    ```
 
@@ -118,6 +118,17 @@ When adding or changing behavior (including words like feature, add, implement, 
       commits) fails on drift, on a page missing from the map, on a broken relative link or anchor and
       on an unused asset. **`make docs-changelog`** refreshes **`docs/getting-started/changelog.md`**
       from the GitHub Releases.
+    - **Translation** - the documentation is also in Russian: **`docs/ru/<group>/<page>.md`** translates
+      **`docs/<group>/<page>.md`** under the same path. A change to an English page carries the same change
+      into its translation in the same pull request, then **`make docs-stamp PAGES="docs/ru/..."`** records
+      that the translation follows the English page; a new page brings its translation and its entry in
+      **`docs/ru/nav.yaml`**, a changed title or summary its **`en:`** there, a schema description its entry
+      in **`docs/ru/config-descriptions.yaml`**. Link targets are copied from the English page and
+      **`make docs`** makes them right for the translation's folder. **`make docs-check`** fails on a missing
+      translation, different headings, a stamp behind its English page and Russian typography the rules
+      forbid; the pre-commit hook only warns about a stale stamp. The conventions, the glossary and the
+      writing rules for both languages are the paired **documentation translation rule**
+      (**`.cursor/rules/docs-translation.mdc`**, **`.claude/rules/docs-translation.md`**).
     - **Design records** - **`docs/plans/**`** keep decisions as they were taken and are not rewritten
       to match a later rename; only their link targets are repaired when a page moves. A page that moves takes its address with it: there are no redirect stubs, an old link breaks, and
       the coddy.dev address follows the map.
@@ -191,7 +202,7 @@ Add a light/dark theme variant only when the change modifies theme colors or tok
 - **`make site-docs-check`** clean when a documentation page, **`docs/nav.yaml`** or the schema changed: the interceptor script and the llms files on coddy.dev follow the repository.
 - **No stale spelling of anything renamed**: `git grep -nI '<old name>'` comes back empty outside **`docs/plans/**`** - docs, `config.example.yaml`, `examples/`, Go comments, every `external/ui/src/ui/i18n/messages/` dictionary and `internal/skills/bundled/` included.
 - **Man page and completions match the usage text** when the CLI surface changed: `go test ./cmd/coddy -run 'TestUsage|TestPackaging'` green, and the flags of the changed command present in **`packaging/completions/*`** and **`packaging/man/coddy.1`**.
-- **`make docs-check`** clean: every new page in **`docs/nav.yaml`**, the generated pages regenerated with **`make docs`**, no broken relative link or anchor, no asset without a page. The page of every user-visible change updated, with a screenshot on the page when the change is visible in the web UI or the console.
+- **`make docs-check`** clean: every new page in **`docs/nav.yaml`**, the generated pages regenerated with **`make docs`**, no broken relative link or anchor, no asset without a page, every changed English page carried into its translation under **`docs/ru/`** and restamped. The page of every user-visible change updated, with a screenshot on the page when the change is visible in the web UI or the console.
 - **`make lint`** clean.
 - **Rules sync** - when one representation of shared policy changes, update every deliberate counterpart in the same commit:
   1. inventory root `AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`, `.claude/rules/`, the Codex hook and other verified host integrations;

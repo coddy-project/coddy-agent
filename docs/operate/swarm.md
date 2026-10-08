@@ -229,7 +229,7 @@ like "this machine has no work".
 
 *A relay that needs a token before it lists anything*
 
-Connecting is the ordinary environment flow: the chip in the composer, **Connect to…**, the
+Connecting is the ordinary environment flow: the environment menu at the foot of the rail, **Connect to…**, the
 relay's address and its client token - or an entry of `httpserver.remotes` that names the relay,
 with its `token` when you keep it there ([Remote mode](remote.md#the-token)). A page served from
 another machine, a laptop's `coddy serve` for one, also needs the relay's `swarm.cors` to admit its
