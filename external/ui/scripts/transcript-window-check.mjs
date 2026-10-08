@@ -988,21 +988,50 @@ async function scenarioJumpTop() {
     cut: document.querySelector("[data-testid=transcript-earlier]") !== null,
   }));
   check(
+    `${label}: the window starts short of the first rows held`,
+    offer.cut,
+    "the control for what is above is there",
+  );
+  check(
     `${label}: pulling the page down offers only the jump to the top`,
     offer.up === "true" && offer.down === "false",
     JSON.stringify(offer),
   );
-  const olderBefore = messagesReads(requests, LONG).filter((q) =>
-    q.includes("before="),
-  ).length;
+  const olderReads = () =>
+    messagesReads(requests, LONG).filter((q) => q.includes("before=")).length;
+  // Reads of the page above the swipe itself set off must be over before the
+  // count the tap is measured against is taken.
+  let olderBefore = olderReads();
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(150);
+    const now = olderReads();
+    if (now === olderBefore) break;
+    olderBefore = now;
+  }
+  // Every frame from the tap on: the jump has to land at the top before the
+  // page above, read there, puts its rows in front of the reader.
+  await page.evaluate(() => {
+    window.__jumpMinY = Infinity;
+    const until = performance.now() + 2000;
+    const frame = () => {
+      window.__jumpMinY = Math.min(window.__jumpMinY, window.scrollY);
+      if (performance.now() < until) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
   await page.tap('[data-testid="chat-scroll-top"]');
   let olderAfter = olderBefore;
   for (let i = 0; i < 40 && olderAfter === olderBefore; i++) {
     await page.waitForTimeout(150);
-    olderAfter = messagesReads(requests, LONG).filter((q) =>
-      q.includes("before="),
-    ).length;
+    olderAfter = olderReads();
   }
+  await page.waitForTimeout(500);
+  const minY = await page.evaluate(() => window.__jumpMinY);
+  check(
+    `${label}: the jump lands at the top of the first rows held`,
+    minY < 80,
+    `scrollY ${Math.round(minY)} at its lowest`,
+  );
   check(
     `${label}: the jump reaches the first rows held, and the page above is read`,
     olderAfter > olderBefore,

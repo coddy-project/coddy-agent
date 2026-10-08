@@ -1399,6 +1399,8 @@ export function App() {
   >(null);
   const serverPermissionModeRef = useRef<string | null>(null);
   const serverPermissionReadRef = useRef(0);
+  /** The read of the mode in flight, which a first send waits for. */
+  const serverPermissionReadingRef = useRef<Promise<void> | null>(null);
   const [settingsOverrides, setSettingsOverrides] = useState<TurnOverride[]>(
     [],
   );
@@ -1447,23 +1449,28 @@ export function App() {
    * against an unknown mode is at worst redundant, while one left out against
    * a stale mode runs the first turn under a mode nobody chose.
    */
-  const readServerPermissionMode = useStableHandler(async () => {
+  const readServerPermissionMode = useStableHandler(() => {
     const read = ++serverPermissionReadRef.current;
     serverPermissionModeRef.current = null;
-    const mode = await fetch("/coddy/info", {
+    const reading = fetch("/coddy/info", {
       headers: { Accept: "application/json" },
     })
       .then((res) => (res.ok ? res.json() : null))
       .then(permissionModeOfInfo)
-      .catch(() => null);
-    if (read !== serverPermissionReadRef.current || !isAppEnvironment()) {
-      return;
-    }
-    serverPermissionModeRef.current = mode;
-    setServerPermissionMode(mode);
-    if (mode) {
-      setConfiguredPermissionMode(mode);
-    }
+      .catch(() => null)
+      .then((mode) => {
+        if (read !== serverPermissionReadRef.current || !isAppEnvironment()) {
+          return;
+        }
+        serverPermissionReadingRef.current = null;
+        serverPermissionModeRef.current = mode;
+        setServerPermissionMode(mode);
+        if (mode) {
+          setConfiguredPermissionMode(mode);
+        }
+      });
+    serverPermissionReadingRef.current = reading;
+    return reading;
   });
   // configEpoch bumps after every configuration swap, which can move
   // tools.permission_mode as well as the models.
@@ -4976,6 +4983,16 @@ export function App() {
         // from the server on its configured mode, what the chip shows is sent
         // as the pick: the first turn runs under the mode the operator saw,
         // never under one the page could not name.
+        // A read of the mode in flight (a reload, a reconnect) is waited for,
+        // briefly: the chip may still show the mode it is replacing, and a
+        // first turn pinned to that one would outlive the change.
+        const reading = serverPermissionReadingRef.current;
+        if (reading) {
+          await Promise.race([
+            reading,
+            new Promise((resolve) => setTimeout(resolve, 1500)),
+          ]);
+        }
         setPendingPermissionMode(
           pendingPermissionModeRef.current.mode ||
             (serverPermissionModeRef.current === null

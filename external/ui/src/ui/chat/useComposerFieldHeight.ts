@@ -7,7 +7,6 @@ import {
 } from "react";
 
 import {
-  composerAutoCeilingPx,
   composerFieldHeightPx,
   type ComposerFieldMetrics,
 } from "./composerHeight";
@@ -40,11 +39,6 @@ export function useComposerFieldHeight(o: {
   const { taRef } = o;
   const latest = useRef(o);
   latest.current = o;
-  // The last fit stood against the chat header: expanded up to it, or grown
-  // by itself as far as the room under it allowed. Something else growing in
-  // the docked block (a banner, an attachment, an error) then has to take
-  // its height from the field, or the block rides over the header.
-  const againstHeaderRef = useRef(false);
 
   const fit = useCallback(() => {
     const ta = taRef.current;
@@ -75,11 +69,6 @@ export function useComposerFieldHeight(o: {
       roomAbovePx: roomAbove(),
     };
     const height = composerFieldHeightPx(m, expanded);
-    againstHeaderRef.current =
-      Number.isFinite(m.roomAbovePx) &&
-      (expanded ||
-        (m.contentPx > m.floorPx + m.roomAbovePx &&
-          composerAutoCeilingPx(m) <= m.floorPx + m.roomAbovePx + 0.5));
     const cssHeight =
       cs.boxSizing === "border-box" ? height : height - paddingY - borderY;
     ta.style.height = `${cssHeight}px`;
@@ -106,7 +95,11 @@ export function useComposerFieldHeight(o: {
           })
         : null;
     if (ta?.parentElement) ro?.observe(ta.parentElement);
-    // The docked block's own height, for what grows in it beside the field.
+    // The docked block's own height: a banner, an attachment or an error
+    // rising into it takes room the field has to give back, or the block
+    // rides over the chat header. Refitting is safe on any change of it: the
+    // room is measured with the field at its floor, so a fit caused by the
+    // field's own growth lands on the same height and stops there.
     let lastBlock = -1;
     const block =
       ta?.closest(".chat-bottom-inner") ?? ta?.closest(".composer-wrap");
@@ -117,7 +110,7 @@ export function useComposerFieldHeight(o: {
             if (h === lastBlock) return;
             const first = lastBlock < 0;
             lastBlock = h;
-            if (!first && againstHeaderRef.current) fit();
+            if (!first) fit();
           })
         : null;
     if (block) blockRo?.observe(block);

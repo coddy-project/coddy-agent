@@ -234,3 +234,46 @@ test("queueing the prompt while a turn runs folds the field too", () => {
   expect(onQueue).toHaveBeenCalledWith("steer it this way", "steer", []);
   expect(field().style.height).toBe("100px");
 });
+
+test("a field grown by itself gives way to what grows in the docked block", () => {
+  const blockObservers = new Map<Element, (h: number) => void>();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      private cb: (
+        entries: { contentRect: { height: number; width: number } }[],
+      ) => void;
+      constructor(
+        cb: (
+          entries: { contentRect: { height: number; width: number } }[],
+        ) => void,
+      ) {
+        this.cb = cb;
+      }
+      observe(el: Element) {
+        blockObservers.set(el, (h) =>
+          this.cb([{ contentRect: { height: h, width: 600 } }]),
+        );
+      }
+      disconnect() {}
+    },
+  );
+  try {
+    // A phone held sideways: 150px of room above the block, a draft of
+    // 156px - grown by itself, short of that room.
+    room = 150;
+    contentPx = 156;
+    render(docked("five\nlines\nof\na\ndraft"));
+    expect(field().style.height).toBe("156px");
+    const resize = blockObservers.get(
+      document.querySelector(".composer-wrap")!,
+    )!;
+    act(() => resize(300));
+    // A 100px banner rises into the block: 50px of room are left.
+    room = 50;
+    act(() => resize(400));
+    expect(field().style.height).toBe("126px");
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

@@ -108,14 +108,17 @@ test("a finger's press is left alone so the tap still clicks; a mouse's keeps th
 // moves the selection without a scroll event: the button followed none of it
 // and stood where the selection had been.
 test("a change of size of what the button keeps clear of places it again", async () => {
-  const observers: Array<() => void> = [];
+  const observed = new Map<Element, () => void>();
   vi.stubGlobal(
     "ResizeObserver",
     class {
+      private cb: () => void;
       constructor(cb: () => void) {
-        observers.push(cb);
+        this.cb = cb;
       }
-      observe() {}
+      observe(el: Element) {
+        observed.set(el, this.cb);
+      }
       disconnect() {}
     },
   );
@@ -127,6 +130,8 @@ test("a change of size of what the button keeps clear of places it again", async
     );
     try {
       expect(button.style.top).toBe("330px");
+      // The docked block is what the button watches while it is out.
+      expect(observed.has(dock)).toBe(true);
       Object.defineProperty(Range.prototype, "getBoundingClientRect", {
         configurable: true,
         value: () =>
@@ -140,7 +145,7 @@ test("a change of size of what the button keeps clear of places it again", async
           }) as DOMRect,
       });
       await act(async () => {
-        for (const cb of observers) cb();
+        observed.get(dock)!();
         await new Promise((r) => requestAnimationFrame(() => r(null)));
       });
       expect(screen.getByRole("button", { name: "Quote" }).style.top).toBe(
