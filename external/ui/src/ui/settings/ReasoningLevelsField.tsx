@@ -2,7 +2,13 @@ import { useEffect, useRef } from "react";
 import { Combobox } from "./Combobox";
 import { FieldLabel } from "./FieldHint";
 import { IconTrash } from "./SchemaForm";
+import { isCoddyType, listedLevels } from "./sharedModels";
 import { useReasoningLevels } from "./useReasoningLevels";
+import {
+  providerRowFetchable,
+  useAutoProviderModels,
+  type ProviderRow,
+} from "./useProviderModels";
 import { useT } from "../i18n/I18nProvider";
 
 /** Level names the config package defines. The combobox stays editable, so a
@@ -22,6 +28,14 @@ const KNOWN_LEVELS = ["minimal", "none", "low", "medium", "high"];
  * current state, offers "Fetch reasoning levels" to fill the list with what the
  * gateway detects for the model id being edited, and offers a way back to the
  * auto-detected default.
+ *
+ * A model of a provider of type coddy has no id to detect from (its id is an
+ * alias on another Coddy), so there the third state is "the remote's listing
+ * decides": Fetch is gone, the status says who decides, and the levels the
+ * listing offers show read-only as the value the row inherits (the listing
+ * ContextWindowField already asks for, through useAutoProviderModels). The
+ * explicit list and the empty opt-out are the same keys with the same meaning,
+ * and the way back removes the key.
  */
 export function ReasoningLevelsField(props: {
   value: unknown;
@@ -30,6 +44,9 @@ export function ReasoningLevelsField(props: {
   /** Wire type of the provider the model id currently points at, as shown in
    * the (possibly unsaved) form; decides the Codex remap server-side. */
   providerType?: string | undefined;
+  /** The provider row the model id points at, as the form holds it; a coddy
+   * row's listing is asked of it. */
+  providerRow?: ProviderRow | undefined;
   label: string;
   description?: string | undefined;
 }) {
@@ -37,10 +54,31 @@ export function ReasoningLevelsField(props: {
   const { t } = useT();
   const { loading, detected, error, fetched, fetchLevels, reset } =
     useReasoningLevels();
+  const remote = isCoddyType(providerType);
 
   // undefined / null is "key absent"; anything else is an explicit list.
   const explicit = Array.isArray(value) ? value.map((v) => `${v}`) : null;
   const modelId = model.trim();
+
+  // The remote's own answer for this model, asked only of a coddy row that can
+  // be listed. A failed or missing listing adds no line: the status above it
+  // already says who decides.
+  const apiModel = modelId.includes("/")
+    ? modelId.slice(modelId.indexOf("/") + 1).trim()
+    : "";
+  const listingRow =
+    remote &&
+    props.providerRow &&
+    providerRowFetchable(props.providerRow) &&
+    apiModel !== ""
+      ? props.providerRow
+      : undefined;
+  const listing = useAutoProviderModels(listingRow);
+  const listed =
+    listingRow && listing.fetched && !listing.error
+      ? listing.models.find((m) => m.id === apiModel)
+      : undefined;
+  const remoteLevels = (listed?.reasoning_levels ?? []).join(", ");
 
   // Whatever the last fetch said was about the previous id, and an answer still
   // in flight for it must not land on the new one.
@@ -72,9 +110,17 @@ export function ReasoningLevelsField(props: {
   // found nothing only matters while the key is still absent.
   const status = () => {
     if (explicit !== null) {
+      if (remote) {
+        return explicit.length === 0
+          ? t("settings.reasoning.hiddenRemote")
+          : t("settings.reasoning.overriddenRemote");
+      }
       return explicit.length === 0
         ? t("settings.reasoning.hidden")
         : t("settings.reasoning.overridden");
+    }
+    if (remote) {
+      return t("settings.reasoning.fromRemote");
     }
     if (fetched && error) {
       return t("settings.reasoning.fetchError", { error });
@@ -90,27 +136,29 @@ export function ReasoningLevelsField(props: {
       <FieldLabel label={label} description={props.description} />
 
       <div className="model-field-controls reasoning-levels-actions">
-        <button
-          type="button"
-          className="settings-btn"
-          data-testid="reasoning-levels-fetch"
-          disabled={!modelId || loading}
-          onClick={() => {
-            void fetchLevels(modelId, providerType).then((next) => {
-              // null: the answer arrived too late (id retyped, field gone) and
-              // was dropped. Empty: the id has no reasoning family, and writing
-              // [] would read as the explicit opt-out, so leave the field alone
-              // and let the status line explain.
-              if (next && next.length > 0) {
-                onChangeRef.current(next);
-              }
-            });
-          }}
-        >
-          {loading
-            ? t("settings.reasoning.fetching")
-            : t("settings.reasoning.fetch")}
-        </button>
+        {remote ? null : (
+          <button
+            type="button"
+            className="settings-btn"
+            data-testid="reasoning-levels-fetch"
+            disabled={!modelId || loading}
+            onClick={() => {
+              void fetchLevels(modelId, providerType).then((next) => {
+                // null: the answer arrived too late (id retyped, field gone) and
+                // was dropped. Empty: the id has no reasoning family, and writing
+                // [] would read as the explicit opt-out, so leave the field alone
+                // and let the status line explain.
+                if (next && next.length > 0) {
+                  onChangeRef.current(next);
+                }
+              });
+            }}
+          >
+            {loading
+              ? t("settings.reasoning.fetching")
+              : t("settings.reasoning.fetch")}
+          </button>
+        )}
         {explicit === null ? null : (
           <button
             type="button"
@@ -122,7 +170,9 @@ export function ReasoningLevelsField(props: {
               onChange(undefined);
             }}
           >
-            {t("settings.reasoning.useAuto")}
+            {remote
+              ? t("settings.reasoning.useRemote")
+              : t("settings.reasoning.useAuto")}
           </button>
         )}
       </div>
@@ -130,6 +180,18 @@ export function ReasoningLevelsField(props: {
       <p className="settings-field-desc" data-testid="reasoning-levels-status">
         {status()}
       </p>
+      {remote && explicit === null && listed ? (
+        <p
+          className="settings-field-desc reasoning-levels-remote"
+          data-testid="reasoning-levels-remote"
+        >
+          {remoteLevels
+            ? t("settings.reasoning.fromRemoteLevels", {
+                levels: remoteLevels,
+              })
+            : t("settings.reasoning.fromRemoteNone")}
+        </p>
+      ) : null}
 
       {explicit === null ? null : (
         <ul className="settings-array">

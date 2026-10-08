@@ -5,6 +5,7 @@ import {
   remoteBusy,
   summarizeUsage,
   usageBannerKey,
+  usageMatchesModel,
   usagePercent,
   usageProviderBrand,
   usageWarnWindow,
@@ -22,24 +23,34 @@ import {
  * stream slot of a remote Coddy (blocker remote_busy) is no limit of an
  * account: its notice says what is waited for and until when, carries no
  * dismiss control (it goes away by itself) and is never hidden by an earlier
- * dismissal. Returns null when there is nothing to say or the notice was
- * dismissed for this period.
+ * dismissal. That countdown arrives as `busy`, a state of its own beside the
+ * `usage` snapshot (useProviderUsage): while it is there it is the notice,
+ * whatever the snapshot says, and when it ends the snapshot's notice is back.
+ * Both are shown only for the alias the composer has selected. Returns null
+ * when there is nothing to say or the notice was dismissed for this period.
  */
 export function UsageBanner(props: {
   usage: ProviderUsage | null | undefined;
+  /** The countdown of a call waiting for a free slot of a remote Coddy. */
+  busy?: ProviderUsage | null | undefined;
   modelId: string;
   dismissedKey?: string;
   onDismiss?: (key: string) => void;
   now?: Date;
 }) {
   const { t, locale } = useT();
-  const summary = summarizeUsage(props.usage, props.modelId);
+  const countdown =
+    props.busy && usageMatchesModel(props.busy, props.modelId)
+      ? props.busy
+      : null;
+  const shown = countdown ?? props.usage;
+  const summary = summarizeUsage(shown, props.modelId);
   const now = props.now ?? new Date();
-  const key = usageBannerKey(props.usage, props.modelId);
-  if (!key || (!remoteBusy(props.usage) && props.dismissedKey === key)) {
+  const key = usageBannerKey(shown, props.modelId);
+  if (!key || (!remoteBusy(shown) && props.dismissedKey === key)) {
     return null;
   }
-  const u = props.usage as ProviderUsage;
+  const u = shown as ProviderUsage;
   const brand = usageProviderBrand(u);
   let text = "";
   let tone: "warn" | "error" = "warn";

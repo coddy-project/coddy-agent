@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
@@ -16,11 +15,22 @@ import (
 // remote_busy (internal/agent/coddy_provider.go). It is no usage limit, and
 // the console must not say it is.
 
+// Stamps of the countdown's updates: the agent's clock at sending, an RFC 3339
+// UTC string the surfaces compare as a string.
+const (
+	busyStamp1 = "2026-09-06T17:47:12Z"
+	busyStamp2 = "2026-09-06T17:47:32Z"
+	busyStamp3 = "2026-09-06T17:47:52Z"
+)
+
 func remoteBusyUpdate() acp.ProviderUsageUpdate {
 	return acp.ProviderUsageUpdate{
 		SessionUpdate: acp.UpdateTypeProviderUsage,
 		Provider:      "lab",
 		ProviderType:  "coddy",
+		Model:         "terra",
+		ObservedAt:    busyStamp1,
+		FetchedAt:     busyStamp1,
 		Blocked:       true,
 		Blockers:      []string{"remote_busy"},
 		Resuming:      true,
@@ -29,22 +39,80 @@ func remoteBusyUpdate() acp.ProviderUsageUpdate {
 	}
 }
 
-func remoteBusyApp() (*App, *int) {
-	a := &App{updatesCh: make(chan updateMsg, 8)}
-	a.foot = newFooter(newTheme("dark"), ".")
-	a.chat = &tui.Container{}
+// remoteBusyEnd is the update that ends the countdown of remoteBusyUpdate: the
+// same family (the blocker, the row and the alias), no Resuming, no Blocked, no
+// retry fields and no usage data, stamped with the clock at sending.
+func remoteBusyEnd(stamp string) acp.ProviderUsageUpdate {
+	return acp.ProviderUsageUpdate{
+		SessionUpdate: acp.UpdateTypeProviderUsage,
+		Provider:      "lab",
+		ProviderType:  "coddy",
+		Model:         "terra",
+		ObservedAt:    stamp,
+		FetchedAt:     stamp,
+		Blockers:      []string{"remote_busy"},
+	}
+}
+
+// remoteBusyNotice is remoteBusyUpdate at another stamp and budget.
+func remoteBusyNotice(stamp string, retryInSec int) acp.ProviderUsageUpdate {
+	u := remoteBusyUpdate()
+	u.ObservedAt, u.FetchedAt, u.RetryInSec = stamp, stamp, retryInSec
+	return u
+}
+
+// busyTimers stands in for the console's timer factory: it keeps every timer
+// armed and whether it was stopped, so a test fires or inspects them.
+type busyTimers struct {
+	arms    []*busyArm
+	stopped int
+}
+
+type busyArm struct {
+	d       time.Duration
+	fn      func()
+	stopped bool
+}
+
+func (b *busyTimers) after(d time.Duration, fn func()) func() bool {
+	arm := &busyArm{d: d, fn: fn}
+	b.arms = append(b.arms, arm)
+	return func() bool {
+		if !arm.stopped {
+			arm.stopped = true
+			b.stopped++
+		}
+		return true
+	}
+}
+
+// live is the timers not stopped.
+func (b *busyTimers) live() []*busyArm {
+	var out []*busyArm
+	for _, arm := range b.arms {
+		if !arm.stopped {
+			out = append(out, arm)
+		}
+	}
+	return out
+}
+
+// remoteBusyApp is a console on the row "lab/terra" in session s1, its timers
+// replaced by busyTimers so a test sees what is armed and fires it by hand.
+func remoteBusyApp(t *testing.T) (*App, *busyTimers) {
+	t.Helper()
+	a := newTestApp(t)
 	a.modelID = "lab/terra"
 	a.sessionID = "s1"
-	armed := 0
-	a.usageAfterFn = func(time.Duration, func()) func() bool {
-		armed++
-		return func() bool { return true }
-	}
-	return a, &armed
+	a.foot.SetModel(a.modelID, "")
+	a.mgr = &usageBackend{}
+	timers := &busyTimers{}
+	a.usageAfterFn = timers.after
+	return a, timers
 }
 
 func TestRemoteBusyUpdateSaysTheCallWaitsForAFreeSlotOfTheRemote(t *testing.T) {
-	a, armed := remoteBusyApp()
+	a, timers := remoteBusyApp(t)
 	u := remoteBusyUpdate()
 	a.applyProviderUsage(u)
 
@@ -63,24 +131,30 @@ func TestRemoteBusyUpdateSaysTheCallWaitsForAFreeSlotOfTheRemote(t *testing.T) {
 	if len(a.chat.Children()) != 0 {
 		t.Fatalf("the wait posted %d transcript rows, want none", len(a.chat.Children()))
 	}
-	// Nothing to read again when the budget runs out: the clearing update ends
-	// the wait, so no reset note and no usage timer are armed.
-	if *armed != 0 || a.usageResume != nil || a.usageTimer != nil {
-		t.Fatalf("the wait armed %d timers, want none", *armed)
+	// No reset note and no usage timer: the one timer is the countdown's own
+	// expiry, its budget after receipt plus two seconds.
+	if a.usageResume != nil || a.usageTimer != nil {
+		t.Fatal("the wait armed a reset note or a usage timer")
+	}
+	if live := timers.live(); len(live) != 1 || live[0].d != 62*time.Second {
+		t.Fatalf("armed timers = %+v, want the one expiry at 62s", live)
 	}
 
 	// The countdown is re-sent while the wait lasts: the clock of the row is
-	// not restarted by it.
+	// not restarted by it, and the expiry is counted again from the new receipt.
 	started := a.stepStatus.startedAt
-	u.RetryInSec = 40
-	a.applyProviderUsage(u)
+	renewed := remoteBusyNotice(busyStamp2, 40)
+	a.applyProviderUsage(renewed)
 	if a.stepStatus.startedAt != started {
 		t.Fatal("a re-sent countdown must not restart the status clock")
+	}
+	if live := timers.live(); len(live) != 1 || live[0].d != 42*time.Second {
+		t.Fatalf("armed timers after a re-send = %+v, want the one expiry at 42s", live)
 	}
 }
 
 func TestRemoteBusyUpdateWithoutADeadlineNamesNoTime(t *testing.T) {
-	a, _ := remoteBusyApp()
+	a, _ := remoteBusyApp(t)
 	u := remoteBusyUpdate()
 	u.RetryAt, u.RetryInSec = "", 0
 	a.applyProviderUsage(u)
@@ -89,57 +163,63 @@ func TestRemoteBusyUpdateWithoutADeadlineNamesNoTime(t *testing.T) {
 	}
 }
 
-func TestRemoteBusyEndsWithTheClearingUpdateAndTheRowGoesBackToTheModel(t *testing.T) {
-	a, _ := remoteBusyApp()
+func TestRemoteBusyEndsWithTheEndUpdateAndTheRowGoesBackToTheModel(t *testing.T) {
+	a, _ := remoteBusyApp(t)
 	a.turnActive = true
 	a.applyProviderUsage(remoteBusyUpdate())
 	if !strings.HasPrefix(a.statusMessage(), "Waiting for a free slot") {
 		t.Fatalf("status row = %q", a.statusMessage())
 	}
 
-	// The update of another row says nothing about this wait.
-	a.applyProviderUsage(acp.ProviderUsageUpdate{Provider: "elsewhere", ProviderType: "coddy", Unsupported: true})
+	// The end of another row's wait says nothing about this one.
+	other := remoteBusyEnd(busyStamp2)
+	other.Provider = "elsewhere"
+	a.applyProviderUsage(other)
 	if !strings.HasPrefix(a.statusMessage(), "Waiting for a free slot") {
-		t.Fatalf("an update for another row ended the wait: %q", a.statusMessage())
+		t.Fatalf("an end for another row ended the wait: %q", a.statusMessage())
+	}
+	// So does the end of another alias's wait of the same row.
+	sibling := remoteBusyEnd(busyStamp2)
+	sibling.Model = "luna"
+	a.applyProviderUsage(sibling)
+	if !strings.HasPrefix(a.statusMessage(), "Waiting for a free slot") {
+		t.Fatalf("an end for another alias ended the wait: %q", a.statusMessage())
 	}
 
-	// The call got its slot: the agent says the row has no usage, and the row
-	// reads as waiting for the model until the call streams.
-	a.applyProviderUsage(acp.ProviderUsageUpdate{Provider: "lab", ProviderType: "coddy", Unsupported: true})
+	// The call got its slot: the agent sends the end, and the row reads as
+	// waiting for the model until the call streams.
+	a.applyProviderUsage(remoteBusyEnd(busyStamp2))
 	if got := a.statusMessage(); !strings.HasPrefix(got, statusWaitingModel) {
 		t.Fatalf("after the wait the row reads %q, want %q", got, statusWaitingModel)
 	}
 
-	// Later clearing updates (a turn's release publishes one for the row) leave
-	// the row of the next phase alone.
+	// Later ends (the call returned, the turn released) leave the row of the
+	// next phase alone.
 	a.setStatus(newModelStatus("Thinking"))
-	a.applyProviderUsage(acp.ProviderUsageUpdate{Provider: "lab", ProviderType: "coddy", Unsupported: true})
+	a.applyProviderUsage(remoteBusyEnd(busyStamp3))
 	if got := a.statusMessage(); !strings.Contains(got, "Thinking") {
-		t.Fatalf("a later clearing update changed the row to %q", got)
+		t.Fatalf("a later end changed the row to %q", got)
 	}
 }
 
 func TestRemoteBusyDoesNotOutliveTheTurn(t *testing.T) {
-	a, _ := remoteBusyApp()
+	a, _ := remoteBusyApp(t)
 	a.applyProviderUsage(remoteBusyUpdate())
 	a.turnSessionID = "s1"
-	a.status = &tui.Container{}
-	a.plain = true
 	a.applyLoopMessage(updateMsg{update: turnDone{sessionID: "s1"}})
-	// A clearing update that arrives in the next turn must not repaint its row.
+	// An end that arrives in the next turn must not repaint its row.
 	a.turnActive = true
 	a.setStatus(newModelStatus("Thinking"))
-	a.applyProviderUsage(acp.ProviderUsageUpdate{Provider: "lab", ProviderType: "coddy", Unsupported: true})
+	a.applyProviderUsage(remoteBusyEnd(busyStamp2))
 	if got := a.statusMessage(); !strings.Contains(got, "Thinking") {
-		t.Fatalf("a clearing update repainted the next turn's row: %q", got)
+		t.Fatalf("an end repainted the next turn's row: %q", got)
 	}
 }
 
 // A limit wait keeps its wording and its reset note, and takes over the row
 // from a wait for a slot.
 func TestUsageLimitWaitStillSaysUsageLimit(t *testing.T) {
-	a, armed := remoteBusyApp()
-	a.modelID = "neuraldeep/qwen3.8-27b"
+	a, timers := remoteBusyApp(t)
 	a.applyProviderUsage(remoteBusyUpdate())
 	limit := acp.ProviderUsageUpdate{
 		SessionUpdate: acp.UpdateTypeProviderUsage,
@@ -156,14 +236,17 @@ func TestUsageLimitWaitStillSaysUsageLimit(t *testing.T) {
 	if got := a.statusMessage(); got != want {
 		t.Fatalf("status row = %q, want %q", got, want)
 	}
-	if *armed != 1 || a.usageResume == nil {
-		t.Fatalf("a limit wait armed %d timers, want its one reset note", *armed)
+	if a.usageResume == nil {
+		t.Fatal("a limit wait must arm its reset note")
 	}
-	// The clearing update of the earlier wait for a slot no longer applies.
+	if live := timers.live(); len(live) != 2 {
+		t.Fatalf("armed timers = %d, want the countdown's expiry and the limit wait's reset note", len(live))
+	}
+	// The end of the earlier wait for a slot no longer applies to the row.
 	a.turnActive = true
-	a.applyProviderUsage(acp.ProviderUsageUpdate{Provider: "lab", ProviderType: "coddy", Unsupported: true})
+	a.applyProviderUsage(remoteBusyEnd(busyStamp2))
 	if got := a.statusMessage(); got != want {
-		t.Fatalf("a clearing update for the old wait changed the row to %q", got)
+		t.Fatalf("an end for the old wait changed the row to %q", got)
 	}
 }
 

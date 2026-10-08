@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ProviderModelList } from "./ProviderModelList";
+import { setLocale } from "../i18n/i18n";
 import { AUTO_FETCH_DEBOUNCE_MS } from "./useProviderModels";
 
 afterEach(() => {
@@ -18,7 +19,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-type StubModel = { id: string; name?: string; context_window?: number };
+type StubModel = {
+  id: string;
+  name?: string;
+  context_window?: number;
+  multimodal?: boolean;
+  reasoning_levels?: string[];
+  allow_reasoning_off?: boolean;
+};
 
 /** Answers every POST /coddy/providers/models with the given list (or an error). */
 function stubModels(models: StubModel[], ok = true) {
@@ -451,4 +459,84 @@ test("the list is contained: the box may shrink, the id ellipsizes, the toggle n
   expect(item).toMatch(/align-self:\s*flex-start/);
   expect(item).toMatch(/max-width:\s*calc\(100% \+ 6px\)/);
   expect(item).toMatch(/margin-left:\s*-6px/);
+});
+
+// --- what a remote Coddy's listing says about a model ----------------------
+
+const LAB_ROW = { name: "lab", type: "coddy", api_base: "https://lab.example" };
+
+test("a coddy listing shows a model's images and reasoning levels beside its id", async () => {
+  stubModels([
+    {
+      id: "terra",
+      context_window: 200000,
+      multimodal: true,
+      reasoning_levels: ["low", "high"],
+      allow_reasoning_off: true,
+    },
+    { id: "plain" },
+  ] as StubModel[]);
+  render(
+    <ProviderModelList
+      provider={LAB_ROW}
+      existingModels={[]}
+      onAddModel={noop}
+      onRemoveModel={noop}
+    />,
+  );
+  const terra = await screen.findByTestId("provider-model-terra");
+  expect(
+    terra.querySelector('[data-testid="provider-model-images-terra"]')
+      ?.textContent,
+  ).toBe("images");
+  const levels = terra.querySelector(
+    '[data-testid="provider-model-levels-terra"]',
+  ) as HTMLElement;
+  expect(levels.textContent).toBe("low · high · off");
+  expect(levels.getAttribute("title")).toBe(
+    "Reasoning levels the remote lists: low, high, off",
+  );
+  // A model the remote lists with nothing to say has no badge.
+  const plain = screen.getByTestId("provider-model-plain");
+  expect(plain.querySelector(".provider-models-item-badge")).toBeNull();
+});
+
+test("the badges are a coddy listing's only: another provider type shows none", async () => {
+  stubModels([
+    { id: "m1", multimodal: true, reasoning_levels: ["low"] },
+  ] as StubModel[]);
+  render(
+    <ProviderModelList
+      provider={{ name: "demo", type: "openai", api_base: "http://stub/v1" }}
+      existingModels={[]}
+      onAddModel={noop}
+      onRemoveModel={noop}
+    />,
+  );
+  const item = await screen.findByTestId("provider-model-m1");
+  expect(item.querySelector(".provider-models-item-badge")).toBeNull();
+});
+
+test("the badges read in Russian", async () => {
+  setLocale("ru");
+  try {
+    stubModels([
+      { id: "terra", multimodal: true, reasoning_levels: ["low"] },
+    ] as StubModel[]);
+    render(
+      <ProviderModelList
+        provider={LAB_ROW}
+        existingModels={[]}
+        onAddModel={noop}
+        onRemoveModel={noop}
+      />,
+    );
+    const item = await screen.findByTestId("provider-model-terra");
+    expect(
+      item.querySelector('[data-testid="provider-model-images-terra"]')
+        ?.textContent,
+    ).toBe("изображения");
+  } finally {
+    setLocale("en");
+  }
 });

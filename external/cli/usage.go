@@ -82,7 +82,10 @@ func remoteBusyPhrase(retryAt string, now time.Time) string {
 
 type usageResetDue struct {
 	provider string
-	forced   bool
+	// model is the alias of a coddy row's snapshot the timer was armed for, ""
+	// for every other type.
+	model  string
+	forced bool
 }
 
 // usageReport is the internal loop message carrying a /usage answer.
@@ -105,6 +108,18 @@ func usageModelOf(modelID string) string {
 	return model
 }
 
+// usageSubjectOf is the subject the usage of a model is read and kept under:
+// the model's selector, "provider/alias". The backend takes a row's name or a
+// selector, reads the alias for a row of type coddy (a remote Coddy's shared
+// models, one account per alias) and ignores it for every other type, so the
+// console always passes the selector. "" when the model names no provider.
+func usageSubjectOf(modelID string) string {
+	if usageProviderOf(modelID) == "" {
+		return ""
+	}
+	return strings.TrimSpace(modelID)
+}
+
 // usageTitle heads the /usage block: the brand, then the row unless it is
 // named after its type, so several profiles of one type are told apart. The
 // sentences keep the brand alone.
@@ -114,6 +129,11 @@ func usageTitle(u *acp.ProviderUsageUpdate) string {
 		return brand
 	}
 	row := tui.SanitizeText(strings.TrimSpace(u.Provider))
+	if alias := tui.SanitizeText(strings.TrimSpace(u.Model)); alias != "" && strings.EqualFold(strings.TrimSpace(u.ProviderType), "coddy") {
+		// A coddy row has no brand of its own and its numbers belong to the
+		// alias: "lab · terra".
+		return brand + " · " + alias
+	}
 	if row != "" && row != brand && row != strings.ToLower(strings.TrimSpace(u.ProviderType)) {
 		return brand + " · " + row
 	}
@@ -314,7 +334,9 @@ const (
 // minute, or one that needs a person.
 func blockerKind(id string) string {
 	switch id {
-	case "session_exhausted", "week_exhausted", "daily_capacity_exhausted", "session_cooldown", "abuse_cooldown":
+	case "session_exhausted", "week_exhausted", "daily_capacity_exhausted", "session_cooldown", "abuse_cooldown", "model_blocked":
+		// model_blocked is the remote's own gate of the alias, folded into the
+		// alias's update; it lifts on a clock like a window.
 		return "window"
 	case "rpm_exhausted":
 		return "rate"
@@ -630,44 +652,65 @@ func passedResetKey(u *acp.ProviderUsageUpdate) string {
 
 // --- App wiring ---
 
-// usageActive reports whether an update belongs to the active model's
-// provider; updates for other providers are kept but not shown.
+// usageActive reports whether an update belongs to the active model's subject:
+// its provider row, and for an update that names an alias (a coddy row) the
+// alias too. Updates for other subjects are kept but not shown.
 func (a *App) usageActive(u *acp.ProviderUsageUpdate) bool {
-	return u != nil && u.Provider != "" && u.Provider == usageProviderOf(a.modelID)
+	if u == nil || u.Provider == "" || u.Provider != usageProviderOf(a.modelID) {
+		return false
+	}
+	return u.Model == "" || u.Model == usageModelOf(a.modelID)
+}
+
+// usageIsNewer reports whether next, a snapshot of a subject, may replace
+// current, the one shown for it: the time the backend read them orders them,
+// never the order they arrived in, so an answer asked for before a pushed frame
+// that lands after it leaves the newer numbers alone, and the same read
+// delivered twice is the same read (the later arrival wins the tie). A snapshot
+// with no read time, or one that cannot be read, is no read at all and applies
+// by arrival: the manager builds a rejected key's update from nothing, and it
+// has to reach the line.
+func usageIsNewer(next, current *acp.ProviderUsageUpdate) bool {
+	if current == nil || next == nil {
+		return true
+	}
+	at, shown := parseUsageTime(next.FetchedAt), parseUsageTime(current.FetchedAt)
+	if at.IsZero() || shown.IsZero() {
+		return true
+	}
+	return !at.Before(shown)
+}
+
+// usageDueIsActive reports whether the reset timer of a snapshot was armed for
+// the subject of the active model.
+func (a *App) usageDueIsActive(u usageResetDue) bool {
+	if u.provider == "" || u.provider != usageProviderOf(a.modelID) {
+		return false
+	}
+	return u.model == "" || u.model == usageModelOf(a.modelID)
 }
 
 // applyProviderUsage adopts an update on the UI goroutine: the footer, the
-// notices, the reset timer.
+// notices, the reset timer. An update that carries the remote_busy blocker is
+// the countdown of a call waiting for a slot of a remote Coddy, not a usage
+// snapshot: it has a state of its own (usage_busy.go) and no snapshot, and no
+// answer that says a subject has no usage, touches it.
 func (a *App) applyProviderUsage(u acp.ProviderUsageUpdate) {
+	if isRemoteBusy(&u) {
+		a.applyRemoteBusy(u)
+		return
+	}
 	if u.Unsupported {
-		// The row has no usage now: no source, or its panel switched off
+		// The subject has no usage now: no source, or its panel switched off
 		// (providers[].usage_limits_panel: false). A stale line must not
-		// outlive that answer, nor may its reset timer ask again.
+		// outlive that answer, nor may its reset timer ask again. A countdown
+		// is not this answer's to end: it has an end update of its own.
 		if u.Provider != "" && a.foot != nil {
-			a.foot.DropUsage(u.Provider)
+			a.foot.DropUsage(u.Provider, u.Model)
 		}
 		if a.usageActive(&u) {
 			a.stopUsageTimer()
 		}
-		// The call that waited for a slot of this row has its answer, or was
-		// given up: the row goes back to the model until the call streams,
-		// since the first chunk is the only thing that announces it.
-		if a.remoteBusy != "" && a.remoteBusy == u.Provider {
-			a.stopUsageResume()
-			if a.turnActive || a.remoteTurnActive {
-				a.setStatus(newWaitingStatus())
-			}
-		}
-		return
-	}
-	if u.Resuming && isRemoteBusy(&u) {
-		// The turn is waiting for the remote's slot, not for a limit to lift:
-		// the status row says so, and nothing is armed. The call re-sends the
-		// countdown while it waits and ends it with an update that says the
-		// row has no usage (the branch above).
-		a.stopUsageResume()
-		a.remoteBusy = u.Provider
-		a.setStatus(liveStatus{verb: remoteBusyPhrase(u.RetryAt, a.usageNow()), startedAt: time.Now()})
 		return
 	}
 	if u.Resuming {
@@ -693,10 +736,13 @@ func (a *App) applyProviderUsage(u acp.ProviderUsageUpdate) {
 		return
 	}
 	snapshot := u
-	// Every provider keeps its latest snapshot on the footer; only the
-	// active model's renders, so a foreign row's update never blanks the
-	// line during a model switch.
-	a.foot.SetUsage(&snapshot)
+	// Every subject keeps its latest snapshot on the footer; only the active
+	// model's renders, so a foreign row's update never blanks the line during
+	// a model switch. A snapshot read earlier than the one shown (an answer
+	// that crossed a pushed frame) is not adopted, and so arms and says nothing.
+	if !a.foot.SetUsage(&snapshot) {
+		return
+	}
 	if !a.usageActive(&snapshot) {
 		return
 	}
@@ -799,16 +845,17 @@ func (a *App) armUsageTimer(u *acp.ProviderUsageUpdate) {
 	if delay == 0 {
 		return
 	}
-	provider, sessionID := u.Provider, a.sessionID
+	provider, model, sessionID := u.Provider, u.Model, a.sessionID
 	a.usageTimer = a.usageAfter(delay, func() {
-		_ = a.Sender().SendSessionUpdate(sessionID, usageResetDue{provider: provider, forced: forced})
+		_ = a.Sender().SendSessionUpdate(sessionID, usageResetDue{provider: provider, model: model, forced: forced})
 	})
 }
 
-// stopUsageResume drops the pending resume note and the memory of a wait for
-// a slot of the remote (a turn ended, or a newer countdown replaced it).
+// stopUsageResume drops the pending resume note of a limit wait (a turn ended,
+// or another wait took the status row). The countdown of a wait for a slot of
+// the remote is not the note's: it has its own state and its own drops
+// (usage_busy.go).
 func (a *App) stopUsageResume() {
-	a.remoteBusy = ""
 	if a.usageResume != nil {
 		a.usageResume()
 		a.usageResume = nil
@@ -831,11 +878,12 @@ func (a *App) usageAfter(d time.Duration, fn func()) func() bool {
 	return t.Stop
 }
 
-// refreshUsage asks the backend for the usage behind provider on a worker
-// and feeds the answer back as an update; refresh asks for a fresh read.
-func (a *App) refreshUsage(provider string, refresh bool) {
-	provider = strings.TrimSpace(provider)
-	if provider == "" || a.mgr == nil || a.workCtx == nil {
+// refreshUsage asks the backend for the usage behind a subject (the model's
+// selector, usageSubjectOf) on a worker and feeds the answer back as an
+// update; refresh asks for a fresh read.
+func (a *App) refreshUsage(subject string, refresh bool) {
+	subject = usageSubjectOf(subject)
+	if subject == "" || a.mgr == nil || a.workCtx == nil {
 		return
 	}
 	sessionID := a.sessionID
@@ -844,7 +892,7 @@ func (a *App) refreshUsage(provider string, refresh bool) {
 		defer a.workers.Done()
 		ctx, cancel := context.WithTimeout(a.workCtx, 30*time.Second)
 		defer cancel()
-		u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, provider, refresh)
+		u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, subject, refresh)
 		if err != nil || u == nil {
 			return
 		}
@@ -856,18 +904,19 @@ func (a *App) refreshUsage(provider string, refresh bool) {
 
 // showUsage is the /usage command: a fresh read printed as a block.
 func (a *App) showUsage() {
-	provider := usageProviderOf(a.modelID)
-	if provider == "" {
+	subject := usageSubjectOf(a.modelID)
+	if subject == "" {
 		a.appendStatus(roleWarning, "usage: no model selected")
 		return
 	}
+	provider := usageProviderOf(subject)
 	sessionID := a.sessionID
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
 		ctx, cancel := context.WithTimeout(a.workCtx, 30*time.Second)
 		defer cancel()
-		u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, provider, true)
+		u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, subject, true)
 		_ = a.Sender().SendSessionUpdate(sessionID, usageReport{provider: provider, update: u, err: err})
 	}()
 }

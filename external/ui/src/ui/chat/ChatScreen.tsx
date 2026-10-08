@@ -93,6 +93,9 @@ export function ChatScreen(props: {
   tokenUsage: TokenUsage | null;
   /** Account usage behind the selected model's provider: the pill and the banner. */
   providerUsage?: ProviderUsage | null;
+  /** The countdown of a call waiting for a free slot of a remote Coddy: a
+   *  state of its own beside the snapshot, shown by the banner and the popover. */
+  providerUsageBusy?: ProviderUsage | null;
   usageBannerDismissedKey?: string;
   onUsageBannerDismiss?: (key: string) => void;
   contextPct?: number;
@@ -826,6 +829,7 @@ export function ChatScreen(props: {
             {readOnlyNotice ? null : (
               <UsageBanner
                 usage={props.providerUsage}
+                busy={props.providerUsageBusy ?? null}
                 modelId={props.llmModel ?? ""}
                 {...(props.usageBannerDismissedKey
                   ? { dismissedKey: props.usageBannerDismissedKey }
@@ -840,6 +844,7 @@ export function ChatScreen(props: {
                 value={props.draft}
                 isEmpty={true}
                 providerUsage={props.providerUsage ?? null}
+                providerUsageBusy={props.providerUsageBusy ?? null}
                 attachedFiles={attachedFiles}
                 onAttachedFilesChange={setAttachedFiles}
                 focusEpoch={props.heroComposerFocusEpoch}
@@ -1072,6 +1077,7 @@ export function ChatScreen(props: {
               {readOnlyNotice ? null : (
                 <UsageBanner
                   usage={props.providerUsage}
+                  busy={props.providerUsageBusy ?? null}
                   modelId={props.llmModel ?? ""}
                   {...(props.usageBannerDismissedKey
                     ? { dismissedKey: props.usageBannerDismissedKey }
@@ -1087,6 +1093,7 @@ export function ChatScreen(props: {
                   value={props.draft}
                   isEmpty={false}
                   providerUsage={props.providerUsage ?? null}
+                  providerUsageBusy={props.providerUsageBusy ?? null}
                   attachedFiles={attachedFiles}
                   onAttachedFilesChange={setAttachedFiles}
                   sessionId={props.sessionId}

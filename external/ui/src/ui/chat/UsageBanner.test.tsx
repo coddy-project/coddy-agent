@@ -3,7 +3,11 @@ import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { setLocale } from "../i18n/i18n";
 import { UsageBanner } from "./UsageBanner";
-import type { ProviderUsage, UsageWindow } from "./providerUsage";
+import {
+  usageBannerKey,
+  type ProviderUsage,
+  type UsageWindow,
+} from "./providerUsage";
 
 const now = new Date("2026-09-06T17:47:12Z");
 
@@ -244,4 +248,121 @@ test("the reader's language says it too", () => {
   } finally {
     setLocale("en");
   }
+});
+
+// The countdown is a state of the surface of its own (4.6): the banner takes it
+// as a prop beside the snapshot, shows it over whatever the snapshot says, and
+// gives the snapshot's notice back when the countdown ends.
+function remoteWarm(model = "terra"): ProviderUsage {
+  return {
+    provider: "lab",
+    providerType: "coddy",
+    model,
+    fetchedAt: "2026-09-06T17:47:10Z",
+    windows: [
+      {
+        id: "session",
+        label: "5h",
+        usedPercent: 85,
+        resetsAt: "2026-09-06T19:00:00Z",
+        resetInSec: 4400,
+      },
+    ],
+  };
+}
+
+test("a countdown shows over a warm snapshot of the same alias, and the snapshot's notice returns when it ends", () => {
+  const warm = remoteWarm();
+  const { container, rerender } = render(
+    <UsageBanner
+      usage={warm}
+      busy={busyWait({ model: "terra" })}
+      modelId="lab/terra"
+      now={now}
+    />,
+  );
+  const banner = container.querySelector(
+    "[data-testid=usage-banner]",
+  ) as HTMLElement;
+  expect(banner.textContent).toContain("Waiting for a free slot on the remote");
+  expect(banner.textContent).not.toContain("You've used");
+  expect(container.querySelector(".usage-banner-dismiss")).toBeNull();
+  rerender(
+    <UsageBanner usage={warm} busy={null} modelId="lab/terra" now={now} />,
+  );
+  const back = container.querySelector(
+    "[data-testid=usage-banner]",
+  ) as HTMLElement;
+  expect(back.textContent).toContain("You've used 85% of your lab 5h limit");
+  expect(container.querySelector(".usage-banner-dismiss")).not.toBeNull();
+});
+
+test("a countdown of another alias is not this alias's to show", () => {
+  const { container } = render(
+    <UsageBanner
+      usage={null}
+      busy={busyWait({ model: "coder" })}
+      modelId="lab/terra"
+      now={now}
+    />,
+  );
+  expect(container.querySelector("[data-testid=usage-banner]")).toBeNull();
+});
+
+test("a countdown with no snapshot behind it shows alone, even after a dismissal of the row", () => {
+  const { container } = render(
+    <UsageBanner
+      usage={null}
+      busy={busyWait({ model: "terra" })}
+      modelId="lab/terra"
+      dismissedKey="lab/terra@remote_busy"
+      now={now}
+    />,
+  );
+  expect(container.querySelector("[data-testid=usage-banner]")).not.toBeNull();
+});
+
+test("a dismissal of one alias's notice never hides another alias's", () => {
+  const dismissedTerra = usageBannerKey(remoteWarm("terra"), "lab/terra");
+  const terra = render(
+    <UsageBanner
+      usage={remoteWarm("terra")}
+      modelId="lab/terra"
+      dismissedKey={dismissedTerra}
+      now={now}
+    />,
+  );
+  expect(
+    terra.container.querySelector("[data-testid=usage-banner]"),
+  ).toBeNull();
+  terra.unmount();
+  const coder = render(
+    <UsageBanner
+      usage={remoteWarm("coder")}
+      modelId="lab/coder"
+      dismissedKey={dismissedTerra}
+      now={now}
+    />,
+  );
+  expect(
+    coder.container.querySelector("[data-testid=usage-banner]"),
+  ).not.toBeNull();
+});
+
+test("a block of the alias's own gate reads as a block with its reset", () => {
+  const blocked: ProviderUsage = {
+    ...remoteWarm(),
+    blocked: true,
+    blockers: ["model_blocked"],
+    retryAt: "2026-09-06T19:00:00Z",
+    retryInSec: 4400,
+  };
+  const { container } = render(
+    <UsageBanner usage={blocked} modelId="lab/terra" now={now} />,
+  );
+  const banner = container.querySelector(
+    "[data-testid=usage-banner]",
+  ) as HTMLElement;
+  expect(banner.getAttribute("data-tone")).toBe("error");
+  expect(banner.textContent).toContain("Usage limit reached");
 });
