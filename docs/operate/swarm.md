@@ -324,7 +324,7 @@ opened from any node and pointed at the relay.
 
 A node can lend its models to other Coddys ([Shared models](../features/shared-models.md)), and a relay mount carries that traffic with no change to the relay: the borrower's provider has `api_base: https://relay.example/swarm/nodes/<node>` and `type: coddy`, the mount passes `/coddy/llm/models` and `/coddy/llm/completions` like any `/coddy/*` route, and it works for a node the relay dials and for one that dialled out through the tunnel alike. The streams are server-sent events through a proxy that flushes after every write, and the heartbeat of the shared stream keeps a hop that idles out at a minute alive. A relay rebuilt on a configuration change cuts the streams in flight, which the borrower sees as a transport failure and retries while nothing was shown. A client or a tunnel that vanishes without a trace is cut within 45 seconds, and the relay bounds its own client for these calls ([Liveness](#liveness-of-a-tunnel-and-of-a-shared-call)).
 
-**The relay substitutes the credential.** The borrower's `api_key` is the relay's client token (`swarm.auth_token`). The relay replaces it with the token the node registered with - `swarm.join[].token`, or `swarm.upstreams[].token` for a node pinned from the relay's side - so the node sees one caller. Two things follow. The limit of `httpserver.shared_models.max_streams` calls per credential then counts every client of the relay together, so it protects the node and its provider, not one borrower from another; and a slow client can hold a slot while its request body arrives (the body deadline is 30 s), so up to `max_streams` of them can keep the credential busy for the other clients, repeatedly. Per-client scopes enforced by the relay are not part of this version.
+**The relay substitutes the credential.** The borrower's `api_key` is the relay's client token (`swarm.auth_token`). The relay replaces it with the token the node registered with - `swarm.join[].token`, or `swarm.upstreams[].token` for a node pinned from the relay's side - so the node sees one caller. Two things follow. The limit of `httpserver.shared_models.max_streams` calls per credential then counts every client of the relay together, so it protects the node and its provider, not one borrower from another; and a slow client can hold a slot while its request body arrives (the body deadline is 30 s), so up to `max_streams` of them can keep the credential busy for the other clients, repeatedly. To give a borrower less than the whole relay, use [scoped clients](#scoped-clients).
 
 **One privilege per join token.** A node that exists to share models joins with one of its shared-model tokens, so what the relay can do on that node is exactly the three LLM routes:
 
@@ -482,6 +482,9 @@ swarm:
       scope: shared_models                     # the only scope
       nodes: [workstation, edge/gpu-box]       # exact hop paths
       cert_names: []                           # certificate names that map to this entry (below)
+      max_streams: 2                           # shared-model calls the entry may hold at once; 0 = no limit
+      rate_per_minute: 30                      # calls it may start per minute; 0 = no limit
+      rate_burst: 5                            # calls that may start at once before the rate applies
 ```
 
 - **What the entry opens.** `GET /coddy/llm/models`, `GET /coddy/llm/models/{alias}/usage` and `POST /coddy/llm/completions` of a node the entry lists,
@@ -494,6 +497,16 @@ swarm:
   name is not an identity.
 - **A node outside the list sounds like a node that does not exist.** The client gets the same `404` ("no such node in this relay") for both.
 - **The node never sees the client.** The relay replaces the credential with the node's own, as for the full class, so what a node sees is the relay.
+- **The relay holds each entry to its own limits.** `max_streams` bounds the completions the entry holds open at once and `rate_per_minute` (with
+  `rate_burst`, which defaults to the rate capped by `max_streams`, at least 1) the calls it may start. Only `POST /coddy/llm/completions` is counted, never a
+  listing. A call over a limit is answered by the relay at once, without asking the node: `429` with the wire error `kind: busy`, `code: client_streams` or
+  `client_rate`, and a `Retry-After` of whole seconds, so a calling Coddy waits it out like a full slot of the node. A slot is given back on every exit;
+  a window token is given back when the node itself answers `busy`, so a borrower that waits out a busy node does not drain its window by waiting. The
+  windows are in memory: a restart refills them. The full class is not limited by the relay.
+- **The relay counts what each client did.** `GET /swarm/stats` (full token only; a scoped client gets the same `401` as on every other relay route)
+  returns `{since, rows[{client, node, outcome, calls, duration_ms, max_duration_ms}]}` for the shared-model routes: `client` is the entry's name, `full` for
+  the full class or `unknown` for a token the gate refused, `node` is `-` when no node was named, and `outcome` is `ok`, `scope`, `limit`, `node_error`,
+  `gone` or `auth`. Labels only, in memory since the relay started, at most 1024 rows; a prompt, a token or a digest of one never appears.
 - **A token belongs to one class.** It must differ from the main, swarm, pairing and shared-model tokens and from every other entry's: `coddy -t` and the
   load refuse a duplicate.
 

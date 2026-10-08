@@ -7,6 +7,7 @@ package swarm
 // its entry lists, as exact hop paths, and nothing else of the relay.
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
@@ -492,4 +494,27 @@ func TestScopedClientReachesATunnelNode(t *testing.T) {
 	if res.StatusCode != http.StatusNotFound {
 		t.Errorf("a route outside the table through the tunnel = %d", res.StatusCode)
 	}
+}
+
+func registerRequestFor(name, url string) swarmdto.RegisterRequest {
+	return swarmdto.RegisterRequest{
+		Name: name, Kind: swarmdto.KindAgent, Transport: swarmdto.TransportDirect,
+		AdvertiseURL: url, InstanceUUID: "uuid-" + name, Token: "node-secret",
+	}
+}
+
+func contextWithCancel() (context.Context, context.CancelFunc) {
+	return context.WithCancel(context.Background())
+}
+
+func waitUntil(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
 }

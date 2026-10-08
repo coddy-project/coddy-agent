@@ -38,3 +38,25 @@ Feature: Scoped clients of a swarm relay
   Scenario: The full token keeps opening the whole relay
     When the full client reads the relay's node list
     Then the relay answers 200
+
+  Scenario: A client at its slot limit is told so and the node is not asked
+    Given a relay whose client "acme" may hold 1 shared-model call at a time, and a node that holds every call open
+    When the client "acme" starts a shared-model call
+    And the client "acme" starts a second shared-model call
+    Then the second call is refused with 429 busy and the code "client_streams"
+    And the node saw only the first call
+
+  Scenario: A client past its window is told when to come back
+    Given a relay whose client "acme" may start 60 shared-model calls a minute with a burst of 1, and a node that answers at once
+    When the client "acme" starts a shared-model call
+    And the client "acme" starts a second shared-model call
+    Then the second call is refused with 429 busy and the code "client_rate"
+    And the retry hint of the refusal is 1 second
+    And the node saw only the first call
+
+  Scenario: The counters of the relay tell what happened, to the full class only
+    Given a relay whose client "acme" may start 60 shared-model calls a minute with a burst of 1, and a node that answers at once
+    When the client "acme" starts a shared-model call
+    And the client "acme" starts a second shared-model call
+    Then the relay counted 1 "ok" and 1 "limit" call for the client "acme"
+    And the scoped client "acme" cannot read the counters

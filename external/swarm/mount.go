@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
@@ -149,6 +150,7 @@ func (s *Server) registerMountRoutes() {
 
 // handleMount proxies one request to one node.
 func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	// A request let in on a media capability alone has shown the relay no
 	// credential, so it learns nothing from the relay: every refusal of the
 	// relay's own is the gate's plain 401 - no node named, no path rule, no
@@ -183,6 +185,20 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// What the audit counters need to know, read once: the principal, whether this is one of the three shared-model routes, and the
+	// outcome, which the paths below set. Only a shared route of a principal who showed a credential is counted.
+	p := principalFrom(r.Context())
+	_, route, split := splitHops(name, rest)
+	shared := split && sharedRoute(r.Method, route) && p.class != principalNone
+	outcome := statOK
+	if shared {
+		defer func() {
+			if outcome == statOK && r.Context().Err() != nil {
+				outcome = statGone
+			}
+			s.stats.add(clientLabel(p), s.nodeLabel(name, p), outcome, time.Since(started))
+		}()
+	}
 	if !mountAllows(r.Method, rest) {
 		// Saying which plane the route belongs to is more useful than a bare
 		// 404, and reveals nothing the caller could not learn by reading the
@@ -196,9 +212,10 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 	// A scoped client is judged before the registry is looked at, so that what it hears about a node outside its list is what it
 	// hears about a node that does not exist: the allowlist first (exact hop paths, every hop of the chain), then the closed
 	// table of shared-model routes.
-	if p := principalFrom(r.Context()); p.class == principalScoped {
+	if p.class == principalScoped {
 		hops, route, split := splitHops(name, rest)
 		if !split || !clientAdmitsHops(*p.client, hops) {
+			outcome = statScope
 			writeHopError(w, http.StatusNotFound, name, "no such node in this relay", "")
 			return
 		}
@@ -210,6 +227,7 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 
 	node, ok := s.registry.Node(name)
 	if !ok {
+		outcome = statScope
 		refuse(func() { writeHopError(w, http.StatusNotFound, name, "no such node in this relay", "") })
 		return
 	}
@@ -217,6 +235,7 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !node.Info.Online || node.Transport == nil || !node.Transport.Alive() {
+		outcome = statNodeError
 		refuse(func() {
 			writeHopError(w, http.StatusBadGateway, name, "node is registered but not reachable", node.Info.LastSeen)
 		})
@@ -225,10 +244,25 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 
 	target := node.Transport.TargetURL()
 	if target == nil {
+		outcome = statNodeError
 		refuse(func() {
 			writeHopError(w, http.StatusBadGateway, name, "node has no usable transport", node.Info.LastSeen)
 		})
 		return
+	}
+
+	// The limits of a scoped client apply to a shared call only, after the scope check and the node's lookup and liveness (a refusal for
+	// an unreachable node costs nothing) and before the probe and before the node is asked: a slot, then a window token. A refusal
+	// holds nothing and never reaches the node.
+	var lease *clientLease
+	if p.class == principalScoped && isSharedCompletions(r.Method, rest) {
+		var refusal *busyRefusal
+		if lease, refusal = s.limits.acquire(*p.client); refusal != nil {
+			outcome = statLimit
+			writeBusyRefusal(w, refusal)
+			return
+		}
+		defer lease.release()
 	}
 
 	if isSharedCompletions(r.Method, rest) {
@@ -262,6 +296,11 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 		// own; passed through, they land next to the relay's, and a browser refuses a
 		// response that names the allowed origin twice - "*, *" included.
 		ModifyResponse: func(res *http.Response) error {
+			// The node refused the call before any stream started (kind busy: a full slot or a spent window of its own): the call
+			// was not admitted, so the relay's token comes back and a client that waits out the node's busy does not drain it.
+			if res.StatusCode == http.StatusTooManyRequests {
+				lease.refund()
+			}
 			for name := range res.Header {
 				if strings.HasPrefix(strings.ToLower(name), "access-control-") {
 					res.Header.Del(name)
@@ -274,6 +313,9 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 			// there is no way to turn a failure into a status code; the stream
 			// simply ends and the client treats the outcome as unknown.
 			s.log.Warn("swarm mount failed", "node", name, "path", rest, "error", err)
+			if outcome == statOK {
+				outcome = statNodeError
+			}
 			refuse(func() { writeHopError(w, http.StatusBadGateway, name, err.Error(), node.Info.LastSeen) })
 		},
 	}
