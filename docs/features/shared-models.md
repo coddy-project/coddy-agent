@@ -298,6 +298,26 @@ Directly, `api_base` is the remote's origin and the token is the remote's. Throu
 
 Two facts shape every relay setup. The relay replaces the caller's credential with the one the node joined with, so the node sees one caller and the limit (five by default) covers every client of that relay together: it protects the node and its provider, not clients from each other. And the relay client token a borrower puts into `api_key` opens the mounts of every node of that relay, each with the token that node joined with, so a shared-model token protects only the nodes that joined with one.
 
+### A private authority and a client certificate
+
+A `coddy` provider can trust a private certificate authority and present a client certificate to whatever terminates TLS in front of the remote (a reverse proxy that requires mutual TLS, for one):
+
+```yaml
+providers:
+  - name: workstation
+    type: coddy
+    api_base: https://remote.example:12345
+    api_key: ${WORKSTATION_TOKEN}
+    ca_file: /etc/coddy/private-ca.pem
+    client_cert_file: /etc/coddy/client.crt
+    client_key_file: /etc/coddy/client.key
+```
+
+- The three keys are paths, never the key itself, and belong to a provider of type `coddy` only: another type that writes one is a load error naming the key, so nobody believes a certificate is presented where it is not. `client_cert_file` and `client_key_file` are set together.
+- They apply to every request of the row: the completion, the listing and the usage read. The row keeps its HTTP/1.1 transport and its `proxy`: behind a proxy the `CONNECT` is made first and the certificate is presented to the remote at the end of the tunnel (an `https://` proxy is offered the same identity for its own hop, if it asks for one).
+- The pair is read at each handshake and cached by size and modification time, so a certificate rotated on disk is used by the next connection without a restart; a file that cannot be read fails that one handshake and the next one recovers when the file is back.
+- `coddy -t` reads the files: an unreadable or mismatched pair and an unreadable `ca_file` are errors, a `ca_file` that holds no certificate is a warning. `coddy --dry-run` loads the pair, reports an expiry within 14 days as a warning and a past `NotAfter` as an error, both at the key's line, and runs its listing probe with the identity.
+
 A relay that is rebuilt on a configuration change cuts the streams in flight; to the local Coddy that is a transport failure, retried while nothing was shown. A client that vanishes behind a relay is invisible to the node, which sees only the relay, so the relay bounds its own client for the completions route ([A peer that vanishes](#a-peer-that-vanishes)).
 
 ## Checking the setup
@@ -315,6 +335,9 @@ A relay that is rebuilt on a configuration change cuts the streams in flight; to
 | warning | an entry of `shared_models.tokens` that is empty, usually an `${ENV}` reference to an unset variable: it is ignored |
 | warning | shared-model tokens as the only credential: the rest of the API is closed to every caller and the web UI cannot sign in |
 | warning | `busy_wait_ms` on a provider that is not of type `coddy`: it has no effect |
+| error | `ca_file`, `client_cert_file` or `client_key_file` on a provider that is not of type `coddy`, a certificate without its key or the reverse, a pair that cannot be read or whose key is not the certificate's, an unreadable `ca_file` |
+| warning | a `ca_file` that holds no PEM certificate |
+| warning (`--dry-run`) | a client certificate that expires within 14 days (an error once it has) |
 | warning (`--dry-run`) | a key a `coddy` row writes that differs from what the remote lists for its alias: `max_context_tokens`, `multimodal`, `allow_reasoning_off`, `reasoning_default`, `reasoning_levels` |
 
 `coddy --dry-run` also asks every `coddy` provider for its listing, which exercises the address, the proxy and the token in one request. It reports a remote that is unreachable, a credential it refused, a protocol the two Coddys do not share (`update the older of the two`), an address that does not offer shared models, a remote that shares nothing (a warning), and, for every local `models[]` row of the provider, an alias the remote does not list as an error, since the remote answers a request for it with `404`. For an alias it does list it also compares, key by key, what the row writes with the remote's record and gives one **warning** per key that differs: a `max_context_tokens` that is not the remote's window, a `multimodal` or `allow_reasoning_off` that disagrees, a `reasoning_default` that is not the remote's default, and a `reasoning_levels` list that differs (a level the remote does not offer is named as refused with `invalid_option`, a level it offers that the row omits as unused). A key left out inherits the listing and an equal one agrees with it, so neither is reported. Each warning names the key with both values and what follows from it, is located at the key's line in the file, and ends in the same fix, `remove <key> from this model to inherit the remote's listing`:
@@ -341,6 +364,7 @@ Sharing a subscription login is the borrowers' convenience and the vendor's conc
 | `the remote refused the credential` | The token is wrong or of the wrong class for that address, or the node behind a mount did not join with a token. `coddy --dry-run` names the provider; the plain `401` comes from the gate. A `403` that says shared models need authentication means the remote has no credential configured at all. |
 | `no shared model is offered under that name` (`unknown_model`) | The alias is not shared, is misspelled, or the model is written with the remote's `provider/model` selector, which never works. List the aliases with `GET /coddy/llm/models`. |
 | `waited ... for one, in N requests` | The remote's slots for this credential stayed full for the whole budget. Raise `busy_wait_ms` or `agent.shared_busy_wait_ms`, or raise `httpserver.shared_models.max_streams` on the remote, or give each borrower a token of their own. |
+| `a limit of calls per minute ... is spent: waited ... for a free window` | The remote (or a relay, for a client of its own) refuses calls past its window, and it stayed spent for the whole budget. Raise `busy_wait_ms` or `agent.shared_busy_wait_ms`, or ask the operator for a larger `rate_per_minute`. A window refusal is a `busy` answer like a full slot, so it is waited out the same way. |
 | `invalid_option` saying the model cannot take an option of this request | The local row sets `max_tokens`, `temperature` or a reasoning level that the remote's provider refuses (a row backed by `codex` takes none of the first two). Remove them from the local row; the remote does not say which provider refused. |
 | `invalid_option` naming a reasoning level | The local row writes a level the remote row does not offer (a `reasoning_levels` or `reasoning_default` written on the row wins over the listing). Remove the key to follow the remote, or make it match; `coddy --dry-run` names the key and the levels. |
 | A `coddy` model has no reasoning selector, no `off` or no attach button | The listing has not answered yet (the remote was down at start; the web UI shows the listing after its next page load), the remote lists no levels or no images for that alias, or the row pins the key: `reasoning_levels: []`, `allow_reasoning_off: false`, `multimodal: false`. In Settings the three-state control shows `No` for a pinned key; choose `Remote`. |
@@ -369,7 +393,7 @@ Two of the four steps of [the plan](../plans/remote-model-provider.md#5-phases) 
 - **No blocking mode** on the wire: it is always a stream with a heartbeat.
 - **Loops are caught in one direction only.** A provider of type `coddy` cannot be shared, but a `type: openai` provider that points at another Coddy's `/v1` is not caught.
 - **Prompt-cache affinity of `codex` and `devin` through a stateless hop** has not been measured: the remote builds those providers per call, where a local run keeps one session id for the whole run. What is held by tests is the request body: for `openai`, `anthropic`, `neuraldeep` and `codex` the bytes the remote's provider sends upstream equal what a local provider of the same type sends.
-- **Little of the sharing is on a screen.** Settings has a Sharing block on each logical model (the alias, checked against the alias pattern, and the acknowledgement that a subscription login asks for), offers the `coddy` provider type with its `api_base`, its key and, among the advanced settings, `busy_wait_ms`, draws `multimodal` and `allow_reasoning_off` of a `coddy` row as the three-state control, and carries `agent.shared_busy_wait_ms` on the ReAct loop tab. The shared-model tokens are `config.yaml` keys only: Settings does not show the `httpserver` block. The console has no screen for sharing, only the status row and the usage line.
+- **Little of the sharing is on a screen.** Settings has a Sharing block on each logical model (the alias, checked against the alias pattern, and the acknowledgement that a subscription login asks for), offers the `coddy` provider type with its `api_base`, its key and, among the advanced settings, `busy_wait_ms`, draws `multimodal` and `allow_reasoning_off` of a `coddy` row as the three-state control, and carries `agent.shared_busy_wait_ms` on the ReAct loop tab, and shows `ca_file`, `client_cert_file` and `client_key_file` of a `coddy` row among the advanced settings. The shared-model tokens are `config.yaml` keys only: Settings does not show the `httpserver` block. The console has no screen for sharing, only the status row and the usage line.
 
 ## Tests
 

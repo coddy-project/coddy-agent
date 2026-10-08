@@ -45,6 +45,9 @@ const schema: JsonSchema = {
           proxy: { type: "string", title: "Proxy URL" },
           timeout_ms: { type: "integer", title: "Request timeout ms" },
           busy_wait_ms: { type: "integer", title: "Wait for a free slot ms" },
+          ca_file: { type: "string", title: "CA file" },
+          client_cert_file: { type: "string", title: "Client certificate" },
+          client_key_file: { type: "string", title: "Client key" },
           usage_limits_panel: {
             type: "boolean",
             title: "Usage limits panel",
@@ -60,6 +63,9 @@ const schema: JsonSchema = {
           "proxy",
           "timeout_ms",
           "busy_wait_ms",
+          "ca_file",
+          "client_cert_file",
+          "client_key_file",
           "usage_limits_panel",
         ],
       },
@@ -464,6 +470,60 @@ test("the busy wait is a field of the coddy provider only, among the advanced se
   );
   openFirstRow();
   expect(screen.queryByLabelText("Wait for a free slot ms")).toBeNull();
+});
+
+test("the TLS identity is three fields of the coddy provider only, among the advanced settings", () => {
+  stubFetch();
+  const coddy = render(
+    <Harness
+      section={providersSection}
+      doc={{ providers: [{ name: "lab", type: "coddy" }], models: [] }}
+    />,
+  );
+  openFirstRow();
+  const advanced = screen.getByTestId("settings-group-advanced");
+  fireEvent.change(within(advanced).getByLabelText("CA file"), {
+    target: { value: "/etc/ca.pem" },
+  });
+  fireEvent.change(within(advanced).getByLabelText("Client certificate"), {
+    target: { value: "/etc/c.pem" },
+  });
+  fireEvent.change(within(advanced).getByLabelText("Client key"), {
+    target: { value: "/etc/k.pem" },
+  });
+  const row = (latest.providers as Record<string, unknown>[])[0];
+  expect(row?.ca_file).toBe("/etc/ca.pem");
+  expect(row?.client_cert_file).toBe("/etc/c.pem");
+  expect(row?.client_key_file).toBe("/etc/k.pem");
+  coddy.unmount();
+
+  render(
+    <Harness
+      section={providersSection}
+      doc={{ providers: [{ name: "demo", type: "openai" }], models: [] }}
+    />,
+  );
+  openFirstRow();
+  for (const label of ["CA file", "Client certificate", "Client key"]) {
+    expect(screen.queryByLabelText(label)).toBeNull();
+  }
+});
+
+test("the TLS identity of the coddy provider reads in Russian", async () => {
+  setLocale("ru");
+  stubFetch();
+  render(
+    <Harness
+      section={providersSection}
+      doc={{ providers: [{ name: "lab", type: "coddy" }], models: [] }}
+    />,
+  );
+  openFirstRow();
+  await waitFor(() => {
+    expect(screen.getByLabelText("Файл CA")).toBeTruthy();
+    expect(screen.getByLabelText("Клиентский сертификат")).toBeTruthy();
+    expect(screen.getByLabelText("Клиентский ключ")).toBeTruthy();
+  });
 });
 
 test("the usage panel switch is on the coddy provider form: the remote's account usage is read for it", () => {

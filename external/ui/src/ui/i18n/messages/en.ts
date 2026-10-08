@@ -398,6 +398,15 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.busy_wait_ms.label": "Wait for a free slot ms",
   "settings.schema.providers.busy_wait_ms.desc":
     "coddy providers only: how long one call waits for a free slot of the remote when it answers busy. Above zero it wins; 0 follows the agent's shared busy wait (30000 unless set).",
+  "settings.schema.providers.ca_file.label": "CA file",
+  "settings.schema.providers.ca_file.desc":
+    "coddy providers only: PEM bundle of the authority that signed the remote's or the relay's certificate, besides the system roots.",
+  "settings.schema.providers.client_cert_file.label": "Client certificate",
+  "settings.schema.providers.client_cert_file.desc":
+    "coddy providers only: PEM certificate presented when the remote or the relay asks for one (mutual TLS). Set together with the client key; the file is read at each handshake, so a rotated certificate needs no restart.",
+  "settings.schema.providers.client_key_file.label": "Client key",
+  "settings.schema.providers.client_key_file.desc":
+    "coddy providers only: PEM private key of the client certificate. A path: the key itself never goes in the configuration.",
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
     "Show the account usage of this NeuralDeep, Codex, Devin or coddy provider here, in the console footer and in /usage, reading its usage endpoint for it. For a coddy provider that is the remote Coddy's account, read through the remote. Off hides the panel and stops those reads for this row.",

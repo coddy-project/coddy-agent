@@ -405,6 +405,15 @@ export const messagesRu: Record<string, string> = {
     "Ожидание свободного слота, мс",
   "settings.schema.providers.busy_wait_ms.desc":
     "Только для провайдеров coddy: сколько один вызов ждёт свободный слот удалённого Coddy, когда тот отвечает «занято». Значение больше нуля главнее; 0 следует общему ожиданию агента (30000, если не задано).",
+  "settings.schema.providers.ca_file.label": "Файл CA",
+  "settings.schema.providers.ca_file.desc":
+    "Только для провайдеров coddy: PEM-набор удостоверяющего центра, подписавшего сертификат удалённого Coddy или релея, в дополнение к системным корням.",
+  "settings.schema.providers.client_cert_file.label": "Клиентский сертификат",
+  "settings.schema.providers.client_cert_file.desc":
+    "Только для провайдеров coddy: PEM-сертификат, который предъявляется, когда удалённый Coddy или релей его запрашивает (взаимный TLS). Задаётся вместе с клиентским ключом; файл читается при каждом рукопожатии, поэтому обновлённый сертификат не требует перезапуска.",
+  "settings.schema.providers.client_key_file.label": "Клиентский ключ",
+  "settings.schema.providers.client_key_file.desc":
+    "Только для провайдеров coddy: закрытый ключ клиентского сертификата в PEM. Путь: сам ключ в конфигурацию не попадает.",
   "settings.schema.providers.usage_limits_panel.label": "Панель лимитов",
   "settings.schema.providers.usage_limits_panel.desc":
     "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex, Devin или coddy здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Для провайдера coddy это аккаунт удалённого Coddy, прочитанный через него. Выключено скрывает панель и прекращает эти запросы для данной строки.",

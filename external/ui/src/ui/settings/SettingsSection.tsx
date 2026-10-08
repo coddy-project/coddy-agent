@@ -77,6 +77,14 @@ type FieldOverrideContext = Parameters<FieldOverride>[0];
 // (internal/session/provider_usage_sources.go): the usage_limits_panel switch
 // means something only for them, so the other types do not show it. A coddy
 // row's source is the remote Coddy's account, read through the remote.
+// The keys of a provider's TLS identity: the authority it trusts and the client
+// certificate it presents. Only a coddy row has one.
+const CODDY_IDENTITY_PATHS = new Set([
+  "ca_file",
+  "client_cert_file",
+  "client_key_file",
+]);
+
 const USAGE_PANEL_PROVIDER_TYPES = new Set([
   "neuraldeep",
   "codex",
@@ -294,6 +302,14 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
   // The wait for a free slot of the remote means something only for a model
   // another Coddy shares.
   if (ctx.path === "busy_wait_ms" && providerType !== CODDY_PROVIDER_TYPE) {
+    return false;
+  }
+  // The TLS identity is presented only by a coddy row; another type would
+  // show a field that nothing reads.
+  if (
+    CODDY_IDENTITY_PATHS.has(ctx.path) &&
+    providerType !== CODDY_PROVIDER_TYPE
+  ) {
     return false;
   }
   if (providerType === CODDY_PROVIDER_TYPE && ctx.path === "api_base") {
@@ -710,6 +726,9 @@ export function SettingsSection(props: {
                     "proxy",
                     "timeout_ms",
                     "busy_wait_ms",
+                    "ca_file",
+                    "client_cert_file",
+                    "client_key_file",
                   ],
                   collapsible: true,
                 },
