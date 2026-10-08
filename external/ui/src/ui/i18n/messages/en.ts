@@ -2191,6 +2191,7 @@ export const messagesEn: Record<string, string> = {
   "swarm.node.links.one": "{count} link",
   "swarm.node.links.other": "{count} links",
   "swarm.node.here": "you are here",
+  "swarm.node.sharedModels": "shared models only",
   "swarm.activity.sessions.one": "{count} session",
   "swarm.activity.sessions.other": "{count} sessions",
   "swarm.activity.running.one": "{count} running",

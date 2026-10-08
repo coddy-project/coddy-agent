@@ -62,6 +62,11 @@ export type TopologyNode = {
   transport?: string;
   online: boolean;
   version?: string;
+  /**
+   * `shared_models` for an agent whose join token opens only the shared-model
+   * routes, as the node itself says it. Nothing else is ever sent.
+   */
+  token_class?: string;
 };
 
 export type TopologyEdge = {

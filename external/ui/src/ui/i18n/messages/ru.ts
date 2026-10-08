@@ -2269,6 +2269,7 @@ export const messagesRu: Record<string, string> = {
   "swarm.node.links.many": "{count} связей",
   "swarm.node.links.other": "{count} связи",
   "swarm.node.here": "вы здесь",
+  "swarm.node.sharedModels": "только общие модели",
   "swarm.activity.sessions.one": "{count} сессия",
   "swarm.activity.sessions.few": "{count} сессии",
   "swarm.activity.sessions.many": "{count} сессий",
