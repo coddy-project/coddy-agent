@@ -16,7 +16,7 @@ import (
 
 type dockerImageState struct {
 	dockerfile string
-	targets    []goBuildTarget
+	runs       []dockerRun
 }
 
 func (s *dockerImageState) theDockerfile(t *testing.T) func() error {
@@ -27,26 +27,29 @@ func (s *dockerImageState) theDockerfile(t *testing.T) func() error {
 }
 
 func (s *dockerImageState) buildKitBuildsItFor(target, build string) error {
-	targets, err := dockerGoBuildTargets(s.dockerfile, target, build)
+	runs, err := dockerRuns(s.dockerfile, target, build)
 	if err != nil {
 		return err
 	}
-	s.targets = targets
+	s.runs = runs
 	return nil
 }
 
-func (s *dockerImageState) goBuildRunsOn(platform string) error {
-	for _, g := range s.targets {
-		if g.stagePlatform != platform {
-			return fmt.Errorf("line %d: the %q stage runs go build on %s, want %s (emulated, not cross-compiled)",
-				g.line, g.stage, g.stagePlatform, platform)
+func (s *dockerImageState) everyCommandRunsOn(platform string) error {
+	for _, r := range s.runs {
+		if r.stagePlatform != platform {
+			return fmt.Errorf("line %d: the %q stage runs on %s, want %s (emulated, not on the build platform)",
+				r.line, r.stage, r.stagePlatform, platform)
 		}
 	}
 	return nil
 }
 
 func (s *dockerImageState) itCompilesFor(goos, goarch string) error {
-	for _, g := range s.targets {
+	for _, g := range s.runs {
+		if !g.goBuild {
+			continue
+		}
 		if g.goos != goos || g.goarch != goarch {
 			return fmt.Errorf("line %d: the %q stage compiles coddy for %s/%s, want %s/%s",
 				g.line, g.stage, g.goos, g.goarch, goos, goarch)
@@ -66,7 +69,7 @@ func TestDockerImagePlatformsFeature(t *testing.T) {
 			})
 			sc.Step(`^the Dockerfile of the repository$`, s.theDockerfile(t))
 			sc.Step(`^BuildKit builds it for "([^"]*)" on "([^"]*)"$`, s.buildKitBuildsItFor)
-			sc.Step(`^the stage that runs go build runs on "([^"]*)"$`, s.goBuildRunsOn)
+			sc.Step(`^every command of the build runs on "([^"]*)"$`, s.everyCommandRunsOn)
 			sc.Step(`^it compiles coddy for GOOS "([^"]*)" and GOARCH "([^"]*)"$`, s.itCompilesFor)
 		},
 		Options: &godog.Options{

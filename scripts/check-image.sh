@@ -84,7 +84,9 @@ hex() {
 }
 
 failed=0
+checked=0
 for platform in $(echo "$platforms" | tr ',' ' '); do
+    checked=$((checked + 1))
     want=$(machine_of "$platform") || {
         echo "check-image: no ELF machine known for $platform" >&2
         exit 2
@@ -129,5 +131,11 @@ for platform in $(echo "$platforms" | tr ',' ' '); do
         echo "check-image: $platform: coddy --version prints $printed"
     fi
 done
+
+# An empty list would check nothing and pass.
+if [ "$checked" -eq 0 ]; then
+    echo "check-image: no platform to check (--platforms '$platforms')" >&2
+    exit 2
+fi
 
 exit "$failed"

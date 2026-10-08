@@ -12,7 +12,7 @@ Feature: Every variant of the Docker image carries a coddy binary of its own pla
     Given the Dockerfile of the repository
     When BuildKit builds it for "<platform>" on "<build>"
     Then it compiles coddy for GOOS "<goos>" and GOARCH "<goarch>"
-    And the stage that runs go build runs on "<build>"
+    And every command of the build runs on "<build>"
 
     Examples:
       | platform    | build       | goos  | goarch |

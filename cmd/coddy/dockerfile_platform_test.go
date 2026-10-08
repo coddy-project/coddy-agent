@@ -130,27 +130,31 @@ func platformArgValues(target, build string) map[string]string {
 	return vars
 }
 
-// goBuildTarget is one RUN of the Dockerfile that runs `go build`: the stage it
-// is in, the platform that stage runs on, and what the compiler targets.
-type goBuildTarget struct {
+// dockerRun is one RUN of the Dockerfile: the stage it is in and the platform
+// that stage runs on, and for a RUN that runs `go build`, what the compiler
+// targets.
+type dockerRun struct {
 	line          int
 	stage         string
 	stagePlatform string
+	goBuild       bool
 	goos, goarch  string
 }
 
 var goEnvAssignRE = regexp.MustCompile(`\b(GOOS|GOARCH)=("[^"]*"|'[^']*'|[^\s;&|]+)`)
 
-// dockerGoBuildTargets reads every `go build` of the Dockerfile as BuildKit
-// would run it when it builds the image for target on the build platform.
-func dockerGoBuildTargets(dockerfile, target, build string) ([]goBuildTarget, error) {
+// dockerRuns reads every RUN of the Dockerfile as BuildKit would run it when
+// it builds the image for target on the build platform. A Dockerfile without
+// `go build` is an error.
+func dockerRuns(dockerfile, target, build string) ([]dockerRun, error) {
 	autos := platformArgValues(target, build)
 	global := map[string]string{} // the ARGs before the first FROM
 	var (
 		inStage              bool
 		stage, stagePlatform string
 		vars                 map[string]string
-		out                  []goBuildTarget
+		out                  []dockerRun
+		goBuilds             int
 	)
 	for _, in := range parseDockerfile(dockerfile) {
 		switch in.keyword {
@@ -198,9 +202,14 @@ func dockerGoBuildTargets(dockerfile, target, build string) ([]goBuildTarget, er
 				vars[kv[0]] = expandDockerVars(kv[1], vars)
 			}
 		case "RUN":
-			if !inStage || !strings.Contains(in.args, "go build") {
+			if !inStage {
 				continue
 			}
+			if !strings.Contains(in.args, "go build") {
+				out = append(out, dockerRun{line: in.line, stage: stage, stagePlatform: stagePlatform})
+				continue
+			}
+			goBuilds++
 			goos, goarch := vars["GOOS"], vars["GOARCH"]
 			for _, m := range goEnvAssignRE.FindAllStringSubmatch(in.args, -1) {
 				v := expandDockerVars(unquote(m[2]), vars)
@@ -219,10 +228,10 @@ func dockerGoBuildTargets(dockerfile, target, build string) ([]goBuildTarget, er
 			if goarch == "" && len(parts) > 1 {
 				goarch = parts[1]
 			}
-			out = append(out, goBuildTarget{line: in.line, stage: stage, stagePlatform: stagePlatform, goos: goos, goarch: goarch})
+			out = append(out, dockerRun{line: in.line, stage: stage, stagePlatform: stagePlatform, goBuild: true, goos: goos, goarch: goarch})
 		}
 	}
-	if len(out) == 0 {
+	if goBuilds == 0 {
 		return nil, fmt.Errorf("no RUN of the Dockerfile runs go build")
 	}
 	return out, nil
@@ -357,12 +366,18 @@ RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH=${TARGETARCH} \
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := dockerGoBuildTargets(tc.dockerfile, tc.target, tc.build)
+			runs, err := dockerRuns(tc.dockerfile, tc.target, tc.build)
 			if err != nil {
 				t.Fatal(err)
 			}
+			var got []dockerRun
+			for _, r := range runs {
+				if r.goBuild {
+					got = append(got, r)
+				}
+			}
 			if len(got) != 1 {
-				t.Fatalf("want one go build, got %+v", got)
+				t.Fatalf("want one go build, got %+v", runs)
 			}
 			g := got[0]
 			if g.stagePlatform != tc.wantPlatform || g.goos != tc.wantGOOS || g.goarch != tc.wantArch {
@@ -372,8 +387,25 @@ RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH=${TARGETARCH} \
 		})
 	}
 
-	if _, err := dockerGoBuildTargets("FROM scratch\nCOPY a /a\n", "linux/arm64", "linux/amd64"); err == nil {
+	if _, err := dockerRuns("FROM node:22\nRUN npm ci\n", "linux/arm64", "linux/amd64"); err == nil {
 		t.Error("a Dockerfile without go build must be an error, not a pass")
+	}
+
+	// A stage that only builds the web bundle still runs emulated when it
+	// is not on the build platform, which the feature's last step reports.
+	runs, err := dockerRuns(`
+FROM node:22 AS ui
+RUN npm ci
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
+ARG TARGETARCH
+ENV GOARCH=$TARGETARCH
+RUN go build ./cmd/coddy
+`, "linux/arm64", "linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 || runs[0].stage != "ui" || runs[0].stagePlatform != "linux/arm64" || runs[1].stagePlatform != "linux/amd64" {
+		t.Errorf("want the ui RUN on linux/arm64 and the go build on linux/amd64, got %+v", runs)
 	}
 }
 
