@@ -20,8 +20,9 @@ import (
 // remote asking for a ping every millisecond would only make this host post to it that often. A test lowers it.
 var coddyProbeFloor = time.Second
 
-// coddyProbePingBound bounds one ping: a ping that takes longer than the interval is abandoned and the next one goes out on time.
-const coddyProbePingBound = 10 * time.Second
+// probePingBound bounds one ping to DMAX = half the interval (10 s asked, 5 s): a ping slower than that counts as lost, which is what keeps
+// the bound of the model p4-probe true (a delivered ping arrives within DMAX), and a hung ping never lasts into the next tick.
+func probePingBound(every time.Duration) time.Duration { return every / 2 }
 
 var coddyProbeConfirmRE = regexp.MustCompile(`^id=([0-9a-f]{32}); every_ms=(\d+); grace_ms=(\d+)$`)
 
@@ -90,7 +91,7 @@ func (p *coddyProvider) startProbe(ctx context.Context, resp *http.Response) (st
 // error, a timeout, a 404 from somewhere else (a proxy that does not carry the route) or any other status is a failed ping, retried at
 // the next interval, since the stream itself says whether the call is alive.
 func (p *coddyProvider) ping(ctx context.Context, target, id string, every time.Duration) bool {
-	bound := min(every, coddyProbePingBound)
+	bound := probePingBound(every)
 	rctx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
 	req, err := http.NewRequestWithContext(rctx, http.MethodPost, target, nil)
