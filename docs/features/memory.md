@@ -1,6 +1,6 @@
 # Long-term memory
 
-In the LLM sense, memory is whatever reaches the context: the chat history is the short-term part, and it ends with the session. Long-term memory in Coddy is a set of markdown and plain-text notes on disk that a dedicated child agent, the **memory subagent**, consults and updates. Every user turn starts one run of it in the background task pool, with its own session bundle, its own transcript and its own task log, the way a `spawn_agent` child runs ([Subagents](subagents.md), [Background tasks](background-tasks.md)). The main agent never sees the memory tools; it sees the child's report as a block in its system prompt, next to the session's own notes, and the notes outlive any session.
+In the LLM sense, memory is whatever reaches the context: the chat history is the short-term part, and it ends with the session. Long-term memory in Coddy is a set of markdown and plain-text notes on disk that a dedicated child agent, the **memory subagent**, consults and updates. Every user turn starts one run of it in the background task pool, with its own session bundle, its own transcript and its own task log, the way a `spawn_agent` child runs ([Subagents](subagents.md), [Background tasks](background-tasks.md)). The main agent never sees the memory tools; it sees the child's report as a block after the history, for that turn only and never in its system prompt, and the notes outlive any session.
 
 ## What the memory subagent does
 

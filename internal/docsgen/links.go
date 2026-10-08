@@ -62,7 +62,7 @@ func CheckLinks(root string, files []string) []Problem {
 				if headings[self] == nil {
 					headings[self] = headingAnchors(self)
 				}
-				if !headings[self][strings.ToLower(target[1:])] {
+				if !headings[self][normalFragment(target[1:])] {
 					problems = append(problems, Problem{rel, "link " + target + ": no heading with that anchor on this page"})
 				}
 				continue
@@ -87,13 +87,22 @@ func CheckLinks(root string, files []string) []Problem {
 			if headings[key] == nil {
 				headings[key] = headingAnchors(abs)
 			}
-			if !headings[key][strings.ToLower(frag)] {
+			if !headings[key][normalFragment(frag)] {
 				problems = append(problems, Problem{rel, fmt.Sprintf("link %s: no heading with anchor #%s in %s", target, frag, path)})
 			}
 		}
 	}
 	sort.Slice(problems, func(i, j int) bool { return problems[i].String() < problems[j].String() })
 	return problems
+}
+
+// normalFragment is a link's fragment as anchors are written: percent-decoded
+// (a Cyrillic anchor may be written either way) and lower-cased.
+func normalFragment(frag string) string {
+	if u, err := url.PathUnescape(frag); err == nil {
+		frag = u
+	}
+	return strings.ToLower(frag)
 }
 
 // headingAnchors returns the GitHub-style anchors of every heading in a file,

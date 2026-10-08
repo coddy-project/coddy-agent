@@ -3,12 +3,15 @@ package docs
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
-// DefaultReadBytes bounds one reading of a page when the caller names no
-// budget: a whole page of the documentation is up to 150 KB, which a model
-// should take section by section rather than at once.
-const DefaultReadBytes = 24 << 10
+// DefaultReadChars bounds one reading of a page when the caller names no
+// budget: a whole page of the documentation is up to 150 thousand characters,
+// which a model should take section by section rather than at once. Budgets
+// count characters, not bytes, so a Russian page (two bytes a letter) reads as
+// far as an English one.
+const DefaultReadChars = 24 << 10
 
 // ReadOptions selects the part of a page a reading returns.
 type ReadOptions struct {
@@ -17,9 +20,9 @@ type ReadOptions struct {
 	// Offset is the line to start at, from 1, counted within the page or
 	// the section; 0 starts at the top.
 	Offset int
-	// MaxBytes bounds the text; 0 means DefaultReadBytes, negative means
-	// no bound. A reading always holds at least one line.
-	MaxBytes int
+	// MaxChars bounds the text in characters; 0 means DefaultReadChars,
+	// negative means no bound. A reading always holds at least one line.
+	MaxChars int
 }
 
 // Reading is a run of lines of a page or of one of its sections.
@@ -36,7 +39,7 @@ type Reading struct {
 }
 
 // Read returns a run of lines of the page or of one of its sections, cut
-// at a line boundary under the byte budget.
+// at a line boundary under the character budget.
 func (p *Page) Read(opts ReadOptions) (Reading, error) {
 	start, end := 0, len(p.lines)
 	r := Reading{Page: p}
@@ -59,14 +62,14 @@ func (p *Page) Read(opts ReadOptions) (Reading, error) {
 	if from > r.Total {
 		return Reading{}, fmt.Errorf("offset %d is past the end: %s has %d lines", opts.Offset, Ref(p.Slug, opts.Anchor), r.Total)
 	}
-	budget := opts.MaxBytes
+	budget := opts.MaxChars
 	if budget == 0 {
-		budget = DefaultReadBytes
+		budget = DefaultReadChars
 	}
 	to := from - 1
 	size := 0
 	for to < r.Total {
-		n := len(lines[to]) + 1
+		n := utf8.RuneCountInString(lines[to]) + 1
 		if budget > 0 && size+n > budget && to >= from {
 			break
 		}

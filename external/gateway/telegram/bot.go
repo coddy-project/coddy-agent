@@ -536,7 +536,13 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	mirrored, releaseMirror := session.Mirror(b.mirror, st.GetID(), sender)
 	defer releaseMirror()
 
-	// A chat has no status bar: no provider usage refresh at the end.
+	// A chat has no status bar: no provider usage refresh at the end. The
+	// sender's Telegram locale is the language the turn's documentation reads
+	// and @coddy: mentions speak; a message without a sender names none.
+	lang := ""
+	if msg.From != nil {
+		lang = msg.From.LanguageCode
+	}
 	result, err := b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
 		SessionID: st.GetID(),
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
@@ -544,6 +550,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		SkipUsagePublish:    true,
 		SurfaceSystemPrompt: surfaceSystemPrompt(rich),
 		Restriction:         restriction,
+		Lang:                lang,
 	})
 	sender.Flush()
 

@@ -1,11 +1,15 @@
 package docsgen
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 )
 
 // DefaultRawBase is where the Markdown of the main branch is served from.
@@ -51,6 +55,7 @@ func RenderLLMSIndex(nav *Nav, hub, base string) string {
 	b.WriteString("- [Install](https://coddy.dev/#install): one command per platform, the packages and the Docker image.\n")
 	b.WriteString("- [Compare](https://coddy.dev/compare/): Coddy against other agent harnesses, including where it loses.\n")
 	b.WriteString("- [config.yaml JSON Schema](https://coddy.dev/config.schema.json): the schema Coddy writes as a modeline into every config it saves.\n")
+	b.WriteString("- [Russian documentation](https://coddy.dev/ru/llms.txt): the same pages translated into Russian, under docs/ru/ in the repository.\n")
 	for _, g := range nav.Groups {
 		fmt.Fprintf(&b, "\n## %s\n\n", g.Title)
 		for _, p := range g.Pages {
@@ -84,4 +89,78 @@ func RenderLLMSFull(nav *Nav, root, base string) (string, error) {
 		}
 	}
 	return b.String(), nil
+}
+
+// llmsText are the fixed parts of a translated llms.txt and llms-full.txt.
+type llmsText struct {
+	title, note, fullTitle, fullNote, source string
+}
+
+var llmsTexts = map[string]llmsText{
+	docs.Russian: {
+		title:     "# Coddy Agent - документация на русском",
+		note:      "Каждая страница ниже - перевод документации из репозитория, это Markdown прямо из ветки main, поэтому он всегда соответствует коду. Английский оригинал описан в https://coddy.dev/llms.txt, а страница для людей открывается по адресу https://coddy.dev/ru/docs/<путь без .md>. Все страницы подряд собраны в llms-full.txt рядом с этим файлом. Исходники - https://github.com/coddy-project/coddy-agent",
+		fullTitle: "# Coddy Agent, вся документация на русском",
+		fullNote:  "Собрано из docs/nav.yaml и docs/ru/ командой make site-docs. Каждый раздел - одна страница документации в порядке чтения; строка Source называет файл.",
+		source:    "Source",
+	},
+}
+
+// RenderLLMSIndexLang renders <lang>/llms.txt: the translated titles and
+// summaries, each page at its translation's raw address, a page outside
+// docs/ at its English one.
+func RenderLLMSIndexLang(nav *Nav, tr *TranslatedNav, lang, hub, base string) string {
+	text := llmsTexts[lang]
+	local := tr.localize(nav)
+	var b strings.Builder
+	b.WriteString(text.title + "\n\n")
+	for _, l := range hubIntro(stampRE.ReplaceAllString(hub, "")) {
+		fmt.Fprintf(&b, "> %s\n", l)
+	}
+	b.WriteString("\n" + text.note + "\n")
+	for _, g := range local.Groups {
+		fmt.Fprintf(&b, "\n## %s\n\n", g.Title)
+		for _, p := range g.Pages {
+			path := translatedPath(lang, p.Path)
+			fmt.Fprintf(&b, "- [%s](%s): %s (%s)\n", p.Title, strings.TrimRight(base, "/")+"/"+path, p.Summary, path)
+		}
+	}
+	return b.String()
+}
+
+// RenderLLMSFullLang concatenates the translated pages in map order, their
+// stamps removed; a page outside docs/ is left out, as it is not translated.
+func RenderLLMSFullLang(nav *Nav, tr *TranslatedNav, lang string, read func(rel string) (string, error), base string) (string, error) {
+	text := llmsTexts[lang]
+	local := tr.localize(nav)
+	var b strings.Builder
+	b.WriteString(text.fullTitle + "\n\n" + text.fullNote + "\n")
+	for _, g := range local.Groups {
+		for _, p := range g.Pages {
+			if strings.HasPrefix(p.Path, "../") {
+				continue
+			}
+			path := translatedPath(lang, p.Path)
+			data, err := read(path)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue // CheckTranslation reports the missing page
+			}
+			if err != nil {
+				return "", fmt.Errorf("%s: %w", path, err)
+			}
+			fmt.Fprintf(&b, "\n\n# %s / %s\n\n%s: %s\n\n", g.Title, p.Title, text.source, strings.TrimRight(base, "/")+"/"+path)
+			b.WriteString(strings.TrimRight(stampRE.ReplaceAllString(data, ""), "\n"))
+			b.WriteString("\n")
+		}
+	}
+	return b.String(), nil
+}
+
+// translatedPath is the repository path of a nav page in a language: the
+// translation for a page under docs/, the English file for a root page.
+func translatedPath(lang, navPath string) string {
+	if strings.HasPrefix(navPath, "../") {
+		return RepoPath(navPath)
+	}
+	return TranslationDir(lang) + filepath.ToSlash(filepath.Clean(navPath))
 }

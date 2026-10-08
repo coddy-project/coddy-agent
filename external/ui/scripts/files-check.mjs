@@ -2194,9 +2194,10 @@ async function scenarioShots() {
 }
 
 /**
- * The documentation reader's close button stays where it first stood: the
- * header leaves the body's scrollbar free on its right, and a page that grows
- * tall enough to scroll after it loads used to move the button left as the
+ * The documentation reader's close button stays where it first stood, as far
+ * from the right edge as the title is from the left: when the header made room
+ * for the body's scrollbar on its right, the button stood 10px farther in, and
+ * a page that grew tall enough to scroll after it loaded moved it left as the
  * reader opened. Read every frame, from a cold load and from the rail.
  */
 async function scenarioDocsClose() {
@@ -2249,6 +2250,21 @@ async function scenarioDocsClose() {
     "the reader's close button does not move as a page loads",
     cold.length === 1,
     JSON.stringify(cold),
+  );
+  const insets = await r.page.evaluate(() => {
+    const box = (sel) => document.querySelector(sel).getBoundingClientRect();
+    const view = box("[data-testid=docs-view]");
+    const title = box(".docs-title");
+    const close = box("[data-testid=docs-close]");
+    return {
+      title: Math.round((title.left - view.left) * 10) / 10,
+      close: Math.round((view.right - close.right) * 10) / 10,
+    };
+  });
+  check(
+    "the reader's close button is as far from the right edge as the title from the left",
+    Math.abs(insets.title - insets.close) <= 1,
+    JSON.stringify(insets),
   );
   await r.page.goto(`${SHOTS_NODE}/?again=1`);
   await composer(r.page).waitFor();

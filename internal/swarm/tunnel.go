@@ -153,7 +153,7 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		(&http2.Server{
+		(&http2.Server{ //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
 			// One connection carries every request for this node, so the stream
 			// bound is what keeps a burst from starving a live turn.
 			MaxConcurrentStreams: TunnelMaxConcurrentStreams,
@@ -162,7 +162,7 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 			// open stream, so it would never fire on a tunnel that is quietly
 			// dead while holding a long turn.
 			IdleTimeout: 0,
-		}).ServeConn(served, &http2.ServeConnOpts{Handler: opts.Handler})
+		}).ServeConn(served, &http2.ServeConnOpts{Handler: opts.Handler}) //nolint:staticcheck // x/net v0.60.0 deprecates its HTTP/2 API for net/http's; the move is a change of its own
 	}()
 
 	select {

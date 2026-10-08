@@ -67,8 +67,11 @@ func writeDocsJSON(w http.ResponseWriter, v interface{}) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func (s *Server) docsLibrary(w http.ResponseWriter) *docs.Library {
-	lib, err := docs.Default()
+// docsLibrary is the documentation in the language a request asks for
+// (?lang=, any spelling of a locale); English for none, or for a language
+// the documentation is not translated into.
+func (s *Server) docsLibrary(w http.ResponseWriter, r *http.Request) *docs.Library {
+	lib, err := docs.For(r.URL.Query().Get("lang"))
 	if err != nil {
 		writeDocsError(w, http.StatusInternalServerError, "the built-in documentation does not load: "+err.Error())
 		return nil
@@ -76,8 +79,8 @@ func (s *Server) docsLibrary(w http.ResponseWriter) *docs.Library {
 	return lib
 }
 
-func (s *Server) coddyDocsContents(w http.ResponseWriter, _ *http.Request) {
-	lib := s.docsLibrary(w)
+func (s *Server) coddyDocsContents(w http.ResponseWriter, r *http.Request) {
+	lib := s.docsLibrary(w, r)
 	if lib == nil {
 		return
 	}
@@ -92,6 +95,7 @@ func (s *Server) coddyDocsContents(w http.ResponseWriter, _ *http.Request) {
 	writeDocsJSON(w, map[string]interface{}{
 		"object":  "coddy.docs",
 		"version": lib.Version,
+		"lang":    lib.Lang,
 		"groups":  groups,
 	})
 }
@@ -104,7 +108,7 @@ func neighbour(p *docs.Page) *docsPageRef {
 }
 
 func (s *Server) coddyDocsPage(w http.ResponseWriter, r *http.Request) {
-	lib := s.docsLibrary(w)
+	lib := s.docsLibrary(w, r)
 	if lib == nil {
 		return
 	}
@@ -125,6 +129,7 @@ func (s *Server) coddyDocsPage(w http.ResponseWriter, r *http.Request) {
 	writeDocsJSON(w, map[string]interface{}{
 		"object":   "coddy.docs_page",
 		"version":  lib.Version,
+		"lang":     page.Lang,
 		"slug":     page.Slug,
 		"title":    page.Title,
 		"summary":  page.Summary,
@@ -139,7 +144,7 @@ func (s *Server) coddyDocsPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) coddyDocsSearch(w http.ResponseWriter, r *http.Request) {
-	lib := s.docsLibrary(w)
+	lib := s.docsLibrary(w, r)
 	if lib == nil {
 		return
 	}
@@ -160,6 +165,7 @@ func (s *Server) coddyDocsSearch(w http.ResponseWriter, r *http.Request) {
 	writeDocsJSON(w, map[string]interface{}{
 		"object":  "coddy.docs_search",
 		"version": lib.Version,
+		"lang":    lib.Lang,
 		"query":   q,
 		"hits":    hits,
 	})

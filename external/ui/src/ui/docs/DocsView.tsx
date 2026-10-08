@@ -57,7 +57,7 @@ export function DocsView(props: {
   /** A search to show, from `/docs <words>` in the composer; a new nonce shows it again. */
   searchSeed?: { query: string; nonce: number };
 }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const { slug, anchor, onOpen } = props;
   const [contents, setContents] = useState<DocsContents | null>(null);
   const [page, setPage] = useState<DocsPage | null>(null);
@@ -98,7 +98,7 @@ export function DocsView(props: {
 
   useEffect(() => {
     const ac = new AbortController();
-    void fetchDocsContents(ac.signal)
+    void fetchDocsContents(locale, ac.signal)
       .then((res) => {
         if (res.ok) {
           setContents(res.data);
@@ -108,7 +108,7 @@ export function DocsView(props: {
       })
       .catch(() => {});
     return () => ac.abort();
-  }, []);
+  }, [locale]);
 
   // No page named: the reader opens on the first page of the contents.
   useEffect(() => {
@@ -125,7 +125,7 @@ export function DocsView(props: {
       return undefined;
     }
     const ac = new AbortController();
-    void fetchDocsPage(slug, ac.signal)
+    void fetchDocsPage(slug, locale, ac.signal)
       .then((res) => {
         if (res.ok) {
           setPage(res.data);
@@ -138,7 +138,7 @@ export function DocsView(props: {
     setTocOpen(false);
     setOutlineOpen(false);
     return () => ac.abort();
-  }, [slug]);
+  }, [slug, locale]);
 
   // Headings get the anchors the server computed, then the reader scrolls to
   // the section the address names, or to the top of a page just opened.
@@ -162,10 +162,11 @@ export function DocsView(props: {
   }, [page, slug, anchor, t]);
 
   // The header is laid on the columns of the page, but only the body scrolls:
-  // a classic scrollbar narrows the body's columns and not the header's. The
-  // header leaves the same width free on its right (--docs-scrollbar in
-  // styles.css), so the search ends where the text does. The scrollbar comes
-  // and goes with the page's height, which the layout's width follows.
+  // a classic scrollbar takes its width out of the body alone. The body gives
+  // that width out of its right padding (--docs-scrollbar in styles.css), so
+  // the text ends where the search does and the header keeps the same inset
+  // on both sides. The scrollbar comes and goes with the page's height, which
+  // the layout's width follows.
   useLayoutEffect(() => {
     const view = viewRef.current;
     const body = bodyRef.current;
@@ -260,7 +261,7 @@ export function DocsView(props: {
     }
     const ac = new AbortController();
     const timer = window.setTimeout(() => {
-      void searchDocs(q, ac.signal)
+      void searchDocs(q, locale, ac.signal)
         .then((res) => {
           setHits(res.ok ? res.data : []);
           setHitIndex(0);
@@ -271,7 +272,7 @@ export function DocsView(props: {
       window.clearTimeout(timer);
       ac.abort();
     };
-  }, [query]);
+  }, [query, locale]);
 
   // What the reader selected on the page: "Ask the agent" quotes it.
   useEffect(() => {

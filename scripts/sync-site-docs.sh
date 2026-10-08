@@ -49,7 +49,7 @@ fi
 go run ./cmd/docsgen -skip-cli -site "$site_repo" -site-only -write || exit 2
 echo
 echo "Next, in $site_repo:"
-echo "  git add docs-redirect.js llms.txt llms-full.txt && git commit"
+echo "  git add docs-redirect.js llms.txt llms-full.txt docs-anchors-*.json */llms.txt */llms-full.txt && git commit"
 echo
 echo "Push it together with the coddy-agent change it belongs to: llms.txt"
 echo "names pages by their path on main, so the site follows the merge."

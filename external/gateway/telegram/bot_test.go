@@ -307,3 +307,23 @@ func TestPermissionTapFromANonAdminInASharedGroupIsIgnored(t *testing.T) {
 		t.Fatal("the admin's tap did not answer the request")
 	}
 }
+
+// A turn carries the language of the person who wrote the message, from the
+// locale their Telegram client reports; the documentation the turn reads
+// follows it.
+func TestTurnCarriesTheSendersLanguage(t *testing.T) {
+	f := newFakeAPI(t, tgfake.Options{BotUsername: "coddy_bot"})
+	runner := newScriptedRunner()
+	b := New(&config.TelegramGatewayConfig{DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual, Admins: []int64{9}},
+		runner, t.TempDir(), slog.New(slog.DiscardHandler), "", nil)
+	b.botName = "coddy_bot"
+	for _, lang := range []string{"ru", ""} {
+		msg := f.userMessage(9, 9, "hello")
+		msg.From.LanguageCode = lang
+		key := sessionstore.SessionKey(adapterName, 9, 9, config.IsolationIndividual, false)
+		b.processMessage(context.Background(), f.api, msg, key)
+	}
+	if len(runner.langs) != 2 || runner.langs[0] != "ru" || runner.langs[1] != "" {
+		t.Fatalf("turn languages %q, want [ru \"\"]", runner.langs)
+	}
+}

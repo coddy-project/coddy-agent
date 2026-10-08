@@ -4,7 +4,7 @@ This page is for people: the environment, the build, the test runs, the flow of 
 
 ## Development environment
 
-- **Go** - 1.26 or newer, the `go` line of `go.mod`. Its `toolchain` line (`go1.26.8` today) is the oldest release any build links: CI and the release archives install the `go` line's release and switch to exactly that one, and with the default `GOTOOLCHAIN=auto` an older local `go` downloads it on first use. A newer local Go, or a newer patch in the `golang:1.26` image, builds with itself, which only adds fixes.
+- **Go** - 1.26 or newer, the `go` line of `go.mod`. Its `toolchain` line (`go1.26.9` today) is the oldest release any build links: CI and the release archives install the `go` line's release and switch to exactly that one, and with the default `GOTOOLCHAIN=auto` an older local `go` downloads it on first use. A newer local Go, or a newer patch in the `golang:1.26` image, builds with itself, which only adds fixes.
 - **Node.js and npm** (CI uses Node 22) - for a build with the `ui` tag, where `make ui-build` bundles the SPA that `go:embed` picks up; for `make test-agent-rules`, whose OpenCode half uses Node's test runner; for `make test`, which builds the SPA and runs vitest; and for `make lint`, whose shipped-tag pass embeds those assets and ends with `tsc`.
 - **golangci-lint v2.x** (CI pins v2.12.2), built with Go 1.26 or newer - for `make lint`.
 - **ripgrep** - the CI test job installs it before `go test`; keep `rg` on `PATH` for the same run locally.

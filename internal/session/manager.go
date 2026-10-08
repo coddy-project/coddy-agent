@@ -16,6 +16,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
@@ -1158,6 +1159,13 @@ type PromptRunOpts struct {
 	// asked about, whatever the session's permission mode. Turn-scoped, like
 	// SurfaceSystemPrompt, and never persisted.
 	Restriction *TurnRestriction
+	// Lang is the language of the surface running this turn: the web UI's
+	// locale, the terminal's, a messenger user's. The documentation the
+	// turn's @coddy: mentions attach and the agent's documentation tools read
+	// follows it (docs.KnownLang reads any spelling of a locale). Empty, or a
+	// language the documentation is not written in, leaves the choice to the
+	// language of the prompt; turn-scoped like SurfaceSystemPrompt.
+	Lang string
 
 	// BackgroundWake says the prompt was not typed by anybody: finished
 	// background tasks that finished with notification enabled started this
@@ -1477,6 +1485,19 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		state.SetTurnRestriction(opts.Restriction)
 		defer state.SetTurnRestriction(nil)
 	}
+	// The language of the turn: the surface's when it names a language the
+	// documentation is written in, else the language the person wrote the
+	// prompt in (its mentions aside), so every surface - ACP editors, API
+	// clients, a subagent's task - gets the documentation it asks in.
+	turnLang := ""
+	if opts != nil {
+		turnLang, _ = docs.KnownLang(opts.Lang)
+	}
+	if turnLang == "" {
+		turnLang = promptLang(params.Prompt)
+	}
+	state.SetTurnLang(turnLang)
+	defer state.SetTurnLang("")
 	// A turn no person started says so, the same way: held for this turn
 	// only, taken by the agent for the first message, and announced to the
 	// observers once the turn holds the session.

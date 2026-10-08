@@ -75,9 +75,32 @@ type FieldRow struct {
 // the schema and the resolved defaults (a flattened map keyed like the rows,
 // "logger.level"), one section per top-level key.
 func ConfigReference(schemaJSON []byte, defaults map[string]string) (string, error) {
+	return ConfigReferenceLang(schemaJSON, defaults, "en", nil)
+}
+
+// tableHeaders is the header row of a field table in each language.
+var tableHeaders = map[string]string{
+	"en": "| Key | Type | Default | Description |\n|-----|------|---------|-------------|\n",
+	"ru": "| Ключ | Тип | По умолчанию | Описание |\n|-----|-----|--------------|----------|\n",
+}
+
+// ConfigReferenceLang renders the field tables in a language: its table
+// header, its names of the types, and the descriptions of descriptions (keyed
+// like the rows, the English description where it has none).
+func ConfigReferenceLang(schemaJSON []byte, defaults map[string]string, lang string, descriptions map[string]string) (string, error) {
 	var root schemaNode
 	if err := json.Unmarshal(schemaJSON, &root); err != nil {
 		return "", fmt.Errorf("schema: %w", err)
+	}
+	header, ok := tableHeaders[lang]
+	if !ok {
+		header = tableHeaders["en"]
+	}
+	describe := func(key, en string) string {
+		if d, ok := descriptions[key]; ok && strings.TrimSpace(d) != "" {
+			return d
+		}
+		return en
 	}
 	keys := orderedTopLevel(root.Properties.Keys)
 	var b strings.Builder
@@ -85,18 +108,57 @@ func ConfigReference(schemaJSON []byte, defaults map[string]string) (string, err
 		node := root.Properties.Nodes[key]
 		fmt.Fprintf(&b, "\n### `%s`\n\n", key)
 		if node.Description != "" {
-			fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(node.Description))
+			fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(describe(key, node.Description)))
 		}
 		rows := fieldRows(key, node, defaults, true)
 		if len(rows) == 0 {
 			continue
 		}
-		b.WriteString("| Key | Type | Default | Description |\n|-----|------|---------|-------------|\n")
+		b.WriteString(header)
 		for _, r := range rows {
-			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", r.Key, r.Type, cell(r.Default), cell(r.Description))
+			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", r.Key, localizeType(r.Type, lang), cell(r.Default), cell(describe(r.Key, r.Description)))
 		}
 	}
 	return strings.TrimLeft(b.String(), "\n"), nil
+}
+
+// typeWords are the Russian names of the type column's words, longest first
+// so "list of objects" is not read as "list" and "object".
+var typeWords = map[string][][2]string{
+	"ru": {
+		{"list of objects", "список объектов"}, {"list of strings", "список строк"},
+		{"list of integers", "список целых чисел"}, {"list of numbers", "список чисел"},
+		{"list of booleans", "список логических значений"}, {"map of strings", "словарь строк"},
+		{"map of integers", "словарь целых чисел"}, {"map of numbers", "словарь чисел"},
+		{"map of booleans", "словарь логических значений"}, {"map of objects", "словарь объектов"},
+		{"list", "список"}, {"map", "словарь"}, {"string", "строка"}, {"integer", "целое число"},
+		{"number", "число"}, {"boolean", "логическое значение"}, {"object", "объект"}, {"any", "любой тип"},
+		{" or null", " или null"}, {", one of ", ", одно из "},
+	},
+}
+
+// localizeType translates the type column outside its code spans (the enum
+// values stay as written).
+func localizeType(kind, lang string) string {
+	words := typeWords[lang]
+	if len(words) == 0 {
+		return kind
+	}
+	head, enum, hasEnum := strings.Cut(kind, ", one of ")
+	for _, w := range words {
+		if w[0] == ", one of " {
+			continue
+		}
+		if head == w[0] || strings.HasPrefix(head, w[0]+" ") {
+			head = w[1] + head[len(w[0]):]
+			break
+		}
+	}
+	head = strings.Replace(head, " or null", " или null", 1)
+	if hasEnum {
+		return head + ", одно из " + enum
+	}
+	return head
 }
 
 func orderedTopLevel(keys []string) []string {

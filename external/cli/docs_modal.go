@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"os"
 	"regexp"
 	"strings"
 
@@ -422,7 +423,9 @@ func (m *docsModal) render(width int) {
 // of the editor. A reference to a page ("features/mentions#completion")
 // opens that page; any other text is a search.
 func (a *App) openDocsOverlay(arg string) {
-	lib, err := docs.Default()
+	// The documentation speaks the terminal's language; the console's own
+	// strings stay English.
+	lib, err := docs.For(docs.LangFromEnv(os.Getenv))
 	if err != nil {
 		a.appendStatus(roleError, "The built-in documentation does not load: "+err.Error())
 		return

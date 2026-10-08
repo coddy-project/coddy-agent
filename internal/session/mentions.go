@@ -46,10 +46,10 @@ const (
 	sessionDigestBytes = 24 << 10
 	// sessionDigestMessageBytes caps one message inside a digest.
 	sessionDigestMessageBytes = 3 << 10
-	// mentionDocBytes caps a page of the built-in documentation: every
-	// guide fits, and a long reference page arrives as its beginning with
-	// the way to read the rest.
-	mentionDocBytes = 64 << 10
+	// mentionDocChars caps a page of the built-in documentation, in
+	// characters: every guide fits, and a long reference page arrives as its
+	// beginning with the way to read the rest.
+	mentionDocChars = 64 << 10
 )
 
 // MentionAgent is a subagent a prompt may mention as "@agent:<name>".
@@ -168,6 +168,9 @@ type mentionResolver struct {
 	// not fetched. CheckMentions runs it, so what the composer marks is what
 	// sending would attach.
 	dry bool
+	// lang is the language of the surface running the turn; empty, a
+	// documentation page is read in the language the prompt is written in.
+	lang string
 }
 
 // ResolvePromptMentions returns blocks with an attachment resource after each
@@ -188,6 +191,7 @@ func (m *Manager) ResolvePromptMentions(ctx context.Context, st *State, blocks [
 		sessionDir: strings.TrimSpace(st.GetPersistedSessionDir()),
 		rules:      st.GetRulesCatalog(),
 		scope:      scope,
+		lang:       st.GetTurnLang(),
 	}
 	if m != nil {
 		r.store = m.store
@@ -271,7 +275,7 @@ func (r *mentionResolver) resolveToken(text string, tok mention.Token) (res *acp
 		res, ok = r.resolveAgent(tok.Ref, typed)
 		return res, -1, ok
 	case mention.SchemeCoddy:
-		res, ok = r.resolveDoc(tok.Ref, typed)
+		res, ok = r.resolveDoc(tok.Ref, typed, r.docLang(text))
 		return res, -1, ok
 	}
 	for i, rd := range tok.Readings {
@@ -843,12 +847,53 @@ func RuleAttachmentPath(cwd, home string, rule *rules.Rule) string {
 	return "rule:" + rule.CanonicalName()
 }
 
+// docLang is the language a documentation page mentioned in text is read in:
+// the surface's, else the language of the prompt's own words, the mentions
+// left out (a Cyrillic letter in them means Russian).
+func (r *mentionResolver) docLang(text string) string {
+	if r.lang != "" {
+		return docs.Lang(r.lang)
+	}
+	return docs.LangOfText(withoutMentions(text))
+}
+
+// withoutMentions is a text with its @ mentions left out: the words the person
+// wrote, whose script tells the language they write in.
+func withoutMentions(text string) string {
+	var words strings.Builder
+	at := 0
+	for _, tok := range mention.Parse(text) {
+		if tok.Start >= at {
+			words.WriteString(text[at:tok.Start])
+		}
+		at = max(at, tok.End)
+	}
+	if at < len(text) {
+		words.WriteString(text[at:])
+	}
+	return words.String()
+}
+
+// promptLang is the documentation language of a prompt nobody named one for:
+// the language of the words of its text blocks, mentions aside.
+func promptLang(blocks []acp.ContentBlock) string {
+	var b strings.Builder
+	for _, block := range blocks {
+		if block.Type == acp.ContentTypeText {
+			b.WriteString(withoutMentions(block.Text))
+			b.WriteByte(' ')
+		}
+	}
+	return docs.LangOfText(b.String())
+}
+
 // resolveDoc attaches a page of Coddy's own documentation, or one section of
-// it: "@coddy:features/mentions#completion". The documentation is the one
-// built into this binary, so it is mentionable from every surface and every
-// session, a subagent's task included.
-func (r *mentionResolver) resolveDoc(ref, typed string) (*acp.Resource, bool) {
-	lib, err := docs.Default()
+// it: "@coddy:features/mentions#completion", in lang. The documentation is
+// the one built into this binary, so it is mentionable from every surface and
+// every session, a subagent's task included; the address is the same in
+// every language.
+func (r *mentionResolver) resolveDoc(ref, typed, lang string) (*acp.Resource, bool) {
+	lib, err := docs.For(lang)
 	if err != nil {
 		return nil, false
 	}
@@ -863,7 +908,7 @@ func (r *mentionResolver) resolveDoc(ref, typed string) (*acp.Resource, bool) {
 	if r.dry {
 		return &acp.Resource{URI: uri, Mention: &acp.ResourceMention{Kind: mention.KindDoc, Typed: typed}}, true
 	}
-	rd, err := page.Read(docs.ReadOptions{Anchor: anchor, MaxBytes: mentionDocBytes})
+	rd, err := page.Read(docs.ReadOptions{Anchor: anchor, MaxChars: mentionDocChars})
 	if err != nil {
 		return nil, false
 	}

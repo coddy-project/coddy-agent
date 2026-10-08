@@ -1,4 +1,4 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -227,6 +227,13 @@ site-docs:
 
 site-docs-check:
 	CHECK=1 scripts/sync-site-docs.sh
+
+# docs-stamp records that the translations named in PAGES follow their English
+# pages as they are now (docs/contributing/documentation.md, Translations). It
+# refuses a page whose translation did not change since HEAD; UNCHANGED=1
+# accepts one when the English change needs no translation.
+docs-stamp:
+	go run ./cmd/docsgen -stamp $(if $(filter 1 true yes,$(UNCHANGED)),-unchanged) $(PAGES)
 
 docs-changelog:
 	$(MAKE) build TAGS="$(FULL_TAGS)"

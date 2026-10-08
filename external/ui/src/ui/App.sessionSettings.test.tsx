@@ -308,8 +308,10 @@ test("a model picked on the start page does not replace an existing session's", 
   expect(modelChip()).toHaveTextContent("alpha-model");
   const meta = await send("next");
   expect(meta.model).toBe(ALPHA);
-  // Every turn names the web UI, which asks for its system prompt block.
+  // Every turn names the web UI, which asks for its system prompt block, and
+  // the interface's language, which the documentation answers in.
   expect(meta.surface).toBe("webui");
+  expect(meta.lang).toBe("en");
 });
 
 test("a level picked on the start page stays out of a session with no level of its own", async () => {

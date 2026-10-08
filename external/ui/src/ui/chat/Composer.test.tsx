@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { Composer } from "./Composer";
+import { setLocale } from "../i18n/i18n";
 import {
   recordWorkspaceAtRecent,
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
@@ -2287,6 +2288,29 @@ test("the @ picker asks the server's search and names each candidate's kind", as
     "2 of 7, type to narrow",
   );
   vi.unstubAllGlobals();
+});
+
+test("asks the @ picker in the language of the interface", async () => {
+  stubShell(true);
+  const urls = stubMentionsFetch({
+    app: {
+      items: [{ kind: "file", insert: "@app.go", label: "app.go" }],
+    },
+  });
+  setLocale("ru");
+  try {
+    render(<MentionHarness onChange={() => {}} />);
+    // The only textbox; under ru its accessible name is not "Message".
+    typeDraft(screen.getByRole("textbox"), "@app");
+    await waitFor(() => {
+      expect(screen.getByTestId("mention-row-file-app_go")).toBeTruthy();
+    });
+    const first = urls.find((u) => u.startsWith("/coddy/mentions?"));
+    expect(first).toContain("lang=ru");
+  } finally {
+    setLocale("en");
+    vi.unstubAllGlobals();
+  }
 });
 
 test("arrow keys pick the row that enter inserts, with a space after it", async () => {
