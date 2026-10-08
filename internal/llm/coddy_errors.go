@@ -169,14 +169,34 @@ type coddyBusyError struct {
 	waited   time.Duration
 	budget   time.Duration
 	requests int
+	// code is the code of the last busy answer: empty for a full slot, one of
+	// the window codes when a limit on calls per minute, or on a client's
+	// concurrent calls, refused it. It only changes the words of the message.
+	code string
+}
+
+// what names the limit a busy answer came from.
+func (e *coddyBusyError) what() string {
+	switch e.code {
+	case WireCodeRateWindow:
+		return "the remote's limit of calls per minute for this credential is spent"
+	case WireCodeClientRate:
+		return "the relay's limit of calls per minute for this client is spent"
+	case WireCodeClientStreams:
+		return "the relay's limit of concurrent calls for this client is reached"
+	}
+	return "the remote has no free stream slot for this credential"
 }
 
 func (e *coddyBusyError) Error() string {
 	if e.budget <= 0 {
-		return "the remote has no free stream slot for this credential, and waiting for one is turned off (busy_wait_ms)"
+		return e.what() + ", and waiting for it is turned off (busy_wait_ms)"
 	}
-	return fmt.Sprintf("the remote has no free stream slot for this credential: waited %s for one, in %d requests",
-		e.waited.Round(100*time.Millisecond), e.requests)
+	until := "for one"
+	if e.code != "" && e.what() != (&coddyBusyError{}).what() {
+		until = "for a free window"
+	}
+	return fmt.Sprintf("%s: waited %s %s, in %d requests", e.what(), e.waited.Round(100*time.Millisecond), until, e.requests)
 }
 
 // coddyBoundError is a remote that did not answer the request within the
@@ -344,7 +364,7 @@ func coddyAPIErrorFromWire(w WireError, header http.Header, emitted bool) *coddy
 }
 
 // quotaResetFromWire turns a quota error into the typed reset the agent's
-// wait_for_limit_reset reads. A reset time still ahead of the clock wins over a
+// wait_untillimit_reset reads. A reset time still ahead of the clock wins over a
 // bare pause; one that is not (the remote's clock runs behind this one, or the
 // limit has just lifted) gives way to the relative pause the remote sends
 // with it, which does not depend on the two clocks agreeing. A quota that

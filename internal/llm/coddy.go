@@ -342,7 +342,7 @@ func (p *coddyProvider) admit(ctx context.Context, st *busyWaitState, body []byt
 		now := p.clock.now()
 		index, requests, spent, remaining := st.noteBusy(now)
 		if p.busyWait <= 0 || remaining <= 0 {
-			return nil, &coddyBusyError{waited: spent, budget: p.busyWait, requests: requests}
+			return nil, &coddyBusyError{waited: spent, budget: p.busyWait, requests: requests, code: api.code}
 		}
 		waited = true
 		sleep := min(busySleep(index, api.retryAfter, p.jitter()), remaining)

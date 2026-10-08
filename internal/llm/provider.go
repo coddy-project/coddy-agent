@@ -5,6 +5,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
 // Role is the role of a conversation message.
@@ -183,6 +185,10 @@ type ProviderInput struct {
 	// "inherit" follows the environment's proxy, "none" connects directly,
 	// and a proxy URL goes through that proxy (config.ParseProxySetting).
 	ProxyURL string
+	// ClientTLS is the TLS identity of a coddy row (providers[].ca_file,
+	// client_cert_file, client_key_file): the authority it trusts and the client
+	// certificate it presents. Empty for every other type, which ignores it.
+	ClientTLS netx.ClientTLS
 	// AuthPath is the Coddy-managed OAuth credential file for providers that use
 	// browser sign-in instead of an API key.
 	AuthPath string
@@ -294,7 +300,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	// liveness pings and the stall guard (transport.go), and it is the route
 	// the row's proxy setting chose (the environment's proxy unless it says
 	// otherwise). A coddy row gets the HTTP/1.1 transport of that route.
-	hc, err := providerHTTPClientFor(p.Type, p.ProxyURL, p.Timeout, p.StreamIdleTimeout)
+	hc, err := providerHTTPClientFor(p.Type, p.ProxyURL, p.ClientTLS, p.Timeout, p.StreamIdleTimeout)
 	if err != nil {
 		return nil, err
 	}

@@ -16,6 +16,7 @@ import (
 	"golang.org/x/net/http2"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
 // The LLM transports: what every provider's HTTP client is built on.
@@ -280,6 +281,18 @@ func providerTransport(setting string) (http.RoundTripper, error) {
 // pings, except the types http1OnlyProviderType names, which get a transport
 // of their own with the same proxy rules and HTTP/1.1 only.
 func providerTransportFor(providerType, setting string) (http.RoundTripper, error) {
+	return providerTransportWithIdentity(providerType, setting, netx.ClientTLS{})
+}
+
+// providerTransportWithIdentity is providerTransportFor for a row that carries
+// a TLS identity: the authority it trusts and the client certificate it
+// presents. Only a type that has its own transport (http1OnlyProviderType) can
+// have one, so every other type ignores the identity and keeps the transport it
+// had. The identity is a third part of the cache key, a digest of the three
+// paths with the size and modification time of each file, so a certificate
+// rotated on disk builds a new transport, and the empty identity leaves the key
+// exactly as it was.
+func providerTransportWithIdentity(providerType, setting string, id netx.ClientTLS) (http.RoundTripper, error) {
 	mode, proxyURL, err := config.ParseProxySetting(setting)
 	if err != nil {
 		return nil, err
@@ -292,7 +305,13 @@ func providerTransportFor(providerType, setting string) (http.RoundTripper, erro
 		key = proxyURL.String()
 	}
 	http1 := http1OnlyProviderType(providerType)
+	if !http1 {
+		id = netx.ClientTLS{}
+	}
 	if http1 {
+		if !id.IsZero() {
+			key = "tls:" + id.Key() + "|" + key
+		}
 		key = http1TransportKeyPrefix + key
 	}
 	transportsMu.Lock()
@@ -302,7 +321,7 @@ func providerTransportFor(providerType, setting string) (http.RoundTripper, erro
 	}
 	var t *http.Transport
 	if http1 {
-		t, err = newHTTP1ProviderTransport(mode, proxyURL)
+		t, err = newHTTP1ProviderTransport(mode, proxyURL, id)
 	} else {
 		t, err = newProviderTransport(mode, proxyURL)
 	}
@@ -353,7 +372,7 @@ func newProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.Trans
 // version, and the ALPN a ClientHello carries is exactly "http/1.1" (a server
 // that offers h2 first is then answered over HTTP/1.1). HTTP/2 liveness is not
 // configured: there is no HTTP/2 connection to ping.
-func newHTTP1ProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.Transport, error) {
+func newHTTP1ProviderTransport(mode config.ProxyMode, proxyURL *url.URL, id netx.ClientTLS) (*http.Transport, error) {
 	t, err := newBaseProviderTransport(mode, proxyURL)
 	if err != nil {
 		return nil, err
@@ -366,6 +385,17 @@ func newHTTP1ProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.
 	if t.TLSClientConfig != nil {
 		cfg = t.TLSClientConfig.Clone()
 	}
+	if !id.IsZero() {
+		// The authority and the client certificate of the row. The same
+		// configuration serves an https proxy's own hop, so the certificate is
+		// offered to a proxy that asks for one as well.
+		idCfg, err := id.Options(netx.Options{}).TLSConfig("")
+		if err != nil {
+			return nil, err
+		}
+		cfg.RootCAs = idCfg.RootCAs
+		cfg.GetClientCertificate = idCfg.GetClientCertificate
+	}
 	cfg.NextProtos = []string{"http/1.1"}
 	t.TLSClientConfig = cfg
 	return t, nil
@@ -375,13 +405,13 @@ func newHTTP1ProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.
 // transport for the proxy setting, the stall guard when a stream idle
 // timeout is set, and the request timeout when one is configured.
 func providerHTTPClient(proxySetting string, timeout, streamIdle time.Duration) (*http.Client, error) {
-	return providerHTTPClientFor("", proxySetting, timeout, streamIdle)
+	return providerHTTPClientFor("", proxySetting, netx.ClientTLS{}, timeout, streamIdle)
 }
 
 // providerHTTPClientFor is providerHTTPClient for the rows of one provider
 // type (see providerTransportFor).
-func providerHTTPClientFor(providerType, proxySetting string, timeout, streamIdle time.Duration) (*http.Client, error) {
-	rt, err := providerTransportFor(providerType, proxySetting)
+func providerHTTPClientFor(providerType, proxySetting string, id netx.ClientTLS, timeout, streamIdle time.Duration) (*http.Client, error) {
+	rt, err := providerTransportWithIdentity(providerType, proxySetting, id)
 	if err != nil {
 		return nil, err
 	}
