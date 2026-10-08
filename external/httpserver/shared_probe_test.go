@@ -3,8 +3,9 @@
 package httpserver
 
 // The application probe of a vanished peer (docs/plans/remote-model-provider-probe.md; model p4-probe): a call that asked for it is
-// confirmed with an id, the client pings POST /coddy/llm/calls/{id}/alive, and the call is cancelled when more than the grace passes
-// without a ping. A call that did not ask is never cut by it.
+// confirmed with an id, the client pings POST /coddy/llm/alive (the id in a header), the first accepted ping arms the guard, and the call
+// is cancelled when more than the grace (plus a second) then passes without a ping. A call that did not ask, and a call never pinged, is
+// never cut by it.
 
 import (
 	"bytes"

@@ -242,3 +242,43 @@ func TestListenerTLSIsNilWithoutAClientCA(t *testing.T) {
 		t.Fatalf("%v %v", cfg, err)
 	}
 }
+
+// A call made with a client certificate is pinged with the same certificate name: its own key, a budget per name, never another's.
+func TestMTLSProbePingIsBoundToTheCertificateName(t *testing.T) {
+	fx, ca, base := mtlsFixture(t, config.SwarmClientAuthOptional)
+	started := fx.holdCalls()
+	alice, bob := ca.leaf(t, false, "alice.example"), ca.leaf(t, false, "bob.example")
+	ac, bc := ca.client(&alice), ca.client(&bob)
+
+	raw, _ := json.Marshal(wireReq(sharedTestAlias))
+	req, _ := http.NewRequest(http.MethodPost, base+llm.CoddyCompletionsPath, bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(llm.CoddyProbeHeader, "1")
+	resp, err := ac.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := probeHeaderRE.FindStringSubmatch(resp.Header.Get(llm.CoddyProbeHeader))
+	if m == nil {
+		t.Fatalf("no confirmation for a certificate call: %d", resp.StatusCode)
+	}
+	_ = newSSEReader(t, resp)
+	<-started
+
+	ping := func(c *http.Client) int {
+		r, _ := http.NewRequest(http.MethodPost, base+llm.CoddyAlivePath, nil)
+		r.Header.Set(llm.CoddyProbeIDHeader, m[1])
+		res, err := c.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		return res.StatusCode
+	}
+	if got := ping(ac); got != http.StatusNoContent {
+		t.Errorf("the certificate that made the call pings it: %d", got)
+	}
+	if got := ping(bc); got != http.StatusNotFound {
+		t.Errorf("another certificate name pings the call: %d, want 404", got)
+	}
+}
