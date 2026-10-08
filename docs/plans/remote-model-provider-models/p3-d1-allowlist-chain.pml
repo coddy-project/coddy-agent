@@ -434,6 +434,12 @@ proctype Client() {
               if :: t_adm == 1 -> sFull = 1 :: else -> skip fi
          fi;
          recompute();
+#ifdef ASSERT_PROP
+         /* one property per run, as a state assertion: -D ASSERT_PROP=gOut stops the search at the first state
+            where the latch is set (a counterexample at once) and is exhaustive when it never is; a SANITY latch
+            (sLLM, sDeep, sDyn, sFull, gDead) is "violated" by design, which says it is reachable */
+         assert(ASSERT_PROP == 0);
+#endif
          clearStep()
        }
     od
