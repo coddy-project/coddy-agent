@@ -307,6 +307,23 @@ coddy -v
 
 In a Termux session that was open during the install, `coddy` is found only after `source ~/.bashrc` or in a new session. See [Android (Termux)](android.md).
 
+## The Docker image stops with `exec format error` on an arm64 host
+
+**Symptom.** On a Raspberry Pi, an arm64 server or any other `aarch64` host, `docker run ghcr.io/coddy-project/coddy-agent` exits at once with `exec /bin/coddy: exec format error`, although `docker image inspect` reports `Architecture: arm64`. A host with `qemu-user-static` registered runs the image anyway, slowly, under emulation.
+
+**Cause.** The `linux/arm64` variant of the images published from 0.8.3 to 1.2.85 carries an x86-64 `/bin/coddy`: a default value on `ARG TARGETARCH` in the Dockerfile replaced the platform BuildKit was building for ([issue #482](https://github.com/coddy-project/coddy-agent/issues/482)). Docker labels a variant with the platform it was asked for, whatever binary is inside.
+
+**Fix.** Pull an image published after 1.2.85, or build one on the host from the repository with BuildKit (see [Docker](docker.md#prerequisites)). To see what a variant carries, copy the binary out, since the image has no shell:
+
+```bash
+docker pull ghcr.io/coddy-project/coddy-agent:latest
+c=$(docker create ghcr.io/coddy-project/coddy-agent:latest)
+docker cp "$c:/bin/coddy" ./coddy-from-image && docker rm "$c"
+file ./coddy-from-image   # ARM aarch64 on an arm64 host
+```
+
+A build from source that stops at the first `FROM` with `failed to parse platform` ran on the legacy builder: install the `buildx` plugin, or build with `docker buildx build`. See [Checking the platforms of the image](docker.md#checking-the-platforms-of-the-image).
+
 ## Windows notes
 
 - **Paths.** The binary is `%LOCALAPPDATA%\Programs\coddy\coddy.exe`; config and sessions live under `%USERPROFILE%\.coddy\`. Use `$env:USERPROFILE`, not `$HOME`, which differs between Windows PowerShell and Git Bash.

@@ -6,6 +6,7 @@ globs:
   - ".github/workflows/**"
   - "packaging/homebrew/**"
   - "docs/contributing/build.md"
+  - "docs/getting-started/docker.md"
 alwaysApply: false
 ---
 # Shipped build tags
@@ -19,6 +20,7 @@ The set of build tags that ships (`http ui scheduler memory cli gateway swarm` t
 - `.github/workflows/tests-on-pr.yaml`, `PKG_TAGS` of the packages job (deliberately without `ui`, so the job needs no npm);
 - `packaging/homebrew/coddy-formula.rb.tmpl`, the `tags` array (the cask installs a built archive and names no tags);
 - `make check-windows`, which spells its tag combinations by hand;
-- the build commands in `docs/contributing/build.md`, `README.md` and `AGENTS.md`.
+- the build commands in `docs/contributing/build.md`, `README.md` and `AGENTS.md`;
+- `docs/getting-started/docker.md`, the image's default set and its tag list under "What the image contains by default".
 
 A subcommand that reaches the packages for the first time with a new tag also takes the man page and both completions in the same commit (the packaging invariants in `AGENTS.md`). Check the shipped combination itself, not only each tag alone: `make build TAGS="$(FULL_TAGS)"`, then the packages with the same tags.

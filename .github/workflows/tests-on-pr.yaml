@@ -496,6 +496,23 @@ jobs:
       - name: Parse the Homebrew templates
         run: ruby -c packaging/homebrew/coddy.rb.tmpl && ruby -c packaging/homebrew/coddy-formula.rb.tmpl
 
+  # The image is built only on a release tag, for linux/amd64 and linux/arm64 in
+  # one push, and nothing started the arm64 variant before users did: it carried
+  # an x86-64 binary for months (issue #482). This job builds both variants the
+  # way the release does and reads the ELF header of each binary, and it catches
+  # a Dockerfile that stopped building at all. The build stages run natively and
+  # cross-compile, so the runner needs no emulation for the arm64 variant.
+  image:
+    name: Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build the image for every platform the release pushes, check each binary
+        run: scripts/check-image.sh --version "pr-$GITHUB_SHA"
+
   # The documentation follows the code: docs/nav.yaml, the config schema and the
   # --help screens drive the generated pages, every relative link and anchor must
   # resolve, and every asset must be used. `make docs-check` is the same gate the
