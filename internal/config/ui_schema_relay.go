@@ -98,7 +98,7 @@ func swarmUISchema() map[string]interface{} {
 		"scope": map[string]interface{}{
 			"type":        "string",
 			"title":       "Scope",
-			"description": "What the token opens. shared_models: the three shared-model routes of the listed nodes.",
+			"description": "What the token opens. shared_models: the shared-model routes (the three calls and the probe's ping) of the listed nodes.",
 			"enum":        []string{ScopeSharedModels},
 			"default":     ScopeSharedModels,
 		},

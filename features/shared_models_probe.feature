@@ -8,7 +8,7 @@ Feature: A shared-model call is cut when its client stops saying it is alive
 
   Scenario: A client that pings keeps its call, one that goes silent loses it
     Given a remote coddy with the probe grace of 300 ms and a call that asked for the probe
-    When the client pings every 100 ms for 1 second
+    When the client pings every 100 ms for 2 seconds
     Then the call still holds its slot
     When the client goes silent
     Then the call is cut and its slot is free within 3 seconds

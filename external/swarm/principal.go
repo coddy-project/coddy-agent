@@ -24,7 +24,7 @@ const (
 	principalNone principalClass = iota
 	// principalFull is a holder of swarm.auth_token (or a token given out of band): the whole relay, as before.
 	principalFull
-	// principalScoped is a swarm.clients entry: the three shared-model routes of the nodes the entry lists, and nothing else.
+	// principalScoped is a swarm.clients entry: the shared-model routes (the three calls and the probe's ping) of the nodes the entry lists, and nothing else.
 	principalScoped
 )
 

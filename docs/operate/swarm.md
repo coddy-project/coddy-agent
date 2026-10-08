@@ -326,7 +326,7 @@ A node can lend its models to other Coddys ([Shared models](../features/shared-m
 
 **The relay substitutes the credential.** The borrower's `api_key` is the relay's client token (`swarm.auth_token`). The relay replaces it with the token the node registered with - `swarm.join[].token`, or `swarm.upstreams[].token` for a node pinned from the relay's side - so the node sees one caller. Two things follow. The limit of `httpserver.shared_models.max_streams` calls per credential then counts every client of the relay together, so it protects the node and its provider, not one borrower from another; and a slow client can hold a slot while its request body arrives (the body deadline is 30 s), so up to `max_streams` of them can keep the credential busy for the other clients, repeatedly. To give a borrower less than the whole relay, use [scoped clients](#scoped-clients).
 
-**One privilege per join token.** A node that exists to share models joins with one of its shared-model tokens, so what the relay can do on that node is exactly the three LLM routes:
+**One privilege per join token.** A node that exists to share models joins with one of its shared-model tokens, so what the relay can do on that node is exactly the LLM routes (the three calls and the probe's ping):
 
 ```yaml
 # on the node
@@ -340,7 +340,7 @@ swarm:
 
 The relay needs no change for it, and both transports work. What it looks like from the relay: the node tells the relay what its token is. Its process registers with the reserved label `coddy.token_class: shared_models`, which it sets itself whenever its `swarm.join[].token` is one of `httpserver.shared_models.tokens` (and removes whenever it is not, so a hand-written value never survives on a node whose token is a main one). The aggregated session list still asks every node for its sessions with the node's token and gets `401` from this one, and for a node with the label that refusal is expected and raises no warning. Any other outcome of such a node (a server error, a timeout, an unreachable node, an expired lease) warns as for every node, and a labelled node that does answer its sessions is listed. A node of an older version sends no label, so it keeps `workstation: 401 Unauthorized` in the `warnings` of [the aggregated list](#the-aggregated-list), and so does a node with authentication on and an empty, stale or rotated token. `GET /swarm/topology` carries `token_class: shared_models` on the node, and the web UI shows a **shared models only** mark on the node in the search results and in its tooltip on the map. The label is the node's own claim, used for this one purpose: a node that claims it while holding a main token only hides the warning, and `coddy -t` warns about a hand-written label whose join token is not a shared-model token. The topology is otherwise unaffected, since only chained relays are asked for it. Driving that node through the relay - the web UI's environment menu, `--remote` - is refused, which is the point. A node that must be driven through the relay **and** share models through it has to join with a token that does both, and then every client of the relay gets that privilege.
 
-A node that joins with no token makes the relay send no `Authorization` at all, and an agent has no fallback to the relay's own token. With authentication on, every mounted call is then a `401`. With authentication off the node is open to every relay client on every route except the three LLM routes, which still answer `403` with `kind: auth` while a row has `shared_as` and `httpserver.allow_insecure` is not set. Sharing through a relay therefore needs a token on the node.
+A node that joins with no token makes the relay send no `Authorization` at all, and an agent has no fallback to the relay's own token. With authentication on, every mounted call is then a `401`. With authentication off the node is open to every relay client on every route except the LLM routes, which still answer `403` with `kind: auth` while a row has `shared_as` and `httpserver.allow_insecure` is not set. Sharing through a relay therefore needs a token on the node.
 
 **A dedicated relay for share-only nodes.** The client token a borrower holds opens the mounts of every node of that relay: a mount is a prefix allowlist (`/v1/*` and `/coddy/*`), and each node is reached with the token it joined with. A shared-model token therefore protects only the nodes that joined with one; a node that joined with its main token is open to everything the relay's client token can do. Keep the nodes you administer and the nodes that only share models on separate relays, and hand the client token of the second relay to borrowers.
 
@@ -414,7 +414,7 @@ Three credentials, three jobs:
 | per-node `token` | the relay | acting as that node |
 
 **Scoped clients narrow the door for borrowers.** `swarm.clients` lists clients with a token (and, optionally, certificate names) of their own that open
-only the three shared-model routes of the nodes the entry lists: [Scoped clients](#scoped-clients). The paragraph below is about the full client token,
+only the shared-model routes of the nodes the entry lists: [Scoped clients](#scoped-clients). The paragraph below is about the full client token,
 `swarm.auth_token`, which is unchanged.
 
 **A relay is a fleet-wide door.** It holds every node's credential, so whoever holds its
@@ -470,7 +470,7 @@ relay's mount.
 
 ## Scoped clients
 
-A borrower of a shared model does not need the relay's fleet-wide token. A `swarm.clients` entry gives it a credential that reaches the three
+A borrower of a shared model does not need the relay's fleet-wide token. A `swarm.clients` entry gives it a credential that reaches the
 shared-model routes of the nodes you name and nothing else:
 
 ```yaml
