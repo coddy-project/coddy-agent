@@ -86,6 +86,8 @@ func StartJoins(ctx context.Context, cfg *config.Config, opts StartJoinsOptions)
 				Proxy:              j.Dial.Proxy,
 				CAFile:             j.Dial.CAFile,
 				InsecureSkipVerify: j.Dial.InsecureSkipVerify,
+				CertFile:           j.Dial.CertFile,
+				KeyFile:            j.Dial.KeyFile,
 			},
 			InstanceUUID: instance,
 			Handler:      handler,

@@ -87,6 +87,11 @@ func sharedModelFindings(cfg *Config, body *yaml.Node, extra ExtraTokens, loadEr
 
 	out = append(out, blankSharedTokenFindings(body)...)
 	out = append(out, swarmClientFindings(cfg, body, extra)...)
+	out = append(out, swarmJoinLabelFindings(cfg, body)...)
+	if h := cfg.HTTPServer.SharedModels; h.RateBurst > 0 && h.RatePerMinute == 0 {
+		at(SeverityWarning, "httpserver.shared_models.rate_burst",
+			"rate_burst has no effect without rate_per_minute", "set rate_per_minute, or remove rate_burst")
+	}
 
 	if len(cfg.HTTPServer.EffectiveSharedTokens()) > 0 && !hasMainCredential(&cfg.HTTPServer, extra) {
 		at(SeverityWarning, "httpserver.shared_models.tokens",
@@ -189,6 +194,11 @@ func swarmClientFindings(cfg *Config, body *yaml.Node, extra ExtraTokens) []Find
 				"the token is empty (an ${ENV} reference to an unset variable?) and the entry has no cert_names: nothing can authenticate as this client, so it is ignored",
 				"set the variable, add cert_names, or remove the entry")
 		}
+		if len(c.CertNames) > 0 && strings.TrimSpace(cfg.Swarm.TLS.ClientCAFile) == "" {
+			at(base+".cert_names",
+				"cert_names have no effect without swarm.tls.client_ca_file: the relay verifies no client certificate, so none of these names can match",
+				"set swarm.tls.client_ca_file (and swarm.tls.cert_file and key_file), or remove cert_names")
+		}
 		if c.RateBurst > 0 && c.RatePerMinute == 0 {
 			at(base+".rate_burst", "rate_burst has no effect without rate_per_minute", "set rate_per_minute, or remove rate_burst")
 		}
@@ -197,6 +207,26 @@ func swarmClientFindings(cfg *Config, body *yaml.Node, extra ExtraTokens) []Find
 		at("swarm.clients",
 			"no swarm.auth_token, --swarm-auth-token or CODDY_SWARM_TOKEN: the relay's own routes (node list, sessions, topology, settings) are then open, or reachable only with a token generated for each run, while the scoped clients below are configured",
 			"set swarm.auth_token (a ${ENV} reference) for the full class")
+	}
+	return out
+}
+
+// swarmJoinLabelFindings warns about a hand-written coddy.token_class label on a
+// join whose token is not a shared-model token: the relay would stop listing
+// this node's sessions although its token is a main one.
+func swarmJoinLabelFindings(cfg *Config, body *yaml.Node) []Finding {
+	shared := map[string]bool{}
+	for _, t := range cfg.HTTPServer.EffectiveSharedTokens() {
+		shared[t] = true
+	}
+	var out []Finding
+	for i, j := range cfg.Swarm.Join {
+		if j.Labels[LabelTokenClass] != TokenClassSharedModels || shared[strings.TrimSpace(j.Token)] {
+			continue
+		}
+		out = append(out, locatedFinding(body, SeverityWarning, fmt.Sprintf("swarm.join[%d].labels", i),
+			LabelTokenClass+": "+TokenClassSharedModels+" tells the relay that this token opens only the shared-model routes, and the relay will not list this node's sessions, but the token of this join is not one of httpserver.shared_models.tokens",
+			"remove the label (a current node sets it itself when the token is a shared-model token), or join with a shared-model token"))
 	}
 	return out
 }

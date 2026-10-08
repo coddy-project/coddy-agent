@@ -60,8 +60,10 @@ func swarmDialUISchema() map[string]interface{} {
 			"proxy":                secretProp("Proxy", "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is write-only: leave it empty to keep the one set.", "proxy_configured"),
 			"ca_file":              strProp("CA file", "PEM bundle trusted for the other end's certificate, besides the system roots."),
 			"insecure_skip_verify": boolProp("Skip certificate check", "For a lab only: every connection is logged as insecure."),
+			"cert_file":            strProp("Client certificate", "PEM certificate this end presents when the other asks for one. Set together with the key file."),
+			"key_file":             strProp("Client key", "PEM private key of the client certificate."),
 		},
-		[]string{"proxy", "ca_file", "insecure_skip_verify"},
+		[]string{"proxy", "ca_file", "insecure_skip_verify", "cert_file", "key_file"},
 		nil)
 }
 
@@ -129,10 +131,17 @@ func swarmUISchema() map[string]interface{} {
 				nil),
 			"tls": objectSchema("TLS", "Certificate and key the relay serves HTTPS with. Both or neither.",
 				map[string]interface{}{
-					"cert_file": strProp("Certificate file", "PEM certificate chain."),
-					"key_file":  strProp("Key file", "PEM private key."),
+					"cert_file":      strProp("Certificate file", "PEM certificate chain."),
+					"key_file":       strProp("Key file", "PEM private key."),
+					"client_ca_file": strProp("Client CA file", "PEM bundle client certificates are verified against. Needs the certificate and key above. Takes a restart."),
+					"client_auth": map[string]interface{}{
+						"type":        "string",
+						"title":       "Client certificates",
+						"description": "optional verifies a certificate when one is offered; required refuses a peer without one at the handshake, nodes that join included. Empty with a client CA means optional.",
+						"enum":        []string{"", "optional", "required"},
+					},
 				},
-				[]string{"cert_file", "key_file"},
+				[]string{"cert_file", "key_file", "client_ca_file", "client_auth"},
 				nil),
 			"lease_ttl_seconds":          intProp("Lease TTL (seconds)", "How long a registration lasts without a refresh; nodes refresh at a third of it."),
 			"fanout_timeout_seconds":     intProp("Fan-out timeout (seconds)", "How long the aggregated session list and the topology wait for a node."),
