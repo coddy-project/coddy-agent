@@ -162,3 +162,22 @@ mounts, and that a node which dies becomes a warning rather than an error.
 
 Run it with `examples/test_swarm.sh`. Needs `build/coddy` built with `-tags "http swarm"`; no
 model or provider is involved.
+
+## `tls/`
+
+`tls_e2e_selfsigned.py` runs the recipes of [`docs/operate/certificates.md`](../docs/operate/certificates.md)
+for real: it makes a private CA, a self-signed client certificate, a self-signed server
+certificate, a certificate that is only fit for servers and an outsider's, with `openssl`;
+boots `coddy serve` agents that terminate TLS (asking for a client certificate and requiring
+one) and a swarm relay in front of one of them; and checks that a client certificate named in
+`cert_names` lists the shared models with no token, directly and through the relay (both legs
+mutual TLS), that it opens nothing else, that a certificate of another authority and one with no
+`clientAuth` key usage get no connection, that the borrower's own client (`coddy -t --dry-run`,
+a provider of type `coddy` with `ca_file` and `client_cert_file`) trusts a private CA or a
+self-signed certificate, and that a private key with a passphrase is refused with the error the
+guide names.
+
+Run it with `examples/test_tls.sh` (`make test-tls-e2e`). Needs `openssl` (skips without it) and
+`build/coddy` built with `-tags "http swarm"`; no model or provider is involved. The statements of
+the guide that depend on `crypto/x509` (key usages, names, anchors, wildcards, e-mail-only
+personal certificates, chains) are held in-process by `internal/netx/certscenarios_test.go`.

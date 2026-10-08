@@ -1,4 +1,4 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: test-tls-e2e build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -335,6 +335,12 @@ BENCH ?= .
 BENCHTIME ?= 1s
 test-perf:
 	go test -run '^$$' -bench '$(BENCH)' -benchtime $(BENCHTIME) -benchmem ./...
+
+# The TLS e2e on self-signed material (docs/operate/certificates.md): real openssl, real coddy serve
+# processes, the borrower's own client. Not part of `make test` (it needs openssl and a built binary).
+test-tls-e2e:
+	$(MAKE) build TAGS="http swarm"
+	examples/tls/test_tls.sh
 
 # AppSec gate (issue #374): trivy (dependency vulnerabilities, secrets;
 # misconfig report-only), semgrep (SAST) and govulncheck (Go vulnerabilities
