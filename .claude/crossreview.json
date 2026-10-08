@@ -7,15 +7,22 @@
       "kind": "cli",
       "agent": "coddy",
       "binary": "coddy",
-      "command": "coddy --model ndsub/gemma-4-31b --mode ask --no-stdin -i {brief} > {out}",
-      "model": "ndsub/gemma-4-31b"
+      "command": "coddy --model cdxrgm/gpt-6.1-sol --mode ask --no-stdin -i {brief} > {out}",
+      "model": "cdxrgm/gpt-6.1-sol"
     },
     {
       "kind": "cli",
       "agent": "coddy",
       "binary": "coddy",
-      "command": "coddy --model ndlcdx/gpt-6.1-sol --mode ask --no-stdin -i {brief} > {out}",
-      "model": "ndlcdx/gpt-6.1-sol"
+      "command": "coddy --model neuraldeep/gemma-4-31b --mode ask --no-stdin -i {brief} > {out}",
+      "model": "neuraldeep/gemma-4-31b"
+    },
+    {
+      "kind": "cli",
+      "agent": "coddy",
+      "binary": "coddy",
+      "command": "coddy --model neuraldeep/qwen3.8-27b --mode ask --no-stdin -i {brief} > {out}",
+      "model": "neuraldeep/qwen3.8-27b"
     }
   ]
 }
