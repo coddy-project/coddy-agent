@@ -3,6 +3,7 @@
 package swarm
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
@@ -69,6 +72,85 @@ var hopByHopHeaders = []string{
 var clientHeadersToDrop = []string{
 	"Cookie", "Forwarded", "X-Forwarded-For", "X-Forwarded-Host",
 	"X-Forwarded-Proto", "X-Real-Ip",
+}
+
+// sharedCompletionsRoute is the node route of one shared-model call (llm.CoddyCompletionsPath;
+// a test holds the two equal). It is the only route whose client the relay bounds.
+const sharedCompletionsRoute = "/coddy/llm/completions"
+
+// h2ResidualLog is the line logged once per connection of an HTTP/2 client the
+// relay cannot bound; docs/features/shared-models.md names it.
+const h2ResidualLog = "shared call over HTTP/2: a vanished client is not detected before the call ends"
+
+// isSharedCompletions reports whether a request is the one shared-model call:
+// POST on the completions route of a node, behind any number of further relay
+// hops (a chain writes its hops into the path, so the first relay of a chain
+// sees /swarm/nodes/<next>/coddy/llm/completions and bounds its client as well).
+// rest is the escaped path after the node's name; the query is not part of it.
+// It is compared decoded, because the node routes by the decoded path: a
+// percent-encoded spelling of the route reaches the same handler and must not
+// slip past the bound. mountRemainder has already refused encoded separators and
+// relative segments, so decoding cannot change the segment structure.
+func isSharedCompletions(method, rest string) bool {
+	if method != http.MethodPost {
+		return false
+	}
+	if decoded, err := url.PathUnescape(rest); err == nil {
+		rest = decoded
+	}
+	for strings.HasPrefix(rest, swarmdto.MountPath) {
+		// Drop "/swarm/nodes/<name>" and look at what follows.
+		after := strings.TrimPrefix(rest, swarmdto.MountPath)
+		slash := strings.IndexByte(after, '/')
+		if slash < 0 {
+			return false
+		}
+		rest = after[slash:]
+	}
+	return rest == sharedCompletionsRoute
+}
+
+// probeSharedCall bounds the peer of one shared-model call at its source: a
+// client that vanishes without a FIN or a RST is invisible to the node (the relay
+// acknowledges and answers everything the node sends), so the relay sets the same
+// per-call user timeout on its own client connection that the node sets on its
+// peer, U = B - H from httpx. The returned restore is deferred by the caller and
+// puts the system default back on every exit, so a kept-alive connection starts
+// its next request unprobed.
+//
+// It runs before the request is forwarded, not after the body: the option counts
+// only bytes the relay itself sent and has not had acknowledged, and the relay
+// sends nothing to its client until the node's first frame, which the node writes
+// only after it has read the body. The upload is bounded by the node's own body
+// deadline, as before.
+//
+// When the dead client's connection is aborted the proxy's request context ends,
+// the upstream request is cancelled (a reset stream on a tunnel, a closed
+// connection on a direct dial) and the node frees the slot in the same round trip.
+//
+// Only an HTTP/1.x connection can be bounded: an HTTP/2 stream shares its
+// connection with others, so the call is served unprobed and logged once per
+// connection. Where the platform has no option (anything but Linux) or the server
+// was built without httpx.ConnContext the call is served unprobed too, quietly.
+func (s *Server) probeSharedCall(r *http.Request, node string) (restore func()) {
+	bound, heartbeat := httpx.Liveness()
+	restore, err := httpx.ProbeCall(r, bound, heartbeat)
+	switch {
+	case err == nil:
+	case errors.Is(err, httpx.ErrSharedConnection):
+		if httpx.OncePerConn(r, "probe-h2") {
+			s.log.Info(h2ResidualLog, "node", node, "client", r.RemoteAddr)
+		}
+	case errors.Is(err, platform.ErrUserTimeoutUnsupported):
+		if httpx.OncePerConn(r, "probe-unsupported") {
+			s.log.Debug("shared call not bounded on the client leg", "node", node, "reason", err.Error())
+		}
+	default:
+		if httpx.OncePerConn(r, "probe-failed") {
+			s.log.Warn("shared call not bounded on the client leg", "node", node, "error", err)
+		}
+	}
+	return restore
 }
 
 // registerMountRoutes wires the per-node proxy.
@@ -143,6 +225,10 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 			writeHopError(w, http.StatusBadGateway, name, "node has no usable transport", node.Info.LastSeen)
 		})
 		return
+	}
+
+	if isSharedCompletions(r.Method, rest) {
+		defer s.probeSharedCall(r, name)()
 	}
 
 	// The transport carrying this request reads the body from a goroutine of

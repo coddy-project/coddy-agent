@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/net/http2"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
 	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
@@ -27,8 +28,31 @@ const TunnelMaxConcurrentStreams = 250
 
 // TunnelIdleTimeout is how long a node keeps serving a connection on which
 // nothing at all arrives. The relay pings every 30s, so silence this long means
-// the relay is gone rather than merely idle.
+// the relay is gone rather than merely idle. It is the backstop behind the
+// health check below, which acts far sooner.
 const TunnelIdleTimeout = 150 * time.Second
+
+// The node's own health check of a tunnel (the node is the HTTP/2 server on it).
+// The relay pings the node every 30s, but nothing pinged the other way, and the
+// watchdog above counts the node's own writes as activity: a relay that
+// vanished while a call streams heartbeats looked alive until the kernel gave up
+// on the socket, minutes later. These two timers close that: the node pings
+// when no frame has arrived for TunnelPingAfter and closes a relay that does not
+// answer within TunnelPingTimeout, so at most their sum - the liveness bound B
+// (httpx.LivenessBound), a test pins the equality - after the last frame the
+// relay sent, whatever the heartbeat is.
+//
+// The split is not the relay's own 30s / 15s. The bound is the same, but a ping
+// written behind unacknowledged heartbeats is answered only when a
+// retransmission gets through, and the longer timeout lets a live relay survive
+// an outage twice as long for the same bound.
+const (
+	// TunnelPingAfter is how long no frame may arrive before the node pings.
+	TunnelPingAfter = 15 * time.Second
+	// TunnelPingTimeout is how long the node waits for the answer to that ping
+	// before it closes the connection and every call on it.
+	TunnelPingTimeout = 30 * time.Second
+)
 
 // handshakeTimeout bounds the upgrade exchange, not the connection it produces.
 const handshakeTimeout = 30 * time.Second
@@ -52,6 +76,10 @@ type TunnelOptions struct {
 	Handler http.Handler
 	// Dial carries proxy and TLS settings.
 	Dial netx.Options
+	// PingAfter and PingTimeout replace TunnelPingAfter and TunnelPingTimeout
+	// when set. They exist so a test can scale the health check; production
+	// callers leave them zero.
+	PingAfter, PingTimeout time.Duration
 }
 
 // DialTunnel opens a connection to the relay and serves Handler over it until
@@ -153,16 +181,13 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		(&http2.Server{
-			// One connection carries every request for this node, so the stream
-			// bound is what keeps a burst from starving a live turn.
-			MaxConcurrentStreams: TunnelMaxConcurrentStreams,
-			// Liveness is watched on the connection itself (see above), not
-			// here: HTTP/2's idle timeout ignores pings and is suppressed by an
-			// open stream, so it would never fire on a tunnel that is quietly
-			// dead while holding a long turn.
-			IdleTimeout: 0,
-		}).ServeConn(served, &http2.ServeConnOpts{Handler: opts.Handler})
+		// The context carries the connection the way a listener's ConnContext
+		// does, so a handler asking httpx.OncePerConn counts per tunnel and not
+		// per request.
+		newTunnelServer(opts).ServeConn(served, &http2.ServeConnOpts{
+			Context: httpx.ConnContext(context.Background(), served),
+			Handler: opts.Handler,
+		})
 	}()
 
 	select {
@@ -172,6 +197,34 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 		return ctx.Err()
 	case <-done:
 		return nil
+	}
+}
+
+// newTunnelServer builds the HTTP/2 server a node runs on a tunnel.
+func newTunnelServer(opts TunnelOptions) *http2.Server {
+	pingAfter, pingTimeout := opts.PingAfter, opts.PingTimeout
+	if pingAfter <= 0 {
+		pingAfter = TunnelPingAfter
+	}
+	if pingTimeout <= 0 {
+		pingTimeout = TunnelPingTimeout
+	}
+	return &http2.Server{
+		// One connection carries every request for this node, so the stream
+		// bound is what keeps a burst from starving a live turn.
+		MaxConcurrentStreams: TunnelMaxConcurrentStreams,
+		// HTTP/2's idle timeout deliberately ignores pings and is suppressed
+		// by an open stream, so it would never fire on a tunnel that is quietly
+		// dead while holding a long turn; the health check below and the
+		// activity watchdog on the connection are what notice that.
+		IdleTimeout: 0,
+		// The health check: ping after TunnelPingAfter without a frame, close
+		// the connection when the ping is not answered within TunnelPingTimeout.
+		// A closed connection ends ServeConn, every in-flight request context
+		// is cancelled and the handlers behind them (a shared-model call's
+		// slot) are released.
+		ReadIdleTimeout: pingAfter,
+		PingTimeout:     pingTimeout,
 	}
 }
 

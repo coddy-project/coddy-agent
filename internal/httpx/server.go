@@ -37,5 +37,8 @@ func NewServer(addr string, h http.Handler) *http.Server {
 		ReadHeaderTimeout: ReadHeaderTimeout,
 		IdleTimeout:       IdleTimeout,
 		MaxHeaderBytes:    MaxHeaderBytes,
+		// Handlers reach the TCP socket under a request through this (TCPConn),
+		// which is what a per-call socket option needs.
+		ConnContext: ConnContext,
 	}
 }
