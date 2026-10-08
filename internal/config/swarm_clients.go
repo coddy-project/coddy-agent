@@ -164,3 +164,12 @@ func validateClientNode(entry string) error {
 // ValidSharedAlias reports whether s is an alias a shared model can be offered
 // under, for a component that needs the alphabet and not the whole config.
 func ValidSharedAlias(s string) bool { return sharedAliasRE.MatchString(s) }
+
+// The reserved label a node's registration carries when the token it joins with
+// opens only the shared-model routes. internal/swarm owns the derivation and
+// the wire; this package cannot import it, so it keeps its own copy of the key
+// for the config check, and a test in internal/swarm holds the two equal.
+const (
+	LabelTokenClass        = "coddy.token_class"
+	TokenClassSharedModels = "shared_models"
+)

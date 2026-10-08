@@ -90,6 +90,32 @@ type SwarmConfig struct {
 type SwarmTLSConfig struct {
 	CertFile string `yaml:"cert_file"`
 	KeyFile  string `yaml:"key_file"`
+	// ClientCAFile is the PEM bundle that client certificates are verified
+	// against. With it the listener asks for a certificate: ClientAuth says
+	// whether one is required.
+	ClientCAFile string `yaml:"client_ca_file"`
+	// ClientAuth is optional (verify a certificate when one is offered) or
+	// required (refuse a peer without a verified one at the handshake). Empty
+	// with a CA means optional; it needs a CA.
+	ClientAuth string `yaml:"client_auth"`
+}
+
+// Swarm client authentication modes.
+const (
+	SwarmClientAuthOptional = "optional"
+	SwarmClientAuthRequired = "required"
+)
+
+// EffectiveClientAuth resolves client_auth: empty without a CA, optional with a
+// CA and no value.
+func (t SwarmTLSConfig) EffectiveClientAuth() string {
+	if strings.TrimSpace(t.ClientCAFile) == "" {
+		return ""
+	}
+	if a := strings.TrimSpace(t.ClientAuth); a != "" {
+		return a
+	}
+	return SwarmClientAuthOptional
 }
 
 // Enabled reports whether TLS is configured.
@@ -109,6 +135,11 @@ type SwarmDialConfig struct {
 	// InsecureSkipVerify accepts any certificate. It exists for a lab and is
 	// logged loudly every time it is used.
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
+	// CertFile and KeyFile are the client certificate this end presents to the
+	// other when it asks for one (a node joining a relay that requires client
+	// certificates, a relay dialling a pinned node). Both or neither.
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
 }
 
 // SwarmUpstream is a node the relay knows about without being told by the node.
@@ -252,6 +283,17 @@ func (s *SwarmConfig) Validate() error {
 	if certSet != keySet {
 		return fmt.Errorf("swarm.tls: cert_file and key_file must be set together")
 	}
+	switch strings.TrimSpace(s.TLS.ClientAuth) {
+	case "", SwarmClientAuthOptional, SwarmClientAuthRequired:
+	default:
+		return fmt.Errorf("swarm.tls.client_auth: %q is not %s or %s", s.TLS.ClientAuth, SwarmClientAuthOptional, SwarmClientAuthRequired)
+	}
+	if strings.TrimSpace(s.TLS.ClientAuth) != "" && strings.TrimSpace(s.TLS.ClientCAFile) == "" {
+		return fmt.Errorf("swarm.tls.client_auth: needs swarm.tls.client_ca_file, the authority client certificates are verified against")
+	}
+	if strings.TrimSpace(s.TLS.ClientCAFile) != "" && !s.TLS.Enabled() {
+		return fmt.Errorf("swarm.tls.client_ca_file: needs swarm.tls.cert_file and key_file: client certificates are asked for over TLS")
+	}
 	seen := map[string]bool{}
 	for _, up := range s.Upstreams {
 		if up.Name == "" {
@@ -264,6 +306,9 @@ func (s *SwarmConfig) Validate() error {
 		if up.URL == "" {
 			return fmt.Errorf("swarm.upstreams %q: url is required", up.Name)
 		}
+		if err := up.Dial.validatePair(fmt.Sprintf("swarm.upstreams[%s].dial", up.Name)); err != nil {
+			return err
+		}
 		switch up.Kind {
 		case "", "agent", "relay":
 		default:
@@ -273,6 +318,9 @@ func (s *SwarmConfig) Validate() error {
 	for i, j := range s.Join {
 		if j.URL == "" {
 			return fmt.Errorf("swarm.join[%d]: url is required", i)
+		}
+		if err := j.Dial.validatePair(fmt.Sprintf("swarm.join[%d].dial", i)); err != nil {
+			return err
 		}
 	}
 	return s.validateClients()
@@ -291,4 +339,12 @@ func (s *SwarmConfig) EffectiveClientTokens(extra ExtraTokens) []string {
 		}
 	}
 	return out
+}
+
+// validatePair refuses a certificate without its key, or the reverse.
+func (d SwarmDialConfig) validatePair(path string) error {
+	if (strings.TrimSpace(d.CertFile) == "") != (strings.TrimSpace(d.KeyFile) == "") {
+		return fmt.Errorf("%s: cert_file and key_file must be set together", path)
+	}
+	return nil
 }

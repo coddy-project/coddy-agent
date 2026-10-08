@@ -105,6 +105,10 @@ type ProviderJSON struct {
 	Proxy         string `json:"proxy,omitempty"`
 	TimeoutMS     int    `json:"timeout_ms,omitempty"`
 	BusyWaitMS    int    `json:"busy_wait_ms,omitempty"`
+	// The TLS identity of a coddy row: paths, served as plain strings.
+	CAFile         string `json:"ca_file,omitempty"`
+	ClientCertFile string `json:"client_cert_file,omitempty"`
+	ClientKeyFile  string `json:"client_key_file,omitempty"`
 	// UsageLimitsPanel keeps the three states of the YAML key: absent (on),
 	// true, false. omitempty leaves an unset switch out of the document.
 	UsageLimitsPanel *bool `json:"usage_limits_panel,omitempty"`
@@ -363,6 +367,8 @@ type SharedModelsJSON struct {
 	TokensConfigured int      `json:"tokens_configured,omitempty"`
 	MaxStreams       int      `json:"max_streams,omitempty"`
 	MaxCallMS        *int     `json:"max_call_ms,omitempty"`
+	RatePerMinute    int      `json:"rate_per_minute,omitempty"`
+	RateBurst        int      `json:"rate_burst,omitempty"`
 }
 
 // HTTPLoginJSON mirrors HTTPLoginConfig. PasswordHash is write-only: reading
@@ -434,8 +440,10 @@ type SwarmClientJSON struct {
 
 // SwarmTLSJSON mirrors SwarmTLSConfig.
 type SwarmTLSJSON struct {
-	CertFile string `json:"cert_file,omitempty"`
-	KeyFile  string `json:"key_file,omitempty"`
+	CertFile     string `json:"cert_file,omitempty"`
+	KeyFile      string `json:"key_file,omitempty"`
+	ClientCAFile string `json:"client_ca_file,omitempty"`
+	ClientAuth   string `json:"client_auth,omitempty"`
 }
 
 // SwarmDialJSON mirrors SwarmDialConfig. The proxy URL can carry credentials,
@@ -445,6 +453,8 @@ type SwarmDialJSON struct {
 	ProxyConfigured    bool   `json:"proxy_configured,omitempty"`
 	CAFile             string `json:"ca_file,omitempty"`
 	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
+	CertFile           string `json:"cert_file,omitempty"`
+	KeyFile            string `json:"key_file,omitempty"`
 }
 
 // SwarmUpstreamJSON mirrors SwarmUpstream.
@@ -648,6 +658,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			TokensConfigured: len(c.HTTPServer.EffectiveSharedTokens()),
 			MaxStreams:       c.HTTPServer.SharedModels.MaxStreams,
 			MaxCallMS:        cloneIntPtr(c.HTTPServer.SharedModels.MaxCallMS),
+			RatePerMinute:    c.HTTPServer.SharedModels.RatePerMinute,
+			RateBurst:        c.HTTPServer.SharedModels.RateBurst,
 		},
 	}
 	for _, rm := range c.HTTPServer.Remotes {
@@ -668,7 +680,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			AllowLoopback:  c.Swarm.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), c.Swarm.CORS.AllowedOrigins...),
 		},
-		TLS:                  SwarmTLSJSON{CertFile: c.Swarm.TLS.CertFile, KeyFile: c.Swarm.TLS.KeyFile},
+		TLS: SwarmTLSJSON{CertFile: c.Swarm.TLS.CertFile, KeyFile: c.Swarm.TLS.KeyFile,
+			ClientCAFile: c.Swarm.TLS.ClientCAFile, ClientAuth: c.Swarm.TLS.ClientAuth},
 		LeaseTTLSeconds:      c.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: c.Swarm.FanoutTimeoutSeconds,
 	}
@@ -894,6 +907,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Tokens:     append([]string(nil), j.HTTPServer.SharedModels.Tokens...),
 			MaxStreams: j.HTTPServer.SharedModels.MaxStreams,
 			MaxCallMS:  cloneIntPtr(j.HTTPServer.SharedModels.MaxCallMS),
+			RatePerMinute: j.HTTPServer.SharedModels.RatePerMinute,
+			RateBurst:     j.HTTPServer.SharedModels.RateBurst,
 		},
 	}
 	for _, rm := range j.HTTPServer.Remotes {
@@ -914,7 +929,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			AllowLoopback:  j.Swarm.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), j.Swarm.CORS.AllowedOrigins...),
 		},
-		TLS:                  SwarmTLSConfig{CertFile: j.Swarm.TLS.CertFile, KeyFile: j.Swarm.TLS.KeyFile},
+		TLS: SwarmTLSConfig{CertFile: j.Swarm.TLS.CertFile, KeyFile: j.Swarm.TLS.KeyFile,
+			ClientCAFile: j.Swarm.TLS.ClientCAFile, ClientAuth: j.Swarm.TLS.ClientAuth},
 		LeaseTTLSeconds:      j.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: j.Swarm.FanoutTimeoutSeconds,
 	}
@@ -1214,6 +1230,8 @@ func swarmDialToJSON(d SwarmDialConfig) SwarmDialJSON {
 		ProxyConfigured:    strings.TrimSpace(d.Proxy) != "",
 		CAFile:             d.CAFile,
 		InsecureSkipVerify: d.InsecureSkipVerify,
+		CertFile:           d.CertFile,
+		KeyFile:            d.KeyFile,
 	}
 }
 
@@ -1222,6 +1240,8 @@ func swarmDialFromJSON(d SwarmDialJSON) SwarmDialConfig {
 		Proxy:              d.Proxy,
 		CAFile:             d.CAFile,
 		InsecureSkipVerify: d.InsecureSkipVerify,
+		CertFile:           d.CertFile,
+		KeyFile:            d.KeyFile,
 	}
 }
 

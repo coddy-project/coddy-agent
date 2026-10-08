@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
 // ResolvedLLM is provider settings merged with one model entry for llm.NewProvider.
@@ -18,7 +20,11 @@ type ResolvedLLM struct {
 	// ProxyURL is providers[].proxy as written: a keyword (inherit, none) or
 	// a proxy URL; see ParseProxySetting.
 	ProxyURL string
-	AuthPath string
+	// ClientTLS is the TLS identity of a provider of type coddy (the authority
+	// it trusts and the client certificate it presents); empty for every other
+	// type, whose connections are what they were.
+	ClientTLS netx.ClientTLS
+	AuthPath  string
 	// NoCLILogin keeps the row off the machine-wide CLI login of its type
 	// (CLILoginRow); it travels into llm.ProviderInput.NoCLILogin.
 	NoCLILogin  bool
@@ -203,6 +209,7 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		APIKey:       prov.EffectiveAPIKey(),
 		BaseURL:      prov.APIBase,
 		ProxyURL:     prov.Proxy,
+		ClientTLS:    prov.ClientTLS(),
 		AuthPath:     ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 		NoCLILogin:   !c.ProviderMayUseCLILogin(prov.Name, prov.Type),
 		MaxTokens:    entry.MaxTokens,

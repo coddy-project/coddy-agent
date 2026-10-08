@@ -213,6 +213,9 @@ func UISchemaMap() map[string]interface{} {
 			"Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly."),
 		"timeout_ms": intProp("Request timeout ms",
 			"Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout."),
+		"ca_file":          strProp("CA file", "Provider of type coddy only: PEM bundle of the authority that signed the remote's or the relay's certificate."),
+		"client_cert_file": strProp("Client certificate", "Provider of type coddy only: PEM certificate presented when the remote or the relay asks for one. Set together with the client key."),
+		"client_key_file":  strProp("Client key", "Provider of type coddy only: PEM private key of the client certificate. A path, never the key itself."),
 		"busy_wait_ms": intProp("Wait for a free slot ms",
 			"coddy providers only: how long one call waits for a free slot of the remote when it answers busy. Above zero it wins; 0 follows the agent's shared busy wait (30000 unless set)."),
 		// Defaults to true when the key is absent, like models[].stream: the
@@ -386,7 +389,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "busy_wait_ms", "usage_limits_panel"},
+				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "busy_wait_ms", "ca_file", "client_cert_file", "client_key_file", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{

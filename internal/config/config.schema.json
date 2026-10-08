@@ -64,6 +64,21 @@
             "default": 0,
             "minimum": 0
           },
+          "ca_file": {
+            "type": "string",
+            "description": "Provider of type coddy only: PEM bundle of the certificate authority that signed the remote's (or the relay's) certificate, besides the system roots. Another provider type refuses the key.",
+            "default": ""
+          },
+          "client_cert_file": {
+            "type": "string",
+            "description": "Provider of type coddy only: PEM client certificate presented to the remote or the relay when it asks for one (mutual TLS). Set together with client_key_file. Read at each handshake, so a rotated certificate is used by the next connection. Another provider type refuses the key.",
+            "default": ""
+          },
+          "client_key_file": {
+            "type": "string",
+            "description": "Provider of type coddy only: PEM private key of client_cert_file. A path: the key itself never goes in the configuration. Another provider type refuses the key.",
+            "default": ""
+          },
           "usage_limits_panel": {
             "type": [
               "boolean",
@@ -1228,6 +1243,18 @@
               "default": 5,
               "minimum": 0
             },
+            "rate_per_minute": {
+              "type": "integer",
+              "description": "How many shared-model calls one credential may start per minute, beside max_streams. A call past the window is refused at once with 429 kind busy and a Retry-After; the calling Coddy waits for it like for a full slot. 0 or omitted means no limit; a negative value is refused.",
+              "default": 0,
+              "minimum": 0
+            },
+            "rate_burst": {
+              "type": "integer",
+              "description": "How many calls may start at once before rate_per_minute applies. 0 or omitted means the rate, capped by max_streams, at least 1. Has no effect without rate_per_minute.",
+              "default": 0,
+              "minimum": 0
+            },
             "max_call_ms": {
               "type": [
                 "integer",
@@ -1342,6 +1369,17 @@
               "type": "string",
               "description": "PEM private key.",
               "default": ""
+            },
+            "client_ca_file": {
+              "type": "string",
+              "description": "PEM bundle that client certificates are verified against. With it the relay asks for a certificate on every connection; swarm.clients[].cert_names map a verified certificate to a scoped client. Needs cert_file and key_file. Startup state: changing it takes a restart.",
+              "default": ""
+            },
+            "client_auth": {
+              "type": "string",
+              "description": "optional: verify a client certificate when one is offered and let peers without one in, for the routes that need none. required: refuse a peer without a verified certificate at the handshake, nodes that join included (they present dial.cert_file and key_file). Empty with a client_ca_file means optional; the key needs a client_ca_file.",
+              "enum": ["", "optional", "required"],
+              "default": ""
             }
           }
         },
@@ -1407,6 +1445,16 @@
                     "type": "boolean",
                     "description": "Accept any certificate. For a lab only; every use is logged.",
                     "default": false
+                  },
+                  "cert_file": {
+                    "type": "string",
+                    "description": "PEM client certificate this end presents when the other asks for one (a relay with swarm.tls.client_auth: required). Set together with key_file; read at each handshake.",
+                    "default": ""
+                  },
+                  "key_file": {
+                    "type": "string",
+                    "description": "PEM private key of cert_file.",
+                    "default": ""
                   }
                 }
               }
@@ -1472,6 +1520,16 @@
                     "type": "boolean",
                     "description": "Accept any certificate. For a lab only; every use is logged.",
                     "default": false
+                  },
+                  "cert_file": {
+                    "type": "string",
+                    "description": "PEM client certificate this end presents when the other asks for one (a relay with swarm.tls.client_auth: required). Set together with key_file; read at each handshake.",
+                    "default": ""
+                  },
+                  "key_file": {
+                    "type": "string",
+                    "description": "PEM private key of cert_file.",
+                    "default": ""
                   }
                 }
               }

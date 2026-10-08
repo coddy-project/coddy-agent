@@ -70,6 +70,13 @@ type SharedModelsConfig struct {
 	// means the ceiling SharedModelsMaxCallCeilingMS; more than the ceiling or
 	// negative is refused.
 	MaxCallMS *int `yaml:"max_call_ms"`
+	// RatePerMinute bounds the shared-model calls one credential may start per
+	// minute, beside the stream slot. 0 or absent means no limit; negative is
+	// refused.
+	RatePerMinute int `yaml:"rate_per_minute,omitempty"`
+	// RateBurst is how many calls may start at once before RatePerMinute
+	// applies. 0 or absent means min(rate_per_minute, max_streams), at least 1.
+	RateBurst int `yaml:"rate_burst,omitempty"`
 }
 
 // Normalize trims the tokens. A blank entry is kept, so a report can point at
@@ -84,6 +91,12 @@ func (s *SharedModelsConfig) Normalize() {
 func (s *SharedModelsConfig) Validate() error {
 	if s.MaxStreams < 0 {
 		return fmt.Errorf("httpserver.shared_models.max_streams must not be negative")
+	}
+	if s.RatePerMinute < 0 {
+		return fmt.Errorf("httpserver.shared_models.rate_per_minute must not be negative")
+	}
+	if s.RateBurst < 0 {
+		return fmt.Errorf("httpserver.shared_models.rate_burst must not be negative")
 	}
 	if s.MaxCallMS != nil && (*s.MaxCallMS < 0 || *s.MaxCallMS > SharedModelsMaxCallCeilingMS) {
 		return fmt.Errorf("httpserver.shared_models.max_call_ms must be between 0 and %d (8 hours): got %d; 0 means the 8 hour ceiling, not \"no bound\"",
@@ -115,6 +128,27 @@ func (h *HTTPServerConfig) EffectiveSharedMaxStreams() int {
 		return SharedModelsDefaultMaxStreams
 	}
 	return h.SharedModels.MaxStreams
+}
+
+// EffectiveSharedRate returns the window limit of one shared-model credential:
+// calls per minute (0 means no limit) and the burst, which defaults to the rate
+// capped by the stream limit, at least 1.
+func (h *HTTPServerConfig) EffectiveSharedRate() (perMinute, burst int) {
+	if h == nil || h.SharedModels.RatePerMinute <= 0 {
+		return 0, 0
+	}
+	perMinute = h.SharedModels.RatePerMinute
+	if burst = h.SharedModels.RateBurst; burst > 0 {
+		return perMinute, burst
+	}
+	burst = perMinute
+	if streams := h.EffectiveSharedMaxStreams(); streams < burst {
+		burst = streams
+	}
+	if burst < 1 {
+		burst = 1
+	}
+	return perMinute, burst
 }
 
 // EffectiveSharedMaxCall returns httpserver.shared_models.max_call_ms as a
