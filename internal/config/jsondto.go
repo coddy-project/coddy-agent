@@ -904,9 +904,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			AllowedOrigins: append([]string(nil), j.HTTPServer.CORS.AllowedOrigins...),
 		},
 		SharedModels: SharedModelsConfig{
-			Tokens:     append([]string(nil), j.HTTPServer.SharedModels.Tokens...),
-			MaxStreams: j.HTTPServer.SharedModels.MaxStreams,
-			MaxCallMS:  cloneIntPtr(j.HTTPServer.SharedModels.MaxCallMS),
+			Tokens:        append([]string(nil), j.HTTPServer.SharedModels.Tokens...),
+			MaxStreams:    j.HTTPServer.SharedModels.MaxStreams,
+			MaxCallMS:     cloneIntPtr(j.HTTPServer.SharedModels.MaxCallMS),
 			RatePerMinute: j.HTTPServer.SharedModels.RatePerMinute,
 			RateBurst:     j.HTTPServer.SharedModels.RateBurst,
 		},
