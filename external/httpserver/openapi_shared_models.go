@@ -258,6 +258,24 @@ func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 		},
 	}}
 
+	paths["/coddy/llm/calls/{id}/alive"] = map[string]interface{}{"post": map[string]interface{}{
+		"operationId": "coddyLLMCallAlivePost",
+		"summary":     "Say that the client of a running shared-model call is alive",
+		"description": "The application probe of a vanished peer. A client that sent `X-Coddy-Probe: 1` on a completions call and got `X-Coddy-Probe: id=<32 hex>; every_ms=<n>; grace_ms=<n>` in the response posts here every `every_ms` while the stream runs. " +
+			"The call is cancelled, and its slot freed, when more than `grace_ms` (35 s) pass without a ping, counted from the start of the call: it ends as `client_gone` with the cause `probe`. A call whose client did not ask is never cut by it, and a remote that does not support it never confirms. " +
+			"The id is a capability, 128 random bits found only in the response of its call, and it is bound to the credential the call was made with: a ping with another credential, an unknown, malformed or finished id all answer the same **404** `code: unknown_call`, and the client stops pinging. The route takes no stream slot and no window token. " + access,
+		"security": bearer,
+		"parameters": []interface{}{
+			map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": str, "description": "The call id of the confirmation header: 32 lower-case hex digits."},
+		},
+		"responses": map[string]interface{}{
+			"204": map[string]interface{}{"description": "The call is alive: its guard is re-armed."},
+			"401": map[string]interface{}{"description": "Unauthorized (plain text)."},
+			"403": errorBody("No credential is configured."),
+			"404": errorBody("No such call is running for this credential: `kind: invalid`, `code: unknown_call`."),
+		},
+	}}
+
 	paths[llm.CoddyCompletionsPath] = map[string]interface{}{"post": map[string]interface{}{
 		"operationId": "coddyLLMCompletionsPost",
 		"summary":     "Run one stateless model call of a shared model",
@@ -268,10 +286,13 @@ func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 			"With **`httpserver.shared_models.rate_per_minute`** set, a credential may also start only that many calls per minute (`rate_burst` at once): a call past the window is refused the same way, with `code: rate_window`, a `Retry-After` (and `retry_after_s`) that is the wait to the next token, and its slot given back. A full slot spends no token; a call admitted spends one. There is no limit unless the key is set. " +
 			"The slot is taken right after authentication; a `Content-Length` above 32 MiB is a **413** before any read, and a body that does not arrive within 30 s is a **408**; every refusal frees the slot. Clients send `Expect: 100-continue`, so a refused call does not upload the history. " +
 			"**Stream.** One frame per `data:` line with no `event:` field: `chunk` (progress), then exactly one terminal frame, `final` or `error`; anything after it is not sent. The response is flushed after every frame. Comment lines `: hb` are heartbeats: the first is written right after the body has been read and checked, before the provider is called, then so that no two bytes are more than 15 s apart, while the model is silent too. " +
-			"Each write has a deadline of about 60 s, so a peer that stops reading cuts the call; a disconnect cancels the upstream call. " +
+			"Each write has a deadline of about 60 s, so a peer that stops reading cuts the call; a disconnect cancels the upstream call, and so does a client that asked for the probe (`X-Coddy-Probe: 1`) and stops pinging for 35 s. " +
 			"A streamed row that makes no progress for **`agent.llm_stream_idle_timeout_ms`**, counted from the start of the provider call, ends as `error{kind: upstream, cause: stall}` (`emitted` says whether a chunk went out before). " +
 			"The request body is at most 32 MiB and opens at most 524288 JSON objects and arrays (a real history is far below both): a larger one is a **413** with `code: request_too_large` before it is decoded.",
 		"security": bearer,
+		"parameters": []interface{}{
+			map[string]interface{}{"name": "X-Coddy-Probe", "in": "header", "required": false, "schema": str, "description": "`1` asks for the application probe: the client will ping while the stream runs, and the remote may cancel the call when the pings stop (see the ping route)."},
+		},
 		"requestBody": map[string]interface{}{
 			"required": true,
 			"content": map[string]interface{}{
@@ -283,6 +304,7 @@ func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 				"description": "An event stream of `chunk` frames (CoddyLLMChunk) ending with exactly one `final` (CoddyLLMFinal) or `error` (CoddyLLMError with `type: error`) frame.",
 				"headers": map[string]interface{}{
 					"X-Coddy-Request-ID": map[string]interface{}{"description": "Names the call in the remote's log.", "schema": str},
+					"X-Coddy-Probe":      map[string]interface{}{"description": "Only when the request sent `X-Coddy-Probe: 1` and the remote supports the probe: `id=<32 hex>; every_ms=<n>; grace_ms=<n>`. The client then posts `/coddy/llm/calls/{id}/alive` every `every_ms`.", "schema": str},
 				},
 				"content": map[string]interface{}{
 					"text/event-stream": map[string]interface{}{
@@ -323,8 +345,8 @@ func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 				"required": []string{"alias", "class", "outcome", "calls", "input_tokens", "output_tokens", "duration_ms", "max_duration_ms"},
 				"properties": map[string]interface{}{
 					"alias":           map[string]interface{}{"type": "string", "description": "The shared alias, or `-` when the request named none of this node's rows or was refused before the body named one."},
-					"class":           map[string]interface{}{"type": "string", "enum": []string{"main", "shared", "login", "anonymous", "unknown"}, "description": "The credential class that passed the gate; `unknown` is a bearer the gate refused on a shared route."},
-					"outcome":         map[string]interface{}{"type": "string", "enum": []string{"ok", "busy", "limited", "rate", "quota", "upstream", "invalid", "auth", "gone", "write"}, "description": "`limited` is a refusal by the window of `rate_per_minute`, `busy` a full stream slot, `rate` and `quota` the upstream's own 429, `gone` a client that disconnected, `write` a failed write."},
+					"class":           map[string]interface{}{"type": "string", "enum": []string{"main", "shared", "mtls", "login", "anonymous", "unknown"}, "description": "The credential class that passed the gate: `shared` a shared-model token, `mtls` a verified client certificate named in `httpserver.shared_models.cert_names`; `unknown` is a bearer the gate refused on a shared route."},
+					"outcome":         map[string]interface{}{"type": "string", "enum": []string{"ok", "busy", "limited", "rate", "quota", "upstream", "invalid", "auth", "gone", "write"}, "description": "`limited` is a refusal by the window of `rate_per_minute`, `busy` a full stream slot, `rate` and `quota` the upstream's own 429, `gone` a client that disconnected or stopped pinging after it asked for the probe, `write` a failed write."},
 					"calls":           integer,
 					"input_tokens":    integer,
 					"output_tokens":   integer,

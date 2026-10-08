@@ -86,7 +86,24 @@ const (
 const (
 	WireCodeUnknownModel = "unknown_model"
 	WireCodeNotFound     = "not_found"
+	// WireCodeUnknownCall is the 404 of a ping of the application probe whose call
+	// has ended, never existed, or belongs to another credential: the client stops
+	// pinging.
+	WireCodeUnknownCall = "unknown_call"
 )
+
+// CoddyProbeHeader is the header of the application probe of a vanished peer
+// (docs/plans/remote-model-provider-probe.md). A client sets it to "1" on a
+// completions call to say it will ping while the stream runs; a remote that
+// supports the probe answers the same call with
+// "id=<32 hex>; every_ms=<n>; grace_ms=<n>", and the client then posts
+// CoddyAlivePath(id) every every_ms. A remote that does not support it never
+// answers the header, and a client that did not ask is never cut by it.
+const CoddyProbeHeader = "X-Coddy-Probe"
+
+// CoddyAlivePath is the route of a ping, appended to the provider's api_base like
+// the other shared-model routes.
+func CoddyAlivePath(id string) string { return "/coddy/llm/calls/" + id + "/alive" }
 
 // WireRequest is the body of POST /coddy/llm/completions.
 type WireRequest struct {

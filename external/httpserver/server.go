@@ -81,6 +81,11 @@ type Server struct {
 	sharedWriteW time.Duration
 	sharedHB     time.Duration
 	sharedBound  time.Duration
+	// sharedProbes are the calls that asked for the application probe, and sharedProbeI and sharedProbeG are its interval and grace
+	// where a test set shorter ones (shared_probe.go).
+	sharedProbes sharedProbes
+	sharedProbeI time.Duration
+	sharedProbeG time.Duration
 
 	// envLoginUser and envLoginHash are the web sign-in account supplied out of
 	// band (CODDY_HTTP_USER / CODDY_HTTP_PASSWORD). The password is hashed once

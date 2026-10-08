@@ -37,13 +37,14 @@ const (
 	sharedModelsPattern      = "GET /coddy/llm/models"
 	sharedUsagePattern       = "GET /coddy/llm/models/{alias}/usage"
 	sharedCompletionsPattern = "POST /coddy/llm/completions"
+	sharedAlivePattern       = "POST /coddy/llm/calls/{id}/alive"
 )
 
 // isSharedLLMPattern reports the routes a shared-model token opens, and nothing
 // else: the listing, the usage of one alias and the completions.
 func isSharedLLMPattern(pattern string) bool {
 	switch pattern {
-	case sharedModelsPattern, sharedUsagePattern, sharedCompletionsPattern:
+	case sharedModelsPattern, sharedUsagePattern, sharedCompletionsPattern, sharedAlivePattern:
 		return true
 	}
 	return false
@@ -56,6 +57,7 @@ func (s *Server) registerSharedModelRoutes() {
 	s.mux.HandleFunc(sharedModelsPattern, s.llmModelsGet)
 	s.mux.HandleFunc(sharedUsagePattern, s.llmUsageGet)
 	s.mux.HandleFunc(sharedCompletionsPattern, s.llmCompletionsPost)
+	s.mux.HandleFunc(sharedAlivePattern, s.llmAlivePost)
 	// The counters are read with a main token or a sign-in, never with a
 	// shared-model token (the route is not one of isSharedLLMPattern).
 	s.mux.HandleFunc(sharedStatsPattern, s.sharedStatsGet)
@@ -674,6 +676,11 @@ func (s *Server) runSharedCall(w http.ResponseWriter, r *http.Request, cfg *conf
 		s.log.Debug("shared model call: the peer is not bounded on this leg", "alias", ent.SharedAlias(), "request_id", reqID, "reason", probeErr.Error())
 	}
 
+	// The application probe: a call that asked for it is confirmed in the headers, and from here more than the grace without a
+	// ping cancels it like a failed write does.
+	probe := s.startSharedProbe(w, r, clk, s.sharedCallerKey(r, s.authSnapshot(r)), cancel)
+	defer probe.stop()
+
 	// Headers and the first heartbeat go out before the provider is called.
 	if err := stream.start(); err != nil {
 		call.kind, call.status = sharedOutcomeWrite, 0
@@ -701,6 +708,9 @@ func (s *Server) runSharedCall(w http.ResponseWriter, r *http.Request, cfg *conf
 	}
 
 	switch {
+	case probe.fired():
+		call.kind, call.cause = sharedOutcomeGone, "probe"
+		return
 	case r.Context().Err() != nil:
 		call.kind = sharedOutcomeGone
 		return
