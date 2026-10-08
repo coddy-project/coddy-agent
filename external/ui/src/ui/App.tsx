@@ -3977,30 +3977,14 @@ export function App() {
     setDraft(draft);
   }
 
-  function goHome() {
-    // The chat left hands nothing of its workspace to the next one: the start
-    // screen opens on the folder last picked in this browser (the effect on
-    // the session id reads it once the chat is gone), on that folder's branch.
-    persistComposerDraftBeforeLeave();
-    setSessionsOpen(false);
-    setSchedulerOpen(false);
-    setSchedulerEditor(null);
-    setTasksOpen(false);
-    if (fadeOutTimerRef.current !== null) {
-      clearTimeout(fadeOutTimerRef.current);
-      fadeOutTimerRef.current = null;
-    }
-    clearSessionRoute();
-    setHeroHomeGeneration((g) => g + 1);
-    setItems([]);
-    setSessionLoading(false);
-    setSessionFadingOut(false);
-    setDraft("");
-    setTokenUsage(null);
-    setContextBreakdown(null);
-    setDescribePreview(null);
-    reasoningDurationMsByContentRef.current = new Map();
-    evictStaleSessionCaches("");
+  /**
+   * Puts the composer's selectors back to a new chat's: Agent mode, the default
+   * model and level, the configured permission mode. goHome does it, and so
+   * does every other way to the start screen (the Back button to "#/", a draft
+   * in History) and a session the server does not have: the first message
+   * creates the session with whatever the selectors show.
+   */
+  function resetNewChatSettings() {
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
@@ -4009,10 +3993,9 @@ export function App() {
     reasoningImpliedRef.current = false;
     // A new chat runs under the configured permission mode until it is changed.
     settingsVersionRef.current = { sid: "", version: 0 };
-    // Nor does it hold the goal of the chat just left: the next snapshot of
-    // that session is read afresh, whatever version a restarted server gives.
-    goalVersionRef.current = { sid: "", version: 0 };
-    setViewedGoal({ sid: "", goal: null });
+    // The mode is one more of the session's settings: the chat left may have
+    // been in Plan or Ask, and a new one is created in the mode shown.
+    setMode("agent");
     // The start screen's chip names the configured mode again (or a mode
     // picked there): it is derived, so nothing of the session left is shown.
     setPendingPermissionMode("");
@@ -4037,6 +4020,36 @@ export function App() {
         );
       }
     }
+  }
+  function goHome() {
+    // The chat left hands nothing of its workspace to the next one: the start
+    // screen opens on the folder last picked in this browser (the effect on
+    // the session id reads it once the chat is gone), on that folder's branch.
+    persistComposerDraftBeforeLeave();
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    if (fadeOutTimerRef.current !== null) {
+      clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
+    clearSessionRoute();
+    setHeroHomeGeneration((g) => g + 1);
+    setItems([]);
+    setSessionLoading(false);
+    setSessionFadingOut(false);
+    setDraft("");
+    setTokenUsage(null);
+    setContextBreakdown(null);
+    setDescribePreview(null);
+    reasoningDurationMsByContentRef.current = new Map();
+    evictStaleSessionCaches("");
+    resetNewChatSettings();
+    // Nor does it hold the goal of the chat just left: the next snapshot of
+    // that session is read afresh, whatever version a restarted server gives.
+    goalVersionRef.current = { sid: "", version: 0 };
+    setViewedGoal({ sid: "", goal: null });
   }
 
   async function deleteSession(id: string) {
@@ -4488,6 +4501,9 @@ export function App() {
       setDraft("");
       setSessionLoading(false);
       void loadSessionsList(true);
+      // The Back button to "#/" or a draft in History leaves the chat without
+      // going through goHome.
+      resetNewChatSettings();
       return;
     }
     setDraft("");
@@ -4527,7 +4543,20 @@ export function App() {
           shadowSnap.length > 0
         ) {
           setItems([...shadowSnap]);
-          setSessionLoading(false);
+          // The rows come from the shadow of a turn this tab runs here, so no
+          // transcript is read and the selectors would keep naming the session
+          // visited before: read its settings alone. Send waits for them.
+          try {
+            const r = await fetchJSON<{ settings?: unknown }>(
+              `/coddy/sessions/${encodeURIComponent(sessionId)}/messages?limit=1`,
+              { headers },
+            );
+            const snap = parseSessionSettings(r.data?.settings);
+            if (snap) applySessionSettings(snap);
+          } catch {
+            // The selectors stay as they are until a read or an event.
+          }
+          if (!lifecycle.signal.aborted) setSessionLoading(false);
         } else {
           // freshLoad when no shadow: prevents stale itemsRef from a previous session
           // bleeding into this session (e.g. React StrictMode double-invoke of effects).
@@ -4542,8 +4571,10 @@ export function App() {
             viewedSessionIdRef.current.trim() === sessionId
           ) {
             // An id the server does not serve: nothing to keep a skeleton up
-            // for, so it lands on the empty state like any unknown id.
+            // for, so it lands on the empty state like any unknown id, on a
+            // new chat's settings: its first message creates it.
             setSessionLoading(false);
+            resetNewChatSettings();
           }
           if (activeComposerSidRef.current.has(sessionId)) {
             const sh = streamShadowBySidRef.current.get(sessionId);
@@ -4970,6 +5001,15 @@ export function App() {
           ...prev.filter((f) => !files.includes(f)),
         ]);
     };
+    // The opened session's settings are still being read, so the selectors
+    // name another session's, and what a prompt takes from them (the mode as
+    // the top-level `model`, metadata.model, metadata.reasoning) would be
+    // applied to this session and kept. The composer holds Send back; this is
+    // the one door every other sender passes.
+    if (sessionLoading) {
+      giveBack();
+      return;
+    }
     const ownsPost = () =>
       postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
