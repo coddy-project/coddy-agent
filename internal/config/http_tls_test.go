@@ -77,3 +77,30 @@ func TestSharedCertNamesNeedAClientCA(t *testing.T) {
 	rep = checkYAML(t, withModeline(body+"    client_ca_file: /ca.pem\n"+names))
 	noFindingAt(t, rep.Findings, "httpserver.shared_models.cert_names")
 }
+
+// A client certificate is a credential of its own for the shared routes (the gate says so), so a node that shares a model with only
+// cert_names and a client CA is not "open": the config check agrees with the gate. Names with no CA verify nothing, so they do not count.
+func TestSharedModelsAuthProblemCountsCertificateNames(t *testing.T) {
+	base := func() *Config {
+		cfg := &Config{}
+		cfg.Models = []ModelEntry{{Model: "stub/m", SharedAs: "coder"}}
+		return cfg
+	}
+	with := base()
+	with.HTTPServer.TLS = HTTPTLSConfig{CertFile: "c", KeyFile: "k", ClientCAFile: "ca"}
+	with.HTTPServer.SharedModels.CertNames = []string{"alice.example"}
+	if err := SharedModelsAuthProblem(with, ExtraTokens{}); err != nil {
+		t.Errorf("cert_names with a client CA are a credential: %v", err)
+	}
+	noCA := base()
+	noCA.HTTPServer.SharedModels.CertNames = []string{"alice.example"}
+	if err := SharedModelsAuthProblem(noCA, ExtraTokens{}); err == nil {
+		t.Error("cert_names with no client CA verify nothing and are not a credential")
+	}
+	blank := base()
+	blank.HTTPServer.TLS = HTTPTLSConfig{CertFile: "c", KeyFile: "k", ClientCAFile: "ca"}
+	blank.HTTPServer.SharedModels.CertNames = []string{" "}
+	if err := SharedModelsAuthProblem(blank, ExtraTokens{}); err == nil {
+		t.Error("a blank name is not a credential")
+	}
+}

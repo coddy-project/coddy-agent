@@ -214,7 +214,7 @@ func swarmClientFindings(cfg *Config, body *yaml.Node, extra ExtraTokens) []Find
 	}
 	if len(cfg.Swarm.EffectiveClientTokens(extra)) == 0 {
 		at("swarm.clients",
-			"no swarm.auth_token, --swarm-auth-token or CODDY_SWARM_TOKEN: the relay's own routes (node list, sessions, topology, settings) are then open, or reachable only with a token generated for each run, while the scoped clients below are configured",
+			"no swarm.auth_token, --swarm-auth-token or CODDY_SWARM_TOKEN: the relay's own routes (node list, sessions, topology, settings) are then reachable only with a token generated for each run, while the scoped clients below are configured",
 			"set swarm.auth_token (a ${ENV} reference) for the full class")
 	}
 	return out

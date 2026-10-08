@@ -135,11 +135,11 @@ Each hop strips its own prefix and forwards the rest.
 
 ### What a mount will and will not carry
 
-It carries `/v1/*`, `/coddy/*`, the read-only swarm routes, and further `/swarm/nodes/*` hops.
+It carries `/v1/*`, `/coddy/*`, `/openapi*` and `/docs*`, the read-only swarm routes, and further `/swarm/nodes/*` hops (`/swarm/stats`, the relay's own counters, is not carried: a parent cannot read a child's).
 That is a **prefix** allowlist, not a route list, so a node's new routes work the day they
 ship.
 
-It refuses `POST /swarm/register`, `POST /swarm/tunnel`, and `DELETE /swarm/nodes/{node}` -
+It refuses `/swarm/register` and `/swarm/tunnel` for every method, and `DELETE /swarm/nodes/{node}` -
 that last one by method, since reading a child relay's node list is ordinary and evicting
 from it is not. The proxy authenticates to the node on the caller's behalf, so anything
 reachable through a mount is something the relay authorises for them; membership decisions
@@ -338,13 +338,13 @@ swarm:
       token: "${CODDY_SHARED_MODELS_TOKEN}"   # one of httpserver.shared_models.tokens
 ```
 
-The relay needs no change for it, and both transports work. What it looks like from the relay: the node tells the relay what its token is. Its process registers with the reserved label `coddy.token_class: shared_models`, which it sets itself whenever its `swarm.join[].token` is one of `httpserver.shared_models.tokens` (and removes whenever it is not, so a hand-written value never survives on a node whose token is a main one). The aggregated session list still asks every node for its sessions with the node's token and gets `401` from this one, and for a node with the label that refusal is expected and raises no warning. Any other outcome of such a node (a server error, a timeout, an unreachable node, an expired lease) warns as for every node, and a labelled node that does answer its sessions is listed. A node of an older version sends no label, so it keeps `workstation: 401 Unauthorized` in the `warnings` of [the aggregated list](#the-aggregated-list), and so does a node with authentication on and an empty, stale or rotated token. `GET /swarm/topology` carries `token_class: shared_models` on the node, and the web UI shows a **shared models only** mark on the node in the search results and in its tooltip on the map. The label is the node's own claim, used for this one purpose: a node that claims it while holding a main token only hides the warning, and `coddy -t` warns about a hand-written label whose join token is not a shared-model token. The topology is otherwise unaffected, since only chained relays are asked for it. Driving that node through the relay - the web UI's environment menu, `--remote` - is refused, which is the point. A node that must be driven through the relay **and** share models through it has to join with a token that does both, and then every client of the relay gets that privilege.
+The relay needs no change for it, and both transports work. What it looks like from the relay: the node tells the relay what its token is. Its process registers with the reserved label `coddy.token_class: shared_models`, which it sets itself whenever its `swarm.join[].token` is one of `httpserver.shared_models.tokens` (and removes whenever it is not, so a hand-written value never survives on a node whose token is a main one); like the token, it is set when the process starts. The aggregated session list still asks every node for its sessions with the node's token and gets `401` from this one, and for a node with the label that refusal is expected and raises no warning. Any other outcome of such a node (a server error, a timeout, an unreachable node, an expired lease) warns as for every node, and a labelled node that does answer its sessions is listed. A node of an older version sends no label, so it keeps `workstation: 401 Unauthorized` in the `warnings` of [the aggregated list](#the-aggregated-list), and so does a node with authentication on and an empty, stale or rotated token. `GET /swarm/topology` carries `token_class: shared_models` on the node, and the web UI shows a **shared models only** mark on the node in the search results and in its tooltip on the map. The label is the node's own claim, used for this one purpose: a node that claims it while holding a main token only hides the warning, and `coddy -t` warns about a hand-written label whose join token is not a shared-model token. The topology is otherwise unaffected, since only chained relays are asked for it. Driving that node through the relay - the web UI's environment menu, `--remote` - is refused, which is the point. A node that must be driven through the relay **and** share models through it has to join with a token that does both, and then every client of the relay gets that privilege.
 
 A node that joins with no token makes the relay send no `Authorization` at all, and an agent has no fallback to the relay's own token. With authentication on, every mounted call is then a `401`. With authentication off the node is open to every relay client on every route except the LLM routes, which still answer `403` with `kind: auth` while a row has `shared_as` and `httpserver.allow_insecure` is not set. Sharing through a relay therefore needs a token on the node.
 
 **A dedicated relay for share-only nodes.** The client token a borrower holds opens the mounts of every node of that relay: a mount is a prefix allowlist (`/v1/*` and `/coddy/*`), and each node is reached with the token it joined with. A shared-model token therefore protects only the nodes that joined with one; a node that joined with its main token is open to everything the relay's client token can do. Keep the nodes you administer and the nodes that only share models on separate relays, and hand the client token of the second relay to borrowers.
 
-**Removing a token cuts the node off at its next registration.** The relay keeps exactly the token the node's latest registration carried, an empty one included. Removing `swarm.join[].token` from a node, or turning its token off, therefore takes effect at its next heartbeat (at most a third of the lease, 30 seconds by default) for a direct node, and at its next connect for a tunnel node, which registers once per connection and reads its join configuration again then. With the token gone the relay sends no `Authorization` to the node: a node with authentication answers `401`, an open node stays open to every client of the relay as described above. To cut a node off at once, evict it, which makes its next registration a fresh lease with the token it carries:
+**Removing a token cuts the node off at its next registration.** The relay keeps exactly the token the node's latest registration carried, an empty one included. The relay does its part at the node's next registration, but a running node does not re-read its join configuration: `coddy serve` reads `swarm.join` once, at process start (only a relay's own `join` list is rebuilt in place on a configuration change), and every heartbeat and every reconnect carries the token it started with. Removing or changing `swarm.join[].token` therefore takes effect when the node's `coddy serve` is **restarted**, and then at its first registration, for a direct node and a tunnel node alike; evicting the node on the relay does not help while the node runs, since it registers again with the old token. With the token gone the relay sends no `Authorization` to the node: a node with authentication answers `401`, an open node stays open to every client of the relay as described above. To cut a node off at once, evict it, which makes its next registration a fresh lease with the token it carries:
 
 ```bash
 curl -X DELETE -H "Authorization: Bearer $RELAY_CLIENT_TOKEN" https://relay.example/swarm/nodes/workstation
@@ -375,7 +375,7 @@ A peer that disappears without a FIN or a RST is invisible to a connection that 
 
 **The relay's own Settings.** Opened on the relay (its map is the page's home), the Settings
 drawer edits the relay's deployment and its log: the **Swarm relay** tab (name, listen address,
-client and pairing tokens, CORS, TLS, lease and fan-out timeouts, upstreams, joins) and **Logger**.
+client and pairing tokens, CORS, TLS, the certificates the relay presents to nodes, lease and fan-out timeouts, upstreams, joins, scoped clients, private-upstream hosts and the two lab switches) and **Logger**.
 There is no Sessions tab, because a relay holds no sessions. The routes are the agent's own -
 `GET /coddy/config/schema`, `GET /coddy/config`, `POST /coddy/config/validate`, `PUT
 /coddy/config` - served by the relay behind its client token, and they carry only those two
@@ -421,13 +421,13 @@ only the shared-model routes of the nodes the entry lists: [Scoped clients](#sco
 client token controls every node it reaches, transitively through every hop - its sessions, its
 tools and its settings, the secrets a node's `GET /coddy/config` hands back (provider keys,
 remote tokens) included. This is stated
-rather than mitigated: there are no per-node client ACLs in this version. Give each node a
+rather than mitigated: the full client token has no per-node ACL (a [scoped client](#scoped-clients) is one, for the shared-model routes only). Give each node a
 credential minted for its relay rather than your own, put TLS in front, and keep the pairing
 token secret. Models a node lends through the relay inherit this: see [Sharing models through a relay](#sharing-models-through-a-relay) for the node's token, a relay of its own for share-only nodes and how to cut a node off.
 
 Binding off loopback without a client token **refuses to start** (`swarm.allow_insecure`
-overrides). On loopback one is generated for the run rather than left absent, because an open
-relay lends its authority to every local process.
+lifts the refusal, and a token is generated for the run all the same). On loopback one is generated for the run rather than left absent, because an open
+relay lends its authority to every local process; `coddy serve` never runs an open relay.
 
 A node's name is proven by a **per-lease secret** the relay mints, not by the shared pairing
 token: a fleet credential must not let one node claim another's name, redirect its traffic, or
@@ -462,7 +462,7 @@ otherwise. A relay that asks no client token hands such a request on the same wa
 credential, so a relay with a gate above it in a chain cannot be walked around through it.
 
 Credentials are preserved across a config save by **destination**, not by label: renaming an
-entry keeps its token, pointing it at a new address does not.
+entry keeps its token, pointing it at a new address does not (a scoped client's token is kept by its name, so renaming one asks for its token again).
 
 The relay's own Settings (above) edit it with the client token, which already controls every node
 it reaches; they add no power the token did not have, and they cannot be reached through a parent
@@ -490,7 +490,7 @@ swarm:
 - **What the entry opens.** `GET /coddy/llm/models`, `GET /coddy/llm/models/{alias}/usage`, `POST /coddy/llm/completions` and the ping of the [application probe](../features/shared-models.md#the-application-probe-a-client-that-says-it-is-alive), `POST /coddy/llm/alive`, of a node the entry lists,
   matched exactly on the decoded path with the route's method: no `HEAD` or `OPTIONS`, no trailing slash, no `;x=1`, and no route a later release adds under
   `/coddy/llm/` until the table of the relay lists it. On every other route of the relay, the node list, the sessions, the topology, a delete, the client
-  gets the plain `401` an unknown token gets, so it learns nothing about the relay.
+  gets the plain `401` an unknown token gets, so it learns nothing about the relay. A route under the mount of a listed node that is not one of these gets `404` "not carried by a node mount", which names a route and nothing about the node.
 - **`nodes` are exact hop paths.** `workstation` admits the node `workstation` directly below this relay and nothing else; `edge/gpu-box` admits the
   node `gpu-box` through the chained relay `edge` and nothing else (a child forwards with its own full token, so this relay judges the whole path, every
   hop); `*` admits any single-hop path. It does not admit a longer chain that starts with an entry, nor a node with the same name at another place: a node
@@ -505,8 +505,8 @@ swarm:
   windows are in memory: a restart refills them. The full class is not limited by the relay.
 - **The relay counts what each client did.** `GET /swarm/stats` (full token only; a scoped client gets the same `401` as on every other relay route)
   returns `{since, rows[{client, node, outcome, calls, duration_ms, max_duration_ms}]}` for the shared-model routes: `client` is the entry's name, `full` for
-  the full class or `unknown` for a token the gate refused, `node` is `-` when no node was named, and `outcome` is `ok`, `scope`, `limit`, `node_error`,
-  `gone` or `auth`. Labels only, in memory since the relay started, at most 1024 rows (past that, new nodes are counted under `-`); a prompt, a token or a digest of one never appears.
+  the full class or `unknown` for a token the gate refused, `node` is the first hop of the path, or `-` when the name is neither a node of this relay nor in the client's list, and `outcome` is `ok`, `scope`, `limit`, `node_error`,
+  `gone` or `auth`. Labels only, in memory since the relay started, about 1024 rows (past that, new nodes are folded into `-`); a prompt, a token or a digest of one never appears.
 - **A token belongs to one class.** It must differ from the main, swarm, pairing and shared-model tokens and from every other entry's: `coddy -t` and the
   load refuse a duplicate.
 
@@ -548,7 +548,7 @@ swarm:
   scoped entries on the relay). The certificate is presented to whichever address a node advertises, as any TLS client certificate is: it names the relay and proves
   nothing to a host that does not hold the authority the node trusts.
 - **Rotation.** The pair is read at each handshake and cached by size and modification time, so a renewed certificate is used by the next connection. The
-  authority is read when a node's route is built, which is at its next registration; a changed `node_tls` block takes a relay restart.
+  authority is read when a node's route is built, which is at its next registration; a change to the `swarm` block (this one, a client, a limit) rebuilds the relay in the same process, which starts the registry, the client windows and the counters afresh.
 - **Checks.** `coddy -t` refuses a certificate without its key; `--dry-run` loads the pair and the authority bundle; a relay whose `ca_file` cannot be read does not start, and names `swarm.node_tls`.
 
 The design record with the verdicts of the model checks behind these rules is
@@ -571,7 +571,7 @@ swarm:
 ```
 
 Both files or neither; minimum TLS 1.2; certificates are startup state, so rotating them needs
-a restart. `insecure_skip_verify` exists for a lab and is logged every time it is used.
+a restart. `insecure_skip_verify` exists for a lab and is logged once, as a warning, when the join or the upstream it belongs to starts.
 
 Opening a tunnel through a proxy to a TLS relay composes: dial the proxy, `CONNECT` to the
 relay, wrap in TLS, upgrade, invert roles. The HTTP/2 layer above is unaware of any of it.
