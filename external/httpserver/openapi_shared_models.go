@@ -5,9 +5,9 @@ package httpserver
 import "github.com/EvilFreelancer/coddy-agent/internal/llm"
 
 // mergeSharedModelsOpenAPI adds the routes a Coddy shares its models through
-// (docs/plans/remote-model-provider.md): the listing, the reserved usage route
-// and the completions stream, with the error object, the frames and the
-// credential rules. The schemas mirror internal/llm's wire types, which the
+// (docs/plans/remote-model-provider.md): the listing, the usage projection of
+// one alias and the completions stream, with the error object, the frames and
+// the credential rules. The schemas mirror internal/llm's wire types, which the
 // handler and the `coddy` provider both encode through.
 func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 	paths := doc["paths"].(map[string]interface{})
@@ -192,18 +192,69 @@ func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 		},
 	}}
 
+	schemas["CoddyLLMUsageWindow"] = map[string]interface{}{
+		"type": "object",
+		"description": "One metered window of the account behind a shared model. Only the percentage and the time to the reset are here: the counters (`used`, `limit`, `remaining`) would reveal the size of the plan, " +
+			"and no absolute reset time is sent, because the two hosts' clocks differ.",
+		"required": []string{"id", "label", "used_percent", "exhausted"},
+		"properties": map[string]interface{}{
+			"id":           map[string]interface{}{"type": "string", "pattern": "^(session|week|day|acu|window-[0-9]+)(-secondary)?$", "description": "Windows of a metered feature or model are not sent."},
+			"label":        map[string]interface{}{"type": "string", "description": "A duration (`5h`, `30m`), `week`, `day` or `ACU`; any other label is replaced by the id."},
+			"used_percent": map[string]interface{}{"type": "number", "minimum": 0, "maximum": 100},
+			"reset_in_s": map[string]interface{}{"type": "integer", "minimum": 0, "description": "Seconds until the window resets, relative to the moment the remote answered (corrected for the age of its own reading). " +
+				"Present when the window has a reset clock: `0` once a clock anchored by an absolute time has passed. Absent for a window with no reset clock, and for a relative clock that has run out."},
+			"exhausted": boolean,
+		},
+	}
+	schemas["CoddyLLMUsage"] = map[string]interface{}{
+		"type": "object",
+		"description": "The account usage behind a shared model, projected onto an allowlist: no provider name or type, plan, key name, wallet, rate figures, model id or absolute time, and no counter that reveals the size of the plan. " +
+			"A reader ignores a field it does not know. `{\"supported\": false}` alone says the model's provider has no usage source or its operator switched the usage panel off.",
+		"required": []string{"supported"},
+		"properties": map[string]interface{}{
+			"supported":    map[string]interface{}{"type": "boolean", "description": "`false` is the whole document: nothing else is sent."},
+			"account_wide": map[string]interface{}{"type": "boolean", "description": "The meters are those of the whole account or key, not of the one model the alias names."},
+			"stale":        map[string]interface{}{"type": "boolean", "description": "The numbers are from an earlier reading than the latest, which failed, or nothing could be read at all (then `windows` is empty). The reason is never given."},
+			"windows":      arrayOf(ref("CoddyLLMUsageWindow")),
+			"blocked":      map[string]interface{}{"type": "boolean", "description": "A call to this model would be refused now."},
+			"blockers": map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{"type": "string", "enum": []string{
+					"session_exhausted", "week_exhausted", "rpm_exhausted", "session_cooldown", "abuse_cooldown", "daily_capacity_exhausted",
+					"key_blocked", "key_cap_blocked", "wallet_empty", "user_blocked", "quota_exhausted", "model_blocked", "other",
+				}},
+				"description": "Why, from a fixed set of ids; an id the remote does not know is `other`. `model_blocked` says the gate concerns this alias's own model: a gate on any other model is never reported.",
+			},
+			"retry_in_s": map[string]interface{}{"type": "integer", "description": "Seconds until the timed blockers lift; the larger of the account's and the model's own."},
+		},
+	}
+
 	paths["/coddy/llm/models/{alias}/usage"] = map[string]interface{}{"get": map[string]interface{}{
 		"operationId": "coddyLLMModelUsageGet",
-		"summary":     "Reserved: the usage of a shared model",
-		"description": "Reserved for the second phase, which answers a projection of the account usage under the alias. Until then every alias answers **404**, and the answer names nothing. " + access,
-		"security":    bearer,
+		"summary":     "Read the account usage behind a shared model",
+		"description": "The usage of the account that the model under `alias` runs on, projected field by field onto an allowlist (`CoddyLLMUsage`): the metered windows as a percentage with the seconds to their reset, whether a call would be refused now and why from a fixed set of ids, and nothing that names the provider, the plan, the key or any model. " +
+			"The values are the account's own: every holder of a shared-model token learns how much of the lender's quota is left, which is the point and the exposure. " +
+			"The answer comes from this host's own reading of the account (the one its web UI and console show), served from a cache of 20 s and never forced by this route, so any number of clients, aliases and requests together make at most one upstream read per 15 s. " +
+			"A reading that failed with nothing cached answers `stale: true` with no windows and no reason. A block that concerns a model is reported under the alias of that model only, as the blocker `model_blocked`. " +
+			"`{\"supported\": false}` says the model's provider has no usage source, or its operator turned the panel off with `providers[].usage_limits_panel: false`. " +
+			"A name that finds no shared row (an unknown alias, a private model, a `provider/model` selector) is a **404** with `code: unknown_model` that names nothing. The route takes no stream slot. " + access,
+		"security": bearer,
 		"parameters": []interface{}{
-			map[string]interface{}{"name": "alias", "in": "path", "required": true, "schema": str},
+			map[string]interface{}{"name": "alias", "in": "path", "required": true, "schema": str, "description": "The alias of a shared model, as the listing names it, URL-escaped."},
 		},
 		"responses": map[string]interface{}{
+			"200": map[string]interface{}{
+				"description": "The projection, or `{\"supported\": false}`.",
+				"headers": map[string]interface{}{
+					"Cache-Control": map[string]interface{}{"description": "no-store", "schema": str},
+				},
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{"schema": ref("CoddyLLMUsage")},
+				},
+			},
 			"401": map[string]interface{}{"description": "Unauthorized (plain text)."},
 			"403": errorBody("No credential is configured."),
-			"404": errorBody("Not offered by this remote."),
+			"404": errorBody("Not offered by this remote: `kind: invalid`, `code: unknown_model`."),
 		},
 	}}
 

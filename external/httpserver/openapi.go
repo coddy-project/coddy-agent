@@ -2558,7 +2558,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/usage": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get provider account usage",
-					"description": "Account usage behind a provider row, for the status bar of every surface. The rows with a source today are `neuraldeep` (the hub's read-only `GET /v1/limits`), `codex` (the Codex backend's usage endpoint, read with the saved ChatGPT OAuth token) and `devin` (the seat-management status RPC of the Devin API server) - each read with the row's own credential and `proxy`. Answers `{ok:true, usage}` with the `provider_usage` snapshot (plan, metered windows as percent used with reset times, the live minute, the cooldown, the account's ruble wallet, the blocked state with its blockers and retry time, the models that bypass the windows - a source reports only the fields it has, so Codex and Devin carry windows and plan without wallet, rpm or cooldown); `{ok:false, unsupported:true}` for a provider type without a source, plus `disabled:true` when the row's usage limits panel is switched off (`providers[].usage_limits_panel: false`, nothing is read for that row); `{ok:false, error, usage}` when the read failed, with the previous snapshot marked `stale` so a client keeps the last numbers; 404 for an unknown provider. `refresh=1` asks for a fresh read: the manager serves its cache for 20 s, refreshes at once when the last read is 15 s or older, and otherwise defers the read to the end of that floor (`refreshPending`, `refreshInSec`). No dollar figure appears; the key never leaves the server.",
+					"description": "Account usage behind a provider row, for the status bar of every surface. The rows with a source today are `neuraldeep` (the hub's read-only `GET /v1/limits`), `codex` (the Codex backend's usage endpoint, read with the saved ChatGPT OAuth token) and `devin` (the seat-management status RPC of the Devin API server) - each read with the row's own credential and `proxy`. Answers `{ok:true, usage}` with the `provider_usage` snapshot (plan, metered windows as percent used with reset times, the live minute, the cooldown, the account's ruble wallet, the blocked state with its blockers and retry time, the models that bypass the windows - a source reports only the fields it has, so Codex and Devin carry windows and plan without wallet, rpm or cooldown); `{ok:false, unsupported:true}` for a provider type without a source, plus `disabled:true` when the row's usage limits panel is switched off (`providers[].usage_limits_panel: false`, nothing is read for that row); `{ok:false, error, usage}` when the read failed, with the previous snapshot marked `stale` so a client keeps the last numbers; 404 for an unknown provider. `refresh=1` asks for a fresh read: the manager serves its cache for 20 s, refreshes at once when the last read is 15 s or older, and otherwise defers the read to the end of that floor (`refreshPending`, `refreshInSec`). No dollar figure appears; the key never leaves the server. A provider row of type `coddy` (the models of a remote Coddy) is read per model, so the `model` query parameter names the alias the remote shares the model under and is required for such a row (400 `{ok:false, error:\"invalid\"}` without it); an alias that is not one of the row's configured `models[]` is a 404 `{ok:false, error:\"unknown_model\"}` before anything is read, and every other type ignores `model`. The snapshot and the unsupported answer carry the alias as `model`.",
 					"operationId": "getProviderUsage",
 					"parameters": []interface{}{
 						codexProviderNameParameter(),
@@ -2567,9 +2567,15 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "`1` asks for a fresh read instead of the cached snapshot, subject to the pacing floor.",
 						},
+						map[string]interface{}{
+							"name": "model", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The alias a provider row of type `coddy` shares the model under: required for such a row, ignored for every other type. It must be one of the row's configured `models[]`.",
+						},
 					},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Account usage answer.", "#/components/schemas/ProviderUsageAnswer"),
+						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
@@ -3602,7 +3608,8 @@ func openAPISpec() map[string]interface{} {
 						"disabled":     map[string]interface{}{"type": "boolean", "description": "The row's usage limits panel is switched off in config (providers[].usage_limits_panel: false); nothing is read for it. Always paired with unsupported."},
 						"provider":     map[string]interface{}{"type": "string", "description": "Provider row name, on the unsupported answer."},
 						"providerType": map[string]interface{}{"type": "string", "description": "Provider wire type, on the unsupported answer."},
-						"error":        map[string]interface{}{"type": "string", "description": "Failure kind of the latest read: unauthorized, unavailable, invalid."},
+						"model":        map[string]interface{}{"type": "string", "description": "The alias of a provider row of type coddy the answer is about, on the unsupported answer."},
+						"error":        map[string]interface{}{"type": "string", "description": "Failure kind of the latest read: unauthorized, unavailable, invalid; on a 404, unknown_model (the alias is not a configured model of the row)."},
 						"detail":       map[string]interface{}{"type": "string", "description": "What went wrong when the read itself failed (a cancelled request, no snapshot); absent otherwise."},
 						"usage":        map[string]interface{}{"nullable": true, "allOf": []interface{}{map[string]interface{}{"$ref": "#/components/schemas/ProviderUsage"}}, "description": "The snapshot; null when a failed read has nothing stale to show."},
 					},
@@ -3614,6 +3621,7 @@ func openAPISpec() map[string]interface{} {
 						"sessionUpdate":   map[string]interface{}{"type": "string", "enum": []string{"provider_usage"}},
 						"provider":        map[string]interface{}{"type": "string"},
 						"providerType":    map[string]interface{}{"type": "string"},
+						"model":           map[string]interface{}{"type": "string", "description": "The alias a provider row of type coddy shares the model under: the usage of a remote Coddy is read per alias, so the update names the one it is about. Absent for every other type, whose usage belongs to the row."},
 						"observedAt":      map[string]interface{}{"type": "string", "description": "Hub timestamp of the counters, RFC3339."},
 						"fetchedAt":       map[string]interface{}{"type": "string", "description": "Local time of the read, RFC3339."},
 						"plan":            map[string]interface{}{"type": "string", "description": "Subscription tier: free, starter, pro."},
@@ -3623,7 +3631,7 @@ func openAPISpec() map[string]interface{} {
 						"cooldownSec":     map[string]interface{}{"type": "integer"},
 						"wallet":          map[string]interface{}{"type": "object", "properties": map[string]interface{}{"balanceRub": map[string]string{"type": "number"}, "spentRub30d": map[string]string{"type": "number"}}, "description": "The account's own rubles; the balance may be negative."},
 						"blocked":         map[string]interface{}{"type": "boolean", "description": "A chat request would be refused now."},
-						"blockers":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "session_exhausted, week_exhausted, rpm_exhausted, session_cooldown, abuse_cooldown, daily_capacity_exhausted, key_blocked, key_cap_blocked, wallet_empty, user_blocked."},
+						"blockers":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "session_exhausted, week_exhausted, rpm_exhausted, session_cooldown, abuse_cooldown, daily_capacity_exhausted, key_blocked, key_cap_blocked, wallet_empty, user_blocked, quota_exhausted; model_blocked on a provider of type coddy (the gate concerns the alias's own model); remote_busy on the countdown of a call that waits for a free slot of a remote."},
 						"retryAt":         map[string]interface{}{"type": "string"},
 						"retryInSec":      map[string]interface{}{"type": "integer"},
 						"unlimited":       map[string]interface{}{"type": "boolean", "description": "The key has no volume windows (wallet or bypass keys)."},

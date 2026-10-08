@@ -52,3 +52,19 @@ Feature: A model shared by a remote Coddy is reachable through a swarm relay
     When each client of the relay holds a stream from "coder" open through the mount
     And the first client requests a third stream
     Then the node answers 429 with the kind "busy"
+
+  Scenario: The account usage of a shared model is read through a relay that dials the node
+    Given a swarm relay with a client token mounting a remote coddy node that requires its own token and shares "stub/qwen3-secret" as "coder" whose provider reports 62 percent of its quota used
+    And a local coddy with a provider "remote" of type coddy pointing at the relay mount of that node with the relay's client token
+    When the local coddy reads the usage of the model "remote/coder"
+    Then it reports 62 percent of the quota used
+    And the remote marks the reading as account-wide
+    And the document never mentions the upstream model id, the provider name, the key name or any amount of money
+
+  Scenario: The account usage of a shared model is read through the reverse tunnel of a node that dialled out
+    Given a swarm relay with a client token mounting a remote coddy node over its tunnel that requires its own token and shares "stub/qwen3-secret" as "coder" whose provider reports 62 percent of its quota used
+    And a local coddy with a provider "remote" of type coddy pointing at the relay mount of that node with the relay's client token
+    When the local coddy reads the usage of the model "remote/coder"
+    Then it reports 62 percent of the quota used
+    And the remote marks the reading as account-wide
+    And the document never mentions the upstream model id, the provider name, the key name or any amount of money

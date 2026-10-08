@@ -90,7 +90,7 @@ func (a *Agent) limitResetToWaitFor(streamErr error, response *llm.Response, rea
 // when the turn is cancelled meanwhile. RunPlan turns run at depth 0 and
 // wait the same way.
 func (a *Agent) waitForLimitReset(ctx context.Context, sessionID string, reset *llm.QuotaResetError) error {
-	providerName, providerType := a.limitWaitProvider()
+	providerName, providerType, model := a.limitWaitProvider()
 	send := func() {
 		now := time.Now()
 		left := reset.ResetAt.Sub(now)
@@ -101,6 +101,7 @@ func (a *Agent) waitForLimitReset(ctx context.Context, sessionID string, reset *
 			SessionUpdate: acp.UpdateTypeProviderUsage,
 			Provider:      providerName,
 			ProviderType:  providerType,
+			Model:         model,
 			ObservedAt:    now.UTC().Format(time.RFC3339),
 			FetchedAt:     now.UTC().Format(time.RFC3339),
 			Blocked:       true,
@@ -134,14 +135,19 @@ func (a *Agent) waitForLimitReset(ctx context.Context, sessionID string, reset *
 }
 
 // limitWaitProvider names the provider row behind the session's model for
-// the countdown update. A model that no longer resolves (the row was
-// removed under the session) still gets its prefix as the label; the error
-// is not worth failing the countdown over.
-func (a *Agent) limitWaitProvider() (name, typ string) {
+// the countdown update, and for a row of type coddy the alias it shares the
+// model under (rm.Model, not the provider/alias selector): the usage of a
+// remote Coddy is per alias, and every other type reports none. A model that no
+// longer resolves (the row was removed under the session) still gets its prefix
+// as the label; the error is not worth failing the countdown over.
+func (a *Agent) limitWaitProvider() (name, typ, model string) {
 	modelID := a.state.EffectiveModelID(a.cfg)
 	if rm, err := a.cfg.ResolveLLM(modelID); err == nil && rm != nil {
-		return rm.ProviderName, rm.ProviderType
+		if rm.ProviderType == coddyProviderType {
+			model = rm.Model
+		}
+		return rm.ProviderName, rm.ProviderType, model
 	}
 	name, _, _ = config.SplitModelRef(modelID)
-	return name, ""
+	return name, "", ""
 }

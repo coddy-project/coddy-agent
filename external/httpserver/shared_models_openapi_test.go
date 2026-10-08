@@ -51,7 +51,7 @@ func TestOpenAPIDescribesTheSharedModelRoutes(t *testing.T) {
 		t.Fatal("the listing is not documented")
 	}
 	if _, found := paths["/coddy/llm/models/{alias}/usage"]; !found {
-		t.Fatal("the reserved usage route is not documented")
+		t.Fatal("the usage route is not documented")
 	}
 
 	for _, name := range []string{"CoddyLLMError", "CoddyLLMModelList", "CoddyLLMModelRow", "CoddyLLMRequest", "CoddyLLMMessage", "CoddyLLMChunk", "CoddyLLMFinal", "CoddyLLMToolCall"} {

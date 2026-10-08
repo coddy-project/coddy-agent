@@ -11,8 +11,7 @@ Feature: A model shared by a remote Coddy serves another Coddy's harness
   once per credential, and a local Coddy waits out a busy remote for a bounded
   time instead of failing at once. A remote without authentication offers
   nothing unless its operator has said httpserver.allow_insecure, and a node
-  that holds only shared-model tokens refuses everything else to everyone. Scenarios tagged @phase2 belong to the second step of
-  docs/plans/remote-model-provider.md.
+  that holds only shared-model tokens refuses everything else to everyone.
 
   Scenario: The remote lists only the models it shares, under their aliases
     Given a remote coddy sharing "stub/qwen3-secret" as "coder" with a 200000 token context and the reasoning levels "low,high"
@@ -27,14 +26,12 @@ Feature: A model shared by a remote Coddy serves another Coddy's harness
     When the local coddy adds the model "remote/coder" without a context window
     Then GET /v1/models of the local coddy reports "remote/coder" with a context of 200000 tokens
 
-  @phase2
   Scenario: The local coddy offers the reasoning levels the remote lists
     Given a remote coddy sharing "stub/qwen3-secret" as "coder" with a 200000 token context and the reasoning levels "low,high"
     And a local coddy with a provider "remote" of type coddy pointing at the remote
     When the local coddy adds the model "remote/coder" without reasoning levels
     Then GET /v1/models of the local coddy reports "remote/coder" with the reasoning levels "low, high"
 
-  @phase2
   Scenario: The local coddy offers images when the remote lists the model as multimodal
     Given a remote coddy sharing "stub/qwen3-secret" as "coder" that is multimodal
     And a local coddy with a provider "remote" of type coddy pointing at the remote
@@ -104,7 +101,6 @@ Feature: A model shared by a remote Coddy serves another Coddy's harness
     And the local coddy assembles the answer "Done after the refresh."
     And the provider was called once
 
-  @phase2
   Scenario: Reasoning levels narrowed on the remote are refused once and the next request succeeds
     Given a remote coddy sharing "stub/qwen3-secret" as "coder" with the reasoning levels "low,high" whose model answers "Answered at low."
     And a local coddy with a provider "remote" of type coddy pointing at the remote
@@ -115,7 +111,6 @@ Feature: A model shared by a remote Coddy serves another Coddy's harness
     And the local coddy falls back to the level "low" and the provider received "low"
     And the local coddy assembles the answer "Answered at low."
 
-  @phase2
   Scenario: A key written in the local row is not overwritten by a refresh
     Given a remote coddy sharing "stub/qwen3-secret" as "coder" with a 200000 token context
     And a local coddy with a provider "remote" of type coddy pointing at the remote
@@ -131,7 +126,6 @@ Feature: A model shared by a remote Coddy serves another Coddy's harness
     When the local coddy streams "remote/coder" at the reasoning level "high"
     Then the remote model's provider received the reasoning level "high"
 
-  @phase2
   Scenario: The reasoning level off reaches the provider when the remote allows it
     Given a remote coddy sharing "stub/qwen3-secret" as "coder" that allows reasoning off
     And a local coddy with a provider "remote" of type coddy pointing at the remote
@@ -145,7 +139,6 @@ Feature: A model shared by a remote Coddy serves another Coddy's harness
     Then the remote model received one image part after the text part, with the same MIME type and the same bytes
     And the local coddy assembles the answer "A red square."
 
-  @phase2
   Scenario: The account usage of the remote provider is read through the hop
     Given a remote coddy sharing "stub/qwen3-secret" as "coder" whose provider reports 62 percent of its quota used
     And a local coddy with a provider "remote" of type coddy pointing at the remote

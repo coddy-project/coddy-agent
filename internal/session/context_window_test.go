@@ -528,18 +528,21 @@ func TestSessionsResolveTheirWindowThroughTheManager(t *testing.T) {
 		t.Fatalf("child session: %d/%q, want 262144 from the provider", tokens, source)
 	}
 
-	reloaded := NewManager(cfg, &contextUsageCapture{}, runner, slog.Default(), root, store)
+	// A restarted process loads its own configuration: the manager built last on
+	// a config object owns the listing lineage of it (internal/config/listing.go).
+	reloadedCfg := windowTestConfig(cfg.Paths.Home)
+	reloaded := NewManager(reloadedCfg, &contextUsageCapture{}, runner, slog.Default(), root, store)
 	reloaded.SetContextWindowLister(listing.list, nil)
 	t.Cleanup(func() { _ = reloaded.WaitContextWindowsIdle(5 * time.Second) })
 	if _, err := reloaded.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: res.SessionID, CWD: root}); err != nil {
 		t.Fatal(err)
 	}
-	reloaded.AwaitContextWindows(ctx, cfg, []string{"hub/reported"}, time.Second)
+	reloaded.AwaitContextWindows(ctx, reloadedCfg, []string{"hub/reported"}, time.Second)
 	st := reloaded.SessionByID(res.SessionID)
 	if st == nil {
 		t.Fatal("loaded session not registered")
 	}
-	if tokens, source := st.ContextWindow(cfg); tokens != 262144 || source != ContextWindowFromProvider {
+	if tokens, source := st.ContextWindow(reloadedCfg); tokens != 262144 || source != ContextWindowFromProvider {
 		t.Fatalf("loaded session: %d/%q, want 262144 from the provider", tokens, source)
 	}
 

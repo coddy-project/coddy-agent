@@ -13,8 +13,9 @@ import (
 )
 
 // Provider usage on the remote console: the server owns the key and the
-// cache, so the numbers come from GET /coddy/providers/{name}/usage and from
-// the provider_usage SSE frames of a turn. The client pulls when nothing
+// cache, so the numbers come from GET /coddy/providers/{name}/usage (with
+// ?model=<alias> for a row of type coddy, whose usage is read per alias) and
+// from the provider_usage SSE frames of a turn. The client pulls when nothing
 // streams: at session ready and after a turn's stream closed, on a
 // goroutine so neither waits for the hub. A refresh the server deferred by
 // its pacing floor answers refreshPending, and the console's own timer reads
@@ -22,8 +23,14 @@ import (
 // backend, so this client arms no timer of its own.
 
 // usageUnsupportedTTL is how long a provider the server reported as having
-// no usage source is taken at its word before it is asked again.
+// no usage source is taken at its word before it is asked again. A row of type
+// coddy is never marked: the server remembers an alias that has no usage for
+// its own, shorter, time, and a second memory here would add to it.
 const usageUnsupportedTTL = 5 * time.Minute
+
+// coddyProviderType is the provider type of a row that shares a remote Coddy's
+// models; its usage belongs to the alias, not to the row.
+const coddyProviderType = "coddy"
 
 // providerUsageAnswer is the REST envelope of the usage route. Provider and
 // ProviderType name the row on the unsupported answer, which carries no
@@ -34,6 +41,7 @@ type providerUsageAnswer struct {
 	Disabled     bool                     `json:"disabled"`
 	Provider     string                   `json:"provider"`
 	ProviderType string                   `json:"providerType"`
+	Model        string                   `json:"model"`
 	Error        string                   `json:"error"`
 	Usage        *acp.ProviderUsageUpdate `json:"usage"`
 }
@@ -65,6 +73,18 @@ func usageProviderOf(modelID string) string {
 	return provider
 }
 
+// splitUsageSubject reads what the console passes to a usage read: a provider
+// row's name, or a model selector "provider/alias" that also names the alias a
+// row of type coddy is read for. The alias is everything after the first slash,
+// the way a selector is split everywhere; it is empty for a bare row name.
+func splitUsageSubject(name string) (provider, alias string) {
+	name = strings.TrimSpace(name)
+	if i := strings.IndexByte(name, '/'); i >= 0 {
+		return strings.TrimSpace(name[:i]), strings.TrimSpace(name[i+1:])
+	}
+	return name, ""
+}
+
 // ProviderUsageForSession is the console's read; the server answers a
 // deferred refresh with RefreshPending and the console's own timer reads
 // the cache again when it says so, so the session id is not needed here.
@@ -72,42 +92,61 @@ func (h *Handler) ProviderUsageForSession(ctx context.Context, _ string, name st
 	return h.ProviderUsage(ctx, name, refresh)
 }
 
-// ProviderUsage reads the account usage behind a provider row from the
-// remote server. A provider the server reported as unsupported is remembered
-// for a while so non-metered models cost no round trips; a manual refresh
-// asks again regardless.
+// ProviderUsage reads the account usage behind a provider row from the remote
+// server. name is the row's name or a model selector "provider/alias": the
+// alias is sent as ?model= whenever there is one (the server needs it for a row
+// of type coddy and ignores it for every other type, so a caller can always pass
+// the selector). A provider the server reported as unsupported is remembered
+// for a while so non-metered models cost no round trips; a manual refresh asks
+// again regardless. A row of type coddy is never remembered here: the server's
+// own memory per alias is the only one.
 func (h *Handler) ProviderUsage(ctx context.Context, name string, refresh bool) (*acp.ProviderUsageUpdate, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
+	provider, alias := splitUsageSubject(name)
+	if provider == "" {
 		return nil, fmt.Errorf("remote: provider usage needs a provider name")
 	}
 	h.usageMu.Lock()
-	if mark, ok := h.usageUnsupported[name]; ok && !refresh && time.Now().Before(mark.until) {
+	if mark, ok := h.usageUnsupported[provider]; ok && !refresh && time.Now().Before(mark.until) {
 		h.usageMu.Unlock()
-		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, ProviderType: mark.providerType, Unsupported: true, Disabled: mark.disabled}, nil
+		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: provider, ProviderType: mark.providerType, Unsupported: true, Disabled: mark.disabled}, nil
 	}
 	h.usageMu.Unlock()
 
-	path := "/coddy/providers/" + url.PathEscape(name) + "/usage"
+	path := "/coddy/providers/" + url.PathEscape(provider) + "/usage"
+	query := url.Values{}
+	if alias != "" {
+		query.Set("model", alias)
+	}
 	if refresh {
-		path += "?refresh=1"
+		query.Set("refresh", "1")
+	}
+	if len(query) > 0 {
+		path += "?" + query.Encode()
 	}
 	var answer providerUsageAnswer
 	if err := h.getJSON(ctx, path, &answer); err != nil {
 		return nil, err
 	}
+	coddy := answer.ProviderType == coddyProviderType
 	h.usageMu.Lock()
-	if answer.Unsupported {
+	if answer.Unsupported && !coddy {
 		if h.usageUnsupported == nil {
 			h.usageUnsupported = make(map[string]usageUnsupportedMark)
 		}
-		h.usageUnsupported[name] = usageUnsupportedMark{until: time.Now().Add(usageUnsupportedTTL), providerType: answer.ProviderType, disabled: answer.Disabled}
+		h.usageUnsupported[provider] = usageUnsupportedMark{until: time.Now().Add(usageUnsupportedTTL), providerType: answer.ProviderType, disabled: answer.Disabled}
 	} else {
-		delete(h.usageUnsupported, name)
+		delete(h.usageUnsupported, provider)
 	}
 	h.usageMu.Unlock()
 	if answer.Unsupported {
-		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, ProviderType: answer.ProviderType, Unsupported: true, Disabled: answer.Disabled}, nil
+		u := &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: provider, ProviderType: answer.ProviderType, Unsupported: true, Disabled: answer.Disabled}
+		if coddy {
+			u.Model = answer.Model
+			if u.Model == "" {
+				u.Model = alias
+			}
+		}
+		return u, nil
 	}
 	if answer.Usage == nil {
 		if answer.Error != "" {
@@ -119,7 +158,12 @@ func (h *Handler) ProviderUsage(ctx context.Context, name string, refresh bool) 
 		answer.Usage.SessionUpdate = acp.UpdateTypeProviderUsage
 	}
 	if answer.Usage.Provider == "" {
-		answer.Usage.Provider = name
+		answer.Usage.Provider = provider
+	}
+	// A server that predates the alias on the wire still answers for the alias
+	// the read was about, so the console keeps it under its own subject.
+	if answer.Usage.Model == "" && answer.Usage.ProviderType == coddyProviderType {
+		answer.Usage.Model = alias
 	}
 	return answer.Usage, nil
 }
@@ -166,11 +210,11 @@ func (h *Handler) pullProviderUsage(ctx context.Context, sessionID string, refre
 	if !live {
 		return
 	}
-	provider := usageProviderOf(model)
-	if provider == "" {
+	if usageProviderOf(model) == "" {
 		return
 	}
-	u, err := h.ProviderUsage(ctx, provider, refresh)
+	// The selector, not the row: a row of type coddy is read for the alias.
+	u, err := h.ProviderUsage(ctx, model, refresh)
 	if err != nil {
 		h.log.Debug("remote provider usage", "session", sessionID, "error", err)
 		return

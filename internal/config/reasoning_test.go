@@ -426,7 +426,7 @@ func TestReasoningChoicesReserveOffForAllowReasoningOff(t *testing.T) {
 		t.Fatalf("choices without opt-in = %v", got)
 	}
 	with := without
-	with.AllowReasoningOff = true
+	with.AllowReasoningOff = config.BoolPtr(true)
 	if got := cfg.ReasoningChoicesFor(&with); !reflect.DeepEqual(got, []string{"low", "high", config.ReasoningOff}) {
 		t.Fatalf("choices with opt-in = %v", got)
 	}

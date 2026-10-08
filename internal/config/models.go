@@ -28,7 +28,11 @@ type ModelEntry struct {
 	// Multimodal declares that this model accepts image/file inputs in addition to text.
 	// When true the UI may offer file attachment for messages sent with this model,
 	// and read hands it the picture in an image file instead of refusing it.
-	Multimodal bool `yaml:"multimodal"`
+	// The key has three states: absent (nil) is inherited - false for every
+	// provider type, and for a model of a provider of type coddy the remote's
+	// listing decides - and a written value, false included, is an explicit
+	// answer that wins. Read it only through Config.ModelMultimodal.
+	Multimodal *bool `yaml:"multimodal,omitempty"`
 	// ReasoningLevels optionally overrides the reasoning levels offered for this model.
 	// A nil pointer (key omitted) auto-detects the levels from the API model id (see
 	// ResolvedReasoningLevels); a pointer to an empty list disables the reasoning
@@ -41,8 +45,11 @@ type ModelEntry struct {
 	// Ignored when not one of the resolved levels.
 	ReasoningDefault string `yaml:"reasoning_default"`
 	// AllowReasoningOff exposes the off pseudo-level only when this deployment
-	// supports the provider-specific request that disables reasoning.
-	AllowReasoningOff bool `yaml:"allow_reasoning_off"`
+	// supports the provider-specific request that disables reasoning. Like
+	// Multimodal it has three states: absent (nil) is false for every provider
+	// type except coddy, where the remote's listing decides, and a written value,
+	// false included, wins. Read it only through Config.ReasoningOffOffered.
+	AllowReasoningOff *bool `yaml:"allow_reasoning_off,omitempty"`
 	// Stream selects the transport used to talk to this model. A nil pointer (key
 	// omitted) means streaming, which is the default for every backend. An explicit
 	// false makes the runtime issue one blocking completion request and deliver the

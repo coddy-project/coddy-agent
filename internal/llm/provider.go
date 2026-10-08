@@ -293,8 +293,8 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	// Never the SDK default client: the shared transport carries the HTTP/2
 	// liveness pings and the stall guard (transport.go), and it is the route
 	// the row's proxy setting chose (the environment's proxy unless it says
-	// otherwise).
-	hc, err := providerHTTPClient(p.ProxyURL, p.Timeout, p.StreamIdleTimeout)
+	// otherwise). A coddy row gets the HTTP/1.1 transport of that route.
+	hc, err := providerHTTPClientFor(p.Type, p.ProxyURL, p.Timeout, p.StreamIdleTimeout)
 	if err != nil {
 		return nil, err
 	}

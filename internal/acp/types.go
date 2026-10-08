@@ -534,6 +534,7 @@ type UsageUpdate struct {
 // right now. The provider types that fill it today are neuraldeep (GET
 // /v1/limits on the hub), codex (the Codex backend's usage endpoint) and
 // devin (the seat-management status RPC); consumers branch on ProviderType.
+// A coddy row (a model another Coddy shares) is read per alias: Model names it.
 // The update never carries a credential, a hub URL, or a dollar amount.
 //
 // Relative durations (ResetInSec, RetryInSec, Rate.ResetInSec) are corrected
@@ -546,6 +547,10 @@ type ProviderUsageUpdate struct {
 	// Provider is the provider row name; ProviderType its wire type.
 	Provider     string `json:"provider"`
 	ProviderType string `json:"providerType"`
+	// Model is the alias a provider row of type coddy shares a model under: the
+	// usage of a remote Coddy is read per alias, so the update names the one it
+	// is about. It is empty for every other type, whose usage belongs to the row.
+	Model string `json:"model,omitempty"`
 	// ObservedAt is the hub's own timestamp of the counters; FetchedAt is
 	// the local time of the request that fetched them.
 	ObservedAt string `json:"observedAt,omitempty"`

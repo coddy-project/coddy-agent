@@ -20,7 +20,16 @@ import (
 // proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY), "none" connects directly, and
 // an http, https, socks5 or socks5h URL goes through that proxy.
 func HTTPClientForProviderProxy(setting string) (*http.Client, error) {
-	rt, err := providerTransport(setting)
+	return httpClientForProviderType("", setting)
+}
+
+// httpClientForProviderType is HTTPClientForProviderProxy for the rows of one
+// provider type: the transport of the row's setting that completions of that
+// type take (a coddy row is reached over HTTP/1.1 only, see
+// http1OnlyProviderType), so the listing and the usage read of a row travel
+// the way its calls do.
+func httpClientForProviderType(providerType, setting string) (*http.Client, error) {
+	rt, err := providerTransportFor(providerType, setting)
 	if err != nil {
 		return nil, err
 	}

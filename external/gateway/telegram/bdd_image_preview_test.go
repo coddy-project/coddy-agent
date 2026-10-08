@@ -116,7 +116,7 @@ func (w *pictureWorld) chatThatReadsImages(name string) error {
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: cwd},
 		Providers: []config.ProviderConfig{{Name: "stub", Type: "openai", APIBase: w.model.URL + "/v1", APIKey: "sk-stub"}},
-		Models:    []config.ModelEntry{{Model: "stub/coddy-demo", MaxContextTokens: 131072, Multimodal: true}},
+		Models:    []config.ModelEntry{{Model: "stub/coddy-demo", MaxContextTokens: 131072, Multimodal: config.BoolPtr(true)}},
 		Agent:     config.Agent{Model: "stub/coddy-demo"},
 	}
 	cfg.Agent.ApplyDefaults()

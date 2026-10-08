@@ -255,8 +255,10 @@ func TestGETModelsMultimodalField(t *testing.T) {
 	cfg := &config.Config{
 		Agent: config.Agent{Model: "openai/gpt-4o"},
 		Models: []config.ModelEntry{
-			{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2, Multimodal: false},
-			{Model: "openai/gpt-4o-vision", MaxTokens: 100, Temperature: 0.2, Multimodal: true},
+			{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2, Multimodal: config.BoolPtr(false)},
+			{Model: "openai/gpt-4o-vision", MaxTokens: 100, Temperature: 0.2, Multimodal: config.BoolPtr(true)},
+			// An absent key reads as false for a provider that is not coddy, as a written false does.
+			{Model: "openai/gpt-4o-mini", MaxTokens: 100, Temperature: 0.2},
 		},
 	}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
@@ -293,6 +295,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 		{id: string(session.ModeAsk)},
 		{id: "openai/gpt-4o", multimodal: false},
 		{id: "openai/gpt-4o-vision", multimodal: true},
+		{id: "openai/gpt-4o-mini", multimodal: false},
 	}
 	if len(body.Data) != len(wantRows) {
 		t.Fatalf("want %d rows, got %d: %+v", len(wantRows), len(body.Data), body.Data)
@@ -2772,7 +2775,7 @@ func TestCoddyConfigPutAgentModelOptional(t *testing.T) {
 func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	cp := &capturingHTTPProvider{reply: "ok"}
 	_, srv, _ := testHTTPServerPersist(t)
-	srv.activeCfg().Models[0].Multimodal = true
+	srv.activeCfg().Models[0].Multimodal = config.BoolPtr(true)
 	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return cp, nil }
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -2859,7 +2862,7 @@ func TestResponsesInlineFilesOmittedForNonMultimodalDirectModel(t *testing.T) {
 func TestResponsesInlineFilesPersistThumbnailInSessionHistory(t *testing.T) {
 	cp := &capturingHTTPProvider{reply: "ok"}
 	_, srv, sessRoot := testHTTPServerPersist(t)
-	srv.activeCfg().Models[0].Multimodal = true
+	srv.activeCfg().Models[0].Multimodal = config.BoolPtr(true)
 	srv.makeLLMFromYAML = func(*config.Config, string, llm.RequestOptions) (llm.Provider, error) { return cp, nil }
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -2970,7 +2973,7 @@ func TestResponsesInlineFilesAcceptedForAgent(t *testing.T) {
 		return string(acp.StopReasonEndTurn), nil
 	}
 	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
-	srv.activeCfg().Models[0].Multimodal = true
+	srv.activeCfg().Models[0].Multimodal = config.BoolPtr(true)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -2996,7 +2999,7 @@ func TestResponsesInlineFilesOmittedForNonMultimodalAgentModel(t *testing.T) {
 		return string(acp.StopReasonEndTurn), nil
 	}
 	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
-	srv.activeCfg().Models[0].Multimodal = true
+	srv.activeCfg().Models[0].Multimodal = config.BoolPtr(true)
 	srv.activeCfg().Models = append(srv.activeCfg().Models, config.ModelEntry{
 		Model: "openai/text-only", MaxTokens: 100, Temperature: 0.2,
 	})

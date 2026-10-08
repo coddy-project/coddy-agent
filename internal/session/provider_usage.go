@@ -14,6 +14,12 @@ package session
 // A row can switch its panel off (providers[].usage_limits_panel: false): it
 // is then treated like a provider without a source, nothing is read for it
 // and nothing is published, and reads answer Unsupported with Disabled set.
+//
+// A provider row of type coddy (the models a remote Coddy shares) is read per
+// alias: its remote answers one projection per shared model, so the cache
+// keys an entry by a subject, the provider and the alias, and every other type
+// keeps its one entry under the provider name. Design record:
+// docs/plans/remote-model-provider-phase2.md, 4.3 and 4.4.
 
 import (
 	"context"
@@ -43,7 +49,84 @@ const (
 	// fingerprint, its output is not, so a helper that starts answering with
 	// a fresh key is noticed on the next automatic read after this long.
 	providerUsageCommandRetry = time.Minute
+	// coddyUsageUnsupportedTTL is how long an answer of a coddy row that says
+	// "no usage here" is remembered: automatic reads inside it are answered
+	// without asking the remote, a manual refresh asks anyway. It is short on
+	// purpose, so a lender that turns its reader on is noticed within the
+	// minute.
+	coddyUsageUnsupportedTTL = time.Minute
 )
+
+// ErrProviderUsageUnknownModel is returned by a usage read of a coddy row that
+// names a model which is not one of the configured models[] rows of that
+// provider: the cache must not grow, and the remote must not be asked, on
+// arbitrary names.
+var ErrProviderUsageUnknownModel = errors.New("provider usage: the model is not a configured row of the provider")
+
+// usageSubject is what one usage entry is about: a provider row, or for a
+// coddy row one model of it (the alias the remote shares it under). model is
+// empty for every other type.
+type usageSubject struct{ provider, model string }
+
+// key is the entry's key in the cache: the provider name when there is no
+// model (a provider name has no slash, so no two subjects share a key), and
+// provider/model otherwise.
+func (s usageSubject) key() string {
+	if s.model == "" {
+		return s.provider
+	}
+	return s.provider + "/" + s.model
+}
+
+// providerIsCoddy says whether a row shares the models of a remote Coddy.
+func providerIsCoddy(p *config.ProviderConfig) bool {
+	return p != nil && strings.EqualFold(strings.TrimSpace(p.Type), "coddy")
+}
+
+// usageSubjectFor resolves what a caller named: a provider name, or a model
+// selector provider/model. For a coddy row the selector picks the alias, and
+// it must be a configured models[] row of that provider (a coddy row named
+// without a model gets a subject without one: it has no usage of its own, and
+// the read answers unsupported); for every other type whatever follows the
+// slash is ignored, so a caller can always pass the selector of the model it
+// is on.
+func usageSubjectFor(cfg *config.Config, name string) (*config.ProviderConfig, usageSubject, error) {
+	prov, alias := cfg.FindProvider(name), ""
+	if prov == nil {
+		if i := strings.Index(name, "/"); i >= 0 {
+			if prov = cfg.FindProvider(name[:i]); prov != nil {
+				alias = strings.TrimSpace(name[i+1:])
+			}
+		}
+	}
+	if prov == nil {
+		return nil, usageSubject{}, fmt.Errorf("unknown provider %q", name)
+	}
+	if !providerIsCoddy(prov) {
+		return prov, usageSubject{provider: prov.Name}, nil
+	}
+	if alias == "" {
+		return prov, usageSubject{provider: prov.Name}, nil
+	}
+	if cfg.FindModelEntry(prov.Name+"/"+alias) == nil {
+		return nil, usageSubject{}, fmt.Errorf("%w: provider %q has no model %q", ErrProviderUsageUnknownModel, prov.Name, alias)
+	}
+	return prov, usageSubject{provider: prov.Name, model: alias}, nil
+}
+
+// usageSubjectOrphaned says whether an entry's subject can no longer be read
+// under the configuration: a coddy subject whose row is gone, retyped or no
+// longer has the model, or a plain subject whose row became a coddy one (which
+// is read per model). Such an entry is let go, so the subjects the cache holds
+// stay bounded by the configuration. A plain subject whose row is merely absent
+// is not orphaned: its pacing history is kept, as it always was.
+func usageSubjectOrphaned(cfg *config.Config, s usageSubject) bool {
+	prov := cfg.FindProvider(s.provider)
+	if s.model == "" {
+		return providerIsCoddy(prov)
+	}
+	return !providerIsCoddy(prov) || cfg.FindModelEntry(s.provider+"/"+s.model) == nil
+}
 
 // Failure kinds carried by ProviderUsageUpdate.Error.
 const (
@@ -61,6 +144,9 @@ const providerUsageBlockerUser = "user_blocked"
 type providerUsageTimerFunc func(d time.Duration, fn func()) (stop func() bool)
 
 type providerUsageEntry struct {
+	// subject is what the entry is about; a deferred fire rebuilds the read
+	// from it.
+	subject     usageSubject
 	fingerprint string
 	// generation invalidates asynchronous work: a fetch or a deferred refresh
 	// started under an older generation discards its result.
@@ -86,6 +172,15 @@ type providerUsageEntry struct {
 	// that started it and the ones that joined; every one of them receives
 	// the result, through the manager sender and the observers.
 	waiters []string
+	// unsupportedUntil is the end of the memory of a coddy answer that said
+	// there is no usage to read (coddyUsageUnsupportedTTL); zero otherwise.
+	unsupportedUntil time.Time
+	// followUp says a turn ended for this coddy subject and the first fetch
+	// after it owes one more read a TTL later (the remote answers from its own
+	// cache, so a read at the turn's end may predate the turn); the sessions
+	// whose turns ended receive that read.
+	followUp         bool
+	followUpSessions []string
 }
 
 type providerUsageState struct {
@@ -194,7 +289,7 @@ func (m *Manager) notifyUsageObservers(sessionID string, u acp.ProviderUsageUpda
 // providerUsageSource says whether a provider type has a usage source.
 func providerUsageSource(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "neuraldeep", "codex", "devin":
+	case "neuraldeep", "codex", "devin", "coddy":
 		return true
 	default:
 		return false
@@ -207,8 +302,12 @@ func providerUsageEnabled(prov *config.ProviderConfig) bool {
 	return prov != nil && providerUsageSource(prov.Type) && prov.EffectiveUsageLimitsPanel()
 }
 
-// ProviderUsage returns the account usage behind the named provider row. A
-// provider type without a usage source answers Unsupported; otherwise the
+// ProviderUsage returns the account usage behind the named provider row. The
+// name is a provider name or a model selector provider/model: a coddy row is
+// read per model and needs the selector of a configured model (another name
+// is ErrProviderUsageUnknownModel, and none answers Unsupported: the row has
+// no usage but its models'), every other type ignores what follows the slash.
+// A provider type without a usage source answers Unsupported; otherwise the
 // cached snapshot inside the TTL, or a fresh one. refresh bypasses the TTL:
 // past the floor it fetches at once, inside it the cached snapshot comes
 // back with RefreshPending and the fetch is deferred to the floor's end
@@ -234,9 +333,9 @@ func (m *Manager) ProviderUsageForSession(ctx context.Context, sessionID, provid
 // result directly.
 func (m *Manager) providerUsageRead(ctx context.Context, providerName string, refresh bool, deferTo string) (*acp.ProviderUsageUpdate, error) {
 	cfg := m.activeCfg()
-	prov := cfg.FindProvider(strings.TrimSpace(providerName))
-	if prov == nil {
-		return nil, fmt.Errorf("unknown provider %q", providerName)
+	prov, subject, err := usageSubjectFor(cfg, providerName)
+	if err != nil {
+		return nil, err
 	}
 	if !providerUsageEnabled(prov) {
 		// No source, or the row's panel is switched off: the answer says
@@ -245,16 +344,27 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 			SessionUpdate: acp.UpdateTypeProviderUsage,
 			Provider:      prov.Name,
 			ProviderType:  prov.Type,
+			Model:         subject.model,
 			Unsupported:   true,
 			Disabled:      providerUsageSource(prov.Type),
 		}, nil
 	}
+	if providerIsCoddy(prov) && subject.model == "" {
+		// A coddy row has no usage of its own, only its models do: nothing to
+		// read and nothing to remember.
+		return &acp.ProviderUsageUpdate{
+			SessionUpdate: acp.UpdateTypeProviderUsage,
+			Provider:      prov.Name,
+			ProviderType:  prov.Type,
+			Unsupported:   true,
+		}, nil
+	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
-	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
+	fingerprint := providerUsageFingerprint(*prov, subject.model, authPath, cliLogin)
 
 	m.usage.mu.Lock()
-	e := m.usageEntryLocked(prov.Name, fingerprint)
+	e := m.usageEntryLocked(subject, fingerprint)
 	now := m.usageNow()
 	age := now.Sub(e.fetchedAt)
 	sinceAttempt := now.Sub(e.lastAttempt)
@@ -263,7 +373,7 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		// The hub asked for a pause: serve what we have until it passes; a
 		// refresh is deferred to the pause's end and the answer says so.
 		if refresh {
-			m.usageDeferLocked(prov.Name, e, deferTo, now)
+			m.usageDeferLocked(subject, e, deferTo, now)
 		}
 		u := m.usageDeliverableLocked(e, now)
 		m.usage.mu.Unlock()
@@ -278,22 +388,34 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		// refresh rather than the snapshot it was meant to replace.
 		done, generation := e.inflight, e.generation
 		m.usage.mu.Unlock()
-		return m.usageAwait(ctx, done, prov.Name, generation)
+		return m.usageAwait(ctx, done, subject, generation)
+	case !refresh && usageUnsupportedRememberedLocked(e, now):
+		// A coddy answer that said "no usage here" holds for its own, longer
+		// memory; a manual refresh skips it and takes the ordinary path.
+		u := m.usageDeliverableLocked(e, now)
+		m.usage.mu.Unlock()
+		return &u, nil
 	case e.update != nil && !refresh && age < providerUsageTTL:
 		u := m.usageDeliverableLocked(e, now)
 		m.usage.mu.Unlock()
 		return &u, nil
 	case e.update != nil && !e.lastAttempt.IsZero() && sinceAttempt < providerUsageFloor:
 		// Inside the floor: the snapshot comes back now, the fetch later.
-		m.usageDeferLocked(prov.Name, e, deferTo, now)
+		m.usageDeferLocked(subject, e, deferTo, now)
 		u := m.usageDeliverableLocked(e, now)
 		m.usage.mu.Unlock()
 		return &u, nil
 	}
-	done := m.usageStartFetchLocked(prov, authPath, cliLogin, e, "")
+	done := m.usageStartFetchLocked(prov, subject, authPath, cliLogin, e, "")
 	generation := e.generation
 	m.usage.mu.Unlock()
-	return m.usageAwait(ctx, done, prov.Name, generation)
+	return m.usageAwait(ctx, done, subject, generation)
+}
+
+// usageUnsupportedRememberedLocked says whether the entry holds a coddy answer
+// of "no usage here" that is still inside its memory.
+func usageUnsupportedRememberedLocked(e *providerUsageEntry, now time.Time) bool {
+	return e.update != nil && e.update.Unsupported && now.Before(e.unsupportedUntil)
 }
 
 // errUsageSuperseded is answered when the account a read was waiting on
@@ -303,7 +425,7 @@ var errUsageSuperseded = errors.New("provider usage: the account changed while t
 
 // usageAwait waits for a running fetch and returns the stored snapshot,
 // provided the entry still is the one the caller started from.
-func (m *Manager) usageAwait(ctx context.Context, done <-chan struct{}, providerName string, generation uint64) (*acp.ProviderUsageUpdate, error) {
+func (m *Manager) usageAwait(ctx context.Context, done <-chan struct{}, subject usageSubject, generation uint64) (*acp.ProviderUsageUpdate, error) {
 	select {
 	case <-done:
 	case <-ctx.Done():
@@ -311,24 +433,24 @@ func (m *Manager) usageAwait(ctx context.Context, done <-chan struct{}, provider
 	}
 	m.usage.mu.Lock()
 	defer m.usage.mu.Unlock()
-	e := m.usage.entries[providerName]
+	e := m.usage.entries[subject.key()]
 	if e == nil || e.generation != generation {
 		return nil, errUsageSuperseded
 	}
 	if e.update == nil {
-		return nil, fmt.Errorf("provider %q: usage fetch produced no snapshot", providerName)
+		return nil, fmt.Errorf("provider %q: usage fetch produced no snapshot", subject.key())
 	}
 	u := m.usageDeliverableLocked(e, m.usageNow())
 	return &u, nil
 }
 
-// usageEntryLocked returns the entry of a provider, replacing it when the
+// usageEntryLocked returns the entry of a subject, replacing it when the
 // account behind the row changed (a rotated key, another deployment).
-func (m *Manager) usageEntryLocked(name, fingerprint string) *providerUsageEntry {
+func (m *Manager) usageEntryLocked(subject usageSubject, fingerprint string) *providerUsageEntry {
 	if m.usage.entries == nil {
 		m.usage.entries = make(map[string]*providerUsageEntry)
 	}
-	e := m.usage.entries[name]
+	e := m.usage.entries[subject.key()]
 	if e != nil && e.fingerprint == fingerprint {
 		return e
 	}
@@ -336,8 +458,8 @@ func (m *Manager) usageEntryLocked(name, fingerprint string) *providerUsageEntry
 		m.usageInvalidateLocked(e)
 	}
 	m.usage.generation++
-	e = &providerUsageEntry{fingerprint: fingerprint, generation: m.usage.generation}
-	m.usage.entries[name] = e
+	e = &providerUsageEntry{subject: subject, fingerprint: fingerprint, generation: m.usage.generation}
+	m.usage.entries[subject.key()] = e
 	return e
 }
 
@@ -375,14 +497,14 @@ func (m *Manager) usageDeliverableLocked(e *providerUsageEntry, now time.Time) a
 
 // usageDeferLocked schedules the refresh for the end of the floor, unless
 // one is already pending.
-func (m *Manager) usageDeferLocked(name string, e *providerUsageEntry, sessionID string, now time.Time) {
+func (m *Manager) usageDeferLocked(subject usageSubject, e *providerUsageEntry, sessionID string, now time.Time) {
 	if sessionID != "" {
 		e.pendingSessions = appendSession(e.pendingSessions, sessionID)
 	}
 	if e.pendingStop != nil {
 		return
 	}
-	m.usageArmPendingLocked(name, e, m.usageNextAttemptLocked(e), e.pendingSessions)
+	m.usageArmPendingLocked(subject, e, m.usageNextAttemptLocked(e), e.pendingSessions)
 }
 
 // usageDeferredFire runs a deferred refresh. The account behind the row is
@@ -391,10 +513,10 @@ func (m *Manager) usageDeferLocked(name string, e *providerUsageEntry, sessionID
 // fetch that a save cancelled and re-armed at once still honours the floor
 // and the hub's pause, since the request may have reached the hub before the
 // cancel and so counts as an attempt.
-func (m *Manager) usageDeferredFire(name string, generation uint64) {
+func (m *Manager) usageDeferredFire(subject usageSubject, generation uint64) {
 	m.usage.mu.Lock()
 	defer m.usage.mu.Unlock()
-	e := m.usage.entries[name]
+	e := m.usage.entries[subject.key()]
 	if e == nil || e.generation != generation {
 		return
 	}
@@ -406,23 +528,25 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 		return
 	}
 	cfg := m.activeCfg()
-	prov := cfg.FindProvider(name)
-	if !providerUsageEnabled(prov) {
+	prov := cfg.FindProvider(subject.provider)
+	if !providerUsageEnabled(prov) || usageSubjectOrphaned(cfg, subject) {
+		// The row went away, changed type or stopped sharing the model while
+		// the refresh waited: there is nothing left to read.
 		return
 	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
-	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
+	fingerprint := providerUsageFingerprint(*prov, subject.model, authPath, cliLogin)
 	if e.fingerprint != fingerprint {
 		// The credential changed while the refresh waited: the entry and its
 		// numbers describe another account, so the fetch goes into a fresh
 		// one, which has no pacing history and starts at once.
-		e = m.usageEntryLocked(prov.Name, fingerprint)
+		e = m.usageEntryLocked(subject, fingerprint)
 	} else if at := m.usageNextAttemptLocked(e); at.After(m.usageNow()) {
-		m.usageArmPendingLocked(name, e, at, sessions)
+		m.usageArmPendingLocked(subject, e, at, sessions)
 		return
 	}
-	m.usageStartFetchLocked(prov, authPath, cliLogin, e, "")
+	m.usageStartFetchLocked(prov, subject, authPath, cliLogin, e, "")
 	e.waiters = appendSessions(e.waiters, sessions)
 }
 
@@ -449,7 +573,7 @@ func appendSessions(list []string, ids []string) []string {
 // closed when it ends. The result is stored only when the entry's
 // generation is unchanged, then delivered to the requesting session and to
 // the observers.
-func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath string, cliLogin bool, e *providerUsageEntry, sessionID string) <-chan struct{} {
+func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, subject usageSubject, authPath string, cliLogin bool, e *providerUsageEntry, sessionID string) <-chan struct{} {
 	done := make(chan struct{})
 	// Cancel-only: the fetcher bounds its HTTP read itself and the
 	// credential helper keeps its own budget; a logout, a config swap or a
@@ -462,13 +586,12 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 		e.waiters = appendSession(e.waiters, sessionID)
 	}
 	generation := e.generation
-	name := prov.Name
 	provider := *prov
 	m.usage.wg.Add(1)
 	go func() {
 		defer m.usage.wg.Done()
 		defer cancel()
-		mapped, err := m.fetchProviderUsage(ctx, provider, authPath, cliLogin)
+		mapped, err := m.fetchProviderUsage(ctx, provider, subject.model, authPath, cliLogin)
 		fetchedAt := m.usageNow()
 		m.usage.mu.Lock()
 		if e.generation != generation {
@@ -479,12 +602,17 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 			return
 		}
 		e.inflight, e.inflightCancel = nil, nil
+		e.unsupportedUntil = time.Time{}
 		if err == nil {
 			e.update, e.fetchedAt = &mapped, fetchedAt
 			e.unauthorized, e.backoffUntil = false, time.Time{}
+			if mapped.Unsupported {
+				e.unsupportedUntil = fetchedAt.Add(coddyUsageUnsupportedTTL)
+			}
 		} else {
-			m.usageRecordFailureLocked(e, name, provider.Type, err, fetchedAt)
+			m.usageRecordFailureLocked(e, subject, provider.Type, err, fetchedAt)
 		}
+		m.usageSettleFollowUpLocked(e, err == nil && !mapped.Unsupported, fetchedAt)
 		delivered := m.usageDeliverableLocked(e, fetchedAt)
 		// Every session that asked while the fetch ran gets the result: the
 		// one that started it and the ones that joined it, each through the
@@ -522,11 +650,14 @@ func appendSession(list []string, id string) []string {
 // usageRecordFailureLocked folds a failed fetch into the entry: the
 // previous windows stay, marked stale, with the failure kind; a blocked
 // account becomes a Blocked snapshot; a rejected key sticks; a requested
-// pause becomes the backoff.
-func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, providerType string, err error, at time.Time) {
-	fresh := acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, ProviderType: providerType}
+// pause becomes the backoff. A coddy row's "invalid" answer is the one that
+// says the alias is gone: its numbers go, and nothing sticks.
+func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, subject usageSubject, providerType string, err error, at time.Time) {
+	coddy := subject.model != ""
+	fresh := acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: subject.provider, ProviderType: providerType, Model: subject.model}
 	base := fresh
-	if e.update != nil {
+	// A coddy answer of "unsupported" holds no numbers to keep.
+	if e.update != nil && !e.update.Unsupported {
 		base = *e.update
 		base.Stale = true
 	}
@@ -546,6 +677,12 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 		base.Blockers = []string{providerUsageBlockerUser}
 		base.RetryAt, base.RetryInSec = "", 0
 	case llm.ProviderUsageInvalid:
+		if coddy {
+			// The remote no longer shares the alias: numbers read for it before
+			// are not this alias's any more. The next read after the TTL asks
+			// again, so an alias shared once more reappears.
+			base = fresh
+		}
 		base.Error = ProviderUsageErrorInvalid
 	default:
 		base.Error = ProviderUsageErrorUnavailable
@@ -557,13 +694,41 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 			e.backoffUntil = at.Add(pause)
 		}
 	}
-	if e.update == nil {
+	if e.update == nil || (coddy && base.FetchedAt == "") {
 		e.fetchedAt = at
 		base.FetchedAt = at.UTC().Format(time.RFC3339)
 	}
 	e.update = &base
 	if m.log != nil && !errors.Is(err, context.Canceled) {
-		m.log.Debug("provider usage fetch failed", "provider", name, "error", err)
+		m.log.Debug("provider usage fetch failed", "provider", subject.key(), "error", err)
+	}
+}
+
+// usageOweFollowUpLocked records that a turn of a session ended for a coddy
+// subject: the first fetch that completes after it owes one more read a TTL
+// later, delivered to the session, because the remote answers from its own
+// cache and a read at the turn's end can predate the turn.
+func (m *Manager) usageOweFollowUpLocked(e *providerUsageEntry, sessionID string) {
+	if e.subject.model == "" {
+		return
+	}
+	e.followUp = true
+	e.followUpSessions = appendSession(e.followUpSessions, sessionID)
+}
+
+// usageSettleFollowUpLocked pays the debt of usageOweFollowUpLocked when a
+// fetch completes: one deferred read at fetchedAt + providerUsageTTL, announced
+// as a pending refresh like any deferred one, unless one is pending already or
+// the fetch brought nothing to follow up (a failure, a rejection, a remote
+// without usage). The follow-up's own fetch owes nothing, so it never chains.
+func (m *Manager) usageSettleFollowUpLocked(e *providerUsageEntry, read bool, at time.Time) {
+	if !e.followUp {
+		return
+	}
+	sessions := e.followUpSessions
+	e.followUp, e.followUpSessions = false, nil
+	if read && e.pendingStop == nil {
+		m.usageArmPendingLocked(e.subject, e, at.Add(providerUsageTTL), sessions)
 	}
 }
 
@@ -586,9 +751,12 @@ func (m *Manager) usageRejectionExpiredLocked(prov *config.ProviderConfig, e *pr
 func (m *Manager) DropProviderUsage(providerName string) {
 	m.usage.mu.Lock()
 	defer m.usage.mu.Unlock()
-	if e := m.usage.entries[providerName]; e != nil {
-		m.usageInvalidateLocked(e)
-		delete(m.usage.entries, providerName)
+	// Every subject of the provider: a coddy row has one entry per alias.
+	for key, e := range m.usage.entries {
+		if e.subject.provider == providerName {
+			m.usageInvalidateLocked(e)
+			delete(m.usage.entries, key)
+		}
 	}
 }
 
@@ -614,7 +782,15 @@ func (m *Manager) pauseProviderUsage() {
 	m.usage.mu.Lock()
 	defer m.usage.mu.Unlock()
 	now := m.usageNow()
-	for name, e := range m.usage.entries {
+	cfg := m.activeCfg()
+	for key, e := range m.usage.entries {
+		if cfg != nil && usageSubjectOrphaned(cfg, e.subject) {
+			// The row or the model of a coddy subject left the configuration:
+			// nothing will read this entry again.
+			m.usageInvalidateLocked(e)
+			delete(m.usage.entries, key)
+			continue
+		}
 		pendingAt, sessions := e.pendingAt, e.pendingSessions
 		hadPending := e.pendingStop != nil
 		// The sessions waiting on the cancelled fetch are owed a result: they
@@ -627,23 +803,23 @@ func (m *Manager) pauseProviderUsage() {
 		e.inflight, e.inflightCancel, e.waiters = nil, nil, nil
 		switch {
 		case hadPending:
-			m.usageArmPendingLocked(name, e, pendingAt, appendSessions(sessions, waiters))
+			m.usageArmPendingLocked(e.subject, e, pendingAt, appendSessions(sessions, waiters))
 		case hadInflight:
-			m.usageArmPendingLocked(name, e, now, waiters)
+			m.usageArmPendingLocked(e.subject, e, now, waiters)
 		}
 	}
 }
 
 // usageArmPendingLocked schedules the deferred refresh of an entry at a
 // given instant under its current generation.
-func (m *Manager) usageArmPendingLocked(name string, e *providerUsageEntry, at time.Time, sessions []string) {
+func (m *Manager) usageArmPendingLocked(subject usageSubject, e *providerUsageEntry, at time.Time, sessions []string) {
 	delay := at.Sub(m.usageNow())
 	if delay < 0 {
 		delay = 0
 	}
 	generation := e.generation
 	e.pendingAt, e.pendingSessions = at, sessions
-	e.pendingStop = m.usageAfter(delay, func() { m.usageDeferredFire(name, generation) })
+	e.pendingStop = m.usageAfter(delay, func() { m.usageDeferredFire(subject, generation) })
 }
 
 // WaitProviderUsageIdle blocks until every in-flight usage fetch returned,
@@ -671,22 +847,29 @@ func (m *Manager) ShutdownProviderUsage(timeout time.Duration) {
 }
 
 // usageProviderForSession resolves the provider row behind a session's
-// effective model; ok is false when it has no usage source or its panel is
-// switched off.
-func (m *Manager) usageProviderForSession(st *State) (*config.ProviderConfig, bool) {
+// effective model and the subject its usage is cached under (the alias of the
+// model for a coddy row, nothing for every other type); ok is false when the
+// row has no usage source or its panel is switched off.
+func (m *Manager) usageProviderForSession(st *State) (*config.ProviderConfig, usageSubject, bool) {
 	if st == nil {
-		return nil, false
+		return nil, usageSubject{}, false
 	}
 	cfg := m.activeCfg()
 	entry := cfg.FindModelEntry(st.EffectiveModelID(cfg))
 	if entry == nil {
-		return nil, false
+		return nil, usageSubject{}, false
 	}
 	prov := cfg.FindProvider(entry.ProviderName())
 	if !providerUsageEnabled(prov) {
-		return nil, false
+		return nil, usageSubject{}, false
 	}
-	return prov, true
+	subject := usageSubject{provider: prov.Name}
+	if providerIsCoddy(prov) {
+		if subject.model = entry.APIModel(); subject.model == "" {
+			return nil, usageSubject{}, false
+		}
+	}
+	return prov, subject, true
 }
 
 // publishProviderUsageAsync refreshes the usage behind a session's model and
@@ -696,17 +879,17 @@ func (m *Manager) usageProviderForSession(st *State) (*config.ProviderConfig, bo
 // RefreshPending, and the fresh one when the timer fires. It returns
 // without waiting for the network.
 func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
-	prov, ok := m.usageProviderForSession(st)
+	prov, subject, ok := m.usageProviderForSession(st)
 	if !ok {
 		return
 	}
 	cfg := m.activeCfg()
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
-	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
+	fingerprint := providerUsageFingerprint(*prov, subject.model, authPath, cliLogin)
 
 	m.usage.mu.Lock()
-	e := m.usageEntryLocked(prov.Name, fingerprint)
+	e := m.usageEntryLocked(subject, fingerprint)
 	now := m.usageNow()
 	var deliverNow *acp.ProviderUsageUpdate
 	switch {
@@ -715,24 +898,33 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 		// request, until a login, a config change or a manual refresh.
 		u := m.usageDeliverableLocked(e, now)
 		deliverNow = &u
+	case usageUnsupportedRememberedLocked(e, now):
+		// The remote said it has no usage to read, a moment ago: neither a
+		// request nor an update until that memory ends.
+		m.usage.mu.Unlock()
+		return
 	case e.inflight != nil:
 		// The running fetch delivers to every session that joined it; the
 		// current snapshot, when there is one, goes out right away.
 		e.waiters = appendSession(e.waiters, sessionID)
+		m.usageOweFollowUpLocked(e, sessionID)
 		if e.update != nil {
 			u := m.usageDeliverableLocked(e, now)
 			deliverNow = &u
 		}
 	case e.update != nil && !e.backoffUntil.IsZero() && now.Before(e.backoffUntil):
-		m.usageDeferLocked(prov.Name, e, sessionID, now)
+		m.usageDeferLocked(subject, e, sessionID, now)
+		m.usageOweFollowUpLocked(e, sessionID)
 		u := m.usageDeliverableLocked(e, now)
 		deliverNow = &u
 	case e.update != nil && !e.lastAttempt.IsZero() && now.Sub(e.lastAttempt) < providerUsageFloor:
-		m.usageDeferLocked(prov.Name, e, sessionID, now)
+		m.usageDeferLocked(subject, e, sessionID, now)
+		m.usageOweFollowUpLocked(e, sessionID)
 		u := m.usageDeliverableLocked(e, now)
 		deliverNow = &u
 	default:
-		m.usageStartFetchLocked(prov, authPath, cliLogin, e, sessionID)
+		m.usageStartFetchLocked(prov, subject, authPath, cliLogin, e, sessionID)
+		m.usageOweFollowUpLocked(e, sessionID)
 	}
 	m.usage.mu.Unlock()
 	if deliverNow != nil {
@@ -751,20 +943,22 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 // the running one or a new one, and receives the result when it lands,
 // however long the credential helper takes. Nothing waits here.
 func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
-	prov, ok := m.usageProviderForSession(st)
+	prov, subject, ok := m.usageProviderForSession(st)
 	if !ok || m.server == nil {
 		return
 	}
 	cfg := m.activeCfg()
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
 	cliLogin := cfg.ProviderMayUseCLILogin(prov.Name, prov.Type)
-	fingerprint := providerUsageFingerprint(*prov, authPath, cliLogin)
+	fingerprint := providerUsageFingerprint(*prov, subject.model, authPath, cliLogin)
 
 	m.usage.mu.Lock()
-	e := m.usageEntryLocked(prov.Name, fingerprint)
+	e := m.usageEntryLocked(subject, fingerprint)
 	now := m.usageNow()
 	var deliverNow *acp.ProviderUsageUpdate
 	switch {
+	case usageUnsupportedRememberedLocked(e, now):
+		// The remote said it has no usage to read, a moment ago: stay silent.
 	case e.inflight != nil:
 		e.waiters = appendSession(e.waiters, sessionID)
 	case e.update != nil && (e.unauthorized || now.Sub(e.fetchedAt) < providerUsageTTL ||
@@ -772,7 +966,7 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 		u := m.usageDeliverableLocked(e, now)
 		deliverNow = &u
 	default:
-		m.usageStartFetchLocked(prov, authPath, cliLogin, e, sessionID)
+		m.usageStartFetchLocked(prov, subject, authPath, cliLogin, e, sessionID)
 	}
 	m.usage.mu.Unlock()
 	if deliverNow != nil {

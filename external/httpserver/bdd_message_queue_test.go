@@ -146,7 +146,7 @@ func (s *queueHTTPState) startServer() error {
 	}
 	cfg := &config.Config{
 		Paths:  config.Paths{Home: home, CWD: s.root},
-		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Multimodal: !s.textOnlyModel}},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Multimodal: config.BoolPtr(!s.textOnlyModel)}},
 		Agent:  config.Agent{Model: "openai/gpt-4o"},
 	}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.root, &session.FileStore{Root: sessRoot})

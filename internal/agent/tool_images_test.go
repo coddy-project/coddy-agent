@@ -338,7 +338,7 @@ func TestAToolPictureIsKeptAsItsAssetAndSentFromIt(t *testing.T) {
 	sessionDir := filepath.Join(dir, ".session")
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
-		Models:    []config.ModelEntry{{Model: "fake/eyes", MaxTokens: 100, MaxContextTokens: 128000, Multimodal: true}},
+		Models:    []config.ModelEntry{{Model: "fake/eyes", MaxTokens: 100, MaxContextTokens: 128000, Multimodal: config.BoolPtr(true)}},
 		Agent:     config.Agent{Model: "fake/eyes"},
 		Tools:     config.Tools{PermissionMode: config.PermModeBypass},
 	}

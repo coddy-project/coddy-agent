@@ -102,10 +102,16 @@ providers:
   # picked from the remote's listing in Settings, and are written <provider>/<alias>.
   # A plain http:// address that is not loopback sends the token and the whole
   # conversation in clear text; coddy -t warns about it.
+  # What a model can do - its reasoning levels, default level, off and image support -
+  # comes from the remote's listing; a key of the same name on the models[] row wins
+  # when you write it (false included), so leave the key out to follow the remote.
+  # The remote's account usage is read per model and shown like a local provider's;
+  # usage_limits_panel: false stops that read for this row.
   # - name: workstation
   #   type: coddy
   #   api_base: "https://workstation.example:12345"
   #   api_key: "${WORKSTATION_SHARED_TOKEN}"
+  #   # usage_limits_panel: false
   #   # When the remote answers busy (it runs at most max_streams calls per credential),
   #   # this call waits for a free slot for up to this long. Above zero it wins over
   #   # agent.shared_busy_wait_ms; 0 or absent follows that key (30000 unless set).
@@ -145,6 +151,15 @@ models:
   # - model: "neuraldeep/qwen3.6-35b-a3b"
   #   max_tokens: 8192               # qwen3 reasoning also pins chat_template_kwargs.enable_thinking
   #   multimodal: true
+
+  # A model another Coddy shares, written <provider>/<alias>. multimodal,
+  # allow_reasoning_off, reasoning_levels and reasoning_default are left out on purpose:
+  # the remote's listing decides, and the row never needs updating when the remote
+  # changes. Write one only to override it - multimodal: false means "never send images
+  # to this remote". coddy -t cannot see a disagreement (it is offline), coddy --dry-run
+  # warns about each key that differs from what the remote lists.
+  # - model: "workstation/terra"
+  #   max_tokens: 8192
 
   # Servers and proxies that handle SSE badly can be talked to without streaming:
   # one blocking request, whole answer at once. Nothing appears until the model is

@@ -117,13 +117,17 @@ type ModelJSON struct {
 	MaxTokens        int     `json:"max_tokens"`
 	Temperature      float64 `json:"temperature"`
 	MaxContextTokens int     `json:"max_context_tokens,omitempty"`
-	Multimodal       bool    `json:"multimodal,omitempty"`
+	// Multimodal (and AllowReasoningOff below) keep the three states of the YAML
+	// keys: absent, written true, written false. omitempty drops only nil, so a
+	// written false reaches the settings form and goes back to the file, and a
+	// JSON null reads as absent.
+	Multimodal *bool `json:"multimodal,omitempty"`
 	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
 	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
 	// slice would collapse both into "absent" on the way out to the settings UI.
 	ReasoningLevels   *[]string `json:"reasoning_levels,omitempty"`
 	ReasoningDefault  string    `json:"reasoning_default,omitempty"`
-	AllowReasoningOff bool      `json:"allow_reasoning_off,omitempty"`
+	AllowReasoningOff *bool     `json:"allow_reasoning_off,omitempty"`
 	// Stream keeps the unset/explicit distinction of ModelEntry.Stream: a settings
 	// round trip must not turn an omitted key into an explicit false.
 	Stream *bool `json:"stream,omitempty"`
@@ -498,6 +502,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		// the DTO its own copies so a caller mutating one side cannot leak into
 		// the other, as the other pointer-typed sections already do.
 		mj.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		mj.Multimodal = cloneBoolPtr(m.Multimodal)
+		mj.AllowReasoningOff = cloneBoolPtr(m.AllowReasoningOff)
 		mj.Stream = cloneBoolPtr(m.Stream)
 		out.Models = append(out.Models, mj)
 	}
@@ -734,6 +740,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	for _, m := range j.Models {
 		me := ModelEntry(m)
 		me.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		me.Multimodal = cloneBoolPtr(m.Multimodal)
+		me.AllowReasoningOff = cloneBoolPtr(m.AllowReasoningOff)
 		me.Stream = cloneBoolPtr(m.Stream)
 		cfg.Models = append(cfg.Models, me)
 	}

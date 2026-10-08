@@ -76,6 +76,12 @@ type Paths struct {
 	// because the home has none and no file was named: a file that may have
 	// come with a checkout, which the loader reads but never rewrites.
 	ConfigFromWorkspace bool
+
+	// listing is the cell that carries the model-listing source of every
+	// configuration loaded from this Paths (listing.go). It is a pointer so a
+	// Paths stays a copyable value that shares one cell; every loader allocates
+	// it when it is nil (WithListing).
+	listing *ListingCell
 }
 
 // CLIPaths captures CLI flag overrides. Empty fields fall back to env then built-in defaults.

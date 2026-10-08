@@ -278,7 +278,7 @@ func checkConfigBytesWith(data []byte, paths Paths, extra ExtraTokens) []Finding
 		}
 		return sortFindings(findings)
 	}
-	cfg.Paths = paths
+	cfg.Paths = paths.WithListing()
 	applyDefaults(&cfg)
 	loadErr := validateSubconfigs(&cfg)
 	if loadErr != nil {

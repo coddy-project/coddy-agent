@@ -69,7 +69,7 @@
               "boolean",
               "null"
             ],
-            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
+            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin, and for type coddy the account of the remote Coddy behind each model, read through that remote). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
             "default": true
           }
         }
@@ -105,8 +105,11 @@
             "default": 0
           },
           "multimodal": {
-            "type": "boolean",
-            "description": "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary. Absent (or null) is false, except for a model of a provider of type coddy, where the remote's listing decides; a written value, false included, wins over the listing.",
             "default": false
           },
           "reasoning_levels": {
@@ -114,18 +117,21 @@
               "array",
               "null"
             ],
-            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button.",
+            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button. For a model of a provider of type coddy there is no id to detect from: omitting the key means the remote's listing decides, and a written list, an empty one included, wins.",
             "items": {
               "type": "string"
             }
           },
           "reasoning_default": {
             "type": "string",
-            "description": "Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored."
+            "description": "Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored. Empty on a model of a provider of type coddy follows the remote's default."
           },
           "allow_reasoning_off": {
-            "type": "boolean",
-            "description": "Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically. Absent (or null) is false, except for a model of a provider of type coddy, where the remote's listing decides; a written value, false included, wins over the listing.",
             "default": false
           },
           "stream": {
@@ -1205,12 +1211,12 @@
         "shared_models": {
           "type": "object",
           "title": "Shared models",
-          "description": "Serves the models[] rows that carry shared_as to other Coddys: GET /coddy/llm/models, POST /coddy/llm/completions, reachable directly or through a swarm relay mount. The usage route GET /coddy/llm/models/{alias}/usage is reserved and answers 404 for now. The credentials and the limits of those routes are set here; which rows are shared is set on the rows.",
+          "description": "Serves the models[] rows that carry shared_as to other Coddys: GET /coddy/llm/models, POST /coddy/llm/completions, reachable directly or through a swarm relay mount. GET /coddy/llm/models/{alias}/usage answers the account usage behind an alias as percent used with the seconds to each reset, never the plan, the key name, the wallet or a model id; providers[].usage_limits_panel: false on the lender's provider row answers {\"supported\": false} to every borrower. The credentials and the limits of those routes are set here; which rows are shared is set on the rows.",
           "additionalProperties": false,
           "properties": {
             "tokens": {
               "type": "array",
-              "description": "LLM-only bearer tokens, \"${ENV}\" references expanded at load as for auth_token; never echoed back by GET /coddy/config. A token listed here opens only GET /coddy/llm/models and POST /coddy/llm/completions (and, once it exists, the usage route of the second step) and is refused on every other route, where httpserver.auth_token opens the whole API. Any token listed here turns authentication on: with no main token and no login, every other route is closed to every caller. A token cannot also be httpserver.auth_token or a swarm token: the loader refuses it. The tokens of --auth-token / CODDY_HTTP_TOKEN and of the swarm flags are known only to the process, so coddy -t (environment), serve at start-up, a reload and PUT /coddy/config refuse a duplicate of those; a duplicate that reaches the gate is read as a shared-model token (least privilege).",
+              "description": "LLM-only bearer tokens, \"${ENV}\" references expanded at load as for auth_token; never echoed back by GET /coddy/config. A token listed here opens only GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage and POST /coddy/llm/completions and is refused on every other route, where httpserver.auth_token opens the whole API. Any token listed here turns authentication on: with no main token and no login, every other route is closed to every caller. A token cannot also be httpserver.auth_token or a swarm token: the loader refuses it. The tokens of --auth-token / CODDY_HTTP_TOKEN and of the swarm flags are known only to the process, so coddy -t (environment), serve at start-up, a reload and PUT /coddy/config refuse a duplicate of those; a duplicate that reaches the gate is read as a shared-model token (least privilege).",
               "items": {
                 "type": "string"
               },

@@ -15,11 +15,18 @@ import (
 
 // The timers of the shared-model routes (4.2 of docs/plans/remote-model-provider.md):
 // P bounds the read of a request body, W bounds each write of the response,
-// and H is the longest the response may go without a byte.
+// and H is the longest the response may go without a byte. B is the longest a
+// peer that vanished without a FIN or a RST holds its slot
+// (docs/plans/remote-model-provider-phase2.md, 5.2): the call sets the user
+// timeout U = B - H on the peer's connection, because the first heartbeat written
+// after the peer is gone is the first byte nobody acknowledges and the kernel
+// aborts U after it. The relay's mount shares B and H, and cannot import this
+// package, so they live in internal/httpx too and a test holds the two pairs equal.
 const (
 	sharedBodyDeadline  = 30 * time.Second
 	sharedWriteDeadline = 60 * time.Second
 	sharedHeartbeat     = 15 * time.Second
+	sharedLivenessBound = 45 * time.Second
 )
 
 // sharedClock is the source of the timers a shared-model call runs on: the

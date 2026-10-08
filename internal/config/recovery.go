@@ -111,7 +111,7 @@ func parseValidateYAMLBytes(expanded string, paths Paths) (*Config, error) {
 	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		return nil, relocateSyntaxError(err, expanded)
 	}
-	cfg.Paths = paths
+	cfg.Paths = paths.WithListing()
 	applyDefaults(&cfg)
 	if err := validateSubconfigs(&cfg); err != nil {
 		return nil, err

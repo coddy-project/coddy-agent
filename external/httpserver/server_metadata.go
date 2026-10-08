@@ -188,8 +188,7 @@ func configuredModelMultimodal(cfg *config.Config, modelID string) bool {
 	if cfg == nil {
 		return false
 	}
-	entry := cfg.FindModelEntry(modelID)
-	return entry != nil && entry.Multimodal
+	return cfg.ModelMultimodal(cfg.FindModelEntry(modelID))
 }
 
 // applySessionYAMLModel sets or clears the session YAML model override (persists when hooked).

@@ -124,7 +124,7 @@ func (s *queueFeatureState) buildSession(steps []scriptStep) error {
 		// A queued image reaches only a model that reads images: the HTTP
 		// queue drops it for any other, and the send boundary never shows a
 		// picture to a model without multimodal.
-		Models:   []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, Multimodal: true}},
+		Models:   []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, Multimodal: config.BoolPtr(true)}},
 		Agent:    config.Agent{Model: "fake/model", MaxTurns: 6},
 		Sessions: config.Sessions{Dir: filepath.Join(s.root, "sessions")},
 	}

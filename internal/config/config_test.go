@@ -707,11 +707,14 @@ agent:
 	if len(cfg.Models) != 2 {
 		t.Fatalf("expected 2 models, got %d", len(cfg.Models))
 	}
-	if !cfg.Models[0].Multimodal {
+	if !cfg.ModelMultimodal(&cfg.Models[0]) {
 		t.Errorf("models[0] (gpt-4o): want multimodal=true")
 	}
-	if cfg.Models[1].Multimodal {
+	if cfg.ModelMultimodal(&cfg.Models[1]) {
 		t.Errorf("models[1] (gpt-4o-mini): want multimodal=false (default)")
+	}
+	if cfg.Models[1].Multimodal != nil {
+		t.Errorf("models[1] (gpt-4o-mini): an absent key must stay absent, got %v", *cfg.Models[1].Multimodal)
 	}
 }
 

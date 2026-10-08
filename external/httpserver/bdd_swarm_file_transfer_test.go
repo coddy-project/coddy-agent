@@ -104,7 +104,7 @@ func (s *swarmFileTransferState) mountedFileCapableNode() error {
 	s.nodeToken = "node-service-token"
 	cfg := &config.Config{
 		Paths:      config.Paths{Home: filepath.Join(root, "home"), CWD: s.workspace},
-		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 128, Multimodal: true}},
+		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 128, Multimodal: config.BoolPtr(true)}},
 		Agent:      config.Agent{Model: "fake/model"},
 		HTTPServer: config.HTTPServerConfig{AuthToken: s.nodeToken},
 	}

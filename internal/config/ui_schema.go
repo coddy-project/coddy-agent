@@ -219,7 +219,7 @@ func UISchemaMap() map[string]interface{} {
 		// form seeds new rows from schema defaults and renders an unset switch
 		// from them.
 		"usage_limits_panel": boolPropDefault("Usage limits panel",
-			"Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
+			"Show the account usage of this NeuralDeep, Codex, Devin or coddy provider here, in the console footer and in /usage, reading its usage endpoint for it. For a coddy provider that is the remote Coddy's account, read through the remote. Off hides the panel and stops those reads for this row.",
 			true),
 	}
 	sharedAs := strProp("Shared as",
@@ -236,17 +236,17 @@ func UISchemaMap() map[string]interface{} {
 		"max_context_tokens": intProp("Context window (tokens)",
 			"The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000."),
 		"multimodal": boolProp("Multimodal",
-			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file."),
+			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file. Absent means false, except for a model of a coddy provider, where the remote's listing decides; a written value, false included, wins over the listing."),
 		"reasoning_levels": map[string]interface{}{
 			"type":        "array",
 			"title":       "Reasoning levels",
-			"description": "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
+			"description": "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id (for a model of a coddy provider, the remote's listing decides); an explicit empty list hides the reasoning selector.",
 			"items":       map[string]interface{}{"type": "string"},
 		},
 		"reasoning_default": strProp("Default reasoning level",
-			"Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise."),
+			"Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise. Empty on a model of a coddy provider follows the remote's default."),
 		"allow_reasoning_off": boolPropDefault("Allow disabling reasoning",
-			"Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically.",
+			"Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically. Absent means false, except for a model of a coddy provider, where the remote's listing decides; a written value, false included, wins over the listing.",
 			false),
 		// The only boolean here that defaults to true when the key is absent, so the
 		// schema has to say so: the form seeds new entries from schema defaults and

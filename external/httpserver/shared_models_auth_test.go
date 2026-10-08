@@ -64,8 +64,8 @@ func TestSharedTokenReachesTheThreeRoutesAndNothingElse(t *testing.T) {
 	if got := fx.status(http.MethodPost, llm.CoddyCompletionsPath, sharedTestSharedTok, call); got != http.StatusOK {
 		t.Fatalf("POST completions with the shared token: %d", got)
 	}
-	if got := fx.status(http.MethodGet, "/coddy/llm/models/coder/usage", sharedTestSharedTok, nil); got != http.StatusNotFound {
-		t.Fatalf("the reserved usage route answers %d with the shared token, want 404 from the handler", got)
+	if got := fx.status(http.MethodGet, "/coddy/llm/models/coder/usage", sharedTestSharedTok, nil); got != http.StatusOK {
+		t.Fatalf("the usage route answers %d with the shared token, want 200 from the handler", got)
 	}
 
 	closed := []struct{ method, path string }{

@@ -781,7 +781,7 @@ func TestApplyDevinLoginToConfigOnlyAdds(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := cfg.FindModelEntry("devin/fam")
-	if m == nil || !m.Multimodal || m.MaxContextTokens != 64000 || m.ReasoningDefault != "medium" || strings.Join(*m.ReasoningLevels, ",") != "medium,high" {
+	if m == nil || !cfg.ModelMultimodal(m) || m.MaxContextTokens != 64000 || m.ReasoningDefault != "medium" || strings.Join(*m.ReasoningLevels, ",") != "medium,high" {
 		t.Fatalf("model = %+v", m)
 	}
 	again, err := ApplyDevinLoginToConfig(context.Background(), cfg, "devin", "devin-session-token$stand-token", "", "")

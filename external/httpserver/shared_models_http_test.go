@@ -118,6 +118,31 @@ func TestSharedRevisionIsKeyedStableAndMovesWithTheRow(t *testing.T) {
 	}
 }
 
+// The lender's own row reads its two capability keys through the config's
+// readers: an absent key and a written false are the same observable row (and
+// so the same revision), a written true is a different one.
+func TestSharedRowReadsAnAbsentCapabilityKeyAsFalse(t *testing.T) {
+	absent := newSharedFixture(t, withSharedConfig(func(c *config.Config) {
+		c.Models[0].Multimodal, c.Models[0].AllowReasoningOff = nil, nil
+	}))
+	base := listingRow(t, absent)
+	if base.Multimodal || base.AllowReasoningOff {
+		t.Fatalf("absent keys listed as %+v", base)
+	}
+	written := newSharedFixtureOnHome(t, absent.home, withSharedConfig(func(c *config.Config) {
+		c.Models[0].Multimodal, c.Models[0].AllowReasoningOff = config.BoolPtr(false), config.BoolPtr(false)
+	}))
+	if got := listingRow(t, written); got.Multimodal || got.AllowReasoningOff || got.Revision != base.Revision {
+		t.Fatalf("written false listed as %+v, want the row and the revision of the absent keys (%q)", got, base.Revision)
+	}
+	yes := newSharedFixtureOnHome(t, absent.home, withSharedConfig(func(c *config.Config) {
+		c.Models[0].Multimodal = config.BoolPtr(true)
+	}))
+	if got := listingRow(t, yes); !got.Multimodal || got.Revision == base.Revision {
+		t.Fatalf("written true listed as %+v, want multimodal and another revision than %q", got, base.Revision)
+	}
+}
+
 func newSharedFixtureOnHome(t *testing.T, home string, opts ...sharedFixtureOption) *sharedFixture {
 	t.Helper()
 	return newSharedFixture(t, append([]sharedFixtureOption{func(fx *sharedFixture, c *config.Config) {
@@ -338,7 +363,7 @@ func TestSharedOptionsFollowTheRowsRules(t *testing.T) {
 		}
 	})
 	t.Run("off is accepted when the row allows it", func(t *testing.T) {
-		fx := newSharedFixture(t, withSharedConfig(func(c *config.Config) { c.Models[0].AllowReasoningOff = true }))
+		fx := newSharedFixture(t, withSharedConfig(func(c *config.Config) { c.Models[0].AllowReasoningOff = config.BoolPtr(true) }))
 		newSSEReader(t, fx.complete(wireReq(sharedTestAlias, func(r *llm.WireRequest) { r.Options.ReasoningEffort = str("off") }))).all()
 		if _, opts := fx.lastBuild(); opts.ReasoningEffort != "off" {
 			t.Fatalf("effort %q", opts.ReasoningEffort)
@@ -481,15 +506,6 @@ func TestSharedRefusesAMalformedRequest(t *testing.T) {
 		t.Fatal("a provider was built for a malformed request")
 	}
 	waitFor(t, "slots released", func() bool { return fx.srv.sharedLimit.tracked() == 0 })
-}
-
-func TestSharedUsageRouteIsReservedAndAnswers404(t *testing.T) {
-	fx := newSharedFixture(t)
-	resp := fx.get("/coddy/llm/models/coder/usage", sharedTestSharedTok)
-	raw := bodyString(t, resp)
-	if resp.StatusCode != http.StatusNotFound || strings.Contains(raw, "stub") {
-		t.Fatalf("status %d: %s", resp.StatusCode, raw)
-	}
 }
 
 // The stream limit key is the bearer, whichever alias is asked for.

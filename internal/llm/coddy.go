@@ -257,6 +257,13 @@ func fallbackReasoningEffort(effort string, row *ModelEntry) string {
 	return ""
 }
 
+// FallbackReasoningEffort is fallbackReasoningEffort for the agent: it builds a
+// request of a coddy row from one listing record, level and revision together,
+// and needs the rule the provider applies to a refreshed view.
+func FallbackReasoningEffort(effort string, row *ModelEntry) string {
+	return fallbackReasoningEffort(effort, row)
+}
+
 // withoutImageParts returns the messages with every attached part removed, as
 // the HTTP intake does for a model that takes none; the caller's slice is left
 // as it was.

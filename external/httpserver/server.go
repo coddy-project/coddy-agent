@@ -74,6 +74,7 @@ type Server struct {
 	sharedBodyP  time.Duration
 	sharedWriteW time.Duration
 	sharedHB     time.Duration
+	sharedBound  time.Duration
 
 	// envLoginUser and envLoginHash are the web sign-in account supplied out of
 	// band (CODDY_HTTP_USER / CODDY_HTTP_PASSWORD). The password is hashed once
@@ -453,7 +454,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				Created:          0,
 				OwnedBy:          ent.ProviderName(),
 				MaxContextTokens: s.contextWindowFor(cfg, mid),
-				Multimodal:       ent.Multimodal,
+				Multimodal:       cfg.ModelMultimodal(ent),
 				ReasoningLevels:  cfg.ReasoningChoicesFor(ent),
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
 				Default:          defaultModel != "" && mid == defaultModel,

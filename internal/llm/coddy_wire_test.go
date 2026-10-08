@@ -340,3 +340,152 @@ func TestWireListingShape(t *testing.T) {
 		t.Errorf("the listing has no stream field: %s", raw)
 	}
 }
+
+// jsonKeysOf lists the JSON names a struct type's fields are encoded under.
+func jsonKeysOf(typ reflect.Type) []string {
+	var keys []string
+	for i := 0; i < typ.NumField(); i++ {
+		name := strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]
+		if name == "" || name == "-" {
+			name = "<untagged:" + typ.Field(i).Name + ">"
+		}
+		keys = append(keys, name)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// The usage document is an allowlist: neither an absolute reset time (the two
+// hosts' clocks differ), an account tag, a next-read hint nor a counter can
+// slip into it by adding a field without this test noticing.
+func TestWireUsageKeySetIsTheAllowlist(t *testing.T) {
+	wantTop := []string{"account_wide", "blocked", "blockers", "retry_in_s", "stale", "supported", "windows"}
+	wantWindow := []string{"exhausted", "id", "label", "reset_in_s", "used_percent"}
+	if got := jsonKeysOf(reflect.TypeOf(WireUsage{})); !slices.Equal(got, wantTop) {
+		t.Errorf("WireUsage fields are encoded as %v, want %v", got, wantTop)
+	}
+	if got := jsonKeysOf(reflect.TypeOf(WireUsageWindow{})); !slices.Equal(got, wantWindow) {
+		t.Errorf("WireUsageWindow fields are encoded as %v, want %v", got, wantWindow)
+	}
+
+	reset, retry := 777, 42
+	full := WireUsage{
+		Supported: true, AccountWide: true, Stale: true,
+		Windows:  []WireUsageWindow{{ID: "session", Label: "3h", UsedPercent: 62, ResetInS: &reset, Exhausted: true}},
+		Blocked:  true,
+		Blockers: []string{"session_exhausted"},
+		RetryInS: retry,
+	}
+	raw, err := json.Marshal(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if got := mapKeys(doc); !slices.Equal(got, wantTop) {
+		t.Errorf("a full document carries the keys %v, want %v: %s", got, wantTop, raw)
+	}
+	win := doc["windows"].([]any)[0].(map[string]any)
+	if got := mapKeys(win); !slices.Equal(got, wantWindow) {
+		t.Errorf("a full window carries the keys %v, want %v: %s", got, wantWindow, raw)
+	}
+	for _, banned := range []string{"resets_at", "reset_at", "account_tag", "next_read", `"used":`, `"limit":`, "remaining", "plan", "wallet"} {
+		if strings.Contains(string(raw), banned) {
+			t.Errorf("the document mentions %q: %s", banned, raw)
+		}
+	}
+}
+
+// reset_in_s is present when the source window has a reset clock, including a
+// clock that has run out (0), and absent when there is none: a pointer, since
+// omitempty alone would drop the 0 and make "passed" read as "no clock".
+func TestWireUsageResetInSKeepsAPassedClockApartFromNoClock(t *testing.T) {
+	zero, soon := 0, 90
+	raw, err := json.Marshal(WireUsage{Supported: true, Windows: []WireUsageWindow{
+		{ID: "session", UsedPercent: 1, ResetInS: &zero},
+		{ID: "week", UsedPercent: 2},
+		{ID: "day", UsedPercent: 3, ResetInS: &soon},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Windows []map[string]any `json:"windows"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := doc.Windows[0]["reset_in_s"]; !ok || v != float64(0) {
+		t.Errorf("a passed clock must be written as 0: %s", raw)
+	}
+	if _, ok := doc.Windows[1]["reset_in_s"]; ok {
+		t.Errorf("a window without a reset clock must not carry reset_in_s: %s", raw)
+	}
+	if v := doc.Windows[2]["reset_in_s"]; v != float64(90) {
+		t.Errorf("reset_in_s = %v: %s", v, raw)
+	}
+
+	back := viaJSON(t, WireUsage{Supported: true, Windows: []WireUsageWindow{{ID: "a", ResetInS: &zero}, {ID: "b"}}})
+	if back.Windows[0].ResetInS == nil || *back.Windows[0].ResetInS != 0 || back.Windows[1].ResetInS != nil {
+		t.Errorf("round trip lost the difference between 0 and absent: %+v", back.Windows)
+	}
+}
+
+// An answer that says unsupported is that and nothing else, whatever a caller
+// left in the other fields; a supported one always has a windows array.
+func TestWireUsageEncodesUnsupportedAsTheBareFlagAndWindowsAsAnArray(t *testing.T) {
+	raw, err := json.Marshal(WireUsage{Supported: false, Stale: true, Blocked: true, Blockers: []string{"x"}, Windows: []WireUsageWindow{{ID: "session"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"supported":false}` {
+		t.Errorf("unsupported = %s", raw)
+	}
+	raw, err = json.Marshal(&WireUsage{Supported: true, Stale: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"windows":[]`) || !strings.Contains(string(raw), `"stale":true`) || strings.Contains(string(raw), "null") {
+		t.Errorf("a stale answer with nothing cached must say windows: [] and nothing null: %s", raw)
+	}
+	if strings.Contains(string(raw), "blockers") || strings.Contains(string(raw), "retry_in_s") {
+		t.Errorf("empty blockers and a zero retry stay out: %s", raw)
+	}
+}
+
+// A reader ignores what it does not know, so a later field never breaks it.
+func TestWireUsageDecodeIgnoresUnknownFields(t *testing.T) {
+	var u WireUsage
+	body := `{"supported":true,"account_wide":true,"future":{"x":1},"windows":[{"id":"session","label":"3h","used_percent":62.5,"reset_in_s":10,"future":1}],"blocked":true,"blockers":["wallet_empty"],"retry_in_s":5}`
+	if err := json.Unmarshal([]byte(body), &u); err != nil {
+		t.Fatal(err)
+	}
+	if !u.Supported || !u.AccountWide || len(u.Windows) != 1 || u.Windows[0].UsedPercent != 62.5 || *u.Windows[0].ResetInS != 10 ||
+		!u.Blocked || !slices.Equal(u.Blockers, []string{"wallet_empty"}) || u.RetryInS != 5 {
+		t.Fatalf("decoded %+v", u)
+	}
+}
+
+func TestCoddyUsagePathEscapesTheAlias(t *testing.T) {
+	for alias, want := range map[string]string{
+		"coder":      "/coddy/llm/models/coder/usage",
+		"gpt 5/mini": "/coddy/llm/models/gpt%205%2Fmini/usage",
+		"a?b#c":      "/coddy/llm/models/a%3Fb%23c/usage",
+		"ünï":        "/coddy/llm/models/%C3%BCn%C3%AF/usage",
+	} {
+		if got := CoddyUsagePath(alias); got != want {
+			t.Errorf("CoddyUsagePath(%q) = %q, want %q", alias, got, want)
+		}
+	}
+}

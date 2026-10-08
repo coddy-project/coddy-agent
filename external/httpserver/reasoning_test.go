@@ -31,7 +31,7 @@ func reasoningHTTPConfig() *config.Config {
 			{Model: "openai/gpt-5", MaxTokens: 100, ReasoningDefault: "medium"},
 			{Model: "openai/gpt-4o", MaxTokens: 100},
 			{Model: "neuraldeep/qwen3.6-35b-a3b", MaxTokens: 100},
-			{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 100, AllowReasoningOff: true},
+			{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 100, AllowReasoningOff: config.BoolPtr(true)},
 			{Model: "neuraldeep/gpt-oss-120b", MaxTokens: 100},
 		},
 	}

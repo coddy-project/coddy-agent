@@ -4,8 +4,9 @@ package httpserver
 
 // The routes a Coddy shares its models[] rows through (docs/plans/remote-model-provider.md):
 //
-//	GET  /coddy/llm/models        the shared rows, under their aliases
-//	POST /coddy/llm/completions   one stateless model call, answered as an event stream
+//	GET  /coddy/llm/models                  the shared rows, under their aliases
+//	GET  /coddy/llm/models/{alias}/usage    the account usage behind one alias (shared_usage.go)
+//	POST /coddy/llm/completions             one stateless model call, answered as an event stream
 //
 // The harness stays on the calling Coddy; this side only runs the provider the
 // row is configured with. Nothing here resolves a session, runs a hook, reads a
@@ -27,6 +28,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -38,8 +40,7 @@ const (
 )
 
 // isSharedLLMPattern reports the routes a shared-model token opens, and nothing
-// else: the listing, the usage of one alias (reserved for the second phase) and
-// the completions.
+// else: the listing, the usage of one alias and the completions.
 func isSharedLLMPattern(pattern string) bool {
 	switch pattern {
 	case sharedModelsPattern, sharedUsagePattern, sharedCompletionsPattern:
@@ -57,10 +58,13 @@ func (s *Server) registerSharedModelRoutes() {
 	s.mux.HandleFunc(sharedCompletionsPattern, s.llmCompletionsPost)
 }
 
-// sharedTimings are the three timers of a call, the defaults unless a test set
-// shorter ones.
-func (s *Server) sharedTimings() (body, write, heartbeat time.Duration) {
-	body, write, heartbeat = sharedBodyDeadline, sharedWriteDeadline, sharedHeartbeat
+// sharedTimings are the timers of a call and the bound a vanished peer holds it
+// for, the defaults unless a test set shorter ones (a short test shortens B, H
+// and P together). H is part of B (B = H + U), so it is clamped to a third of B:
+// the user timeout U = B - H then stays at two thirds of B or more, and a
+// heartbeat as long as the bound could not be bounded at all.
+func (s *Server) sharedTimings() (body, write, heartbeat, bound time.Duration) {
+	body, write, heartbeat, bound = sharedBodyDeadline, sharedWriteDeadline, sharedHeartbeat, sharedLivenessBound
 	if s.sharedBodyP > 0 {
 		body = s.sharedBodyP
 	}
@@ -70,7 +74,13 @@ func (s *Server) sharedTimings() (body, write, heartbeat time.Duration) {
 	if s.sharedHB > 0 {
 		heartbeat = s.sharedHB
 	}
-	return body, write, heartbeat
+	if s.sharedBound > 0 {
+		bound = s.sharedBound
+	}
+	if limit := bound / 3; heartbeat > limit {
+		heartbeat = limit
+	}
+	return body, write, heartbeat, bound
 }
 
 func (s *Server) sharedClockNow() sharedClock {
@@ -105,7 +115,7 @@ func (s *Server) sharedRow(cfg *config.Config, ent *config.ModelEntry) llm.WireM
 	row := llm.WireModelRow{
 		ID:                ent.SharedAlias(),
 		MaxContextTokens:  s.contextWindowFor(cfg, ent.Model),
-		Multimodal:        ent.Multimodal,
+		Multimodal:        cfg.ModelMultimodal(ent),
 		ReasoningLevels:   levels,
 		ReasoningDefault:  cfg.DefaultReasoningLevelFor(ent),
 		AllowReasoningOff: cfg.ReasoningOffOffered(ent),
@@ -161,18 +171,6 @@ func (s *Server) llmModelsGet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(llm.WireListing{Protocol: llm.CoddyProtocol, Data: rows})
-}
-
-// llmUsageGet reserves GET /coddy/llm/models/{alias}/usage, which the second
-// phase fills with a projection of the account usage. Until then every alias,
-// known or not, is a 404 that names nothing.
-func (s *Server) llmUsageGet(w http.ResponseWriter, r *http.Request) {
-	pol := s.authSnapshot(r)
-	if pol.anonymousSharedRefused() {
-		writeSharedAuthRefusal(w)
-		return
-	}
-	writeSharedError(w, http.StatusNotFound, sharedInvalid("not_found", "this remote does not report the usage of a shared model"))
 }
 
 // sharedCallerKey is the limiter key of a request: the credential that passed
@@ -279,7 +277,7 @@ func (s *Server) llmCompletionsPost(w http.ResponseWriter, r *http.Request) {
 		case errors.As(rerr, new(*http.MaxBytesError)):
 			refuse(http.StatusRequestEntityTooLarge, sharedTooLarge())
 		case isSharedTimeout(rerr):
-			bodyP, _, _ := s.sharedTimings()
+			bodyP, _, _, _ := s.sharedTimings()
 			refuse(http.StatusRequestTimeout, sharedInvalid("body_timeout", "the request body did not arrive within "+bodyP.String()))
 		default:
 			refuse(http.StatusBadRequest, sharedInvalid("bad_body", "the request body could not be read"))
@@ -408,7 +406,7 @@ const (
 // armSharedBodyDeadline starts the body deadline P on the connection's own read
 // deadline, and reports whether the writer could set one.
 func (s *Server) armSharedBodyDeadline(w http.ResponseWriter) bool {
-	bodyP, _, _ := s.sharedTimings()
+	bodyP, _, _, _ := s.sharedTimings()
 	return http.NewResponseController(w).SetReadDeadline(time.Now().Add(bodyP)) == nil
 }
 
@@ -420,7 +418,7 @@ func (s *Server) armSharedBodyDeadline(w http.ResponseWriter) bool {
 func (s *Server) readSharedBody(w http.ResponseWriter, r *http.Request, deadlineSet bool) ([]byte, error) {
 	var timedOut atomic.Bool
 	if !deadlineSet {
-		bodyP, _, _ := s.sharedTimings()
+		bodyP, _, _, _ := s.sharedTimings()
 		t := time.AfterFunc(bodyP, func() {
 			timedOut.Store(true)
 			_ = r.Body.Close()
@@ -617,7 +615,7 @@ func (s *Server) runSharedCall(w http.ResponseWriter, r *http.Request, cfg *conf
 		timedOut = func() bool { return errors.Is(bounded.Err(), context.DeadlineExceeded) }
 	}
 
-	_, writeW, heartbeat := s.sharedTimings()
+	_, writeW, heartbeat, bound := s.sharedTimings()
 	clk := s.sharedClockNow()
 	stream := newSharedStream(w, clk, writeW, cancel)
 	rc := http.NewResponseController(w)
@@ -627,6 +625,23 @@ func (s *Server) runSharedCall(w http.ResponseWriter, r *http.Request, cfg *conf
 		_ = rc.SetWriteDeadline(time.Time{})
 		_ = rc.SetReadDeadline(time.Time{})
 	}()
+
+	// A peer that vanishes without a FIN or a RST would hold the slot for as long
+	// as the heartbeat keeps being accepted into its send buffer, which is
+	// minutes. The user timeout U = B - H on its connection makes the kernel
+	// abort it at most B after it vanished. It is set here, after the request
+	// body has been read (the option counts from the first byte the peer has not
+	// acknowledged, and the upload is bounded by its own deadline P), and put back
+	// on every exit of the call - final frame, error frame, cancel, failed write -
+	// because an HTTP/1.1 connection that is kept alive would carry it into its
+	// next request. A request that cannot be scoped (an HTTP/2 stream, the
+	// reverse tunnel, a server built without httpx.ConnContext, a platform with
+	// no such option) goes on unprobed on this leg.
+	restoreProbe, probeErr := httpx.ProbeCall(r, bound, heartbeat)
+	defer restoreProbe()
+	if probeErr != nil && httpx.OncePerConn(r, "shared-probe") {
+		s.log.Debug("shared model call: the peer is not bounded on this leg", "alias", ent.SharedAlias(), "request_id", reqID, "reason", probeErr.Error())
+	}
 
 	// Headers and the first heartbeat go out before the provider is called.
 	if err := stream.start(); err != nil {

@@ -24,8 +24,7 @@ import (
 // to accept images (models[].multimodal). A missing or unknown entry fails
 // closed, the rule the HTTP surface applies to prompt attachments.
 func (a *Agent) modelReadsImages() bool {
-	entry := a.cfg.FindModelEntry(a.state.EffectiveModelID(a.cfg))
-	return entry != nil && entry.Multimodal
+	return a.cfg.ModelMultimodal(a.cfg.FindModelEntry(a.state.EffectiveModelID(a.cfg)))
 }
 
 // toolImageRefusal is Env.ImageRefusal: why the session's model cannot be

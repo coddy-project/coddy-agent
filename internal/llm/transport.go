@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -30,7 +31,9 @@ import (
 // a streamed response body that sends nothing for StreamIdleTimeout after
 // its first bytes is cut with a streamStalledError, because a model that
 // stopped mid-answer looks exactly like one that is still thinking, and
-// only a bound tells them apart.
+// only a bound tells them apart. Rows of a provider type that is reached over
+// HTTP/1.1 only (coddy) take neither the pings nor HTTP/2 itself, but the
+// stall guard stays.
 
 const (
 	// http2ReadIdleTimeout is the silence on a connection after which the
@@ -211,7 +214,9 @@ func (b *idleBody) Close() error {
 // for each request and keep the previous one idling. Every request a
 // provider row makes - its completions, its model list, its account usage,
 // a sign-in - goes through the transport of the row's setting, so the route
-// is decided in this one place.
+// is decided in this one place. A provider type that is reached over HTTP/1.1
+// only (http1OnlyProviderType) has transports of its own, one per setting
+// too, under keys the shared ones cannot collide with.
 var (
 	transportsMu sync.Mutex
 	transports   = map[string]http.RoundTripper{}
@@ -245,11 +250,36 @@ func EnvironmentProxyFor(target *url.URL) (*url.URL, error) {
 	return proxyFromEnvironment(&http.Request{URL: target, Header: http.Header{}})
 }
 
+// http1OnlyProviderType reports whether the rows of a provider type are
+// reached over HTTP/1.1 only. A coddy row talks to a remote Coddy (or a swarm
+// relay in front of one), and the remote bounds how long it keeps the slot of
+// a peer that vanished with an option that exists only on a TCP connection
+// that carries one call: an HTTP/2 connection multiplexes calls, so the option
+// is never set on it. Offering HTTP/2 to such a remote would take that bound
+// away. The cost is the liveness pings of HTTP/2: the heartbeat of the stream
+// and the stall guard (StreamIdleTimeout) take their place.
+func http1OnlyProviderType(providerType string) bool {
+	return providerType == "coddy"
+}
+
+// http1TransportKeyPrefix keeps the HTTP/1.1 transports apart from the shared
+// ones in the cache. No proxy URL starts with it (its scheme is followed by
+// "://"), so the keys of every other provider type are exactly what they were.
+const http1TransportKeyPrefix = "http/1.1|"
+
 // providerTransport returns the shared transport for a providers[].proxy
 // setting, read by config.ParseProxySetting: empty and "inherit" share the
 // one that follows the environment's proxy, "none" has one that connects
 // directly, and every proxy URL one of its own.
 func providerTransport(setting string) (http.RoundTripper, error) {
+	return providerTransportFor("", setting)
+}
+
+// providerTransportFor is providerTransport for the rows of one provider type:
+// every type shares the transport of the setting, with HTTP/2 and its liveness
+// pings, except the types http1OnlyProviderType names, which get a transport
+// of their own with the same proxy rules and HTTP/1.1 only.
+func providerTransportFor(providerType, setting string) (http.RoundTripper, error) {
 	mode, proxyURL, err := config.ParseProxySetting(setting)
 	if err != nil {
 		return nil, err
@@ -261,12 +291,21 @@ func providerTransport(setting string) (http.RoundTripper, error) {
 	case config.ProxyModeURL:
 		key = proxyURL.String()
 	}
+	http1 := http1OnlyProviderType(providerType)
+	if http1 {
+		key = http1TransportKeyPrefix + key
+	}
 	transportsMu.Lock()
 	defer transportsMu.Unlock()
 	if t, ok := transports[key]; ok {
 		return t, nil
 	}
-	t, err := newProviderTransport(mode, proxyURL)
+	var t *http.Transport
+	if http1 {
+		t, err = newHTTP1ProviderTransport(mode, proxyURL)
+	} else {
+		t, err = newProviderTransport(mode, proxyURL)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +313,9 @@ func providerTransport(setting string) (http.RoundTripper, error) {
 	return t, nil
 }
 
-func newProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.Transport, error) {
+// newBaseProviderTransport is a clone of the default transport routed by the
+// row's proxy setting.
+func newBaseProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.Transport, error) {
 	base, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return nil, fmt.Errorf("default transport is not *http.Transport")
@@ -291,9 +332,42 @@ func newProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.Trans
 			return nil, err
 		}
 	}
+	return t, nil
+}
+
+func newProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.Transport, error) {
+	t, err := newBaseProviderTransport(mode, proxyURL)
+	if err != nil {
+		return nil, err
+	}
 	if err := enableHTTP2Liveness(t, http2ReadIdleTimeout, http2PingTimeout); err != nil {
 		return nil, err
 	}
+	return t, nil
+}
+
+// newHTTP1ProviderTransport is the transport of a row that is reached over
+// HTTP/1.1 only. It is pinned three ways, so that none of them alone can be
+// undone by a change elsewhere: Protocols names HTTP/1 and nothing else, the
+// TLS next-protocol table is the empty one that disables HTTP/2 on every Go
+// version, and the ALPN a ClientHello carries is exactly "http/1.1" (a server
+// that offers h2 first is then answered over HTTP/1.1). HTTP/2 liveness is not
+// configured: there is no HTTP/2 connection to ping.
+func newHTTP1ProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.Transport, error) {
+	t, err := newBaseProviderTransport(mode, proxyURL)
+	if err != nil {
+		return nil, err
+	}
+	t.ForceAttemptHTTP2 = false
+	t.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	t.Protocols = new(http.Protocols)
+	t.Protocols.SetHTTP1(true)
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if t.TLSClientConfig != nil {
+		cfg = t.TLSClientConfig.Clone()
+	}
+	cfg.NextProtos = []string{"http/1.1"}
+	t.TLSClientConfig = cfg
 	return t, nil
 }
 
@@ -301,7 +375,13 @@ func newProviderTransport(mode config.ProxyMode, proxyURL *url.URL) (*http.Trans
 // transport for the proxy setting, the stall guard when a stream idle
 // timeout is set, and the request timeout when one is configured.
 func providerHTTPClient(proxySetting string, timeout, streamIdle time.Duration) (*http.Client, error) {
-	rt, err := providerTransport(proxySetting)
+	return providerHTTPClientFor("", proxySetting, timeout, streamIdle)
+}
+
+// providerHTTPClientFor is providerHTTPClient for the rows of one provider
+// type (see providerTransportFor).
+func providerHTTPClientFor(providerType, proxySetting string, timeout, streamIdle time.Duration) (*http.Client, error) {
+	rt, err := providerTransportFor(providerType, proxySetting)
 	if err != nil {
 		return nil, err
 	}

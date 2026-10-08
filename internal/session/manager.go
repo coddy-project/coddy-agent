@@ -183,6 +183,10 @@ func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner,
 	m.mcpPool.SetWanted(m.mcpServerWanted)
 	m.mcpTrust.Store(cfg.MCP.ResolvedProjectTrust())
 	m.mcpDecls = globalMCPDeclarations(cfg, m.log)
+	// Bound before it is published: the listing cache answers every
+	// capability read of this configuration and of whatever is loaded from its
+	// Paths (capability_listing.go).
+	m.bindListing(cfg, true)
 	m.cfgAt.Store(cfg)
 	return m
 }
@@ -471,6 +475,9 @@ func (m *Manager) storeConfig(next *config.Config) (*config.Config, string) {
 	// same order as the configurations themselves.
 	previousTrust, _ := m.mcpTrust.Swap(next.MCP.ResolvedProjectTrust()).(string)
 	m.skillsLoad = skills.NewLoader(next.Skills.SearchDirs())
+	// A configuration no loader made is bound before it is published; one
+	// loaded from a live configuration's Paths already shares its cell.
+	m.bindListing(next, false)
 	m.cfgAt.Store(next)
 	// The global servers the pool keeps follow the configuration: a server
 	// added or switched on starts, one removed, switched off or redeclared

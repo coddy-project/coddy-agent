@@ -121,7 +121,7 @@ func (s *remoteFeatureState) start(token string) error {
 	cfg := &config.Config{
 		Paths: config.Paths{Home: home, CWD: s.root},
 		Models: []config.ModelEntry{{
-			Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2, Multimodal: true,
+			Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2, Multimodal: config.BoolPtr(true),
 		}},
 		Agent:      config.Agent{Model: "openai/gpt-4o"},
 		HTTPServer: config.HTTPServerConfig{AuthToken: token},
