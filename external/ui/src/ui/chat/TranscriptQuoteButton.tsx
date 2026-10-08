@@ -39,6 +39,13 @@ export function TranscriptQuoteButton(props: {
   bottomLimit: () => number;
   touch: boolean;
   onQuote: (text: string) => void;
+  /**
+   * What moves the selection or the band without a scroll: the transcript
+   * growing under a stream, the docked block growing or shrinking with its
+   * draft or expanding over the chat. The button is placed again whenever one
+   * of them changes size.
+   */
+  watch?: () => (Element | null)[];
 }) {
   const { t } = useT();
   const [offer, setOffer] = useState<Offer | null>(null);
@@ -125,6 +132,29 @@ export function TranscriptQuoteButton(props: {
       window.removeEventListener("resize", follow);
     };
   }, [read]);
+
+  // While the button is out, a change of size of what it keeps clear of, or of
+  // the transcript under the selection, places it again: neither fires a
+  // scroll event, and the button stayed where the selection had been.
+  const offered = offer !== null;
+  useEffect(() => {
+    if (!offered || typeof ResizeObserver === "undefined") return undefined;
+    let frame: number | null = null;
+    const ro = new ResizeObserver(() => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        read();
+      });
+    });
+    for (const el of latest.current.watch?.() ?? []) {
+      if (el) ro.observe(el);
+    }
+    return () => {
+      ro.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [offered, read]);
 
   if (!offer) return null;
   const label = t("chat.quoteSelection");

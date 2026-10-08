@@ -4,6 +4,7 @@ import {
   CHUNK_ROWS,
   growRenderWindowDown,
   growRenderWindowUp,
+  headRenderWindow,
   INITIAL_ROWS,
   MAX_ROWS,
   OPENING_RENDER_WINDOW,
@@ -144,4 +145,32 @@ test("only a prompt of the turn in flight holds the bottom of the window", () =>
   expect(promptWaitsInLastTurn(stale)).toBe(false);
   expect(promptWaitsInLastTurn([...stale, prompt("p2")])).toBe(true);
   expect(promptWaitsInLastTurn([...stale, prompt("p2", true)])).toBe(false);
+});
+
+test("the jump to the top puts the window on the first rows, cut short of the tail", () => {
+  const items = rows(300);
+  const w = headRenderWindow(items);
+  expect(resolve(items, w)).toEqual({ start: 0, end: INITIAL_ROWS });
+  expect(w.endId).toBe(`r${INITIAL_ROWS - 1}`);
+  // New rows at the tail do not drag a window parked at the start along.
+  expect(resolve([...items, ...rows(3, 300)], w)).toEqual({
+    start: 0,
+    end: INITIAL_ROWS,
+  });
+  // An older page put in front keeps it on the rows it named.
+  expect(resolve([...rows(50, 1000), ...items], w)).toEqual({
+    start: 50,
+    end: 50 + INITIAL_ROWS,
+  });
+});
+
+test("a conversation shorter than the window is the window, still attached", () => {
+  const items = rows(5);
+  const w = headRenderWindow(items);
+  expect(w.endId).toBeNull();
+  expect(resolve(items, w)).toEqual({ start: 0, end: 5 });
+  expect(resolve([], headRenderWindow([]))).toEqual({
+    start: 0,
+    end: 0,
+  });
 });

@@ -333,3 +333,24 @@ test("a first message the server never took keeps the pick for the next try", as
   await waitFor(() => expect(posted.length).toBeGreaterThan(0));
   expect(posted[0]!.input).toBe("/permissions ask\nhello");
 });
+
+test("a first message sent before the server names its mode carries the mode the chip shows", async () => {
+  // A server that does not say (an older one, a read that failed): the chip
+  // reads Ask first, and the first turn has to run under what it read rather
+  // than under whatever the configuration holds.
+  infoMode = null;
+  await mountHome();
+  expect(permissionChip()).toHaveTextContent("Ask first");
+  expect(await send("hello")).toBe("/permissions ask\nhello");
+});
+
+test("the next message of the chat carries no pick", async () => {
+  await mountHome();
+  await waitFor(() => expect(permissionChip()).toHaveTextContent("Bypass"));
+  await pickPermission("Ask first");
+  expect(await send("hello")).toBe("/permissions ask\nhello");
+  await settle();
+  // The server took the pick with the first message; a second copy would
+  // undo any later change of the session's mode.
+  expect(await send("and then")).toBe("and then");
+});

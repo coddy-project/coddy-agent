@@ -11,7 +11,10 @@ afterEach(() => {
 });
 
 /** An answer with its text selected, and the button offering it. */
-async function offered(onQuote: (text: string) => void) {
+async function offered(
+  onQuote: (text: string) => void,
+  watch?: () => (Element | null)[],
+) {
   const restore = Object.getOwnPropertyDescriptor(
     Range.prototype,
     "getBoundingClientRect",
@@ -40,6 +43,7 @@ async function offered(onQuote: (text: string) => void) {
         bottomLimit={() => 800}
         touch
         onQuote={onQuote}
+        {...(watch ? { watch } : {})}
       />
     </I18nProvider>,
   );
@@ -97,5 +101,55 @@ test("a finger's press is left alone so the tap still clicks; a mouse's keeps th
     );
   } finally {
     done();
+  }
+});
+
+// The docked block shrinking (a long draft cleared) or the transcript growing
+// moves the selection without a scroll event: the button followed none of it
+// and stood where the selection had been.
+test("a change of size of what the button keeps clear of places it again", async () => {
+  const observers: Array<() => void> = [];
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(cb: () => void) {
+        observers.push(cb);
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const dock = document.createElement("div");
+  try {
+    const { button, done } = await offered(
+      () => {},
+      () => [dock],
+    );
+    try {
+      expect(button.style.top).toBe("330px");
+      Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+        configurable: true,
+        value: () =>
+          ({
+            top: 400,
+            bottom: 420,
+            left: 100,
+            right: 300,
+            width: 200,
+            height: 20,
+          }) as DOMRect,
+      });
+      await act(async () => {
+        for (const cb of observers) cb();
+        await new Promise((r) => requestAnimationFrame(() => r(null)));
+      });
+      expect(screen.getByRole("button", { name: "Quote" }).style.top).toBe(
+        "430px",
+      );
+    } finally {
+      done();
+    }
+  } finally {
+    vi.unstubAllGlobals();
   }
 });

@@ -4972,8 +4972,17 @@ export function App() {
         sid = randomSessionId();
         // The start screen's pick now belongs to the session this send
         // creates, and the chip keeps naming what the start screen showed
-        // until that session's own snapshot arrives.
-        setPendingPermissionMode(pendingPermissionModeRef.current.mode, sid);
+        // until that session's own snapshot arrives. With no pick and no word
+        // from the server on its configured mode, what the chip shows is sent
+        // as the pick: the first turn runs under the mode the operator saw,
+        // never under one the page could not name.
+        setPendingPermissionMode(
+          pendingPermissionModeRef.current.mode ||
+            (serverPermissionModeRef.current === null
+              ? startPermissionMode
+              : ""),
+          sid,
+        );
         setPermissionMode(startPermissionMode);
         migrateWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, sid);
         await applyPendingWorkspace(sid);
@@ -5871,8 +5880,10 @@ export function App() {
         // No session yet: the choice rides in with the first message. It is
         // kept even when it is the configured mode, which may move before
         // the message is sent; the send decides against what the server says
-        // then.
-        setPendingPermissionMode(pm);
+        // then. A first send already under way (its workspace being applied)
+        // has bound the pick to the session it creates: the new choice keeps
+        // that binding, or neither choice would ride in.
+        setPendingPermissionMode(pm, pendingPermissionModeRef.current.sid);
         return;
       }
       if (pendingPermissionModeRef.current.sid === sid) {

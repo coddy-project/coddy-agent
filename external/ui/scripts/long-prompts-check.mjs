@@ -92,6 +92,17 @@ function check(label, ok, detail) {
 
 const near = (a, b, tol = 1) => Math.abs(a - b) <= tol;
 
+/** A stand that cannot show what a check measures fails, never passes idle. */
+function require(ok, what) {
+  if (!ok) {
+    console.error(`the stand cannot run this check: ${what}`);
+    process.exit(2);
+  }
+}
+
+/** The text a range reads, with its whitespace as the draft holds it. */
+const squash = (text) => text.replace(/\s+/g, " ").trim();
+
 /** The geometry every check reads, in one evaluate. */
 async function geometry(page) {
   return page.evaluate(() => {
@@ -191,6 +202,14 @@ try {
     });
     await page.waitForSelector('[data-testid="user-message-body"]');
     await page.waitForTimeout(800);
+    const scrolls = await scrollState(page);
+    require(scrolls.end >
+      height, `${first} is shorter than two screens at ${at}; give it more turns`);
+    require(await page.evaluate(
+      () =>
+        document.querySelectorAll(".messages-inner .msg-assistant p").length >
+        0,
+    ), `${first} has no answer with a paragraph to select`);
 
     // The field follows its text up to its ceiling.
     await page.fill("#composer", "");
@@ -200,7 +219,7 @@ try {
     const four = await geometry(page);
     check(
       `${at}: four lines grow the field`,
-      four.field.height > floor || near(four.field.height, floor),
+      four.field.height > floor + 1,
       `${floor.toFixed(1)} -> ${four.field.height.toFixed(1)}px`,
     );
     await page.fill("#composer", "a long prompt\n".repeat(60));
@@ -222,8 +241,16 @@ try {
     );
 
     // Expanded, the block reaches 8px under the header; folded, it is back.
+    // The caret stays in the field through the press, so a phone's keyboard
+    // stays open over the expanded field.
+    await page.focus("#composer");
     await press(page, touch, '[data-testid="composer-expand"]');
     await page.waitForTimeout(150);
+    check(
+      `${at}: the field keeps the focus through the press`,
+      await page.evaluate(() => document.activeElement?.id === "composer"),
+      await page.evaluate(() => document.activeElement?.tagName ?? "none"),
+    );
     const open = await geometry(page);
     check(
       `${at}: expanded, the docked block reaches the header`,
@@ -284,11 +311,18 @@ try {
       JSON.stringify(quote.b),
     );
     const below = quote.b.top >= quote.s.bottom - 1;
+    // The page decides by the input device it sees, which an engine's
+    // emulation may not report as the viewport flag says (WebKit's does not).
+    const finger = await page.evaluate(
+      () =>
+        window.matchMedia("(any-hover: none) and (any-pointer: coarse)")
+          .matches,
+    );
     const roomBelow = quote.s.bottom + 10 + 32 <= g.dock.top;
     const roomAbove = quote.s.top - 10 - 32 >= g.head.bottom;
     check(
-      `${at}: Quote stands ${touch ? "below" : "above"} the selection when it fits`,
-      touch
+      `${at}: Quote stands ${finger ? "below" : "above"} the selection when it fits`,
+      finger
         ? below || !roomBelow
         : quote.b.bottom <= quote.s.top + 1 || !roomAbove,
       `selection ${quote.s.top.toFixed(0)}-${quote.s.bottom.toFixed(0)}, button ${quote.b.top.toFixed(0)}-${quote.b.bottom.toFixed(0)}`,
@@ -300,7 +334,9 @@ try {
       `${at}: a press puts the quote in the draft`,
       quoted.startsWith("> ") &&
         quoted.endsWith("\n\n") &&
-        quoted.includes(placed.split(/\s+/).slice(0, 3).join(" ")),
+        squash(quoted).includes(
+          squash(placed).split(" ").slice(0, 3).join(" "),
+        ),
       JSON.stringify(quoted.slice(0, 60)),
     );
     await page.fill("#composer", "");
@@ -317,6 +353,8 @@ try {
     }, second);
     await page.waitForTimeout(1500);
     const opened = await scrollState(page);
+    require(opened.end >
+      height, `${second} is shorter than two screens at ${at}; give it more turns`);
     check(
       `${at}: another conversation opens on its newest message`,
       opened.end - opened.top < 80,
@@ -324,6 +362,11 @@ try {
     );
 
     // With a finger, pulling the page down offers only the jump to the top.
+    if (touch && ENGINE !== "chromium") {
+      console.log(
+        `skip ${at}: the swipe and the jump to the top need Chromium's touch input`,
+      );
+    }
     if (touch && ENGINE === "chromium") {
       const cdp = await context.newCDPSession(page);
       await swipe(cdp, width / 2, height * 0.3, height * 0.6);

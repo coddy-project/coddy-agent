@@ -1,6 +1,12 @@
 import React from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 
 import { Composer } from "./Composer";
 
@@ -15,6 +21,7 @@ const spies: { mockRestore: () => void }[] = [];
 
 beforeEach(() => {
   contentPx = 76;
+  room = 500;
   style = document.createElement("style");
   style.textContent =
     "textarea#composer { box-sizing: border-box; border: 0; line-height: 22.5px; padding: 9px 44px 10px 16px; }";
@@ -71,10 +78,13 @@ function docked(
       onModeChange={() => {}}
       onChange={() => {}}
       onSend={o.onSend ?? (() => {})}
-      expandRoomPx={() => 500}
+      expandRoomPx={() => room}
     />
   );
 }
+
+/** The room above the docked block a test gives the composer. */
+let room = 500;
 
 function field(): HTMLTextAreaElement {
   return document.getElementById("composer") as HTMLTextAreaElement;
@@ -152,4 +162,75 @@ test("the start screen grows with its text and has no expand control", () => {
   );
   expect(screen.queryByTestId("composer-expand")).toBeNull();
   expect(field().style.height).toBe("154px");
+});
+
+test("an expanded field gives way to what grows in the docked block beside it", () => {
+  // The docked block's observer: a usage banner rising into it changes its
+  // height without a draft change or a resize of the window.
+  const blockObservers = new Map<Element, (h: number) => void>();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      private cb: (
+        entries: { contentRect: { height: number; width: number } }[],
+      ) => void;
+      constructor(
+        cb: (
+          entries: { contentRect: { height: number; width: number } }[],
+        ) => void,
+      ) {
+        this.cb = cb;
+      }
+      observe(el: Element) {
+        blockObservers.set(el, (h) =>
+          this.cb([{ contentRect: { height: h, width: 600 } }]),
+        );
+      }
+      disconnect() {}
+    },
+  );
+  try {
+    contentPx = 100;
+    render(docked("draft"));
+    fireEvent.click(screen.getByTestId("composer-expand"));
+    expect(field().style.height).toBe("576px");
+    const block = document.querySelector(".composer-wrap")!;
+    const resize = blockObservers.get(block)!;
+    act(() => resize(700));
+    // A 60px banner: 60px less room above the block.
+    room = 440;
+    act(() => resize(760));
+    expect(field().style.height).toBe("516px");
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("queueing the prompt while a turn runs folds the field too", () => {
+  const onQueue = vi.fn();
+  contentPx = 100;
+  render(
+    <Composer
+      value="steer it this way"
+      isEmpty={false}
+      sessionId="sess_a"
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      generating
+      onStop={() => {}}
+      queuedMessages={[]}
+      onQueue={onQueue}
+      queueMode="steer"
+      onCancelQueued={() => {}}
+      expandRoomPx={() => room}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("composer-expand"));
+  expect(field().style.height).toBe("576px");
+  fireEvent.click(screen.getByRole("button", { name: "Queue this message" }));
+  expect(onQueue).toHaveBeenCalledWith("steer it this way", "steer", []);
+  expect(field().style.height).toBe("100px");
 });

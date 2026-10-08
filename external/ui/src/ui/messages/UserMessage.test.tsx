@@ -387,6 +387,14 @@ test("a sent prompt shows its quotes as quotes", () => {
   expect(body).toHaveTextContent("Why is that?");
   // The text between the quotes keeps its skill chips.
   expect(screen.getByTestId("coddy-skill-span")).toHaveTextContent("/review");
-  // Copy still hands back the prompt as it was sent.
   expect(body.textContent).not.toContain("> ");
+  // Copy still hands back the prompt as it was sent, quote markers included.
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(globalThis.navigator, "clipboard", {
+    value: { writeText },
+    configurable: true,
+    writable: true,
+  });
+  screen.getByTestId("user-message-copy").click();
+  expect(writeText).toHaveBeenCalledWith(content);
 });

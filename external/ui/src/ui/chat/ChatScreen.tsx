@@ -1117,6 +1117,10 @@ export function ChatScreen(props: {
               bottomLimit={dockTop}
               touch={touchOnly}
               onQuote={quoteSelection}
+              watch={() => [
+                messagesRef.current?.querySelector(".messages-inner") ?? null,
+                composerHostRef.current,
+              ]}
             />
           )}
 

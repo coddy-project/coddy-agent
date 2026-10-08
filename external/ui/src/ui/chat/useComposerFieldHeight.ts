@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import {
+  composerAutoCeilingPx,
   composerFieldHeightPx,
   type ComposerFieldMetrics,
 } from "./composerHeight";
@@ -39,6 +40,11 @@ export function useComposerFieldHeight(o: {
   const { taRef } = o;
   const latest = useRef(o);
   latest.current = o;
+  // The last fit stood against the chat header: expanded up to it, or grown
+  // by itself as far as the room under it allowed. Something else growing in
+  // the docked block (a banner, an attachment, an error) then has to take
+  // its height from the field, or the block rides over the header.
+  const againstHeaderRef = useRef(false);
 
   const fit = useCallback(() => {
     const ta = taRef.current;
@@ -69,6 +75,11 @@ export function useComposerFieldHeight(o: {
       roomAbovePx: roomAbove(),
     };
     const height = composerFieldHeightPx(m, expanded);
+    againstHeaderRef.current =
+      Number.isFinite(m.roomAbovePx) &&
+      (expanded ||
+        (m.contentPx > m.floorPx + m.roomAbovePx &&
+          composerAutoCeilingPx(m) <= m.floorPx + m.roomAbovePx + 0.5));
     const cssHeight =
       cs.boxSizing === "border-box" ? height : height - paddingY - borderY;
     ta.style.height = `${cssHeight}px`;
@@ -95,11 +106,27 @@ export function useComposerFieldHeight(o: {
           })
         : null;
     if (ta?.parentElement) ro?.observe(ta.parentElement);
+    // The docked block's own height, for what grows in it beside the field.
+    let lastBlock = -1;
+    const block =
+      ta?.closest(".chat-bottom-inner") ?? ta?.closest(".composer-wrap");
+    const blockRo =
+      typeof ResizeObserver !== "undefined" && block
+        ? new ResizeObserver((entries) => {
+            const h = entries[0]?.contentRect.height ?? -1;
+            if (h === lastBlock) return;
+            const first = lastBlock < 0;
+            lastBlock = h;
+            if (!first && againstHeaderRef.current) fit();
+          })
+        : null;
+    if (block) blockRo?.observe(block);
     const vv = window.visualViewport;
     window.addEventListener("resize", fit);
     vv?.addEventListener("resize", fit);
     return () => {
       ro?.disconnect();
+      blockRo?.disconnect();
       window.removeEventListener("resize", fit);
       vv?.removeEventListener("resize", fit);
     };
