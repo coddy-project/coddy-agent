@@ -100,7 +100,7 @@ func clientLabel(p principal) string {
 	return statClientUnknown
 }
 
-// sharedRequest reports whether an incoming request is a call of one of the three shared-model routes through a node mount (any hop depth),
+// sharedRequest reports whether an incoming request is a call of one of the three shared-model routes (a ping of the probe is not a call) through a node mount (any hop depth),
 // read the way the mount reads it. The gate uses it to count a refused token: only a shared route is counted.
 func sharedRequest(r *http.Request) bool {
 	escaped := r.URL.EscapedPath()
@@ -117,5 +117,5 @@ func sharedRequest(r *http.Request) bool {
 		return false
 	}
 	_, route, ok := splitHops(name, after[slash:])
-	return ok && sharedRoute(r.Method, route)
+	return ok && sharedRoute(r.Method, route) && !isProbePing(r.Method, route)
 }

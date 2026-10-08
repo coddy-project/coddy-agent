@@ -189,7 +189,7 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 	// outcome, which the paths below set. Only a shared route of a principal who showed a credential is counted.
 	p := principalFrom(r.Context())
 	_, route, split := splitHops(name, rest)
-	shared := split && sharedRoute(r.Method, route) && p.class != principalNone
+	shared := split && sharedRoute(r.Method, route) && !isProbePing(r.Method, route) && p.class != principalNone
 	outcome := statOK
 	if shared {
 		defer func() {

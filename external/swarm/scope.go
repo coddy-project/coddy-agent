@@ -68,7 +68,17 @@ const (
 	sharedModelsUsageSuffix = "/usage"
 )
 
-// sharedRoute is the closed table of D5: the three shared-model routes with their methods, matched exactly on the decoded
+// sharedAliveRoute is the ping of the application probe (docs/plans/remote-model-provider-probe.md): the one entry the table gained after D5.
+// The call id travels in a header, so the route is a fixed string like the others and no path carries a capability.
+const sharedAliveRoute = "/coddy/llm/alive"
+
+// isProbePing reports whether a request is a ping of the application probe. It is a shared-model route a scoped client may use, but not
+// a call: it takes no slot, spends no token and is not counted.
+func isProbePing(method, route string) bool {
+	return method == http.MethodPost && route == sharedAliveRoute
+}
+
+// sharedRoute is the closed table of D5: the three shared-model routes and the ping of the probe, with their methods, matched exactly on the decoded
 // route. Nothing else is in it: not a HEAD, not an OPTIONS, not a path with a trailing slash or a `;x=1`, not a route a later
 // release adds under /coddy/llm/. A prefix would admit that route the day it ships; a new scoped route is a change of this table.
 func sharedRoute(method, route string) bool {
@@ -76,6 +86,8 @@ func sharedRoute(method, route string) bool {
 	case method == http.MethodGet && route == sharedModelsRoute:
 		return true
 	case method == http.MethodPost && route == sharedCompletionsRoute:
+		return true
+	case isProbePing(method, route):
 		return true
 	case method == http.MethodGet && strings.HasPrefix(route, sharedModelsUsagePrefix) && strings.HasSuffix(route, sharedModelsUsageSuffix):
 		alias := strings.TrimSuffix(strings.TrimPrefix(route, sharedModelsUsagePrefix), sharedModelsUsageSuffix)
