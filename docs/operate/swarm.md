@@ -554,6 +554,8 @@ swarm:
 The design record with the verdicts of the model checks behind these rules is
 [`docs/plans/remote-model-provider-phase3.md`](../plans/remote-model-provider-phase3.md) (D1, D2 and D5).
 
+For the whole story of certificates (self-signed, a private authority, wildcard, personal, purchased, Microsoft CA, ACME, passphrases, where to install what, the errors) see [Certificates and TLS](certificates.md).
+
 ## Encryption and proxies
 
 Relays usually sit in different networks.

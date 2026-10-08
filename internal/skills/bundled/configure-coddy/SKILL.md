@@ -83,6 +83,17 @@ Fields behind a build tag are parsed and ignored by binaries built without it; p
 
 Maintenance contract: this catalog and the command examples must be updated in the same change as any `internal/config` schema edit, together with `internal/config/config.schema.json` (embedded into the binary; `coddy -t` checks a file against it) and https://coddy.dev/docs/reference/config (see the workflow rules).
 
+## TLS and certificates
+
+When the user asks for HTTPS, a private or self-signed certificate, mutual TLS, a client certificate, or a certificate error, read the built-in page **`operate/certificates`** (`coddy_docs_read`, or `coddy docs show operate/certificates`) before you write anything: it has the scenarios (self-signed, a private authority, wildcard, personal, purchased, Microsoft CA, ACME), the `openssl` recipes and the errors. Rules that hold in every case:
+
+- **Ask which scenario it is first** (who serves, who dials, what certificate exists, whether a browser opens the node); do not pick an authority yourself.
+- **Never read, print or log a private key or a passphrase**, never put one in the configuration (Coddy has no key for a passphrase: it cannot use an encrypted key; the owner removes it with `openssl pkey -in enc.key -out plain.key` on their machine), never commit one. Refer to key files by path; keys are made on the machine that uses them, mode `0600`, owned by the account that runs Coddy.
+- Coddy reads **PEM files only** (certificate leaf-first with its chain, one PEM key). A client certificate in the operating system's or a browser's store is not used; only the two files named in the configuration.
+- **Names for `cert_names` are DNS or URI entries of the SAN**, matched exactly; a CN, an e-mail address or a user principal name is never read. A client certificate needs the `clientAuth` usage: a certificate bought from a public authority is a server certificate and is refused as a client's.
+- The keys: `httpserver.tls` / `swarm.tls` (`cert_file`, `key_file`, `client_ca_file`, `client_auth`), `httpserver.shared_models.cert_names`, `swarm.clients[].cert_names`, `swarm.node_tls`, `swarm.join[].dial.*`, `swarm.upstreams[].dial.*`, `providers[].ca_file` / `client_cert_file` / `client_key_file` (type `coddy`). A server's own pair and its `client_ca_file` are read at start (a restart is needed; do not restart a shared service without asking); a dialling side's pair is read at each handshake.
+- Check with `openssl x509 -noout -ext subjectAltName,extendedKeyUsage -enddate`, `openssl verify -purpose sslclient|sslserver`, then `coddy -t --dry-run`; read every finding. **Never "fix" a certificate error with `insecure_skip_verify`**, and do not change the system's trust store, a browser's store or a service unit without asking.
+
 ## MCP servers
 
 MCP servers are not part of config.yaml, and no `config_set` path reaches them. They are declared in two Cursor-compatible JSON files:

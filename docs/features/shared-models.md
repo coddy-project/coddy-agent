@@ -320,6 +320,8 @@ Two facts shape every relay setup. The relay replaces the caller's credential wi
 
 ### TLS and client certificates on the listener
 
+*How to obtain and install the certificates (self-signed, a private authority, a company or purchased certificate, ACME, passphrases) is in [Certificates and TLS](../operate/certificates.md).*
+
 `coddy serve` can terminate TLS itself, and then tell borrowers apart by certificate, with no relay and no token to hand out:
 
 ```yaml
