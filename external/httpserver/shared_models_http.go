@@ -188,7 +188,7 @@ func (s *Server) sharedCallerKey(r *http.Request, pol *authPolicy) string {
 		return sharedAnonymousKey
 	}
 	if t := bearerToken(r); acceptBearer(pol.tokens, t) || acceptBearer(pol.sharedTokens, t) {
-		return sharedKeyFor(t)
+		return sharedBearerKey(t)
 	}
 	if name := sharedCertName(r, pol); name != "" {
 		return sharedKeyFor("mtls:" + name)

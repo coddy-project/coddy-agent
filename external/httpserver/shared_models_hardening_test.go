@@ -265,10 +265,10 @@ func TestSharedCallerKeyFollowsTheCredentialThatPassedTheGate(t *testing.T) {
 		return func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+tok) }
 	}
 
-	if got := call(bearer(sharedTestSharedTok)); got != sharedKeyFor(sharedTestSharedTok) {
+	if got := call(bearer(sharedTestSharedTok)); got != sharedBearerKey(sharedTestSharedTok) {
 		t.Fatalf("a shared token: %q", got)
 	}
-	if got := call(bearer(sharedTestMainToken)); got != sharedKeyFor(sharedTestMainToken) {
+	if got := call(bearer(sharedTestMainToken)); got != sharedBearerKey(sharedTestMainToken) {
 		t.Fatalf("a main token: %q", got)
 	}
 	if got := call(bearer("not-a-token")); got != sharedAnonymousKey {
@@ -297,7 +297,7 @@ func TestSharedCallerKeyFollowsTheCredentialThatPassedTheGate(t *testing.T) {
 		t.Fatalf("a cookie of another origin was taken for the session: %q", got)
 	}
 	// The accepted bearer wins over a cookie, the way the gate reads them.
-	if got := call(func(r *http.Request) { bearer(sharedTestSharedTok)(r); r.AddCookie(c) }); got != sharedKeyFor(sharedTestSharedTok) {
+	if got := call(func(r *http.Request) { bearer(sharedTestSharedTok)(r); r.AddCookie(c) }); got != sharedBearerKey(sharedTestSharedTok) {
 		t.Fatalf("a bearer and a cookie: %q", got)
 	}
 }

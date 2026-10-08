@@ -1283,7 +1283,7 @@ func (s *remoteModelState) streamsRequested(n int, alias string) error {
 }
 
 func (s *remoteModelState) allStreamsRunning(n int) error {
-	key := sharedKeyFor(s.spec.sharedToken)
+	key := sharedBearerKey(s.spec.sharedToken)
 	return remoteModelWaitUntil(fmt.Sprintf("%d streams to run on the remote", n), func() bool {
 		return s.remote.gate.runningCount() == n && s.remote.srv.sharedLimit.inUse(key) == n
 	})
@@ -1328,7 +1328,7 @@ func (s *remoteModelState) oneOfFiveEnds() error {
 	}
 	_ = s.held[0].Body.Close()
 	s.held = s.held[1:]
-	key := sharedKeyFor(s.spec.sharedToken)
+	key := sharedBearerKey(s.spec.sharedToken)
 	return remoteModelWaitUntil("the slot of the ended stream to be free", func() bool { return s.remote.srv.sharedLimit.inUse(key) == len(s.held) })
 }
 
@@ -1350,7 +1350,7 @@ func (s *remoteModelState) streamsUntilHeldEnds(model, message string) error {
 	}
 	trace := &busyTrace{}
 	s.busy = trace
-	key := sharedKeyFor(s.spec.sharedToken)
+	key := sharedBearerKey(s.spec.sharedToken)
 	err := s.stream(model, []llm.Message{{Role: llm.RoleUser, Content: message}}, nil, "", func(ctx context.Context) context.Context {
 		// The remote told the local coddy it is busy: that is when the held stream
 		// ends, and the sleep that follows takes no wall-clock time but still waits
