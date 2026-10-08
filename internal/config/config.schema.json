@@ -1264,6 +1264,47 @@
               "default": 1800000,
               "minimum": 0,
               "maximum": 28800000
+            },
+            "cert_names": {
+              "type": "array",
+              "description": "DNS or URI names in a verified client certificate (httpserver.tls.client_ca_file) that open GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage and POST /coddy/llm/completions as their own credential class, and nothing else. Each name has its own max_streams slots and rate_per_minute window, so no relay is needed to tell borrowers apart. A name matches exactly; the CN is not consulted. Needs httpserver.tls.client_ca_file.",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            }
+          }
+        },
+        "tls": {
+          "type": "object",
+          "title": "HTTPS",
+          "description": "Serve the API over HTTPS. Set both files or neither; without them the listener is plain HTTP, which is a reverse proxy's job to wrap. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart. A request through a TLS terminator or through the swarm tunnel carries no client certificate: require it at the terminator.",
+          "additionalProperties": false,
+          "properties": {
+            "cert_file": {
+              "type": "string",
+              "description": "PEM certificate chain.",
+              "default": ""
+            },
+            "key_file": {
+              "type": "string",
+              "description": "PEM private key.",
+              "default": ""
+            },
+            "client_ca_file": {
+              "type": "string",
+              "description": "PEM bundle that client certificates are verified against. With it the server asks for a certificate on every connection; httpserver.shared_models.cert_names admit a verified certificate on the shared-model routes. Needs cert_file and key_file. Startup state: changing it takes a restart.",
+              "default": ""
+            },
+            "client_auth": {
+              "type": "string",
+              "description": "optional: verify a client certificate when one is offered and let peers without one in (browsers and bearer-token clients). required: refuse a peer without a verified certificate at the handshake, every caller included. Empty with a client_ca_file means optional; the key needs a client_ca_file.",
+              "enum": [
+                "",
+                "optional",
+                "required"
+              ],
+              "default": ""
             }
           }
         }

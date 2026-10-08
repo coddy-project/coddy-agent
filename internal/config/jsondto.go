@@ -354,6 +354,7 @@ type HTTPServerJSON struct {
 	CORS            HTTPCORSJSON     `json:"cors,omitempty"`
 	Remotes         []HTTPRemoteJSON `json:"remotes,omitempty"`
 	SharedModels    SharedModelsJSON `json:"shared_models,omitempty"`
+	TLS             SwarmTLSJSON     `json:"tls,omitempty"`
 }
 
 // SharedModelsJSON mirrors SharedModelsConfig. Tokens are write-only, like the
@@ -369,6 +370,7 @@ type SharedModelsJSON struct {
 	MaxCallMS        *int     `json:"max_call_ms,omitempty"`
 	RatePerMinute    int      `json:"rate_per_minute,omitempty"`
 	RateBurst        int      `json:"rate_burst,omitempty"`
+	CertNames        []string `json:"cert_names,omitempty"`
 }
 
 // HTTPLoginJSON mirrors HTTPLoginConfig. PasswordHash is write-only: reading
@@ -660,7 +662,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			MaxCallMS:        cloneIntPtr(c.HTTPServer.SharedModels.MaxCallMS),
 			RatePerMinute:    c.HTTPServer.SharedModels.RatePerMinute,
 			RateBurst:        c.HTTPServer.SharedModels.RateBurst,
+			CertNames:        append([]string(nil), c.HTTPServer.SharedModels.CertNames...),
 		},
+		TLS: SwarmTLSJSON{CertFile: c.HTTPServer.TLS.CertFile, KeyFile: c.HTTPServer.TLS.KeyFile,
+			ClientCAFile: c.HTTPServer.TLS.ClientCAFile, ClientAuth: c.HTTPServer.TLS.ClientAuth},
 	}
 	for _, rm := range c.HTTPServer.Remotes {
 		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
@@ -909,7 +914,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			MaxCallMS:     cloneIntPtr(j.HTTPServer.SharedModels.MaxCallMS),
 			RatePerMinute: j.HTTPServer.SharedModels.RatePerMinute,
 			RateBurst:     j.HTTPServer.SharedModels.RateBurst,
+			CertNames:     append([]string(nil), j.HTTPServer.SharedModels.CertNames...),
 		},
+		TLS: HTTPTLSConfig{CertFile: j.HTTPServer.TLS.CertFile, KeyFile: j.HTTPServer.TLS.KeyFile,
+			ClientCAFile: j.HTTPServer.TLS.ClientCAFile, ClientAuth: j.HTTPServer.TLS.ClientAuth},
 	}
 	for _, rm := range j.HTTPServer.Remotes {
 		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))

@@ -190,6 +190,9 @@ func (s *Server) sharedCallerKey(r *http.Request, pol *authPolicy) string {
 	if t := bearerToken(r); acceptBearer(pol.tokens, t) || acceptBearer(pol.sharedTokens, t) {
 		return sharedKeyFor(t)
 	}
+	if name := sharedCertName(r, pol); name != "" {
+		return sharedKeyFor("mtls:" + name)
+	}
 	if _, ok := s.sessionFromRequest(r, pol.login); ok {
 		if c, err := r.Cookie(sessionCookieName(r)); err == nil && c.Value != "" {
 			return sharedKeyFor("cookie:" + c.Value)

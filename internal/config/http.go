@@ -47,7 +47,14 @@ type HTTPServerConfig struct {
 	// SharedModels configures the routes that serve the models[] rows carrying
 	// shared_as to other Coddys: the LLM-only token class and the limits.
 	SharedModels SharedModelsConfig `yaml:"shared_models"`
+	// TLS serves the API over HTTPS and, with a client CA, asks for client
+	// certificates. Empty means plain HTTP, the reverse proxy's job.
+	TLS HTTPTLSConfig `yaml:"tls"`
 }
+
+// HTTPTLSConfig has the shape and the rules of swarm.tls: both files or
+// neither, a client CA to ask for certificates, optional or required.
+type HTTPTLSConfig = SwarmTLSConfig
 
 // LoginMode names how a browser proves who it is.
 //
@@ -346,6 +353,9 @@ func (h *HTTPServerConfig) Validate() error {
 		return fmt.Errorf("httpserver.port out of range")
 	}
 	if err := h.SharedModels.Validate(); err != nil {
+		return err
+	}
+	if err := h.TLS.validate("httpserver.tls"); err != nil {
 		return err
 	}
 	return h.Login.Validate()

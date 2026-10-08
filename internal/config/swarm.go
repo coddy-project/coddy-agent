@@ -106,6 +106,27 @@ const (
 	SwarmClientAuthRequired = "required"
 )
 
+// validate holds the rules of a TLS block named at (swarm.tls, httpserver.tls).
+func (t SwarmTLSConfig) validate(at string) error {
+	certSet := strings.TrimSpace(t.CertFile) != ""
+	keySet := strings.TrimSpace(t.KeyFile) != ""
+	if certSet != keySet {
+		return fmt.Errorf("%s: cert_file and key_file must be set together", at)
+	}
+	switch strings.TrimSpace(t.ClientAuth) {
+	case "", SwarmClientAuthOptional, SwarmClientAuthRequired:
+	default:
+		return fmt.Errorf("%s.client_auth: %q is not %s or %s", at, t.ClientAuth, SwarmClientAuthOptional, SwarmClientAuthRequired)
+	}
+	if strings.TrimSpace(t.ClientAuth) != "" && strings.TrimSpace(t.ClientCAFile) == "" {
+		return fmt.Errorf("%s.client_auth: needs %s.client_ca_file, the authority client certificates are verified against", at, at)
+	}
+	if strings.TrimSpace(t.ClientCAFile) != "" && !t.Enabled() {
+		return fmt.Errorf("%s.client_ca_file: needs %s.cert_file and key_file: client certificates are asked for over TLS", at, at)
+	}
+	return nil
+}
+
 // EffectiveClientAuth resolves client_auth: empty without a CA, optional with a
 // CA and no value.
 func (t SwarmTLSConfig) EffectiveClientAuth() string {
@@ -278,21 +299,8 @@ func (s *SwarmConfig) Validate() error {
 	if s.FanoutTimeoutSeconds < 0 {
 		return fmt.Errorf("swarm.fanout_timeout_seconds must not be negative")
 	}
-	certSet := strings.TrimSpace(s.TLS.CertFile) != ""
-	keySet := strings.TrimSpace(s.TLS.KeyFile) != ""
-	if certSet != keySet {
-		return fmt.Errorf("swarm.tls: cert_file and key_file must be set together")
-	}
-	switch strings.TrimSpace(s.TLS.ClientAuth) {
-	case "", SwarmClientAuthOptional, SwarmClientAuthRequired:
-	default:
-		return fmt.Errorf("swarm.tls.client_auth: %q is not %s or %s", s.TLS.ClientAuth, SwarmClientAuthOptional, SwarmClientAuthRequired)
-	}
-	if strings.TrimSpace(s.TLS.ClientAuth) != "" && strings.TrimSpace(s.TLS.ClientCAFile) == "" {
-		return fmt.Errorf("swarm.tls.client_auth: needs swarm.tls.client_ca_file, the authority client certificates are verified against")
-	}
-	if strings.TrimSpace(s.TLS.ClientCAFile) != "" && !s.TLS.Enabled() {
-		return fmt.Errorf("swarm.tls.client_ca_file: needs swarm.tls.cert_file and key_file: client certificates are asked for over TLS")
+	if err := s.TLS.validate("swarm.tls"); err != nil {
+		return err
 	}
 	seen := map[string]bool{}
 	for _, up := range s.Upstreams {

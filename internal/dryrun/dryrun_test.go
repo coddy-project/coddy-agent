@@ -956,3 +956,18 @@ func TestGatewayWithoutAdminsIsWarned(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPServerTLSAndClientCA(t *testing.T) {
+	dir := t.TempDir()
+	junk := filepath.Join(dir, "junk.pem")
+	if err := os.WriteFile(junk, []byte("not a certificate"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep := run(t, fmt.Sprintf("httpserver:\n  auth_token: t\n  tls:\n    cert_file: %s\n    key_file: %s\n    client_ca_file: %s\n", junk, junk, junk), nil)
+	if c := find(t, rep, "httpserver.tls"); c.Status != StatusError || c.Line != 4 {
+		t.Errorf("tls %+v", c)
+	}
+	if c := find(t, rep, "httpserver.tls.client_ca_file"); c.Status != StatusError || !strings.Contains(c.Message, "certificate") {
+		t.Errorf("client CA %+v", c)
+	}
+}

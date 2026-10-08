@@ -13,6 +13,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
+	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
@@ -85,6 +86,21 @@ func (r *runner) paths() {
 	}
 	if cfg.Memory.Enabled && strings.TrimSpace(cfg.Memory.Dir) != "" {
 		r.rep.add(r.creatableDir("memory.dir", cfg.Memory.Dir))
+	}
+
+	if cfg.HTTPServer.IsEnabled() && cfg.HTTPServer.TLS.Enabled() {
+		if _, err := tls.LoadX509KeyPair(cfg.HTTPServer.TLS.CertFile, cfg.HTTPServer.TLS.KeyFile); err != nil {
+			r.rep.add(r.check(StatusError, "httpserver.tls", "httpserver.tls", "certificate and key do not load: "+err.Error(), "check httpserver.tls.cert_file and httpserver.tls.key_file"))
+		} else {
+			r.rep.add(r.check(StatusOK, "httpserver.tls", "httpserver.tls", "certificate and key load", ""))
+		}
+		if ca := strings.TrimSpace(cfg.HTTPServer.TLS.ClientCAFile); ca != "" {
+			if _, err := netx.ClientCertTLS(ca, cfg.HTTPServer.TLS.EffectiveClientAuth(), "httpserver.tls.client_ca_file"); err != nil {
+				r.rep.add(r.check(StatusError, "httpserver.tls.client_ca_file", "httpserver.tls.client_ca_file", "the client CA bundle is unusable: "+err.Error(), "point httpserver.tls.client_ca_file at a PEM bundle of certificates"))
+			} else {
+				r.rep.add(r.check(StatusOK, "httpserver.tls.client_ca_file", "httpserver.tls.client_ca_file", "client CA bundle loads", ""))
+			}
+		}
 	}
 
 	if cfg.Swarm.Enabled && cfg.Swarm.TLS.Enabled() {

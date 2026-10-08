@@ -18,6 +18,9 @@ const (
 	sharedClassShared    = "shared"
 	sharedClassLogin     = "login"
 	sharedClassAnonymous = "anonymous"
+	// sharedClassMTLS is a verified client certificate named in
+	// httpserver.shared_models.cert_names.
+	sharedClassMTLS = "mtls"
 	// sharedClassUnknown is a bearer the gate refused on a shared route.
 	sharedClassUnknown = "unknown"
 )
@@ -54,6 +57,8 @@ func (s *Server) sharedClassOf(r *http.Request, pol *authPolicy) string {
 		return sharedClassMain
 	case acceptBearer(pol.sharedTokens, t):
 		return sharedClassShared
+	case sharedCertName(r, pol) != "":
+		return sharedClassMTLS
 	case s.hasCookieSession(r, pol.login):
 		return sharedClassLogin
 	}
