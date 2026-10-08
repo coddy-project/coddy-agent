@@ -5,8 +5,11 @@ package config
 // it is a warning rather than a refusal.
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -50,6 +53,7 @@ func sharedModelFindings(cfg *Config, body *yaml.Node, extra ExtraTokens, loadEr
 					"the address is plain http:// and its host is not loopback: the token and the whole conversation, file contents and tool output included, travel in clear text",
 					"use https://, or reach the remote through a TLS reverse proxy or an https swarm relay mount")
 			}
+			out = append(out, coddyIdentityFindings(p, name, body)...)
 			continue
 		}
 		if p.BusyWaitMS > 0 {
@@ -227,6 +231,35 @@ func swarmJoinLabelFindings(cfg *Config, body *yaml.Node) []Finding {
 		out = append(out, locatedFinding(body, SeverityWarning, fmt.Sprintf("swarm.join[%d].labels", i),
 			LabelTokenClass+": "+TokenClassSharedModels+" tells the relay that this token opens only the shared-model routes, and the relay will not list this node's sessions, but the token of this join is not one of httpserver.shared_models.tokens",
 			"remove the label (a current node sets it itself when the token is a shared-model token), or join with a shared-model token"))
+	}
+	return out
+}
+
+// coddyIdentityFindings reads the TLS identity files of a coddy row, which the
+// loader leaves alone: a CA bundle that cannot be read is an error and one that
+// holds no certificate a warning, and a client certificate that cannot be read,
+// or whose key is not its own, is an error. Nothing is sent anywhere.
+func coddyIdentityFindings(p *ProviderConfig, name string, body *yaml.Node) []Finding {
+	var out []Finding
+	at := func(sev Severity, key, msg, fix string) {
+		out = append(out, locatedFinding(body, sev, "providers["+name+"]."+key, msg, fix))
+	}
+	if ca := strings.TrimSpace(p.CAFile); ca != "" {
+		pem, err := os.ReadFile(ca)
+		switch {
+		case err != nil:
+			at(SeverityError, "ca_file", "cannot read "+ca+": "+err.Error(), "point ca_file at a PEM bundle of the authority that signed the remote's certificate")
+		case !x509.NewCertPool().AppendCertsFromPEM(pem):
+			at(SeverityWarning, "ca_file", ca+" holds no PEM certificate, so it trusts nothing beyond the system roots",
+				"point ca_file at a PEM bundle of the authority that signed the remote's certificate")
+		}
+	}
+	cert, key := strings.TrimSpace(p.ClientCertFile), strings.TrimSpace(p.ClientKeyFile)
+	if cert != "" && key != "" {
+		if _, err := tls.LoadX509KeyPair(cert, key); err != nil {
+			at(SeverityError, "client_cert_file", "the client certificate and key cannot be used together: "+err.Error(),
+				"client_cert_file and client_key_file must be a readable PEM pair of one certificate and its own private key")
+		}
 	}
 	return out
 }
