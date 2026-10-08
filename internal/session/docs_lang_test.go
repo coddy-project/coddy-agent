@@ -75,3 +75,45 @@ func TestSearchMentionsDocumentationInRussian(t *testing.T) {
 		t.Fatalf("no language is English: %+v", got)
 	}
 }
+
+// A turn carries a language: the surface's when it names one the
+// documentation is written in, else the language the person wrote the prompt
+// in, its mentions aside. It lasts exactly the turn.
+func TestTurnLanguageIsTheSurfacesElseThePrompts(t *testing.T) {
+	seen := make(chan string, 1)
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		st.AddMessage(acpToLLM(prompt))
+		seen <- st.GetTurnLang()
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m, _, root := newSubagentTestManagerWithRunner(t, runner)
+	parent := newParent(t, m, root)
+	for _, tc := range []struct {
+		text, surface, want string
+	}{
+		{"explain @coddy:features/mentions", "", "en"},
+		{"объясни @coddy:features/mentions", "", "ru"},
+		{"explain @coddy:features/mentions", "ru-RU", "ru"},
+		{"объясни это", "en_US.UTF-8", "en"},
+		// A locale the documentation is not written in does not clamp a
+		// Cyrillic prompt to English.
+		{"объясни это", "uk", "ru"},
+		{"explain this", "de", "en"},
+	} {
+		var opts *session.PromptRunOpts
+		if tc.surface != "" {
+			opts = &session.PromptRunOpts{Lang: tc.surface}
+		}
+		prompt := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: tc.text}}
+		if _, err := m.HandleSessionPromptWithSender(context.Background(),
+			acp.SessionPromptParams{SessionID: parent.ID, Prompt: prompt}, noopSender{}, opts); err != nil {
+			t.Fatal(err)
+		}
+		if got := <-seen; got != tc.want {
+			t.Errorf("prompt %q from a %q surface: turn language %q, want %q", tc.text, tc.surface, got, tc.want)
+		}
+		if got := parent.GetTurnLang(); got != "" {
+			t.Fatalf("the turn language outlived its turn: %q", got)
+		}
+	}
+}

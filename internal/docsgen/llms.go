@@ -128,7 +128,7 @@ func RenderLLMSIndexLang(nav *Nav, tr *TranslatedNav, lang, hub, base string) st
 
 // RenderLLMSFullLang concatenates the translated pages in map order, their
 // stamps removed; a page outside docs/ is left out, as it is not translated.
-func RenderLLMSFullLang(nav *Nav, tr *TranslatedNav, lang, root, base string) (string, error) {
+func RenderLLMSFullLang(nav *Nav, tr *TranslatedNav, lang string, read func(rel string) (string, error), base string) (string, error) {
 	text := llmsTexts[lang]
 	local := tr.localize(nav)
 	var b strings.Builder
@@ -139,15 +139,12 @@ func RenderLLMSFullLang(nav *Nav, tr *TranslatedNav, lang, root, base string) (s
 				continue
 			}
 			path := translatedPath(lang, p.Path)
-			data, err := os.ReadFile(filepath.Join(root, path))
-			if os.IsNotExist(err) {
+			data, err := read(path)
+			if err != nil {
 				continue // CheckTranslation reports the missing page
 			}
-			if err != nil {
-				return "", err
-			}
 			fmt.Fprintf(&b, "\n\n# %s / %s\n\n%s: %s\n\n", g.Title, p.Title, text.source, strings.TrimRight(base, "/")+"/"+path)
-			b.WriteString(strings.TrimRight(stampRE.ReplaceAllString(string(data), ""), "\n"))
+			b.WriteString(strings.TrimRight(stampRE.ReplaceAllString(data, ""), "\n"))
 			b.WriteString("\n")
 		}
 	}

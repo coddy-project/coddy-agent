@@ -184,16 +184,6 @@ func Generate(o Options) (*Result, error) {
 	}
 	res.Files[LLMSFullFile] = full
 
-	if o.SiteDir != "" {
-		site, err := RenderSiteLang(o.Root, nav, translated)
-		if err != nil {
-			return nil, err
-		}
-		site["llms.txt"] = res.Files[LLMSFile]
-		site["llms-full.txt"] = res.Files[LLMSFullFile]
-		res.SiteFiles = site
-	}
-
 	// A translated page's links are written the way its English page writes
 	// them and made right for the translation's folder here.
 	existsNow := func(rel string) bool {
@@ -212,6 +202,17 @@ func Generate(o Options) (*Result, error) {
 				res.Files[rel] = out
 			}
 		}
+	}
+
+	// The site layer is rendered from the tree as this run leaves it.
+	if o.SiteDir != "" {
+		site, err := RenderSiteLang(o.Root, nav, translated, read, o.RawBase)
+		if err != nil {
+			return nil, err
+		}
+		site["llms.txt"] = res.Files[LLMSFile]
+		site["llms-full.txt"] = res.Files[LLMSFullFile]
+		res.SiteFiles = site
 	}
 
 	res.Problems = append(res.Problems, CheckNav(o.Root, nav)...)

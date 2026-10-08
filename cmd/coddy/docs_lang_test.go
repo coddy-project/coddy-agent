@@ -55,12 +55,14 @@ func TestDocsWithoutAVerbTakesTheLangFlagToo(t *testing.T) {
 	}
 }
 
-func TestDocsLangFlagWithoutAValueIsAUsageError(t *testing.T) {
+func TestDocsLangFlagWithoutAKnownLanguageIsAUsageError(t *testing.T) {
 	docsEnglishLocale(t)
 	for _, args := range [][]string{
 		{"--lang"},
 		{"show", "features/mentions", "--lang"},
 		{"search", "homebrew", "--lang="},
+		{"show", "--lang", "fr", "features/mentions"},
+		{"search", "--lang", "--limit", "2", "homebrew"},
 	} {
 		if err := runDocs(args, io.Discard); err == nil || err.Error() != docsUsage() {
 			t.Errorf("coddy docs %v: %v", args, err)

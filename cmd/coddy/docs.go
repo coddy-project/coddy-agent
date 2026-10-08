@@ -25,23 +25,30 @@ func docsUsage() string {
 
 // docsLang takes --lang <en|ru> (also written --lang=<x>) out of the arguments,
 // wherever it stands among them, so every verb accepts it the same way. A flag
-// without a value is a usage error.
+// without a value, with a flag for a value or with a language the
+// documentation is not written in is a usage error.
 func docsLang(args []string) (lang string, rest []string, ok bool) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		value, isLang := "", false
 		switch {
 		case a == "--lang":
-			if i+1 >= len(args) || args[i+1] == "" {
+			if i+1 >= len(args) {
 				return "", nil, false
 			}
-			lang = args[i+1]
+			value, isLang = args[i+1], true
 			i++
 		case strings.HasPrefix(a, "--lang="):
-			if lang = strings.TrimPrefix(a, "--lang="); lang == "" {
-				return "", nil, false
-			}
+			value, isLang = strings.TrimPrefix(a, "--lang="), true
 		default:
 			rest = append(rest, a)
+		}
+		if isLang {
+			known, found := docs.KnownLang(value)
+			if !found || strings.HasPrefix(value, "-") {
+				return "", nil, false
+			}
+			lang = known
 		}
 	}
 	return lang, rest, true

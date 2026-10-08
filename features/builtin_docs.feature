@@ -54,6 +54,12 @@ Feature: The documentation built into the binary
     When the browser searches the documentation for "упоминание файла" in Russian
     Then the results include the page "features/mentions"
 
+  @http
+  Scenario: A turn from the web UI in Russian reads the documentation in Russian
+    Given a running coddy serve
+    When the web UI sends "explain @coddy:features/mentions#what-the-model-receives" with its language "ru"
+    Then the turn runs in Russian with the section "Что получает модель" attached
+
   @cli
   Scenario: coddy docs prints a page and a search from the shell
     When the operator runs "coddy docs show features/mentions#what-the-model-receives"

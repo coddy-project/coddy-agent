@@ -293,7 +293,7 @@ func TestSiteRendersTheRussianLayer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := RenderSiteLang(root, nav, map[string]*TranslatedNav{"ru": tr})
+	files, err := RenderSiteLang(root, nav, map[string]*TranslatedNav{"ru": tr}, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}

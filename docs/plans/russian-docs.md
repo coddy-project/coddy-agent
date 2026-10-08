@@ -3,7 +3,9 @@
 Status: v2 after one cross-review round of the plan (coddy on neuraldeep/qwen3.8-27b-noreason,
 coddy on devin/swe-2, coddy on codex/gpt-5.6-sol, cursor agent on auto; all four answered, verdict
 "approve with changes"). Round-1 changes are marked `[rev]`. Implemented on this branch; the
-implementation notes are in section 6.
+implementation notes are in section 6. The code was cross-reviewed by the same four reviewers in
+three parts (engine, surfaces, contract; twelve answers, all "approve with changes"); the changes
+that review brought to the design are marked `[rev2]`.
 Branch: `feat/russian-docs`.
 
 ## 1. Goal
@@ -62,7 +64,9 @@ the checks below own it `[rev]`.
 1. Every page of the source set has its Russian page, and `docs/ru/` holds nothing else but those
    pages, `README.md`, `nav.yaml` and `config-descriptions.yaml`.
 2. `docs/ru/nav.yaml` names exactly the groups and pages of `docs/nav.yaml`, each with a one-line
-   title and summary; a Russian page starts with `# <its Russian title>`.
+   title and summary; a Russian page starts with `# <its Russian title>` when its English page starts
+   with its English title from the map (section 6: twenty-one pages have a longer H1 of their own)
+   `[rev2]`.
 3. Heading parity: the Russian page has the English page's sequence of heading levels, and no
    Russian heading's own anchor equals the shared anchor of another heading (the shared anchor wins
    in `Resolve`, so such a heading could not be addressed by its own) `[rev]`.
@@ -134,7 +138,8 @@ the console alike `[rev]`.
   when set, then the terminal's locale, `LC_ALL`, then `LC_MESSAGES`, then `LANG`; `coddy docs --lang
   <en|ru>` overrides it for scripts `[rev]`. `CODDY_LANG` is also the override on a system without
   those variables (Windows).
-- **The turn language** `[rev]`: a turn carries the language of the surface that started it, the way
+- **The turn language** `[rev]`: a turn carries the language of the surface that started it when that
+  language has a translation, else the language of the prompt's own words `[rev2]`, the way
   it carries `SurfaceSystemPrompt` (`session.PromptRunOpts`, held on the session state for the turn,
   never persisted): the web UI's `metadata.lang`, the console's locale, a Telegram user's
   `language_code`. A surface that knows none leaves it empty.

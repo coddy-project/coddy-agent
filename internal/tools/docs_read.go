@@ -45,7 +45,7 @@ func DocsReadTool() *tooling.Tool {
 						"type":        "integer",
 						"description": "Line to continue at, from 1, counted within the page or the section; the previous part names it.",
 					},
-					"lang": docsLangProperty("else English"),
+					"lang": docsLangProperty(),
 				},
 			},
 		},

@@ -21,6 +21,7 @@ locale), so a page that is current in one language and stale in the other is a b
 | a title or summary in `docs/nav.yaml` | the entry in `docs/ru/nav.yaml`: `title` and `summary` translated, `en:` set to the new English text |
 | a `description` in `internal/config/config.schema.json` | its entry in `docs/ru/config-descriptions.yaml`: `en` set to the new English text, `ru` translated |
 | the introduction of `docs/README.md` | the introduction of `docs/ru/README.md`, then restamp it |
+| a page removed from `docs/nav.yaml` or moved | its Russian page removed or moved to the same new path, and its entry in `docs/ru/nav.yaml` with it |
 
 Not translated: `docs/plans/` (design records), `docs/assets/` (shared: a Russian page embeds the same
 files), and the pages the map lists from the repository root (`CONTRIBUTING.md`, `DESIGN.md`,
@@ -70,10 +71,10 @@ The reader is a person who installs and runs Coddy, often a developer, sometimes
 a careful Russian-speaking engineer explains the program to a colleague: plain, exact, active. A
 translation renders the meaning of the English sentence, not its word order.
 
-Typography and form (`make docs-check` enforces the first three outside code):
+Typography and form (`make docs-check` enforces the dashes, the quotes and the horizontal rules outside code):
 - a hyphen with spaces ` - ` instead of an em dash or an en dash, ranges as `10-15`;
 - straight quotes `"..."`, never guillemets or curly quotes;
-- no horizontal rules, no emoji;
+- no horizontal rules, and no emoji either (not checked: keep it by hand);
 - a colon only to introduce a list; before a code block or a table end the sentence with a period;
 - list items end with `;`, the last with `.`; keep a list a list and prose prose, as in the source;
 - numbers in prose take a decimal comma (`1,5 МБ`), units in Russian (`КБ`, `МБ`, `мс`, `с`); values

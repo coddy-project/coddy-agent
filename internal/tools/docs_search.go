@@ -25,17 +25,17 @@ type docsSearchArgs struct {
 }
 
 // docsLangProperty is the lang argument both documentation tools take.
-func docsLangProperty(fallback string) map[string]interface{} {
+func docsLangProperty() map[string]interface{} {
 	return map[string]interface{}{
-		"type": "string",
-		"enum": []interface{}{docs.English, docs.Russian},
-		"description": "The language of the pages: \"en\" or \"ru\". Leave it out to follow the person's interface, " + fallback +
-			"; pass \"ru\" when the person writes Russian. References are the same in every language.",
+		"type":        "string",
+		"enum":        []interface{}{docs.English, docs.Russian},
+		"description": "The language of the pages: \"en\" or \"ru\". Leave it out for the language of the turn: the person's interface, else the language they write in. References are the same in every language.",
 	}
 }
 
 // docsLang is the language a documentation tool reads in: the call's, then
-// the surface's, then the fallback's (the query's script for a search).
+// the turn's, then the fallback (the query's script for a search, English for
+// a reading) for a call made outside a session turn.
 func docsLang(arg string, env *tooling.Env, fallback string) string {
 	if strings.TrimSpace(arg) != "" {
 		return docs.Lang(arg)
@@ -62,7 +62,7 @@ func DocsSearchTool() *tooling.Tool {
 						"type":        "string",
 						"description": "Words to look for, in English or in Russian, e.g. \"telegram proxy\", \"max_turns\", \"режимы разрешений\". A word may be cut short: \"config\" also finds configuration.",
 					},
-					"lang": docsLangProperty("else the language of the query"),
+					"lang": docsLangProperty(),
 					"limit": map[string]interface{}{
 						"type":        "integer",
 						"description": fmt.Sprintf("How many sections to return, %d by default, at most %d.", docsSearchDefaultLimit, docsSearchMaxLimit),

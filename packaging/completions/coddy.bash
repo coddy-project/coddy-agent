@@ -55,14 +55,24 @@ _coddy() {
             [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--cwd" -- "${cur}"))
             ;;
         docs)
+            # The verb and the words after it, the flags and their values
+            # aside: --lang may stand anywhere, before the verb too.
+            local verb="" npos=0 i
+            for ((i = 2; i < COMP_CWORD; i++)); do
+                case "${COMP_WORDS[i]}" in
+                    --lang|--limit) ((i++)) ;;
+                    --lang=*|--limit=*) ;;
+                    *) if [ -z "${verb}" ]; then verb="${COMP_WORDS[i]}"; else ((npos++)); fi ;;
+                esac
+            done
             if [ "${prev}" = "--lang" ]; then
                 COMPREPLY=($(compgen -W "en ru" -- "${cur}"))
-            elif [ "${COMP_CWORD}" -eq 2 ]; then
+            elif [ -z "${verb}" ]; then
                 COMPREPLY=($(compgen -W "list search show --lang" -- "${cur}"))
-            elif [ "${COMP_WORDS[2]}" = show ] && [ "${COMP_CWORD}" -eq 3 ]; then
+            elif [ "${verb}" = show ] && [ "${npos}" -eq 0 ]; then
                 # The pages the binary carries, from the binary itself.
                 COMPREPLY=($(compgen -W "$(coddy docs list --slugs 2>/dev/null)" -- "${cur}"))
-            elif [ "${COMP_WORDS[2]}" = search ]; then
+            elif [ "${verb}" = search ]; then
                 COMPREPLY=($(compgen -W "--limit --lang" -- "${cur}"))
             else
                 COMPREPLY=($(compgen -W "--lang" -- "${cur}"))

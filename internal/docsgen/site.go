@@ -3,6 +3,7 @@ package docsgen
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -106,7 +107,9 @@ func redirectScript(root map[string]string, langs []string) string {
     var raw = /\.md$/.test(p);
     var slug = raw ? p.slice(0, -3) : p;
     if (lang && hash && anchors && anchors[slug]) {
-      var local = anchors[slug][decodeURIComponent(hash.slice(1)).toLowerCase()];
+      var key = hash.slice(1);
+      try { key = decodeURIComponent(key); } catch (e) { /* a malformed escape stays as written */ }
+      var local = anchors[slug][key.toLowerCase()];
       if (local) hash = "#" + local;
     }
     var file = ROOT[slug] || (dir + slug + ".md");
@@ -133,16 +136,27 @@ func redirectScript(root map[string]string, langs []string) string {
 // RenderSiteLang renders the documentation layer of every translation next to
 // the English one: the interceptor, and for each language
 // docs-anchors-<lang>.json (shared anchor to the translated heading's own,
-// per page), <lang>/llms.txt and <lang>/llms-full.txt. The English llms files
-// are added by the caller.
-func RenderSiteLang(root string, nav *Nav, trs map[string]*TranslatedNav) (map[string]string, error) {
+// per page), <lang>/llms.txt and <lang>/llms-full.txt, the raw addresses under
+// rawBase. read returns a file of the tree (relative to root) as this run
+// leaves it, generated content and localized links included; nil reads the
+// disk. The English llms files are added by the caller.
+func RenderSiteLang(root string, nav *Nav, trs map[string]*TranslatedNav, read func(rel string) (string, error), rawBase string) (map[string]string, error) {
+	if read == nil {
+		read = func(rel string) (string, error) {
+			b, err := os.ReadFile(filepath.Join(root, rel))
+			return string(b), err
+		}
+	}
+	if rawBase == "" {
+		rawBase = DefaultRawBase
+	}
 	files := RenderSite(nav)
 	for _, lang := range Translations {
 		tr := trs[lang]
 		if tr == nil {
 			continue
 		}
-		lib, err := docs.LoadLang(os.DirFS(filepath.Join(root, "docs")), "dev", lang)
+		lib, err := docs.LoadLang(readFS{base: os.DirFS(filepath.Join(root, "docs")), prefix: "docs/", read: read}, "dev", lang)
 		if err != nil {
 			return nil, err
 		}
@@ -165,9 +179,9 @@ func RenderSiteLang(root string, nav *Nav, trs map[string]*TranslatedNav) (map[s
 			return nil, err
 		}
 		files["docs-anchors-"+lang+".json"] = string(data) + "\n"
-		hub, _ := os.ReadFile(filepath.Join(root, TranslationDir(lang)+"README.md"))
-		files[lang+"/llms.txt"] = RenderLLMSIndexLang(nav, tr, lang, string(hub), DefaultRawBase)
-		full, err := RenderLLMSFullLang(nav, tr, lang, root, DefaultRawBase)
+		hub, _ := read(TranslationDir(lang) + "README.md")
+		files[lang+"/llms.txt"] = RenderLLMSIndexLang(nav, tr, lang, hub, rawBase)
+		full, err := RenderLLMSFullLang(nav, tr, lang, read, rawBase)
 		if err != nil {
 			return nil, err
 		}
@@ -201,4 +215,23 @@ func WriteSite(siteDir string, files map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// readFS is a file system of the documentation folder whose files read
+// through a run's reader, so a library loaded from it sees what this run
+// generated rather than what the disk held before.
+type readFS struct {
+	base   fs.FS
+	prefix string
+	read   func(rel string) (string, error)
+}
+
+func (r readFS) Open(name string) (fs.File, error) { return r.base.Open(name) }
+
+func (r readFS) ReadFile(name string) ([]byte, error) {
+	s, err := r.read(r.prefix + name)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(s), nil
 }

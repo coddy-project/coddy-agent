@@ -65,17 +65,27 @@ _coddy() {
                     ;;
                 rules)    _values 'subcommand' list ;;
                 docs)
-                    if (( CURRENT == 3 )) && [[ $words[2] == show ]]; then
+                    # The verb and the words after it, the flags and their
+                    # values aside: --lang may stand anywhere, before the verb too.
+                    local verb="" npos=0 i
+                    for (( i = 2; i < CURRENT; i++ )); do
+                        case $words[i] in
+                            --lang|--limit) (( i++ )) ;;
+                            --lang=*|--limit=*) ;;
+                            *) if [[ -z $verb ]]; then verb=$words[i]; else (( npos++ )); fi ;;
+                        esac
+                    done
+                    if [[ $words[CURRENT-1] == --lang ]]; then
+                        _values 'language' en ru
+                    elif [[ -z $verb ]]; then
+                        compadd -- list search show --lang
+                    elif [[ $verb == show ]] && (( npos == 0 )); then
                         # The pages the binary carries, from the binary itself.
                         _values 'page' ${(f)"$(coddy docs list --slugs 2>/dev/null)"}
-                    elif (( CURRENT > 2 )) && [[ $words[2] == search ]]; then
-                        _arguments \
-                            '--limit[sections to print]:count:' \
-                            '--lang[documentation language]:language:(en ru)'
+                    elif [[ $verb == search ]]; then
+                        compadd -- --limit --lang
                     else
-                        _arguments \
-                            '--lang[documentation language]:language:(en ru)' \
-                            '1:subcommand:(list search show)'
+                        compadd -- --lang
                     fi
                     ;;
                 update)

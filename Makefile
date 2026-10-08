@@ -233,7 +233,7 @@ site-docs-check:
 # refuses a page whose translation did not change since HEAD; UNCHANGED=1
 # accepts one when the English change needs no translation.
 docs-stamp:
-	go run ./cmd/docsgen -stamp $(if $(UNCHANGED),-unchanged) $(PAGES)
+	go run ./cmd/docsgen -stamp $(if $(filter 1 true yes,$(UNCHANGED)),-unchanged) $(PAGES)
 
 docs-changelog:
 	$(MAKE) build TAGS="$(FULL_TAGS)"

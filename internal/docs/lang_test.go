@@ -36,6 +36,16 @@ func TestLangTakesEverySpellingOfALocale(t *testing.T) {
 	}
 }
 
+// KnownLang names a documentation language only for a locale written in one.
+func TestKnownLangNamesOnlyTheLanguagesOfTheDocumentation(t *testing.T) {
+	for in, want := range map[string]string{"ru": Russian, "ru_RU.UTF-8": Russian, "en-GB": English, "EN": English, "uk": "", "de_DE": "", "": "", "C": ""} {
+		got, ok := KnownLang(in)
+		if got != want || ok != (want != "") {
+			t.Errorf("KnownLang(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+}
+
 // CODDY_LANG overrides the terminal's locale; the locale is LC_ALL, then
 // LC_MESSAGES, then LANG: the first one set decides, as POSIX orders them.
 func TestLangFromEnvFollowsThePOSIXOrder(t *testing.T) {
@@ -69,8 +79,8 @@ func TestLangOfText(t *testing.T) {
 		"agent.max_turns ходов":           Russian,
 		"@coddy:features/mcp explain":     English,
 		"@coddy:features/mcp объясни это": Russian,
-		"":                                English,
-		"Ёлка":                            Russian,
+		"":     English,
+		"Ёлка": Russian,
 	} {
 		if got := LangOfText(in); got != want {
 			t.Errorf("LangOfText(%q) = %q, want %q", in, got, want)
@@ -220,6 +230,8 @@ func TestResolveTakesBothAnchorsOfATranslatedSection(t *testing.T) {
 		{"https://coddy.dev/ru/docs/guide/start#install", "guide/start", "install"},
 		{"https://coddy.dev/docs/guide/start", "guide/start", ""},
 		{"Как начать", "guide/start", ""},
+		{"Getting going", "guide/start", ""},
+		{"proxies", "guide/proxy", ""},
 		{"как начать", "guide/start", ""},
 	} {
 		p, anchor, err := lib.Resolve(tc.in)

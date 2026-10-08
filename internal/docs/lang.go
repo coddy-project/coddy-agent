@@ -35,6 +35,24 @@ func Lang(tag string) string {
 	return English
 }
 
+// KnownLang is the documentation language a locale tag names, and whether it
+// names one at all: "ru_RU.UTF-8" is Russian, "en-GB" English, while "uk",
+// "de" or an empty tag name no language the documentation is written in. A
+// surface whose locale names none leaves the choice to the text the person
+// wrote (LangOfText) instead of clamping it to English.
+func KnownLang(tag string) (string, bool) {
+	t := strings.ToLower(strings.TrimSpace(tag))
+	if i := strings.IndexAny(t, "-_.@"); i >= 0 {
+		t = t[:i]
+	}
+	for _, l := range Languages {
+		if t == l {
+			return l, true
+		}
+	}
+	return "", false
+}
+
 // LangEnv names Coddy's own override of the documentation language, read
 // before the locale variables: the way to choose on a system that sets none
 // of them (Windows), or to read the documentation in another language than

@@ -56,6 +56,9 @@ type Page struct {
 	// Lang is the language the page's text is in: the library's, or English
 	// for a page its translation lacks.
 	Lang string
+	// sourceTitle is the English title of the page, which Resolve takes in
+	// every language: a person or a model may name a page by it.
+	sourceTitle string
 	// Markdown is the page with its links rewritten for a reader outside
 	// the repository: a link to another page is coddy:<slug>#<anchor>, an
 	// image or a repository file is an address on GitHub at the release.
@@ -158,7 +161,7 @@ func LoadLang(fsys fs.FS, ver, lang string) (*Library, error) {
 			if _, dup := lib.bySlug[slug]; dup {
 				return nil, fmt.Errorf("page %s listed twice in nav.yaml", p.Path)
 			}
-			page := &Page{Slug: slug, Title: p.Title, Summary: p.Summary, Group: group, Lang: English, index: len(lib.pages)}
+			page := &Page{Slug: slug, Title: p.Title, Summary: p.Summary, Group: group, Lang: English, sourceTitle: p.Title, index: len(lib.pages)}
 			if t, ok := tr.Pages[clean]; ok {
 				page.Title, page.Summary = orElse(t.Title, p.Title), orElse(t.Summary, p.Summary)
 			}
@@ -324,6 +327,10 @@ func (l *Library) Resolve(ref string) (*Page, string, error) {
 	}
 	if page == nil {
 		page = l.uniqueMatch(func(p *Page) bool { return strings.EqualFold(p.Title, s) })
+	}
+	if page == nil {
+		// The English title names the page in a translated library too.
+		page = l.uniqueMatch(func(p *Page) bool { return strings.EqualFold(p.sourceTitle, s) })
 	}
 	if page == nil {
 		msg := fmt.Sprintf("no documentation page %q", raw)

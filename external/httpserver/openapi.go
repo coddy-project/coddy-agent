@@ -4265,7 +4265,7 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 					},
-					"required": []string{"object", "version", "query", "hits"},
+					"required": []string{"object", "version", "lang", "query", "hits"},
 				},
 				"CoddyMentionCandidate": map[string]interface{}{
 					"type": "object",

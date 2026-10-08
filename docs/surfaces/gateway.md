@@ -632,7 +632,11 @@ The settings commands take `--once` or `--count=N` to change a setting for the n
 
 A messenger has its own dialect and its own shape of screen. Coddy says both in
 two places that belong to the gateway, and neither of them touches the
-conversation the session keeps.
+conversation the session keeps. The Telegram bot also passes the language the
+person's client reports (`language_code`) as the language of the turn, so the
+documentation the turn's `@coddy:` mentions attach and the agent reads is in
+that language when Coddy's documentation has it ([Built-in
+documentation](../features/built-in-docs.md#languages)).
 
 ### The model is told, for that turn
 

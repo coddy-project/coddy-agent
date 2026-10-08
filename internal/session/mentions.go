@@ -854,6 +854,12 @@ func (r *mentionResolver) docLang(text string) string {
 	if r.lang != "" {
 		return docs.Lang(r.lang)
 	}
+	return docs.LangOfText(withoutMentions(text))
+}
+
+// withoutMentions is a text with its @ mentions left out: the words the person
+// wrote, whose script tells the language they write in.
+func withoutMentions(text string) string {
 	var words strings.Builder
 	at := 0
 	for _, tok := range mention.Parse(text) {
@@ -865,7 +871,20 @@ func (r *mentionResolver) docLang(text string) string {
 	if at < len(text) {
 		words.WriteString(text[at:])
 	}
-	return docs.LangOfText(words.String())
+	return words.String()
+}
+
+// promptLang is the documentation language of a prompt nobody named one for:
+// the language of the words of its text blocks, mentions aside.
+func promptLang(blocks []acp.ContentBlock) string {
+	var b strings.Builder
+	for _, block := range blocks {
+		if block.Type == acp.ContentTypeText {
+			b.WriteString(withoutMentions(block.Text))
+			b.WriteByte(' ')
+		}
+	}
+	return docs.LangOfText(b.String())
 }
 
 // resolveDoc attaches a page of Coddy's own documentation, or one section of

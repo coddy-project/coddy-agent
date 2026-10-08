@@ -377,7 +377,7 @@ func TestSnippetOfAnEmptySectionIsAnEmptyList(t *testing.T) {
 func TestVideoLinesPlayTheRepositoryCopy(t *testing.T) {
 	fsys := fstest.MapFS{
 		"nav.yaml": {Data: []byte("groups:\n  - id: g\n    title: G\n    summary: s\n    pages:\n      - path: g/p.md\n        title: P\n        summary: s\n")},
-		"g/p.md": {Data: []byte("# P\n\nhttps://github.com/user-attachments/assets/fd4837ae-23d0-400e-8e60-52706755bb4b\n\n*A recording. The file is in the repository as [swarm.mp4](../assets/video/swarm.mp4).*\n\nhttps://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000\n\nNo copy is linked here.\n")},
+		"g/p.md":   {Data: []byte("# P\n\nhttps://github.com/user-attachments/assets/fd4837ae-23d0-400e-8e60-52706755bb4b\n\n*A recording. The file is in the repository as [swarm.mp4](../assets/video/swarm.mp4).*\n\nhttps://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000\n\nNo copy is linked here.\n")},
 	}
 	lib, err := Load(fsys, "1.1.55")
 	if err != nil {

@@ -174,9 +174,11 @@ func sourceOf(rel string) (lang, source string) {
 	return "", ""
 }
 
+// gitCmd runs git in root and returns what it printed on stdout: a warning
+// on stderr must not become part of a file git shows.
 func gitCmd(root string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	return string(out), err
 }
 

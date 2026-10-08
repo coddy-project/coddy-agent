@@ -29,11 +29,12 @@ The documentation is written in English and translated into Russian: every page 
 | Surface | The language it shows |
 | --- | --- |
 | Web UI (and the Telegram Mini App) | the language of the interface, **Settings → Appearance** or the browser's |
+| Telegram and other messengers | the language the person's Telegram client reports (`language_code`), else the language they write in |
 | Console, `coddy docs` | `CODDY_LANG`, else the terminal's locale: `LC_ALL`, then `LC_MESSAGES`, then `LANG`; `coddy docs --lang ru` for one command |
-| The agent's tools | the `lang` the call names, else the language of the surface the turn came from, else the language of the search query (a reading without either is English) |
+| The agent's tools | the `lang` the call names, else the language of the turn: the surface's, else the language the person wrote the prompt in |
 | `@coddy:` in a prompt | the language of the surface the turn came from, else the language you wrote the prompt in |
 
-A language the documentation is not translated into reads as English. A page keeps its address in both languages, and so does a section: a Russian heading answers to the anchor of the English heading at the same place, so `coddy:features/mentions#completion`, `@coddy:features/mentions#completion` or `#/docs/features/mentions#completion` open the same section whatever the language, and a link the agent wrote in one opens in the other. The public copy of a Russian page is `https://coddy.dev/ru/docs/<page>`.
+A surface whose language has no translation (a German terminal, a Ukrainian Telegram client) leaves the choice to the language of the prompt, and a prompt in neither reads English. A page keeps its address in both languages, and so does a section: a Russian heading answers to the anchor of the English heading at the same place, so `coddy:features/mentions#completion`, `@coddy:features/mentions#completion` or `#/docs/features/mentions#completion` open the same section whatever the language, and a link the agent wrote in one opens in the other. The public copy of a Russian page is `https://coddy.dev/ru/docs/<page>`.
 
 ## Search
 
