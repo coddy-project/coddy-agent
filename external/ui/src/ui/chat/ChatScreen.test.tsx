@@ -1321,100 +1321,7 @@ test("selecting text in an answer offers Quote, which adds it to the draft as a 
   }
 });
 
-/** A finger moving over the transcript from one height to another. */
-function swipe(target: HTMLElement, fromY: number, toY: number) {
-  fireEvent.touchStart(target, { touches: [{ clientX: 100, clientY: fromY }] });
-  fireEvent.touchMove(target, {
-    touches: [{ clientX: 100, clientY: (fromY + toY) / 2 }],
-  });
-  fireEvent.touchMove(target, { touches: [{ clientX: 100, clientY: toY }] });
-  fireEvent.touchEnd(target, { touches: [] });
-}
-
-function jumpShown(testId: string): boolean {
-  return screen.getByTestId(testId).getAttribute("data-visible") === "true";
-}
-
-test("on a touch screen scrolling up offers the jump to the top and scrolling down the jump to the newest message", async () => {
-  // A tablet held wide: the transcript scrolls in its own column, and the
-  // reader moves it with a finger.
-  vi.stubGlobal("matchMedia", (query: string) => ({
-    matches:
-      !query.includes("max-width") &&
-      (query.includes("hover") || query.includes("pointer")),
-    media: query,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    addListener: () => {},
-    removeListener: () => {},
-    dispatchEvent: () => false,
-  }));
-  try {
-    const { container } = render(
-      <ChatScreen {...scrollBase} items={firstTurn} />,
-    );
-    const viewport = transcriptViewport(container, {
-      scrollHeight: 1200,
-      clientHeight: 400,
-    });
-    viewport.scrollTop = 800;
-    fireEvent.scroll(viewport);
-    expect(jumpShown("chat-scroll-top")).toBe(false);
-    expect(jumpShown("chat-scroll-bottom")).toBe(false);
-
-    // Pulling the page down reads earlier messages: the jump up is offered,
-    // and only it.
-    swipe(viewport, 300, 380);
-    viewport.scrollTop = 600;
-    fireEvent.scroll(viewport);
-    await waitFor(() => expect(jumpShown("chat-scroll-top")).toBe(true));
-    expect(jumpShown("chat-scroll-bottom")).toBe(false);
-    expect(screen.getByTestId("chat-scroll-top")).toHaveAccessibleName(
-      "Scroll to the top",
-    );
-
-    // Pushing it up heads for the newest message: the jump down instead.
-    swipe(viewport, 380, 300);
-    viewport.scrollTop = 650;
-    fireEvent.scroll(viewport);
-    await waitFor(() => expect(jumpShown("chat-scroll-bottom")).toBe(true));
-    expect(jumpShown("chat-scroll-top")).toBe(false);
-
-    // Up again, and the jump takes the reader to the top, where neither waits.
-    swipe(viewport, 300, 380);
-    viewport.scrollTop = 600;
-    fireEvent.scroll(viewport);
-    await waitFor(() => expect(jumpShown("chat-scroll-top")).toBe(true));
-    const frames = fakeFrameClock();
-    try {
-      fireEvent.click(screen.getByTestId("chat-scroll-top"));
-      frames.advance(500);
-      expect(viewport.scrollTop).toBe(0);
-      expect(jumpShown("chat-scroll-top")).toBe(false);
-      expect(jumpShown("chat-scroll-bottom")).toBe(false);
-    } finally {
-      frames.restore();
-    }
-  } finally {
-    vi.unstubAllGlobals();
-  }
-});
-
-test("with a mouse the transcript offers only the jump to the newest message", async () => {
-  const { container } = render(
-    <ChatScreen {...scrollBase} items={firstTurn} />,
-  );
-  const viewport = transcriptViewport(container, {
-    scrollHeight: 1200,
-    clientHeight: 400,
-  });
-  viewport.scrollTop = 200;
-  fireEvent.scroll(viewport);
-  await waitFor(() => expect(jumpShown("chat-scroll-bottom")).toBe(true));
-  expect(jumpShown("chat-scroll-top")).toBe(false);
-});
-
-test("the expand control stands over the jump to the newest message, lifted while it shows, and another chat opens folded", async () => {
+test("the expand control stands under the jump to the newest message, which an expanded composer hides, and another chat opens folded", async () => {
   const { container, rerender } = render(
     <ChatScreen {...scrollBase} items={firstTurn} />,
   );
@@ -1425,25 +1332,25 @@ test("the expand control stands over the jump to the newest message, lifted whil
   viewport.scrollTop = 800;
   fireEvent.scroll(viewport);
   const expand = screen.getByTestId("composer-expand");
-  // Its own circle in the composer's column, beside the jump - not a control
-  // of the field.
-  expect(expand.closest(".chat-bottom-inner")).toBeTruthy();
+  // Its own circle in the composer's column, in the slot right over the
+  // composer; the stylesheet puts the jump a slot higher when it is there.
+  const dock = expand.closest(".chat-bottom-inner");
+  expect(dock).not.toBeNull();
   expect(expand.closest(".composer-card")).toBeNull();
   expect(expand).toHaveAccessibleName("Expand the message field");
   expect(expand).toHaveAttribute("aria-pressed", "false");
-  expect(expand).not.toHaveClass("is-lifted");
+  // Only the jump down: no jump up is offered anywhere.
+  expect(screen.queryByTestId("chat-scroll-top")).toBeNull();
 
-  // The jump down shows: the control is lifted above it.
   viewport.scrollTop = 200;
   fireEvent.scroll(viewport);
   await waitFor(() => expect(scrollButtonShown()).toBe(true));
-  expect(expand).toHaveClass("is-lifted");
+  expect(screen.getByTestId("chat-scroll-bottom").parentElement).toBe(dock);
 
-  // Expanded, the transcript is under the composer: no jump is offered.
+  // Expanded, the transcript is under the composer: the jump is hidden.
   fireEvent.click(expand);
   expect(expand).toHaveAccessibleName("Collapse the message field");
   expect(expand).toHaveAttribute("aria-pressed", "true");
-  expect(expand).not.toHaveClass("is-lifted");
   expect(scrollButtonShown()).toBe(false);
   expect(container.querySelector(".composer-wrap--expanded")).not.toBeNull();
 

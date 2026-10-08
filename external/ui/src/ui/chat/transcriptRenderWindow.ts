@@ -56,24 +56,6 @@ export function tailRenderWindow(
   return { startId: items[start]?.id ?? null, endId: null, start, end };
 }
 
-/**
- * The window over the first `rows` rows held, for the jump to the top: cut
- * short of the tail (unless that is all there is), so the newest rows are not
- * rendered while the reader is at the start.
- */
-export function headRenderWindow(
-  items: readonly TranscriptItem[],
-  rows = INITIAL_ROWS,
-): RenderWindow {
-  const end = Math.min(rows, items.length);
-  return {
-    startId: items[0]?.id ?? null,
-    endId: end >= items.length ? null : (items[end - 1]?.id ?? null),
-    start: 0,
-    end,
-  };
-}
-
 /** Index of every row by id, for resolving a window against a new list. */
 export function rowIndexById(
   items: readonly TranscriptItem[],

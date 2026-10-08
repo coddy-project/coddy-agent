@@ -30,37 +30,6 @@ export function isTranscriptAtBottom(
   return transcriptDistanceFromBottom(metrics) < TRANSCRIPT_BOTTOM_THRESHOLD_PX;
 }
 
-/**
- * How close to the start counts as the top: there the jump to the top has
- * nowhere left to take the reader (issue #342).
- */
-export const TRANSCRIPT_TOP_THRESHOLD_PX = 80;
-
-export function isTranscriptAtTop(metrics: TranscriptScrollMetrics): boolean {
-  return metrics.scrollTop < TRANSCRIPT_TOP_THRESHOLD_PX;
-}
-
-/**
- * How far a finger travels over the transcript before the way it goes counts.
- * The direction comes from the finger, not from the scroll offset, because the
- * transcript window moves the offset by itself whenever it renders rows above
- * the reader.
- */
-export const TRANSCRIPT_SWIPE_DIRECTION_PX = 24;
-
-/**
- * Which way a finger that moved `travelPx` (down is positive) sends the
- * reader: pulling the page down reads earlier messages. `null` until the
- * travel is long enough to tell.
- */
-export function transcriptSwipeDirection(
-  travelPx: number,
-): "up" | "down" | null {
-  if (travelPx >= TRANSCRIPT_SWIPE_DIRECTION_PX) return "up";
-  if (travelPx <= -TRANSCRIPT_SWIPE_DIRECTION_PX) return "down";
-  return null;
-}
-
 /** Desktop shell: `.chat-scroll` is the scrollport. */
 export function elementTranscriptMetrics(
   el: HTMLElement,

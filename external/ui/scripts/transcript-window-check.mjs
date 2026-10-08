@@ -559,18 +559,13 @@ const browser = await launcher.launch(
 );
 
 /** A page with CPU throttling, a long task recorder and request log. */
-async function openPage(
-  viewport,
-  { throttle = THROTTLE, init, touch = false } = {},
-) {
+async function openPage(viewport, { throttle = THROTTLE, init } = {}) {
   // English whatever the machine's locale: the steps find controls by their
   // English names ("Retry"), which a Russian system locale renamed.
   const context = await browser.newContext({
     viewport,
     deviceScaleFactor: 1,
     locale: "en-US",
-    // A phone driven by a finger: the touch-only jumps of the transcript.
-    ...(touch ? { hasTouch: true, isMobile: true } : {}),
   });
   if (init) await context.addInitScript(init);
   await context.addInitScript(() => {
@@ -936,118 +931,6 @@ async function scenarioPhone() {
   await context.close();
 }
 
-/**
- * The jump to the top on a touch screen (issue #342), on a session whose
- * window holds only its last rows: pulling the page down offers the jump up
- * and only it, and a tap puts the window on the first rows held and lands at
- * the top, where the page above is asked for - which is what a window that
- * only scrolled, without being put on its first rows, would never reach.
- */
-async function scenarioJumpTop() {
-  const label = "jump to the top 390 (touch)";
-  if (!CHROMIUM) {
-    console.log(`skip ${label}: the swipe is Chromium's touch input`);
-    return;
-  }
-  const { context, page, cdp, requests } = await openPage(
-    { width: 390, height: 844 },
-    { throttle: 1, touch: true },
-  );
-  await openAndTime(page, `${NODE}/#/s/${LONG}`);
-  await page.waitForTimeout(1000);
-  const swipe = async (fromY, toY) => {
-    await cdp.send("Input.dispatchTouchEvent", {
-      type: "touchStart",
-      touchPoints: [{ x: 195, y: fromY }],
-    });
-    for (let i = 1; i <= 8; i++) {
-      await cdp.send("Input.dispatchTouchEvent", {
-        type: "touchMove",
-        touchPoints: [{ x: 195, y: fromY + ((toY - fromY) * i) / 8 }],
-      });
-    }
-    await cdp.send("Input.dispatchTouchEvent", {
-      type: "touchEnd",
-      touchPoints: [],
-    });
-  };
-  await swipe(250, 520);
-  // A tap on a page still moving only stops it.
-  let last = -1;
-  for (let i = 0; i < 40; i++) {
-    const y = await page.evaluate(() => window.scrollY);
-    if (Math.abs(y - last) < 0.5) break;
-    last = y;
-    await page.waitForTimeout(150);
-  }
-  const offer = await page.evaluate(() => ({
-    up: document.querySelector('[data-testid="chat-scroll-top"]')?.dataset
-      .visible,
-    down: document.querySelector('[data-testid="chat-scroll-bottom"]')?.dataset
-      .visible,
-    cut: document.querySelector("[data-testid=transcript-earlier]") !== null,
-  }));
-  check(
-    `${label}: the window starts short of the first rows held`,
-    offer.cut,
-    "the control for what is above is there",
-  );
-  check(
-    `${label}: pulling the page down offers only the jump to the top`,
-    offer.up === "true" && offer.down === "false",
-    JSON.stringify(offer),
-  );
-  const olderReads = () =>
-    messagesReads(requests, LONG).filter((q) => q.includes("before=")).length;
-  // Reads of the page above the swipe itself set off must be over before the
-  // count the tap is measured against is taken.
-  let olderBefore = olderReads();
-  for (let i = 0; i < 20; i++) {
-    await page.waitForTimeout(150);
-    const now = olderReads();
-    if (now === olderBefore) break;
-    olderBefore = now;
-  }
-  // Every frame from the tap on: the jump has to land at the top before the
-  // page above, read there, puts its rows in front of the reader.
-  await page.evaluate(() => {
-    window.__jumpMinY = Infinity;
-    const until = performance.now() + 2000;
-    const frame = () => {
-      window.__jumpMinY = Math.min(window.__jumpMinY, window.scrollY);
-      if (performance.now() < until) requestAnimationFrame(frame);
-    };
-    requestAnimationFrame(frame);
-  });
-  await page.tap('[data-testid="chat-scroll-top"]');
-  let olderAfter = olderBefore;
-  for (let i = 0; i < 40 && olderAfter === olderBefore; i++) {
-    await page.waitForTimeout(150);
-    olderAfter = olderReads();
-  }
-  await page.waitForTimeout(500);
-  const minY = await page.evaluate(() => window.__jumpMinY);
-  check(
-    `${label}: the jump lands at the top of the first rows held`,
-    minY < 80,
-    `scrollY ${Math.round(minY)} at its lowest`,
-  );
-  check(
-    `${label}: the jump reaches the first rows held, and the page above is read`,
-    olderAfter > olderBefore,
-    `${olderAfter - olderBefore} reads of the page above`,
-  );
-  const rows = await page.evaluate(
-    () => document.querySelectorAll(".messages-inner > [data-row-id]").length,
-  );
-  check(
-    `${label}: the window stays bounded`,
-    rows <= BUDGET.maxRows,
-    `${rows} rows`,
-  );
-  await context.close();
-}
-
 async function scenarioEditIndex() {
   const { context, page } = await openPage(
     { width: 1280, height: 900 },
@@ -1366,7 +1249,6 @@ const SCENARIOS = [
   ["open", () => scenarioOpen("open 1280", { width: 1280, height: 900 })],
   ["scroll", scenarioScroll],
   ["phone", scenarioPhone],
-  ["jump-top", scenarioJumpTop],
   ["edit", scenarioEditIndex],
   ["retry", scenarioRetry],
   ["prompt", scenarioPrompt],

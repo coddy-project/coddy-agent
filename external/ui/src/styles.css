@@ -693,6 +693,10 @@
      where it is 10px), from the bar to the header, and around the expand
      control of an expanded composer. */
   --coddy-top-rhythm: 14px;
+  /* The docked composer's wrap above its card (18px on a desktop): the expand
+     control and the jump stand on the card, not on the wrap, so they subtract
+     it. */
+  --coddy-composer-wrap-pad: 14px;
 }
 
 @media (min-width: 761px) {
@@ -2931,17 +2935,17 @@ a.rail-brand {
 
 /* Expand / collapse of the docked composer (issue #342,
    chat/ComposerExpandButton.tsx): the scroll-to-bottom circle's size, glass and
-   shadow, in the same slot over the composer's right edge, and lifted above
-   the jump while one is offered, so the two read as a pair of different
-   controls (arrows to the corners here, an arrow down there). Expanded, the
-   jumps are hidden and the control stands one step of the top rhythm over the
-   card, the header one step above it. */
+   shadow, in the slot right over the composer's right edge, where it stays;
+   the jumps of the transcript stand one slot higher, above it, so the two
+   read as a pair of different controls (arrows to the corners here, an arrow
+   up or down there). Expanded, the jumps are hidden and the control stands
+   one step of the top rhythm over the card, the header one step above it. */
 .chat-expand-composer {
   position: absolute;
-  right: 0;
+  right: 8px;
   bottom: 100%;
   z-index: 2;
-  margin-bottom: 10px;
+  margin-bottom: calc(10px - var(--coddy-composer-wrap-pad));
   box-sizing: border-box;
   width: 34px;
   height: 34px;
@@ -2959,13 +2963,8 @@ a.rail-brand {
   color: color-mix(in srgb, var(--text) 76%, var(--coddy-blend-base));
   cursor: pointer;
   transition:
-    transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1),
     color 0.15s ease,
     border-color 0.15s ease;
-}
-
-.chat-expand-composer.is-lifted {
-  transform: translateY(-44px);
 }
 
 .chat-expand-composer.is-expanded {
@@ -3113,6 +3112,28 @@ a.rail-brand {
   .chat-scroll-bottom.is-visible {
     transition: none;
   }
+}
+
+/* With the expand control in the composer's slot, the jump to the newest
+   message stands over it, 10px apart, as the control stands 10px over the
+   composer; both on the vertical line of the improve-prompt wand (its centre
+   25px from the card's outer edge - 12px, half of 24px and the card's 1px
+   border - theirs 8px plus half of 34px). */
+.chat-bottom-inner:has(> .chat-expand-composer) > .chat-scroll-bottom {
+  right: 8px;
+  margin-bottom: calc(54px - var(--coddy-composer-wrap-pad));
+}
+
+/* A usage banner over the composer is the block's top: the two keep their
+   10px over it instead of reaching down to the card. */
+.chat-bottom-inner:has(> .usage-banner)
+  > .chat-expand-composer:not(.is-expanded) {
+  margin-bottom: 10px;
+}
+
+.chat-bottom-inner:has(> .usage-banner):has(> .chat-expand-composer)
+  > .chat-scroll-bottom {
+  margin-bottom: 54px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4989,7 +5010,7 @@ code.md-math-pending {
 /* Floating composer */
 .composer-wrap {
   position: relative;
-  padding: 14px 0 0;
+  padding: var(--coddy-composer-wrap-pad) 0 0;
   z-index: 0;
 }
 
@@ -8424,8 +8445,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
     padding: 14px 0;
   }
 
-  .composer-wrap {
-    padding-top: 18px;
+  :root {
+    --coddy-composer-wrap-pad: 18px;
   }
 }
 

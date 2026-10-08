@@ -22,12 +22,8 @@ import {
 export type TranscriptListHandle = {
   /** The window reaches the newest row. */
   attached: boolean;
-  /** The window starts at the first row held. */
-  atHead: boolean;
   /** Puts the window back on the newest rows; `then` runs once it is. */
   attachToTail: (then?: () => void) => void;
-  /** Puts the window on the first rows held; `then` runs once it is. */
-  attachToHead: (then?: () => void) => void;
 };
 
 /**
@@ -86,9 +82,7 @@ export function TranscriptList(props: {
   useLayoutEffect(() => {
     props.handleRef.current = {
       attached: win.attached,
-      atHead: win.start === 0,
       attachToTail: win.attachToTail,
-      attachToHead: win.attachToHead,
     };
   });
   const lastAttachedRef = useRef(win.attached);

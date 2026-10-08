@@ -40,17 +40,32 @@ test("the pill and the title of the stacked shell stand one step apart", () => {
 // The control is the scroll-to-bottom circle's twin over the composer's right
 // edge, lifted above the jump while one shows: not a control in the field,
 // where a chevron next to the jump read as another scroll arrow.
-test("the expand control is a circle over the composer, lifted above the jump", () => {
+test("the expand control is a circle over the composer, the jump a slot above it", () => {
   const body = ruleBody(".chat-expand-composer {");
   expect(body).toMatch(/position: absolute/);
   expect(body).toMatch(/bottom: 100%/);
-  expect(body).toMatch(/right: 0/);
+  // On the improve-prompt wand's vertical line: its centre 25px from the
+  // card's outer edge (12px, half of 24px and the 1px border) is 8px plus
+  // half of the 34px circle.
+  expect(body).toMatch(/right: 8px/);
+  // 10px over the card, the wrap's own padding taken off.
+  expect(body).toMatch(
+    /margin-bottom: calc\(10px - var\(--coddy-composer-wrap-pad\)\)/,
+  );
   expect(body).toMatch(/width: 34px/);
   expect(body).toMatch(/height: 34px/);
   expect(body).toMatch(/border-radius: 50%/);
-  expect(ruleBody(".chat-expand-composer.is-lifted {")).toMatch(
-    /transform: translateY\(-44px\)/,
+  // It never moves; the jump stands its 34px and a 10px gap higher, on the
+  // same line.
+  expect(css).not.toContain(".chat-expand-composer.is-lifted");
+  const jump = ruleBody(
+    ".chat-bottom-inner:has(> .chat-expand-composer) > .chat-scroll-bottom {",
   );
+  expect(jump).toMatch(/right: 8px/);
+  expect(jump).toMatch(
+    /margin-bottom: calc\(54px - var\(--coddy-composer-wrap-pad\)\)/,
+  );
+  expect(squash(css)).toContain("padding: var(--coddy-composer-wrap-pad) 0 0;");
   expect(ruleBody(".chat-expand-composer.is-expanded {")).toMatch(
     /margin-bottom: var\(--coddy-top-rhythm\)/,
   );

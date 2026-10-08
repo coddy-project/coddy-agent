@@ -1307,7 +1307,6 @@ export const messagesEn: Record<string, string> = {
   "chat.heroVerb.plan": "plan",
   "chat.runPlanMessage": "Implement the plan.",
   "chat.scrollToBottom": "Scroll to the latest message",
-  "chat.scrollToTop": "Scroll to the top",
   "chat.quoteSelection": "Quote",
   "chat.quoteSelectionTitle": "Quote the selected text in your message",
   "chat.transcriptEarlier.show": "Show earlier messages",

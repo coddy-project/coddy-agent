@@ -18,7 +18,6 @@ import {
   resolveRenderWindow,
   rowIndexById,
   tailRenderWindow,
-  headRenderWindow,
   TRIM_SLACK_ROWS,
   trimBottomTo,
   trimRenderWindowBottom,
@@ -97,8 +96,6 @@ export function useTranscriptWindow(p: {
   showEarlier: () => void;
   /** Puts the window back on the newest rows; `then` runs once it is. */
   attachToTail: (then?: () => void) => void;
-  /** Puts the window on the first rows held; `then` runs once it is. */
-  attachToHead: (then?: () => void) => void;
 } {
   const { items, enabled } = p;
   const [win, setWin] = useState<RenderWindow>(OPENING_RENDER_WINDOW);
@@ -127,7 +124,6 @@ export function useTranscriptWindow(p: {
     { pinBottom: true } | { pinBottom: false; id: string; top: number } | null
   >(null);
   const afterAttachRef = useRef<(() => void) | null>(null);
-  const afterHeadRef = useRef<(() => void) | null>(null);
   const frameRef = useRef<number | null>(null);
 
   const viewport = useCallback((): { top: number; bottom: number } => {
@@ -320,11 +316,6 @@ export function useTranscriptWindow(p: {
       afterAttachRef.current = null;
       then();
     }
-    if (range.start === 0 && afterHeadRef.current) {
-      const then = afterHeadRef.current;
-      afterHeadRef.current = null;
-      then();
-    }
     schedule();
   }, [
     enabled,
@@ -392,16 +383,6 @@ export function useTranscriptWindow(p: {
     setWin(tailRenderWindow(cur.items));
   }, []);
 
-  const attachToHead = useCallback((then?: () => void) => {
-    const cur = latest.current;
-    if (cur.range.start === 0) {
-      then?.();
-      return;
-    }
-    afterHeadRef.current = then ?? null;
-    setWin(headRenderWindow(cur.items));
-  }, []);
-
   return {
     start: range.start,
     end: range.end,
@@ -410,6 +391,5 @@ export function useTranscriptWindow(p: {
     bottomSentinelRef,
     showEarlier,
     attachToTail,
-    attachToHead,
   };
 }

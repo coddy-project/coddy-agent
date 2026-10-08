@@ -3,15 +3,14 @@ import { useT } from "../i18n/I18nProvider";
 /**
  * Expands the docked composer over the chat for a long prompt, and folds it
  * back (issue #342). A circle of the scroll-to-bottom button's size and glass,
- * standing over it in the composer's column - lifted above it while the jump
- * is offered - so the two read as a pair of different controls: the jump is
- * an arrow down, this one arrows that spread to the corners (or come back
- * together, expanded). See DESIGN.md, Composer field height and expand.
+ * right over the composer's right edge, with the jumps of the transcript
+ * standing above it - so the two read as a pair of different controls: the
+ * jump is an arrow, this one arrows that spread to the corners (or come back
+ * together, expanded). It never moves. See DESIGN.md, Composer field height
+ * and expand.
  */
 export function ComposerExpandButton(props: {
   expanded: boolean;
-  /** A jump of the transcript is on show in the slot under this one. */
-  lifted: boolean;
   onToggle: () => void;
 }) {
   const { t } = useT();
@@ -19,13 +18,11 @@ export function ComposerExpandButton(props: {
   return (
     <button
       type="button"
-      className={[
-        "chat-expand-composer",
-        props.lifted ? "is-lifted" : "",
-        props.expanded ? "is-expanded" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={
+        props.expanded
+          ? "chat-expand-composer is-expanded"
+          : "chat-expand-composer"
+      }
       data-testid="composer-expand"
       aria-pressed={props.expanded}
       aria-label={label}

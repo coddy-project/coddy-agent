@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Long prompts and reading check (issue #342): the composer's height, its
- * expanded state, the Quote button and the jumps of the transcript, measured
- * in a real engine against a running `coddy serve`.
+ * expanded state and its control, the Quote button and where a conversation
+ * opens, measured in a real engine against a running `coddy serve`.
  *
  * jsdom has no layout, so the vitest suite pins the wiring (ComposerHeight,
  * ChatScreen, UserMessage tests) and this harness checks what it adds up to on
@@ -11,16 +11,19 @@
  *
  * - the field grows with a draft and stops at eight lines or 40% of the
  *   visible viewport, never under its floor;
- * - expanded, the docked block reaches 8px under the chat header, and the
- *   control stands on the wand's vertical line in the field's bottom right
- *   corner; folded, the field is back to the height of its text;
+ * - the expand control stands right over the composer's right edge and the
+ *   jump to the newest message, when it shows, one slot above it; on phones
+ *   and tablets the top bar and the title keep one step of the top rhythm;
+ * - expanded, title, control and card stand one step apart, the field keeps
+ *   the focus through the press, and the skills picker opens at the field's
+ *   foot and dims nothing; folded, the field is back to the height of its
+ *   text; with a keyboard that shrinks the page and one that overlays it, the
+ *   expanded composer ends above it;
  * - a selection in the last answer offers Quote inside the band between the
  *   header and the docked block - above the selection with a mouse, below it
  *   with a finger when it fits - and a press appends the quote to the draft;
  * - another conversation opens on its newest message after the reader scrolled
  *   up in the first;
- * - with a finger, pulling the page down offers only the jump to the top, and
- *   the jump lands at the top;
  * - the page never scrolls sideways.
  *
  * It needs a server with two sessions of a few turns each (the first two of
@@ -117,6 +120,14 @@ async function geometry(page) {
       wand: box('[data-testid="composer-enhance-btn"]'),
       expand: box('[data-testid="composer-expand"]'),
       pill: box(".rail-pill"),
+      // The top of the composer's first block: the wrap's padding is not it.
+      blockTop: (() => {
+        const w = document.querySelector(".composer-wrap-docked");
+        return w
+          ? w.getBoundingClientRect().top +
+              parseFloat(getComputedStyle(w).paddingTop)
+          : NaN;
+      })(),
       bar: box(".composer-bar"),
       stacked: window.matchMedia("(max-width: 1199px)").matches,
       rhythm:
@@ -143,38 +154,6 @@ async function geometry(page) {
 async function press(page, touch, selector) {
   if (touch) await page.tap(selector);
   else await page.click(selector);
-}
-
-/** A finger dragged over the transcript, from one height to another. */
-async function swipe(cdp, x, fromY, toY) {
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchStart",
-    touchPoints: [{ x, y: fromY }],
-  });
-  for (let i = 1; i <= 8; i++) {
-    await cdp.send("Input.dispatchTouchEvent", {
-      type: "touchMove",
-      touchPoints: [{ x, y: fromY + ((toY - fromY) * i) / 8 }],
-    });
-  }
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchEnd",
-    touchPoints: [],
-  });
-}
-
-/**
- * Waits for a fling to come to rest: a tap on a page still moving only stops
- * it, on a phone as in an emulated one.
- */
-async function settle(page) {
-  let last = -1;
-  for (let i = 0; i < 40; i++) {
-    const now = (await scrollState(page)).top;
-    if (Math.abs(now - last) < 0.5) return;
-    last = now;
-    await page.waitForTimeout(150);
-  }
 }
 
 async function scrollState(page) {
@@ -234,14 +213,14 @@ try {
         `edge->bar ${empty.pill.top.toFixed(1)}, bar->header ${(empty.head.top - empty.pill.bottom).toFixed(1)}, step ${empty.rhythm}`,
       );
     }
-    // The expand control stands over the composer's right edge, apart from
-    // the field, one jump slot above the block when no jump is offered.
+    // The expand control stands 10px over the composer, apart from the
+    // field, centred on the improve-prompt wand's vertical line.
+    const centre = (b) => (b.left + b.right) / 2;
     check(
-      `${at}: the expand control stands over the composer's right edge`,
-      near(empty.expand.right, empty.card.right) &&
-        near(empty.dock.top - empty.expand.bottom, 10) &&
-        empty.expand.bottom <= empty.card.top,
-      `control ${empty.expand.top.toFixed(0)}-${empty.expand.bottom.toFixed(0)}, block top ${empty.dock.top.toFixed(0)}`,
+      `${at}: the expand control stands 10px over the composer, on the wand's line`,
+      near(centre(empty.expand), centre(empty.wand)) &&
+        near(empty.blockTop - empty.expand.bottom, 10),
+      `control ${empty.expand.top.toFixed(0)}-${empty.expand.bottom.toFixed(0)} centre ${centre(empty.expand).toFixed(1)}, composer top ${empty.blockTop.toFixed(0)}, wand centre ${centre(empty.wand).toFixed(1)}`,
     );
     await page.fill("#composer", "one\ntwo\nthree\nfour");
     const four = await geometry(page);
@@ -431,36 +410,40 @@ try {
       `${opened.top.toFixed(0)} of ${opened.end.toFixed(0)}`,
     );
 
-    // With a finger, pulling the page down offers only the jump to the top.
-    if (touch && ENGINE !== "chromium") {
-      console.log(
-        `skip ${at}: the swipe and the jump to the top need Chromium's touch input`,
-      );
-    }
-    if (touch && ENGINE === "chromium") {
-      const cdp = await context.newCDPSession(page);
-      await swipe(cdp, width / 2, height * 0.3, height * 0.6);
-      await settle(page);
-      const shown = await page.evaluate(() => ({
-        up: document.querySelector('[data-testid="chat-scroll-top"]').dataset
-          .visible,
-        down: document.querySelector('[data-testid="chat-scroll-bottom"]')
-          .dataset.visible,
-      }));
-      check(
-        `${at}: pulling the page down offers only the jump to the top`,
-        shown.up === "true" && shown.down === "false",
-        JSON.stringify(shown),
-      );
-      await page.tap('[data-testid="chat-scroll-top"]');
-      await page.waitForTimeout(1200);
-      const landed = await scrollState(page);
-      check(
-        `${at}: the jump to the top lands at the top`,
-        landed.top < 80,
-        `${landed.top.toFixed(0)}`,
-      );
-    }
+    // Read up: the jump to the newest message shows one slot over the expand
+    // control, which stays where it was.
+    await page.evaluate(() => {
+      const el = document.querySelector(".chat-scroll");
+      if (el && el.scrollHeight > el.clientHeight + 1) el.scrollTop = 0;
+      else window.scrollTo(0, 0);
+    });
+    await page.waitForTimeout(500);
+    const stack = await page.evaluate(() => {
+      const box = (sel) => document.querySelector(sel).getBoundingClientRect();
+      const down = document.querySelector('[data-testid="chat-scroll-bottom"]');
+      return {
+        shown: down.dataset.visible,
+        down: box('[data-testid="chat-scroll-bottom"]'),
+        expand: box('[data-testid="composer-expand"]'),
+        blockTop: (() => {
+          const w = document.querySelector(".composer-wrap-docked");
+          return (
+            w.getBoundingClientRect().top +
+            parseFloat(getComputedStyle(w).paddingTop)
+          );
+        })(),
+        up: document.querySelector('[data-testid="chat-scroll-top"]') !== null,
+      };
+    });
+    check(
+      `${at}: the jump to the newest message stands one slot over the expand control`,
+      stack.shown === "true" &&
+        near(stack.down.bottom, stack.expand.top - 10) &&
+        near(stack.down.right, stack.expand.right) &&
+        near(stack.blockTop - stack.expand.bottom, 10) &&
+        !stack.up,
+      `jump ${stack.down.top.toFixed(0)}-${stack.down.bottom.toFixed(0)}, control ${stack.expand.top.toFixed(0)}-${stack.expand.bottom.toFixed(0)}`,
+    );
 
     // An on-screen keyboard that resizes the page (Android's
     // interactive-widget=resizes-content, emulated by a shorter window): the

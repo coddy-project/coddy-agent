@@ -1343,7 +1343,6 @@ export const messagesRu: Record<string, string> = {
   "chat.heroVerb.plan": "спланировать",
   "chat.runPlanMessage": "Реализуй план.",
   "chat.scrollToBottom": "Перейти к последнему сообщению",
-  "chat.scrollToTop": "Прокрутить наверх",
   "chat.quoteSelection": "Цитировать",
   "chat.quoteSelectionTitle": "Процитировать выделенный текст в сообщении",
   "chat.transcriptEarlier.show": "Показать более ранние сообщения",

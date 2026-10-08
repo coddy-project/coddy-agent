@@ -12,26 +12,16 @@ import { useT } from "../i18n/I18nProvider";
 export function ScrollToBottomButton(props: {
   visible: boolean;
   onClick: () => void;
-  /**
-   * `up` is its twin on a touch screen, in the same place: the jump to the top
-   * offered while the reader scrolls toward the start (issue #342).
-   */
-  direction?: "down" | "up";
 }) {
   const { t } = useT();
-  const up = props.direction === "up";
-  const label = t(up ? "chat.scrollToTop" : "chat.scrollToBottom");
+  const label = t("chat.scrollToBottom");
   return (
     <button
       type="button"
-      className={[
-        "chat-scroll-bottom",
-        up ? "chat-scroll-bottom--up" : "",
-        props.visible ? "is-visible" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      data-testid={up ? "chat-scroll-top" : "chat-scroll-bottom"}
+      className={
+        props.visible ? "chat-scroll-bottom is-visible" : "chat-scroll-bottom"
+      }
+      data-testid="chat-scroll-bottom"
       data-visible={props.visible ? "true" : "false"}
       aria-label={label}
       aria-hidden={props.visible ? undefined : true}
@@ -53,7 +43,7 @@ export function ScrollToBottomButton(props: {
         aria-hidden
       >
         <path
-          d={up ? "M8 13V4m0 0 4 4M8 4 4 8" : "M8 3v9m0 0 4-4m-4 4-4-4"}
+          d="M8 3v9m0 0 4-4m-4 4-4-4"
           stroke="currentColor"
           strokeWidth="1.6"
           strokeLinecap="round"

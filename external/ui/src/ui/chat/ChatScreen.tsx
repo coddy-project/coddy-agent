@@ -53,9 +53,7 @@ import {
   elementScrollBottom,
   elementTranscriptMetrics,
   isTranscriptAtBottom,
-  isTranscriptAtTop,
   transcriptJumpDurationMs,
-  transcriptSwipeDirection,
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
 import { openWorkspaceFile } from "../files/fileBus";
@@ -249,14 +247,10 @@ export function ChatScreen(props: {
   const jumpFrameRef = useRef<number | null>(null);
   const [composerReserve, setComposerReserve] = useState(200);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  // On a touch screen the jump follows the way the reader scrolls (issue
-  // #342): toward the start it offers the top, toward the end the newest
-  // message, never both.
-  const [scrollingUp, setScrollingUp] = useState(false);
   // The docked composer expanded over the chat (issue #342): its control
-  // stands over the jumps of the transcript, which an expanded composer hides.
+  // stands under the jump to the newest message, which an expanded composer
+  // hides.
   const [composerExpanded, setComposerExpanded] = useState(false);
-  const [atTop, setAtTop] = useState(true);
   // Shared by hero and docked composers so disabled files survive the first text turn.
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
   const attachedFiles = props.attachedFiles ?? localAttachedFiles;
@@ -386,7 +380,6 @@ export function ChatScreen(props: {
         : null;
     if (!metrics) return;
     const atBottom = isTranscriptAtBottom(metrics);
-    setAtTop(isTranscriptAtTop(metrics));
     // A window cut short of the newest rows is not at the newest message,
     // wherever its own end is.
     const atNewest = atBottom && transcriptAttached();
@@ -397,7 +390,6 @@ export function ChatScreen(props: {
 
   const jumpToNewestMessage = useCallback(() => {
     cancelTranscriptJump();
-    setScrollingUp(false);
     // Reading far up, the newest rows are not rendered: put them back and land
     // on them at once rather than travel through history that is not there.
     const transcript = transcriptRef.current;
@@ -454,100 +446,6 @@ export function ChatScreen(props: {
     writeTranscriptScrollTop,
   ]);
 
-  // The jump to the top of what the transcript holds: a window cut short of
-  // the first rows is put on them and lands at once, rather than travelling
-  // through rows that are not rendered; otherwise the same eased travel as the
-  // jump down. It never moves down. Older pages, if any, then load above the
-  // control at the top the way a scroll to it loads them.
-  const jumpToTop = useCallback(() => {
-    cancelTranscriptJump();
-    stickToBottomRef.current = false;
-    const land = () => {
-      writeTranscriptScrollTop(0);
-      syncTranscriptPosition();
-    };
-    const transcript = transcriptRef.current;
-    if (transcript && !transcript.atHead) {
-      transcript.attachToHead(land);
-      return;
-    }
-    const from = readTranscriptScrollTop();
-    if (from <= 0) {
-      syncTranscriptPosition();
-      return;
-    }
-    const reduceMotion =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduceMotion) {
-      land();
-      return;
-    }
-    const duration = transcriptJumpDurationMs(from);
-    const started = performance.now();
-    const step = (now: number) => {
-      const progress = (now - started) / duration;
-      writeTranscriptScrollTop(from * (1 - easeTranscriptJump(progress)));
-      if (progress < 1) {
-        jumpFrameRef.current = requestAnimationFrame(step);
-        return;
-      }
-      jumpFrameRef.current = null;
-      syncTranscriptPosition();
-    };
-    jumpFrameRef.current = requestAnimationFrame(step);
-  }, [
-    cancelTranscriptJump,
-    readTranscriptScrollTop,
-    syncTranscriptPosition,
-    writeTranscriptScrollTop,
-  ]);
-
-  // Which way a finger moves the transcript decides which jump a touch screen
-  // offers. A finger on the docked block scrolls the composer, not the chat.
-  useEffect(() => {
-    if (!touchOnly || isEmpty) return undefined;
-    let lastY: number | null = null;
-    let travel = 0;
-    const start = (e: TouchEvent) => {
-      const touch = e.touches[0];
-      const onDock =
-        e.target instanceof Element &&
-        e.target.closest(".chat-bottom-inner") !== null;
-      lastY = touch && !onDock ? touch.clientY : null;
-      travel = 0;
-    };
-    const move = (e: TouchEvent) => {
-      const touch = e.touches[0];
-      if (lastY === null || !touch) return;
-      travel += touch.clientY - lastY;
-      lastY = touch.clientY;
-      const way = transcriptSwipeDirection(travel);
-      if (way) {
-        setScrollingUp(way === "up");
-        travel = 0;
-      }
-    };
-    const end = () => {
-      lastY = null;
-    };
-    const passive = { passive: true } as const;
-    window.addEventListener("touchstart", start, passive);
-    window.addEventListener("touchmove", move, passive);
-    window.addEventListener("touchend", end, passive);
-    window.addEventListener("touchcancel", end, passive);
-    return () => {
-      window.removeEventListener("touchstart", start);
-      window.removeEventListener("touchmove", move);
-      window.removeEventListener("touchend", end);
-      window.removeEventListener("touchcancel", end);
-    };
-  }, [touchOnly, isEmpty]);
-  // Heading for the start, the jump down waits until the reader turns back,
-  // even at the top where there is no jump up left to offer.
-  const headingUp = touchOnly && scrollingUp;
-  const offerTop = headingUp && !atTop;
-
   // The reader reaching for the wheel, a finger or the scrollbar always wins
   // over a jump still in the air.
   useEffect(() => {
@@ -583,7 +481,6 @@ export function ChatScreen(props: {
     stickToBottomRef.current = true;
     openingRef.current = true;
     setShowScrollToBottom(false);
-    setScrollingUp(false);
     setComposerExpanded(false);
   }, [props.sessionId, cancelTranscriptJump]);
 
@@ -1146,21 +1043,12 @@ export function ChatScreen(props: {
           <div className="chat-bottom">
             <div className="chat-bottom-inner" ref={composerHostRef}>
               <ScrollToBottomButton
-                visible={showScrollToBottom && !headingUp && !composerExpanded}
+                visible={showScrollToBottom && !composerExpanded}
                 onClick={jumpToNewestMessage}
-              />
-              <ScrollToBottomButton
-                direction="up"
-                visible={offerTop && !composerExpanded}
-                onClick={jumpToTop}
               />
               {readOnlyNotice ? null : (
                 <ComposerExpandButton
                   expanded={composerExpanded}
-                  lifted={
-                    !composerExpanded &&
-                    ((showScrollToBottom && !headingUp) || offerTop)
-                  }
                   onToggle={() => setComposerExpanded((v) => !v)}
                 />
               )}
