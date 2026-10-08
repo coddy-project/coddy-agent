@@ -28,6 +28,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/shareguard"
 	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
 )
 
@@ -67,7 +68,12 @@ type Server struct {
 	// The shared-model routes (shared_models_http.go): the per-credential limiter,
 	// the key that seeds revisions and signature envelopes, and the timers, which
 	// are the defaults unless a test sets shorter ones.
-	sharedLimit  *sharedLimiter
+	sharedLimit *sharedLimiter
+	// sharedRate is the window limit per credential and sharedStats the audit
+	// counters of the shared-model routes: both in memory, both reset with the
+	// process (shared_rate.go, shared_audit.go).
+	sharedRate   *shareguard.Limiter
+	sharedStats  *shareguard.Counters
 	sharedKeyMu  sync.Mutex
 	sharedKey    []byte
 	sharedClk    sharedClock
@@ -250,6 +256,8 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		s.mux.Handle("GET /docs/", http.StripPrefix("/docs/", http.FileServer(http.FS(swaggerSub))))
 	}
 	mountEmbeddedSPARoot(s)
+	s.sharedRate = s.newSharedRate()
+	s.sharedStats = shareguard.NewCounters(func() time.Time { return s.sharedClockNow().Now() }, 0, nil)
 	return s
 }
 

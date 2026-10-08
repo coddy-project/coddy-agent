@@ -114,9 +114,17 @@ The whole contract of the routes, the frames and the error object is in [HTTP AP
 | Key | Default | Meaning |
 |---|---|---|
 | `httpserver.shared_models.max_streams` | 5 | How many calls one credential may have running at once, all aliases together. `0` or absent is 5, a negative value is refused. |
+| `httpserver.shared_models.rate_per_minute` | 0 (no limit) | How many calls one credential may start per minute, beside the stream slot. A call past the window is refused at once with `429`, `kind: busy`, `code: rate_window` and a `Retry-After` that is the wait to the next token. A negative value is refused. |
+| `httpserver.shared_models.rate_burst` | the rate, capped by `max_streams`, at least 1 | How many calls may start at once before the rate applies. No effect without `rate_per_minute` (`coddy -t` warns). |
 | `httpserver.shared_models.max_call_ms` | 1800000 (30 minutes) | The longest one call of a row with `stream: false` may run, from the start of the provider call to its result. At most 28800000 (8 hours): a larger value is refused at load, and an explicit `0` means that ceiling, never "no bound". |
 
 The count is per credential: the key is a digest of the bearer the request presented, but only a bearer the node itself accepts (any token class) or a live signed-in browser session counts; on a node that is open on purpose every caller shares one key, so a changing `Authorization` header never earns a fresh limit. The slot is taken right after authentication and before the body is read, so a busy remote answers without reading up to 32 MiB; a further call is refused at once with `429`, `kind: busy` and `Retry-After: 1`, and the calling Coddy waits for a slot ([Waiting for a free slot](#waiting-for-a-free-slot)). The slot is released exactly once, on completion, on a provider error, on a client disconnect (which cancels the upstream call), when the body deadline expires and when a write fails or times out. The server never queues.
+
+The window is checked after the slot and before the body is read, and a call spends a token only when it is admitted: a call refused for a full slot spends none, so a Coddy that waits out `busy` at one request a second does not drain its window by waiting, and a window refusal gives its slot back at once. The window answer is a `busy` too (the `code` names it), so a Coddy that predates it waits it out like a full slot; when its wait budget ends on one, the error says it was the window ("the remote's limit of calls per minute for this credential is spent"). The windows are in memory: a restart refills them.
+
+### Counters
+
+The node counts what its shared-model routes did, in memory since it started, and serves the counters at `GET /coddy/shared-models/stats` with a main token or a sign-in (a shared-model token gets the same `401` as on every other route): `{since, rows[{alias, class, outcome, calls, input_tokens, output_tokens, duration_ms, max_duration_ms}]}`. `class` is `main`, `shared`, `login`, `anonymous` or `unknown` (a bearer the gate refused), `alias` is `-` when the request named no row of this node or was refused before the body named one, and `outcome` is `ok`, `busy`, `limited` (the window), `rate` or `quota` (the upstream's own 429), `upstream`, `invalid`, `auth`, `gone` or `write`. Labels only: no token, no digest of a token, no prompt, and nothing that links an alias to a credential. The log line of a call carries the same `class` and the token counts.
 
 `max_call_ms` exists because a row with `stream: false` is not stall-guarded - its answer arrives in one piece - and `providers[].timeout_ms` is 0 by default, so a hung blocking row would otherwise hold its slot until the client left, and a client that receives only heartbeats never leaves. On expiry the call ends as `upstream` with cause `timeout` and frees its slot. A streamed row is not cut by it: it is bounded by the stall guard per gap instead. `coddy -t` warns about an effective `max_call_ms` above 30 minutes together with a shared `stream: false` row whose provider has no `timeout_ms`.
 
@@ -335,6 +343,8 @@ A relay that is rebuilt on a configuration change cuts the streams in flight; to
 | warning | an entry of `shared_models.tokens` that is empty, usually an `${ENV}` reference to an unset variable: it is ignored |
 | warning | shared-model tokens as the only credential: the rest of the API is closed to every caller and the web UI cannot sign in |
 | warning | `busy_wait_ms` on a provider that is not of type `coddy`: it has no effect |
+| error | a negative `rate_per_minute` or `rate_burst` |
+| warning | `rate_burst` without `rate_per_minute`: it has no effect |
 | error | `ca_file`, `client_cert_file` or `client_key_file` on a provider that is not of type `coddy`, a certificate without its key or the reverse, a pair that cannot be read or whose key is not the certificate's, an unreadable `ca_file` |
 | warning | a `ca_file` that holds no PEM certificate |
 | warning (`--dry-run`) | a client certificate that expires within 14 days (an error once it has) |

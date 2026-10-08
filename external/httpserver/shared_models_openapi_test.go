@@ -53,6 +53,15 @@ func TestOpenAPIDescribesTheSharedModelRoutes(t *testing.T) {
 	if _, found := paths["/coddy/llm/models/{alias}/usage"]; !found {
 		t.Fatal("the usage route is not documented")
 	}
+	if _, found := paths["/coddy/shared-models/stats"]; !found {
+		t.Fatal("the stats route is not documented")
+	}
+	if _, found := schemas["CoddySharedStats"]; !found {
+		t.Fatal("schema CoddySharedStats is missing")
+	}
+	if !strings.Contains(schemas["CoddyLLMError"].(map[string]any)["description"].(string), "rate_window") {
+		t.Fatal("the error object does not document the window code")
+	}
 
 	for _, name := range []string{"CoddyLLMError", "CoddyLLMModelList", "CoddyLLMModelRow", "CoddyLLMRequest", "CoddyLLMMessage", "CoddyLLMChunk", "CoddyLLMFinal", "CoddyLLMToolCall"} {
 		if _, found := schemas[name]; !found {

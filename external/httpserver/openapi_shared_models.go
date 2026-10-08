@@ -35,8 +35,8 @@ func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 		"type": "object",
 		"description": "The error object of the shared-model routes: the flat JSON body of a request that was refused before its stream started, and, with `type: error`, the frame that ends a stream. " +
 			"`message` is built by the remote from `kind` and `status` and says nothing of the upstream (never the provider's name or address, the selector or the upstream model id). " +
-			"`kind` is one of `busy` (429, with `Retry-After: 1`), `rate` (the upstream provider is rate limiting), `quota` (a usage limit; `reset_at` and `retry_after_s` name the pause), `upstream` (the provider failed; `cause` is `status`, `stall`, `truncated` or `timeout`), `invalid` (400, 404, 408, 413) and `auth` (401, 403). " +
-			"`code` refines `invalid`: `protocol_mismatch` (the message names both versions), `stale_revision` (`revision` is the row's current one), `unknown_model`, `request_too_large`, `body_timeout`, `invalid_option`. " +
+			"`kind` is one of `busy` (429, with a `Retry-After` that is the wait in whole seconds: 1 for a full stream slot, the wait to the next token for a window refusal), `rate` (the upstream provider is rate limiting), `quota` (a usage limit; `reset_at` and `retry_after_s` name the pause), `upstream` (the provider failed; `cause` is `status`, `stall`, `truncated` or `timeout`), `invalid` (400, 404, 408, 413) and `auth` (401, 403). " +
+			"`code` refines `busy` and `invalid`. For `busy`: none for a full slot, `rate_window` when the credential's calls per minute (`httpserver.shared_models.rate_per_minute`) are spent; a relay adds `client_streams` and `client_rate` for a scoped client's own limits. A client that predates a code waits it out like a full slot. For `invalid`: `protocol_mismatch` (the message names both versions), `stale_revision` (`revision` is the row's current one), `unknown_model`, `request_too_large`, `body_timeout`, `invalid_option`. " +
 			"`emitted` counts the chunk frames written before the error; a client keeps its own count.",
 		"required": []string{"kind", "emitted"},
 		"properties": map[string]interface{}{
@@ -265,6 +265,7 @@ func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 			"The call is **stateless**: no session, no hooks, no rules, nothing written to disk, no turn lock. The wire is always a stream, whatever `stream` the row has; a row with `stream: false` computes in one piece and is bounded by **`httpserver.shared_models.max_call_ms`**. " +
 			access +
 			"**Limit.** At most **`httpserver.shared_models.max_streams`** (5) calls run at once per credential, any alias: a further call is refused at once with **429**, `kind: busy` and `Retry-After: 1`, before its body is read and before the provider is called. " +
+			"With **`httpserver.shared_models.rate_per_minute`** set, a credential may also start only that many calls per minute (`rate_burst` at once): a call past the window is refused the same way, with `code: rate_window`, a `Retry-After` (and `retry_after_s`) that is the wait to the next token, and its slot given back. A full slot spends no token; a call admitted spends one. There is no limit unless the key is set. " +
 			"The slot is taken right after authentication; a `Content-Length` above 32 MiB is a **413** before any read, and a body that does not arrive within 30 s is a **408**; every refusal frees the slot. Clients send `Expect: 100-continue`, so a refused call does not upload the history. " +
 			"**Stream.** One frame per `data:` line with no `event:` field: `chunk` (progress), then exactly one terminal frame, `final` or `error`; anything after it is not sent. The response is flushed after every frame. Comment lines `: hb` are heartbeats: the first is written right after the body has been read and checked, before the provider is called, then so that no two bytes are more than 15 s apart, while the model is silent too. " +
 			"Each write has a deadline of about 60 s, so a peer that stops reading cuts the call; a disconnect cancels the upstream call. " +
@@ -299,15 +300,53 @@ func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 			"408": errorBody("The request body did not arrive within 30 s."),
 			"413": errorBody("The request is larger than 32 MiB, or opens more than 524288 JSON objects and arrays."),
 			"429": map[string]interface{}{
-				"description": "Busy: this credential already has `max_streams` calls running.",
+				"description": "Busy: this credential already has `max_streams` calls running, or (`code: rate_window`) its window of `rate_per_minute` calls is spent.",
 				"headers": map[string]interface{}{
-					"Retry-After": map[string]interface{}{"description": "1", "schema": str},
+					"Retry-After": map[string]interface{}{"description": "Whole seconds to wait: 1 for a full slot, the wait to the next token for a window refusal.", "schema": str},
 				},
 				"content": map[string]interface{}{
 					"application/json": map[string]interface{}{"schema": ref("CoddyLLMError")},
 				},
 			},
 			"502": errorBody("The remote could not set the model up; its operator finds the reason in the remote's log."),
+		},
+	}}
+
+	schemas["CoddySharedStats"] = map[string]interface{}{
+		"type":        "object",
+		"description": "The audit counters of the shared-model routes since the process started: counted outcomes per alias and credential class. Labels only: no token, no digest of a token, no prompt, no upstream model id, and no link between an alias and a credential.",
+		"required":    []string{"since", "rows"},
+		"properties": map[string]interface{}{
+			"since": map[string]interface{}{"type": "string", "format": "date-time", "description": "When counting began; the counters reset with the process."},
+			"rows": arrayOf(map[string]interface{}{
+				"type":     "object",
+				"required": []string{"alias", "class", "outcome", "calls", "input_tokens", "output_tokens", "duration_ms", "max_duration_ms"},
+				"properties": map[string]interface{}{
+					"alias":           map[string]interface{}{"type": "string", "description": "The shared alias, or `-` when the request named none of this node's rows or was refused before the body named one."},
+					"class":           map[string]interface{}{"type": "string", "enum": []string{"main", "shared", "login", "anonymous", "unknown"}, "description": "The credential class that passed the gate; `unknown` is a bearer the gate refused on a shared route."},
+					"outcome":         map[string]interface{}{"type": "string", "enum": []string{"ok", "busy", "limited", "rate", "quota", "upstream", "invalid", "auth", "gone", "write"}, "description": "`limited` is a refusal by the window of `rate_per_minute`, `busy` a full stream slot, `rate` and `quota` the upstream's own 429, `gone` a client that disconnected, `write` a failed write."},
+					"calls":           integer,
+					"input_tokens":    integer,
+					"output_tokens":   integer,
+					"duration_ms":     map[string]interface{}{"type": "integer", "description": "Sum over the calls."},
+					"max_duration_ms": integer,
+				},
+			}),
+		},
+	}
+	paths["/coddy/shared-models/stats"] = map[string]interface{}{"get": map[string]interface{}{
+		"operationId": "coddySharedModelsStats",
+		"summary":     "Read the audit counters of the shared models",
+		"description": "Counted outcomes of the shared-model routes, per alias and credential class. It lives outside `/coddy/llm/` on purpose: a token of the shared-model class is answered 401 like on every other route, and it is read with the main token or a web sign-in.",
+		"security":    bearer,
+		"responses": map[string]interface{}{
+			"200": map[string]interface{}{
+				"description": "The counters.",
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{"schema": ref("CoddySharedStats")},
+				},
+			},
+			"401": map[string]interface{}{"description": "Unauthorized (plain text), also for a token of the shared-model class."},
 		},
 	}}
 }
