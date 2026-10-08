@@ -26,6 +26,11 @@ type Options struct {
 	Proxy string
 	// CAFile verifies a peer whose certificate is signed privately.
 	CAFile string
+	// CertFile and KeyFile are the certificate this end presents when the peer
+	// asks for one. Both or neither; the pair is read at each handshake and
+	// cached by size and modification time.
+	CertFile string
+	KeyFile  string
 	// InsecureSkipVerify accepts any certificate. Never a default, and every
 	// caller that sets it is expected to say so out loud in its log.
 	InsecureSkipVerify bool
@@ -49,6 +54,13 @@ func (o Options) TLSConfig(serverName string) (*tls.Config, error) {
 		MinVersion:         tls.VersionTLS12,
 		ServerName:         serverName,
 		InsecureSkipVerify: o.InsecureSkipVerify, //nolint:gosec // opt-in, and the caller logs it
+	}
+	certFile, keyFile := strings.TrimSpace(o.CertFile), strings.TrimSpace(o.KeyFile)
+	if (certFile == "") != (keyFile == "") {
+		return nil, fmt.Errorf("cert_file and key_file must be set together")
+	}
+	if certFile != "" {
+		cfg.GetClientCertificate = (&certLoader{certFile: certFile, keyFile: keyFile}).get
 	}
 	if path := strings.TrimSpace(o.CAFile); path != "" {
 		pem, err := os.ReadFile(path)
