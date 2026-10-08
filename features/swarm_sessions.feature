@@ -66,3 +66,36 @@ Feature: Every session in the swarm, in one list
     Then every list holds the session "sess_both" once, reachable through the path "left/x"
     When I read the swarm topology with the client token
     Then the route to "x" is "left/x"
+
+  Scenario: A node that serves only shared models raises no sessions warning
+    Given the node "nas02" holds a session "sess_alpha" titled "refactor the parser"
+    And the node "vault" serves only shared models and says so
+    When I list swarm sessions with the client token
+    Then the list holds 1 sessions
+    And no warning names the node "vault"
+
+  Scenario: A node that serves only shared models and does not say so keeps its warning
+    Given the node "nas02" holds a session "sess_alpha" titled "refactor the parser"
+    And the node "vault" serves only shared models without saying so
+    When I list swarm sessions with the client token
+    Then the list holds 1 sessions
+    And a warning names the node "vault"
+
+  Scenario: A node that says it serves only shared models but holds sessions is still listed
+    Given the node "vault" says it serves only shared models but answers its sessions
+    When I list swarm sessions with the client token
+    Then the list holds 1 sessions
+    And the session "sess_open" is labelled with the node "vault"
+
+  Scenario: The label silences a refusal and nothing else
+    Given the node "vault" serves only shared models and says so but fails with a server error
+    When I list swarm sessions with the client token
+    Then a warning names the node "vault"
+
+  Scenario: The topology tells which nodes serve only shared models
+    Given the node "vault" serves only shared models and says so
+    And the node "nas02" holds a session "sess_alpha" titled "refactor the parser"
+    When I read the swarm topology with the client token
+    Then the topology marks the node "vault" as serving only shared models
+    And the topology does not mark the node "nas02" as serving only shared models
+

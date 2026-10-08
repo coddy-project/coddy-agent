@@ -81,7 +81,7 @@ func StartJoins(ctx context.Context, cfg *config.Config, opts StartJoinsOptions)
 			AdvertiseURL: j.AdvertiseURL,
 			NodeToken:    nodeToken,
 			Version:      version.Get(),
-			Labels:       j.Labels,
+			Labels:       DerivedLabels(cfg, j, kind),
 			Dial: netx.Options{
 				Proxy:              j.Dial.Proxy,
 				CAFile:             j.Dial.CAFile,

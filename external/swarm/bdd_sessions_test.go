@@ -29,7 +29,10 @@ import (
 type stubAgent struct {
 	mu       sync.Mutex
 	sessions []map[string]interface{}
-	ts       *httptest.Server
+	// status, when set, is what the session route answers instead of the list:
+	// 401 is a node whose token opens only the shared-model routes.
+	status int
+	ts     *httptest.Server
 }
 
 func newStubAgent() *stubAgent {
@@ -41,6 +44,13 @@ func newStubAgent() *stubAgent {
 func (a *stubAgent) serve(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/coddy/sessions" {
 		http.NotFound(w, r)
+		return
+	}
+	a.mu.Lock()
+	status := a.status
+	a.mu.Unlock()
+	if status != 0 {
+		w.WriteHeader(status)
 		return
 	}
 	needle := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
@@ -139,6 +149,92 @@ func (s *sessionsFeatureState) nodeHoldsSession(node, id, title string) error {
 	}
 	agent.add(id, title)
 	return nil
+}
+
+// registerStub registers a stand-in agent under node, with the labels given,
+// and answers its session route with status (0: the list).
+func (s *sessionsFeatureState) registerStub(node string, status int, labels map[string]string) (*stubAgent, error) {
+	agent := newStubAgent()
+	agent.status = status
+	s.agents = append(s.agents, agent)
+	s.agentNames = append(s.agentNames, node)
+	_, err := s.srv.registry.Register(swarmdto.RegisterRequest{
+		Name: node, Kind: swarmdto.KindAgent, Transport: swarmdto.TransportDirect,
+		AdvertiseURL: agent.ts.URL, InstanceUUID: "uuid-" + node, Token: "tok-" + node,
+		Labels: labels,
+	})
+	return agent, err
+}
+
+var sharedModelsLabel = map[string]string{swarmdto.LabelTokenClass: swarmdto.TokenClassSharedModels}
+
+func (s *sessionsFeatureState) sharedOnlyAndSaysSo(node string) error {
+	_, err := s.registerStub(node, http.StatusUnauthorized, sharedModelsLabel)
+	return err
+}
+
+func (s *sessionsFeatureState) sharedOnlyWithoutSaying(node string) error {
+	_, err := s.registerStub(node, http.StatusUnauthorized, nil)
+	return err
+}
+
+func (s *sessionsFeatureState) labelledButOpen(node string) error {
+	agent, err := s.registerStub(node, 0, sharedModelsLabel)
+	if err != nil {
+		return err
+	}
+	agent.add("sess_open", "an open session")
+	return nil
+}
+
+func (s *sessionsFeatureState) labelledButFailing(node string) error {
+	_, err := s.registerStub(node, http.StatusInternalServerError, sharedModelsLabel)
+	return err
+}
+
+func (s *sessionsFeatureState) noWarningNamesNode(node string) error {
+	out, err := s.decode()
+	if err != nil {
+		return err
+	}
+	for _, warn := range out.Warnings {
+		if strings.Contains(warn, node) {
+			return fmt.Errorf("a warning names %q: %v", node, out.Warnings)
+		}
+	}
+	return nil
+}
+
+func (s *sessionsFeatureState) topologyMarks(node string) error {
+	out, err := s.decodeTopology()
+	if err != nil {
+		return err
+	}
+	for _, n := range out.Nodes {
+		if n.Name == node {
+			if n.TokenClass != swarmdto.TokenClassSharedModels {
+				return fmt.Errorf("node %q has token_class %q: %s", node, n.TokenClass, s.body)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no node %q in the topology: %s", node, s.body)
+}
+
+func (s *sessionsFeatureState) topologyDoesNotMark(node string) error {
+	out, err := s.decodeTopology()
+	if err != nil {
+		return err
+	}
+	for _, n := range out.Nodes {
+		if n.Name == node {
+			if n.TokenClass != "" {
+				return fmt.Errorf("node %q is marked %q", node, n.TokenClass)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no node %q in the topology: %s", node, s.body)
 }
 
 func (s *sessionsFeatureState) agentNamed(node string) *stubAgent {
@@ -433,6 +529,13 @@ func TestSwarmSessionsFeature(t *testing.T) {
 			ctx.Step(`^a swarm relay with pairing token "([^"]*)" and client token "([^"]*)"$`, st.aRelay)
 			ctx.Step(`^the node "([^"]*)" holds a session "([^"]*)" titled "([^"]*)"$`, st.nodeHoldsSession)
 			ctx.Step(`^the node "([^"]*)" is registered but unreachable$`, st.unreachableNode)
+			ctx.Step(`^the node "([^"]*)" serves only shared models and says so$`, st.sharedOnlyAndSaysSo)
+			ctx.Step(`^the node "([^"]*)" serves only shared models without saying so$`, st.sharedOnlyWithoutSaying)
+			ctx.Step(`^the node "([^"]*)" says it serves only shared models but answers its sessions$`, st.labelledButOpen)
+			ctx.Step(`^the node "([^"]*)" serves only shared models and says so but fails with a server error$`, st.labelledButFailing)
+			ctx.Step(`^no warning names the node "([^"]*)"$`, st.noWarningNamesNode)
+			ctx.Step(`^the topology marks the node "([^"]*)" as serving only shared models$`, st.topologyMarks)
+			ctx.Step(`^the topology does not mark the node "([^"]*)" as serving only shared models$`, st.topologyDoesNotMark)
 			ctx.Step(`^a child relay "([^"]*)" holding a node "([^"]*)" with a session "([^"]*)" titled "([^"]*)"$`, st.childRelayHolding)
 			ctx.Step(`^a ring of three relays with an agent behind the third holding a session "([^"]*)" titled "([^"]*)"$`, st.aRingOfThreeRelays)
 			ctx.Step(`^two child relays "([^"]*)" and "([^"]*)" that both reach the agent "([^"]*)" holding a session "([^"]*)" titled "([^"]*)"$`, st.twoChildRelaysReachTheSameAgent)
