@@ -91,6 +91,11 @@ func sharedModelFindings(cfg *Config, body *yaml.Node, extra ExtraTokens, loadEr
 
 	out = append(out, blankSharedTokenFindings(body)...)
 	out = append(out, swarmClientFindings(cfg, body, extra)...)
+	if len(cfg.HTTPServer.SharedModels.CertNames) > 0 && strings.TrimSpace(cfg.HTTPServer.TLS.ClientCAFile) == "" {
+		out = append(out, locatedFinding(body, SeverityWarning, "httpserver.shared_models.cert_names",
+			"cert_names have no effect without httpserver.tls.client_ca_file: the server verifies no client certificate, so none of these names can match",
+			"set httpserver.tls.client_ca_file (and httpserver.tls.cert_file and key_file), or remove cert_names"))
+	}
 	out = append(out, swarmJoinLabelFindings(cfg, body)...)
 	if h := cfg.HTTPServer.SharedModels; h.RateBurst > 0 && h.RatePerMinute == 0 {
 		at(SeverityWarning, "httpserver.shared_models.rate_burst",

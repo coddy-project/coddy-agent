@@ -44,7 +44,7 @@ models:
     shared_as: terra
 ```
 
-Bind the remote to an address the borrowers can reach, put TLS in front of the port (a reverse proxy; `coddy serve` speaks plain HTTP), start `coddy serve`, and check what it offers:
+Bind the remote to an address the borrowers can reach, put TLS on the port (a reverse proxy in front, or [`httpserver.tls`](#tls-and-client-certificates-on-the-listener) on the listener itself; without either `coddy serve` speaks plain HTTP), start `coddy serve`, and check what it offers:
 
 ```bash
 curl -s -H "Authorization: Bearer $CODDY_SHARED_MODELS_TOKEN" https://workstation.example:12345/coddy/llm/models
@@ -306,6 +306,28 @@ Directly, `api_base` is the remote's origin and the token is the remote's. Throu
 
 Two facts shape every relay setup. The relay replaces the caller's credential with the one the node joined with, so the node sees one caller and the limit (five by default) covers every client of that relay together: it protects the node and its provider, not clients from each other. And the relay client token a borrower puts into `api_key` opens the mounts of every node of that relay, each with the token that node joined with, so a shared-model token protects only the nodes that joined with one.
 
+### TLS and client certificates on the listener
+
+`coddy serve` can terminate TLS itself, and then tell borrowers apart by certificate, with no relay and no token to hand out:
+
+```yaml
+httpserver:
+  tls:
+    cert_file: /etc/coddy/server.crt
+    key_file: /etc/coddy/server.key
+    client_ca_file: /etc/coddy/clients-ca.pem   # ask for a client certificate
+    client_auth: optional                        # or required
+  shared_models:
+    cert_names: [alice.example, bob.example]     # DNS or URI names in the certificate
+```
+
+- **What a name opens.** A verified certificate with a listed name opens `GET /coddy/llm/models`, `GET /coddy/llm/models/{alias}/usage` and `POST /coddy/llm/completions` as the class `mtls`, with no bearer, and nothing else: on every other route it gets the same `401` an unknown token gets. A main token still opens everything, with or without a certificate; a certificate never raises or lowers a credential. Names alone count as a credential, so a node with only `cert_names` closes every other route to every caller.
+- **Each name has its own budget.** The stream slots (`max_streams`) and the window (`rate_per_minute`) count per name, so `alice.example` waiting out a busy answer does not take `bob.example`'s slot. The counters at `GET /coddy/shared-models/stats` carry the class `mtls`, labels only, never the name.
+- **What is checked.** The chain is verified against `client_ca_file` at the handshake; the leaf's validity is checked again on every request, since a connection outlives a certificate; the names are the DNS and URI names, the CN is never read. `client_auth: optional` lets peers without a certificate in for the routes that need none (browsers, bearer clients); `required` refuses them at the handshake. The CA and the server certificate are startup state: rotating them takes a restart.
+- **HTTP/1.1 only.** The listener serves TLS without HTTP/2, so a shared call keeps a connection of its own and the [liveness bound](#a-peer-that-vanishes) applies to it.
+- **Not through an intermediary.** A TLS terminator in front, or the swarm tunnel, carries no client certificate: the node sees the terminator or the relay. Require the certificate there; through a relay, [`swarm.clients[].cert_names`](../operate/swarm.md#client-certificates) does the same job.
+- **Checks.** `coddy -t` refuses a half pair, an unknown `client_auth`, a CA without a certificate pair and a blank or repeated name, and warns about `cert_names` with no `client_ca_file`; `--dry-run` loads the pair and the CA bundle.
+
 ### A private authority and a client certificate
 
 A `coddy` provider can trust a private certificate authority and present a client certificate to whatever terminates TLS in front of the remote (a reverse proxy that requires mutual TLS, for one):
@@ -396,7 +418,7 @@ Sharing a subscription login is the borrowers' convenience and the vendor's conc
 
 Two of the four steps of [the plan](../plans/remote-model-provider.md#5-phases) are done: the wire, the client and the access rules, then the capabilities from the listing, the usage through the hop and the liveness of a vanished peer ([Not covered](#not-covered) lists what the last does not reach). What is not there yet:
 
-- **Per-client scopes behind a relay.** A node behind a mount cannot tell the relay's clients apart, the relay cannot restrict a client to the shared routes, and a stale node token survives while the node keeps its lease, until the node is evicted or the relay restarts. Per-client scopes, mutual TLS on the relay, rate limits and audit counters are later hardening; a relay that erases a token a node stopped sending (the next registration) and a node label that silences the relay's sessions warning are done.
+- **Per-client scopes behind a relay.** A node behind a mount cannot tell the relay's clients apart, the relay cannot restrict a client to the shared routes, and a stale node token survives while the node keeps its lease, until the node is evicted or the relay restarts. Scoped relay clients, mutual TLS, rate limits and audit counters are done (see [Scoped clients](../operate/swarm.md#scoped-clients)); a relay that erases a token a node stopped sending (the next registration) and a node label that silences the relay's sessions warning are done.
 - **Discovery and failover.** One provider row per remote or relay mount; the models are picked from its listing. A relay does not enumerate the shared models of its nodes and does not fail over between nodes that share one. A later step.
 - **A usage view the lender can scope.** The lender's `usage_limits_panel: false` hides the usage from every borrower and from its own panel; there is no per-token switch, and no batch route for the usage of all aliases (each alias is read on its own).
 - **No push for a changed listing.** A listing that changes reaches the web UI at its next page load or configuration swap, as [above](#capabilities-from-the-listing).

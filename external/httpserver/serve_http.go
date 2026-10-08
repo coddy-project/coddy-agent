@@ -4,6 +4,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -132,9 +133,25 @@ func Serve(ctx context.Context, opts Options) error {
 	defer stopSwarm()
 
 	srv := httpx.NewServer(opts.ListenAddr, s.Handler())
+	tlsOn := cfg.HTTPServer.TLS.Enabled()
+	if tlsOn {
+		clientTLS, err := listenerTLS(cfg.HTTPServer.TLS)
+		if err != nil {
+			return err
+		}
+		srv.TLSConfig = clientTLS
+		// HTTP/1.1 only, like the relay's mount and a coddy row's client: a shared call rides a connection of its
+		// own, which is what lets the per-call user timeout free the slot of a peer that vanished.
+		srv.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){}
+	}
 	errs := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", opts.ListenAddr, "auth", authOn)
+		log.Info("listening", "addr", opts.ListenAddr, "auth", authOn, "tls", tlsOn,
+			"client_certs", cfg.HTTPServer.TLS.EffectiveClientAuth())
+		if tlsOn {
+			errs <- srv.ListenAndServeTLS(cfg.HTTPServer.TLS.CertFile, cfg.HTTPServer.TLS.KeyFile)
+			return
+		}
 		errs <- srv.ListenAndServe()
 	}()
 

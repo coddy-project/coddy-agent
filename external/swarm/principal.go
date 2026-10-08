@@ -6,14 +6,12 @@ import (
 	"context"
 	"crypto/subtle"
 	"crypto/tls"
-	"crypto/x509"
-	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
 // The principal of a request at the relay (docs/plans/remote-model-provider-phase3.md, 3.2 and 4.2; D2 closed by
@@ -138,19 +136,7 @@ func (s *Server) principalOf(r *http.Request) principal {
 // The CN is not consulted. The chain was verified against swarm.tls.client_ca_file at the handshake; a connection that offered
 // none has no verified chain here.
 func certificateNames(r *http.Request, now time.Time) []string {
-	if r.TLS == nil || len(r.TLS.VerifiedChains) == 0 || len(r.TLS.VerifiedChains[0]) == 0 {
-		return nil
-	}
-	leaf := r.TLS.VerifiedChains[0][0]
-	if now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
-		return nil
-	}
-	out := make([]string, 0, len(leaf.DNSNames)+len(leaf.URIs))
-	out = append(out, leaf.DNSNames...)
-	for _, u := range leaf.URIs {
-		out = append(out, u.String())
-	}
-	return out
+	return netx.CertificateNames(r.TLS, now)
 }
 
 // namesMatch reports whether any certificate name is one of the entry's, exactly.
@@ -171,21 +157,5 @@ func namesMatch(have, want []string) bool {
 // when no client CA is set: the listener then asks for no certificate. The server certificate is the caller's (ListenAndServeTLS
 // loads cert_file and key_file). The CA is startup state: changing it takes a restart.
 func ClientCertTLS(t config.SwarmTLSConfig) (*tls.Config, error) {
-	mode := t.EffectiveClientAuth()
-	if mode == "" {
-		return nil, nil
-	}
-	pem, err := os.ReadFile(t.ClientCAFile)
-	if err != nil {
-		return nil, fmt.Errorf("swarm.tls.client_ca_file: %w", err)
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(pem) {
-		return nil, fmt.Errorf("swarm.tls.client_ca_file %q holds no PEM certificate", t.ClientCAFile)
-	}
-	auth := tls.VerifyClientCertIfGiven
-	if mode == config.SwarmClientAuthRequired {
-		auth = tls.RequireAndVerifyClientCert
-	}
-	return &tls.Config{MinVersion: tls.VersionTLS12, ClientCAs: pool, ClientAuth: auth}, nil
+	return netx.ClientCertTLS(t.ClientCAFile, t.EffectiveClientAuth(), "swarm.tls.client_ca_file")
 }
