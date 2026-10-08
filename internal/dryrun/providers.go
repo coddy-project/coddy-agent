@@ -63,13 +63,22 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 		return append(out, r.skipModels(models, "provider "+prov.Name+" is not signed in")...)
 	}
 
+	if prov.Type == "coddy" {
+		idChecks := r.coddyIdentityChecks(prov)
+		out = append(out, idChecks...)
+		if hasIdentityError(idChecks) {
+			return append(out, r.skipModels(models, "the TLS identity of provider "+prov.Name+" cannot be used")...)
+		}
+	}
+
 	in := llm.ProviderInput{
-		Name:     prov.Name,
-		Type:     prov.Type,
-		APIKey:   key,
-		BaseURL:  prov.APIBase,
-		ProxyURL: prov.Proxy,
-		AuthPath: config.ProviderAuthPath(r.req.Paths.Home, prov.Name, prov.Type),
+		Name:      prov.Name,
+		Type:      prov.Type,
+		APIKey:    key,
+		BaseURL:   prov.APIBase,
+		ProxyURL:  prov.Proxy,
+		ClientTLS: prov.ClientTLS(),
+		AuthPath:  config.ProviderAuthPath(r.req.Paths.Home, prov.Name, prov.Type),
 		// The account a request of this row would use: the CLI login of the
 		// type serves one row only.
 		NoCLILogin: !r.req.Cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),
