@@ -89,11 +89,24 @@ func executeDocsSearch(_ context.Context, argsJSON string, env *tooling.Env) (st
 		limit = docsSearchDefaultLimit
 	}
 	limit = min(limit, docsSearchMaxLimit)
-	lib, err := docs.For(docsLang(args.Lang, env, docs.LangOfText(query)))
+	queryLang := docs.LangOfText(query)
+	lang := docsLang(args.Lang, env, queryLang)
+	lib, err := docs.For(lang)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", ToolDocsSearch, err)
 	}
 	hits := lib.Search(query, limit)
+	// A query in another language than the turn's (a Russian query in a turn
+	// an editor started in English) finds nothing in the turn's pages: the
+	// pages of its own language are searched before the call gives up. A
+	// language the call names is kept.
+	if len(hits) == 0 && strings.TrimSpace(args.Lang) == "" && queryLang != lang {
+		if other, err := docs.For(queryLang); err == nil {
+			if found := other.Search(query, limit); len(found) > 0 {
+				lib, hits = other, found
+			}
+		}
+	}
 	if len(hits) == 0 {
 		return fmt.Sprintf("No section of the Coddy %s documentation matches %q. Try other or fewer words, or call %s without a page for the contents.", lib.Version, query, ToolDocsRead), nil
 	}

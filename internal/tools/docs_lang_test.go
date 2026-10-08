@@ -14,7 +14,8 @@ var russianHitRE = regexp.MustCompile(`(?m)^1\. \S+  \([А-ЯЁ]`)
 
 // The documentation tools read in the language the call names, else in the
 // language of the surface running the turn, else (a search) in the language
-// of the query or (a reading) in English. References are the same in every
+// of the query or (a reading) in English; a search that finds nothing in the
+// turn's language tries the query's. References are the same in every
 // language.
 func TestDocsToolsFollowTheLanguage(t *testing.T) {
 	run := func(tool, args, lang string) string {
@@ -38,6 +39,14 @@ func TestDocsToolsFollowTheLanguage(t *testing.T) {
 	}
 	if out := run(apptools.ToolDocsSearch, `{"query":"mentions","lang":"en"}`, "ru"); !strings.Contains(out, " features/mentions  (Mentions") {
 		t.Fatalf("the call's language wins:\n%s", out)
+	}
+	// A Russian query in an English turn finds nothing in the English pages,
+	// so the Russian pages are searched; a language the call names is kept.
+	if out := run(apptools.ToolDocsSearch, `{"query":"режимы разрешений"}`, "en"); !russianHitRE.MatchString(out) {
+		t.Fatalf("a Russian query in an English turn searches the Russian pages:\n%s", out)
+	}
+	if out := run(apptools.ToolDocsSearch, `{"query":"режимы разрешений","lang":"en"}`, "ru"); !strings.Contains(out, "No section of the Coddy") {
+		t.Fatalf("a language the call names is not left for another:\n%s", out)
 	}
 
 	ru := run(apptools.ToolDocsRead, `{"page":"features/mentions#what-the-model-receives","lang":"ru"}`, "")

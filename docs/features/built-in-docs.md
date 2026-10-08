@@ -94,6 +94,8 @@ The agent reaches for its documentation when a question is about Coddy itself - 
 | `coddy_docs_search` | `query` (in English or Russian), `limit` (8 by default, at most 20), `lang` (`en` or `ru`) | The best sections, each with the reference to read, the page and section titles and the snippet |
 | `coddy_docs_read` | `page` (a reference, a `coddy:` link or a title; left out for the contents), `offset`, `lang` | The page or the section, with its reference, its lines and its public address |
 
+A search that names no `lang` and finds nothing in the language of the turn tries the language of the query, so a Russian query in a turn an editor started in English still finds the Russian sections.
+
 Both need no permission and are offered in agent, plan and ask mode, to subagents, and to the built-in `explore` subagent. In the chat a call reads as what it does, with the query or the page beside it: *searching the documentation* and *reading the documentation* in the web UI, *Searching the docs* and *Reading the docs* in the console. A page is read in parts of about 24 thousand characters: a long one ends with the line to continue at and the list of its sections, so the model reads the section it needs rather than the whole page.
 
 Pointing a user at a page, the agent writes the mention `@coddy:<page>#<section>` or a `coddy:` link rather than an address: both open the page in the reader of the very binary that answered. The public address `https://coddy.dev/docs/<page>` is for what leaves Coddy, and the only command line spelling is the one the binary answers, `coddy docs show <page>[#section]` beside `coddy docs search` and `coddy docs list`.

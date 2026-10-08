@@ -1,7 +1,9 @@
 package docsgen
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -140,8 +142,11 @@ func RenderLLMSFullLang(nav *Nav, tr *TranslatedNav, lang string, read func(rel 
 			}
 			path := translatedPath(lang, p.Path)
 			data, err := read(path)
-			if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
 				continue // CheckTranslation reports the missing page
+			}
+			if err != nil {
+				return "", fmt.Errorf("%s: %w", path, err)
 			}
 			fmt.Fprintf(&b, "\n\n# %s / %s\n\n%s: %s\n\n", g.Title, p.Title, text.source, strings.TrimRight(base, "/")+"/"+path)
 			b.WriteString(strings.TrimRight(stampRE.ReplaceAllString(data, ""), "\n"))

@@ -71,6 +71,31 @@ func TestLangFromEnvFollowsThePOSIXOrder(t *testing.T) {
 	}
 }
 
+// A turn takes the terminal's language only when the variable that decides
+// names a translated one: a German terminal, or one with no locale, leaves the
+// turn to the language of its prompt.
+func TestTurnLangFromEnvNamesOnlyATranslatedLanguage(t *testing.T) {
+	env := func(vars map[string]string) func(string) string {
+		return func(k string) string { return vars[k] }
+	}
+	for _, tc := range []struct {
+		vars map[string]string
+		want string
+	}{
+		{map[string]string{"LANG": "ru_RU.UTF-8"}, Russian},
+		{map[string]string{"LANG": "en_US.UTF-8"}, English},
+		{map[string]string{"LANG": "de_DE.UTF-8"}, ""},
+		{map[string]string{"LANG": "C.UTF-8"}, ""},
+		{map[string]string{"LC_ALL": "de_DE.UTF-8", "LANG": "ru_RU.UTF-8"}, ""},
+		{map[string]string{"CODDY_LANG": "ru", "LANG": "de_DE.UTF-8"}, Russian},
+		{map[string]string{}, ""},
+	} {
+		if got := TurnLangFromEnv(env(tc.vars)); got != tc.want {
+			t.Errorf("TurnLangFromEnv(%v) = %q, want %q", tc.vars, got, tc.want)
+		}
+	}
+}
+
 // A text with Cyrillic letters is Russian; anything else is English.
 func TestLangOfText(t *testing.T) {
 	for in, want := range map[string]string{

@@ -56,17 +56,24 @@ _coddy() {
             ;;
         docs)
             # The verb and the words after it, the flags and their values
-            # aside: --lang may stand anywhere, before the verb too.
+            # aside: --lang may stand anywhere, before the verb too. Bash
+            # splits --lang=ru into --lang, = and ru, so a value after = is
+            # skipped as well.
             local verb="" npos=0 i
             for ((i = 2; i < COMP_CWORD; i++)); do
                 case "${COMP_WORDS[i]}" in
-                    --lang|--limit) ((i++)) ;;
+                    --lang|--limit)
+                        ((i++))
+                        [ "${COMP_WORDS[i]}" = "=" ] && ((i++))
+                        ;;
                     --lang=*|--limit=*) ;;
                     *) if [ -z "${verb}" ]; then verb="${COMP_WORDS[i]}"; else ((npos++)); fi ;;
                 esac
             done
-            if [ "${prev}" = "--lang" ]; then
+            if [ "${prev}" = "--lang" ] || { [ "${prev}" = "=" ] && [ "${COMP_WORDS[COMP_CWORD-2]}" = "--lang" ]; }; then
                 COMPREPLY=($(compgen -W "en ru" -- "${cur}"))
+            elif [[ "${cur}" == --lang=* ]]; then
+                COMPREPLY=($(compgen -P "--lang=" -W "en ru" -- "${cur#--lang=}"))
             elif [ -z "${verb}" ]; then
                 COMPREPLY=($(compgen -W "list search show --lang" -- "${cur}"))
             elif [ "${verb}" = show ] && [ "${npos}" -eq 0 ]; then

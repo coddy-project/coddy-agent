@@ -63,12 +63,32 @@ const LangEnv = "CODDY_LANG"
 // is set, then the first of LC_ALL, LC_MESSAGES and LANG that is set, the order
 // POSIX gives them.
 func LangFromEnv(getenv func(string) string) string {
-	for _, key := range []string{LangEnv, "LC_ALL", "LC_MESSAGES", "LANG"} {
-		if v := strings.TrimSpace(getenv(key)); v != "" {
-			return Lang(v)
-		}
+	if v := localeFromEnv(getenv); v != "" {
+		return Lang(v)
 	}
 	return English
+}
+
+// TurnLangFromEnv is the language a terminal gives the turns it starts: the
+// one LangFromEnv reads when the variable that decides names a language the
+// documentation is written in, else "". A German terminal, or one that sets
+// no locale at all, leaves the choice to the language of the prompt instead
+// of clamping it to English (KnownLang), while its F1 help and "coddy docs"
+// still read English.
+func TurnLangFromEnv(getenv func(string) string) string {
+	lang, _ := KnownLang(localeFromEnv(getenv))
+	return lang
+}
+
+// localeFromEnv is the value of the first of CODDY_LANG, LC_ALL, LC_MESSAGES
+// and LANG that is set, or "".
+func localeFromEnv(getenv func(string) string) string {
+	for _, key := range []string{LangEnv, "LC_ALL", "LC_MESSAGES", "LANG"} {
+		if v := strings.TrimSpace(getenv(key)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // LangOfText is the documentation language a piece of text is written in: a

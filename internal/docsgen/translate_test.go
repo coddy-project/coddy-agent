@@ -1,6 +1,7 @@
 package docsgen
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -314,6 +315,65 @@ func TestSiteRendersTheRussianLayer(t *testing.T) {
 	full := files["ru/llms-full.txt"]
 	if !strings.Contains(full, "Скачайте.") || strings.Contains(full, "docsgen:source") {
 		t.Fatalf("ru/llms-full.txt:\n%s", full)
+	}
+}
+
+// The site layer is rendered from the tree as the run leaves it, under the
+// raw base the run names: a Russian page whose links the run made right reads
+// that way in ru/llms-full.txt, though the disk still holds the link as the
+// translator copied it.
+func TestSiteLayerFollowsTheRunsTree(t *testing.T) {
+	root := translatedTree(t)
+	write(t, root, ConfigRefFile, "# Config\n\n<!-- docsgen:"+MarkerConfig+":start -->\n<!-- docsgen:"+MarkerConfig+":end -->\n")
+	write(t, root, AssetIndex, "# Assets\n\n<!-- docsgen:"+MarkerAssets+":start -->\n<!-- docsgen:"+MarkerAssets+":end -->\n")
+	// The translator copied the English link; the run makes it Russian.
+	write(t, root, "docs/ru/g/start.md", strings.Replace(readFile(t, root, "docs/ru/g/start.md"), "[это](#установка)", "[это](#install)", 1))
+	const raw = "https://example.test/raw/branch"
+	res, err := Generate(Options{Root: root, SkipCLI: true, SiteDir: t.TempDir(), RawBase: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Files["docs/ru/g/start.md"], "[это](#установка)") {
+		t.Fatalf("the run localizes the link:\n%s", res.Files["docs/ru/g/start.md"])
+	}
+	full := res.SiteFiles["ru/llms-full.txt"]
+	for _, want := range []string{"Source: " + raw + "/docs/ru/g/start.md", "Запустите [это](#установка)."} {
+		if !strings.Contains(full, want) {
+			t.Errorf("ru/llms-full.txt lacks %q:\n%s", want, full)
+		}
+	}
+	if strings.Contains(full, "(#install)") {
+		t.Errorf("ru/llms-full.txt reads the page from the disk, not from the run:\n%s", full)
+	}
+	if idx := res.SiteFiles["ru/llms.txt"]; !strings.Contains(idx, "- [Начало]("+raw+"/docs/ru/g/start.md): Запустите.") {
+		t.Errorf("ru/llms.txt under the run's raw base:\n%s", idx)
+	}
+	if anchors := res.SiteFiles["docs-anchors-ru.json"]; !strings.Contains(anchors, `"install":"установка"`) {
+		t.Errorf("docs-anchors-ru.json:\n%s", anchors)
+	}
+}
+
+// A missing translation is left to CheckTranslation; any other failure to
+// read a page fails the render instead of shortening ru/llms-full.txt.
+func TestLLMSFullLangFailsOnAnUnreadablePage(t *testing.T) {
+	root := translatedTree(t)
+	nav, err := LoadNav(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := LoadTranslatedNav(root, "ru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing := func(rel string) (string, error) { return "", &fs.PathError{Op: "open", Path: rel, Err: fs.ErrNotExist} }
+	if _, err := RenderLLMSFullLang(nav, tr, "ru", missing, DefaultRawBase); err != nil {
+		t.Fatalf("a missing page is skipped: %v", err)
+	}
+	unreadable := func(rel string) (string, error) {
+		return "", &fs.PathError{Op: "open", Path: rel, Err: fs.ErrPermission}
+	}
+	if _, err := RenderLLMSFullLang(nav, tr, "ru", unreadable, DefaultRawBase); err == nil || !strings.Contains(err.Error(), "docs/ru/g/start.md") {
+		t.Fatalf("an unreadable page fails the render: %v", err)
 	}
 }
 

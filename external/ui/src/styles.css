@@ -14435,10 +14435,11 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
    actions over the outline. With a column of its own for the actions (as wide
    as their content), the search ran on into the outline's column. It does not
    scroll: the page scrolls in the body under it, so the scrollbar starts below
-   the search, not beside it. A classic scrollbar narrows the body's columns
-   alone, so the header leaves the same width free on its right
-   (--docs-scrollbar, measured by DocsView) and the two sets of columns stay
-   one. */
+   the search, not beside it. Its insets are the same on both sides, as in
+   every other panel head: the close button stands as far from the right edge
+   as the title from the left. The body gives a classic scrollbar's width
+   (--docs-scrollbar, measured by DocsView) out of its own right padding, so
+   the scrollbar stands in the margin and the two sets of columns stay one. */
 .docs-header {
   flex: none;
   position: relative;
@@ -14451,8 +14452,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   grid-template-areas: "title search actions";
   column-gap: 32px;
   align-items: center;
-  padding: 14px calc(var(--docs-inline) + var(--docs-scrollbar, 0px)) 12px
-    var(--docs-inline);
+  padding: 14px var(--docs-inline) 12px;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   border-bottom: 1px solid
     color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
@@ -14549,13 +14549,16 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  /* The scrollbar's room is kept from the first frame, so the header's right
-     edge (and the close button on it) does not move when a page grows tall
-     enough to scroll. */
+  /* The scrollbar's room is kept from the first frame, so the text does not
+     move when a page grows tall enough to scroll. The scrollbar stands in the
+     right margin: the padding there gives up its width, and the text ends as
+     far from the right edge as it starts from the left, under the header's
+     columns. */
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
   container-type: size;
-  padding: 0 var(--docs-inline);
+  padding: 0 max(0px, calc(var(--docs-inline) - var(--docs-scrollbar, 0px))) 0
+    var(--docs-inline);
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
 }
@@ -15205,8 +15208,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
       "title actions"
       "search search";
     row-gap: 10px;
-    padding: 12px calc(var(--docs-inline) + var(--docs-scrollbar, 0px)) 10px
-      var(--docs-inline);
+    padding: 12px var(--docs-inline) 10px;
   }
   .docs-header-search {
     max-width: none;

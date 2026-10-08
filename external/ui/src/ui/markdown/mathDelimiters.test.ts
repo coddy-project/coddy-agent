@@ -114,6 +114,16 @@ describe("normalizeMathDelimiters", () => {
     );
     expect(normalizeMathDelimiters("$$\nx\n$$")).toBe("$$\nx\n$$");
   });
+
+  // A long page is mostly prose full of code spans (the web UI guide: 300 KB,
+  // thousands of spans). Looking every span up at every character made the
+  // pass quadratic and took two seconds there, on every render of the page.
+  it("stays linear in the code spans of a long stretch of prose", () => {
+    const text = "Costs $5 here. " + "Run `cmd` then `x`. ".repeat(20_000);
+    const started = performance.now();
+    expect(normalizeMathDelimiters(text)).toBe(text);
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
 });
 
 describe("isLiteralDollarMath", () => {

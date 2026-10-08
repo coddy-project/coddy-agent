@@ -162,10 +162,11 @@ export function DocsView(props: {
   }, [page, slug, anchor, t]);
 
   // The header is laid on the columns of the page, but only the body scrolls:
-  // a classic scrollbar narrows the body's columns and not the header's. The
-  // header leaves the same width free on its right (--docs-scrollbar in
-  // styles.css), so the search ends where the text does. The scrollbar comes
-  // and goes with the page's height, which the layout's width follows.
+  // a classic scrollbar takes its width out of the body alone. The body gives
+  // that width out of its right padding (--docs-scrollbar in styles.css), so
+  // the text ends where the search does and the header keeps the same inset
+  // on both sides. The scrollbar comes and goes with the page's height, which
+  // the layout's width follows.
   useLayoutEffect(() => {
     const view = viewRef.current;
     const body = bodyRef.current;

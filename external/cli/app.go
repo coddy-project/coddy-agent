@@ -914,11 +914,12 @@ func (a *App) submitPrompt(text string) {
 	a.expectGoalEcho(text)
 	// The language of the terminal rides on the turn: the documentation the
 	// turn's @coddy: mentions attach and its documentation tools read follows
-	// it on the server this console drives.
+	// it on the server this console drives. A locale with no translation
+	// sends none, and the server goes by the language of the prompt.
 	a.startTurnWorker(acp.SessionPromptParams{
 		SessionID: a.sessionID,
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
-	}, &session.PromptRunOpts{Lang: docs.LangFromEnv(os.Getenv)}, nil)
+	}, &session.PromptRunOpts{Lang: docs.TurnLangFromEnv(os.Getenv)}, nil)
 }
 
 // startTurnWorker runs one prompt on the manager and posts turnDone when it

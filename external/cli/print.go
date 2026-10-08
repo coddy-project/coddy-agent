@@ -219,7 +219,7 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	result, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 		SessionID: res.SessionID,
 		Prompt:    promptBlocks(opts),
-	}, snd, &session.PromptRunOpts{SkipUsagePublish: true, Lang: docs.LangFromEnv(os.Getenv)})
+	}, snd, &session.PromptRunOpts{SkipUsagePublish: true, Lang: docs.TurnLangFromEnv(os.Getenv)})
 	if snd.wrote {
 		_, _ = io.WriteString(opts.Out, "\n")
 	}
