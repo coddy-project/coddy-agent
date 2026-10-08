@@ -65,7 +65,8 @@
      P4 gTrav      every relay a request crosses is on the path of some leaf of I (the scope holds at every hop)
      P5 gDup       a leaf of I is reached only by its written chain (no scope check is skipped by naming the same
                    node through another chain; the ring makes this reachable)
-     P6 gExact     the decision is EXACTLY "chain in the written set": nothing else is admitted, harmless or not
+     P6 gExact     the decision on the LLM route is EXACTLY "chain in the written set", for both spellings: nothing else
+                   is admitted (harmless or not) and nothing written is refused
      P7 gSpell     the decision does not depend on the spelling
      P8 gFull      the full-access class is judged by the legacy rule (route != control plane) and by nothing else
      L1 cov        AG EF cov: from every state, every leaf of I (that exists) can still be reached with an LLM route
@@ -219,11 +220,8 @@ inline scopedAdmit() {
     t_j = 0;
 #else
     /* OPT 2 (exact paths) and OPT 4 (exact paths, one hop only) */
-    #if OPT == 4
+    /* `*` is the one-hop entry in both: OPT 4 differs from OPT 2 only in the entries it takes, below */
     if :: t_k == 1 && starE == 1 -> t_sa = 1 :: else -> skip fi;
-    #else
-    if :: t_k == 1 && starE == 1 -> t_sa = 1 :: else -> skip fi;
-    #endif
     t_i = 0;
     do
     :: t_i < 8 ->
@@ -275,7 +273,8 @@ inline scopedAdmit() {
     t_n = 0
 }
 
-/* the ideal membership of the chain in the written set (the contract of the option (b)) */
+/* the ideal membership of the chain in the written set (the contract of the option (b); under OPT 4 the
+   written set holds the one-hop entries only, since a scoped client never crosses a relay there) */
 inline writtenSet() {
     t_inW = 0;
     if :: t_k == 1 && starE == 1 -> t_inW = 1 :: else -> skip fi;
@@ -283,7 +282,7 @@ inline writtenSet() {
     do
     :: t_i < 8 ->
          if
-         :: ent[t_i] == 1 && pl[t_i] == t_k ->
+         :: ent[t_i] == 1 && pl[t_i] == t_k && (OPT != 4 || pl[t_i] == 1) ->
               t_m = 1;
               t_j = 0;
               do
@@ -416,7 +415,11 @@ proctype Client() {
 #if MUT == 4
          t_a1 = 0;
 #endif
-         if :: t_a0 != t_a1 -> gSpell = 1 :: else -> skip fi;
+         /* the decision of a SCOPED request must not depend on the spelling, and on the LLM route it must be
+            exactly "the chain is in the written set": a refusal of a written chain (under-admission) is as
+            wrong as an admission of an unwritten one (over-admission, set in ghostsScoped) */
+         if :: t_full == 0 && t_a0 != t_a1 -> gSpell = 1 :: else -> skip fi;
+         if :: t_full == 0 && t_rt == 0 && (t_a0 != t_inW || t_a1 != t_inW) -> gExact = 1 :: else -> skip fi;
          resolve();
          if
          :: t_full == 0 ->
