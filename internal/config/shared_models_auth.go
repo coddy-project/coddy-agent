@@ -86,7 +86,7 @@ type namedToken struct {
 // extra holds what the file cannot show (the flags, the environment). The
 // error is a *SharedTokenClassError: it names both keys and never a value.
 func CheckSharedTokenClasses(cfg *Config, extra ExtraTokens) error {
-	if cfg == nil || len(cfg.HTTPServer.SharedModels.Tokens) == 0 {
+	if cfg == nil || (len(cfg.HTTPServer.SharedModels.Tokens) == 0 && len(cfg.Swarm.Clients) == 0) {
 		return nil
 	}
 	var others []namedToken
@@ -124,6 +124,24 @@ func CheckSharedTokenClasses(cfg *Config, extra ExtraTokens) error {
 			return &SharedTokenClassError{Index: i, Other: name}
 		}
 	}
+	// A scoped relay client's token is a class of its own as well: it opens the
+	// shared-model routes of chosen nodes through the relay and nothing else.
+	// It must differ from every other class and from every other scoped token.
+	for i, t := range cfg.HTTPServer.SharedModels.Tokens {
+		if t = strings.TrimSpace(t); t != "" {
+			owners[t] = fmt.Sprintf("httpserver.shared_models.tokens[%d]", i)
+		}
+	}
+	for i, c := range cfg.Swarm.Clients {
+		t := strings.TrimSpace(c.Token)
+		if t == "" {
+			continue
+		}
+		if name, clash := owners[t]; clash {
+			return &SharedTokenClassError{Where: fmt.Sprintf("swarm.clients[%d].token", i), Other: name}
+		}
+		owners[t] = fmt.Sprintf("swarm.clients[%d].token", i)
+	}
 	return nil
 }
 
@@ -132,17 +150,26 @@ func CheckSharedTokenClasses(cfg *Config, extra ExtraTokens) error {
 type SharedTokenClassError struct {
 	// Index is the position of the offending entry in httpserver.shared_models.tokens.
 	Index int
+	// Where, when set, is the config path of the offending token instead of
+	// httpserver.shared_models.tokens[Index] (a scoped relay client's token).
+	Where string
 	// Other names the key (or flag) that holds the same token. Never the value.
 	Other string
 }
 
 // Path is the config path of the offending entry.
 func (e *SharedTokenClassError) Path() string {
+	if e.Where != "" {
+		return e.Where
+	}
 	return fmt.Sprintf("httpserver.shared_models.tokens[%d]", e.Index)
 }
 
 // Error describes the clash.
 func (e *SharedTokenClassError) Error() string {
+	if e.Where != "" {
+		return e.Path() + " is the same token as " + e.Other + ": a token belongs to one class, and a scoped client must open only the shared-model routes; give each its own"
+	}
 	return e.Path() + " is the same token as " + e.Other + ": a token belongs to one class, and a shared-model token must open only the LLM routes; give each its own"
 }
 

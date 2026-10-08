@@ -414,6 +414,22 @@ type SwarmJSON struct {
 	FanoutTimeoutSeconds     int                 `json:"fanout_timeout_seconds,omitempty"`
 	Upstreams                []SwarmUpstreamJSON `json:"upstreams,omitempty"`
 	Join                     []SwarmJoinJSON     `json:"join,omitempty"`
+	Clients                  []SwarmClientJSON   `json:"clients,omitempty"`
+}
+
+// SwarmClientJSON mirrors SwarmClient. The token is write-only like every other
+// credential: reading the config reports only whether one is set, and a save
+// keeps it by the entry's name (renaming an entry asks for its token again).
+type SwarmClientJSON struct {
+	Name            string   `json:"name"`
+	Token           string   `json:"token,omitempty"`
+	TokenConfigured bool     `json:"token_configured,omitempty"`
+	Scope           string   `json:"scope"`
+	Nodes           []string `json:"nodes,omitempty"`
+	MaxStreams      int      `json:"max_streams,omitempty"`
+	RatePerMinute   int      `json:"rate_per_minute,omitempty"`
+	RateBurst       int      `json:"rate_burst,omitempty"`
+	CertNames       []string `json:"cert_names,omitempty"`
 }
 
 // SwarmTLSJSON mirrors SwarmTLSConfig.
@@ -672,6 +688,15 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Dial:                   swarmDialToJSON(j.Dial),
 		})
 	}
+	for _, cl := range c.Swarm.Clients {
+		out.Swarm.Clients = append(out.Swarm.Clients, SwarmClientJSON{
+			Name: cl.Name, Scope: cl.Scope,
+			TokenConfigured: strings.TrimSpace(cl.Token) != "",
+			Nodes:           append([]string(nil), cl.Nodes...),
+			MaxStreams:      cl.MaxStreams, RatePerMinute: cl.RatePerMinute, RateBurst: cl.RateBurst,
+			CertNames: append([]string(nil), cl.CertNames...),
+		})
+	}
 	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled)}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, MaxQueue: c.Scheduler.MaxQueue,
@@ -907,6 +932,14 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Dial:   swarmDialFromJSON(jn.Dial),
 		})
 	}
+	for _, cl := range j.Swarm.Clients {
+		cfg.Swarm.Clients = append(cfg.Swarm.Clients, SwarmClient{
+			Name: cl.Name, Token: cl.Token, Scope: cl.Scope,
+			Nodes:      append([]string(nil), cl.Nodes...),
+			MaxStreams: cl.MaxStreams, RatePerMinute: cl.RatePerMinute, RateBurst: cl.RateBurst,
+			CertNames: append([]string(nil), cl.CertNames...),
+		})
+	}
 	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled)}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, MaxQueue: j.Scheduler.MaxQueue,
@@ -1116,6 +1149,17 @@ func preserveSwarmSecrets(next, current *SwarmConfig) {
 		}
 		if strings.TrimSpace(next.Join[i].Dial.Proxy) == "" {
 			next.Join[i].Dial.Proxy = old.Dial.Proxy
+		}
+	}
+	// A client's token belongs to the entry's name: that is what the operator
+	// sees, and a rename asks for the token again.
+	prevClients := make(map[string]string, len(current.Clients))
+	for _, c := range current.Clients {
+		prevClients[c.Name] = c.Token
+	}
+	for i := range next.Clients {
+		if strings.TrimSpace(next.Clients[i].Token) == "" {
+			next.Clients[i].Token = prevClients[next.Clients[i].Name]
 		}
 	}
 }

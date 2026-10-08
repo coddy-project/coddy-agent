@@ -356,6 +356,15 @@ Stateless relay that nodes register into and that chains into other relays. The 
 | `swarm.join[].dial.proxy` | string | "" | Route the connection through a proxy: http, https, socks5 or socks5h. Empty falls back to the standard environment variables. Never echoed back. |
 | `swarm.join[].dial.ca_file` | string | "" | Certificate authority used to verify a peer whose certificate is signed privately. |
 | `swarm.join[].dial.insecure_skip_verify` | boolean | false | Accept any certificate. For a lab only; every use is logged. |
+| `swarm.clients` | list of objects | [] | Relay clients with a credential of their own that opens only the shared-model routes (GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage, POST /coddy/llm/completions) of the nodes they list. swarm.auth_token stays the full class and is not an entry here. |
+| `swarm.clients[].name` | string |  | Label of the client in logs and counters: lower case letters, digits, '_' and '-', up to 32 characters, unique. 'full' and 'unknown' are reserved. |
+| `swarm.clients[].token` | string | "" | Bearer credential of the client. A token belongs to one class only: it must differ from httpserver.auth_token, swarm.auth_token, the pairing tokens, the shared-model tokens and every other client's token. Optional when the client is reached by a certificate alone (cert_names). Never echoed back. |
+| `swarm.clients[].scope` | string, one of `shared_models` |  | What the credential opens. shared_models is the only scope: the three shared-model routes of the listed nodes. |
+| `swarm.clients[].nodes` | list of strings |  | Node paths the client may reach: a node name directly below this relay, child/node through a chained relay (at most four hops), or "*" for any node directly below this relay. |
+| `swarm.clients[].max_streams` | integer | 0 | Concurrent shared-model calls this client may hold on this relay. 0 means no limit. |
+| `swarm.clients[].rate_per_minute` | integer | 0 | Calls per minute the relay forwards for this client. 0 means no limit. |
+| `swarm.clients[].rate_burst` | integer | 0 | Calls allowed at once before rate_per_minute applies. Empty takes the rate, capped by max_streams, at least 1. |
+| `swarm.clients[].cert_names` | list of strings |  | DNS or URI names in a client certificate that stand for this client; one name maps to one entry. |
 
 ### `ui`
 
