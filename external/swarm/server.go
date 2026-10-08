@@ -41,6 +41,8 @@ type Server struct {
 
 	mu          sync.RWMutex
 	extraTokens []string
+	// clients are the scoped relay clients (swarm.clients), read per request.
+	clients []config.SwarmClient
 }
 
 // New builds a relay server from cfg.
@@ -60,6 +62,7 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 		uuid:      uuid[:32],
 		startedAt: time.Now(),
 		hostName:  swarmdto.HostNodeName(),
+		clients:   append([]config.SwarmClient(nil), cfg.Swarm.Clients...),
 	}
 	s.routes()
 	// An advertised address is somebody else's claim about where to dial, so
@@ -150,6 +153,8 @@ func (s *Server) seedUpstreams() error {
 			Proxy:              up.Dial.Proxy,
 			CAFile:             up.Dial.CAFile,
 			InsecureSkipVerify: up.Dial.InsecureSkipVerify,
+			CertFile:           up.Dial.CertFile,
+			KeyFile:            up.Dial.KeyFile,
 		}); err != nil {
 			return fmt.Errorf("swarm.upstreams %q: %w", up.Name, err)
 		}
@@ -263,16 +268,25 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		tokens := s.clientTokens()
-		if len(tokens) == 0 {
+		if !s.authRequired() {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !acceptToken(tokens, credentialOf(r)) {
+		p := s.principalOf(r)
+		switch p.class {
+		case principalFull:
+			next.ServeHTTP(w, withPrincipal(r, p))
+		case principalScoped:
+			// A scoped client passes the gate on the node mount only; the mount makes the fine check. Everywhere else it
+			// gets the plain 401 an unknown token gets, so it learns nothing about the relay.
+			if pattern != swarmdto.MountPath+"{node}/{rest...}" {
+				writeUnauthorized(w)
+				return
+			}
+			next.ServeHTTP(w, withPrincipal(r, p))
+		default:
 			writeUnauthorized(w)
-			return
 		}
-		next.ServeHTTP(w, r)
 	})
 }
 
@@ -339,13 +353,13 @@ func (s *Server) workspaceMediaCapability(r *http.Request) bool {
 	if token == "" {
 		return false
 	}
-	return !acceptToken(s.clientTokens(), token)
+	return !acceptToken(s.allClientTokens(), token)
 }
 
 // mediaCapabilityOnly reports whether r got past the gate on a media
 // capability alone: the relay asks for a client token and r brought none.
 func (s *Server) mediaCapabilityOnly(r *http.Request) bool {
-	return len(s.clientTokens()) > 0 && s.workspaceMediaCapability(r)
+	return s.authRequired() && s.workspaceMediaCapability(r)
 }
 
 // writeUnauthorized is the gate's refusal: the same plain 401 whatever was
