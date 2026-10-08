@@ -37,7 +37,7 @@ const (
 	sharedModelsPattern      = "GET /coddy/llm/models"
 	sharedUsagePattern       = "GET /coddy/llm/models/{alias}/usage"
 	sharedCompletionsPattern = "POST /coddy/llm/completions"
-	sharedAlivePattern       = "POST /coddy/llm/calls/{id}/alive"
+	sharedAlivePattern       = "POST /coddy/llm/alive"
 )
 
 // isSharedLLMPattern reports the routes a shared-model token opens, and nothing
@@ -709,6 +709,10 @@ func (s *Server) runSharedCall(w http.ResponseWriter, r *http.Request, cfg *conf
 
 	switch {
 	case probe.fired():
+		// The client is probably gone; if it is not, a terminal frame that is not transient tells it why, and it does not re-run a
+		// call that would be cut again.
+		_ = stream.finish(llm.WireError{Kind: llm.WireKindInvalid, Code: llm.WireCodeProbeLapsed,
+			Message: "the remote cancelled the call: no sign of life from the client for " + (sharedProbeGrace + sharedProbeSlack).String()})
 		call.kind, call.cause = sharedOutcomeGone, "probe"
 		return
 	case r.Context().Err() != nil:

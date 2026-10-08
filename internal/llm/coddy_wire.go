@@ -97,13 +97,25 @@ const (
 // completions call to say it will ping while the stream runs; a remote that
 // supports the probe answers the same call with
 // "id=<32 hex>; every_ms=<n>; grace_ms=<n>", and the client then posts
-// CoddyAlivePath(id) every every_ms. A remote that does not support it never
-// answers the header, and a client that did not ask is never cut by it.
+// CoddyAlivePath with CoddyProbeIDHeader set to the id, at once and then every
+// every_ms. A remote that does not support it never answers the header, and a
+// client that did not ask is never cut by it.
 const CoddyProbeHeader = "X-Coddy-Probe"
 
-// CoddyAlivePath is the route of a ping, appended to the provider's api_base like
-// the other shared-model routes.
-func CoddyAlivePath(id string) string { return "/coddy/llm/calls/" + id + "/alive" }
+// CoddyProbeIDHeader carries the call id of a ping. It is a header and not a
+// path segment: a path is what a proxy and a relay's forwarding errors write to
+// their logs, and through a relay the id alone is the proof of a ping.
+const CoddyProbeIDHeader = "X-Coddy-Probe-Id"
+
+// CoddyAlivePath is the route of a ping, appended to the provider's api_base
+// like the other shared-model routes.
+const CoddyAlivePath = "/coddy/llm/alive"
+
+// WireCodeProbeLapsed is the code of the terminal invalid frame a remote writes
+// when it cancels a call whose client stopped pinging: not transient, so a live
+// client that was cut is told why and does not re-run a call that would be cut
+// again.
+const WireCodeProbeLapsed = "probe_lapsed"
 
 // WireRequest is the body of POST /coddy/llm/completions.
 type WireRequest struct {
