@@ -344,13 +344,13 @@ A node that joins with no token makes the relay send no `Authorization` at all, 
 
 **A dedicated relay for share-only nodes.** The client token a borrower holds opens the mounts of every node of that relay: a mount is a prefix allowlist (`/v1/*` and `/coddy/*`), and each node is reached with the token it joined with. A shared-model token therefore protects only the nodes that joined with one; a node that joined with its main token is open to everything the relay's client token can do. Keep the nodes you administer and the nodes that only share models on separate relays, and hand the client token of the second relay to borrowers.
 
-**A stale token outlives its configuration.** A registration with an empty `token` does not erase the one the relay already holds, so removing `swarm.join[].token` from a node, or turning its token off, does not cut it off while it keeps its lease: a direct node renews at every heartbeat and a tunnel node keeps one lease for the whole connection. The old token is dropped when the node stays silent longer than the lease and its offline grace (three minutes by default) and registers again, at once when it registers with a different non-empty token, or when the relay restarts. To cut a node off now, evict it, which makes its next registration a fresh lease with the token it carries:
+**Removing a token cuts the node off at its next registration.** The relay keeps exactly the token the node's latest registration carried, an empty one included. Removing `swarm.join[].token` from a node, or turning its token off, therefore takes effect at its next heartbeat (at most a third of the lease, 30 seconds by default) for a direct node, and at its next connect for a tunnel node, which registers once per connection and reads its join configuration again then. With the token gone the relay sends no `Authorization` to the node: a node with authentication answers `401`, an open node stays open to every client of the relay as described above. To cut a node off at once, evict it, which makes its next registration a fresh lease with the token it carries:
 
 ```bash
 curl -X DELETE -H "Authorization: Bearer $RELAY_CLIENT_TOKEN" https://relay.example/swarm/nodes/workstation
 ```
 
-Editing the node's configuration alone is not enough. A registration that replaces the token even with an empty one is planned for a later step.
+A hand-written registrar must send its token with every registration, not only the first: a heartbeat without one erases it.
 
 ### Liveness of a tunnel and of a shared call
 

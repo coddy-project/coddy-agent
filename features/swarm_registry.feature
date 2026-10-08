@@ -41,3 +41,10 @@ Feature: Swarm relay registry
     Given the node "nas02" has registered with the pairing token
     When I remove the node "nas02" with the client token
     Then the node "nas02" is no longer listed
+
+  Scenario: A node that drops its token is cut off at its next heartbeat
+    Given the node "nas02" has registered with the pairing token
+    And the relay holds a token for the node "nas02"
+    When the node "nas02" registers again with its lease secret and no token
+    Then the registration is accepted
+    And the relay holds no token for the node "nas02"

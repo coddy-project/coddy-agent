@@ -229,9 +229,9 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 		existing.info.LastSeen = now.UTC().Format(time.RFC3339)
 		existing.advertise = advertise
 		existing.info.URL = advertiseString(advertise)
-		if req.Token != "" {
-			existing.token = req.Token
-		}
+		// The owner's registration is the whole truth about its token: a node
+		// that stopped sending one no longer lets the relay authenticate for it.
+		existing.token = req.Token
 		switch req.Transport {
 		case swarmdto.TransportDirect:
 			// A node that switched back to being reachable no longer needs the
