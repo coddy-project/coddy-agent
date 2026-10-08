@@ -498,7 +498,7 @@ swarm:
 - **A node outside the list sounds like a node that does not exist.** The client gets the same `404` ("no such node in this relay") for both.
 - **The node never sees the client.** The relay replaces the credential with the node's own, as for the full class, so what a node sees is the relay.
 - **The relay holds each entry to its own limits.** `max_streams` bounds the completions the entry holds open at once and `rate_per_minute` (with
-  `rate_burst`, which defaults to the rate capped by `max_streams`, at least 1) the calls it may start. Only `POST /coddy/llm/completions` is counted, never a
+  `rate_burst`, which defaults to the rate, capped by `max_streams` when that is set, and is at least 1) the calls it may start. Only `POST /coddy/llm/completions` is counted, never a
   listing. A call over a limit is answered by the relay at once, without asking the node: `429` with the wire error `kind: busy`, `code: client_streams` or
   `client_rate`, and a `Retry-After` of whole seconds, so a calling Coddy waits it out like a full slot of the node. A slot is given back on every exit;
   a window token is given back when the node itself answers `busy`, so a borrower that waits out a busy node does not drain its window by waiting. The
@@ -506,7 +506,7 @@ swarm:
 - **The relay counts what each client did.** `GET /swarm/stats` (full token only; a scoped client gets the same `401` as on every other relay route)
   returns `{since, rows[{client, node, outcome, calls, duration_ms, max_duration_ms}]}` for the shared-model routes: `client` is the entry's name, `full` for
   the full class or `unknown` for a token the gate refused, `node` is `-` when no node was named, and `outcome` is `ok`, `scope`, `limit`, `node_error`,
-  `gone` or `auth`. Labels only, in memory since the relay started, at most 1024 rows; a prompt, a token or a digest of one never appears.
+  `gone` or `auth`. Labels only, in memory since the relay started, at most 1024 rows (past that, new nodes are counted under `-`); a prompt, a token or a digest of one never appears.
 - **A token belongs to one class.** It must differ from the main, swarm, pairing and shared-model tokens and from every other entry's: `coddy -t` and the
   load refuse a duplicate.
 
