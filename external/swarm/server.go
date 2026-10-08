@@ -166,6 +166,9 @@ func (s *Server) seedUpstreams() error {
 			Token:        up.Token,
 			Version:      "configured",
 		}
+		if up.Dial.InsecureSkipVerify {
+			s.log.Warn("swarm upstream: certificate verification disabled", "node", up.Name)
+		}
 		if _, err := s.registry.RegisterWithDial(req, netx.Options{
 			Proxy:              up.Dial.Proxy,
 			CAFile:             up.Dial.CAFile,

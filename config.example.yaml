@@ -548,14 +548,6 @@ tools:
 #     - name: "office relay"
 #       url: "http://relay.lan:12346"
 #       token: "${CODDY_RELAY_TOKEN}"   # the relay's client token (its swarm.auth_token)
-#   # Serving models[] rows that carry shared_as to other Coddys (GET /coddy/llm/models,
-#   # POST /coddy/llm/completions). A shared-model token opens only those routes and
-#   # nothing else; httpserver.auth_token opens the whole API, so give a borrower one of
-#   # these. Any token listed here turns authentication on: with no auth_token and no
-#   # login, every other route is closed to every caller. A token cannot also be
-#   # auth_token, the token of --auth-token / CODDY_HTTP_TOKEN or a swarm token. Never
-#   # returned by GET /coddy/config. Through a swarm relay a node joins with one of
-#   # these as swarm.join[].token; keep nodes that only share models on a relay of their own.
 #   # Terminate TLS here instead of in a reverse proxy; HTTP/1.1 only. With client_ca_file the
 #   # server asks for a client certificate (optional: peers without one still get in; required: refused
 #   # at the handshake). A certificate opens only what shared_models.cert_names says. A terminator in front
@@ -565,6 +557,14 @@ tools:
 #     key_file: "/etc/coddy/server.key"
 #     client_ca_file: "/etc/coddy/clients-ca.pem"
 #     client_auth: "optional"
+#   # Serving models[] rows that carry shared_as to other Coddys (GET /coddy/llm/models,
+#   # POST /coddy/llm/completions). A shared-model token opens only those routes and
+#   # nothing else; httpserver.auth_token opens the whole API, so give a borrower one of
+#   # these. Any token listed here turns authentication on: with no auth_token and no
+#   # login, every other route is closed to every caller. A token cannot also be
+#   # auth_token, the token of --auth-token / CODDY_HTTP_TOKEN or a swarm token. Never
+#   # returned by GET /coddy/config. Through a swarm relay a node joins with one of
+#   # these as swarm.join[].token; keep nodes that only share models on a relay of their own.
 #   shared_models:
 #     tokens:
 #       - "${CODDY_SHARED_MODELS_TOKEN}"

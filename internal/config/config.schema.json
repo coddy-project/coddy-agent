@@ -1267,7 +1267,7 @@
             },
             "cert_names": {
               "type": "array",
-              "description": "DNS or URI names in a verified client certificate (httpserver.tls.client_ca_file) that open GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage and POST /coddy/llm/completions as their own credential class, and nothing else. Each name has its own max_streams slots and rate_per_minute window, so no relay is needed to tell borrowers apart. A name matches exactly; the CN is not consulted. Needs httpserver.tls.client_ca_file.",
+              "description": "DNS or URI names in a verified client certificate (httpserver.tls.client_ca_file) that open GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage, POST /coddy/llm/completions and the probe's POST /coddy/llm/alive as their own credential class, and nothing else. Each name has its own max_streams slots and rate_per_minute window, so no relay is needed to tell borrowers apart. A name matches exactly; the CN is not consulted. Has no effect without httpserver.tls.client_ca_file (coddy -t warns); with it, the names count as a credential for the shared-model routes.",
               "items": {
                 "type": "string"
               },
@@ -1278,7 +1278,7 @@
         "tls": {
           "type": "object",
           "title": "HTTPS",
-          "description": "Serve the API over HTTPS. Set both files or neither; without them the listener is plain HTTP, which is a reverse proxy's job to wrap. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart. A request through a TLS terminator or through the swarm tunnel carries no client certificate: require it at the terminator.",
+          "description": "Serve the API over HTTPS, HTTP/1.1 only (so a shared call keeps a connection of its own and the liveness bound applies). Set both files or neither; without them the listener is plain HTTP, which is a reverse proxy's job to wrap. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart. A request through a TLS terminator or through the swarm tunnel carries no client certificate: require it at the terminator.",
           "additionalProperties": false,
           "properties": {
             "cert_file": {
@@ -1512,7 +1512,7 @@
                   },
                   "cert_file": {
                     "type": "string",
-                    "description": "PEM client certificate this end presents when the other asks for one (a relay with swarm.tls.client_auth: required). Set together with key_file; read at each handshake.",
+                    "description": "PEM client certificate this end presents when the other asks for one: a relay with swarm.tls.client_ca_file (required or optional) for a join, a node with httpserver.tls.client_ca_file or a child relay for an upstream. Set together with key_file; read at each handshake.",
                     "default": ""
                   },
                   "key_file": {
@@ -1587,7 +1587,7 @@
                   },
                   "cert_file": {
                     "type": "string",
-                    "description": "PEM client certificate this end presents when the other asks for one (a relay with swarm.tls.client_auth: required). Set together with key_file; read at each handshake.",
+                    "description": "PEM client certificate this end presents when the other asks for one: a relay with swarm.tls.client_ca_file (required or optional) for a join, a node with httpserver.tls.client_ca_file or a child relay for an upstream. Set together with key_file; read at each handshake.",
                     "default": ""
                   },
                   "key_file": {

@@ -6,6 +6,7 @@ package swarm
 // certificate is verified against and the client certificate the relay presents when the node asks for one.
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -222,5 +223,21 @@ func TestARouteThatCannotBeBuiltDoesNotLeakTheRelaysPaths(t *testing.T) {
 	raw, _ := io.ReadAll(res.Body)
 	if res.StatusCode < 500 || strings.Contains(string(raw), ca) || strings.Contains(string(raw), "ca_file") {
 		t.Fatalf("%d %s", res.StatusCode, raw)
+	}
+}
+
+// swarm.upstreams[].dial.insecure_skip_verify is for a lab and is said out loud once when the relay starts, as a join's is.
+func TestAnUpstreamWithoutVerificationIsLoggedAtStart(t *testing.T) {
+	var logs bytes.Buffer
+	cfg := &config.Config{}
+	cfg.Swarm.Host = "127.0.0.1"
+	cfg.Swarm.AuthToken = fullToken
+	cfg.Swarm.Upstreams = []config.SwarmUpstream{{Name: "lab", URL: "https://127.0.0.1:9", Token: "t",
+		Dial: config.SwarmDialConfig{InsecureSkipVerify: true}}}
+	if _, err := New(cfg, slog.New(slog.NewTextHandler(&logs, nil))); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logs.String(), "certificate verification disabled") || !strings.Contains(logs.String(), "lab") {
+		t.Errorf("no warning for an upstream that skips verification: %q", logs.String())
 	}
 }

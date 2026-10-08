@@ -223,9 +223,15 @@ func SharedModelsAuthProblem(cfg *Config, extra ExtraTokens) error {
 }
 
 // hasHTTPCredential reports whether anything closes the API gate: a main token,
-// a shared-model token, or the web sign-in form.
+// a shared-model token, a client certificate name (with its CA), or the web sign-in form.
 func hasHTTPCredential(h *HTTPServerConfig, extra ExtraTokens) bool {
-	return hasMainCredential(h, extra) || len(h.EffectiveSharedTokens()) > 0
+	return hasMainCredential(h, extra) || len(h.EffectiveSharedTokens()) > 0 || hasCertificateCredential(h)
+}
+
+// hasCertificateCredential reports whether a verified client certificate is a credential: names are listed and a client CA verifies the
+// certificates that carry them. Names without a CA verify nothing, so nobody can come in by them.
+func hasCertificateCredential(h *HTTPServerConfig) bool {
+	return len(h.EffectiveCertNames()) > 0 && strings.TrimSpace(h.TLS.ClientCAFile) != ""
 }
 
 // hasMainCredential is hasHTTPCredential without the shared-model tokens: what
