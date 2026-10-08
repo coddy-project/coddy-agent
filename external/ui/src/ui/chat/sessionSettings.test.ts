@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   isNewerSettings,
   parseSessionSettings,
+  permissionModeOfInfo,
   sessionSettingsEventOf,
 } from "./sessionSettings";
 import { dispatchServerEvent, parseServerEvent } from "./serverEvents";
@@ -82,4 +83,22 @@ test("the events stream parses and dispatches session_settings", () => {
     event!,
   );
   expect(seen).toEqual(["sess_a:7"]);
+});
+
+test("the configured permission mode is read off GET /coddy/info", () => {
+  const info = { object: "coddy.info", version: "1.2.3", hostname: "box" };
+  expect(permissionModeOfInfo({ ...info, permissionMode: "bypass" })).toBe(
+    "bypass",
+  );
+  expect(
+    permissionModeOfInfo({ ...info, permissionMode: " accept_edits " }),
+  ).toBe("accept_edits");
+  expect(permissionModeOfInfo({ ...info, permissionMode: "ask" })).toBe("ask");
+  // A server from before the field, a mode this page does not know, or no
+  // answer at all: unknown, never a guess, because a pick is compared with it.
+  expect(permissionModeOfInfo(info)).toBeNull();
+  expect(permissionModeOfInfo({ ...info, permissionMode: "yolo" })).toBeNull();
+  expect(permissionModeOfInfo({ ...info, permissionMode: 1 })).toBeNull();
+  expect(permissionModeOfInfo(null)).toBeNull();
+  expect(permissionModeOfInfo("bypass")).toBeNull();
 });

@@ -505,6 +505,101 @@ test("the reader reaching for the wheel cancels a jump still in the air", async 
   }
 });
 
+test("a conversation opened after the reader scrolled up in another one lands on its newest message", async () => {
+  const { container, rerender } = render(
+    <ChatScreen {...scrollBase} items={firstTurn} />,
+  );
+  const viewport = transcriptViewport(container, {
+    scrollHeight: 1200,
+    clientHeight: 400,
+  });
+  viewport.scrollTop = 200;
+  fireEvent.scroll(viewport);
+  await waitFor(() => expect(scrollButtonShown()).toBe(true));
+
+  // Another conversation straight from the cache of transcripts: the same
+  // scroller, new rows, and the offset the last one was read at.
+  Object.defineProperty(viewport, "scrollHeight", {
+    value: 1600,
+    configurable: true,
+  });
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s2"
+      items={[
+        { type: "user_message", id: "s2-u1", content: "another chat" },
+        { type: "assistant_message", id: "s2-a1", content: "its answer" },
+      ]}
+    />,
+  );
+  await waitFor(() => expect(viewport.scrollTop).toBe(1200));
+  expect(scrollButtonShown()).toBe(false);
+
+  // And one read from the server after a skeleton: the scroller is new.
+  rerender(
+    <ChatScreen {...scrollBase} sessionId="s3" items={[]} sessionLoading />,
+  );
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s3"
+      items={[
+        { type: "user_message", id: "s3-u1", content: "a third chat" },
+        { type: "assistant_message", id: "s3-a1", content: "its answer" },
+      ]}
+    />,
+  );
+  const reopened = transcriptViewport(container, {
+    scrollHeight: 900,
+    clientHeight: 400,
+  });
+  reopened.scrollTop = 0;
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s3"
+      items={[
+        { type: "user_message", id: "s3-u1", content: "a third chat" },
+        { type: "assistant_message", id: "s3-a1", content: "its answer" },
+        { type: "assistant_message", id: "s3-a2", content: "and more" },
+      ]}
+    />,
+  );
+  await waitFor(() => expect(reopened.scrollTop).toBe(500));
+  expect(scrollButtonShown()).toBe(false);
+
+  // A scroll event between the switch and the new rows - the old rows still
+  // fading out at the offset they were read at - does not decide for it.
+  reopened.scrollTop = 100;
+  fireEvent.scroll(reopened);
+  await waitFor(() => expect(scrollButtonShown()).toBe(true));
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s4"
+      items={[
+        { type: "user_message", id: "s3-u1", content: "a third chat" },
+        { type: "assistant_message", id: "s3-a1", content: "its answer" },
+        { type: "assistant_message", id: "s3-a2", content: "and more" },
+      ]}
+    />,
+  );
+  fireEvent.scroll(reopened);
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s4"
+      items={[
+        { type: "user_message", id: "s4-u1", content: "a fourth chat" },
+        { type: "assistant_message", id: "s4-a1", content: "its answer" },
+      ]}
+    />,
+  );
+  await waitFor(() => expect(reopened.scrollTop).toBe(500));
+  expect(scrollButtonShown()).toBe(false);
+});
+
 test("output arriving while the reader is scrolled up keeps the button and the reading position", async () => {
   const { container, rerender } = render(
     <ChatScreen {...scrollBase} items={firstTurn} />,
@@ -1136,4 +1231,139 @@ test("the reader reaching the newest message is reported, and leaving it too", (
   viewport.scrollTop = 800;
   fireEvent.scroll(viewport);
   expect(onAtTail).toHaveBeenLastCalledWith(true);
+});
+
+/** jsdom has no layout for a range; the quote button needs a box to stand by. */
+function stubRangeBox() {
+  const had = Object.getOwnPropertyDescriptor(
+    Range.prototype,
+    "getBoundingClientRect",
+  );
+  Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value: () =>
+      ({
+        top: 300,
+        bottom: 320,
+        left: 100,
+        right: 300,
+        width: 200,
+        height: 20,
+        x: 100,
+        y: 300,
+        toJSON: () => ({}),
+      }) as DOMRect,
+  });
+  return () => {
+    if (had)
+      Object.defineProperty(Range.prototype, "getBoundingClientRect", had);
+    else
+      delete (Range.prototype as { getBoundingClientRect?: unknown })
+        .getBoundingClientRect;
+  };
+}
+
+function selectText(node: Node) {
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  const sel = document.getSelection()!;
+  sel.removeAllRanges();
+  sel.addRange(range);
+  act(() => {
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+}
+
+test("selecting text in an answer offers Quote, which adds it to the draft as a quote after what is already there", async () => {
+  const restore = stubRangeBox();
+  const onDraftChange = vi.fn();
+  try {
+    render(
+      <ChatScreen
+        {...scrollBase}
+        title="Flushing"
+        draft="Why is that?"
+        onDraftChange={onDraftChange}
+        items={[
+          { type: "user_message", id: "u1", content: "how does it stream" },
+          {
+            type: "assistant_message",
+            id: "a1",
+            content: "The stream must flush after every frame.",
+          },
+        ]}
+      />,
+    );
+
+    // The chat's title is not the transcript: nothing to quote there.
+    selectText(screen.getByText("Flushing"));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole("button", { name: "Quote" })).toBeNull();
+
+    selectText(screen.getByText("The stream must flush after every frame."));
+    const quote = await screen.findByRole("button", { name: "Quote" });
+    expect(quote).toHaveAttribute(
+      "title",
+      "Quote the selected text in your message",
+    );
+    fireEvent.click(quote);
+
+    expect(onDraftChange).toHaveBeenCalledWith(
+      "Why is that?\n\n> The stream must flush after every frame.\n\n",
+    );
+    expect(document.getSelection()?.rangeCount ?? 0).toBe(0);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Quote" })).toBeNull(),
+    );
+  } finally {
+    restore();
+    document.getSelection()?.removeAllRanges();
+  }
+});
+
+test("the expand control stands under the jump to the newest message, which an expanded composer hides, and another chat opens folded", async () => {
+  const { container, rerender } = render(
+    <ChatScreen {...scrollBase} items={firstTurn} />,
+  );
+  const viewport = transcriptViewport(container, {
+    scrollHeight: 1200,
+    clientHeight: 400,
+  });
+  viewport.scrollTop = 800;
+  fireEvent.scroll(viewport);
+  const expand = screen.getByTestId("composer-expand");
+  // Its own circle in the composer's column, in the slot right over the
+  // composer; the stylesheet puts the jump a slot higher when it is there.
+  const dock = expand.closest(".chat-bottom-inner");
+  expect(dock).not.toBeNull();
+  expect(expand.closest(".composer-card")).toBeNull();
+  expect(expand).toHaveAccessibleName("Expand the message field");
+  expect(expand).toHaveAttribute("aria-pressed", "false");
+  // Only the jump down: no jump up is offered anywhere.
+  expect(screen.queryByTestId("chat-scroll-top")).toBeNull();
+
+  viewport.scrollTop = 200;
+  fireEvent.scroll(viewport);
+  await waitFor(() => expect(scrollButtonShown()).toBe(true));
+  expect(screen.getByTestId("chat-scroll-bottom").parentElement).toBe(dock);
+
+  // Expanded, the transcript is under the composer: the jump is hidden.
+  fireEvent.click(expand);
+  expect(expand).toHaveAccessibleName("Collapse the message field");
+  expect(expand).toHaveAttribute("aria-pressed", "true");
+  expect(scrollButtonShown()).toBe(false);
+  expect(container.querySelector(".composer-wrap--expanded")).not.toBeNull();
+
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s2"
+      items={[{ type: "user_message", id: "s2-u1", content: "another chat" }]}
+    />,
+  );
+  expect(screen.getByTestId("composer-expand")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  expect(container.querySelector(".composer-wrap--expanded")).toBeNull();
 });

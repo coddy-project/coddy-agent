@@ -560,7 +560,13 @@ const browser = await launcher.launch(
 
 /** A page with CPU throttling, a long task recorder and request log. */
 async function openPage(viewport, { throttle = THROTTLE, init } = {}) {
-  const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
+  // English whatever the machine's locale: the steps find controls by their
+  // English names ("Retry"), which a Russian system locale renamed.
+  const context = await browser.newContext({
+    viewport,
+    deviceScaleFactor: 1,
+    locale: "en-US",
+  });
   if (init) await context.addInitScript(init);
   await context.addInitScript(() => {
     window.__longTasks = [];

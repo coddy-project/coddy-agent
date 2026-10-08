@@ -98,6 +98,7 @@ The composer is a plain `textarea`; keys not listed here keep their browser mean
 | Enter | slash, `@` or command option menu open | apply, without sending; a folder or a scheme row keeps the `@` menu open, and `--model` opens the list of models |
 | Escape | slash, `@`, command option or line-range picker open | close the picker; the `@path:N-M` picker stays closed for that mention until the draft moves on |
 | Escape | context breakdown popover open | close it |
+| Escape | composer expanded over the chat | fold it back to the height of its text; the next Escape leaves an edit when one is open ([Web UI](../surfaces/web-ui.md#long-prompts-in-the-composer)) |
 | Ctrl+Z / Cmd+Z | composer, right after Improve prompt | restore the draft from before the improvement, once |
 | Enter / Space | context ring button focused | open or close the breakdown |
 | Enter / Escape | model menu filter (shown with more than five backends) | pick the first match / close the menu |

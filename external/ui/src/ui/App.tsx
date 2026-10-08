@@ -58,6 +58,7 @@ import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
 import {
   isNewerSettings,
   parseSessionSettings,
+  permissionModeOfInfo,
   type SessionSettings,
   type SessionSettingsEvent,
   type TurnOverride,
@@ -1384,6 +1385,22 @@ export function App() {
   const [permissionMode, setPermissionMode] = useState("ask");
   const [configuredPermissionMode, setConfiguredPermissionMode] =
     useState("ask");
+  /**
+   * The permission mode the server says a new session starts under (GET
+   * /coddy/info, read again after every configuration reload and every
+   * reconnect of the events stream): the start screen has no session and so
+   * no snapshot, and this is the mode its first turn runs under unless the
+   * operator picks another. Null while unknown - before the answer, while a
+   * reload is read again, from a server that does not say - and a pick is then
+   * always sent. The ref is what a send compares with, the state what renders.
+   */
+  const [serverPermissionMode, setServerPermissionMode] = useState<
+    string | null
+  >(null);
+  const serverPermissionModeRef = useRef<string | null>(null);
+  const serverPermissionReadRef = useRef(0);
+  /** The read of the mode in flight, which a first send waits for. */
+  const serverPermissionReadingRef = useRef<Promise<void> | null>(null);
   const [settingsOverrides, setSettingsOverrides] = useState<TurnOverride[]>(
     [],
   );
@@ -1406,9 +1423,68 @@ export function App() {
     sid: "",
     version: 0,
   });
-  /** A permission mode picked before the chat has a session: it rides in as a
-   *  command at the start of the first message, where the server takes it. */
-  const pendingPermissionModeRef = useRef("");
+  /**
+   * A permission mode picked before the chat has a session: it rides in as a
+   * command at the start of the first message, where the server takes it,
+   * unless it is the mode the server named as its configured one (decided
+   * when sending, against what the server said last). `sid` is empty on the
+   * start screen and names the session the first send creates from then on:
+   * the pick stays until the server has taken a message of that session, so a
+   * first send that never reached it (Recoverable composer sends) does not
+   * leave the pick behind for the next try. The state mirrors the mode for the
+   * chip.
+   */
+  const pendingPermissionModeRef = useRef({ mode: "", sid: "" });
+  const [pendingPermissionMode, setPendingPermissionModeState] = useState("");
+  const setPendingPermissionMode = useCallback((mode: string, sid = "") => {
+    pendingPermissionModeRef.current = { mode, sid };
+    setPendingPermissionModeState(mode);
+  }, []);
+  /**
+   * readServerPermissionMode asks the server which permission mode a new
+   * session starts under. The fetch shim sends it to the environment the app
+   * is on: the local server, a remote, a node behind a relay's mount. The mode
+   * held so far stops counting as known at once, because the read follows a
+   * reload or a reconnect, either of which may have moved it: a pick sent
+   * against an unknown mode is at worst redundant, while one left out against
+   * a stale mode runs the first turn under a mode nobody chose.
+   */
+  const readServerPermissionMode = useStableHandler(() => {
+    const read = ++serverPermissionReadRef.current;
+    serverPermissionModeRef.current = null;
+    const reading = fetch("/coddy/info", {
+      headers: { Accept: "application/json" },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(permissionModeOfInfo)
+      .catch(() => null)
+      .then((mode) => {
+        if (read !== serverPermissionReadRef.current || !isAppEnvironment()) {
+          return;
+        }
+        serverPermissionReadingRef.current = null;
+        serverPermissionModeRef.current = mode;
+        setServerPermissionMode(mode);
+        if (mode) {
+          setConfiguredPermissionMode(mode);
+        }
+      });
+    serverPermissionReadingRef.current = reading;
+    return reading;
+  });
+  // configEpoch bumps after every configuration swap, which can move
+  // tools.permission_mode as well as the models.
+  useEffect(() => {
+    void readServerPermissionMode();
+  }, [configEpoch, readServerPermissionMode]);
+  // The configured mode the chip names: the server's own answer when it gave
+  // one, else the last snapshot's (a server that does not say it in /coddy/info).
+  const shownConfiguredPermissionMode =
+    serverPermissionMode ?? configuredPermissionMode;
+  // What the start screen's chip names, and the first turn runs under: the
+  // mode picked there, else the configured one.
+  const startPermissionMode =
+    pendingPermissionMode || shownConfiguredPermissionMode;
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [llmModel, setLlmModel] = useState("");
   const applyContextUsage = useStableHandler(
@@ -3248,8 +3324,10 @@ export function App() {
     ready: () => {
       void loadSessionsList(true);
       // A config_reloaded may have been missed while the stream was down: the
-      // Settings copy is read again if the drawer ever held one.
+      // Settings copy is read again if the drawer ever held one, and so is the
+      // permission mode a new chat starts under.
       noteSettingsConfigReloaded();
+      void readServerPermissionMode();
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
       stoppedTurnBySidRef.current.clear();
@@ -3935,8 +4013,9 @@ export function App() {
     // that session is read afresh, whatever version a restarted server gives.
     goalVersionRef.current = { sid: "", version: 0 };
     setViewedGoal({ sid: "", goal: null });
-    pendingPermissionModeRef.current = "";
-    setPermissionMode(configuredPermissionMode);
+    // The start screen's chip names the configured mode again (or a mode
+    // picked there): it is derived, so nothing of the session left is shown.
+    setPendingPermissionMode("");
     setSettingsOverrides([]);
     if (llmModelIds.length > 0) {
       const model = pickDefaultLlmModelForNewChat({
@@ -4898,6 +4977,30 @@ export function App() {
       let sid = sessionId;
       if (!sid) {
         sid = randomSessionId();
+        // The start screen's pick now belongs to the session this send
+        // creates, and the chip keeps naming what the start screen showed
+        // until that session's own snapshot arrives. With no pick and no word
+        // from the server on its configured mode, what the chip shows is sent
+        // as the pick: the first turn runs under the mode the operator saw,
+        // never under one the page could not name.
+        // A read of the mode in flight (a reload, a reconnect) is waited for,
+        // briefly: the chip may still show the mode it is replacing, and a
+        // first turn pinned to that one would outlive the change.
+        const reading = serverPermissionReadingRef.current;
+        if (reading) {
+          await Promise.race([
+            reading,
+            new Promise((resolve) => setTimeout(resolve, 1500)),
+          ]);
+        }
+        setPendingPermissionMode(
+          pendingPermissionModeRef.current.mode ||
+            (serverPermissionModeRef.current === null
+              ? startPermissionMode
+              : ""),
+          sid,
+        );
+        setPermissionMode(startPermissionMode);
         migrateWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, sid);
         await applyPendingWorkspace(sid);
         if (activeDraftId.trim()) {
@@ -5108,9 +5211,18 @@ export function App() {
       reqBody.metadata = meta;
       // A permission mode picked before the chat had a session goes first,
       // as the command that asks for it; the server takes it off the text.
-      if (!sid.trim() && pendingPermissionModeRef.current) {
-        reqBody.input = `/permissions ${pendingPermissionModeRef.current}\n${text}`;
-        pendingPermissionModeRef.current = "";
+      // It is left out only when it is the mode the server named as the one
+      // a new session starts under: against a mode not known (no answer yet,
+      // a reload being read again, a server that does not say) it is sent,
+      // because the configured mode may be another one - bypass, say, under
+      // an explicit "Ask first".
+      const pick = pendingPermissionModeRef.current;
+      if (
+        pick.mode &&
+        pick.sid === sid.trim() &&
+        pick.mode !== serverPermissionModeRef.current
+      ) {
+        reqBody.input = `/permissions ${pick.mode}\n${text}`;
       }
       if (!ownsPost() || abortCtl.signal.aborted) return;
       const res = await fetch("/v1/responses", {
@@ -5120,6 +5232,10 @@ export function App() {
         signal: abortCtl.signal,
       });
       responded = true;
+      // The server took the session's first message, and with it the pick.
+      if (res.ok && pendingPermissionModeRef.current.sid === sid.trim()) {
+        setPendingPermissionMode("");
+      }
       if (!ownsPost() || abortCtl.signal.aborted) return;
       pendingPostBySidRef.current.delete(postSessionKey);
 
@@ -5778,14 +5894,25 @@ export function App() {
       setPermissionMode(pm);
       const sid = sessionId.trim();
       if (!sid) {
-        // No session yet: the choice rides in with the first message.
-        pendingPermissionModeRef.current =
-          pm === configuredPermissionMode ? "" : pm;
+        // No session yet: the choice rides in with the first message. It is
+        // kept even when it is the configured mode, which may move before
+        // the message is sent; the send decides against what the server says
+        // then. A first send already under way (its workspace being applied)
+        // has bound the pick to the session it creates: the new choice keeps
+        // that binding, or neither choice would ride in.
+        setPendingPermissionMode(pm, pendingPermissionModeRef.current.sid);
         return;
+      }
+      if (pendingPermissionModeRef.current.sid === sid) {
+        // A session whose first message the server has not taken yet (the
+        // send failed on the way): the choice rides in with the next try, and
+        // the PATCH below applies it at once should the server have taken it
+        // after all.
+        setPendingPermissionMode(pm, sid);
       }
       void patchSessionSettings(sid, { permissionMode: pm });
     },
-    [sessionId, configuredPermissionMode, patchSessionSettings],
+    [sessionId, patchSessionSettings, setPendingPermissionMode],
   );
 
   const onLlmReasoningChange = useCallback(
@@ -7288,8 +7415,10 @@ export function App() {
                 }
               : {})}
             onModeChange={setMode}
-            permissionMode={permissionMode}
-            configuredPermissionMode={configuredPermissionMode}
+            permissionMode={
+              sessionId.trim() ? permissionMode : startPermissionMode
+            }
+            configuredPermissionMode={shownConfiguredPermissionMode}
             onPermissionModeChange={
               subagentTranscript ? undefined : onPermissionModeChange
             }

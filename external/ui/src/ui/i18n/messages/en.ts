@@ -1307,6 +1307,8 @@ export const messagesEn: Record<string, string> = {
   "chat.heroVerb.plan": "plan",
   "chat.runPlanMessage": "Implement the plan.",
   "chat.scrollToBottom": "Scroll to the latest message",
+  "chat.quoteSelection": "Quote",
+  "chat.quoteSelectionTitle": "Quote the selected text in your message",
   "chat.transcriptEarlier.show": "Show earlier messages",
   "chat.transcriptEarlier.loading": "Loading earlier messages…",
   "chat.transcriptEarlier.failed": "Earlier messages did not load.",
@@ -1369,6 +1371,8 @@ export const messagesEn: Record<string, string> = {
   "composer.undoDismiss": "Hide",
   "composer.stopGeneration": "Stop generation",
   "composer.enhance": "Improve prompt",
+  "composer.expand": "Expand the message field",
+  "composer.collapse": "Collapse the message field",
   "composer.enhanceNoModel":
     "Couldn't improve the prompt: no model is configured.",
   "composer.enhanceFailed":

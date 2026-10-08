@@ -12,6 +12,7 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
 import { WorkspaceBar } from "./WorkspaceBar";
+import { useComposerFieldHeight } from "./useComposerFieldHeight";
 import { useT } from "../i18n/I18nProvider";
 import { ImageLightbox } from "../components/ImageLightbox";
 import { PaperclipIcon } from "../components/PaperclipIcon";
@@ -402,6 +403,21 @@ export function Composer(props: {
   isEmpty: boolean;
   /** Empty-state composer refocuses when this increments (e.g. each New Chat). */
   focusEpoch?: number;
+  /**
+   * The docked composer can be expanded over the chat (issue #342): with the
+   * field at its floor, the room between the top of the docked block and the
+   * chat header above it. Absent on the start screen.
+   */
+  expandRoomPx?: () => number;
+  /** The docked field is expanded over the chat (the chat screen's control). */
+  expanded?: boolean;
+  /** Folds the field (false) after a send, a queued message or Escape. */
+  onExpandedChange?: (next: boolean) => void;
+  /**
+   * The caret goes to the end of the draft (and the field takes the focus
+   * where the app may focus it) whenever this increments: a quote was added.
+   */
+  caretToEndEpoch?: number;
   /** When set, slash command requests send X-Coddy-Session-ID for cwd-scoped skills. */
   sessionId?: string;
   mode: string;
@@ -548,6 +564,30 @@ export function Composer(props: {
   const [contextTipSuppressed, setContextTipSuppressed] = useState(false);
 
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  // The docked field expanded over the chat for a long prompt (issue #342).
+  // The chat screen owns the state and the control, which stands over the
+  // jump to the newest message; the composer folds it when the prompt goes.
+  const canExpand =
+    !props.isEmpty &&
+    props.expandRoomPx !== undefined &&
+    props.onExpandedChange !== undefined;
+  const fieldExpanded = canExpand && props.expanded === true;
+  const foldRef = useRef(props.onExpandedChange);
+  foldRef.current = props.onExpandedChange;
+  const fold = useCallback(() => {
+    if (fieldExpanded) foldRef.current?.(false);
+  }, [fieldExpanded]);
+  const expandRoomRef = useRef(props.expandRoomPx);
+  expandRoomRef.current = props.expandRoomPx;
+  // Sized before the mirror reads the field's height (its effects run later).
+  useComposerFieldHeight({
+    taRef,
+    value: props.value,
+    layoutKey: props.isEmpty,
+    expanded: fieldExpanded,
+    roomAbove: () =>
+      props.isEmpty ? Infinity : (expandRoomRef.current?.() ?? Infinity),
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerFieldWrapRef = useRef<HTMLDivElement | null>(null);
   const composerCardRef = useRef<HTMLDivElement | null>(null);
@@ -636,6 +676,7 @@ export function Composer(props: {
       return;
     }
     setQueueChoice(null);
+    fold();
     const files = [...sendableAttachedFiles];
     if (files.length > 0) setAttachedFiles([]);
     props.onQueue(txt, chosen, files);
@@ -795,6 +836,8 @@ export function Composer(props: {
     return window.matchMedia(shellStackMaxWidthMediaQuery).matches;
   });
   const [sheetBottomPx, setSheetBottomPx] = useState<number | null>(null);
+  /** Expanded, the picker keeps inside the field: the height it has there. */
+  const [sheetRoomPx, setSheetRoomPx] = useState<number | null>(null);
 
   const focusEpoch = props.focusEpoch ?? 0;
   /** Tracks session id for docked composer so switching chats in History refocuses input. */
@@ -831,6 +874,17 @@ export function Composer(props: {
     }
     el.focus();
   }, [props.isEmpty, props.sessionId]);
+
+  const caretToEndEpoch = props.caretToEndEpoch ?? 0;
+  useLayoutEffect(() => {
+    const el = taRef.current;
+    if (!el || caretToEndEpoch === 0) return;
+    const end = el.value.length;
+    if (composerAutoFocusAllowed()) el.focus();
+    el.setSelectionRange(end, end);
+    el.scrollTop = el.scrollHeight;
+    setCaretPos(end);
+  }, [caretToEndEpoch]);
 
   // The range panel only counts as open once its file loaded, so a colon typed in
   // prose ("см. 10:30-11:00") never flashes an empty panel.
@@ -901,9 +955,20 @@ export function Composer(props: {
       setSheetBottomPx(null);
       return;
     }
-    const r = el.getBoundingClientRect();
+    // Expanded over the chat, the card reaches the header and a sheet above
+    // it would ride over the top bar: the picker opens inside the field
+    // instead, down at its foot over the composer's bar.
+    const bar = fieldExpanded
+      ? el.querySelector<HTMLElement>(".composer-bar")
+      : null;
+    const r = (bar ?? el).getBoundingClientRect();
     setSheetBottomPx(Math.max(0, Math.round(window.innerHeight - r.top + 8)));
-  }, [props.isEmpty]);
+    setSheetRoomPx(
+      bar
+        ? Math.max(0, Math.round(r.top - el.getBoundingClientRect().top - 16))
+        : null,
+    );
+  }, [props.isEmpty, fieldExpanded]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -984,14 +1049,20 @@ export function Composer(props: {
       setPickerFloatRect(null);
       return;
     }
-    const maxH = Math.min(260, Math.round(window.innerHeight * 0.42));
+    const maxH = Math.min(
+      260,
+      Math.round(window.innerHeight * 0.42),
+      // Expanded, the picker keeps inside the field it opens in.
+      fieldExpanded ? Math.max(0, Math.round(r.height - 24)) : Infinity,
+    );
     setPickerFloatRect({
       left: r.left,
       width: r.width,
-      bottom: window.innerHeight - r.top + 8,
+      // Expanded, the field reaches the header: the picker opens at its foot.
+      bottom: window.innerHeight - (fieldExpanded ? r.bottom : r.top) + 8,
       maxH,
     });
-  }, [pickerOpen, pickerUseSheet]);
+  }, [pickerOpen, pickerUseSheet, fieldExpanded]);
 
   useLayoutEffect(() => {
     if (!pickerOpen) {
@@ -2763,6 +2834,7 @@ export function Composer(props: {
         className={[
           "composer-wrap",
           props.isEmpty ? "" : "composer-wrap-docked",
+          fieldExpanded ? "composer-wrap--expanded" : "",
           contextPopoverOpen && pickerUseSheet
             ? "composer-wrap-context-sheet"
             : "",
@@ -3197,6 +3269,24 @@ export function Composer(props: {
                     dismissSlashAtPickers();
                     return;
                   }
+                  // Escape folds an expanded field before it leaves an edit:
+                  // folding loses nothing.
+                  if (
+                    ev.key === "Escape" &&
+                    fieldExpanded &&
+                    // One Escape, one step: a picker or a popover that took
+                    // the key first has had its step.
+                    !ev.defaultPrevented &&
+                    !ev.repeat &&
+                    !ev.shiftKey &&
+                    !ev.altKey &&
+                    !ev.ctrlKey &&
+                    !ev.metaKey
+                  ) {
+                    ev.preventDefault();
+                    fold();
+                    return;
+                  }
                   // Escape leaves an edit the way the banner's cross does,
                   // once no picker or popover above claimed it.
                   if (
@@ -3388,6 +3478,7 @@ export function Composer(props: {
                     if (!txt && sendableAttachedFiles.length === 0) {
                       return;
                     }
+                    fold();
                     if (sendableAttachedFiles.length > 0) {
                       const files = [...sendableAttachedFiles];
                       setAttachedFiles([]);
@@ -3618,6 +3709,7 @@ export function Composer(props: {
                   if (!txt && sendableAttachedFiles.length === 0) {
                     return;
                   }
+                  fold();
                   if (sendableAttachedFiles.length > 0) {
                     const files = [...sendableAttachedFiles];
                     setAttachedFiles([]);
@@ -3831,7 +3923,7 @@ export function Composer(props: {
               <>
                 <button
                   type="button"
-                  className="slash-sheet-backdrop"
+                  className="slash-sheet-backdrop slash-sheet-backdrop--clear"
                   aria-label={t("composer.closePicker")}
                   tabIndex={-1}
                   onMouseDown={(e) => {
@@ -3854,6 +3946,11 @@ export function Composer(props: {
                       ? {
                           bottom: sheetBottomPx,
                           ["--context-sheet-bottom" as string]: `${sheetBottomPx}px`,
+                          ...(sheetRoomPx != null
+                            ? {
+                                ["--slash-sheet-room" as string]: `${sheetRoomPx}px`,
+                              }
+                            : {}),
                         }
                       : undefined
                   }
