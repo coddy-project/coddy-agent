@@ -18,11 +18,20 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 import { SettingsTileGrid } from "./SettingsTileGrid";
 import {
   ensureSettingsConfig,
-  noteSettingsConfigSaved,
-  refreshSettingsConfig,
   snapshotSettingsConfig,
   subscribeSettingsConfig,
 } from "./settingsConfigStore";
+import {
+  discardPendingSettings,
+  editSettingsDraft,
+  flushSettingsDraft,
+  reloadSettingsDraft,
+  saveSettingsDraft,
+  snapshotSettingsDraft,
+  subscribeSettingsDraft,
+} from "./settingsDraftStore";
+import { SettingsPendingPanel, pendingChangeLabel } from "./SettingsPending";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
   serverSnapshotShellStack,
   snapshotShellStack,
@@ -37,8 +46,6 @@ import { useT } from "../i18n/I18nProvider";
 import { hasTranslation, translate } from "../i18n/i18n";
 import { useRailEscapeStep } from "../nav/railEscape";
 
-type ValidateResponse = { ok: boolean; error?: string };
-
 /** How long a save that went through lights the Save button green. */
 export const SAVE_SUCCESS_MS = 2000;
 
@@ -47,21 +54,6 @@ export const SAVE_SUCCESS_MS = 2000;
  * schema will bring, while the first read of the page is on its way.
  */
 const PLACEHOLDER_TABS = 12;
-
-/**
- * The form's document: the operator's edits (doc) over the config it started
- * from (base, null before the first read lands). While doc is base itself
- * nothing was edited, and a newer copy of the config may take its place. seen
- * is the last copy the draft was measured against, so a copy is taken or passed
- * over once. replaced counts the times a copy took the place of the document,
- * which an open row form re-reads its row by (SettingsArraySection).
- */
-type Draft = {
-  seen: Record<string, unknown> | null;
-  base: Record<string, unknown> | null;
-  doc: Record<string, unknown>;
-  replaced: number;
-};
 
 function IconSave(props: { className?: string }) {
   return (
@@ -179,45 +171,32 @@ export function Settings(props: {
   const [mountCopy] = useState(copy);
   const retrying = copy === mountCopy && copy.error !== null;
   const loading = schema === null && (copy.error === null || retrying);
-  const [draft, setDraft] = useState<Draft>(() => ({
-    seen: copy.config,
-    base: copy.config,
-    doc: copy.config ?? {},
-    replaced: 0,
-  }));
-  // A newer copy - the first read landing, the server's config reloaded by
-  // anyone - replaces a form that holds no edits of its own; unsaved edits
-  // stay, and Reload is the deliberate way to drop them. It is taken while
-  // rendering, not in an effect after it: a frame drawn from the older document
-  // would show a list with no rows, and the list reads an address naming one of
-  // its rows as a stale one and rewrites it.
-  if (copy.config !== null && copy.config !== draft.seen) {
-    const untouched = draft.base === null || draft.doc === draft.base;
-    setDraft(
-      untouched
-        ? {
-            seen: copy.config,
-            base: copy.config,
-            doc: copy.config,
-            replaced: draft.replaced + 1,
-          }
-        : { ...draft, seen: copy.config },
-    );
-  }
+  // The form's document and its saves live in settingsDraftStore for the life
+  // of the page: the form saves on its own a moment after the last edit, and
+  // what the schema marks as a deliberate act waits for Save. A newer copy of
+  // the config - the first read landing, the server's config reloaded by
+  // anyone - replaces a form that holds no edits of its own, in the store,
+  // before any frame is drawn from it: a frame drawn from the older document
+  // would show a list with no rows, and the list reads an address naming one
+  // of its rows as a stale one and rewrites it.
+  const draft = useSyncExternalStore(
+    subscribeSettingsDraft,
+    snapshotSettingsDraft,
+    snapshotSettingsDraft,
+  );
   const doc = draft.doc;
-  // Counts the operator's edits (a newer copy taking the place of an untouched
-  // form is none), so a save knows whether the form changed while it ran.
-  const edits = useRef(0);
-  const setDoc = useCallback((next: Record<string, unknown>) => {
-    edits.current++;
-    setDraft((d) => ({ ...d, doc: next }));
-  }, []);
+  const setDoc = editSettingsDraft;
   useEffect(() => {
     void ensureSettingsConfig();
   }, []);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const { locale, t } = useT();
+  // A save waiting for the pause goes out when the drawer goes away, by any
+  // path; changes waiting for Save stay in the store for the next open.
+  useEffect(() => () => flushSettingsDraft(), []);
+  // Why a Reload could not read the server; a refused save says why in the
+  // store (draft.error).
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const error = loadError ?? draft.error;
+  const { locale, t, tp } = useT();
   const [activeTab, setActiveTab] = useState<string>(
     props.initialSection ?? "",
   );
@@ -227,6 +206,7 @@ export function Settings(props: {
   const [reloadKey, setReloadKey] = useState(0);
   const [reloading, setReloading] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  const [askClose, setAskClose] = useState(false);
   const savedTimer = useRef<number | null>(null);
   useEffect(
     () => () => {
@@ -236,13 +216,6 @@ export function Settings(props: {
     },
     [],
   );
-  const clearSaved = useCallback(() => {
-    if (savedTimer.current !== null) {
-      window.clearTimeout(savedTimer.current);
-      savedTimer.current = null;
-    }
-    setJustSaved(false);
-  }, []);
   const flashSaved = useCallback(() => {
     setJustSaved(true);
     if (savedTimer.current !== null) {
@@ -253,6 +226,28 @@ export function Settings(props: {
       setJustSaved(false);
     }, SAVE_SUCCESS_MS);
   }, []);
+
+  // A Save that went through with nothing typed while it ran turns the button
+  // green; every save that went through, on its own or by Save, tells the app,
+  // which reads the model metadata again.
+  const confirmedAtMount = useRef(draft.confirmedSaves);
+  useEffect(() => {
+    if (draft.confirmedSaves !== confirmedAtMount.current) {
+      confirmedAtMount.current = draft.confirmedSaves;
+      flashSaved();
+    }
+  }, [draft.confirmedSaves, flashSaved]);
+  const onConfigSavedRef = useRef(props.onConfigSaved);
+  useEffect(() => {
+    onConfigSavedRef.current = props.onConfigSaved;
+  });
+  const savesAtMount = useRef(draft.saves);
+  useEffect(() => {
+    if (draft.saves !== savesAtMount.current) {
+      savesAtMount.current = draft.saves;
+      onConfigSavedRef.current?.();
+    }
+  }, [draft.saves]);
 
   // On narrow shells the section picker is a tile grid (master) that opens one
   // section at a time (detail); `mobileDetailId` null means the grid is showing.
@@ -315,6 +310,21 @@ export function Settings(props: {
   const rowTitle = rowOpen && headSection ? itemFormTitle(headSection) : null;
   const closeRowForm = useCallback(() => setCloseRowSignal((n) => n + 1), []);
 
+  // Closing asks first while the form holds something that would not be saved
+  // without the operator: changes waiting for Save, or edits a save refused.
+  // Otherwise it closes at once, and a save waiting for the pause goes out as
+  // the drawer goes.
+  const mustAsk =
+    draft.pending.length > 0 || (draft.error !== null && draft.unsaved);
+  const requestClose = useCallback(() => {
+    if (mustAsk) {
+      setAskClose(true);
+      return;
+    }
+    props.onClose();
+  }, [mustAsk, props]);
+  const keepEditing = useCallback(() => setAskClose(false), []);
+
   // Escape takes the step the head's arrow takes while the head shows one,
   // and closes the drawer when it shows none (nav/railEscape.ts).
   useRailEscapeStep(
@@ -323,7 +333,9 @@ export function Settings(props: {
       ? closeRowForm
       : isMobileShell && (mobileSection || mobilePending)
         ? backToGrid
-        : null,
+        : mustAsk
+          ? requestClose
+          : null,
   );
 
   // Reload with visible feedback: spin the refresh icon and replay the form
@@ -332,90 +344,41 @@ export function Settings(props: {
   // new copy over the edits it held when Reload was pressed - not over any typed
   // while the read was on its way.
   const onReload = useCallback(async () => {
-    const pressedOn = doc;
     setReloading(true);
     setReloadKey((k) => k + 1);
-    setError(null);
+    setLoadError(null);
     try {
       const [read] = await Promise.all([
-        refreshSettingsConfig(),
+        reloadSettingsDraft(),
         new Promise((r) => window.setTimeout(r, 500)),
       ]);
-      if (read.ok && read.copy.config) {
-        const fresh = read.copy.config;
-        setDraft((d) =>
-          d.doc === pressedOn
-            ? { seen: fresh, base: fresh, doc: fresh, replaced: d.replaced + 1 }
-            : { ...d, seen: fresh },
-        );
-      } else if (!read.ok) {
-        setError(
+      if (!read.ok) {
+        setLoadError(
           translate("settings.error.failedToLoad", { error: read.error }),
         );
       }
     } finally {
       setReloading(false);
     }
-  }, [doc]);
+  }, []);
 
-  const onSave = useCallback(async () => {
-    setBusy(true);
-    setError(null);
+  const onSave = useCallback(async (): Promise<boolean> => {
+    setLoadError(null);
     // The green of an earlier save says nothing about this one.
-    clearSaved();
-    const sent = doc;
-    const editsAtSend = edits.current;
-    try {
-      const body = JSON.stringify(sent);
-      const v = await fetch("/coddy/config/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-      });
-      const vj = (await v.json()) as ValidateResponse;
-      if (!vj.ok) {
-        setError(vj.error || translate("settings.error.validationFailed"));
-        return;
-      }
-      const p = await fetch("/coddy/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body,
-      });
-      const pj = (await p.json()) as ValidateResponse;
-      if (!p.ok || !pj.ok) {
-        setError(
-          pj.error ||
-            translate("settings.error.saveFailed", { status: p.status }),
-        );
-        return;
-      }
-      // Green says the form on screen is saved. Edits typed while the request
-      // was on its way are not in the file, so they leave the button as it is
-      // and the form as holding unsaved edits.
-      if (edits.current === editsAtSend) {
-        flashSaved();
-      }
-      // What was sent is what the file has now, and the kept copy says so at
-      // once (a reopen before the read below lands draws it). The copy read
-      // here, and the one config_reloaded brings, replaces it with what the
-      // server made of the save, unless the operator types something first.
-      // A form a newer copy took over meanwhile is left as it is.
-      setDraft((d) => (d.doc === sent ? { ...d, base: sent } : d));
-      noteSettingsConfigSaved(sent);
-      props.onConfigSaved?.();
-      setBusy(false);
-      void refreshSettingsConfig();
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : translate("settings.error.requestFailed"),
-      );
-    } finally {
-      setBusy(false);
+    if (savedTimer.current !== null) {
+      window.clearTimeout(savedTimer.current);
+      savedTimer.current = null;
     }
-  }, [doc, clearSaved, flashSaved, props]);
+    setJustSaved(false);
+    return saveSettingsDraft();
+  }, []);
+
+  const saveAndClose = useCallback(async () => {
+    setAskClose(false);
+    if (await onSave()) {
+      props.onClose();
+    }
+  }, [onSave, props]);
 
   // Renders the content panel for a section, reusing the schema-present and
   // appearance-without-schema paths for both the desktop rail and the mobile
@@ -502,6 +465,45 @@ export function Settings(props: {
     return loading ? <SettingsSkeleton /> : null;
   };
 
+  // One line beside the buttons says where the form stands: saving, waiting
+  // for Save, refused, a save waiting for the pause, or all saved.
+  const saveState = draft.saving
+    ? "saving"
+    : draft.error !== null && draft.unsaved
+      ? "error"
+      : draft.pending.length > 0
+        ? "pending"
+        : draft.unsaved
+          ? "unsaved"
+          : draft.saves > 0
+            ? "saved"
+            : "idle";
+  const saveStatusText = !schema
+    ? ""
+    : saveState === "saving"
+      ? t("settings.status.saving")
+      : saveState === "error"
+        ? t("settings.status.error")
+        : saveState === "pending"
+          ? tp("settings.status.pending", draft.pending.length)
+          : saveState === "unsaved"
+            ? t("settings.status.unsaved")
+            : saveState === "saved"
+              ? t("settings.status.saved")
+              : t("settings.status.auto");
+  const closeMessage = [
+    draft.pending.length > 0
+      ? t("settings.close.pending", {
+          changes: draft.pending
+            .map((c) => pendingChangeLabel(c, sections, schema))
+            .join("; "),
+        })
+      : "",
+    draft.error !== null && draft.unsaved ? t("settings.close.refused") : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <aside
       className="sessions settings drawer"
@@ -552,7 +554,7 @@ export function Settings(props: {
           className="sessions-close"
           aria-label={t("settings.aria.close")}
           data-testid="settings-drawer-close"
-          onClick={props.onClose}
+          onClick={requestClose}
         >
           ×
         </button>
@@ -605,11 +607,26 @@ export function Settings(props: {
         )}
 
         <div className="scheduler-drawer-footer settings-footer-actions">
+          <SettingsPendingPanel
+            pending={draft.pending}
+            sections={sections}
+            schema={schema}
+            onDiscard={discardPendingSettings}
+            disabled={draft.confirming}
+          />
+          <span
+            className="settings-save-status"
+            data-testid="settings-save-status"
+            data-state={saveState}
+            role="status"
+          >
+            {saveStatusText}
+          </span>
           <button
             type="button"
             className="settings-btn settings-btn-icon"
             data-testid="settings-reload"
-            disabled={busy || reloading}
+            disabled={reloading}
             title={t("settings.reload.title")}
             aria-label={t("settings.reload.aria")}
             onClick={() => void onReload()}
@@ -620,22 +637,42 @@ export function Settings(props: {
           </button>
           <button
             type="button"
-            className={`settings-btn settings-btn-primary settings-btn-icon${justSaved ? " is-saved" : ""}`}
+            className={`settings-btn settings-btn-primary settings-btn-icon${justSaved ? " is-saved" : ""}${draft.pending.length > 0 ? " has-pending" : ""}`}
             data-testid="settings-save"
-            disabled={busy || !schema}
-            title={t("settings.save.title")}
-            aria-label={t("settings.save.aria")}
+            disabled={!schema || draft.confirming}
+            title={
+              draft.pending.length > 0
+                ? t("settings.save.pendingTitle")
+                : t("settings.save.title")
+            }
+            aria-label={
+              draft.pending.length > 0
+                ? tp("settings.save.pendingAria", draft.pending.length)
+                : t("settings.save.aria")
+            }
             onClick={() => void onSave()}
           >
             <IconSave className="settings-footer-icon-svg" />
+            {draft.pending.length > 0 ? (
+              <span className="settings-save-badge" aria-hidden>
+                {draft.pending.length}
+              </span>
+            ) : null}
           </button>
-          {/* The green button is the whole message on screen; a screen reader
-              hears it here. */}
-          <span className="sr-only" role="status">
-            {justSaved ? t("settings.save.saved") : ""}
-          </span>
         </div>
       </div>
+      <ConfirmDialog
+        open={askClose}
+        title={t("settings.close.title")}
+        message={closeMessage}
+        confirmLabel={t("settings.close.save")}
+        cancelLabel={t("settings.close.keep")}
+        variant="primary"
+        ariaLabel={t("settings.close.title")}
+        onConfirm={() => void saveAndClose()}
+        onCancel={keepEditing}
+        dataTestId="settings-close-dialog"
+      />
     </aside>
   );
 }

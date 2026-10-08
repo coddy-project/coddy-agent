@@ -10255,6 +10255,109 @@ html:not([data-theme="light"]) .context-usage-note--error {
   animation: settings-save-pop 0.45s ease;
 }
 
+/* Changes that take effect only after Save (issue #485): while the form holds
+   any, the Save button stands out - a solid accent, a ring that breathes and
+   the count of held changes on its corner - so it is plain that nothing of
+   them applies until it is pressed. The list of them stands above the footer
+   (.settings-pending). Under reduced motion the ring holds still. */
+.settings-btn-primary.has-pending {
+  position: relative;
+  color: #fff;
+  border-color: rgba(147, 51, 234, 0.95);
+  background: rgba(147, 51, 234, 0.82);
+  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.3);
+  animation: settings-save-attention 1.8s ease-in-out infinite;
+}
+
+.settings-btn-primary.has-pending:hover:not(:disabled) {
+  background: rgba(147, 51, 234, 0.95);
+  border-color: rgba(147, 51, 234, 1);
+}
+
+@keyframes settings-save-attention {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(147, 51, 234, 0.12);
+  }
+}
+
+.settings-save-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  border: 2px solid var(--coddy-blend-base);
+  background: rgba(147, 51, 234, 1);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Where the form stands, beside the footer's buttons: saving, saved, a change
+   waiting for Save, refused. */
+.settings-save-status {
+  flex: 1 1 0;
+  min-width: 0;
+  align-self: center;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.settings-save-status[data-state="pending"] {
+  color: color-mix(in srgb, rgb(147, 51, 234) 70%, var(--text));
+  font-weight: 600;
+}
+
+.settings-save-status[data-state="error"] {
+  color: #f87171;
+}
+
+.settings-pending {
+  flex: 1 0 100%;
+  box-sizing: border-box;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid rgba(147, 51, 234, 0.45);
+  border-radius: 10px;
+  background: color-mix(in srgb, rgb(147, 51, 234) 9%, transparent);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.settings-pending-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-pending-title {
+  font-weight: 600;
+  min-width: 0;
+}
+
+.settings-btn.settings-pending-discard {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.settings-pending-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
 @keyframes settings-save-pop {
   0% {
     transform: scale(1);
@@ -10356,6 +10459,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
   .settings-form-anim,
   .settings-icon-spin,
   .settings-btn-primary.is-saved,
+  .settings-btn-primary.has-pending,
   .settings-skeleton-bar {
     animation: none;
   }

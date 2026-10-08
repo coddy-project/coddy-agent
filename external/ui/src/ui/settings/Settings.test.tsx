@@ -232,7 +232,7 @@ test("on the narrow shell Escape takes a section, even one still loading, back t
 // background. An open form takes the new copy while it holds no edits of its
 // own; with unsaved edits it keeps them, and the next open starts from the new
 // copy.
-test("a configuration reload reaches the kept copy and an untouched open form, never unsaved edits", async () => {
+test("a configuration reload reaches the kept copy and an untouched open form, never unsaved edits, and closing saves them", async () => {
   stubServer();
   const view = render(<Settings onClose={() => {}} initialSection="agent" />);
   const input = (await screen.findByLabelText("Max turns")) as HTMLInputElement;
@@ -250,16 +250,22 @@ test("a configuration reload reaches the kept copy and an untouched open form, n
   });
   expect(input.value).toBe("45");
 
+  // The drawer going away sends the edit that waited for the pause, and the
+  // next open shows it rather than the copy it was typed over.
   view.unmount();
+  await waitFor(() =>
+    expect((server.config.agent as { max_turns: number }).max_turns).toBe(45),
+  );
   render(<Settings onClose={() => {}} initialSection="agent" />);
   expect((screen.getByLabelText("Max turns") as HTMLInputElement).value).toBe(
-    "70",
+    "45",
   );
 });
 
-// A save says it worked on the Save button alone: green for a couple of seconds,
-// no line of text. The line used to stay on screen for as long as the drawer did.
-test("a save lights the Save button green for two seconds and writes no text", async () => {
+// The Save button says it worked: green for a couple of seconds. The quiet
+// status line beside it says all is saved; the success line that used to
+// stand above the tabs for as long as the drawer did is gone.
+test("a save lights the Save button green for two seconds and adds no line above the tabs", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   stubServer();
   const { container } = render(
@@ -274,6 +280,9 @@ test("a save lights the Save button green for two seconds and writes no text", a
   await waitFor(() => expect(save.className).toContain("is-saved"));
   expect(container.querySelector(".settings-lead-pane")).toBeNull();
   expect(container.querySelector(".settings-ok")).toBeNull();
+  expect(screen.getByTestId("settings-save-status").textContent).toBe(
+    "All changes saved",
+  );
 
   await act(async () => {
     await vi.advanceTimersByTimeAsync(2100);

@@ -77,6 +77,12 @@ export type JsonSchema = {
   "x-coddy-configured"?: string;
   /** The document is a relay's settings form (config.RelayUISchemaMap). */
   "x-coddy-relay"?: boolean;
+  /**
+   * The change of this field waits for the Save button instead of saving on
+   * its own (config.UISchemaSaveKey): "confirm" holds any change, and on a
+   * list "confirm-removal" holds a row taken out of it.
+   */
+  "x-coddy-save"?: "confirm" | "confirm-removal";
 };
 
 /**

@@ -343,6 +343,11 @@ neither shown nor written through the relay, and a save naming another section i
 
 Every credential is write-only there, as a config read serves it: a token field shows whether one
 is set, an empty field keeps it, a value replaces it. Pairing tokens are a list replaced whole.
+The form saves itself a moment after the last edit, as an agent's does
+([Settings: opening and saving](../surfaces/web-ui.md#settings-opening-and-saving)), except for
+the changes that would cut the page or a node off: the listen host and port, the client and
+pairing tokens, TLS, and the upstreams and joins wait for **Save**, which stands out until it is
+pressed.
 A save is written over the relay's `config.yaml` with its comments and spellings kept, and the
 relay is rebuilt on it: nodes register and open their tunnels again within seconds, and a stream
 in flight through the relay is cut and resumed by the client. A new listen address takes a
