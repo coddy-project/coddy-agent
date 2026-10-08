@@ -288,6 +288,32 @@ func TestProbeRefusedPingsDoNotRefreshTheGuard(t *testing.T) {
 	waitFor(t, "the cut on schedule", func() bool { return fx.srv.sharedLimit.inUse(key) == 0 })
 }
 
+// A ping is not a call: it takes no slot, spends no window token, writes no call log line and leaves no row of the counters.
+func TestProbeAPingIsNotACall(t *testing.T) {
+	var logs bytes.Buffer
+	fx := newSharedFixture(t, withFakeClock(), withSharedLogger(slog.New(slog.NewTextHandler(&logs, nil))),
+		withSharedConfig(func(c *config.Config) {
+			c.HTTPServer.SharedModels.MaxStreams = 1
+			c.HTTPServer.SharedModels.RatePerMinute = 1
+			c.HTTPServer.SharedModels.RateBurst = 1
+		}))
+	pc := fx.openProbed(t)
+	logged := strings.Count(logs.String(), "shared model call")
+	rows := len(fx.stats().Rows)
+	for i := 0; i < 5; i++ {
+		fx.pingOK(t, pc.id, sharedTestSharedTok) // the slot is full and the window spent: a ping still passes
+	}
+	if got := strings.Count(logs.String(), "shared model call"); got != logged {
+		t.Errorf("pings wrote %d call log lines", got-logged)
+	}
+	if got := len(fx.stats().Rows); got != rows {
+		t.Errorf("pings left rows in the counters: %d then %d", rows, got)
+	}
+	if got := fx.srv.sharedLimit.inUse(sharedBearerKey(sharedTestSharedTok)); got != 1 {
+		t.Errorf("slots in use: %d, want the call's own one", got)
+	}
+}
+
 func TestProbeAMainTokenCallIsPingedWithTheMainTokenOnly(t *testing.T) {
 	fx := newSharedFixture(t, withFakeClock())
 	started := fx.holdCalls()
