@@ -487,7 +487,7 @@ swarm:
       rate_burst: 5                            # calls that may start at once before the rate applies
 ```
 
-- **What the entry opens.** `GET /coddy/llm/models`, `GET /coddy/llm/models/{alias}/usage` and `POST /coddy/llm/completions` of a node the entry lists,
+- **What the entry opens.** `GET /coddy/llm/models`, `GET /coddy/llm/models/{alias}/usage`, `POST /coddy/llm/completions` and the ping of the [application probe](../features/shared-models.md#the-application-probe-a-client-that-says-it-is-alive), `POST /coddy/llm/alive`, of a node the entry lists,
   matched exactly on the decoded path with the route's method: no `HEAD` or `OPTIONS`, no trailing slash, no `;x=1`, and no route a later release adds under
   `/coddy/llm/` until the table of the relay lists it. On every other route of the relay, the node list, the sessions, the topology, a delete, the client
   gets the plain `401` an unknown token gets, so it learns nothing about the relay.
@@ -499,7 +499,7 @@ swarm:
 - **The node never sees the client.** The relay replaces the credential with the node's own, as for the full class, so what a node sees is the relay.
 - **The relay holds each entry to its own limits.** `max_streams` bounds the completions the entry holds open at once and `rate_per_minute` (with
   `rate_burst`, which defaults to the rate, capped by `max_streams` when that is set, and is at least 1) the calls it may start. Only `POST /coddy/llm/completions` is counted, never a
-  listing. A call over a limit is answered by the relay at once, without asking the node: `429` with the wire error `kind: busy`, `code: client_streams` or
+  listing and never a ping (a ping takes no slot, spends no token and leaves no row of the counters). A call over a limit is answered by the relay at once, without asking the node: `429` with the wire error `kind: busy`, `code: client_streams` or
   `client_rate`, and a `Retry-After` of whole seconds, so a calling Coddy waits it out like a full slot of the node. A slot is given back on every exit;
   a window token is given back when the node itself answers `busy`, so a borrower that waits out a busy node does not drain its window by waiting. The
   windows are in memory: a restart refills them. The full class is not limited by the relay.
