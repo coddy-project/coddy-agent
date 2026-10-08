@@ -21,7 +21,7 @@ func listenerTLS(t config.HTTPTLSConfig) (*tls.Config, error) {
 // sharedCertName is the first name of the request's verified client certificate that the snapshot's
 // httpserver.shared_models.cert_names lists, or "". The identity is read per request from the connection (a connection
 // outlives a certificate, so the leaf is checked for validity now) against the snapshot's list, so a reload takes effect on
-// the next call. The gate asks for it on the three LLM routes only.
+// the next call. The gate asks for it on the shared-model routes (the three calls and the probe's ping) only.
 func sharedCertName(r *http.Request, pol *authPolicy) string {
 	if pol == nil || len(pol.certNames) == 0 {
 		return ""

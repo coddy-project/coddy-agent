@@ -1309,7 +1309,7 @@ is the screen: there is no list of nodes under it, because everything the list d
   weaker.
 - **A node that serves shared models only.** A node that joined with a token made for shared
   models carries a quiet **`swarm-badge`** reading **shared models only** (**`swarm.node.sharedModels`**,
-  **`data-testid="swarm-node-shared-<name>"`**) in the node list, and the topology tooltip appends the
+  **`data-testid="swarm-node-shared-<name>"`**) in the **Nodes** group of the swarm search results (shown while a query is typed), and the topology tooltip appends the
   same words to its transport. It is the node's own report (**`token_class`**), a label and not a
   warning: the sessions list of such a node does not show the relay's 401 as a fault.
 - **The machine the page runs on.** When the page's own server is an agent (not a relay serving its

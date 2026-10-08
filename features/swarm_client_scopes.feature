@@ -2,7 +2,7 @@ Feature: Scoped clients of a swarm relay
   A relay client can hold a token of its own that opens only the shared-model
   routes of the nodes its entry lists. The full client token keeps opening the
   whole relay; a scoped client never reaches the relay's own routes, a node it
-  was not given, or a route outside the three shared-model ones.
+  was not given, or a route outside the shared-model ones (the three calls and the probe's ping).
 
   Background:
     Given a swarm relay with the full token "full-secret" and a scoped client "acme" with the token "acme-secret" that may reach the node "nas02"
