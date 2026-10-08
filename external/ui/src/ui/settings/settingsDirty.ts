@@ -3,10 +3,10 @@
 // The form writes the configuration only when Save is pressed, and nothing on
 // screen used to say that a change had not been applied: a provider signed in
 // through ChatGPT looked ready while its row was still only in the form. The
-// drawer highlights Save while this says the form differs from what the server
-// has, and asks before it closes over such edits.
+// drawer highlights Save while this says the form differs from the config it
+// was read from or last saved, and asks before it closes over such edits.
 
-import type { JsonSchema } from "./SchemaForm";
+import { isStringMapSchema, type JsonSchema } from "./SchemaForm";
 
 type Doc = Record<string, unknown>;
 
@@ -32,6 +32,15 @@ function normalized(v: unknown, schema?: JsonSchema): unknown {
   if (Array.isArray(v)) {
     const items = v.map((x) => normalized(x, schema?.items) ?? null);
     return items.length === 0 ? undefined : items;
+  }
+  if (isObject(v) && schema !== undefined && isStringMapSchema(schema)) {
+    // A map's entries are the operator's, an empty value included: a header
+    // named with an empty value leaves that header out of every request.
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(v).sort()) {
+      out[k] = v[k] ?? "";
+    }
+    return Object.keys(out).length === 0 ? undefined : out;
   }
   if (isObject(v)) {
     const out: Record<string, unknown> = {};

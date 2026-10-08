@@ -35,7 +35,7 @@ import {
 } from "../scheduler/hashRoute";
 import { useT } from "../i18n/I18nProvider";
 import { hasTranslation, translate } from "../i18n/i18n";
-import { useRailEscapeStep } from "../nav/railEscape";
+import { useRailCloseGuard, useRailEscapeStep } from "../nav/railEscape";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { environmentKey, getEnv } from "../env/remoteEnv";
 import { settingsFormDirty } from "./settingsDirty";
@@ -195,7 +195,11 @@ export function Settings(props: {
   // would show a list with no rows, and the list reads an address naming one of
   // its rows as a stale one and rewrites it.
   if (copy.config !== null && copy.config !== draft.seen) {
-    const untouched = draft.base === null || draft.doc === draft.base;
+    // No edits of its own: compared by value, so a form whose edit was put
+    // back follows the server again.
+    const untouched =
+      draft.base === null ||
+      !settingsFormDirty(draft.base, draft.doc, copy.schema);
     setDraft(
       untouched
         ? {
@@ -353,6 +357,9 @@ export function Settings(props: {
           : null,
   );
 
+  // The backdrop beside the drawer closes it like its close button does.
+  useRailCloseGuard("settings", dirty ? requestClose : null);
+
   // A page reloaded or closed over unsaved edits asks the browser first. The
   // reload of a switch to another server is not held up: the edits belong to
   // the server being left.
@@ -414,6 +421,7 @@ export function Settings(props: {
     clearSaved();
     const sent = doc;
     const editsAtSend = edits.current;
+    const replacedAtSend = draft.replaced;
     try {
       const body = JSON.stringify(sent);
       const v = await fetch("/coddy/config/validate", {
@@ -424,6 +432,12 @@ export function Settings(props: {
       const vj = (await v.json()) as ValidateResponse;
       if (!vj.ok) {
         setError(vj.error || translate("settings.error.validationFailed"));
+        return false;
+      }
+      // Every request goes to the server the page talks to now: a switch
+      // while the validation ran must not take this form there.
+      if (onOtherServer()) {
+        setError(translate("settings.error.otherServer"));
         return false;
       }
       const p = await fetch("/coddy/config", {
@@ -449,13 +463,22 @@ export function Settings(props: {
       // once (a reopen before the read below lands draws it). The copy read
       // here, and the one config_reloaded brings, replaces it with what the
       // server made of the save, unless the operator types something first.
-      // A form a newer copy took over meanwhile is left as it is.
-      setDraft((d) => (d.doc === sent ? { ...d, base: sent } : d));
+      // An edit typed while the request was on its way - a value put back as
+      // it was included - stays unsaved against what was sent. A form a
+      // newer copy took over meanwhile is left as it is.
+      if (onOtherServer()) {
+        return false;
+      }
+      setDraft((d) =>
+        d.replaced === replacedAtSend ? { ...d, base: sent } : d,
+      );
       noteSettingsConfigSaved(sent);
       props.onConfigSaved?.();
       setBusy(false);
       void refreshSettingsConfig();
-      return true;
+      // The form is saved as it stands only when nothing was typed meanwhile:
+      // Save and close keeps the drawer open over edits the save did not take.
+      return edits.current === editsAtSend;
     } catch (e) {
       setError(
         e instanceof Error
@@ -466,7 +489,7 @@ export function Settings(props: {
     } finally {
       setBusy(false);
     }
-  }, [doc, clearSaved, flashSaved, props, onOtherServer]);
+  }, [doc, draft.replaced, clearSaved, flashSaved, props, onOtherServer]);
 
   const saveAndClose = useCallback(async () => {
     setAskClose(false);
@@ -714,6 +737,7 @@ export function Settings(props: {
         ariaLabel={t("settings.close.title")}
         onConfirm={() => void saveAndClose()}
         onCancel={() => setAskClose(false)}
+        confirming={busy}
         dataTestId="settings-close-dialog"
       />
     </aside>

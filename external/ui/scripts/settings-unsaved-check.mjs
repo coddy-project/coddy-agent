@@ -126,7 +126,7 @@ for (const c of CASES) {
   if (!m.statusClear) fail(where, "the status line runs into the buttons");
   if (!m.statusOneRow)
     fail(where, "the status line is not on the buttons' row");
-  // Put the value back and save it, so the server ends as it started.
+  // Put the value back: the highlight goes, and nothing is saved.
   await input.fill(before);
   await page.evaluate(() => document.activeElement?.blur());
   if (

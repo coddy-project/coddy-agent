@@ -9,7 +9,10 @@ import {
   within,
 } from "@testing-library/react";
 import { Settings } from "./Settings";
-import { resetSettingsConfigForTests } from "./settingsConfigStore";
+import {
+  noteSettingsConfigReloaded,
+  resetSettingsConfigForTests,
+} from "./settingsConfigStore";
 import { initLocale } from "../i18n/i18n";
 import { setEnv } from "../env/remoteEnv";
 import { OpenRailScreen } from "../nav/railEscape.fakes";
@@ -33,12 +36,27 @@ const schema = {
 type Doc = Record<string, unknown>;
 let config: Doc;
 let puts: Doc[];
+/** While set, validate and PUT wait for it. */
+let gate: Promise<void> | null;
+
+/** Holds every validate and PUT until the returned function is called. */
+function holdSaves(): () => void {
+  let release: () => void = () => {};
+  gate = new Promise<void>((r) => {
+    release = () => {
+      gate = null;
+      r();
+    };
+  });
+  return () => release();
+}
 
 beforeEach(() => {
   initLocale("en");
   resetSettingsConfigForTests();
   config = { revision: "rev-1", agent: { max_turns: 40 } };
   puts = [];
+  gate = null;
   window.location.hash = "";
   vi.stubGlobal(
     "fetch",
@@ -53,8 +71,12 @@ beforeEach(() => {
       if (path === "/coddy/config" && method === "GET") {
         return reply(200, config);
       }
-      if (path === "/coddy/config/validate") return reply(200, { ok: true });
+      if (path === "/coddy/config/validate") {
+        if (gate) await gate;
+        return reply(200, { ok: true });
+      }
       if (path === "/coddy/config" && method === "PUT") {
+        if (gate) await gate;
         const body = JSON.parse(String(init?.body)) as Doc;
         puts.push(body);
         config = body;
@@ -177,4 +199,99 @@ test("leaving the page with unsaved edits asks the browser, a switch to another 
   expect(document.querySelector(".settings-lead-pane")).toHaveTextContent(
     "another server",
   );
+});
+
+// Edge cases.
+
+test("a value put back while Save runs stays unsaved, since the server has the other one", async () => {
+  const onClose = vi.fn();
+  render(<Settings onClose={onClose} initialSection="agent" />);
+  const input = await maxTurns();
+  fireEvent.change(input, { target: { value: "41" } });
+  const release = holdSaves();
+  await act(async () => {
+    fireEvent.click(saveButton());
+  });
+  fireEvent.change(input, { target: { value: "40" } });
+  await act(async () => {
+    release();
+  });
+  await waitFor(() => expect(puts).toHaveLength(1));
+  await waitFor(() => expect(status()).toBe("Unsaved changes"));
+  fireEvent.click(screen.getByTestId("settings-drawer-close"));
+  expect(onClose).not.toHaveBeenCalled();
+  expect(screen.getByTestId("settings-close-dialog")).toBeInTheDocument();
+});
+
+test("Save and close stays open when the form changed while the save ran", async () => {
+  const onClose = vi.fn();
+  render(<Settings onClose={onClose} initialSection="agent" />);
+  const input = await maxTurns();
+  fireEvent.change(input, { target: { value: "41" } });
+  fireEvent.click(screen.getByTestId("settings-drawer-close"));
+  const release = holdSaves();
+  await act(async () => {
+    fireEvent.click(
+      within(screen.getByTestId("settings-close-dialog")).getByRole("button", {
+        name: "Save and close",
+      }),
+    );
+  });
+  fireEvent.change(input, { target: { value: "42" } });
+  await act(async () => {
+    release();
+  });
+  await waitFor(() => expect(puts).toHaveLength(1));
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  expect(onClose).not.toHaveBeenCalled();
+  expect(status()).toBe("Unsaved changes");
+});
+
+test("a switch to another server while Save runs sends nothing there", async () => {
+  render(<Settings onClose={() => {}} initialSection="agent" />);
+  fireEvent.change(await maxTurns(), { target: { value: "41" } });
+  const release = holdSaves();
+  await act(async () => {
+    fireEvent.click(saveButton());
+  });
+  setEnv({ mode: "remote", baseUrl: "http://other.test", token: "" });
+  await act(async () => {
+    release();
+  });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  expect(puts).toHaveLength(0);
+  expect(saveButton().className).not.toContain("is-saved");
+});
+
+test("the close dialog does not start a second save while one runs", async () => {
+  render(<Settings onClose={() => {}} initialSection="agent" />);
+  fireEvent.change(await maxTurns(), { target: { value: "41" } });
+  const release = holdSaves();
+  await act(async () => {
+    fireEvent.click(saveButton());
+  });
+  fireEvent.click(screen.getByTestId("settings-drawer-close"));
+  expect(
+    within(screen.getByTestId("settings-close-dialog")).getByRole("button", {
+      name: "Save and close",
+    }),
+  ).toBeDisabled();
+  await act(async () => {
+    release();
+  });
+  await waitFor(() => expect(puts).toHaveLength(1));
+});
+
+test("a newer copy reaches a form whose edit was put back", async () => {
+  render(<Settings onClose={() => {}} initialSection="agent" />);
+  const input = await maxTurns();
+  fireEvent.change(input, { target: { value: "41" } });
+  fireEvent.change(input, { target: { value: "40" } });
+  config = { revision: "rev-9", agent: { max_turns: 70 } };
+  act(() => noteSettingsConfigReloaded());
+  await waitFor(() => expect(input.value).toBe("70"));
 });
