@@ -220,6 +220,9 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			http.Error(w, "cross-site request refused", http.StatusForbidden)
 			return
 		}
+		if isSharedLLMPattern(pattern) {
+			s.countSharedGateRefusal()
+		}
 		w.Header().Set("WWW-Authenticate", `Bearer realm="coddy"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})

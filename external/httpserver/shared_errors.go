@@ -118,10 +118,12 @@ func writeSharedError(w http.ResponseWriter, status int, e llm.WireError) {
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Content-Type-Options", "nosniff")
 	if e.Kind == llm.WireKindBusy {
-		h.Set("Retry-After", "1")
-		if e.RetryAfterS == 0 {
+		// The wait is the one the refusal computed (the next token of a window),
+		// one second for a full slot, and the header and the field agree.
+		if e.RetryAfterS <= 0 {
 			e.RetryAfterS = 1
 		}
+		h.Set("Retry-After", strconv.Itoa(int(math.Ceil(e.RetryAfterS))))
 	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(e)

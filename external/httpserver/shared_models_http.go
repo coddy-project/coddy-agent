@@ -56,6 +56,9 @@ func (s *Server) registerSharedModelRoutes() {
 	s.mux.HandleFunc(sharedModelsPattern, s.llmModelsGet)
 	s.mux.HandleFunc(sharedUsagePattern, s.llmUsageGet)
 	s.mux.HandleFunc(sharedCompletionsPattern, s.llmCompletionsPost)
+	// The counters are read with a main token or a sign-in, never with a
+	// shared-model token (the route is not one of isSharedLLMPattern).
+	s.mux.HandleFunc(sharedStatsPattern, s.sharedStatsGet)
 }
 
 // sharedTimings are the timers of a call and the bound a vanished peer holds it
@@ -209,6 +212,13 @@ type sharedCallLog struct {
 	status  int
 	cause   string
 	emitted int
+	// code is the code of a refusal, which tells a window refusal from a full
+	// slot; class is the credential class of the caller; the token counts are
+	// what the response carried, a failed call counting what it had.
+	code         string
+	class        string
+	inputTokens  int
+	outputTokens int
 }
 
 // newSharedRequestID is a short random id to find a call in the log by.
@@ -225,9 +235,13 @@ func (s *Server) llmCompletionsPost(w http.ResponseWriter, r *http.Request) {
 	reqID := newSharedRequestID()
 	w.Header().Set("X-Coddy-Request-ID", reqID)
 	call := sharedCallLog{alias: "-"}
-	defer func() { s.logSharedCall(&call, reqID, time.Since(started)) }()
+	defer func() {
+		took := time.Since(started)
+		s.logSharedCall(&call, reqID, took)
+		s.countSharedCall(&call, took)
+	}()
 	refuse := func(status int, e llm.WireError) {
-		call.kind, call.status = e.Kind, status
+		call.kind, call.status, call.code = e.Kind, status, e.Code
 		writeSharedError(w, status, e)
 	}
 	// The body deadline P runs from here: whatever refuses the request before
@@ -242,6 +256,7 @@ func (s *Server) llmCompletionsPost(w http.ResponseWriter, r *http.Request) {
 	// one it was taken from: the rest of the call never asks the live
 	// configuration anything.
 	pol := s.authSnapshot(r)
+	call.class = s.sharedClassOf(r, pol)
 	if pol.anonymousSharedRefused() {
 		call.kind, call.status = llm.WireKindAuth, http.StatusForbidden
 		writeSharedAuthRefusal(w)
@@ -257,7 +272,8 @@ func (s *Server) llmCompletionsPost(w http.ResponseWriter, r *http.Request) {
 	// so a busy remote answers without reading up to 32 MiB. Every exit below
 	// frees it through the one guarded release.
 	limit := cfg.HTTPServer.EffectiveSharedMaxStreams()
-	slot, ok := s.sharedLimit.acquire(s.sharedCallerKey(r, pol), limit)
+	callerKey := s.sharedCallerKey(r, pol)
+	slot, ok := s.sharedLimit.acquire(callerKey, limit)
 	if !ok {
 		refuse(http.StatusTooManyRequests, llm.WireError{
 			Kind:    llm.WireKindBusy,
@@ -266,6 +282,15 @@ func (s *Server) llmCompletionsPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer slot.release()
+
+	// The window beside the slot: taken after it and before the body is read, so
+	// a refusal for a full slot spent no token and a window refusal gives its
+	// slot back at once and reads none of the body.
+	if admitted, wait, perMinute := s.takeSharedWindow(cfg, callerKey); !admitted {
+		slot.release()
+		refuse(http.StatusTooManyRequests, sharedWindowRefusal(perMinute, wait))
+		return
+	}
 
 	if r.ContentLength > llm.CoddyMaxRequestBytes {
 		refuse(http.StatusRequestEntityTooLarge, sharedTooLarge())
@@ -375,8 +400,11 @@ func sharedTooManyElements() llm.WireError {
 // logSharedCall writes the one line a call leaves in the log.
 func (s *Server) logSharedCall(call *sharedCallLog, reqID string, took time.Duration) {
 	attrs := []any{
-		"alias", call.alias, "kind", call.kind, "status", call.status,
+		"alias", call.alias, "class", call.class, "kind", call.kind, "status", call.status,
 		"duration_ms", took.Milliseconds(), "request_id", reqID,
+	}
+	if call.inputTokens > 0 || call.outputTokens > 0 {
+		attrs = append(attrs, "input_tokens", call.inputTokens, "output_tokens", call.outputTokens)
 	}
 	if call.cause != "" {
 		attrs = append(attrs, "cause", call.cause)
@@ -665,6 +693,9 @@ func (s *Server) runSharedCall(w http.ResponseWriter, r *http.Request, cfg *conf
 	})
 	guard.stop()
 	call.emitted = stream.emittedChunks()
+	if resp != nil {
+		call.inputTokens, call.outputTokens = resp.InputTokens, resp.OutputTokens
+	}
 
 	switch {
 	case r.Context().Err() != nil:
