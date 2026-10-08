@@ -119,6 +119,16 @@ func NewRegistry(ttl time.Duration) *Registry {
 	}
 }
 
+// errRelayRoute marks a failure to build the relay's own route to a node (its CA or client certificate cannot be read): the node's
+// request was fine, the relay's settings are not, and the text of the cause names the relay's files.
+var errRelayRoute = errors.New("the relay cannot build its route to the node")
+
+type relayRouteError struct{ cause error }
+
+func (e *relayRouteError) Error() string        { return e.cause.Error() }
+func (e *relayRouteError) Is(target error) bool { return target == errRelayRoute }
+func (e *relayRouteError) Unwrap() error        { return e.cause }
+
 // SetNodeDial installs the TLS settings of the relay's leg to the nodes that registered themselves (swarm.node_tls). Only the
 // authority and the client certificate: a proxy or a skipped verification for every node would be a wider decision than a
 // certificate, and a proxy would also bypass the egress policy of an advertised address.
@@ -229,7 +239,7 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 			}
 			t, terr := newDirectTransport(advertise, effectiveDial, pinned)
 			if terr != nil {
-				return swarmdto.RegisterResponse{}, terr
+				return swarmdto.RegisterResponse{}, &relayRouteError{cause: terr}
 			}
 			replacement = t
 			existing.dial = effectiveDial
@@ -304,7 +314,7 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 	if req.Transport == swarmdto.TransportDirect {
 		t, terr := newDirectTransport(advertise, l.dial, pinned)
 		if terr != nil {
-			return swarmdto.RegisterResponse{}, terr
+			return swarmdto.RegisterResponse{}, &relayRouteError{cause: terr}
 		}
 		l.transport = t
 	}

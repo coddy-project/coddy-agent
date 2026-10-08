@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -79,11 +80,16 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 		// those hosts, not for every private address a node might claim.
 		AllowHosts: cfg.Swarm.AllowPrivateUpstreams,
 	})
-	s.registry.SetNodeDial(netx.Options{
+	nodeDial := netx.Options{
 		CAFile:   cfg.Swarm.NodeTLS.CAFile,
 		CertFile: cfg.Swarm.NodeTLS.CertFile,
 		KeyFile:  cfg.Swarm.NodeTLS.KeyFile,
-	})
+	}
+	// A CA that cannot be read stops the relay here, under the key that names it, instead of failing every registration later.
+	if _, err := nodeDial.TLSConfig(""); err != nil {
+		return nil, fmt.Errorf("swarm.node_tls: %w", err)
+	}
+	s.registry.SetNodeDial(nodeDial)
 	if err := s.seedUpstreams(); err != nil {
 		return nil, err
 	}
@@ -219,6 +225,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		// The name is live and the caller did not prove it owns it. A pairing
 		// token authorises joining, never impersonating.
 		writeError(w, http.StatusConflict, fmt.Sprintf("node name %q is held by a live lease", req.Name))
+		return
+	case errors.Is(err, errRelayRoute):
+		// The relay's own files and settings are not the node's to read.
+		s.log.Warn("swarm: the route to a registering node could not be built", "node", req.Name, "error", err.Error())
+		writeError(w, http.StatusInternalServerError, "the relay cannot build its route to this node")
 		return
 	case err != nil:
 		writeError(w, http.StatusBadRequest, err.Error())

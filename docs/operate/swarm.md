@@ -539,8 +539,8 @@ swarm:
     key_file: /etc/coddy/relay-client.key   # set with cert_file
 ```
 
-- **Where it applies.** To every node that registered itself over a direct address (`advertise_url`) and has no dial settings of its own: the mount, the aggregated
-  sessions and the topology all ride the same route. A `swarm.upstreams` entry with a `dial` block keeps it. A node that dialled out through the tunnel
+- **Where it applies.** To every node that registered itself over a direct address (`advertise_url`) and to a hand-written `swarm.upstreams` entry with no `dial` block. The mount, the aggregated
+  sessions and the topology all ride the same route. A `swarm.upstreams` entry with a `dial` block keeps its own and gets nothing from `node_tls`: the two are not merged, so an entry that sets only `proxy` also has no `node_tls` CA or certificate. A `ca_file` here replaces the system roots, so an upstream with no `dial` block and a publicly signed certificate stops verifying: give it a `dial.ca_file`. A node that dialled out through the tunnel
   carries no TLS of its own, so nothing applies to it.
 - **No proxy and no skipped verification here.** Only the authority and the certificate: a proxy for every node would also bypass the egress check of an
   advertised address, and `insecure_skip_verify` stays per upstream.
@@ -549,7 +549,7 @@ swarm:
   nothing to a host that does not hold the authority the node trusts.
 - **Rotation.** The pair is read at each handshake and cached by size and modification time, so a renewed certificate is used by the next connection. The
   authority is read when a node's route is built, which is at its next registration; a changed `node_tls` block takes a relay restart.
-- **Checks.** `coddy -t` refuses a certificate without its key; `--dry-run` loads the pair and the authority bundle.
+- **Checks.** `coddy -t` refuses a certificate without its key; `--dry-run` loads the pair and the authority bundle; a relay whose `ca_file` cannot be read does not start, and names `swarm.node_tls`.
 
 The design record with the verdicts of the model checks behind these rules is
 [`docs/plans/remote-model-provider-phase3.md`](../plans/remote-model-provider-phase3.md) (D1, D2 and D5).
