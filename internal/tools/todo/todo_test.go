@@ -178,6 +178,42 @@ func TestPlanReadReturnsMarkdownChecklist(t *testing.T) {
 	}
 }
 
+func TestPlanReadWithoutPlanSaysSo(t *testing.T) {
+	sender := &mockSender{}
+	empty := []acp.PlanEntry{}
+	cases := []struct {
+		name string
+		env  *apptools.Env
+	}{
+		{"empty plan", envWithPlan(sender, &empty)},
+		{"nil plan", envWithPlan(sender, new([]acp.PlanEntry))},
+		{"no plan getter", &apptools.Env{CWD: "/tmp", SessionID: "test-session", Sender: sender}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := newRegistry().Execute(context.Background(), todo.ToolNamePlanRead, `{}`, tc.env)
+			if err != nil {
+				t.Fatalf("plan read: %v", err)
+			}
+			if strings.TrimSpace(out) == "" {
+				t.Fatal("plan read of a session without a plan returned an empty result")
+			}
+			if !strings.Contains(out, "no active items") || !strings.Contains(out, todo.ToolNamePlanReplace) {
+				t.Fatalf("result should say there is no plan and name %s: %q", todo.ToolNamePlanReplace, out)
+			}
+			if len(sender.planUpdates) != 0 {
+				t.Fatalf("plan read must not publish a plan update: %+v", sender.planUpdates)
+			}
+		})
+	}
+}
+
+func TestFormatPlanMarkdownStaysEmptyForNoEntries(t *testing.T) {
+	if got := todo.FormatPlanMarkdown(nil); got != "" {
+		t.Fatalf("FormatPlanMarkdown(nil) = %q, want empty (system prompt and persistence rely on it)", got)
+	}
+}
+
 func TestItemRemove(t *testing.T) {
 	sender := &mockSender{}
 	plan := []acp.PlanEntry{

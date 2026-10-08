@@ -77,7 +77,7 @@ The session's plan document as a checklist, persisted in the bundle and shown as
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `coddy_todo_plan_read` | Read the checklist without changing it | none | none | agent |
+| `coddy_todo_plan_read` | Read the checklist without changing it; with no checklist it answers with a note that none is active and names `coddy_todo_plan_replace`, never an empty result | none | none | agent |
 | `coddy_todo_plan_replace` | Replace the whole checklist from Markdown | `markdown` | none | agent |
 | `coddy_todo_plan_archive` | Finalise the checklist: incomplete items are marked completed and the plan is archived | none | none | agent |
 | `coddy_todo_item_add` | Add one item, at the end or after an index | `content`, `status`, `after_index` | none | agent |
