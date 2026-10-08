@@ -188,6 +188,8 @@ export function Settings(props: {
     doc: copy.config ?? {},
     replaced: 0,
   }));
+  // A save is on its way (Save, or Save and close).
+  const [busy, setBusy] = useState(false);
   // A newer copy - the first read landing, the server's config reloaded by
   // anyone - replaces a form that holds no edits of its own; unsaved edits
   // stay, and Reload is the deliberate way to drop them. It is taken while
@@ -196,10 +198,12 @@ export function Settings(props: {
   // its rows as a stale one and rewrites it.
   if (copy.config !== null && copy.config !== draft.seen) {
     // No edits of its own: compared by value, so a form whose edit was put
-    // back follows the server again.
+    // back follows the server again - once no save is on its way, which may
+    // still answer for the value put back.
     const untouched =
       draft.base === null ||
-      !settingsFormDirty(draft.base, draft.doc, copy.schema);
+      draft.doc === draft.base ||
+      (!busy && !settingsFormDirty(draft.base, draft.doc, copy.schema));
     setDraft(
       untouched
         ? {
@@ -222,7 +226,6 @@ export function Settings(props: {
   useEffect(() => {
     void ensureSettingsConfig();
   }, []);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Whether the form holds edits that are not saved: Save stands out while it
   // does, and closing over them asks first (issue #485).
@@ -493,10 +496,19 @@ export function Settings(props: {
 
   const saveAndClose = useCallback(async () => {
     setAskClose(false);
-    if (await onSave()) {
+    if (!dirty || (await onSave())) {
       props.onClose();
     }
-  }, [onSave, props]);
+  }, [dirty, onSave, props]);
+
+  // A close asked for while a save was on its way: once that save leaves
+  // nothing unsaved, the drawer closes as it was asked to.
+  useEffect(() => {
+    if (askClose && !dirty && !busy) {
+      setAskClose(false);
+      props.onClose();
+    }
+  }, [askClose, dirty, busy, props]);
 
   // Renders the content panel for a section, reusing the schema-present and
   // appearance-without-schema paths for both the desktop rail and the mobile
@@ -707,7 +719,7 @@ export function Settings(props: {
           </button>
           <button
             type="button"
-            className={`settings-btn settings-btn-primary settings-btn-icon${justSaved ? " is-saved" : ""}${dirty && !justSaved ? " is-dirty" : ""}`}
+            className={`settings-btn settings-btn-primary settings-btn-icon${justSaved && !dirty ? " is-saved" : ""}${dirty ? " is-dirty" : ""}`}
             data-testid="settings-save"
             disabled={busy || !schema}
             title={
@@ -723,7 +735,7 @@ export function Settings(props: {
           {/* The green button is the whole message on screen; a screen reader
               hears it here. */}
           <span className="sr-only" role="status">
-            {justSaved ? t("settings.save.saved") : ""}
+            {justSaved && !dirty ? t("settings.save.saved") : ""}
           </span>
         </div>
       </div>

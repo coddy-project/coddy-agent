@@ -295,3 +295,60 @@ test("a newer copy reaches a form whose edit was put back", async () => {
   act(() => noteSettingsConfigReloaded());
   await waitFor(() => expect(input.value).toBe("70"));
 });
+
+test("an edit right after a save makes Save stand out at once, not green", async () => {
+  render(<Settings onClose={() => {}} initialSection="agent" />);
+  const input = await maxTurns();
+  fireEvent.change(input, { target: { value: "41" } });
+  await act(async () => {
+    fireEvent.click(saveButton());
+  });
+  await waitFor(() => expect(saveButton().className).toContain("is-saved"));
+  fireEvent.change(input, { target: { value: "42" } });
+  expect(saveButton().className).toContain("is-dirty");
+  expect(saveButton().className).not.toContain("is-saved");
+  expect(screen.getByRole("status", { hidden: true })).not.toHaveTextContent(
+    "Saved",
+  );
+});
+
+test("closing during a save closes the drawer once the save leaves nothing unsaved", async () => {
+  const onClose = vi.fn();
+  render(<Settings onClose={onClose} initialSection="agent" />);
+  fireEvent.change(await maxTurns(), { target: { value: "41" } });
+  const release = holdSaves();
+  await act(async () => {
+    fireEvent.click(saveButton());
+  });
+  fireEvent.click(screen.getByTestId("settings-drawer-close"));
+  expect(screen.getByTestId("settings-close-dialog")).toBeInTheDocument();
+  await act(async () => {
+    release();
+  });
+  await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  expect(screen.queryByTestId("settings-close-dialog")).toBeNull();
+  expect(puts).toHaveLength(1);
+});
+
+test("a copy landing during a save does not take a value put back meanwhile", async () => {
+  render(<Settings onClose={() => {}} initialSection="agent" />);
+  const input = await maxTurns();
+  fireEvent.change(input, { target: { value: "41" } });
+  const release = holdSaves();
+  await act(async () => {
+    fireEvent.click(saveButton());
+  });
+  fireEvent.change(input, { target: { value: "40" } });
+  config = { revision: "rev-7", agent: { max_turns: 41 } };
+  act(() => noteSettingsConfigReloaded());
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  expect(input.value).toBe("40");
+  await act(async () => {
+    release();
+  });
+  await waitFor(() => expect(puts).toHaveLength(1));
+  await waitFor(() => expect(status()).toBe("Unsaved changes"));
+  expect(input.value).toBe("40");
+});
