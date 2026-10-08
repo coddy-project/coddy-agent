@@ -87,3 +87,22 @@ test("the skeleton is tinted from the theme's text colour", () => {
   expect(bar).toMatch(/var\(--text\)/);
   expect(bar).not.toMatch(/rgba\(255, 255, 255/);
 });
+
+// Issue #485: while the form holds unsaved edits, Save stands out as a state
+// of its own - a solid accent fill and a ring - so it is plain that nothing
+// applies until it is pressed. The ring breathes, and only that stops under
+// reduced motion; the fill and the ring stay.
+test("Save over unsaved edits is highlighted as a state, and only its breathing stops under reduced motion", () => {
+  const dirty = ruleBody(".settings-btn-primary.is-dirty {");
+  expect(dirty).toMatch(/background:\s*rgba\(147, 51, 234, 0\.8/);
+  expect(dirty).toMatch(/box-shadow:\s*0 0 0 3px/);
+  expect(dirty).toMatch(/animation:\s*settings-save-attention/);
+  const breathe = keyframes("settings-save-attention");
+  expect(breathe).not.toMatch(/background|border-color|transform/);
+  const reduced = reducedMotionRules().find((r) =>
+    r.selectors.includes(".settings-btn-primary.is-dirty"),
+  );
+  expect(reduced?.body.trim()).toBe("animation: none;");
+  // The line before the buttons shrinks rather than pushing them off a phone.
+  expect(ruleBody(".settings-save-status {")).toMatch(/min-width:\s*0/);
+});
