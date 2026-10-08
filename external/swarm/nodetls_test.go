@@ -218,7 +218,7 @@ func TestARouteThatCannotBeBuiltDoesNotLeakTheRelaysPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	raw, _ := io.ReadAll(res.Body)
 	if res.StatusCode < 500 || strings.Contains(string(raw), ca) || strings.Contains(string(raw), "ca_file") {
 		t.Fatalf("%d %s", res.StatusCode, raw)
