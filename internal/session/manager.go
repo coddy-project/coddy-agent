@@ -16,6 +16,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
@@ -1158,6 +1159,12 @@ type PromptRunOpts struct {
 	// asked about, whatever the session's permission mode. Turn-scoped, like
 	// SurfaceSystemPrompt, and never persisted.
 	Restriction *TurnRestriction
+	// Lang is the language of the surface running this turn: the web UI's
+	// locale, the terminal's, a messenger user's. The documentation the
+	// turn's @coddy: mentions attach and the agent's documentation tools read
+	// follows it (docs.Lang reads any spelling of a locale). Empty when the
+	// surface knows none; turn-scoped like SurfaceSystemPrompt.
+	Lang string
 
 	// BackgroundWake says the prompt was not typed by anybody: finished
 	// background tasks that finished with notification enabled started this
@@ -1476,6 +1483,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if opts != nil && opts.Restriction != nil {
 		state.SetTurnRestriction(opts.Restriction)
 		defer state.SetTurnRestriction(nil)
+	}
+	if opts != nil && strings.TrimSpace(opts.Lang) != "" {
+		state.SetTurnLang(docs.Lang(opts.Lang))
+		defer state.SetTurnLang("")
 	}
 	// A turn no person started says so, the same way: held for this turn
 	// only, taken by the agent for the first message, and announced to the

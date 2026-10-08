@@ -69,9 +69,13 @@ _coddy() {
                         # The pages the binary carries, from the binary itself.
                         _values 'page' ${(f)"$(coddy docs list --slugs 2>/dev/null)"}
                     elif (( CURRENT > 2 )) && [[ $words[2] == search ]]; then
-                        _arguments '--limit[sections to print]:count:'
+                        _arguments \
+                            '--limit[sections to print]:count:' \
+                            '--lang[documentation language]:language:(en ru)'
                     else
-                        _values 'subcommand' list search show
+                        _arguments \
+                            '--lang[documentation language]:language:(en ru)' \
+                            '1:subcommand:(list search show)'
                     fi
                     ;;
                 update)

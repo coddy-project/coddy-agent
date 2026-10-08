@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -15,8 +16,14 @@ type Heading struct {
 	// Text is the heading with its inline markup removed, for display.
 	Text string
 	// Anchor is the fragment GitHub generates for the heading, numbered
-	// from -1 when the same text repeats on the page.
+	// from -1 when the same text repeats on the page. On a translated page
+	// it is the anchor of the English heading at the same position, so one
+	// address names the section in every language.
 	Anchor string
+	// Local is the fragment GitHub generates for the heading as written on
+	// this page: the Anchor of an English page, the anchor of the translated
+	// text on a translated one.
+	Local string
 	// Line is the heading's index in the page's lines, from 0.
 	Line int
 }
@@ -73,10 +80,16 @@ func isFenceMarker(line string) bool {
 // order, numbered the way GitHub numbers a repeated heading.
 func HeadingAnchors(markdown string) []string {
 	var out []string
-	for _, h := range parseHeadings(strings.Split(markdown, "\n")) {
+	for _, h := range ParseHeadings(markdown) {
 		out = append(out, h.Anchor)
 	}
 	return out
+}
+
+// ParseHeadings returns every heading of a Markdown text outside fenced
+// code, in order, with the anchor GitHub gives it (Anchor and Local alike).
+func ParseHeadings(markdown string) []Heading {
+	return parseHeadings(strings.Split(strings.ReplaceAll(markdown, "\r\n", "\n"), "\n"))
 }
 
 func parseHeadings(lines []string) []Heading {
@@ -100,18 +113,38 @@ func parseHeadings(lines []string) []Heading {
 		} else {
 			seen[anchor] = 1
 		}
-		out = append(out, Heading{Level: level, Text: inlineText(title), Anchor: anchor, Line: i})
+		out = append(out, Heading{Level: level, Text: inlineText(title), Anchor: anchor, Local: anchor, Line: i})
 	}
 	return out
 }
 
+// heading finds the heading an anchor names: its shared anchor or its own,
+// in any case, written or percent-encoded.
 func (p *Page) heading(anchor string) (Heading, bool) {
+	a := normalAnchor(anchor)
 	for _, h := range p.Headings {
-		if h.Anchor == anchor {
+		if h.Anchor == a {
+			return h, true
+		}
+	}
+	for _, h := range p.Headings {
+		if h.Local == a {
 			return h, true
 		}
 	}
 	return Heading{}, false
+}
+
+// normalAnchor is a fragment as anchors are written: percent-decoded and
+// lower-cased.
+func normalAnchor(anchor string) string {
+	a := strings.TrimSpace(anchor)
+	if strings.Contains(a, "%") {
+		if u, err := url.PathUnescape(a); err == nil {
+			a = u
+		}
+	}
+	return strings.ToLower(a)
 }
 
 func (p *Page) anchors() []string {
@@ -209,60 +242,117 @@ func linkText(s string) string {
 }
 
 var (
-	// linkTargetRE finds an inline link or image: the prefix up to "(" and
-	// the target up to a space, a closing parenthesis or a title.
-	linkTargetRE = regexp.MustCompile(`(!?\[[^\]]*\]\()([^)\s]+)`)
+	// linkTargetRE finds the target of an inline link or image, after its
+	// "](" and up to a space, a closing parenthesis or a title. The link's
+	// text may hold anything, a code span included.
+	linkTargetRE = regexp.MustCompile(`\]\(([^)\s]+)`)
 	// refDefRE is a reference-style definition "[name]: target".
-	refDefRE = regexp.MustCompile(`^(\[[^\]\n]+\]:[ \t]+)(\S+)`)
+	refDefRE = regexp.MustCompile(`^\[[^\]\n]+\]:[ \t]+(\S+)`)
 	// htmlAttrRE is an HTML src= or href= attribute.
-	htmlAttrRE = regexp.MustCompile(`((?:src|href)=")([^"]+)`)
+	htmlAttrRE = regexp.MustCompile(`(src|href)="([^"]+)`)
 )
 
-// rewriteLinks makes a page readable outside the repository. A link to
-// another page of the documentation becomes coddy:<slug>#<anchor>, so a
-// reader opens it in place; a fragment of the page itself becomes a
-// coddy: link too, because a hash-routed reader has no other fragment to
-// give it. An image or a link to a file of the repository becomes its
-// address on GitHub at the release the binary was built from. Absolute
-// URLs and everything inside code are left alone.
-func rewriteLinks(md, slug, ref string) string {
+// rewriteLineTargets rewrites the link targets of one line outside its code
+// spans: inline links and images, reference definitions, HTML src and href.
+func rewriteLineTargets(line, file, slug, ref string, shared anchorFunc) string {
+	spans := codeSpanRanges(line)
+	inCode := func(i int) bool {
+		for _, r := range spans {
+			if i >= r[0] && i < r[1] {
+				return true
+			}
+		}
+		return false
+	}
+	type edit struct {
+		start, end int
+		image      bool
+	}
+	var edits []edit
+	for _, m := range linkTargetRE.FindAllStringSubmatchIndex(line, -1) {
+		if inCode(m[0]) {
+			continue
+		}
+		// An image is the link whose text opens with "![".
+		open := -1
+		for k := m[0] - 1; k >= 0; k-- {
+			if line[k] == '[' && !inCode(k) {
+				open = k
+				break
+			}
+		}
+		edits = append(edits, edit{m[2], m[3], open > 0 && line[open-1] == '!'})
+	}
+	for _, m := range refDefRE.FindAllStringSubmatchIndex(line, -1) {
+		edits = append(edits, edit{m[2], m[3], false})
+	}
+	for _, m := range htmlAttrRE.FindAllStringSubmatchIndex(line, -1) {
+		if !inCode(m[0]) {
+			edits = append(edits, edit{m[4], m[5], line[m[2]:m[3]] == "src"})
+		}
+	}
+	sort.Slice(edits, func(a, b int) bool { return edits[a].start > edits[b].start })
+	for _, e := range edits {
+		line = line[:e.start] + rewriteTarget(line[e.start:e.end], file, slug, ref, e.image, shared) + line[e.end:]
+	}
+	return line
+}
+
+// codeSpanRanges returns the byte ranges of a line's inline code spans.
+func codeSpanRanges(line string) [][2]int {
+	var out [][2]int
+	i := 0
+	for i < len(line) {
+		open := strings.IndexByte(line[i:], '`')
+		if open < 0 {
+			break
+		}
+		open += i
+		n := 0
+		for open+n < len(line) && line[open+n] == '`' {
+			n++
+		}
+		closeAt := strings.Index(line[open+n:], line[open:open+n])
+		if closeAt < 0 {
+			break
+		}
+		end := open + n + closeAt + n
+		out = append(out, [2]int{open, end})
+		i = end
+	}
+	return out
+}
+
+// anchorFunc maps a fragment a link names on a page to the page's shared
+// anchor for that section.
+type anchorFunc func(slug, frag string) string
+
+// rewriteLinks makes a page readable outside the repository. file is the
+// page's path in the repository (docs/features/mcp.md, docs/ru/features/mcp.md),
+// which relative targets resolve against. A link to another page of the
+// documentation, in any language folder, becomes coddy:<slug>#<anchor>, so a
+// reader opens it in place; a fragment of the page itself becomes a coddy:
+// link too, because a hash-routed reader has no other fragment to give it.
+// The anchor is the shared one shared returns, so a translated page's link
+// names the section in every language. An image or a link to a file of the
+// repository becomes its address on GitHub at the release the binary was
+// built from. Absolute URLs and everything inside code are left alone.
+func rewriteLinks(md, file, slug, ref string, shared anchorFunc) string {
 	lines := strings.Split(md, "\n")
 	var f fence
 	for i, line := range lines {
 		if f.step(line) {
 			continue
 		}
-		if video, ok := attachmentVideo(lines, i, slug, ref); ok {
+		if video, ok := attachmentVideo(lines, i, file, ref); ok {
 			lines[i] = video
 			continue
 		}
-		inline := strings.Contains(line, "](")
 		refDef := strings.HasPrefix(line, "[") && strings.Contains(line, "]:")
-		attr := strings.Contains(line, `src="`) || strings.Contains(line, `href="`)
-		if !inline && !refDef && !attr {
+		if !strings.Contains(line, "](") && !strings.Contains(line, `src="`) && !strings.Contains(line, `href="`) && !refDef {
 			continue
 		}
-		lines[i] = outsideCode(line, func(text string) string {
-			if inline {
-				text = linkTargetRE.ReplaceAllStringFunc(text, func(m string) string {
-					sub := linkTargetRE.FindStringSubmatch(m)
-					return sub[1] + rewriteTarget(sub[2], slug, ref, strings.HasPrefix(sub[1], "!"))
-				})
-			}
-			if refDef {
-				text = refDefRE.ReplaceAllStringFunc(text, func(m string) string {
-					sub := refDefRE.FindStringSubmatch(m)
-					return sub[1] + rewriteTarget(sub[2], slug, ref, false)
-				})
-			}
-			if attr {
-				text = htmlAttrRE.ReplaceAllStringFunc(text, func(m string) string {
-					sub := htmlAttrRE.FindStringSubmatch(m)
-					return sub[1] + rewriteTarget(sub[2], slug, ref, strings.HasPrefix(sub[1], "src"))
-				})
-			}
-			return text
-		})
+		lines[i] = rewriteLineTargets(line, file, slug, ref, shared)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -280,35 +370,41 @@ var (
 // the repository copy linked in the next few lines. The attachment plays only
 // inside GitHub; the copy is fetched from GitHub at the release, like an
 // image, and never enters the binary. A line with no copy under it stays.
-func attachmentVideo(lines []string, i int, slug, ref string) (string, bool) {
+func attachmentVideo(lines []string, i int, file, ref string) (string, bool) {
 	if !attachmentRE.MatchString(strings.TrimSpace(lines[i])) {
 		return "", false
 	}
 	for k := i + 1; k < len(lines) && k <= i+4; k++ {
 		if m := videoCopyRE.FindStringSubmatch(lines[k]); m != nil {
-			return "![Video: " + m[2] + "](" + rewriteTarget(m[1], slug, ref, true) + ")", true
+			return "![Video: " + m[2] + "](" + rewriteTarget(m[1], file, "", ref, true, nil) + ")", true
 		}
 	}
 	return "", false
 }
 
-func rewriteTarget(target, slug, ref string, image bool) string {
-	if strings.HasPrefix(target, "#") {
-		return LinkScheme + slug + target
+func rewriteTarget(target, file, slug, ref string, image bool, shared anchorFunc) string {
+	if shared == nil {
+		shared = func(_, frag string) string { return frag }
+	}
+	if frag, ok := strings.CutPrefix(target, "#"); ok {
+		return LinkScheme + Ref(slug, shared(slug, frag))
 	}
 	if u, err := url.Parse(target); err != nil || u.Scheme != "" || strings.HasPrefix(target, "/") || strings.HasPrefix(target, "{{") {
 		return target
 	}
-	file, frag, _ := strings.Cut(target, "#")
-	file, _ = url.PathUnescape(file)
-	// The page lives at docs/<slug>.md; the target is relative to its folder.
-	repoPath := path.Clean(path.Join("docs", path.Dir(slug), file))
+	rel, frag, _ := strings.Cut(target, "#")
+	rel, _ = url.PathUnescape(rel)
+	// The target is relative to the folder of the page's file.
+	repoPath := path.Clean(path.Join(path.Dir(file), rel))
 	if strings.HasPrefix(repoPath, "../") {
 		return target
 	}
 	if !image && strings.HasPrefix(repoPath, "docs/") && strings.HasSuffix(repoPath, ".md") {
-		page := strings.TrimSuffix(strings.TrimPrefix(repoPath, "docs/"), ".md")
+		page := trimLangFolder(strings.TrimSuffix(strings.TrimPrefix(repoPath, "docs/"), ".md"))
 		if !strings.HasPrefix(page, "plans/") && page != "README" {
+			if frag != "" {
+				frag = shared(page, frag)
+			}
 			return LinkScheme + Ref(page, frag)
 		}
 	}
@@ -321,36 +417,6 @@ func rewriteTarget(target, slug, ref string, image bool) string {
 		out += "#" + frag
 	}
 	return out
-}
-
-// outsideCode applies fn to the parts of a line outside inline code spans.
-func outsideCode(line string, fn func(string) string) string {
-	if !strings.Contains(line, "`") {
-		return fn(line)
-	}
-	var b strings.Builder
-	rest := line
-	for {
-		open := strings.Index(rest, "`")
-		if open < 0 {
-			b.WriteString(fn(rest))
-			return b.String()
-		}
-		n := 0
-		for open+n < len(rest) && rest[open+n] == '`' {
-			n++
-		}
-		fence := rest[open : open+n]
-		closeAt := strings.Index(rest[open+n:], fence)
-		if closeAt < 0 {
-			b.WriteString(fn(rest))
-			return b.String()
-		}
-		end := open + n + closeAt + n
-		b.WriteString(fn(rest[:open]))
-		b.WriteString(rest[open:end])
-		rest = rest[end:]
-	}
 }
 
 var htmlCommentRE = regexp.MustCompile(`<!--.*?-->`)

@@ -81,6 +81,42 @@ func (s *docsHTTPState) get(path string) error {
 
 func (s *docsHTTPState) asksContents() error { return s.get("/coddy/docs") }
 
+func (s *docsHTTPState) asksContentsInRussian() error {
+	if err := s.get("/coddy/docs?lang=ru"); err != nil {
+		return err
+	}
+	if s.body["lang"] != "ru" {
+		return fmt.Errorf("the contents are not said to be Russian: lang=%v", s.body["lang"])
+	}
+	return nil
+}
+
+func (s *docsHTTPState) opensPageInRussian(ref string) error {
+	return s.get("/coddy/docs/page?lang=ru&ref=" + url.QueryEscape(ref))
+}
+
+func (s *docsHTTPState) getsSectionInRussian(heading, anchor string) error {
+	md, _ := s.body["markdown"].(string)
+	if s.body["lang"] != "ru" || s.body["anchor"] != anchor || !strings.Contains(md, "\n## "+heading+"\n") {
+		return fmt.Errorf("want the Russian page with the section %q at #%s: lang=%v anchor=%v", heading, anchor, s.body["lang"], s.body["anchor"])
+	}
+	headings, _ := s.body["headings"].([]interface{})
+	for _, h := range headings {
+		hm, _ := h.(map[string]interface{})
+		if hm["text"] == heading && hm["anchor"] == anchor {
+			if u, _ := s.body["url"].(string); !strings.HasPrefix(u, "https://coddy.dev/ru/docs/") {
+				return fmt.Errorf("the public address is not the Russian one: %v", s.body["url"])
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no heading %q with the anchor %q: %v", heading, anchor, headings)
+}
+
+func (s *docsHTTPState) searchesInRussian(q string) error {
+	return s.get("/coddy/docs/search?lang=ru&q=" + url.QueryEscape(q))
+}
+
 func (s *docsHTTPState) contentsListGroup(group, slug, title string) error {
 	groups, _ := s.body["groups"].([]interface{})
 	for _, g := range groups {
@@ -148,6 +184,10 @@ func initializeDocsHTTPScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^a running coddy serve$`, s.runningServe)
 	sc.Step(`^the browser asks for the documentation contents$`, s.asksContents)
+	sc.Step(`^the browser asks for the documentation contents in Russian$`, s.asksContentsInRussian)
+	sc.Step(`^the browser opens the page "([^"]*)" in Russian$`, s.opensPageInRussian)
+	sc.Step(`^it gets the section "([^"]*)" in Russian under the anchor "([^"]*)"$`, s.getsSectionInRussian)
+	sc.Step(`^the browser searches the documentation for "([^"]*)" in Russian$`, s.searchesInRussian)
 	sc.Step(`^the contents list the group "([^"]*)" with the page "([^"]*)" titled "([^"]*)"$`, s.contentsListGroup)
 	sc.Step(`^the browser opens the page "([^"]*)"$`, s.opensPage)
 	sc.Step(`^it gets the Markdown of "([^"]*)" with its sections, the page before it and the page after it$`, s.getsMarkdownWithNeighbours)

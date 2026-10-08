@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -7,6 +8,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DocsView } from "./DocsView";
+import { I18nProvider } from "../i18n/I18nProvider";
+import { setLocale } from "../i18n/i18n";
 import { focusAt, scrollToKeep } from "../components/ImageLightbox";
 import { docsCommandOpensPage, parseDocsCommand } from "./docsCommand";
 import {
@@ -80,7 +83,7 @@ function stubFetch() {
         status,
         headers: { "Content-Type": "application/json" },
       });
-    if (url === "/coddy/docs") {
+    if (url === "/coddy/docs" || url.startsWith("/coddy/docs?")) {
       return json(contents);
     }
     if (url.startsWith("/coddy/docs/page?ref=features%2Fmentions")) {
@@ -227,6 +230,43 @@ describe("DocsView", () => {
     expect((input as HTMLInputElement).value).toBe("");
   });
 
+  it("asks for the documentation in the language of the interface", async () => {
+    const fetchMock = stubFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const urls = () => fetchMock.mock.calls.map((c) => String(c[0]));
+    setLocale("ru");
+    try {
+      render(
+        <I18nProvider>
+          <DocsView slug="features/mentions" anchor={null} onOpen={vi.fn()} />
+        </I18nProvider>,
+      );
+      await screen.findByText("Intro text.");
+      expect(urls()).toContain("/coddy/docs?lang=ru");
+      expect(urls()).toContain(
+        "/coddy/docs/page?ref=features%2Fmentions&lang=ru",
+      );
+      fireEvent.change(screen.getByTestId("docs-search"), {
+        target: { value: "picker" },
+      });
+      await screen.findByTestId("docs-hits");
+      expect(urls()).toContain("/coddy/docs/search?q=picker&limit=20&lang=ru");
+      // A change of the interface's language reads the documentation again
+      // in the new one: there is no switch of its own in the reader.
+      act(() => {
+        setLocale("en");
+      });
+      await waitFor(() => expect(urls()).toContain("/coddy/docs?lang=en"));
+      await waitFor(() =>
+        expect(urls()).toContain(
+          "/coddy/docs/page?ref=features%2Fmentions&lang=en",
+        ),
+      );
+    } finally {
+      setLocale("en");
+    }
+  });
+
   it("lists a hit whose section has no text of its own", async () => {
     vi.stubGlobal(
       "fetch",
@@ -245,7 +285,7 @@ describe("DocsView", () => {
                 },
               ],
             }
-          : url === "/coddy/docs"
+          : url === "/coddy/docs" || url.startsWith("/coddy/docs?")
             ? contents
             : mentionsPage;
         return new Response(JSON.stringify(body), {

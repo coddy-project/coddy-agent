@@ -21,6 +21,29 @@ const (
 type docsSearchArgs struct {
 	Query string `json:"query"`
 	Limit int    `json:"limit"`
+	Lang  string `json:"lang"`
+}
+
+// docsLangProperty is the lang argument both documentation tools take.
+func docsLangProperty(fallback string) map[string]interface{} {
+	return map[string]interface{}{
+		"type": "string",
+		"enum": []interface{}{docs.English, docs.Russian},
+		"description": "The language of the pages: \"en\" or \"ru\". Leave it out to follow the person's interface, " + fallback +
+			"; pass \"ru\" when the person writes Russian. References are the same in every language.",
+	}
+}
+
+// docsLang is the language a documentation tool reads in: the call's, then
+// the surface's, then the fallback's (the query's script for a search).
+func docsLang(arg string, env *tooling.Env, fallback string) string {
+	if strings.TrimSpace(arg) != "" {
+		return docs.Lang(arg)
+	}
+	if env != nil && strings.TrimSpace(env.Lang) != "" {
+		return docs.Lang(env.Lang)
+	}
+	return fallback
 }
 
 // DocsSearchTool searches Coddy's own documentation, embedded in the binary.
@@ -37,8 +60,9 @@ func DocsSearchTool() *tooling.Tool {
 				"properties": map[string]interface{}{
 					"query": map[string]interface{}{
 						"type":        "string",
-						"description": "Words to look for, in English, e.g. \"telegram proxy\", \"max_turns\", \"permission modes\". A word may be cut short: \"config\" also finds configuration.",
+						"description": "Words to look for, in English or in Russian, e.g. \"telegram proxy\", \"max_turns\", \"режимы разрешений\". A word may be cut short: \"config\" also finds configuration.",
 					},
+					"lang": docsLangProperty("else the language of the query"),
 					"limit": map[string]interface{}{
 						"type":        "integer",
 						"description": fmt.Sprintf("How many sections to return, %d by default, at most %d.", docsSearchDefaultLimit, docsSearchMaxLimit),
@@ -51,7 +75,7 @@ func DocsSearchTool() *tooling.Tool {
 	}
 }
 
-func executeDocsSearch(_ context.Context, argsJSON string, _ *tooling.Env) (string, error) {
+func executeDocsSearch(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
 	args, err := tooling.ParseArgs[docsSearchArgs](argsJSON)
 	if err != nil {
 		return "", err
@@ -65,7 +89,7 @@ func executeDocsSearch(_ context.Context, argsJSON string, _ *tooling.Env) (stri
 		limit = docsSearchDefaultLimit
 	}
 	limit = min(limit, docsSearchMaxLimit)
-	lib, err := docs.Default()
+	lib, err := docs.For(docsLang(args.Lang, env, docs.LangOfText(query)))
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", ToolDocsSearch, err)
 	}

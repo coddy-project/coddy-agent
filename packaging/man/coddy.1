@@ -283,6 +283,16 @@ bounds them), and
 .BI "show " page\fR[\fB#\fIsection\fR]
 a page or one of its sections as Markdown, for example
 .BR "coddy docs show features/mentions#completion" .
+Every verb takes
+.BI "\-\-lang " en|ru
+for the language of the pages; without it the language follows the
+terminal's locale,
+.BR CODDY_LANG ,
+then
+.BR LC_ALL ,
+.B LC_MESSAGES
+and
+.BR LANG .
 The console opens the same documentation on
 .BR F1 ,
 the web UI on its Docs screen.

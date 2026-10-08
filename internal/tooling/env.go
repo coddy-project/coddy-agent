@@ -24,6 +24,11 @@ type Env struct {
 	// tree does not follow symbolic links out of it.
 	Confined bool
 
+	// Lang is the language of the surface running the turn (session
+	// PromptRunOpts.Lang): the documentation tools read Coddy's pages in it
+	// unless the call names a language. Empty when the surface named none.
+	Lang string
+
 	// PermissionMode controls when the agent requests user approval before running a tool.
 	// Values mirror config.PermMode* constants: "ask", "accept_edits", "bypass".
 	PermissionMode string

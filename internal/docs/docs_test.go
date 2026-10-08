@@ -85,7 +85,17 @@ func TestSearchFindsEveryPageByItsTitle(t *testing.T) {
 
 func testLibrary(t *testing.T, ver string) *Library {
 	t.Helper()
-	fsys := fstest.MapFS{
+	lib, err := Load(testFS(), ver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lib
+}
+
+// testFS is a small documentation tree: two groups, a page outside the tree,
+// links of every kind, a repeated heading and a heading inside code.
+func testFS() fstest.MapFS {
+	return fstest.MapFS{
 		"nav.yaml": {Data: []byte(`groups:
   - id: guide
     title: Guide
@@ -109,14 +119,9 @@ func testLibrary(t *testing.T, ver string) *Library {
         summary: Every configuration key.
 `)},
 		"guide/start.md": {Data: []byte("# Getting going\n\nRun `coddy` after the [install](../ref/keys.md#agentmax_turns).\n\n## Install\n\nDownload the archive. See [proxies](proxy.md) and [above](#install).\n\n![shot](../assets/start.png)\n\n```bash\n# not a heading\necho \"[x](proxy.md)\"\n```\n\n### Install\n\nThe second install heading.\n\n## Telegram bot\n\nThe bot talks to Telegram through the proxy of the gateway.\n")},
-		"guide/proxy.md": {Data: []byte("# Proxies\n\nEvery provider has a proxy setting: inherit, none or a URL.\n\n## Provider proxy\n\nThe proxy of a provider row routes its completions.\n\n## Environment\n\nHTTPS_PROXY is read when the setting is inherit. Code lives in [proxy.go](../../internal/llm/proxy.go).\n")},
+		"guide/proxy.md": {Data: []byte("# Proxies\n\nEvery provider has a proxy setting: inherit, none or a URL.\n\n## Provider proxy\n\nThe proxy of a provider row routes its completions.\n\n## Environment\n\nHTTPS_PROXY is read when the setting is inherit. Code lives in [proxy.go](../../internal/llm/proxy.go) and [`proxy_test.go`](../../internal/llm/proxy_test.go), not in `[x](y.md)`.\n")},
 		"ref/keys.md":    {Data: []byte("# Keys\n\n## agent.max_turns\n\nThe cap on ReAct rounds, max_turns for short.\n\n## gateways.telegram.proxy\n\nThe route of the Telegram bot.\n")},
 	}
-	lib, err := Load(fsys, ver)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return lib
 }
 
 func TestLoadSkipsPagesOutsideTheTreeAndKeepsMapOrder(t *testing.T) {
@@ -176,8 +181,15 @@ func TestLinksAreRewrittenForAReaderOutsideTheRepository(t *testing.T) {
 			}
 		}
 		proxy, _ := lib.Page("guide/proxy")
-		if want := "[proxy.go](https://github.com/coddy-project/coddy-agent/blob/" + tc.ref + "/internal/llm/proxy.go)"; !strings.Contains(proxy.Markdown, want) {
-			t.Errorf("version %s: repository link not rewritten: %s", tc.ver, proxy.Markdown)
+		for _, want := range []string{
+			"[proxy.go](https://github.com/coddy-project/coddy-agent/blob/" + tc.ref + "/internal/llm/proxy.go)",
+			// A link whose text is code is a link all the same.
+			"[`proxy_test.go`](https://github.com/coddy-project/coddy-agent/blob/" + tc.ref + "/internal/llm/proxy_test.go)",
+			"not in `[x](y.md)`.",
+		} {
+			if !strings.Contains(proxy.Markdown, want) {
+				t.Errorf("version %s: repository link not rewritten (%s): %s", tc.ver, want, proxy.Markdown)
+			}
 		}
 	}
 }
@@ -284,7 +296,7 @@ func TestSnippetMarksTheMatchedWords(t *testing.T) {
 
 func TestTokenize(t *testing.T) {
 	got := tokenize("The agent.max_turns key, Sessions and Proxies; Сессии")
-	want := []string{"agent", "max_turns", "max", "turn", "key", "session", "proxy", "сессии"}
+	want := []string{"agent", "max_turns", "max", "turn", "key", "session", "proxy", "сесс"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokenize = %v, want %v", got, want)
 	}
@@ -300,14 +312,14 @@ func TestReadSectionsAndContinuations(t *testing.T) {
 	if r.Heading == nil || r.Heading.Text != "Install" || !strings.HasPrefix(r.Text, "## Install") || !strings.Contains(r.Text, "The second install heading.") || strings.Contains(r.Text, "Telegram") {
 		t.Fatalf("section reading: %+v", r)
 	}
-	r, err = p.Read(ReadOptions{MaxBytes: 40})
+	r, err = p.Read(ReadOptions{MaxChars: 40})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.From != 1 || r.Next == 0 || r.To >= r.Total {
 		t.Fatalf("a bounded reading does not continue: %+v", r)
 	}
-	next, err := p.Read(ReadOptions{Offset: r.Next, MaxBytes: -1})
+	next, err := p.Read(ReadOptions{Offset: r.Next, MaxChars: -1})
 	if err != nil || next.To != next.Total || next.Next != 0 || !strings.HasSuffix(next.Text, "the proxy of the gateway.") {
 		t.Fatalf("continuation: %+v %v", next, err)
 	}

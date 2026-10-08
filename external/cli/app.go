@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -324,6 +326,9 @@ func (a *App) newCompletion() *completionProvider {
 			Limit:     mentionListLimit,
 			Refresh:   refresh,
 			Wait:      mentionConsoleWait,
+			// The "@coddy:" pages and sections are named in the terminal's
+			// language.
+			Lang: docs.LangFromEnv(os.Getenv),
 		})
 	}
 	p := newCompletionProvider(a.slashCatalog, search, a.remoteURL != "")
@@ -907,10 +912,13 @@ func (a *App) submitPrompt(text string) {
 	// A goal command answers for itself in its turn (goal.go), so the notice
 	// of the change it makes is not printed a second time.
 	a.expectGoalEcho(text)
+	// The language of the terminal rides on the turn: the documentation the
+	// turn's @coddy: mentions attach and its documentation tools read follows
+	// it on the server this console drives.
 	a.startTurnWorker(acp.SessionPromptParams{
 		SessionID: a.sessionID,
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
-	}, nil, nil)
+	}, &session.PromptRunOpts{Lang: docs.LangFromEnv(os.Getenv)}, nil)
 }
 
 // startTurnWorker runs one prompt on the manager and posts turnDone when it

@@ -55,13 +55,17 @@ _coddy() {
             [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--cwd" -- "${cur}"))
             ;;
         docs)
-            if [ "${COMP_CWORD}" -eq 2 ]; then
-                COMPREPLY=($(compgen -W "list search show" -- "${cur}"))
+            if [ "${prev}" = "--lang" ]; then
+                COMPREPLY=($(compgen -W "en ru" -- "${cur}"))
+            elif [ "${COMP_CWORD}" -eq 2 ]; then
+                COMPREPLY=($(compgen -W "list search show --lang" -- "${cur}"))
             elif [ "${COMP_WORDS[2]}" = show ] && [ "${COMP_CWORD}" -eq 3 ]; then
                 # The pages the binary carries, from the binary itself.
                 COMPREPLY=($(compgen -W "$(coddy docs list --slugs 2>/dev/null)" -- "${cur}"))
             elif [ "${COMP_WORDS[2]}" = search ]; then
-                COMPREPLY=($(compgen -W "--limit" -- "${cur}"))
+                COMPREPLY=($(compgen -W "--limit --lang" -- "${cur}"))
+            else
+                COMPREPLY=($(compgen -W "--lang" -- "${cur}"))
             fi
             ;;
         update)

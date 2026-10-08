@@ -17,9 +17,6 @@ import (
 	"sync"
 
 	"gopkg.in/yaml.v3"
-
-	docsfs "github.com/EvilFreelancer/coddy-agent/docs"
-	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
 // Repository addresses for what the binary does not carry: images and files
@@ -50,12 +47,15 @@ type Group struct {
 // Page is one page of the map.
 type Page struct {
 	// Slug is the path under docs/ without ".md": features/mentions. It is
-	// the page's address everywhere: coddy.dev/docs/<slug>, @coddy:<slug>,
-	// the web reader's #/docs/<slug>.
+	// the page's address everywhere and in every language:
+	// coddy.dev/docs/<slug>, @coddy:<slug>, the web reader's #/docs/<slug>.
 	Slug    string
 	Title   string
 	Summary string
 	Group   *Group
+	// Lang is the language the page's text is in: the library's, or English
+	// for a page its translation lacks.
+	Lang string
 	// Markdown is the page with its links rewritten for a reader outside
 	// the repository: a link to another page is coddy:<slug>#<anchor>, an
 	// image or a repository file is an address on GitHub at the release.
@@ -66,10 +66,12 @@ type Page struct {
 	index int
 }
 
-// Library is the whole documentation of one binary.
+// Library is the whole documentation of one binary in one language.
 type Library struct {
 	Version string
-	Groups  []*Group
+	// Lang is the language of the library (English, Russian).
+	Lang   string
+	Groups []*Group
 
 	pages  []*Page
 	bySlug map[string]*Page
@@ -78,19 +80,8 @@ type Library struct {
 	idx       *index
 }
 
-var (
-	defaultOnce sync.Once
-	defaultLib  *Library
-	defaultErr  error
-)
-
-// Default is the documentation embedded in this binary, loaded once.
-func Default() (*Library, error) {
-	defaultOnce.Do(func() {
-		defaultLib, defaultErr = Load(docsfs.FS, version.Get())
-	})
-	return defaultLib, defaultErr
-}
+// Default is the English documentation embedded in this binary, loaded once.
+func Default() (*Library, error) { return For(English) }
 
 type navFile struct {
 	Groups []struct {
@@ -105,12 +96,23 @@ type navFile struct {
 	} `yaml:"groups"`
 }
 
-// Load reads nav.yaml and its pages from fsys. A page the map lists outside
-// the documentation directory (../CONTRIBUTING.md) is skipped: the binary
-// does not carry it. A page inside it that fsys lacks is an error, so a
-// documentation group the embed pattern forgot fails the build's tests
-// rather than a reader.
-func Load(fsys fs.FS, ver string) (*Library, error) {
+// Load reads the English documentation from fsys: LoadLang in English.
+func Load(fsys fs.FS, ver string) (*Library, error) { return LoadLang(fsys, ver, English) }
+
+// LoadLang reads nav.yaml and its pages from fsys in a language. The map of
+// the source (nav.yaml) orders the library in every language; a translation
+// takes its titles and summaries from <lang>/nav.yaml and each page from
+// <lang>/<path>, the English page standing in for one it lacks. A page the
+// map lists outside the documentation directory (../CONTRIBUTING.md) is
+// skipped: the binary does not carry it. A page inside it that fsys lacks in
+// English is an error, so a documentation group the embed pattern forgot
+// fails the build's tests rather than a reader.
+//
+// A translated heading answers to the anchor of the English heading at the
+// same position (Heading.Anchor) as well as to its own (Heading.Local), and
+// the links of a translated page are rewritten to those shared anchors, so
+// one address names a section in every language.
+func LoadLang(fsys fs.FS, ver, lang string) (*Library, error) {
 	data, err := fs.ReadFile(fsys, "nav.yaml")
 	if err != nil {
 		return nil, err
@@ -119,16 +121,36 @@ func Load(fsys fs.FS, ver string) (*Library, error) {
 	if err := yaml.Unmarshal(data, &nav); err != nil {
 		return nil, fmt.Errorf("nav.yaml: %w", err)
 	}
-	lib := &Library{Version: ver, bySlug: map[string]*Page{}}
+	var tr translatedNav
+	if lang != English {
+		if data, err := fs.ReadFile(fsys, lang+"/nav.yaml"); err == nil {
+			if err := yaml.Unmarshal(data, &tr); err != nil {
+				return nil, fmt.Errorf("%s/nav.yaml: %w", lang, err)
+			}
+		}
+	}
+	lib := &Library{Version: ver, Lang: lang, bySlug: map[string]*Page{}}
 	ref := releaseRef(ver)
+
+	// The first pass reads every page and its headings, so the second can
+	// rewrite a link to the shared anchor of the section it points at.
+	type raw struct {
+		page *Page
+		file string
+		text string
+	}
+	var raws []raw
 	for _, g := range nav.Groups {
 		group := &Group{ID: g.ID, Title: g.Title, Summary: g.Summary}
+		if t, ok := tr.Groups[g.ID]; ok {
+			group.Title, group.Summary = orElse(t.Title, g.Title), orElse(t.Summary, g.Summary)
+		}
 		for _, p := range g.Pages {
 			clean := path.Clean(p.Path)
 			if strings.HasPrefix(clean, "../") || !strings.HasSuffix(clean, ".md") {
 				continue
 			}
-			body, err := fs.ReadFile(fsys, clean)
+			source, err := fs.ReadFile(fsys, clean)
 			if err != nil {
 				return nil, fmt.Errorf("page %s of nav.yaml: %w", p.Path, err)
 			}
@@ -136,20 +158,24 @@ func Load(fsys fs.FS, ver string) (*Library, error) {
 			if _, dup := lib.bySlug[slug]; dup {
 				return nil, fmt.Errorf("page %s listed twice in nav.yaml", p.Path)
 			}
-			md := rewriteLinks(string(body), slug, ref)
-			page := &Page{
-				Slug:     slug,
-				Title:    p.Title,
-				Summary:  p.Summary,
-				Group:    group,
-				Markdown: md,
-				lines:    strings.Split(md, "\n"),
-				index:    len(lib.pages),
+			page := &Page{Slug: slug, Title: p.Title, Summary: p.Summary, Group: group, Lang: English, index: len(lib.pages)}
+			if t, ok := tr.Pages[clean]; ok {
+				page.Title, page.Summary = orElse(t.Title, p.Title), orElse(t.Summary, p.Summary)
 			}
-			page.Headings = parseHeadings(page.lines)
+			text, file := stripStamp(string(source)), "docs/"+clean
+			page.Headings = parseHeadings(strings.Split(text, "\n"))
+			if lang != English {
+				if body, err := fs.ReadFile(fsys, lang+"/"+clean); err == nil {
+					text, file, page.Lang = stripStamp(string(body)), "docs/"+lang+"/"+clean, lang
+					local := parseHeadings(strings.Split(text, "\n"))
+					shareAnchors(local, page.Headings)
+					page.Headings = local
+				}
+			}
 			group.Pages = append(group.Pages, page)
 			lib.pages = append(lib.pages, page)
 			lib.bySlug[slug] = page
+			raws = append(raws, raw{page: page, file: file, text: text})
 		}
 		if len(group.Pages) > 0 {
 			lib.Groups = append(lib.Groups, group)
@@ -158,7 +184,54 @@ func Load(fsys fs.FS, ver string) (*Library, error) {
 	if len(lib.pages) == 0 {
 		return nil, fmt.Errorf("nav.yaml lists no page")
 	}
+	for _, r := range raws {
+		md := rewriteLinks(r.text, r.file, r.page.Slug, ref, lib.sharedAnchor)
+		r.page.Markdown = md
+		r.page.lines = strings.Split(md, "\n")
+	}
 	return lib, nil
+}
+
+func orElse(s, fallback string) string {
+	if strings.TrimSpace(s) == "" {
+		return fallback
+	}
+	return s
+}
+
+// stampRE is the line docsgen writes at the end of a translated page: the
+// digest of the English page it translates. It is bookkeeping, not text.
+var stampRE = regexp.MustCompile(`(?m)^<!-- docsgen:source [^>]*-->[ \t]*\n?`)
+
+func stripStamp(s string) string {
+	if !strings.Contains(s, "<!-- docsgen:source") {
+		return s
+	}
+	return strings.TrimRight(stampRE.ReplaceAllString(s, ""), "\n") + "\n"
+}
+
+// shareAnchors gives each translated heading the anchor of the source heading
+// at the same position, for as long as the two outlines agree on the levels;
+// a heading past the first disagreement keeps its own anchor.
+func shareAnchors(local, source []Heading) {
+	for i := range local {
+		if i >= len(source) || local[i].Level != source[i].Level {
+			return
+		}
+		local[i].Anchor = source[i].Anchor
+	}
+}
+
+// sharedAnchor is the anchor a link's fragment names on a page of the
+// library: the shared anchor of the heading whose own or shared anchor it is,
+// or the fragment as written when no heading has it.
+func (l *Library) sharedAnchor(slug, frag string) string {
+	if p := l.bySlug[slug]; p != nil {
+		if h, ok := p.heading(frag); ok {
+			return h.Anchor
+		}
+	}
+	return frag
 }
 
 var releaseRE = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
@@ -197,8 +270,9 @@ func (l *Library) Next(p *Page) *Page {
 	return l.pages[p.index+1]
 }
 
-// SiteURL is the public address of a page.
-func (p *Page) SiteURL() string { return SiteBase + p.Slug }
+// SiteURL is the public address of a page in the language of its text:
+// coddy.dev/docs/<slug>, coddy.dev/ru/docs/<slug>.
+func (p *Page) SiteURL() string { return siteBase(p.Lang) + p.Slug }
 
 // Ref is how a surface names a page and, optionally, one of its sections:
 // features/mentions or features/mentions#what-the-model-receives.
@@ -211,10 +285,13 @@ func Ref(slug, anchor string) string {
 
 // Resolve finds the page (and the section, when the reference carries an
 // anchor) a reference names. It takes every spelling a person or a model is
-// likely to write: the slug, the file path with or without docs/ and .md,
-// the coddy: link and the @coddy: mention, the coddy.dev address, a page's
-// file name when only one page has it, and a page's title. An anchor that
-// names no heading of the page is an error listing the ones that exist.
+// likely to write: the slug, the file path with or without docs/, a language
+// folder and .md, the coddy: link and the @coddy: mention, the coddy.dev
+// address in any language, a page's file name when only one page has it, and
+// a page's title. A section is named by its shared anchor or by the anchor of
+// its heading in the library's language, written or percent-encoded, and the
+// shared anchor is returned. An anchor that names no heading of the page is
+// an error listing the ones that exist.
 func (l *Library) Resolve(ref string) (*Page, string, error) {
 	raw := strings.TrimSpace(ref)
 	s := raw
@@ -223,14 +300,18 @@ func (l *Library) Resolve(ref string) (*Page, string, error) {
 	for _, prefix := range []string{"https://", "http://"} {
 		s = strings.TrimPrefix(s, prefix)
 	}
-	s = strings.TrimPrefix(s, "coddy.dev/docs/")
-	s = strings.TrimPrefix(s, "www.coddy.dev/docs/")
+	s = strings.TrimPrefix(s, "www.")
+	if rest, ok := strings.CutPrefix(s, "coddy.dev/"); ok {
+		s = trimLangFolder(rest)
+		s = strings.TrimPrefix(s, "docs/")
+	}
 	s, anchor, _ := strings.Cut(s, "#")
 	s = strings.Trim(strings.TrimSpace(s), "/")
 	s = strings.TrimPrefix(s, "./")
 	s = strings.TrimPrefix(s, "docs/")
+	s = trimLangFolder(s)
 	s = strings.TrimSuffix(s, ".md")
-	anchor = strings.ToLower(strings.TrimSpace(anchor))
+	anchor = strings.TrimSpace(anchor)
 	if s == "" {
 		return nil, "", fmt.Errorf("no page named")
 	}
@@ -256,11 +337,23 @@ func (l *Library) Resolve(ref string) (*Page, string, error) {
 		return nil, "", fmt.Errorf("%s", msg)
 	}
 	if anchor != "" {
-		if _, ok := page.heading(anchor); !ok {
-			return nil, "", fmt.Errorf("page %s has no section #%s; its sections: %s", page.Slug, anchor, strings.Join(page.anchors(), ", "))
+		h, ok := page.heading(anchor)
+		if !ok {
+			return nil, "", fmt.Errorf("page %s has no section #%s; its sections: %s", page.Slug, strings.ToLower(anchor), strings.Join(page.anchors(), ", "))
 		}
+		anchor = h.Anchor
 	}
 	return page, anchor, nil
+}
+
+// trimLangFolder drops the folder of a translation ("ru/") from a path.
+func trimLangFolder(s string) string {
+	for _, l := range Languages[1:] {
+		if rest, ok := strings.CutPrefix(s, l+"/"); ok {
+			return rest
+		}
+	}
+	return s
 }
 
 func (l *Library) uniqueMatch(match func(*Page) bool) *Page {

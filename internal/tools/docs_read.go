@@ -16,6 +16,7 @@ const ToolDocsRead = "coddy_docs_read"
 type docsReadArgs struct {
 	Page   string `json:"page"`
 	Offset int    `json:"offset"`
+	Lang   string `json:"lang"`
 }
 
 // DocsReadTool reads a page or a section of Coddy's own documentation,
@@ -44,6 +45,7 @@ func DocsReadTool() *tooling.Tool {
 						"type":        "integer",
 						"description": "Line to continue at, from 1, counted within the page or the section; the previous part names it.",
 					},
+					"lang": docsLangProperty("else English"),
 				},
 			},
 		},
@@ -51,12 +53,12 @@ func DocsReadTool() *tooling.Tool {
 	}
 }
 
-func executeDocsRead(_ context.Context, argsJSON string, _ *tooling.Env) (string, error) {
+func executeDocsRead(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
 	args, err := tooling.ParseArgs[docsReadArgs](argsJSON)
 	if err != nil {
 		return "", err
 	}
-	lib, err := docs.Default()
+	lib, err := docs.For(docsLang(args.Lang, env, docs.English))
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", ToolDocsRead, err)
 	}
@@ -87,7 +89,11 @@ func formatDocsReading(version string, r docs.Reading) string {
 	}
 	ref := docs.Ref(r.Page.Slug, anchor)
 	fmt.Fprintf(&b, "[Coddy %s documentation] %s\n", version, title)
-	fmt.Fprintf(&b, "reference: %s, lines %d-%d of %d; public address: %s\n\n", ref, r.From, r.To, r.Total, docs.SiteBase+ref)
+	public := r.Page.SiteURL()
+	if anchor != "" {
+		public += "#" + anchor
+	}
+	fmt.Fprintf(&b, "reference: %s, lines %d-%d of %d; public address: %s\n\n", ref, r.From, r.To, r.Total, public)
 	b.WriteString(r.Text)
 	b.WriteByte('\n')
 	if r.Next == 0 {

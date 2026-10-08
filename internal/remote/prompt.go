@@ -61,9 +61,10 @@ type metaFrame struct {
 // HandleSessionPromptWithSender runs one remote turn: it POSTs the prompt to
 // /v1/responses with stream:true, translates SSE frames back into ACP session
 // updates for sender, and answers permission or question events through the
-// /coddy REST endpoints. opts is accepted for signature parity with
-// session.Manager and ignored (detach semantics live on the server).
-func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, _ *session.PromptRunOpts) (*acp.SessionPromptResult, error) {
+// /coddy REST endpoints. Of opts only Lang crosses the wire, as metadata.lang;
+// the rest is accepted for signature parity with session.Manager and ignored
+// (detach semantics live on the server).
+func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error) {
 	if sender == nil {
 		return nil, fmt.Errorf("remote: prompt needs a sender")
 	}
@@ -103,6 +104,12 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	body := responsesRequest{Model: mode, Input: input, Stream: true, Attachments: attachments}
 	if selected != "" {
 		body.Metadata = map[string]string{"model": selected}
+	}
+	if opts != nil && opts.Lang != "" {
+		if body.Metadata == nil {
+			body.Metadata = map[string]string{}
+		}
+		body.Metadata["lang"] = opts.Lang
 	}
 	effectiveModel := selected
 	if effectiveModel == "" {

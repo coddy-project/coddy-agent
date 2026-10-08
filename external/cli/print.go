@@ -6,12 +6,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -217,7 +219,7 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	result, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 		SessionID: res.SessionID,
 		Prompt:    promptBlocks(opts),
-	}, snd, &session.PromptRunOpts{SkipUsagePublish: true})
+	}, snd, &session.PromptRunOpts{SkipUsagePublish: true, Lang: docs.LangFromEnv(os.Getenv)})
 	if snd.wrote {
 		_, _ = io.WriteString(opts.Out, "\n")
 	}
