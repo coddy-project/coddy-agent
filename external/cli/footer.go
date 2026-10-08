@@ -48,9 +48,9 @@ type footer struct {
 	// overrides are the settings changed for a number of turns.
 	overrides []acp.TurnOverride
 
-	// usages holds the latest usage update per provider row; the active
-	// model's renders. now is the clock of the reset-time wording (tests pin
-	// it).
+	// usages holds the latest usage update per subject (usageSubjectKey: the
+	// provider row, and for a coddy row the alias too); the active model's
+	// renders. now is the clock of the reset-time wording (tests pin it).
 	usages map[string]*acp.ProviderUsageUpdate
 	now    func() time.Time
 }
@@ -131,30 +131,67 @@ func (f *footer) overridesText() string {
 	return strings.Join(parts, " • ")
 }
 
-// SetUsage adopts a provider usage update for its provider row.
-func (f *footer) SetUsage(u *acp.ProviderUsageUpdate) {
+// usageSubjectKey names what a usage update is about: the provider row, and
+// for a row of type coddy (a remote Coddy's shared models, read per alias) the
+// alias too, "provider/alias". A provider name has no slash, so a row's key
+// never equals another row's alias key.
+func usageSubjectKey(provider, model string) string {
+	if model == "" {
+		return provider
+	}
+	return provider + "/" + model
+}
+
+// SetUsage adopts a provider usage update for its subject and reports whether
+// it did. Snapshots of one subject are ordered by the time they were read
+// (usageIsNewer), not by arrival: an answer that was asked for before a pushed
+// frame, and lands after it, leaves the newer numbers on the line.
+func (f *footer) SetUsage(u *acp.ProviderUsageUpdate) bool {
 	if u == nil || u.Provider == "" {
-		return
+		return false
 	}
 	if f.usages == nil {
 		f.usages = make(map[string]*acp.ProviderUsageUpdate)
 	}
-	f.usages[u.Provider] = u
+	key := usageSubjectKey(u.Provider, u.Model)
+	if !usageIsNewer(u, f.usages[key]) {
+		return false
+	}
+	f.usages[key] = u
+	return true
 }
 
-// DropUsage forgets the snapshot of a provider row: the backend answered
-// that the row has no usage now (its panel switched off in config, or the
-// row retyped), so the line must not keep the old numbers.
-func (f *footer) DropUsage(provider string) {
-	if f.usages != nil {
-		delete(f.usages, provider)
+// DropUsage forgets the snapshot of a subject: the backend answered that it
+// has no usage now (its panel switched off in config, or the row retyped), so
+// the line must not keep the old numbers. Without a model the answer is about
+// the whole provider row, and every alias of a coddy row goes with it.
+func (f *footer) DropUsage(provider, model string) {
+	if f.usages == nil {
+		return
+	}
+	if model != "" {
+		delete(f.usages, usageSubjectKey(provider, model))
+		return
+	}
+	delete(f.usages, provider)
+	prefix := provider + "/"
+	for key := range f.usages {
+		if strings.HasPrefix(key, prefix) {
+			delete(f.usages, key)
+		}
 	}
 }
 
-// Usage returns the update of the active model's provider, or nil.
+// Usage returns the update of the active model's subject, or nil: the alias's
+// own for a coddy row, else the provider row's.
 func (f *footer) Usage() *acp.ProviderUsageUpdate {
 	if f.provider == "" || f.usages == nil {
 		return nil
+	}
+	if f.model != "" {
+		if u := f.usages[usageSubjectKey(f.provider, f.model)]; u != nil {
+			return u
+		}
 	}
 	return f.usages[f.provider]
 }

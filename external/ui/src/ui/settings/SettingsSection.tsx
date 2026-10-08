@@ -15,12 +15,14 @@ import {
 import {
   CODDY_PROVIDER_TYPE,
   contextWindowToPin,
+  isCoddyType,
   providerRowOfModel,
   sharedSubscriptionAckNeeded,
 } from "./sharedModels";
 import type { ProviderRow } from "./useProviderModels";
 import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
+import { TriStateField } from "./TriStateField";
 import {
   defaultForSchema,
   SchemaForm,
@@ -73,8 +75,19 @@ type FieldOverrideContext = Parameters<FieldOverride>[0];
 
 // Provider types with an account-usage source server-side
 // (internal/session/provider_usage_sources.go): the usage_limits_panel switch
-// means something only for them, so the other types do not show it.
-const USAGE_PANEL_PROVIDER_TYPES = new Set(["neuraldeep", "codex", "devin"]);
+// means something only for them, so the other types do not show it. A coddy
+// row's source is the remote Coddy's account, read through the remote.
+const USAGE_PANEL_PROVIDER_TYPES = new Set([
+  "neuraldeep",
+  "codex",
+  "devin",
+  "coddy",
+]);
+
+// The two keys of a model row that a remote Coddy's listing can answer for: on
+// a coddy row each has three states (absent follows the remote), so it is drawn
+// by TriStateField instead of the switch every other row keeps.
+const TRI_STATE_MODEL_KEYS = new Set(["multimodal", "allow_reasoning_off"]);
 
 /**
  * seedLogicalModel builds a models[] row from the item schema's defaults,
@@ -87,7 +100,8 @@ const USAGE_PANEL_PROVIDER_TYPES = new Set(["neuraldeep", "codex", "devin"]);
  * A row of a provider of type coddy is seeded with none of the capabilities
  * its remote lists: the listing is their source, and a number or a written
  * false copied into the row would pin it to what was true on the day it was
- * added (docs/features/shared-models.md).
+ * added (docs/features/shared-models.md). So is a row seeded with an empty id,
+ * whose provider is not chosen yet.
  */
 function seedLogicalModel(
   itemSchema: JsonSchema | undefined,
@@ -106,7 +120,12 @@ function seedLogicalModel(
   if (window && itemSchema?.properties?.max_context_tokens) {
     row.max_context_tokens = window;
   }
-  if (providerType?.trim() === CODDY_PROVIDER_TYPE) {
+  // A row whose id is still empty (the Add button of Logical models) has no
+  // provider yet, and the operator may well pick a coddy one next: a written
+  // false would then pin the row to "No", over the remote's listing. For any
+  // other provider the keys are not needed: an absent key reads as false, and
+  // the switch draws it off.
+  if (providerType?.trim() === CODDY_PROVIDER_TYPE || id.trim() === "") {
     delete row.multimodal;
     delete row.allow_reasoning_off;
   }
@@ -539,6 +558,35 @@ export function SettingsSection(props: {
                 />
               );
             }
+            // A model of a remote Coddy: absent follows the remote's listing,
+            // a written true or false wins, so the switch cannot say it.
+            if (TRI_STATE_MODEL_KEYS.has(ctx.path)) {
+              const modelId =
+                ctx.parentObj?.["model"] === undefined ||
+                ctx.parentObj?.["model"] === null
+                  ? ""
+                  : String(ctx.parentObj["model"]);
+              if (isCoddyType(providerTypeFor(modelId))) {
+                return (
+                  <TriStateField
+                    name={ctx.path}
+                    value={ctx.value}
+                    onChange={(v) => ctx.onChange(v)}
+                    label={schemaFieldLabel(
+                      key,
+                      ctx.path,
+                      ctx.schema.title,
+                      ctx.path,
+                    )}
+                    description={schemaFieldDesc(
+                      key,
+                      ctx.path,
+                      ctx.schema.description,
+                    )}
+                  />
+                );
+              }
+            }
             // The generic array editor cannot express "key absent" (auto-detect)
             // and cannot tell it apart from an explicit [] that hides the
             // reasoning selector, so this field owns all three states.
@@ -554,6 +602,7 @@ export function SettingsSection(props: {
                   onChange={(v) => ctx.onChange(v)}
                   model={modelId}
                   providerType={providerTypeFor(modelId)}
+                  providerRow={providerRowOfModel(modelId, providerRows)}
                   label={
                     schemaFieldLabel(
                       key,

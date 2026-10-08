@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { formatTurnTokens } from "../chat/turnProgress";
 import { useT } from "../i18n/I18nProvider";
 import { IconCheck, IconPlus, IconSync } from "./icons";
+import { isCoddyType, listedLevels } from "./sharedModels";
 import {
   modelDisplayName,
   providerRowFetchable,
@@ -52,6 +53,9 @@ export function ProviderModelList(props: {
 
   const name = str(provider.name).trim();
   const fetchable = providerRowFetchable(provider);
+  // Only a remote Coddy's listing says what a model can take in and how it
+  // reasons; the badges are that and nothing else.
+  const remote = isCoddyType(provider.type);
   const prefix = `${name}/`;
 
   const listed = useMemo(() => new Set(existingModels), [existingModels]);
@@ -180,6 +184,26 @@ export function ProviderModelList(props: {
                 title={modelDisplayName(m)}
               >
                 <span className="provider-models-item-id">{m.id}</span>
+                {remote && m.multimodal ? (
+                  <span
+                    className="provider-models-item-badge"
+                    data-testid={`provider-model-images-${m.id}`}
+                    title={t("settings.providerModels.imagesTitle")}
+                  >
+                    {t("settings.providerModels.images")}
+                  </span>
+                ) : null}
+                {remote && listedLevels(m).length > 0 ? (
+                  <span
+                    className="provider-models-item-badge"
+                    data-testid={`provider-model-levels-${m.id}`}
+                    title={t("settings.providerModels.levelsTitle", {
+                      levels: listedLevels(m).join(", "),
+                    })}
+                  >
+                    {listedLevels(m).join(" · ")}
+                  </span>
+                ) : null}
                 {m.context_window ? (
                   <span
                     className="provider-models-item-ctx"

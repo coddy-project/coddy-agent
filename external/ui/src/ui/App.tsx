@@ -7101,6 +7101,7 @@ export function App() {
             draft={draft}
             tokenUsage={tokenUsage}
             providerUsage={providerUsageState.usage}
+            providerUsageBusy={providerUsageState.busy}
             usageBannerDismissedKey={providerUsageState.dismissedKey}
             onUsageBannerDismiss={providerUsageState.dismissBanner}
             contextPct={contextPct}

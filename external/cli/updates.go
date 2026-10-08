@@ -46,6 +46,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 				}
 			}
 			a.stopUsageResume()
+			// The turn that waited for a remote's slot is over, whatever the
+			// end update of its countdown did or did not reach.
+			a.endRemoteBusyByTurn()
 			// A permission or question modal belonging to this turn is now
 			// orphaned (the worker already unblocked via ctx cancellation). A
 			// background subagent's prompt is not this turn's: its asker is
@@ -107,7 +110,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		// The reload may have switched the active row's usage limits panel
 		// (providers[].usage_limits_panel): a cache read brings the line up
 		// or takes it down without waiting for the next turn.
-		a.refreshUsage(usageProviderOf(a.modelID), false)
+		a.refreshUsage(a.modelID, false)
 		return
 	case gateWithdrawn:
 		a.dropAbandonedGate()
@@ -151,13 +154,19 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		if a.turnActive {
 			a.setStatus(newWaitingStatus())
 		}
-		a.refreshUsage(usageProviderOf(a.modelID), true)
+		a.refreshUsage(a.modelID, true)
+		return
+	case remoteBusyExpired:
+		// The countdown of a wait for a remote's slot ran past its own budget
+		// and nobody ended it: the console drops it on its own clock.
+		a.expireRemoteBusy(u.gen)
 		return
 	case usageResetDue:
-		// A window's reset passed: one fresh read for the provider that is
-		// still active; a switched-away provider gets nothing.
-		if u.provider == usageProviderOf(a.modelID) {
-			a.refreshUsage(u.provider, u.forced)
+		// A window's reset passed: one fresh read for the subject that is
+		// still active (the row, and the alias of a coddy row); a switched-away
+		// subject gets nothing.
+		if a.usageDueIsActive(u) {
+			a.refreshUsage(a.modelID, u.forced)
 		}
 		return
 	case usageReport:
@@ -189,7 +198,12 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	case remote.ActivityUpdate:
 		if u.Revision >= a.remoteActivityRevision {
 			a.remoteActivityRevision = u.Revision
+			ended := a.remoteTurnActive && !u.TurnActive
 			a.remoteTurnActive = u.TurnActive
+			if ended {
+				// A turn another client owns ended: so did its wait for a slot.
+				a.endRemoteBusyByTurn()
+			}
 		}
 	case remote.FollowUpdate:
 		a.applyFollow(u)

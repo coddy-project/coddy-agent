@@ -3,10 +3,15 @@
 // server stays the authority and refuses a document that breaks them, the form
 // only says so before Save.
 
-import type { ProviderRow } from "./useProviderModels";
+import type { FetchedModel, ProviderRow } from "./useProviderModels";
 
 /** The provider type of a model that another Coddy shares. */
 export const CODDY_PROVIDER_TYPE = "coddy";
+
+/** True for the provider type of a model that another Coddy shares. */
+export function isCoddyType(type: unknown): boolean {
+  return text(type) === CODDY_PROVIDER_TYPE;
+}
 
 // Mirrors sharedAliasPattern: no slash, so a local id provider/alias splits
 // at the first one.
@@ -94,4 +99,38 @@ export function contextWindowToPin(
   reported: number | undefined,
 ): number | undefined {
   return text(providerType) === CODDY_PROVIDER_TYPE ? undefined : reported;
+}
+
+/**
+ * The three states of models[].multimodal and models[].allow_reasoning_off on a
+ * row of a provider of type coddy: the key absent (the remote's listing
+ * decides), true, or false (both win over the listing). Every other provider
+ * type has two states and keeps its switch.
+ */
+export type TriState = "remote" | "yes" | "no";
+
+/** The position a stored key shows: absent and null are Remote. */
+export function triStateOf(value: unknown): TriState {
+  if (value === undefined || value === null) {
+    return "remote";
+  }
+  return value === true ? "yes" : "no";
+}
+
+/** The value a position writes; undefined removes the key from the row. */
+export function triStateValue(state: TriState): boolean | undefined {
+  return state === "remote" ? undefined : state === "yes";
+}
+
+/**
+ * The levels a coddy listing offers for a model, in the order the remote gave
+ * them, with off after them when the remote allows it. A model with no levels
+ * has nothing to switch, whatever allow_reasoning_off says.
+ */
+export function listedLevels(model: FetchedModel | undefined): string[] {
+  const levels = model?.reasoning_levels ?? [];
+  if (levels.length === 0) {
+    return [];
+  }
+  return model?.allow_reasoning_off ? [...levels, "off"] : [...levels];
 }

@@ -3,6 +3,8 @@ import {
   fetchProviderUsage,
   formatResetTime,
   formatRub,
+  isRemoteBusyEnd,
+  isRemoteBusyUpdate,
   modelBlocked,
   modelUnlimited,
   remoteBusy,
@@ -10,11 +12,14 @@ import {
   usageBannerKey,
   usageBlockKind,
   usageIsNewer,
+  usageMatchesModel,
   usageNextReadMs,
   usagePassedResetKey,
   usagePercent,
   usagePlanLabel,
   usageProviderOf,
+  usageProviderTitle,
+  usageSubjectKey,
   usageWindowLabelKey,
   USAGE_TIMER_MAX_MS,
   type ProviderUsage,
@@ -296,6 +301,62 @@ describe("providerUsage helpers", () => {
     expect(!stale.ok && "usage" in stale && stale.usage?.stale).toBe(true);
     expect(calls[3]).toBe("/coddy/providers/neuraldeep/usage?refresh=1");
   });
+
+  test("the model rides along as ?model=, before refresh", async () => {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string) => {
+      calls.push(url);
+      return new Response(JSON.stringify({ ok: true, usage: fixture() }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+    await fetchProviderUsage("lab", false, fetchImpl, "terra");
+    await fetchProviderUsage("lab", true, fetchImpl, "terra");
+    await fetchProviderUsage("lab", false, fetchImpl, "gpt 5/x");
+    await fetchProviderUsage("lab", false, fetchImpl, "");
+    expect(calls).toEqual([
+      "/coddy/providers/lab/usage?model=terra",
+      "/coddy/providers/lab/usage?model=terra&refresh=1",
+      "/coddy/providers/lab/usage?model=gpt%205%2Fx",
+      "/coddy/providers/lab/usage",
+    ]);
+  });
+
+  test("an unsupported answer says which type and alias it is about", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            unsupported: true,
+            provider: "lab",
+            providerType: "coddy",
+            model: "terra",
+          }),
+          { status: 200 },
+        ),
+    ) as unknown as typeof fetch;
+    expect(await fetchProviderUsage("lab", false, fetchImpl, "terra")).toEqual({
+      ok: false,
+      unsupported: true,
+      providerType: "coddy",
+      model: "terra",
+    });
+  });
+
+  test("an alias no row names is an error, not an unsupported provider", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: false, error: "unknown_model" }), {
+          status: 404,
+        }),
+    ) as unknown as typeof fetch;
+    expect(await fetchProviderUsage("lab", false, fetchImpl, "ghost")).toEqual({
+      ok: false,
+      error: "unknown_model",
+      usage: null,
+    });
+  });
 });
 
 /* A model gate on a healthy account (10.09.26). The hub refuses one model of
@@ -397,5 +458,180 @@ describe("a wait for a free slot of the remote", () => {
     expect(
       usageNextReadMs({ ...fixture(), blocked: true, retryInSec: 30 }).delayMs,
     ).toBeGreaterThan(0);
+  });
+});
+
+// A coddy row's usage is the remote account's, read per alias (a remote can
+// share rows of two accounts through one local provider row): the update
+// carries the alias in `model`, and every match below goes through it.
+describe("a coddy row's usage is per alias", () => {
+  function remote(extra: Partial<ProviderUsage> = {}): ProviderUsage {
+    return {
+      sessionUpdate: "provider_usage",
+      provider: "lab",
+      providerType: "coddy",
+      model: "terra",
+      fetchedAt: "2026-09-06T17:47:10Z",
+      windows: [
+        {
+          id: "session",
+          label: "5h",
+          usedPercent: 62,
+          resetsAt: "2026-09-06T19:00:00Z",
+          resetInSec: 4400,
+        },
+      ],
+      ...extra,
+    };
+  }
+
+  test("the subject is the alias of a coddy row and the row for every other", () => {
+    expect(usageSubjectKey("lab", "terra")).toBe("lab/terra");
+    expect(usageSubjectKey("neuraldeep", "")).toBe("neuraldeep");
+    expect(usageSubjectKey("neuraldeep", undefined)).toBe("neuraldeep");
+  });
+
+  test("a snapshot is shown for its own alias only", () => {
+    expect(usageMatchesModel(remote(), "lab/terra")).toBe(true);
+    expect(usageMatchesModel(remote(), "lab/coder")).toBe(false);
+    expect(usageMatchesModel(remote(), "other/terra")).toBe(false);
+    expect(summarizeUsage(remote(), "lab/terra").kind).toBe("metered");
+    expect(summarizeUsage(remote(), "lab/coder").kind).toBe("none");
+    // No `model` (every other type, a countdown of a remote that predates
+    // phase 2) matches by the row alone, as before.
+    const rowOnly = remote();
+    delete rowOnly.model;
+    expect(usageMatchesModel(rowOnly, "lab/coder")).toBe(true);
+    expect(usageMatchesModel(fixture(), "neuraldeep/qwen3.8-27b")).toBe(true);
+  });
+
+  test("an unlimited alias and a blocked alias read from the remote's own flags", () => {
+    expect(summarizeUsage(remote({ unlimited: true }), "lab/terra").kind).toBe(
+      "unlimited",
+    );
+    const blocked = remote({
+      blocked: true,
+      blockers: ["model_blocked"],
+      retryAt: "2026-09-06T19:00:00Z",
+      retryInSec: 4400,
+    });
+    expect(usageBlockKind(blocked)).toBe("window");
+    const s = summarizeUsage(blocked, "lab/terra");
+    expect(s.kind === "blocked" && s.block).toBe("window");
+    expect(s.kind === "blocked" && s.blocker).toBe("model_blocked");
+    // Under a minute the same block reads as a rate limit, like any window.
+    expect(usageBlockKind({ ...blocked, retryInSec: 30 })).toBe("rate");
+  });
+
+  test("a read of another alias is newer whatever its read time", () => {
+    const shown = remote({ fetchedAt: "2026-09-06T17:47:40Z" });
+    const other = remote({
+      model: "coder",
+      fetchedAt: "2026-09-06T17:47:00Z",
+    });
+    expect(usageIsNewer(other, shown)).toBe(true);
+    // The same alias still orders by read time.
+    expect(
+      usageIsNewer(remote({ fetchedAt: "2026-09-06T17:47:00Z" }), shown),
+    ).toBe(false);
+    // A row with no alias and one with an alias are not one subject.
+    const rowOnly = remote({ fetchedAt: "2026-09-06T17:47:00Z" });
+    delete rowOnly.model;
+    expect(usageIsNewer(rowOnly, shown)).toBe(true);
+  });
+
+  test("a dismissal of one alias's notice never hides another's", () => {
+    const warm = (model: string) =>
+      remote({
+        model,
+        windows: [
+          {
+            id: "session",
+            label: "5h",
+            usedPercent: 85,
+            resetsAt: "2026-09-06T19:00:00Z",
+          },
+        ],
+      });
+    expect(usageBannerKey(warm("terra"))).toBe(
+      "lab/terra@session@2026-09-06T19:00:00Z",
+    );
+    expect(usageBannerKey(warm("coder"))).not.toBe(
+      usageBannerKey(warm("terra")),
+    );
+    // Every other type keeps its key.
+    expect(usageBannerKey({ ...fixture(), blocked: true })).toBe(
+      "neuraldeep@blocked@@",
+    );
+  });
+
+  test("the heading names the alias after the row, and only for a coddy row", () => {
+    expect(usageProviderTitle(remote())).toBe("lab · terra");
+    // A row named like its type still names the alias.
+    expect(usageProviderTitle(remote({ provider: "coddy" }))).toBe(
+      "coddy · terra",
+    );
+    expect(usageProviderTitle(fixture())).toBe("NeuralDeep");
+    const rowOnly = remote();
+    delete rowOnly.model;
+    expect(usageProviderTitle(rowOnly)).toBe("lab");
+  });
+});
+
+// The end of the countdown is an update on the existing fields (4.6): the
+// blocker stays, Blocked and Resuming go. It is told apart from the countdown
+// it ends by those two fields alone.
+describe("the countdown and its end", () => {
+  const stamp = "2026-09-06T17:47:10Z";
+  const countdown: ProviderUsage = {
+    provider: "lab",
+    providerType: "coddy",
+    model: "terra",
+    fetchedAt: stamp,
+    blocked: true,
+    blockers: ["remote_busy"],
+    retryAt: "2026-09-06T17:47:42Z",
+    retryInSec: 32,
+    resuming: true,
+  };
+  const end: ProviderUsage = {
+    provider: "lab",
+    providerType: "coddy",
+    model: "terra",
+    fetchedAt: stamp,
+    blockers: ["remote_busy"],
+  };
+
+  test("both belong to the countdown, only one of them ends it", () => {
+    expect(isRemoteBusyUpdate(countdown)).toBe(true);
+    expect(isRemoteBusyUpdate(end)).toBe(true);
+    expect(isRemoteBusyEnd(countdown)).toBe(false);
+    expect(isRemoteBusyEnd(end)).toBe(true);
+    // Blocked or resuming alone keeps it a countdown.
+    expect(isRemoteBusyEnd({ ...end, resuming: true })).toBe(false);
+    expect(isRemoteBusyEnd({ ...end, blocked: true })).toBe(false);
+  });
+
+  test("a snapshot or a limit wait is neither", () => {
+    expect(isRemoteBusyUpdate(fixture())).toBe(false);
+    expect(isRemoteBusyEnd(fixture())).toBe(false);
+    const limitWait: ProviderUsage = {
+      provider: "lab",
+      providerType: "coddy",
+      blocked: true,
+      blockers: ["session_exhausted"],
+      resuming: true,
+    };
+    expect(isRemoteBusyUpdate(limitWait)).toBe(false);
+    expect(isRemoteBusyUpdate(null)).toBe(false);
+    expect(isRemoteBusyEnd(undefined)).toBe(false);
+  });
+
+  test("the end is no wait: it keeps the key of the row and shows nothing", () => {
+    expect(remoteBusy(end)).toBe(false);
+    expect(usageNextReadMs(end)).toEqual({ delayMs: 0, forced: false });
+    expect(usageBannerKey(countdown, "lab/terra")).toBe(
+      "lab/terra@remote_busy",
+    );
   });
 });

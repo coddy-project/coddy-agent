@@ -5,6 +5,7 @@ import {
   formatRub,
   remoteBusy,
   summarizeUsage,
+  usageMatchesModel,
   usagePercent,
   usageProviderTitle,
   usagePlanLabel,
@@ -20,19 +21,36 @@ import {
  * reset time and the percent used, the wallet below, and a note for the
  * states that change what the user can do (a hit limit, a rejected key, a
  * model on the provider's unlimited option, a turn waiting for the reset,
- * a stale read). Renders nothing when the selected model's provider has no
+ * a stale read). A coddy row's block is the remote account's usage for the
+ * selected alias (titled `row · alias`, with a line saying whose account it
+ * is); the countdown of a call waiting for a free slot of the remote arrives
+ * as `busy`, beside the snapshot, and takes the note over without touching
+ * the meters. Renders nothing when the selected model's provider has no
  * usage. Design contract: DESIGN.md (Context popover usage section).
  */
 export function UsageSection(props: {
   usage: ProviderUsage | null | undefined;
+  /** The countdown of a call waiting for a free slot of a remote Coddy. */
+  busy?: ProviderUsage | null | undefined;
   modelId: string;
   now?: Date;
 }) {
   const { t, locale } = useT();
-  const summary = summarizeUsage(props.usage, props.modelId);
-  if (summary.kind === "none") return null;
+  const countdown =
+    props.busy && usageMatchesModel(props.busy, props.modelId)
+      ? props.busy
+      : null;
+  let summary = summarizeUsage(props.usage, props.modelId);
+  // The snapshot of the selected alias, if there is one; with none the
+  // countdown is the block by itself.
+  let u: ProviderUsage | null | undefined =
+    summary.kind === "none" ? null : props.usage;
+  if (!u && countdown) {
+    u = countdown;
+    summary = summarizeUsage(countdown, props.modelId);
+  }
+  if (!u || summary.kind === "none") return null;
   const now = props.now ?? new Date();
-  const u = props.usage as ProviderUsage;
   const title = usageProviderTitle(u);
   const windowName = (w: UsageWindow) => {
     const key = usageWindowLabelKey(w);
@@ -47,7 +65,11 @@ export function UsageSection(props: {
       noteTone = summary.failed ? "warn" : "";
       break;
     case "unauthorized":
-      note = t("usage.keyRejected", { provider: summary.provider });
+      // A coddy row has no sign-in: the remote refused the row's own token.
+      note =
+        u.providerType === "coddy"
+          ? t("usage.remoteKeyRejected", { provider: summary.provider })
+          : t("usage.keyRejected", { provider: summary.provider });
       noteTone = "warn";
       break;
     case "unlimited":
@@ -101,6 +123,16 @@ export function UsageSection(props: {
     case "metered":
       if (summary.stale) note = t("usage.stale");
       break;
+  }
+  if (countdown && u !== countdown) {
+    // Waiting for a free stream slot of a remote Coddy outranks whatever the
+    // snapshot says; the snapshot's meters below stay as they are.
+    noteTone = "warn";
+    note = countdown.retryAt
+      ? t("usage.remoteBusyUntil", {
+          time: formatResetTime(countdown.retryAt, now, locale),
+        })
+      : t("usage.remoteBusy");
   }
 
   const rows = (u.windows ?? []).filter(
@@ -187,6 +219,14 @@ export function UsageSection(props: {
             balance: formatRub(u.wallet.balanceRub),
             spent: formatRub(u.wallet.spentRub30d),
           })}
+        </div>
+      ) : null}
+      {u.providerType === "coddy" && !remoteBusy(u) ? (
+        <div
+          className="context-usage-foot context-usage-remote"
+          data-testid="context-usage-remote"
+        >
+          {t("usage.remoteAccount")}
         </div>
       ) : null}
     </div>

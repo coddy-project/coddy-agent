@@ -430,6 +430,8 @@ export function Composer(props: {
   tokenUsage?: TokenUsage | null;
   /** Account usage behind the selected model's provider (the usage section of the context popover). */
   providerUsage?: ProviderUsage | null;
+  /** The countdown of a call waiting for a free slot of a remote Coddy, beside the usage snapshot. */
+  providerUsageBusy?: ProviderUsage | null;
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: ContextBreakdown | null;
@@ -3553,6 +3555,7 @@ export function Composer(props: {
           compactThreshold={props.compactionSettings?.threshold}
           onCompacted={props.onContextCompacted}
           usage={props.providerUsage ?? null}
+          usageBusy={props.providerUsageBusy ?? null}
           modelId={llmVal || ""}
         />
       ) : null}

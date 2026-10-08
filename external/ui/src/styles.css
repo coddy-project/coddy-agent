@@ -7535,6 +7535,14 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: color-mix(in srgb, var(--text) 70%, transparent);
 }
 
+/* Whose account the numbers of a coddy row are: one quiet line under them. */
+.context-usage-remote {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
 /* Send/stop control: perfect circle so play/stop glyphs read clearly on all breakpoints */
 .composer-icon {
   box-sizing: border-box;
@@ -9157,6 +9165,77 @@ html:not([data-theme="light"]) .context-usage-note--error {
   cursor: default;
 }
 
+/* Three-state setting (TriStateField): Remote follows a remote Coddy's listing,
+   Yes and No write the key and win over it. One group of native radios drawn
+   as a segmented control, so the arrow keys move and select; the position
+   chosen carries the accent, a focused one the focus ring. The description
+   line under it keeps the field-desc rhythm. Contract: DESIGN.md, "Three-state
+   fields". */
+.tristate-field .settings-field-desc {
+  margin: 4px 0 0;
+}
+
+.tristate-options {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  max-width: 100%;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.tristate-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 6px 14px;
+  font-size: 0.9rem;
+  line-height: 1.3;
+  color: var(--text);
+  background: var(--coddy-glass-panel-bg);
+  cursor: pointer;
+  user-select: none;
+  transition: background 120ms ease;
+}
+
+.tristate-option + .tristate-option {
+  border-left: 1px solid var(--coddy-glass-panel-border);
+}
+
+.tristate-option:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+/* The radio is the hit area and the focus owner; it draws nothing itself. */
+.tristate-option input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.tristate-option:has(input:checked) {
+  background: color-mix(in srgb, var(--accent) 22%, var(--coddy-blend-base));
+  font-weight: 600;
+}
+
+.tristate-option:has(input:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -2px;
+}
+
+@media (max-width: 1199px) {
+  .tristate-option {
+    min-height: 44px;
+  }
+}
+
 /* "required" after the name of an acknowledgement switch, and the warning the
    acknowledgement is for, standing under it in whichever tone its state has. */
 .settings-required-mark {
@@ -9676,6 +9755,11 @@ html:not([data-theme="light"]) .context-usage-note--error {
   margin-top: 8px;
 }
 
+/* The levels a remote Coddy's listing offers, read-only under the status. */
+.reasoning-levels-remote {
+  margin-top: -4px;
+}
+
 /* A logical model's context window: the number field beside the 40px icon
    button that asks the provider, the input matching its height so the pair
    reads as one row (ContextWindowField). */
@@ -9813,6 +9897,24 @@ html:not([data-theme="light"]) .context-usage-note--error {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
+}
+
+/* What a remote Coddy's listing says about a model: a badge for the images it
+   takes and one for the reasoning levels it offers. Small and muted, so the
+   id stays the row's first word. */
+.provider-models-item-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
 }
 
 /* The toggle right after the id: a plus while the model is not in Logical

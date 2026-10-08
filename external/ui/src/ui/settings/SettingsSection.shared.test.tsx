@@ -81,6 +81,10 @@ const schema: JsonSchema = {
             title: "Reasoning levels",
             items: { type: "string" },
           },
+          reasoning_default: {
+            type: "string",
+            title: "Default reasoning level",
+          },
           allow_reasoning_off: {
             type: "boolean",
             title: "Allow disabling reasoning",
@@ -103,6 +107,7 @@ const schema: JsonSchema = {
           "max_context_tokens",
           "multimodal",
           "reasoning_levels",
+          "reasoning_default",
           "allow_reasoning_off",
           "stream",
           "shared_as",
@@ -461,12 +466,24 @@ test("the busy wait is a field of the coddy provider only, among the advanced se
   expect(screen.queryByLabelText("Wait for a free slot ms")).toBeNull();
 });
 
-test("the usage panel switch stays off the coddy provider form", () => {
+test("the usage panel switch is on the coddy provider form: the remote's account usage is read for it", () => {
   stubFetch();
   render(
     <Harness
       section={providersSection}
       doc={{ providers: [{ name: "lab", type: "coddy" }], models: [] }}
+    />,
+  );
+  openFirstRow();
+  expect(screen.getByText("Usage limits panel")).toBeTruthy();
+});
+
+test("a provider type with no usage source still has no usage panel switch", () => {
+  stubFetch();
+  render(
+    <Harness
+      section={providersSection}
+      doc={{ providers: [{ name: "demo", type: "openai" }], models: [] }}
     />,
   );
   openFirstRow();
@@ -503,4 +520,239 @@ test("the busy wait field of the coddy provider reads in Russian", async () => {
   await waitFor(() =>
     expect(screen.getByLabelText("Ожидание свободного слота, мс")).toBeTruthy(),
   );
+});
+
+// --- the three-state keys of a coddy row -------------------------------------
+
+function renderLabModel(model: Record<string, unknown>) {
+  stubFetch();
+  render(
+    <Harness
+      section={modelsSection}
+      doc={{
+        providers: SUBSCRIPTION_PROVIDERS,
+        models: [{ model: "lab/terra", ...model }],
+      }}
+    />,
+  );
+  openFirstRow();
+}
+
+/** The row as the server receives it: JSON drops a key set to undefined. */
+function savedRow(): Record<string, unknown> {
+  return (JSON.parse(JSON.stringify(latest)) as { models: unknown[] })
+    .models[0] as Record<string, unknown>;
+}
+
+test("a coddy row draws multimodal and allow_reasoning_off as Remote / Yes / No, not as switches", () => {
+  renderLabModel({});
+  for (const key of ["multimodal", "allow_reasoning_off"]) {
+    const field = screen.getByTestId(`tristate-${key}`);
+    expect(within(field).getByText("Remote")).toBeTruthy();
+    expect(within(field).getByText("Yes")).toBeTruthy();
+    expect(within(field).getByText("No")).toBeTruthy();
+    expect(
+      (screen.getByTestId(`tristate-${key}-remote`) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+  }
+  expect(screen.queryByRole("switch", { name: /multimodal/i })).toBeNull();
+  expect(
+    screen.queryByRole("switch", { name: /allow disabling reasoning/i }),
+  ).toBeNull();
+  // The rest of the form is the ordinary one.
+  expect(
+    screen.getByRole("switch", { name: /stream responses/i }),
+  ).toBeTruthy();
+});
+
+test("the control stays in the block of the key it replaces", () => {
+  renderLabModel({});
+  expect(
+    within(screen.getByTestId("settings-group-model")).getByTestId(
+      "tristate-multimodal",
+    ),
+  ).toBeTruthy();
+  expect(
+    within(screen.getByTestId("settings-group-reasoning")).getByTestId(
+      "tristate-allow_reasoning_off",
+    ),
+  ).toBeTruthy();
+});
+
+test("choosing Yes or No writes the key, choosing Remote takes it out of the row", () => {
+  renderLabModel({});
+  fireEvent.click(screen.getByTestId("tristate-multimodal-yes"));
+  expect(savedRow().multimodal).toBe(true);
+  fireEvent.click(screen.getByTestId("tristate-multimodal-no"));
+  expect(savedRow().multimodal).toBe(false);
+  expect(savedRow()).toHaveProperty("multimodal");
+  fireEvent.click(screen.getByTestId("tristate-multimodal-remote"));
+  expect(savedRow()).not.toHaveProperty("multimodal");
+  // The sibling key is not touched by any of it.
+  expect(savedRow()).not.toHaveProperty("allow_reasoning_off");
+  fireEvent.click(screen.getByTestId("tristate-allow_reasoning_off-yes"));
+  expect(savedRow().allow_reasoning_off).toBe(true);
+  fireEvent.click(screen.getByTestId("tristate-allow_reasoning_off-remote"));
+  expect(savedRow()).not.toHaveProperty("allow_reasoning_off");
+});
+
+test("a row phase 1 saved with both keys false shows No, with the way back in the hint", () => {
+  renderLabModel({ multimodal: false, allow_reasoning_off: false });
+  for (const key of ["multimodal", "allow_reasoning_off"]) {
+    expect(
+      (screen.getByTestId(`tristate-${key}-no`) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(screen.getByTestId(`tristate-${key}-hint`).textContent).toContain(
+      "Choose Remote",
+    );
+  }
+});
+
+test("a row of another provider type keeps the switch, and a written false stays false", () => {
+  renderModel({ model: "oa/gpt-4o", multimodal: false });
+  expect(screen.queryByTestId("tristate-multimodal")).toBeNull();
+  const sw = screen.getByRole("switch", { name: /multimodal/i });
+  expect(sw.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(sw);
+  expect(modelsOf(latest)[0]?.multimodal).toBe(true);
+  fireEvent.click(screen.getByRole("switch", { name: /multimodal/i }));
+  expect(modelsOf(latest)[0]?.multimodal).toBe(false);
+});
+
+test("the provider decides, read from the form as it stands: a model of a row not typed coddy keeps the switch", () => {
+  stubFetch();
+  render(
+    <Harness
+      section={modelsSection}
+      doc={{
+        providers: [{ name: "lab", type: "openai" }],
+        models: [{ model: "lab/terra" }],
+      }}
+    />,
+  );
+  openFirstRow();
+  expect(screen.queryByTestId("tristate-multimodal")).toBeNull();
+  expect(screen.getByRole("switch", { name: /multimodal/i })).toBeTruthy();
+});
+
+test("the control reads in Russian", () => {
+  setLocale("ru");
+  renderLabModel({});
+  const field = screen.getByTestId("tristate-multimodal");
+  expect(within(field).getByText("Как у удалённого")).toBeTruthy();
+  expect(within(field).getByText("Да")).toBeTruthy();
+  expect(within(field).getByText("Нет")).toBeTruthy();
+});
+
+test("the picker never writes the tri-state keys for a new coddy row, nor the levels", async () => {
+  const row = await addFromPicker(
+    { name: "lab", type: "coddy", api_base: "https://lab.example:12345" },
+    [
+      {
+        id: "terra",
+        context_window: 200000,
+        multimodal: true,
+        reasoning_levels: ["low", "high"],
+        allow_reasoning_off: true,
+      } as { id: string; context_window?: number },
+    ],
+    "terra",
+  );
+  const written = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+  expect(written).not.toHaveProperty("multimodal");
+  expect(written).not.toHaveProperty("allow_reasoning_off");
+  expect(written).not.toHaveProperty("reasoning_levels");
+  // The seed's empty default is "not written", as for every row.
+  expect(written.reasoning_default ?? "").toBe("");
+});
+
+test("a model picked from another provider's listing is seeded as before", async () => {
+  const row = await addFromPicker(
+    { name: "demo", type: "openai" },
+    [{ id: "m1" }],
+    "m1",
+  );
+  // Both keys keep the seed every row of another type has had.
+  expect(row.multimodal).toBe(false);
+  expect(row.allow_reasoning_off).toBe(false);
+});
+
+// --- a row added with the Add button -----------------------------------------
+
+/**
+ * addRowWithId walks the form the way an operator does: Add, pick the
+ * provider, type the id its API expects. The Add button seeds the row before
+ * any provider is known, so what it writes must not decide the row's type.
+ */
+function addRowWithId(provider: string, id: string) {
+  stubFetch();
+  render(
+    <Harness
+      section={modelsSection}
+      doc={{ providers: SUBSCRIPTION_PROVIDERS, models: [] }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-add"));
+  fireEvent.focus(screen.getByTestId("model-field-provider"));
+  fireEvent.mouseDown(screen.getByText(provider));
+  fireEvent.change(screen.getByTestId("model-field-model"), {
+    target: { value: id },
+  });
+}
+
+test("Add seeds an empty row without the tri-state keys: its provider is not chosen yet", () => {
+  stubFetch();
+  render(
+    <Harness
+      section={modelsSection}
+      doc={{ providers: SUBSCRIPTION_PROVIDERS, models: [] }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-add"));
+  const row = savedRow();
+  expect(row).not.toHaveProperty("multimodal");
+  expect(row).not.toHaveProperty("allow_reasoning_off");
+  // What has a meaning of its own stays seeded, as for every row.
+  expect(row.stream).toBe(true);
+});
+
+test("a row added with Add and given a coddy provider follows the remote: both keys Remote, none written", () => {
+  addRowWithId("lab", "terra");
+  expect(savedRow().model).toBe("lab/terra");
+  const row = savedRow();
+  expect(row).not.toHaveProperty("multimodal");
+  expect(row).not.toHaveProperty("allow_reasoning_off");
+  for (const key of ["multimodal", "allow_reasoning_off"]) {
+    expect(
+      (screen.getByTestId(`tristate-${key}-remote`) as HTMLInputElement)
+        .checked,
+      key,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId(`tristate-${key}-no`) as HTMLInputElement).checked,
+      key,
+    ).toBe(false);
+  }
+});
+
+test("a row added with Add and given another provider keeps the switches, off until the operator turns one on", () => {
+  addRowWithId("oa", "gpt-x");
+  expect(savedRow().model).toBe("oa/gpt-x");
+  expect(screen.queryByTestId("tristate-multimodal")).toBeNull();
+  const multimodal = screen.getByRole("switch", { name: /multimodal/i });
+  const reasoningOff = screen.getByRole("switch", {
+    name: /allow disabling reasoning/i,
+  });
+  expect(multimodal.getAttribute("aria-checked")).toBe("false");
+  expect(reasoningOff.getAttribute("aria-checked")).toBe("false");
+  // An absent key and a written false mean the same for these providers.
+  expect(savedRow().multimodal ?? false).toBe(false);
+  expect(savedRow().allow_reasoning_off ?? false).toBe(false);
+  fireEvent.click(multimodal);
+  expect(savedRow().multimodal).toBe(true);
+  fireEvent.click(screen.getByRole("switch", { name: /multimodal/i }));
+  expect(savedRow().multimodal).toBe(false);
+  fireEvent.click(reasoningOff);
+  expect(savedRow().allow_reasoning_off).toBe(true);
 });

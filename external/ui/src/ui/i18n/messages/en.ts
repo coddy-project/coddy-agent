@@ -317,6 +317,11 @@ export const messagesEn: Record<string, string> = {
     "Context window of {tokens} token",
   "settings.providerModels.contextWindow.other":
     "Context window of {tokens} tokens",
+  "settings.providerModels.images": "images",
+  "settings.providerModels.imagesTitle":
+    "The remote lists this model as accepting images",
+  "settings.providerModels.levelsTitle":
+    "Reasoning levels the remote lists: {levels}",
   "settings.reasoning.levelsFallback": "Reasoning levels",
   "settings.reasoning.fetch": "Fetch reasoning levels",
   "settings.reasoning.fetching": "Fetching…",
@@ -331,6 +336,22 @@ export const messagesEn: Record<string, string> = {
     "This model id has no auto-detected reasoning levels. Add them by hand if the provider offers any.",
   "settings.reasoning.fetchError":
     "Couldn't fetch reasoning levels: {error}. Add them by hand below.",
+  "settings.reasoning.fromRemote":
+    "The remote's listing decides which levels this model offers.",
+  "settings.reasoning.fromRemoteLevels": "Offered by the remote now: {levels}",
+  "settings.reasoning.fromRemoteNone":
+    "The remote lists no reasoning levels for this model.",
+  "settings.reasoning.useRemote": "Follow the remote",
+  "settings.reasoning.overriddenRemote":
+    "These exact levels are offered for this model, instead of the remote's.",
+  "settings.reasoning.hiddenRemote":
+    "Empty list: the reasoning selector is hidden for this model. Use 'Follow the remote' to go back.",
+  "settings.tristate.remote": "Remote",
+  "settings.tristate.yes": "Yes",
+  "settings.tristate.no": "No",
+  "settings.tristate.fromRemote": "Follows the remote's listing.",
+  "settings.tristate.hint":
+    "The remote's listing is ignored for this key. Choose Remote to follow it again.",
 
   "settings.field.apiKeyPlaceholder":
     "If empty, reads from {env} at run time, or set a literal key (YAML may use {varToken} at load)",
@@ -379,7 +400,7 @@ export const messagesEn: Record<string, string> = {
     "coddy providers only: how long one call waits for a free slot of the remote when it answers busy. Above zero it wins; 0 follows the agent's shared busy wait (30000 unless set).",
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
-    "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",
+    "Show the account usage of this NeuralDeep, Codex, Devin or coddy provider here, in the console footer and in /usage, reading its usage endpoint for it. For a coddy provider that is the remote Coddy's account, read through the remote. Off hides the panel and stops those reads for this row.",
 
   "settings.schema.models.desc":
     "Named model entries the agent and UI can select; ids reference provider prefixes.",
@@ -397,19 +418,19 @@ export const messagesEn: Record<string, string> = {
     "The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000.",
   "settings.schema.models.multimodal.label": "Multimodal",
   "settings.schema.models.multimodal.desc":
-    "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file.",
+    "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file. Absent means false, except for a model of a coddy provider, where the remote's listing decides; a written value wins.",
   "settings.schema.models.reasoning_levels.label": "Reasoning levels",
   "settings.schema.models.reasoning_levels.desc":
-    "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
+    "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id (for a model of a coddy provider, the remote's listing decides); an explicit empty list hides the reasoning selector.",
   "settings.schema.models.reasoning_default.label": "Default reasoning level",
   "settings.schema.models.reasoning_default.desc":
-    "Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise.",
+    "Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise. Empty on a model of a coddy provider follows the remote's default.",
   "settings.schema.models.reasoning_default.ph":
     "medium when offered, else the first level",
   "settings.schema.models.allow_reasoning_off.label":
     "Allow disabling reasoning",
   "settings.schema.models.allow_reasoning_off.desc":
-    "Show Off in this model's reasoning selector. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically.",
+    "Show Off in this model's reasoning selector. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically. Absent means false, except for a model of a coddy provider, where the remote's listing decides; a written value wins.",
   "settings.schema.models.stream.label": "Stream responses",
   "settings.schema.models.stream.desc":
     "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
@@ -1436,6 +1457,10 @@ export const messagesEn: Record<string, string> = {
     "Waiting for a free slot on the remote · resumes on its own",
   "usage.remoteBusyUntil":
     "Waiting for a free slot on the remote · resumes on its own, gives up at {time}",
+  "usage.remoteAccount":
+    "The remote's account, shared with everyone who borrows from it",
+  "usage.remoteKeyRejected":
+    "The remote refused the token of {provider}: check the API key of that provider in Settings",
   "composer.composerOptions": "Composer options",
   "composer.skillsTitle": "Skills",
   "composer.loading": "Loading…",

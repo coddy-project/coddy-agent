@@ -91,6 +91,8 @@ export function ContextBreakdownPopover(props: {
   breakdown?: ContextBreakdown | null | undefined;
   /** Account usage of the selected model's provider, listed under the context window. */
   usage?: ProviderUsage | null;
+  /** The countdown of a call waiting for a free slot of a remote Coddy, beside the usage. */
+  usageBusy?: ProviderUsage | null;
   modelId?: string;
   sessionId?: string | undefined;
   compactAvailable?: boolean | undefined;
@@ -360,7 +362,11 @@ export function ContextBreakdownPopover(props: {
           </li>
         ))}
       </ul>
-      <UsageSection usage={props.usage} modelId={props.modelId ?? ""} />
+      <UsageSection
+        usage={props.usage}
+        busy={props.usageBusy ?? null}
+        modelId={props.modelId ?? ""}
+      />
     </>
   );
 

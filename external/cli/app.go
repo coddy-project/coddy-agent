@@ -159,9 +159,10 @@ type App struct {
 	usageTimer func() bool
 	// usageResume is the pending note that a waiting turn's reset passed.
 	usageResume func() bool
-	// remoteBusy names the provider row whose call waits for a free stream
-	// slot of the remote, while the status row says so ("" otherwise).
-	remoteBusy    string
+	// remoteBusy is the countdown of a call that waits for a free stream slot
+	// of the remote: the slot, its tombstone and its expiry (usage_busy.go),
+	// state of its own beside the usage snapshot of the footer.
+	remoteBusy    remoteBusyState
 	usageNotified map[string]bool
 	usageFollowUp string
 	usageAfterFn  func(time.Duration, func()) func() bool
@@ -415,6 +416,9 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 		// and the line never pairs one session's clock with another's tokens.
 		a.resetTasks()
 		a.turnStartedAt, a.turnTokens = time.Time{}, 0
+		// So was a countdown: the call that waited for a remote's slot was
+		// the other session's.
+		a.resetRemoteBusy()
 	}
 	a.reasoning = ""
 	if modes != nil {
@@ -461,9 +465,18 @@ func (a *App) refreshFooterModel() {
 	reasoning := a.currentReasoning()
 	if reasoning == "" {
 		if entry := a.config().FindModelEntry(a.modelID); entry != nil {
+			// A default the row writes is shown as written; with none, what
+			// the model resolves to - for a model of a remote Coddy, the
+			// default of the remote's listing.
 			reasoning = entry.ReasoningDefault
+			if reasoning == "" {
+				reasoning = a.config().DefaultReasoningLevelFor(entry)
+			}
 		}
 	}
+	// The countdown of a wait for a remote's slot was about the model that
+	// was; a change of subject drops it.
+	a.syncRemoteBusySubject()
 	a.foot.SetModel(a.modelID, reasoning)
 }
 
@@ -1037,10 +1050,10 @@ func (a *App) setModel(id string) {
 		// The new model may belong to another provider: the footer line
 		// follows it without waiting for the next turn. The backend answers
 		// from its cache when warm, so this costs no request most of the time.
-		if provider := usageProviderOf(id); provider != "" {
+		if subject := usageSubjectOf(id); subject != "" {
 			ctx, cancel := context.WithTimeout(a.workCtx, 30*time.Second)
 			defer cancel()
-			if u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, provider, false); err == nil && u != nil {
+			if u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, subject, false); err == nil && u != nil {
 				_ = a.Sender().SendSessionUpdate(sessionID, *u)
 			}
 		}

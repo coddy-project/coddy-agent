@@ -340,3 +340,164 @@ test("the Add button is a lone row action, not a full-width bar", () => {
   expect(add.classList.contains("settings-row-action")).toBe(true);
   expect(add.parentElement?.classList.contains("settings-row")).toBe(true);
 });
+
+// --- a model of a remote Coddy ---------------------------------------------
+//
+// The levels of such a model come from the remote's listing while the key is
+// absent: there is nothing to detect from an alias and nothing to fetch, so the
+// Fetch control goes, the status says who decides, and the levels the listing
+// offers show read-only as the inherited value.
+
+const LAB = {
+  name: "lab",
+  type: "coddy",
+  api_base: "https://lab.example:12345",
+};
+
+function CoddyHarness({
+  initial,
+  providerRow = LAB,
+}: {
+  initial?: unknown;
+  /** null stands for "the form has no row for this model's provider". */
+  providerRow?: Record<string, unknown> | null;
+}) {
+  const [model, setModel] = React.useState<Record<string, unknown>>(
+    initial === undefined
+      ? { model: "lab/terra" }
+      : { model: "lab/terra", reasoning_levels: initial },
+  );
+  return (
+    <>
+      <output data-testid="model-json">{JSON.stringify(model)}</output>
+      <ReasoningLevelsField
+        value={model["reasoning_levels"]}
+        onChange={(v) => setModel((m) => ({ ...m, reasoning_levels: v }))}
+        model={String(model["model"])}
+        providerType="coddy"
+        providerRow={providerRow ?? undefined}
+        label="Reasoning levels"
+      />
+    </>
+  );
+}
+
+/** Answers the listing POST with the given models, and fails on any other call. */
+function listing(models: unknown[]) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    if (String(input) !== "/coddy/providers/models") {
+      throw new Error(`unexpected request ${String(input)}`);
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, models }),
+    } as unknown as Response;
+  });
+}
+
+test("a coddy row has no Fetch: the remote's listing decides, and the levels it offers show", async () => {
+  const f = listing([
+    {
+      id: "terra",
+      reasoning_levels: ["low", "high"],
+      allow_reasoning_off: true,
+    },
+  ]);
+  render(<CoddyHarness />);
+  expect(screen.queryByTestId("reasoning-levels-fetch")).toBeNull();
+  expect(screen.getByTestId("reasoning-levels-status").textContent).toBe(
+    "The remote's listing decides which levels this model offers.",
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("reasoning-levels-remote").textContent).toBe(
+      "Offered by the remote now: low, high",
+    ),
+  );
+  // The key stays absent: showing the listing writes nothing.
+  expect(savedModel()).toEqual({ model: "lab/terra" });
+  expect(f).toHaveBeenCalledTimes(1);
+  const [, init] = f.mock.calls[0] as [unknown, RequestInit];
+  expect(JSON.parse(String(init.body))).toMatchObject({
+    name: "lab",
+    type: "coddy",
+  });
+});
+
+test("a model the remote lists with no levels says so", async () => {
+  listing([{ id: "terra" }, { id: "coder", reasoning_levels: ["low"] }]);
+  render(<CoddyHarness />);
+  await waitFor(() =>
+    expect(screen.getByTestId("reasoning-levels-remote").textContent).toBe(
+      "The remote lists no reasoning levels for this model.",
+    ),
+  );
+});
+
+test("a model the remote does not list, or a listing that failed, adds no line", async () => {
+  const f = listing([{ id: "other", reasoning_levels: ["low"] }]);
+  const { unmount } = render(<CoddyHarness />);
+  await waitFor(() => expect(f).toHaveBeenCalledTimes(1));
+  await new Promise((r) => setTimeout(r, 0));
+  expect(screen.queryByTestId("reasoning-levels-remote")).toBeNull();
+  unmount();
+  vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("down"));
+  render(<CoddyHarness />);
+  await new Promise((r) => setTimeout(r, 10));
+  expect(screen.queryByTestId("reasoning-levels-remote")).toBeNull();
+  expect(screen.getByTestId("reasoning-levels-status").textContent).toContain(
+    "listing decides",
+  );
+});
+
+test("without a provider row nothing is fetched and the status still says who decides", async () => {
+  const f = listing([]);
+  render(<CoddyHarness providerRow={null} />);
+  await new Promise((r) => setTimeout(r, 10));
+  expect(f).not.toHaveBeenCalled();
+  expect(screen.getByTestId("reasoning-levels-status").textContent).toContain(
+    "listing decides",
+  );
+});
+
+test("a list written for a coddy row overrides the remote's, and Follow the remote drops the key", async () => {
+  listing([{ id: "terra", reasoning_levels: ["low", "high"] }]);
+  render(<CoddyHarness initial={["low"]} />);
+  expect(screen.getByTestId("reasoning-levels-status").textContent).toBe(
+    "These exact levels are offered for this model, instead of the remote's.",
+  );
+  expect(screen.queryByTestId("reasoning-levels-fetch")).toBeNull();
+  expect(screen.queryByTestId("reasoning-levels-remote")).toBeNull();
+  const back = screen.getByTestId("reasoning-levels-auto");
+  expect(back.textContent).toBe("Follow the remote");
+  fireEvent.click(back);
+  expect(savedModel()).toEqual({ model: "lab/terra" });
+  await waitFor(() =>
+    expect(screen.getByTestId("reasoning-levels-remote").textContent).toContain(
+      "low, high",
+    ),
+  );
+});
+
+test("an empty list on a coddy row is the opt-out, and the way back names the remote", () => {
+  listing([]);
+  render(<CoddyHarness initial={[]} />);
+  expect(screen.getByTestId("reasoning-levels-status").textContent).toBe(
+    "Empty list: the reasoning selector is hidden for this model. Use 'Follow the remote' to go back.",
+  );
+});
+
+test("a level can still be added by hand to a coddy row", () => {
+  listing([]);
+  render(<CoddyHarness />);
+  fireEvent.click(screen.getByTestId("reasoning-levels-add"));
+  expect(savedModel()["reasoning_levels"]).toEqual([""]);
+});
+
+test("another provider type keeps Fetch and asks no listing", () => {
+  const f = mockFetch({ ok: true, levels: [], detected: false });
+  render(<Harness providerType="openai" />);
+  expect(screen.getByTestId("reasoning-levels-fetch")).toBeTruthy();
+  expect(screen.queryByTestId("reasoning-levels-remote")).toBeNull();
+  expect(f).not.toHaveBeenCalled();
+});

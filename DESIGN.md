@@ -148,9 +148,44 @@ warning that sharing a login hands its quota to every holder of a shared-model t
 vendor's terms; while the switch is off the warning takes the error tone. A provider of type `coddy`
 shows `api_base` with its own placeholder, and `busy_wait_ms` under Advanced settings; the global
 `agent.shared_busy_wait_ms` sits in its own **Shared models** block. The model picker never copies the
-listing's context window into `max_context_tokens` of a `coddy` row: the remote listing is the source and
-a copied number would pin the row. Shared-model tokens are not in the form (the `httpserver` block is
-hidden); they are edited in the file.
+listing's context window into `max_context_tokens` of a `coddy` row, nor its capabilities into
+`multimodal`, `allow_reasoning_off` or `reasoning_levels`: the remote listing is the source and a copied
+value would pin the row (see **Three-state fields** below). Shared-model tokens are not in the form (the
+`httpserver` block is hidden); they are edited in the file. The provider's **Usage limits panel** switch
+renders for a `coddy` row too (its account usage is the remote's, read per model).
+
+#### Three-state fields
+
+`multimodal` and `allow_reasoning_off` of a model whose provider is of type `coddy` (a model another Coddy
+shares) have three states, so the generic switch cannot draw them: **absent** (the remote's listing
+decides), **true** and **false** (written, and they win over the listing, `false` included). They are drawn
+by `TriStateField.tsx`, chosen in the `models` `fieldOverride` of `SettingsSection.tsx` when
+`providerTypeFor(model)` is `coddy`; every other row keeps the Switch, where a written `false` is only
+`false`.
+
+- **Control.** One `role="radiogroup"` of three native radios labelled **Remote**, **Yes**, **No**
+  (`settings.tristate.*`), drawn as a segmented control (`.tristate-options`: a 1px
+  `--coddy-glass-panel-border` frame, 10px radius, the options 36px tall with `6px 14px` padding and a
+  hairline between them; 44px tall below 1200px). The radio is invisible and fills its option
+  (`position: absolute; inset: 0; opacity: 0`) so a click anywhere in the option picks it and the arrow
+  keys move and select; the chosen option takes `color-mix(in srgb, var(--accent) 22%, var(--coddy-blend-base))`
+  and `font-weight: 600`, a focused one a 2px accent ring inside the frame. The group wraps instead of
+  widening the panel (`max-width: 100%`, `align-self: flex-start`). `triStateFieldCss.test.ts` pins these
+  rules.
+- **States.** Key absent: **Remote** is chosen and the line under the control reads `Follows the remote's
+  listing.` (`settings.tristate.fromRemote`). Key written: **Yes** or **No** is chosen and the line reads
+  `The remote's listing is ignored for this key. Choose Remote to follow it again.`
+  (`settings.tristate.hint`). A `false` that an earlier save wrote is the common case, and it shows **No**
+  with that hint: the way back is one click on **Remote**, which calls `onChange(undefined)` and removes the
+  key from the saved JSON (the way **Follow the remote** removes `reasoning_levels`).
+- **Reasoning levels** on the same row (`ReasoningLevelsField.tsx`) have the same three states with the
+  words of a remote: **Fetch reasoning levels** is gone (an alias has nothing to detect), the status says `The
+  remote's listing decides which levels this model offers.` while the key is absent, a read-only line shows
+  `Offered by the remote now: low, medium, high` (or `The remote lists no reasoning levels for this
+  model.`) from the listing the provider form already fetches, and **Follow the remote** removes a written
+  list; an empty list says the selector is hidden. The provider's model picker marks a listed model that reads
+  images with an `images` badge and shows its levels (`.provider-models-item-badge`, small, `--muted`, never
+  the row's first word).
 
 ### Session identifier in URL
 
@@ -869,9 +904,10 @@ See the paired UI rule ([Cursor](.cursor/rules/ui-spa.mdc), [Claude Code](.claud
 ### Context popover usage section and usage banner
 
 The account quota behind the selected model's provider (today: `neuraldeep`,
-`codex` and `devin`; the hub's `GET /v1/limits`, the Codex backend's usage
-endpoint and the Devin seat-management status RPC, read by the server, see
-`docs/plans/neuraldeep-usage.md`).
+`codex`, `devin` and `coddy`; the hub's `GET /v1/limits`, the Codex backend's usage
+endpoint, the Devin seat-management status RPC and, for a model another Coddy
+shares, the projection that Coddy answers for the alias, read by the server, see
+`docs/plans/neuraldeep-usage.md` and `docs/plans/remote-model-provider-phase2.md`).
 The composer carries no extra control for it: account usage lives under the
 context window in the context popover, and a banner speaks up only when
 something needs the user.
@@ -900,6 +936,18 @@ something needs the user.
   **`data-tone`**). The wallet line (**`.context-usage-foot`**) closes the
   block; a rejected key shows the note alone. Tone text is lifted on every
   dark theme (**`html:not([data-theme="light"])`**, as `color-scheme` is).
+- **A `coddy` row is read per alias.** The remote's cache is per account and the local one per subject, the
+  row and the alias, so the block is about the **selected model**: its head names both, `workstation · terra`
+  (`usageProviderTitle`; the remote sends no plan, so nothing follows the alias), it shows the windows the
+  remote projects (percent **used** and the reset - no counters, no wallet, and a `day` window at zero is not
+  hidden, that rule is NeuralDeep's) and
+  the note of a block (`model_blocked` is a window-kind blocker), and one quiet line closes it,
+  **`.context-usage-remote`** (`data-testid="context-usage-remote"`, `0.8rem`, `--muted`, 8px above):
+  `The remote's account, shared with everyone who borrows from it` (`usage.remoteAccount`), omitted when a
+  countdown alone is the block (no snapshot yet). A refused token has its own words, `The remote refused the token of
+  workstation: check the API key of that provider in Settings` (`usage.remoteKeyRejected`), because a `coddy`
+  row has no sign-in. A snapshot, a request in flight and a countdown belong to the alias: switching alias reads
+  again, and an update about another alias of the row never touches this one.
 - **Banner** (`UsageBanner.tsx`, **`.usage-banner`**,
   **`data-testid="usage-banner"`**) renders **above the composer card** in
   both the hero and the docked layout, only at 80 % of a window (**warn**
@@ -938,8 +986,11 @@ something needs the user.
   auto-resume countdown. Nothing polls otherwise. Snapshots order by the
   server's `fetchedAt`: a REST answer issued before a pushed frame, or a
   frame that crossed a later read, never brings older numbers back, and
-  only the latest read issued applies. A row that answered "unsupported" is
-  left alone for five minutes. The snapshot is account-wide; the model's
+  only the latest read issued applies (per subject: the row, and for a `coddy`
+  row the alias, which the answers announce with `providerType: "coddy"`). A row
+  that answered "unsupported" is left alone for five minutes; none is recorded for
+  a `coddy` row, whose own memory, in the manager, is 60 s per alias, so the two
+  never add up. The snapshot is account-wide; the model's
   selector suffix is compared with `unlimitedModels` client-side, and with
   `blockedModels` the same way: a model the account may not call right now
   reads as blocked even while the account itself is healthy.
@@ -948,9 +999,27 @@ something needs the user.
 - **Waiting for a free slot** (`provider_usage` with the blocker `remote_busy`, sent while a call to a
   `coddy` row waits for a slot on the remote): the banner and the popover note read
   `Waiting for a free slot on the remote · resumes on its own, gives up at 20:59`, never
-  `Usage limit reached`. It is a notice of the wait, not of a quota: it has no close button, its dismissal
-  key is stable, and the pushed `unsupported` update that ends the wait removes it at once. The console
-  status line says the same and returns to `waiting for model` when the wait ends.
+  `Usage limit reached`. It is a notice of the wait, not of a quota: it has no close button and its dismissal
+  key is stable.
+- **The countdown is state of its own beside the snapshot** (`useProviderUsage`: `busy` next to `usage`,
+  passed to `UsageBanner` and `UsageSection` as `busy`). An update carrying `remote_busy` goes to that slot
+  and nothing else does; no snapshot and no "unsupported" answer touches it, and it never wipes the snapshot's
+  meters, which stay under it. While it is held it is the note of the popover and the banner for the alias it
+  names; when it ends the snapshot's own note is back. The slot keeps the last accepted countdown and a
+  tombstone, the greatest `fetchedAt` of an end or of a dropped countdown (RFC 3339 strings compared as
+  strings): a countdown is accepted only when its stamp is greater than the tombstone and not older than the
+  slot's, so a copy replayed after the end by a relay, a mirror or a reconnect is ignored; an end (the same
+  update with `blocked` and `resuming` gone, sent when the remote takes the call, when the call fails and when
+  it is cancelled) is accepted when it is not older than the slot's, wins a tie, empties the slot and raises
+  the tombstone. Two nets drop a countdown whose end never arrived: the viewed session's turn ending
+  (`turnEpoch`), and `retryInSec` plus 2 s (`BUSY_EXPIRY_GRACE_MS`) after receipt on the browser's own clock,
+  never against the server's absolute `retryAt`. A change of row or alias drops slot and tombstone.
+- **The console** shows the same wait in its status row, `Waiting for a free slot on the remote · resumes on its
+  own, gives up at 20:59`, and returns it to `waiting for model` when the countdown ends; its footer keeps the
+  usage line of the alias, `workstation · terra` heads `/usage`, and it holds the countdown with the same slot,
+  tombstone and two nets (`usage_busy.go`) and orders the snapshots of one subject by their read time, not by
+  arrival.
+
 ### Transcript scroll-to-bottom button
 
 - **Placement** - `button.chat-scroll-bottom` (`data-testid="chat-scroll-bottom"`) is a child of **`.chat-bottom-inner`**, positioned **`absolute`** with **`right: 0`** and **`bottom: 100%`** plus a **`10px`** margin. It is anchored to the composer's column, **not** to the viewport, so one rule carries it through the absolute desktop dock, the **`position: fixed`** composer below **`1200px`** and the **`padding-right`** the background tasks panel adds. Its right edge is flush with **`.composer-card`**; do **not** re-anchor it to `.chat-stack`, `.chat-scroll` or the viewport.

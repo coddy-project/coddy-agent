@@ -1,10 +1,14 @@
 import { describe, expect, test } from "vitest";
 import {
   contextWindowToPin,
+  isCoddyType,
+  listedLevels,
   providerRowOfModel,
   providerUsesSubscriptionLogin,
   sharedAliasIsValid,
   sharedSubscriptionAckNeeded,
+  triStateOf,
+  triStateValue,
 } from "./sharedModels";
 
 describe("sharedAliasIsValid", () => {
@@ -185,5 +189,50 @@ describe("contextWindowToPin", () => {
   test("a coddy row never pins it: the remote's listing is the source", () => {
     expect(contextWindowToPin("coddy", 131072)).toBeUndefined();
     expect(contextWindowToPin(" coddy ", 131072)).toBeUndefined();
+  });
+});
+
+describe("the three-state keys of a coddy row", () => {
+  test("absent and null follow the remote, true is yes, any other value is no", () => {
+    expect(triStateOf(undefined)).toBe("remote");
+    expect(triStateOf(null)).toBe("remote");
+    expect(triStateOf(true)).toBe("yes");
+    expect(triStateOf(false)).toBe("no");
+  });
+
+  test("a position writes its value, Remote writes nothing", () => {
+    expect(triStateValue("yes")).toBe(true);
+    expect(triStateValue("no")).toBe(false);
+    expect(triStateValue("remote")).toBeUndefined();
+  });
+
+  test("only a provider of type coddy gets the control", () => {
+    expect(isCoddyType("coddy")).toBe(true);
+    expect(isCoddyType(" coddy ")).toBe(true);
+    for (const other of ["openai", "codex", "", undefined, null]) {
+      expect(isCoddyType(other), String(other)).toBe(false);
+    }
+  });
+});
+
+describe("what a coddy listing says about a model", () => {
+  test("levels come as the remote ordered them, off after them when it is allowed", () => {
+    expect(
+      listedLevels({
+        id: "terra",
+        reasoning_levels: ["low", "high"],
+        allow_reasoning_off: true,
+      }),
+    ).toEqual(["low", "high", "off"]);
+    expect(
+      listedLevels({ id: "terra", reasoning_levels: ["low", "high"] }),
+    ).toEqual(["low", "high"]);
+  });
+
+  test("a model with no levels has nothing to switch off", () => {
+    expect(listedLevels({ id: "terra", allow_reasoning_off: true })).toEqual(
+      [],
+    );
+    expect(listedLevels(undefined)).toEqual([]);
   });
 });

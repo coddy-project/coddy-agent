@@ -30,6 +30,10 @@ export type ProviderUsage = {
   sessionUpdate?: string;
   provider: string;
   providerType?: string;
+  /** The alias of a provider of type coddy: its usage is the remote account's,
+   *  read per alias (a remote can share rows of two accounts through one local
+   *  provider row). Absent for every other type, which is read per row. */
+  model?: string;
   observedAt?: string;
   fetchedAt?: string;
   plan?: string;
@@ -77,11 +81,53 @@ export function usageProviderOf(modelId: string | undefined | null): string {
   return i > 0 ? s.slice(0, i) : "";
 }
 
-/** Upstream model id of a selector, the part the provider's own lists name. */
+/** Upstream model id of a selector, the part the provider's own lists name.
+ *  For a provider of type coddy it is the alias the remote shares the model under. */
 export function usageModelOf(modelId: string | undefined | null): string {
   const s = (modelId ?? "").trim();
   const i = s.indexOf("/");
   return i >= 0 ? s.slice(i + 1) : s;
+}
+
+/**
+ * The subject a usage snapshot is about: the provider row, and for a coddy row
+ * the alias too (`provider/alias`; a provider name has no slash). The same key
+ * the server's cache uses, so one alias's snapshot, countdown or banner
+ * dismissal never stands for another's.
+ */
+export function usageSubjectKey(
+  provider: string,
+  model: string | undefined | null,
+): string {
+  const alias = (model ?? "").trim();
+  return alias ? `${provider}/${alias}` : provider;
+}
+
+/**
+ * True when a snapshot is about the given provider row and, when it names an
+ * alias, that alias. An update with no `model` (every other type, a countdown
+ * of a remote that predates the per-alias subject) matches by the row alone.
+ */
+export function usageMatchesSubject(
+  u: ProviderUsage | null | undefined,
+  provider: string,
+  alias: string,
+): boolean {
+  if (!u || !provider || u.provider !== provider) return false;
+  const own = (u.model ?? "").trim();
+  return own === "" || own === alias.trim();
+}
+
+/** `usageMatchesSubject` for the model selector the composer holds. */
+export function usageMatchesModel(
+  u: ProviderUsage | null | undefined,
+  modelId: string | undefined | null,
+): boolean {
+  return usageMatchesSubject(
+    u,
+    usageProviderOf(modelId),
+    usageModelOf(modelId),
+  );
 }
 
 /** True when the active model bypasses the volume windows. */
@@ -183,9 +229,10 @@ export function formatDurationSec(seconds: number): string {
 
 /**
  * The blocker of a call to a model another Coddy shares that waits for a free
- * stream slot of the remote (provider type coddy). It comes with `resuming`,
- * is no limit of an account, and ends with an update saying the row has no
- * usage.
+ * stream slot of the remote (provider type coddy). Every update that carries it
+ * belongs to the countdown of that call, never to the usage snapshot: the
+ * countdown itself comes with `blocked` and `resuming`, and its end is the same
+ * update with both gone (isRemoteBusyEnd). It is no limit of an account.
  */
 export const REMOTE_BUSY_BLOCKER = "remote_busy";
 
@@ -209,12 +256,34 @@ const BLOCKER_KIND: Record<string, UsageBlockKind> = {
   key_cap_blocked: "key",
   wallet_empty: "wallet",
   user_blocked: "account",
+  // The remote folds a block of this alias's own gate into the alias's update.
+  model_blocked: "window",
   [REMOTE_BUSY_BLOCKER]: "busy",
 };
 
-/** True for the snapshot of a call waiting for a free slot of the remote. */
+/** True for the countdown of a call waiting for a free slot of the remote. */
 export function remoteBusy(u: ProviderUsage | null | undefined): boolean {
   return !!u?.blocked && (u.blockers ?? []).includes(REMOTE_BUSY_BLOCKER);
+}
+
+/**
+ * True for every update that belongs to the countdown of a call waiting for a
+ * free slot of the remote: the countdown and its end. Those never go to the
+ * usage snapshot, and no snapshot or "unsupported" answer touches them.
+ */
+export function isRemoteBusyUpdate(
+  u: ProviderUsage | null | undefined,
+): boolean {
+  return !!u && (u.blockers ?? []).includes(REMOTE_BUSY_BLOCKER);
+}
+
+/**
+ * The end of a countdown: the countdown's update with `blocked` and `resuming`
+ * absent. It carries no usage data (and no `unsupported`), only the clock it
+ * was sent at in `fetchedAt`.
+ */
+export function isRemoteBusyEnd(u: ProviderUsage | null | undefined): boolean {
+  return isRemoteBusyUpdate(u) && !u?.blocked && !u?.resuming;
 }
 
 /** Classifies a Blocked snapshot by its first known blocker. */
@@ -266,7 +335,7 @@ export function summarizeUsage(
   modelId: string,
 ): UsageSummary {
   if (!u || u.unsupported) return { kind: "none" };
-  if (u.provider !== usageProviderOf(modelId)) return { kind: "none" };
+  if (!usageMatchesModel(u, modelId)) return { kind: "none" };
   if (u.error === "unauthorized") {
     return { kind: "unauthorized", provider: u.provider };
   }
@@ -402,22 +471,24 @@ export function usageBannerKey(
   modelId = "",
 ): string {
   if (!u) return "";
+  // The subject, not the row: a coddy row's aliases are different accounts.
+  const subject = usageSubjectKey(u.provider, u.model);
   if (remoteBusy(u)) {
     // The countdown is re-sent while the wait lasts, with a deadline that can
-    // move by a second: one key for the row, not one per re-send.
-    return `${u.provider}@${REMOTE_BUSY_BLOCKER}`;
+    // move by a second: one key for the subject, not one per re-send.
+    return `${subject}@${REMOTE_BUSY_BLOCKER}`;
   }
   if (u.blocked) {
-    return `${u.provider}@blocked@${u.retryAt ?? ""}@${(u.blockers ?? []).join(",")}`;
+    return `${subject}@blocked@${u.retryAt ?? ""}@${(u.blockers ?? []).join(",")}`;
   }
   // A model gate has its own notice and its own dismissal: it lifts on its
   // own clock, and it must not be hidden by a window notice dismissed earlier.
   const bm = modelBlocked(u, modelId);
   if (bm) {
-    return `${u.provider}@model@${bm.model}@${bm.retryAt ?? ""}`;
+    return `${subject}@model@${bm.model}@${bm.retryAt ?? ""}`;
   }
   const w = usageWarnWindow(u);
-  return w ? `${u.provider}@${w.id}@${w.resetsAt ?? ""}` : "";
+  return w ? `${subject}@${w.id}@${w.resetsAt ?? ""}` : "";
 }
 
 /** Display brand is independent of the configured provider row alias. */
@@ -442,6 +513,10 @@ export function usageProviderBrand(u: ProviderUsage): string {
 export function usageProviderTitle(u: ProviderUsage): string {
   const brand = usageProviderBrand(u);
   const row = (u.provider ?? "").trim();
+  // A coddy row has no brand of its own: it names the row and the alias, the
+  // subject of the numbers beneath ("lab · terra").
+  const alias = u.providerType === "coddy" ? (u.model ?? "").trim() : "";
+  if (alias) return `${brand} · ${alias}`;
   return row && brand !== row && row !== u.providerType
     ? `${brand} · ${row}`
     : brand;
@@ -478,16 +553,23 @@ export function usageWindowLabelKey(
 }
 
 /**
- * Order snapshots by the server's read time: a REST answer that was issued
- * before a pushed frame, or a frame that crossed a later read, must not
- * replace the newer numbers. Snapshots without a read time (a synthetic
- * unsupported answer) never outrank one with it.
+ * Order snapshots of one subject by the server's read time: a REST answer that
+ * was issued before a pushed frame, or a frame that crossed a later read, must
+ * not replace the newer numbers. Snapshots without a read time (a synthetic
+ * unsupported answer) never outrank one with it. A snapshot of another subject
+ * (another row, or another alias of a coddy row) is not ordered against it.
  */
 export function usageIsNewer(
   next: ProviderUsage,
   current: ProviderUsage | null | undefined,
 ): boolean {
-  if (!current || current.provider !== next.provider) return true;
+  if (
+    !current ||
+    current.provider !== next.provider ||
+    (current.model ?? "") !== (next.model ?? "")
+  ) {
+    return true;
+  }
   if (!next.fetchedAt) return !current.fetchedAt;
   if (!current.fetchedAt) return true;
   return next.fetchedAt >= current.fetchedAt;
@@ -495,20 +577,43 @@ export function usageIsNewer(
 
 export type ProviderUsageAnswer =
   | { ok: true; usage: ProviderUsage }
-  | { ok: false; unsupported: true }
+  /** `providerType` and `model` are what the answer says it is about, so a
+   *  caller can tell a coddy row (never marked unsupported here) from a type
+   *  without a usage source. */
+  | { ok: false; unsupported: true; providerType?: string; model?: string }
   | { ok: false; error: string; usage: ProviderUsage | null };
 
-/** Reads the usage behind a provider row over REST. */
+/**
+ * Reads the usage behind a provider row over REST. `model` is the alias of a
+ * coddy row (the part of the selector after the row); it is sent whenever it
+ * is known, and the server ignores it for every other type.
+ */
 export async function fetchProviderUsage(
   provider: string,
   refresh: boolean,
   fetchImpl: typeof fetch = fetch,
+  model = "",
 ): Promise<ProviderUsageAnswer> {
   const name = provider.trim();
   if (!name) return { ok: false, unsupported: true };
-  const url = `/coddy/providers/${encodeURIComponent(name)}/usage${refresh ? "?refresh=1" : ""}`;
+  const query: string[] = [];
+  const alias = model.trim();
+  if (alias) query.push(`model=${encodeURIComponent(alias)}`);
+  if (refresh) query.push("refresh=1");
+  const url = `/coddy/providers/${encodeURIComponent(name)}/usage${query.length > 0 ? `?${query.join("&")}` : ""}`;
   const res = await fetchImpl(url, { headers: { Accept: "application/json" } });
-  if (res.status === 404) return { ok: false, unsupported: true };
+  if (res.status === 404) {
+    // A 404 for the row is "nothing to read here"; a 404 that names the alias
+    // says the alias is no configured model of the row, which is a failure of
+    // this read and no verdict on the provider.
+    const refused = (await res.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    if (refused?.error === "unknown_model") {
+      return { ok: false, error: "unknown_model", usage: null };
+    }
+    return { ok: false, unsupported: true };
+  }
   if (!res.ok) {
     return { ok: false, error: "unavailable", usage: null };
   }
@@ -517,8 +622,17 @@ export async function fetchProviderUsage(
     unsupported?: boolean;
     error?: string;
     usage?: ProviderUsage | null;
+    providerType?: string;
+    model?: string;
   };
-  if (body.unsupported) return { ok: false, unsupported: true };
+  if (body.unsupported) {
+    return {
+      ok: false,
+      unsupported: true,
+      ...(body.providerType ? { providerType: body.providerType } : {}),
+      ...(body.model ? { model: body.model } : {}),
+    };
+  }
   if (body.ok && body.usage) return { ok: true, usage: body.usage };
   return {
     ok: false,

@@ -239,3 +239,169 @@ test("the context popover says the call waits for a free slot of the remote", ()
     "lab",
   );
 });
+
+// A coddy row is the remote account's usage, per alias, and its countdown is a
+// state of its own beside the snapshot (4.5, 4.6).
+function remoteSnapshot(extra: Partial<ProviderUsage> = {}): ProviderUsage {
+  return {
+    provider: "lab",
+    providerType: "coddy",
+    model: "terra",
+    fetchedAt: "2026-09-06T17:47:10Z",
+    windows: [
+      {
+        id: "session",
+        label: "5h",
+        usedPercent: 62,
+        resetsAt: "2026-09-06T19:00:00Z",
+        resetInSec: 4400,
+      },
+      { id: "week", label: "week", usedPercent: 10 },
+    ],
+    ...extra,
+  };
+}
+
+function busyCountdown(extra: Partial<ProviderUsage> = {}): ProviderUsage {
+  return {
+    provider: "lab",
+    providerType: "coddy",
+    model: "terra",
+    fetchedAt: "2026-09-06T17:47:11Z",
+    blocked: true,
+    blockers: ["remote_busy"],
+    resuming: true,
+    retryAt: "2026-09-06T17:48:12Z",
+    retryInSec: 60,
+    ...extra,
+  };
+}
+
+test("a coddy row's block names the row and the alias, lists the windows and says whose account it is", () => {
+  const { container } = render(
+    <UsageSection usage={remoteSnapshot()} modelId="lab/terra" now={now} />,
+  );
+  expect(container.querySelector(".context-usage-title")?.textContent).toBe(
+    "lab · terra",
+  );
+  expect(
+    container.querySelector(
+      "[data-testid=context-usage-row-session] .context-usage-pct",
+    )?.textContent,
+  ).toBe("62%");
+  expect(
+    container.querySelector("[data-testid=context-usage-remote]")?.textContent,
+  ).toBe("The remote's account, shared with everyone who borrows from it");
+  // No plan, wallet or key of the remote's reaches the block.
+  expect(
+    container.querySelector("[data-testid=context-usage-wallet]"),
+  ).toBeNull();
+});
+
+test("the account note is a coddy row's only", () => {
+  const { container } = render(
+    <UsageSection
+      usage={fixture()}
+      modelId="neuraldeep/qwen3.8-27b"
+      now={now}
+    />,
+  );
+  expect(
+    container.querySelector("[data-testid=context-usage-remote]"),
+  ).toBeNull();
+});
+
+test("a coddy row shows nothing for another alias of the row", () => {
+  const { container } = render(
+    <UsageSection usage={remoteSnapshot()} modelId="lab/coder" now={now} />,
+  );
+  expect(container.querySelector("[data-testid=context-usage]")).toBeNull();
+});
+
+test("a countdown takes the note over the snapshot's meters, which stay", () => {
+  const { container } = render(
+    <UsageSection
+      usage={remoteSnapshot()}
+      busy={busyCountdown()}
+      modelId="lab/terra"
+      now={now}
+    />,
+  );
+  const note = container.querySelector(
+    "[data-testid=context-usage-note]",
+  ) as HTMLElement;
+  expect(note.textContent).toContain("Waiting for a free slot on the remote");
+  expect(note.classList.contains("context-usage-note--warn")).toBe(true);
+  expect(container.querySelector(".context-usage-title")?.textContent).toBe(
+    "lab · terra",
+  );
+  expect(
+    container.querySelector("[data-testid=context-usage-row-session]"),
+  ).not.toBeNull();
+  expect(
+    container.querySelector("[data-testid=context-usage-remote]"),
+  ).not.toBeNull();
+});
+
+test("a countdown with no snapshot is the block by itself, with no account note", () => {
+  const { container } = render(
+    <UsageSection
+      usage={null}
+      busy={busyCountdown()}
+      modelId="lab/terra"
+      now={now}
+    />,
+  );
+  expect(
+    container.querySelector("[data-testid=context-usage-note]")?.textContent,
+  ).toContain("Waiting for a free slot on the remote");
+  expect(container.querySelector(".context-usage-title")?.textContent).toBe(
+    "lab · terra",
+  );
+  expect(container.querySelector(".context-usage-rows")).toBeNull();
+  expect(
+    container.querySelector("[data-testid=context-usage-remote]"),
+  ).toBeNull();
+});
+
+test("a countdown of another alias is not shown", () => {
+  const { container } = render(
+    <UsageSection
+      usage={null}
+      busy={busyCountdown({ model: "coder" })}
+      modelId="lab/terra"
+      now={now}
+    />,
+  );
+  expect(container.querySelector("[data-testid=context-usage]")).toBeNull();
+});
+
+test("a coddy token the remote refused says so in terms of the row, not a sign-in", () => {
+  const { container } = render(
+    <UsageSection
+      usage={remoteSnapshot({ error: "unauthorized", windows: [] })}
+      modelId="lab/terra"
+      now={now}
+    />,
+  );
+  const note = container.querySelector(
+    "[data-testid=context-usage-note]",
+  ) as HTMLElement;
+  expect(note.textContent).toContain("The remote refused the token of lab");
+  expect(note.textContent).not.toContain("sign in");
+});
+
+test("the account note reads in the reader's language", () => {
+  expect(setLocale("ru")).toBe(true);
+  try {
+    const { container } = render(
+      <UsageSection usage={remoteSnapshot()} modelId="lab/terra" now={now} />,
+    );
+    expect(
+      container.querySelector("[data-testid=context-usage-remote]")
+        ?.textContent,
+    ).toContain("Аккаунт удалённого Coddy");
+  } finally {
+    setLocale("en");
+  }
+});
