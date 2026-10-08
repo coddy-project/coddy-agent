@@ -6,6 +6,7 @@ package llm
 import (
 	"context"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,7 +25,11 @@ type probeRemote struct {
 	pingAuth atomic.Value
 	pingPath atomic.Value
 	pingID   atomic.Value
-	status   atomic.Int32
+	// hang makes a ping wait until its request is cancelled, as an intermediary that holds it does.
+	hang      atomic.Bool
+	pingTimes []time.Time
+	timesMu   sync.Mutex
+	status    atomic.Int32
 	// bare404 makes the 404 of a ping a plain one, as a proxy that does not carry the route answers it.
 	bare404 atomic.Bool
 	asked   atomic.Bool
@@ -38,6 +43,13 @@ func newProbeRemote(t *testing.T, confirm string) *probeRemote {
 	pr.fakeRemote = newFakeRemote(t, func(w http.ResponseWriter, r *http.Request, _ int, _ WireRequest) {
 		if strings.HasSuffix(r.URL.Path, "/alive") {
 			pr.pings.Add(1)
+			pr.timesMu.Lock()
+			pr.pingTimes = append(pr.pingTimes, time.Now())
+			pr.timesMu.Unlock()
+			if pr.hang.Load() {
+				<-r.Context().Done()
+				return
+			}
 			pr.pingAuth.Store(r.Header.Get("Authorization"))
 			pr.pingPath.Store(r.URL.Path)
 			pr.pingID.Store(r.Header.Get(CoddyProbeIDHeader))
@@ -205,6 +217,59 @@ func TestCoddyProbeKeepsTheMountPrefixOfARelay(t *testing.T) {
 	}
 	pr.finish()
 	<-done
+}
+
+// The pings go out start to start, every interval, whatever happens to the one before: a hung ping is cut at DMAX = I / 2 and the next
+// tick is on time, so a run of slow pings never stretches the gap the model's grace was sized for.
+func TestCoddyProbePingsKeepTheirRateWhenSomeHang(t *testing.T) {
+	withProbeFloor(t, 0)
+	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=200; grace_ms=1000")
+	pr.hang.Store(true)
+	done, _ := runProbeCall(t, pr, coddyInput(pr.fakeRemote))
+	waitFor(t, 10*time.Second, "six hung pings", func() bool { return pr.pings.Load() >= 6 })
+	pr.finish()
+	<-done
+	pr.timesMu.Lock()
+	times := append([]time.Time(nil), pr.pingTimes...)
+	pr.timesMu.Unlock()
+	var gaps []time.Duration
+	for i := 1; i < len(times) && i < 7; i++ {
+		gaps = append(gaps, times[i].Sub(times[i-1]))
+	}
+	sort.Slice(gaps, func(i, j int) bool { return gaps[i] < gaps[j] })
+	// Start to start the gap is the interval (200 ms); a loop that waited for the ping and then slept would make it 300 ms.
+	if median := gaps[len(gaps)/2]; median > 260*time.Millisecond {
+		t.Errorf("the median gap between pings is %v with every ping hung, want about the 200 ms interval: %v", median, gaps)
+	}
+}
+
+// The goroutine ends with the stream, whatever ended it: a final frame, an error frame, a frame that cannot be decoded.
+func TestCoddyProbeStopsWhenTheStreamBreaks(t *testing.T) {
+	withProbeFloor(t, 0)
+	var pings atomic.Int32
+	f := newFakeRemote(t, func(w http.ResponseWriter, r *http.Request, _ int, _ WireRequest) {
+		if strings.HasSuffix(r.URL.Path, "/alive") {
+			pings.Add(1)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set(CoddyProbeHeader, "id="+probeTestID+"; every_ms=20; grace_ms=100")
+		fw := startStream(w)
+		for pings.Load() < 2 {
+			time.Sleep(5 * time.Millisecond)
+		}
+		fw.raw("data: {not json\n\n")
+	})
+	p := newTestCoddy(t, coddyInput(f))
+	res := streamOnce(p, userMsg("hi"), nil)
+	if res.err == nil {
+		t.Fatal("a malformed frame must fail the call")
+	}
+	n := pings.Load()
+	time.Sleep(120 * time.Millisecond)
+	if pings.Load() != n {
+		t.Errorf("the pinger outlived a broken stream: %d then %d", n, pings.Load())
+	}
 }
 
 func TestCoddyProbeIntervalHasAFloor(t *testing.T) {
