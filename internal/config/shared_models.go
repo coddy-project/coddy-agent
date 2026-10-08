@@ -52,7 +52,7 @@ const sharedAliasSchemaPattern = `^$|^[A-Za-z0-9][A-Za-z0-9._\-]{0,63}$`
 var sharedAliasRE = regexp.MustCompile(sharedAliasPattern)
 
 // SharedModelsConfig is the YAML httpserver.shared_models section: the
-// credentials and the limits of the three routes that serve the models[] rows
+// credentials and the limits of the routes that serve the models[] rows
 // carrying shared_as.
 type SharedModelsConfig struct {
 	// Tokens are the LLM-only credentials: a token listed here opens
@@ -78,7 +78,7 @@ type SharedModelsConfig struct {
 	// applies. 0 or absent means min(rate_per_minute, max_streams), at least 1.
 	RateBurst int `yaml:"rate_burst,omitempty"`
 	// CertNames are the DNS and URI names of verified client certificates
-	// (httpserver.tls.client_ca_file) admitted on the three LLM routes as their
+	// (httpserver.tls.client_ca_file) admitted on the shared-model routes (the three calls and the probe's ping) as their
 	// own credential class, each name with its own stream and rate budget. They
 	// open nothing else. Needs a client CA.
 	CertNames []string `yaml:"cert_names,omitempty"`

@@ -48,7 +48,7 @@ func Serve(ctx context.Context, opts Options) error {
 	if err := s.SetExtraLogin(opts.ExtraLogin.User, opts.ExtraLogin.Password); err != nil {
 		return fmt.Errorf("httpserver: %s / %s: %w", LoginUserEnvVar, LoginPasswordEnvVar, err)
 	}
-	// A shared-model token must open the three LLM routes and nothing else, so it
+	// A shared-model token must open the shared-model routes and nothing else, so it
 	// can never be the same as a token of another class: refused at start, with
 	// the flag and environment tokens in view that the loader cannot see.
 	if err := s.checkTokenClasses(s.activeCfg()); err != nil {
@@ -83,7 +83,7 @@ func Serve(ctx context.Context, opts Options) error {
 	tokenOn := len(cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(opts.ExtraAuthTokens) > 0
 	loginOn := s.loginPolicyNow().enabled
 	sharedOn := len(cfg.HTTPServer.EffectiveSharedTokens()) > 0
-	// A shared-model token closes the gate too: every route but the three LLM
+	// A shared-model token closes the gate too: every route but the shared-model
 	// routes is then refused to every caller.
 	authOn := tokenOn || loginOn || sharedOn
 	effHost, _, _ := net.SplitHostPort(opts.ListenAddr)
@@ -118,7 +118,7 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 
 	if sharedOn && !tokenOn && !loginOn {
-		log.Info("only shared-model tokens are configured: every API route except the three shared-model routes is closed to every caller, and the web UI cannot sign in",
+		log.Info("only shared-model tokens are configured: every API route except the shared-model routes is closed to every caller, and the web UI cannot sign in",
 			"hint", "set httpserver.auth_token / --auth-token / "+TokenEnvVar+" or httpserver.login to administer this node over its API or its web UI")
 	}
 	if len(cfg.SharedModelEntries()) > 0 && !authOn && !cfg.HTTPServer.AllowInsecure {

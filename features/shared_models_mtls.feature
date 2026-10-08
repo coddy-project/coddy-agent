@@ -1,7 +1,7 @@
 Feature: A client certificate is a credential for shared models on a Coddy's own listener
   A coddy serve that terminates TLS itself can ask for client certificates
   (httpserver.tls.client_ca_file). The names of a verified certificate that
-  httpserver.shared_models.cert_names lists open the three shared-model routes
+  httpserver.shared_models.cert_names lists open the shared-model routes (the three calls and the probe's ping)
   and nothing else, and each name has its own stream and rate budget, so two
   borrowers are told apart without a relay in front.
 

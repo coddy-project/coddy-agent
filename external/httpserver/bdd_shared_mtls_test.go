@@ -82,8 +82,12 @@ func (s *mtlsState) bothSucceed() error {
 }
 
 func (s *mtlsState) counted(alias, class string) error {
-	if _, ok := s.fx.stats().row(alias, class, "ok"); !ok {
+	row, ok := s.fx.stats().row(alias, class, "ok")
+	if !ok {
 		return fmt.Errorf("no ok row for %s in the class %s: %+v", alias, class, s.fx.stats().Rows)
+	}
+	if row.Calls != 1 {
+		return fmt.Errorf("%d ok calls of %s in the class %s, want 1", row.Calls, alias, class)
 	}
 	return nil
 }

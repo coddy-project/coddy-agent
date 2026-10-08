@@ -19,7 +19,7 @@ mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D BROKEN=1 -D ARM=0   
 mcd check --promela $M -D ASSERT_PROP=gFalseCut                                   # with a vanish later in the run: verified (418031)
 mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D L=2 -D DMAX=1 -D G=10 -D T=30   # verified;  G=9: violated
 mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D I=4 -D G=10 -D T=30            # verified;  G=9: violated
-mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D I=10 -D L=2 -D DMAX=5 -D G=35 -D T=90   # the plan's own constants, no scaling: verified (5.1 M states)
+mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D I=10 -D L=2 -D DMAX=5 -D G=35 -D T=90   # the plan's own constants, no scaling: verified (539,410 states under `mcd` 0.3.1)
 mcd check --promela $M -D ASSERT_PROP=gFalseCut -D VAN=0 -D I=10 -D L=2 -D DMAX=5 -D G=34 -D T=90   # G - 1: violated
 # S2, a client whose guard was armed by a ping sent before it vanished is freed within DMAX + G + SLACK ticks
 mcd check --promela $M -D ASSERT_PROP=gLate                                       # verified (418031)
