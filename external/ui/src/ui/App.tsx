@@ -267,6 +267,7 @@ import {
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
 import { FilesView } from "./files/FilesView";
+import { useFilesWindowKey } from "./files/filesWindowKey";
 import { isFilesHotkey } from "./files/filesHotkey";
 import {
   readLastWorkspaceDir,
@@ -548,6 +549,7 @@ export function App() {
     pendingWorkspacePath,
     workspaceCtx?.path,
   );
+  const filesWindowKey = useFilesWindowKey(sessionId, workspaceCtx?.path || "");
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
   >(() => readClientDraftSessions());
@@ -7175,7 +7177,7 @@ export function App() {
         ) : null}
         {filesOpen && sessionId.trim() ? (
           <FilesView
-            key={`${sessionId}:${workspaceCtx?.path || ""}`}
+            key={filesWindowKey}
             sessionId={sessionId}
             workspacePath={workspaceCtx?.path || ""}
             initialPath={filePath}
