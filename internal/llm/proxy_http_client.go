@@ -10,6 +10,7 @@ import (
 	xproxy "golang.org/x/net/proxy"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
 // HTTPClientForProviderProxy returns the client for the requests a provider
@@ -20,7 +21,7 @@ import (
 // proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY), "none" connects directly, and
 // an http, https, socks5 or socks5h URL goes through that proxy.
 func HTTPClientForProviderProxy(setting string) (*http.Client, error) {
-	return httpClientForProviderType("", setting)
+	return httpClientForProviderType("", setting, netx.ClientTLS{})
 }
 
 // httpClientForProviderType is HTTPClientForProviderProxy for the rows of one
@@ -28,8 +29,8 @@ func HTTPClientForProviderProxy(setting string) (*http.Client, error) {
 // type take (a coddy row is reached over HTTP/1.1 only, see
 // http1OnlyProviderType), so the listing and the usage read of a row travel
 // the way its calls do.
-func httpClientForProviderType(providerType, setting string) (*http.Client, error) {
-	rt, err := providerTransportFor(providerType, setting)
+func httpClientForProviderType(providerType, setting string, id netx.ClientTLS) (*http.Client, error) {
+	rt, err := providerTransportWithIdentity(providerType, setting, id)
 	if err != nil {
 		return nil, err
 	}

@@ -68,6 +68,16 @@ const (
 // asked on a stale view of the row: its expected_revision is not the row's.
 const WireCodeStaleRevision = "stale_revision"
 
+// The codes of a busy refusal that came from a limit on calls rather than from a
+// full slot: the node's window per credential, and a relay's per-client slots
+// and window. All are kind busy, so a client that predates them waits them out
+// like a full slot; only the words of the spent-wait error differ.
+const (
+	WireCodeRateWindow    = "rate_window"
+	WireCodeClientStreams = "client_streams"
+	WireCodeClientRate    = "client_rate"
+)
+
 // The codes of the 404 a remote answers a route of a shared model with.
 // WireCodeUnknownModel says the alias is not shared (any more); a client that
 // reads the usage of it drops what it showed. WireCodeNotFound is the reserved

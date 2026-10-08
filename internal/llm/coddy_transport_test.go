@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
 // The transport of a coddy row: HTTP/1.1 only, so that a swarm relay or a
@@ -313,7 +315,7 @@ func TestCoddyTransportHoldsTheBodyBackForExpectContinue(t *testing.T) {
 // request timeout over the HTTP/1.1 transport, like every other row over the
 // shared one.
 func TestProviderHTTPClientForACoddyRowIsBuiltOnItsTransport(t *testing.T) {
-	hc, err := providerHTTPClientFor("coddy", "none", 5*time.Second, 7*time.Second)
+	hc, err := providerHTTPClientFor("coddy", "none", netx.ClientTLS{}, 5*time.Second, 7*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +326,7 @@ func TestProviderHTTPClientForACoddyRowIsBuiltOnItsTransport(t *testing.T) {
 	if hc.Timeout != 5*time.Second {
 		t.Errorf("timeout %v", hc.Timeout)
 	}
-	plain, err := providerHTTPClientFor("openai", "none", 0, 0)
+	plain, err := providerHTTPClientFor("openai", "none", netx.ClientTLS{}, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

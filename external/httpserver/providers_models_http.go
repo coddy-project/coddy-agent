@@ -141,12 +141,13 @@ func (s *Server) coddyProviderModelsPost(w http.ResponseWriter, r *http.Request)
 // {"ok","models"} answer shared by the GET and POST routes.
 func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context, c *config.Config, prov *config.ProviderConfig) {
 	models, err := llm.ListModels(ctx, llm.ProviderInput{
-		Name:     prov.Name,
-		Type:     prov.Type,
-		APIKey:   prov.EffectiveAPIKeyContext(ctx),
-		BaseURL:  prov.APIBase,
-		ProxyURL: prov.Proxy,
-		AuthPath: config.ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
+		Name:      prov.Name,
+		Type:      prov.Type,
+		APIKey:    prov.EffectiveAPIKeyContext(ctx),
+		BaseURL:   prov.APIBase,
+		ProxyURL:  prov.Proxy,
+		ClientTLS: prov.ClientTLS(),
+		AuthPath:  config.ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 		// An unsaved row counts toward the rows of its type too, so the
 		// preview uses the account a saved row would.
 		NoCLILogin: !c.ProviderMayUseCLILogin(prov.Name, prov.Type),
