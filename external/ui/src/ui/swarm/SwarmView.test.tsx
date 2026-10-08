@@ -1239,6 +1239,35 @@ describe("SwarmView", () => {
     expect(onOpenNode).toHaveBeenCalledWith(["nas02"]);
   });
 
+  it("marks a node that serves only shared models in the results and on the map", async () => {
+    const shared = {
+      ...topology,
+      nodes: topology.nodes.map((n) =>
+        n.name === "nas02" ? { ...n, token_class: "shared_models" } : n,
+      ),
+    };
+    vi.stubGlobal("fetch", stubFetch({ topology: () => shared }));
+    render(<SwarmView />);
+    await drawn();
+    // Only the node that says so carries the mark.
+    expect(mapNode("nas02").querySelector("title")?.textContent).toContain(
+      "shared models only",
+    );
+    expect(mapNode("hidden").querySelector("title")?.textContent).not.toContain(
+      "shared models only",
+    );
+    fireEvent.change(screen.getByTestId("swarm-search"), {
+      target: { value: "nas02" },
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("swarm-node-hit-nas02")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("swarm-node-shared-nas02")).toHaveTextContent(
+      "shared models only",
+    );
+    expect(screen.queryByTestId("swarm-node-shared-middle")).toBeNull();
+  });
+
   it("hands a picked session to its owner", async () => {
     const onOpen = vi.fn();
     render(<SwarmView onOpenSession={onOpen} />);

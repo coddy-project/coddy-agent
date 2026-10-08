@@ -193,9 +193,15 @@ export function TopologyGraph(props: {
     if (n.kind === "relay") {
       return t("swarm.state.relay");
     }
-    return n.transport === "tunnel"
-      ? t("swarm.state.dialsOut")
-      : t("swarm.state.agent");
+    const how =
+      n.transport === "tunnel"
+        ? t("swarm.state.dialsOut")
+        : t("swarm.state.agent");
+    // A node that joined with a token made for shared models serves them and
+    // nothing else: the tooltip says so, the sessions list does not warn.
+    return n.token_class === "shared_models"
+      ? `${how} · ${t("swarm.node.sharedModels")}`
+      : how;
   };
 
   const workOf = (n: PlacedNode): NodeActivity | null => {

@@ -361,6 +361,14 @@ export function SwarmView(props: {
                             ? t("swarm.state.relay")
                             : t("swarm.state.agent")}
                         </span>
+                        {node.token_class === "shared_models" ? (
+                          <span
+                            className="swarm-badge"
+                            data-testid={`swarm-node-shared-${node.name}`}
+                          >
+                            {t("swarm.node.sharedModels")}
+                          </span>
+                        ) : null}
                         <span className="swarm-result-route">
                           {routeLabel(path)}
                         </span>
