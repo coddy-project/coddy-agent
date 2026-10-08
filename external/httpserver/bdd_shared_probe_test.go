@@ -14,10 +14,9 @@ import (
 )
 
 type probeState struct {
-	t       *testing.T
-	fx      *sharedFixture
-	pc      *probedCall
-	pinging chan struct{}
+	t  *testing.T
+	fx *sharedFixture
+	pc *probedCall
 }
 
 func (s *probeState) remote(asked bool) error {
