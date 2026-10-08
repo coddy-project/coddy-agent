@@ -506,7 +506,14 @@ func (r *runner) probeSwarmPeer(ctx context.Context, path, rawURL string, dial c
 			return append(out, r.check(StatusSkipped, path, path+".url", "not probed: "+path+".dial.ca_file is unusable", ""))
 		}
 	}
-	opts := netx.Options{Proxy: dial.Proxy, CAFile: dial.CAFile, InsecureSkipVerify: dial.InsecureSkipVerify}
+	// The dial pair the leg presents when the other end asks for a certificate: loaded and checked here, and presented by the probe
+	// as the real join and the real mount present it.
+	pairChecks := r.clientPairChecks(path+".dial.cert_file", strings.TrimSpace(dial.CertFile), strings.TrimSpace(dial.KeyFile))
+	out = append(out, pairChecks...)
+	if hasIdentityError(pairChecks) {
+		return append(out, r.check(StatusSkipped, path, path+".url", "not probed: "+path+".dial.cert_file is unusable", ""))
+	}
+	opts := netx.Options{Proxy: dial.Proxy, CAFile: dial.CAFile, CertFile: dial.CertFile, KeyFile: dial.KeyFile, InsecureSkipVerify: dial.InsecureSkipVerify}
 	hc, err := opts.HTTPClient()
 	if err != nil {
 		return append(out, r.check(StatusError, path, path+".dial", "dial settings: "+err.Error(), "fix "+path+".dial"))

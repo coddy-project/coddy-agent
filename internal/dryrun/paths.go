@@ -1,7 +1,6 @@
 package dryrun
 
 import (
-	"crypto/tls"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -89,10 +88,8 @@ func (r *runner) paths() {
 	}
 
 	if cfg.HTTPServer.IsEnabled() && cfg.HTTPServer.TLS.Enabled() {
-		if _, err := tls.LoadX509KeyPair(cfg.HTTPServer.TLS.CertFile, cfg.HTTPServer.TLS.KeyFile); err != nil {
-			r.rep.add(r.check(StatusError, "httpserver.tls", "httpserver.tls", "certificate and key do not load: "+err.Error(), "check httpserver.tls.cert_file and httpserver.tls.key_file"))
-		} else {
-			r.rep.add(r.check(StatusOK, "httpserver.tls", "httpserver.tls", "certificate and key load", ""))
+		for _, c := range r.serverPairChecks("httpserver.tls", cfg.HTTPServer.TLS.CertFile, cfg.HTTPServer.TLS.KeyFile) {
+			r.rep.add(c)
 		}
 		if ca := strings.TrimSpace(cfg.HTTPServer.TLS.ClientCAFile); ca != "" {
 			if _, err := netx.ClientCertTLS(ca, cfg.HTTPServer.TLS.EffectiveClientAuth(), "httpserver.tls.client_ca_file"); err != nil {
@@ -105,12 +102,8 @@ func (r *runner) paths() {
 
 	if cfg.Swarm.Enabled && !cfg.Swarm.NodeTLS.IsZero() {
 		nt := cfg.Swarm.NodeTLS
-		if strings.TrimSpace(nt.CertFile) != "" {
-			if _, err := tls.LoadX509KeyPair(nt.CertFile, nt.KeyFile); err != nil {
-				r.rep.add(r.check(StatusError, "swarm.node_tls", "swarm.node_tls", "certificate and key do not load: "+err.Error(), "check swarm.node_tls.cert_file and swarm.node_tls.key_file"))
-			} else {
-				r.rep.add(r.check(StatusOK, "swarm.node_tls", "swarm.node_tls", "client certificate and key load", ""))
-			}
+		for _, c := range r.clientPairChecks("swarm.node_tls.cert_file", strings.TrimSpace(nt.CertFile), strings.TrimSpace(nt.KeyFile)) {
+			r.rep.add(c)
 		}
 		if ca := strings.TrimSpace(nt.CAFile); ca != "" {
 			r.rep.add(r.caFileCheck("swarm.node_tls.ca_file", ca))
@@ -118,10 +111,8 @@ func (r *runner) paths() {
 	}
 
 	if cfg.Swarm.Enabled && cfg.Swarm.TLS.Enabled() {
-		if _, err := tls.LoadX509KeyPair(cfg.Swarm.TLS.CertFile, cfg.Swarm.TLS.KeyFile); err != nil {
-			r.rep.add(r.check(StatusError, "swarm.tls", "swarm.tls", "certificate and key do not load: "+err.Error(), "check swarm.tls.cert_file and swarm.tls.key_file"))
-		} else {
-			r.rep.add(r.check(StatusOK, "swarm.tls", "swarm.tls", "certificate and key load", ""))
+		for _, c := range r.serverPairChecks("swarm.tls", cfg.Swarm.TLS.CertFile, cfg.Swarm.TLS.KeyFile) {
+			r.rep.add(c)
 		}
 	}
 }

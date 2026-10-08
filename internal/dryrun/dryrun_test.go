@@ -979,7 +979,7 @@ func TestSwarmNodeTLSFilesAreChecked(t *testing.T) {
 		t.Fatal(err)
 	}
 	rep := run(t, fmt.Sprintf("swarm:\n  enable: true\n  auth_token: t\n  node_tls:\n    ca_file: %s\n    cert_file: %s\n    key_file: %s\n", junk, junk, junk), nil)
-	if c := find(t, rep, "swarm.node_tls"); c.Status != StatusError || !strings.Contains(c.Message, "certificate and key do not load") {
+	if c := find(t, rep, "swarm.node_tls.cert_file"); c.Status != StatusError || !strings.Contains(c.Message, "cannot use the client certificate") {
 		t.Errorf("pair %+v", c)
 	}
 	if c := find(t, rep, "swarm.node_tls.ca_file"); c.Status != StatusError || !strings.Contains(c.Message, "no certificate") {
