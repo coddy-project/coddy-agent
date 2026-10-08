@@ -1,6 +1,6 @@
 # Plan: the application probe of a vanished peer (phase 4a of the remote model provider)
 
-**Status: proposed (2026-10-08); P1 to P4 decided by model check the same day and revised after its cross-review (3.1).** Design record, written before the code. It closes the item the phase 2 plan kept as O4 (`remote-model-provider-phase2.md`, 7.6 D3) and the phase 3 plan declined (`remote-model-provider-phase3.md`, section 9). Branch `feat/remote-model-provider`. Models and reports are in `remote-model-provider-models/` (`p4-*`).
+**Status: implemented on this branch (stages P0 to P4, 2026-10-09); P1 to P4 decided by model check on 2026-10-08 and revised after its cross-review (3.1).** Design record, written before the code and revised twice by cross-review rounds; the deviations are in the commits `fix(httpserver): the probe node side after the cross-review` and the ones after it.
 
 ## 1. Goal and non-goals
 

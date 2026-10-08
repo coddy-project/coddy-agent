@@ -130,3 +130,25 @@ func TestAPingSpendsNothingAndIsNotCounted(t *testing.T) {
 		t.Errorf("the pings spent the window: %d", got)
 	}
 }
+
+// A client at its limit is still pinged: with its only slot held by a real call and its window spent by it, the ping passes and the
+// next call is refused for the reason it would have been without the ping.
+func TestAPingPassesAClientWhoseSlotAndWindowAreSpent(t *testing.T) {
+	g := newGateNode(t)
+	srv, ts := limitRelay(t, g, nil, limited("acme", scopedToken, 1, 1, 1))
+	g.releaseOnCleanup(t)
+	first := make(chan struct{})
+	go func() { defer close(first); post(t, ts.URL+relayCompletions, scopedToken) }()
+	<-g.entered
+	if srv.limits.inUse("acme") != 1 {
+		t.Fatal("the call holds no slot")
+	}
+	if res, _ := post(t, ts.URL+relayCompletions, scopedToken); res.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("a second call: %d, want 429", res.StatusCode)
+	}
+	if got := doPing(t, ts.URL, pingRoute, http.MethodPost, scopedToken); got != http.StatusOK && got != http.StatusNoContent {
+		t.Errorf("a ping of a client at its limit: %d", got)
+	}
+	close(g.hold)
+	<-first
+}

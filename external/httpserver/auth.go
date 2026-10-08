@@ -20,13 +20,13 @@ type authPolicy struct {
 	// document read them, and none of those may ever see a shared-model token.
 	tokens []string
 	// sharedTokens are the LLM-only class (httpserver.shared_models.tokens):
-	// they open the three shared-model routes and nothing else. They are never
+	// they open the shared-model routes (the three calls and the probe's ping) and nothing else. They are never
 	// mixed into tokens, so a shared token cannot become key material, count as
 	// "a token is configured" for the settings screen or pass a route that is
 	// not one of the three.
 	sharedTokens []string
 	// certNames are httpserver.shared_models.cert_names: the names of verified
-	// client certificates that open the three shared-model routes as the class
+	// client certificates that open the shared-model routes as the class
 	// mtls and nothing else.
 	certNames  []string
 	publicDocs bool
@@ -204,7 +204,7 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// A shared-model token opens the three shared-model routes and is refused
+		// A shared-model token opens the shared-model routes and is refused
 		// everywhere else exactly like an unknown token, /v1/chat/completions and
 		// /v1/responses included: it falls through to the same 401.
 		if isSharedLLMPattern(pattern) && acceptBearer(pol.sharedTokens, got) {
@@ -212,7 +212,7 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			return
 		}
 		// A verified client certificate whose name httpserver.shared_models.cert_names lists is
-		// a credential of its own, for these three routes only.
+		// a credential of its own, for these routes only.
 		if isSharedLLMPattern(pattern) && sharedCertName(r, &pol) != "" {
 			next.ServeHTTP(w, r)
 			return
@@ -231,7 +231,8 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			http.Error(w, "cross-site request refused", http.StatusForbidden)
 			return
 		}
-		if isSharedLLMPattern(pattern) {
+		// The counters are of calls: a ping of the application probe is not one, so a refused ping is not counted, as the relay does not.
+		if isSharedLLMPattern(pattern) && pattern != sharedAlivePattern {
 			s.countSharedGateRefusal()
 		}
 		w.Header().Set("WWW-Authenticate", `Bearer realm="coddy"`)

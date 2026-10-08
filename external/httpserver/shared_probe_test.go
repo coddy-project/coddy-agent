@@ -313,6 +313,15 @@ func TestProbeAPingIsNotACall(t *testing.T) {
 	if got := fx.srv.sharedLimit.inUse(sharedBearerKey(sharedTestSharedTok)); got != 1 {
 		t.Errorf("slots in use: %d, want the call's own one", got)
 	}
+	// A ping the gate refuses is not a call either: no row of the counters for it, as on the relay.
+	for _, token := range []string{"nope", ""} {
+		if got := fx.ping(pc.id, token).StatusCode; got != http.StatusUnauthorized {
+			t.Fatalf("a ping with the token %q: %d", token, got)
+		}
+	}
+	if got := len(fx.stats().Rows); got != rows {
+		t.Errorf("a refused ping was counted: %d rows then %d", rows, got)
+	}
 }
 
 func TestProbeAMainTokenCallIsPingedWithTheMainTokenOnly(t *testing.T) {
