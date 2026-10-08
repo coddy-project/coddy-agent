@@ -4,6 +4,7 @@ import {
   sessionSettingsEventOf,
   type SessionSettingsEvent,
 } from "./sessionSettings";
+import { sessionGoalEventOf, type SessionGoalUpdate } from "./goal";
 
 /** What a caller does with the events of `GET /coddy/events`. */
 export type ServerEventHandlers = {
@@ -30,6 +31,10 @@ export type ServerEventHandlers = {
    *  versioned snapshot, and a notice of the change when the agent made it
    *  itself. */
   onSessionSettings?: (event: SessionSettingsEvent) => void;
+  /** A session's goal changed - set, paused, checked, continued, cleared -
+   *  from any surface or by the supervisor. Carries the whole goal (null once
+   *  cleared) and its version; the caller keeps the highest it has seen. */
+  onSessionGoal?: (update: SessionGoalUpdate) => void;
   /** A background subagent of this parent session started waiting for a
    *  permission answer, or stopped waiting (answered anywhere, withdrawn, its
    *  run ended). The prompt itself waits on the subagent's task row, so the
@@ -67,6 +72,7 @@ export type ServerEvent =
   | { type: "message_queue"; sessionId: string; queue: QueuedMessageEvent }
   | { type: "session_changes"; sessionId: string }
   | { type: "session_settings"; event: SessionSettingsEvent }
+  | { type: "session_goal"; update: SessionGoalUpdate }
   | { type: "config_reloaded" }
   | { type: "subagent_permission"; parentSessionId: string }
   | { type: "session_question_pending"; sessionId: string }
@@ -173,6 +179,10 @@ export function parseServerEvent(ev: {
       const parsed = sessionSettingsEventOf(ev.data);
       return parsed ? { type: "session_settings", event: parsed } : null;
     }
+    case "session_goal": {
+      const parsed = sessionGoalEventOf(ev.data);
+      return parsed ? { type: "session_goal", update: parsed } : null;
+    }
     case "config_reloaded":
       // Nothing to parse: the payload is the announcement itself.
       return { type: "config_reloaded" };
@@ -216,6 +226,9 @@ export function dispatchServerEvent(
       return;
     case "session_settings":
       h.onSessionSettings?.(event.event);
+      return;
+    case "session_goal":
+      h.onSessionGoal?.(event.update);
       return;
     case "config_reloaded":
       h.onConfigReloaded?.();

@@ -380,6 +380,8 @@ func runACP(args []string) error {
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
+	// A met goal is confirmed against the workspace by the goal verifier.
+	mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 	if pid := strings.TrimSpace(*persistedSession); pid != "" {
 		if err := session.ValidateFolderSessionID(pid); err != nil {
 			return fmt.Errorf("--session-id: %w", err)

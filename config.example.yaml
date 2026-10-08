@@ -168,6 +168,22 @@ agent:
   #                                          # included; under 60 s it also bounds ordinary 429 retries;
   #                                          # a longer pause ends the turn; 0 never waits
 
+# Session goal and supervisor: /goal <objective> starts work on a goal, and a
+# second model checks every turn against it, continues unfinished work and
+# hands the goal back to you when it needs you. No key is needed for that:
+# without this section, or with "supervisor: {}", the session's own model
+# checks the work. /goal --model <id> --reasoning <level> picks the checker of
+# one goal. enable also checks ordinary turns against the latest request.
+# supervisor:
+#   enable: false
+#   model: ""                     # the checking model; empty uses the session's (another family judges best)
+#   verify: true                  # a read-only subagent confirms a met goal against the files
+#   max_continuations: 10         # automatic turns per goal, then one wrap-up turn
+#   token_budget: 0               # uncached input + output tokens per goal; 0 = no cap
+#   stall_seconds: 300            # 0 disables the stall timer
+#   max_nudges: 2                 # recovery turns after a stall, a loop or a failed turn
+#   loop_repeat: 3                # repeated identical tool operations; 0 disables
+
 sessions:
   # Directory to store session bundles.
   # Leave empty to use default $CODDY_HOME/sessions.

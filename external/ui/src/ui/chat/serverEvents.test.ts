@@ -259,6 +259,50 @@ test("a session_changes frame reaches its handler with the session", async () =>
   expect(settled).toEqual(["sess_c"]);
 });
 
+test("a session_goal frame reaches its handler with the goal and its version", async () => {
+  const got: Array<{ sid: string; objective: string | null; v: number }> = [];
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: session_goal\ndata: ${JSON.stringify({
+        object: "coddy.session_goal",
+        sessionId: "sess_g",
+        goal: { objective: "Ship it", status: "paused", continuations: 2 },
+        version: 12,
+        notice: "Goal paused: Ship it",
+      })}\n\n` +
+        `event: session_goal\ndata: ${JSON.stringify({
+          object: "coddy.session_goal",
+          sessionId: "sess_g",
+          goal: null,
+          version: 13,
+          notice: "Goal cleared",
+        })}\n\n`,
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onSessionGoal: (u) => {
+      got.push({
+        sid: u.sessionId,
+        objective: u.goal?.objective ?? null,
+        v: u.version,
+      });
+      if (got.length === 2) ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(got).toEqual([
+    { sid: "sess_g", objective: "Ship it", v: 12 },
+    { sid: "sess_g", objective: null, v: 13 },
+  ]);
+});
+
 test("a config reload tells the client to re-read what the config decides", async () => {
   let reloads = 0;
   const ctl = new AbortController();

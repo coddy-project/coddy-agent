@@ -560,6 +560,72 @@ test("a message typed after a wake is edited by the index the server knows it by
   expect(onEdit).toHaveBeenCalledWith("fix it", 2);
 });
 
+test("a goal turn is a goal row, not a user bubble, and a later prompt keeps the server's index", () => {
+  const onEdit = vi.fn();
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "make the tests pass" },
+    { id: "a1", type: "assistant_message", content: "First pass done." },
+    {
+      id: "g1",
+      type: "goal_turn",
+      turn: {
+        kind: "continue",
+        index: 1,
+        limit: 10,
+        objective: "make the tests pass",
+        reason: "two tests still fail",
+        remaining: ["fix the parser", "fix the lexer"],
+      },
+    },
+    { id: "a2", type: "assistant_message", content: "Fixed both." },
+    { id: "u2", type: "user_message", content: "thanks" },
+  ];
+  const { container } = render(<MessageList items={items} onEdit={onEdit} />);
+  const row = screen.getByTestId("goal-turn-row");
+  expect(row).toHaveTextContent(
+    "Goal continuation 1 of 10: two tests still fail",
+  );
+  expect(row).toHaveTextContent("2 items left");
+  // The items the check left open fold out under the row.
+  expect(within(row).getByText("fix the parser")).toBeInTheDocument();
+  // Two user bubbles: the ones somebody typed; no edit control on the row.
+  expect(container.querySelectorAll(".msg-user")).toHaveLength(2);
+  expect(within(row).queryByTestId("user-message-edit")).toBeNull();
+  const edits = screen.getAllByTestId("user-message-edit");
+  expect(edits).toHaveLength(2);
+  fireEvent.click(edits[1]!);
+  // The goal turn is user message 1 on the server, so "thanks" is message 2.
+  expect(onEdit).toHaveBeenCalledWith("thanks", 2);
+  // The goal row opens a turn: the answer before it closes the first turn
+  // and keeps its action row.
+  const firstAnswer = screen
+    .getByText("First pass done.")
+    .closest("[data-row-id]") as HTMLElement;
+  expect(firstAnswer.querySelector(".msg-assistant-foot")).not.toBeNull();
+});
+
+test("a kickoff row without open items is a plain line", () => {
+  const items: TranscriptItem[] = [
+    {
+      id: "g1",
+      type: "goal_turn",
+      turn: {
+        kind: "kickoff",
+        index: 0,
+        limit: 10,
+        objective: "ship the release",
+        reason: "",
+        remaining: [],
+      },
+    },
+  ];
+  render(<MessageList items={items} />);
+  const row = screen.getByTestId("goal-turn-row");
+  expect(row).toHaveTextContent("Goal set: ship the release");
+  expect(row.querySelector("details")).toBeNull();
+  expect(row.dataset.goalKind).toBe("kickoff");
+});
+
 test("a window renders its slice of the rows, each one stamped with its id", () => {
   const items: TranscriptItem[] = Array.from({ length: 10 }, (_, i) => ({
     id: `a${i}`,

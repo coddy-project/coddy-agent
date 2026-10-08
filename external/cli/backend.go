@@ -7,6 +7,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
+	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -73,3 +74,56 @@ type backend interface {
 // Interface conformance is pinned where the concrete types are visible:
 // *session.Manager in buildApp, *remote.Handler in buildRemoteApp.
 var _ backend = (*session.Manager)(nil)
+
+// goalBackend is the part of the backend behind the session goal (goal.go):
+// what the footer shows on entering a session and what the goal menu reads
+// and changes. Every call answers with the goal as it stands afterwards,
+// versioned like the session_goal updates, so the console orders the answer
+// against the updates that report the same change. In-process it is the
+// manager (managerGoals); over --remote, *remote.Handler drives the server's
+// GET, PATCH and DELETE /coddy/sessions/{id}/goal.
+type goalBackend interface {
+	// SessionGoal is the goal the backend holds for a session, without a
+	// round trip: the manager's own, or over --remote the last snapshot the
+	// client adopted (a loaded session's /messages, an update, an answer).
+	SessionGoal(sessionID string) (acp.SessionGoalUpdate, error)
+	// FetchSessionGoal reads the goal afresh.
+	FetchSessionGoal(ctx context.Context, sessionID string) (acp.SessionGoalUpdate, error)
+	// PauseSessionGoal stops the automatic continuations and keeps the goal.
+	PauseSessionGoal(ctx context.Context, sessionID string) (acp.SessionGoalUpdate, error)
+	// ClearSessionGoal removes the goal.
+	ClearSessionGoal(ctx context.Context, sessionID string) (acp.SessionGoalUpdate, error)
+}
+
+// managerGoals is the in-process goalBackend: the manager's goal methods,
+// each change answered with the snapshot after it. The change itself reaches
+// the console as a session_goal update through the manager's sender too,
+// with its notice.
+type managerGoals struct{ m *session.Manager }
+
+func (g managerGoals) SessionGoal(sessionID string) (acp.SessionGoalUpdate, error) {
+	return g.m.SessionGoal(sessionID)
+}
+
+func (g managerGoals) FetchSessionGoal(_ context.Context, sessionID string) (acp.SessionGoalUpdate, error) {
+	return g.m.SessionGoal(sessionID)
+}
+
+func (g managerGoals) PauseSessionGoal(_ context.Context, sessionID string) (acp.SessionGoalUpdate, error) {
+	if _, err := g.m.PauseGoal(sessionID); err != nil {
+		return acp.SessionGoalUpdate{}, err
+	}
+	return g.m.SessionGoal(sessionID)
+}
+
+func (g managerGoals) ClearSessionGoal(_ context.Context, sessionID string) (acp.SessionGoalUpdate, error) {
+	if err := g.m.ClearGoal(sessionID); err != nil {
+		return acp.SessionGoalUpdate{}, err
+	}
+	return g.m.SessionGoal(sessionID)
+}
+
+var (
+	_ goalBackend = managerGoals{}
+	_ goalBackend = (*remote.Handler)(nil)
+)

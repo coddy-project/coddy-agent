@@ -1,13 +1,11 @@
 import React, { useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
-  BRANCH_CHARS,
   branchChipVisible,
   branchRows,
   firstLine,
   folderChipLabel,
   isWorktreeBadgeActive,
-  middleTruncate,
   pathBasename,
   pathParent,
   type WorkspaceBranchFetch,
@@ -20,6 +18,7 @@ import {
   type WorkspaceRecent,
 } from "./workspaceRecents";
 import { WorkspaceFolderModal } from "./WorkspaceFolderModal";
+import { FitMiddleText } from "./FitMiddleText";
 import {
   serverSnapshotShellStack,
   snapshotShellStack,
@@ -195,12 +194,10 @@ export function WorkspaceChips(props: Props) {
           onClick={(e) => toggleMenu("branch", e.currentTarget)}
         >
           <BranchIcon worktree={ctx.is_worktree === true} />
-          <span className="workspace-bar-text">
-            {middleTruncate(
-              ctx.branch || t("workspace.detached"),
-              BRANCH_CHARS,
-            )}
-          </span>
+          <FitMiddleText
+            className="workspace-bar-text"
+            text={ctx.branch || t("workspace.detached")}
+          />
         </button>
       ) : null}
 

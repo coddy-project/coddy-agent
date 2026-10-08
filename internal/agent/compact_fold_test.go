@@ -330,7 +330,7 @@ func TestCompactionChainEndsAtTheSessionModel(t *testing.T) {
 		FallbackModels: []string{"fake/also-missing"},
 	}, &compactCannedProvider{t: t, summary: "SUMMARY"})
 
-	chain, err := ag.compactionChain("")
+	chain, err := ag.compactionChain("", "")
 	if err != nil {
 		t.Fatalf("chain: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestCompactionChainIsOrderedAndDeduplicated(t *testing.T) {
 	}, &compactCannedProvider{t: t, summary: "SUMMARY"})
 	ag.cfg.Models = append(ag.cfg.Models, config.ModelEntry{Model: "fake/second", MaxTokens: 100})
 
-	chain, err := ag.compactionChain("")
+	chain, err := ag.compactionChain("", "")
 	if err != nil {
 		t.Fatalf("chain: %v", err)
 	}

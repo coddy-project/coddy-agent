@@ -75,6 +75,22 @@ Provider keys can be injected from the host shell (optional, empty if unset):
 
 Prefer mounting secrets via config or your orchestrator; do not commit real keys.
 
+### The container user
+
+The image runs Coddy as an unprivileged user, uid and gid **1000**, never as root. That is the first user of most Linux desktops, so the folders Compose mounts from the current directory stay writable for you and for the container alike. When the folders belong to someone else, set **`CODDY_UID`** and **`CODDY_GID`** for Compose (the service sets **`user: "${CODDY_UID:-1000}:${CODDY_GID:-1000}"`**), or pass **`--user`** to **`docker run`**:
+
+```bash
+CODDY_UID=$(id -u) CODDY_GID=$(id -g) docker compose up -d
+```
+
+Images before this change ran as root, so a home they wrote is owned by root and the unprivileged process cannot write it. Give the folders to the user once, then start the new image:
+
+```bash
+sudo chown -R 1000:1000 coddy_home workspace
+```
+
+The image checks its health the way Compose does, by starting the binary (**`HEALTHCHECK`** **`/bin/coddy --version`**): a scratch image has no shell or HTTP client to ask the server itself.
+
 ### Compose commands
 
 **Published image** (from repo root or any directory where you keep **`config.yaml`**, **`workspace/`**, **`coddy_home/`**):
@@ -253,7 +269,7 @@ Volume and environment details for Compose are in [Docker Compose](#docker-compo
 
 1. **`ui-builder` (Node)** - runs **`npm ci`** and **`npm run build:go`** under **`external/ui`**, producing the static bundle copied into the Go tree for **`go:embed`** when **`ui`** is in **`BUILD_TAGS`**.
 2. **`build` (Go)** - **`CGO_ENABLED=0`**, **`GOOS`/`GOARCH`** from BuildKit **`TARGETOS`/`TARGETARCH`** (CI builds **`linux/amd64`** and **`linux/arm64`**), **`go build -tags="$BUILD_TAGS"`** with **`-trimpath`** and **`-ldflags "-s -w -X ...Version=..."`**, writes **`/out/coddy`**, copies **`ca-certificates.crt`** for HTTPS clients.
-3. **`scratch`** - only the binary and CA bundle; **`ENTRYPOINT`** **`/bin/coddy`**, default **`CMD`** **`serve -H 0.0.0.0 -P 12345`**. Marketplace sync and plugin installation do not need `/tmp` or a Git executable: remote staging is kept under the writable `${CODDY_HOME}/tmp` directory, and Git sources fall back to go-git. HTTPS and `file://` sources work in that path; SSH sources need an authentication mechanism go-git can use in the container.
+3. **`scratch`** - only the binary, the CA bundle and the folders the user writes (**`/home/user`**, **`/workspace`**, **`/tmp`**, owned by **1000:1000**); **`USER 1000:1000`**, **`HEALTHCHECK`** **`/bin/coddy --version`**, **`ENTRYPOINT`** **`/bin/coddy`**, default **`CMD`** **`serve -H 0.0.0.0 -P 12345`** ([The container user](#the-container-user)). Marketplace sync and plugin installation do not need `/tmp` or a Git executable: remote staging is kept under the writable `${CODDY_HOME}/tmp` directory, and Git sources fall back to go-git. HTTPS and `file://` sources work in that path; SSH sources need an authentication mechanism go-git can use in the container.
 
 ## Automated smoke test
 

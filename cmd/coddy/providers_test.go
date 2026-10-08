@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"html"
+	"html/template"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +21,9 @@ import (
 // fakeHub emulates the NeuralDeep hub endpoints the providers command talks
 // to: browser-flow start (an HTML page whose link carries state and key, as
 // in production), whoami, status, and revoke.
+// providersHubPage is the hub page the stand serves; html/template escapes the link.
+var providersHubPage = template.Must(template.New("hub").Parse(`<html><body><a href="{{.}}">continue</a></body></html>`))
+
 func fakeHub(t *testing.T, key string) (*httptest.Server, *bool) {
 	t.Helper()
 	revoked := false
@@ -28,7 +33,7 @@ func fakeHub(t *testing.T, key string) (*httptest.Server, *bool) {
 			q := r.URL.Query()
 			cb := fmt.Sprintf("http://127.0.0.1:%s/cb?state=%s&key=%s", q.Get("port"), q.Get("state"), key)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = fmt.Fprintf(w, `<html><body><a href="%s">continue</a></body></html>`, cb)
+			_ = providersHubPage.Execute(w, cb)
 		case "/api/cli/whoami":
 			_ = json.NewEncoder(w).Encode(map[string]string{"email": "u@e", "name": "tester", "tier": "starter"})
 		case "/api/cli/status":
@@ -66,7 +71,8 @@ func browseFollowingLink(t *testing.T, authURL string) {
 		t.Errorf("no callback link in %s", body)
 		return
 	}
-	cb, err := http.Get(string(m[1]))
+	// The page escapes the link for HTML; a browser reads it back unescaped.
+	cb, err := http.Get(html.UnescapeString(string(m[1])))
 	if err != nil {
 		t.Errorf("follow callback: %v", err)
 		return

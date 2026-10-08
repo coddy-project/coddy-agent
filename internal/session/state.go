@@ -66,6 +66,13 @@ type State struct {
 	// HookContext is the context SessionStart hooks handed to the session;
 	// every system prompt of the session carries it (see docs/features/hooks.md).
 	HookContext string
+	goal        GoalState
+	// goalNotify publishes a goal change (State.SetGoalNotifier).
+	goalNotify func(notice string)
+	// turnGoal is the marker of the goal turn about to run (SetTurnGoal);
+	// goalCommandNotice the answer of a /goal command for the result.
+	turnGoal          *llm.GoalTurn
+	goalCommandNotice string
 
 	// Messages is the conversation history.
 	Messages []llm.Message
@@ -555,6 +562,11 @@ func (m *SchedulerRunMeta) clone() *SchedulerRunMeta {
 // SubagentKindMemory is the Kind of the memory subagent, the child a user
 // turn starts to recall and persist long-term memory.
 const SubagentKindMemory = "memory"
+
+// SubagentKindGoalVerifier is the Kind of the goal verifier, the child the
+// session supervisor starts to confirm a met goal against the workspace
+// (internal/agent/goal_verifier.go).
+const SubagentKindGoalVerifier = "goal-verifier"
 
 // SetSubagentMeta marks the session as a child run. It does not persist by
 // itself: the manager saves the state right after building it.

@@ -229,6 +229,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.registerMemoryRoutes()
 	s.registerBackgroundRoutes()
 	s.registerQueueRoutes()
+	s.registerGoalRoutes()
 	s.registerSubagentRoutes()
 	s.registerHookRoutes()
 	s.registerDocsRoutes()
@@ -1410,6 +1411,11 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir string, msgs []llm.Mess
 			// Nobody typed this message: a woken turn opened with it.
 			item["background_wake"] = m.BackgroundWake
 		}
+		if m.Role == llm.RoleUser && m.GoalTurn != nil {
+			// Nobody typed this message either: the supervisor opened a
+			// goal turn with it.
+			item["goal_turn"] = m.GoalTurn
+		}
 		// A prompt's attachments, and the pictures a tool call showed the
 		// model (read on an image file), which stay on that call's result.
 		if (m.Role == llm.RoleUser || m.Role == llm.RoleTool) && len(m.ImageParts) > 0 {
@@ -1767,6 +1773,11 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		if snap, err := s.mgr.SessionSettings(id); err == nil {
 			out["settings"] = snap
 		}
+	}
+	// The session goal, versioned like the session_goal frames: null when
+	// there is none.
+	if u, err := s.mgr.SessionGoal(id); err == nil {
+		out["goal"] = goalPayload(u)
 	}
 	// A session saved before only the agent's own settings changes were
 	// noted keeps the notices of the operator's: they are not shown.

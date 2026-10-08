@@ -43,12 +43,21 @@ import {
 } from "../skills/draftSlash";
 import { filterCommandRows } from "../skills/commandRows";
 import {
-  COMPACT_FLAGS,
+  COMMAND_FLAGS,
   applyCommandArg,
   commandArgDraftAtCaret,
+  commandReasoningChoices,
   type CommandArgDraft,
 } from "../skills/draftCommandArg";
 import type { TurnOverride } from "./sessionSettings";
+import { GoalPopover, type GoalActions } from "./GoalPopover";
+import {
+  goalStatusKey,
+  goalTone,
+  isBareGoalCommand,
+  type SessionGoal,
+} from "./goal";
+import { TargetIcon } from "../components/TargetIcon";
 import {
   segmentComposerMirrorSpans,
   type MentionMark,
@@ -399,6 +408,8 @@ export function Composer(props: {
   modes: string[];
   /** Configured backends (`owned_by` != **`coddy`**). Omitted when empty. */
   llmModels?: string[];
+  /** Reasoning levels of every configured model, for `/goal --reasoning`. */
+  llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;
   /** Selected **`models[].model`** id (`metadata.model` on profile requests). */
   llmModel?: string;
   onLlmModelChange?: (modelId: string) => void;
@@ -449,6 +460,14 @@ export function Composer(props: {
   onPermissionModeChange?: (mode: string) => void;
   /** Settings changed for the running and the next turns (--once, --count=N). */
   settingsOverrides?: TurnOverride[];
+  /**
+   * The session's goal (chat/goal.ts): the chip in the toolbar while there is
+   * one, and the goal popover it opens. A bare `/goal` opens the popover too,
+   * with the form that sets a goal when there is none. Both need goalActions;
+   * without them the chip is hidden and `/goal` goes to the server as typed.
+   */
+  goal?: SessionGoal | null;
+  goalActions?: GoalActions;
   onChange: (v: string) => void;
   /** files is non-empty only when the user attached files via the file picker. */
   onSend: (text: string, files?: File[]) => void;
@@ -491,8 +510,10 @@ export function Composer(props: {
     | undefined;
   /** A plate joined to the top edge of the card (the plate of a running chat,
    *  naming where it works): under the queue and the banners, flush with the
-   *  card. Without one, a chat that has not started gets the plate of picks. */
-  cardTop?: ReactNode;
+   *  card. Without one, a chat that has not started gets the plate of picks.
+   *  Given as a function, it is handed the goal mark to carry (null without
+   *  a goal): the mark stands on the plate, left of git's count. */
+  cardTop?: ReactNode | ((goalMark: ReactNode) => ReactNode);
 }) {
   const { t, tp } = useT();
   const isMobileShell = useSyncExternalStore(
@@ -520,6 +541,9 @@ export function Composer(props: {
   const [llmQuery, setLlmQuery] = useState("");
   const llmFilterRef = useRef<HTMLInputElement | null>(null);
   const [contextPopoverOpen, setContextPopoverOpen] = useState(false);
+  /** The goal popover, opened by the goal mark or a bare `/goal`. */
+  const [goalPopoverOpen, setGoalPopoverOpen] = useState(false);
+  const goalChipRef = useRef<HTMLButtonElement | null>(null);
   /** After closing the breakdown, hide hover tooltip until pointer leaves the ring. */
   const [contextTipSuppressed, setContextTipSuppressed] = useState(false);
 
@@ -563,12 +587,23 @@ export function Composer(props: {
     (props.value.trim().length > 0 || sendableAttachedFiles.length > 0);
   /**
    * Runs a draft that is a command of this composer - `/docs [words]` opens
-   * the reader, `/mcp` opens Settings -> MCP servers - in the browser; false
-   * when the draft is anything else. Like the console, `/mcp` ignores what
-   * follows it rather than send it to the model. A draft with files attached
-   * is always a message, so a command never swallows the attachments.
+   * the reader, `/mcp` opens Settings -> MCP servers, a bare `/goal` opens
+   * the goal popover - in the browser; false when the draft is anything else.
+   * Like the console, `/mcp` ignores what follows it rather than send it to
+   * the model; `/goal` with anything after it (an objective, pause, resume,
+   * clear) is the server's and goes as typed. A draft with files attached is
+   * always a message, so a command never swallows the attachments.
    */
   const runLocalCommandFromDraft = (): boolean => {
+    if (
+      props.goalActions &&
+      sendableAttachedFiles.length === 0 &&
+      isBareGoalCommand(props.value)
+    ) {
+      props.onChange("");
+      setGoalPopoverOpen(true);
+      return true;
+    }
     if (
       props.onMCPCommand &&
       sendableAttachedFiles.length === 0 &&
@@ -811,13 +846,28 @@ export function Composer(props: {
       return [];
     }
     if (argDraft.kind === "flag") {
-      return COMPACT_FLAGS.filter((f) => f.startsWith(argDraft.prefix));
+      return (COMMAND_FLAGS[argDraft.command] ?? []).filter((f) =>
+        f.startsWith(argDraft.prefix),
+      );
+    }
+    if (argDraft.kind === "reasoning") {
+      const want = argDraft.prefix.toLowerCase();
+      return commandReasoningChoices(
+        argDraft.model,
+        props.llmReasoningLevelsByModel ?? {},
+        props.llmReasoningLevels ?? [],
+      ).filter((level) => level.toLowerCase().startsWith(want));
     }
     return filterLlmModels(
       orderLlmModels(props.llmModels ?? []),
       argDraft.prefix,
     );
-  }, [argDraft, props.llmModels]);
+  }, [
+    argDraft,
+    props.llmModels,
+    props.llmReasoningLevelsByModel,
+    props.llmReasoningLevels,
+  ]);
   const argOpen =
     argDraft.open &&
     (argDraft.kind === "model"
@@ -909,6 +959,12 @@ export function Composer(props: {
       closeContextPopover();
     }
   }, [pickerOpen, contextPopoverOpen, closeContextPopover]);
+
+  // The goal popover belongs to the chat it was opened in.
+  useEffect(() => {
+    setGoalPopoverOpen(false);
+  }, [props.sessionId]);
+  const closeGoalPopover = useCallback(() => setGoalPopoverOpen(false), []);
   const measurePickerFloat = useCallback(() => {
     if (!pickerOpen) {
       setPickerFloatRect(null);
@@ -2057,6 +2113,48 @@ export function Composer(props: {
   const llmLabel = llmVal
     ? displayLlmId(llmVal, t("composer.model"))
     : t("composer.model");
+  // The goal mark: the target in the status's tone, on the plate over the
+  // card left of git's count, only while the session has a goal. The status
+  // and the objective are in its tip and its menu, so it carries no words.
+  const goal = props.goalActions ? (props.goal ?? null) : null;
+  const goalStatusWord = goal ? t(goalStatusKey(goal.status)) : "";
+  const goalMark = goal ? (
+    // The tone class on the host too: the tip is the button's sibling and
+    // reads the same --goal-tone.
+    <div
+      className={`composer-goal-tip-host goal-tone-${goalTone(goal.status)}`}
+    >
+      <button
+        type="button"
+        ref={goalChipRef}
+        className={`composer-goal goal-tone-${goalTone(goal.status)}`}
+        data-testid="composer-goal"
+        data-goal-status={goal.status}
+        aria-haspopup="dialog"
+        aria-expanded={goalPopoverOpen}
+        aria-label={t("goal.chipLabel", { status: goalStatusWord })}
+        onClick={() => setGoalPopoverOpen((open) => !open)}
+      >
+        <TargetIcon className="composer-goal-icon" size={15} />
+      </button>
+      {!goalPopoverOpen ? (
+        <span
+          className="rail-tip composer-goal-tip"
+          role="tooltip"
+          data-testid="composer-goal-tip"
+        >
+          <span className="composer-goal-tip-status">
+            {t("goal.chipLabel", { status: goalStatusWord })}
+          </span>
+          <span className="composer-goal-tip-objective">
+            {goal.objective.length > 200
+              ? `${goal.objective.slice(0, 200)}…`
+              : goal.objective}
+          </span>
+        </span>
+      ) : null}
+    </div>
+  ) : null;
   const contextIdle = props.contextIdle === true;
   const maxCtx =
     typeof props.maxContextTokens === "number" && props.maxContextTokens > 0
@@ -2465,7 +2563,13 @@ export function Composer(props: {
         <div className="slash-menu-title">
           {argIsFlag
             ? t("composer.commandArgOptionsTitle")
-            : t("composer.commandArgModelsTitle")}
+            : argDraft.open && argDraft.kind === "reasoning"
+              ? argDraft.command === "/goal"
+                ? t("composer.commandArgReasoningTitle")
+                : t("composer.commandArgSummaryReasoningTitle")
+              : argDraft.open && argDraft.command === "/goal"
+                ? t("composer.commandArgGoalModelsTitle")
+                : t("composer.commandArgModelsTitle")}
         </div>
         {argItems.length === 0 ? (
           <div className="slash-muted">
@@ -2477,9 +2581,15 @@ export function Composer(props: {
         <ul className="slash-rows" ref={argListRef}>
           {argItems.map((value, idx) => {
             // A model row is its full id, which already names the vendor.
-            const detail = argIsFlag
-              ? t("composer.commandArgModelFlagDesc")
-              : "";
+            const detail = !argIsFlag
+              ? ""
+              : value === "--reasoning"
+                ? argDraft.open && argDraft.command === "/goal"
+                  ? t("composer.commandArgReasoningFlagDesc")
+                  : t("composer.commandArgSummaryReasoningFlagDesc")
+                : argDraft.open && argDraft.command === "/goal"
+                  ? t("composer.commandArgGoalModelFlagDesc")
+                  : t("composer.commandArgModelFlagDesc");
             return (
               <li key={value}>
                 <button
@@ -2624,25 +2734,28 @@ export function Composer(props: {
         : t("composer.slashCommandsAriaLabel");
   const pickerRole = atRangeOpen ? "group" : "listbox";
 
-  // The plate over the card: the one a running chat hands in (cardTop), or,
-  // before the chat starts, the folder, branch and worktree as picks on it.
+  // The plate over the card: the one a running chat hands in (cardTop), with
+  // the goal mark on it, or, before the chat starts, the folder, branch and
+  // worktree as picks on it.
   const plate: ReactNode =
-    props.cardTop ??
-    (props.workspaceCtx &&
-    props.onWorkspacePickFolder &&
-    !props.workspaceLocked ? (
-      <WorkspaceBar
-        context={props.workspaceCtx}
-        pick={{
-          worktreePref: props.worktreePref ?? false,
-          onPickFolder: props.onWorkspacePickFolder,
-          onPickBranch: props.onWorkspacePickBranch ?? (() => {}),
-          onWorktreeToggle: props.onWorktreeToggle ?? (() => {}),
-          onRefreshBranches: props.onWorkspaceRefreshBranches,
-          opensUp: !props.isEmpty,
-        }}
-      />
-    ) : null);
+    typeof props.cardTop === "function"
+      ? props.cardTop(goalMark)
+      : (props.cardTop ??
+        (props.workspaceCtx &&
+        props.onWorkspacePickFolder &&
+        !props.workspaceLocked ? (
+          <WorkspaceBar
+            context={props.workspaceCtx}
+            pick={{
+              worktreePref: props.worktreePref ?? false,
+              onPickFolder: props.onWorkspacePickFolder,
+              onPickBranch: props.onWorkspacePickBranch ?? (() => {}),
+              onWorktreeToggle: props.onWorktreeToggle ?? (() => {}),
+              onRefreshBranches: props.onWorkspaceRefreshBranches,
+              opensUp: !props.isEmpty,
+            }}
+          />
+        ) : null));
 
   return (
     <>
@@ -3554,6 +3667,19 @@ export function Composer(props: {
           onCompacted={props.onContextCompacted}
           usage={props.providerUsage ?? null}
           modelId={llmVal || ""}
+        />
+      ) : null}
+      {goalPopoverOpen && props.goalActions ? (
+        <GoalPopover
+          open={goalPopoverOpen}
+          onClose={closeGoalPopover}
+          goal={props.goal ?? null}
+          useSheet={menuUseSheet}
+          anchorRef={goal ? goalChipRef : composerCardRef}
+          alignRef={composerCardRef}
+          toggleRef={goalChipRef}
+          generating={props.generating === true}
+          actions={props.goalActions}
         />
       ) : null}
       {menuOpen && (menuUseSheet || menuAnchorRect)

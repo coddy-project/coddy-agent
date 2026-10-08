@@ -186,9 +186,6 @@ export function isWorktreeBadgeActive(
   return ctx.is_worktree || worktreePref;
 }
 
-/** How many characters of a branch name the bar shows before it cuts the middle. */
-export const BRANCH_CHARS = 24;
-
 /**
  * Cuts the middle out of a long name, keeping both ends: a branch is told
  * apart by its prefix (feat/, fix/) and by its last words alike.

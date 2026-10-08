@@ -1246,7 +1246,8 @@ func TestDownloadArchiveFollowsAtMostFiveRedirects(t *testing.T) {
 			_, _ = w.Write(archive)
 			return
 		}
-		http.Redirect(w, r, fmt.Sprintf("/hop/%d", hops-1), http.StatusFound)
+		// A path on this test server, built from a parsed integer.
+		http.Redirect(w, r, fmt.Sprintf("/hop/%d", hops-1), http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 	}))
 	t.Cleanup(srv.Close)
 	reachRemote(t, srv)

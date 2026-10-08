@@ -103,6 +103,11 @@ type sessionState struct {
 	// overrides are what the last snapshot said the session changed for its
 	// running and next turns.
 	overrides []acp.TurnOverride
+
+	// goal mirrors the session goal and goalVersion the version of the
+	// snapshot adopted last (goal.go).
+	goal        *acp.SessionGoal
+	goalVersion uint64
 }
 
 // remoteTurn is the identity of one locally admitted request, not the server's
@@ -274,6 +279,9 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 				st.mode = msgs.Mode
 			}
 			h.mu.Unlock()
+			if msgs.Goal != nil {
+				h.mirrorGoal(id, msgs.Goal.Goal, msgs.Goal.Version)
+			}
 		}
 	}
 
@@ -316,6 +324,10 @@ func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 	h.mu.Unlock()
 	if msgs.Settings != nil {
 		h.mirrorSettings(id, *msgs.Settings)
+	}
+	// The goal is the session's too: the footer shows it on entering.
+	if msgs.Goal != nil {
+		h.mirrorGoal(id, msgs.Goal.Goal, msgs.Goal.Version)
 	}
 	h.replayMessages(id, msgs.Messages)
 	// A background subagent of this session may have asked before the console
@@ -566,6 +578,9 @@ func (h *Handler) HandleSessionReady(sessionID string) {
 	if len(replay) > 0 {
 		h.replayMessages(sessionID, replay)
 	}
+	// A goal the session carries is on screen from the start, as the local
+	// manager sends it on ready.
+	h.sendHeldGoal(sessionID)
 	if sender := h.currentSender(); sender != nil {
 		if commands := h.commandCatalog(context.Background(), sessionID); len(commands) > 0 {
 			_ = sender.SendSessionUpdate(sessionID, acp.AvailableCommandsUpdate{
@@ -736,6 +751,12 @@ func (h *Handler) replayMessages(sessionID string, rows []messageRow) {
 		case "user":
 			if row.BackgroundWake != nil {
 				_ = sender.SendSessionUpdate(sessionID, session.BackgroundWakeUpdate(row.BackgroundWake))
+				continue
+			}
+			// A goal turn's first message is the supervisor's: replayed as
+			// the row it was live, never as its instruction text.
+			if row.GoalTurn != nil {
+				_ = sender.SendSessionUpdate(sessionID, session.GoalTurnUpdate(row.GoalTurn))
 				continue
 			}
 			if text := strings.TrimSpace(row.Content); text != "" {

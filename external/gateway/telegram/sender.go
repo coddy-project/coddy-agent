@@ -120,6 +120,37 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 			s.log.Warn("telegram: wake note not delivered", "err", err, "chat", s.chatID)
 		}
 
+	case acp.GoalTurnUpdate:
+		// The supervisor starts another turn of the goal: the answer so far
+		// is final, and the next turn's opens below a note saying why.
+		s.mu.Lock()
+		pending := s.responseBuf.Len() > 0 || s.liveID != 0
+		s.mu.Unlock()
+		if pending {
+			s.Flush()
+		}
+		msg := tgbotapi.NewMessage(s.chatID, "🎯 "+session.GoalTurnNote(u))
+		if _, err := s.bot.Send(msg); err != nil {
+			s.log.Warn("telegram: goal turn note not delivered", "err", err, "chat", s.chatID)
+		}
+
+	case acp.SessionGoalUpdate:
+		// How the goal ended - complete, blocked with the supervisor's
+		// question, paused, out of budget - is a message of its own, after
+		// the answer it follows.
+		if note := session.GoalEndNote(u); note != "" {
+			s.mu.Lock()
+			pending := s.responseBuf.Len() > 0 || s.liveID != 0
+			s.mu.Unlock()
+			if pending {
+				s.Flush()
+			}
+			msg := tgbotapi.NewMessage(s.chatID, "🎯 "+note)
+			if _, err := s.bot.Send(msg); err != nil {
+				s.log.Warn("telegram: goal note not delivered", "err", err, "chat", s.chatID)
+			}
+		}
+
 	case acp.MessageChunkUpdate:
 		if u.Content.Type != acp.ContentTypeText {
 			return nil

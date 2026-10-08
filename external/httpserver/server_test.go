@@ -2190,7 +2190,7 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	for _, it := range items {
 		names = append(names, fmt.Sprint(it["name"]))
 	}
-	want := "model reasoning think nothink agent plan ask permissions compact export plugin"
+	want := "model reasoning think nothink agent plan ask permissions compact goal export plugin"
 	if strings.Join(names, " ") != want {
 		t.Fatalf("commands = %v, want %s", names, want)
 	}
@@ -2199,6 +2199,9 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	}
 	if items[0]["hint"] != "<model id> [--once|--count=N]" {
 		t.Fatalf("model hint = %v", items[0]["hint"])
+	}
+	if items[9]["name"] != "goal" || items[9]["hint"] != "[-m|--model <id>] [-r|--reasoning <level>] [<objective>|pause|resume|clear]" {
+		t.Fatalf("goal command = %v", items[9])
 	}
 	for _, it := range items {
 		if strings.TrimSpace(fmt.Sprint(it["description"])) == "" {
@@ -3652,6 +3655,31 @@ func TestCompactEndpointRefusesAnUnknownModelBeforeTheTurn(t *testing.T) {
 	code, _ := postCompact(t, ts, sid, `{"model":"nope"}`)
 	if code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", code)
+	}
+}
+
+// A reasoning level the summarizer does not offer is refused the same way, once
+// the session is known (its model is the summarizer when nothing else names
+// one) and before it is admitted.
+func TestCompactEndpointRefusesAReasoningLevelBeforeTheTurn(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 3)
+	unlock, err := mgr.AcquireComposerTurnLock(sid, mgr.SessionByID(sid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	for _, body := range []string{`{"reasoning":"ultra"}`, `{"model":"qwen","reasoning":"ultra"}`} {
+		code, parsed := postCompact(t, ts, sid, body)
+		if code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d, want 400 (%v)", body, code, parsed)
+		}
+	}
+	// With the summarizer named, the session is not needed to refuse the
+	// level: the request is answered like an unknown model, before a 404.
+	if code, parsed := postCompact(t, ts, "sess_does_not_exist", `{"model":"qwen","reasoning":"ultra"}`); code != http.StatusBadRequest {
+		t.Fatalf("unknown session: status = %d, want 400 (%v)", code, parsed)
 	}
 }
 

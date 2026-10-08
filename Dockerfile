@@ -69,11 +69,25 @@ RUN mkdir -p /out \
 	fi \
 	&& cp /etc/ssl/certs/ca-certificates.crt /out/ssl-certs/ca-certificates.crt
 
+# The folders the unprivileged user of the runtime image writes: the home
+# (CODDY_HOME and the default config file), the workspace and /tmp, which
+# scratch does not have.
+RUN mkdir -p /out/rootfs/home/user/.coddy /out/rootfs/workspace /out/rootfs/tmp \
+	&& chmod 1777 /out/rootfs/tmp
+
 
 FROM scratch
 
 COPY --from=build /out/coddy /bin/coddy
 COPY --from=build /out/ssl-certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build --chown=1000:1000 /out/rootfs/ /
+
+# Coddy runs as an unprivileged user, uid and gid 1000, the usual first user of
+# a Linux desktop, so the bind mounts of docker-compose.yml stay writable for
+# the operator. Another owner is `--user UID:GID` (CODDY_UID / CODDY_GID in
+# Compose); a home written by an earlier image that ran as root is chowned once
+# (docs/getting-started/docker.md, The container user).
+USER 1000:1000
 
 WORKDIR /workspace
 
@@ -82,6 +96,10 @@ ENV CODDY_CWD=/workspace
 ENV CODDY_CONFIG=/home/user/.coddy.yaml
 
 EXPOSE 12345
+
+# The same check docker-compose.yml runs: the binary starts. A scratch image has
+# no shell or HTTP client to ask the server itself.
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD ["/bin/coddy", "--version"]
 
 ENTRYPOINT ["/bin/coddy"]
 # Default subcommand. `serve` starts every subsystem config.yaml enables; the

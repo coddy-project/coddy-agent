@@ -141,6 +141,7 @@ func (m *Manager) EnsureSchedulerJobSession(ctx context.Context, spec SchedulerJ
 	}
 	m.sessions[id] = state
 	m.mu.Unlock()
+	m.attachGoalNotifier(state)
 
 	if err := m.store.Save(state); err != nil {
 		m.ForgetLiveSession(id)

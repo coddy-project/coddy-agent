@@ -5,7 +5,17 @@
 # Path exclusions live in trivy.yaml (scan.skip-dirs), not here. Secret-rule
 # suppressions are technically supported, but require the same expiry and
 # written justification as every other accepted finding.
-vulnerabilities: []
+vulnerabilities:
+  - id: GO-2026-5932
+    paths:
+      - go.mod
+    statement: >-
+      golang.org/x/crypto v0.57.0 is the latest release and no fixed version
+      exists. govulncheck over every shipped build tag
+      (-tags http,ui,scheduler,memory,cli,gateway,swarm) finds the vulnerable
+      code in a module Coddy requires but in no package it imports, so the
+      binary never calls it. Upgrade as soon as a fixed release ships.
+    expired_at: 2027-01-08
 misconfigurations: []
 secrets: []
 licenses: []

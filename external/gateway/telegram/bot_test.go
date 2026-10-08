@@ -37,6 +37,77 @@ func TestTelegramAPIEndpoint(t *testing.T) {
 	}
 }
 
+func TestGoalCommandReachesSessionInTelegram(t *testing.T) {
+	for _, tc := range []struct{ name, text, chatType string }{
+		{"private", "/goal ship the fix", "private"},
+		{"group mention", "/goal@coddy_bot ship the fix", "group"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := newScriptedRunner()
+			bot := New(&config.TelegramGatewayConfig{Enabled: true, Token: "t", DefaultAccess: config.AccessAll},
+				runner, "", slog.New(slog.DiscardHandler), t.TempDir(), nil)
+			bot.botName = "coddy_bot"
+			fake := newFakeAPI(t, tgfake.Options{})
+			key := sessionstore.SessionKey(adapterName, resumeChatID, resumeUserID, config.IsolationIndividual, tc.chatType == "group")
+			msg := commandMessage(tc.text)
+			msg.Chat.Type = tc.chatType
+			bot.processMessage(context.Background(), fake.api, msg, key)
+			if len(runner.prompts) != 1 || runner.prompts[0] != "/goal ship the fix" {
+				t.Fatalf("Telegram did not forward /goal: %q", runner.prompts)
+			}
+		})
+	}
+}
+
+func TestTelegramShowsAGoalTurnAsANoteOfItsOwn(t *testing.T) {
+	fake := newFakeAPI(t, tgfake.Options{})
+	sender := newSender(fake.api, 7072, 0, slog.New(slog.DiscardHandler), richConfig{})
+	if err := sender.SendSessionUpdate("sess_goal", acp.MessageChunkUpdate{
+		SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+		Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: "First turn answer."},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.SendSessionUpdate("sess_goal", acp.GoalTurnUpdate{
+		SessionUpdate: acp.UpdateTypeGoalTurn, Kind: acp.GoalTurnContinue, Index: 1, Limit: 10,
+		Objective: "ship the fix", Reason: "tests still fail",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := fake.fake.Chat(7072).Text()
+	if !strings.Contains(got, "First turn answer.") || !strings.Contains(got, "Goal continuation 1 of 10: tests still fail") ||
+		strings.Index(got, "First turn answer.") > strings.Index(got, "Goal continuation") {
+		t.Fatalf("the first answer is not final above the goal note: %q", got)
+	}
+}
+
+func TestTelegramPostsHowAGoalEnded(t *testing.T) {
+	fake := newFakeAPI(t, tgfake.Options{})
+	sender := newSender(fake.api, 7073, 0, slog.New(slog.DiscardHandler), richConfig{})
+	for _, notice := range []string{"Goal set: x", "Goal check: the supervisor is reviewing the turn", "Goal blocked: which database?"} {
+		_ = sender.SendSessionUpdate("s", acp.SessionGoalUpdate{SessionUpdate: acp.UpdateTypeSessionGoal, Notice: notice})
+	}
+	got := fake.fake.Chat(7073).Text()
+	if !strings.Contains(got, "Goal blocked: which database?") || strings.Contains(got, "Goal set:") || strings.Contains(got, "Goal check:") {
+		t.Fatalf("chat = %q", got)
+	}
+}
+
+func TestGoalCommandSentAsAReplyStaysACommand(t *testing.T) {
+	runner := newScriptedRunner()
+	bot := New(&config.TelegramGatewayConfig{Enabled: true, Token: "t", DefaultAccess: config.AccessAll},
+		runner, "", slog.New(slog.DiscardHandler), t.TempDir(), nil)
+	bot.botName = "coddy_bot"
+	fake := newFakeAPI(t, tgfake.Options{})
+	key := sessionstore.SessionKey(adapterName, resumeChatID, resumeUserID, config.IsolationIndividual, false)
+	msg := commandMessage("/goal pause")
+	msg.ReplyToMessage = &tgbotapi.Message{MessageID: 9, Text: "an earlier answer", From: &tgbotapi.User{UserName: "coddy_bot"}}
+	bot.processMessage(context.Background(), fake.api, msg, key)
+	if len(runner.prompts) != 1 || runner.prompts[0] != "/goal pause" {
+		t.Fatalf("a reply quoted the /goal command: %q", runner.prompts)
+	}
+}
+
 // A woken turn is the bot's only when one of its chats is bound to the session
 // and the bot is connected to Telegram; anything else is handed back untouched,
 // so the process can run it where it belongs.

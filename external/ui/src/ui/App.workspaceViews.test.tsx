@@ -70,74 +70,74 @@ function heldStream() {
   });
 }
 
-const fetchMock = vi.fn(
-  async (input: RequestInfo | URL, init?: RequestInit) => {
-    const path = String(input);
-    if (path === "/coddy/events") return heldStream();
-    if (path.startsWith("/coddy/sessions?")) {
-      return json({
-        active_count: 1,
-        sessions: [{ id: SID, title: "A chat" }],
-      });
-    }
-    if (path.startsWith(`/coddy/sessions/${SID}/messages`)) {
-      return json({ session_id: SID, messages: [] });
-    }
-    if (path.startsWith(`/coddy/sessions/${SID}/changes`)) {
-      return json({
-        session_id: SID,
-        vcs: "git",
-        files: [
-          {
-            path: "notes.txt",
-            status: "modified",
-            additions: 1,
-            deletions: 0,
-            binary: false,
-            truncated: false,
-          },
-        ],
-        totals: { files: 1, additions: 1, deletions: 0 },
-      });
-    }
-    if (path.includes("/workspace/tree")) {
-      return json({
-        entries: [
-          {
-            name: "notes.txt",
-            path_rel: "notes.txt",
-            kind: "file",
-            size_bytes: 10,
-            mod_time: "2026-10-05T12:00:00Z",
-          },
-        ],
-        has_more: false,
-        next_cursor: "",
-      });
-    }
-    if (path.includes("/workspace/raw") && init?.method === "HEAD") {
-      return new Response(null, {
-        headers: {
-          ETag: '"v1"',
-          "Content-Type": "text/plain; charset=utf-8",
-          "Content-Length": "22",
-          "Last-Modified": "Mon, 05 Oct 2026 12:00:00 GMT",
+async function baseFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const path = String(input);
+  if (path === "/coddy/events") return heldStream();
+  if (path.startsWith("/coddy/sessions?")) {
+    return json({
+      active_count: 1,
+      sessions: [{ id: SID, title: "A chat" }],
+    });
+  }
+  if (path.startsWith(`/coddy/sessions/${SID}/messages`)) {
+    return json({ session_id: SID, messages: [] });
+  }
+  if (path.startsWith(`/coddy/sessions/${SID}/changes`)) {
+    return json({
+      session_id: SID,
+      vcs: "git",
+      files: [
+        {
+          path: "notes.txt",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          binary: false,
+          truncated: false,
         },
-      });
-    }
-    if (path.includes("/workspace/text")) {
-      return json({
-        path_rel: "notes.txt",
-        lines: ["first note", "second note"],
-        offset: 0,
-        next_offset: 2,
-        has_more: false,
-        etag: '"v1"',
-      });
-    }
-    return json({}, 404);
-  },
-);
+      ],
+      totals: { files: 1, additions: 1, deletions: 0 },
+    });
+  }
+  if (path.includes("/workspace/tree")) {
+    return json({
+      entries: [
+        {
+          name: "notes.txt",
+          path_rel: "notes.txt",
+          kind: "file",
+          size_bytes: 10,
+          mod_time: "2026-10-05T12:00:00Z",
+        },
+      ],
+      has_more: false,
+      next_cursor: "",
+    });
+  }
+  if (path.includes("/workspace/raw") && init?.method === "HEAD") {
+    return new Response(null, {
+      headers: {
+        ETag: '"v1"',
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Length": "22",
+        "Last-Modified": "Mon, 05 Oct 2026 12:00:00 GMT",
+      },
+    });
+  }
+  if (path.includes("/workspace/text")) {
+    return json({
+      path_rel: "notes.txt",
+      lines: ["first note", "second note"],
+      offset: 0,
+      next_offset: 2,
+      has_more: false,
+      etag: '"v1"',
+    });
+  }
+  return json({}, 404);
+}
+
+const fetchMock = vi.fn(baseFetch);
 
 beforeEach(() => {
   resetSettingsConfigForTests();
@@ -147,6 +147,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   history.replaceState(null, "", "/");
   fetchMock.mockClear();
+  fetchMock.mockImplementation(baseFetch);
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -320,4 +321,43 @@ test("an edits address over the files window puts the files away", async () => {
   });
   await screen.findByTestId("edits-view");
   await waitFor(() => expect(screen.queryByTestId("files-view")).toBeNull());
+});
+
+// An address that names a file opens the window before the chat's workspace
+// context answers. The folder becoming known must not build the window again:
+// the second window read the open file a second time, after the first had
+// shown it.
+test("the chat's folder arriving after a files address does not open the window again", async () => {
+  let answerContext: (() => void) | null = null;
+  const contextAnswered = new Promise<void>((resolve) => {
+    answerContext = resolve;
+  });
+  fetchMock.mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path.startsWith("/coddy/workspace/context")) {
+      await contextAnswered;
+      return json({
+        path: "/work/project",
+        name: "project",
+        is_git_repo: false,
+        is_worktree: false,
+      });
+    }
+    return baseFetch(input, init);
+  });
+  mountAt(`#/s/${SID}/files?path=notes.txt&line=2`);
+  const win = await screen.findByTestId("files-view");
+  await within(win).findByText("second note");
+  const textReads = () =>
+    fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes("/workspace/text"),
+    ).length;
+  expect(textReads()).toBe(1);
+  await act(async () => {
+    answerContext!();
+    await contextAnswered;
+    await new Promise((r) => setTimeout(r, 30));
+  });
+  expect(screen.getByTestId("files-view")).toBe(win);
+  expect(textReads()).toBe(1);
 });

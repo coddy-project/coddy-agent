@@ -243,6 +243,22 @@
         }
       }
     },
+    "supervisor": {
+      "type": "object",
+      "title": "Session supervisor",
+      "description": "Checks a session goal (/goal) after every turn with a second model, continues unfinished work within bounds, and watches for stalled or looping turns; see https://coddy.dev/docs/features/session-supervisor.",
+      "additionalProperties": false,
+      "properties": {
+        "enable": {"type": "boolean", "description": "Check ordinary turns against the latest request even without a /goal. A session goal is checked whatever this switch says.", "default": false},
+        "model": {"type": "string", "description": "Configured models[].model that checks the work. Empty uses the session's own model, which then grades its own work; a model of another family is the better judge.", "default": ""},
+        "verify": {"type": ["boolean", "null"], "description": "Confirm a met verdict before the goal is closed: the goal-verifier subagent reads the workspace with read-only tools and checks every requirement. Unset means true.", "default": true},
+        "stall_seconds": {"type": ["integer", "null"], "description": "Seconds a goal turn may go without any update before the watchdog cuts it and starts a recovery turn. Permission prompts, running tools and running background tasks pause the timer. 0 disables it.", "default": 300, "minimum": 0},
+        "max_nudges": {"type": ["integer", "null"], "description": "Recovery turns after a stall, a tool loop or a failed turn, per run of the supervisor.", "default": 2, "minimum": 0},
+        "max_continuations": {"type": ["integer", "null"], "description": "Automatic continuation turns one goal may use; when they run out the goal gets one wrap-up turn and stops as limited.", "default": 10, "minimum": 0},
+        "loop_repeat": {"type": ["integer", "null"], "description": "How many times a repeating cycle of identical tool operations (same call, same result) may come round before the watchdog cuts the turn. 0 disables loop detection.", "default": 3, "minimum": 0},
+        "token_budget": {"type": ["integer", "null"], "description": "Uncached input plus output tokens one goal's turns may spend; 0 means no cap.", "default": 0, "minimum": 0}
+      }
+    },
     "prompts": {
       "type": "object",
       "title": "System prompt templates",

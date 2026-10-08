@@ -15,8 +15,9 @@ package agent
 
 import (
 	"bytes"
-	"encoding/json"
 	"strings"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/jsoncanon"
 )
 
 const (
@@ -241,19 +242,15 @@ func canonicalToolCallKey(name, inputJSON string) string {
 	return name + "\x00" + canonicalJSON(inputJSON)
 }
 
-// canonicalJSON re-encodes a JSON document with sorted object keys (encoding/json
-// sorts map keys on marshal). Input that does not parse falls back to
-// whitespace-normalized text.
+// canonicalJSON re-encodes a JSON document with sorted object keys and no
+// insignificant whitespace (jsoncanon). Input that does not parse falls back
+// to whitespace-normalized text.
 func canonicalJSON(s string) string {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
 		return ""
 	}
-	var v interface{}
-	if err := json.Unmarshal([]byte(trimmed), &v); err != nil {
-		return "raw:" + strings.Join(strings.Fields(trimmed), " ")
-	}
-	b, err := json.Marshal(v)
+	b, err := jsoncanon.Canonical([]byte(trimmed))
 	if err != nil {
 		return "raw:" + strings.Join(strings.Fields(trimmed), " ")
 	}

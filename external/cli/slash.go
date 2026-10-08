@@ -52,6 +52,14 @@ func (a *App) dispatchSlash(text string) bool {
 	case "mcp":
 		a.openMCP()
 		return true
+	case "goal":
+		// A bare /goal opens the goal menu; anything after it is a command
+		// the session manager answers, sent like a prompt.
+		if len(fields) == 1 {
+			a.openGoalMenu()
+			return true
+		}
+		return false
 	case "docs", "help":
 		a.openDocsOverlay(strings.Join(fields[1:], " "))
 		return true
@@ -242,10 +250,14 @@ func (a *App) switchTheme(name string) {
 	previous := a.foot
 	a.foot = newFooter(a.theme, a.config().Paths.CWD)
 	if previous != nil {
-		// The usage line and the running-task count are state, not chrome: they
-		// survive the theme.
-		a.foot.usages, a.foot.now = previous.usages, previous.now
-		a.foot.runningTasks = previous.runningTasks
+		// What the footer shows is state, not chrome: the token and context
+		// counters, the permission mode and the turn overrides, the MCP count,
+		// the running tasks, the session goal and the usage line all survive
+		// the theme. Only the palette, the folder and its branch are taken
+		// afresh.
+		kept := *previous
+		kept.theme, kept.cwd, kept.gitBranch = a.foot.theme, a.foot.cwd, a.foot.gitBranch
+		a.foot = &kept
 	}
 	a.refreshFooterModel()
 	a.foot.SetSession("", a.modeID)
@@ -309,6 +321,7 @@ func (a *App) showHotkeys() {
 		"/usage provider quota, resets and wallet",
 		"/tasks background tasks: enter output · s stop · r refresh · escape back",
 		"/mcp MCP servers: enter details · toggle server or tool · approve project trust",
+		"/goal session goal: status, last check · pause, resume, clear · /goal <objective> sets one and starts work",
 		"F1 or /docs [words] built-in documentation: type to search · enter read · n/p turn pages",
 	}
 	a.appendStatus(roleDim, strings.Join(lines, "\n"))
@@ -391,6 +404,13 @@ func (a *App) startResumeWorker(old, id string) {
 		if snap, err := a.mgr.SessionSettings(id); err == nil {
 			resumed.settings = &snap
 		}
+		// And its goal, so the footer names it right away (over --remote
+		// the goal the loaded transcript came with).
+		if gb := a.goalBackend(); gb != nil {
+			if goal, err := gb.SessionGoal(id); err == nil {
+				resumed.goal = &goal
+			}
+		}
 		select {
 		case a.updatesCh <- updateMsg{sessionID: id, update: resumed}:
 		case <-a.closed:
@@ -408,6 +428,7 @@ type sessionResumed struct {
 	modes    *acp.ModeState
 	opts     []acp.ConfigOption
 	settings *acp.SessionSettings
+	goal     *acp.SessionGoalUpdate
 }
 
 // shortSessionID trims a session id to a readable prefix.

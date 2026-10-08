@@ -11,6 +11,7 @@ type ConfigJSON struct {
 	Providers    []ProviderJSON   `json:"providers,omitempty"`
 	Models       []ModelJSON      `json:"models,omitempty"`
 	Agent        AgentJSON        `json:"agent,omitempty"`
+	Supervisor   Supervisor       `json:"supervisor,omitempty"`
 	Prompts      PromptsJSON      `json:"prompts,omitempty"`
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
 	Skills       SkillsJSON       `json:"skills,omitempty"`
@@ -494,6 +495,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		WaitForLimitReset:      c.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
 	}
+	out.Supervisor = c.Supervisor.clone()
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt, AskPrompt: c.Prompts.AskPrompt,
 	}
@@ -722,6 +724,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		WaitForLimitReset:      j.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
 	}
+	cfg.Supervisor = j.Supervisor.clone()
 	if j.Agent.MaxTurns != nil {
 		cfg.Agent.MaxTurns = *j.Agent.MaxTurns
 		cfg.Agent.maxTurnsSet = true

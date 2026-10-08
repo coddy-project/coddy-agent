@@ -1,4 +1,4 @@
-import type { CSSProperties, Dispatch, SetStateAction } from "react";
+import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
 import {
   useCallback,
@@ -13,6 +13,8 @@ import type { HeroAccentVerb } from "./heroTitleWords";
 import { useT } from "../i18n/I18nProvider";
 import type { PermissionResolvedState } from "./permissionTypes";
 import type { TurnOverride } from "./sessionSettings";
+import type { SessionGoal } from "./goal";
+import type { GoalActions } from "./GoalPopover";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { UsageBanner } from "./UsageBanner";
@@ -95,6 +97,7 @@ export function ChatScreen(props: {
   llmModelMultimodal?: boolean;
   /** Reasoning levels offered by the current model (empty hides the selector). */
   llmReasoningLevels?: string[];
+  llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;
   llmReasoning?: string;
   onLlmReasoningChange?: (level: string) => void;
   onModeChange: (mode: string) => void;
@@ -104,6 +107,10 @@ export function ChatScreen(props: {
   configuredPermissionMode?: string;
   onPermissionModeChange?: ((mode: string) => void) | undefined;
   settingsOverrides?: TurnOverride[];
+  /** The session goal and what the composer's goal mark and popover can do
+   *  with it (chat/goal.ts); passed through to the composer. */
+  goal?: SessionGoal | null;
+  goalActions?: GoalActions;
   onDraftChange: (v: string) => void;
   onMentionArtifact?: (path: string) => void;
   onSend: (text: string, files?: File[]) => void;
@@ -550,18 +557,26 @@ export function ChatScreen(props: {
   // Once the chat runs, where it works is a fact rather than a choice: a plate
   // joined to the top of the composer card names it.
   // The plate of a running chat is git's - the repository, the branch, the
-  // count - so a folder outside any repository has none.
+  // count - so a folder outside any repository has none, unless the session
+  // has a goal: the plate carries the goal mark (left of the count), and then
+  // names the folder alone.
+  const hasGoal = !!props.goalActions && !!props.goal;
+  const workspaceCtx = props.workspaceCtx;
   const workspaceBar =
     !readOnlyNotice &&
     props.sessionId &&
     props.workspaceLocked &&
-    props.workspaceCtx?.is_git_repo ? (
-      <WorkspaceBar
-        context={props.workspaceCtx}
-        workingCopy={workingCopy}
-        onOpenEdits={props.onOpenEdits}
-      />
-    ) : undefined;
+    workspaceCtx &&
+    (workspaceCtx.is_git_repo || hasGoal)
+      ? (goalMark: ReactNode) => (
+          <WorkspaceBar
+            context={workspaceCtx}
+            workingCopy={workingCopy}
+            onOpenEdits={props.onOpenEdits}
+            goal={goalMark}
+          />
+        )
+      : undefined;
   // The Files window belongs to a chat, so it opens only once one exists.
   const openFiles = props.sessionId
     ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
@@ -760,6 +775,12 @@ export function ChatScreen(props: {
                       llmModel: props.llmModel,
                       onLlmModelChange: props.onLlmModelChange,
                       llmModelMultimodal: props.llmModelMultimodal,
+                      ...(props.llmReasoningLevelsByModel !== undefined
+                        ? {
+                            llmReasoningLevelsByModel:
+                              props.llmReasoningLevelsByModel,
+                          }
+                        : {}),
                       ...(props.llmReasoningLevels !== undefined &&
                       props.llmReasoningLevels.length > 0 &&
                       props.onLlmReasoningChange !== undefined
@@ -783,6 +804,9 @@ export function ChatScreen(props: {
                   : {})}
                 {...(props.settingsOverrides
                   ? { settingsOverrides: props.settingsOverrides }
+                  : {})}
+                {...(props.goalActions
+                  ? { goal: props.goal ?? null, goalActions: props.goalActions }
                   : {})}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
@@ -964,6 +988,12 @@ export function ChatScreen(props: {
                         llmModel: props.llmModel,
                         onLlmModelChange: props.onLlmModelChange,
                         llmModelMultimodal: props.llmModelMultimodal,
+                        ...(props.llmReasoningLevelsByModel !== undefined
+                          ? {
+                              llmReasoningLevelsByModel:
+                                props.llmReasoningLevelsByModel,
+                            }
+                          : {}),
                         ...(props.llmReasoningLevels !== undefined &&
                         props.llmReasoningLevels.length > 0 &&
                         props.onLlmReasoningChange !== undefined
@@ -990,6 +1020,12 @@ export function ChatScreen(props: {
                     : {})}
                   {...(props.settingsOverrides
                     ? { settingsOverrides: props.settingsOverrides }
+                    : {})}
+                  {...(props.goalActions
+                    ? {
+                        goal: props.goal ?? null,
+                        goalActions: props.goalActions,
+                      }
                     : {})}
                   onChange={props.onDraftChange}
                   onSend={props.onSend}

@@ -41,6 +41,7 @@ function Harness(props: {
   onChange: (v: string) => void;
   onSend?: () => void;
   models?: string[];
+  levelsByModel?: Record<string, string[]>;
 }) {
   const [value, setValue] = useState("");
   return (
@@ -50,6 +51,9 @@ function Harness(props: {
       mode="agent"
       modes={["agent", "plan"]}
       llmModels={props.models ?? MODELS}
+      {...(props.levelsByModel
+        ? { llmReasoningLevelsByModel: props.levelsByModel }
+        : {})}
       llmModel="openai/gpt-4o"
       onLlmModelChange={() => {}}
       onModeChange={() => {}}
@@ -209,4 +213,62 @@ test("keys an input method is composing with leave the list and the draft alone"
     "aria-selected",
     "true",
   );
+});
+
+test("/goal offers both options, the models and the levels of the model it names", async () => {
+  stubStackedShell();
+  render(
+    <Harness
+      onChange={() => {}}
+      levelsByModel={{
+        "openai/gpt-4o": [],
+        "hub/qwen3-coder": ["low", "high"],
+        "hub/qwen3-mini": ["minimal"],
+      }}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+
+  typeDraft(ta, "/goal --");
+  await waitFor(() => {
+    expect(screen.getByTestId("command-arg-row---model")).toBeTruthy();
+  });
+  expect(screen.getByTestId("command-arg-row---reasoning")).toBeTruthy();
+
+  typeDraft(ta, "/goal --model ");
+  await waitFor(() => {
+    expect(screen.getByTestId("command-arg-row-hub_qwen3-coder")).toBeTruthy();
+  });
+
+  typeDraft(ta, "/goal --model coder --reasoning ");
+  await waitFor(() => {
+    expect(screen.getByTestId("command-arg-row-high")).toBeTruthy();
+  });
+  expect(screen.getByTestId("command-arg-row-default")).toBeTruthy();
+  expect(screen.getByTestId("command-arg-row-low")).toBeTruthy();
+  expect(screen.queryByTestId("command-arg-row-minimal")).toBeNull();
+});
+
+test("/compact -m and -r complete the summarizer and its level", async () => {
+  stubStackedShell();
+  render(
+    <Harness
+      onChange={() => {}}
+      levelsByModel={{ "hub/qwen3-coder": ["low", "high"] }}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  typeDraft(ta, "/compact --");
+  await waitFor(() => {
+    expect(screen.getByTestId("command-arg-row---reasoning")).toBeTruthy();
+  });
+  typeDraft(ta, "/compact -m ");
+  await waitFor(() => {
+    expect(screen.getByTestId("command-arg-row-hub_qwen3-coder")).toBeTruthy();
+  });
+  typeDraft(ta, "/compact -m coder -r ");
+  await waitFor(() => {
+    expect(screen.getByTestId("command-arg-row-high")).toBeTruthy();
+  });
+  expect(screen.getByText("Reasoning level of the summary")).toBeTruthy();
 });

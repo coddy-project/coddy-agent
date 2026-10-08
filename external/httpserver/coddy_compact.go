@@ -30,6 +30,7 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 	var body struct {
 		Instructions string `json:"instructions"`
 		Model        string `json:"model"`
+		Reasoning    string `json:"reasoning"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -38,11 +39,29 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 	// A summarizer the body cannot name is refused like malformed JSON, before
 	// the session is admitted: no turn starts and none is announced for it.
 	// CompactSession resolves the name again against the config it runs with.
+	var summarizer string
 	if model := strings.TrimSpace(body.Model); model != "" {
-		if _, err := s.activeCfg().MatchModelID(model); err != nil {
+		matched, err := s.activeCfg().MatchModelID(model)
+		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, fmt.Errorf("%w: %v", agent.ErrCompactionModel, err).Error()), http.StatusBadRequest)
 			return
 		}
+		summarizer = matched
+	}
+	// The level is checked against the summarizer. When the body or
+	// compaction.model names it, the session is not needed and a bad level
+	// is refused here, like an unknown model; otherwise the session's model
+	// writes the summary and the check waits for the session below.
+	checkLevel := func(st agent.SessionState) bool {
+		if _, err := agent.CompactionReasoning(s.activeCfg(), st, summarizer, body.Reasoning); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, fmt.Errorf("%w: %v", agent.ErrCompactionModel, err).Error()), http.StatusBadRequest)
+			return false
+		}
+		return true
+	}
+	levelChecked := summarizer != "" || strings.TrimSpace(s.activeCfg().Compaction.Model) != ""
+	if levelChecked && !checkLevel(nil) {
+		return
 	}
 
 	st := s.mgr.SessionByID(id)
@@ -65,6 +84,9 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	if !levelChecked && !checkLevel(st) {
+		return
+	}
 	// Compaction builds an agent on the session; a child transcript is read-only.
 	if rejectSubagentTurn(w, st) {
 		return
@@ -107,6 +129,7 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 	res, err := ag.CompactSession(turnCtx, agent.CompactOptions{
 		Instructions: strings.TrimSpace(body.Instructions),
 		Model:        strings.TrimSpace(body.Model),
+		Reasoning:    strings.TrimSpace(body.Reasoning),
 		Force:        true,
 	})
 	w.Header().Set("Content-Type", "application/json")

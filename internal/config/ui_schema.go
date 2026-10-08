@@ -386,6 +386,18 @@ func UISchemaMap() map[string]interface{} {
 				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off"},
 				[]string{"model"}),
 		},
+		"supervisor": objectSchema("Session supervisor", "Checks goals with a second model and watches for stalled or looping turns.",
+			map[string]interface{}{
+				"enable":            boolProp("Check every turn", "Check ordinary turns against the latest request even when no /goal is set. A session goal is checked regardless of this switch."),
+				"model":             strProp("Supervisor model", "Configured model that checks the work. Empty uses the session model, which then grades its own work; a model of another family is the better judge."),
+				"verify":            boolProp("Verify before closing", "Before a goal is closed, a read-only subagent opens the workspace and confirms every requirement the check found met."),
+				"stall_seconds":     intProp("Stall seconds", "Silence before a goal turn is cut, excluding permission prompts, running tools and background tasks. 0 disables stall detection."),
+				"max_nudges":        intProp("Max nudges", "Recovery turns after a stall, a tool loop or a failed turn."),
+				"max_continuations": intProp("Max continuations", "Automatic follow-up turns one goal may use before it stops as limited."),
+				"loop_repeat":       intProp("Loop repeat", "How many times a repeating cycle of identical tool operations may come round. 0 disables loop detection."),
+				"token_budget":      intProp("Token budget", "Uncached input plus output tokens one goal may spend. 0 means no cap."),
+			},
+			[]string{"enable", "model", "verify", "max_continuations", "token_budget", "stall_seconds", "max_nudges", "loop_repeat"}, nil),
 		"agent": objectSchema("ReAct loop", "Defaults for the main agent loop (model id and safety caps).",
 			map[string]interface{}{
 				"queue_mode": map[string]interface{}{"type": "string", "title": "Queue mode", "description": "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.", "enum": []interface{}{"steer", "after_turn"}},
@@ -775,7 +787,7 @@ func UISchemaMap() map[string]interface{} {
 	// folds into one System tab). The sessions key belongs to the Sessions tab.
 	rootOrder := []string{
 		"providers", "models",
-		"agent", "compaction", "memory",
+		"agent", "supervisor", "compaction", "memory",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions",

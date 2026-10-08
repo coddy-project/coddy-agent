@@ -18,7 +18,9 @@ import (
 // appJSBudget is the most app.js may weigh. Mermaid and KaTeX live in lazy
 // chunks; the entry only gains the Markdown math parser and the components that
 // call the renderers. Raise it deliberately, never to make room for a renderer.
-const appJSBudget = 1_850_000
+// Raised from 1_850_000 for the session goal's chip, popover and rows, which
+// are application code every chat may show.
+const appJSBudget = 1_900_000
 
 // Strings only the renderers' own code carries: their error messages.
 var rendererMarkers = map[string]string{

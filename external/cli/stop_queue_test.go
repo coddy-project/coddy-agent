@@ -444,3 +444,35 @@ func TestRemoteControlsFailedCancelIsVisibleAndRetryable(t *testing.T) {
 	}
 	f.request(t, "cancel")
 }
+
+// The goal menu's Resume is not typed text. When the turn it would queue
+// behind is already over - the console has not seen it end yet - it is the
+// next turn's prompt, sent once the console sees that end, and nothing lands
+// in the input.
+func TestMenuPromptRefusedForAnEndedTurnRunsAfterIt(t *testing.T) {
+	f := newRemoteControlStand(t)
+	f.mu.Lock()
+	f.queueError = "no_active_turn"
+	f.mu.Unlock()
+	f.app.turnActive, f.app.turnSessionID = true, sharedControlSession
+	f.app.submitMenuPrompt(goalResumePrompt)
+	f.app.workers.Wait()
+	drainControls(f.app)
+	if got := f.app.editor.PendingText(); got != "" {
+		t.Fatalf("the menu's prompt landed in the input: %q", got)
+	}
+	f.mu.Lock()
+	posts := f.promptPosts
+	f.mu.Unlock()
+	if posts != 0 {
+		t.Fatalf("the prompt went out before the turn ended: %d posts", posts)
+	}
+	f.app.applyLoopMessage(updateMsg{sessionID: sharedControlSession, update: turnDone{sessionID: sharedControlSession}})
+	f.app.workers.Wait()
+	f.mu.Lock()
+	posts = f.promptPosts
+	f.mu.Unlock()
+	if posts != 1 {
+		t.Fatalf("prompt posts after the turn ended = %d, want 1", posts)
+	}
+}
