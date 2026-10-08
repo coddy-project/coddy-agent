@@ -291,6 +291,20 @@ try {
     await page.waitForSelector('[data-testid="transcript-quote"]', {
       timeout: 3000,
     });
+    // The page may still be scrolling the selection into view (WebKit lets
+    // it settle over a few frames); the button follows it, so read it at rest.
+    let lastTop = null;
+    for (let i = 0; i < 20; i++) {
+      await page.waitForTimeout(100);
+      const top = await page.evaluate(
+        () =>
+          document
+            .querySelector('[data-testid="transcript-quote"]')
+            ?.getBoundingClientRect().top ?? null,
+      );
+      if (top !== null && top === lastTop) break;
+      lastTop = top;
+    }
     const quote = await page.evaluate(() => {
       const b = document
         .querySelector('[data-testid="transcript-quote"]')
