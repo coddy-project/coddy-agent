@@ -69,10 +69,6 @@ type configRoundTripWorld struct {
 	saved   string
 	// second is the document another browser read and holds on to.
 	second map[string]interface{}
-	// sent is the document the last save wrote, and revision what that save
-	// answered with.
-	sent     map[string]interface{}
-	revision string
 }
 
 // startSpelledGateway serves spelledConfigYAML the way coddy serve would: the home is
@@ -166,13 +162,6 @@ func (w *configRoundTripWorld) put(doc map[string]interface{}) error {
 		raw, _ := readAllString(put)
 		return fmt.Errorf("PUT /coddy/config: status %d, want 200 (%s)", put.StatusCode, raw)
 	}
-	var answer struct {
-		Revision string `json:"revision"`
-	}
-	if err := json.NewDecoder(put.Body).Decode(&answer); err != nil {
-		return err
-	}
-	w.sent, w.revision = doc, answer.Revision
 	raw, err := os.ReadFile(w.cfgPath)
 	if err != nil {
 		return err
@@ -224,29 +213,6 @@ func (w *configRoundTripWorld) secondSaves(field, value string) error {
 	return w.put(w.second)
 }
 
-// saveAgainUnderAnsweredRevision is the form saving a second time without
-// reading the config again: the document it sent last, under the revision that
-// save answered with, one value changed again.
-func (w *configRoundTripWorld) saveAgainUnderAnsweredRevision(field string, value int) error {
-	if w.sent == nil {
-		return fmt.Errorf("the form has saved nothing")
-	}
-	if w.revision == "" {
-		return fmt.Errorf("PUT /coddy/config answered without the revision it put in place")
-	}
-	section, key, ok := strings.Cut(field, ".")
-	if !ok {
-		return fmt.Errorf("field %q must be section.key", field)
-	}
-	obj, _ := w.sent[section].(map[string]interface{})
-	if obj == nil {
-		return fmt.Errorf("the document carries no %q section", section)
-	}
-	obj[key] = value
-	w.sent["revision"] = w.revision
-	return w.put(w.sent)
-}
-
 func (w *configRoundTripWorld) wantBothSaves() error {
 	return w.wantSaved(strings.NewReplacer(
 		"  max_turns: 40\n", "  max_turns: 42\n",
@@ -284,7 +250,6 @@ func TestConfigSaveRoundTripFeature(t *testing.T) {
 			sc.Step(`^the settings screen saves the config with "([^"]*)" set to (\d+)$`, w.saveWithField)
 			sc.Step(`^a second browser has read the config$`, w.secondReads)
 			sc.Step(`^the second browser saves what it read with "([^"]*)" set to "([^"]*)"$`, w.secondSaves)
-			sc.Step(`^the same form saves again under the revision its save answered with, "([^"]*)" set back to (\d+)$`, w.saveAgainUnderAnsweredRevision)
 			sc.Step(`^config\.yaml carries both saves and is otherwise what it was$`, w.wantBothSaves)
 			sc.Step(`^config\.yaml is byte for byte what it was$`, w.wantUnchanged)
 			sc.Step(`^config\.yaml is what it was with "([^"]*)" written as "([^"]*)"$`, w.wantOneLineChanged)

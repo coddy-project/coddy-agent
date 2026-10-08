@@ -61,8 +61,6 @@ export type JsonSchema = {
   /** false closes an object to its properties; a schema describes every value of a map. */
   additionalProperties?: boolean | JsonSchema;
   items?: JsonSchema;
-  /** Fields an object must carry (a provider's name and type). */
-  required?: string[];
   enum?: unknown[];
   minimum?: number;
   maximum?: number;
@@ -79,12 +77,6 @@ export type JsonSchema = {
   "x-coddy-configured"?: string;
   /** The document is a relay's settings form (config.RelayUISchemaMap). */
   "x-coddy-relay"?: boolean;
-  /**
-   * The change of this field waits for the Save button instead of saving on
-   * its own (config.UISchemaSaveKey): "confirm" holds any change, and on a
-   * list "confirm-removal" holds a row taken out of it.
-   */
-  "x-coddy-save"?: "confirm" | "confirm-removal";
 };
 
 /**

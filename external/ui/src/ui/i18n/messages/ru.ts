@@ -62,42 +62,18 @@ export const messagesRu: Record<string, string> = {
   "settings.reload.aria": "Перезагрузить конфигурацию с сервера",
   "settings.save.title": "Сохранить все разделы",
   "settings.save.aria": "Сохранить все разделы конфигурации",
-  "settings.save.pendingTitle":
-    "Сохранить: часть изменений применится только после этого",
-  "settings.save.pendingAria.one": "Сохранить, ждёт {count} изменение",
-  "settings.save.pendingAria.few": "Сохранить, ждут {count} изменения",
-  "settings.save.pendingAria.many": "Сохранить, ждут {count} изменений",
-  "settings.save.pendingAria.other": "Сохранить, ждут {count} изменения",
-  "settings.status.auto": "Изменения сохраняются автоматически",
+  "settings.save.saved": "Сохранено",
+  "settings.save.dirtyTitle":
+    "Сохранить: изменения применятся только после этого",
+  "settings.save.dirtyAria": "Сохранить несохранённые изменения",
   "settings.status.unsaved": "Есть несохранённые изменения",
-  "settings.status.saving": "Сохранение…",
-  "settings.status.saved": "Все изменения сохранены",
-  "settings.status.error": "Не сохранено",
-  "settings.status.pending.one": "{count} изменение ждёт сохранения",
-  "settings.status.pending.few": "{count} изменения ждут сохранения",
-  "settings.status.pending.many": "{count} изменений ждут сохранения",
-  "settings.status.pending.other": "{count} изменения ждут сохранения",
-  "settings.pending.title.one":
-    "Это изменение применится только после сохранения",
-  "settings.pending.title.few":
-    "Эти изменения применятся только после сохранения",
-  "settings.pending.title.many":
-    "Эти изменения применятся только после сохранения",
-  "settings.pending.title.other":
-    "Эти изменения применятся только после сохранения",
-  "settings.pending.discard": "Отменить",
-  "settings.pending.removed": "{list}: удаление {name}",
-  "settings.pending.on": "{field}: включение",
-  "settings.pending.off": "{field}: выключение",
-  "settings.pending.unnamed": "(без имени)",
-  "settings.error.otherServer":
-    "Страница переключена на другой сервер, перезагрузите её, чтобы изменить его настройки.",
   "settings.close.title": "Сохранить перед закрытием?",
-  "settings.close.pending": "Без сохранения не применится: {changes}.",
-  "settings.close.refused":
-    "Последнее сохранение отклонено, причина показана над вкладками.",
+  "settings.close.message":
+    "Изменения в форме не сохранены и применятся только после сохранения.",
   "settings.close.save": "Сохранить и закрыть",
   "settings.close.keep": "Вернуться к правке",
+  "settings.error.otherServer":
+    "Страница переключена на другой сервер, перезагрузите её, чтобы изменить его настройки.",
   "settings.error.schemaLoadFailed": "схема",
   "settings.error.configLoadFailed": "конфиг",
   "settings.error.validationFailed": "ошибка валидации",

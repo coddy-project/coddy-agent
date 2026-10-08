@@ -14,30 +14,6 @@ func UISchemaJSON() ([]byte, error) {
 	return json.Marshal(doc)
 }
 
-// UISchemaSaveKey marks a field of the settings form whose change waits for
-// the Save button. The form saves every other change on its own a moment
-// after the last edit, so a field carries the mark only when a change to it
-// should be a deliberate act: the address a server binds, a subsystem of
-// coddy serve turned on or off, a provider or a model taken out, a credential
-// that decides whether this page still gets in.
-const UISchemaSaveKey = "x-coddy-save"
-
-// The values of UISchemaSaveKey.
-const (
-	// SaveConfirm holds any change of the field - a value, an object, a whole
-	// list - until Save.
-	SaveConfirm = "confirm"
-	// SaveConfirmRemoval, on a list, holds a row taken out of it until Save;
-	// rows added or edited save on their own.
-	SaveConfirmRemoval = "confirm-removal"
-)
-
-// waitsForSave marks prop with how its change waits for Save.
-func waitsForSave(prop map[string]interface{}, how string) map[string]interface{} {
-	prop[UISchemaSaveKey] = how
-	return prop
-}
-
 func strProp(title, description string) map[string]interface{} {
 	return map[string]interface{}{
 		"type":        "string",
@@ -292,7 +268,7 @@ func UISchemaMap() map[string]interface{} {
 		"access": strProp("Access", "Per-chat access override: all, admins, or group:<name>."),
 	}
 	telegramProps := map[string]interface{}{
-		"enable": waitsForSave(boolProp("Enabled", "Run the Telegram bot (requires the gateway or gateway.telegram build tag)."), SaveConfirm),
+		"enable": boolProp("Enabled", "Run the Telegram bot (requires the gateway or gateway.telegram build tag)."),
 		"token": strProp("Bot token",
 			"BotFather token. Optional here — leave empty to read it from the TELEGRAM_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full."),
 		"rich_messages": boolProp("Rich messages",
@@ -357,7 +333,7 @@ func UISchemaMap() map[string]interface{} {
 		"access": strProp("Access", "Per-chat access override: all, admins, or group:<name>."),
 	}
 	pachcaProps := map[string]interface{}{
-		"enable": waitsForSave(boolProp("Enabled", "Run the Pachca bot (requires the gateway or gateway.pachca build tag)."), SaveConfirm),
+		"enable": boolProp("Enabled", "Run the Pachca bot (requires the gateway or gateway.pachca build tag)."),
 		"token": strProp("Bot token",
 			"The access token of a Pachca integration bot. Optional here: leave empty to read it from the PACHCA_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full."),
 		"proxy": strProp("Proxy URL",
@@ -395,19 +371,17 @@ func UISchemaMap() map[string]interface{} {
 
 	props := map[string]interface{}{
 		"providers": map[string]interface{}{
-			"type":          "array",
-			UISchemaSaveKey: SaveConfirmRemoval,
-			"title":         "LLM providers",
-			"description":   "API credentials and transport selection for upstream LLM vendors.",
+			"type":        "array",
+			"title":       "LLM providers",
+			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
 				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
-			"type":          "array",
-			UISchemaSaveKey: SaveConfirmRemoval,
-			"title":         "Logical models",
-			"description":   "Named model entries the agent and UI can select; ids reference provider prefixes.",
+			"type":        "array",
+			"title":       "Logical models",
+			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
 				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off"},
 				[]string{"model"}),
@@ -511,7 +485,7 @@ func UISchemaMap() map[string]interface{} {
 							"title":       "Enabled",
 							"description": "Offer the preview_server tool (default true). Turning background tasks off turns it off as well.",
 						},
-						"host":        waitsForSave(strProp("Bind host", "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory."), SaveConfirm),
+						"host":        strProp("Bind host", "Address the server binds, without a port (default 127.0.0.1). Anything that is not loopback exposes the served directory."),
 						"public_host": strProp("Public host", "Host written into the URL the agent hands out, when the browser is on another machine. Empty uses the bind host."),
 					},
 					[]string{"enable", "host", "public_host"},
@@ -669,7 +643,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"scheduler": objectSchema("Scheduler", "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.",
 			map[string]interface{}{
-				"enable":          waitsForSave(boolProp("Enabled", "When true, this process may run the scheduler daemon and REST."), SaveConfirm),
+				"enable":          boolProp("Enabled", "When true, this process may run the scheduler daemon and REST."),
 				"max_queue":       intProp("Max queue", "Runs in flight across all jobs at once; a due slot past the cap is skipped, a manual run refused."),
 				"timeout":         strProp("Run timeout", "Wall-clock limit of one run, e.g. 30m or 1h30m (the task pool caps it at tools.background.max_timeout_seconds)."),
 				"retain_sessions": intProp("Retain runs", "Finished runs kept per job (task records and transcripts); older ones are removed when a run finishes."),

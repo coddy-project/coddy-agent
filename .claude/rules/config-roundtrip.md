@@ -15,4 +15,3 @@ paths:
 - Restore write-only secrets from live state. Redaction placeholders must never overwrite stored values.
 - Map fields use a three-way key merge for concurrent additions and removals.
 - A successful save updates the SPA cache immediately. Stale reads cannot replace it; untouched forms may adopt refreshed copies, while edited forms wait for Reload.
-- A successful PUT answers with the revision of the configuration as its client sent it (not the live one, which may carry process overrides). The form sends its next save under that revision, so a value put back after a save is written back.

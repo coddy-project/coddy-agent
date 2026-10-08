@@ -19,12 +19,6 @@ Feature: A settings save rewrites only what the operator changed
   config before another one saved leaves the other save alone in every value it did not
   touch itself.
 
-  A save answers with the revision of the configuration it put in place. The settings
-  screen saves on its own a moment after the last edit, so one open form saves many
-  times, and an edit typed while a save is on its way is sent by the next one: that
-  save is measured against what the form's own last save wrote, and a value put back
-  as it was before is written back.
-
   Scenario: A save without changes leaves config.yaml as it was
     Given a coddy server whose config.yaml spells its paths with ${CODDY_HOME}, ${CWD}, ~ and ${VAR}
     When the settings screen saves the config without changing anything
@@ -41,9 +35,3 @@ Feature: A settings save rewrites only what the operator changed
     When the settings screen saves the config with "agent.max_turns" set to 42
     And the second browser saves what it read with "agent.model" set to "spare/tiny"
     Then config.yaml carries both saves and is otherwise what it was
-
-  Scenario: The next save of the same form is measured against what its last save wrote
-    Given a coddy server whose config.yaml spells its paths with ${CODDY_HOME}, ${CWD}, ~ and ${VAR}
-    When the settings screen saves the config with "agent.max_turns" set to 42
-    And the same form saves again under the revision its save answered with, "agent.max_turns" set back to 40
-    Then config.yaml is byte for byte what it was

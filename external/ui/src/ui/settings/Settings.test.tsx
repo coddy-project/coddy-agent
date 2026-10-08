@@ -232,7 +232,7 @@ test("on the narrow shell Escape takes a section, even one still loading, back t
 // background. An open form takes the new copy while it holds no edits of its
 // own; with unsaved edits it keeps them, and the next open starts from the new
 // copy.
-test("a configuration reload reaches the kept copy and an untouched open form, never unsaved edits, and closing saves them", async () => {
+test("a configuration reload reaches the kept copy and an untouched open form, never unsaved edits", async () => {
   stubServer();
   const view = render(<Settings onClose={() => {}} initialSection="agent" />);
   const input = (await screen.findByLabelText("Max turns")) as HTMLInputElement;
@@ -250,22 +250,16 @@ test("a configuration reload reaches the kept copy and an untouched open form, n
   });
   expect(input.value).toBe("45");
 
-  // The drawer going away sends the edit that waited for the pause, and the
-  // next open shows it rather than the copy it was typed over.
   view.unmount();
-  await waitFor(() =>
-    expect((server.config.agent as { max_turns: number }).max_turns).toBe(45),
-  );
   render(<Settings onClose={() => {}} initialSection="agent" />);
   expect((screen.getByLabelText("Max turns") as HTMLInputElement).value).toBe(
-    "45",
+    "70",
   );
 });
 
-// The Save button says it worked: green for a couple of seconds. The quiet
-// status line beside it says all is saved; the success line that used to
-// stand above the tabs for as long as the drawer did is gone.
-test("a save lights the Save button green for two seconds and adds no line above the tabs", async () => {
+// A save says it worked on the Save button alone: green for a couple of seconds,
+// no line of text. The line used to stay on screen for as long as the drawer did.
+test("a save lights the Save button green for two seconds and writes no text", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   stubServer();
   const { container } = render(
@@ -280,9 +274,6 @@ test("a save lights the Save button green for two seconds and adds no line above
   await waitFor(() => expect(save.className).toContain("is-saved"));
   expect(container.querySelector(".settings-lead-pane")).toBeNull();
   expect(container.querySelector(".settings-ok")).toBeNull();
-  expect(screen.getByTestId("settings-save-status").textContent).toBe(
-    "All changes saved",
-  );
 
   await act(async () => {
     await vi.advanceTimersByTimeAsync(2100);
@@ -653,7 +644,7 @@ test("an open row form keeps its row when a reload reorders the list", async () 
 // A newer copy the untouched form takes while a save runs is no edit of the
 // operator's: the save still turns the button green, and the form keeps
 // following the server's config afterwards.
-test("a copy that lands while a save runs waits for it and does not keep the button from turning green", async () => {
+test("a copy taken while a save runs does not keep the button from turning green", async () => {
   const fetch = stubServer();
   render(<Settings onClose={() => {}} initialSection="agent" />);
   const input = (await screen.findByLabelText("Max turns")) as HTMLInputElement;
@@ -673,14 +664,9 @@ test("a copy that lands while a save runs waits for it and does not keep the but
   await act(async () => {
     fireEvent.click(save);
   });
-  // A copy that lands while the save is on its way waits for it: the save
-  // may still answer for a value the form is about to hold.
   server.config = { ...server.config, agent: { max_turns: 41 } };
   act(() => noteSettingsConfigReloaded());
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 20));
-  });
-  expect(input.value).toBe("40");
+  await waitFor(() => expect(input.value).toBe("41"));
   await act(async () => {
     release();
     await held;

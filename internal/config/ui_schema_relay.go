@@ -93,15 +93,15 @@ func swarmUISchema() map[string]interface{} {
 	return objectSchema("Swarm relay", "This relay's deployment: its name and address, the tokens of its clients and nodes, CORS for pages served elsewhere, the nodes it dials itself and the relays it joins. A save rebuilds the relay; a new address takes a restart.",
 		map[string]interface{}{
 			"name": strProp("Name", "The relay's name on the map and in /swarm/info; empty takes the host name it runs on."),
-			"host": waitsForSave(strProp("Listen host", "Address to bind. 0.0.0.0 listens on every interface. Takes effect on a restart."), SaveConfirm),
-			"port": waitsForSave(intProp("Listen port", "Port to bind. Takes effect on a restart."), SaveConfirm),
-			"auth_token": waitsForSave(secretProp("Client token", "Bearer token a client presents to use this relay, and every node behind it. Write-only: leave it empty to keep the one set. A new one signs out every client, this page included: enter it again with Connect to… in the environment menu.",
-				"auth_configured"), SaveConfirm),
+			"host": strProp("Listen host", "Address to bind. 0.0.0.0 listens on every interface. Takes effect on a restart."),
+			"port": intProp("Listen port", "Port to bind. Takes effect on a restart."),
+			"auth_token": secretProp("Client token", "Bearer token a client presents to use this relay, and every node behind it. Write-only: leave it empty to keep the one set. A new one signs out every client, this page included: enter it again with Connect to… in the environment menu.",
+				"auth_configured"),
 			"pairing_tokens": func() map[string]interface{} {
 				out := stringListProp("Pairing tokens", "Tokens a node presents to join this relay. Write-only: the list is served empty, and a list sent back empty keeps the tokens set; tokens entered here replace them all.")
 				out["writeOnly"] = true
 				out["x-coddy-configured"] = "pairing_configured"
-				return waitsForSave(out, SaveConfirm)
+				return out
 			}(),
 			"cors": objectSchema("CORS", "Pages served from another origin, such as a laptop's coddy serve, that may call this relay from the browser.",
 				map[string]interface{}{
@@ -111,31 +111,29 @@ func swarmUISchema() map[string]interface{} {
 				},
 				[]string{"enable", "allow_loopback", "allowed_origins"},
 				nil),
-			"tls": waitsForSave(objectSchema("TLS", "Certificate and key the relay serves HTTPS with. Both or neither.",
+			"tls": objectSchema("TLS", "Certificate and key the relay serves HTTPS with. Both or neither.",
 				map[string]interface{}{
 					"cert_file": strProp("Certificate file", "PEM certificate chain."),
 					"key_file":  strProp("Key file", "PEM private key."),
 				},
 				[]string{"cert_file", "key_file"},
-				nil), SaveConfirm),
+				nil),
 			"lease_ttl_seconds":          intProp("Lease TTL (seconds)", "How long a registration lasts without a refresh; nodes refresh at a third of it."),
 			"fanout_timeout_seconds":     intProp("Fan-out timeout (seconds)", "How long the aggregated session list and the topology wait for a node."),
 			"allow_private_upstreams":    stringListProp("Private upstream hosts", "Host names allowed to resolve into private ranges when a node advertises a URL."),
 			"allow_insecure":             boolProp("Allow without a client token", "Let a relay bound off loopback run without a client token. For a lab only."),
 			"insecure_open_registration": boolProp("Open registration", "Let any node join without a pairing token. For a lab only."),
 			"upstreams": map[string]interface{}{
-				"type":          "array",
-				UISchemaSaveKey: SaveConfirm,
-				"title":         "Upstreams",
-				"description":   "Nodes this relay dials itself, pinned on the map whether or not they check in.",
-				"items":         objectSchema("", "", upstreamProps, []string{"name", "url", "kind", "token", "dial"}, nil),
+				"type":        "array",
+				"title":       "Upstreams",
+				"description": "Nodes this relay dials itself, pinned on the map whether or not they check in.",
+				"items":       objectSchema("", "", upstreamProps, []string{"name", "url", "kind", "token", "dial"}, nil),
 			},
 			"join": map[string]interface{}{
-				"type":          "array",
-				UISchemaSaveKey: SaveConfirm,
-				"title":         "Joins",
-				"description":   "Parent relays this relay registers into, which is how relays chain.",
-				"items":         objectSchema("", "", joinProps, []string{"url", "name", "pairing_token", "advertise_url", "token", "dial"}, nil),
+				"type":        "array",
+				"title":       "Joins",
+				"description": "Parent relays this relay registers into, which is how relays chain.",
+				"items":       objectSchema("", "", joinProps, []string{"url", "name", "pairing_token", "advertise_url", "token", "dial"}, nil),
 			},
 		},
 		[]string{
