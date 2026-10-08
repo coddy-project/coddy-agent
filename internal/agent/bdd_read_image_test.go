@@ -121,7 +121,7 @@ func (s *readImageFeatureState) agent() *Agent {
 	}
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
-		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 128000, Multimodal: s.multimodal}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 128000, Multimodal: config.BoolPtr(s.multimodal)}},
 		Agent:     config.Agent{Model: "fake/model"},
 		Tools:     config.Tools{PermissionMode: config.PermModeBypass},
 	}

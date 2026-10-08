@@ -613,7 +613,9 @@ func TestManagerPersistMessagesAndReload(t *testing.T) {
 		return string(acp.StopReasonEndTurn), nil
 	}
 
-	m2 := session.NewManager(cfg, noopSender{}, peekRunner, slog.Default(), "/tmp", store)
+	// A restarted process loads its own configuration: the manager built last on
+	// a config object owns the listing lineage of it (internal/config/listing.go).
+	m2 := session.NewManager(testConfig(), noopSender{}, peekRunner, slog.Default(), "/tmp", store)
 	if _, err := m2.HandleSessionLoad(ctx, acp.SessionLoadParams{
 		SessionID:  id,
 		CWD:        "/tmp",
@@ -1142,7 +1144,7 @@ func TestSessionLoadReplaysMentionsNotAttachmentBodies(t *testing.T) {
 		t.Fatal(err)
 	}
 	snd := &captureSender{}
-	m2 := session.NewManager(cfg, snd, noopRunner, slog.Default(), root, store)
+	m2 := session.NewManager(testConfig(), snd, noopRunner, slog.Default(), root, store)
 	if _, err := m2.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: res.SessionID, CWD: root}); err != nil {
 		t.Fatal(err)
 	}
@@ -1249,7 +1251,7 @@ func settingsTestConfig() *config.Config {
 	cfg := testConfig()
 	cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: "nd", Type: "neuraldeep", APIKey: "k"})
 	cfg.Models = append(cfg.Models,
-		config.ModelEntry{Model: "nd/qwen3.8-27b", AllowReasoningOff: true},
+		config.ModelEntry{Model: "nd/qwen3.8-27b", AllowReasoningOff: config.BoolPtr(true)},
 		config.ModelEntry{Model: "nd/qwen3.8-27b-disabled"},
 		config.ModelEntry{Model: "p1/gpt-5", ReasoningDefault: "medium"},
 	)
@@ -1652,7 +1654,7 @@ func TestPermissionModeOverrideOutlivesTheProcess(t *testing.T) {
 	if meta.SessionPermissionMode != "bypass" {
 		t.Fatalf("session.json permission mode = %q, want bypass", meta.SessionPermissionMode)
 	}
-	fresh := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	fresh := session.NewManager(settingsTestConfig(), noopSender{}, noopRunner, slog.Default(), "", store)
 	if _, err := fresh.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: res.SessionID}); err != nil {
 		t.Fatal(err)
 	}

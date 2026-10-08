@@ -52,6 +52,10 @@ func LoadWithPaths(paths Paths) (*Config, error) {
 }
 
 func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
+	// Every configuration of one lineage shares the listing cell of its Paths;
+	// a Paths that has none gets one here, so the loader never hands out a
+	// configuration a source cannot be attached to (listing.go).
+	paths = paths.WithListing()
 	data, err := os.ReadFile(paths.ConfigPath)
 	if err != nil {
 		if explicitFile {

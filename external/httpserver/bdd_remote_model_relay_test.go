@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -54,7 +53,7 @@ type relayData struct {
 
 // relayWithNode builds the relay and the node behind it, and waits until the
 // relay can carry a request to the node.
-func relayWithNode(s *remoteModelState, rd *relayData, clients string, tunnel bool, joined, selector, alias, behaviour string) error {
+func relayWithNode(s *remoteModelState, rd *relayData, clients string, tunnel bool, joined, selector, alias, subject, behaviour string) error {
 	tokens, ok := relayClauses.tokens[clients]
 	if !ok {
 		return fmt.Errorf("unknown relay clients %q", clients)
@@ -71,7 +70,7 @@ func relayWithNode(s *remoteModelState, rd *relayData, clients string, tunnel bo
 	default:
 		return fmt.Errorf("unknown node credential %q", joined)
 	}
-	if err := parseRemoteTail(&s.spec, "whose model "+behaviour); err != nil {
+	if err := parseRemoteTail(&s.spec, "whose "+subject+" "+behaviour); err != nil {
 		return err
 	}
 	node, err := newRemoteStand(s.spec, s.remoteMuts, !tunnel)
@@ -91,7 +90,7 @@ func relayWithNode(s *remoteModelState, rd *relayData, clients string, tunnel bo
 	if len(tokens) > 1 {
 		relaySrv.SetExtraAuthTokens(tokens[1:])
 	}
-	relay := httptest.NewServer(relaySrv.Handler())
+	relay := newConnContextServer(relaySrv.Handler())
 	s.cleanups = append(s.cleanups, relay.Close)
 	rd.url, rd.tokens, rd.nodeName = relay.URL, tokens, relayTestNodeName
 	rd.mountURL = relay.URL + swarmdto.MountPath + relayTestNodeName
@@ -214,9 +213,9 @@ func registerRelaySteps(sc *godog.ScenarioContext, s *remoteModelState) {
 		*rd = relayData{}
 		return ctx, nil
 	})
-	sc.Step(`^a swarm relay with (a client token|two client tokens) mounting a remote coddy node( over its tunnel)? that (requires its own token|joined with a shared-model token) and shares "([^"]*)" as "([^"]*)" whose model (.+)$`,
-		func(clients, tunnel, joined, selector, alias, behaviour string) error {
-			return relayWithNode(s, rd, clients, tunnel != "", joined, selector, alias, behaviour)
+	sc.Step(`^a swarm relay with (a client token|two client tokens) mounting a remote coddy node( over its tunnel)? that (requires its own token|joined with a shared-model token) and shares "([^"]*)" as "([^"]*)" whose (model|provider) (.+)$`,
+		func(clients, tunnel, joined, selector, alias, subject, behaviour string) error {
+			return relayWithNode(s, rd, clients, tunnel != "", joined, selector, alias, subject, behaviour)
 		})
 	sc.Step(`^a local coddy with a provider "([^"]*)" of type coddy pointing at the relay mount of that node with the relay's client token$`,
 		func(string) error { return rd.localPointsAtMount(s) })

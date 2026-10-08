@@ -2592,7 +2592,11 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	}
 	in := a.childProviderInput(a.turnProviderInput(rm))
 	reasoning := a.state.EffectiveReasoning(a.cfg)
-	in.ReasoningEffort = reasoning
+	if rm.ProviderType == coddyProviderType {
+		a.coddyRequestView(&in, rm, reasoning)
+	} else {
+		in.ReasoningEffort = reasoning
+	}
 	provider, err := mk(in)
 	if err != nil {
 		return llmTransport{}, err
@@ -2733,7 +2737,11 @@ func (a *Agent) withChildFallbacks(primary llm.Provider, modelID string, mk func
 			continue
 		}
 		in := a.childProviderInput(a.turnProviderInput(rm))
-		in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
+		if effort := a.state.EffectiveReasoning(a.cfg); rm.ProviderType == coddyProviderType {
+			a.coddyRequestView(&in, rm, effort)
+		} else {
+			in.ReasoningEffort = effort
+		}
 		provider, err := mk(in)
 		if err != nil {
 			a.log.Warn("fallback model unavailable; skipped", "model", ref, "error", err)

@@ -124,13 +124,14 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 // model of the row against it. The alias is the only name the remote knows: an
 // alias it does not list is refused with a 404 at the first request, so
 // unlike the id of another server's list, which may still be served, it is an
-// error, not a warning.
+// error, not a warning. An alias it does list is also compared key by key with
+// what the model's row writes (coddyKeyFindings).
 func (r *runner) coddyModels(prov *config.ProviderConfig, base string, listed []llm.ModelEntry, models []int) []Check {
 	path := "providers[" + prov.Name + "]"
-	ids := make(map[string]bool, len(listed))
+	records := make(map[string]llm.ModelEntry, len(listed))
 	names := make([]string, 0, len(listed))
 	for _, m := range listed {
-		ids[m.ID] = true
+		records[m.ID] = m
 		names = append(names, m.ID)
 	}
 	var out []Check
@@ -144,8 +145,9 @@ func (r *runner) coddyModels(prov *config.ProviderConfig, base string, listed []
 		m := r.req.Cfg.Models[mi]
 		mpath := "models[" + m.Model + "]"
 		_, alias, _ := strings.Cut(strings.TrimSpace(m.Model), "/")
-		if ids[alias] {
+		if record, ok := records[alias]; ok {
 			out = append(out, r.check(StatusOK, mpath, mpath, "shared by provider "+prov.Name, ""))
+			out = append(out, r.coddyKeyChecks(mpath, m, record)...)
 			continue
 		}
 		fix := "the remote shares no models yet; set shared_as on a models[] row of the remote"
@@ -154,6 +156,22 @@ func (r *runner) coddyModels(prov *config.ProviderConfig, base string, listed []
 		}
 		out = append(out, r.check(StatusError, mpath, mpath,
 			fmt.Sprintf("the remote does not share an alias %q: it answers a request for it with a 404", alias), fix))
+	}
+	return out
+}
+
+// coddyKeyChecks turns the findings of coddyKeyFindings into warnings, each
+// located at the key it names in the file (the model's entry when the key is
+// not written as such), so the line points at what to delete.
+func (r *runner) coddyKeyChecks(mpath string, m config.ModelEntry, record llm.ModelEntry) []Check {
+	var out []Check
+	for _, f := range coddyKeyFindings(m, record) {
+		path := mpath + "." + f.key
+		locPath := path
+		if !r.explicit(path) {
+			locPath = mpath
+		}
+		out = append(out, r.check(StatusWarning, path, locPath, f.message, f.fix))
 	}
 	return out
 }

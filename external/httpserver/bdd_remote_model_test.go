@@ -28,6 +28,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // remoteModelRedPNG is a one-pixel PNG, the picture of the image scenario.
@@ -93,6 +94,8 @@ type remoteModelState struct {
 	clientToken string
 	http        httpResult
 	listing     httpResult
+	// localUsage is the local coddy's answer to the read of a usage.
+	localUsage httpResult
 
 	last     *streamOutcome
 	prev     *streamOutcome
@@ -267,6 +270,14 @@ var remoteClauses = []remoteClause{
 	}),
 	clause(`^(?:and\s+)?whose model holds every stream open until released`, func(sp *remoteSpec, _ []string) error {
 		sp.script.holdFirst = -1
+		return nil
+	}),
+	clause(`^(?:and\s+)?that allows reasoning off`, func(sp *remoteSpec, _ []string) error {
+		sp.allowOff = true
+		return nil
+	}),
+	clause(`^(?:and\s+)?whose provider reports (\d+) percent of its quota used`, func(sp *remoteSpec, m []string) error {
+		sp.usagePercent = atoi(m[1])
 		return nil
 	}),
 }
@@ -641,16 +652,25 @@ func (s *remoteModelState) streamsAtLevel(model, level string) error {
 	if err := s.ensureLocal(); err != nil {
 		return err
 	}
-	// The level is one the local row offers, as the session would check it.
+	// The level is one the local row offers, as the session would check it: its
+	// own keys when it writes them, else the listing the local coddy has read.
+	// The check goes through the resolver only, so a row whose levels the local
+	// coddy cannot tell offers no level at all.
+	ctx, cancel := stepCtx()
+	defer cancel()
+	s.local.mgr.AwaitContextWindows(ctx, s.local.mgr.Cfg(), []string{model}, session.ContextWindowWait)
 	cfg := s.local.mgr.Cfg()
-	if ent := cfg.FindModelEntry(model); ent != nil && len(cfg.ReasoningLevelsFor(ent)) > 0 {
-		offered := false
-		for _, lv := range cfg.ReasoningChoicesFor(ent) {
-			offered = offered || lv == level
-		}
-		if !offered {
-			return fmt.Errorf("the local row %q does not offer the reasoning level %q", model, level)
-		}
+	ent := cfg.FindModelEntry(model)
+	if ent == nil {
+		return fmt.Errorf("the local coddy has no row %q", model)
+	}
+	choices := cfg.ReasoningChoicesFor(ent)
+	offered := false
+	for _, lv := range choices {
+		offered = offered || lv == level
+	}
+	if !offered {
+		return fmt.Errorf("the local row %q offers the reasoning levels %q, not %q", model, choices, level)
 	}
 	return s.streamMessage(model, "Hi", level)
 }
@@ -1092,7 +1112,7 @@ func (s *remoteModelState) remoteReceivedImage() error {
 			return fmt.Errorf("the user message is %+v, want the text and one image after it", m)
 		}
 		ip := m.ImageParts[0]
-		_, payload, ok := strings.Cut(ip.DataURL, ";base64,")
+		header, payload, ok := strings.Cut(ip.DataURL, ";base64,")
 		if !ok {
 			return fmt.Errorf("the image is not a data URL: %.40s", ip.DataURL)
 		}
@@ -1100,8 +1120,15 @@ func (s *remoteModelState) remoteReceivedImage() error {
 		if err != nil || !bytes.Equal(got, s.image) {
 			return fmt.Errorf("the image bytes differ (%d bytes, want %d): %v", len(got), len(s.image), err)
 		}
-		if ip.MIMEType != "image/png" {
-			return fmt.Errorf("the MIME type is %q, want image/png", ip.MIMEType)
+		// The MIME type is the part's own field when the sender set it (the
+		// provider call of the local coddy does) and the data URL's media type
+		// when it did not (the HTTP intake builds a part from the URL alone).
+		mime := ip.MIMEType
+		if mime == "" {
+			mime = strings.TrimPrefix(header, "data:")
+		}
+		if mime != "image/png" {
+			return fmt.Errorf("the MIME type is %q, want image/png", mime)
 		}
 		return nil
 	}
@@ -1388,10 +1415,12 @@ func registerRemoteModelSteps(sc *godog.ScenarioContext, s *remoteModelState) {
 	sc.Step(`^one of the 5 streams ends$`, s.oneOfFiveEnds)
 	sc.Step(`^the sixth stream is served$`, s.sixthServed)
 	sc.Step(`^the provider was called once for the local coddy's request$`, s.providerCalledOnceForLocal)
+
+	registerRemoteModelPhase2Steps(sc, s)
 }
 
-// runRemoteModelSuite runs one feature file with every scenario that is not
-// tagged @phase2; extra registers the steps only that file has.
+// runRemoteModelSuite runs every scenario of one feature file; extra registers
+// the steps only that file has.
 func runRemoteModelSuite(t *testing.T, name, feature string, extra func(*godog.ScenarioContext, *remoteModelState)) {
 	t.Helper()
 	state := &remoteModelState{}
@@ -1414,7 +1443,6 @@ func runRemoteModelSuite(t *testing.T, name, feature string, extra func(*godog.S
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{feature},
-			Tags:     "~@phase2",
 			Strict:   true,
 			TestingT: t,
 		},

@@ -24,6 +24,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -269,7 +270,12 @@ func newSharedFixture(t *testing.T, opts ...sharedFixtureOption) *sharedFixture 
 		fx.recordBuild(sel, o)
 		return fx.stub, nil
 	}
-	fx.ts = httptest.NewServer(fx.srv.Handler())
+	// Built the way production builds its listener (httpx.NewServer sets the
+	// same hook), so a call reaches the socket under its request and the per-call
+	// user timeout of the liveness bound is exercised by every test of the routes.
+	fx.ts = httptest.NewUnstartedServer(fx.srv.Handler())
+	fx.ts.Config.ConnContext = httpx.ConnContext
+	fx.ts.Start()
 	t.Cleanup(fx.ts.Close)
 	return fx
 }

@@ -55,14 +55,20 @@ func (s *Server) coddyConfigReasoningLevelsGet(w http.ResponseWriter, r *http.Re
 	}
 
 	// A nil ReasoningLevels makes the resolver report pure detection, under the
-	// same provider-aware remap the composer and GET /v1/models use.
+	// same provider-aware remap the composer and GET /v1/models use. The
+	// provider's type is the form's hint or, without one, the saved provider's:
+	// for the type coddy that answer is none, because a model there has an alias
+	// for an id and the remote's listing decides its levels. Reading the
+	// configuration's own resolver would hand back the listing, and the form's
+	// Fetch would write it into the row, pinning it against the remote.
 	entry := &config.ModelEntry{Model: model}
-	var levels []string
-	if providerType := strings.TrimSpace(r.URL.Query().Get("provider_type")); providerType != "" {
-		levels = config.ReasoningLevelsForProviderType(entry, providerType)
-	} else {
-		levels = c.ReasoningLevelsFor(entry)
+	providerType := strings.TrimSpace(r.URL.Query().Get("provider_type"))
+	if providerType == "" {
+		if prov := c.FindProvider(entry.ProviderName()); prov != nil {
+			providerType = prov.Type
+		}
 	}
+	levels := config.ReasoningLevelsForProviderType(entry, providerType)
 	if levels == nil {
 		levels = []string{}
 	}

@@ -35,6 +35,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -301,10 +302,15 @@ type remoteSpec struct {
 	levels          *[]string
 	multimodal      bool
 	privates        []string
-	auth            remoteAuth
-	mainToken       string
-	sharedToken     string
-	script          remoteScript
+	// allowOff makes the shared row offer the level "off".
+	allowOff bool
+	// usagePercent, when positive, makes the remote's provider report that
+	// share of its quota used (a NeuralDeep row read from usageStandHub).
+	usagePercent int
+	auth         remoteAuth
+	mainToken    string
+	sharedToken  string
+	script       remoteScript
 }
 
 func newRemoteSpec(selector, alias string) remoteSpec {
@@ -327,6 +333,9 @@ type remoteStand struct {
 	stub    *sharedStub
 	gate    *holdGate
 	capt    *remoteCapture
+	// hub is the stand-in of the remote's provider account, when the spec has
+	// a usage percentage.
+	hub *usageStandHub
 
 	runnerCalls atomic.Int32
 
@@ -362,8 +371,19 @@ func newRemoteStand(spec remoteSpec, muts []func(*config.Config), listen bool) (
 		Providers: []config.ProviderConfig{{Name: provName, Type: "openai", APIBase: sharedTestUpstreamAB, APIKey: "upstream-secret-key"}},
 		Models: []config.ModelEntry{{
 			Model: spec.selector, MaxTokens: 4096, MaxContextTokens: spec.contextTokens,
-			ReasoningLevels: levels, ReasoningDefault: "low", Multimodal: spec.multimodal, SharedAs: spec.alias,
+			ReasoningLevels: levels, ReasoningDefault: "low", Multimodal: config.BoolPtr(spec.multimodal), SharedAs: spec.alias,
 		}},
+	}
+	if spec.allowOff {
+		cfg.Models[0].AllowReasoningOff = config.BoolPtr(true)
+	}
+	var hub *usageStandHub
+	if spec.usagePercent > 0 {
+		// The remote's provider becomes a NeuralDeep row with an explicit key (it
+		// needs no shared-subscription acknowledgement), read from a stand-in hub;
+		// the stub still answers every completion, the row is there for its usage.
+		hub = newUsageStandHub(spec.usagePercent)
+		cfg.Providers[0] = config.ProviderConfig{Name: provName, Type: "neuraldeep", APIKey: usageStandKey}
 	}
 	for _, p := range spec.privates {
 		cfg.Models = append(cfg.Models, config.ModelEntry{Model: p, MaxTokens: 1024, MaxContextTokens: 1000})
@@ -382,7 +402,7 @@ func newRemoteStand(spec remoteSpec, muts []func(*config.Config), listen bool) (
 		m(cfg)
 	}
 
-	r := &remoteStand{spec: spec, home: home, cfg: cfg, gate: &holdGate{}, script: spec.script}
+	r := &remoteStand{spec: spec, home: home, cfg: cfg, gate: &holdGate{}, script: spec.script, hub: hub}
 	r.stub = &sharedStub{run: r.runScript}
 	r.capt = &remoteCapture{providerCalls: r.stub.callCount}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
@@ -401,9 +421,19 @@ func newRemoteStand(spec remoteSpec, muts []func(*config.Config), listen bool) (
 	}
 	r.handler = r.capt.wrap(r.srv.Handler())
 	if listen {
-		r.ts = httptest.NewServer(r.handler)
+		r.ts = newConnContextServer(r.handler)
 	}
 	return r, nil
+}
+
+// newConnContextServer starts an httptest server whose connections reach the
+// handlers the way httpx.NewServer's do: without httpx.ConnContext the per-call
+// liveness option of a shared call is silently not set.
+func newConnContextServer(h http.Handler) *httptest.Server {
+	ts := httptest.NewUnstartedServer(h)
+	ts.Config.ConnContext = httpx.ConnContext
+	ts.Start()
+	return ts
 }
 
 func (r *remoteStand) url() string {
@@ -419,6 +449,9 @@ func (r *remoteStand) close() {
 		r.ts.Close()
 	}
 	r.srv.Drain()
+	if r.hub != nil {
+		r.hub.close()
+	}
 	_ = os.RemoveAll(r.home)
 }
 
@@ -721,6 +754,9 @@ type localStand struct {
 	srv             *Server
 	ts              *httptest.Server
 	weather         *weatherMCP
+	// configBytes is the configuration file the stand wrote before it started, so
+	// a step can tell whether anything wrote it since.
+	configBytes []byte
 }
 
 // newLocalStand builds the local Coddy over cfg. Its home and workspace are
@@ -740,6 +776,17 @@ func newLocalStand(cfg *config.Config, tool *weatherMCP) (*localStand, error) {
 		return nil, err
 	}
 	cfg.Paths = config.Paths{Home: l.home, CWD: l.cwd, ConfigPath: filepath.Join(l.home, "config.yaml")}
+	// The file of the operator's configuration, as a saved config.yaml would be:
+	// the stand keeps its bytes, and nothing that reads the remote's listing may
+	// write a key into it.
+	raw, err := config.MarshalConfigYAML(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(cfg.Paths.ConfigPath, raw, 0o600); err != nil {
+		return nil, err
+	}
+	l.configBytes = raw
 	if tool != nil {
 		if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(l.home), "weather", config.MCPJSONServer{Type: "http", URL: tool.srv.URL}); err != nil {
 			return nil, err
@@ -753,7 +800,7 @@ func newLocalStand(cfg *config.Config, tool *weatherMCP) (*localStand, error) {
 	mgr = session.NewManager(cfg, noopSender{}, runner, log, l.cwd, &session.FileStore{Root: filepath.Join(root, "sessions")})
 	l.mgr = mgr
 	l.srv = New(cfg, mgr, log, l.cwd)
-	l.ts = httptest.NewServer(l.srv.Handler())
+	l.ts = newConnContextServer(l.srv.Handler())
 	return l, nil
 }
 
@@ -778,9 +825,12 @@ func (l *localStand) reload(mut func(*config.Config)) {
 
 // provider builds the provider of a model row the way a turn of the agent
 // does (internal/agent/coddy_provider.go): the row's wait budget, the revision
-// of the listing record the manager's cache holds as the expected one, and the
-// refresh that reads the listing again after a stale answer. The listing is
-// read first, as a turn's admission reads it.
+// and the level of ONE record of the manager's listing cache (coddyRequestView:
+// a row that writes neither reasoning_levels nor allow_reasoning_off inherits
+// them, so a level the record no longer offers falls back to its default; a row
+// that writes either sends the level as it is), and the refresh that reads the
+// listing again after a stale answer. The listing is read first, as a turn's
+// admission reads it.
 func (l *localStand) provider(ctx context.Context, model, effort string) (llm.Provider, error) {
 	cfg := l.mgr.Cfg()
 	l.mgr.AwaitContextWindows(ctx, cfg, []string{model}, session.ContextWindowWait)
@@ -805,6 +855,9 @@ func (l *localStand) provider(ctx context.Context, model, effort string) (llm.Pr
 	}
 	if e, ok := l.mgr.ProviderModelEntry(cfg, rm.ProviderName, rm.Model); ok {
 		in.ExpectedRevision = e.Revision
+		if ent := cfg.FindModelEntry(model); ent != nil && ent.ReasoningLevels == nil && ent.AllowReasoningOff == nil {
+			in.ReasoningEffort = llm.FallbackReasoningEffort(effort, &e)
+		}
 	}
 	in.RefreshCapabilities = func(ctx context.Context) (*llm.ModelEntry, error) {
 		stale := ""

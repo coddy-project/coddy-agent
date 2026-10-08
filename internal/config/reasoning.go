@@ -63,6 +63,11 @@ func (m *ModelEntry) DefaultReasoningLevel() string {
 // the provider that serves it. Level detection is model-id based, which is right
 // for OpenAI and Anthropic but wrong for Codex: it serves gpt-5* ids yet accepts
 // only none/low/medium/high/xhigh, so "minimal" becomes "none" there.
+//
+// A model of a provider of type coddy has no id to detect from (its id is the
+// remote's alias): its levels are the row's own reasoning_levels when that key
+// is written, else the ones the remote's listing reports, else none (see
+// resolveCoddy).
 func (c *Config) ReasoningLevelsFor(ent *ModelEntry) []string {
 	if ent == nil {
 		return nil
@@ -73,6 +78,9 @@ func (c *Config) ReasoningLevelsFor(ent *ModelEntry) []string {
 			providerType = prov.Type
 		}
 	}
+	if isCoddyProviderType(providerType) {
+		return c.resolveCoddy(ent).levels
+	}
 	return ReasoningLevelsForProviderType(ent, providerType)
 }
 
@@ -80,10 +88,19 @@ func (c *Config) ReasoningLevelsFor(ent *ModelEntry) []string {
 // supplied by the caller instead of looked up in the saved config. The settings
 // form needs that while a provider row is still being edited: the type the
 // operator has picked, not the one on disk, decides whether the Codex remap
-// applies. An empty or non-codex type leaves the detected list untouched.
+// applies. An empty or non-codex type leaves the detected list untouched. For
+// the type coddy the answer is the row's explicit list or none, never a
+// detection: the form's Fetch must not write a guess made from an alias into the
+// row, where it would pin the levels against the remote's listing.
 func ReasoningLevelsForProviderType(ent *ModelEntry, providerType string) []string {
 	if ent == nil {
 		return nil
+	}
+	if isCoddyProviderType(providerType) {
+		if ent.ReasoningLevels == nil {
+			return nil
+		}
+		return ent.ResolvedReasoningLevels()
 	}
 	levels := ent.ResolvedReasoningLevels()
 	if len(levels) == 0 || providerType != "codex" {
@@ -95,9 +112,17 @@ func ReasoningLevelsForProviderType(ent *ModelEntry, providerType string) []stri
 // ReasoningOffOffered reports whether the operator enabled the off pseudo-level
 // for this model entry. The setting attests that this deployment honours its
 // provider-specific request; Coddy does not infer that capability from a model
-// name or provider type. A model with no reasoning levels has nothing to switch.
+// name or provider type. An absent key reads as false. A model with no reasoning
+// levels has nothing to switch. For a model of a provider of type coddy an absent
+// key is answered by the remote's listing and a written one wins (resolveCoddy).
 func (c *Config) ReasoningOffOffered(ent *ModelEntry) bool {
-	if ent == nil || !ent.AllowReasoningOff {
+	if ent == nil {
+		return false
+	}
+	if c.isCoddyRow(ent) {
+		return c.resolveCoddy(ent).off
+	}
+	if ent.AllowReasoningOff == nil || !*ent.AllowReasoningOff {
 		return false
 	}
 	levels := c.ReasoningLevelsFor(ent)
@@ -107,7 +132,18 @@ func (c *Config) ReasoningOffOffered(ent *ModelEntry) bool {
 // ReasoningChoicesFor returns what a session may select for this model entry:
 // its levels, then "off" when the model configuration permits it.
 func (c *Config) ReasoningChoicesFor(ent *ModelEntry) []string {
-	levels := c.ReasoningLevelsFor(ent)
+	coddy := c.isCoddyRow(ent)
+	var levels []string
+	off := false
+	if coddy {
+		// One record of the remote's listing answers both facts, so a refresh
+		// between two reads cannot offer a level of one record with the off of
+		// another.
+		r := c.resolveCoddy(ent)
+		levels, off = r.levels, r.off
+	} else {
+		levels = c.ReasoningLevelsFor(ent)
+	}
 	choices := make([]string, 0, len(levels)+1)
 	for _, level := range levels {
 		if level != ReasoningOff {
@@ -117,7 +153,10 @@ func (c *Config) ReasoningChoicesFor(ent *ModelEntry) []string {
 	if len(choices) == 0 {
 		return nil
 	}
-	if c.ReasoningOffOffered(ent) {
+	if !coddy {
+		off = c.ReasoningOffOffered(ent)
+	}
+	if off {
 		choices = append(choices, ReasoningOff)
 	}
 	return choices
@@ -128,6 +167,9 @@ func (c *Config) ReasoningChoicesFor(ent *ModelEntry) []string {
 func (c *Config) DefaultReasoningLevelFor(ent *ModelEntry) string {
 	if ent == nil {
 		return ""
+	}
+	if c.isCoddyRow(ent) {
+		return c.resolveCoddy(ent).def
 	}
 	def := ent.DefaultReasoningLevel()
 	if def == "" || c == nil || !c.providerTypeFor(ent) {

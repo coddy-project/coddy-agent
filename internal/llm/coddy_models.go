@@ -32,7 +32,7 @@ func listCoddyModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error
 	if err != nil {
 		return nil, err
 	}
-	hc, err := HTTPClientForProviderProxy(in.ProxyURL)
+	hc, err := httpClientForProviderType("coddy", in.ProxyURL)
 	if err != nil {
 		return nil, err
 	}

@@ -110,8 +110,9 @@ func TestNewProviderKnowsTheCoddyType(t *testing.T) {
 	}
 }
 
-// providers[].proxy applies to every request a coddy row makes: the completion
-// and the listing go to the row's proxy and never straight to the remote.
+// providers[].proxy applies to every request a coddy row makes: the completion,
+// the listing and the usage read go to the row's proxy and never straight to
+// the remote.
 func TestCoddyRowsHonourTheirProxy(t *testing.T) {
 	var direct atomic.Int32
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -137,14 +138,16 @@ func TestCoddyRowsHonourTheirProxy(t *testing.T) {
 	}
 	_, _ = p.Stream(context.Background(), userMsg("Hi"), nil, nil)
 	_, _ = ListModels(context.Background(), in)
+	_, _ = CoddyUsageForProvider(context.Background(), in, "coder")
 
 	if direct.Load() != 0 {
 		t.Fatalf("%d requests went straight to the remote around the row's proxy", direct.Load())
 	}
-	if viaProxy.Load() != 2 {
-		t.Fatalf("%d requests went through the proxy, want the completion and the listing: %v", viaProxy.Load(), seen)
+	if viaProxy.Load() != 3 {
+		t.Fatalf("%d requests went through the proxy, want the completion, the listing and the usage read: %v", viaProxy.Load(), seen)
 	}
-	if !strings.Contains(seen[0], "/swarm/nodes/n1/coddy/llm/completions") || !strings.Contains(seen[1], "/swarm/nodes/n1/coddy/llm/models") {
+	if !strings.Contains(seen[0], "/swarm/nodes/n1/coddy/llm/completions") || !strings.Contains(seen[1], "/swarm/nodes/n1/coddy/llm/models") ||
+		!strings.Contains(seen[2], "/swarm/nodes/n1/coddy/llm/models/coder/usage") {
 		t.Fatalf("proxied requests: %v", seen)
 	}
 }

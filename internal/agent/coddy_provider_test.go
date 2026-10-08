@@ -705,16 +705,20 @@ func TestBusyWaitShowsACountdownAndTheCallGoesThrough(t *testing.T) {
 	if !u.Blocked || u.Provider != "remote" || u.ProviderType != "coddy" || u.RetryAt == "" || u.RetryInSec <= 0 {
 		t.Fatalf("countdown = %+v, want a blocked, resuming update of the coddy row with its time", u)
 	}
+	if u.Model != "coder" {
+		t.Fatalf("countdown model = %q, want the alias \"coder\" and not the selector %q", u.Model, coddyRow)
+	}
 	if len(u.Blockers) != 1 || u.Blockers[0] != "remote_busy" {
 		t.Fatalf("blockers = %v, want [remote_busy]: the surface must not read it as a usage limit", u.Blockers)
 	}
-	// Nothing at the end of the turn replaces the countdown of a row with no
-	// usage source, so the call takes it down itself with the answer such a row
-	// gives.
+	// The call takes the countdown down itself with the end update of the
+	// family (4.6): the same blocker, no Resuming, not Blocked, no usage data and
+	// no Unsupported (a surface reads that as "drop this row's usage").
 	all := r.sender.snapshot()
 	last := all[len(all)-1]
-	if !last.Unsupported || last.Resuming || last.Provider != "remote" {
-		t.Fatalf("last provider_usage = %+v, want the unsupported answer that clears the countdown", last)
+	requireBusyEnd(t, last, "remote", "coder")
+	if last.FetchedAt <= u.FetchedAt {
+		t.Fatalf("the end is stamped %s, not after the countdown it ends (%s)", last.FetchedAt, u.FetchedAt)
 	}
 }
 
@@ -724,7 +728,7 @@ func TestBusyWaitNoticeIsThrottledAndClearedOnlyWhenShown(t *testing.T) {
 	sender := &limitWaitCapture{}
 	ag := NewAgent(coddyConfig("https://remote.example", nil), &session.State{ID: "sess_notice"}, sender, nil)
 	ag.limitWaitHeartbeat = time.Hour
-	notice := ag.newBusyWaitNotice("sess_notice", llmTransport{providerName: "remote", providerType: "coddy"})
+	notice := ag.newBusyWaitNotice("sess_notice", coddyTransport())
 	if notice == nil {
 		t.Fatal("a coddy transport has a wait notice")
 	}
@@ -745,12 +749,14 @@ func TestBusyWaitNoticeIsThrottledAndClearedOnlyWhenShown(t *testing.T) {
 	}
 	notice.clear()
 	notice.clear()
-	if all := sender.snapshot(); len(all) != 2 || !all[1].Unsupported {
-		t.Fatalf("updates = %+v, want the countdown and one clearing answer", all)
+	all := sender.snapshot()
+	if len(all) != 2 {
+		t.Fatalf("updates = %+v, want the countdown and one end update", all)
 	}
+	requireBusyEnd(t, all[1], "remote", "coder")
 
 	ag.limitWaitHeartbeat = time.Nanosecond
-	again := ag.newBusyWaitNotice("sess_notice", llmTransport{providerName: "remote", providerType: "coddy"})
+	again := ag.newBusyWaitNotice("sess_notice", coddyTransport())
 	again.report(llm.BusyWaitStatus{Remaining: time.Second})
 	time.Sleep(time.Millisecond)
 	again.report(llm.BusyWaitStatus{Remaining: time.Second})
@@ -846,6 +852,13 @@ type coddyHarness struct {
 	revision string
 	window   int
 	listings int
+	// What the stand-in listing reports besides the revision and the window: the
+	// levels, the default and the off switch of the model, and the error a read
+	// fails with while listErr is set.
+	levels  []string
+	def     string
+	off     bool
+	listErr error
 }
 
 func newCoddyHarness(t *testing.T, rm *remote, tune func(*config.Config)) *coddyHarness {
@@ -872,7 +885,13 @@ func newCoddyHarness(t *testing.T, rm *remote, tune func(*config.Config)) *coddy
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		h.listings++
-		return []llm.ModelEntry{{ID: "coder", Revision: h.revision, ContextWindow: h.window}}, nil
+		if h.listErr != nil {
+			return nil, h.listErr
+		}
+		return []llm.ModelEntry{{
+			ID: "coder", Revision: h.revision, ContextWindow: h.window,
+			ReasoningLevels: append([]string(nil), h.levels...), ReasoningDefault: h.def, AllowReasoningOff: h.off,
+		}}, nil
 	}, nil)
 	t.Cleanup(func() { _ = h.mgr.WaitContextWindowsIdle(5 * time.Second) })
 	res, err := h.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
@@ -887,6 +906,29 @@ func (h *coddyHarness) setRemoteRevision(rev string, window int) {
 	h.mu.Lock()
 	h.revision, h.window = rev, window
 	h.mu.Unlock()
+}
+
+// setListing changes what the remote's listing reports for the model: the next
+// read of the manager sees it.
+func (h *coddyHarness) setListing(rev string, levels []string, def string, off bool) {
+	h.mu.Lock()
+	h.revision, h.levels, h.def, h.off = rev, levels, def, off
+	h.mu.Unlock()
+}
+
+func (h *coddyHarness) failListing(err error) {
+	h.mu.Lock()
+	h.listErr = err
+	h.mu.Unlock()
+}
+
+// relist makes the manager read the listing again now and returns the record
+// of the model in it, the way a stale_revision answer does.
+func (h *coddyHarness) relist() (*llm.ModelEntry, error) {
+	if err := h.mgr.WaitContextWindowsIdle(5 * time.Second); err != nil {
+		h.t.Fatal(err)
+	}
+	return h.mgr.RefreshProviderModelEntry(context.Background(), h.mgr.Cfg(), "remote", "coder", "", 5*time.Second)
 }
 
 func (h *coddyHarness) prompt(text string) error {
@@ -1003,7 +1045,7 @@ func TestBusyCountdownIsTakenDownAtAdmissionNotAtTheEndOfTheStream(t *testing.T)
 		cleared := false
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			for _, u := range r.sender.snapshot() {
-				cleared = cleared || (u.Unsupported && !u.Resuming)
+				cleared = cleared || isBusyEnd(u)
 			}
 			if cleared {
 				break
@@ -1038,7 +1080,7 @@ func TestBusyWaitNoticeEndsOnAdmissionAndOnlyWhenShown(t *testing.T) {
 	sender := &limitWaitCapture{}
 	ag := NewAgent(coddyConfig("https://remote.example", nil), &session.State{ID: "sess_admit"}, sender, nil)
 	ag.limitWaitHeartbeat = time.Hour
-	notice := ag.newBusyWaitNotice("sess_admit", llmTransport{providerName: "remote", providerType: "coddy"})
+	notice := ag.newBusyWaitNotice("sess_admit", coddyTransport())
 
 	notice.report(llm.BusyWaitStatus{Admitted: true, Requests: 1})
 	if n := len(sender.snapshot()); n != 0 {
@@ -1048,9 +1090,10 @@ func TestBusyWaitNoticeEndsOnAdmissionAndOnlyWhenShown(t *testing.T) {
 	notice.report(llm.BusyWaitStatus{Budget: 30 * time.Second, Remaining: 29 * time.Second, RetryIn: time.Second})
 	notice.report(llm.BusyWaitStatus{Admitted: true, Requests: 3, Waited: 3 * time.Second, Remaining: 27 * time.Second})
 	all := sender.snapshot()
-	if len(all) != 2 || !all[0].Resuming || !all[1].Unsupported || all[1].Resuming || all[1].Blocked || all[1].Provider != "remote" {
-		t.Fatalf("updates = %+v, want the countdown and then the answer that clears it", all)
+	if len(all) != 2 || !all[0].Resuming {
+		t.Fatalf("updates = %+v, want the countdown and then the end update", all)
 	}
+	requireBusyEnd(t, all[1], "remote", "coder")
 
 	// The end of the call finds nothing left to clear, and a later wait of the
 	// same call (a second attempt that is told to wait again) shows again.

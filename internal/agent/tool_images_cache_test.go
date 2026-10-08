@@ -74,7 +74,7 @@ func TestPromptCacheToolImagesKeepThePrefix(t *testing.T) {
 	stream, guard := true, false
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{{Name: "fixture", Type: "anthropic", APIBase: srv.URL, APIKey: "fixture-only", Proxy: "none"}},
-		Models:    []config.ModelEntry{{Model: "fixture/model", MaxTokens: 100, Stream: &stream, Multimodal: true}},
+		Models:    []config.ModelEntry{{Model: "fixture/model", MaxTokens: 100, Stream: &stream, Multimodal: config.BoolPtr(true)}},
 		Agent:     config.Agent{Model: "fixture/model", MaxTurns: 6, LoopGuard: &guard},
 		Tools:     config.Tools{PermissionMode: config.PermModeBypass},
 	}

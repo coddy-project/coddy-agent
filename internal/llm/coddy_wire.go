@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"net/url"
 )
 
 // The wire of a model shared by a remote Coddy (provider type coddy).
@@ -66,6 +67,16 @@ const (
 // WireCodeStaleRevision is the code of an invalid error that says the client
 // asked on a stale view of the row: its expected_revision is not the row's.
 const WireCodeStaleRevision = "stale_revision"
+
+// The codes of the 404 a remote answers a route of a shared model with.
+// WireCodeUnknownModel says the alias is not shared (any more); a client that
+// reads the usage of it drops what it showed. WireCodeNotFound is the reserved
+// usage route of a remote that predates the projection: it means "no usage
+// document here", the same as supported: false, and is never an error.
+const (
+	WireCodeUnknownModel = "unknown_model"
+	WireCodeNotFound     = "not_found"
+)
 
 // WireRequest is the body of POST /coddy/llm/completions.
 type WireRequest struct {
@@ -192,6 +203,72 @@ type WireModelRow struct {
 	ReasoningLevels   []string `json:"reasoning_levels,omitempty"`
 	ReasoningDefault  string   `json:"reasoning_default,omitempty"`
 	AllowReasoningOff bool     `json:"allow_reasoning_off"`
+}
+
+// CoddyUsagePath is the route of the usage of one shared model, appended to
+// the provider's api_base like CoddyModelsPath: the alias as one escaped path
+// segment, so an alias with a slash, a space or a question mark names the same
+// model on both ends.
+func CoddyUsagePath(alias string) string {
+	return CoddyModelsPath + "/" + url.PathEscape(alias) + "/usage"
+}
+
+// WireUsage is the body of GET /coddy/llm/models/{alias}/usage: the account
+// usage behind a shared model, projected field by field onto an allowlist (the
+// server never copies the usage document it builds for its own surfaces).
+// Nothing in it names the provider, its type, the plan, the key or any model
+// id, and it carries no absolute time and no counter that reveals the size of
+// the plan: the percentage and the seconds to the reset are what a client
+// needs, and a relative time survives the difference between the two hosts'
+// clocks where an absolute one would not. A reader ignores a field it does not
+// know, so the document can grow without a protocol bump.
+type WireUsage struct {
+	// Supported is false for a model whose provider has no usage source, or
+	// whose operator turned the panel off; the rest of the document is then
+	// absent.
+	Supported bool `json:"supported"`
+	// AccountWide says the meters are those of the whole account (or key), not
+	// of the one model the alias names.
+	AccountWide bool `json:"account_wide"`
+	// Stale says the numbers are from an earlier read than the latest, which
+	// failed, or that nothing could be read at all.
+	Stale   bool              `json:"stale"`
+	Windows []WireUsageWindow `json:"windows"`
+	// Blocked says a call would be refused now; Blockers say why, from a fixed
+	// set of ids, and RetryInS is the wait for the timed ones.
+	Blocked  bool     `json:"blocked"`
+	Blockers []string `json:"blockers,omitempty"`
+	RetryInS int      `json:"retry_in_s,omitempty"`
+}
+
+// WireUsageWindow is one metered window of a WireUsage.
+type WireUsageWindow struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	// UsedPercent is 0 to 100.
+	UsedPercent float64 `json:"used_percent"`
+	// ResetInS is the seconds until the window resets, relative to the moment
+	// the remote answered. A pointer, because the difference between "no reset
+	// clock" (absent) and "the clock has run out" (0) must survive omitempty,
+	// which drops a zero but never a non-nil pointer.
+	ResetInS  *int `json:"reset_in_s,omitempty"`
+	Exhausted bool `json:"exhausted"`
+}
+
+// MarshalJSON writes an answer that says unsupported as exactly that, whatever
+// a caller left in the other fields, and a supported one with a windows array
+// that is never null, so a reader can tell "nothing could be read" from a
+// document without the field.
+func (u WireUsage) MarshalJSON() ([]byte, error) {
+	if !u.Supported {
+		return []byte(`{"supported":false}`), nil
+	}
+	type plain WireUsage
+	p := plain(u)
+	if p.Windows == nil {
+		p.Windows = []WireUsageWindow{}
+	}
+	return json.Marshal(p)
 }
 
 // WireMessagesFromLLM projects a history onto the wire. Everything that
