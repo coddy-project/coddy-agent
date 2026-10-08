@@ -10,13 +10,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
@@ -90,12 +93,29 @@ func (fx *sharedFixture) openProbed(t *testing.T) *probedCall {
 
 func (fx *sharedFixture) ping(id, token string) *http.Response {
 	fx.t.Helper()
-	resp, err := sharedTestClient.Do(fx.request(http.MethodPost, "/coddy/llm/calls/"+id+"/alive", token, nil))
+	req := fx.request(http.MethodPost, llm.CoddyAlivePath, token, nil)
+	if id != "" {
+		req.Header.Set(llm.CoddyProbeIDHeader, id)
+	}
+	resp, err := sharedTestClient.Do(req)
 	if err != nil {
 		fx.t.Fatal(err)
 	}
 	return resp
 }
+
+// pingOK sends a ping that has to be accepted and closes its response.
+func (fx *sharedFixture) pingOK(t *testing.T, id, token string) {
+	t.Helper()
+	resp := fx.ping(id, token)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("ping: %d %s", resp.StatusCode, bodyString(t, resp))
+	}
+}
+
+// slack is the second the guard adds to the grace (the model's tie rule).
+const probeSlack = time.Second
 
 func TestProbeConfirmsOnlyACallThatAskedForIt(t *testing.T) {
 	fx := newSharedFixture(t, withFakeClock())
@@ -103,6 +123,8 @@ func TestProbeConfirmsOnlyACallThatAskedForIt(t *testing.T) {
 	if pc.every != 10*time.Second || pc.grace != 35*time.Second {
 		t.Fatalf("the plan's constants are I = 10 s and G = 35 s: %v %v", pc.every, pc.grace)
 	}
+	// The id is good at once, with no wait: a client pings the moment it reads the header.
+	fx.pingOK(t, pc.id, sharedTestSharedTok)
 	// A second call that did not ask carries no confirmation.
 	resp := fx.completeWith(sharedTestSharedTok, false)
 	if got := resp.Header.Get(llm.CoddyProbeHeader); got != "" {
@@ -111,23 +133,81 @@ func TestProbeConfirmsOnlyACallThatAskedForIt(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
-func TestProbeCutsASilentCallAfterTheGraceAndFreesItsSlot(t *testing.T) {
+func TestProbeARefusedCallIsNotConfirmed(t *testing.T) {
+	fx := newSharedFixture(t, withFakeClock(), withSharedConfig(func(c *config.Config) { c.HTTPServer.SharedModels.MaxStreams = 1 }))
+	fx.openProbed(t) // takes the only slot
+	resp := fx.completeWith(sharedTestSharedTok, true)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get(llm.CoddyProbeHeader) != "" {
+		t.Fatalf("a busy refusal: %d, header %q", resp.StatusCode, resp.Header.Get(llm.CoddyProbeHeader))
+	}
+}
+
+// Fail-open (model p4-probe, BROKEN): a confirmed call whose client never pings has no guard, so a path that carries no ping cuts no live client.
+func TestProbeNoPingNoGuard(t *testing.T) {
 	fx := newSharedFixture(t, withFakeClock())
 	pc := fx.openProbed(t)
 	key := sharedBearerKey(sharedTestSharedTok)
-	if fx.srv.sharedLimit.inUse(key) != 1 {
-		t.Fatal("the call holds no slot")
+	// Six graces, 210 s: under the stall guard's 300 s, which would end the call for another reason.
+	for i := 0; i < 6; i++ {
+		fx.clk.Advance(pc.grace)
 	}
-	fx.clk.Advance(pc.grace - time.Second)
 	if fx.srv.sharedLimit.inUse(key) != 1 {
-		t.Fatal("cut before the grace")
+		t.Fatal("a confirmed call that was never pinged was cut: the guard is armed by the first ping")
 	}
-	fx.clk.Advance(2 * time.Second)
+}
+
+func TestProbeCutsASilentCallAfterItsLastPingAndTellsWhy(t *testing.T) {
+	var logs bytes.Buffer
+	fx := newSharedFixture(t, withFakeClock(), withSharedLogger(slog.New(slog.NewTextHandler(&logs, nil))))
+	pc := fx.openProbed(t)
+	key := sharedBearerKey(sharedTestSharedTok)
+	fx.pingOK(t, pc.id, sharedTestSharedTok) // arms the guard
+	fx.clk.Advance(pc.grace)                 // exactly G of silence: not yet (the tie goes to the ping)
+	if fx.srv.sharedLimit.inUse(key) != 1 {
+		t.Fatal("cut at G: the guard waits one more second")
+	}
+	fx.clk.Advance(probeSlack)
 	waitFor(t, "the silent call to be cut and its slot freed", func() bool { return fx.srv.sharedLimit.inUse(key) == 0 })
-	// The counters say gone, and the ping of an ended call is unknown.
+	// The terminal frame is not transient, and the call is counted and logged as gone with the cause.
+	var terminal string
+	for {
+		ev, ok := pc.rd.next(5 * time.Second)
+		if !ok {
+			break
+		}
+		if ev.typ == "error" {
+			terminal = string(ev.raw)
+		}
+	}
+	if !strings.Contains(terminal, `"kind":"invalid"`) || !strings.Contains(terminal, llm.WireCodeProbeLapsed) {
+		t.Errorf("terminal frame %q", terminal)
+	}
 	waitFor(t, "the gone row", func() bool { _, ok := fx.stats().row(sharedTestAlias, sharedClassShared, sharedCountGone); return ok })
-	if got := fx.ping(pc.id, sharedTestSharedTok).StatusCode; got != http.StatusNotFound {
-		t.Errorf("a ping of a cut call: %d, want 404", got)
+	if !strings.Contains(logs.String(), "cause=probe") || !strings.Contains(logs.String(), "client_gone") {
+		t.Errorf("the log does not say why: %s", logs.String())
+	}
+	if resp := fx.ping(pc.id, sharedTestSharedTok); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("a ping of a cut call: %d, want 404", resp.StatusCode)
+	}
+}
+
+// The tie: a ping that lands exactly when the grace ends wins; one a second later finds the call cut.
+func TestProbeThePingOnTheTickTheGraceEndsWins(t *testing.T) {
+	fx := newSharedFixture(t, withFakeClock())
+	pc := fx.openProbed(t)
+	key := sharedBearerKey(sharedTestSharedTok)
+	fx.pingOK(t, pc.id, sharedTestSharedTok)
+	fx.clk.Advance(pc.grace)
+	fx.pingOK(t, pc.id, sharedTestSharedTok) // at G: accepted, and re-arms
+	fx.clk.Advance(pc.grace)
+	if fx.srv.sharedLimit.inUse(key) != 1 {
+		t.Fatal("the ping at G did not re-arm the guard")
+	}
+	fx.clk.Advance(probeSlack + time.Second)
+	waitFor(t, "the cut", func() bool { return fx.srv.sharedLimit.inUse(key) == 0 })
+	if resp := fx.ping(pc.id, sharedTestSharedTok); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("a ping after the cut: %d", resp.StatusCode)
 	}
 }
 
@@ -135,19 +215,16 @@ func TestProbeAClientThatPingsIsNeverCut(t *testing.T) {
 	fx := newSharedFixture(t, withFakeClock())
 	pc := fx.openProbed(t)
 	key := sharedBearerKey(sharedTestSharedTok)
+	fx.pingOK(t, pc.id, sharedTestSharedTok)
 	for i := 0; i < 8; i++ { // 80 s, more than twice the grace
 		fx.clk.Advance(pc.every)
-		resp := fx.ping(pc.id, sharedTestSharedTok)
-		if resp.StatusCode != http.StatusNoContent {
-			t.Fatalf("ping %d: %d %s", i, resp.StatusCode, bodyString(t, resp))
-		}
-		_ = resp.Body.Close()
+		fx.pingOK(t, pc.id, sharedTestSharedTok)
 		if fx.srv.sharedLimit.inUse(key) != 1 {
 			t.Fatalf("a client that pings was cut at ping %d", i)
 		}
 	}
 	// It stops pinging: the grace runs from its last ping.
-	fx.clk.Advance(pc.grace + time.Second)
+	fx.clk.Advance(pc.grace + probeSlack + time.Second)
 	waitFor(t, "the cut after the last ping", func() bool { return fx.srv.sharedLimit.inUse(key) == 0 })
 }
 
@@ -170,24 +247,30 @@ func TestProbeACallThatDidNotAskIsNeverCut(t *testing.T) {
 	_ = rd
 }
 
-func TestProbePingRefusals(t *testing.T) {
-	fx := newSharedFixture(t, withFakeClock())
+// A ping the node refuses must not keep the call alive: the guard runs from the last ACCEPTED ping. The refused pings come midway, so a
+// handler that refreshed the guard before it refused would postpone the cut past the point asserted at the end.
+func TestProbeRefusedPingsDoNotRefreshTheGuard(t *testing.T) {
+	fx := newSharedFixture(t, withFakeClock(), withSharedConfig(func(c *config.Config) {
+		c.HTTPServer.SharedModels.Tokens = []string{sharedTestSharedTok, "second-shared-token"}
+	}))
 	pc := fx.openProbed(t)
+	key := sharedBearerKey(sharedTestSharedTok)
+	fx.pingOK(t, pc.id, sharedTestSharedTok)
+	fx.clk.Advance(20 * time.Second)
 	for name, c := range map[string]struct {
 		id, token string
 		want      int
 	}{
-		"unknown id":         {strings.Repeat("0", 32), sharedTestSharedTok, http.StatusNotFound},
-		"short id":           {"abc", sharedTestSharedTok, http.StatusNotFound},
-		"upper-case id":      {strings.ToUpper(pc.id), sharedTestSharedTok, http.StatusNotFound},
-		"another credential": {pc.id, sharedTestMainToken, http.StatusNotFound},
-		"no credential":      {pc.id, "", http.StatusUnauthorized},
-		"a wrong token":      {pc.id, "nope", http.StatusUnauthorized},
+		"unknown id":                      {strings.Repeat("0", 32), sharedTestSharedTok, http.StatusNotFound},
+		"short id":                        {"abc", sharedTestSharedTok, http.StatusNotFound},
+		"upper-case id":                   {strings.ToUpper(pc.id), sharedTestSharedTok, http.StatusNotFound},
+		"no id":                           {"", sharedTestSharedTok, http.StatusNotFound},
+		"another token of the same class": {pc.id, "second-shared-token", http.StatusNotFound},
+		"the main token":                  {pc.id, sharedTestMainToken, http.StatusNotFound},
+		"no credential":                   {pc.id, "", http.StatusUnauthorized},
+		"a wrong token":                   {pc.id, "nope", http.StatusUnauthorized},
 	} {
-		resp := fx.ping(pc.id, c.token)
-		if c.id != pc.id {
-			resp = fx.ping(c.id, c.token)
-		}
+		resp := fx.ping(c.id, c.token)
 		if resp.StatusCode != c.want {
 			t.Errorf("%s: %d, want %d", name, resp.StatusCode, c.want)
 		}
@@ -196,18 +279,61 @@ func TestProbePingRefusals(t *testing.T) {
 			if err := json.Unmarshal([]byte(bodyString(t, resp)), &e); err != nil || e.Kind != llm.WireKindInvalid || e.Code != llm.WireCodeUnknownCall {
 				t.Errorf("%s: %+v %v", name, e, err)
 			}
+		} else {
+			_ = resp.Body.Close()
 		}
 	}
-	// The refused pings did not keep the call alive: the grace still cuts it.
-	key := sharedBearerKey(sharedTestSharedTok)
-	fx.clk.Advance(pc.grace + time.Second)
-	waitFor(t, "the cut", func() bool { return fx.srv.sharedLimit.inUse(key) == 0 })
+	// 36 s after the last accepted ping (G plus the second): cut, though refused pings came at 20 s.
+	fx.clk.Advance(16 * time.Second)
+	waitFor(t, "the cut on schedule", func() bool { return fx.srv.sharedLimit.inUse(key) == 0 })
 }
 
-func TestProbeTheCompletionAndTheGuardReleaseTheSlotOnce(t *testing.T) {
+func TestProbeAMainTokenCallIsPingedWithTheMainTokenOnly(t *testing.T) {
+	fx := newSharedFixture(t, withFakeClock())
+	started := fx.holdCalls()
+	resp := fx.completeWith(sharedTestMainToken, true)
+	m := probeHeaderRE.FindStringSubmatch(resp.Header.Get(llm.CoddyProbeHeader))
+	if m == nil {
+		t.Fatalf("no confirmation for a main-token call")
+	}
+	_ = newSSEReader(t, resp)
+	<-started
+	if got := fx.ping(m[1], sharedTestSharedTok).StatusCode; got != http.StatusNotFound {
+		t.Errorf("a shared token pinging a main-token call: %d, want 404", got)
+	}
+	fx.pingOK(t, m[1], sharedTestMainToken)
+}
+
+func TestProbeAnonymousCallers(t *testing.T) {
+	// No credential of any class and no allow_insecure: the shared routes are closed, the ping too.
+	closed := newSharedFixture(t, withSharedConfig(func(c *config.Config) {
+		c.HTTPServer.AuthToken = ""
+		c.HTTPServer.SharedModels.Tokens = nil
+	}))
+	if got := closed.ping(strings.Repeat("a", 32), "").StatusCode; got != http.StatusForbidden {
+		t.Errorf("a node with no credential: %d, want 403", got)
+	}
+	// An open node on purpose: an anonymous call is pinged by an anonymous caller.
+	open := newSharedFixture(t, withFakeClock(), withSharedConfig(func(c *config.Config) {
+		c.HTTPServer.AuthToken = ""
+		c.HTTPServer.SharedModels.Tokens = nil
+		c.HTTPServer.AllowInsecure = true
+	}))
+	started := open.holdCalls()
+	resp := open.completeWith("", true)
+	m := probeHeaderRE.FindStringSubmatch(resp.Header.Get(llm.CoddyProbeHeader))
+	if m == nil {
+		t.Fatalf("no confirmation on an open node: %d", resp.StatusCode)
+	}
+	_ = newSSEReader(t, resp)
+	<-started
+	open.pingOK(t, m[1], "")
+}
+
+func TestProbeAPingAfterANormalCompletionIsUnknown(t *testing.T) {
 	fx := newSharedFixture(t, withFakeClock())
 	release := make(chan struct{})
-	started := make(chan struct{}, 16)
+	started := make(chan struct{}, 1)
 	fx.stub.run = func(ctx context.Context, _ int, _ []llm.Message, _ []llm.ToolDefinition, _ func(llm.StreamChunk)) (*llm.Response, error) {
 		started <- struct{}{}
 		select {
@@ -218,26 +344,68 @@ func TestProbeTheCompletionAndTheGuardReleaseTheSlotOnce(t *testing.T) {
 		}
 	}
 	resp := fx.completeWith(sharedTestSharedTok, true)
+	m := probeHeaderRE.FindStringSubmatch(resp.Header.Get(llm.CoddyProbeHeader))
 	rd := newSSEReader(t, resp)
 	<-started
+	fx.pingOK(t, m[1], sharedTestSharedTok)
+	close(release)
+	rd.all()
+	waitFor(t, "the id to be forgotten", func() bool { return fx.srv.sharedProbes.lookup(m[1]) == nil })
+	if got := fx.ping(m[1], sharedTestSharedTok).StatusCode; got != http.StatusNotFound {
+		t.Errorf("a ping of a finished call: %d, want 404", got)
+	}
+}
+
+// The guard and the completion fall together: the slot of the call is released once, and the slot of another call of the same
+// credential, which is held meanwhile, is not taken by a second release.
+func TestProbeTheCompletionAndTheGuardReleaseTheSlotOnce(t *testing.T) {
+	fx := newSharedFixture(t, withFakeClock())
+	release := make(chan struct{})
+	started := make(chan struct{}, 16)
+	hold := make(chan struct{})
+	t.Cleanup(func() { close(hold) })
+	var first atomic.Bool
+	fx.stub.run = func(ctx context.Context, _ int, _ []llm.Message, _ []llm.ToolDefinition, _ func(llm.StreamChunk)) (*llm.Response, error) {
+		started <- struct{}{}
+		if first.CompareAndSwap(false, true) {
+			select {
+			case <-release:
+				return &llm.Response{Content: "done"}, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		select { // the second call is held until the test ends
+		case <-hold:
+			return &llm.Response{Content: "held"}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	resp := fx.completeWith(sharedTestSharedTok, true)
+	m := probeHeaderRE.FindStringSubmatch(resp.Header.Get(llm.CoddyProbeHeader))
+	rd := newSSEReader(t, resp)
+	<-started
+	fx.pingOK(t, m[1], sharedTestSharedTok)
+	other := fx.complete(wireReq(sharedTestAlias))
+	_ = newSSEReader(t, other)
+	<-started
 	key := sharedBearerKey(sharedTestSharedTok)
-	// The call completes and the grace runs out at the same moment.
+	if fx.srv.sharedLimit.inUse(key) != 2 {
+		t.Fatalf("two calls hold %d slots", fx.srv.sharedLimit.inUse(key))
+	}
+	// The first call completes and its grace runs out at the same moment.
 	close(release)
 	fx.clk.Advance(36 * time.Second)
-	// Either the final frame or the cut ends the stream, whichever comes first: drain until it closes.
-	for {
+	for { // either the final frame or the cut ends the stream, whichever comes first
 		if _, ok := rd.next(5 * time.Second); !ok {
 			break
 		}
 	}
-	waitFor(t, "the slot to be free", func() bool { return fx.srv.sharedLimit.inUse(key) == 0 })
-	// Nothing went negative: a fresh call is admitted up to the limit again.
-	for i := 0; i < fx.cfg.HTTPServer.EffectiveSharedMaxStreams(); i++ {
-		r := fx.complete(wireReq(sharedTestAlias))
-		if r.StatusCode != http.StatusOK {
-			t.Fatalf("call %d after the race: %d", i, r.StatusCode)
-		}
-		newSSEReader(t, r).all()
+	waitFor(t, "the first slot to be free", func() bool { return fx.srv.sharedLimit.inUse(key) == 1 })
+	time.Sleep(50 * time.Millisecond)
+	if got := fx.srv.sharedLimit.inUse(key); got != 1 {
+		t.Fatalf("the other call's slot was taken by a second release: %d in use, want 1", got)
 	}
 }
 
@@ -245,7 +413,7 @@ func TestProbeRouteIsADocumentedSharedRoute(t *testing.T) {
 	if !isSharedLLMPattern(sharedAlivePattern) {
 		t.Fatal("the gate must admit the ping for the classes of the three shared routes")
 	}
-	if sharedAlivePattern != "POST /coddy/llm/calls/{id}/alive" {
+	if sharedAlivePattern != "POST /coddy/llm/alive" {
 		t.Fatalf("%q", sharedAlivePattern)
 	}
 }

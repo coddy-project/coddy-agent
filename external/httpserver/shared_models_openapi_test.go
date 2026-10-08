@@ -53,7 +53,7 @@ func TestOpenAPIDescribesTheSharedModelRoutes(t *testing.T) {
 	if _, found := paths["/coddy/llm/models/{alias}/usage"]; !found {
 		t.Fatal("the usage route is not documented")
 	}
-	alive, found := paths["/coddy/llm/calls/{id}/alive"].(map[string]any)["post"].(map[string]any)
+	alive, found := paths["/coddy/llm/alive"].(map[string]any)["post"].(map[string]any)
 	if !found {
 		t.Fatal("the ping of the application probe is not documented")
 	}
