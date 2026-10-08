@@ -193,7 +193,7 @@ func (e *coddyBusyError) Error() string {
 		return e.what() + ", and waiting for it is turned off (busy_wait_ms)"
 	}
 	until := "for one"
-	if e.code != "" && e.what() != (&coddyBusyError{}).what() {
+	if e.code == WireCodeRateWindow || e.code == WireCodeClientRate {
 		until = "for a free window"
 	}
 	return fmt.Sprintf("%s: waited %s %s, in %d requests", e.what(), e.waited.Round(100*time.Millisecond), until, e.requests)
@@ -364,7 +364,7 @@ func coddyAPIErrorFromWire(w WireError, header http.Header, emitted bool) *coddy
 }
 
 // quotaResetFromWire turns a quota error into the typed reset the agent's
-// wait_untillimit_reset reads. A reset time still ahead of the clock wins over a
+// wait_for_limit_reset reads. A reset time still ahead of the clock wins over a
 // bare pause; one that is not (the remote's clock runs behind this one, or the
 // limit has just lifted) gives way to the relative pause the remote sends
 // with it, which does not depend on the two clocks agreeing. A quota that

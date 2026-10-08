@@ -31,6 +31,17 @@ func TestSpentBusyWaitNamesTheWindowItEndedOn(t *testing.T) {
 			t.Errorf("code %q: the wait is not reported: %q", tc.code, err.Error())
 		}
 	}
+	// A slot of a client is a slot: only a window is waited for as a window.
+	slot := &coddyBusyError{waited: 30 * time.Second, budget: 30 * time.Second, requests: 3, code: WireCodeClientStreams}
+	if strings.Contains(slot.Error(), "window") {
+		t.Errorf("a client's slot limit reads as a window: %q", slot.Error())
+	}
+	for _, code := range []string{WireCodeRateWindow, WireCodeClientRate} {
+		w := &coddyBusyError{waited: 30 * time.Second, budget: 30 * time.Second, requests: 3, code: code}
+		if !strings.Contains(w.Error(), "free window") {
+			t.Errorf("code %q does not read as a window: %q", code, w.Error())
+		}
+	}
 	off := &coddyBusyError{budget: 0, code: WireCodeRateWindow}
 	if !strings.Contains(off.Error(), "calls per minute") || !strings.Contains(off.Error(), "busy_wait_ms") {
 		t.Errorf("waiting turned off: %q", off.Error())

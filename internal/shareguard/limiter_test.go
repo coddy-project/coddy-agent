@@ -209,3 +209,26 @@ func TestConcurrentTakersNeverExceedTheBudget(t *testing.T) {
 		t.Fatalf("admitted %d with a frozen clock, want exactly the burst %d", admitted, burst)
 	}
 }
+
+// After a long idle the bucket is a full bucket and no more: the clamp to the last admission and the floor at now meet in the right order.
+func TestNoMoreThanTheBurstAfterALongIdle(t *testing.T) {
+	for _, burst := range []int{1, 2, 3} {
+		clk := newClock()
+		l := NewLimiter(clk.Now)
+		for i := 0; i < burst; i++ {
+			if ok, _ := l.Take("k", 60, burst); !ok {
+				t.Fatalf("burst %d: call %d of a fresh bucket refused", burst, i+1)
+			}
+		}
+		clk.Advance(time.Hour)
+		admitted := 0
+		for i := 0; i < burst+3; i++ {
+			if ok, _ := l.Take("k", 60, burst); ok {
+				admitted++
+			}
+		}
+		if admitted != burst {
+			t.Errorf("burst %d: %d calls admitted after an idle hour, want exactly %d", burst, admitted, burst)
+		}
+	}
+}

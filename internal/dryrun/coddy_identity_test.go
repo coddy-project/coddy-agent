@@ -51,9 +51,14 @@ func newDryPKI(t *testing.T) *dryPKI {
 
 func (p *dryPKI) leaf(t *testing.T, name string, server bool, notAfter time.Time) (certFile, keyFile string) {
 	t.Helper()
+	return p.leafFrom(t, name, server, time.Now().Add(-2*time.Hour), notAfter)
+}
+
+func (p *dryPKI) leafFrom(t *testing.T, name string, server bool, notBefore, notAfter time.Time) (certFile, keyFile string) {
+	t.Helper()
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tmpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: name},
-		NotBefore: time.Now().Add(-2 * time.Hour), NotAfter: notAfter, KeyUsage: x509.KeyUsageDigitalSignature}
+		NotBefore: notBefore, NotAfter: notAfter, KeyUsage: x509.KeyUsageDigitalSignature}
 	if server {
 		tmpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
 		tmpl.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
@@ -177,4 +182,16 @@ func TestCoddyRowWithoutIdentityHasNoPairCheck(t *testing.T) {
 		}
 	}
 	_ = llm.CoddyProtocol
+}
+
+func TestCoddyIdentityNotYetValid(t *testing.T) {
+	pki := newDryPKI(t)
+	var cn string
+	srv := pki.remote(t, &cn)
+	cert, key := pki.leafFrom(t, "future", false, time.Now().Add(48*time.Hour), time.Now().Add(90*24*time.Hour))
+	prep, _ := prepare(t, identityYAML(srv.URL, pki.file, cert, key))
+	c := find(t, Run(context.Background(), Request{Cfg: prep.Cfg, Paths: prep.Paths, Locator: prep.Locator}), "providers[remote].client_cert_file")
+	if c.Status != StatusError || !strings.Contains(c.Message, "not valid before") || c.Fix == "" {
+		t.Fatalf("a certificate that is not valid yet: %+v", c)
+	}
 }

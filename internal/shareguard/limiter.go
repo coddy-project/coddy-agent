@@ -60,14 +60,16 @@ func (l *Limiter) Take(key string, perMinute, burst int) (ok bool, retryAfter ti
 		l.tat[key] = st
 	}
 	tat := st.tat
-	if tat.Before(now) {
-		tat = now
-	}
 	// State written under other parameters never outlasts what the current ones
 	// could have produced from the same last admission: a reload from 1 to 60 a
-	// minute does not keep refusing for the old minute.
+	// minute does not keep refusing for the old minute. The clamp comes first and
+	// the floor at now after it: the other way round, an idle key is floored at
+	// now and then pulled back below it, and gets one call more than its burst.
 	if limit := st.last.Add(tau + t); tat.After(limit) {
 		tat = limit
+	}
+	if tat.Before(now) {
+		tat = now
 	}
 	if wait := tat.Sub(now); wait > tau {
 		st.tat = tat
