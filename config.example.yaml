@@ -723,6 +723,14 @@ logger:
 #     # a swarm.clients entry lists stands for that client (below).
 #     client_ca_file: "/etc/coddy/clients-ca.pem"
 #     client_auth: "optional"      # optional (peers without a certificate still get in) or required
+#   # How this relay reaches nodes that registered themselves over an address and ask for a client
+#   # certificate (httpserver.tls.client_ca_file on the node): the authority their certificates are
+#   # verified against and the certificate the relay presents. A swarm.upstreams entry with a dial
+#   # block keeps its own.
+#   node_tls:
+#     ca_file: "/etc/coddy/nodes-ca.pem"
+#     cert_file: "/etc/coddy/relay-client.crt"
+#     key_file: "/etc/coddy/relay-client.key"
 #   # A borrower of shared models gets a credential of its own that opens only
 #   # GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage and
 #   # POST /coddy/llm/completions of the nodes it names, with limits the relay holds it to.

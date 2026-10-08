@@ -525,6 +525,32 @@ A verified certificate maps to an entry by `cert_names`, matched exactly against
 - a certificate never opens the full class: a request with a full token and a certificate is full, a request with only a certificate is at most the scoped entry
   it maps to, and a chain-valid certificate no entry names reaches nothing.
 
+#### The relay's own certificate towards a node
+
+A node that serves TLS itself and asks for a client certificate (`httpserver.tls.client_ca_file` on the node, `client_auth: required` to refuse everyone else)
+needs the relay to present one, and a node with a private certificate needs the relay to trust its authority. A node that registered itself cannot say
+either, since that would be the node choosing whom the relay trusts, so the relay's operator does:
+
+```yaml
+swarm:
+  node_tls:
+    ca_file: /etc/coddy/nodes-ca.pem        # verifies the nodes' server certificates; without it the system roots
+    cert_file: /etc/coddy/relay-client.crt  # presented when a node asks for a certificate
+    key_file: /etc/coddy/relay-client.key   # set with cert_file
+```
+
+- **Where it applies.** To every node that registered itself over a direct address (`advertise_url`) and has no dial settings of its own: the mount, the aggregated
+  sessions and the topology all ride the same route. A `swarm.upstreams` entry with a `dial` block keeps it. A node that dialled out through the tunnel
+  carries no TLS of its own, so nothing applies to it.
+- **No proxy and no skipped verification here.** Only the authority and the certificate: a proxy for every node would also bypass the egress check of an
+  advertised address, and `insecure_skip_verify` stays per upstream.
+- **What the node sees.** The relay's certificate, for every client of the relay alike: the node tells the relay apart, not the relay's clients (they keep their
+  scoped entries on the relay). The certificate is presented to whichever address a node advertises, as any TLS client certificate is: it names the relay and proves
+  nothing to a host that does not hold the authority the node trusts.
+- **Rotation.** The pair is read at each handshake and cached by size and modification time, so a renewed certificate is used by the next connection. The
+  authority is read when a node's route is built, which is at its next registration; a changed `node_tls` block takes a relay restart.
+- **Checks.** `coddy -t` refuses a certificate without its key; `--dry-run` loads the pair and the authority bundle.
+
 The design record with the verdicts of the model checks behind these rules is
 [`docs/plans/remote-model-provider-phase3.md`](../plans/remote-model-provider-phase3.md) (D1, D2 and D5).
 

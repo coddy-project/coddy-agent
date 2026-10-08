@@ -418,6 +418,7 @@ type SwarmJSON struct {
 	AllowPrivateUpstreams    []string            `json:"allow_private_upstreams,omitempty"`
 	CORS                     HTTPCORSJSON        `json:"cors,omitempty"`
 	TLS                      SwarmTLSJSON        `json:"tls,omitempty"`
+	NodeTLS                  SwarmNodeTLSJSON    `json:"node_tls,omitempty"`
 	LeaseTTLSeconds          int                 `json:"lease_ttl_seconds,omitempty"`
 	FanoutTimeoutSeconds     int                 `json:"fanout_timeout_seconds,omitempty"`
 	Upstreams                []SwarmUpstreamJSON `json:"upstreams,omitempty"`
@@ -438,6 +439,13 @@ type SwarmClientJSON struct {
 	RatePerMinute   int      `json:"rate_per_minute,omitempty"`
 	RateBurst       int      `json:"rate_burst,omitempty"`
 	CertNames       []string `json:"cert_names,omitempty"`
+}
+
+// SwarmNodeTLSJSON mirrors SwarmNodeTLSConfig.
+type SwarmNodeTLSJSON struct {
+	CAFile   string `json:"ca_file,omitempty"`
+	CertFile string `json:"cert_file,omitempty"`
+	KeyFile  string `json:"key_file,omitempty"`
 }
 
 // SwarmTLSJSON mirrors SwarmTLSConfig.
@@ -687,6 +695,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		},
 		TLS: SwarmTLSJSON{CertFile: c.Swarm.TLS.CertFile, KeyFile: c.Swarm.TLS.KeyFile,
 			ClientCAFile: c.Swarm.TLS.ClientCAFile, ClientAuth: c.Swarm.TLS.ClientAuth},
+		NodeTLS:              SwarmNodeTLSJSON(c.Swarm.NodeTLS),
 		LeaseTTLSeconds:      c.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: c.Swarm.FanoutTimeoutSeconds,
 	}
@@ -939,6 +948,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		},
 		TLS: SwarmTLSConfig{CertFile: j.Swarm.TLS.CertFile, KeyFile: j.Swarm.TLS.KeyFile,
 			ClientCAFile: j.Swarm.TLS.ClientCAFile, ClientAuth: j.Swarm.TLS.ClientAuth},
+		NodeTLS:              SwarmNodeTLSConfig(j.Swarm.NodeTLS),
 		LeaseTTLSeconds:      j.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: j.Swarm.FanoutTimeoutSeconds,
 	}
