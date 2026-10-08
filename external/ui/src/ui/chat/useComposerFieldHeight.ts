@@ -31,9 +31,8 @@ export function useComposerFieldHeight(o: {
   layoutKey: unknown;
   expanded: boolean;
   /**
-   * With the field at its floor, the room between the top of the composer
-   * block and the line the expanded composer may reach; zero when it cannot
-   * expand.
+   * With the field at its floor, the room between the top of the docked block
+   * and the line it may reach; `Infinity` where there is none.
    */
   roomAbove: () => number;
 }): void {
@@ -67,7 +66,7 @@ export function useComposerFieldHeight(o: {
       lineHeightPx: px(cs.lineHeight) || FALLBACK_LINE_HEIGHT_PX,
       chromePx: paddingY + borderY,
       viewportPx: window.visualViewport?.height ?? window.innerHeight,
-      roomAbovePx: expanded ? roomAbove() : 0,
+      roomAbovePx: roomAbove(),
     };
     const height = composerFieldHeightPx(m, expanded);
     const cssHeight =

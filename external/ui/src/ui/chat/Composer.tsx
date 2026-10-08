@@ -577,7 +577,8 @@ export function Composer(props: {
     value: props.value,
     layoutKey: props.isEmpty,
     expanded: fieldExpanded,
-    roomAbove: () => expandRoomRef.current?.() ?? 0,
+    roomAbove: () =>
+      props.isEmpty ? Infinity : (expandRoomRef.current?.() ?? Infinity),
   });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerFieldWrapRef = useRef<HTMLDivElement | null>(null);

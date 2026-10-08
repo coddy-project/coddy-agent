@@ -43,6 +43,12 @@ describe("the field follows its text", () => {
     expect(composerFieldHeightPx(phone, false)).toBe(168);
   });
 
+  test("the field never pushes the docked block over the chat header", () => {
+    // A phone held sideways: 80px between the block and the header.
+    const sideways = { ...docked, roomAbovePx: 80, contentPx: 1026 };
+    expect(composerFieldHeightPx(sideways, false)).toBe(156);
+  });
+
   test("the ceiling never goes under the floor", () => {
     // A landscape phone with its keyboard open leaves 150px.
     const tiny = { ...docked, viewportPx: 150, contentPx: 1026 };
@@ -59,8 +65,13 @@ describe("an expanded field takes the chat under its header", () => {
     );
   });
 
-  test("with no room above it, it keeps the height of its text", () => {
+  test("with no room above it, it stays at its floor", () => {
     const cramped = { ...docked, roomAbovePx: -40, contentPx: 154 };
-    expect(composerFieldHeightPx(cramped, true)).toBe(154);
+    expect(composerFieldHeightPx(cramped, true)).toBe(76);
+  });
+
+  test("with no header to reach (the start screen), expanding changes nothing", () => {
+    const hero = { ...docked, roomAbovePx: Infinity, contentPx: 154 };
+    expect(composerFieldHeightPx(hero, true)).toBe(154);
   });
 });

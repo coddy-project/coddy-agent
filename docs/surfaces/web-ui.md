@@ -588,6 +588,32 @@ Scrolling up in a long chat leaves the newest messages off screen, and dragging 
 - **Both scroll surfaces** - the wide shell scrolls `.chat-scroll`, the narrow one scrolls the document; the same module reads the distance and the end position for both, and one reading drives the follow flag, the button and the jump.
 - **`prefers-reduced-motion: reduce`** puts the transcript at the end in one step and drops the button's fade.
 - **Accessible name and tooltip** are both `chat.scrollToBottom`; the empty hero never renders it.
+- **Opening another conversation** lands on its newest message, wherever the last one was left: a History pick, a link to `#/s/<id>` or the back button after reading far up in one chat no longer opens the next one at the old offset (issue #342). The jump in the air is cancelled and the follow re-armed when the session id changes, before the new rows arrive.
+- **On a touch screen the jump follows the swipe** (issue #342). A finger pulling the page down, toward earlier messages, turns the button into its twin pointing up (`chat.scrollToTop`, `data-testid="chat-scroll-top"`), which takes the reader to the top of what the transcript holds; pushing it up, toward the end, brings back the jump to the newest message. Only one of the two is ever on screen, and neither while the reader heads up from the top. The direction is read from the finger (`transcriptSwipeDirection`, 24px of travel), not from the scroll offset, which the transcript window moves by itself whenever it renders rows above the reader. The jump up never moves down; a window cut short of the first rows held is put on them and lands at once, and in a long session the page above then loads at the control at the top as a scroll to it does. With a mouse or a trackpad only the jump to the newest message exists.
+
+## Long prompts in the composer
+
+![The docked composer expanded over the chat, dark theme at 1280 px](../assets/composer-expanded-dark-1280.png)
+
+*The docked composer expanded over the chat for a long prompt, dark theme at 1280 px*
+
+The composer's field follows its text (issue #342). It starts at the height it always had - five rows on the start screen, two and a 76px minimum in a chat - and grows line by line up to **eight lines**, or **40%** of the visible viewport when that is less (a phone with its keyboard open), then scrolls. Deleting text shrinks it back; a narrower window, the keyboard opening and a page zoom fit it again. The rule is **`chat/composerHeight.ts`**, applied by **`chat/useComposerFieldHeight.ts`**.
+
+- **Expand** - in a chat, a 24px control in the field's bottom right corner, on the vertical line of the improve-prompt wand above it (`data-testid="composer-expand"`, **Expand the message field** / **Collapse the message field**, `aria-pressed`), gives the field the whole chat under its header, for writing or pasting a long prompt; its chevron points up, and down while expanded. The transcript stays under the card.
+- **Folding back** - the same control, **Escape** in the field (before Escape leaves an edit: folding loses nothing), sending or queueing the prompt, and opening another chat. The text stays as it was.
+- **The start screen** grows with its text but has no expand control: the card stands in the middle of the page with room around it.
+
+## Quoting the transcript
+
+![A selection in an answer offering Quote, and a sent prompt showing its quotes, dark theme at 1280 px](../assets/transcript-quote-dark-1280.png)
+
+*A selection in an answer offers Quote; a sent prompt shows the passages it quotes, dark theme at 1280 px*
+
+Select text anywhere in the transcript - an answer, a prompt, a tool card - and a **Quote** button appears by the selection once it rests (`data-testid="transcript-quote"`, **`chat/TranscriptQuoteButton.tsx`**). With a mouse it stands above the selection; on a touch screen below it, since the browser's own selection menu takes the space above. It keeps between the chat header and the composer and leaves when the selection collapses or scrolls out of view. The chat's title, the composer and anything outside the transcript offer nothing, and neither does a read-only subagent transcript or an archived chat, which have no composer.
+
+- **What a press does** - the passage goes into the draft as Markdown quote lines (`> `, a bare `>` for a blank line), after what is already written with a blank line on both sides and an empty line under it to write on; the selection is cleared and the caret goes to the end of the draft (the field takes the focus wherever the app may focus it, so not on a phone, where focus opens the keyboard). Quote again and the passages pile up in the order they were taken (issue #342).
+- **The draft is plain text** - a quote is part of the draft, so whatever keeps, queues or brings back a draft keeps its quotes too, and removing one is editing the text. The model reads it as a Markdown quote; the documentation reader's **Ask about the selection** quotes the same way (**`chat/quoteDraft.ts`**).
+- **In the conversation** - a sent prompt shows the lines it quotes as quote blocks with a bar on the left, in a quieter tint than the text written around them (`data-testid="user-message-quote"`). Only a marker at the start of a line followed by a space or nothing opens a quote, so `>=5` stays text. Copy and the pencil still hand back the prompt exactly as it was sent.
 
 ## Composer primary action (`#btn-send`)
 
@@ -1790,6 +1816,22 @@ CODDY_UI_URL=http://127.0.0.1:5241 npm --prefix external/ui run check:caret
 ```
 
 **`CODDY_ENGINE=webkit`** (or **`firefox`**) runs it in another engine, **`CODDY_BROWSER_PATH`** points it at an installed Chromium (Yandex Browser's binary included), and **`CODDY_CARET_TOLERANCE`** raises the count of pixels that may differ. Firefox skips the zoom changed after typing: it keeps a fractional scroll offset in a textarea and rounds a div's when only the CSS **`zoom`** changes, which its own page zoom, a change of density, does not do. Like the other harnesses here, it is a manual check, run when a change touches the composer's field, its mirror or the type around them.
+
+### Checking long prompts and quotes
+
+How tall the composer's field grows, where the expanded composer stops, where the Quote button stands and where a conversation opens are layout facts jsdom cannot see (issue #342; **`DESIGN.md`**, *Composer field height and expand*, *Quote from the transcript*, *Transcript scroll-to-bottom button*). **`external/ui/scripts/long-prompts-check.mjs`** measures them against a running **`coddy serve`** with a mouse at 1280 px and with a finger at 390x844, 320x568 and 844x390: the field grows with a draft and stops at its ceiling (eight lines, 40% of the visible viewport, never so tall that the docked block rides over the chat header); expanded, the docked block stops 8px under the header and the control stands on the wand's vertical line; folded, the field is back to its text; a selection in the last answer offers Quote inside the band between the header and the docked block, above it with a mouse and below it with a finger, and a press appends the quote to the draft; another conversation opens on its newest message after the reader scrolled to the top of the first; pulling the page down with a finger offers only the jump to the top, which lands there; and the page never scrolls sideways.
+
+It needs a server with two sessions of a few turns each: the first two of **`GET /coddy/sessions`**, or the ids in **`CODDY_SESSIONS`**.
+
+```bash
+cd external/ui && npm i --no-save playwright && npx playwright install chromium webkit
+```
+
+```bash
+CODDY_URL=http://127.0.0.1:18081 npm --prefix external/ui run check:long-prompts
+```
+
+**`CODDY_ENGINE=webkit`** runs it in WebKit, which is where a tap on Quote used to do nothing (a cancelled **`pointerdown`** costs a touch its click there), and **`CODDY_BROWSER_PATH`** points Chromium at an installed browser. Run it when a change touches the composer's height, the expand control, the Quote button or the jumps of the transcript.
 
 ### Checking a long transcript
 

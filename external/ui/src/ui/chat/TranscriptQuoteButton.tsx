@@ -140,8 +140,12 @@ export function TranscriptQuoteButton(props: {
       style={{ left: `${offer.x}px`, top: `${offer.y}px` }}
       title={t("chat.quoteSelectionTitle")}
       onPointerDown={(e) => {
-        // Keep the selection (and the caret where it was) through the press.
-        e.preventDefault();
+        // A mouse keeps the selection (and the caret where it was) through
+        // the press. A finger is left alone: WebKit sends no click after a
+        // touch whose pointerdown was cancelled, and the text to quote was
+        // read when the button appeared, whatever the tap does to the
+        // selection.
+        if (e.pointerType === "mouse") e.preventDefault();
         pressingRef.current = true;
         // A press that never became a click (dragged off) lets go again.
         window.setTimeout(() => {

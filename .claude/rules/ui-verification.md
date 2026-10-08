@@ -58,6 +58,18 @@ field, its mirror, its padding or its type, run **`external/ui/scripts/composer-
 device scale factors 1 to 3 and page zoom 110% to 175%, scrolled and changed under an open page,
 and fails on any pixel that differs.
 
+## Long prompts and quotes
+
+The composer's field follows its text and expands over the chat, a text selection in the transcript
+offers Quote, and another conversation opens on its newest message (**`DESIGN.md`**, *Composer field
+height and expand*, *Quote from the transcript*). Where the field stops, where the button stands and
+whether a tap reaches it are layout and input facts jsdom cannot see. When the change touches the
+composer's height, the expand control, the Quote button or the jumps of the transcript, run
+**`external/ui/scripts/long-prompts-check.mjs`** (**`npm run check:long-prompts`**) against a running
+**`coddy serve`** with two sessions (setup in **`docs/surfaces/web-ui.md`**, *Checking long prompts and
+quotes*), and once more with **`CODDY_ENGINE=webkit`**: a cancelled **`pointerdown`** costs a touch its
+click in WebKit, which is how a tap on Quote did nothing there while Chromium passed.
+
 ## A long transcript
 
 Only a bounded slice of a transcript is in the DOM, and a long session holds only the end of its

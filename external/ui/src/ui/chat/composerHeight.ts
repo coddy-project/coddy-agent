@@ -35,32 +35,38 @@ export type ComposerFieldMetrics = {
   /** The height of the visible viewport (`visualViewport`, else the window). */
   viewportPx: number;
   /**
-   * With the field at its floor, how far the top of the composer block (the
-   * queue, the plate and the card) is from the line the expanded composer
-   * may reach: the chat header's bottom edge and the gap under it.
+   * With the field at its floor, how far the top of the docked block (the
+   * banners, the queue, the plate and the card) is from the line it may
+   * reach: the chat header's bottom edge and the gap under it. `Infinity`
+   * where there is no such line (the start screen).
    */
   roomAbovePx: number;
 };
 
-/** The tallest the field grows by itself. Never below its floor. */
+/**
+ * The tallest the field grows by itself: eight lines, 40% of the visible
+ * viewport, and never so tall that the docked block rides over the chat
+ * header (a phone held sideways has little height to give). Never below its
+ * floor.
+ */
 export function composerAutoCeilingPx(m: ComposerFieldMetrics): number {
   const byLines = COMPOSER_AUTO_MAX_LINES * m.lineHeightPx + m.chromePx;
   const byViewport = COMPOSER_AUTO_MAX_VIEWPORT_SHARE * m.viewportPx;
-  return Math.max(m.floorPx, Math.min(byLines, byViewport));
+  const byRoom = m.floorPx + m.roomAbovePx;
+  return Math.max(m.floorPx, Math.min(byLines, byViewport, byRoom));
 }
 
 /**
  * The height the field takes: the text's, between the floor and the ceiling;
- * expanded, everything up to the chat header, and never less than the text's.
+ * expanded, everything up to the chat header. Where there is no header to
+ * reach, expanding changes nothing.
  */
 export function composerFieldHeightPx(
   m: ComposerFieldMetrics,
   expanded: boolean,
 ): number {
-  const own = Math.min(
-    Math.max(m.contentPx, m.floorPx),
-    composerAutoCeilingPx(m),
-  );
-  if (!expanded) return own;
-  return Math.max(own, m.floorPx + Math.max(0, m.roomAbovePx));
+  if (expanded && Number.isFinite(m.roomAbovePx)) {
+    return Math.max(m.floorPx, m.floorPx + m.roomAbovePx);
+  }
+  return Math.min(Math.max(m.contentPx, m.floorPx), composerAutoCeilingPx(m));
 }

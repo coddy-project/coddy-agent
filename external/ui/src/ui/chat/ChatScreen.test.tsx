@@ -568,6 +568,36 @@ test("a conversation opened after the reader scrolled up in another one lands on
   );
   await waitFor(() => expect(reopened.scrollTop).toBe(500));
   expect(scrollButtonShown()).toBe(false);
+
+  // A scroll event between the switch and the new rows - the old rows still
+  // fading out at the offset they were read at - does not decide for it.
+  reopened.scrollTop = 100;
+  fireEvent.scroll(reopened);
+  await waitFor(() => expect(scrollButtonShown()).toBe(true));
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s4"
+      items={[
+        { type: "user_message", id: "s3-u1", content: "a third chat" },
+        { type: "assistant_message", id: "s3-a1", content: "its answer" },
+        { type: "assistant_message", id: "s3-a2", content: "and more" },
+      ]}
+    />,
+  );
+  fireEvent.scroll(reopened);
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s4"
+      items={[
+        { type: "user_message", id: "s4-u1", content: "a fourth chat" },
+        { type: "assistant_message", id: "s4-a1", content: "its answer" },
+      ]}
+    />,
+  );
+  await waitFor(() => expect(reopened.scrollTop).toBe(500));
+  expect(scrollButtonShown()).toBe(false);
 });
 
 test("output arriving while the reader is scrolled up keeps the button and the reading position", async () => {

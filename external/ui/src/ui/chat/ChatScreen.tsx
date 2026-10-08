@@ -237,6 +237,10 @@ export function ChatScreen(props: {
   );
   const showSkeleton = isEmpty && !!props.sessionLoading;
   const stickToBottomRef = useRef(true);
+  // Another conversation is opening: until its rows land on their end, no
+  // scroll event - the old rows fading out, the old window still anchoring -
+  // may decide the reader left the newest message.
+  const openingRef = useRef(false);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
   const prevPermissionsForScrollRef = useRef(new Set<string>());
   const jumpFrameRef = useRef<number | null>(null);
@@ -355,7 +359,7 @@ export function ChatScreen(props: {
   const syncTranscriptPosition = useCallback(() => {
     // A jump owns the position while it travels. Reading it mid-flight would
     // put the button back on screen for every frame above the band.
-    if (jumpFrameRef.current !== null) return;
+    if (jumpFrameRef.current !== null || openingRef.current) return;
     const el = messagesRef.current;
     const metrics = mobileDocScroll
       ? documentTranscriptMetrics(window)
@@ -559,6 +563,7 @@ export function ChatScreen(props: {
     openedSessionIdRef.current = props.sessionId;
     cancelTranscriptJump();
     stickToBottomRef.current = true;
+    openingRef.current = true;
     setShowScrollToBottom(false);
     setScrollingUp(false);
   }, [props.sessionId, cancelTranscriptJump]);
@@ -584,7 +589,12 @@ export function ChatScreen(props: {
       (key) => !prevPermissionsForScrollRef.current.has(key),
     );
     prevPermissionsForScrollRef.current = permissions;
-    if (!newPermission && !transcriptItemsAffectAutoScroll(prev, props.items)) {
+    const opening = openingRef.current;
+    if (
+      !opening &&
+      !newPermission &&
+      !transcriptItemsAffectAutoScroll(prev, props.items)
+    ) {
       return;
     }
     // A jump already chases the end of a growing transcript; a hard scroll here
@@ -592,11 +602,13 @@ export function ChatScreen(props: {
     if (jumpFrameRef.current !== null) return;
     // Content grew under a reader who scrolled away: leave them where they are
     // and re-read the position, which is what reveals the button mid-stream.
-    if (!stickToBottomRef.current) {
+    if (!opening && !stickToBottomRef.current) {
       syncTranscriptPosition();
       return;
     }
     const follow = () => {
+      openingRef.current = false;
+      stickToBottomRef.current = true;
       writeTranscriptScrollTop(transcriptScrollBottom());
       syncTranscriptPosition();
     };
