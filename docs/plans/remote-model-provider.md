@@ -1,6 +1,6 @@
 # Plan: models shared by a remote Coddy (provider type `coddy`)
 
-Status: design record; phases 1 and 2 are implemented on this branch (phase 1: config, llm client and wire, server routes, agent and session wiring, dry-run, docs; phase 2: capabilities from the listing, the usage projection and the liveness of a vanished peer; see 6b), phases 3 and 4 are not. Branch `feat/remote-model-provider`, based on
+Status: design record; phases 1, 2 and 3 are implemented on this branch (phase 1: config, llm client and wire, server routes, agent and session wiring, dry-run, docs; phase 2: capabilities from the listing, the usage projection and the liveness of a vanished peer; phase 3: scoped relay clients, client certificates, rate limits, audit counters, the node label and the token erasure; see 6b), phase 4 is not. Branch `feat/remote-model-provider`, based on
 `upstream/main` (`coddy-project/coddy-agent`). Written after a code survey of this repository and a web survey of LLM gateways, protocols and Go libraries (2026-10-07). Facts
 about this repository were checked against the code; facts about third-party projects (versions,
 licences, terms of service) were collected by research subagents and not re-verified, and the
@@ -437,14 +437,15 @@ host. So:
 - A node that exists to share models gives its consumers, and its relay, a shared-model token (4.5a).
 - Through a relay the client holds a relay client token and the relay replaces it with the node's
   token, so the node sees one caller: per-client quotas cannot be kept on the node, and the stream
-  limit counts the relay's clients together. The slot is held while the request body is read, so up to `max_streams` clients that send slowly can pin a credential for the length of the body deadline, repeatedly, and the credential's other clients get `busy` meanwhile; through a relay these are all clients of the relay. The limit protects the node and its provider, not clients from each other. Per-client scopes enforced by the relay's path gate (`mountAllows`) stay in phase 3, with an mTLS option on the direct listener.
+  limit counts the relay's clients together. The slot is held while the request body is read, so up to `max_streams` clients that send slowly can pin a credential for the length of the body deadline, repeatedly, and the credential's other clients get `busy` meanwhile; through a relay these are all clients of the relay. The limit protects the node and its provider, not clients from each other.
+  **Phase 3 (done, `remote-model-provider-phase3.md`):** the relay now tells its clients apart. A `swarm.clients` entry is a scoped credential of its own (`name`, `token`, `scope: shared_models`, `nodes` as exact hop paths, `max_streams`, `rate_per_minute`, `rate_burst`, `cert_names`): the relay's gate lets it through only on a mount, judges the node allowlist and a closed table of the three shared-model routes (exact method, exact decoded path) before it looks the node up, and answers anything else, an unlisted node included, like an unknown token or an unknown node. The relay holds each entry to its own slots and window (`429 busy` with `code: client_streams` or `client_rate`, answered without asking the node; a window token is refunded when the node itself answers `busy`), so one borrower can no longer drain another's budget on the relay. The sentence above still holds for what the node sees: one caller, the relay; the full class (`swarm.auth_token`) is one caller too, and the relay does not limit it. A verified client certificate can stand for an entry, or be bound to its token, by `cert_names`; the direct listener takes certificates too (`httpserver.tls`, `httpserver.shared_models.cert_names`, the class `mtls` with a budget per name), so borrowers are told apart without a relay at all.
 
 ### 4.5a What a relay does with a node's token (read from the code)
 
 - The token travels in the registration document (`RegisterRequest.Token`) for **both** transports
   and the relay keeps it in its registry. It is used for: the mount (`rewriteFor` sets
   `Authorization: Bearer <token>`), the aggregated session list (a `GET` of the node's sessions
-  route, `external/swarm/sessions.go`), and the topology of **child relays** only.
+  route, `external/swarm/sessions.go`), and the topology of **child relays** only. A registration or renewal by the lease's owner replaces the stored token with the one it carries, an empty one included (phase 3, area F; the last bullet below).
 - A tunnel node serves its full `Handler()`, which is `corsMiddleware(authGate(mux))`, over the
   tunnel, so the node's own gate judges tunnel requests exactly as it judges direct ones.
 - A node that joins with no token makes the relay send no `Authorization` at all: with node auth on,
@@ -455,23 +456,16 @@ host. So:
   change**, with `swarm.join[].token` set to it (a node pinned from the relay side uses
   `swarm.upstreams[].token`). The mount carries the three LLM routes. The relay's session aggregation
   gets a `401` from that node and shows it as a warning, `<node>: 401 Unauthorized`, which the swarm view lists (the same warning comes from a node with auth on and an empty or stale or rotated token; an unreachable node warns with the transport error and an expired lease with `offline since`); topology is unaffected, since only child relays are asked for it; opening the node as
-  an environment in the web UI is refused, which is the point. Silencing the warning with a node
-  label can follow.
+  an environment in the web UI is refused, which is the point. The phase 3 label silences it: a node whose join token opens only shared models registers with the reserved label `coddy.token_class: shared_models`, the relay still asks it and swallows only its `401` (any other outcome is a warning as for every node), and the swarm view shows a "shared models only" badge instead.
 - One join token means one privilege. A node that must be driven through the relay **and** share
   models through it has to join with a token that does both, so every relay client then gets that
-  privilege until the relay has per-client scopes (phase 3).
+  privilege until a client is given a scoped entry (phase 3): a `swarm.clients` entry reaches only the three shared-model routes of the nodes it lists, whatever token the node joined with.
 - The relay client token a consumer puts into the `api_key` of a `coddy` row opens the mounts of
   **every** node of that relay (`mountedPrefixes` carries `/v1/` and `/coddy/` for all of them),
   each with the token that node joined with. The shared-model token class therefore protects only
   the nodes that joined with one. Share-only nodes belong on a **dedicated relay**, and the
-  documentation says so.
-- A re-registration with an empty `Token` does not erase the old one (`registry.go`). The stale token
-  therefore survives the removal of `swarm.join[].token` for as long as the lease is renewed: a direct
-  node renews on every heartbeat and a tunnel node keeps one lease for the whole connection, so for a
-  node that stays joined it never expires on its own. It is dropped only when the node is silent for
-  longer than the offline grace (ttl + grace, 180 s by default) and registers again, or at once by
-  rotating to a different non-empty token, by `DELETE /swarm/nodes/<name>` on the relay (the node's next
-  registration is a fresh lease with the new, empty token), or by restarting the relay. **Decided by quorum (phase 3, hardening; a relay change in `external/swarm/registry.go`): a registration or renewal by the lease's owner replaces the token with the one it carries, an empty token included** (compatibility with nodes of older versions to be checked first). Until then, to cut a node off the relay, evict it; do not only edit its configuration. *(model `m4-auth-relay`)*
+  documentation says so; since phase 3 that is advice for the full class only: a scoped client of a mixed relay reaches the nodes it lists and nothing else, so a dedicated relay is no longer the only way to keep a borrower off the other nodes.
+- **Phase 3 (done, area F):** a registration or renewal by the lease's owner replaces the token with the one it carries, an empty one included (`Registry.RegisterWithDial`; the first claim already stored what it carried, a non-owner never reaches the line). Before it, a re-registration with an empty `Token` did not erase the old one, so a stale token survived the removal of `swarm.join[].token` for as long as the lease was renewed. Now the token is cut off at the node's next heartbeat (at most a third of the lease, 30 s by default; a tunnel node at its next connect), and with it gone the mount sends no `Authorization`: a node with authentication answers `401`, an open node is open to every full client as documented. `DELETE /swarm/nodes/<name>` stays the immediate cut. *(model `m4-auth-relay`, quorum item 4 of 6a)*
 
 ### 4.6 Prompt cache and determinism
 
@@ -511,8 +505,7 @@ that were tagged `@phase2` belong to step 2; they run now and the tag is gone.
    shared-model token class, fail-closed authentication and the unconditional requirement, the stream limit, `busy_wait_ms` and `max_call_ms`, `GET /coddy/llm/models` and `POST /coddy/llm/completions`, the DTO and its
    coverage test, the `coddy` type with typed errors, `ListModels`, the context window from the listing, `revision`, `expected_revision`, `stale_revision` and the signature envelope on the wire and the client's refresh on `stale_revision` (the wire shape is strict by `protocol`, and an envelope cannot be introduced under stored histories later), a `coddy` row that declares `multimodal` and `reasoning_levels` in its own keys, direct and mount, docs, schema. Every untagged scenario.
 2. **Metadata and limits**: reasoning levels, default and `off`, and **multimodal** from the listing (the resolver, the three multimodal reads, the tri-state keys, the `--dry-run` disagreement warning), the usage projection route and its client and the liveness probe of a vanished peer (45 s from its disappearance on the leg the node sees). The `@phase2` scenarios.
-3. **Hardening**: relay-side per-client scopes, mTLS, rate limits, audit counters, a node label to
-   silence the relay's session warning.
+3. **Hardening** (done, [`remote-model-provider-phase3.md`](remote-model-provider-phase3.md)): relay-side per-client scopes with an exact route table and exact hop paths, client certificates (on the relay listener, from a relay or node to its peer, from a `coddy` provider, and on the direct listener through `httpserver.tls`), rate limits on the node and the relay, audit counters on both, a node label that silences the relay's sessions warning, and the relay erasing a stale token. The application probe of a vanished peer (O4 of the phase 2 plan) stays later.
 4. **Relay discovery** and multi-node failover.
 
 ## 5a. Tests that are not scenarios
@@ -529,8 +522,9 @@ The spec holds the happy paths; the rest is unit tests next to the code, as the 
 | Transport | `TestProviderProxyGuard` still green; `features/provider_proxy.feature` gains the request classes completion, list and usage for the new type |
 | Cache | the two tests of 4.6 |
 | Dry run | `--dry-run` reports an unreachable remote, a refused token and a protocol mismatch per provider row |
-| Relay | a node with an empty join token gets no `Authorization`; a re-registration with an empty token keeps the old one and a heartbeat with an empty token does not drop it (until the phase 3 change; then the owner's registration erases it); `DELETE /swarm/nodes/<name>` followed by the node's next registration leaves the entry without a token; the sessions warning for a share-only join and for an empty join token on an authenticated node |
-| SPA | the alias field and the acknowledgement checkbox of a model row, tri-state `multimodal` and `allow_reasoning_off`, the shared-model token field, `messagesParity.test.ts` for the new strings |
+| Relay | a node with an empty join token gets no `Authorization`; a re-registration or a heartbeat by the owner with an empty token erases the stored token (phase 3; it kept it before), a non-owner changes nothing, and a pinned upstream is untouched; `DELETE /swarm/nodes/<name>` followed by the node's next registration leaves the entry without a token; the sessions warning for a share-only join and for an empty join token on an authenticated node, and no warning for a node labelled `shared_models` whose `401` is swallowed (any other outcome of that node still warns); a scoped client: the gate lets it through only on a mount, the closed route table and the exact hop paths (an unlisted node and an unknown node answer alike), the full token never reduced by a certificate, a certificate never raising a credential, the identity read per request with the leaf's validity rechecked; the relay's slots, window and refund, the `429 busy` codes, and the label-only counters of `GET /swarm/stats`, which a scoped client cannot read |
+| Phase 3 | `internal/shareguard` (GCRA limiter with refund, bounded counters), the node's window and counters (`code: rate_window`, `GET /coddy/shared-models/stats`), the client certificate of a `coddy` row and its expiry in `--dry-run`, `httpserver.tls` and `cert_names` (a name opens the three LLM routes as the class `mtls` and nothing else, a budget per name, an expired or unlisted certificate refused, `required` refusing a peer at the handshake, HTTP/1.1 only), and `coddy -t` on every new key |
+| SPA | the alias field and the acknowledgement checkbox of a model row, tri-state `multimodal` and `allow_reasoning_off`, the shared-model token field, the "shared models only" badge of a node, `messagesParity.test.ts` for the new strings |
 
 The two scenarios about the stream limit stay in the specification although the convention would
 send refusals to unit tests: they are the only executable record of two decisions (five at once, the
@@ -576,6 +570,16 @@ assumptions, not about code that does not exist yet.
 
 **Decided by modeling:** where the busy wait lives (4.1b) and how capabilities arrive (4.3).
 
+**Phase 3** had five dilemmas, each decided with the engine (`mcd 0.2.0`, one property per run; models and reports `p3-d1` to `p3-d5` in `remote-model-provider-models/`, the plan is [`remote-model-provider-phase3.md`](remote-model-provider-phase3.md)), and each model and each code stage was then cross-reviewed:
+
+| Report | Dilemma | Decision |
+|---|---|---|
+| `p3-d1-allowlist-chain` | what a node allowlist entry means when relays chain | an entry is an **exact hop path** (`edge/gpu-box` admits that node through that relay and nothing else); a bare name is the single-hop path; the other readings let a client reach the nodes behind an allowlisted child or fail under a name collision |
+| `p3-d2-mtls-identity` | a client certificate against the relay's credential replacement | **per entry, read per request** from `r.TLS` against the live entries (a token only, a certificate only, or both bound to one entry); a certificate alone for everything, or an identity cached at the handshake, keeps a revoked name alive on an open connection |
+| `p3-d3-rate-windows` | where rate limits live, what they answer, when they spend | **both layers**, a token taken **after** the slot, the refusal answered as `busy` with a `code`, and the relay refunds the token when the node answers `busy`; a window answered as `rate` or no refund each break a named property |
+| `p3-d4-sessions-label` | what the node label does to the sessions list | the relay **still asks a labelled node and swallows only its `401`**; skipping it hides a node that carries a hand-written label and never reports a labelled node that fails |
+| `p3-d5-scope-routes` | the scope model | a **closed class with an exact route table** on the decoded remainder; a prefix on `/coddy/llm/` would admit a route a later release adds |
+
 **Decided by quorum** (cross-review round 3, two reviewers; where they split, the orchestrator's
 evidence decided and says so):
 
@@ -591,7 +595,7 @@ evidence decided and says so):
    the leg the node sees: the direct listener is plain HTTP/1.1, the tunnel already pings at 30 s and
    15 s.
 4. **The relay erases the token when the owner's registration carries none** (phase 3, a change in
-   `external/swarm/registry.go`); the interim rule is in 4.5a.
+   `external/swarm/registry.go`, done; the rule is in 4.5a).
 5. Constants and consistency (Q5, Q6, split, decided by evidence): the reviewer who found the 60 s against
    30 s body deadline, the unbounded `I = 0`, the missing client bound on the upload and the recovery
    wording was right; the corrections are in 4.1a, 4.1b, 4.2, 4.3, 4.5, 4.6 and 5a. Nothing blocks the
@@ -622,10 +626,12 @@ scenarios (16 direct, 6 relay) pass in strict mode; the six `@phase2` scenarios 
 
 Not implemented by phase 1 (phase 2 did the first four, see below): the usage projection route (it answered 404), reasoning
 levels and multimodal from the listing (the resolver and the tri-state keys), the liveness probe, the
-`--dry-run` warning for a local key that differs from the listing; and, still open, the relay erasing a stale token,
-per-client relay scopes, relay discovery.
+`--dry-run` warning for a local key that differs from the listing; and, still open then, the relay erasing a stale token,
+per-client relay scopes (both done in phase 3), relay discovery (phase 4).
 
 **Phase 2** is implemented too, by the plan [`remote-model-provider-phase2.md`](remote-model-provider-phase2.md), whose five open dilemmas were decided with the model-check engine (reports `p2-d1-config-source`, `p2-d2-usage-cache`, `p2-d3-vanished-peer`, `p2-d3b-h2-client` and `p2-d4-busy-notice` in `remote-model-provider-models/`): the reasoning levels, the default, `off` and multimodal of a `coddy` row come from the remote's listing, key by key, with `multimodal` and `allow_reasoning_off` three-state (`*bool`); `GET /coddy/llm/models/{alias}/usage` answers the allowlist projection (`reset_in_s`, no absolute time), read per alias by the local manager; a vanished peer's slot is freed within 45 s on Linux (per-call `TCP_USER_TIMEOUT`, the node's tunnel ping at 15 s and 30 s, the relay bounding its own client), with the local Coddy offering only HTTP/1.1 to a `coddy` remote and a foreign HTTP/2 client of a TLS relay as the documented residual; the busy countdown is state of its own beside the usage snapshot on every surface; `--dry-run` warns about a local key that differs from the listing. The six `@phase2` scenarios run and their tags are gone. The documentation is [`docs/features/shared-models.md`](../features/shared-models.md); what stays outside, the not-covered list of 5.2 of the phase 2 plan, is on that page too.
+
+**Phase 3** is implemented too, by the plan [`remote-model-provider-phase3.md`](remote-model-provider-phase3.md), stage by stage (H0 to H9, each test-first, cross-reviewed by three models, every verified finding fixed with a test): the relay erases a stale token (H0); the limiter `internal/shareguard`, a GCRA window with refund and bounded label-only counters, written in the repository rather than on `golang.org/x/time/rate` (H1r); the configuration (`swarm.clients`, `swarm.tls.client_ca_file` and `client_auth`, `dial.cert_file` and `key_file`, `providers[].ca_file`, `client_cert_file` and `client_key_file`, `httpserver.shared_models.rate_per_minute`, `rate_burst` and `cert_names`, `httpserver.tls`; H1, H7); scoped relay clients and client certificates on the relay (principal, closed route table, exact hop paths, H2a), the relay's slots, window, refund and counters at `GET /swarm/stats` (H2b); the node label and its badge (H3); the node's window and its counters at `GET /coddy/shared-models/stats` (H4); the TLS identity of a `coddy` row on its completion, listing and usage requests, with its expiry in `--dry-run` (H5); the executable specifications (H6); TLS and client certificates on the direct listener, HTTP/1.1 only, with the class `mtls` and a budget per name (H7); the documentation (H8); and the integration gates (H9). Deviations from the plan: the relay's counters have a sixth outcome, `auth`, for a token the gate refused on a shared route (the plan listed five); the shared TLS code of the relay and the direct listener lives in `internal/netx/servercert.go`; the limiter key of a bearer token is prefixed (`bearer:`) so no token can spell a certificate's or a cookie's key. Open after phase 3: the application probe of a vanished peer, the settings form for `httpserver.tls` and `cert_names` (YAML only today), mTLS from a relay to a node that registered itself, and `make check-android`, which needs the NDK.
 
 Decisions taken where the plan was silent: the swarm token class is `swarm.auth_token`,
 `swarm.pairing_tokens`, `swarm.join[].pairing_token` and the swarm tokens of flags and environment
@@ -673,7 +679,7 @@ with `stream: false`, and `<home>/.env` credentials invisible to the `coddy serv
 
 No new module is needed. `net/http`, `httputil.ReverseProxy` (only for a possible passthrough
 variant), `bufio` for an SSE reader with a raised line limit, `gjson` (already in `go.mod`) for
-usage, `crypto/tls` for mTLS, and `golang.org/x/time/rate` for limits. Considered and rejected:
+usage, `crypto/tls` for mTLS, and, for limits, a GCRA limiter of the repository's own (`internal/shareguard`), so that the window, its refund and the bounded label-only counters live in one untagged package shared by the node and the relay; no module was added. Considered and rejected:
 multi-provider SDKs (langchaingo, eino, genkit, any-llm-go), which reduce everything to their own
 model and lose reasoning items; gRPC and ConnectRPC, which need protobuf generation while every
 OpenAI client and proxy speaks HTTP and SSE; tsnet, libp2p, quic-go and OpenZiti, which add a large
