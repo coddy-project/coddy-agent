@@ -64,6 +64,10 @@ let heldModels: Promise<void> | undefined;
 let heldQueue: Promise<void> | undefined;
 /** How many of the next prompts the server refuses with a 500. */
 let refusePrompts: number;
+/** A session's snapshot version held fixed, as when nothing changed it. */
+let pinnedVersion: Record<string, number>;
+/** The server-events stream, held open so a test can push a frame into it. */
+let eventsController: ReadableStreamDefaultController<Uint8Array> | null;
 
 function resetServer() {
   sessions = {
@@ -83,6 +87,30 @@ function resetServer() {
   heldModels = undefined;
   heldQueue = undefined;
   refusePrompts = 0;
+  pinnedVersion = {};
+  eventsController = null;
+}
+
+async function pushEvent(name: string, data: unknown) {
+  await act(async () => {
+    eventsController?.enqueue(
+      new TextEncoder().encode(
+        `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`,
+      ),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+/** The session_settings frame another surface's change publishes. */
+function settingsEvent(sid: string) {
+  return {
+    object: "coddy.session_settings",
+    sessionId: sid,
+    settings: snapshot(sid),
+    notice: "",
+    source: "console",
+  };
 }
 
 /** gate returns a promise and the function that lets it go. */
@@ -126,7 +154,7 @@ function snapshot(sid: string) {
   const s = sessions[sid]!;
   return {
     sessionId: sid,
-    version: ++version,
+    version: pinnedVersion[sid] ?? ++version,
     model: s.model,
     reasoning: s.reasoning,
     reasoningChoices: LEVELS,
@@ -163,9 +191,14 @@ const fetchMock = vi.fn(
   async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path === "/coddy/events") {
-      return new Response(new ReadableStream<Uint8Array>({ start: () => {} }), {
-        headers: { "Content-Type": "text/event-stream" },
-      });
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start: (c) => {
+            eventsController = c;
+          },
+        }),
+        { headers: { "Content-Type": "text/event-stream" } },
+      );
     }
     if (path === "/v1/responses") {
       const sid = new Headers(init?.headers).get("X-Coddy-Session-ID") ?? "";
@@ -635,3 +668,45 @@ test("a first message the server refuses keeps the mode picked on the start page
   const prompt = await send("hello");
   expect(prompt.model).toBe("plan");
 });
+
+// The events stream can bring a session's snapshot before its transcript
+// read does, while the model list is still on the way: the read carries the
+// same version and still has to keep the model for that list.
+test("a snapshot the events stream brought first keeps its model for the model list", async () => {
+  const [models, releaseModels] = gate();
+  heldModels = models;
+  const release = hold(S_PLAN);
+  mount(`/#/s/${S_PLAN}`);
+  await settle();
+  pinnedVersion[S_PLAN] = 50;
+  await pushEvent("session_settings", settingsEvent(S_PLAN));
+  await act(async () => release());
+  await screen.findByText(`prompt in ${S_PLAN}`);
+  await settle();
+
+  await act(async () => releaseModels());
+  await waitFor(() => expect(modelChip()).toHaveTextContent("beta-model"));
+  expect(reasoningChip()).toHaveTextContent("High");
+});
+
+// Every settings read of the way back fails, but the session's snapshot
+// reaches the tab another way: Send no longer has anything to wait for.
+test("a running chat whose settings reads fail is released by a snapshot from the events stream", async () => {
+  await mountSession(S_PLAN);
+  holdTurn = true;
+  await send("a long task");
+  await navigate(S_ASK);
+  failReads[S_PLAN] = 10;
+  await goTo(`/#/s/${S_PLAN}`);
+  await settle();
+  expect(modePill()).toHaveTextContent("Ask");
+
+  await pushEvent("session_settings", settingsEvent(S_PLAN));
+  await waitFor(() => expect(modePill()).toHaveTextContent("Plan"));
+  endTurn();
+  await waitFor(() => expect(openTurns.size).toBe(0));
+  failReads[S_PLAN] = 10;
+  // The turn is over and its read failed too: the snapshot is what lets Send go.
+  type("next step");
+  await waitFor(() => expect(sendButton()).toBeEnabled(), { timeout: 4000 });
+}, 15_000);

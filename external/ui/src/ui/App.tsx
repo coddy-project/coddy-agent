@@ -55,6 +55,7 @@ import {
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
+import { readOpening, type OpeningRead } from "./chat/openingRead";
 import {
   isNewerSettings,
   parseSessionSettings,
@@ -432,36 +433,6 @@ async function fetchJSON<T>(
   return { ok: true, status, data };
 }
 
-/**
- * The outcome of a read that opens a session: its settings are read and
- * applied, the server answered 404 (no such session), the read failed, or a
- * later read took its place.
- */
-type OpeningRead = "read" | "missing" | "failed" | "superseded";
-
-/** When the read that opens a session runs, the first time at once. */
-const OPENING_READ_DELAYS_MS = [0, 1000, 3000, 9000];
-
-/**
- * readOpening runs the read that opens a session until it says something.
- * Send waits for the session's own settings, so a read that failed for any
- * reason but a 404 is tried again after a pause; "failed" comes back only
- * when every try failed or the visit ended.
- */
-async function readOpening(
-  read: () => Promise<OpeningRead>,
-  signal: AbortSignal,
-): Promise<OpeningRead> {
-  let outcome: OpeningRead = "failed";
-  for (const delayMs of OPENING_READ_DELAYS_MS) {
-    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
-    if (signal.aborted) return "failed";
-    outcome = await read();
-    if (outcome !== "failed") break;
-  }
-  return outcome;
-}
-
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
 }
@@ -509,6 +480,10 @@ export function App() {
   const [sessionLoading, setSessionLoading] = useState(
     () => initialRoute.branch === "session",
   );
+  // Whether the session on screen still waits, as the retries of its opening
+  // read ask it after a pause: the state their render held is long gone.
+  const sessionLoadingRef = useRef(sessionLoading);
+  sessionLoadingRef.current = sessionLoading;
   /**
    * The status of a session's last transcript read that failed, 0 when it got
    * no answer: for the read that opens the session, a 404 says the server has
@@ -3474,11 +3449,18 @@ export function App() {
     // model would become it with the next message. A read whose snapshot
     // is older than the one this tab already applied - the events stream
     // got ahead of a slow read - says nothing new and moves nothing back.
+    // The same version still stashes a model the backends list did not hold
+    // when the events stream applied that snapshot first, and dropped it.
     const held =
       settingsVersionRef.current.sid === sid
         ? settingsVersionRef.current.version
         : 0;
-    if (!snap || isNewerSettings(held, sid, snap)) {
+    const modelDropped =
+      !!snap &&
+      snap.sessionId === sid &&
+      snap.version === held &&
+      !llmModelIds.includes(snap.model);
+    if (!snap || isNewerSettings(held, sid, snap) || modelDropped) {
       setOpenSessionSelection({
         sid,
         model: snap
@@ -3510,11 +3492,10 @@ export function App() {
       }>(`/coddy/sessions/${encodeURIComponent(sid)}/messages?limit=1`, {
         headers: sid === sessionId ? headers : { [HDR]: sid },
       });
+      if (viewedSessionIdRef.current.trim() !== sid) return "superseded";
       if (res.status === 404) return "missing";
       if (!res.ok || !res.data) return "failed";
-      if (viewedSessionIdRef.current.trim() === sid) {
-        mirrorSettingsRead(sid, res.data);
-      }
+      mirrorSettingsRead(sid, res.data);
       return "read";
     } catch {
       return "failed";
@@ -4638,34 +4619,46 @@ export function App() {
           // The rows come from the shadow of a turn this tab runs here, so no
           // transcript is read and the selectors would keep naming the session
           // visited before: its settings are read alone, and Send waits for
-          // them. Should every try fail, the read the turn ends with brings
-          // them and lets Send go.
+          // them. A snapshot of the session that comes another way (the
+          // events stream) ends the wait too; should every try fail, the
+          // read the turn ends with brings them and lets Send go.
+          const held = () => settingsVersionRef.current.sid === sessionId;
           const outcome = await readOpening(
             () => readViewedSettings(sessionId),
+            () => sessionLoadingRef.current && !held(),
             lifecycle.signal,
           );
-          if (lifecycle.signal.aborted) return;
-          if (outcome === "read") setSessionLoading(false);
+          if (
+            lifecycle.signal.aborted ||
+            viewedSessionIdRef.current.trim() !== sessionId
+          ) {
+            return;
+          }
           if (outcome === "missing") settleUnknownSession(sessionId);
+          else if (outcome === "read" || held()) setSessionLoading(false);
         } else {
           // freshLoad when no shadow: prevents stale itemsRef from a previous session
           // bleeding into this session (e.g. React StrictMode double-invoke of effects).
           const noShadow = !shadowSnap || shadowSnap.length === 0;
           const read: { items: TranscriptItem[] | null } = { items: null };
-          const outcome = await readOpening(async () => {
-            failedReadStatusRef.current.delete(sessionId);
-            try {
-              read.items = await loadMessages(undefined, {
-                freshLoad: noShadow,
-              });
-            } catch {
-              failedReadStatusRef.current.set(sessionId, 0);
-            }
-            if (read.items) return "read";
-            const status = failedReadStatusRef.current.get(sessionId);
-            if (status === undefined) return "superseded";
-            return status === 404 ? "missing" : "failed";
-          }, lifecycle.signal);
+          const outcome = await readOpening(
+            async () => {
+              failedReadStatusRef.current.delete(sessionId);
+              try {
+                read.items = await loadMessages(undefined, {
+                  freshLoad: noShadow,
+                });
+              } catch {
+                failedReadStatusRef.current.set(sessionId, 0);
+              }
+              if (read.items) return "read";
+              const status = failedReadStatusRef.current.get(sessionId);
+              if (status === undefined) return "superseded";
+              return status === 404 ? "missing" : "failed";
+            },
+            () => sessionLoadingRef.current,
+            lifecycle.signal,
+          );
           if (lifecycle.signal.aborted) {
             return;
           }
@@ -4690,6 +4683,7 @@ export function App() {
     })();
     return () => {
       lifecycle.abort();
+      failedReadStatusRef.current.delete(sessionId);
     };
     // Intentionally sessionId only for loadMessages coalescing; rejoin runs detached.
   }, [sessionId]);
