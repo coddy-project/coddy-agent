@@ -64,6 +64,8 @@ const COMPOSER_EXPAND_BUTTON_PX = 34;
 
 export function ChatScreen(props: {
   title: string;
+  /** The chat's name is being worked out: the header shows a placeholder. */
+  titlePending?: boolean;
   sessionId: string;
   /** Accent verb for "What do you want to …?" on the empty hero (session-stable or home rotation). */
   heroAccentVerb: HeroAccentVerb;
@@ -965,6 +967,7 @@ export function ChatScreen(props: {
               <div className="chat-title-column" ref={titleColumnRef}>
                 <ChatHeader
                   title={props.title}
+                  titlePending={props.titlePending === true}
                   editable={true}
                   onTitleSave={props.onTitleSave}
                   {...(props.onOpenBackgroundTasks
