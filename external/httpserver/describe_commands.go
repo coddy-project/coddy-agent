@@ -178,8 +178,18 @@ var describePickLinkRE = regexp.MustCompile(`^\[/([a-zA-Z0-9][a-zA-Z0-9_-]*)\]\(
 // quoted or in backticks, in the picker's link form, punctuation after it
 // allowed.
 func describeIsCommandWord(word string, commands []describedCommand) bool {
-	w := strings.Trim(word, "`\"'*_")
-	w = strings.TrimRight(w, ",.;:!?")
+	// Quotes, backticks and emphasis wrap the word, punctuation follows it, in
+	// any order ("`/x`:", "\"/x\","): both are taken off until neither is
+	// left. An underscore is not among them, since a command name may end in
+	// one.
+	w := word
+	for {
+		next := strings.TrimRight(strings.Trim(w, "`\"'*"), ",.;:!?")
+		if next == w {
+			break
+		}
+		w = next
+	}
 	name := ""
 	if m := describePickLinkRE.FindStringSubmatch(w); m != nil && m[1] == m[2] {
 		name = m[1]
@@ -212,11 +222,19 @@ func describeDropCommandEchoes(answer string, commands []describedCommand) strin
 		for lead < len(words) && describeIsCommandWord(words[lead], commands) {
 			lead++
 		}
+		rest := words[lead:]
+		if lead > 0 {
+			// The separator a model puts after the command it led with
+			// ("/x - ...", "/x: ...") goes with it.
+			for len(rest) > 0 && strings.Trim(rest[0], "-–—:|") == "" {
+				rest = rest[1:]
+			}
+		}
 		switch {
 		case lead == 0:
 			kept = append(kept, line)
-		case lead < len(words):
-			kept = append(kept, strings.Join(words[lead:], " "))
+		case len(rest) > 0:
+			kept = append(kept, strings.Join(rest, " "))
 		}
 	}
 	return strings.Join(kept, "\n")

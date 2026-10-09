@@ -298,3 +298,41 @@ func TestCoddyDescribeKnowsThePickerLinkForm(t *testing.T) {
 		t.Fatalf("short = %q, want the words around the command", short)
 	}
 }
+
+// Round two of the review: wrappers with punctuation after them, a separator
+// after the leading command, and every shape followed by title words.
+func TestCoddyDescribeDropsWrappedCommandsAndTheirSeparators(t *testing.T) {
+	for _, tc := range []struct {
+		reply, want string
+	}{
+		{"`/warm-up`: Repository onboarding", "Repository onboarding"},
+		{"\"/warm-up\", Repository onboarding", "Repository onboarding"},
+		{"/warm-up — Repository onboarding", "Repository onboarding"},
+		{"/warm-up : Repository onboarding", "Repository onboarding"},
+		{"/Warm-Up Repository onboarding", "Repository onboarding"},
+		{"`/warm-up` Repository onboarding", "Repository onboarding"},
+		{"[/warm-up](coddy-skill:warm-up) Repository onboarding", "Repository onboarding"},
+	} {
+		model := &scriptedTitleModel{reply: tc.reply}
+		ts, _, ws := describeServer(t, model)
+		if err := writeQuotedSkill(filepath.Join(ws, ".agents", "skills"), "warm-up", "Onboard onto a repository"); err != nil {
+			t.Fatal(err)
+		}
+		_, short, _ := postDescribe(t, ts, "/warm-up focus on the session titles", nil, nil)
+		if short != tc.want {
+			t.Fatalf("reply %q: short = %q, want %q", tc.reply, short, tc.want)
+		}
+	}
+}
+
+// An underscore is part of a command name: a command named with a trailing
+// one is recognised, and a longer word is not taken for a shorter command.
+func TestCoddyDescribeKeepsTheUnderscoreOfACommandName(t *testing.T) {
+	cmds := []describedCommand{{Name: "foo_"}, {Name: "warm_up"}}
+	if !describeIsCommandWord("/foo_", cmds) {
+		t.Fatal("/foo_ is not recognised as the command foo_")
+	}
+	if describeIsCommandWord("/warm_up_", cmds) {
+		t.Fatal("/warm_up_ is taken for the command warm_up")
+	}
+}
