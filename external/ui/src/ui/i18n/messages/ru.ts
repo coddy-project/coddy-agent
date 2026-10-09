@@ -414,6 +414,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.providers.client_key_file.label": "Клиентский ключ",
   "settings.schema.providers.client_key_file.desc":
     "Только для провайдеров coddy: закрытый ключ клиентского сертификата в PEM. Путь: сам ключ в конфигурацию не попадает.",
+  "settings.schema.providers.tls_auto.label": "Встроенные сертификаты",
+  "settings.schema.providers.tls_auto.desc":
+    "Только для провайдеров coddy: использовать встроенные сертификаты (coddy tls): файл CA по умолчанию — набор bundle (CA этой машины и доверенные), клиентский сертификат и ключ — клиентская пара. Файл, указанный здесь, имеет приоритет.",
   "settings.schema.providers.usage_limits_panel.label": "Панель лимитов",
   "settings.schema.providers.usage_limits_panel.desc":
     "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex, Devin или coddy здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Для провайдера coddy это аккаунт удалённого Coddy, прочитанный через него. Выключено скрывает панель и прекращает эти запросы для данной строки.",

@@ -407,6 +407,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.client_key_file.label": "Client key",
   "settings.schema.providers.client_key_file.desc":
     "coddy providers only: PEM private key of the client certificate. A path: the key itself never goes in the configuration.",
+  "settings.schema.providers.tls_auto.label": "Built-in certificates",
+  "settings.schema.providers.tls_auto.desc":
+    "coddy providers only: use the built-in certificates (coddy tls): the CA file defaults to the bundle (this machine's CA and the trusted ones), the client certificate and key to the client pair. A file named here wins.",
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
     "Show the account usage of this NeuralDeep, Codex, Devin or coddy provider here, in the console footer and in /usage, reading its usage endpoint for it. For a coddy provider that is the remote Coddy's account, read through the remote. Off hides the panel and stops those reads for this row.",

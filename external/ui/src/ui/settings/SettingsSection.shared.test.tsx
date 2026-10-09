@@ -48,6 +48,7 @@ const schema: JsonSchema = {
           ca_file: { type: "string", title: "CA file" },
           client_cert_file: { type: "string", title: "Client certificate" },
           client_key_file: { type: "string", title: "Client key" },
+          tls_auto: { type: "boolean", title: "Built-in certificates" },
           usage_limits_panel: {
             type: "boolean",
             title: "Usage limits panel",
@@ -66,6 +67,7 @@ const schema: JsonSchema = {
           "ca_file",
           "client_cert_file",
           "client_key_file",
+          "tls_auto",
           "usage_limits_panel",
         ],
       },
@@ -491,7 +493,9 @@ test("the TLS identity is three fields of the coddy provider only, among the adv
   fireEvent.change(within(advanced).getByLabelText("Client key"), {
     target: { value: "/etc/k.pem" },
   });
+  fireEvent.click(within(advanced).getByLabelText("Built-in certificates"));
   const row = (latest.providers as Record<string, unknown>[])[0];
+  expect(row?.tls_auto).toBe(true);
   expect(row?.ca_file).toBe("/etc/ca.pem");
   expect(row?.client_cert_file).toBe("/etc/c.pem");
   expect(row?.client_key_file).toBe("/etc/k.pem");
@@ -504,7 +508,12 @@ test("the TLS identity is three fields of the coddy provider only, among the adv
     />,
   );
   openFirstRow();
-  for (const label of ["CA file", "Client certificate", "Client key"]) {
+  for (const label of [
+    "CA file",
+    "Client certificate",
+    "Client key",
+    "Built-in certificates",
+  ]) {
     expect(screen.queryByLabelText(label)).toBeNull();
   }
 });
@@ -523,6 +532,7 @@ test("the TLS identity of the coddy provider reads in Russian", async () => {
     expect(screen.getByLabelText("Файл CA")).toBeTruthy();
     expect(screen.getByLabelText("Клиентский сертификат")).toBeTruthy();
     expect(screen.getByLabelText("Клиентский ключ")).toBeTruthy();
+    expect(screen.getByLabelText("Встроенные сертификаты")).toBeTruthy();
   });
 });
 
