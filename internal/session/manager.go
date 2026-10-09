@@ -1385,10 +1385,12 @@ func (m *Manager) writeDeferredBundle(state *State) error {
 		return fmt.Errorf("session layout: %w", err)
 	}
 	state.setSessionDir(dir)
-	state.bundleDeferred.Store(false)
 	if err := m.store.Save(state); err != nil {
 		return fmt.Errorf("session save: %w", err)
 	}
+	// Only a written bundle ends the wait: a failed save is tried again by
+	// the next prompt.
+	state.bundleDeferred.Store(false)
 	return nil
 }
 

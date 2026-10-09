@@ -230,7 +230,10 @@ import {
   type ClientDraftSession,
 } from "./sessions/draftSessions";
 import { isRedundantSessionPick } from "./sessions/pickSessionGuard";
-import { startSuggestSessionTitle } from "./sessionTitleSuggest";
+import {
+  startSuggestSessionTitle,
+  type TitleSuggestHandle,
+} from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
 import {
   extractSessionAssetsXml,
@@ -5112,6 +5115,19 @@ export function App() {
     // new chat's workspace, the file read) loses nothing either.
     let restoreKey = "";
     let userItemId = "";
+    const restoreToComposer = () => {
+      setDraft((current) =>
+        !current.trim() || current.trim() === text.trim()
+          ? text
+          : `${text}\n\n${current}`,
+      );
+      const files = opts?.files ?? [];
+      if (files.length > 0)
+        setComposerFiles((prev) => [
+          ...files,
+          ...prev.filter((f) => !files.includes(f)),
+        ]);
+    };
     const giveBack = () => {
       const key = restoreKey || sessionId.trim();
       if (userItemId)
@@ -5123,17 +5139,7 @@ export function App() {
         (key && viewedSessionIdRef.current.trim() !== key)
       )
         return;
-      setDraft((current) =>
-        !current.trim() || current.trim() === text.trim()
-          ? text
-          : `${text}\n\n${current}`,
-      );
-      const files = opts.files ?? [];
-      if (files.length > 0)
-        setComposerFiles((prev) => [
-          ...files,
-          ...prev.filter((f) => !files.includes(f)),
-        ]);
+      restoreToComposer();
     };
     // The opened session's settings are still being read, so the selectors
     // name another session's, and what a prompt takes from them (the mode as
@@ -5204,6 +5210,7 @@ export function App() {
       };
 
       // A first send of attachments alone has no text to name the chat by.
+      let naming: TitleSuggestHandle | null = null;
       if (isNewChatFirstSend && sessionIdWhenKnown && text.trim()) {
         const namingFolder = chatWorkspace;
         setNamingSessionIds((prev) => new Set(prev).add(sid));
@@ -5221,7 +5228,7 @@ export function App() {
                 ...prev,
               ],
         );
-        startSuggestSessionTitle({
+        naming = startSuggestSessionTitle({
           userText: text,
           // The folder this chat was started in, as the send saw it: the
           // server describes the slash commands of that workspace.
@@ -5330,28 +5337,32 @@ export function App() {
           // A retry from a chat created without its workspace would go into
           // another one: the start screen comes back with the picks still
           // made and the text in the composer, and says why nothing was sent.
+          // The session never reached the server: whatever the send gave
+          // it - a name on its way, a row in History, the start screen's
+          // "@" picks - goes back.
           giveBack();
-          setNamingSessionIds((prev) => {
-            if (!prev.has(sid)) return prev;
-            const next = new Set(prev);
-            next.delete(sid);
-            return next;
-          });
-          setSessions((prev) =>
-            prev.filter((row) => row.id !== sid || !!row.title),
-          );
+          naming?.cancel();
+          setSessions((prev) => prev.filter((row) => row.id !== sid));
+          setDescribePreview((p) => (p?.sessionId === sid ? null : p));
+          migrateWorkspaceAtRecents(sid, WORKSPACE_AT_RECENTS_NO_SESSION_KEY);
           setStartNotice(
             t("app.workspacePrepareFailed", { reason: workspaceFailed }),
           );
-          if (viewedSessionIdRef.current.trim() === sid) {
-            if (opts?.restoreOnRefusal) {
+          // The text goes back to the start screen wherever the operator is
+          // now: at once when they are on it, when they next open it when
+          // they went on to another chat.
+          const viewing = viewedSessionIdRef.current.trim();
+          if (opts?.restoreOnRefusal) {
+            if (!viewing) {
+              restoreToComposer();
+            } else {
               startScreenRestoreRef.current = {
                 text,
                 files: opts.files ?? [],
               };
             }
-            clearSessionRoute();
           }
+          if (viewing === sid) clearSessionRoute();
           completedNormally = true;
           return;
         }

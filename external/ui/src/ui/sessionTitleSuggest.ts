@@ -52,6 +52,7 @@ async function describe(
   fetchFn: typeof fetch,
   text: string,
   deps: TitleSuggestDeps,
+  signal: AbortSignal,
 ): Promise<{ short: string; tags: string[] } | null> {
   try {
     const res = await fetchFn(
@@ -65,6 +66,7 @@ async function describe(
           ...(deps.scope?.headers ?? {}),
         },
         body: JSON.stringify({ text }),
+        signal,
       },
     );
     if (!res.ok) {
@@ -84,17 +86,31 @@ async function describe(
   }
 }
 
+/** What a started naming can still be told. */
+export type TitleSuggestHandle = {
+  /**
+   * The chat will never exist (its first send was not admitted): nothing more
+   * is reported or sent for it - no `onShortReady`, no PATCH, no
+   * `onApplied` - and the placeholder settles at once.
+   */
+  cancel: () => void;
+};
+
 /** Fire-and-forget: POST `/coddy/describe` without blocking, then PATCH title when describe and session ID are ready. */
-export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
+export function startSuggestSessionTitle(
+  deps: TitleSuggestDeps,
+): TitleSuggestHandle {
   const fetchFn = deps.fetchImpl ?? fetch;
   const trimmed = deps.userText.trim();
   if (!trimmed) {
     // Nothing to name the chat by (attachments alone): no placeholder may
     // wait for a describe call that is never made.
     deps.onDescribeSettled?.();
-    return;
+    return { cancel: () => {} };
   }
 
+  const abort = new AbortController();
+  const cancelled = () => abort.signal.aborted;
   let settled = false;
   const settle = () => {
     if (settled) return;
@@ -108,7 +124,8 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
   );
 
   void (async () => {
-    const described = await describe(fetchFn, trimmed, deps);
+    const described = await describe(fetchFn, trimmed, deps, abort.signal);
+    if (cancelled()) return;
     if (described) {
       const previewId = (deps.getPreviewSessionId?.() ?? "").trim();
       if (previewId && deps.onShortReady) {
@@ -127,7 +144,7 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
     } catch {
       return;
     }
-    if (!sid) {
+    if (!sid || cancelled()) {
       return;
     }
 
@@ -146,17 +163,20 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
     );
 
     for (let attempt = 0; attempt < 40; attempt++) {
+      if (cancelled()) return;
       let patchRes: Response;
       try {
         patchRes = await fetchFn(`/coddy/sessions/${encodeURIComponent(sid)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: patchBody,
+          signal: abort.signal,
         });
       } catch {
         await delay(100);
         continue;
       }
+      if (cancelled()) return;
       if (patchRes.ok) {
         deps.onApplied?.(sid, short);
         return;
@@ -167,4 +187,12 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
       await delay(100);
     }
   })();
+
+  return {
+    cancel: () => {
+      if (cancelled()) return;
+      abort.abort();
+      settle();
+    },
+  };
 }
