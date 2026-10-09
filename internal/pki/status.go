@@ -9,27 +9,27 @@ import (
 
 // CertStatus describes one certificate for `coddy tls status`, `coddy -t` and `--dry-run`.
 type CertStatus struct {
-	Present     bool
-	KeyMatches  bool
-	Subject     string
-	NotAfter    time.Time
-	DaysLeft    int // negative once it has ended
-	Names       []string
-	Fingerprint string
+	Present     bool      `json:"present"`
+	KeyMatches  bool      `json:"key_matches"`
+	Subject     string    `json:"subject,omitempty"`
+	NotAfter    time.Time `json:"not_after,omitempty"`
+	DaysLeft    int       `json:"days_left"` // negative once it has ended
+	Names       []string  `json:"names,omitempty"`
+	Fingerprint string    `json:"fingerprint,omitempty"`
 }
 
 // Status is the whole directory, described.
 type Status struct {
-	Dir     string
-	CA      CertStatus
-	CAKeyOK bool
-	Server  CertStatus
-	Client  CertStatus
-	Trusted []CertStatus
+	Dir     string       `json:"dir"`
+	CA      CertStatus   `json:"ca"`
+	CAKeyOK bool         `json:"ca_key_ok"`
+	Server  CertStatus   `json:"server"`
+	Client  CertStatus   `json:"client"`
+	Trusted []CertStatus `json:"trusted,omitempty"`
 	// BundleOK reports that bundle.pem holds exactly this CA and the trusted ones.
-	BundleOK bool
+	BundleOK bool `json:"bundle_ok"`
 	// Pending is what `coddy tls ensure` would do now.
-	Pending []Step
+	Pending []Step `json:"pending,omitempty"`
 }
 
 // Describe reads dir and says what is there and what ensure would do, for want at now. It writes nothing.

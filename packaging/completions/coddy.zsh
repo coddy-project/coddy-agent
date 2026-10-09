@@ -19,6 +19,7 @@ _coddy() {
         'agents:list and trust subagents'
         'hooks:list and trust lifecycle hooks'
         'docs:read and search the built-in documentation'
+        'tls:make and renew the built-in TLS certificates'
         'update:install the latest release'
     )
 
@@ -72,6 +73,24 @@ _coddy() {
                         _arguments '--limit[sections to print]:count:'
                     else
                         _values 'subcommand' list search show
+                    fi
+                    ;;
+                tls)
+                    if (( CURRENT == 2 )); then
+                        _values 'subcommand' ensure status renew export trust issue
+                    elif (( CURRENT == 3 )) && [[ $words[2] == issue ]]; then
+                        _values 'kind' client
+                    elif (( CURRENT == 3 )) && [[ $words[2] == trust ]]; then
+                        _files
+                    else
+                        _arguments \
+                            '--quiet[ensure: print nothing unless something failed]' \
+                            '--force-ca[ensure: make a new CA even when this one is valid]' \
+                            '--json[status: print JSON]' \
+                            '-o[issue: the directory for the files]:directory:_files -/' \
+                            '*--name[an extra DNS name or IP for the server certificate]:name:' \
+                            '--home[agent state directory]:directory:_files -/' \
+                            '--config[path to config.yaml]:file:_files'
                     fi
                     ;;
                 update)

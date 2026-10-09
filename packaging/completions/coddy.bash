@@ -7,7 +7,7 @@ _coddy() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="cli acp serve sessions skills plugin mcp providers rules agents hooks docs update"
+    commands="cli acp serve sessions skills plugin mcp providers rules agents hooks docs tls update"
     # The one-shot flags of the console, after `coddy` and after `coddy cli`.
     local prompt_flags="-p --prompt -i --prompt-file --no-stdin"
 
@@ -62,6 +62,17 @@ _coddy() {
                 COMPREPLY=($(compgen -W "$(coddy docs list --slugs 2>/dev/null)" -- "${cur}"))
             elif [ "${COMP_WORDS[2]}" = search ]; then
                 COMPREPLY=($(compgen -W "--limit" -- "${cur}"))
+            fi
+            ;;
+        tls)
+            if [ "${COMP_CWORD}" -eq 2 ]; then
+                COMPREPLY=($(compgen -W "ensure status renew export trust issue" -- "${cur}"))
+            elif [ "${COMP_WORDS[2]}" = issue ] && [ "${COMP_CWORD}" -eq 3 ]; then
+                COMPREPLY=($(compgen -W "client" -- "${cur}"))
+            elif [ "${COMP_WORDS[2]}" = trust ] && [ "${COMP_CWORD}" -eq 3 ]; then
+                COMPREPLY=($(compgen -f -- "${cur}"))
+            else
+                COMPREPLY=($(compgen -W "--quiet --force-ca --json -o --name --home --config" -- "${cur}"))
             fi
             ;;
         update)

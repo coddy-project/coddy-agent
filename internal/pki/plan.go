@@ -101,8 +101,8 @@ const (
 
 // Step is an action with the reason the planner gives for it, which is what `coddy tls ensure` prints.
 type Step struct {
-	Action Action
-	Reason string
+	Action Action `json:"action"`
+	Reason string `json:"reason"`
 }
 
 // Plan says what would make the state right for want at now. It is pure: the same state, want and time give the same plan, and a plan

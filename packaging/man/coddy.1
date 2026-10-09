@@ -287,6 +287,38 @@ The console opens the same documentation on
 .BR F1 ,
 the web UI on its Docs screen.
 .TP
+.B "tls ensure | status | renew | export | trust | issue client"
+Make and renew the TLS certificates Coddy needs, with the standard library alone
+and no external tool, under
+.IR $CODDY_HOME/tls :
+a CA for this machine, a server certificate carrying its names, a client
+certificate, and
+.I bundle.pem
+(this CA plus the CAs of other machines).
+.B ensure
+does what is missing or ending and nothing when all is right
+.RB ( \-\-quiet
+prints nothing,
+.B \-\-force\-ca
+makes a new CA,
+.BI \-\-name " host"
+adds a name to the server certificate);
+.B renew
+issues both certificates again;
+.B status
+describes them
+.RB ( \-\-json );
+.B export
+prints this machine's CA certificate and
+.BI "trust " file
+adds another machine's, so that the two verify each other (private keys never
+move);
+.BI "issue client " name
+.RB [ \-o
+.IR dir ]
+makes a client certificate for something that has no Coddy. TLS is the
+transport's business only: Coddy reads no identity out of a certificate.
+.TP
 .B update
 Install the latest release. See
 .B SELF\-UPDATE
