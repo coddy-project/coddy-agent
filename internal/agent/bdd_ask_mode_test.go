@@ -217,7 +217,7 @@ func (s *askModeFeatureState) everyOfferedToolIsReadOnly() error {
 
 func (s *askModeFeatureState) fileIsNotWritten() error {
 	if _, err := os.Stat(s.target); err == nil {
-		return fmt.Errorf("%s exists: the hidden write ran in ask mode", s.target)
+		return fmt.Errorf("%s exists: the hidden write ran in %s mode", s.target, s.st.Mode)
 	} else if !os.IsNotExist(err) {
 		return err
 	}
@@ -236,37 +236,45 @@ func (s *askModeFeatureState) fileIsWritten() error {
 }
 
 func (s *askModeFeatureState) toolCallAnsweredWithRefusal() error {
+	return s.toolCallAnsweredWith(bddAskHiddenCall, "not available in Ask mode")
+}
+
+// toolCallAnsweredWith checks that the call callID was answered with a result
+// containing refusal without raising a permission prompt, that a cancelled
+// tool_call_update was sent for it, and that the refusal was replayed to the
+// model as the tool result of the next request. The plan mode suite reuses it.
+func (s *askModeFeatureState) toolCallAnsweredWith(callID, refusal string) error {
 	var toolMsg *llm.Message
 	for _, m := range s.st.GetMessages() {
-		if m.Role == llm.RoleTool && m.ToolCallID == bddAskHiddenCall {
+		if m.Role == llm.RoleTool && m.ToolCallID == callID {
 			mm := m
 			toolMsg = &mm
 			break
 		}
 	}
 	if toolMsg == nil {
-		return fmt.Errorf("no tool result recorded for %s", bddAskHiddenCall)
+		return fmt.Errorf("no tool result recorded for %s", callID)
 	}
-	if !strings.Contains(toolMsg.Content, "not available in Ask mode") {
-		return fmt.Errorf("tool result is not the ask-mode refusal: %q", toolMsg.Content)
+	if !strings.Contains(toolMsg.Content, refusal) {
+		return fmt.Errorf("tool result is not the refusal %q: %q", refusal, toolMsg.Content)
 	}
 	if s.sender.permissions != 0 {
 		return fmt.Errorf("the refused call still raised %d permission prompt(s)", s.sender.permissions)
 	}
 	cancelled := false
 	for _, u := range s.sender.updates {
-		if up, ok := u.(acp.ToolCallStatusUpdate); ok && up.ToolCallID == bddAskHiddenCall && up.Status == "cancelled" {
+		if up, ok := u.(acp.ToolCallStatusUpdate); ok && up.ToolCallID == callID && up.Status == "cancelled" {
 			cancelled = true
 		}
 	}
 	if !cancelled {
-		return fmt.Errorf("no cancelled tool_call_update was sent for %s", bddAskHiddenCall)
+		return fmt.Errorf("no cancelled tool_call_update was sent for %s", callID)
 	}
 	if len(s.provider.seen) < 2 {
 		return fmt.Errorf("the model was not re-prompted after the refusal")
 	}
 	for _, m := range s.provider.seen[1] {
-		if m.Role == llm.RoleTool && m.ToolCallID == bddAskHiddenCall && strings.Contains(m.Content, "not available in Ask mode") {
+		if m.Role == llm.RoleTool && m.ToolCallID == callID && strings.Contains(m.Content, refusal) {
 			return nil
 		}
 	}

@@ -120,7 +120,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	// the call goes through the gate again and asks with the one it would send.
 	askAgain := tc.Name == toolweb.ToolHTTPRequest && httpPromptMoved(sd, tc, toolEnv)
 	// A call the current mode refuses (a pending agent-mode write approved
-	// after switching to ask) must not leave an "allow always" grant behind:
+	// after switching to ask or plan) must not leave an "allow always" grant behind:
 	// the grant would outlive the refusal and apply once the mode changes back.
 	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name)
 	if st := sessionStatePtr(a.state); st != nil && !refusedByMode && !askAgain {
