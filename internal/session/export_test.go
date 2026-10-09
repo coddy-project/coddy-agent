@@ -60,10 +60,12 @@ func (m *Manager) SetMCPConnectTimeoutForTest(d time.Duration) {
 func (m *Manager) SetMCPStopDelayForTest(d time.Duration) { m.mcpPool.SetStopDelay(d) }
 
 // SetFaultForTest makes the store fail the operations it names. fn is asked
-// before EnsureLayout ("layout") and Save ("save") touch the filesystem, and
-// a non-nil answer is the error they return; nil restores the real
-// filesystem. A test passes an error shaped like the disk-full one the
-// operating system returns (a wrapped *os.PathError around ENOSPC).
+// by EnsureLayout ("layout", once the bundle folder exists and before its
+// files are written, as a failure partway through the layout looks) and by
+// Save ("save", before it writes), and a non-nil answer is the error they
+// return; nil restores the real filesystem. A test passes an error shaped
+// like the disk-full one the operating system returns (a wrapped
+// *os.PathError around ENOSPC).
 func (f *FileStore) SetFaultForTest(fn func(op string) error) {
 	if fn == nil {
 		f.testFault.Store(nil)

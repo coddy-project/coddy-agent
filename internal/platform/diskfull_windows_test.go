@@ -11,12 +11,17 @@ import (
 )
 
 // wantDiskFull is what Windows reports for a volume with no room left:
-// ERROR_DISK_FULL (112) and ERROR_HANDLE_DISK_FULL (39).
-var wantDiskFull = []syscall.Errno{windows.ERROR_DISK_FULL, windows.ERROR_HANDLE_DISK_FULL}
+// ERROR_DISK_FULL (112), ERROR_HANDLE_DISK_FULL (39) and, for an account whose
+// quota on the volume is used up, ERROR_DISK_QUOTA_EXCEEDED (1295). The codes
+// are spelled as numbers, so a wrong constant in the implementation cannot
+// agree with a test that reads the same constant.
+var wantDiskFull = []syscall.Errno{112, 39, 1295}
 
 func TestDiskFullErrnosAreTheDocumentedWindowsCodes(t *testing.T) {
-	if wantDiskFull[0] != 112 || wantDiskFull[1] != 39 {
-		t.Fatalf("codes = %d, %d, want 112 and 39", wantDiskFull[0], wantDiskFull[1])
+	for i, want := range []syscall.Errno{windows.ERROR_DISK_FULL, windows.ERROR_HANDLE_DISK_FULL, windows.ERROR_DISK_QUOTA_EXCEEDED} {
+		if wantDiskFull[i] != want {
+			t.Errorf("code %d = %d, but the Windows constant is %d", i, wantDiskFull[i], want)
+		}
 	}
 }
 

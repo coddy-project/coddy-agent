@@ -64,11 +64,12 @@ type FileStore struct {
 	childScanMu  sync.Mutex
 
 	// testFault stands in for the filesystem in a test (export_test.go): when
-	// it holds a function, EnsureLayout and Save ask it first, with the
-	// operation they are about to run ("layout" or "save"), and fail with the
-	// error it returns. It is how a test makes the disk "full" without
-	// filling one. Empty everywhere else, and atomic because a save from a
-	// session's own goroutine can overlap the test that sets it.
+	// it holds a function, EnsureLayout (once the bundle folder exists) and
+	// Save (before it writes) ask it with the operation they are about to
+	// run ("layout" or "save"), and fail with the error it returns. It is how
+	// a test makes the disk "full" without filling one. Empty everywhere
+	// else, and atomic because a save from a session's own goroutine can
+	// overlap the test that sets it.
 	testFault atomic.Pointer[func(op string) error]
 }
 
@@ -354,18 +355,42 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	// the sessions root for an id another process has already stored inside a
 	// parent. It runs once per session, not once per request.
 	dir = f.sessionPath(sessionID, true)
-	if err := f.injectedFault("layout"); err != nil {
-		return dir, err
-	}
+	// Whether this call makes the folder decides whether it may take it away
+	// again: a folder that was there before belongs to somebody (a stored
+	// session, another process), whatever state the layout over it ends in.
+	_, statErr := os.Stat(dir)
+	created := os.IsNotExist(statErr)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return dir, err
 	}
-	unlock, err := f.lockSessionBundle(dir)
-	if err != nil {
+	if err := f.layoutBundle(sessionID, dir); err != nil {
+		if created {
+			// A layout that fails partway (a full disk most often) leaves a
+			// half-built folder, and the retry with a new id would leave
+			// another. Nothing was persisted for it, so nothing owns it. The
+			// lock is released by now; a removal that fails is left to the
+			// next sweep of the folder, the error to report is the layout's.
+			_ = os.RemoveAll(dir)
+		}
 		return dir, err
 	}
+	return dir, nil
+}
+
+// layoutBundle writes the bundle of dir under the lock every writer of the
+// bundle takes.
+func (f *FileStore) layoutBundle(sessionID, dir string) error {
+	unlock, err := f.lockSessionBundle(dir)
+	if err != nil {
+		return err
+	}
 	defer unlock()
-	return dir, f.ensureLayoutAt(sessionID, dir)
+	// The fault stands in for a failure partway through the layout: the
+	// folder exists, the files of the bundle are not written.
+	if err := f.injectedFault("layout"); err != nil {
+		return err
+	}
+	return f.ensureLayoutAt(sessionID, dir)
 }
 
 // ensureLayoutAt builds a bundle at an explicit directory, which is what lets

@@ -113,6 +113,26 @@ func (s *diskFullHTTPState) postFirstMessage(endpoint string) error {
 	return err
 }
 
+// pickFolder is the web UI's first call for a new chat that picked a folder:
+// the route creates the session in that folder, before any message is sent.
+func (s *diskFullHTTPState) pickFolder() error {
+	folder := filepath.Join(s.root, "workspace")
+	body := fmt.Sprintf(`{"path":%q}`, folder)
+	req, err := http.NewRequest(http.MethodPost, s.ts.URL+"/coddy/sessions/"+session.NewSessionID()+"/workspace", strings.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	s.status = res.StatusCode
+	s.body, err = io.ReadAll(res.Body)
+	return err
+}
+
 func (s *diskFullHTTPState) answerIs507() error {
 	if s.status != http.StatusInsufficientStorage {
 		return fmt.Errorf("status = %d, want 507; body %s", s.status, s.body)
@@ -147,6 +167,7 @@ func initializeDiskFullHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a running coddy HTTP server$`, s.startServer)
 	sc.Step(`^the volume that holds the sessions folder has no room left$`, s.volumeFull)
 	sc.Step(`^a client posts a first message to (\S+) without a session$`, s.postFirstMessage)
+	sc.Step(`^a client picks a folder for a new chat$`, s.pickFolder)
 	sc.Step(`^the answer is 507 Insufficient Storage$`, s.answerIs507)
 	sc.Step(`^the error message says there is no space left on the device$`, s.messageNamesTheCause)
 }

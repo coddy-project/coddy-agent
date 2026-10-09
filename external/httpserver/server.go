@@ -63,9 +63,9 @@ type Server struct {
 	// for it (llm.NeuralDeepHubFor). Tests substitute stand-in hubs per
 	// deployment.
 	neuralDeepHubFor func(apiBase string) string
-	// ensureSession opens or creates the session of a turn
-	// (Manager.EnsureHTTPSessionAs when nil). Tests override it to make
-	// creating a session fail the way a full disk fails it, which no test
+	// ensureSession opens or creates the session of a request, in the cwd it
+	// is handed (Manager.EnsureHTTPSessionAs when nil). Tests override it to
+	// make creating a session fail the way a full disk fails it, which no test
 	// can ask a real volume for.
 	ensureSession func(ctx context.Context, sessionID, defaultCWD, origin string) (*session.State, error)
 
@@ -873,7 +873,7 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 		if err := session.ValidateFolderSessionID(sid); err != nil {
 			return nil, "", false, errInvalidSessionHeader
 		}
-		st2, err := s.ensureHTTPSession(ctx, sid, origin)
+		st2, err := s.ensureHTTPSession(ctx, sid, s.defaultCWD, origin)
 		if err != nil {
 			return nil, "", false, err
 		}
@@ -883,30 +883,36 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 	// as an argument rather than through the manager's one-shot fields, which
 	// concurrent requests would share.
 	newID := session.NewSessionID()
-	st, err = s.ensureHTTPSession(ctx, newID, origin)
+	st, err = s.ensureHTTPSession(ctx, newID, s.defaultCWD, origin)
 	if err != nil {
 		return nil, "", false, err
 	}
 	return st, newID, true, nil
 }
 
-// ensureHTTPSession opens the stored session id or creates it.
-func (s *Server) ensureHTTPSession(ctx context.Context, id, origin string) (*session.State, error) {
+// ensureHTTPSession opens the stored session id or creates it in cwd.
+func (s *Server) ensureHTTPSession(ctx context.Context, id, cwd, origin string) (*session.State, error) {
 	if s.ensureSession != nil {
-		return s.ensureSession(ctx, id, s.defaultCWD, origin)
+		return s.ensureSession(ctx, id, cwd, origin)
 	}
-	return s.mgr.EnsureHTTPSessionAs(ctx, id, s.defaultCWD, origin)
+	return s.mgr.EnsureHTTPSessionAs(ctx, id, cwd, origin)
+}
+
+// writeDiskFull answers a request that needed to write session files on a
+// volume with no room left: 507 Insufficient Storage with the cause in the
+// message (issue #465). It is neither a failure of Coddy's own, which 500
+// stands for, nor of the model's provider, which 502 and 504 stand for, and a
+// client that sees only "session unavailable" cannot tell an operator to free
+// disk space.
+func writeDiskFull(w http.ResponseWriter) {
+	http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, session.DiskFullMessage), http.StatusInsufficientStorage)
 }
 
 // writeSessionError answers a request whose session could not be resolved or
 // created. A session that does not exist is 404 and a malformed header is
-// 400. A volume with no room left is 507 Insufficient Storage with the cause
-// in the message (issue #465): it is neither a failure of Coddy's own, which
-// 500 stands for, nor of the model's provider, which 502 and 504 stand for,
-// and a client that sees only "session unavailable" cannot tell an operator
-// to free disk space. The manager keeps the operating system's code in the
-// error chain, so the check holds however many layers wrapped it. Anything
-// else stays 500 "session unavailable".
+// 400. A full volume is 507 (writeDiskFull); the manager keeps the operating
+// system's code in the error chain, so the check holds however many layers
+// wrapped it. Anything else stays 500 "session unavailable".
 func writeSessionError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errSessionNotFound):
@@ -916,7 +922,7 @@ func writeSessionError(w http.ResponseWriter, err error) {
 	case errors.Is(err, errInvalidOriginHeader):
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
 	case platform.IsDiskFull(err):
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, session.DiskFullMessage), http.StatusInsufficientStorage)
+		writeDiskFull(w)
 	default:
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
 	}

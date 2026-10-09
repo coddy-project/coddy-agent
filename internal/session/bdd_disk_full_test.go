@@ -51,6 +51,10 @@ func (w *diskFullWorld) noSessionCreated() error {
 	if w.err == nil {
 		return fmt.Errorf("the session was created (%s), want a failure", w.sid)
 	}
+	return nil
+}
+
+func (w *diskFullWorld) noFolderLeftBehind() error {
 	entries, err := os.ReadDir(w.store.Root)
 	if err != nil {
 		return err
@@ -134,6 +138,7 @@ func TestDiskFullFeature(t *testing.T) {
 			sc.Step(`^the volume that holds the sessions folder has no room left$`, w.volumeFull)
 			sc.Step(`^a client creates a session$`, w.createSession)
 			sc.Step(`^no session is created$`, w.noSessionCreated)
+			sc.Step(`^no half-built session folder is left behind$`, w.noFolderLeftBehind)
 			sc.Step(`^the failure says the disk is full$`, w.failureIsDiskFull)
 			sc.Step(`^the log carries an error saying there is no space left on the device$`, w.logsNoSpaceError)
 			sc.Step(`^a session was created while the volume had room$`, w.sessionCreatedWithRoom)

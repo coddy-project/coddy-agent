@@ -224,3 +224,79 @@ func TestInitialSaveOnAFullDiskIsAnError(t *testing.T) {
 		t.Fatalf("no error record names the full disk; log: %+v", logs.all())
 	}
 }
+
+// A layout that fails partway leaves no half-built folder behind, whatever
+// the failure was: the folder was made by this call, for a session that never
+// got persisted, so nothing owns it.
+func TestFailedLayoutOfANewSessionLeavesNoFolderBehind(t *testing.T) {
+	for name, cause := range map[string]error{
+		"disk full":         diskFullError("write", "sessions/sess_fresh/session.json"),
+		"permission denied": &os.PathError{Op: "write", Path: "sessions/sess_fresh/session.json", Err: syscall.EACCES},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, store, _ := newStoreManager(t)
+			store.SetFaultForTest(faultOn(cause, "layout"))
+
+			dir, err := store.EnsureLayout("sess_fresh")
+			if err == nil {
+				t.Fatal("EnsureLayout succeeded")
+			}
+			if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
+				t.Fatalf("the half-built folder %s is still there (stat error %v)", dir, statErr)
+			}
+			if entries, _ := os.ReadDir(store.Root); len(entries) != 0 {
+				t.Fatalf("the sessions folder holds %d entries after the failure, want none", len(entries))
+			}
+		})
+	}
+}
+
+// Retrying a new chat on a full disk costs a request each time, not a folder:
+// the sessions folder is as empty after the tenth attempt as after none.
+func TestRetriesOnAFullDiskLeaveNoOrphanFolders(t *testing.T) {
+	m, store, _ := newStoreManager(t)
+	store.SetFaultForTest(faultOn(diskFullError("mkdir", "sessions/sess_x/todos"), "layout"))
+
+	for i := 0; i < 10; i++ {
+		if _, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()}); err == nil {
+			t.Fatal("HandleSessionNew succeeded on a full disk")
+		}
+	}
+	if entries, _ := os.ReadDir(store.Root); len(entries) != 0 {
+		t.Fatalf("the sessions folder holds %d orphan entries, want none", len(entries))
+	}
+}
+
+// A folder that existed before the call is never removed by it: a failed
+// layout over a stored session, or over a folder somebody else made, leaves
+// everything in it as it was.
+func TestFailedLayoutKeepsAFolderThatExistedBefore(t *testing.T) {
+	_, store, _ := newStoreManager(t)
+	kept, err := store.EnsureLayout("sess_kept")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := filepath.Join(kept, "session.json")
+	before, err := os.ReadFile(meta)
+	if err != nil {
+		t.Fatalf("a laid-out bundle has no session.json: %v", err)
+	}
+	empty := filepath.Join(store.Root, "sess_empty")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	store.SetFaultForTest(faultOn(diskFullError("write", "session.json"), "layout"))
+	for _, id := range []string{"sess_kept", "sess_empty"} {
+		if _, err := store.EnsureLayout(id); err == nil {
+			t.Fatalf("EnsureLayout(%s) succeeded", id)
+		}
+	}
+
+	if after, err := os.ReadFile(meta); err != nil || string(after) != string(before) {
+		t.Fatalf("session.json of the stored session changed or vanished: %v", err)
+	}
+	if _, err := os.Stat(empty); err != nil {
+		t.Fatalf("the folder that existed before was removed: %v", err)
+	}
+}

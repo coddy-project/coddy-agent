@@ -9,6 +9,7 @@ Feature: A full disk is reported as a full disk
     Given the volume that holds the sessions folder has no room left
     When a client creates a session
     Then no session is created
+    And no half-built session folder is left behind
     And the failure says the disk is full
     And the log carries an error saying there is no space left on the device
 
