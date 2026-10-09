@@ -15,8 +15,10 @@ import (
 type artifactFeatureState struct {
 	t                            *testing.T
 	tsURL, sessionID, artifactID string
+	sourcePath                   string
 	body                         string
 	status                       int
+	opener                       *revealRecorder
 	close                        func()
 }
 
@@ -40,9 +42,12 @@ func (s *artifactFeatureState) reveal() error {
 	return nil
 }
 
-func (s *artifactFeatureState) revealAcceptedOrUnavailable() error {
-	if s.status != http.StatusNoContent && s.status != http.StatusServiceUnavailable {
+func (s *artifactFeatureState) desktopAskedToRevealTheReport() error {
+	if s.status != http.StatusNoContent {
 		return fmt.Errorf("reveal status %d", s.status)
+	}
+	if got := s.opener.revealed(); len(got) != 1 || got[0] != s.sourcePath {
+		return fmt.Errorf("the desktop opener was handed %v, want %q", got, s.sourcePath)
 	}
 	return nil
 }
@@ -50,8 +55,9 @@ func (s *artifactFeatureState) shared(name string) error {
 	if name != "report.txt" {
 		return fmt.Errorf("unexpected artifact %q", name)
 	}
-	ts, _, id, _, a := artifactServer(s.t)
+	ts, _, id, _, a, opener := artifactServerRevealing(s.t)
 	s.tsURL, s.sessionID, s.artifactID = ts.URL, id, a.ID
+	s.sourcePath, s.opener = a.SourcePath, opener
 	s.close = ts.Close
 	return nil
 }
@@ -88,7 +94,7 @@ func TestFileArtifactsFeature(t *testing.T) {
 		sc.Step(`^the client downloads the shared artifact$`, s.download)
 		sc.Step(`^the artifact download contains "([^"]*)"$`, s.contains)
 		sc.Step(`^the client asks the server to reveal the shared artifact$`, s.reveal)
-		sc.Step(`^the artifact reveal is accepted or reports that this server cannot reveal files$`, s.revealAcceptedOrUnavailable)
+		sc.Step(`^the server asks the desktop to reveal the shared report$`, s.desktopAskedToRevealTheReport)
 	}, Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/file_artifacts.feature"}, TestingT: t, Strict: true}}
 	if suite.Run() != 0 {
 		t.Fatal("file artifact feature failed")

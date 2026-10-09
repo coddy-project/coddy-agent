@@ -6734,7 +6734,7 @@ export function App() {
     const activeConfiguredRemote = onRemote
       ? configuredRemoteFor(activeEnv.baseUrl, configuredRemotes)
       : undefined;
-    // The first three rows filter whichever server is active. Configured
+    // The origin rows filter whichever server is active. Configured
     // remote rows below switch the server the whole app reads instead.
     const narrowTo = (origin: SessionOriginFilter) => () => {
       setSessionsOrigin(origin);
@@ -6761,6 +6761,13 @@ export function App() {
         label: t("sessions.filter.env.gateway"),
         active: sessionsOrigin === "gateway",
         onPick: narrowTo("gateway"),
+      },
+      {
+        kind: "origin",
+        key: "print",
+        label: t("sessions.filter.env.print"),
+        active: sessionsOrigin === "print",
+        onPick: narrowTo("print"),
       },
     ];
     for (const remote of configuredRemotes) {

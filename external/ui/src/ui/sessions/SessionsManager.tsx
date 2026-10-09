@@ -6,6 +6,7 @@ import { isClientDraftSessionId } from "./draftSessions";
 import {
   defaultSortOrder,
   type SessionArchiveFilter,
+  type SessionOriginFilter,
   type SessionSortKey,
   type SessionSortOrder,
 } from "./sessionQuery";
@@ -85,6 +86,26 @@ function IconArchive() {
   );
 }
 
+/** A terminal prompt: the mark of a session a `coddy -p` run created. */
+function IconTerminal() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 17l6-6-6-6" />
+      <path d="M12 19h8" />
+    </svg>
+  );
+}
+
 /** Which way a sorted column points, drawn next to its name. */
 function SortCaret(props: { order: SessionSortOrder }) {
   return (
@@ -134,6 +155,10 @@ export function SessionsManager(props: {
   const [error, setError] = useState<string | null>(null);
   const [archiveFilter, setArchiveFilter] =
     useState<SessionArchiveFilter>("exclude");
+  // Where the listed sessions came from. Unlike History the table lists the
+  // print runs with the rest - this is where they are cleaned up - so the
+  // filter starts on every source.
+  const [originFilter, setOriginFilter] = useState<SessionOriginFilter>("");
   const [tagFilter, setTagFilter] = useState("");
   // The row whose labels are open, and the rectangle of the control that opened
   // them: the editor is portaled, so it is placed from the anchor rather than
@@ -228,6 +253,12 @@ export function SessionsManager(props: {
       ps.set("include_stats", "true");
       ps.set("include_activity", "true");
       ps.set("archived", archiveFilter);
+      // History leaves the runs of `coddy -p` out; the table that cleans the
+      // history up asks for them, and narrows by source when told to.
+      ps.set("include_print", "true");
+      if (originFilter) {
+        ps.set("origin", originFilter);
+      }
       // Order and direction go to the server, not to the rendered page: paging
       // is an offset into the sorted listing, so sorting a page client side
       // would reorder 50 rows out of a history of hundreds.
@@ -277,7 +308,7 @@ export function SessionsManager(props: {
         }
       }
     },
-    [query, archiveFilter, tagFilter, sortKey, sortOrder, t],
+    [query, archiveFilter, originFilter, tagFilter, sortKey, sortOrder, t],
   );
 
   // The refresh after a delete must use the search the field shows now, not the
@@ -532,24 +563,6 @@ export function SessionsManager(props: {
             the table has a tick per row and a tick for the whole page, so the
             scope of a delete is what the operator can see ticked rather than a
             button label they have to read carefully. */}
-        <label className="sessions-manager-archive">
-          <span className="sr-only">{t("sessions.manage.archive.label")}</span>
-          <select
-            className="settings-input sessions-manager-archive-select"
-            data-testid="sessions-manager-archive-filter"
-            aria-label={t("sessions.manage.archive.label")}
-            value={archiveFilter}
-            onChange={(ev) =>
-              setArchiveFilter(ev.target.value as SessionArchiveFilter)
-            }
-          >
-            <option value="exclude">
-              {t("sessions.manage.archive.exclude")}
-            </option>
-            <option value="only">{t("sessions.manage.archive.only")}</option>
-            <option value="all">{t("sessions.manage.archive.all")}</option>
-          </select>
-        </label>
         <div className="sessions-manager-actions">
           {/* The second action is a different scope, not a second reach past
               the ticks: it empties the archive, which the operator filled one
@@ -596,6 +609,47 @@ export function SessionsManager(props: {
             ) : null}
           </button>
         </div>
+      </div>
+
+      {/* Which sessions the table lists sit on a row of their own under the
+          search: with two filters beside the field and the two actions, a
+          phone left the field a sliver and pushed the actions off the edge. */}
+      <div className="sessions-manager-filters">
+        <label className="sessions-manager-archive">
+          <span className="sr-only">{t("sessions.manage.archive.label")}</span>
+          <select
+            className="settings-input sessions-manager-archive-select"
+            data-testid="sessions-manager-archive-filter"
+            aria-label={t("sessions.manage.archive.label")}
+            value={archiveFilter}
+            onChange={(ev) =>
+              setArchiveFilter(ev.target.value as SessionArchiveFilter)
+            }
+          >
+            <option value="exclude">
+              {t("sessions.manage.archive.exclude")}
+            </option>
+            <option value="only">{t("sessions.manage.archive.only")}</option>
+            <option value="all">{t("sessions.manage.archive.all")}</option>
+          </select>
+        </label>
+        <label className="sessions-manager-origin">
+          <span className="sr-only">{t("sessions.manage.origin.label")}</span>
+          <select
+            className="settings-input sessions-manager-origin-select"
+            data-testid="sessions-manager-origin-filter"
+            aria-label={t("sessions.manage.origin.label")}
+            value={originFilter}
+            onChange={(ev) =>
+              setOriginFilter(ev.target.value as SessionOriginFilter)
+            }
+          >
+            <option value="">{t("sessions.manage.origin.all")}</option>
+            <option value="local">{t("sessions.filter.env.local")}</option>
+            <option value="gateway">{t("sessions.filter.env.gateway")}</option>
+            <option value="print">{t("sessions.filter.env.print")}</option>
+          </select>
+        </label>
       </div>
 
       {tagFilter ? (
@@ -698,6 +752,16 @@ export function SessionsManager(props: {
                       {/* The archive is the state the row is in, so it leads the
                           title as a mark rather than standing among the tags,
                           which are labels the operator chose. */}
+                      {row.origin === "print" ? (
+                        <span
+                          className="sessions-manager-print-mark"
+                          data-testid={`sessions-manager-print-${row.id}`}
+                          aria-label={t("sessions.manage.printBadge")}
+                          title={t("sessions.manage.printBadge")}
+                        >
+                          <IconTerminal />
+                        </span>
+                      ) : null}
                       {row.archived ? (
                         <span
                           className="sessions-manager-archived-mark"
@@ -807,7 +871,7 @@ export function SessionsManager(props: {
             className="settings-muted sessions-manager-empty"
             data-testid="sessions-manager-empty"
           >
-            {query || tagFilter
+            {query || tagFilter || originFilter
               ? t("sessions.manage.noMatches")
               : archiveFilter === "only"
                 ? t("sessions.manage.noArchivedMatches")

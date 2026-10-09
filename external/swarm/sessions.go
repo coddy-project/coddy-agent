@@ -274,6 +274,28 @@ func (s *Server) fanOut(ctx context.Context, nodes []Node, p fanoutParams) map[s
 	return out
 }
 
+// forwardedListParams are the switches of a listing a relay hands every child
+// as the caller sent them: what kinds of sessions the page holds is the
+// caller's question, not the relay's.
+var forwardedListParams = []string{"include_activity", "include_scheduler", "include_subagents", "include_print", "origin"}
+
+// nodeListQuery is the query one child is asked with.
+func nodeListQuery(p fanoutParams, search string) url.Values {
+	q := url.Values{}
+	// Every child is asked for at least what the caller wants. A shorter page
+	// would silently drop rows that belonged in the merged answer.
+	q.Set("limit", strconv.Itoa(p.limit))
+	if search != "" {
+		q.Set("q", search)
+	}
+	for _, pass := range forwardedListParams {
+		if v := p.query.Get(pass); v != "" {
+			q.Set(pass, v)
+		}
+	}
+	return q
+}
+
 // askNode fetches one node's page and labels it.
 func (s *Server) askNode(ctx context.Context, node Node, p fanoutParams) nodeReport {
 	if node.Transport == nil || !node.Transport.Alive() {
@@ -299,18 +321,7 @@ func (s *Server) askNode(ctx context.Context, node Node, p fanoutParams) nodeRep
 		path = "/swarm/sessions"
 	}
 
-	q := url.Values{}
-	// Every child is asked for at least what the caller wants. A shorter page
-	// would silently drop rows that belonged in the merged answer.
-	q.Set("limit", strconv.Itoa(p.limit))
-	if search != "" {
-		q.Set("q", search)
-	}
-	for _, pass := range []string{"include_activity", "include_scheduler", "include_subagents"} {
-		if v := p.query.Get(pass); v != "" {
-			q.Set(pass, v)
-		}
-	}
+	q := nodeListQuery(p, search)
 
 	base := strings.TrimRight(target.Path, "/")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.Scheme+"://"+target.Host+base+path+"?"+q.Encode(), nil)

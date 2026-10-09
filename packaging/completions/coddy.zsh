@@ -29,6 +29,7 @@ _coddy() {
         '(-p --prompt)'{-p,--prompt}'[run one prompt and exit (- reads it from stdin)]:prompt:' \
         '(-i --prompt-file)'{-i,--prompt-file}'[run one prompt read from a file (- for stdin)]:prompt file:_files' \
         '--no-stdin[one-shot run: do not attach piped stdin]' \
+        '--ephemeral[one-shot run: delete its session when the run ends]' \
         '--resume[pick a session to resume]' \
         '1: :->command' \
         '*:: :->argument'
@@ -39,7 +40,16 @@ _coddy() {
             ;;
         argument)
             case $words[1] in
-                sessions) _values 'subcommand' list export ;;
+                sessions)
+                    if (( CURRENT > 2 )) && [[ $words[2] == list ]]; then
+                        _arguments \
+                            '--cwd[only the sessions saved with this directory]:directory:_files -/' \
+                            '--origin[only the sessions of one surface]:origin:(local gateway print)' \
+                            '--sessions-dir[sessions root]:directory:_files -/'
+                    else
+                        _values 'subcommand' list export
+                    fi
+                    ;;
                 skills)   _values 'subcommand' list enable disable add sync remove ;;
                 plugin)
                     if (( CURRENT == 3 )) && [[ $words[2] == marketplace ]]; then

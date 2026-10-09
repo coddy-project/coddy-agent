@@ -117,3 +117,42 @@ func TestRunSessionsExportWithoutIDIsAUsageError(t *testing.T) {
 		t.Fatalf("usage must name the subcommand: %v", err)
 	}
 }
+
+// `coddy sessions list` is what scripts read to find a run to continue
+// (`--session-id <id> -p ...`), so unlike the pickers it lists the runs of
+// one-shot print mode; --origin narrows it to one surface.
+func TestSessionsListShowsPrintRunsAndNarrowsByOrigin(t *testing.T) {
+	store, _, _ := sessionsExportFixture(t, "sess_chat")
+	dir, err := store.EnsureLayout("sess_script")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := &session.State{ID: "sess_script", CWD: t.TempDir(), Mode: session.ModeAsk, SessionDir: dir}
+	run.SetOriginWithoutPersist(session.PrintOrigin)
+	run.AddMessage(llm.Message{Role: llm.RoleUser, Content: "IMPORTANT: answer from this brief alone"})
+	if err := store.Save(run); err != nil {
+		t.Fatal(err)
+	}
+
+	list := func(origin session.OriginFilter) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := sessionsList(&out, store, "", origin); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	all := list(session.OriginAny)
+	if !strings.HasPrefix(all, "SESSION_ID\tUPDATED_AT\tCWD\tTITLE\n") {
+		t.Fatalf("header changed: %q", all)
+	}
+	if !strings.Contains(all, "sess_chat\t") || !strings.Contains(all, "sess_script\t") || !strings.Contains(all, "(total 2)") {
+		t.Fatalf("default listing:\n%s", all)
+	}
+	if got := list(session.OriginPrint); strings.Contains(got, "sess_chat") || !strings.Contains(got, "sess_script\t") {
+		t.Fatalf("--origin print:\n%s", got)
+	}
+	if got := list(session.OriginLocal); !strings.Contains(got, "sess_chat\t") || strings.Contains(got, "sess_script") {
+		t.Fatalf("--origin local:\n%s", got)
+	}
+}

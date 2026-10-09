@@ -43,7 +43,7 @@ func TestLatestSessionIDPicksTheNewestForThisFolder(t *testing.T) {
 	writeSnapshotFixture(t, store.Root, "sess-new", work, now.Add(-1*time.Minute))
 	writeSnapshotFixture(t, store.Root, "sess-other", other, now)
 
-	id, err := latestSessionID(store, work)
+	id, err := latestSessionID(store, work, false)
 	if err != nil {
 		t.Fatalf("latestSessionID: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestLatestSessionIDFailsClearlyWhenTheFolderHasNoSessions(t *testing.T) {
 	if err := os.MkdirAll(store.Root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, err := latestSessionID(store, filepath.Join(root, "empty"))
+	_, err := latestSessionID(store, filepath.Join(root, "empty"), false)
 	if err == nil {
 		t.Fatal("expected an error for a folder without sessions")
 	}
