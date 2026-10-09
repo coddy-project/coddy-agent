@@ -200,3 +200,33 @@ test("the button of the view on show is pressed", () => {
   ).toBe("true");
   expect(screen.getByTestId("chat-views-files")).toHaveClass("is-active");
 });
+
+// Issue #435: while a new chat is being named, a shimmering bar stands where
+// the title will be, never the first message ("/rpa-init") or "New chat".
+test("a title being worked out shows a placeholder", () => {
+  const { rerender } = render(
+    <ChatHeader
+      title="/rpa-init"
+      titlePending
+      editable
+      onTitleSave={() => {}}
+    />,
+  );
+  // A screen reader names the button by what is going on, not "Chat title".
+  const btn = screen.getByRole("button", { name: /naming the chat/i });
+  expect(btn).toHaveAttribute("aria-busy", "true");
+  expect(screen.getByTestId("chat-title-pending")).toBeInTheDocument();
+  expect(btn).not.toHaveTextContent("/rpa-init");
+
+  rerender(
+    <ChatHeader
+      title="Repository onboarding"
+      editable
+      onTitleSave={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("chat-title-pending")).toBeNull();
+  expect(btn).not.toHaveAttribute("aria-busy");
+  expect(btn).toHaveTextContent("Repository onboarding");
+  expect(screen.getByRole("button", { name: /chat title/i })).toBe(btn);
+});

@@ -1172,6 +1172,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.stateFinished": "Finished",
   "sessions.stateError": "Last turn ended with an error",
   "sessions.newChatFallback": "New chat",
+  "sessions.naming": "Naming the chat…",
   "sessions.deleteConversation": "Delete conversation",
   "sessions.delete": "Delete",
   "sessions.loadingMore": "Loading...",
@@ -1284,6 +1285,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.tagFilterClear": "Clear the tag filter",
 
   "chat.newChat": "New chat",
+  "chat.namingChat": "Naming the chat…",
   "chat.chatTitleAriaLabel": "Chat title",
   "chat.views.label": "Views of this chat",
   "chat.views.filesTitle": "Workspace files ({key})",
