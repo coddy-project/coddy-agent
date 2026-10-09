@@ -25,11 +25,7 @@ type authPolicy struct {
 	// "a token is configured" for the settings screen or pass a route that is
 	// not one of the three.
 	sharedTokens []string
-	// certNames are httpserver.shared_models.cert_names: the names of verified
-	// client certificates that open the shared-model routes as the class
-	// mtls and nothing else.
-	certNames  []string
-	publicDocs bool
+	publicDocs   bool
 	// allowInsecure is httpserver.allow_insecure as this snapshot read it: the
 	// operator's statement that the API is published open, the one thing that
 	// lets an anonymous caller reach the shared-model routes.
@@ -130,7 +126,6 @@ func (s *Server) authPolicyNow() authPolicy {
 		pol.cfg = c
 		pol.tokens = append(pol.tokens, c.HTTPServer.EffectiveAuthTokens()...)
 		pol.sharedTokens = append(pol.sharedTokens, c.HTTPServer.EffectiveSharedTokens()...)
-		pol.certNames = append(pol.certNames, c.HTTPServer.EffectiveCertNames()...)
 		pol.publicDocs = c.HTTPServer.PublicDocs
 		pol.allowInsecure = c.HTTPServer.AllowInsecure
 	}
@@ -148,7 +143,7 @@ func (s *Server) authPolicyNow() authPolicy {
 	// one closes the same gate, so turning on the form protects the API even with
 	// no token set, and a node that holds only shared-model tokens refuses every
 	// other route to every caller.
-	pol.enabled = len(pol.tokens) > 0 || pol.login.enabled || len(pol.sharedTokens) > 0 || len(pol.certNames) > 0
+	pol.enabled = len(pol.tokens) > 0 || pol.login.enabled || len(pol.sharedTokens) > 0
 	return pol
 }
 
@@ -211,12 +206,8 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// A verified client certificate whose name httpserver.shared_models.cert_names lists is
-		// a credential of its own, for these routes only.
-		if isSharedLLMPattern(pattern) && sharedCertName(r, &pol) != "" {
-			next.ServeHTTP(w, r)
-			return
-		}
+		// A TLS client certificate is not a credential. The handshake admitted the peer by its chain
+		// (httpserver.tls.client_ca_file) and that is all TLS does here: the application reads no identity out of it.
 		// A signed-in browser carries a cookie instead of a token. Same-origin
 		// requests send it on their own, which is why the SPA needs no
 		// ?access_token= on its event streams.

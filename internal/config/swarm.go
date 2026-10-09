@@ -92,25 +92,17 @@ type SwarmConfig struct {
 	Clients []SwarmClient `yaml:"clients"`
 }
 
-// SwarmTLSConfig serves the relay over HTTPS. Both files or neither.
+// SwarmTLSConfig serves a listener over HTTPS. Both files or neither. TLS is the transport's business: the listener presents its
+// certificate and, with a client CA, admits a peer at the handshake by its chain. Coddy reads no identity out of a certificate; what a
+// certificate holder may do is for the reverse proxy and the infrastructure (docs/plans/remote-model-provider-tls-builtin.md).
 type SwarmTLSConfig struct {
 	CertFile string `yaml:"cert_file"`
 	KeyFile  string `yaml:"key_file"`
 	// ClientCAFile is the PEM bundle that client certificates are verified
-	// against. With it the listener asks for a certificate: ClientAuth says
-	// whether one is required.
+	// against. With it the handshake requires a certificate that chains to
+	// it, and refuses a peer without one.
 	ClientCAFile string `yaml:"client_ca_file"`
-	// ClientAuth is optional (verify a certificate when one is offered) or
-	// required (refuse a peer without a verified one at the handshake). Empty
-	// with a CA means optional; it needs a CA.
-	ClientAuth string `yaml:"client_auth"`
 }
-
-// Swarm client authentication modes.
-const (
-	SwarmClientAuthOptional = "optional"
-	SwarmClientAuthRequired = "required"
-)
 
 // validate holds the rules of a TLS block named at (swarm.tls, httpserver.tls).
 func (t SwarmTLSConfig) validate(at string) error {
@@ -119,30 +111,10 @@ func (t SwarmTLSConfig) validate(at string) error {
 	if certSet != keySet {
 		return fmt.Errorf("%s: cert_file and key_file must be set together", at)
 	}
-	switch strings.TrimSpace(t.ClientAuth) {
-	case "", SwarmClientAuthOptional, SwarmClientAuthRequired:
-	default:
-		return fmt.Errorf("%s.client_auth: %q is not %s or %s", at, t.ClientAuth, SwarmClientAuthOptional, SwarmClientAuthRequired)
-	}
-	if strings.TrimSpace(t.ClientAuth) != "" && strings.TrimSpace(t.ClientCAFile) == "" {
-		return fmt.Errorf("%s.client_auth: needs %s.client_ca_file, the authority client certificates are verified against", at, at)
-	}
 	if strings.TrimSpace(t.ClientCAFile) != "" && !t.Enabled() {
 		return fmt.Errorf("%s.client_ca_file: needs %s.cert_file and key_file: client certificates are asked for over TLS", at, at)
 	}
 	return nil
-}
-
-// EffectiveClientAuth resolves client_auth: empty without a CA, optional with a
-// CA and no value.
-func (t SwarmTLSConfig) EffectiveClientAuth() string {
-	if strings.TrimSpace(t.ClientCAFile) == "" {
-		return ""
-	}
-	if a := strings.TrimSpace(t.ClientAuth); a != "" {
-		return a
-	}
-	return SwarmClientAuthOptional
 }
 
 // Enabled reports whether TLS is configured.

@@ -106,7 +106,6 @@ func swarmUISchema() map[string]interface{} {
 		"max_streams":     intProp("Max streams", "Concurrent shared-model calls this client may hold on this relay. 0 is no limit."),
 		"rate_per_minute": intProp("Calls per minute", "Calls the relay forwards for this client per minute. 0 is no limit."),
 		"rate_burst":      intProp("Burst", "Calls allowed at once before the rate applies. Empty takes the rate, capped by max streams."),
-		"cert_names":      stringListProp("Certificate names", "DNS or URI names in a client certificate that stand for this client."),
 	}
 	return objectSchema("Swarm relay", "This relay's deployment: its name and address, the tokens of its clients and nodes, CORS for pages served elsewhere, the nodes it dials itself and the relays it joins. A save rebuilds the relay; a new address takes a restart.",
 		map[string]interface{}{
@@ -133,15 +132,9 @@ func swarmUISchema() map[string]interface{} {
 				map[string]interface{}{
 					"cert_file":      strProp("Certificate file", "PEM certificate chain."),
 					"key_file":       strProp("Key file", "PEM private key."),
-					"client_ca_file": strProp("Client CA file", "PEM bundle client certificates are verified against. Needs the certificate and key above. Takes a restart."),
-					"client_auth": map[string]interface{}{
-						"type":        "string",
-						"title":       "Client certificates",
-						"description": "optional verifies a certificate when one is offered; required refuses a peer without one at the handshake, nodes that join included. Empty with a client CA means optional.",
-						"enum":        []string{"", "optional", "required"},
-					},
+					"client_ca_file": strProp("Client CA file", "PEM bundle client certificates are verified against. The handshake then requires a certificate that chains to it, nodes that join included. Needs the certificate and key above. Takes a restart."),
 				},
-				[]string{"cert_file", "key_file", "client_ca_file", "client_auth"},
+				[]string{"cert_file", "key_file", "client_ca_file"},
 				nil),
 			"node_tls": objectSchema("Node certificates", "How this relay reaches the nodes that registered themselves over an address: the authority their certificates are verified against and the client certificate the relay presents when a node asks for one. A hand-written upstream with a dial block of its own keeps it and gets nothing from here; every other direct node gets this. A CA here replaces the system roots. Takes a restart.",
 				map[string]interface{}{
@@ -172,7 +165,7 @@ func swarmUISchema() map[string]interface{} {
 				"type":        "array",
 				"title":       "Scoped clients",
 				"description": "Clients with a token of their own that opens only the shared-model routes of the nodes they list. The client token above stays the full one.",
-				"items":       objectSchema("", "", clientProps, []string{"name", "token", "scope", "nodes", "max_streams", "rate_per_minute", "rate_burst", "cert_names"}, nil),
+				"items":       objectSchema("", "", clientProps, []string{"name", "token", "scope", "nodes", "max_streams", "rate_per_minute", "rate_burst"}, nil),
 			},
 		},
 		[]string{

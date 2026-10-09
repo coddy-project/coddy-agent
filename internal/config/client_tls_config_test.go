@@ -95,17 +95,11 @@ const relayTLS = `swarm:
 
 func TestSwarmClientCertificateAuthority(t *testing.T) {
 	noOutOfBandCredentials(t)
-	rep := checkYAML(t, withModeline(relayTLS+"    client_ca_file: /etc/ca.pem\n    client_auth: required\n"))
+	rep := checkYAML(t, withModeline(relayTLS+"    client_ca_file: /etc/ca.pem\n"))
 	if !rep.Valid() {
-		t.Fatalf("a CA with required: %+v", rep.Findings)
-	}
-	rep = checkYAML(t, withModeline(relayTLS+"    client_ca_file: /etc/ca.pem\n"))
-	if !rep.Valid() {
-		t.Fatalf("a CA alone means optional: %+v", rep.Findings)
+		t.Fatalf("a CA with a certificate and a key: %+v", rep.Findings)
 	}
 	for name, tc := range map[string]struct{ body, path string }{
-		"auth without a CA":  {relayTLS + "    client_auth: required\n", "swarm.tls.client_auth"},
-		"unknown auth":       {relayTLS + "    client_ca_file: /etc/ca.pem\n    client_auth: maybe\n", "swarm.tls.client_auth"},
 		"CA without a relay": {"swarm:\n  auth_token: full\n  tls:\n    client_ca_file: /etc/ca.pem\n", "swarm.tls.client_ca_file"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -120,22 +114,6 @@ func TestSwarmClientCertificateAuthority(t *testing.T) {
 				t.Fatalf("no error at %s: %+v", tc.path, rep.Findings)
 			}
 		})
-	}
-}
-
-func TestEffectiveClientAuth(t *testing.T) {
-	for _, tc := range []struct {
-		tls  SwarmTLSConfig
-		want string
-	}{
-		{SwarmTLSConfig{}, ""},
-		{SwarmTLSConfig{ClientAuth: "required"}, ""},
-		{SwarmTLSConfig{ClientCAFile: "ca"}, "optional"},
-		{SwarmTLSConfig{ClientCAFile: "ca", ClientAuth: "required"}, "required"},
-	} {
-		if got := tc.tls.EffectiveClientAuth(); got != tc.want {
-			t.Errorf("%+v: %q, want %q", tc.tls, got, tc.want)
-		}
 	}
 }
 
@@ -196,15 +174,6 @@ func TestSharedModelsRateLimit(t *testing.T) {
 	findingAt(t, rep.Findings, SeverityWarning, "httpserver.shared_models.rate_burst")
 }
 
-func TestCertNamesNeedAClientCA(t *testing.T) {
-	noOutOfBandCredentials(t)
-	entry := "  clients:\n    - name: a\n      scope: shared_models\n      nodes: [a]\n      cert_names: [c.example]\n"
-	rep := checkYAML(t, withModeline(relayTLS+entry))
-	findingAt(t, rep.Findings, SeverityWarning, "swarm.clients[0].cert_names")
-	rep = checkYAML(t, withModeline(relayTLS+"    client_ca_file: /etc/ca.pem\n"+entry))
-	noFindingAt(t, rep.Findings, "swarm.clients[0].cert_names")
-}
-
 func TestSessionsLabelWarningOnAMainToken(t *testing.T) {
 	noOutOfBandCredentials(t)
 	body := func(token string) string {
@@ -218,19 +187,19 @@ func TestSessionsLabelWarningOnAMainToken(t *testing.T) {
 
 func TestSwarmRelayDocumentCarriesTheNewKeys(t *testing.T) {
 	cfg := &Config{}
-	cfg.Swarm.TLS = SwarmTLSConfig{CertFile: "c", KeyFile: "k", ClientCAFile: "ca", ClientAuth: "required"}
+	cfg.Swarm.TLS = SwarmTLSConfig{CertFile: "c", KeyFile: "k", ClientCAFile: "ca"}
 	cfg.Swarm.Join = []SwarmJoin{{URL: "https://r", Dial: SwarmDialConfig{CertFile: "jc", KeyFile: "jk"}}}
 	cfg.Swarm.Upstreams = []SwarmUpstream{{Name: "n", URL: "https://n", Dial: SwarmDialConfig{CertFile: "uc", KeyFile: "uk"}}}
 	cfg.HTTPServer.SharedModels.RatePerMinute = 12
 	cfg.HTTPServer.SharedModels.RateBurst = 3
 	dto := ConfigToJSONDTO(cfg)
-	if dto.Swarm.TLS.ClientCAFile != "ca" || dto.Swarm.TLS.ClientAuth != "required" ||
+	if dto.Swarm.TLS.ClientCAFile != "ca" ||
 		dto.Swarm.Join[0].Dial.CertFile != "jc" || dto.Swarm.Upstreams[0].Dial.KeyFile != "uk" ||
 		dto.HTTPServer.SharedModels.RatePerMinute != 12 || dto.HTTPServer.SharedModels.RateBurst != 3 {
 		t.Fatalf("document lost a key: %+v %+v", dto.Swarm, dto.HTTPServer.SharedModels)
 	}
 	back := JSONDTOToConfig(dto, Paths{})
-	if back.Swarm.TLS.ClientAuth != "required" || back.Swarm.Join[0].Dial.CertFile != "jc" ||
+	if back.Swarm.TLS.ClientCAFile != "ca" || back.Swarm.Join[0].Dial.CertFile != "jc" ||
 		back.Swarm.Upstreams[0].Dial.KeyFile != "uk" || back.HTTPServer.SharedModels.RateBurst != 3 {
 		t.Fatalf("round trip lost a key: %+v", back.Swarm)
 	}

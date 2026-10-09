@@ -413,7 +413,7 @@ Three credentials, three jobs:
 | `swarm.pairing_tokens` | nodes | joining this relay |
 | per-node `token` | the relay | acting as that node |
 
-**Scoped clients narrow the door for borrowers.** `swarm.clients` lists clients with a token (and, optionally, certificate names) of their own that open
+**Scoped clients narrow the door for borrowers.** `swarm.clients` lists clients with a token of their own that open
 only the shared-model routes of the nodes the entry lists: [Scoped clients](#scoped-clients). The paragraph below is about the full client token,
 `swarm.auth_token`, which is unchanged.
 
@@ -481,7 +481,6 @@ swarm:
       token: "${ACME_RELAY_TOKEN}"             # a token belongs to one class only
       scope: shared_models                     # the only scope
       nodes: [workstation, edge/gpu-box]       # exact hop paths
-      cert_names: []                           # certificate names that map to this entry (below)
       max_streams: 2                           # shared-model calls the entry may hold at once; 0 = no limit
       rate_per_minute: 30                      # calls it may start per minute; 0 = no limit
       rate_burst: 5                            # calls that may start at once before the rate applies
@@ -512,22 +511,19 @@ swarm:
 
 ### Client certificates
 
-With `swarm.tls.client_ca_file` the relay asks the peer for a certificate and verifies it against that authority. `swarm.tls.client_auth: optional` (the default
-with a CA) lets a peer without one in for the routes that need none; `required` refuses every peer without a verified certificate at the handshake: nodes that
-join and browsers included, so a node then needs `dial.cert_file` and `dial.key_file` ([Encryption and proxies](#encryption-and-proxies)).
+TLS at the relay is the transport's business and nothing else. With `swarm.tls.client_ca_file` the handshake **requires** a certificate that chains to that authority and
+refuses every peer without one: nodes that join and browsers included, so a node then needs `dial.cert_file` and `dial.key_file`
+([Encryption and proxies](#encryption-and-proxies)). That is all TLS does here.
 
-A verified certificate maps to an entry by `cert_names`, matched exactly against the leaf's DNS and URI names (the CN is not consulted):
-
-- an entry with only a `token` is a bearer entry; with only `cert_names` a certificate entry; with both, **both are required** and the certificate must map to
-  that same entry, so a stolen token without the key (or the key without the token) opens nothing;
-- the match is made **on every request** against the live entries, never cached in the connection: removing a name or an entry takes effect on the next request of
-  an open connection, a resumed connection is judged like a fresh one, and a certificate past its end has no identity;
-- a certificate never opens the full class: a request with a full token and a certificate is full, a request with only a certificate is at most the scoped entry
-  it maps to, and a chain-valid certificate no entry names reaches nothing.
+- **Coddy reads no identity out of a certificate.** No name, no subject, no class. A relay client is told apart by its **token**: a `swarm.clients` entry is a bearer entry, a certificate opens nothing and adds nothing
+  to a request, and a request with a certificate and no token is a `401` like a request with neither. What a certificate holder may do is for a **reverse proxy** in front of the relay
+  and for the infrastructure around it: [Certificates and TLS](certificates.md#12-where-the-other-risks-go).
+- **Coddy makes the certificates** (`coddy tls`, built in): see [Certificates and TLS](certificates.md). An authority of your own or a public one, named by hand, is the same setup.
+- The full class and the scoped class are unchanged: the full token opens the relay, an entry's token opens the shared-model routes of the nodes it lists.
 
 #### The relay's own certificate towards a node
 
-A node that serves TLS itself and asks for a client certificate (`httpserver.tls.client_ca_file` on the node, `client_auth: required` to refuse everyone else)
+A node that serves TLS itself and asks for a client certificate (`httpserver.tls.client_ca_file` on the node, which then refuses a peer without a certificate at the handshake)
 needs the relay to present one, and a node with a private certificate needs the relay to trust its authority. A node that registered itself cannot say
 either, since that would be the node choosing whom the relay trusts, so the relay's operator does:
 

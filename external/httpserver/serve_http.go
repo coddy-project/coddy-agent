@@ -147,7 +147,7 @@ func Serve(ctx context.Context, opts Options) error {
 	errs := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", opts.ListenAddr, "auth", authOn, "tls", tlsOn,
-			"client_certs", cfg.HTTPServer.TLS.EffectiveClientAuth())
+			"client_ca", cfg.HTTPServer.TLS.ClientCAFile != "")
 		if tlsOn {
 			errs <- srv.ListenAndServeTLS(cfg.HTTPServer.TLS.CertFile, cfg.HTTPServer.TLS.KeyFile)
 			return

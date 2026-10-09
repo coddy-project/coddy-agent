@@ -7,8 +7,6 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/netx"
@@ -87,15 +85,12 @@ func (s *Server) authRequired() bool {
 
 // principalOf resolves the request against every entry, without an early exit.
 //
-// An entry with a token only is a bearer entry, with certificate names only a certificate entry, with both it needs BOTH, the
-// bearer and a verified certificate that maps to that same entry (the token is useless without the key, and the key without the
-// token). A token that is also a full token is scoped: least privilege, and load refuses the duplicate anyway. A certificate
-// never opens the full class. The identity is read from r.TLS on this request against the live entries: nothing is cached in the
-// connection, so a name removed from the configuration is refused on the next request of an open connection, and a resumed
-// connection is judged like a fresh one.
+// A scoped entry is a bearer entry: it proves itself with its token. A token that is also a full token is scoped: least privilege,
+// and load refuses the duplicate anyway. A TLS certificate is not read: the handshake admitted the peer by its chain (swarm.tls.client_ca_file)
+// and that is all TLS does here; what a certificate holder may do is for the reverse proxy and the infrastructure
+// (docs/plans/remote-model-provider-tls-builtin.md).
 func (s *Server) principalOf(r *http.Request) principal {
 	bearer := credentialOf(r)
-	names := certificateNames(r, time.Now())
 	clients := s.scopedClients()
 	var scoped *config.SwarmClient
 	bearerIsScopedToken := false
@@ -104,24 +99,13 @@ func (s *Server) principalOf(r *http.Request) principal {
 		tokenOK := c.Token != "" && bearer != "" && subtle.ConstantTimeCompare([]byte(c.Token), []byte(bearer)) == 1
 		if tokenOK {
 			bearerIsScopedToken = true
-		}
-		certOK := len(c.CertNames) > 0 && namesMatch(names, c.CertNames)
-		var eligible bool
-		switch {
-		case c.Token != "" && len(c.CertNames) > 0:
-			eligible = tokenOK && certOK
-		case c.Token != "":
-			eligible = tokenOK
-		case len(c.CertNames) > 0:
-			eligible = certOK
-		}
-		if eligible && scoped == nil {
-			scoped = c
+			if scoped == nil {
+				scoped = c
+			}
 		}
 	}
-	// A bearer that is a full token proves the full class, whatever certificate rides with it: a certificate never lowers a
-	// credential and never raises one. A bearer that is a token of a scoped entry too (load refuses the duplicate) is scoped, the
-	// narrower class, and when that entry is not eligible (it binds a certificate the request lacks) it proves nothing.
+	// A bearer that is a full token proves the full class. A bearer that is a token of a scoped entry too (load refuses the duplicate)
+	// is scoped, the narrower class.
 	if !bearerIsScopedToken && acceptToken(s.clientTokens(), bearer) {
 		return principal{class: principalFull}
 	}
@@ -131,31 +115,10 @@ func (s *Server) principalOf(r *http.Request) principal {
 	return principal{class: principalNone}
 }
 
-// certificateNames are the DNS and URI names of the verified client certificate of the request, or nil when there is none: no
-// TLS, no certificate offered, or a leaf that is not valid now (checked per request, since a connection outlives a certificate).
-// The CN is not consulted. The chain was verified against swarm.tls.client_ca_file at the handshake; a connection that offered
-// none has no verified chain here.
-func certificateNames(r *http.Request, now time.Time) []string {
-	return netx.CertificateNames(r.TLS, now)
-}
-
-// namesMatch reports whether any certificate name is one of the entry's, exactly.
-func namesMatch(have, want []string) bool {
-	for _, h := range have {
-		for _, w := range want {
-			if strings.TrimSpace(w) == h {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// ClientCertTLS builds the server side of the relay's client certificates from swarm.tls: the pool of swarm.tls.client_ca_file
-// and the mode, optional (verify a certificate when one is offered, let a peer without one in for the routes that need none) or
-// required (refuse a peer without a verified certificate at the handshake, nodes that join and browsers included). It returns nil
-// when no client CA is set: the listener then asks for no certificate. The server certificate is the caller's (ListenAndServeTLS
-// loads cert_file and key_file). The CA is startup state: changing it takes a restart.
+// ClientCertTLS builds the server side of the relay's mutual TLS from swarm.tls: the pool of swarm.tls.client_ca_file, and the
+// handshake then requires a certificate that chains to it, nodes that join and browsers included. It returns nil when no client CA is
+// set: the listener then asks for no certificate. The server certificate is the caller's (ListenAndServeTLS loads cert_file and
+// key_file). The CA is startup state: changing it takes a restart.
 func ClientCertTLS(t config.SwarmTLSConfig) (*tls.Config, error) {
-	return netx.ClientCertTLS(t.ClientCAFile, t.EffectiveClientAuth(), "swarm.tls.client_ca_file")
+	return netx.ClientCertTLS(t.ClientCAFile, "swarm.tls.client_ca_file")
 }

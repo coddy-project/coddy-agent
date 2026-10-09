@@ -68,8 +68,8 @@ func TestOpenAPIDescribesTheSharedModelRoutes(t *testing.T) {
 	if _, ok := responses["200"].(map[string]any)["headers"].(map[string]any)["X-Coddy-Probe"]; !ok {
 		t.Error("the 200 does not document the confirmation header")
 	}
-	if !strings.Contains(bodyString(t, fx.get("/openapi.yaml", sharedTestMainToken)), "- mtls") {
-		t.Error("the counters' class enum lacks mtls (the class of a client certificate, httpserver.shared_models.cert_names)")
+	if strings.Contains(bodyString(t, fx.get("/openapi.yaml", sharedTestMainToken)), "- mtls") {
+		t.Error("the counters' class enum still has mtls: a certificate is no credential class, the application reads no identity out of it")
 	}
 	if _, found := paths["/coddy/shared-models/stats"]; !found {
 		t.Fatal("the stats route is not documented")

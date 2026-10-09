@@ -1,5 +1,10 @@
 # Certificates and TLS: a field guide
 
+> **Under revision (phase 4b, [plan](../plans/remote-model-provider-tls-builtin.md)).** TLS in Coddy is the transport's business and nothing else, and Coddy makes its own certificates with
+> the built-in `coddy tls`. **Coddy no longer reads the identity of a certificate**: `cert_names`, the class `mtls` and `client_auth` are removed, a certificate admits a peer at the
+> handshake (`client_ca_file`) and is no credential. Read every mention of those below as gone; the recipes for making and installing certificates still hold until this guide is
+> rewritten around `coddy tls`. What goes beyond the handshake is for the reverse proxy: [where the other risks go](#12-where-the-other-risks-go).
+
 Coddy speaks TLS in several places, and each place wants a different piece of key material from a different kind of authority. This page says, for each situation you are likely to be in, which files to make, who keeps them, which keys to set, and how to check that it works. It is written for the person who runs the relay, the node or the borrowing Coddy, and for the agent (Codex, Claude Code, Coddy itself, or another) that is doing the typing: section 10 is addressed to the agent.
 
 Everything here is **opt-in**. A relay or a node with no certificate settings speaks plain HTTP, which is right on a loopback address, behind a reverse proxy that terminates TLS, or inside a tunnel. The settings below are for the other cases: you want Coddy itself to terminate TLS, to ask its callers for a certificate, or to present one.
@@ -398,3 +403,66 @@ What this page says about the TLS stack and about Coddy's two certificate functi
 - **End to end**, [`examples/tls/tls_e2e_selfsigned.py`](../../examples/tls/tls_e2e_selfsigned.py) (`make test-tls-e2e`, `examples/test_tls.sh`) makes the material with the commands of section 4, boots real `coddy serve` processes (an agent terminating TLS with `optional` and with `required`, one with a self-signed server certificate, and a relay with TLS in front of the node that requires certificates), and checks that a certificate named in `cert_names` lists the shared models with no token directly and through the relay, that it opens nothing else, that an outsider's certificate and one without `clientAuth` get no connection, that the borrower's own client (`coddy -t --dry-run`) reaches both with `ca_file` and `client_cert_file`, and that a key with a passphrase is refused with the error this page names. It needs `openssl` and skips without it.
 
 A TLS interaction this page does not hold: ACME, a Microsoft authority and a browser's certificate store need the real thing, and are described from the documentation of those systems and of the code above, not exercised here.
+
+## 12. Where the other risks go
+
+Coddy does one thing with TLS: the transport. The listener presents a certificate, a client trusts an authority and may present a certificate of its own, and, with `client_ca_file`, the
+handshake refuses a peer whose certificate does not chain to that authority. **Coddy reads no identity out of a certificate**: no name, no subject, no class, no budget. A certificate is not
+a credential; the credential is a token. Every other security risk is governed where it can be governed best, at the **L7 reverse proxy** in front of Coddy and in the **infrastructure** around it.
+
+| Risk | Where it is governed |
+|---|---|
+| Who, by certificate subject, may call which route | the proxy (nginx `ssl_verify_client` with a `map` on `$ssl_client_s_dn`, Envoy RBAC on the authenticated principal, Traefik, Caddy) |
+| Rate limits per client, connection caps, slow-client protection | the proxy (`limit_req` keyed by the client's subject, for one) |
+| IP allowlists, WAF rules, bot and abuse control | the proxy and the network (a firewall, a security group, a mesh policy) |
+| Public certificates, ACME, an enterprise PKI, revocation lists, OCSP | the proxy, or files named by hand in Coddy's settings (it reads them and does not care where they came from) |
+| The audit of who connected | the proxy's access log |
+| Isolation of a node or a relay | the network: a private segment, a firewall, a mesh |
+| What Coddy keeps | tokens (`auth_token`, the shared-model tokens, a relay client's token) and the slots and windows that do not read a certificate |
+
+A minimal shape: the proxy terminates TLS with a public or enterprise certificate, requires and checks a client certificate, decides by its subject, limits per client and forwards plain HTTP to
+Coddy on a loopback or private address. Coddy keeps its own token check behind it and ignores whatever header the proxy adds. These are starting points, not part of Coddy's test suite:
+
+```nginx
+# nginx: mutual TLS, a decision by subject, a limit per client, an SSE-friendly forward to Coddy on loopback
+limit_req_zone $ssl_client_s_dn zone=coddy_clients:10m rate=30r/m;
+map $ssl_client_s_dn $coddy_client_allowed {
+    default 0;
+    "CN=ops-laptop,O=Example" 1;
+}
+server {
+    listen 443 ssl;
+    server_name coddy.example.com;
+    ssl_certificate        /etc/nginx/tls/coddy.crt;
+    ssl_certificate_key    /etc/nginx/tls/coddy.key;
+    ssl_client_certificate /etc/nginx/tls/clients-ca.pem;
+    ssl_verify_client on;
+    location /coddy/llm/ {
+        if ($coddy_client_allowed = 0) { return 403; }
+        limit_req zone=coddy_clients burst=5 nodelay;
+        proxy_pass http://127.0.0.1:12345;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;        # the completions stream is Server-Sent Events
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+```
+# Caddy: mutual TLS in front of Coddy, streaming not buffered
+coddy.example.com {
+    tls {
+        client_auth {
+            mode require_and_verify
+            trusted_ca_cert_file /etc/caddy/clients-ca.pem
+        }
+    }
+    reverse_proxy 127.0.0.1:12345 {
+        flush_interval -1
+    }
+}
+```
+
+Through a proxy the node sees the proxy, not the end client: the shared-model limits that Coddy keeps (a slot and a window per token) count per token, and the per-client limits belong to the proxy. A
+relay and its nodes follow the same rule: put the proxy in front of the relay, and keep the nodes on a private network.
