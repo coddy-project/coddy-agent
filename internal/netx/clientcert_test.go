@@ -335,3 +335,44 @@ func TestClientTLSKeyFollowsTheContentNotJustSizeAndTime(t *testing.T) {
 		t.Fatal("the empty identity has the empty key")
 	}
 }
+
+// A renewal that reuses the key (certbot's reuse_key, a request signed again) changes only the certificate file. The pair still matches, so
+// the loader has to take it: comparing the key alone would keep serving the old certificate (model p5-certloader, ROT 1 and CMP 2).
+func TestClientCertificateRenewedWithTheSameKeyIsPickedUp(t *testing.T) {
+	pki := newPKI(t)
+	ts := pki.mtlsServer(t)
+	certPath, keyPath := pki.issue(t, "alice", 2, true)
+	client, err := (Options{CAFile: pki.caFile(t), CertFile: certPath, KeyFile: keyPath}).HTTPClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := get(t, client, ts.URL); err != nil || got != "alice" {
+		t.Fatalf("before: %q %v", got, err)
+	}
+
+	raw, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(raw)
+	key, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(9), Subject: pkix.Name{CommonName: "alice-renewed"}, DNSNames: []string{"alice-renewed"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, pki.caCert, &key.PublicKey, pki.caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client.CloseIdleConnections()
+	if got, err := get(t, client, ts.URL); err != nil || got != "alice-renewed" {
+		t.Fatalf("after renewing the certificate and keeping the key: %q %v, want alice-renewed", got, err)
+	}
+}
