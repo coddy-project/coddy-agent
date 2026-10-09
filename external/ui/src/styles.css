@@ -16660,18 +16660,30 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   opacity: 0.75;
 }
 
-.sessions-manager-archive {
-  flex: 0 0 auto;
+/* The two filters of the table share a row under the search, half of it each,
+   so neither the field nor the actions give up width to them at any width. */
+.sessions-manager-filters {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
 }
 
-.sessions-manager-archive-select {
-  width: auto;
+.sessions-manager-archive,
+.sessions-manager-origin {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.sessions-manager-archive-select,
+.sessions-manager-origin-select {
+  width: 100%;
   min-width: 0;
 }
 
 /* The same mark as in History: a state leading the title, not a pill among the
    labels. */
-.sessions-manager-archived-mark {
+.sessions-manager-archived-mark,
+.sessions-manager-print-mark {
   flex: 0 0 auto;
   display: inline-grid;
   place-items: center;
@@ -16680,7 +16692,8 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
 }
 
-.sessions-manager-archived-mark svg {
+.sessions-manager-archived-mark svg,
+.sessions-manager-print-mark svg {
   width: 14px;
   height: 14px;
 }

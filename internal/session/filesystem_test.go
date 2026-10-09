@@ -1927,7 +1927,7 @@ func emptyBundle(t *testing.T, fs *FileStore, id string, edit func(*State)) *Sta
 	return st
 }
 
-func listedIDs(t *testing.T, fs *FileStore, opts ListOptions) map[string]bool {
+func listedIDSet(t *testing.T, fs *FileStore, opts ListOptions) map[string]bool {
 	t.Helper()
 	rows, err := fs.ListSnapshotsWith(opts)
 	if err != nil {
@@ -1953,11 +1953,11 @@ func TestListSnapshotsLeavesOutSessionsWithoutAMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := listedIDs(t, fs, ListOptions{})
+	got := listedIDSet(t, fs, ListOptions{})
 	if got["sess_empty"] || !got["sess_pinned_empty"] || !got["sess_talked"] {
 		t.Fatalf("default listing = %v, want the pinned and the talked session only", got)
 	}
-	if all := listedIDs(t, fs, ListOptions{IncludeEmpty: true}); !all["sess_empty"] {
+	if all := listedIDSet(t, fs, ListOptions{IncludeEmpty: true}); !all["sess_empty"] {
 		t.Fatalf("listing with IncludeEmpty = %v, want the empty session too", all)
 	}
 }
@@ -1975,7 +1975,7 @@ func TestListSnapshotsLeavesOutAnEmptyBundleWithoutACount(t *testing.T) {
 	if err := writeJSONAtomic(filepath.Join(st.SessionDir, sessionMetaFile), meta); err != nil {
 		t.Fatal(err)
 	}
-	if got := listedIDs(t, fs, ListOptions{}); got["sess_legacy_empty"] {
+	if got := listedIDSet(t, fs, ListOptions{}); got["sess_legacy_empty"] {
 		t.Fatalf("default listing = %v, want the legacy empty bundle left out", got)
 	}
 }
@@ -1985,7 +1985,7 @@ func TestListSnapshotsLeavesOutAnEmptyBundleWithoutACount(t *testing.T) {
 func TestListSnapshotsKeepsAnEmptySchedulerJobSession(t *testing.T) {
 	fs := &FileStore{Root: t.TempDir()}
 	emptyBundle(t, fs, "sess_job", func(st *State) { st.SetSchedulerJobWithoutPersist("job_a") })
-	if got := listedIDs(t, fs, ListOptions{IncludeSchedulerRuns: true}); !got["sess_job"] {
+	if got := listedIDSet(t, fs, ListOptions{IncludeSchedulerRuns: true}); !got["sess_job"] {
 		t.Fatalf("scheduler listing = %v, want the job session", got)
 	}
 }

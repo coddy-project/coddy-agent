@@ -1218,6 +1218,9 @@ export const messagesEn: Record<string, string> = {
   "sessions.manage.archive.only": "Archive",
   "sessions.manage.archive.all": "Everything",
   "sessions.manage.archivedBadge": "archived",
+  "sessions.manage.printBadge": "CLI run",
+  "sessions.manage.origin.label": "Source",
+  "sessions.manage.origin.all": "All sources",
   "sessions.manage.archivedOn": "Archived on {date}",
   "sessions.manage.deleteArchived": "Delete every archived conversation",
   "sessions.manage.confirm.archived.title": "Empty the archive?",
@@ -1240,6 +1243,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.filter.env.all": "All",
   "sessions.filter.env.local": "Local",
   "sessions.filter.env.gateway": "Gateway",
+  "sessions.filter.env.print": "CLI runs",
 
   "sessions.sort.updated": "Last activity",
   "sessions.sort.created": "Date created",

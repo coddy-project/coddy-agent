@@ -1551,7 +1551,7 @@ func (a *App) ExitHint() string {
 // StartContinue reopens the most recent session recorded for this folder
 // (the -c/--continue flag).
 func (a *App) StartContinue(ctx context.Context) error {
-	id, err := latestBackendSessionID(ctx, a.mgr, a.config().Paths.CWD)
+	id, err := latestBackendSessionID(ctx, a.mgr, a.config().Paths.CWD, false)
 	if err != nil {
 		return err
 	}

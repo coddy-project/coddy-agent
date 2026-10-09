@@ -773,3 +773,95 @@ test("the table is a Session management fieldset with its lead behind the (i)", 
     "Every stored conversation",
   );
 });
+
+/**
+ * Print runs (sessions `coddy -p` created) are hidden from History by default,
+ * and this table is where they are cleaned up: it asks for them, marks them,
+ * and narrows the listing by where a session came from.
+ */
+const originRows: SessionManagerRow[] = [
+  {
+    id: "sess_chat",
+    title: "Plan the release",
+    updatedAt: "2026-09-03T10:00:00Z",
+  },
+  {
+    id: "sess_script",
+    title: "IMPORTANT: answer from this brief alone",
+    updatedAt: "2026-09-04T10:00:00Z",
+    origin: "print",
+  },
+  {
+    id: "sess_bot",
+    title: "Chat with the bot",
+    updatedAt: "2026-09-05T10:00:00Z",
+    origin: "gateway:telegram",
+  },
+];
+
+function stubOriginFetch() {
+  const calls: Call[] = [];
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push({ url, ...(init ? { init } : {}) });
+    const query = new URLSearchParams(url.split("?")[1] ?? "");
+    const origin = query.get("origin") ?? "";
+    const includePrint = query.get("include_print") === "true";
+    const body = originRows.filter((r) => {
+      const isPrint = r.origin === "print";
+      const isGateway = (r.origin ?? "").startsWith("gateway");
+      if (origin === "print") return isPrint;
+      if (origin === "gateway") return isGateway;
+      if (origin === "local") return !isPrint && !isGateway;
+      return includePrint || !isPrint;
+    });
+    return {
+      ok: true,
+      json: async () => ({ sessions: body, hasMore: false, nextCursor: null }),
+    } as unknown as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return calls;
+}
+
+test("the table lists print runs with the rest and marks them", async () => {
+  const calls = stubOriginFetch();
+  renderTable();
+  const script = await screen.findByTestId("sessions-manager-row-sess_script");
+
+  expect(calls[0]?.url).toContain("include_print=true");
+  expect(calls[0]?.url).not.toContain("origin=");
+  expect(
+    within(script).getByTestId("sessions-manager-print-sess_script"),
+  ).toHaveAccessibleName("CLI run");
+  expect(screen.queryByTestId("sessions-manager-print-sess_chat")).toBeNull();
+  expect(
+    screen.getByTestId("sessions-manager-row-sess_bot"),
+  ).toBeInTheDocument();
+});
+
+test("the origin filter narrows the table to one kind of session", async () => {
+  const calls = stubOriginFetch();
+  renderTable();
+  await screen.findByTestId("sessions-manager-row-sess_script");
+
+  const filter = screen.getByTestId("sessions-manager-origin-filter");
+  expect(filter).toHaveAccessibleName("Source");
+
+  fireEvent.change(filter, { target: { value: "print" } });
+  await waitFor(() =>
+    expect(screen.queryByTestId("sessions-manager-row-sess_chat")).toBeNull(),
+  );
+  expect(calls.at(-1)?.url).toContain("origin=print");
+  expect(
+    screen.getByTestId("sessions-manager-row-sess_script"),
+  ).toBeInTheDocument();
+
+  fireEvent.change(filter, { target: { value: "local" } });
+  await screen.findByTestId("sessions-manager-row-sess_chat");
+  expect(calls.at(-1)?.url).toContain("origin=local");
+  expect(screen.queryByTestId("sessions-manager-row-sess_script")).toBeNull();
+
+  fireEvent.change(filter, { target: { value: "" } });
+  await screen.findByTestId("sessions-manager-row-sess_script");
+  expect(calls.at(-1)?.url).not.toContain("origin=");
+});
