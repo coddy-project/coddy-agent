@@ -1,5 +1,8 @@
 # Examples and e2e harnesses
 
+[Parallel Search MCP](parallel-search/README.md) is an opt-in HTTP MCP configuration
+for web search and page fetching without a Parallel API key.
+
 ## Naming
 
 Paired HTTP, ACP, and console (CLI) scripts share the same stem after the
