@@ -376,3 +376,47 @@ func TestClientCertificateRenewedWithTheSameKeyIsPickedUp(t *testing.T) {
 		t.Fatalf("after renewing the certificate and keeping the key: %q %v, want alice-renewed", got, err)
 	}
 }
+
+// A pair that stops matching is an error at every handshake, never the previous pair served in its place. A key replaced alone by an
+// unrelated one would be hidden by a loader that compares the certificate only, and a failed parse must leave nothing cached: a loader that
+// cached the bytes before parsing them would serve the old pair from the second handshake on (model p5-certloader, gMasked).
+func TestClientCertificateThatStopsMatchingIsRefusedEveryTime(t *testing.T) {
+	read := func(p string) []byte {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	for _, tc := range []struct {
+		name    string
+		replace func(aliceCert, aliceKey, bobCert, bobKey string)
+	}{
+		{"the key alone is replaced by another key", func(_, aliceKey, _, bobKey string) {
+			if err := os.WriteFile(aliceKey, read(bobKey), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"the certificate alone is replaced by another certificate", func(aliceCert, _, bobCert, _ string) {
+			if err := os.WriteFile(aliceCert, read(bobCert), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pki := newPKI(t)
+			aliceCert, aliceKey := pki.issue(t, "alice", 2, true)
+			bobCert, bobKey := pki.issue(t, "bob", 3, true)
+			l := &certLoader{certFile: aliceCert, keyFile: aliceKey}
+			if _, err := l.get(nil); err != nil {
+				t.Fatalf("before: %v", err)
+			}
+			tc.replace(aliceCert, aliceKey, bobCert, bobKey)
+			for i := 1; i <= 3; i++ {
+				if cert, err := l.get(nil); err == nil {
+					t.Fatalf("handshake %d over a certificate and a key that do not match was served a certificate (%d bytes of the chain)", i, len(cert.Certificate[0]))
+				}
+			}
+		})
+	}
+}
