@@ -529,13 +529,14 @@ A phone gives the shell 360 to 430 CSS px. Everything below lives in one **`@med
   **`NAMING_PLACEHOLDER_TIMEOUT_MS`**, 30 seconds, in **`sessionTitleSuggest.ts`**, after which a late
   name is still applied but no longer promised), **`App.tsx`** holds the session
   in **`namingSessionIds`**: the chat header draws a bar where the title will be
-  (**`.chat-title-skeleton`**, **`data-testid="chat-title-pending"`**, the button **`aria-busy`** with the
-  *Naming the chat…* line for screen readers) and the row draws one for the title
+  (**`.chat-title-skeleton`**, **`data-testid="chat-title-pending"`**, the button **`aria-busy`** and
+  named *Naming the chat…* for screen readers) and the row draws one for the title
   (**`.session-title--pending`** / **`.session-title-skeleton`**) and two short ones where the tags will be
   (**`.session-row-tags--pending`** / **`.session-tag-skeleton`**). All of them are
   **`.naming-skeleton-bar`**: the settings skeleton's shimmer tinted from **`--text`**, so it reads on
   every theme, sized in **em** so it follows the type it stands in for, and still under
-  **`prefers-reduced-motion`**. Never draw the first message there while the name is on its way: for a
+  **`prefers-reduced-motion`**. A first send of attachments alone has no text to name the chat by and
+  puts up no placeholder. Never draw the first message there while the name is on its way: for a
   chat started with a command it is a **`/rpa-init`** token, and for a long prompt a sentence that is
   replaced a second later. The name and the tags of the same answer replace the bars in one frame.
 - **One control per row** (**`.session-row-menu-trigger`**, a 26px **⋮**, 0.38 opacity until the row is

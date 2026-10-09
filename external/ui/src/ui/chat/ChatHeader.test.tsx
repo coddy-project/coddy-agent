@@ -212,10 +212,10 @@ test("a title being worked out shows a placeholder", () => {
       onTitleSave={() => {}}
     />,
   );
-  const btn = screen.getByRole("button", { name: /chat title/i });
+  // A screen reader names the button by what is going on, not "Chat title".
+  const btn = screen.getByRole("button", { name: /naming the chat/i });
   expect(btn).toHaveAttribute("aria-busy", "true");
   expect(screen.getByTestId("chat-title-pending")).toBeInTheDocument();
-  expect(btn).toHaveTextContent("Naming the chat");
   expect(btn).not.toHaveTextContent("/rpa-init");
 
   rerender(
@@ -228,4 +228,5 @@ test("a title being worked out shows a placeholder", () => {
   expect(screen.queryByTestId("chat-title-pending")).toBeNull();
   expect(btn).not.toHaveAttribute("aria-busy");
   expect(btn).toHaveTextContent("Repository onboarding");
+  expect(screen.getByRole("button", { name: /chat title/i })).toBe(btn);
 });

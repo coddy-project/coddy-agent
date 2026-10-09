@@ -374,3 +374,20 @@ test("the placeholder gives way after its bound and a late name still lands", as
     expect(order).toEqual(["settled", "short", "patch"]);
   });
 });
+
+// A first send of attachments alone has no text to name the chat by: nothing
+// is asked, and the placeholder that was put up for it gives way at once.
+test("a send without text settles the naming at once", async () => {
+  const settled = vi.fn();
+  const fetchImpl = vi.fn();
+  startSuggestSessionTitle({
+    userText: "   ",
+    sessionIdPromise: Promise.resolve("sess_x"),
+    onDescribeSettled: settled,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+  });
+  await vi.waitFor(() => {
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+  expect(fetchImpl).not.toHaveBeenCalled();
+});

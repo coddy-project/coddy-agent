@@ -173,30 +173,34 @@ func describeSystemPrompt(commands []describedCommand) string {
 // [/name](coddy-skill:name).
 var describePickLinkRE = regexp.MustCompile(`^\[/([a-zA-Z0-9][a-zA-Z0-9_-]*)\]\(coddy-skill:([a-zA-Z0-9][a-zA-Z0-9_-]*)\)$`)
 
-// describeIsCommandWord reports whether a word of the text is one of the
-// invoked commands, punctuation after it allowed.
+// describeIsCommandWord reports whether a word of the text, or of a model's
+// answer, is one of the invoked commands: written as /name in any case,
+// quoted or in backticks, in the picker's link form, punctuation after it
+// allowed.
 func describeIsCommandWord(word string, commands []describedCommand) bool {
-	w := strings.TrimRight(word, ",.;:!?)")
+	w := strings.Trim(word, "`\"'*_")
+	w = strings.TrimRight(w, ",.;:!?")
 	name := ""
 	if m := describePickLinkRE.FindStringSubmatch(w); m != nil && m[1] == m[2] {
 		name = m[1]
-	} else if strings.HasPrefix(w, "/") {
+	} else if w = strings.TrimRight(w, ")"); strings.HasPrefix(w, "/") {
 		name = w[1:]
 	}
 	if name == "" {
 		return false
 	}
 	for _, c := range commands {
-		if c.Name == name {
+		if strings.EqualFold(c.Name, name) {
 			return true
 		}
 	}
 	return false
 }
 
-// describeDropCommandEchoes takes the lines of a model answer that are nothing
-// but invoked command names out of it: a model that repeats "/rpa-init" has
-// named nothing, and the token must not become the title.
+// describeDropCommandEchoes takes the invoked commands off the head of every
+// line of a model answer, and drops a line that was nothing else: a model
+// that answers "/rpa-init" has named nothing, and one that answers
+// "/rpa-init Repository onboarding" named the chat by the words after it.
 func describeDropCommandEchoes(answer string, commands []describedCommand) string {
 	if len(commands) == 0 {
 		return answer
@@ -204,15 +208,15 @@ func describeDropCommandEchoes(answer string, commands []describedCommand) strin
 	kept := make([]string, 0, 2)
 	for _, line := range strings.Split(answer, "\n") {
 		words := strings.Fields(describeStripLineNoise(line))
-		echo := len(words) > 0
-		for _, w := range words {
-			if !describeIsCommandWord(w, commands) {
-				echo = false
-				break
-			}
+		lead := 0
+		for lead < len(words) && describeIsCommandWord(words[lead], commands) {
+			lead++
 		}
-		if !echo {
+		switch {
+		case lead == 0:
 			kept = append(kept, line)
+		case lead < len(words):
+			kept = append(kept, strings.Join(words[lead:], " "))
 		}
 	}
 	return strings.Join(kept, "\n")

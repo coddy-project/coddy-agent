@@ -5194,7 +5194,8 @@ export function App() {
         }
       };
 
-      if (isNewChatFirstSend && sessionIdWhenKnown) {
+      // A first send of attachments alone has no text to name the chat by.
+      if (isNewChatFirstSend && sessionIdWhenKnown && text.trim()) {
         const namingFolder = chatWorkspace;
         setNamingSessionIds((prev) => new Set(prev).add(sid));
         // The chat is in History from its first send, under a placeholder

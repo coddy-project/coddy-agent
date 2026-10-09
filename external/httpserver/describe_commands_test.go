@@ -256,3 +256,45 @@ func TestCoddyDescribeBoundsTheCommandContext(t *testing.T) {
 		t.Fatalf("%d commands described, want %d", listed, describeMaxCommands)
 	}
 }
+
+// A model's answer that leads with the command, spells it in another case or
+// quotes it has still named nothing by it: the command goes, and the words
+// after it, when there are any, are the title.
+func TestCoddyDescribeDropsTheCommandFromTheAnswerInAnyShape(t *testing.T) {
+	for _, tc := range []struct {
+		reply, want string
+	}{
+		{"/warm-up Repository onboarding", "Repository onboarding"},
+		{"/Warm-Up", "focus on the session titles"},
+		{"`/warm-up`", "focus on the session titles"},
+		{"\"/warm-up\"", "focus on the session titles"},
+		{"[/warm-up](coddy-skill:warm-up)", "focus on the session titles"},
+	} {
+		model := &scriptedTitleModel{reply: tc.reply}
+		ts, _, ws := describeServer(t, model)
+		if err := writeQuotedSkill(filepath.Join(ws, ".agents", "skills"), "warm-up", "Onboard onto a repository"); err != nil {
+			t.Fatal(err)
+		}
+		_, short, _ := postDescribe(t, ts, "/warm-up focus on the session titles", nil, nil)
+		if short != tc.want {
+			t.Fatalf("reply %q: short = %q, want %q", tc.reply, short, tc.want)
+		}
+	}
+}
+
+// The picker's link form of a command is the command too: it is described to
+// the model and kept out of the words the title falls back to.
+func TestCoddyDescribeKnowsThePickerLinkForm(t *testing.T) {
+	model := &scriptedTitleModel{reply: "/"}
+	ts, _, ws := describeServer(t, model)
+	if err := writeQuotedSkill(filepath.Join(ws, ".agents", "skills"), "warm-up", "Onboard onto a repository"); err != nil {
+		t.Fatal(err)
+	}
+	_, short, _ := postDescribe(t, ts, "[/warm-up](coddy-skill:warm-up) the billing service", nil, nil)
+	if !strings.Contains(model.system, "- /warm-up: Onboard onto a repository") {
+		t.Fatalf("the linked command was not described:\n%s", model.system)
+	}
+	if short != "the billing service" {
+		t.Fatalf("short = %q, want the words around the command", short)
+	}
+}

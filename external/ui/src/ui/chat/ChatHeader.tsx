@@ -82,18 +82,19 @@ export function ChatHeader(props: {
                 setEditing(true);
               }
             }}
-            aria-label={t("chat.chatTitleAriaLabel")}
+            aria-label={
+              props.titlePending
+                ? t("chat.namingChat")
+                : t("chat.chatTitleAriaLabel")
+            }
             aria-busy={props.titlePending ? true : undefined}
           >
             {props.titlePending ? (
-              <>
-                <span
-                  className="chat-title-skeleton naming-skeleton-bar"
-                  data-testid="chat-title-pending"
-                  aria-hidden="true"
-                />
-                <span className="sr-only">{t("chat.namingChat")}</span>
-              </>
+              <span
+                className="chat-title-skeleton naming-skeleton-bar"
+                data-testid="chat-title-pending"
+                aria-hidden="true"
+              />
             ) : (
               props.title || t("chat.newChat")
             )}

@@ -27,7 +27,7 @@ vi.mock("./chat/ChatScreen", () => ({
     sessionId?: string;
     title?: string;
     titlePending?: boolean;
-    onSend?: (text: string) => void;
+    onSend?: (text: string, files?: File[]) => void;
   }) => (
     <div>
       <output data-testid="session">{props.sessionId || "home"}</output>
@@ -41,6 +41,17 @@ vi.mock("./chat/ChatScreen", () => ({
         onClick={() => props.onSend?.("/rpa-init")}
       >
         send
+      </button>
+      <button
+        type="button"
+        data-testid="send-files-only"
+        onClick={() =>
+          props.onSend?.("", [
+            new File(["x"], "shot.png", { type: "image/png" }),
+          ])
+        }
+      >
+        send files
       </button>
     </div>
   ),
@@ -218,4 +229,28 @@ test("a describe that names nothing ends the placeholder", async () => {
   await waitFor(() =>
     expect(screen.getByTestId("title-pending").textContent).toBe("named"),
   );
+});
+
+// A first send of attachments alone has no text for describe to name: the
+// chat is not put under a placeholder that nothing would ever take down.
+test("a first send without text shows no naming placeholder", async () => {
+  render(
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>,
+  );
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.some(([u]) =>
+        String(u).startsWith("/coddy/workspace/context"),
+      ),
+    ).toBe(true),
+  );
+  fireEvent.click(screen.getByTestId("send-files-only"));
+  await waitFor(() =>
+    expect(screen.getByTestId("session").textContent).toMatch(/^sess_/),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(screen.getByTestId("title-pending").textContent).toBe("named");
+  expect(describeCalls).toHaveLength(0);
 });

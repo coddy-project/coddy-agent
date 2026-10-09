@@ -89,6 +89,9 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
   const fetchFn = deps.fetchImpl ?? fetch;
   const trimmed = deps.userText.trim();
   if (!trimmed) {
+    // Nothing to name the chat by (attachments alone): no placeholder may
+    // wait for a describe call that is never made.
+    deps.onDescribeSettled?.();
     return;
   }
 
