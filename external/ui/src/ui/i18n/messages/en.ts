@@ -68,6 +68,16 @@ export const messagesEn: Record<string, string> = {
   "settings.save.title": "Save all sections",
   "settings.save.aria": "Save all configuration sections",
   "settings.save.saved": "Saved",
+  "settings.save.dirtyTitle": "Save: the changes take effect only after it",
+  "settings.save.dirtyAria": "Save the unsaved changes",
+  "settings.status.unsaved": "Unsaved changes",
+  "settings.close.title": "Save before closing?",
+  "settings.close.message":
+    "The changes in the form are not saved and take effect only after Save.",
+  "settings.close.save": "Save and close",
+  "settings.close.keep": "Keep editing",
+  "settings.error.otherServer":
+    "This page has been switched to another server; reload it to edit that server's settings.",
   "settings.error.schemaLoadFailed": "schema",
   "settings.error.configLoadFailed": "config",
   "settings.error.validationFailed": "validation failed",

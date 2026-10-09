@@ -350,8 +350,8 @@ docker compose -f docker-compose.dev.yml logs -f coddy   # expect: "telegram bot
 ```
 
 Running the bot as a service separate from the web UI is still possible - two
-`coddy serve` processes, one with `--http=false` and one with `--gateway=false`
-- but they then have separate session managers again, and a chat conversation
+`coddy serve` processes, one with `--http=false` and one with `--gateway=false` -
+but they then have separate session managers again, and a chat conversation
 is no longer live in the browser. Prefer one process unless you need the
 isolation.
 
@@ -632,7 +632,11 @@ The settings commands take `--once` or `--count=N` to change a setting for the n
 
 A messenger has its own dialect and its own shape of screen. Coddy says both in
 two places that belong to the gateway, and neither of them touches the
-conversation the session keeps.
+conversation the session keeps. The Telegram bot also passes the language the
+person's client reports (`language_code`) as the language of the turn, so the
+documentation the turn's `@coddy:` mentions attach and the agent reads is in
+that language when Coddy's documentation has it ([Built-in
+documentation](../features/built-in-docs.md#languages)).
 
 ### The model is told, for that turn
 
@@ -664,8 +668,8 @@ becomes `_x_`, an asterisk bullet becomes `•`, a table is flattened to plain
 rows and a horizontal rule to a separator line. Fenced blocks and inline code
 spans are set aside before any rule runs and put back untouched, so a Go `**p`
 or a `# comment` inside a block reaches the chat as the model wrote it. The live
-streaming preview is sent with no parse mode - half a sentence is half a markup
-- so it gets the same conversion with the emphasis markers dropped rather than
+streaming preview is sent with no parse mode - half a sentence is half a markup -
+so it gets the same conversion with the emphasis markers dropped rather than
 shown as punctuation. If Telegram still refuses to parse a message, the sender
 resends it without a parse mode: a stray asterisk in prose costs formatting,
 never the reply.
@@ -983,5 +987,5 @@ one answer per tap.
 - **Permissions** — the gateway auto-approves the chat agent's own tool permission requests so it can work unattended. Restrict `tools.command_allowlist` in `config.yaml` if you want to limit which shell commands the agent can run. A subagent whose definition narrowed its permission mode below `bypass` is not waved through: the bot asks in the chat with **Allow** / **Reject** buttons naming the subagent - during the turn, and after it ended for a background subagent - and only the person whose session asked can answer (in a group with individual sessions another member's tap is ignored and leaves the owner's buttons available). The message reads *Allowed*, *Denied* or *No longer waiting* once it settles.
 - **Access control** — set `default_access: "admins"` for bots that should only respond to a specific set of users. Open bots (`default_access: "all"`) will respond to any Telegram user who can write to the chat.
 - **`/resume` lists every session of the server** — the sessions started in a console or a browser included, and a permitted user can continue any of them from the chat, which puts their transcripts in front of the model. With the defaults - every permission auto-approved, an unrestricted shell - the bundles on disk were within a permitted user's reach already; with a narrowed tool set (`tools.command_allowlist`, `ask` mode) `/resume` is a new path to other people's conversations. Either way, keep `default_access` narrow on a bot that more than one person can write to.
-- **Mini App** — the menu button is shown to everybody who opens a private chat with the bot, whatever `default_access` says, and a tap on it reaches the web UI's address. The bot therefore advertises the web UI only when it asks for a sign-in or a token, or when `httpserver.allow_insecure: true` says it is open on purpose. The launch data Telegram signs (`initData`) is not a sign-in: the web UI keeps it out of its address and never takes it for an identity, and you sign in as in a browser.
+- **Mini App** — the menu button is shown to everybody who opens a private chat with the bot, whatever `default_access` says, and a tap on it reaches the web UI's address. The bot therefore advertises the web UI only when it asks for a sign-in or a token, or when `httpserver.allow_insecure: true` says it is open on purpose. The launch data Telegram signs (`initData`) signs in the bot's admins only, and only through the server: `POST /coddy/auth/telegram` checks the signature with the bot's token, takes each launch once and at most an hour old, and refuses anybody who is not in `gateways.telegram.admins`, who then signs in as in a browser. The web UI itself keeps the launch data out of its address and never takes it for an identity.
 - **Network** — the gateway uses Telegram long-polling (not webhooks). No inbound port needs to be open. A Mini App is the exception you choose: its `url` has to be reachable from the people who open it.

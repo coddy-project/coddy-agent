@@ -15,6 +15,7 @@ How the documentation under `docs/` is organised, what a change to Coddy must ca
 | `docs/contributing/` | How Coddy is built, tested, designed and documented | Contributor pages |
 | `docs/plans/` | Design records, decisions as they were taken | Internal: not in the map, frozen, not rewritten to match a later rename |
 | `docs/assets/` | What the pages embed: screenshots, videos, brand files | See [the assets index](../assets/INDEX.md) |
+| `docs/ru/` | The Russian translation: the same pages at the same paths, the translated map and schema descriptions | See [Translations](#translations) |
 
 The map of all of it is [`docs/nav.yaml`](../nav.yaml): every page with its group, title and a one-line summary. [`docs/README.md`](../README.md) (the hub) is generated from it, and so are the `llms.txt` and `llms-full.txt` published at the site root, and the sidebar of the documentation site will be too. A page that is not in the map does not exist as far as readers and agents are concerned, and `make docs-check` says so. The design records of `docs/plans/` are the one exception: they are internal and stay out of the map.
 
@@ -24,7 +25,7 @@ A page that moves takes its address with it: there are no redirect stubs, so an 
 
 ## Page types
 
-Every page starts with `# <title>` (the title from `nav.yaml`), then one lead paragraph that says what the page covers and for whom, then H2 sections. English, the voice of the existing pages, a plain hyphen with spaces where a dash would go, fenced code blocks with a language, relative links (`../features/hooks.md`, `#anchor` for a heading of the same page). No YAML frontmatter: GitHub renders it as a table.
+Every page starts with `# <title>` (the title from `nav.yaml`), then one lead paragraph that says what the page covers and for whom, then H2 sections. English (its translation under `docs/ru/` in Russian, see [Translations](#translations)), the voice of the existing pages, a plain hyphen with spaces where a dash would go, fenced code blocks with a language, relative links (`../features/hooks.md`, `#anchor` for a heading of the same page). No YAML frontmatter: GitHub renders it as a table.
 
 **Feature page** (`docs/features/`): what it is and when the agent uses it; how it looks on each surface, with a screenshot of the web UI or the console next to the paragraph that explains it; how to configure it, linking the field rows of [config.yaml reference](../reference/config.md#field-reference) rather than repeating them; the tools, commands or files involved, linking the reference rows; limits and what is deliberately absent; where the tests live.
 
@@ -45,6 +46,21 @@ Every page starts with `# <title>` (the title from `nav.yaml`), then one lead pa
 - **A renamed key, command or flag** is swept through the whole tree, docs included, as step 9 of the paired workflow rule ([Cursor](../../.cursor/rules/workflow.mdc), [Claude Code](../../.claude/rules/workflow.md)) describes.
 
 The paired workflow rule carries the same contract as step 10. Cursor and Claude Code read their native representations; the Codex, OpenCode and ZCode project adapters attach the Cursor representation and are verified by `make test-agent-rules`.
+
+## Translations
+
+The documentation is translated into Russian. `docs/ru/<group>/<page>.md` is the translation of `docs/<group>/<page>.md`, under the same name and path, and `docs/ru/README.md` translates the hub. `docs/ru/nav.yaml` holds the translated title and summary of every group and page, and `docs/ru/config-descriptions.yaml` the translated descriptions of the configuration schema that the Russian field tables print; each entry of both keeps the English text it translates under `en:`. The changelog is generated in both languages (the release notes stay as published). The design records, the assets and the pages the map keeps at the root of the repository are not translated: a Russian page embeds the same screenshots. Every surface shows the language it knows the reader uses ([Built-in documentation](../features/built-in-docs.md#languages)), so a translation that lags behind its English page is a bug somebody reads.
+
+A change to an English page carries the same change into its translation, in the same pull request:
+
+- the translation keeps the headings of its source, the same number in the same order at the same levels, because one address names a section in both languages through its position;
+- code blocks, inline code, commands, keys, paths and program output stay as they are, and a control of the web UI is named by its label in the Russian dictionary (`external/ui/src/ui/i18n/messages/ru.ts`);
+- links are copied as the English page writes them: `make docs` makes them right for the translation's folder, adding the extra `../` of an asset or a repository file and turning the anchor of an English heading into the anchor of the translated one;
+- once the translation says what the English page says, `make docs-stamp PAGES="docs/ru/<group>/<page>.md"` records the digest of the English page in the translation's last line, `<!-- docsgen:source sha256=... -->`. The stamp refuses a translation that did not change since `HEAD`; `UNCHANGED=1` accepts one when the English change needs no translation, a fixed typo for instance.
+
+A new page brings its translation and its entry in `docs/ru/nav.yaml`; a new or changed schema description brings its entry in `docs/ru/config-descriptions.yaml`. `make docs-check` fails on a missing translation, a file in `docs/ru/` that translates nothing, a translated title, summary or description behind its English text, headings that differ from the source, a stamp behind the English page (with the command that shows what changed in it since), and Russian typography the rules forbid: an em or en dash, guillemets, curly quotes, a horizontal rule, a word the Russian wording rule bans. The pre-commit hook reports a stale stamp as a warning and CI as an error, so a commit of an English page may come before its translation and the pull request may not.
+
+The writing rules for both languages, the glossary of Russian terms and the commands are in the paired documentation translation rule ([Cursor](../../.cursor/rules/docs-translation.mdc), [Claude Code](../../.claude/rules/docs-translation.md)).
 
 ## Screenshots
 
@@ -91,12 +107,16 @@ GitHub renders an inline player only for a file uploaded as a GitHub attachment:
 | `docs/reference/cli.md` | `docsgen:cli` | `coddy --help` and the `--help` of every command with a flag set |
 | `docs/assets/INDEX.md` | `docsgen:assets` | the files under `docs/assets` and their references |
 | `docs/getting-started/changelog.md` | whole file | the GitHub Releases, only with `make docs-changelog` |
+| `docs/ru/README.md`, `docs/ru/reference/config.md`, `docs/ru/reference/cli.md` | the same blocks | `docs/ru/nav.yaml`, the schema with `docs/ru/config-descriptions.yaml`, the same `--help` screens |
+| `docs/ru/getting-started/changelog.md` | whole file | the English changelog, a Russian title and introduction over the release notes |
+| the links of every page under `docs/ru/` | targets only | the English page's links made right for the translation's folder |
 
 ```bash
 make docs            # regenerate everything (builds the full-tag binary first, which needs Node for the ui tag)
 make docs-fast       # everything but the CLI reference, no binary and no Node needed
 make docs-check      # regenerate into memory and fail on drift, missing pages, broken links, unused assets
 make docs-changelog  # also refresh the changelog from GitHub Releases (needs gh)
+make docs-stamp PAGES="docs/ru/features/mcp.md"  # record that a translation follows its English page
 ```
 
 `make docs-check` runs in CI as the job **Documentation** and in the pre-commit hook for commits that touch `docs/`, the README, `AGENTS.md`, `DESIGN.md`, `CONTRIBUTING.md` or the config schema (there without the CLI build: `go run ./cmd/docsgen -skip-cli`). The link check resolves every relative link and image and every `#anchor` against the headings of the target page, GitHub style; fenced code blocks are ignored.
@@ -113,12 +133,14 @@ Every page of the map has a stable address on coddy.dev, so the binary, the sche
 | `https://coddy.dev/docs/<slug>.md` | The raw Markdown of the page on the main branch |
 | `https://coddy.dev/docs/` | The hub, `docs/README.md` on GitHub |
 | `https://coddy.dev/llms.txt`, `https://coddy.dev/llms-full.txt` | Built from `nav.yaml` and the pages on every run and written straight into the site checkout; the index links the raw Markdown on `main` |
+| `https://coddy.dev/ru/docs/<slug>`, `.md`, `https://coddy.dev/ru/docs/` | The same for the Russian page under `docs/ru/`; an English anchor in the address is turned into the Russian one through `docs-anchors-ru.json` |
+| `https://coddy.dev/ru/llms.txt`, `https://coddy.dev/ru/llms-full.txt` | The index and the concatenation of the Russian pages |
 | `https://coddy.dev/config.schema.json` | The config schema, published by `make site-schema` |
 
 The slug is the page's path under `docs/` without `.md` (`getting-started/install`, `reference/config`); a page outside `docs/` is known by its file name (`CONTRIBUTING`). GitHub Pages has no server-side redirects, but it serves `404.html` for every address that is not a file, so the site's `404.html` loads `docs-redirect.js`, one generated script that reads the path and forwards the browser (`window.coddyDocsTarget` is the pure mapping, testable without navigating). The answer carries a 404 status, which is fine for people and irrelevant to agents, who get the raw addresses from `llms.txt`; a redirect rule on the Cloudflare zone in front of the site turns the same mapping into a real 301 (Rules, Redirect Rules, dynamic: when the path starts with `/docs/`, redirect to `concat("https://github.com/coddy-project/coddy-agent/blob/main/docs/", substring(http.request.uri.path, 6), ".md")` with status 301, and a second rule for the `.md` suffix pointing at raw.githubusercontent.com). `internal/docsgen` renders the layer from `nav.yaml`:
 
 ```bash
-make site-docs        # write docs-redirect.js, llms.txt and llms-full.txt into the site checkout beside this one (SITE_REPO=... if elsewhere)
+make site-docs        # write docs-redirect.js, docs-anchors-ru.json and both languages' llms files into the site checkout beside this one (SITE_REPO=... if elsewhere)
 make site-docs-check  # report drift without writing
 ```
 

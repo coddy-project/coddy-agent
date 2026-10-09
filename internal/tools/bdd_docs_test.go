@@ -14,6 +14,7 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	apptools "github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
 
@@ -56,11 +57,21 @@ func (s *docsToolsState) reads(ref string) error {
 	return nil
 }
 
+func (s *docsToolsState) readsInRussian(ref string) error {
+	s.run(apptools.ToolDocsRead, fmt.Sprintf(`{"page":%q,"lang":"ru"}`, ref))
+	return nil
+}
+
 func (s *docsToolsState) getsSection(heading, page string) error {
 	if err := s.failed(); err != nil {
 		return err
 	}
-	if !strings.Contains(s.out, "public address: https://coddy.dev/docs/surfaces/gateway#proxy") {
+	// The public address is the page's in its own language.
+	address := "public address: https://coddy.dev/docs/surfaces/gateway#proxy"
+	if docs.LangOfText(heading+page) == docs.Russian {
+		address = "public address: https://coddy.dev/ru/docs/surfaces/gateway#proxy"
+	}
+	if !strings.Contains(s.out, address) {
 		return fmt.Errorf("the public address does not name the section:\n%.300s", s.out)
 	}
 	headingLine := regexp.MustCompile(`\n#{2,6} ` + regexp.QuoteMeta(heading) + `\n`)
@@ -131,6 +142,7 @@ func initializeDocsToolsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the agent searches its documentation for "([^"]*)"$`, s.searches)
 	sc.Step(`^a result points at the section "([^"]*)"$`, s.resultPointsAt)
 	sc.Step(`^the agent reads "([^"]*)"$`, s.reads)
+	sc.Step(`^the agent reads "([^"]*)" in Russian$`, s.readsInRussian)
 	sc.Step(`^it gets the section "([^"]*)" of the page "([^"]*)"$`, s.getsSection)
 	sc.Step(`^it gets the beginning of the page with the list of its sections and the offset to continue at$`, s.getsBeginningWithSections)
 	sc.Step(`^the agent continues reading "([^"]*)" from that offset$`, s.continuesFrom)

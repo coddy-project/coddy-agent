@@ -48,6 +48,8 @@ type scriptedRunner struct {
 	surfaces []string
 	// restricted records whether each turn came with a restriction.
 	restricted []bool
+	// langs records the language each turn carried.
+	langs []string
 }
 
 func newScriptedRunner() *scriptedRunner {
@@ -85,6 +87,11 @@ func (r *scriptedRunner) HandleSessionPromptWithSender(_ context.Context, params
 	}
 	r.surfaces = append(r.surfaces, surface)
 	r.restricted = append(r.restricted, opts != nil && opts.Restriction != nil)
+	lang := ""
+	if opts != nil {
+		lang = opts.Lang
+	}
+	r.langs = append(r.langs, lang)
 	answer := r.answer
 	r.mu.Unlock()
 

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -19,14 +20,52 @@ type docsCLIState struct {
 	err error
 }
 
+// runs runs a coddy docs command in a terminal whose locale is English,
+// whatever the machine running the test speaks.
 func (s *docsCLIState) runs(command string) error {
+	return s.runsWithLang(command, "en_US.UTF-8")
+}
+
+// runsWithLang runs a coddy docs command with LANG set to lang and the other
+// locale variables, Coddy's own override included, unset.
+func (s *docsCLIState) runsWithLang(command, lang string) error {
 	fields := strings.Fields(command)
 	if len(fields) < 2 || fields[0] != "coddy" || fields[1] != "docs" {
 		return fmt.Errorf("not a coddy docs command: %q", command)
 	}
+	restore := setLocaleEnv(map[string]string{"LANG": lang, "LC_ALL": "", "LC_MESSAGES": "", "CODDY_LANG": ""})
+	defer restore()
 	s.out.Reset()
 	s.err = runDocs(fields[2:], &s.out)
 	return nil
+}
+
+// setLocaleEnv sets (or, for an empty value, unsets) environment variables
+// and returns what puts them back.
+func setLocaleEnv(vars map[string]string) func() {
+	type saved struct {
+		value string
+		set   bool
+	}
+	old := map[string]saved{}
+	for k, v := range vars {
+		prev, ok := os.LookupEnv(k)
+		old[k] = saved{prev, ok}
+		if v == "" {
+			_ = os.Unsetenv(k)
+		} else {
+			_ = os.Setenv(k, v)
+		}
+	}
+	return func() {
+		for k, v := range old {
+			if v.set {
+				_ = os.Setenv(k, v.value)
+			} else {
+				_ = os.Unsetenv(k)
+			}
+		}
+	}
 }
 
 func (s *docsCLIState) outputStartsWith(prefix string) error {
@@ -89,6 +128,7 @@ func initializeDocsCLIScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 	sc.Step(`^the operator runs "([^"]*)"$`, s.runs)
+	sc.Step(`^the operator runs "([^"]*)" in a terminal with LANG "([^"]*)"$`, s.runsWithLang)
 	sc.Step(`^the output starts with "([^"]*)"$`, s.outputStartsWith)
 	sc.Step(`^the output lists "([^"]*)"$`, s.outputLists)
 	sc.Step(`^the documentation tools point at a page with "([^"]*)" before any address$`, s.toolsPointAtAPageWith)

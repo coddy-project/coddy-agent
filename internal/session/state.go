@@ -219,6 +219,9 @@ type State struct {
 	// turnRestriction is what the surface running the current turn took away
 	// from it; turn-scoped and never persisted.
 	turnRestriction *TurnRestriction
+	// turnLang is the language of the surface running the current turn (the
+	// web UI's locale, the terminal's); turn-scoped and never persisted.
+	turnLang string
 	// turnWake is the background wake the current turn was started for, until
 	// the agent takes it to mark the turn's first message; turn-scoped.
 	turnWake *llm.BackgroundWake
@@ -1554,6 +1557,24 @@ func (s *State) SetSurfaceSystemPrompt(block string) {
 	s.mu.Lock()
 	s.surfaceSystemPrompt = strings.TrimSpace(block)
 	s.mu.Unlock()
+}
+
+// SetTurnLang records the language of the surface running the current turn:
+// the documentation the turn's @coddy: mentions attach and the agent's
+// documentation tools read is in that language. Turn-scoped like
+// SetSurfaceSystemPrompt; "" clears it.
+func (s *State) SetTurnLang(lang string) {
+	s.mu.Lock()
+	s.turnLang = strings.TrimSpace(lang)
+	s.mu.Unlock()
+}
+
+// GetTurnLang returns the current turn's language, "" when its surface named
+// none.
+func (s *State) GetTurnLang() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.turnLang
 }
 
 // SetTurnRestriction records what the surface running the current turn takes

@@ -30,9 +30,9 @@ The built-in commands on each surface and how skills become commands. A slash co
 | `/clear` | Telegram, Pachca | Starts a new session for the chat (in a group the bots take it from their admins only, like the settings commands); the old one stays on disk. In Telegram `/resume` brings it back; Pachca has no `/resume`, and the web UI or the console continues it. | [Telegram gateway](../surfaces/gateway.md#session-lifecycle), [Pachca gateway](../surfaces/pachca.md#commands) |
 | `/<skill>` | console, web UI, ACP editors, `POST /v1/responses` | Runs a skill: the full `SKILL.md` body is written into the message that invokes it, as an attachment after the typed text, and later turns replay it. | [Skills](../features/skills.md#how-skills-are-applied) |
 
-Three boundaries follow from the code:
+Four boundaries follow from the code:
 
-- the Telegram adapter answers its own commands, passes the settings commands but `/permissions` and `/goal` to the session (`isSettingsCommand` in `external/gateway/telegram/bot.go`), and drops any other message that starts with `/`, so `/compact`, `/export` and skills are not reachable there;
+- the Telegram adapter answers its own commands, passes `/goal` and every settings command except `/permissions` to the session (`isSettingsCommand` in `external/gateway/telegram/bot.go`), and drops any other message that starts with `/`, so `/compact`, `/export` and skills are not reachable there;
 - the Pachca adapter does the same with its smaller set (`knownCommand` in `external/gateway/pachca/dispatch.go`, `/goal` included): `/compact`, `/export`, `/resume` and `/mcp` sent there are dropped;
 - a subagent never runs a built-in: a child prompt that starts with `/export` is an ordinary task for the child (`internal/agent/react.go`);
 - most console client-side commands exist only in the console; `/mcp` also opens the web settings and a Telegram menu. Settings commands are the same everywhere because one parser and one setter in the session manager serve every surface.

@@ -90,9 +90,10 @@ test("the reader scrolls its body, not the sheet the header sits in", () => {
 // The picture is dragged and pinched on the stage itself, so the browser must
 // not pan or zoom it first. The rule is on the stage, which lives only while
 // the viewer is open, so the page behind it keeps its own gestures.
-// The header leaves the body's scrollbar free on its right, so the scrollbar's
-// room has to be there from the first frame: a page that grows tall enough to
-// scroll after it loads moved the close button left as the reader opened.
+// The body pays for its scrollbar out of its right padding, so the
+// scrollbar's room has to be there from the first frame: a page that grows
+// tall enough to scroll after it loads would otherwise move the text as the
+// reader opens (and, when the header made the room, the close button too).
 test("the reader keeps the scrollbar's room before the page scrolls", () => {
   expect(rule(".docs-body")).toMatch(/scrollbar-gutter:\s*stable/);
 });
@@ -205,15 +206,22 @@ test("on the desktop the header uses the page's own columns", () => {
   expect(columns(rule(".docs-header"))).toBe(columns(rule(".docs-layout")));
 });
 
-// The body scrolls and the header does not: a classic scrollbar takes its
-// width from the body's columns alone. The header makes room for the same
-// width, measured by DocsView, so the two sets of columns stay one.
-test("the header leaves room for the body's scrollbar", () => {
-  expect(rule(".docs-header")).toMatch(
-    /padding:[^;]*calc\(var\(--docs-inline\) \+ var\(--docs-scrollbar, 0px\)\)/,
+// The header's insets are the same on both sides, as in every other panel
+// head: when it made room for the body's scrollbar on its right, the close
+// button and the search stood 10px farther from the right edge than the title
+// from the left. The body gives the scrollbar's width (measured by DocsView)
+// out of its own right padding instead, so the scrollbar stands in the margin
+// and the columns of the header and the page stay one.
+test("the header keeps one inset on both sides and the body pays for the scrollbar", () => {
+  const symmetric = /padding:\s*\d+px var\(--docs-inline\) \d+px;/;
+  expect(rule(".docs-header")).toMatch(symmetric);
+  expect(mediaRule("max-width: 1199px", ".docs-header")).toMatch(symmetric);
+  expect(rule(".docs-header")).not.toMatch(/--docs-scrollbar/);
+  expect(mediaRule("max-width: 1199px", ".docs-header")).not.toMatch(
+    /--docs-scrollbar/,
   );
-  expect(mediaRule("max-width: 1199px", ".docs-header")).toMatch(
-    /padding:[^;]*calc\(var\(--docs-inline\) \+ var\(--docs-scrollbar, 0px\)\)/,
+  expect(rule(".docs-body")).toMatch(
+    /padding:\s*0\s+max\(0px, calc\(var\(--docs-inline\) - var\(--docs-scrollbar, 0px\)\)\)\s+0\s+var\(--docs-inline\);/,
   );
 });
 

@@ -2067,6 +2067,12 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 }
 
 func TestCLITUIFeature(t *testing.T) {
+	// The scenarios read the built-in documentation in English; pin the
+	// terminal's language whatever the machine running the test speaks.
+	t.Setenv("CODDY_LANG", "")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "en_US.UTF-8")
 	suite := godog.TestSuite{
 		Name:                "cli-tui",
 		ScenarioInitializer: initializeCLITUIScenario,

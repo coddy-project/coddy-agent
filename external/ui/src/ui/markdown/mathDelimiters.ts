@@ -100,14 +100,27 @@ function linePrefix(text: string, at: number): string {
  */
 function escapeLiteralDollars(text: string): string {
   if (!text.includes("$")) return text;
+  // The spans come in order and do not overlap: the scan keeps an index into
+  // them, and a dollar is looked up by halving. Searching every span at every
+  // character took seconds on a long page with thousands of code spans.
   const spans = codeSpans(text);
-  const inCode = (at: number) => spans.some(([a, b]) => at >= a && at < b);
+  const inCode = (at: number) => {
+    let lo = 0;
+    let hi = spans.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (spans[mid]![1] <= at) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo < spans.length && spans[lo]![0] <= at;
+  };
   const escapeAt = new Set<number>();
+  let next = 0;
   let i = 0;
   while (i < text.length) {
-    const span = spans.find(([a, b]) => i >= a && i < b);
-    if (span) {
-      i = span[1];
+    while (next < spans.length && spans[next]![1] <= i) next++;
+    if (next < spans.length && spans[next]![0] <= i) {
+      i = spans[next]![1];
       continue;
     }
     if (text[i] === "\\") {

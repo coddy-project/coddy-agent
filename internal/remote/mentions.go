@@ -24,6 +24,9 @@ func (h *Handler) SearchMentions(ctx context.Context, req session.MentionSearch)
 	if req.Refresh {
 		q.Set("refresh", "1")
 	}
+	if req.Lang != "" {
+		q.Set("lang", req.Lang)
+	}
 	ctx, cancel := context.WithTimeout(ctx, restTimeout)
 	defer cancel()
 	hr, err := h.newRequest(ctx, http.MethodGet, "/coddy/mentions?"+q.Encode(), nil)

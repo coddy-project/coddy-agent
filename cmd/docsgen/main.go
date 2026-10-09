@@ -4,6 +4,7 @@
 //	go run ./cmd/docsgen -write            # regenerate (make docs)
 //	go run ./cmd/docsgen                   # check only, exit 1 on drift (make docs-check)
 //	go run ./cmd/docsgen -changelog -write # also refresh the changelog from GitHub Releases
+//	go run ./cmd/docsgen -stamp docs/ru/features/mcp.md  # record that a translation is current (make docs-stamp)
 package main
 
 import (
@@ -26,11 +27,27 @@ func main() {
 	rawBase := flag.String("raw-base", docsgen.DefaultRawBase, "base URL of the raw Markdown for llms.txt")
 	changelog := flag.Bool("changelog", false, "refresh the changelog from GitHub Releases (needs gh and network)")
 	repo := flag.String("repo", "coddy-project/coddy-agent", "GitHub repository for the changelog")
+	stamp := flag.Bool("stamp", false, "stamp the translated pages named as arguments: they follow their English pages as they are now")
+	unchanged := flag.Bool("unchanged", false, "with -stamp: accept a translation that did not change since HEAD (the English change needs none)")
+	staleTranslations := flag.String("stale-translations", "error", "a translation behind its English page is an error or a warning (the pre-commit hook)")
 	flag.Parse()
 
 	abs, err := filepath.Abs(*root)
 	if err != nil {
 		fail(err)
+	}
+	if *stamp {
+		if flag.NArg() == 0 {
+			fail(fmt.Errorf("-stamp needs the translated pages to stamp (docs/ru/...)"))
+		}
+		report, err := docsgen.Stamp(abs, flag.Args(), *unchanged)
+		for _, line := range report {
+			fmt.Println(line)
+		}
+		if err != nil {
+			fail(err)
+		}
+		return
 	}
 	if *changelog {
 		releases, err := docsgen.FetchReleases(*repo)
@@ -51,9 +68,12 @@ func main() {
 			fail(err)
 		}
 	}
-	res, err := docsgen.Generate(docsgen.Options{Root: abs, Binary: *binary, Tags: *tags, RawBase: *rawBase, SkipCLI: *skipCLI, SiteDir: site})
+	res, err := docsgen.Generate(docsgen.Options{Root: abs, Binary: *binary, Tags: *tags, RawBase: *rawBase, SkipCLI: *skipCLI, SiteDir: site, StaleTranslationsWarn: *staleTranslations == "warn"})
 	if err != nil {
 		fail(err)
+	}
+	for _, w := range res.Warnings {
+		fmt.Fprintln(os.Stderr, "warning:", w)
 	}
 	if *write {
 		if !*siteOnly {

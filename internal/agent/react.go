@@ -1791,7 +1791,9 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// call's dialog, and the rest of the batch runs under that.
 	env.PermissionMode = effectivePermMode(a.state, a.cfg)
 	env.Confined = false
+	env.Lang = ""
 	if st := sessionStatePtr(a.state); st != nil {
+		env.Lang = st.GetTurnLang()
 		if r := st.GetTurnRestriction(); r != nil {
 			env.Confined = r.ConfineToWorkspace
 			if err := checkRestrictedCall(r, tc, env.CWD, a.cfg); err != nil {

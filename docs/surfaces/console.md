@@ -150,8 +150,8 @@ Top to bottom:
   step that runs something other than the model, a counter of its own (`2m 05s ·
   1.2k tokens · Running a command · 45s`, `Running a subagent · 40s` while a
   `spawn_agent` call is in flight); thinking, responding and waiting are covered
-  by the turn clock. The line carries the phase and **nothing the step acts on**
-  - no command, no path, no url: what a call acts on is named once, by the tool
+  by the turn clock. The line carries the phase and **nothing the step acts on** -
+  no command, no path, no url: what a call acts on is named once, by the tool
   box above the line, so every phrase is complete on its own (`Running a
   command`, never `Running` waiting for a command to follow it). A plain wait
   escalates with time:
@@ -372,7 +372,9 @@ typing searches the sections, **enter** opens one at its section, **tab** moves
 between sections, **n** and **p** turn the pages, **escape** goes back.
 `/docs [words or page]` opens the same screen where the terminal keeps F1 for
 itself (GNOME Terminal does), on a search or straight on a page:
-`/docs features/mentions#completion`.
+`/docs features/mentions#completion`. The pages are in the terminal's language,
+`CODDY_LANG` or the locale (`LC_ALL`, `LC_MESSAGES`, `LANG`), and so is the
+documentation the console's turns attach and the agent reads.
 
 ![The console help on F1: the sections a search found](../assets/cli-tui/19-docs-search.png)
 

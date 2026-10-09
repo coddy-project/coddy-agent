@@ -61,6 +61,10 @@ import {
   type DiagramPalette,
 } from "./pictureRender";
 import { resetMathForTests } from "./MathFormula";
+import { normalizeMathDelimiters } from "./mathDelimiters";
+import { REMARK_PLUGINS } from "./remarkPlugins";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 function blobText(b: Blob): Promise<string> {
   return new Promise((resolve) => {
@@ -676,36 +680,78 @@ describe("formulas", () => {
   });
 });
 
-test("the documentation renders no formula by accident", () => {
-  // Pages quote "$$", "${VAR}", "$HOME" and PHC hashes in prose and code; none
-  // of it is math, and agents quote the same things in their answers.
-  const docs = join(
-    dirname(fileURLToPath(import.meta.url)),
-    "..",
-    "..",
-    "..",
-    "..",
-    "..",
-    "docs",
-  );
-  const pages = (readdirSync(docs, { recursive: true }) as string[]).filter(
-    (p) => p.endsWith(".md"),
-  );
-  expect(pages.length).toBeGreaterThan(50);
-  for (const page of pages) {
-    const text = readFileSync(join(docs, page), "utf8");
-    const { container } = render(<Markdown text={text} />);
-    expect(
-      container.querySelectorAll('[data-testid="md-math-inline"]').length,
-      page,
-    ).toBe(0);
-    expect(
-      container.querySelectorAll('[data-testid="md-math-block"]').length,
-      page,
-    ).toBe(0);
-    cleanup();
+// Pages quote "$$", "${VAR}", "$HOME" and PHC hashes in prose and code; none
+// of it is math, and agents quote the same things in their answers. What is a
+// formula is decided by the remark passes, before React renders anything: an
+// inline formula is an inlineMath node, a block one a math node or a ```math
+// fence (Markdown.tsx). So the pages are read as the tree Markdown builds,
+// one test per page in both languages: rendering every page into jsdom took
+// seconds on each long page and ran past the test's timeout once the Russian
+// tree doubled the pages.
+const docsRoot = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+  "..",
+  "..",
+  "docs",
+);
+const docPages = (readdirSync(docsRoot, { recursive: true }) as string[])
+  .filter((p) => p.endsWith(".md"))
+  .sort();
+const markdownTree = unified().use(remarkParse).use(REMARK_PLUGINS);
+
+/** The tree Markdown renders: remarkLiteralDollars reads the source text
+ *  from the file, so the passes run over the text they parsed. */
+function markdownTreeOf(text: string): MdNode {
+  const source = normalizeMathDelimiters(text);
+  return markdownTree.runSync(markdownTree.parse(source), source) as MdNode;
+}
+
+type MdNode = {
+  type: string;
+  lang?: string | null;
+  value?: string;
+  children?: MdNode[];
+};
+
+function formulasIn(node: MdNode, out: string[] = []): string[] {
+  if (
+    node.type === "inlineMath" ||
+    node.type === "math" ||
+    (node.type === "code" && node.lang === "math")
+  ) {
+    out.push(`${node.type}: ${node.value ?? ""}`);
   }
-}, 120_000);
+  for (const child of node.children ?? []) formulasIn(child, out);
+  return out;
+}
+
+test("the documentation has its pages to check for formulas", () => {
+  expect(docPages.length).toBeGreaterThan(50);
+  expect(docPages.some((p) => p.startsWith("ru"))).toBe(true);
+});
+
+test("a formula in a page is found where Markdown would render one", () => {
+  const text = "Energy $E = mc^2$ here.\n\n$$\na+b\n$$\n\n```math\nc\n```\n";
+  const tree = markdownTreeOf(text);
+  expect(formulasIn(tree)).toHaveLength(3);
+  render(<Markdown text={text} />);
+  expect(screen.getAllByTestId("md-math-inline")).toHaveLength(1);
+  expect(screen.getAllByTestId("md-math-block")).toHaveLength(2);
+});
+
+test.each(docPages)(
+  "the documentation renders no formula by accident: %s",
+  (page) => {
+    const text = readFileSync(join(docsRoot, page), "utf8");
+    const tree = markdownTreeOf(text);
+    expect(formulasIn(tree), page).toEqual([]);
+  },
+  // The longest pages parse for about a second, several under the full suite.
+  30_000,
+);
 
 test("KaTeX with these options builds no link, no image and no raw HTML", async () => {
   const real = (await vi.importActual<typeof import("katex")>("katex")).default;
