@@ -51,10 +51,10 @@ A turn cancelled while waiting ends the wait and the command with it.
 
 ## Testing
 
-The offline suites stand in for the endpoint: `internal/llm/decisions_test.go` pins the request shape, the answer shapes and the error kinds on an `httptest` server, and `internal/agent/decisions_test.go` plus `features/decisions_check.feature` drive the gate itself - the rejection, the fail-closed paths, the retry window and the paths the check must not touch. The live probe `internal/llm/decisions_live_test.go` runs the same classification against the real endpoint (`rm -rf /` unsafe, `echo` safe) and is skipped unless `NEURALDEEP_API_KEY` is set:
+The offline suites stand in for the endpoint: `internal/llm/decisions_test.go` pins the request shape, the answer shapes and the error kinds on an `httptest` server, and `internal/agent/decisions_test.go` plus `features/decisions_check.feature` drive the gate itself - the rejection, the fail-closed paths, the retry window and the paths the check must not touch. Two live probes run against the real endpoint, both skipped unless `NEURALDEEP_API_KEY` is set: the transport probe `internal/llm/decisions_live_test.go` (`rm -rf /` unsafe, `echo` safe, both models) and the end-to-end probe `internal/agent/decisions_live_e2e_test.go`, a full turn in bypass mode whose scripted model requests `rm -rf /` and an `echo` - the destructive call comes back rejected in the transcript, the echo runs:
 
 ```
-NEURALDEEP_API_KEY=... go test ./internal/llm -run TestLiveNeuralDeepDecisions -count=1 -v
+NEURALDEEP_API_KEY=... go test ./internal/agent -run TestLiveDecisionsE2E -count=1 -v
 ```
 
 ![The Command safety (decisions) tab of the Settings drawer](../assets/decisions/decisions-settings-dark-1280.png)
