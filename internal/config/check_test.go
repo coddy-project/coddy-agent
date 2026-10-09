@@ -14,7 +14,7 @@ func checkYAML(t *testing.T, body string) *CheckReport {
 	t.Helper()
 	home := t.TempDir()
 	path := filepath.Join(home, "config.yaml")
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := Check(CLIPaths{Home: home, Config: path})

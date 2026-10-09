@@ -374,7 +374,7 @@ func (s *Server) coddySessionArtifactRevealPost(w http.ResponseWriter, r *http.R
 		http.NotFound(w, r)
 		return
 	}
-	if err := platform.RevealFile(path); err != nil {
+	if err := s.revealFile(path); err != nil {
 		if errors.Is(err, platform.ErrRevealHeadless) || errors.Is(err, platform.ErrRevealUnsupported) {
 			http.Error(w, `{"error":{"message":"artifact reveal is unavailable on this server"}}`, http.StatusServiceUnavailable)
 			return
@@ -1027,6 +1027,7 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	includeScheduler := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_scheduler")), "true")
 	includeSubagents := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_subagents")), "true")
+	includePrint := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_print")), "true")
 	archived, ok := session.ParseArchiveFilter(r.URL.Query().Get("archived"))
 	if !ok {
 		http.Error(w, `{"error":{"message":"archived must be \"exclude\", \"only\" or \"all\""}}`, http.StatusBadRequest)
@@ -1034,7 +1035,7 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	origin, ok := session.ParseOriginFilter(r.URL.Query().Get("origin"))
 	if !ok {
-		http.Error(w, `{"error":{"message":"origin must be \"local\" or \"gateway\""}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"origin must be \"local\", \"gateway\" or \"print\""}}`, http.StatusBadRequest)
 		return
 	}
 	sortKey, ok := session.ParseSortKey(r.URL.Query().Get("sort"))
@@ -1054,6 +1055,7 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		Archived:             archived,
 		Tags:                 session.ParseTagList(r.URL.Query().Get("tags")),
 		Origin:               origin,
+		IncludePrintRuns:     includePrint,
 	}
 	rows, err := fs.ListSnapshotsWith(listOpts)
 	if err != nil {
@@ -1247,7 +1249,8 @@ func isNormalHistoryList(opts session.ListOptions) bool {
 		!opts.IncludeSubagents &&
 		opts.Archived == session.ArchiveExclude &&
 		len(opts.Tags) == 0 &&
-		opts.Origin == session.OriginAny
+		opts.Origin == session.OriginAny &&
+		!opts.IncludePrintRuns
 }
 
 // coddySessionTokenUsage reads the provider token totals a session accumulated.
@@ -2045,7 +2048,9 @@ func (s *Server) lowestPinRank() int {
 	if fs == nil {
 		return 0
 	}
-	rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: session.ArchiveAll})
+	// Every pin counts, a pinned print run's included: a new pin goes above
+	// all of them.
+	rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: session.ArchiveAll, IncludePrintRuns: true})
 	if err != nil {
 		s.log.Warn("read pin ranks", "error", err)
 		return 0
@@ -2202,12 +2207,15 @@ func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request)
 		// client happens to have loaded. Scheduler runs stay out of it, and
 		// subagent children go with the parent they belong to. "all" reaches
 		// into the archive as well: a scope that left sessions behind because
-		// they were put aside would not be the whole history.
+		// they were put aside would not be the whole history. The runs of
+		// one-shot print mode are part of it too: the table these scopes come
+		// from lists them, and emptying the archive must not leave an archived
+		// print run behind.
 		archived := session.ArchiveAll
 		if scope == "archived" {
 			archived = session.ArchiveOnly
 		}
-		rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: archived})
+		rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: archived, IncludePrintRuns: true})
 		if err != nil {
 			s.log.Error("coddy sessions bulk delete list", "error", err)
 			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)

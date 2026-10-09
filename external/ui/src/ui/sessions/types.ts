@@ -10,6 +10,12 @@ export type SessionRow = {
   /** True while the session sits in the archive rather than the working list. */
   archived?: boolean;
   archivedAt?: string;
+  /**
+   * The surface that started the session: empty for one opened on this host,
+   * "gateway:<messenger>" for a messenger chat, "print" for a run of
+   * one-shot print mode (`coddy -p`).
+   */
+  origin?: string;
   /** True while the session is held at the top of every listing. */
   pinned?: boolean;
   pinnedAt?: string;
