@@ -38,15 +38,26 @@ var inlineCodeRE = regexp.MustCompile("`[^`\n]*`")
 // that a "#fragment" on a markdown target names a heading of that file.
 // Absolute URLs, mailto: and bare fragments are not checked.
 func CheckLinks(root string, files []string) []Problem {
+	return CheckLinksIn(root, files, func(rel string) (string, error) {
+		b, err := os.ReadFile(filepath.Join(root, rel))
+		return string(b), err
+	})
+}
+
+// CheckLinksIn is CheckLinks over the text read gives for each file: a run
+// checks the links of the pages as it leaves them (a translation's links made
+// right for its folder), not as the disk holds them before it writes. The
+// headings a fragment names are read from the disk: a run moves no heading.
+func CheckLinksIn(root string, files []string, read func(rel string) (string, error)) []Problem {
 	var problems []Problem
 	headings := map[string]map[string]bool{}
 	for _, rel := range files {
-		data, err := os.ReadFile(filepath.Join(root, rel))
+		data, err := read(rel)
 		if err != nil {
 			problems = append(problems, Problem{rel, err.Error()})
 			continue
 		}
-		text := inlineCodeRE.ReplaceAllString(fencedRE.ReplaceAllString(string(data), ""), "")
+		text := inlineCodeRE.ReplaceAllString(fencedRE.ReplaceAllString(data, ""), "")
 		dir := filepath.Dir(rel)
 		self := filepath.ToSlash(filepath.Join(root, rel))
 		for _, m := range linkRE.FindAllStringSubmatch(text, -1) {

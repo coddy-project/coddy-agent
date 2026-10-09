@@ -353,6 +353,38 @@ func TestSiteLayerFollowsTheRunsTree(t *testing.T) {
 	}
 }
 
+// The links a run checks are the ones it leaves behind: a translator copies
+// the English page's anchors, the same run makes them Russian, and that run
+// reports nothing, though the disk still holds the links as copied. Checked
+// against the disk, the first make docs after a translation failed and the
+// second one passed.
+func TestGenerateChecksTheLinksTheRunLeaves(t *testing.T) {
+	root := translatedTree(t)
+	write(t, root, ConfigRefFile, "# Config\n\n<!-- docsgen:"+MarkerConfig+":start -->\n<!-- docsgen:"+MarkerConfig+":end -->\n")
+	write(t, root, AssetIndex, "# Assets\n\n<!-- docsgen:"+MarkerAssets+":start -->\n<!-- docsgen:"+MarkerAssets+":end -->\n")
+	copied := strings.Replace(readFile(t, root, "docs/ru/g/start.md"), "[это](#установка)", "[это](#install), [подробнее](start.md#details)", 1)
+	write(t, root, "docs/ru/g/start.md", copied)
+	res, err := Generate(Options{Root: root, SkipCLI: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Files["docs/ru/g/start.md"], "[это](#установка), [подробнее](start.md#подробности)") {
+		t.Fatalf("the run localizes the links:\n%s", res.Files["docs/ru/g/start.md"])
+	}
+	for _, p := range res.Problems {
+		if strings.Contains(p.Message, "anchor") {
+			t.Errorf("a link the run made right is reported: %v", p)
+		}
+	}
+	// A link the run cannot make right is still reported.
+	write(t, root, "docs/ru/g/start.md", strings.Replace(copied, "(#install)", "(#nowhere)", 1))
+	res, err = Generate(Options{Root: root, SkipCLI: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, res.Problems, "docs/ru/g/start.md", "#nowhere")
+}
+
 // A missing translation is left to CheckTranslation; any other failure to
 // read a page fails the render instead of shortening ru/llms-full.txt.
 func TestLLMSFullLangFailsOnAnUnreadablePage(t *testing.T) {
