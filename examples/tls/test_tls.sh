@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Runs the TLS e2e on self-signed material against a built binary (the recipes of docs/operate/certificates.md).
+# Runs the TLS e2e on the built-in certificates against a built binary (coddy tls, docs/operate/certificates.md).
 #
-# Needs openssl and python3; skips (exit 0) without openssl. The stand is real: coddy serve processes terminating TLS, a swarm relay in
-# front of one of them, and the borrower's own client (coddy -t --dry-run).
+# Needs python3 and nothing else: no openssl, the certificates are Coddy's own. The stand is real: four machines' state (four
+# CODDY_HOMEs), a swarm relay and a node terminating TLS with `auto: true`, and the borrower's own client (coddy -t --dry-run).
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -14,4 +14,4 @@ if [ ! -x "$bin" ]; then
   (cd "$root" && make build TAGS="http swarm")
 fi
 
-CODDY_BIN="$bin" "${PYTHON:-python3}" "$here/tls_e2e_selfsigned.py"
+CODDY_BIN="$bin" "${PYTHON:-python3}" "$here/tls_e2e_builtin.py"

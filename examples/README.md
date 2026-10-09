@@ -165,19 +165,20 @@ model or provider is involved.
 
 ## `tls/`
 
-`tls_e2e_selfsigned.py` runs the recipes of [`docs/operate/certificates.md`](../docs/operate/certificates.md)
-for real: it makes a private CA, a self-signed client certificate, a self-signed server
-certificate, a certificate that is only fit for servers and an outsider's, with `openssl`;
-boots `coddy serve` agents that terminate TLS (asking for a client certificate and requiring
-one) and a swarm relay in front of one of them; and checks that a client certificate named in
-`cert_names` lists the shared models with no token, directly and through the relay (both legs
-mutual TLS), that it opens nothing else, that a certificate of another authority and one with no
-`clientAuth` key usage get no connection, that the borrower's own client (`coddy -t --dry-run`,
-a provider of type `coddy` with `ca_file` and `client_cert_file`) trusts a private CA or a
-self-signed certificate, and that a private key with a passphrase is refused with the error the
-guide names.
+`tls_e2e_builtin.py` runs [`docs/operate/certificates.md`](../docs/operate/certificates.md)
+for real, on Coddy's own certificates and with no `openssl`: four machines' worth of state (four
+`CODDY_HOME`s) each run `coddy tls ensure`, exchange their CA certificates with `coddy tls
+export` and `coddy tls trust` (a private key never moves), and boot a swarm relay and a node
+that terminate TLS with `auto: true` and `require_client_cert`, the node joining the relay with
+`dial.auto`. The test then checks that the borrower lists the node's shared models with its
+client pair and a token, directly and through the relay (both legs mutual TLS), that a
+certificate alone is a `401` (Coddy reads no identity out of a certificate), that a peer with
+no certificate and one of a CA nobody trusts get no connection, that the borrower's own client
+(`coddy -t --dry-run`, a provider of type `coddy` with `tls_auto`) reaches the node, directly
+and through the relay mount, and fails with a certificate error when it was not told to trust
+the node's CA, and that `coddy tls renew` gives a new client pair the running node accepts.
 
-Run it with `examples/test_tls.sh` (`make test-tls-e2e`). Needs `openssl` (skips without it) and
-`build/coddy` built with `-tags "http swarm"`; no model or provider is involved. The statements of
-the guide that depend on `crypto/x509` (key usages, names, anchors, wildcards, e-mail-only
-personal certificates, chains) are held in-process by `internal/netx/certscenarios_test.go`.
+Run it with `examples/tls/test_tls.sh` (`make test-tls-e2e`). Needs only `python3` and
+`build/coddy` built with `-tags "http swarm"`; no model or provider is involved. The statements
+of the guide that depend on `crypto/x509` (key usages, names, anchors, chains) are held
+in-process by `internal/netx/certscenarios_test.go`, and the authority by `internal/pki`.

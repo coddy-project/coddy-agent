@@ -85,7 +85,7 @@ Maintenance contract: this catalog and the command examples must be updated in t
 
 ## TLS and certificates
 
-When the user asks for HTTPS, a private or self-signed certificate, mutual TLS, a client certificate, or a certificate error, read the built-in page **`operate/certificates`** (`coddy_docs_read`, or `coddy docs show operate/certificates`) before you write anything: it has the scenarios (self-signed, a private authority, wildcard, personal, purchased, Microsoft CA, ACME), the `openssl` recipes and the errors. Rules that hold in every case:
+When the user asks for HTTPS, a private or self-signed certificate, mutual TLS, a client certificate, or a certificate error, read the built-in page **`operate/certificates`** (`coddy_docs_read`, or `coddy docs show operate/certificates`) before you write anything: it has the built-in certificates (`coddy tls`), the scenarios (one machine, a node and a borrower, a relay), how to use certificates of your own (a company authority, a purchased certificate, ACME) and the errors. Rules that hold in every case:
 
 - **Ask which scenario it is first** (who serves, who dials, what certificate exists, whether a browser opens the node); do not pick an authority yourself.
 - **Never read, print or log a private key or a passphrase**, never put one in the configuration (Coddy has no key for a passphrase: it cannot use an encrypted key; the owner removes it with `openssl pkey -in enc.key -out plain.key` on their machine), never commit one. Refer to key files by path; keys are made on the machine that uses them, mode `0600`, owned by the account that runs Coddy.

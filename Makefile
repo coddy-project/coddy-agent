@@ -336,8 +336,8 @@ BENCHTIME ?= 1s
 test-perf:
 	go test -run '^$$' -bench '$(BENCH)' -benchtime $(BENCHTIME) -benchmem ./...
 
-# The TLS e2e on self-signed material (docs/operate/certificates.md): real openssl, real coddy serve
-# processes, the borrower's own client. Not part of `make test` (it needs openssl and a built binary).
+# The TLS e2e on the built-in certificates (coddy tls, docs/operate/certificates.md): real coddy serve
+# processes, a relay, the borrower's own client. Not part of `make test` (it needs a built binary and python3).
 test-tls-e2e:
 	$(MAKE) build TAGS="http swarm"
 	examples/tls/test_tls.sh

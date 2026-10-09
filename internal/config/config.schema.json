@@ -1631,7 +1631,7 @@
               },
               "token": {
                 "type": "string",
-                "description": "Bearer credential of the client. A token belongs to one class only: it must differ from httpserver.auth_token, swarm.auth_token, the pairing tokens, the shared-model tokens and every other client's token. Optional when the client is reached by a certificate alone (cert_names). Never echoed back.",
+                "description": "Bearer credential of the client. A token belongs to one class only: it must differ from httpserver.auth_token, swarm.auth_token, the pairing tokens, the shared-model tokens and every other client's token. An entry with no token (an ${ENV} reference to an unset variable) can be authenticated by nothing and is ignored. A certificate is no credential. Never echoed back.",
                 "default": ""
               },
               "scope": {

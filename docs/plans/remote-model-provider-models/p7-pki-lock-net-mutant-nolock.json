@@ -1,0 +1,227 @@
+{
+ "name": "p7-pki-lock-net-mutant-nolock",
+ "places": [
+  {
+   "name": "lockFree",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "idleA",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "holdsA",
+   "capacity": 1
+  },
+  {
+   "name": "doneA",
+   "capacity": 1
+  },
+  {
+   "name": "deadA",
+   "capacity": 1
+  },
+  {
+   "name": "idleB",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "holdsB",
+   "capacity": 1
+  },
+  {
+   "name": "doneB",
+   "capacity": 1
+  },
+  {
+   "name": "deadB",
+   "capacity": 1
+  },
+  {
+   "name": "gone",
+   "capacity": 2
+  },
+  {
+   "name": "idleR",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "holdsR",
+   "capacity": 1
+  },
+  {
+   "name": "doneR",
+   "capacity": 1
+  },
+  {
+   "name": "dirty",
+   "capacity": 2
+  },
+  {
+   "name": "leaked",
+   "capacity": 1
+  }
+ ],
+ "transitions": [
+  {
+   "name": "acquireA",
+   "inputs": [
+    {
+     "place": "idleA",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "holdsA",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "finishA",
+   "inputs": [
+    {
+     "place": "holdsA",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "doneA",
+     "weight": 1
+    },
+    {
+     "place": "gone",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "crashA",
+   "inputs": [
+    {
+     "place": "holdsA",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "deadA",
+     "weight": 1
+    },
+    {
+     "place": "dirty",
+     "weight": 1
+    },
+    {
+     "place": "gone",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "acquireB",
+   "inputs": [
+    {
+     "place": "idleB",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "holdsB",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "finishB",
+   "inputs": [
+    {
+     "place": "holdsB",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "doneB",
+     "weight": 1
+    },
+    {
+     "place": "gone",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "crashB",
+   "inputs": [
+    {
+     "place": "holdsB",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "deadB",
+     "weight": 1
+    },
+    {
+     "place": "dirty",
+     "weight": 1
+    },
+    {
+     "place": "gone",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "acquireR",
+   "inputs": [
+    {
+     "place": "idleR",
+     "weight": 1
+    },
+    {
+     "place": "lockFree",
+     "weight": 1
+    },
+    {
+     "place": "gone",
+     "weight": 2
+    }
+   ],
+   "outputs": [
+    {
+     "place": "holdsR",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "finishR",
+   "inputs": [
+    {
+     "place": "holdsR",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "lockFree",
+     "weight": 1
+    },
+    {
+     "place": "doneR",
+     "weight": 1
+    }
+   ]
+  }
+ ]
+}
