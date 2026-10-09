@@ -121,10 +121,14 @@ func (s *printSessionsScenario) sessionHoldsPrompts(first, second string) error 
 }
 
 func (s *printSessionsScenario) consoleConversation() error {
-	res, err := s.manager().HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: s.run.work})
+	mgr := s.manager()
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: s.run.work})
 	if err != nil {
 		return err
 	}
+	// A conversation is one somebody wrote in: a session without a message
+	// is left out of every picker (issue #357).
+	mgr.SessionByID(res.SessionID).AddMessage(llm.Message{Role: llm.RoleUser, Content: "a question asked in the console"})
 	s.chatID = res.SessionID
 	return nil
 }

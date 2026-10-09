@@ -803,8 +803,9 @@ type ListOptions struct {
 	// wrote in, a chat whose first send never ran. A listing for a person
 	// leaves them out (issue #357), so the zero value does; a caller that
 	// acts on every bundle (a bulk delete) sets it. A pinned conversation is
-	// listed either way, and so are the bundles of scheduler jobs and
-	// subagent runs, which the options above decide on.
+	// listed either way, and so are the bundles of scheduler jobs, subagent
+	// runs and print runs, which the options above decide on: a print run that
+	// failed before its prompt is still a run a script may look at.
 	IncludeEmpty bool
 	// IncludePrintRuns adds the sessions one-shot print mode created (origin
 	// "print"), and the children they spawned. The zero value leaves them out,
@@ -906,7 +907,7 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 	}
 	messageCount, known := meta.messageCountMatches(filepath.Join(dir, messagesFile))
 	noMessage := false
-	if !meta.Pinned && !meta.ExcludedFromComposerSessionList(id) && !meta.IsSubagentRun() {
+	if !meta.Pinned && !meta.ExcludedFromComposerSessionList(id) && !meta.IsSubagentRun() && !IsPrintOrigin(meta.Origin) {
 		noMessage = known && messageCount == 0 || !known && transcriptHoldsNoMessage(dir)
 	}
 	if noMessage && !opts.IncludeEmpty {

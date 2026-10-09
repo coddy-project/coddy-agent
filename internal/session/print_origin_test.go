@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
 // A session one-shot print mode (coddy -p) creates is marked "print" when it is
@@ -95,6 +96,15 @@ func writeOriginBundle(t *testing.T, fs *FileStore, id, origin, parent, cwd stri
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, sessionMetaFile), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Somebody wrote in it: a session without a message is left out of the
+	// listings on its own account (issue #357).
+	tr, err := json.Marshal(messagesFileData{Version: messagesLayout, Messages: []llm.Message{{Role: llm.RoleUser, Content: "hello"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, messagesFile), tr, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
