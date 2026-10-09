@@ -1205,6 +1205,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.stateFinished": "Завершена",
   "sessions.stateError": "Последний ход завершился ошибкой",
   "sessions.newChatFallback": "Новый чат",
+  "sessions.naming": "Придумываю название чата…",
   "sessions.deleteConversation": "Удалить диалог",
   "sessions.delete": "Удалить",
   "sessions.loadingMore": "Загрузка…",
@@ -1316,6 +1317,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.tagFilterClear": "Сбросить фильтр по тегам",
 
   "chat.newChat": "Новый чат",
+  "chat.namingChat": "Придумываю название чата…",
   "chat.chatTitleAriaLabel": "Заголовок чата",
   "chat.views.label": "Панели этого чата",
   "chat.views.filesTitle": "Файлы рабочей папки ({key})",

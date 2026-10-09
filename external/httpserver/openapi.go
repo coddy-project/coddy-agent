@@ -416,8 +416,24 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Generate a short text description",
 					"description": "Accepts arbitrary text and returns a short phrase describing what it is about, plus the **tags** the model proposed for filing the conversation. " +
 						"The tags ride on the call that already names a new chat, so a session is filed without a second request to the model; a model that ignores the instruction answers the phrase alone and **tags** is empty. " +
-						"Every text is asked about, however short: a first message of two words is the one that needs the labels most, and echoing it back would leave the shortest conversations unfiled.",
+						"Every text is asked about, however short: a first message of two words is the one that needs the labels most, and echoing it back would leave the shortest conversations unfiled. " +
+						"A **/name** word that names a skill or a built-in action of the workspace is described to the model (the catalog row of that command), so a first message such as **/rpa-init** is named by what the command does; a phrase that is only a command name is not taken as the title, which falls back to the user's own words around the command, or to the command as typed when it was typed alone. " +
+						"Settings commands at the start of the text (**/model**, **/plan**, ...) are taken off it; a text made of nothing else names nothing and answers an empty **short** without asking the model. " +
+						"The workspace is the session in **X-Coddy-Session-ID** when the server holds it, else the folder in **cwd**, else the server's default; an unknown session or an unusable folder falls back instead of failing the call.",
 					"operationId": "coddyDescribe",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose workspace supplies the command catalog. Ignored when the server does not hold the session.",
+						},
+						map[string]interface{}{
+							"name": "cwd", "in": "query", "required": false,
+							"schema": map[string]string{"type": "string"},
+							"description": "Absolute path of the folder whose command catalog is read when no session is behind the request: the folder a new chat picked before its session exists. " +
+								"A relative path or a missing folder falls back to the server's default workspace.",
+						},
+					},
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -441,7 +457,10 @@ func openAPISpec() map[string]interface{} {
 										"type": "object",
 										"properties": map[string]interface{}{
 											"object": map[string]string{"type": "string", "example": "coddy.describe"},
-											"short":  map[string]string{"type": "string"},
+											"short": map[string]interface{}{
+												"type":        "string",
+												"description": "The phrase that names the text; empty when the text was only settings commands.",
+											},
 											"tags": map[string]interface{}{
 												"type":        "array",
 												"items":       map[string]string{"type": "string"},

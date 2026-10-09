@@ -2374,6 +2374,58 @@ a.rail-brand {
   }
 }
 
+/* The name of a new chat while the describe call works it out (issue #435):
+   a shimmering bar where the title will be, in the chat header and on the
+   chat's History row, plus two short bars for the tags the same answer
+   brings. Tinted from --text like the settings skeleton, so the bars read on
+   every theme; sized in em, so they follow the type they stand in for. */
+.naming-skeleton-bar {
+  display: inline-block;
+  vertical-align: middle;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--text) 6%, transparent) 0%,
+    color-mix(in srgb, var(--text) 14%, transparent) 40%,
+    color-mix(in srgb, var(--text) 6%, transparent) 80%
+  );
+  background-size: 300% 100%;
+  animation: chat-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+.chat-title-skeleton {
+  width: 13em;
+  max-width: 100%;
+  height: 0.9em;
+}
+
+.session-title--pending {
+  display: flex;
+  align-items: center;
+  min-height: 1.35em;
+}
+
+.session-title-skeleton {
+  width: 72%;
+  height: 0.8em;
+}
+
+.session-tag-skeleton {
+  width: 44px;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.session-tag-skeleton + .session-tag-skeleton {
+  width: 30px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .naming-skeleton-bar {
+    animation: none;
+  }
+}
+
 .chat-header {
   display: flex;
   align-items: center;

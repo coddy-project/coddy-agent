@@ -1570,6 +1570,13 @@ export function App() {
     sessionId: string;
     title: string;
   } | null>(null);
+  // Sessions whose name a describe call is still working out: their header
+  // and their History row show a placeholder instead of the first message
+  // (issue #435). Kept per session, so a chat left while it is being named
+  // keeps its placeholder in History until its own describe settles.
+  const [namingSessionIds, setNamingSessionIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const heroAccentVerb = useMemo(
     () => pickHeroAccentVerb(sessionId, heroHomeGeneration),
     [sessionId, heroHomeGeneration],
@@ -5188,20 +5195,50 @@ export function App() {
       };
 
       if (isNewChatFirstSend && sessionIdWhenKnown) {
+        const namingFolder = chatWorkspace;
+        setNamingSessionIds((prev) => new Set(prev).add(sid));
+        // The chat is in History from its first send, under a placeholder
+        // for the name describe is working out.
+        setSessions((prev) =>
+          prev.some((s) => s.id === sid)
+            ? prev
+            : [
+                {
+                  id: sid,
+                  title: "",
+                  ...(namingFolder ? { cwd: namingFolder } : {}),
+                },
+                ...prev,
+              ],
+        );
         startSuggestSessionTitle({
           userText: text,
+          // The folder this chat was started in, as the send saw it: the
+          // server describes the slash commands of that workspace.
+          scope: workspaceScope(sid, namingFolder),
           sessionIdPromise: sessionIdWhenKnown,
           getPreviewSessionId: () => latestPreviewSid,
-          onShortReady: (cid, ttl) => {
+          onShortReady: (cid, ttl, tags) => {
             setDescribePreview({ sessionId: cid, title: ttl });
+            const named = (s: SessionRow): SessionRow =>
+              tags.length > 0
+                ? { ...s, title: ttl, tags }
+                : { ...s, title: ttl };
             setSessions((prev) => {
               const i = prev.findIndex((s) => s.id === cid);
               if (i >= 0) {
-                return prev.map((s) =>
-                  s.id === cid ? { ...s, title: ttl } : s,
-                );
+                return prev.map((s) => (s.id === cid ? named(s) : s));
               }
-              return [{ id: cid, title: ttl }, ...prev];
+              return [named({ id: cid }), ...prev];
+            });
+          },
+          onDescribeSettled: () => {
+            const done = [sid, latestPreviewSid];
+            setNamingSessionIds((prev) => {
+              if (!done.some((id) => prev.has(id))) return prev;
+              const next = new Set(prev);
+              for (const id of done) next.delete(id);
+              return next;
             });
           },
           onApplied: (id, appliedTitle) => {
@@ -5439,6 +5476,12 @@ export function App() {
         setDescribePreview((p) =>
           p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
         );
+        setNamingSessionIds((prev) => {
+          if (!prev.has(sid)) return prev;
+          const next = new Set(prev);
+          next.delete(sid);
+          return next.add(sidHdr);
+        });
         setSessions((prev) =>
           prev.map((s) => (s.id === sid ? { ...s, id: sidHdr } : s)),
         );
@@ -6778,6 +6821,7 @@ export function App() {
 
   const sessionPanelShared = {
     sessionId: sidebarActiveId,
+    namingSessionIds,
     permissionPendingSessionIds: permissionPendingSids,
     questionPendingSessionIds: questionPendingSids,
     sessions: sessionsForSidebar,
@@ -7477,6 +7521,7 @@ export function App() {
         {atSwarmRoot ? null : (
           <ChatScreen
             title={currentTitle}
+            titlePending={namingSessionIds.has(sessionId.trim())}
             sessionId={sessionId}
             onOpenEdits={openEditsWindow}
             onOpenFiles={() =>

@@ -556,11 +556,25 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A text made only of settings commands configures the session and names
+	// nothing: the answer is empty, and the chat keeps whatever name it has.
+	text, ok := describePromptText(raw)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"object": "coddy.describe",
+			"short":  "",
+			"tags":   jsonTagList(nil),
+		})
+		return
+	}
+
 	// Every text is asked about, however short. A first message of two words is
 	// exactly the one that needs the model: "git status" is a usable title and
 	// no filing at all, and the tags ride on this call - echoing the words back
 	// would leave the shortest conversations the only unlabelled ones.
-	words := strings.Fields(raw)
+	commands := s.describeInvokedCommands(r, text)
+	words := describeFallbackWords(text, commands)
 
 	provider, err := s.providerFactory(s.activeCfg())
 	if err != nil {
@@ -571,17 +585,8 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	resp, err := provider.Complete(ctx, []llm.Message{
-		{
-			Role: llm.RoleSystem,
-			Content: prompts.WithIdentity(
-				"You generate short descriptions for chat titles and command labels. " +
-					"Return exactly one short phrase (3 to 8 words) describing what the user's text is about. " +
-					"Match the user's language when possible. " +
-					"No quotes, no preamble, no headings, no numbering. " +
-					"Then, on a second line, write " + describeTagsPrefix + " followed by 1 to 3 comma separated topic labels " +
-					"for filing the conversation - one or two words each, lower case, in English. Output nothing else."),
-		},
-		{Role: llm.RoleUser, Content: raw},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(describeSystemPrompt(commands))},
+		{Role: llm.RoleUser, Content: text},
 	}, nil)
 	if err != nil {
 		s.log.Error("describe llm", "error", err)
@@ -590,7 +595,7 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	phraseLines, tags := describeSplitTagsLine(resp.Content)
-	short := describePickPhraseFromLLM(phraseLines, words)
+	short := describePickPhraseFromLLM(describeDropCommandEchoes(phraseLines, commands), words)
 	if short == "" {
 		short = strings.Join(words[:min(3, len(words))], " ")
 	}

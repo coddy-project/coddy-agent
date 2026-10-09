@@ -6,6 +6,11 @@ import { filesShortcutLabel } from "../files/filesHotkey";
 
 export function ChatHeader(props: {
   title: string;
+  /**
+   * The name is still being worked out (the describe call of a new chat): a
+   * shimmering bar stands where the title will be.
+   */
+  titlePending?: boolean;
   editable?: boolean;
   onTitleSave?: (title: string) => void;
   /** Background tasks of this chat, counted on the control `onOpenTasks` puts at the right edge. */
@@ -78,8 +83,20 @@ export function ChatHeader(props: {
               }
             }}
             aria-label={t("chat.chatTitleAriaLabel")}
+            aria-busy={props.titlePending ? true : undefined}
           >
-            {props.title || t("chat.newChat")}
+            {props.titlePending ? (
+              <>
+                <span
+                  className="chat-title-skeleton naming-skeleton-bar"
+                  data-testid="chat-title-pending"
+                  aria-hidden="true"
+                />
+                <span className="sr-only">{t("chat.namingChat")}</span>
+              </>
+            ) : (
+              props.title || t("chat.newChat")
+            )}
           </button>
         )}
       </div>
