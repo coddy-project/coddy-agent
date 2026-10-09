@@ -46,8 +46,7 @@ source ~/.zshrc   # or open a new terminal
 coddy -v
 ```
 
-The script makes no certificates of its own accord beyond calling **`coddy tls ensure`** once the binary is in place (the
-[built-in TLS certificates](../operate/certificates.md#built-in-certificates-coddy-tls), no `openssl`; `coddy serve install` does the same). The script installs no systemd unit. On Linux, to keep **`coddy serve`** running as a service of
+The [built-in TLS certificates](../operate/certificates.md#built-in-certificates-coddy-tls) (no `openssl`) are made by **`coddy tls ensure`**, which **`coddy serve install`**, **`coddy serve`** (when a block of `config.yaml` asks for them) and **`coddy update`** run for you; run it by hand any time. The script installs no systemd unit. On Linux, to keep **`coddy serve`** running as a service of
 your account, run **`coddy serve install`** once the configuration has a provider key: it writes
 **`~/.config/systemd/user/coddy.service`** for the binary the script installed, enables it and
 starts it in **`~/Coddy`**. The script ends by saying so. See

@@ -21,7 +21,11 @@ import (
 // 1_850_000 held the build before the shared-models settings (alias and
 // acknowledgement fields, the busy-wait banner, their en/ru strings, about
 // 10 KB); the entry stood 1 KB under it then, so any settings work crossed it.
-const appJSBudget = 1_870_000
+// 1_870_000 held the build until the TLS identity of a coddy row (CA file,
+// client pair, the built-in certificates switch) and the rest of that branch's
+// settings work took it to 1_872_545: 1_885_000 leaves the room of one more
+// field group, not of a renderer.
+const appJSBudget = 1_885_000
 
 // Strings only the renderers' own code carries: their error messages.
 var rendererMarkers = map[string]string{
