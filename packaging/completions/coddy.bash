@@ -72,7 +72,7 @@ _coddy() {
             elif [ "${COMP_WORDS[2]}" = trust ] && [ "${COMP_CWORD}" -eq 3 ]; then
                 COMPREPLY=($(compgen -f -- "${cur}"))
             else
-                COMPREPLY=($(compgen -W "--quiet --force-ca --json -o --name --home --config" -- "${cur}"))
+                COMPREPLY=($(compgen -W "--quiet --force-ca --if-used --json -o --name --home --config" -- "${cur}"))
             fi
             ;;
         update)

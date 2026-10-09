@@ -188,3 +188,35 @@ func TestTLSHostsComeFromTheBindAndAdvertiseAddresses(t *testing.T) {
 		t.Errorf("a nil config has hosts: %v", hosts)
 	}
 }
+
+// `coddy tls ensure --if-used` is what an update runs: nothing for a machine that never used the certificates, a renewal for one that
+// does, and only what changed is printed.
+func TestTLSEnsureIfUsedActsOnlyWhereTheCertificatesAreInUse(t *testing.T) {
+	home := t.TempDir()
+	if out, err := tlsRun(t, "", "ensure", "--if-used", "--home", home); err != nil || out != "" {
+		t.Fatalf("unused: %q %v", out, err)
+	}
+	if _, err := os.Stat(pki.Dir(home)); err == nil {
+		t.Fatal("--if-used made a certificate directory on a machine that never asked for one")
+	}
+
+	// A configuration that asks for them is a use.
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("httpserver:\n  tls:\n    auto: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := tlsRun(t, "", "ensure", "--if-used", "--home", home)
+	if err != nil || !strings.Contains(out, "create-ca") {
+		t.Fatalf("asked for by a block: %q %v", out, err)
+	}
+	if out, err := tlsRun(t, "", "ensure", "--if-used", "--home", home); err != nil || out != "" {
+		t.Fatalf("nothing changed, nothing printed: %q %v", out, err)
+	}
+
+	// A directory that exists is a use too: an expired leaf is issued again.
+	other := t.TempDir()
+	_, _ = tlsRun(t, "", "ensure", "--quiet", "--home", other)
+	_ = os.Remove(filepath.Join(pki.Dir(other), pki.ServerCertFile))
+	if out, err := tlsRun(t, "", "ensure", "--if-used", "--home", other); err != nil || !strings.Contains(out, "issue-server") {
+		t.Fatalf("a directory in use: %q %v", out, err)
+	}
+}

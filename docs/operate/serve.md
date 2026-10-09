@@ -61,13 +61,17 @@ Either way, `install`:
 
 1. checks `~/.coddy/config.yaml` the way [`--test-config`](../reference/cli.md) does, and
    stops on an error;
-2. refuses while a `coddy serve --daemon` runs for the same home, because both would bind
+2. makes the [built-in TLS certificates](certificates.md#built-in-certificates-coddy-tls)
+   (`coddy tls ensure`: a CA, a server pair and a client pair under `~/.coddy/tls`, with the
+   Go standard library and no `openssl`), so that turning on `auto: true` later needs no step
+   of its own; a failure is a warning and the install goes on;
+3. refuses while a `coddy serve --daemon` runs for the same home, because both would bind
    the same port;
-3. puts the unit in place (above), plus a drop-in
+4. puts the unit in place (above), plus a drop-in
    `~/.config/systemd/user/coddy.service.d/coddy-install.conf` with the `PATH` of the shell
    you ran it from (a shell with no `PATH` keeps the drop-in an earlier run wrote);
-4. creates `~/Coddy`;
-5. runs `systemctl --user daemon-reload`, `enable` and `restart`, waits two seconds, and
+5. creates `~/Coddy`;
+6. runs `systemctl --user daemon-reload`, `enable` and `restart`, waits two seconds, and
    reports whether the service stayed up, with the command that shows its log.
 
 Running `install` again is safe, and it is how the service picks up a change: after

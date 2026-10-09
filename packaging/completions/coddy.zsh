@@ -86,6 +86,7 @@ _coddy() {
                         _arguments \
                             '--quiet[ensure: print nothing unless something failed]' \
                             '--force-ca[ensure: make a new CA even when this one is valid]' \
+                            '--if-used[ensure: only where the certificates are in use; what update runs]' \
                             '--json[status: print JSON]' \
                             '-o[issue: the directory for the files]:directory:_files -/' \
                             '*--name[an extra DNS name or IP for the server certificate]:name:' \
