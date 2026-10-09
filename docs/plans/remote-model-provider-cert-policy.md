@@ -1,6 +1,6 @@
 # Plan: the relay's client-certificate policy by class (phase 4b of the remote model provider)
 
-**Status: proposed (2026-10-09). Nothing is implemented.** Recorded from the operator's requirement and a review of OWASP and CWE sources. Two things are to be confirmed
+**Status: WITHDRAWN (2026-10-09), replaced by [`remote-model-provider-tls-builtin.md`](remote-model-provider-tls-builtin.md).** The operator's requirement, TLS only at the network and HTTP level with no certificate identity in the application, makes the key proposed here (`swarm.tls.full_cert_names`) the wrong direction. The record of the standards review (section 4) still stands. Original status: proposed, nothing implemented. Recorded from the operator's requirement and a review of OWASP and CWE sources. Two things are to be confirmed
 before stage C1: the reading of "session forwarding" (2) and the shape of the key (4). It is the follow-up of the open question left by `p5-gate` ([report](remote-model-provider-models/p5-gate.md), "Open for the operator").
 
 ## 1. Requirement and goal
