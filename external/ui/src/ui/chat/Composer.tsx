@@ -539,7 +539,7 @@ export function Composer(props: {
    *  a goal): the mark stands on the plate, left of git's count. */
   cardTop?: ReactNode | ((goalMark: ReactNode) => ReactNode);
 }) {
-  const { t, tp } = useT();
+  const { t, tp, locale } = useT();
   const isMobileShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -1227,6 +1227,7 @@ export function Composer(props: {
       }
       const scope = workspaceScope(props.sessionId, props.workspacePath);
       applyWorkspaceQuery(sp, scope);
+      sp.set("lang", locale);
       const res = await fetch(`/coddy/mentions?${sp.toString()}`, {
         headers: scope.headers,
       });
@@ -1235,7 +1236,7 @@ export function Composer(props: {
       }
       return (await res.json()) as MentionSearchBody;
     },
-    [props.sessionId, props.workspacePath],
+    [props.sessionId, props.workspacePath, locale],
   );
 
   /** Clears the range panel; the composer text is left exactly as typed. */

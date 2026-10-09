@@ -135,6 +135,12 @@ func TestDocsModalScrollsWithinTheTerminal(t *testing.T) {
 }
 
 func TestSlashDocsOpensAPageOrASearch(t *testing.T) {
+	// The overlay reads the embedded documentation in the terminal's
+	// language; pin it to English whatever the machine speaks.
+	t.Setenv("CODDY_LANG", "")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "en_US.UTF-8")
 	a := newTestApp(t)
 	if !a.dispatchSlash("/docs features/mentions#completion") {
 		t.Fatal("/docs is a console command")

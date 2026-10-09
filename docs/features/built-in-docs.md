@@ -22,9 +22,23 @@ Inside a page read out of the binary, a link to another page is written `coddy:<
 
 Images, videos and links to files of the repository point at GitHub at the release the binary was built from (`main` for a development build): the text is in the binary, the screenshots and recordings are not, so they show when the machine is online and fall back to their caption when it is not. A recording that GitHub embeds from an attachment plays in the reader from its copy in the repository.
 
+## Languages
+
+The documentation is written in English and translated into Russian: every page has its translation under `docs/ru/`, at the same path, and the binary carries both. There is no language switch in the reader. Every surface shows the language it already knows you use:
+
+| Surface | The language it shows |
+| --- | --- |
+| Web UI (and the Telegram Mini App) | the language of the interface, **Settings → Appearance** or the browser's |
+| Telegram and other messengers | the language the person's Telegram client reports (`language_code`), else the language they write in |
+| Console, `coddy docs` | `CODDY_LANG`, else the terminal's locale: `LC_ALL`, then `LC_MESSAGES`, then `LANG`; `coddy docs --lang ru` for one command |
+| The agent's tools | the `lang` the call names, else the language of the turn: the surface's, else the language the person wrote the prompt in |
+| `@coddy:` in a prompt | the language of the surface the turn came from, else the language you wrote the prompt in |
+
+A surface whose language has no translation (a German terminal, a Ukrainian Telegram client) leaves the choice to the language of the prompt, and a prompt in neither reads English. A page keeps its address in both languages, and so does a section: a Russian heading answers to the anchor of the English heading at the same place, so `coddy:features/mentions#completion`, `@coddy:features/mentions#completion` or `#/docs/features/mentions#completion` open the same section whatever the language, and a link the agent wrote in one opens in the other. The public copy of a Russian page is `https://coddy.dev/ru/docs/<page>`.
+
 ## Search
 
-The search ranks sections, not pages, so a hit lands on the paragraph that answers. It scores each section with BM25 over three fields - the page title, the section heading and the text - with the heading and the title counting more than the text, so a query that names a chapter finds the chapter. Words match regardless of case after a light English stemming (`sessions` finds `session`), an identifier is matched whole and by its parts (`max_turns` and `turns` both find `agent.max_turns`), and a word of three letters or more also finds the words it begins, so a query typed letter by letter finds pages before it is finished. At most three sections of one page are shown, so a long page does not push the others out. Each hit carries a snippet: the run of the section's text holding the most matched words, with those words marked.
+The search ranks sections, not pages, so a hit lands on the paragraph that answers. It scores each section with BM25 over three fields - the page title, the section heading and the text - with the heading and the title counting more than the text, so a query that names a chapter finds the chapter. Words match regardless of case after stemming, a light English one (`sessions` finds `session`) and the Snowball stemmer for Russian (`сессиями` finds `сессия`, `ё` reads as `е`), an identifier is matched whole and by its parts (`max_turns` and `turns` both find `agent.max_turns`), and a word of three letters or more also finds the words it begins, so a query typed letter by letter finds pages before it is finished. At most three sections of one page are shown, so a long page does not push the others out. Each hit carries a snippet: the run of the section's text holding the most matched words, with those words marked.
 
 The index is built the first time something searches, in about a tenth of a second, and kept for the life of the process.
 
@@ -44,7 +58,7 @@ The index is built the first time something searches, in about a tenth of a seco
 - **coddy.dev** above the page opens the public copy of the same page, for sharing with someone who has no Coddy.
 - `/` puts the cursor in the search box.
 
-The reader follows the app's theme and language, and on a narrow screen the contents fold into a button above the page.
+The reader follows the app's theme and language: switching the interface to Russian reads the contents, the page and the search in Russian. On a narrow screen the contents fold into a button above the page.
 
 ## The console help
 
@@ -69,7 +83,7 @@ The reader follows the app's theme and language, and on a narrow screen the cont
 | Escape | close the help | back to the list |
 | F1, Ctrl+C | close the help | close the help |
 
-Images show as their caption. The help reads the binary the console runs, so under `--remote` it shows the console's own documentation, not the server's.
+Images show as their caption. The help reads the binary the console runs, so under `--remote` it shows the console's own documentation, not the server's. It is in the terminal's language (see [Languages](#languages)); the console's own words stay English.
 
 ## The agent's tools
 
@@ -77,10 +91,12 @@ The agent reaches for its documentation when a question is about Coddy itself - 
 
 | Tool | Arguments | Returns |
 | --- | --- | --- |
-| `coddy_docs_search` | `query`, `limit` (8 by default, at most 20) | The best sections, each with the reference to read, the page and section titles and the snippet |
-| `coddy_docs_read` | `page` (a reference, a `coddy:` link or a title; left out for the contents), `offset` | The page or the section, with its reference, its lines and its public address |
+| `coddy_docs_search` | `query` (in English or Russian), `limit` (8 by default, at most 20), `lang` (`en` or `ru`) | The best sections, each with the reference to read, the page and section titles and the snippet |
+| `coddy_docs_read` | `page` (a reference, a `coddy:` link or a title; left out for the contents), `offset`, `lang` | The page or the section, with its reference, its lines and its public address |
 
-Both need no permission and are offered in agent, plan and ask mode, to subagents, and to the built-in `explore` subagent. In the chat a call reads as what it does, with the query or the page beside it: *searching the documentation* and *reading the documentation* in the web UI, *Searching the docs* and *Reading the docs* in the console. A page is read in parts of about 24 KB: a long one ends with the line to continue at and the list of its sections, so the model reads the section it needs rather than the whole page.
+A search that names no `lang` and finds nothing in the language of the turn tries the language of the query, so a Russian query in a turn an editor started in English still finds the Russian sections.
+
+Both need no permission and are offered in agent, plan and ask mode, to subagents, and to the built-in `explore` subagent. In the chat a call reads as what it does, with the query or the page beside it: *searching the documentation* and *reading the documentation* in the web UI, *Searching the docs* and *Reading the docs* in the console. A page is read in parts of about 24 thousand characters: a long one ends with the line to continue at and the list of its sections, so the model reads the section it needs rather than the whole page.
 
 Pointing a user at a page, the agent writes the mention `@coddy:<page>#<section>` or a `coddy:` link rather than an address: both open the page in the reader of the very binary that answered. The public address `https://coddy.dev/docs/<page>` is for what leaves Coddy, and the only command line spelling is the one the binary answers, `coddy docs show <page>[#section]` beside `coddy docs search` and `coddy docs list`.
 
@@ -92,7 +108,7 @@ Pointing a user at a page, the agent writes the mention `@coddy:<page>#<section>
 set this up for me like @coddy:surfaces/gateway#proxy says, the machine needs socks5
 ```
 
-The page, or the section with its subsections, rides in the message as a `<coddy_attachment kind="doc">` ([Mentions](mentions.md)), up to 64 KiB: a longer reference page arrives as its beginning, with the line to continue at and its sections, and the model reads the part it needs with `coddy_docs_read`. Completion works on every surface: `@coddy:` lists the pages, `@coddy:prox` finds pages by name and sections by their words, and `@coddy:features/mentions#` lists the sections of that page.
+The page, or the section with its subsections, rides in the message as a `<coddy_attachment kind="doc">` ([Mentions](mentions.md)), up to 64 thousand characters, in the language of the turn (see [Languages](#languages)): a longer reference page arrives as its beginning, with the line to continue at and its sections, and the model reads the part it needs with `coddy_docs_read`. Completion works on every surface: `@coddy:` lists the pages, `@coddy:prox` finds pages by name and sections by their words, and `@coddy:features/mentions#` lists the sections of that page. The titles are in the surface's language; what is inserted is the address both languages share.
 
 ## From the shell
 
@@ -100,19 +116,20 @@ The page, or the section with its subsections, rides in the message as a `<coddy
 coddy docs                                   # the contents
 coddy docs search telegram proxy --limit 3   # the best sections
 coddy docs show features/mentions#completion # one section, as Markdown
+coddy docs show features/mentions --lang ru  # the same page in Russian
 ```
 
 `coddy docs` works in every build, the one without the console included, and needs no configuration. The shell completions offer the pages after `coddy docs show`.
 
 ## What the binary carries
 
-The pages of the groups of `docs/nav.yaml` are embedded (`docs/embed.go`); the design records under `docs/plans/`, the images under `docs/assets/`, and the pages the map keeps at the root of the repository (the contributing guide, the web UI design contract, the agent notes) are not. About 1.3 MB of Markdown is added to the binary. A new group folder under `docs/` must be added to the embed pattern: the tests of `internal/docs` fail on a page of the map the binary does not carry.
+The pages of the groups of `docs/nav.yaml` are embedded (`docs/embed.go`), in English and in Russian (`docs/ru/`); the design records under `docs/plans/`, the images under `docs/assets/`, and the pages the map keeps at the root of the repository (the contributing guide, the web UI design contract, the agent notes) are not. About 1.9 MB of English and 3.1 MB of Russian Markdown are added to the binary (a Cyrillic letter takes two bytes). A new group folder under `docs/` must be added to the embed pattern for both languages: the tests of `internal/docs` fail on a page of the map the binary does not carry in either.
 
-Implementation: `internal/docs` (the library, sections, search, reading, link rewriting), `internal/tools/docs_search.go` and `docs_read.go`, `internal/session/mentions.go` (`resolveDoc`) and `mention_search.go` (`docCandidates`), `external/httpserver/docs_http.go` (`GET /coddy/docs`, `/coddy/docs/page`, `/coddy/docs/search`, [HTTP API](../reference/http-api.md)), `external/ui/src/ui/docs/`, `external/cli/docs_modal.go` and `cmd/coddy/docs.go`. Specification: `features/builtin_docs.feature`.
+Implementation: `internal/docs` (the library, sections, search, reading, link rewriting; `lang.go` for the languages, `stem_ru.go` for the Russian stemmer), `internal/tools/docs_search.go` and `docs_read.go`, `internal/session/mentions.go` (`resolveDoc`) and `mention_search.go` (`docCandidates`), `external/httpserver/docs_http.go` (`GET /coddy/docs`, `/coddy/docs/page`, `/coddy/docs/search`, [HTTP API](../reference/http-api.md)), `external/ui/src/ui/docs/`, `external/cli/docs_modal.go` and `cmd/coddy/docs.go`. Specification: `features/builtin_docs.feature`.
 
 ## Related
 
 - [Mentions](mentions.md) - the other things a prompt can point at;
 - [Tools](../reference/tools.md) - every tool the model can call;
 - [Web UI](../surfaces/web-ui.md) and [Console](../surfaces/console.md) - the surfaces the reader and the help live in;
-- [Writing documentation](../contributing/documentation.md) - how the pages are written and checked.
+- [Writing documentation](../contributing/documentation.md) - how the pages are written, translated and checked.

@@ -92,8 +92,8 @@ Already on disk:
 
 - the **wall clock**, always - stamped once when the turn's prompt was rendered and reused by every
   step of that turn, because the lane re-issues a step that produced nothing and that replay has to
-  be the request that failed, byte for byte (*Lane replays* in
-  [architecture.md](architecture.md));
+  be the request that failed, byte for byte (*Empty-assistant re-issue* under
+  [Loop Steps](#loop-steps));
 - the **todo checklist** (markdown from **`internal/tools/todo.FormatPlanMarkdown`** over
   **`session.Plan`**), when the session has one - so a **`coddy_todo_*`** call in this turn is
   reflected on the very next step;

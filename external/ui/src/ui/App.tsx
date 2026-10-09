@@ -444,7 +444,7 @@ function isStackedShell(): boolean {
 }
 
 export function App() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const confirm = useConfirm();
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
     () => new Set(),
@@ -5244,6 +5244,9 @@ export function App() {
       // draws: Mermaid and SVG fences as pictures, LaTeX as formulas
       // (external/httpserver/webui_prompt.go).
       const meta: Record<string, string> = { surface: "webui" };
+      // The turn's @coddy: mentions and the agent's documentation tools
+      // follow the interface's language (webui_prompt.go, langFromHTTP).
+      meta.lang = locale;
       if (yamlSel) meta.model = yamlSel;
       if (sendReasoning) meta.reasoning = reasoningSel;
       if (runSlug) meta.runPlanSlug = runSlug;
@@ -6472,7 +6475,7 @@ export function App() {
         openDocsFromNav();
         return;
       }
-      void fetchDocsPage(arg).then((res) => {
+      void fetchDocsPage(arg, locale).then((res) => {
         if (res.ok && docsCommandOpensPage(arg, res.data.title)) {
           setDocsSearchSeed(null);
           openDocsAt(res.data.slug, res.data.anchor || null);
@@ -6482,7 +6485,7 @@ export function App() {
         openDocsFromNav();
       });
     },
-    [openDocsAt, openDocsFromNav],
+    [openDocsAt, openDocsFromNav, locale],
   );
 
   /** Following a link of the reader adds a history entry, so Back returns to

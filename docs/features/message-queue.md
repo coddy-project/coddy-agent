@@ -5,7 +5,7 @@ The moment an operator knows most about what the agent should do next is while i
 - **Steer** enters the running turn at its next ReAct step, between the tool calls the model just made and the request that follows them. The correction lands while the work is still happening.
 - **After turn** waits for the answer and then starts a prompt of its own. Several deferred messages run one at a time, in the order they were queued.
 
-The first time you send during a turn, the browser or the console asks which mode **Enter** should use, and saves the answer as `agent.queue_mode` in `config.yaml`; you can change it later in **Settings → Agent**. While a turn runs, **Enter** uses that mode and **Tab** the other one; the browser's send button uses the Enter mode. Until the agent reads a message it is still yours: its mode can be switched, and taking it back returns the text and its images to the draft.
+The first time you send during a turn, the browser or the console asks which mode **Enter** should use, and saves the answer as `agent.queue_mode` in `config.yaml`; you can change it later in **Settings → ReAct loop**. While a turn runs, **Enter** uses that mode and **Tab** the other one; the browser's send button uses the Enter mode. Until the agent reads a message it is still yours: its mode can be switched, and taking it back returns the text and its images to the draft.
 
 ![First-use queue mode chooser in the browser](../assets/message-queue/message-queue-choice-dark-1280.png)
 
@@ -15,9 +15,9 @@ The first time you send during a turn, the browser or the console asks which mod
 
 *The choice wraps within a narrow composer.*
 
-![The queue mode in Settings, on the Agent tab](../assets/message-queue/message-queue-settings-dark-1280.png)
+![The queue mode in Settings, on the ReAct loop tab](../assets/message-queue/message-queue-settings-dark-1280.png)
 
-*The answer is saved as `agent.queue_mode` and can be changed on the Agent tab of Settings.*
+*The answer is saved as `agent.queue_mode` and can be changed on the ReAct loop tab of Settings.*
 
 ## What the agent sees
 

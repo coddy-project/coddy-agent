@@ -1,6 +1,4 @@
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 import rehypeHighlight from "rehype-highlight";
 import { syntaxHighlightOptions } from "./syntaxLanguages";
 import {
@@ -17,13 +15,10 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { docsHrefFromCoddyLink } from "../scheduler/hashRoute";
-import { remarkDocMentions } from "./remarkDocMentions";
 import { DiagramBlock, MarkdownStreamingContext } from "./DiagramBlock";
 import { MathBlock, MathInline } from "./MathFormula";
-import {
-  normalizeMathDelimiters,
-  remarkLiteralDollars,
-} from "./mathDelimiters";
+import { normalizeMathDelimiters } from "./mathDelimiters";
+import { REMARK_PLUGINS } from "./remarkPlugins";
 import { pictureKindOf } from "./pictureRender";
 
 /**
@@ -38,12 +33,6 @@ function rehypeHighlightShared() {
   highlightTransformer ??= rehypeHighlight(syntaxHighlightOptions);
   return highlightTransformer;
 }
-const REMARK_PLUGINS = [
-  remarkGfm,
-  remarkMath,
-  remarkLiteralDollars,
-  remarkDocMentions,
-];
 const REHYPE_PLUGINS = [rehypeHighlightShared];
 
 /** A video file where Markdown has an image: the documentation embeds its

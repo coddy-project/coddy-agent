@@ -130,8 +130,11 @@ if [ "$docs" = "1" ]; then
   if git diff --cached --name-only --diff-filter=ACMRD 2>/dev/null \
        | grep -E '^(docs/|README\.md$|AGENTS\.md$|DESIGN\.md$|CONTRIBUTING\.md$|internal/config/config\.schema\.json$|internal/docsgen/|cmd/docsgen/)' >/dev/null; then
     docs_ran=1
-    log "docs: go run ./cmd/docsgen -skip-cli (nav, links, assets, generated pages)"
-    go run ./cmd/docsgen -skip-cli || { status=1; log "docs: run 'make docs' to regenerate, then re-stage"; }
+    # A translation behind its English page is a warning here and an error in
+    # CI: a commit of an English page may come before its translation, the
+    # pull request may not.
+    log "docs: go run ./cmd/docsgen -skip-cli (nav, links, assets, generated pages, translations)"
+    go run ./cmd/docsgen -skip-cli -stale-translations warn || { status=1; log "docs: run 'make docs' to regenerate, then re-stage"; }
   fi
 fi
 

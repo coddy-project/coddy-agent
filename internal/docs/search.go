@@ -193,7 +193,7 @@ func tokenizeUnit(src unitSource) (unit, unitTerms) {
 	if src.anchor == "" {
 		heading = src.page.Title
 	}
-	fields := [fieldCount][]string{tokenize(src.page.Title), tokenize(heading), tokenize(body)}
+	fields := [fieldCount][]string{indexTokens(src.page.Title), indexTokens(heading), indexTokens(body)}
 	u := unit{page: src.page, anchor: src.anchor, heading: src.heading, text: body}
 	var ut unitTerms
 	slot := map[string]int{}
@@ -271,7 +271,8 @@ func (idx *index) saturate(tf *[fieldCount]float64, u *unit) float64 {
 
 // Search ranks the sections of the documentation against a query with
 // BM25F over the page title, the section heading and the body. Words are
-// matched case-insensitively after a light English stemming, and a query
+// matched case-insensitively after stemming (a light English one for Latin
+// words, Snowball for Russian ones, ё read as е), and a query
 // word of three letters or more also finds the words it begins, so a query
 // typed letter by letter finds pages before it is finished. At most three
 // sections of one page are returned; limit 0 means ten.
@@ -377,7 +378,7 @@ func snippet(text string, hit map[string]bool) []Fragment {
 	}
 	isHit := make([]bool, len(words))
 	for i, w := range words {
-		for _, t := range tokenize(w) {
+		for _, t := range indexTokens(w) {
 			if hit[t] {
 				isHit[i] = true
 				break
@@ -427,7 +428,7 @@ func snippet(text string, hit map[string]bool) []Fragment {
 		} else {
 			frags = appendText(frags, w)
 		}
-		chars += len(w)
+		chars += utf8.RuneCountInString(w)
 		end = i + 1
 	}
 	if end < len(words) {
@@ -460,7 +461,8 @@ func appendText(frags []Fragment, s string) []Fragment {
 	return append(frags, Fragment{Text: s})
 }
 
-// stopwords carry no meaning for a search of the documentation.
+// stopwords carry no meaning for a search of the documentation: English
+// function words here, the Russian ones (ruStopwords) added by init.
 var stopwords = map[string]bool{
 	"a": true, "an": true, "and": true, "are": true, "as": true, "at": true, "be": true, "by": true,
 	"can": true, "do": true, "does": true, "for": true, "from": true, "has": true, "have": true,
@@ -471,11 +473,26 @@ var stopwords = map[string]bool{
 	"will": true, "with": true, "you": true, "your": true,
 }
 
-// tokenize splits text into search words: runs of letters, digits and
+func init() {
+	for _, w := range ruStopwords {
+		stopwords[w] = true
+	}
+}
+
+// tokenize splits a query into search words: runs of letters, digits and
 // underscores, lower-cased and stemmed, stopwords dropped. An identifier
 // with underscores is kept whole and also split, so max_turns is found by
 // "max_turns" and by "turns".
-func tokenize(s string) []string {
+func tokenize(s string) []string { return tokenizeWith(s, false) }
+
+// indexTokens splits the text of a section the way tokenize splits a query,
+// and also keeps a Russian word as written next to its stem. The Snowball
+// stemmer cuts some forms of a word further than others (архив is арх,
+// архивы is архив; экран is экра, экраны is экран), and the written form is
+// what a query stem then finds, exactly or as the beginning of a word.
+func indexTokens(s string) []string { return tokenizeWith(s, true) }
+
+func tokenizeWith(s string, forms bool) []string {
 	out := make([]string, 0, len(s)/8+1)
 	start := -1
 	for i, r := range s {
@@ -486,34 +503,44 @@ func tokenize(s string) []string {
 			continue
 		}
 		if start >= 0 {
-			out = appendWord(out, s[start:i])
+			out = appendWord(out, s[start:i], forms)
 			start = -1
 		}
 	}
 	if start >= 0 {
-		out = appendWord(out, s[start:])
+		out = appendWord(out, s[start:], forms)
 	}
 	return out
 }
 
-func appendWord(out []string, w string) []string {
+func appendWord(out []string, w string, forms bool) []string {
 	w = lower(strings.Trim(w, "_"))
+	if !isASCII(w) {
+		// Russian is written with and without the dots over ё; the index
+		// keeps one spelling.
+		w = strings.ReplaceAll(w, "ё", "е")
+	}
 	if !strings.Contains(w, "_") {
-		return appendToken(out, w)
+		return appendToken(out, w, forms)
 	}
 	// An identifier is a name, matched as written; its parts are words.
 	out = append(out, w)
 	for _, part := range strings.Split(w, "_") {
-		out = appendToken(out, part)
+		out = appendToken(out, part, forms)
 	}
 	return out
 }
 
-func appendToken(out []string, w string) []string {
+func appendToken(out []string, w string, forms bool) []string {
 	if len(w) < 2 || stopwords[w] || (len(w) < 4 && utf8.RuneCountInString(w) < 2) {
 		return out
 	}
-	return append(out, stem(w))
+	s := stem(w)
+	out = append(out, s)
+	if forms && s != w && !isASCII(w) {
+		out = append(out, w)
+	}
+	return out
 }
 
 // lower is strings.ToLower without the allocation for a word that is
@@ -528,11 +555,18 @@ func lower(w string) string {
 	return w
 }
 
-// stem is the S-stemmer (Harman, 1991): plural endings only, which is
-// conservative enough never to merge two unrelated words of a technical
-// text, and leaves the rest to prefix matching.
+// stem reduces a word to its stem by its script: a Cyrillic word with the
+// Snowball Russian stemmer, an English one with the S-stemmer (Harman, 1991),
+// plural endings only, which is conservative enough never to merge two
+// unrelated words of a technical text and leaves the rest to prefix matching.
 func stem(w string) string {
-	if len(w) <= 3 || !isASCII(w) {
+	if !isASCII(w) {
+		if LangOfText(w) == Russian {
+			return stemRussian(w)
+		}
+		return w
+	}
+	if len(w) <= 3 {
 		return w
 	}
 	switch {

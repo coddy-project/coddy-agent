@@ -43,6 +43,7 @@ func (s *Server) coddyMentionsGet(w http.ResponseWriter, r *http.Request) {
 		Query:     q.Get("q"),
 		Limit:     limit,
 		Refresh:   refresh,
+		Lang:      strings.TrimSpace(q.Get("lang")),
 	})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{

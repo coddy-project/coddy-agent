@@ -18,6 +18,10 @@ type Options struct {
 	RawBase string // base URL of the Markdown twins for llms.txt
 	SkipCLI bool   // leave the CLI reference as it is (no binary needed)
 	SiteDir string // checkout of coddy-project.github.io; renders its docs layer when set
+	// StaleTranslationsWarn reports a translation behind its English page as
+	// a warning instead of a problem: the pre-commit hook lets a commit of an
+	// English page through and CI holds the pull request.
+	StaleTranslationsWarn bool
 }
 
 // Result holds the generated files (repository-relative path to content),
@@ -27,6 +31,7 @@ type Result struct {
 	Files     map[string]string
 	SiteFiles map[string]string
 	Problems  []Problem
+	Warnings  []Problem
 }
 
 // Generated files that carry a spliced block.
@@ -76,6 +81,38 @@ func Generate(o Options) (*Result, error) {
 	hub := res.Files[HubFile]
 	res.Files[LLMSFile] = RenderLLMSIndex(nav, hub, o.RawBase)
 
+	// Each translation has its hub, its generated blocks and its changelog,
+	// generated from its map and the same sources as the English ones. A
+	// translated file that is missing is left to CheckTranslation.
+	exists := func(rel string) bool {
+		_, err := os.Stat(filepath.Join(o.Root, rel))
+		return err == nil
+	}
+	translated := map[string]*TranslatedNav{}
+	descriptions := map[string]map[string]string{}
+	for _, lang := range Translations {
+		tr, err := LoadTranslatedNav(o.Root, lang)
+		if err != nil {
+			continue // CheckTranslation reports it
+		}
+		translated[lang] = tr
+		if rel := TranslationDir(lang) + "README.md"; exists(rel) {
+			if err := splice(rel, MarkerNav, RenderHubLang(nav, tr)); err != nil {
+				return nil, err
+			}
+		}
+		if d, err := LoadConfigDescriptions(o.Root, lang); err == nil {
+			descriptions[lang] = d
+		}
+		if exists(ChangelogFile) {
+			en, err := read(ChangelogFile)
+			if err != nil {
+				return nil, err
+			}
+			res.Files[TranslationDir(lang)+strings.TrimPrefix(ChangelogFile, "docs/")] = translatedChangelog(lang, en)
+		}
+	}
+
 	// The config reference follows the embedded schema and the code's defaults.
 	defaults, err := FlattenDefaults(config.DocDefaults(config.Paths{Home: "~/.coddy", CWD: "${CWD}"}))
 	if err != nil {
@@ -87,6 +124,19 @@ func Generate(o Options) (*Result, error) {
 	}
 	if err := splice(ConfigRefFile, MarkerConfig, configRef); err != nil {
 		return nil, err
+	}
+	for lang := range translated {
+		rel := TranslationDir(lang) + strings.TrimPrefix(ConfigRefFile, "docs/")
+		if !exists(rel) {
+			continue
+		}
+		ref, err := ConfigReferenceLang(config.ConfigSchemaJSON(), defaults, lang, descriptions[lang])
+		if err != nil {
+			return nil, err
+		}
+		if err := splice(rel, MarkerConfig, ref); err != nil {
+			return nil, err
+		}
 	}
 
 	if !o.SkipCLI {
@@ -109,6 +159,14 @@ func Generate(o Options) (*Result, error) {
 		if err := splice(CLIRefFile, MarkerCLI, cliRef); err != nil {
 			return nil, err
 		}
+		// The help screens are the binary's output, the same in every language.
+		for lang := range translated {
+			if rel := TranslationDir(lang) + strings.TrimPrefix(CLIRefFile, "docs/"); exists(rel) {
+				if err := splice(rel, MarkerCLI, cliRef); err != nil {
+					return nil, err
+				}
+			}
+		}
 	}
 
 	assets, err := AssetInventory(o.Root)
@@ -126,14 +184,48 @@ func Generate(o Options) (*Result, error) {
 	}
 	res.Files[LLMSFullFile] = full
 
+	// A translated page's links are written the way its English page writes
+	// them and made right for the translation's folder here.
+	existsNow := func(rel string) bool {
+		if _, ok := res.Files[rel]; ok {
+			return true
+		}
+		return exists(rel)
+	}
+	for _, lang := range Translations {
+		for _, rel := range translatedPages(nav, lang) {
+			text, err := read(rel)
+			if err != nil {
+				continue // CheckTranslation reports it
+			}
+			if out := localizeLinks(rel, text, read, existsNow); out != text {
+				res.Files[rel] = out
+			}
+		}
+	}
+
+	// The site layer is rendered from the tree as this run leaves it.
 	if o.SiteDir != "" {
-		site := RenderSite(nav)
+		site, err := RenderSiteLang(o.Root, nav, translated, read, o.RawBase)
+		if err != nil {
+			return nil, err
+		}
 		site["llms.txt"] = res.Files[LLMSFile]
 		site["llms-full.txt"] = res.Files[LLMSFullFile]
 		res.SiteFiles = site
 	}
 
 	res.Problems = append(res.Problems, CheckNav(o.Root, nav)...)
+	for _, lang := range Translations {
+		for _, p := range CheckTranslation(o.Root, nav, lang, read) {
+			if o.StaleTranslationsWarn && IsStaleTranslation(p) {
+				res.Warnings = append(res.Warnings, p)
+				continue
+			}
+			res.Problems = append(res.Problems, p)
+		}
+		res.Problems = append(res.Problems, CheckConfigDescriptions(o.Root, lang, config.ConfigSchemaJSON())...)
+	}
 	res.Problems = append(res.Problems, CheckAssets(assets)...)
 	linkFiles, err := markdownToCheck(o.Root)
 	if err != nil {

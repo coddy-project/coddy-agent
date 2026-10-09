@@ -230,14 +230,22 @@ func (w *pollingWorld) agentWasAskedText(text string) error {
 }
 
 func (w *pollingWorld) userReplies(text string) error {
+	// The answer streams into one message that ends with "…" until its turn
+	// is over, and a message "containing" the answer is already that draft: a
+	// reply sent before the last edit quotes the draft (seen under the race
+	// detector). So the reply waits for the bot's last message to be final.
 	var last int
-	for _, m := range w.fake.Chat(pollingChatID).Messages {
-		if m.From == "bot" {
-			last = m.MessageID
+	if err := w.await("the bot's last message is still being written", func(v tgfake.ChatView) bool {
+		last = 0
+		var lastText string
+		for _, m := range v.Messages {
+			if m.From == "bot" && !m.Deleted {
+				last, lastText = m.MessageID, m.Text
+			}
 		}
-	}
-	if last == 0 {
-		return fmt.Errorf("no bot message to reply to")
+		return last != 0 && !strings.HasSuffix(lastText, "…")
+	}); err != nil {
+		return err
 	}
 	upd, _ := w.fake.InjectMessage(tgfake.IncomingMessage{ChatID: pollingChatID, UserID: pollingUserID, Text: text, ReplyToMessageID: last})
 	w.lastUpdate = upd

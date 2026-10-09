@@ -215,7 +215,7 @@ The panel is **docked inside the session**, to the right of the transcript, at `
 ![The Tasks panel opened from the control in the chat header: two running cards, and a finished command opened in place](../assets/background-tasks/background-tasks-header-opener-dark-1280.png)
 
 *The Tasks panel opened from the control in the chat header: a subagent and a command still running, and a finished build opened in place with its command, output and exit code*
-- A transcript tool row that started a task names itself a background run and shows the task's clock where an ordinary row shows its duration, plus **Open in Tasks** and **Stop** when expanded. It says nothing about how the run ended: the status, the estimate, the exit code and the error are read on the task's card in the panel, which is what **Open in Tasks** opens: the panel comes up with that card already open.
+- A transcript tool row that started a task names itself a background run and shows the task's clock where an ordinary row shows its duration, folded or expanded; it carries no task controls of its own. It says nothing about how the run ended: the status, the estimate, the exit code and the error are read on the task's card in the panel, which the **Tasks** control opens, and that card carries Stop while the task runs.
 
 - A turn the agent was woken into shows nothing of its own, neither a user bubble nor a note: the answer follows the previous turn, and the bell on the task's card says what woke the agent ([Waking the agent](#what-the-woken-turn-looks-like)).
 

@@ -663,8 +663,16 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Contents of the built-in documentation",
 					"description": "Every group of **`docs/nav.yaml`** with its pages, as this binary carries them: the documentation is embedded at build time, so **`version`** is the binary's and no page is fetched from a site. " +
-						"A page's **`slug`** is its path under **`docs/`** without **`.md`**, the same address as **`https://coddy.dev/docs/<slug>`** and **`@coddy:<slug>`**. Pages the map keeps outside **`docs/`** (the contributing guide, the design contract, the agent notes) are not carried.",
+						"A page's **`slug`** is its path under **`docs/`** without **`.md`**, the same address as **`https://coddy.dev/docs/<slug>`** and **`@coddy:<slug>`**. Pages the map keeps outside **`docs/`** (the contributing guide, the design contract, the agent notes) are not carried. " +
+						"The documentation exists in English and Russian (**`docs/ru/`**); **`lang`** picks the language, and the response says which one it is.",
 					"operationId": "getDocsContents",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "lang", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string", "example": "ru"},
+							"description": "The language of the documentation, any spelling of a locale (**`ru`**, **`ru-RU`**, **`ru_RU.UTF-8`**): **`en`** or **`ru`**. Omitted, or a language the documentation is not translated into, is English.",
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("The contents", "#/components/schemas/CoddyDocs"),
 						"500": errorResponseRef(),
@@ -675,13 +683,19 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "One page of the built-in documentation",
 					"description": "The page **`ref`** names, whole, with its headings and its neighbours in map order. **`ref`** takes a slug (**`features/mentions`**), the file path with or without **`docs/`** and **`.md`**, a **`coddy:`** link, an **`@coddy:`** mention, a **`coddy.dev/docs`** address, a file name only one page has, or a title; a **`#section`** is returned as **`anchor`** for the reader to scroll to. " +
-						"In **`markdown`** a link to another page is written **`coddy:<slug>#<anchor>`**, and an image or a repository file is an address on GitHub at the release the binary was built from (**`main`** for a development build).",
+						"In **`markdown`** a link to another page is written **`coddy:<slug>#<anchor>`**, and an image or a repository file is an address on GitHub at the release the binary was built from (**`main`** for a development build). " +
+						"A section has one anchor in every language, the one GitHub gives its English heading: a Russian page answers to it (and to the anchor of its Russian heading, which **`ref`** may name as well), and its **`headings`** carry the Russian text under the shared **`anchor`**. **`lang`** of the response is the language of the page's text: English for a page the translation lacks.",
 					"operationId": "getDocsPage",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "ref", "in": "query", "required": true,
 							"schema":      map[string]string{"type": "string"},
 							"description": "The page, optionally with **`#section`**.",
+						},
+						map[string]interface{}{
+							"name": "lang", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string", "example": "ru"},
+							"description": "The language of the documentation, any spelling of a locale (**`ru`**, **`ru-RU`**, **`ru_RU.UTF-8`**): **`en`** or **`ru`**. Omitted, or a language the documentation is not translated into, is English.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -695,7 +709,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/docs/search": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Search the built-in documentation",
-					"description": "Sections of the documentation ranked against **`q`** with BM25 over the page title, the section heading and the text (the title and the heading weigh more). Words match case-insensitively after a light English stemming, and a word of three letters or more also finds the words it begins, so a query typed letter by letter finds pages before it is finished. " +
+					"description": "Sections of the documentation in **`lang`** ranked against **`q`** with BM25 over the page title, the section heading and the text (the title and the heading weigh more). Words match case-insensitively after stemming (a light English one, the Snowball stemmer for Russian words, **ё** read as **е**), and a word of three letters or more also finds the words it begins, so a query typed letter by letter finds pages before it is finished. " +
 						"At most three sections of one page are returned. A hit without **`anchor`** is the part of a page above its first section. **`snippet`** is the run of the section's text holding the most matched words, split into fragments with **`hit`** set on the matched ones. An empty **`q`** answers no hits.",
 					"operationId": "searchDocs",
 					"parameters": []interface{}{
@@ -708,6 +722,11 @@ func openAPISpec() map[string]interface{} {
 							"name": "limit", "in": "query", "required": false,
 							"schema":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
 							"description": "Most sections to return.",
+						},
+						map[string]interface{}{
+							"name": "lang", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string", "example": "ru"},
+							"description": "The language of the documentation, any spelling of a locale (**`ru`**, **`ru-RU`**, **`ru_RU.UTF-8`**): **`en`** or **`ru`**. Omitted, or a language the documentation is not translated into, is English.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -747,6 +766,11 @@ func openAPISpec() map[string]interface{} {
 							"name": "refresh", "in": "query", "required": false,
 							"schema":      map[string]interface{}{"type": "string", "enum": []interface{}{"", "1", "true", "yes", "0", "false"}},
 							"description": "Rebuild the workspace index before answering.",
+						},
+						map[string]interface{}{
+							"name": "lang", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string", "example": "ru"},
+							"description": "The language of the surface: **`coddy:`** pages and sections are named in it (**`detail`**), the inserted address is the same in every language. Omitted, the language of **`q`** (Cyrillic means Russian).",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -3920,7 +3944,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -3993,7 +4017,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
@@ -4152,6 +4176,7 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"object":  map[string]string{"type": "string", "example": "coddy.docs"},
 						"version": map[string]string{"type": "string", "description": "The version of the binary, which is the version of its documentation."},
+						"lang":    map[string]string{"type": "string", "description": "The language of the contents, en or ru.", "example": "ru"},
 						"groups": map[string]interface{}{
 							"type": "array",
 							"items": map[string]interface{}{
@@ -4169,13 +4194,14 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 					},
-					"required": []string{"object", "version", "groups"},
+					"required": []string{"object", "version", "lang", "groups"},
 				},
 				"CoddyDocsPage": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"object":  map[string]string{"type": "string", "example": "coddy.docs_page"},
 						"version": map[string]string{"type": "string"},
+						"lang":    map[string]string{"type": "string", "description": "The language of the page's text: the one asked for, or en for a page its translation lacks."},
 						"slug":    map[string]string{"type": "string"},
 						"title":   map[string]string{"type": "string"},
 						"summary": map[string]string{"type": "string"},
@@ -4195,22 +4221,23 @@ func openAPISpec() map[string]interface{} {
 								"properties": map[string]interface{}{
 									"level":  map[string]string{"type": "integer"},
 									"text":   map[string]string{"type": "string", "description": "The heading without its inline markup."},
-									"anchor": map[string]string{"type": "string", "description": "The fragment GitHub generates for the heading."},
+									"anchor": map[string]string{"type": "string", "description": "The fragment GitHub generates for the English heading at this position: the section's address in every language."},
 								},
 								"required": []string{"level", "text", "anchor"},
 							},
 						},
 						"prev": map[string]interface{}{"$ref": "#/components/schemas/CoddyDocsPageRef", "nullable": true},
 						"next": map[string]interface{}{"$ref": "#/components/schemas/CoddyDocsPageRef", "nullable": true},
-						"url":  map[string]string{"type": "string", "description": "The public address of the page, https://coddy.dev/docs/<slug>."},
+						"url":  map[string]string{"type": "string", "description": "The public address of the page in its language, https://coddy.dev/docs/<slug> or https://coddy.dev/ru/docs/<slug>."},
 					},
-					"required": []string{"object", "version", "slug", "title", "markdown", "headings", "url"},
+					"required": []string{"object", "version", "lang", "slug", "title", "markdown", "headings", "url"},
 				},
 				"CoddyDocsSearch": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"object":  map[string]string{"type": "string", "example": "coddy.docs_search"},
 						"version": map[string]string{"type": "string"},
+						"lang":    map[string]string{"type": "string", "description": "The language searched, en or ru."},
 						"query":   map[string]string{"type": "string"},
 						"hits": map[string]interface{}{
 							"type": "array",
@@ -4238,7 +4265,7 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 					},
-					"required": []string{"object", "version", "query", "hits"},
+					"required": []string{"object", "version", "lang", "query", "hits"},
 				},
 				"CoddyMentionCandidate": map[string]interface{}{
 					"type": "object",
