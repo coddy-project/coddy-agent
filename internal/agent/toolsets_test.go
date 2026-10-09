@@ -16,11 +16,53 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
 
-// The execution-time check and the advertised tool set are one boundary: a
-// registry tool is refused at execution exactly when FilterToolDefinitions
-// would not have offered it to the model. Running every registered tool through
-// both keeps a tool added to the registry from slipping between them.
-func TestToolCallRefusedByModeAgreesWithTheAdvertisedSet(t *testing.T) {
+// newModeToolsAgent is an agent with the registry its config builds and one
+// connected MCP server, which is what currentToolDefinitions works from.
+func newModeToolsAgent(t *testing.T, mode session.Mode) *Agent {
+	t.Helper()
+	st := &session.State{ID: "sess_mode_tools_" + string(mode), CWD: t.TempDir(), Mode: mode, SessionDir: t.TempDir()}
+	st.AddSessionMCPClient(mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}}))
+	return NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+}
+
+// The execution-time check must never refuse what the loop really offers the
+// model: the definitions come from currentToolDefinitions, the function every
+// turn and every resumed turn calls, with the registry, the runtime wiring and
+// the MCP servers it works from. A tool added to the offered set (a new append
+// in currentToolDefinitions, a tool added to the registry and to the list)
+// without the check knowing about it fails here.
+func TestToolCallRefusedByModeNeverRefusesWhatIsOffered(t *testing.T) {
+	for _, mode := range []session.Mode{session.ModePlan, session.ModeAsk} {
+		t.Run(string(mode), func(t *testing.T) {
+			ag := newModeToolsAgent(t, mode)
+			offered := ag.currentToolDefinitions(string(mode))
+			names := make(map[string]bool, len(offered))
+			for _, def := range offered {
+				names[def.Name] = true
+				if msg, refused := toolCallRefusedByMode(string(mode), def.Name); refused {
+					t.Errorf("%s mode offers %q to the model but refuses the call: %q", mode, def.Name, msg)
+				}
+			}
+			// The comparison is not vacuous: the read tools are offered, and the
+			// MCP tool of the connected server is offered in plan mode only.
+			for _, want := range []string{"read", "grep", "glob"} {
+				if !names[want] {
+					t.Errorf("%s mode does not offer %q: %v", mode, want, names)
+				}
+			}
+			if wantMCP := mode == session.ModePlan; names["srv__echo"] != wantMCP {
+				t.Errorf("%s mode offers the MCP tool = %v, want %v", mode, names["srv__echo"], wantMCP)
+			}
+		})
+	}
+}
+
+// ToolSetForMode and the check read the same lists, so this guards the wiring
+// of the check (a mode branch, an early return) and not the list contents:
+// every built-in outside the mode's list is refused with a notice naming the
+// tool and the mode, every one inside it runs, and no built-in is named like an
+// MCP tool, which the plan check would wave through.
+func TestToolCallRefusedByModeCoversEveryBuiltIn(t *testing.T) {
 	registry := tools.NewRegistry()
 	for _, mode := range []string{"plan", "ask"} {
 		set := ToolSetForMode(mode)
@@ -28,10 +70,9 @@ func TestToolCallRefusedByModeAgreesWithTheAdvertisedSet(t *testing.T) {
 			if isMCPToolName(def.Name) {
 				t.Errorf("built-in %q is named like an MCP tool and would be routed to callMCPTool", def.Name)
 			}
-			offered := len(FilterToolDefinitions([]llm.ToolDefinition{def}, set)) == 1
 			msg, refused := toolCallRefusedByMode(mode, def.Name)
-			if refused == offered {
-				t.Errorf("%s mode, tool %q: offered=%v but refused=%v", mode, def.Name, offered, refused)
+			if refused == set.Allows(def.Name) {
+				t.Errorf("%s mode, tool %q: allowed by the list=%v but refused=%v", mode, def.Name, set.Allows(def.Name), refused)
 			}
 			if refused && (!strings.Contains(msg, `"`+def.Name+`"`) || !strings.Contains(strings.ToLower(msg), mode+" mode")) {
 				t.Errorf("%s mode refusal for %q does not name the tool and the mode: %q", mode, def.Name, msg)

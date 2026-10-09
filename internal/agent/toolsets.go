@@ -106,8 +106,10 @@ var (
 
 // isMCPToolName reports whether name is namespaced like the tool of an MCP
 // server (server__tool). executeToolCall routes every such name to callMCPTool
-// and never to the registry, and no built-in is named that way: a server name
-// may not contain the separator (mcp.ValidateServerName).
+// and never to the registry, and no built-in tool is named that way (a test
+// pins it). callMCPTool decides about such a name and fails closed for one
+// that is not a connected server's tool: the per-tool filter first, then the
+// lookup of the server ("MCP server not found"), then the server itself.
 func isMCPToolName(name string) bool {
 	return strings.Contains(name, "__")
 }
