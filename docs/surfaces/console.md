@@ -59,6 +59,12 @@ session: sess_1a2b3c4d
 continue: coddy cli --session-id sess_1a2b3c4d  (or: coddy -c)
 ```
 
+A session is written to disk with its first prompt. A console started and
+closed without one - or left with `/new` before anything was sent - leaves no
+folder in the sessions root and no row in History, and prints no hint: there
+is nothing to continue. The settings changed before that first prompt (the
+model, the mode, the permission mode) are kept in memory and written with it.
+
 
 ## Live file drafts
 

@@ -1536,6 +1536,11 @@ func (a *App) ExitHint() string {
 	if a.sessionID == "" {
 		return ""
 	}
+	// A local session that got no prompt was never written: there is nothing
+	// to continue.
+	if st := a.mgr.SessionByID(a.sessionID); a.remoteURL == "" && st != nil && st.BundleDeferred() {
+		return ""
+	}
 	if a.remoteURL != "" {
 		return fmt.Sprintf("session: %s\ncontinue: coddy --remote %s --session-id %s  (or: coddy --remote %s -c)",
 			a.sessionID, a.remoteURL, a.sessionID, a.remoteURL)

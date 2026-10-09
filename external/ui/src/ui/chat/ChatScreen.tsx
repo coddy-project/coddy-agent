@@ -66,6 +66,11 @@ export function ChatScreen(props: {
   title: string;
   /** The chat's name is being worked out: the header shows a placeholder. */
   titlePending?: boolean;
+  /**
+   * Why the first message of a new chat was not sent: the start screen it came
+   * back to says so under the composer (issue #357).
+   */
+  startNotice?: string;
   sessionId: string;
   /** Accent verb for "What do you want to …?" on the empty hero (session-stable or home rotation). */
   heroAccentVerb: HeroAccentVerb;
@@ -945,6 +950,15 @@ export function ChatScreen(props: {
                   : {})}
               />
             )}
+            {props.startNotice ? (
+              <p
+                className="hero-start-notice"
+                role="alert"
+                data-testid="hero-start-notice"
+              >
+                {props.startNotice}
+              </p>
+            ) : null}
           </div>
           <HeroFooter />
         </div>

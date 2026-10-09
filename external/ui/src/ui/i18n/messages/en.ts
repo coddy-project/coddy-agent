@@ -1137,6 +1137,9 @@ export const messagesEn: Record<string, string> = {
   "app.stopFailed": "Could not stop generation. Try again.",
   "app.undoEditFailed": "Could not undo the edit: {error}",
   "app.emptyResponseBody": "Empty response body",
+  "app.workspacePrepareFailed":
+    "The workspace could not be prepared: {reason}. The message was not sent.",
+  "app.workspacePrepareFailedUnknown": "network error",
 
   "nav.ariaLabel": "Nav",
   "nav.brandTitle": "Coddy",
@@ -2256,6 +2259,7 @@ export const messagesEn: Record<string, string> = {
   "status.awaitingPermission": "Waiting for your approval",
   "status.awaitingAnswer": "Waiting for your answer",
   "status.writing": "Writing the answer",
+  "status.preparingSession": "Preparing the session…",
   "status.waitingModel": "Waiting for the model",
   "status.waitingSlow": "The model is taking longer than usual",
   "status.waitingStuck": "Still no response from the server",

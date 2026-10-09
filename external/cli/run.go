@@ -423,6 +423,9 @@ func buildRemoteApp(cfg *config.Config, ropts *remote.Options, log *slog.Logger,
 // sessions, so /new and /resume reuse them instead of starting them again.
 func wireLocalManager(mgr *session.Manager) {
 	mgr.SetBackgroundMCPConnect(true)
+	// A session is written with its first prompt: a console started and
+	// closed without one leaves no folder in History (issue #357).
+	mgr.SetDeferNewSessionBundle(true)
 	mgr.StartGlobalMCPServers()
 }
 

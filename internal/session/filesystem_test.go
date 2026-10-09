@@ -176,6 +176,7 @@ func TestListSnapshotsOrdersSameSecondSessionsByRecency(t *testing.T) {
 				t.Fatal(err)
 			}
 			st := &State{ID: id, CWD: "/tmp/order", Mode: ModeAgent, SessionDir: dir}
+			st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
 			if err := fs.Save(st); err != nil {
 				t.Fatal(err)
 			}
@@ -665,6 +666,7 @@ func TestListSnapshotsMatchesWorkspaceSpelledDifferently(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := &State{ID: "sess_link", CWD: filepath.Join(link, "project"), Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
 	if err := fs.Save(st); err != nil {
 		t.Fatal(err)
 	}
@@ -1904,5 +1906,86 @@ func TestLoadingASessionOverHTTPKeepsItsOwnWorkspace(t *testing.T) {
 	if after.Meta.UpdatedAt != before.Meta.UpdatedAt {
 		t.Fatalf("loading the session moved it in the listing: %q -> %q",
 			before.Meta.UpdatedAt, after.Meta.UpdatedAt)
+	}
+}
+
+// emptyBundle stores a session that holds no message, the way session/new
+// leaves one before its first prompt.
+func emptyBundle(t *testing.T, fs *FileStore, id string, edit func(*State)) *State {
+	t.Helper()
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: id, CWD: "/tmp/empty", Mode: ModeAgent, SessionDir: dir}
+	if edit != nil {
+		edit(st)
+	}
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+func listedIDs(t *testing.T, fs *FileStore, opts ListOptions) map[string]bool {
+	t.Helper()
+	rows, err := fs.ListSnapshotsWith(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make(map[string]bool, len(rows))
+	for _, r := range rows {
+		out[r.SessionID] = true
+	}
+	return out
+}
+
+// A session nobody wrote in is out of the listing people read (issue #357),
+// unless it was pinned - pinning is a choice somebody made about it - and it
+// is in a listing that asks for every bundle.
+func TestListSnapshotsLeavesOutSessionsWithoutAMessage(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	emptyBundle(t, fs, "sess_empty", nil)
+	emptyBundle(t, fs, "sess_pinned_empty", func(st *State) { st.SetPinnedWithoutPersist(true, "", 0) })
+	talked := emptyBundle(t, fs, "sess_talked", nil)
+	talked.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	if err := fs.Save(talked); err != nil {
+		t.Fatal(err)
+	}
+
+	got := listedIDs(t, fs, ListOptions{})
+	if got["sess_empty"] || !got["sess_pinned_empty"] || !got["sess_talked"] {
+		t.Fatalf("default listing = %v, want the pinned and the talked session only", got)
+	}
+	if all := listedIDs(t, fs, ListOptions{IncludeEmpty: true}); !all["sess_empty"] {
+		t.Fatalf("listing with IncludeEmpty = %v, want the empty session too", all)
+	}
+}
+
+// A bundle an older build wrote carries no message count: its transcript is
+// read when it is small enough to be empty, and only then.
+func TestListSnapshotsLeavesOutAnEmptyBundleWithoutACount(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	st := emptyBundle(t, fs, "sess_legacy_empty", nil)
+	meta, err := fs.ReadMeta(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.MessageCount, meta.MessagesSize, meta.MessagesModTime = nil, nil, nil
+	if err := writeJSONAtomic(filepath.Join(st.SessionDir, sessionMetaFile), meta); err != nil {
+		t.Fatal(err)
+	}
+	if got := listedIDs(t, fs, ListOptions{}); got["sess_legacy_empty"] {
+		t.Fatalf("default listing = %v, want the legacy empty bundle left out", got)
+	}
+}
+
+// A scheduler job's own session is never prompted and holds no message; the
+// listing that asks for scheduler sessions still has it.
+func TestListSnapshotsKeepsAnEmptySchedulerJobSession(t *testing.T) {
+	fs := &FileStore{Root: t.TempDir()}
+	emptyBundle(t, fs, "sess_job", func(st *State) { st.SetSchedulerJobWithoutPersist("job_a") })
+	if got := listedIDs(t, fs, ListOptions{IncludeSchedulerRuns: true}); !got["sess_job"] {
+		t.Fatalf("scheduler listing = %v, want the job session", got)
 	}
 }

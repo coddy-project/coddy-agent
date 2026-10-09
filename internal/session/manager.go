@@ -58,6 +58,12 @@ type Manager struct {
 	// opens, new or restored, to a worker the state owns
 	// (SetBackgroundMCPConnect); only the console sets it.
 	backgroundMCP atomic.Bool
+	// backgroundNewMCP does the same for new sessions only
+	// (SetNewSessionsBackgroundMCP); coddy serve sets it.
+	backgroundNewMCP atomic.Bool
+	// deferNewBundle leaves a new session's bundle off the disk until its
+	// first prompt (SetDeferNewSessionBundle); the console sets it.
+	deferNewBundle atomic.Bool
 	// mcpConnectTimeout overrides defaultMCPConnectTimeout; tests shorten it.
 	mcpConnectTimeout time.Duration
 	// mcpPool shares the configured MCP servers between the sessions of the
@@ -683,8 +689,12 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		return nil, fmt.Errorf("session/new: %w", err)
 	}
 
+	// A console's session is written with its first prompt (issue #357): one
+	// started and closed without a prompt leaves nothing on disk. Until then
+	// it runs as a session without a store, which every path already knows.
+	deferBundle := m.store != nil && m.deferNewBundle.Load()
 	var sessionDir string
-	if m.store != nil {
+	if m.store != nil && !deferBundle {
 		sessionDir, err = m.store.EnsureLayout(id)
 		if err != nil {
 			return nil, fmt.Errorf("session/new: layout: %w", err)
@@ -694,6 +704,9 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	state, err := m.buildFreshState(ctx, id, cwd, sessionDir, params.MCPServers)
 	if err != nil {
 		return nil, err
+	}
+	if deferBundle {
+		state.bundleDeferred.Store(true)
 	}
 
 	m.attachGoalNotifier(state)
@@ -712,7 +725,7 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 	m.runSessionStartHooks(ctx, state, hookSourceStartup)
 
-	if m.store != nil {
+	if m.store != nil && !deferBundle {
 		if err := m.store.Save(state); err != nil {
 			m.log.Warn("initial session save", "error", err)
 		}
@@ -1277,6 +1290,10 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 		state.SetTurnSender(adm.sender)
 		state.SetQueueNotifier(func() { m.PublishMessageQueue(sessionID, state) })
 		state.OpenMessageQueue()
+		// The turn is taken: the surface hears so now, before the MCP servers
+		// and the context window below, which can take seconds, and the loop's
+		// own progress takes over from the same clock (issue #357).
+		announceTurnPreparing(sessionID, adm.sender, turnStartedAt)
 	}
 	// The ran marker lives on this admission's context, so a concurrent
 	// admission that loses the lock cannot reset it.
@@ -1345,6 +1362,52 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 		m.AwaitContextWindows(turnCtx, cfg, []string{state.EffectiveModelID(cfg)}, ContextWindowWait)
 	}
 	return turnCtx, finish, nil
+}
+
+// SetDeferNewSessionBundle leaves the bundle of every new session this manager
+// opens from now on off the disk until its first prompt: settings, a mode, a
+// hook's context stay in memory and are written with that prompt, and a
+// session closed without one leaves no folder behind (issue #357). Only the
+// console turns it on: its prompt takes the turn lock after the bundle is
+// written, while the HTTP surface takes the lock before it reads the prompt.
+func (m *Manager) SetDeferNewSessionBundle(on bool) {
+	m.deferNewBundle.Store(on)
+}
+
+// writeDeferredBundle lays out and saves the bundle of a session whose bundle
+// waited for its first prompt; it does nothing for any other session.
+func (m *Manager) writeDeferredBundle(state *State) error {
+	if m.store == nil || !state.bundleDeferred.Load() {
+		return nil
+	}
+	dir, err := m.store.EnsureLayout(state.GetID())
+	if err != nil {
+		return fmt.Errorf("session layout: %w", err)
+	}
+	state.setSessionDir(dir)
+	state.bundleDeferred.Store(false)
+	if err := m.store.Save(state); err != nil {
+		return fmt.Errorf("session save: %w", err)
+	}
+	return nil
+}
+
+// announceTurnPreparing sends the first turn_progress of a turn admitted at
+// startedAt: the preparing phase, no tokens yet.
+func announceTurnPreparing(sessionID string, sender acp.UpdateSender, startedAt time.Time) {
+	if sender == nil || startedAt.IsZero() {
+		return
+	}
+	elapsed := time.Since(startedAt)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	_ = sender.SendSessionUpdate(sessionID, acp.TurnProgressUpdate{
+		SessionUpdate: acp.UpdateTypeTurnProgress,
+		StartedAt:     startedAt.UTC().Format(time.RFC3339Nano),
+		ElapsedMs:     elapsed.Milliseconds(),
+		Phase:         acp.TurnPhasePreparing,
+	})
 }
 
 // admissible decides, under the live-map lock, whether a turn may run on
@@ -1446,6 +1509,12 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			params.Prompt = taken.Prompt
 			turnSettings = taken.TurnChanges
 		}
+	}
+
+	// The first prompt that is more than settings commands writes a deferred
+	// bundle, before the turn takes its lock in the bundle's folder.
+	if err := m.writeDeferredBundle(state); err != nil {
+		return nil, err
 	}
 
 	turnBase := ctx

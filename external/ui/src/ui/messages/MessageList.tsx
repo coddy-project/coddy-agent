@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
-import { deriveLiveStatus } from "../chat/liveStatus";
+import { deriveLiveStatus, withPreparingPhase } from "../chat/liveStatus";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
 import { userMsgIndices } from "./userMsgIndices";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
@@ -157,8 +157,11 @@ export function MessageList(props: {
 
   // What the running turn is doing right now, for the label next to the typing dots.
   const liveStatus = useMemo(
-    () => (props.generating === true ? deriveLiveStatus(props.items) : null),
-    [props.generating, props.items],
+    () =>
+      props.generating === true
+        ? withPreparingPhase(deriveLiveStatus(props.items), props.turnProgress)
+        : null,
+    [props.generating, props.items, props.turnProgress],
   );
 
   const renderStart = Math.max(0, props.renderStart ?? 0);

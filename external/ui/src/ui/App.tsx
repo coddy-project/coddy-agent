@@ -1577,6 +1577,14 @@ export function App() {
   const [namingSessionIds, setNamingSessionIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  // Why the last first send of a new chat was not sent, shown on the start
+  // screen it returned to (issue #357); cleared by the next send.
+  const [startNotice, setStartNotice] = useState("");
+  // What the start screen gets back when a first send returns to it: set just
+  // before the route leaves the chat, taken by the effect that sees it go.
+  const startScreenRestoreRef = useRef<{ text: string; files: File[] } | null>(
+    null,
+  );
   const heroAccentVerb = useMemo(
     () => pickHeroAccentVerb(sessionId, heroHomeGeneration),
     [sessionId, heroHomeGeneration],
@@ -2154,12 +2162,16 @@ export function App() {
   }
 
   // Applies pre-session workspace choices to the freshly created session id
-  // right before the first send.
-  async function applyPendingWorkspace(sid: string) {
+  // right before the first send. Answers why it could not, or null: a send
+  // whose folder or branch did not take is not sent into another workspace
+  // (issue #357). The pick is cleared once the session holds it, so the folder
+  // the chat is scoped to never falls back to a stale preview in between, and
+  // kept when it did not take, for the start screen the send returns to.
+  async function applyPendingWorkspace(sid: string): Promise<string | null> {
     const pending = pendingWorkspaceRef.current;
     if (!pending || (!pending.path && !pending.branch)) {
       setPendingWorkspace(null);
-      return;
+      return null;
     }
     const base = { "Content-Type": "application/json", [HDR]: sid };
     try {
@@ -2167,27 +2179,40 @@ export function App() {
       // keeps the chips and everything scoped by chatWorkspace on the picked
       // folder from the moment the pending pick is cleared, instead of on a
       // preview that may not have answered yet.
-      const applied = async (res: Response) => {
+      const applied = async (res: Response): Promise<string | null> => {
         if (!res.ok) {
-          return;
+          const reason = await res
+            .json()
+            .then((b: { error?: { message?: unknown } }) =>
+              typeof b?.error?.message === "string" ? b.error.message : "",
+            )
+            .catch(() => "");
+          // The server's own reason says what to fix (a folder that is gone,
+          // a branch checked out elsewhere); a refused token keeps the hint
+          // that names the environment's token.
+          return reason && res.status !== 401 && res.status !== 403
+            ? reason
+            : remoteHttpErrorMessage(res.status, getEnv(), reason);
         }
         const gen = ++workspaceCtxGenRef.current;
         const ctx = (await res.json()) as WorkspaceContext;
         if (gen === workspaceCtxGenRef.current) {
           setWorkspaceCtx(ctx);
         }
+        return null;
       };
       if (pending.path) {
-        await applied(
+        const failed = await applied(
           await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
             body: JSON.stringify({ path: pending.path }),
           }),
         );
+        if (failed) return failed;
       }
       if (pending.branch) {
-        await applied(
+        const failed = await applied(
           await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
@@ -2197,13 +2222,12 @@ export function App() {
             }),
           }),
         );
+        if (failed) return failed;
       }
-    } catch {
-      // ignore: the session still starts in the default workspace
-    } finally {
-      // Cleared once the session holds the pick, so the folder the chat is
-      // scoped to never falls back to a stale preview in between.
       setPendingWorkspace(null);
+      return null;
+    } catch (err) {
+      return errorDetail(err) || t("app.workspacePrepareFailedUnknown");
     }
   }
 
@@ -4578,13 +4602,18 @@ export function App() {
     setSubagentTranscript(null);
     setViewedArchived(false);
     if (!sessionId) {
+      // A first send whose workspace did not take comes back to the start
+      // screen as it was sent from: its text, its files, its picks.
+      const back = startScreenRestoreRef.current;
+      startScreenRestoreRef.current = null;
       setItems([]);
-      setDraft("");
+      setDraft(back ? back.text : "");
+      if (back && back.files.length > 0) setComposerFiles(back.files);
       setSessionLoading(false);
       void loadSessionsList(true);
       // The Back button to "#/" or a draft in History leaves the chat without
       // going through goHome.
-      resetNewChatSettings();
+      if (!back) resetNewChatSettings();
       return;
     }
     setDraft("");
@@ -5064,6 +5093,7 @@ export function App() {
     let completedNormally = false;
     let assistantStreamId = "";
     const isNewChatFirstSend = !sessionId.trim();
+    setStartNotice("");
     let releaseSessionId: ((id: string) => void) | undefined;
     const sessionIdWhenKnown = isNewChatFirstSend
       ? new Promise<string>((resolve) => {
@@ -5121,32 +5151,11 @@ export function App() {
       let sid = sessionId;
       if (!sid) {
         sid = randomSessionId();
-        // The start screen's pick now belongs to the session this send
-        // creates, and the chip keeps naming what the start screen showed
-        // until that session's own snapshot arrives. With no pick and no word
-        // from the server on its configured mode, what the chip shows is sent
-        // as the pick: the first turn runs under the mode the operator saw,
-        // never under one the page could not name.
-        // A read of the mode in flight (a reload, a reconnect) is waited for,
-        // briefly: the chip may still show the mode it is replacing, and a
-        // first turn pinned to that one would outlive the change.
-        const reading = serverPermissionReadingRef.current;
-        if (reading) {
-          await Promise.race([
-            reading,
-            new Promise((resolve) => setTimeout(resolve, 1500)),
-          ]);
-        }
-        setPendingPermissionMode(
-          pendingPermissionModeRef.current.mode ||
-            (serverPermissionModeRef.current === null
-              ? startPermissionMode
-              : ""),
-          sid,
-        );
-        setPermissionMode(startPermissionMode);
+        // The chat opens on its first message at once (issue #357): what the
+        // first send still has to settle - the mode the server starts it
+        // under, the folder and the branch picked on the start screen - is
+        // settled below, with the message already on screen.
         migrateWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, sid);
-        await applyPendingWorkspace(sid);
         if (activeDraftId.trim()) {
           setClientDraftSessions(
             removeClientDraftSession(activeDraftId.trim()),
@@ -5287,6 +5296,65 @@ export function App() {
       }
       if (viewingNow === streamKey) {
         setTokenUsage(null);
+      }
+
+      if (isNewChatFirstSend) {
+        // The start screen's pick now belongs to the session this send
+        // creates, and the chip keeps naming what the start screen showed
+        // until that session's own snapshot arrives. With no pick and no word
+        // from the server on its configured mode, what the chip shows is sent
+        // as the pick: the first turn runs under the mode the operator saw,
+        // never under one the page could not name.
+        // A read of the mode in flight (a reload, a reconnect) is waited for,
+        // briefly: the chip may still show the mode it is replacing, and a
+        // first turn pinned to that one would outlive the change.
+        const reading = serverPermissionReadingRef.current;
+        if (reading) {
+          await Promise.race([
+            reading,
+            new Promise((resolve) => setTimeout(resolve, 1500)),
+          ]);
+        }
+        setPendingPermissionMode(
+          pendingPermissionModeRef.current.mode ||
+            (serverPermissionModeRef.current === null
+              ? startPermissionMode
+              : ""),
+          sid,
+        );
+        setPermissionMode(startPermissionMode);
+        // The folder and the branch picked on the start screen: a send whose
+        // workspace did not take is not sent into another one (below).
+        const workspaceFailed = await applyPendingWorkspace(sid);
+        if (workspaceFailed) {
+          // A retry from a chat created without its workspace would go into
+          // another one: the start screen comes back with the picks still
+          // made and the text in the composer, and says why nothing was sent.
+          giveBack();
+          setNamingSessionIds((prev) => {
+            if (!prev.has(sid)) return prev;
+            const next = new Set(prev);
+            next.delete(sid);
+            return next;
+          });
+          setSessions((prev) =>
+            prev.filter((row) => row.id !== sid || !!row.title),
+          );
+          setStartNotice(
+            t("app.workspacePrepareFailed", { reason: workspaceFailed }),
+          );
+          if (viewedSessionIdRef.current.trim() === sid) {
+            if (opts?.restoreOnRefusal) {
+              startScreenRestoreRef.current = {
+                text,
+                files: opts.files ?? [],
+              };
+            }
+            clearSessionRoute();
+          }
+          completedNormally = true;
+          return;
+        }
       }
 
       const reqBody: Record<string, unknown> = {
@@ -7245,6 +7313,7 @@ export function App() {
     >
       <EnvHealthBanner />
       <NavRail
+        localHost={localHost}
         // A relay has no chat to start: its home is the map, and the brand
         // leads there as it leads an agent's page to a new chat.
         onNewChat={atSwarmRoot ? openSwarmFromNav : goHome}
@@ -7523,6 +7592,7 @@ export function App() {
           <ChatScreen
             title={currentTitle}
             titlePending={namingSessionIds.has(sessionId.trim())}
+            {...(startNotice ? { startNotice } : {})}
             sessionId={sessionId}
             onOpenEdits={openEditsWindow}
             onOpenFiles={() =>

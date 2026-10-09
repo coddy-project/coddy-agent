@@ -239,9 +239,25 @@ Feature: Interactive console TUI
 
   Scenario: Double ctrl+c exits the console immediately and reports the session
     When the console app starts
+    And the operator submits the prompt "keep this one"
+    And the stub turn streams the text "kept"
     And the operator presses ctrl+c twice
     Then the console app stops within two seconds
     And the exit hint names the session and the continue command
+
+  Scenario: A console closed without a prompt leaves no session on disk
+    When the console app starts
+    And the operator presses ctrl+c twice
+    Then the console app stops within two seconds
+    And the sessions folder holds no session
+    And the exit hint names no session to continue
+
+  Scenario: The first prompt saves the console's session
+    When the console app starts
+    Then the sessions folder holds no session
+    When the operator submits the prompt "hello there"
+    And the stub turn streams the text "Hi!"
+    Then the sessions folder holds the console's session
 
   Scenario: Continuing reopens the most recent session in this folder
     Given a previous console session with the prompt "continue me" and the reply "continued"
@@ -443,7 +459,9 @@ Feature: Interactive console TUI
     Given the workspace holds a project mcp.json with an MCP server "project-tool"
     When the console app starts
     Then the screen shows "MCP server project-tool waits for approval"
-    When the operator starts a new session
+    When the operator submits the prompt "work before the switch"
+    And the stub turn streams the text "done"
+    And the operator starts a new session
     And the operator resumes the previous session
     Then the screen shows "MCP server project-tool waits for approval"
     And the project MCP server "project-tool" has not been started

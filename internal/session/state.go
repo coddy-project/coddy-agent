@@ -270,6 +270,9 @@ type State struct {
 	// resumed run takes its live entry over: from then on the copy's persist
 	// hook writes nothing, since the run's state owns the bundle.
 	superseded atomic.Bool
+	// bundleDeferred says the session's bundle waits for its first prompt
+	// (Manager.SetDeferNewSessionBundle): SessionDir is empty until then.
+	bundleDeferred atomic.Bool
 
 	// sessionMCPDecls are the ACP client-supplied MCP declarations this session
 	// dialed, kept so a child session can redial them: they exist nowhere in
@@ -385,6 +388,12 @@ func (s *State) setSessionDir(dir string) {
 	s.mu.Lock()
 	s.SessionDir = dir
 	s.mu.Unlock()
+}
+
+// BundleDeferred reports whether the session's bundle still waits for its
+// first prompt (Manager.SetDeferNewSessionBundle): nothing of it is on disk.
+func (s *State) BundleDeferred() bool {
+	return s.bundleDeferred.Load()
 }
 
 // GetPersistedSessionDir returns the filesystem bundle dir if persistence is enabled.
