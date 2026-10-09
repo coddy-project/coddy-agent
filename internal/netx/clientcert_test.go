@@ -234,3 +234,104 @@ func TestClientTLSMapsToOptions(t *testing.T) {
 		t.Fatal("the empty identity has the empty key, so other provider types keep their keys")
 	}
 }
+
+// pad returns b with trailing newlines up to size (PEM readers ignore text after the last block), so two different certificates can have
+// the very same size, as two certificates of one profile do.
+func pad(b []byte, size int) []byte {
+	for len(b) < size {
+		b = append(b, '\n')
+	}
+	return b
+}
+
+// restamp sets the modification time of both files, as an archive with normalised times, a layer or a store does.
+func restamp(t *testing.T, when time.Time, paths ...string) {
+	t.Helper()
+	for _, p := range paths {
+		if err := os.Chtimes(p, when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A pair replaced by one with the same size and the same modification time (files unpacked from a reproducible archive, a file system with
+// a coarse clock) is a different pair: the model p5-certloader shows a loader keyed by size and time serves the old one for ever, and the
+// loader reads the bytes instead.
+func TestClientCertificateReplacedWithTheSameSizeAndTimeIsPickedUp(t *testing.T) {
+	pki := newPKI(t)
+	ts := pki.mtlsServer(t)
+	aliceCert, aliceKey := pki.issue(t, "alice", 2, true)
+	bobCert, bobKey := pki.issue(t, "bob", 3, true)
+	read := func(p string) []byte {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	size := func(a, b []byte) int {
+		if len(a) > len(b) {
+			return len(a)
+		}
+		return len(b)
+	}
+	certA, certB := read(aliceCert), read(bobCert)
+	keyA, keyB := read(aliceKey), read(bobKey)
+	cs, ks := size(certA, certB), size(keyA, keyB)
+	dir := t.TempDir()
+	certPath, keyPath := filepath.Join(dir, "c.crt"), filepath.Join(dir, "c.key")
+	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.WriteFile(certPath, pad(certA, cs), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, pad(keyA, ks), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restamp(t, stamp, certPath, keyPath)
+	client, err := (Options{CAFile: pki.caFile(t), CertFile: certPath, KeyFile: keyPath}).HTTPClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := get(t, client, ts.URL); err != nil || got != "alice" {
+		t.Fatalf("before: %q %v", got, err)
+	}
+	if err := os.WriteFile(certPath, pad(certB, cs), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, pad(keyB, ks), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restamp(t, stamp, certPath, keyPath)
+	// A new connection (the first call may reuse the pooled one: the loader is asked only at a handshake).
+	client.CloseIdleConnections()
+	if got, err := get(t, client, ts.URL); err != nil || got != "bob" {
+		t.Fatalf("after replacing both files with same-size, same-time ones: %q %v, want bob", got, err)
+	}
+}
+
+// The cache key of a transport follows the content of the three files too, for the same reason.
+func TestClientTLSKeyFollowsTheContentNotJustSizeAndTime(t *testing.T) {
+	dir := t.TempDir()
+	ca := filepath.Join(dir, "ca.pem")
+	stamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	write := func(body string) {
+		if err := os.WriteFile(ca, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		restamp(t, stamp, ca)
+	}
+	id := ClientTLS{CAFile: ca}
+	write("authority-one....")
+	first := id.Key()
+	write("authority-two....")
+	if first == id.Key() {
+		t.Fatal("a rewritten authority file of the same size and time has the same key: a transport built on the old one would be kept")
+	}
+	write("authority-one....")
+	if first != id.Key() {
+		t.Fatal("the same content must give the same key")
+	}
+	if (ClientTLS{}).Key() != "" {
+		t.Fatal("the empty identity has the empty key")
+	}
+}
