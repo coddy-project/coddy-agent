@@ -6,6 +6,7 @@ import ReactDOM from "react-dom/client";
 import "./styles.css";
 import { App } from "./ui/App";
 import { ConfirmProvider } from "./ui/components/useConfirm";
+import { ImageMenuHost } from "./ui/components/ImageMenu";
 import { bootstrapUiThemeFromCookie } from "./ui/theme/uiTheme";
 import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
 import { initLocale } from "./ui/i18n/i18n";
@@ -36,6 +37,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <App />
           </EnvScope>
         </AuthGate>
+        <ImageMenuHost />
       </ConfirmProvider>
     </I18nProvider>
   </React.StrictMode>,

@@ -163,12 +163,47 @@ export function readText(
   offset: number,
   etag = "",
   signal?: AbortSignal,
+  maxLines = 300,
 ): Promise<TextPage> {
   return readJson(
     workspaceUrl(id, "text", path) +
-      `&offset=${offset}&max_lines=300&etag=${encodeURIComponent(etag)}`,
+      `&offset=${offset}&max_lines=${maxLines}&etag=${encodeURIComponent(etag)}`,
     { signal: signal ?? null },
   );
+}
+
+/** A file longer than a whole read may take. */
+export class TooLargeError extends Error {}
+
+/**
+ * Reads a text file whole, a thousand lines at a time, decoded by the node as
+ * the paged reads are (a legacy charset included), its lines joined by "\n".
+ * Every page is read against one version (`etag`): a file rewritten meanwhile
+ * answers 409 rather than splice two versions together. More than `maxChars`
+ * characters ends the read with a TooLargeError.
+ */
+export async function readWholeText(
+  id: string,
+  path: string,
+  etag: string,
+  maxChars: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  const lines: string[] = [];
+  let size = 0;
+  let offset = 0;
+  for (;;) {
+    const page = await readText(id, path, offset, etag, signal, 1000);
+    for (const line of page.lines) {
+      size += line.length + 1;
+      if (size > maxChars) throw new TooLargeError("file too large to preview");
+      lines.push(line);
+    }
+    // A page that brings nothing ends the read, whatever it says about more.
+    if (!page.has_more || page.next_offset <= offset) break;
+    offset = page.next_offset;
+  }
+  return lines.join("\n");
 }
 
 export async function mediaUrl(

@@ -705,7 +705,7 @@ Functional regression checklist:
   - **Clipboard paste** in **`textarea#composer`**: image items (`kind === "file"`, `image/*`) are attached and the default paste is cancelled; plain-text paste is untouched. Pasted images get deterministic names **`pasted-<n>.<ext>`** (browsers name every clipboard image `image.png`).
   - **Drag & drop** onto **`.composer-card`**: dropped files attach like a picker selection; while files are dragged over the card it shows the **`.composer-card--dragover`** drop-target affordance.
 - When the model is **not** multimodal, paste/drop rejection shows the transient inline notice **`.composer-attach-hint`** (`role="status"`, auto-clears after ~4s) instead of attaching.
-- An `image/*` attachment is a **preview card**, not a chip: the picture fills a **128×96** card (**`.composer-attachment-card`** on the composer side, **`.msg-user-file-card`** in the sent bubble, `object-fit: cover`, 12px radius) so the operator can see what was attached. Hovering highlights the card, the cursor is **`zoom-in`**, and a click opens the image in the shared viewer (**`ui/components/ImageLightbox.tsx`**: zoom levels, **+ / - / 0**, drag to pan, wheel and pinch to zoom, **Esc**, portal into `document.body`). Non-image files and locked edit-mode chips keep the icon chip with the file name.
+- An `image/*` attachment is a **preview card**, not a chip: the picture fills a **128×96** card (**`.composer-attachment-card`** on the composer side, **`.msg-user-file-card`** in the sent bubble, `object-fit: cover`, 12px radius) so the operator can see what was attached. Hovering highlights the card, the cursor is **`zoom-in`**, and a click opens the image in the shared viewer (**`ui/components/ImageLightbox.tsx`**: zoom levels, **+ / - / 0**, drag to pan, wheel and pinch to zoom, **Esc**, portal into `document.body`). Non-image files and locked edit-mode chips keep the icon chip with the file name. A right click on the picture, in the card or in the viewer, offers **Copy image** and **Save image** ([Workspace files](#workspace-files) describes the menu).
   - In the composer the card's **remove** control (**`composer.removeAttachment`**) sits in its top-right corner and fades in on hover; it stays in the tab order and is visible on **`:focus-visible`**, and removing never opens the viewer. The picture the viewer opens is the local object URL - the file itself, at full size.
   - The **sent user bubble** first renders an optimistic **`previewUrl`** blob in the card, then replaces it with the backend **`files[].preview_url`** after persistence; the blob URL is revoked at that point. What the card opens is **`files[].url`**, the original bytes from the session bundle; a message sent before that field existed opens its **`preview_url`** instead of losing the click. Reloading the dialog restores both through **`GET /coddy/sessions/{id}/messages`**.
 - **Attachment-only send** is valid while the selected model is multimodal: **Send** (button or **Enter**) unlocks with attachments even when the draft is empty and submits **`onSend("", files)`**; the server accepts an empty-string `input` alongside `inline_files`. If the user switches to a non-multimodal model, existing chips remain visible with **`.composer-attachment-chip--disabled`**, attachment-only Send becomes disabled, and a text send omits and retains those files.
@@ -1142,7 +1142,8 @@ The tree lists folders first, then files, and loads each folder as it opens. The
 filter above it searches the **whole workspace by name**, folders nobody opened
 included, with the same index as the composer's `@` picker; Escape clears it. The
 window's **⋮** menu shows hidden files (dotfiles, `node_modules`, `vendor`), wraps
-long lines, and for the file on show reloads it, copies its path or downloads it.
+long lines, switches an SVG or an HTML file between what it draws and its source
+(**Preview**), and for the file on show reloads it, copies its path or downloads it.
 Showing hidden files does not restrict access: an explicit workspace path may still
 open a hidden file. Symlinks and special files are listed with ↗ but are not opened.
 The tree switch at the left of the head folds the tree away, and the arrows at the
@@ -1152,20 +1153,70 @@ do not fit scroll sideways with the wheel or a swipe, and the tab on show is bro
 into view.
 
 An open file is its content and nothing over it: the tab names it, so the window shows
-no second name, no size or time and no switch of views. Text files show numbered,
-highlighted line windows, a line's number level with its text; a line an address or a
+no second name, no size or time and no switch of views over the file. Text files show
+numbered line windows, a line's number level with its text; a line an address or a
 link names is scrolled to, not marked, since for now a file is only read. A long file
 scrolls through without the old 512 KiB file limit: the next lines are read as you near
 the end of those on screen, so there are no pages to click. Markdown is text like any other: its source, line by line, so a
 picture or HTML in it is a line to read and nothing is loaded or run. Raster images
 have fit and actual size controls; images above 20 MiB remain downloadable.
 
+A right click on a picture (a long press on a touch screen) opens a menu with **Copy
+image** and **Save image**, here and everywhere else the web UI shows a picture: an
+attachment or a tool's picture in the chat, a diagram, the documentation and the
+full-screen viewer. **Copy image** puts the picture on the clipboard as a PNG, an SVG
+drawn at its own size; it is offered only where the browser lets a page write a
+picture there, which a page served over plain HTTP from another host does not.
+**Save image** downloads the picture, a file of the workspace under its own name.
+Escape closes the menu and leaves the viewer under it open. A picture from another
+site keeps the browser's own menu.
+
+![The Files window with the menu a right click opens on a picture: Copy image and Save image](../assets/workspace-files-window-image-menu-dark-1280.png)
+
+*The menu of a picture in the Files window*
+
+Source is coloured with the grammars of the chat's code blocks, in the active theme's
+colours, so a language the chat colours (Dart, Elixir, Haskell, Scala, PowerShell, a `Dockerfile`, a `Jenkinsfile`,
+`CMakeLists.txt` and the rest) is coloured in the window too; the grammar is chosen by
+the file's extension or name, never guessed. The lines on screen are coloured as one
+text, so a block comment or a string that spans lines keeps its colour on every line.
+A line longer than 4096 characters, a minified bundle for example, stays plain, and
+past 200,000 characters on screen the text is shown without colour.
+
+![The Files window showing an SVG drawing of the workspace as a picture](../assets/workspace-files-window-svg-dark-1280.png)
+
+*An SVG opens as a picture; **Preview** in the ⋮ menu switches it to its source*
+
+An **SVG** opens as a picture and an **HTML** file as its source; **Preview** in the
+⋮ menu switches the kind to its other view, and the browser remembers the choice for
+every file of that kind. The picture of an SVG is an image of its bytes, so a script
+in it never runs and nothing it links to is loaded. An HTML page is drawn in a
+sandboxed frame that runs no script, submits no form, opens no window and loads
+nothing from the network: its inline styles and embedded `data:` pictures show, while
+its scripts, stylesheet links and relative pictures do not, and a link out of the page
+does nothing. The page draws on a white canvas whatever the theme, as a browser tab
+would show it. A page longer than 2,000,000 characters is not drawn; its source still
+is.
+
+![The Files window drawing an HTML report of the workspace in a sandboxed frame](../assets/workspace-files-window-html-preview-dark-1280.png)
+
+*An HTML page with **Preview** on: its own styles apply, its scripts never run*
+
 Audio and video use native controls and byte ranges, including on an authenticated
 remote server and through a swarm relay, which carries the file's temporary signed
 address to the node without vouching for it ([Swarm](../operate/swarm.md)). The
-address expires after one hour; **Reload** renews it. PDF and unsupported binary
-formats can be downloaded safely. PDF remains a download because a sandboxed native
-viewer did not work across all three supported engines.
+address expires after one hour; **Reload** renews it.
+
+A **PDF** opens in the browser's own viewer, the one it uses for a PDF opened from a
+link (Chrome, Edge, Firefox and Safari on a computer have one). Its bytes come through
+the same authenticated reader as a picture, up to 50 MiB, so a remote server and a
+swarm relay work too. A browser without a viewer of its own, Chrome on Android for
+one, offers the PDF as a download, as does a PDF the window could not read. Other
+binary formats can be downloaded safely.
+
+![The Files window showing a one-page PDF in the browser's own viewer](../assets/workspace-files-window-pdf-dark-1280.png)
+
+*A PDF in the browser's own viewer*
 
 Returning to the page or finishing a tool call checks the open file and the open folders again. A file that
 did not change is not read again, so the text stays where it is and a sound or a
@@ -1929,6 +1980,14 @@ own client token, and drives a browser through the relay's mount only. It checks
   workspace through the relay, expands over the rail, closes
   on Escape, opens and closes on `Ctrl+Shift+F` with its tabs kept, and opens a
   mention of the conversation at its line;
+- **the kinds the window draws**: a comment over three lines is coloured on each; an
+  SVG opens as a picture read through the relay, its script never runs and the beacon
+  it names is never fetched, and **Preview** turned off shows its source; an HTML file
+  opens as its source, **Preview** draws it in a frame with `sandbox=""` that fills the
+  file's place, its own style applies, its script never runs and nothing it names is
+  fetched; a PDF opens in the browser's own viewer from a `blob:` address, in a frame
+  with no sandbox (the run takes the full Chromium for this, since the headless shell
+  has no PDF viewer, and checks the download notice instead where it has none);
 - **a sound plays through the relay** from its signed address alone, the address
   answers a range with no header, a forged one is refused by the node, and
   **Download** saves the file under its name;
