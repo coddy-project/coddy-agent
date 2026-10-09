@@ -264,7 +264,9 @@ Field reference: [`agent`](../reference/config.md#agent), [`providers`](../refer
 
 **Cause.** A limit ended the turn, not the model. `agent.max_turns` caps the ReAct steps of one turn at 165 by default. Set it to `0` only to explicitly disable the cap; a subagent takes its limit from its definition's `max_turns`, then `subagents.max_turns`. `max_tokens` on a model caps one answer.
 
-**Fix.** Send a message to let the agent continue, or raise the limit that the notice names:
+A step that stops at `max_tokens` with no text and no tool call does not end the turn at once. A thinking model can spend the whole cap on reasoning, or on a tool call whose arguments run out of room before they are complete. A replay of the same request would hit the same cap, so the agent leaves that empty step out of the next request, adds a short message at the end of the history, and asks again. The message says the previous step hit the output limit, asks the model to keep its reasoning short and to split a large file write or edit into several smaller tool calls. The agent asks up to twice in a row. Each retry takes one of the `agent.llm_retry_max` extra attempts and one step of `agent.max_turns`, a step that completes a tool call starts the count again, and `agent.llm_retry_max: 0` turns the recovery off. A subagent and a scheduled run, which nobody can tell to continue, recover the same way. The turn ends with the notice only when the model is cut off again after those retries, or when the cut-off step had already written text. After a retry the notice adds that the agent had already asked the model to keep its steps short.
+
+**Fix.** Send a message to let the agent continue, or raise the limit that the notice names. A notice that mentions the retries means the model's `max_tokens` is too small for how it works: a thinking model needs room for its reasoning and the answer.
 
 ```yaml
 agent:

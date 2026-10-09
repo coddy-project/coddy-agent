@@ -175,6 +175,23 @@ func (s *turnEndState) modelBreaksOffOnce(code int, partial string) error {
 	return nil
 }
 
+// modelCutOffWhileReasoning scripts a first step that spends its whole output
+// budget on thinking: reasoning streams in, then the server reports
+// finish_reason "length" with no answer text and no tool call. The next step
+// answers.
+func (s *turnEndState) modelCutOffWhileReasoning() error {
+	s.serve(func(n int, w io.Writer) {
+		if n == 1 {
+			sseChunk(w, map[string]any{"role": "assistant", "reasoning_content": "Let me work out how to lay the whole file out first"}, nil)
+			sseChunk(w, map[string]any{}, "length")
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+			return
+		}
+		sseAnswer(w, turnEndAnswer)
+	})
+	return nil
+}
+
 func (s *turnEndState) agentWithMaxTurns(maxTurns int) error {
 	s.cfg = &config.Config{
 		Paths:     config.Paths{Home: s.home, CWD: s.cwd},
@@ -317,6 +334,50 @@ func (s *turnEndState) nextRequestContinued() error {
 	return fmt.Errorf("the second request does not ask the model to continue after the partial answer: %s", calls[1])
 }
 
+// secondRequestAskedForShortReasoning: the request after the cut-off step ends
+// with the corrective message, after the user's prompt, and does not replay the
+// step that was cut off.
+func (s *turnEndState) secondRequestAskedForShortReasoning() error {
+	calls := s.stub.calls()
+	if len(calls) < 2 {
+		return fmt.Errorf("the model was called %d time(s), want a second request", len(calls))
+	}
+	var req struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content any    `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(calls[1], &req); err != nil {
+		return err
+	}
+	promptAt, nudgeAt := -1, -1
+	for i, m := range req.Messages {
+		text := strings.ToLower(fmt.Sprint(m.Content))
+		switch {
+		case m.Role == "user" && strings.Contains(text, "read the notes and sum them up"):
+			promptAt = i
+		case m.Role == "user" && strings.Contains(text, "output limit") && strings.Contains(text, "keep your reasoning short") && strings.Contains(text, "split"):
+			nudgeAt = i
+		case m.Role == "assistant" && strings.Contains(text, "lay the whole file out"):
+			return fmt.Errorf("the second request replays the step that was cut off: %s", calls[1])
+		}
+	}
+	if promptAt < 0 || nudgeAt < promptAt {
+		return fmt.Errorf("the second request does not carry the corrective message after the prompt (prompt at %d, message at %d): %s", promptAt, nudgeAt, calls[1])
+	}
+	return nil
+}
+
+func (s *turnEndState) noNoticeAboutOutputLimit() error {
+	for _, e := range s.state.GetUILog() {
+		if strings.Contains(e.Message, "max_tokens") || strings.Contains(e.Message, "output limit") {
+			return fmt.Errorf("the session's log carries %s: %q", e.Level, e.Message)
+		}
+	}
+	return nil
+}
+
 func (s *turnEndState) noticeProviderRecovered() error {
 	return s.noticeContaining(session.UILogLevelNotice, "server error 500")
 }
@@ -332,6 +393,7 @@ func initializeTurnEndScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^a model that reads a file (\d+) times before it answers$`, s.modelReadsBeforeAnswering)
 	sc.Step(`^a model whose first answer breaks off with "server error (\d+)" after "([^"]+)"$`, s.modelBreaksOffOnce)
+	sc.Step(`^a model whose first step is cut off at the output limit while it was still reasoning$`, s.modelCutOffWhileReasoning)
 	sc.Step(`^an agent with no step limit configured$`, s.agentWithoutLimit)
 	sc.Step(`^an agent whose agent\.max_turns is (\d+)$`, s.agentWithMaxTurns)
 	sc.Step(`^the user sends a prompt$`, s.userSendsPrompt)
@@ -342,6 +404,8 @@ func initializeTurnEndScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript keeps "([^"]+)" that the user already saw$`, s.transcriptKeepsPartial)
 	sc.Step(`^the next request carried that part and asked the model to continue$`, s.nextRequestContinued)
 	sc.Step(`^the session's log carries a notice that the provider failed and the turn went on$`, s.noticeProviderRecovered)
+	sc.Step(`^the second request asked the model to keep its reasoning short and split large writes$`, s.secondRequestAskedForShortReasoning)
+	sc.Step(`^the session's log carries no notice about the output limit$`, s.noNoticeAboutOutputLimit)
 }
 
 func TestTurnEndReasonsFeature(t *testing.T) {

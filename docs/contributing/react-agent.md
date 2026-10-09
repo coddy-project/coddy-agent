@@ -275,9 +275,9 @@ messages: [
    - **Empty-assistant re-issue.** A step that returns neither answer text nor
      a tool call is replayed once as the identical request; the empty assistant
      turn is removed from the LLM-facing message slice (the transcript keeps
-     it, with signed thinking preserved). A reply stopped at `max_tokens` with
-     only whitespace content is terminal — recovery is not attempted. Consumes
-     one slot.
+     it, with signed thinking preserved). A reply stopped at `max_tokens` is
+     not replayed: the same request would hit the same cap, and the
+     output-limit nudge below handles it. Consumes one slot.
    - **Wording nudges.** If the re-issue also comes back empty, up to
      two nudges (**`maxEmptyAssistantContinuations`**) are sent, each consuming
      one slot and a normal **`max_turns`** iteration. The plain replay uses
@@ -287,6 +287,22 @@ messages: [
      attempts, the pending recovery projection and its nudges are restored;
      signed reasoning stays in the transcript. After the budget or nudge limit is exhausted the turn
      ends with **`StopReasonRefused`**.
+   - **Output-limit nudge.** A step that stops at `max_tokens`
+     (`finish_reason: "length"`) with no tool call and no visible text - only
+     thinking, or nothing - is answered with **`outputLimitNudge`** instead of
+     ending the turn: the previous step hit the output limit before it
+     produced an answer or a tool call, keep the reasoning short, split a
+     large file write or edit into several smaller tool calls. The empty step
+     stays in the transcript and leaves the LLM-facing history, and the nudge
+     is appended at its end, so the cached prefix is untouched; an
+     auto-compaction between the attempts restores the pending nudges with the
+     other recovery projection. At most **`maxOutputLimitRecoveries`** (2) in
+     a row. Each consumes one slot and a normal **`max_turns`** iteration, so
+     `llm_retry_max: 0` turns it off, and tool progress or a follow-up resets
+     the count. A step that already wrote visible text ends the turn as before.
+     Subagents and scheduled runs take the same path. When the nudges are
+     spent the turn ends with **`StopReasonMaxTokens`** and a notice
+     (**`outputLimitNotice`**) that says the model was already asked.
    - **Provider recovery.** A call that failed because of the provider's lane
      (**`llm.IsTransientProviderError`**: 5xx, a cut or silent stream - an event
      cut inside its JSON included, a stream frame that is not JSON at all not -
@@ -307,8 +323,9 @@ messages: [
    At `logger.level: debug`, each LLM call completion logs
    `msg="llm call finished"` with `provider_attempts` (total inner adapter
    calls including transport-layer retries), `transport_retries`, `call_reason`
-   (one of `step`, `empty_reissue`, `empty_nudge`, `first_token_retry`,
-   `loop_guard`, `quota_reset_wait`, `stop_hook`, `queued_followup`), and
+   (one of `step`, `empty_reissue`, `empty_nudge`, `output_limit_nudge`,
+   `first_token_retry`, `provider_recovery`, `loop_guard`, `quota_reset_wait`,
+   `stop_hook`, `queued_followup`), and
    `retries_remaining` (budget slots left after this call).
 
    Two guards bound a streamed call that stops answering. The first-token guard

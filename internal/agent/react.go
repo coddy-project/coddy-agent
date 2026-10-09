@@ -128,6 +128,12 @@ type Agent struct {
 	// (Env.AttachImage, tool_images.go); they ride on that call's result.
 	callImages []llm.ImagePart
 
+	// outputLimitRecoveriesSpent is how many times the loop that just ended asked
+	// the model for a shorter step after the output limit cut one off with
+	// nothing usable; noteStopReason words the stop notice with it. The loop
+	// sets it on the stop it reports and starts it at zero.
+	outputLimitRecoveriesSpent int
+
 	// hooks is the operator hook runner of the current turn, built on first
 	// use from the definition files (hooks.go). hookStopReason carries a
 	// continue:false answered by a hook to the loop, which ends the turn.
@@ -520,8 +526,29 @@ func (a *Agent) noteStopReason(stop string, err error, maxTurns int) {
 			"Stopped after %d steps, the step limit set by agent.max_turns. The task may be unfinished: send a message to let the agent continue, or raise the limit.",
 			maxTurns))
 	case string(acp.StopReasonMaxTokens):
-		a.state.SetTurnStopNotice("The answer was cut off at the model's output limit (max_tokens). Send a message to let the agent continue, or raise the model's max_tokens.")
+		a.state.SetTurnStopNotice(a.outputLimitNotice())
 	}
+}
+
+// outputLimitNotice words the stop notice of a turn the model's output limit
+// ended. When the loop already asked the model for a shorter step
+// (maxOutputLimitRecoveries), the notice says so, so that nobody takes the
+// stop for a first cut-off. A subagent's transcript takes no message, so its
+// notice points at the limit or a new run instead of "send a message".
+func (a *Agent) outputLimitNotice() string {
+	var asked string
+	switch n := a.outputLimitRecoveriesSpent; {
+	case n == 1:
+		asked = ", after the agent had already asked the model once to keep its steps short"
+	case n > 1:
+		asked = fmt.Sprintf(", after the agent had already asked the model %d times to keep its steps short", n)
+	}
+	if a.subagent != nil {
+		return "The subagent's answer was cut off at the model's output limit (max_tokens)" + asked +
+			". Its report may be incomplete: raise the model's max_tokens or run it again."
+	}
+	return "The answer was cut off at the model's output limit (max_tokens)" + asked +
+		". Send a message to let the agent continue, or raise the model's max_tokens."
 }
 
 // maxProviderRecoveries bounds how many consecutive calls of one turn a
@@ -640,11 +667,27 @@ const maxFirstTokenRetries = 1
 // after an empty turn.
 const emptyAssistantContinuationNudge = "Your previous message had no answer text and no tool call. Continue now: call the appropriate tool to act, or write your reply to the user."
 
+// maxOutputLimitRecoveries bounds how many times in a row a step that stopped
+// at the model's output limit (finish_reason "length", stop reason
+// "max_tokens") with nothing the agent can act on - no tool call and no visible
+// text, only thinking or nothing at all - is answered with outputLimitNudge
+// instead of ending the turn. A model with a small max_tokens can spend a whole
+// step on reasoning, or on a tool call whose arguments were cut off and dropped
+// by the server, and a replay of that request would hit the same cap, so the
+// recovery goes straight to words. Like the other recoveries it takes a slot of
+// agent.llm_retry_max and a ReAct iteration, and tool progress starts it afresh.
+const maxOutputLimitRecoveries = 2
+
+// outputLimitNudge is injected into the LLM-facing message slice only (never
+// persisted to the transcript) after a step the output limit cut off before it
+// produced anything usable.
+const outputLimitNudge = "Your previous step hit the output limit (max_tokens) before it produced an answer or a tool call, so nothing from it was kept. Keep your reasoning short and act now: call the appropriate tool, or write your reply to the user. If the task needs a large file write or edit, split it into several smaller tool calls."
+
 // emptyRecoveryProjection removes unanswered assistant messages only from the
 // request, retaining their signed reasoning in session history. A rebuild after
 // compaction restores that entire tail, so remove all of it and restore the
 // local-only nudges the recovery has already earned.
-func emptyRecoveryProjection(messages []llm.Message, nudges int) []llm.Message {
+func emptyRecoveryProjection(messages []llm.Message, nudges ...string) []llm.Message {
 	for len(messages) > 0 {
 		last := messages[len(messages)-1]
 		if last.Role != llm.RoleAssistant || strings.TrimSpace(last.Content) != "" || len(last.ToolCalls) != 0 {
@@ -652,10 +695,26 @@ func emptyRecoveryProjection(messages []llm.Message, nudges int) []llm.Message {
 		}
 		messages = messages[:len(messages)-1]
 	}
-	for i := 0; i < nudges; i++ {
-		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: emptyAssistantContinuationNudge})
+	for _, nudge := range nudges {
+		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
 	}
 	return messages
+}
+
+// recoveryNudges lists the local-only nudges a turn has earned so far, for a
+// history rebuilt after compaction: one output-limit message per output-limit
+// recovery, then one wording nudge per empty-answer continuation. They come back
+// grouped by kind, not in the order they were first sent; the rebuilt prefix is
+// new to the provider's cache anyway.
+func recoveryNudges(outputLimit, empty int) []string {
+	nudges := make([]string, 0, outputLimit+empty)
+	for i := 0; i < outputLimit; i++ {
+		nudges = append(nudges, outputLimitNudge)
+	}
+	for i := 0; i < empty; i++ {
+		nudges = append(nudges, emptyAssistantContinuationNudge)
+	}
+	return nudges
 }
 
 // Loop-guard nudges are injected into the LLM-facing message slice only (never
@@ -733,6 +792,10 @@ func (a *Agent) runReActLoop(
 	// reset alongside emptyContinuations once the model makes progress.
 	var emptyReissues int
 	var firstTokenRetries int
+	// Steps in a row the model's output limit cut off before they produced
+	// anything usable, each answered with outputLimitNudge. Reset with the rest.
+	var outputLimitRecoveries int
+	a.outputLimitRecoveriesSpent = 0
 	// Consecutive calls the provider's lane failed that the turn ran again
 	// after a pause (issue #246); reset once a call succeeds.
 	var providerRecoveries int
@@ -742,7 +805,7 @@ func (a *Agent) runReActLoop(
 	// not. Explicit continuations keep their own configured bounds.
 	resetRetries := func(reason string) {
 		retryAllowance = nil
-		emptyContinuations, emptyReissues, firstTokenRetries = 0, 0, 0
+		emptyContinuations, emptyReissues, firstTokenRetries, outputLimitRecoveries = 0, 0, 0, 0
 		nextCallReason = reason
 	}
 	// Tracks whether any visible answer text was streamed to the user during this
@@ -846,8 +909,8 @@ func (a *Agent) runReActLoop(
 		if (turn > 0 || switched) && a.maybeAutoCompact(ctx) {
 			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 			messages = a.buildMessages(sys.Content)
-			if emptyReissues > 0 || emptyContinuations > 0 {
-				messages = emptyRecoveryProjection(messages, emptyContinuations)
+			if emptyReissues > 0 || emptyContinuations > 0 || outputLimitRecoveries > 0 {
+				messages = emptyRecoveryProjection(messages, recoveryNudges(outputLimitRecoveries, emptyContinuations)...)
 			}
 			turnCtx = a.buildTurnContext(sys)
 			// The rebuilt estimate above was taken without the block; the call
@@ -1412,6 +1475,28 @@ func (a *Agent) runReActLoop(
 		// re-prompt the model a bounded number of times before giving up.
 		if len(response.ToolCalls) == 0 {
 			if response.StopReason == "max_tokens" {
+				// A step the output limit cut off before it produced anything the
+				// agent can act on - no tool call, no visible text, only thinking
+				// or nothing - is not an answer to end the turn on, and a replay
+				// of the same request would hit the same cap. Ask the model, in
+				// words, to be brief and to split large writes, a bounded number
+				// of times; a step that did produce visible text ends the turn as
+				// before. The empty step stays in the transcript and leaves the
+				// LLM-facing history, like the empty-answer recovery below.
+				if strings.TrimSpace(response.Content) == "" && outputLimitRecoveries < maxOutputLimitRecoveries &&
+					ctx.Err() == nil && !a.state.IsUserCancelledTurn() && retryAllowance.TakeRetry() {
+					if turn+1 >= maxTurns {
+						return string(acp.StopReasonMaxTurns), nil
+					}
+					outputLimitRecoveries++
+					messages = emptyRecoveryProjection(messages, outputLimitNudge)
+					nextCallReason = "output_limit_nudge"
+					a.log.Warn("model hit its output limit with nothing to act on; asking for a shorter step",
+						"recovery", nextCallReason, "attempt", outputLimitRecoveries, "output_tokens", response.OutputTokens,
+						"retries_remaining", retryAllowance.Snapshot().Remaining)
+					continue
+				}
+				a.outputLimitRecoveriesSpent = outputLimitRecoveries
 				return string(acp.StopReasonMaxTokens), nil
 			}
 			if ctx.Err() != nil || a.state.IsUserCancelledTurn() {
@@ -1428,7 +1513,7 @@ func (a *Agent) runReActLoop(
 					return string(acp.StopReasonMaxTurns), nil
 				}
 				emptyReissues++
-				messages = emptyRecoveryProjection(messages, 0)
+				messages = emptyRecoveryProjection(messages)
 				nextCallReason = "empty_reissue"
 				a.log.Warn("model answered with no text and no tool call; re-issuing the same request",
 					"recovery", nextCallReason, "retries_remaining", retryAllowance.Snapshot().Remaining)
@@ -1439,7 +1524,7 @@ func (a *Agent) runReActLoop(
 					return string(acp.StopReasonMaxTurns), nil
 				}
 				emptyContinuations++
-				messages = emptyRecoveryProjection(messages, 1)
+				messages = emptyRecoveryProjection(messages, emptyAssistantContinuationNudge)
 				nextCallReason = "empty_nudge"
 				a.log.Warn("model answered with no text and no tool call; nudging for an answer",
 					"recovery", nextCallReason, "retries_remaining", retryAllowance.Snapshot().Remaining)

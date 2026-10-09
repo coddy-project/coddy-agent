@@ -29,6 +29,12 @@ func TestPromptCacheRetryBudgetKeepsThePrefix(t *testing.T) {
 		{"recovery then transport", []string{"reasoning", "error", "answer"}, []int{0, 0, 0}},
 		{"nudges append only", []string{"reasoning", "reasoning", "reasoning", "answer"}, []int{0, 0, 1, 2}},
 		{"tool progress", []string{"reasoning", "tool", "reasoning", "answer"}, []int{0, 0, 2, 2}},
+		// A step cut off at the output limit is asked again in words, never by
+		// a replay: the nudge is appended at the end, the cut step is left out.
+		{"output limit", []string{"max_tokens", "answer"}, []int{0, 1}},
+		{"output limit twice", []string{"max_tokens", "max_tokens", "answer"}, []int{0, 1, 2}},
+		{"output limit then empty answer", []string{"max_tokens", "reasoning", "reasoning", "answer"}, []int{0, 1, 1, 2}},
+		{"output limit then tool progress", []string{"max_tokens", "tool", "max_tokens", "answer"}, []int{0, 1, 3, 4}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newRetryBudgetFixture(t, nil, 10, tc.replies...)
