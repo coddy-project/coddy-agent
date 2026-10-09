@@ -4710,75 +4710,77 @@ a.rail-brand {
   line-height: 1.5;
 }
 
-/* Token colors inherit the active appearance without re-highlighting code. */
-.md-code .hljs,
-.md-code .hljs-subst {
+/* Token colors inherit the active appearance without re-highlighting code.
+   Every view that colours code takes them: the chat's code blocks, an open
+   file of the Files window and a diff of the edits window. */
+:is(.md-code, .files-code, .dv-code) .hljs,
+:is(.md-code, .files-code, .dv-code) .hljs-subst {
   color: var(--text);
 }
 
-.md-code .hljs-comment,
-.md-code .hljs-quote {
+:is(.md-code, .files-code, .dv-code) .hljs-comment,
+:is(.md-code, .files-code, .dv-code) .hljs-quote {
   color: var(--syntax-comment);
 }
 
-.md-code .hljs-keyword,
-.md-code .hljs-name,
-.md-code .hljs-selector-tag,
-.md-code .hljs-doctag {
+:is(.md-code, .files-code, .dv-code) .hljs-keyword,
+:is(.md-code, .files-code, .dv-code) .hljs-name,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-tag,
+:is(.md-code, .files-code, .dv-code) .hljs-doctag {
   color: var(--syntax-keyword);
 }
 
-.md-code .hljs-string,
-.md-code .hljs-regexp,
-.md-code .hljs-addition {
+:is(.md-code, .files-code, .dv-code) .hljs-string,
+:is(.md-code, .files-code, .dv-code) .hljs-regexp,
+:is(.md-code, .files-code, .dv-code) .hljs-addition {
   color: var(--syntax-string);
 }
 
-.md-code .hljs-number,
-.md-code .hljs-literal,
-.md-code .hljs-symbol,
-.md-code .hljs-bullet {
+:is(.md-code, .files-code, .dv-code) .hljs-number,
+:is(.md-code, .files-code, .dv-code) .hljs-literal,
+:is(.md-code, .files-code, .dv-code) .hljs-symbol,
+:is(.md-code, .files-code, .dv-code) .hljs-bullet {
   color: var(--syntax-number);
 }
 
-.md-code .hljs-title,
-.md-code .hljs-section {
+:is(.md-code, .files-code, .dv-code) .hljs-title,
+:is(.md-code, .files-code, .dv-code) .hljs-section {
   color: var(--syntax-title);
 }
 
-.md-code .hljs-attr,
-.md-code .hljs-property,
-.md-code .hljs-attribute,
-.md-code .hljs-selector-id,
-.md-code .hljs-selector-class,
-.md-code .hljs-selector-attr,
-.md-code .hljs-selector-pseudo {
+:is(.md-code, .files-code, .dv-code) .hljs-attr,
+:is(.md-code, .files-code, .dv-code) .hljs-property,
+:is(.md-code, .files-code, .dv-code) .hljs-attribute,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-id,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-class,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-attr,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-pseudo {
   color: var(--syntax-attribute);
 }
 
-.md-code .hljs-type,
-.md-code .hljs-built_in,
-.md-code .hljs-builtin-name {
+:is(.md-code, .files-code, .dv-code) .hljs-type,
+:is(.md-code, .files-code, .dv-code) .hljs-built_in,
+:is(.md-code, .files-code, .dv-code) .hljs-builtin-name {
   color: var(--syntax-type);
 }
 
-.md-code .hljs-meta,
-.md-code .hljs-operator,
-.md-code .hljs-variable,
-.md-code .hljs-template-tag,
-.md-code .hljs-template-variable {
+:is(.md-code, .files-code, .dv-code) .hljs-meta,
+:is(.md-code, .files-code, .dv-code) .hljs-operator,
+:is(.md-code, .files-code, .dv-code) .hljs-variable,
+:is(.md-code, .files-code, .dv-code) .hljs-template-tag,
+:is(.md-code, .files-code, .dv-code) .hljs-template-variable {
   color: var(--syntax-meta);
 }
 
-.md-code .hljs-deletion {
+:is(.md-code, .files-code, .dv-code) .hljs-deletion {
   color: var(--syntax-deletion);
 }
 
-.md-code .hljs-emphasis {
+:is(.md-code, .files-code, .dv-code) .hljs-emphasis {
   font-style: italic;
 }
 
-.md-code .hljs-strong {
+:is(.md-code, .files-code, .dv-code) .hljs-strong {
   font-weight: 700;
 }
 
@@ -17221,15 +17223,20 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   padding: 0;
 }
 
+/* A top-level row's glyph stands where the filter's magnifier does and its
+   name starts where the filter's text does (files/treeGeometry.ts): 10px of
+   the tree plus 10px of the row is the magnifier's 20px, and 16px of glyph
+   plus a 7px gap brings the name to the text's 43px. Nested rows indent by an
+   inline padding from the same module. */
 .files-tree-row,
 .files-tree-more {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   width: 100%;
   min-height: 28px;
-  padding: 3px 8px;
+  padding: 3px 8px 3px 10px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -17560,6 +17567,54 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   display: block;
   max-width: calc(100% - 28px);
   margin: 14px;
+}
+
+/* A PDF in the browser's own viewer and an HTML page in its sandbox fill the
+   body: the frame scrolls its document, the body around it does not. */
+.files-file-body--frame {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.files-file-body--frame > .files-pdf,
+.files-file-body--frame > .files-html {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+}
+
+/* The menu a right click opens on a picture of the app (ImageMenu.tsx): over
+   every panel, the full-screen viewer (400) included, at the pointer; under
+   the settings field tips (1000), which stay the top layer. */
+.mode-menu.mode-menu--portal.image-menu {
+  z-index: 900;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+}
+
+.image-menu-notice {
+  position: fixed;
+  z-index: 900;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+  transform: translate(8px, 8px);
+}
+
+/* A page draws on the canvas a browser tab gives it, whatever the theme. */
+.files-html {
+  background: #fff;
+  color-scheme: light;
 }
 
 .files-image > button,

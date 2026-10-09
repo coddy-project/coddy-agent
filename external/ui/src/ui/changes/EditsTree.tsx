@@ -7,6 +7,7 @@ import { buildFileTree } from "./fileTree";
 import type { FileTreeNode } from "./fileTree";
 import { statusKey } from "./sessionChangesText";
 import type { ChangeStatus, ChangedFile } from "./types";
+import { rowInset } from "../files/treeGeometry";
 
 /** How much room a row brought into view keeps from the tree's edge. */
 const ROW_MARGIN_PX = 4;
@@ -74,7 +75,7 @@ export function EditsTree(props: {
     });
 
   const row = (node: FileTreeNode, depth: number): React.ReactNode => {
-    const indent = { paddingLeft: 8 + depth * 14 };
+    const indent = { paddingLeft: rowInset(depth) };
     if (node.kind === "file") {
       const status = statuses.get(node.path) || "modified";
       const active = node.path === props.active;

@@ -45,6 +45,8 @@ let mediaTokens = 0;
 let types: Record<string, string> = {};
 /** Status the node answers a text read of a path with, instead of the text. */
 let textStatus: Record<string, number> = {};
+/** Status the node answers a read of a path's bytes with, instead of them. */
+let rawStatus: Record<string, number> = {};
 /** Holds the tree reads of these folders until released. */
 let holdTree: {
   dirs: Set<string>;
@@ -70,6 +72,7 @@ beforeEach(() => {
   mediaTokens = 0;
   types = {};
   textStatus = {};
+  rawStatus = {};
   holdTree.dirs = new Set();
   holdTree.waiting = [];
   tree[""] = tree[""]!.filter((e) => e.path_rel !== "new.txt");
@@ -131,6 +134,18 @@ beforeEach(() => {
                 : "text/plain; charset=utf-8",
           "Content-Length": String(contents[path]?.length ?? 0),
           "Last-Modified": "Mon, 05 Oct 2026 12:00:00 GMT",
+        },
+      });
+    }
+    if (url.includes("/workspace/raw")) {
+      // The bytes of a file, as the authenticated reader gets them.
+      const path = query(url, "path_rel");
+      if (!(path in contents)) return new Response("{}", { status: 404 });
+      if (rawStatus[path])
+        return new Response("{}", { status: rawStatus[path] });
+      return new Response(contents[path], {
+        headers: {
+          "Content-Type": types[path] || "application/octet-stream",
         },
       });
     }
@@ -221,7 +236,48 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  pdfViewer(false);
+  document.cookie = "coddy_files_preview=; Path=/; Max-Age=0";
 });
+
+/** Whether the browser the test plays has a PDF viewer of its own. */
+function pdfViewer(enabled: boolean) {
+  Object.defineProperty(navigator, "pdfViewerEnabled", {
+    value: enabled,
+    configurable: true,
+  });
+}
+
+/** Object URLs the window makes, each with the blob it was made of. */
+function blobUrls(): Blob[] {
+  const made: Blob[] = [];
+  vi.stubGlobal(
+    "URL",
+    Object.assign(URL, {
+      createObjectURL: (blob: Blob) => {
+        made.push(blob);
+        return `blob:test/${made.length}`;
+      },
+      revokeObjectURL: () => {},
+    }),
+  );
+  return made;
+}
+
+/** Whether the bytes of a path were read through the API reader. */
+function rawRead(path: string): boolean {
+  return fetcher.mock.calls.some(
+    ([u, init]) =>
+      String(u).includes("/workspace/raw") &&
+      query(String(u), "path_rel") === path &&
+      (init as RequestInit | undefined)?.method !== "HEAD",
+  );
+}
+
+async function previewItem() {
+  fireEvent.click(screen.getByTestId("files-more"));
+  return screen.getByRole("menuitemcheckbox", { name: t("files.preview") });
+}
 
 /** The text of one numbered line, once it is on screen: highlighting splits it into spans. */
 async function line(no: number, text: string) {
@@ -806,4 +862,178 @@ test("the open files survive the window learning its workspace folder", async ()
       .getAllByRole("tab")
       .map((tab) => tab.textContent),
   ).toEqual(["notes.txt"]);
+});
+
+// An open file is coloured as one text: a comment that spans lines is a
+// comment on every one of them.
+test("a block comment is coloured on every line of an open file", async () => {
+  contents["src/main.go"] = "/* one\n   two */\npackage main";
+  render(view({ initialPath: "src/main.go" }));
+  await line(2, "   two */");
+  expect(
+    document.querySelector('[data-file-line="2"] code .hljs-comment'),
+  ).not.toBeNull();
+  expect(
+    document.querySelector('[data-file-line="3"] code .hljs-keyword'),
+  ).not.toBeNull();
+});
+
+test("a file in a language the chat's code blocks know is coloured in the window too", async () => {
+  contents["Dockerfile"] = "FROM alpine:3.20\nRUN echo hi";
+  render(view({ initialPath: "Dockerfile" }));
+  await line(1, "FROM alpine:3.20");
+  expect(
+    document.querySelector('[data-file-line="1"] code .hljs-keyword'),
+  ).not.toBeNull();
+});
+
+// The browser's own viewer shows a PDF where it has one; its bytes come
+// through the API reader, so a remote environment and a relay work too.
+test("a PDF opens in the browser's own viewer where the browser has one", async () => {
+  pdfViewer(true);
+  const blobs = blobUrls();
+  types["docs/guide.pdf"] = "application/pdf";
+  contents["docs/guide.pdf"] = "%PDF-1.7 guide";
+  render(view({ initialPath: "docs/guide.pdf" }));
+  await waitFor(() =>
+    expect(document.querySelector("iframe.files-pdf")).not.toBeNull(),
+  );
+  const frame = document.querySelector("iframe.files-pdf")!;
+  expect(frame.getAttribute("src")).toBe("blob:test/1");
+  expect(frame.hasAttribute("sandbox")).toBe(false);
+  expect(blobs[0]?.type).toBe("application/pdf");
+  expect(rawRead("docs/guide.pdf")).toBe(true);
+  expect(screen.queryByText(t("files.pdfDownload"))).toBeNull();
+});
+
+test("a PDF is offered as a download where the browser has no viewer of its own", async () => {
+  pdfViewer(false);
+  types["docs/guide.pdf"] = "application/pdf";
+  contents["docs/guide.pdf"] = "%PDF-1.7 guide";
+  render(view({ initialPath: "docs/guide.pdf" }));
+  await screen.findByText(t("files.pdfDownload"));
+  expect(document.querySelector("iframe")).toBeNull();
+  expect(rawRead("docs/guide.pdf")).toBe(false);
+});
+
+// An SVG is a picture: an <img> of its bytes, where nothing in it runs and
+// nothing it names is loaded. Its source is a choice of the window's menu.
+test("an SVG opens as a picture, and Preview in the menu shows its source", async () => {
+  const blobs = blobUrls();
+  const source =
+    '<svg xmlns="http://www.w3.org/2000/svg"><script>window.stolen = true</script><circle id="from-file" r="4"/></svg>';
+  contents["art/logo.svg"] = source;
+  render(view({ initialPath: "art/logo.svg" }));
+  // A data: address, never a blob: one: a blob carries the page's origin,
+  // and an SVG opened from it in a tab of its own would run there.
+  await waitFor(() =>
+    expect(
+      document.querySelector(".files-image img")?.getAttribute("src"),
+    ).toMatch(/^data:image\/svg\+xml;base64,/),
+  );
+  expect(blobs[0]?.type).toBe("image/svg+xml");
+  expect(
+    document.querySelector(".files-image img")?.getAttribute("draggable"),
+  ).toBe("false");
+  expect(document.querySelector("#from-file, script")).toBeNull();
+  const item = await previewItem();
+  expect(item.getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(item);
+  await line(1, source);
+  expect(document.querySelector(".files-image")).toBeNull();
+  expect((window as { stolen?: boolean }).stolen).toBeUndefined();
+});
+
+test("the choice of Preview is remembered for every file of its kind", async () => {
+  blobUrls();
+  contents["art/logo.svg"] = "<svg/>";
+  contents["art/icon.svg"] = "<svg><rect/></svg>";
+  const first = render(view({ initialPath: "art/logo.svg" }));
+  fireEvent.click(await previewItem());
+  await line(1, "<svg/>");
+  first.unmount();
+  forgetOpenFiles();
+  render(view({ initialPath: "art/icon.svg" }));
+  await line(1, "<svg><rect/></svg>");
+  expect(document.querySelector(".files-image")).toBeNull();
+});
+
+test("the Preview choice is offered only for a file that has one", async () => {
+  render(view({ initialPath: "notes.txt" }));
+  await screen.findByText("first note");
+  fireEvent.click(screen.getByTestId("files-more"));
+  expect(
+    screen.queryByRole("menuitemcheckbox", { name: t("files.preview") }),
+  ).toBeNull();
+});
+
+// An HTML file is source first. Its page shows in a frame that runs nothing,
+// has no origin of its own and loads nothing: the sandbox and the policy the
+// preview puts at the top of the document.
+test("an HTML file opens as its source, and Preview shows it in a sandbox where nothing runs", async () => {
+  contents["site/index.html"] =
+    "<h1>Hello</h1>\n<script>window.stolen = true</script>";
+  render(view({ initialPath: "site/index.html" }));
+  await line(1, "<h1>Hello</h1>");
+  const item = await previewItem();
+  expect(item.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(item);
+  await waitFor(() =>
+    expect(document.querySelector("iframe.files-html")).not.toBeNull(),
+  );
+  const frame = document.querySelector("iframe.files-html")!;
+  expect(frame.getAttribute("sandbox")).toBe("");
+  const page = frame.getAttribute("srcdoc") || "";
+  expect(page).toContain("default-src 'none'");
+  expect(page).toContain("<h1>Hello</h1>");
+  expect(page).not.toContain("<script");
+  expect(document.querySelector("[data-file-line]")).toBeNull();
+  expect((window as { stolen?: boolean }).stolen).toBeUndefined();
+});
+
+// A picture of the workspace keeps its file's name when it is saved from the
+// picture's menu (components/ImageMenu.tsx).
+test("a picture of the workspace is named after its file for saving", async () => {
+  blobUrls();
+  types["assets/logo.png"] = "image/png";
+  contents["assets/logo.png"] = "\u0089PNG picture bytes";
+  render(view({ initialPath: "assets/logo.png" }));
+  await waitFor(() =>
+    expect(
+      document
+        .querySelector(".files-image img")
+        ?.getAttribute("data-image-name"),
+    ).toBe("logo.png"),
+  );
+});
+
+// Reload reads a picture and a PDF again even when the file did not change,
+// so a read that failed on its way (a relay restarting) is not stuck.
+test("Reload reads a picture and a PDF again after a read that failed", async () => {
+  pdfViewer(true);
+  blobUrls();
+  types["assets/logo.png"] = "image/png";
+  contents["assets/logo.png"] = "\u0089PNG picture bytes";
+  rawStatus["assets/logo.png"] = 502;
+  const picture = render(view({ initialPath: "assets/logo.png" }));
+  await screen.findByText(t("files.imageUnavailable"));
+  delete rawStatus["assets/logo.png"];
+  fireEvent.click(screen.getByTestId("files-more"));
+  fireEvent.click(screen.getByRole("menuitem", { name: t("files.reload") }));
+  await waitFor(() =>
+    expect(document.querySelector(".files-image img")).not.toBeNull(),
+  );
+  picture.unmount();
+  forgetOpenFiles();
+  types["docs/guide.pdf"] = "application/pdf";
+  contents["docs/guide.pdf"] = "%PDF-1.7 guide";
+  rawStatus["docs/guide.pdf"] = 502;
+  render(view({ initialPath: "docs/guide.pdf" }));
+  await screen.findByText(t("files.pdfDownload"));
+  delete rawStatus["docs/guide.pdf"];
+  fireEvent.click(screen.getByTestId("files-more"));
+  fireEvent.click(screen.getByRole("menuitem", { name: t("files.reload") }));
+  await waitFor(() =>
+    expect(document.querySelector("iframe.files-pdf")).not.toBeNull(),
+  );
 });

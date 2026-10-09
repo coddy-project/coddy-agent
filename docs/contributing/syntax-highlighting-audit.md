@@ -88,7 +88,7 @@ Responses are replayed through the real React Markdown renderer in offline tests
 
 - `external/ui/src/ui/markdown/neuraldeepLanguageFixtures.json`: the 63 original responses, including language labels and expected fallback behavior.
 - `external/ui/src/ui/markdown/syntaxLanguages.test.tsx`: offline replay plus common alternative-label checks. No account or network is needed.
-- `external/ui/src/ui/markdown/syntaxLanguages.ts`: one explicit grammar registry and alias map. Automatic detection remains disabled.
+- `external/ui/src/ui/markdown/syntaxLanguages.ts`: one explicit grammar registry and alias map, shared by the chat's code blocks and the Files and edits windows. Automatic detection remains disabled.
 - `external/ui/src/ui/markdown/grammars/README.md`: upstream revisions and licenses for the six vendored grammars.
 
 The production JS bundle increased from approximately 308.64 kB to 419.16 kB gzip (+110.52 kB, including the distributed license notices) with this broad grammar set. Grammars are bundled locally; rendering does not fetch grammar code from a CDN. The user requested no screenshot per language, so the audit is recorded as tests and this table instead.

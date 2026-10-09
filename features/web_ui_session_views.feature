@@ -6,8 +6,8 @@ Feature: The views of a chat
   the dot and the running / total count. The tasks open in the dock beside the
   chat, without a tab strip; the files open in a window over the chat, the way
   the documentation does, with the workspace tree on the left and the files
-  opened from it as tabs on the right, each shown as its source with nothing
-  over it. Over the composer of a running chat a plate joined to the top of
+  opened from it as tabs on the right, each with nothing over it (what the
+  window draws for each kind of file is web_ui_files_formats.feature). Over the composer of a running chat a plate joined to the top of
   the composer card names the repository, the branch - its tooltip naming the
   worktree in a linked one - and, at its right edge and only while git reports
   uncommitted changes in the chat's folder, git's count of them in a light
@@ -48,6 +48,7 @@ Feature: The views of a chat
   Scenario: The files open in a window over the chat
     Then the files open in a window over the chat, not in the dock
     And the window shows the workspace tree beside an empty preview
+    And the names in the tree start where the filter's text does
     And a file picked in the tree opens in a tab, and a second one beside it
     And a file opens straight on its source, with no head over it
     And the filter searches the whole workspace

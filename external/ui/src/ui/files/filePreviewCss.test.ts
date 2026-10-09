@@ -29,3 +29,33 @@ test("a line's number and its text share one font and one line height", () => {
 test("no line of an open file is painted as the one asked for", () => {
   expect(css).not.toMatch(/\.files-code\s*>\s*\.is-active/);
 });
+
+// The token colours of the theme reach every view that colours code: the
+// chat's code blocks, an open file and a diff. They were once scoped to the
+// chat alone, and the Files and edits windows drew every token in the text
+// colour although the spans carried their classes.
+test.each([
+  "comment",
+  "keyword",
+  "string",
+  "number",
+  "title",
+  "attribute",
+  "type",
+  "meta",
+  "deletion",
+])(
+  "the %s colour of the theme reaches the Files window and the diffs",
+  (role) => {
+    const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter((m) =>
+      m[2]!.includes(`color: var(--syntax-${role})`),
+    );
+    expect(rules.length).toBeGreaterThan(0);
+    for (const scope of [".md-code", ".files-code", ".dv-code"]) {
+      expect(
+        rules.some((m) => m[1]!.includes(scope)),
+        `${scope} takes --syntax-${role}`,
+      ).toBe(true);
+    }
+  },
+);

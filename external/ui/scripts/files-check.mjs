@@ -109,7 +109,33 @@ function toneWav() {
   return Buffer.concat([head, data]);
 }
 
-/** A neutral workspace: a README, notes, sources a few folders down, a picture, a sound. */
+/**
+ * A one-page PDF a viewer can draw: its objects, then a cross-reference table
+ * of their byte offsets (ASCII, so a character is a byte).
+ */
+function tinyPdf(text) {
+  const stream = `BT /F1 28 Tf 40 110 Td (${text}) Tj ET`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let out = "%PDF-1.4\n";
+  const offsets = objects.map((body, i) => {
+    const at = out.length;
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+    return at;
+  });
+  const xref = out.length;
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const at of offsets) out += `${String(at).padStart(10, "0")} 00000 n \n`;
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return out;
+}
+
+/** A neutral workspace: a README, notes, sources a few folders down, a picture, a sound, a PDF, an SVG and a page. */
 function seedWorkspace(dir) {
   const write = (rel, body) => {
     const file = path.join(dir, rel);
@@ -156,9 +182,43 @@ function seedWorkspace(dir) {
       (_, i) => `entry ${i + 1}: a change worth a line`,
     ).join("\n") + "\n",
   );
+  write("docs/brief.pdf", tinyPdf("Release brief"));
+  // A picture and a page that try to run a script and fetch a beacon: the
+  // window shows them and neither happens.
   write(
-    "docs/brief.pdf",
-    "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n",
+    "art/diagram.svg",
+    [
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="240" height="120" viewBox="0 0 240 120">',
+      '  <rect x="8" y="8" width="224" height="104" rx="14" fill="#2f6feb"/>',
+      '  <circle cx="60" cy="60" r="28" fill="#ffd33d"/>',
+      '  <text x="104" y="68" font-family="sans-serif" font-size="22" fill="#fff">Coddy</text>',
+      `  <image href="${BEACON}/svg.png" width="1" height="1" opacity="0"/>`,
+      "  <script>document.title = 'svg script ran'</script>",
+      "</svg>",
+      "",
+    ].join("\n"),
+  );
+  write(
+    "site/report.html",
+    [
+      "<!DOCTYPE html>",
+      "<html><head><title>Release report</title>",
+      "<style>body { font-family: sans-serif; margin: 24px; } h1 { color: #b04a00; } td, th { border: 1px solid #ccc; padding: 4px 10px; }</style>",
+      `<link rel="stylesheet" href="${BEACON}/page.css">`,
+      "</head><body>",
+      "<h1>Release report</h1>",
+      "<p>Three changes are ready to ship.</p>",
+      "<table><tr><th>Change</th><th>State</th></tr><tr><td>Files window</td><td>ready</td></tr><tr><td>Edits window</td><td>ready</td></tr></table>",
+      `<img src="${BEACON}/page.png" alt="">`,
+      `<p><a href="${BEACON}/out">Read more</a></p>`,
+      "<script>document.body.dataset.ran = 'yes'</script>",
+      "</body></html>",
+      "",
+    ].join("\n"),
+  );
+  write(
+    "src/doc.go",
+    "/*\nPackage demo greets and answers;\nthis comment spans three lines.\n*/\npackage main\n",
   );
   write(".hidden/secret.txt", "not listed until hidden files are shown\n");
   // A repository on a feature branch: the Edits view is what git reports.
@@ -360,6 +420,9 @@ const MODEL_PORT = PORT_BASE;
 const NODE_PORT = PORT_BASE + 1;
 const RELAY_PORT = PORT_BASE + 2;
 const SHOTS_NODE_PORT = PORT_BASE + 3;
+// Nothing listens here: a workspace page or picture that fetched from it would
+// show up in the browser's requests, which the formats scenario counts.
+const BEACON = `http://127.0.0.1:${PORT_BASE + 9}/beacon`;
 const NODE = `http://127.0.0.1:${NODE_PORT}`;
 const RELAY = `http://127.0.0.1:${RELAY_PORT}`;
 const SHOTS_NODE = `http://127.0.0.1:${SHOTS_NODE_PORT}`;
@@ -1085,6 +1148,26 @@ async function scenarioViews() {
     .getByTestId("dv-file-notes/release.md")
     .waitFor({ timeout: 15000 });
   check("the count opens the edits window, with the file the turn wrote", true);
+  // The diff's tokens take the theme's colours: the notes' heading is drawn
+  // in the title colour, not the text's.
+  const diffTint = await until(
+    "a coloured token in the diff",
+    () =>
+      edits.evaluate((el) => {
+        const token = el.querySelector(".dv-code .hljs-section");
+        if (!token) return null;
+        return {
+          token: getComputedStyle(token).color,
+          text: getComputedStyle(token.closest(".dv-code")).color,
+        };
+      }),
+    15000,
+  ).catch(() => null);
+  check(
+    "a diff draws its tokens in the theme's colours",
+    !!diffTint && diffTint.token !== diffTint.text,
+    JSON.stringify(diffTint),
+  );
   check(
     "no dock face for the edits, and no tab strip anywhere",
     (await a.page
@@ -1259,7 +1342,7 @@ async function scenarioViews() {
     .allInnerTexts();
   check(
     "the tree lists the top of the workspace, folders first",
-    top.join(",").startsWith("assets,docs,media,notes,src") &&
+    top.join(",").startsWith("art,assets,docs,media,notes,site,src") &&
       top.includes("README.md"),
     top.join(","),
   );
@@ -2091,11 +2174,11 @@ async function scenarioShots() {
   await win.getByRole("tab", { name: "README.md" }).click();
   await d.page.waitForTimeout(800);
   await shoot(d.page, "workspace-files-window-dark-1280");
-  // One capture per renderer of the window: a picture, a sound, a PDF.
+  // One capture per renderer of the window: a picture, a sound. The PDF, the
+  // SVG and the HTML page are captured by the formats scenario.
   for (const [file, name, ready] of [
     ["assets/logo.png", "image", ".files-file-body img"],
     ["media/tone.wav", "audio", ".files-file-body audio"],
-    ["docs/brief.pdf", "pdf", ".files-file-body .files-note"],
   ]) {
     await d.page.goto(
       `${SHOTS_NODE}/#/s/${sid}/files?path=${encodeURIComponent(file)}`,
@@ -2113,6 +2196,7 @@ async function scenarioShots() {
     await d.page.waitForTimeout(500);
     await shoot(d.page, `workspace-files-window-${name}-dark-1280`);
   }
+  await scenarioFormats(sid, { relay: false });
   await d.page.setViewportSize({ width: 390, height: 844 });
   await d.page.goto(`${SHOTS_NODE}/#/s/${sid}/files?path=src%2Fmain.go&line=7`);
   await win.locator('[data-file-line="7"]').waitFor();
@@ -2200,6 +2284,316 @@ async function scenarioShots() {
  * a page that grew tall enough to scroll after it loaded moved it left as the
  * reader opened. Read every frame, from a cold load and from the rail.
  */
+/**
+ * The kinds of file the window draws rather than lists, through the relay:
+ * source coloured over its whole text, an SVG as a picture and its source a
+ * menu choice away, an HTML page in a frame that runs and fetches nothing, and
+ * a PDF in the browser's own viewer. Headless Chromium's shell has no PDF
+ * viewer, so the run takes the full Chromium for this scenario when it can.
+ */
+async function scenarioFormats(sid, { relay = true } = {}) {
+  const base = relay ? RELAY : SHOTS_NODE;
+  // The checks run through the relay; the documentation's captures are taken
+  // on the plain local node, after the same checks there.
+  const label = (text) => (relay ? text : `${text} (local node)`);
+  const capture = (name) => (relay ? null : shoot(f.page, name));
+  const own =
+    ENGINE === "chromium" && !BROWSER_PATH
+      ? await playwright.chromium
+          .launch({ channel: "chromium" })
+          .catch(() => null)
+      : null;
+  const f = await openPage({ throughRelay: relay, using: own || browser });
+  const beacons = [];
+  f.context.on("request", (r) => {
+    if (r.url().startsWith(BEACON)) beacons.push(r.url());
+  });
+  const win = f.page.getByTestId("files-view");
+  const open = async (file) => {
+    await f.page.goto(
+      `${base}/#/s/${sid}/files?path=${encodeURIComponent(file)}`,
+    );
+    await f.page.reload();
+    await win.waitFor();
+  };
+  const previewItem = async () => {
+    await win.getByTestId("files-more").click();
+    return f.page.getByRole("menuitemcheckbox", { name: "Preview" });
+  };
+
+  // Source: a comment over three lines is a comment on each.
+  await open("src/doc.go");
+  await win.locator('[data-file-line="3"] code').waitFor();
+  const comment = await win.evaluate((el) =>
+    [2, 3].map(
+      (n) => !!el.querySelector(`[data-file-line="${n}"] code .hljs-comment`),
+    ),
+  );
+  check(
+    label("a comment that spans lines is coloured as one on every line"),
+    comment.every(Boolean),
+    JSON.stringify(comment),
+  );
+  const tint = await win.evaluate((el) => {
+    const code = el.querySelector('[data-file-line="2"] code');
+    const token = code.querySelector(".hljs-comment");
+    return {
+      token: getComputedStyle(token).color,
+      text: getComputedStyle(code).color,
+    };
+  });
+  check(
+    label("an open file draws a comment in the theme's comment colour"),
+    tint.token !== tint.text,
+    JSON.stringify(tint),
+  );
+
+  // SVG: a picture first, its source from the menu.
+  await open("art/diagram.svg");
+  const svgWidth = await until(
+    "the SVG picture",
+    () =>
+      win.evaluate((el) => {
+        const img = el.querySelector(".files-image img");
+        return img && img.complete && img.naturalWidth > 0
+          ? {
+              width: img.naturalWidth,
+              data: img.src.startsWith("data:image/svg+xml"),
+              draggable: img.draggable,
+            }
+          : null;
+      }),
+    15000,
+  ).catch(() => null);
+  check(
+    label("an SVG opens as a picture from bytes read through the relay"),
+    !!svgWidth &&
+      svgWidth.width === 240 &&
+      svgWidth.data &&
+      !svgWidth.draggable,
+    JSON.stringify(svgWidth),
+  );
+  // Opened in a tab of its own, the picture's document has no origin of
+  // its own: its script cannot reach the web UI's storage. A context of its
+  // own, so what that document fetches is not counted against the window.
+  const pictureSrc = await win.evaluate(
+    (el) => el.querySelector(".files-image img").src,
+  );
+  const probe = await (own || browser).newContext();
+  const tab = await probe.newPage();
+  await tab.goto(pictureSrc);
+  const reach = await tab.evaluate(() => {
+    try {
+      return `storage of ${location.origin}: ${localStorage.length} keys`;
+    } catch {
+      return `no storage (${location.origin})`;
+    }
+  });
+  await probe.close();
+  check(
+    label(
+      "the SVG opened in a tab of its own reaches no storage of the web UI",
+    ),
+    reach.startsWith("no storage"),
+    reach,
+  );
+  check(
+    label("nothing in the SVG runs and nothing it names is fetched"),
+    (await f.page.title()) !== "svg script ran" &&
+      !(await win.evaluate((el) => !!el.querySelector("svg rect"))) &&
+      beacons.length === 0,
+    JSON.stringify(beacons),
+  );
+  await capture("workspace-files-window-svg-dark-1280");
+
+  // The column of the tree reads as one edge from the filter down.
+  const align = await win.evaluate((el) => {
+    const input = el.querySelector(".files-filter input");
+    const style = getComputedStyle(input);
+    const text =
+      input.getBoundingClientRect().left +
+      parseFloat(style.borderLeftWidth) +
+      parseFloat(style.paddingLeft);
+    const icon = el.querySelector(".files-filter-icon").getBoundingClientRect();
+    const row = el.querySelector("[data-testid=files-tree] > ul > li > button");
+    const glyph = row
+      .querySelector(".files-tree-glyph")
+      .getBoundingClientRect();
+    const name = row.querySelector(".files-tree-name").getBoundingClientRect();
+    return {
+      text: Math.round((name.left - text) * 10) / 10,
+      glyph: Math.round((glyph.left - icon.left) * 10) / 10,
+    };
+  });
+  check(
+    label(
+      "the tree's names start where the filter's text does, its glyphs where the magnifier is",
+    ),
+    Math.abs(align.text) <= 0.5 && Math.abs(align.glyph) <= 0.5,
+    JSON.stringify(align),
+  );
+
+  // The picture's menu: Copy puts a PNG of it on the clipboard, Save
+  // downloads it under its file's name.
+  await f.context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(base).origin,
+  });
+  const picture = win.locator(".files-image img");
+  await picture.click({ button: "right" });
+  const pictureMenu = f.page.getByRole("menu", { name: "Picture" });
+  await pictureMenu.waitFor({ timeout: 10000 });
+  const offered = await pictureMenu.getByRole("menuitem").allInnerTexts();
+  check(
+    label("a right click on a picture offers Copy image and Save image"),
+    JSON.stringify(offered) === JSON.stringify(["Copy image", "Save image"]),
+    JSON.stringify(offered),
+  );
+  await capture("workspace-files-window-image-menu-dark-1280");
+  await pictureMenu.getByRole("menuitem", { name: "Copy image" }).click();
+  await f.page
+    .getByRole("status")
+    .filter({ hasText: "Image copied" })
+    .waitFor({ timeout: 10000 })
+    .catch(() => {});
+  const clip = await f.page.evaluate(async () => {
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        if (!item.types.includes("image/png")) continue;
+        const bitmap = await createImageBitmap(await item.getType("image/png"));
+        return { png: true, width: bitmap.width, height: bitmap.height };
+      }
+      return { png: false };
+    } catch (err) {
+      return { error: String(err) };
+    }
+  });
+  check(
+    label("Copy image puts the SVG on the clipboard as a PNG of its size"),
+    clip.png === true && clip.width === 240 && clip.height === 120,
+    JSON.stringify(clip),
+  );
+  await picture.click({ button: "right" });
+  const [saved] = await Promise.all([
+    f.page.waitForEvent("download", { timeout: 10000 }),
+    pictureMenu.getByRole("menuitem", { name: "Save image" }).click(),
+  ]);
+  check(
+    label("Save image downloads the picture under its file's name"),
+    saved.suggestedFilename() === "diagram.svg",
+    saved.suggestedFilename(),
+  );
+  let item = await previewItem();
+  check(
+    label("the menu offers Preview for an SVG, on"),
+    (await item.getAttribute("aria-checked")) === "true",
+  );
+  await item.click();
+  await win
+    .locator('[data-file-line="1"] code', { hasText: "<svg" })
+    .waitFor({ timeout: 15000 });
+  check(
+    label("Preview off shows the SVG's source"),
+    (await win.locator(".files-image").count()) === 0,
+  );
+  // Back on, so the choice the cookie keeps is the default again.
+  await (await previewItem()).click();
+  await win.locator(".files-image img").waitFor();
+
+  // HTML: source first, the page from the menu, in a sandbox.
+  await open("site/report.html");
+  await win
+    .locator('[data-file-line="1"] code', { hasText: "<!DOCTYPE html>" })
+    .waitFor({ timeout: 15000 });
+  item = await previewItem();
+  check(
+    label("the menu offers Preview for an HTML file, off"),
+    (await item.getAttribute("aria-checked")) === "false",
+  );
+  await item.click();
+  const frameEl = win.locator("iframe.files-html");
+  await frameEl.waitFor({ timeout: 15000 });
+  const page = f.page.frameLocator("iframe.files-html");
+  await page.locator("h1", { hasText: "Release report" }).waitFor();
+  const look = await frameEl.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const body = el.parentElement.getBoundingClientRect();
+    return {
+      sandbox: el.getAttribute("sandbox"),
+      fills:
+        Math.abs(r.width - body.width) <= 1 &&
+        Math.abs(r.height - body.height) <= 1,
+    };
+  });
+  const frame = f.page
+    .frames()
+    .find(
+      (fr) =>
+        fr.parentFrame() === f.page.mainFrame() && fr.url() === "about:srcdoc",
+    );
+  const ran = frame
+    ? await frame
+        .evaluate(() => document.body.dataset.ran || "")
+        .catch(() => "unreadable")
+    : "no frame";
+  const h1Color = frame
+    ? await frame
+        .evaluate(() => getComputedStyle(document.querySelector("h1")).color)
+        .catch(() => "")
+    : "";
+  check(
+    label(
+      "Preview shows the page in a frame that fills the file's place, sandboxed with no permission",
+    ),
+    look.sandbox === "" && look.fills,
+    JSON.stringify(look),
+  );
+  check(
+    label(
+      "the page's own style applies, its script never runs, nothing it names is fetched",
+    ),
+    h1Color === "rgb(176, 74, 0)" && ran === "" && beacons.length === 0,
+    JSON.stringify({ h1Color, ran, beacons }),
+  );
+  await capture("workspace-files-window-html-preview-dark-1280");
+  // Back to source, so the next run starts from the default.
+  await (await previewItem()).click();
+  await win.locator('[data-file-line="1"]').waitFor();
+
+  // PDF: the browser's own viewer where it has one, else the download notice.
+  const viewer = await f.page.evaluate(() => navigator.pdfViewerEnabled);
+  await open("docs/brief.pdf");
+  if (viewer) {
+    const pdf = await until(
+      "the PDF frame",
+      () =>
+        win.evaluate((el) => {
+          const fr = el.querySelector("iframe.files-pdf");
+          return fr
+            ? {
+                blob: fr.getAttribute("src").startsWith("blob:"),
+                sandboxed: fr.hasAttribute("sandbox"),
+              }
+            : null;
+        }),
+      15000,
+    ).catch(() => null);
+    check(
+      label(
+        "a PDF opens in the browser's own viewer from bytes read through the relay",
+      ),
+      !!pdf && pdf.blob && !pdf.sandboxed,
+      JSON.stringify(pdf),
+    );
+    await f.page.waitForTimeout(1500);
+    await capture("workspace-files-window-pdf-dark-1280");
+  } else {
+    await win.getByText("Download this PDF").waitFor({ timeout: 15000 });
+    check(label("a browser without a PDF viewer offers the download"), true);
+  }
+  await f.context.close();
+  await own?.close();
+}
+
 async function scenarioDocsClose() {
   // Headless Chromium hides scrollbars (Playwright passes --hide-scrollbars),
   // and a hidden scrollbar takes no room: the reader runs in one that shows
@@ -2492,6 +2886,7 @@ try {
   await scenarioManyEdits(sid);
   await scenarioCrossOrigin(sid);
   await scenarioWidths(sid);
+  await scenarioFormats(sid);
   // The edits are the folder's, not the chat's: once they are discarded, a
   // chat that writes nothing has none to show.
   await scenarioDiscard(sid);

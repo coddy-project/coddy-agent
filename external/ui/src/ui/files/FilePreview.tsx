@@ -1,8 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { languageForPath } from "../changes/diffLanguage";
-import { highlightLine } from "../changes/highlightLine";
+import { highlightLines } from "../changes/highlightLine";
+import { FileHtml } from "./FileHtml";
 import { FileImage } from "./FileImage";
+import { FilePdf, pdfViewerAvailable } from "./FilePdf";
+import { previewKindOf } from "./previewPrefs";
 import { HttpError, mediaUrl, readMeta, readText } from "./api";
 import type { FileMeta, TextPage } from "./api";
 
@@ -15,14 +18,22 @@ const READ_AHEAD_PX = 600;
 /** A signed media address lives an hour; a check after this long signs a new one. */
 const MEDIA_RENEW_MS = 50 * 60 * 1000;
 
-type Kind = "image" | "audio" | "video" | "pdf" | "text";
+/** Past this many characters on screen, text is shown without colour. */
+const HIGHLIGHT_CHARS = 200000;
 
-function renderer(type: string): Kind {
+type Kind = "image" | "audio" | "video" | "pdf" | "svg" | "html" | "text";
+
+/**
+ * How a file is shown: by the type the node serves it as, then, for a file
+ * the node serves as a download or as text, by its extension when the window
+ * shows that kind as what it draws (`preview`); otherwise as text.
+ */
+function renderer(type: string, path: string, preview: boolean): Kind {
   if (type.startsWith("image/")) return "image";
   if (type.startsWith("audio/")) return "audio";
   if (type.startsWith("video/")) return "video";
   if (type === "application/pdf") return "pdf";
-  return "text";
+  return (preview && previewKindOf(path)) || "text";
 }
 
 function pageOf(line: number): number {
@@ -57,12 +68,20 @@ export function nameOf(path: string): string {
  * versions together. Reload (`epoch`) reads it again whatever the ETag says and
  * signs a new media address; so does a media element that fails, once, which is
  * what an address past its hour does.
+ *
+ * The lines on screen are coloured as one text, so a comment or a string that
+ * spans lines keeps its colour on each. A PDF opens in the browser's own viewer
+ * where the browser has one (`FilePdf`), else it is a download. An SVG and an
+ * HTML file are shown as what they draw while `preview` is on (`FileImage`,
+ * `FileHtml`) and as their source otherwise; the window's menu decides.
  */
 export function FilePreview(props: {
   sessionId: string;
   path: string;
   line: number;
   wrap: boolean;
+  /** Show an SVG or an HTML file as what it draws rather than its source. */
+  preview: boolean;
   epoch: number;
   activity: number;
   onError?: (message: string) => void;
@@ -97,6 +116,8 @@ export function FilePreview(props: {
   // link asked for, the top of a file that changed. Lines read on as the
   // reader scrolls leave the view where it is.
   const lineToShowRef = useRef<number | null>(props.line);
+  // What the body shows now: only text reads on as it scrolls.
+  const kindOnShowRef = useRef<Kind | null>(null);
   // A read of more lines in flight, so a scroll does not ask twice.
   const readingOnRef = useRef(false);
   // The file changed under the lines on screen: nothing more is read on until
@@ -111,6 +132,7 @@ export function FilePreview(props: {
     offset: number;
     epoch: number;
     retry: number;
+    preview: boolean;
     content: boolean;
     /** When the media address on show was signed, 0 for anything else. */
     signedAt: number;
@@ -150,6 +172,7 @@ export function FilePreview(props: {
       shown.offset !== offset ||
       shown.epoch !== props.epoch ||
       shown.retry !== mediaRetry ||
+      shown.preview !== props.preview ||
       !shown.content ||
       (shown.signedAt > 0 && Date.now() - shown.signedAt > MEDIA_RENEW_MS);
     if (!samePath) {
@@ -187,7 +210,7 @@ export function FilePreview(props: {
         metaRef.current = { path, meta: next };
         setMeta(next);
         if (!moved && !reread) return;
-        const kind = renderer(next.type);
+        const kind = renderer(next.type, path, props.preview);
         let content = false;
         let signedAt = 0;
         if (kind === "audio" || kind === "video") {
@@ -216,6 +239,7 @@ export function FilePreview(props: {
           offset,
           epoch: props.epoch,
           retry: mediaRetry,
+          preview: props.preview,
           content,
           signedAt,
         };
@@ -239,6 +263,7 @@ export function FilePreview(props: {
     offset,
     props.epoch,
     props.activity,
+    props.preview,
     focusEpoch,
     mediaRetry,
   ]);
@@ -326,6 +351,8 @@ export function FilePreview(props: {
   const nearEnds = () => {
     const body = bodyRef.current;
     if (!body || !textRef.current || body.clientHeight === 0) return;
+    // A picture, a page or a viewer on show reads no lines behind it.
+    if (kindOnShowRef.current !== "text") return;
     if (
       body.scrollHeight - body.scrollTop - body.clientHeight <
       READ_AHEAD_PX
@@ -344,24 +371,36 @@ export function FilePreview(props: {
     nearEndsRef.current();
   }, [text]);
 
-  const kind = meta ? renderer(meta.type) : null;
+  const kind = meta ? renderer(meta.type, path, props.preview) : null;
+  kindOnShowRef.current = kind;
   const language = languageForPath(path);
-  const highlightPage = useMemo(
-    () =>
-      (text?.lines.reduce((sum, value) => sum + value.length, 0) || 0) <=
-      200000,
-    [text],
-  );
+  const highlighted = useMemo(() => {
+    if (!text || kind !== "text") return null;
+    const size = text.lines.reduce((sum, value) => sum + value.length, 0);
+    return size <= HIGHLIGHT_CHARS
+      ? highlightLines(text.lines, language)
+      : null;
+  }, [text, language, kind]);
+  // These show their own progress and their own failure.
+  const drawsItself =
+    kind === "image" || kind === "svg" || kind === "html" || kind === "pdf";
+  const framed = kind === "html" || (kind === "pdf" && pdfViewerAvailable());
 
   return (
     <div className="files-file" data-testid="files-file">
-      <div className="files-file-body" ref={bodyRef} onScroll={nearEnds}>
+      <div
+        className={
+          "files-file-body" + (framed ? " files-file-body--frame" : "")
+        }
+        ref={bodyRef}
+        onScroll={nearEnds}
+      >
         {changed ? (
           <p role="status" className="files-changed">
             {t("files.changed")}
           </p>
         ) : null}
-        {loading && !text && !media && kind !== "image" ? (
+        {loading && !text && !media && !drawsItself ? (
           <p className="files-note">{t("files.loading")}</p>
         ) : null}
         {error ? (
@@ -376,7 +415,12 @@ export function FilePreview(props: {
           </p>
         ) : null}
         {kind === "image" && meta ? (
-          <FileImage sessionId={sessionId} path={path} version={meta.etag} />
+          <FileImage
+            sessionId={sessionId}
+            path={path}
+            version={meta.etag}
+            epoch={props.epoch}
+          />
         ) : null}
         {kind === "audio" && media ? (
           <audio src={media} controls preload="metadata" onError={retryMedia} />
@@ -390,8 +434,34 @@ export function FilePreview(props: {
             onError={retryMedia}
           />
         ) : null}
-        {kind === "pdf" ? (
-          <p className="files-note">{t("files.pdfDownload")}</p>
+        {kind === "svg" && meta ? (
+          <FileImage
+            sessionId={sessionId}
+            path={path}
+            version={meta.etag}
+            epoch={props.epoch}
+            svg
+          />
+        ) : null}
+        {kind === "html" && meta ? (
+          <FileHtml
+            sessionId={sessionId}
+            path={path}
+            version={meta.etag}
+            epoch={props.epoch}
+          />
+        ) : null}
+        {kind === "pdf" && meta ? (
+          pdfViewerAvailable() ? (
+            <FilePdf
+              sessionId={sessionId}
+              path={path}
+              version={meta.etag}
+              epoch={props.epoch}
+            />
+          ) : (
+            <p className="files-note">{t("files.pdfDownload")}</p>
+          )
         ) : null}
         {text && kind === "text" ? (
           <>
@@ -400,15 +470,12 @@ export function FilePreview(props: {
             >
               {text.lines.map((value, i) => {
                 const no = text.offset + i + 1;
-                const spans =
-                  value.length <= 4096 && highlightPage
-                    ? highlightLine(value, language)
-                    : null;
+                const spans = highlighted?.[i];
                 return (
                   <div key={no} data-file-line={no}>
                     <span className="files-line-no">{no}</span>
                     <code>
-                      {spans
+                      {spans && spans.length > 0
                         ? spans.map((span, n) => (
                             <span
                               key={n}
