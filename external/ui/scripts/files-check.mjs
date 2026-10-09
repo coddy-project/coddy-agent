@@ -1046,9 +1046,25 @@ async function scenarioViews() {
     /Ctrl\+Shift\+F|⇧⌘F/.test(buttons[0]?.tip || ""),
     buttons[0]?.tip,
   );
-  // Hovering a button shows its tooltip, inside the window.
-  await a.page.getByTestId("chat-views-files").hover();
-  await a.page.waitForTimeout(300);
+  // Hovering a button shows its tooltip, inside the window. The tip fades in
+  // over 140ms; a fixed pause read it mid-fade on a loaded machine, so the
+  // check waits for the fade to end, pointing at the button again if the
+  // header was drawn anew under the pointer meanwhile.
+  await until(
+    "the Files tooltip shown",
+    async () => {
+      await a.page.getByTestId("chat-views-files").hover();
+      return a.page.evaluate(
+        () =>
+          getComputedStyle(
+            document
+              .querySelector("[data-testid=chat-views-files]")
+              .parentElement.querySelector(".chat-view-tip"),
+          ).opacity === "1",
+      );
+    },
+    3000,
+  ).catch(() => false);
   const tip = await a.page.evaluate(() => {
     const el = document
       .querySelector("[data-testid=chat-views-files]")
