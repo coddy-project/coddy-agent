@@ -5,9 +5,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"strings"
+	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/update"
 )
 
@@ -41,9 +45,31 @@ func runUpdate(args []string) error {
 		NoRestart:     *noRestart,
 		NoNotes:       *noNotes || update.NotesDisabledByEnv(),
 		Stdout:        os.Stdout,
+		AfterInstall:  renewCertificates,
 	})
 	if errors.Is(err, update.ErrUpdateAvailable) {
 		os.Exit(1)
 	}
 	return err
+}
+
+// renewCertificates asks the binary an update just installed to renew the built-in TLS certificates, when they are in use (their
+// directory exists or the configuration asks for them): the new binary knows the rules of the new version. What it printed is shown; a
+// failure is a warning, never a failed update.
+func renewCertificates(ctx context.Context, binary string, out io.Writer) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, "tls", "ensure", "--if-used")
+	platform.AdaptCommand(cmd)
+	raw, err := cmd.CombinedOutput()
+	text := strings.TrimSpace(string(raw))
+	switch {
+	case err != nil:
+		_, _ = fmt.Fprintf(out, "warning: the TLS certificates were not renewed by the new binary (%v); run `coddy tls ensure`\n", err)
+		if text != "" {
+			_, _ = fmt.Fprintln(out, text)
+		}
+	case text != "":
+		_, _ = fmt.Fprintln(out, text)
+	}
 }

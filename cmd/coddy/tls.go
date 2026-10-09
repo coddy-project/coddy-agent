@@ -22,7 +22,7 @@ import (
 )
 
 func tlsUsage() string {
-	return fmt.Sprintf("usage: %[1]s tls ensure [--quiet] [--force-ca] | status [--json] | renew | export | trust <file|-> | issue client <name> [-o DIR]"+
+	return fmt.Sprintf("usage: %[1]s tls ensure [--quiet] [--force-ca] [--if-used] | status [--json] | renew | export | trust <file|-> | issue client <name> [-o DIR]"+
 		" (flags: --home DIR, --config PATH, --name HOST, repeatable, extra names for the server certificate)", os.Args[0])
 }
 
@@ -113,6 +113,7 @@ func runTLS(args []string, out, errw io.Writer, in io.Reader) error {
 		rest = rest[1:]
 	}
 	quiet := fs.Bool("quiet", false, "ensure: print nothing unless something failed")
+	ifUsed := fs.Bool("if-used", false, "ensure: do nothing unless the certificates are in use (the directory exists, or a block of config.yaml asks for them); print only what changed. What `coddy update` runs")
 	forceCA := fs.Bool("force-ca", false, "ensure: make a new CA even when this one is valid (every peer must then trust the new CA)")
 	asJSON := fs.Bool("json", false, "status: print JSON")
 	outDir := fs.String("o", "", "issue: the directory for the files (default: the current directory)")
@@ -134,9 +135,12 @@ func runTLS(args []string, out, errw io.Writer, in io.Reader) error {
 
 	switch verb {
 	case "ensure":
-		return tlsEnsure(out, dir, tlsWant(cfg, f.names), *forceCA, false, *quiet, now)
+		if *ifUsed && !tlsInUse(dir, cfg) {
+			return nil
+		}
+		return tlsEnsure(out, dir, tlsWant(cfg, f.names), *forceCA, false, *quiet, *ifUsed, now)
 	case "renew":
-		return tlsEnsure(out, dir, tlsWant(cfg, f.names), false, true, *quiet, now)
+		return tlsEnsure(out, dir, tlsWant(cfg, f.names), false, true, *quiet, false, now)
 	case "status":
 		return tlsStatus(out, dir, tlsWant(cfg, f.names), *asJSON, now)
 	case "export":
@@ -161,7 +165,16 @@ func runTLS(args []string, out, errw io.Writer, in io.Reader) error {
 	}
 }
 
-func tlsEnsure(out io.Writer, dir string, w pki.Want, forceCA, renew, quiet bool, now time.Time) error {
+// tlsInUse reports whether the built-in certificates are in use on this machine: their directory exists, or a block of the
+// configuration asks for them.
+func tlsInUse(dir string, cfg *config.Config) bool {
+	if _, err := os.Stat(dir); err == nil {
+		return true
+	}
+	return cfg.BuiltinTLSWanted()
+}
+
+func tlsEnsure(out io.Writer, dir string, w pki.Want, forceCA, renew, quiet, onlyChanges bool, now time.Time) error {
 	w.ForceCA, w.RenewLeaves = forceCA, renew
 	res, err := pki.Ensure(dir, w, func() time.Time { return now })
 	if err != nil {
@@ -171,7 +184,9 @@ func tlsEnsure(out io.Writer, dir string, w pki.Want, forceCA, renew, quiet bool
 		return nil
 	}
 	if !res.Changed() {
-		_, _ = fmt.Fprintf(out, "%s: nothing to do\n", dir)
+		if !onlyChanges {
+			_, _ = fmt.Fprintf(out, "%s: nothing to do\n", dir)
+		}
 		return nil
 	}
 	for _, s := range res.Steps {

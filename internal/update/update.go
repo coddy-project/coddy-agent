@@ -35,6 +35,11 @@ type Options struct {
 	Stdout         io.Writer
 	HTTPClient     *http.Client
 
+	// AfterInstall runs with the path of the installed binary once an update has replaced it (a plain install; not a system package,
+	// which root installs for every user, and not Windows, where a helper installs the binary after Coddy exits). It is how an update asks the new binary to renew what it keeps
+	// (`coddy tls ensure --if-used`). Nothing it does can fail the update.
+	AfterInstall func(ctx context.Context, binary string, out io.Writer)
+
 	// windowsInstaller replaces the Windows helper launcher in deterministic tests.
 	windowsInstaller windowsUpdateInstaller
 
@@ -106,6 +111,7 @@ func Run(ctx context.Context, opts Options) error {
 			if err := installSystemPackage(ctx, opts, env, pkg, rel, latest, out, client); err != nil {
 				return err
 			}
+			// No AfterInstall here: a package is installed by root, and the certificates are the invoking user's.
 			reportChanges(ctx, client, opts, rel, out)
 			return nil
 		}
@@ -173,6 +179,9 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	if err := installRelease(data, asset.Name, dest, latest, out); err != nil {
 		return err
+	}
+	if opts.AfterInstall != nil {
+		opts.AfterInstall(ctx, dest, out)
 	}
 	reportChanges(ctx, client, opts, rel, out)
 	return nil

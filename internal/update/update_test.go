@@ -871,3 +871,51 @@ func TestNotesDisabled(t *testing.T) {
 		}
 	}
 }
+
+// An update asks the binary it has just installed to renew what it keeps (the built-in TLS certificates): AfterInstall runs once, with
+// the installed path, after the file is in place, and only when an update happened.
+func TestRun_afterInstallRunsWithTheInstalledBinaryOnly(t *testing.T) {
+	t.Parallel()
+	archive := mustTarGz(t, "coddy", []byte("#!/bin/sh\necho new\n"))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/coddy-project/coddy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		url := "http://" + r.Host + "/asset.tar.gz"
+		_, _ = w.Write([]byte(`{"tag_name":"0.9.4","assets":[{"name":"coddy_0.9.4_linux_amd64.tar.gz","browser_download_url":"` + url + `"}]}`))
+	})
+	mux.HandleFunc("/asset.tar.gz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive) })
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	run := func(current string, check bool) (calls []string, seen string, out string) {
+		dest := filepath.Join(t.TempDir(), "coddy")
+		if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		err := Run(context.Background(), Options{
+			APIBase: srv.URL, Repo: "coddy-project/coddy-agent", CurrentVersion: current,
+			GOOS: "linux", GOARCH: "amd64", InstallPath: dest, Yes: true, CheckOnly: check, NoNotes: true, Stdout: &buf,
+			AfterInstall: func(_ context.Context, binary string, out io.Writer) {
+				calls = append(calls, binary)
+				body, _ := os.ReadFile(binary)
+				seen = string(body)
+				_, _ = io.WriteString(out, "after install ran\n")
+			},
+		})
+		if err != nil && !errors.Is(err, ErrUpdateAvailable) {
+			t.Fatalf("Run: %v", err)
+		}
+		return calls, seen, buf.String()
+	}
+
+	calls, seen, out := run("0.9.2", false)
+	if len(calls) != 1 || !strings.Contains(seen, "echo new") || !strings.Contains(out, "after install ran") {
+		t.Fatalf("an update: calls=%v seen=%q out=%q", calls, seen, out)
+	}
+	if calls, _, _ := run("0.9.4", false); len(calls) != 0 {
+		t.Errorf("AfterInstall ran with nothing to install: %v", calls)
+	}
+	if calls, _, _ := run("0.9.2", true); len(calls) != 0 {
+		t.Errorf("AfterInstall ran on a check: %v", calls)
+	}
+}

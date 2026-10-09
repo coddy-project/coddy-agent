@@ -43,6 +43,14 @@ The Linux, Android and macOS archives carry **`coddy.1`**, **`coddy.bash`** and 
 
 Nothing is created: a file that was never installed (**`--no-shell-setup`**, a binary copied by hand) is left alone, and an executable outside a **`bin`** directory - a build tree, a bare download - has no **`share`** directory to pair with. A release from before the archives carried those files leaves the installed copies as they are and says so. A file it cannot write is reported after the binary is installed, and the command exits non-zero.
 
+## TLS certificates
+
+Where Coddy keeps its own [TLS certificates](../operate/certificates.md#built-in-certificates-coddy-tls) (the directory **`~/.coddy/tls`** exists, or a block of
+**`config.yaml`** asks for them with **`auto: true`**), **`coddy update`** asks the binary it has just installed to renew them
+(**`coddy tls ensure --if-used`**): a leaf that ends within 30 days or lacks a name is issued again, the CA is never replaced, and what changed is printed. A machine that
+never used them gets nothing. On Windows, where a helper installs the binary after Coddy exits, and under a package manager's own upgrade, the next **`coddy serve`**
+start makes what a block asks for, and **`coddy tls ensure`** does it by hand.
+
 ## A server that is already running
 
 **`coddy update`** replaces the file on disk. A **`coddy serve`** that is already running keeps the

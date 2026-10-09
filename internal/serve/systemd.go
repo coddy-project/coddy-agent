@@ -179,6 +179,9 @@ type UserService struct {
 	// CheckConfig validates the config.yaml of an agent home, printing the
 	// report to w, and fails on an error.
 	CheckConfig func(w io.Writer, home string) error
+	// EnsureCertificates makes the built-in TLS certificates of an agent home
+	// (coddy tls), printing what it did to w. Nil means none.
+	EnsureCertificates func(w io.Writer, home string) error
 	// DaemonRunning reports a `coddy serve --daemon` already running for an
 	// agent home. Nil means none.
 	DaemonRunning func(home string) (pid int, running bool)
@@ -237,6 +240,7 @@ func NewUserService(out io.Writer) (*UserService, error) {
 		CheckConfig: func(w io.Writer, home string) error {
 			return config.RunCheck(w, config.CLIPaths{Home: home, Config: filepath.Join(home, "config.yaml")})
 		},
+		EnsureCertificates: EnsureCertificates,
 		DaemonRunning: func(home string) (int, bool) {
 			rec, err := ReadRecord(home)
 			if err != nil || !rec.Running() {
@@ -403,6 +407,13 @@ func (s *UserService) Install(ctx context.Context) error {
 	}
 	if err := s.CheckConfig(s.Out, home); err != nil {
 		return fmt.Errorf("check %s before enabling the service: %w", filepath.Join(home, "config.yaml"), err)
+	}
+	// The certificates TLS needs are made with the service, so that turning on `auto: true` later needs no step of its own. A failure
+	// is reported and does not stop the install: nothing in the unit needs them.
+	if s.EnsureCertificates != nil {
+		if err := s.EnsureCertificates(s.Out, home); err != nil {
+			s.printf("warning: %v\n  `coddy tls ensure` makes them once the cause is fixed\n", err)
+		}
 	}
 	if s.DaemonRunning != nil {
 		if pid, ok := s.DaemonRunning(home); ok {

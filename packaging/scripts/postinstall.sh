@@ -34,6 +34,9 @@ without sudo:
 
     coddy serve install   # enable and start it, or restart it on the new binary
 
+TLS certificates your configuration asks for (auto: true) are renewed by
+`coddy tls ensure`, which `coddy update` and `coddy serve` run for you.
+
 EOF
     exit 0
 fi
@@ -66,6 +69,10 @@ NOT enabled. To run coddy serve as a service for your account (it works in
 
     coddy serve install     # enable and start coddy.service
     coddy serve uninstall   # stop and disable it again
+
+Coddy makes the TLS certificates it needs itself, with no openssl: as your
+user, `coddy tls ensure` (or `coddy serve install`, which runs it). Details:
+https://coddy.dev/docs/operate/certificates
 
 Manual: man coddy   Service guide: https://coddy.dev/docs/operate/serve
 
