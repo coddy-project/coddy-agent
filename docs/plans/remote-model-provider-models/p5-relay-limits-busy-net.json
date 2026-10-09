@@ -1,0 +1,116 @@
+{
+ "name": "p5-relay-limits-busy-net",
+ "places": [
+  {
+   "name": "ready",
+   "initial": 2,
+   "capacity": 2
+  },
+  {
+   "name": "hasSlot",
+   "capacity": 2
+  },
+  {
+   "name": "forwarding",
+   "capacity": 2
+  },
+  {
+   "name": "rslotFree",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "otherHolds",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "wtok",
+   "initial": 2,
+   "capacity": 2
+  },
+  {
+   "name": "wempty",
+   "capacity": 2
+  }
+ ],
+ "transitions": [
+  {
+   "name": "takeSlot",
+   "inputs": [
+    {
+     "place": "ready",
+     "weight": 1
+    },
+    {
+     "place": "rslotFree",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "hasSlot",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "takeToken",
+   "inputs": [
+    {
+     "place": "hasSlot",
+     "weight": 1
+    },
+    {
+     "place": "wtok",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "forwarding",
+     "weight": 1
+    },
+    {
+     "place": "wempty",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "nodeBusyRefund",
+   "inputs": [
+    {
+     "place": "forwarding",
+     "weight": 1
+    },
+    {
+     "place": "wempty",
+     "weight": 1
+    },
+    {
+     "place": "otherHolds",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "ready",
+     "weight": 1
+    },
+    {
+     "place": "rslotFree",
+     "weight": 1
+    },
+    {
+     "place": "wtok",
+     "weight": 1
+    },
+    {
+     "place": "otherHolds",
+     "weight": 1
+    }
+   ]
+  }
+ ]
+}

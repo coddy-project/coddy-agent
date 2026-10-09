@@ -1,0 +1,195 @@
+{
+ "name": "p5-probe-slot-net-mutant-noreturn",
+ "places": [
+  {
+   "name": "slotFree",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "callReady",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "running",
+   "capacity": 1
+  },
+  {
+   "name": "cutCancelling",
+   "capacity": 1
+  },
+  {
+   "name": "cancellingOther",
+   "capacity": 1
+  },
+  {
+   "name": "guardOff",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "guardOn",
+   "capacity": 1
+  },
+  {
+   "name": "pingedFlag",
+   "capacity": 1
+  },
+  {
+   "name": "cutFlag",
+   "capacity": 1
+  },
+  {
+   "name": "done",
+   "capacity": 1
+  }
+ ],
+ "transitions": [
+  {
+   "name": "admit",
+   "inputs": [
+    {
+     "place": "callReady",
+     "weight": 1
+    },
+    {
+     "place": "slotFree",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "running",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "firstPing",
+   "inputs": [
+    {
+     "place": "running",
+     "weight": 1
+    },
+    {
+     "place": "guardOff",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "running",
+     "weight": 1
+    },
+    {
+     "place": "guardOn",
+     "weight": 1
+    },
+    {
+     "place": "pingedFlag",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "renewPing",
+   "inputs": [
+    {
+     "place": "running",
+     "weight": 1
+    },
+    {
+     "place": "guardOn",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "running",
+     "weight": 1
+    },
+    {
+     "place": "guardOn",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "complete",
+   "inputs": [
+    {
+     "place": "running",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "slotFree",
+     "weight": 1
+    },
+    {
+     "place": "done",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "cut",
+   "inputs": [
+    {
+     "place": "running",
+     "weight": 1
+    },
+    {
+     "place": "guardOn",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "cutCancelling",
+     "weight": 1
+    },
+    {
+     "place": "cutFlag",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "cancelOther",
+   "inputs": [
+    {
+     "place": "running",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "cancellingOther",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "providerReturnsOther",
+   "inputs": [
+    {
+     "place": "cancellingOther",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "slotFree",
+     "weight": 1
+    },
+    {
+     "place": "done",
+     "weight": 1
+    }
+   ]
+  }
+ ]
+}

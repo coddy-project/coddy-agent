@@ -1,0 +1,351 @@
+{
+ "name": "p5-lease-net",
+ "places": [
+  {
+   "name": "free",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "liveA",
+   "capacity": 1
+  },
+  {
+   "name": "offlineA",
+   "capacity": 1
+  },
+  {
+   "name": "liveB",
+   "capacity": 1
+  },
+  {
+   "name": "offlineB",
+   "capacity": 1
+  },
+  {
+   "name": "pinned",
+   "capacity": 1
+  },
+  {
+   "name": "adminIdle",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "adminReq",
+   "capacity": 1
+  }
+ ],
+ "transitions": [
+  {
+   "name": "claimA",
+   "inputs": [
+    {
+     "place": "free",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "liveA",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "renewA",
+   "inputs": [
+    {
+     "place": "liveA",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "liveA",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "expireA",
+   "inputs": [
+    {
+     "place": "liveA",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "offlineA",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "reviveA",
+   "inputs": [
+    {
+     "place": "offlineA",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "liveA",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "reapA",
+   "inputs": [
+    {
+     "place": "offlineA",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "free",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "claimB",
+   "inputs": [
+    {
+     "place": "free",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "liveB",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "renewB",
+   "inputs": [
+    {
+     "place": "liveB",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "liveB",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "expireB",
+   "inputs": [
+    {
+     "place": "liveB",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "offlineB",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "reviveB",
+   "inputs": [
+    {
+     "place": "offlineB",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "liveB",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "reapB",
+   "inputs": [
+    {
+     "place": "offlineB",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "free",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "operatorSeed",
+   "inputs": [
+    {
+     "place": "free",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "pinned",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "adminAsk",
+   "inputs": [
+    {
+     "place": "adminIdle",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "adminReq",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "adminWithdraw",
+   "inputs": [
+    {
+     "place": "adminReq",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "adminIdle",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "adminDeleteALive",
+   "inputs": [
+    {
+     "place": "liveA",
+     "weight": 1
+    },
+    {
+     "place": "adminReq",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "free",
+     "weight": 1
+    },
+    {
+     "place": "adminIdle",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "adminDeleteAOffline",
+   "inputs": [
+    {
+     "place": "offlineA",
+     "weight": 1
+    },
+    {
+     "place": "adminReq",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "free",
+     "weight": 1
+    },
+    {
+     "place": "adminIdle",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "adminDeleteBLive",
+   "inputs": [
+    {
+     "place": "liveB",
+     "weight": 1
+    },
+    {
+     "place": "adminReq",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "free",
+     "weight": 1
+    },
+    {
+     "place": "adminIdle",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "adminDeleteBOffline",
+   "inputs": [
+    {
+     "place": "offlineB",
+     "weight": 1
+    },
+    {
+     "place": "adminReq",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "free",
+     "weight": 1
+    },
+    {
+     "place": "adminIdle",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "operatorDelete",
+   "inputs": [
+    {
+     "place": "pinned",
+     "weight": 1
+    },
+    {
+     "place": "adminReq",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "free",
+     "weight": 1
+    },
+    {
+     "place": "adminIdle",
+     "weight": 1
+    }
+   ]
+  }
+ ]
+}
