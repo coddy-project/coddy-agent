@@ -472,9 +472,9 @@ export function Composer(props: {
   /**
    * The opened session is still loading, its settings included: the selectors
    * above name another session's, and a prompt carries the mode, the model and
-   * the level from them while the server keeps what it is given. Send waits
-   * (the app also refuses what Enter sends); a message for a running turn
-   * still joins the queue, which carries none of them.
+   * the level from them while the server keeps what it is given. Send and
+   * Enter wait (the app also refuses any other sender); a message for a
+   * running turn still joins the queue, which carries none of them.
    */
   sessionLoading?: boolean | undefined;
   /** The session's permission mode (ask, accept_edits, bypass) and the one a
@@ -3481,6 +3481,11 @@ export function Composer(props: {
                       // A turn is running: the draft joins the queue the turn
                       // reads at its next step instead of being refused.
                       queueDraft();
+                      return;
+                    }
+                    if (props.sessionLoading) {
+                      // The opened session's settings are still on the way:
+                      // the draft waits in the field, as Send does.
                       return;
                     }
                     const txt = props.value.trim();

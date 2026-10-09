@@ -38,12 +38,19 @@ function renderComposer(opts: {
   );
 }
 
-// Enter still reaches onSend, which App refuses while the session loads
-// (App.settingsPerSession.test.tsx): the button is what shows the wait.
 test("Send is disabled while the opened session loads", () => {
   renderComposer({ sessionLoading: true });
 
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+});
+
+// Enter waits like the button: the draft stays in the field, untouched.
+test("Enter does not send while the opened session loads", () => {
+  const onSend = vi.fn();
+  renderComposer({ sessionLoading: true, onSend });
+
+  fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+  expect(onSend).not.toHaveBeenCalled();
 });
 
 test("the draft is sent as usual once the session has loaded", () => {

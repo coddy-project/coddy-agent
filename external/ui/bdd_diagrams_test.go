@@ -20,7 +20,8 @@ import (
 // call the renderers. Raise it deliberately, never to make room for a renderer.
 // Raised from 1_850_000 for the session goal's chip, popover and rows, which
 // are application code every chat may show, and from 1_900_000 when main sat
-// 182 bytes under it and the per-session composer settings (#489) needed 265.
+// 182 bytes under it and the per-session composer settings (#489) needed
+// about a kilobyte.
 const appJSBudget = 1_950_000
 
 // Strings only the renderers' own code carries: their error messages.

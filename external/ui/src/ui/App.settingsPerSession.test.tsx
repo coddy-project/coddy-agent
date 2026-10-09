@@ -52,6 +52,18 @@ let holdTurn: boolean;
 let openTurns: Map<string, ReadableStreamDefaultController<Uint8Array>>;
 /** What the queue route was asked, and what it answers: no turn is running. */
 let queued: string[];
+/** How many of the next transcript reads of a session answer 500. */
+let failReads: Record<string, number>;
+/** Sessions History does not list: past its first page, or filtered out. */
+let unlisted: Set<string>;
+/** Ids History still lists although the server no longer has them. */
+let listedGone: string[];
+/** When set, GET /v1/models waits for it. */
+let heldModels: Promise<void> | undefined;
+/** When set, the queue's answer waits for it. */
+let heldQueue: Promise<void> | undefined;
+/** How many of the next prompts the server refuses with a 500. */
+let refusePrompts: number;
 
 function resetServer() {
   sessions = {
@@ -65,6 +77,21 @@ function resetServer() {
   holdTurn = false;
   openTurns = new Map();
   queued = [];
+  failReads = {};
+  unlisted = new Set();
+  listedGone = [];
+  heldModels = undefined;
+  heldQueue = undefined;
+  refusePrompts = 0;
+}
+
+/** gate returns a promise and the function that lets it go. */
+function gate(): [Promise<void>, () => void] {
+  let release = () => {};
+  const p = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return [p, release];
 }
 
 /** endTurn lets the running turns finish. */
@@ -142,6 +169,10 @@ const fetchMock = vi.fn(
     }
     if (path === "/v1/responses") {
       const sid = new Headers(init?.headers).get("X-Coddy-Session-ID") ?? "";
+      if (refusePrompts > 0) {
+        refusePrompts -= 1;
+        return json({ error: { message: "provider unavailable" } }, 500);
+      }
       takePrompt(sid, init);
       if (!holdTurn) return emptyStream();
       return new Response(
@@ -154,6 +185,7 @@ const fetchMock = vi.fn(
       );
     }
     if (path === "/v1/models") {
+      await heldModels;
       return json({
         data: [
           { id: "agent", owned_by: "coddy", max_context_tokens: 128000 },
@@ -174,7 +206,10 @@ const fetchMock = vi.fn(
     }
     if (path.startsWith("/coddy/sessions?")) {
       return json({
-        sessions: Object.keys(sessions).map((id) => ({ id, title: id })),
+        sessions: [
+          ...Object.keys(sessions).filter((id) => !unlisted.has(id)),
+          ...listedGone,
+        ].map((id) => ({ id, title: id })),
       });
     }
     const match = path.match(/^\/coddy\/sessions\/([^/?]+)(.*)$/);
@@ -183,6 +218,10 @@ const fetchMock = vi.fn(
       const suffix = match[2]!.split("?")[0];
       if (suffix === "/messages") {
         await heldReads[sid];
+        if ((failReads[sid] ?? 0) > 0) {
+          failReads[sid]! -= 1;
+          return json({ error: { message: "session unavailable" } }, 500);
+        }
         const s = sessions[sid];
         if (!s) return json({ error: { message: "session not found" } }, 404);
         return json({
@@ -201,6 +240,7 @@ const fetchMock = vi.fn(
         return json({ sessionId: sid, turnActive: openTurns.has(sid) });
       if (suffix === "/queue" && init?.method === "POST") {
         queued.push(JSON.parse(String(init.body)).text);
+        await heldQueue;
         // The turn ended between the keystroke and the request.
         return json(
           { error: { code: "no_active_turn", message: "No live turn" } },
@@ -453,4 +493,145 @@ test("a follow-up the server refuses to queue is not lost while the settings are
   await act(async () => release());
   await waitFor(() => expect(modePill()).toHaveTextContent("Plan"));
   endTurn();
+});
+
+// The settings read of the way back failed: the selectors still name the
+// session visited before, so Send stays held, and the read is tried again.
+test("a failed settings read of a chat whose turn this tab runs holds Send until it is read again", async () => {
+  await mountSession(S_PLAN);
+  holdTurn = true;
+  await send("a long task");
+  await navigate(S_ASK);
+  failReads[S_PLAN] = 1;
+  await goTo(`/#/s/${S_PLAN}`);
+  await settle();
+  expect(modePill()).toHaveTextContent("Ask");
+
+  // The queue finds the turn ended and falls back to a prompt, which must not
+  // carry Ask into the plan chat.
+  type("and one more thing");
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "Enter",
+  });
+  await waitFor(() => expect(queued).toEqual(["and one more thing"]));
+  await settle();
+  expect(posted).toHaveLength(1);
+  expect(sessions[S_PLAN]?.mode).toBe("plan");
+
+  await waitFor(() => expect(modePill()).toHaveTextContent("Plan"), {
+    timeout: 4000,
+  });
+  expect(modelChip()).toHaveTextContent("beta-model");
+  endTurn();
+});
+
+// History lists its first page only, so a session missing from it may well
+// exist: a failed read is not a session the server does not have.
+test("a session whose transcript read fails is read again, never taken for a new chat", async () => {
+  await mountSession(S_PLAN);
+  unlisted.add(S_AGENT);
+  failReads[S_AGENT] = 1;
+  await goTo(`/#/s/${S_AGENT}`);
+  await settle();
+  expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+
+  await screen.findByText(`prompt in ${S_AGENT}`, undefined, {
+    timeout: 4000,
+  });
+  await settle();
+  expect(modePill()).toHaveTextContent("Agent");
+  expect(modelChip()).toHaveTextContent("alpha-model");
+  expect(reasoningChip()).toHaveTextContent("Low");
+  expect(posted).toEqual([]);
+  expect(sessions[S_AGENT]).toEqual({
+    mode: "agent",
+    model: ALPHA,
+    reasoning: "low",
+  });
+});
+
+// The server's 404 decides, not the list: an id History still shows after
+// the session went away opens a chat that can be written to.
+test("a session History still lists but the server no longer has opens a new chat", async () => {
+  await mountSession(S_PLAN);
+  listedGone.push(S_UNKNOWN);
+  await goTo(`/#/s/${S_UNKNOWN}`);
+  await settle();
+  expect(modePill()).toHaveTextContent("Agent");
+  type("first words");
+  expect(sendButton()).toBeEnabled();
+});
+
+// A snapshot read before the model list arrives is kept for that list, on
+// the way back to a running chat as on any other way in.
+test("a chat whose turn this tab runs keeps its own model when the model list comes after its settings", async () => {
+  const [models, releaseModels] = gate();
+  heldModels = models;
+  mount(`/#/s/${S_PLAN}`);
+  await screen.findByText(`prompt in ${S_PLAN}`);
+  await settle();
+  holdTurn = true;
+  posted = [];
+  type("a long task");
+  fireEvent.click(sendButton());
+  await waitFor(() => expect(posted).toHaveLength(1));
+  await settle();
+  await navigate(S_ASK);
+  await goTo(`/#/s/${S_PLAN}`);
+  await waitFor(() => expect(modePill()).toHaveTextContent("Plan"));
+
+  await act(async () => releaseModels());
+  await waitFor(() => expect(modelChip()).toHaveTextContent("beta-model"));
+  expect(reasoningChip()).toHaveTextContent("High");
+  endTurn();
+});
+
+// The queue's fallback runs after an await: it must see the settings as they
+// are when it sends, not as they were when the message was queued.
+test("a follow-up the queue hands back after the settings arrived is sent with them", async () => {
+  await mountSession(S_PLAN);
+  holdTurn = true;
+  await send("a long task");
+  await navigate(S_ASK);
+  const release = hold(S_PLAN);
+  await goTo(`/#/s/${S_PLAN}`);
+  await settle();
+  const [queue, releaseQueue] = gate();
+  heldQueue = queue;
+
+  type("and one more thing");
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "Enter",
+  });
+  await waitFor(() => expect(queued).toEqual(["and one more thing"]));
+  await act(async () => release());
+  await waitFor(() => expect(modePill()).toHaveTextContent("Plan"));
+  await act(async () => releaseQueue());
+
+  await waitFor(() => expect(posted).toHaveLength(2));
+  expect(posted[1]!.sid).toBe(S_PLAN);
+  expect(posted[1]!.model).toBe("plan");
+  expect(posted[1]!.metadata.model).toBe(BETA);
+  endTurn();
+});
+
+// A first message the server never took leaves a chat the server does not
+// have: its 404 must not take the start screen's picks with it.
+test("a first message the server refuses keeps the mode picked on the start page", async () => {
+  await mountHome();
+  await pickMode("Plan");
+  await waitFor(() => expect(modePill()).toHaveTextContent("Plan"));
+  refusePrompts = 1;
+  type("hello");
+  fireEvent.click(sendButton());
+  await waitFor(() =>
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue(
+      "hello",
+    ),
+  );
+  await settle();
+  expect(modePill()).toHaveTextContent("Plan");
+
+  const prompt = await send("hello");
+  expect(prompt.model).toBe("plan");
 });

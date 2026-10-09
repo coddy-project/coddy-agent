@@ -432,6 +432,36 @@ async function fetchJSON<T>(
   return { ok: true, status, data };
 }
 
+/**
+ * The outcome of a read that opens a session: its settings are read and
+ * applied, the server answered 404 (no such session), the read failed, or a
+ * later read took its place.
+ */
+type OpeningRead = "read" | "missing" | "failed" | "superseded";
+
+/** When the read that opens a session runs, the first time at once. */
+const OPENING_READ_DELAYS_MS = [0, 1000, 3000, 9000];
+
+/**
+ * readOpening runs the read that opens a session until it says something.
+ * Send waits for the session's own settings, so a read that failed for any
+ * reason but a 404 is tried again after a pause; "failed" comes back only
+ * when every try failed or the visit ended.
+ */
+async function readOpening(
+  read: () => Promise<OpeningRead>,
+  signal: AbortSignal,
+): Promise<OpeningRead> {
+  let outcome: OpeningRead = "failed";
+  for (const delayMs of OPENING_READ_DELAYS_MS) {
+    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+    if (signal.aborted) return "failed";
+    outcome = await read();
+    if (outcome !== "failed") break;
+  }
+  return outcome;
+}
+
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
 }
@@ -479,6 +509,12 @@ export function App() {
   const [sessionLoading, setSessionLoading] = useState(
     () => initialRoute.branch === "session",
   );
+  /**
+   * The status of a session's last transcript read that failed, 0 when it got
+   * no answer: for the read that opens the session, a 404 says the server has
+   * no such session and anything else is read again.
+   */
+  const failedReadStatusRef = useRef(new Map<string, number>());
   const [sessionFadingOut, setSessionFadingOut] = useState(false);
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
@@ -3414,6 +3450,91 @@ export function App() {
    * merges line up. Older pages never take part: they sit above the live
    * window in `olderTranscript` (issue #338).
    */
+  /**
+   * Mirrors what a messages read says about the settings of the session on
+   * screen: the whole snapshot - the model, the level, the mode, the
+   * permission mode, the overrides for the next turns, and the version the
+   * next send names. The transcript read and the settings-only read of a
+   * running chat both come here.
+   */
+  function mirrorSettingsRead(
+    sid: string,
+    data: {
+      settings?: unknown;
+      model?: string;
+      selectedModelId?: string;
+      selectedReasoning?: string;
+    },
+  ) {
+    const snap = parseSessionSettings(data.settings);
+    // Stash the session's own selection; an effect applies it once the
+    // backends list is loaded (the two fetches race on reload). It is the
+    // snapshot's: the top-level model and selectedReasoning name what a
+    // running turn holds, and a turn override taken for the session's
+    // model would become it with the next message. A read whose snapshot
+    // is older than the one this tab already applied - the events stream
+    // got ahead of a slow read - says nothing new and moves nothing back.
+    const held =
+      settingsVersionRef.current.sid === sid
+        ? settingsVersionRef.current.version
+        : 0;
+    if (!snap || isNewerSettings(held, sid, snap)) {
+      setOpenSessionSelection({
+        sid,
+        model: snap
+          ? snap.model
+          : (data.model || data.selectedModelId || "").trim(),
+        reasoning: snap
+          ? snap.reasoning
+          : (data.selectedReasoning || "").trim(),
+        choices: snap?.reasoningChoices ?? [],
+      });
+    }
+    if (snap) {
+      applySessionSettings(snap);
+    }
+  }
+
+  /**
+   * Reads the settings of the session on screen alone, for the visit that
+   * keeps its rows from the shadow of a turn this tab runs and so reads no
+   * transcript.
+   */
+  async function readViewedSettings(sid: string): Promise<OpeningRead> {
+    try {
+      const res = await fetchJSON<{
+        settings?: unknown;
+        model?: string;
+        selectedModelId?: string;
+        selectedReasoning?: string;
+      }>(`/coddy/sessions/${encodeURIComponent(sid)}/messages?limit=1`, {
+        headers: sid === sessionId ? headers : { [HDR]: sid },
+      });
+      if (res.status === 404) return "missing";
+      if (!res.ok || !res.data) return "failed";
+      if (viewedSessionIdRef.current.trim() === sid) {
+        mirrorSettingsRead(sid, res.data);
+      }
+      return "read";
+    } catch {
+      return "failed";
+    }
+  }
+
+  /**
+   * The server has no session under the id on screen: there is nothing to
+   * wait for, and the first message creates it with what the selectors show.
+   * They must not show another session's settings, so a snapshot of another
+   * session gives way to a new chat's; the start screen's picks for a chat
+   * this tab is creating (no snapshot held yet) stay.
+   */
+  function settleUnknownSession(sid: string) {
+    if (viewedSessionIdRef.current.trim() !== sid) return;
+    const held = settingsVersionRef.current.sid;
+    if (held !== "" && held !== sid) resetNewChatSettings();
+    setSessionLoading(false);
+  }
+
   async function loadMessages(
     idOverride?: string,
     opts?: LoadMessagesOpts,
@@ -3524,6 +3645,7 @@ export function App() {
     const viewingNow = viewedSessionIdRef.current.trim();
     if (!sameStream()) return null;
     if (!res.ok || !res.data) {
+      failedReadStatusRef.current.set(sid, res.status);
       if (!opts?.preserveOnError) {
         if (viewingNow === sid) {
           setItems([]);
@@ -3532,36 +3654,7 @@ export function App() {
       return null;
     }
     if (viewingNow === sid) {
-      // The whole snapshot: the model, the level, the mode, the permission
-      // mode, the overrides for the next turns, and the version the next send
-      // names.
-      const snap = parseSessionSettings(res.data.settings);
-      // Stash the session's own selection; an effect applies it once the
-      // backends list is loaded (the two fetches race on reload). It is the
-      // snapshot's: the top-level model and selectedReasoning name what a
-      // running turn holds, and a turn override taken for the session's
-      // model would become it with the next message. A read whose snapshot
-      // is older than the one this tab already applied - the events stream
-      // got ahead of a slow read - says nothing new and moves nothing back.
-      const held =
-        settingsVersionRef.current.sid === sid
-          ? settingsVersionRef.current.version
-          : 0;
-      if (!snap || isNewerSettings(held, sid, snap)) {
-        setOpenSessionSelection({
-          sid,
-          model: snap
-            ? snap.model
-            : (res.data.model || res.data.selectedModelId || "").trim(),
-          reasoning: snap
-            ? snap.reasoning
-            : (res.data.selectedReasoning || "").trim(),
-          choices: snap?.reasoningChoices ?? [],
-        });
-      }
-      if (snap) {
-        applySessionSettings(snap);
-      }
+      mirrorSettingsRead(sid, res.data);
       // The session goal, versioned like the settings: the chip and the
       // popover mirror it, and a read older than an event already applied
       // moves nothing back.
@@ -4512,15 +4605,14 @@ export function App() {
     tokenBaselineRef.current = { input: 0, output: 0, total: 0 };
     const lifecycle = new AbortController();
     void (async () => {
-      const list = await loadSessionsList(true);
+      await loadSessionsList(true);
       if (lifecycle.signal.aborted) {
         return;
       }
-      // A session spawned by another one is hidden from History and nothing
-      // about its id sets it apart, so an id History does not carry is still
-      // fetched: the messages endpoint serves it and marks it read-only, and
-      // answers 404 when it names nothing.
-      const listed = !!list?.some((s) => s.id === sessionId);
+      // A session spawned by another one is hidden from History, and History
+      // holds one page, so an id it does not carry is still fetched: the
+      // messages endpoint serves it (a child marked read-only), and only its
+      // 404 says the session is not there.
       // A block, so `sess` stays out of the way of the rest of the effect.
       {
         const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
@@ -4545,37 +4637,44 @@ export function App() {
           setItems([...shadowSnap]);
           // The rows come from the shadow of a turn this tab runs here, so no
           // transcript is read and the selectors would keep naming the session
-          // visited before: read its settings alone. Send waits for them.
-          try {
-            const r = await fetchJSON<{ settings?: unknown }>(
-              `/coddy/sessions/${encodeURIComponent(sessionId)}/messages?limit=1`,
-              { headers },
-            );
-            const snap = parseSessionSettings(r.data?.settings);
-            if (snap) applySessionSettings(snap);
-          } catch {
-            // The selectors stay as they are until a read or an event.
-          }
-          if (!lifecycle.signal.aborted) setSessionLoading(false);
+          // visited before: its settings are read alone, and Send waits for
+          // them. Should every try fail, the read the turn ends with brings
+          // them and lets Send go.
+          const outcome = await readOpening(
+            () => readViewedSettings(sessionId),
+            lifecycle.signal,
+          );
+          if (lifecycle.signal.aborted) return;
+          if (outcome === "read") setSessionLoading(false);
+          if (outcome === "missing") settleUnknownSession(sessionId);
         } else {
           // freshLoad when no shadow: prevents stale itemsRef from a previous session
           // bleeding into this session (e.g. React StrictMode double-invoke of effects).
           const noShadow = !shadowSnap || shadowSnap.length === 0;
-          const loaded = await loadMessages(undefined, { freshLoad: noShadow });
+          const read: { items: TranscriptItem[] | null } = { items: null };
+          const outcome = await readOpening(async () => {
+            failedReadStatusRef.current.delete(sessionId);
+            try {
+              read.items = await loadMessages(undefined, {
+                freshLoad: noShadow,
+              });
+            } catch {
+              failedReadStatusRef.current.set(sessionId, 0);
+            }
+            if (read.items) return "read";
+            const status = failedReadStatusRef.current.get(sessionId);
+            if (status === undefined) return "superseded";
+            return status === 404 ? "missing" : "failed";
+          }, lifecycle.signal);
           if (lifecycle.signal.aborted) {
             return;
           }
-          if (
-            loaded === null &&
-            !listed &&
-            viewedSessionIdRef.current.trim() === sessionId
-          ) {
-            // An id the server does not serve: nothing to keep a skeleton up
-            // for, so it lands on the empty state like any unknown id, on a
-            // new chat's settings: its first message creates it.
-            setSessionLoading(false);
-            resetNewChatSettings();
-          }
+          // An id the server does not serve: nothing to keep a skeleton up
+          // for, so it lands on the empty state like any unknown id, and its
+          // first message creates it. A read that failed every time keeps
+          // the skeleton: the session may well be there.
+          if (outcome === "missing") settleUnknownSession(sessionId);
+          const loaded = read.items;
           if (activeComposerSidRef.current.has(sessionId)) {
             const sh = streamShadowBySidRef.current.get(sessionId);
             if (sh && sh.length > 0) {
@@ -6832,6 +6931,16 @@ export function App() {
     })();
   });
 
+  /**
+   * streamResponses as the latest render has it, for a send that resumes
+   * after an await (the queue's fallback): the one its own render held would
+   * read the loading, the mode, the model and the level of that moment, not
+   * of the moment it sends.
+   */
+  const sendLatest = useStableHandler(
+    (text: string, opts?: Parameters<typeof streamResponses>[1]) =>
+      streamResponses(text, opts),
+  );
   const handleQueueMessage = useStableHandler(
     (text: string, mode: QueueMode, files: File[] = []) => {
       const sid = sessionId.trim();
@@ -6897,7 +7006,7 @@ export function App() {
           // ordinary prompt; if the admission has not been released yet and that
           // is refused too, the text comes back to the composer rather than
           // being lost between the two answers.
-          void streamResponses(body, { files, restoreOnRefusal: true });
+          void sendLatest(body, { files, restoreOnRefusal: true });
           return;
         }
         if (viewedSessionIdRef.current.trim() === sid) {
