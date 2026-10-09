@@ -91,11 +91,6 @@ func sharedModelFindings(cfg *Config, body *yaml.Node, extra ExtraTokens, loadEr
 
 	out = append(out, blankSharedTokenFindings(body)...)
 	out = append(out, swarmClientFindings(cfg, body, extra)...)
-	if len(cfg.HTTPServer.SharedModels.CertNames) > 0 && strings.TrimSpace(cfg.HTTPServer.TLS.ClientCAFile) == "" {
-		out = append(out, locatedFinding(body, SeverityWarning, "httpserver.shared_models.cert_names",
-			"cert_names have no effect without httpserver.tls.client_ca_file: the server verifies no client certificate, so none of these names can match",
-			"set httpserver.tls.client_ca_file (and httpserver.tls.cert_file and key_file), or remove cert_names"))
-	}
 	out = append(out, swarmJoinLabelFindings(cfg, body)...)
 	if h := cfg.HTTPServer.SharedModels; h.RateBurst > 0 && h.RatePerMinute == 0 {
 		at(SeverityWarning, "httpserver.shared_models.rate_burst",
@@ -200,13 +195,8 @@ func swarmClientFindings(cfg *Config, body *yaml.Node, extra ExtraTokens) []Find
 		base := fmt.Sprintf("swarm.clients[%d]", i)
 		if !c.HasCredential() {
 			at(base+".token",
-				"the token is empty (an ${ENV} reference to an unset variable?) and the entry has no cert_names: nothing can authenticate as this client, so it is ignored",
-				"set the variable, add cert_names, or remove the entry")
-		}
-		if len(c.CertNames) > 0 && strings.TrimSpace(cfg.Swarm.TLS.ClientCAFile) == "" {
-			at(base+".cert_names",
-				"cert_names have no effect without swarm.tls.client_ca_file: the relay verifies no client certificate, so none of these names can match",
-				"set swarm.tls.client_ca_file (and swarm.tls.cert_file and key_file), or remove cert_names")
+				"the token is empty (an ${ENV} reference to an unset variable?): nothing can authenticate as this client, so it is ignored",
+				"set the variable, or remove the entry")
 		}
 		if c.RateBurst > 0 && c.RatePerMinute == 0 {
 			at(base+".rate_burst", "rate_burst has no effect without rate_per_minute", "set rate_per_minute, or remove rate_burst")

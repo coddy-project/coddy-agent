@@ -370,7 +370,6 @@ type SharedModelsJSON struct {
 	MaxCallMS        *int     `json:"max_call_ms,omitempty"`
 	RatePerMinute    int      `json:"rate_per_minute,omitempty"`
 	RateBurst        int      `json:"rate_burst,omitempty"`
-	CertNames        []string `json:"cert_names,omitempty"`
 }
 
 // HTTPLoginJSON mirrors HTTPLoginConfig. PasswordHash is write-only: reading
@@ -438,7 +437,6 @@ type SwarmClientJSON struct {
 	MaxStreams      int      `json:"max_streams,omitempty"`
 	RatePerMinute   int      `json:"rate_per_minute,omitempty"`
 	RateBurst       int      `json:"rate_burst,omitempty"`
-	CertNames       []string `json:"cert_names,omitempty"`
 }
 
 // SwarmNodeTLSJSON mirrors SwarmNodeTLSConfig.
@@ -453,7 +451,6 @@ type SwarmTLSJSON struct {
 	CertFile     string `json:"cert_file,omitempty"`
 	KeyFile      string `json:"key_file,omitempty"`
 	ClientCAFile string `json:"client_ca_file,omitempty"`
-	ClientAuth   string `json:"client_auth,omitempty"`
 }
 
 // SwarmDialJSON mirrors SwarmDialConfig. The proxy URL can carry credentials,
@@ -670,10 +667,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			MaxCallMS:        cloneIntPtr(c.HTTPServer.SharedModels.MaxCallMS),
 			RatePerMinute:    c.HTTPServer.SharedModels.RatePerMinute,
 			RateBurst:        c.HTTPServer.SharedModels.RateBurst,
-			CertNames:        append([]string(nil), c.HTTPServer.SharedModels.CertNames...),
 		},
 		TLS: SwarmTLSJSON{CertFile: c.HTTPServer.TLS.CertFile, KeyFile: c.HTTPServer.TLS.KeyFile,
-			ClientCAFile: c.HTTPServer.TLS.ClientCAFile, ClientAuth: c.HTTPServer.TLS.ClientAuth},
+			ClientCAFile: c.HTTPServer.TLS.ClientCAFile},
 	}
 	for _, rm := range c.HTTPServer.Remotes {
 		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
@@ -694,7 +690,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			AllowedOrigins: append([]string(nil), c.Swarm.CORS.AllowedOrigins...),
 		},
 		TLS: SwarmTLSJSON{CertFile: c.Swarm.TLS.CertFile, KeyFile: c.Swarm.TLS.KeyFile,
-			ClientCAFile: c.Swarm.TLS.ClientCAFile, ClientAuth: c.Swarm.TLS.ClientAuth},
+			ClientCAFile: c.Swarm.TLS.ClientCAFile},
 		NodeTLS:              SwarmNodeTLSJSON(c.Swarm.NodeTLS),
 		LeaseTTLSeconds:      c.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: c.Swarm.FanoutTimeoutSeconds,
@@ -721,7 +717,6 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			TokenConfigured: strings.TrimSpace(cl.Token) != "",
 			Nodes:           append([]string(nil), cl.Nodes...),
 			MaxStreams:      cl.MaxStreams, RatePerMinute: cl.RatePerMinute, RateBurst: cl.RateBurst,
-			CertNames: append([]string(nil), cl.CertNames...),
 		})
 	}
 	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled)}
@@ -923,10 +918,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			MaxCallMS:     cloneIntPtr(j.HTTPServer.SharedModels.MaxCallMS),
 			RatePerMinute: j.HTTPServer.SharedModels.RatePerMinute,
 			RateBurst:     j.HTTPServer.SharedModels.RateBurst,
-			CertNames:     append([]string(nil), j.HTTPServer.SharedModels.CertNames...),
 		},
 		TLS: HTTPTLSConfig{CertFile: j.HTTPServer.TLS.CertFile, KeyFile: j.HTTPServer.TLS.KeyFile,
-			ClientCAFile: j.HTTPServer.TLS.ClientCAFile, ClientAuth: j.HTTPServer.TLS.ClientAuth},
+			ClientCAFile: j.HTTPServer.TLS.ClientCAFile},
 	}
 	for _, rm := range j.HTTPServer.Remotes {
 		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))
@@ -947,7 +941,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			AllowedOrigins: append([]string(nil), j.Swarm.CORS.AllowedOrigins...),
 		},
 		TLS: SwarmTLSConfig{CertFile: j.Swarm.TLS.CertFile, KeyFile: j.Swarm.TLS.KeyFile,
-			ClientCAFile: j.Swarm.TLS.ClientCAFile, ClientAuth: j.Swarm.TLS.ClientAuth},
+			ClientCAFile: j.Swarm.TLS.ClientCAFile},
 		NodeTLS:              SwarmNodeTLSConfig(j.Swarm.NodeTLS),
 		LeaseTTLSeconds:      j.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: j.Swarm.FanoutTimeoutSeconds,
@@ -971,7 +965,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Name: cl.Name, Token: cl.Token, Scope: cl.Scope,
 			Nodes:      append([]string(nil), cl.Nodes...),
 			MaxStreams: cl.MaxStreams, RatePerMinute: cl.RatePerMinute, RateBurst: cl.RateBurst,
-			CertNames: append([]string(nil), cl.CertNames...),
 		})
 	}
 	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled)}

@@ -57,10 +57,6 @@ func TestSwarmClientValidation(t *testing.T) {
 		{"negative streams", []SwarmClient{ok(func(c *SwarmClient) { c.MaxStreams = -1 })}, "swarm.clients[0].max_streams", "negative"},
 		{"negative rate", []SwarmClient{ok(func(c *SwarmClient) { c.RatePerMinute = -5 })}, "swarm.clients[0].rate_per_minute", "negative"},
 		{"negative burst", []SwarmClient{ok(func(c *SwarmClient) { c.RatePerMinute = 5; c.RateBurst = -1 })}, "swarm.clients[0].rate_burst", "negative"},
-		{"overlapping cert names", []SwarmClient{
-			ok(func(c *SwarmClient) { c.Token = ""; c.CertNames = []string{"x.example"} }),
-			ok(func(c *SwarmClient) { c.Name = "b"; c.Token = ""; c.CertNames = []string{"x.example"} }),
-		}, "swarm.clients[1].cert_names", "x.example"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -152,16 +148,12 @@ func TestSwarmClientTokenClassAcrossTheFlags(t *testing.T) {
 
 func TestSwarmClientWarnings(t *testing.T) {
 	noOutOfBandCredentials(t)
-	// A blank token and no certificate names: the entry is ignored, so nobody can use it.
+	// A blank token: the entry is ignored, so nobody can use it.
 	rep := checkYAML(t, clientsYAML("    - name: a\n      token: ${CODDY_TEST_UNSET_CLIENT_TOKEN}\n      scope: shared_models\n      nodes: [a]\n"))
 	if !rep.Valid() {
 		t.Fatalf("a blank token is a warning, got errors: %+v", errorsOf(rep))
 	}
 	findingAt(t, rep.Findings, SeverityWarning, "swarm.clients[0].token")
-
-	// A certificate-only entry is valid and silent.
-	rep = checkYAML(t, clientsYAML("    - name: a\n      scope: shared_models\n      nodes: [a]\n      cert_names: [client.example]\n"))
-	noFindingAt(t, rep.Findings, "swarm.clients[0].token")
 
 	// A burst with no rate.
 	rep = checkYAML(t, clientsYAML("    - name: a\n      token: t1\n      scope: shared_models\n      nodes: [a]\n      rate_burst: 4\n"))
@@ -195,7 +187,7 @@ func TestSwarmClientsRoundTripThroughTheSettingsDocument(t *testing.T) {
 	cfg.Swarm.Clients = []SwarmClient{{
 		Name: "acme", Token: "acme-secret", Scope: ScopeSharedModels,
 		Nodes: []string{"workstation", "edge/gpu-box"}, MaxStreams: 2,
-		RatePerMinute: 30, RateBurst: 10, CertNames: []string{"acme.example"},
+		RatePerMinute: 30, RateBurst: 10,
 	}}
 	dto := ConfigToJSONDTO(cfg)
 	if len(dto.Swarm.Clients) != 1 {
@@ -206,7 +198,7 @@ func TestSwarmClientsRoundTripThroughTheSettingsDocument(t *testing.T) {
 		t.Errorf("the token must be write-only: %+v", got)
 	}
 	if got.Name != "acme" || got.Scope != "shared_models" || got.MaxStreams != 2 || got.RatePerMinute != 30 ||
-		got.RateBurst != 10 || len(got.Nodes) != 2 || len(got.CertNames) != 1 {
+		got.RateBurst != 10 || len(got.Nodes) != 2 {
 		t.Errorf("fields lost: %+v", got)
 	}
 

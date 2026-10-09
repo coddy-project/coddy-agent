@@ -1,9 +1,11 @@
 package netx
 
 // The certificate scenarios of docs/operate/certificates.md, run as real TLS handshakes over loopback with the functions Coddy itself
-// uses: Options.TLSConfig on the dialling side (the authority it trusts, the pair it presents) and ClientCertTLS plus CertificateNames
-// on the serving side (the authority client certificates are verified against, the names that map them). The statements of the guide
-// that depend on crypto/x509 and on those two functions are held here, so a change of either breaks the guide's tests, not a reader.
+// uses: Options.TLSConfig on the dialling side (the authority it trusts, the pair it presents) and ClientCertTLS on the serving side (the
+// authority a client certificate must chain to). TLS is the transport's business: the application reads no identity out of a certificate,
+// so the test server below only reports the common name of the verified client certificate, to show which one the handshake admitted.
+// The statements of the guide that depend on crypto/x509 and on those two functions are held here, so a change of either breaks the
+// guide's tests, not a reader.
 
 import (
 	"crypto/ecdsa"
@@ -129,15 +131,15 @@ func writePEM(t *testing.T, dir, name string, certs ...*scenarioCert) string {
 	return path
 }
 
-// scenarioServer is a TLS listener the way coddy serve builds one: its own pair, and the client authority and mode of ClientCertTLS.
-// Each request answers with the names the client certificate mapped to, read the way the gate reads them.
+// scenarioServer is a TLS listener the way coddy serve builds one: its own pair, and the client authority of ClientCertTLS. Each request
+// answers with the common name of the verified client certificate, or nothing when the peer presented none (a listener with no client CA).
 type scenarioServer struct {
 	ts *httptest.Server
 }
 
-func startScenarioServer(t *testing.T, serverPair tls.Certificate, clientCAFile, mode string) *scenarioServer {
+func startScenarioServer(t *testing.T, serverPair tls.Certificate, clientCAFile string) *scenarioServer {
 	t.Helper()
-	cfg, err := ClientCertTLS(clientCAFile, mode, "test.client_ca_file")
+	cfg, err := ClientCertTLS(clientCAFile, "test.client_ca_file")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,12 +148,21 @@ func startScenarioServer(t *testing.T, serverPair tls.Certificate, clientCAFile,
 	}
 	cfg.Certificates = []tls.Certificate{serverPair}
 	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(strings.Join(CertificateNames(r.TLS, time.Now()), ",")))
+		_, _ = w.Write([]byte(presentedCN(r.TLS)))
 	}))
 	ts.TLS = cfg
 	ts.StartTLS()
 	t.Cleanup(ts.Close)
 	return &scenarioServer{ts: ts}
+}
+
+// presentedCN is the common name of the verified client certificate of a connection, "" when there is none. A test helper: nothing in
+// Coddy reads it.
+func presentedCN(state *tls.ConnectionState) string {
+	if state == nil || len(state.VerifiedChains) == 0 || len(state.VerifiedChains[0]) == 0 {
+		return ""
+	}
+	return state.VerifiedChains[0][0].Subject.CommonName
 }
 
 // pairOf writes a certificate and its key under dir and loads them as a serving pair.
@@ -170,8 +181,8 @@ func loadPair(t *testing.T, certPath, keyPath string) tls.Certificate {
 	return pair
 }
 
-// get dials the server with the settings of one outbound leg, as a coddy row, a join or a relay does, and returns the names the server
-// mapped the presented certificate to, or the error of the handshake.
+// get dials the server with the settings of one outbound leg, as a coddy row, a join or a relay does, and returns the common name of
+// the certificate the server verified, or the error of the handshake.
 func (s *scenarioServer) get(t *testing.T, opts Options, host string) (string, error) {
 	t.Helper()
 	u, _ := url.Parse(s.ts.URL)
@@ -203,15 +214,15 @@ func TestScenarioSelfSignedClientCertificateIsItsOwnAnchor(t *testing.T) {
 	dir := t.TempDir()
 	serverCA := newScenarioCert(t, certSpec{cn: "server ca", ca: true})
 	srvPair := pairOf(t, serverCertFor(t, serverCA, "relay.example"), dir, "srv")
-	// The client certificate is self-signed: no CA, a DNS name that cert_names would list, the clientAuth key usage.
+	// The client certificate is self-signed: no CA, the clientAuth key usage.
 	alice := newScenarioCert(t, certSpec{cn: "alice", dns: []string{"alice.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
 	other := newScenarioCert(t, certSpec{cn: "mallory", dns: []string{"alice.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
-	srv := startScenarioServer(t, srvPair, writePEM(t, dir, "clients.pem", alice), ClientAuthRequired)
+	srv := startScenarioServer(t, srvPair, writePEM(t, dir, "clients.pem", alice))
 	trust := writePEM(t, dir, "server-ca.pem", serverCA)
 
 	aliceCert, aliceKey := alice.files(t, dir, "alice")
 	got, err := srv.get(t, Options{CAFile: trust, CertFile: aliceCert, KeyFile: aliceKey}, "relay.example")
-	if err != nil || got != "alice.example" {
+	if err != nil || got != "alice" {
 		t.Fatalf("the imported self-signed certificate: %q %v", got, err)
 	}
 	// A different self-signed certificate with the very same name is not that certificate: the name proves nothing without the anchor.
@@ -219,7 +230,7 @@ func TestScenarioSelfSignedClientCertificateIsItsOwnAnchor(t *testing.T) {
 	if got, err := srv.get(t, Options{CAFile: trust, CertFile: otherCert, KeyFile: otherKey}, "relay.example"); err == nil {
 		t.Fatalf("a self-signed certificate nobody imported was accepted: %q", got)
 	}
-	// And required means required: no certificate, no handshake.
+	// And a client CA means a certificate is required: no certificate, no handshake.
 	if got, err := srv.get(t, Options{CAFile: trust}, "relay.example"); err == nil {
 		t.Fatalf("a peer with no certificate was served under required: %q", got)
 	}
@@ -230,7 +241,7 @@ func TestScenarioSelfSignedServerCertificateTrustedByCAFile(t *testing.T) {
 	dir := t.TempDir()
 	relay := newScenarioCert(t, certSpec{cn: "relay", dns: []string{"relay.example"}, ips: []net.IP{net.ParseIP("127.0.0.1")},
 		eku: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
-	srv := startScenarioServer(t, pairOf(t, relay, dir, "srv"), "", "")
+	srv := startScenarioServer(t, pairOf(t, relay, dir, "srv"), "")
 	trust := writePEM(t, dir, "relay-self.pem", relay)
 
 	if got, err := srv.get(t, Options{CAFile: trust}, "relay.example"); err != nil {
@@ -255,12 +266,12 @@ func TestScenarioSelfSignedServerCertificateTrustedByCAFile(t *testing.T) {
 }
 
 // The relay (or any operator) as the private CA of its clients: one authority issues the server certificate and every client certificate,
-// and the clients are told apart by the names in cert_names.
+// and the handshake admits whatever chains to it.
 func TestScenarioPrivateCAIssuesServerAndClients(t *testing.T) {
 	dir := t.TempDir()
 	ca := newScenarioCert(t, certSpec{cn: "coddy private ca", ca: true})
 	srv := startScenarioServer(t, pairOf(t, serverCertFor(t, ca, "relay.example"), dir, "srv"),
-		writePEM(t, dir, "ca.pem", ca), ClientAuthOptional)
+		writePEM(t, dir, "ca.pem", ca))
 	trust := writePEM(t, dir, "ca.pem", ca)
 	clientEKU := []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
 	for _, c := range []struct {
@@ -268,20 +279,20 @@ func TestScenarioPrivateCAIssuesServerAndClients(t *testing.T) {
 		spec certSpec
 		want string
 	}{
-		{"a DNS name", certSpec{cn: "a", dns: []string{"acme.example"}, eku: clientEKU, parent: ca}, "acme.example"},
-		{"a URI name", certSpec{cn: "b", uris: []string{"urn:coddy:client:acme"}, eku: clientEKU, parent: ca}, "urn:coddy:client:acme"},
-		{"no extended key usage at all", certSpec{cn: "c", dns: []string{"plain.example"}, parent: ca}, "plain.example"},
-		{"both key usages", certSpec{cn: "d", dns: []string{"both.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, parent: ca}, "both.example"},
+		{"a DNS name", certSpec{cn: "a", dns: []string{"acme.example"}, eku: clientEKU, parent: ca}, "a"},
+		{"a URI name", certSpec{cn: "b", uris: []string{"urn:coddy:client:acme"}, eku: clientEKU, parent: ca}, "b"},
+		{"no extended key usage at all", certSpec{cn: "c", dns: []string{"plain.example"}, parent: ca}, "c"},
+		{"both key usages", certSpec{cn: "d", dns: []string{"both.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, parent: ca}, "d"},
 	} {
 		certPath, keyPath := newScenarioCert(t, c.spec).files(t, dir, strings.ReplaceAll(c.name, " ", "-"))
 		got, err := srv.get(t, Options{CAFile: trust, CertFile: certPath, KeyFile: keyPath}, "relay.example")
 		if err != nil || got != c.want {
-			t.Errorf("%s: %q %v, want the name %q", c.name, got, err, c.want)
+			t.Errorf("%s: %q %v, want the certificate %q admitted", c.name, got, err, c.want)
 		}
 	}
-	// Optional mode: a peer with no certificate is let in (a browser, a bearer client) and has no name.
-	if got, err := srv.get(t, Options{CAFile: trust}, "relay.example"); err != nil || got != "" {
-		t.Errorf("no certificate under optional: %q %v", got, err)
+	// A peer with no certificate is refused at the handshake (a browser included): who may come without one is a reverse proxy's decision.
+	if got, err := srv.get(t, Options{CAFile: trust}, "relay.example"); err == nil {
+		t.Errorf("a peer with no certificate was served: %q", got)
 	}
 }
 
@@ -292,11 +303,11 @@ func TestScenarioIntermediateAuthority(t *testing.T) {
 	inter := newScenarioCert(t, certSpec{cn: "issuing", ca: true, parent: root})
 	leaf := newScenarioCert(t, certSpec{cn: "node", dns: []string{"node.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, parent: inter})
 	srv := startScenarioServer(t, pairOf(t, serverCertFor(t, root, "relay.example"), dir, "srv"),
-		writePEM(t, dir, "root.pem", root), ClientAuthRequired)
+		writePEM(t, dir, "root.pem", root))
 	trust := writePEM(t, dir, "root.pem", root)
 
 	withChain, keyPath := leaf.files(t, dir, "with-chain", inter)
-	if got, err := srv.get(t, Options{CAFile: trust, CertFile: withChain, KeyFile: keyPath}, "relay.example"); err != nil || got != "node.example" {
+	if got, err := srv.get(t, Options{CAFile: trust, CertFile: withChain, KeyFile: keyPath}, "relay.example"); err != nil || got != "node" {
 		t.Fatalf("a leaf presented with its intermediate: %q %v", got, err)
 	}
 	alone, keyAlone := leaf.files(t, dir, "alone")
@@ -305,8 +316,8 @@ func TestScenarioIntermediateAuthority(t *testing.T) {
 	}
 	// Putting the intermediate into the authority bundle instead also works: the bundle is any set of anchors.
 	both := writePEM(t, dir, "inter.pem", inter)
-	srv2 := startScenarioServer(t, pairOf(t, serverCertFor(t, root, "relay.example"), dir, "srv2"), both, ClientAuthRequired)
-	if got, err := srv2.get(t, Options{CAFile: trust, CertFile: alone, KeyFile: keyAlone}, "relay.example"); err != nil || got != "node.example" {
+	srv2 := startScenarioServer(t, pairOf(t, serverCertFor(t, root, "relay.example"), dir, "srv2"), both)
+	if got, err := srv2.get(t, Options{CAFile: trust, CertFile: alone, KeyFile: keyAlone}, "relay.example"); err != nil || got != "node" {
 		t.Errorf("an intermediate as the anchor: %q %v", got, err)
 	}
 }
@@ -316,7 +327,7 @@ func TestScenarioServerOnlyCertificateIsNotAClientCertificate(t *testing.T) {
 	dir := t.TempDir()
 	ca := newScenarioCert(t, certSpec{cn: "public-like ca", ca: true})
 	srv := startScenarioServer(t, pairOf(t, serverCertFor(t, ca, "relay.example"), dir, "srv"),
-		writePEM(t, dir, "ca.pem", ca), ClientAuthRequired)
+		writePEM(t, dir, "ca.pem", ca))
 	trust := writePEM(t, dir, "ca.pem", ca)
 	serverOnly := newScenarioCert(t, certSpec{cn: "www", dns: []string{"www.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, parent: ca})
 	certPath, keyPath := serverOnly.files(t, dir, "www")
@@ -326,15 +337,14 @@ func TestScenarioServerOnlyCertificateIsNotAClientCertificate(t *testing.T) {
 	}
 }
 
-// A wildcard certificate: as the server's certificate it names every host one label below; as a client identity its name is the literal
-// string, shared by everyone who holds the key, so it is no way to tell two clients apart.
+// A wildcard certificate: as the server's certificate it names every host one label below, and not the bare domain or a deeper name.
 func TestScenarioWildcardCertificates(t *testing.T) {
 	dir := t.TempDir()
 	ca := newScenarioCert(t, certSpec{cn: "corp ca", ca: true})
 	wild := newScenarioCert(t, certSpec{cn: "*.corp.example", dns: []string{"*.corp.example"}, ips: []net.IP{net.ParseIP("127.0.0.1")},
 		eku: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, parent: ca})
 	wildCert, wildKey := wild.files(t, dir, "wild")
-	srv := startScenarioServer(t, loadPair(t, wildCert, wildKey), writePEM(t, dir, "ca.pem", ca), ClientAuthOptional)
+	srv := startScenarioServer(t, loadPair(t, wildCert, wildKey), "")
 	trust := writePEM(t, dir, "ca.pem", ca)
 
 	for _, host := range []string{"relay.corp.example", "node.corp.example"} {
@@ -347,42 +357,31 @@ func TestScenarioWildcardCertificates(t *testing.T) {
 			t.Errorf("a wildcard certificate matched %s: it covers one label and not the bare domain", host)
 		}
 	}
-	got, err := srv.get(t, Options{CAFile: trust, CertFile: wildCert, KeyFile: wildKey}, "relay.corp.example")
-	if err != nil || got != "*.corp.example" {
-		t.Errorf("the same wildcard certificate as a client: %q %v, want the literal name", got, err)
-	}
 }
 
-// A personal certificate carries an e-mail address (S/MIME) or a user principal name, not a DNS or URI name: the chain is fine, the
-// handshake succeeds, and there is no name for cert_names to map.
-func TestScenarioPersonalCertificateWithOnlyAnEmailHasNoName(t *testing.T) {
+// A personal certificate carries an e-mail address (S/MIME) or a user principal name, not a DNS or URI name: the chain is fine and the
+// handshake admits it. Coddy reads no name out of a certificate, so there is nothing else to say about it.
+func TestScenarioPersonalCertificateIsAValidClientCertificate(t *testing.T) {
 	dir := t.TempDir()
 	ca := newScenarioCert(t, certSpec{cn: "corp ca", ca: true})
 	srv := startScenarioServer(t, pairOf(t, serverCertFor(t, ca, "relay.example"), dir, "srv"),
-		writePEM(t, dir, "ca.pem", ca), ClientAuthOptional)
+		writePEM(t, dir, "ca.pem", ca))
 	trust := writePEM(t, dir, "ca.pem", ca)
 	personal := newScenarioCert(t, certSpec{cn: "Alice Example", emails: []string{"alice@corp.example"},
 		eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageEmailProtection}, parent: ca})
 	certPath, keyPath := personal.files(t, dir, "alice")
 	got, err := srv.get(t, Options{CAFile: trust, CertFile: certPath, KeyFile: keyPath}, "relay.example")
-	if err != nil || got != "" {
-		t.Fatalf("an e-mail-only certificate: %q %v, want a successful handshake and no name", got, err)
-	}
-	// The same person with a URI name added by the CA (a template that supplies one) is identified.
-	named := newScenarioCert(t, certSpec{cn: "Alice Example", emails: []string{"alice@corp.example"}, uris: []string{"urn:coddy:user:alice"},
-		eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, parent: ca})
-	certPath, keyPath = named.files(t, dir, "alice-named")
-	if got, err := srv.get(t, Options{CAFile: trust, CertFile: certPath, KeyFile: keyPath}, "relay.example"); err != nil || got != "urn:coddy:user:alice" {
-		t.Errorf("a personal certificate with a URI name: %q %v", got, err)
+	if err != nil || got != "Alice Example" {
+		t.Fatalf("an e-mail-only certificate: %q %v, want it admitted", got, err)
 	}
 }
 
-// A certificate outside its validity is refused at the handshake, and a leaf that expires on an open connection has no name on the next request.
+// A certificate outside its validity is refused at the handshake.
 func TestScenarioExpiredAndNotYetValidCertificates(t *testing.T) {
 	dir := t.TempDir()
 	ca := newScenarioCert(t, certSpec{cn: "ca", ca: true})
 	srv := startScenarioServer(t, pairOf(t, serverCertFor(t, ca, "relay.example"), dir, "srv"),
-		writePEM(t, dir, "ca.pem", ca), ClientAuthOptional)
+		writePEM(t, dir, "ca.pem", ca))
 	trust := writePEM(t, dir, "ca.pem", ca)
 	for name, spec := range map[string]certSpec{
 		"expired":       {cn: "e", dns: []string{"e.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, notBefore: time.Now().Add(-48 * time.Hour), notAfter: time.Now().Add(-time.Hour), parent: ca},
@@ -390,8 +389,8 @@ func TestScenarioExpiredAndNotYetValidCertificates(t *testing.T) {
 	} {
 		spec.parent = ca
 		certPath, keyPath := newScenarioCert(t, spec).files(t, dir, strings.ReplaceAll(name, " ", "-"))
-		if got, err := srv.get(t, Options{CAFile: trust, CertFile: certPath, KeyFile: keyPath}, "relay.example"); err == nil && got != "" {
-			t.Errorf("%s certificate gave the name %q", name, got)
+		if got, err := srv.get(t, Options{CAFile: trust, CertFile: certPath, KeyFile: keyPath}, "relay.example"); err == nil {
+			t.Errorf("%s certificate was admitted as %q", name, got)
 		}
 	}
 }
@@ -430,7 +429,7 @@ func TestScenarioClientCertificateRotationNeedsNoRestart(t *testing.T) {
 	dir := t.TempDir()
 	ca := newScenarioCert(t, certSpec{cn: "ca", ca: true})
 	srv := startScenarioServer(t, pairOf(t, serverCertFor(t, ca, "relay.example"), dir, "srv"),
-		writePEM(t, dir, "ca.pem", ca), ClientAuthOptional)
+		writePEM(t, dir, "ca.pem", ca))
 	trust := writePEM(t, dir, "ca.pem", ca)
 	eku := []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
 	first := newScenarioCert(t, certSpec{cn: "v1", dns: []string{"v1.example"}, eku: eku, parent: ca})
@@ -452,40 +451,40 @@ func TestScenarioClientCertificateRotationNeedsNoRestart(t *testing.T) {
 		n, _ := res.Body.Read(buf)
 		return string(buf[:n])
 	}
-	if got := dial(); got != "v1.example" {
+	if got := dial(); got != "v1" {
 		t.Fatalf("before the rotation: %q", got)
 	}
 	// Rotate: the renewed pair replaces the files; one TLS configuration, built once, keeps serving.
 	time.Sleep(20 * time.Millisecond) // the loader's cache is keyed by size and modification time
 	second := newScenarioCert(t, certSpec{cn: "v2", dns: []string{"v2.example-renewed"}, eku: eku, parent: ca})
 	second.files(t, dir, "client")
-	if got := dial(); got != "v2.example-renewed" {
+	if got := dial(); got != "v2" {
 		t.Fatalf("after the rotation, on the same configuration: %q, want the renewed certificate", got)
 	}
 }
 
-// An imported self-signed file is an anchor, so whatever it is allowed to sign is accepted too: a file with CA:TRUE (what `openssl req -x509`
-// makes unless told otherwise) lets its holder issue a certificate with any name, including one another client is known by. The guide tells
-// the operator to import only files that say CA:FALSE.
+// An imported self-signed file is an anchor, so whatever it is allowed to sign is admitted too: a file with CA:TRUE (what `openssl req -x509`
+// makes unless told otherwise) lets its holder issue certificates the listener admits, in any name. The guide tells the operator to import
+// only files that say CA:FALSE.
 func TestScenarioAnImportedSelfSignedCAFileAcceptsWhatItSigns(t *testing.T) {
 	dir := t.TempDir()
 	serverCA := newScenarioCert(t, certSpec{cn: "server ca", ca: true})
 	bob := newScenarioCert(t, certSpec{cn: "bob", dns: []string{"bob.example"}, ca: true, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
 	alice := newScenarioCert(t, certSpec{cn: "alice", dns: []string{"alice.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
 	bundle := writePEM(t, dir, "clients.pem", alice, bob) // alice imported her certificate, bob imported his: his has CA:TRUE
-	server := startScenarioServer(t, pairOf(t, serverCertFor(t, serverCA, "relay.example"), dir, "srv2"), bundle, ClientAuthRequired)
+	server := startScenarioServer(t, pairOf(t, serverCertFor(t, serverCA, "relay.example"), dir, "srv2"), bundle)
 	trust := writePEM(t, dir, "server-ca.pem", serverCA)
 
-	// Bob signs a certificate that carries alice's name.
+	// Bob signs a certificate for himself under alice's name.
 	forged := newScenarioCert(t, certSpec{cn: "alice", dns: []string{"alice.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, parent: bob})
 	certPath, keyPath := forged.files(t, dir, "forged", bob)
 	got, err := server.get(t, Options{CAFile: trust, CertFile: certPath, KeyFile: keyPath}, "relay.example")
-	if err != nil || got != "alice.example" {
-		t.Fatalf("expected the demonstration to hold: a CA:TRUE import accepts a certificate it signed with alice's name: %q %v", got, err)
+	if err != nil || got != "alice" {
+		t.Fatalf("expected the demonstration to hold: a CA:TRUE import admits a certificate it signed: %q %v", got, err)
 	}
 	// The same attempt against a bundle whose self-signed file says CA:FALSE fails: the leaf is not an authority.
 	bobLeaf := newScenarioCert(t, certSpec{cn: "bob", dns: []string{"bob.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
-	safe := startScenarioServer(t, pairOf(t, serverCertFor(t, serverCA, "relay.example"), dir, "srv3"), writePEM(t, dir, "safe.pem", alice, bobLeaf), ClientAuthRequired)
+	safe := startScenarioServer(t, pairOf(t, serverCertFor(t, serverCA, "relay.example"), dir, "srv3"), writePEM(t, dir, "safe.pem", alice, bobLeaf))
 	// bobLeaf cannot sign (its x509 template has no CertSign), so the same forgery cannot even be made with it as the issuer by a verifier.
 	forged2 := newScenarioCert(t, certSpec{cn: "alice", dns: []string{"alice.example"}, eku: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, parent: bobLeaf})
 	cert2, key2 := forged2.files(t, dir, "forged2", bobLeaf)

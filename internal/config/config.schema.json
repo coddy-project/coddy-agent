@@ -1264,14 +1264,6 @@
               "default": 1800000,
               "minimum": 0,
               "maximum": 28800000
-            },
-            "cert_names": {
-              "type": "array",
-              "description": "DNS or URI names in a verified client certificate (httpserver.tls.client_ca_file) that open GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage, POST /coddy/llm/completions and the probe's POST /coddy/llm/alive as their own credential class, and nothing else. Each name has its own max_streams slots and rate_per_minute window, so no relay is needed to tell borrowers apart. A name matches exactly; the CN is not consulted. Has no effect without httpserver.tls.client_ca_file (coddy -t warns); with it, the names count as a credential for the shared-model routes.",
-              "items": {
-                "type": "string"
-              },
-              "default": []
             }
           }
         },
@@ -1293,17 +1285,7 @@
             },
             "client_ca_file": {
               "type": "string",
-              "description": "PEM bundle that client certificates are verified against. With it the server asks for a certificate on every connection; httpserver.shared_models.cert_names admit a verified certificate on the shared-model routes. Needs cert_file and key_file. Startup state: changing it takes a restart.",
-              "default": ""
-            },
-            "client_auth": {
-              "type": "string",
-              "description": "optional: verify a client certificate when one is offered and let peers without one in (browsers and bearer-token clients). required: refuse a peer without a verified certificate at the handshake, every caller included. Empty with a client_ca_file means optional; the key needs a client_ca_file.",
-              "enum": [
-                "",
-                "optional",
-                "required"
-              ],
+              "description": "PEM bundle that client certificates are verified against. With it the TLS handshake requires a certificate that chains to it and refuses every peer without one (mutual TLS admission at the transport level: Coddy reads no identity out of the certificate, so who may do what is for a reverse proxy). Needs cert_file and key_file. Startup state: changing it takes a restart.",
               "default": ""
             }
           }
@@ -1413,13 +1395,7 @@
             },
             "client_ca_file": {
               "type": "string",
-              "description": "PEM bundle that client certificates are verified against. With it the relay asks for a certificate on every connection; swarm.clients[].cert_names map a verified certificate to a scoped client. Needs cert_file and key_file. Startup state: changing it takes a restart.",
-              "default": ""
-            },
-            "client_auth": {
-              "type": "string",
-              "description": "optional: verify a client certificate when one is offered and let peers without one in, for the routes that need none. required: refuse a peer without a verified certificate at the handshake, nodes that join included (they present dial.cert_file and key_file). Empty with a client_ca_file means optional; the key needs a client_ca_file.",
-              "enum": ["", "optional", "required"],
+              "description": "PEM bundle that client certificates are verified against. With it the TLS handshake requires a certificate that chains to it and refuses every peer without one, nodes that join included (they present dial.cert_file and key_file). Coddy reads no identity out of the certificate: a client of the relay is told apart by its token. Needs cert_file and key_file. Startup state: changing it takes a restart.",
               "default": ""
             }
           }
@@ -1512,7 +1488,7 @@
                   },
                   "cert_file": {
                     "type": "string",
-                    "description": "PEM client certificate this end presents when the other asks for one: a relay with swarm.tls.client_ca_file (required or optional) for a join, a node with httpserver.tls.client_ca_file or a child relay for an upstream. Set together with key_file; read at each handshake.",
+                    "description": "PEM client certificate this end presents when the other asks for one: a relay with swarm.tls.client_ca_file for a join, a node with httpserver.tls.client_ca_file or a child relay for an upstream. Set together with key_file; read at each handshake.",
                     "default": ""
                   },
                   "key_file": {
@@ -1587,7 +1563,7 @@
                   },
                   "cert_file": {
                     "type": "string",
-                    "description": "PEM client certificate this end presents when the other asks for one: a relay with swarm.tls.client_ca_file (required or optional) for a join, a node with httpserver.tls.client_ca_file or a child relay for an upstream. Set together with key_file; read at each handshake.",
+                    "description": "PEM client certificate this end presents when the other asks for one: a relay with swarm.tls.client_ca_file for a join, a node with httpserver.tls.client_ca_file or a child relay for an upstream. Set together with key_file; read at each handshake.",
                     "default": ""
                   },
                   "key_file": {
@@ -1644,13 +1620,6 @@
                 "type": "integer",
                 "description": "Calls allowed at once before rate_per_minute applies. Empty takes the rate, capped by max_streams, at least 1.",
                 "default": 0
-              },
-              "cert_names": {
-                "type": "array",
-                "description": "DNS or URI names in a client certificate that stand for this client; one name maps to one entry.",
-                "items": {
-                  "type": "string"
-                }
               }
             },
             "required": ["name", "scope", "nodes"]

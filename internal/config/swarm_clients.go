@@ -16,8 +16,9 @@ const ScopeSharedModels = "shared_models"
 type SwarmClient struct {
 	// Name labels the entry in logs and counters. Unique, lower case.
 	Name string `yaml:"name"`
-	// Token is the bearer credential of the entry. May be empty when the entry
-	// is reached by a client certificate alone (CertNames).
+	// Token is the bearer credential of the entry. An entry with no token (an
+	// ${ENV} reference to an unset variable) can be authenticated by nothing and
+	// is ignored.
 	Token string `yaml:"token"`
 	// Scope is the only thing the credential opens; shared_models.
 	Scope string `yaml:"scope"`
@@ -31,9 +32,6 @@ type SwarmClient struct {
 	// client in a window.
 	RatePerMinute int `yaml:"rate_per_minute"`
 	RateBurst     int `yaml:"rate_burst"`
-	// CertNames are the DNS and URI SANs of the client certificates that stand
-	// for this entry.
-	CertNames []string `yaml:"cert_names"`
 }
 
 const (
@@ -67,7 +65,7 @@ func (c SwarmClient) EffectiveBurst() int {
 
 // HasCredential reports whether anything can authenticate the entry.
 func (c SwarmClient) HasCredential() bool {
-	return strings.TrimSpace(c.Token) != "" || len(c.CertNames) > 0
+	return strings.TrimSpace(c.Token) != ""
 }
 
 func (c *SwarmClient) normalize() {
@@ -75,7 +73,6 @@ func (c *SwarmClient) normalize() {
 	c.Token = strings.TrimSpace(c.Token)
 	c.Scope = strings.TrimSpace(c.Scope)
 	c.Nodes = trimmedStrings(c.Nodes)
-	c.CertNames = trimmedStrings(c.CertNames)
 }
 
 // trimmedStrings trims every entry, keeping empty ones out.
@@ -97,7 +94,6 @@ func trimmedStrings(in []string) []string {
 // the file.
 func (s *SwarmConfig) validateClients() error {
 	names := map[string]bool{}
-	certs := map[string]string{}
 	for i, c := range s.Clients {
 		at := func(key string) string { return fmt.Sprintf("swarm.clients[%d].%s", i, key) }
 		switch {
@@ -134,12 +130,6 @@ func (s *SwarmConfig) validateClients() error {
 		}
 		if c.RateBurst < 0 {
 			return fmt.Errorf("%s: must not be negative", at("rate_burst"))
-		}
-		for _, n := range c.CertNames {
-			if other, dup := certs[n]; dup {
-				return fmt.Errorf("%s: %q is also listed under client %q: one certificate name maps to one entry", at("cert_names"), n, other)
-			}
-			certs[n] = c.Name
 		}
 	}
 	return nil

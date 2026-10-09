@@ -44,7 +44,7 @@ models:
     shared_as: terra
 ```
 
-Bind the remote to an address the borrowers can reach, put TLS on the port (a reverse proxy in front, or [`httpserver.tls`](#tls-and-client-certificates-on-the-listener) on the listener itself; without either `coddy serve` speaks plain HTTP), start `coddy serve`, and check what it offers:
+Bind the remote to an address the borrowers can reach, put TLS on the port (a reverse proxy in front, or [`httpserver.tls`](#tls-on-the-listener) on the listener itself; without either `coddy serve` speaks plain HTTP), start `coddy serve`, and check what it offers:
 
 ```bash
 curl -s -H "Authorization: Bearer $CODDY_SHARED_MODELS_TOKEN" https://workstation.example:12345/coddy/llm/models
@@ -318,29 +318,26 @@ Directly, `api_base` is the remote's origin and the token is the remote's. Throu
 
 Two facts shape every relay setup. The relay replaces the caller's credential with the one the node joined with, so the node sees one caller and the limit (five by default) covers every client of that relay together: it protects the node and its provider, not clients from each other. And the relay client token a borrower puts into `api_key` opens the mounts of every node of that relay, each with the token that node joined with, so a shared-model token protects only the nodes that joined with one. (That is the full class; a [scoped client](../operate/swarm.md#scoped-clients) reaches only the nodes it lists.)
 
-### TLS and client certificates on the listener
+### TLS on the listener
 
-*How to obtain and install the certificates (self-signed, a private authority, a company or purchased certificate, ACME, passphrases) is in [Certificates and TLS](../operate/certificates.md).*
+*How Coddy makes the certificates (`coddy tls`, built in) and how to use your own (a company authority, a purchased certificate, ACME) is in [Certificates and TLS](../operate/certificates.md).*
 
-`coddy serve` can terminate TLS itself, and then tell borrowers apart by certificate, with no relay and no token to hand out:
+TLS is the transport's business and nothing else. `coddy serve` can terminate it itself:
 
 ```yaml
 httpserver:
   tls:
     cert_file: /etc/coddy/server.crt
     key_file: /etc/coddy/server.key
-    client_ca_file: /etc/coddy/clients-ca.pem   # ask for a client certificate
-    client_auth: optional                        # or required
-  shared_models:
-    cert_names: [alice.example, bob.example]     # DNS or URI names in the certificate
+    client_ca_file: /etc/coddy/clients-ca.pem   # optional: the handshake then requires a certificate that chains to it
 ```
 
-- **What a name opens.** A verified certificate with a listed name opens `GET /coddy/llm/models`, `GET /coddy/llm/models/{alias}/usage`, `POST /coddy/llm/completions` and the probe's ping `POST /coddy/llm/alive` as the class `mtls`, with no bearer, and nothing else: on every other route it gets the same `401` an unknown token gets. A main token still opens everything with or without a certificate in `optional` mode (`required` refuses a caller without one at the handshake, whatever it presents); a certificate never raises or lowers a credential. Names count as a credential together with a client CA: a node with only `cert_names` (and `client_ca_file`) closes every other route to every caller, and a shared row needs nothing more; names with no CA verify nothing and are no credential.
-- **Each name has its own budget.** The stream slots (`max_streams`) and the window (`rate_per_minute`) count per name, so `alice.example` waiting out a busy answer does not take `bob.example`'s slot. The counters at `GET /coddy/shared-models/stats` carry the class `mtls`, labels only, never the name.
-- **What is checked.** The chain is verified against `client_ca_file` at the handshake; the leaf's validity is checked again on every request, since a connection outlives a certificate; the names are the DNS and URI names, the CN is never read. `client_auth: optional` lets peers without a certificate in for the routes that need none (browsers, bearer clients); `required` refuses them at the handshake. The CA and the server certificate are startup state: rotating them takes a restart.
-- **HTTP/1.1 only.** The listener serves TLS without HTTP/2, so a shared call keeps a connection of its own and the [liveness bound](#a-peer-that-vanishes) applies to it.
-- **Not through an intermediary.** A TLS terminator in front, or the swarm tunnel, carries no client certificate: the node sees the terminator or the relay. Require the certificate there; through a relay, [`swarm.clients[].cert_names`](../operate/swarm.md#client-certificates) does the same job.
-- **Checks.** `coddy -t` refuses a half pair, an unknown `client_auth`, a CA without a certificate pair and a blank or repeated name, and warns about `cert_names` with no `client_ca_file`; `--dry-run` loads the pair and the CA bundle.
+- **What TLS does.** The listener presents its certificate. With `client_ca_file` the handshake **requires** a certificate that chains to that authority and refuses a peer without one. Nothing else: **Coddy reads no identity out of a certificate**, so a certificate is no credential, no class and no budget. The credential is a token (`httpserver.shared_models.tokens` for the shared routes, the main token for the whole API), and the budget is the token's.
+- **A certificate alone opens nothing.** A caller with a certificate and no token gets the same `401` as a caller with neither; a token over a certificate does what the token does.
+- **What a certificate holder may do** (which route, how often, from which address) is for a **reverse proxy** in front of the node and for the infrastructure: [where the other risks go](../operate/certificates.md#12-where-the-other-risks-go).
+- **HTTP/1.1 only.** The listener serves TLS without HTTP/2, so a shared call keeps a connection of its own and the [liveness bound](#a-peer-that-vanishes) applies to it. The CA and the server certificate are startup state: rotating them takes a restart.
+- **Not through an intermediary.** A TLS terminator in front, or the swarm tunnel, carries no client certificate to the node: the node sees the terminator or the relay. Where a certificate is required, require it there.
+- **Checks.** `coddy -t` refuses a half pair and a CA without a certificate pair; `--dry-run` loads the pair and the CA bundle.
 
 ### A private authority and a client certificate
 
@@ -445,7 +442,7 @@ Three of the four steps of [the plan](../plans/remote-model-provider.md#5-phases
 
 ## Tests
 
-The specification is `features/remote_model_provider.feature` (direct), `features/remote_model_provider_relay.feature` (through a relay, tags `http,swarm`), `features/shared_models_mtls.feature` (client certificates on the listener), `features/shared_models_probe.feature` (the application probe) and `features/swarm_client_scopes.feature` (scoped relay clients): the happy paths, the capabilities from the listing and the usage through the hop included. The unit tests sit next to the code: `internal/config/{capabilities,listing}*_test.go` (the three-state keys, the resolver, the lineage of a listing source, the guard that keeps every surface on the one reader), `internal/config/shared_models*_test.go` (aliases, acknowledgements, token classes, the credential rule, the check findings), `external/httpserver/shared_*_test.go` (the routes, the gate, the limiter, the timers, the usage projection and its key set, the liveness of a vanished peer, the error object, the OpenAPI document), `internal/llm/coddy*_test.go` (the client, the usage client, the HTTP/1.1-only transport, the busy wait, the error classification, the envelope, the listing), `internal/session/{capability_listing,provider_usage_coddy}_test.go` (the listing as a source of capabilities, the usage per alias), `internal/agent/coddy_provider_test.go`, `internal/dryrun/coddy_provider_test.go`, `internal/platform/usertimeout*_test.go`, `internal/httpx/*_test.go`, `internal/swarm/tunnel_liveness_test.go`, `external/swarm/{mount_liveness,liveness_stand}_test.go` and `cmd/coddy/serve_shared_models_test.go`.
+The specification is `features/remote_model_provider.feature` (direct), `features/remote_model_provider_relay.feature` (through a relay, tags `http,swarm`), `features/shared_models_tls.feature` (TLS on the listener: a certificate admits and gives no rights), `features/shared_models_probe.feature` (the application probe) and `features/swarm_client_scopes.feature` (scoped relay clients): the happy paths, the capabilities from the listing and the usage through the hop included. The unit tests sit next to the code: `internal/config/{capabilities,listing}*_test.go` (the three-state keys, the resolver, the lineage of a listing source, the guard that keeps every surface on the one reader), `internal/config/shared_models*_test.go` (aliases, acknowledgements, token classes, the credential rule, the check findings), `external/httpserver/shared_*_test.go` (the routes, the gate, the limiter, the timers, the usage projection and its key set, the liveness of a vanished peer, the error object, the OpenAPI document), `internal/llm/coddy*_test.go` (the client, the usage client, the HTTP/1.1-only transport, the busy wait, the error classification, the envelope, the listing), `internal/session/{capability_listing,provider_usage_coddy}_test.go` (the listing as a source of capabilities, the usage per alias), `internal/agent/coddy_provider_test.go`, `internal/dryrun/coddy_provider_test.go`, `internal/platform/usertimeout*_test.go`, `internal/httpx/*_test.go`, `internal/swarm/tunnel_liveness_test.go`, `external/swarm/{mount_liveness,liveness_stand}_test.go` and `cmd/coddy/serve_shared_models_test.go`.
 
 Two kernel tests exercise the mechanism of the 45-second promise against a real socket, at a scaled bound (the constants are shortened so the tests last half a minute). They need Linux with `unshare`, `ip` and `iptables` in a user namespace, so they are opt-in and stay out of `make test`:
 

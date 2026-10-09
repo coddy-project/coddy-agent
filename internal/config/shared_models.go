@@ -77,11 +77,6 @@ type SharedModelsConfig struct {
 	// RateBurst is how many calls may start at once before RatePerMinute
 	// applies. 0 or absent means min(rate_per_minute, max_streams), at least 1.
 	RateBurst int `yaml:"rate_burst,omitempty"`
-	// CertNames are the DNS and URI names of verified client certificates
-	// (httpserver.tls.client_ca_file) admitted on the shared-model routes (the three calls and the probe's ping) as their
-	// own credential class, each name with its own stream and rate budget. They
-	// open nothing else. Needs a client CA.
-	CertNames []string `yaml:"cert_names,omitempty"`
 }
 
 // Normalize trims the tokens. A blank entry is kept, so a report can point at
@@ -89,9 +84,6 @@ type SharedModelsConfig struct {
 func (s *SharedModelsConfig) Normalize() {
 	for i := range s.Tokens {
 		s.Tokens[i] = strings.TrimSpace(s.Tokens[i])
-	}
-	for i := range s.CertNames {
-		s.CertNames[i] = strings.TrimSpace(s.CertNames[i])
 	}
 }
 
@@ -105,16 +97,6 @@ func (s *SharedModelsConfig) Validate() error {
 	}
 	if s.RateBurst < 0 {
 		return fmt.Errorf("httpserver.shared_models.rate_burst must not be negative")
-	}
-	seen := map[string]bool{}
-	for _, n := range s.CertNames {
-		switch {
-		case strings.TrimSpace(n) == "":
-			return fmt.Errorf("httpserver.shared_models.cert_names: a name must not be blank")
-		case seen[n]:
-			return fmt.Errorf("httpserver.shared_models.cert_names: %q is listed twice", n)
-		}
-		seen[n] = true
 	}
 	if s.MaxCallMS != nil && (*s.MaxCallMS < 0 || *s.MaxCallMS > SharedModelsMaxCallCeilingMS) {
 		return fmt.Errorf("httpserver.shared_models.max_call_ms must be between 0 and %d (8 hours): got %d; 0 means the 8 hour ceiling, not \"no bound\"",
@@ -133,21 +115,6 @@ func (h *HTTPServerConfig) EffectiveSharedTokens() []string {
 	for _, t := range h.SharedModels.Tokens {
 		if t = strings.TrimSpace(t); t != "" {
 			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// EffectiveCertNames returns httpserver.shared_models.cert_names without the
-// blank entries (an unset ${ENV} reference expands to one).
-func (h *HTTPServerConfig) EffectiveCertNames() []string {
-	if h == nil {
-		return nil
-	}
-	var out []string
-	for _, n := range h.SharedModels.CertNames {
-		if n = strings.TrimSpace(n); n != "" {
-			out = append(out, n)
 		}
 	}
 	return out

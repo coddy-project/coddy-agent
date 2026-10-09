@@ -92,7 +92,7 @@ func (r *runner) paths() {
 			r.rep.add(c)
 		}
 		if ca := strings.TrimSpace(cfg.HTTPServer.TLS.ClientCAFile); ca != "" {
-			if _, err := netx.ClientCertTLS(ca, cfg.HTTPServer.TLS.EffectiveClientAuth(), "httpserver.tls.client_ca_file"); err != nil {
+			if _, err := netx.ClientCertTLS(ca, "httpserver.tls.client_ca_file"); err != nil {
 				r.rep.add(r.check(StatusError, "httpserver.tls.client_ca_file", "httpserver.tls.client_ca_file", "the client CA bundle is unusable: "+err.Error(), "point httpserver.tls.client_ca_file at a PEM bundle of certificates"))
 			} else {
 				r.rep.add(r.check(StatusOK, "httpserver.tls.client_ca_file", "httpserver.tls.client_ca_file", "client CA bundle loads", ""))

@@ -255,10 +255,24 @@ func TestIdentityTransportKeyIsStableAndFollowsTheFiles(t *testing.T) {
 		t.Fatal("two proxy settings share one transport with the same identity")
 	}
 
-	// A certificate rotated on disk builds a new transport.
+	// The key follows what the files hold, not their modification time (model p5-certloader): touching a file builds nothing new.
 	later := time.Now().Add(5 * time.Second)
 	if err := os.Chtimes(cert, later, later); err != nil {
 		t.Fatal(err)
+	}
+	if touched, _ := providerTransportWithIdentity("coddy", "none", id); touched != a {
+		t.Fatal("a touched file built a new transport: the key must follow the content")
+	}
+	// A certificate rotated on disk (new bytes in the same files) builds a new transport.
+	newCert, newKey := pki.issue(t, "alice-renewed", 3, false)
+	for from, to := range map[string]string{newCert: cert, newKey: key} {
+		raw, err := os.ReadFile(from)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(to, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if rotated, _ := providerTransportWithIdentity("coddy", "none", id); rotated == a {
 		t.Fatal("a rotated certificate kept the old transport")

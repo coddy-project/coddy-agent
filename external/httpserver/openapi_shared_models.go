@@ -171,7 +171,7 @@ func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 		map[string]interface{}{"bearerAuth": []interface{}{}},
 		map[string]interface{}{"cookieAuth": []interface{}{}},
 	}
-	access := "**Credentials.** A token of the LLM-only class (**`httpserver.shared_models.tokens`**) opens this route and the other three shared-model routes (the listing, the usage read and the probe's ping, with the completions) and nothing else: every other route answers it **401** like an unknown token. A verified client certificate whose name is in **`httpserver.shared_models.cert_names`** (class `mtls`, needs **`httpserver.tls.client_ca_file`**) opens the same four routes and nothing else. The main token and a signed-in browser open every route. " +
+	access := "**Credentials.** A token of the LLM-only class (**`httpserver.shared_models.tokens`**) opens this route and the other three shared-model routes (the listing, the usage read and the probe's ping, with the completions) and nothing else: every other route answers it **401** like an unknown token. A TLS client certificate is **not** a credential: with **`httpserver.tls.client_ca_file`** the handshake requires one and refuses a peer without, and the application reads no identity out of it. The main token and a signed-in browser open every route. " +
 		"Any shared-model token closes the whole API gate, so a node that holds only shared-model tokens refuses every route but these four to everyone. " +
 		"While **no credential of any class** is configured and **`httpserver.allow_insecure`** is not set, the route answers **403** with `kind: auth` (on a loopback listener too); once a credential exists an anonymous caller gets the gate's **401**. "
 
@@ -345,7 +345,7 @@ func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 				"required": []string{"alias", "class", "outcome", "calls", "input_tokens", "output_tokens", "duration_ms", "max_duration_ms"},
 				"properties": map[string]interface{}{
 					"alias":           map[string]interface{}{"type": "string", "description": "The shared alias, or `-` when the request named none of this node's rows or was refused before the body named one."},
-					"class":           map[string]interface{}{"type": "string", "enum": []string{"main", "shared", "mtls", "login", "anonymous", "unknown"}, "description": "The credential class that passed the gate: `shared` a shared-model token, `mtls` a verified client certificate named in `httpserver.shared_models.cert_names`; `unknown` is a bearer the gate refused on a shared route."},
+					"class":           map[string]interface{}{"type": "string", "enum": []string{"main", "shared", "login", "anonymous", "unknown"}, "description": "The credential class that passed the gate: `shared` a shared-model token; `unknown` is a bearer the gate refused on a shared route."},
 					"outcome":         map[string]interface{}{"type": "string", "enum": []string{"ok", "busy", "limited", "rate", "quota", "upstream", "invalid", "auth", "gone", "write"}, "description": "`limited` is a refusal by the window of `rate_per_minute`, `busy` a full stream slot, `rate` and `quota` the upstream's own 429, `gone` a client that disconnected or stopped pinging after it asked for the probe, `write` a failed write."},
 					"calls":           integer,
 					"input_tokens":    integer,
