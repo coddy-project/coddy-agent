@@ -4,8 +4,9 @@ Feature: Each provider reaches its server the way its own proxy setting says
   "none" connects directly and ignores that proxy, and a proxy URL sends the
   row's requests through that proxy instead. Leaving the key out, or writing
   "inherit", keeps the behaviour Coddy always had. The setting covers every
-  request the row makes - completions, model lists, account usage, sign-ins,
-  token refreshes and sign-outs - and belongs to its row alone, so a provider
+  request the row makes - completions, model lists, account usage, the pings
+  of a call to another Coddy, sign-ins, token refreshes and sign-outs - and
+  belongs to its row alone, so a provider
   that needs a proxy and one that must go direct live side by side in one
   config.
 
@@ -88,6 +89,22 @@ Feature: Each provider reaches its server the way its own proxy setting says
       | with proxy "inherit"    | 2                       | 0                     | 0        |
       | with proxy "none"       | 0                       | 0                     | 2        |
       | with a proxy of its own | 0                       | 2                     | 0        |
+
+  Scenario Outline: Every request of a coddy provider follows the provider's setting
+    Given the environment names a proxy for every request
+    And a "coddy" provider "shared" <setting>
+    When "shared" is asked for its model list, a streamed completion with its pings and its account usage
+    Then every answer comes back
+    And the environment's proxy carried <through the environment> requests
+    And the own proxy of "shared" carried <through its own proxy> requests
+    And the provider's servers were reached directly <directly> times
+
+    Examples:
+      | setting                 | through the environment | through its own proxy | directly |
+      | without a proxy setting | 4                       | 0                     | 0        |
+      | with proxy "inherit"    | 4                       | 0                     | 0        |
+      | with proxy "none"       | 0                       | 0                     | 4        |
+      | with a proxy of its own | 0                       | 4                     | 0        |
 
   Scenario: A proxy URL on one provider leaves the direct provider next to it alone
     Given the environment names a proxy for every request
