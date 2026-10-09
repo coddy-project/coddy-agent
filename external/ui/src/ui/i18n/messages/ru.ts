@@ -1789,10 +1789,19 @@ export const messagesRu: Record<string, string> = {
   "files.pdfDownload":
     "Скачайте PDF, чтобы открыть его в программе для просмотра.",
   "files.wrap": "Перенос строк",
+  "files.preview": "Просмотр",
+  "files.htmlTooLarge":
+    'Страница слишком большая для просмотра. Выключите "Просмотр", чтобы читать её исходник.',
   "files.imageUnavailable":
     "Превью изображения недоступно или превышает 20 МБ. Скачайте оригинал.",
   "files.actualSize": "Исходный размер",
   "files.fit": "Вписать изображение",
+  "image.menu": "Изображение",
+  "image.copy": "Копировать изображение",
+  "image.save": "Сохранить изображение",
+  "image.copied": "Изображение скопировано",
+  "image.copyFailed": "Не удалось скопировать изображение",
+  "image.saveFailed": "Не удалось сохранить изображение",
   "changes.binary": "бинарный",
   "changes.binaryBody": "Бинарный файл: построчного диффа нет.",
   "changes.truncated": "сокращён",

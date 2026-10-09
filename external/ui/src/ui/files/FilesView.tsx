@@ -15,6 +15,12 @@ import { onEnvironmentSwitch } from "../env/remoteEnv";
 import { phoneMaxWidthMediaQuery } from "../shellBreakpoint";
 import { FilePreview, folderOf, nameOf } from "./FilePreview";
 import { mediaUrl, readTree, rereadTree, searchFiles } from "./api";
+import { nameInset, rowInset } from "./treeGeometry";
+import {
+  previewKindOf,
+  readPreviewPrefs,
+  writePreviewPrefs,
+} from "./previewPrefs";
 import type { FileEntry, FileHit, TreePage } from "./api";
 import {
   IconExpand,
@@ -119,6 +125,9 @@ export function FilesView(props: {
   const [expandedWindow, setExpandedWindow] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [wrap, setWrap] = useState(true);
+  // Whether an SVG and an HTML file show what they draw or their source,
+  // remembered in this browser for every file of the kind.
+  const [previewPrefs, setPreviewPrefs] = useState(readPreviewPrefs);
   const [epoch, setEpoch] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
@@ -235,6 +244,13 @@ export function FilesView(props: {
   }, [tabs]);
 
   const workspaceName = workspacePath ? folderName(workspacePath) : "";
+  const activeKind = active ? previewKindOf(active) : null;
+  const togglePreview = () => {
+    if (!activeKind) return;
+    const next = { ...previewPrefs, [activeKind]: !previewPrefs[activeKind] };
+    setPreviewPrefs(next);
+    writePreviewPrefs(next);
+  };
 
   return (
     <div
@@ -330,6 +346,24 @@ export function FilesView(props: {
                     </span>
                     {t("files.wrap")}
                   </button>
+                  {activeKind ? (
+                    <button
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={previewPrefs[activeKind]}
+                      className="mode-item files-menu-item"
+                      data-testid="files-preview"
+                      onClick={() => {
+                        togglePreview();
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <span className="files-menu-check" aria-hidden>
+                        {previewPrefs[activeKind] ? "✓" : ""}
+                      </span>
+                      {t("files.preview")}
+                    </button>
+                  ) : null}
                   {active ? (
                     <>
                       <div className="files-menu-sep" role="separator" />
@@ -474,6 +508,7 @@ export function FilesView(props: {
               path={active}
               line={lineOf(active)}
               wrap={wrap}
+              preview={activeKind ? previewPrefs[activeKind] : false}
               epoch={epoch}
               activity={props.toolActivity || 0}
             />
@@ -765,7 +800,7 @@ function FilesSidebar(props: {
             "files-tree-row" +
             (entry.path_rel === props.active ? " is-active" : "")
           }
-          style={{ paddingLeft: 8 + depth * 14 }}
+          style={{ paddingLeft: rowInset(depth) }}
           title={isLink ? t("files.link") : entry.path_rel}
           disabled={unopenable}
           onClick={() =>
@@ -804,7 +839,7 @@ function FilesSidebar(props: {
             <button
               type="button"
               className="files-tree-more"
-              style={{ paddingLeft: 8 + depth * 14 + 20 }}
+              style={{ paddingLeft: nameInset(depth) }}
               onClick={() => void loadMore(dir, page)}
             >
               {t("files.moreEntries")}

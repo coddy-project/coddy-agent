@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 
 import { I18nProvider } from "../i18n/I18nProvider";
 import { TranscriptQuoteButton } from "./TranscriptQuoteButton";
@@ -130,8 +130,11 @@ test("a change of size of what the button keeps clear of places it again", async
     );
     try {
       expect(button.style.top).toBe("330px");
-      // The docked block is what the button watches while it is out.
-      expect(observed.has(dock)).toBe(true);
+      // The docked block is what the button watches while it is out. The
+      // observer is set up by an effect after the button shows, which the
+      // button's own appearance does not wait for: about one run in ten
+      // asked before it had run.
+      await waitFor(() => expect(observed.has(dock)).toBe(true));
       Object.defineProperty(Range.prototype, "getBoundingClientRect", {
         configurable: true,
         value: () =>

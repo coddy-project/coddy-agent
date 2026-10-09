@@ -465,3 +465,95 @@ Checks: `internal/gitws/backend_test.go` (every scenario with the binary and wit
 `features/session_changes.feature`, `external/httpserver/coddy_changes_test.go`,
 `changes/workingCopy.test.tsx`, `chat/WorkspaceBar.test.tsx`, and `npm run check:files`, which
 discards an edit through an authenticated relay.
+
+## 16. Revision: what the browser can draw (2026-10-09, issue #492)
+
+Issue #492 asked for an editor with syntax highlighting and for previews of every format
+(PDF, office documents, diagrams) through converters such as PDF.js, Mammoth, LibreOffice
+and Pandoc. The operator set the constraint first: the binary grows as little as possible,
+so what the browser already draws is drawn by the browser, and no npm dependency is added.
+Measured before the choice: the SPA embeds uncompressed (`app.js` 1.9 MB, lazy chunks
+5.5 MB, a 63.5 MB binary with every tag); CodeMirror 6 with search and replace, history and
+rectangular selection, coloured by our lowlight grammars, is a 317 KB chunk (102 KB gzip);
+a textarea editor in the style of `MarkdownLineEditor` would be about 20 KB; `archive/zip`,
+`encoding/xml` and `golang.org/x/net/html` are already linked, so an office-to-HTML
+converter in Go costs only its own code. The operator chose:
+
+- **No editor and no office formats** in this change. Both stay open on the issue.
+- **Highlighting** of an open file uses the chat's grammar registry and colours the lines on
+  screen as one text, so constructs that span lines keep their colour. The extension table
+  grew (and gained file names: `Containerfile`, `Jenkinsfile`, `CMakeLists.txt`, `Gemfile`,
+  dotfiles), and five small grammars joined the registry (`dockerfile`, `groovy`,
+  `protobuf`, `cmake`, `dos`; about 6.5 KB minified): the table used to name `dockerfile`
+  and `groovy`, which `common` lacks, so those files were silently plain. A test now holds
+  every name of the table to a registered grammar.
+- **PDF in the browser's own viewer**, where `navigator.pdfViewerEnabled` says it has one.
+  This revisits section 13, which kept PDF a download because no engine draws a PDF in a
+  sandboxed frame. The bytes now come through the authenticated reader (as a picture does,
+  up to 50 MiB, accepted only as `application/pdf`) into a `blob:` address an iframe shows
+  **without** `sandbox`; the viewer itself is the boundary. That is weaker than a PDF opened
+  from the raw route, which runs in the node's origin under its `sandbox` policy: a `blob:`
+  document belongs to the SPA's origin, so a flaw in a browser's viewer would reach the
+  page's storage. The operator accepted that risk for the preview. The raw route is unchanged: its `sandbox` policy
+  still covers every byte it serves. Chrome titles a `blob:` PDF with the address's UUID;
+  naming the file would mean serving the PDF from the raw route under a relaxed policy,
+  which was not done.
+- **SVG as a picture, HTML as source**, the other view a checkable **Preview** row of the
+  window's menu, remembered per kind in a cookie. An SVG is an `<img>` of a `data:` address typed
+  `image/svg+xml` (the raw route keeps serving it as a download): an image runs nothing and
+  loads nothing it names. Not a `blob:` address, which the first version used: a blob carries
+  the SPA's origin, and the cross-review showed that an SVG opened from one in a tab of its own
+  (dragged to the tab strip, or through Firefox's Shift+right click) runs its script there and
+  reads the tokens; a `data:` document's origin is opaque. The picture is not draggable either. An HTML page is read whole through the text reader (2,000,000
+  characters at most) and drawn in an `<iframe sandbox="">` over `srcdoc`: no script, form,
+  window or top navigation, an opaque origin, and a CSP meta first in the head
+  (`default-src 'none'`, inline styles and `data:` pictures and fonts only). Scripts,
+  `base`, `link` and `http-equiv` metas are removed (a refresh would move the frame; a link
+  can resolve a host the policy does not cover), and a link out of the page asks for a
+  window the sandbox refuses. Relative pictures and stylesheets are not resolved.
+
+Two more asks of the operator came with the review of the first captures:
+
+- **A picture menu.** A right click (a long press on a touch screen) on any of the app's own
+  pictures opens **Copy image** and **Save image**, the way a desktop app does: in the Files
+  window, in the chat, in the full-screen viewer. One document listener
+  (`components/ImageMenu.tsx`) serves every `<img>` whose address is `blob:`, `data:` or the
+  page's origin; a picture from another site keeps the browser's menu, and a right click
+  another handler answered (a shared file's card) stays with it. Copy writes `image/png`
+  through `ClipboardItem` handed a promise, so the write starts inside the click as Safari
+  requires, drawing a non-PNG on a canvas; it is offered only where the clipboard takes
+  pictures (a secure context). Save names the file from `data-image-name`.
+- **Colours that never reached two windows.** The captures showed source in the Files window
+  and in the diffs drawn in the text colour alone: the spans carried their `hljs-*` classes,
+  but the theme's token colours were scoped to `.md-code`, the chat's code blocks, since the
+  rule of 2026-09-10, which predates both windows. The selectors are one
+  `:is(.md-code, .files-code, .dv-code)` list now, held by a stylesheet test and by the
+  computed colour of a token in both windows in the browser check.
+- **The second round of the cross-review** found three ways a link of an HTML preview still
+  loaded a page in the frame: a declarative shadow root (`<template shadowrootmode>`), inert
+  where the page is cleaned and live in the frame, and SVG `<set>` / `<animate>` changing a
+  link's `href` or `target` after the cleaning. Such templates lose the attribute and such
+  animations are removed.
+- **The tree's column.** A top-level row's name started 3px left of the filter's text and its
+  glyph 2px left of the magnifier. The geometry is one module now (`files/treeGeometry.ts`,
+  the edits tree included), held to the stylesheet by a test and measured in the browser.
+
+The cross-review (Coddy on qwen3.8-27b-noreason, devin/swe-2 and codex/gpt-5.6-sol, and
+Cursor Agent) brought, besides the SVG origin above: a link of an inline SVG in an HTML
+preview (`xlink:href`, which `a[href]` misses) still moved the frame, now it asks for a window
+the sandbox refuses; Reload did not read a picture or a PDF again when the file had not
+changed, so a read that failed on its way stayed failed, now they take `epoch`; and a
+sub-scoped token (`hljs-title class_`, `hljs-variable language_`) kept its last class, which no
+rule colours, so class and function names stayed in the text colour, now the `hljs-` class is
+kept.
+
+The cost: `app.js` grew by 18,180 bytes (1,901,317 to 1,919,497) and `styles.css` by 679 bytes
+(323,441 to 324,120); no chunk was added.
+
+Checks: `changes/highlightLine.test.ts`, `changes/diffLanguage.test.ts`,
+`files/objectUrl.test.ts`, `files/htmlPreview.test.ts`, `files/previewPrefs.test.ts`,
+`files/FilesView.test.tsx`, `files/filesWindowCss.test.ts`, `components/ImageMenu.test.tsx`,
+`features/web_ui_files_formats.feature`, and `npm run check:files`, which opens each kind
+through an authenticated relay in the full Chromium (its headless shell has no PDF viewer),
+counts the requests to a beacon the SVG and the page name, measures the tree against the
+filter, and copies and saves a picture from its menu.
