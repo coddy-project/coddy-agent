@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -61,6 +62,14 @@ type FileStore struct {
 	childDirs    map[string]string
 	childScanned time.Time
 	childScanMu  sync.Mutex
+
+	// testFault stands in for the filesystem in a test (export_test.go): when
+	// it holds a function, EnsureLayout and Save ask it first, with the
+	// operation they are about to run ("layout" or "save"), and fail with the
+	// error it returns. It is how a test makes the disk "full" without
+	// filling one. Empty everywhere else, and atomic because a save from a
+	// session's own goroutine can overlap the test that sets it.
+	testFault atomic.Pointer[func(op string) error]
 }
 
 // persistedMessages remembers what was last written to one messages.json. A
@@ -329,6 +338,15 @@ func ThumbnailPathInAssets(assetsDir, assetName string) string {
 	return filepath.Join(assetsDir, "thumbnails", assetName+".png")
 }
 
+// injectedFault is the error a test made an operation of the store fail with
+// (testFault), or nil.
+func (f *FileStore) injectedFault(op string) error {
+	if fn := f.testFault.Load(); fn != nil {
+		return (*fn)(op)
+	}
+	return nil
+}
+
 // EnsureLayout creates session.json (if missing), messages.json, assets/, todos/, todos/archive/.
 func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	// A fresh walk, not the rate-limited one: this call is about to write a
@@ -336,6 +354,9 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	// the sessions root for an id another process has already stored inside a
 	// parent. It runs once per session, not once per request.
 	dir = f.sessionPath(sessionID, true)
+	if err := f.injectedFault("layout"); err != nil {
+		return dir, err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return dir, err
 	}
@@ -1120,6 +1141,9 @@ func (f *FileStore) Save(state *State) error {
 	dir := state.SessionDir
 	if dir == "" {
 		return fmt.Errorf("session has no SessionDir")
+	}
+	if err := f.injectedFault("save"); err != nil {
+		return err
 	}
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	msgPath := filepath.Join(dir, messagesFile)

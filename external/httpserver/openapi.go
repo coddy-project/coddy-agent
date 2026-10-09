@@ -82,7 +82,7 @@ func openAPISpec() map[string]interface{} {
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM. " +
 						"Every **agent**/**plan**/**ask** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /coddy/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. " +
 						"The last entry in **messages** must have role **user**." +
-						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself.",
+						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself, and **507** for a new session that could not be created because the volume that holds the sessions folder has no room left (`error.message` says **no space left on device**).",
 					"operationId": "createChatCompletion",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -131,6 +131,7 @@ func openAPISpec() map[string]interface{} {
 						"500": errorResponseRef(),
 						"502": errorResponseRef(),
 						"504": errorResponseRef(),
+						"507": insufficientStorageResponse(),
 					},
 				},
 			},
@@ -140,7 +141,7 @@ func openAPISpec() map[string]interface{} {
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
 						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, or **`ask`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`ask`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**ask** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /coddy/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM." +
-						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself.",
+						" A failure of the model provider keeps its status: a provider **4xx** is answered with the same status (**429** with **Retry-After** when the provider named a pause), a **5xx** with **502** (with the pause of a **503** that named one) and a **504** or a timeout with **504**, and the error object carries **`type: upstream_error`** and **`upstream_status`**; a streamed request carries the same error object in its error frame. **500** is left for failures of coddy itself, and **507** for a new session that could not be created because the volume that holds the sessions folder has no room left (`error.message` says **no space left on device**).",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -189,6 +190,7 @@ func openAPISpec() map[string]interface{} {
 						"500": errorResponseRef(),
 						"502": errorResponseRef(),
 						"504": errorResponseRef(),
+						"507": insufficientStorageResponse(),
 					},
 				},
 			},
@@ -4456,6 +4458,21 @@ func coddyConfigErrorResponse(description string) map[string]interface{} {
 			"application/json": map[string]interface{}{
 				"schema": map[string]interface{}{
 					"$ref": "#/components/schemas/CoddyConfigValidateResponse",
+				},
+			},
+		},
+	}
+}
+
+// insufficientStorageResponse describes the 507 a request that needs a new
+// session gets when the volume that holds the sessions folder has no room left.
+func insufficientStorageResponse() map[string]interface{} {
+	return map[string]interface{}{
+		"description": "The volume that holds the sessions folder (`<home>/sessions`, or `sessions.dir`) has no room left, so the session this request needed could not be created. `error.message` says `no space left on device`; the turn did not start and nothing was saved. Free disk space and send the request again.",
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"$ref": "#/components/schemas/ErrorEnvelope",
 				},
 			},
 		},

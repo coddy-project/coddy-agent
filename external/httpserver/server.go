@@ -63,6 +63,11 @@ type Server struct {
 	// for it (llm.NeuralDeepHubFor). Tests substitute stand-in hubs per
 	// deployment.
 	neuralDeepHubFor func(apiBase string) string
+	// ensureSession opens or creates the session of a turn
+	// (Manager.EnsureHTTPSessionAs when nil). Tests override it to make
+	// creating a session fail the way a full disk fails it, which no test
+	// can ask a real volume for.
+	ensureSession func(ctx context.Context, sessionID, defaultCWD, origin string) (*session.State, error)
 
 	// extraAuthTokens are bearer tokens supplied out-of-band (--auth-token / CODDY_HTTP_TOKEN).
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
@@ -610,19 +615,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	st, sessionID, createdNew, err := s.resolveSession(ctx, r)
 	if err != nil {
-		if errors.Is(err, errSessionNotFound) {
-			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
-			return
-		}
-		if errors.Is(err, errInvalidSessionHeader) {
-			http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
-			return
-		}
-		if errors.Is(err, errInvalidOriginHeader) {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
-			return
-		}
-		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
+		writeSessionError(w, err)
 		return
 	}
 	if createdNew {
@@ -880,7 +873,7 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 		if err := session.ValidateFolderSessionID(sid); err != nil {
 			return nil, "", false, errInvalidSessionHeader
 		}
-		st2, err := s.mgr.EnsureHTTPSessionAs(ctx, sid, s.defaultCWD, origin)
+		st2, err := s.ensureHTTPSession(ctx, sid, origin)
 		if err != nil {
 			return nil, "", false, err
 		}
@@ -890,11 +883,43 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 	// as an argument rather than through the manager's one-shot fields, which
 	// concurrent requests would share.
 	newID := session.NewSessionID()
-	st, err = s.mgr.EnsureHTTPSessionAs(ctx, newID, s.defaultCWD, origin)
+	st, err = s.ensureHTTPSession(ctx, newID, origin)
 	if err != nil {
 		return nil, "", false, err
 	}
 	return st, newID, true, nil
+}
+
+// ensureHTTPSession opens the stored session id or creates it.
+func (s *Server) ensureHTTPSession(ctx context.Context, id, origin string) (*session.State, error) {
+	if s.ensureSession != nil {
+		return s.ensureSession(ctx, id, s.defaultCWD, origin)
+	}
+	return s.mgr.EnsureHTTPSessionAs(ctx, id, s.defaultCWD, origin)
+}
+
+// writeSessionError answers a request whose session could not be resolved or
+// created. A session that does not exist is 404 and a malformed header is
+// 400. A volume with no room left is 507 Insufficient Storage with the cause
+// in the message (issue #465): it is neither a failure of Coddy's own, which
+// 500 stands for, nor of the model's provider, which 502 and 504 stand for,
+// and a client that sees only "session unavailable" cannot tell an operator
+// to free disk space. The manager keeps the operating system's code in the
+// error chain, so the check holds however many layers wrapped it. Anything
+// else stays 500 "session unavailable".
+func writeSessionError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errSessionNotFound):
+		http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+	case errors.Is(err, errInvalidSessionHeader):
+		http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
+	case errors.Is(err, errInvalidOriginHeader):
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
+	case platform.IsDiskFull(err):
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, session.DiskFullMessage), http.StatusInsufficientStorage)
+	default:
+		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
+	}
 }
 
 func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {
@@ -1178,19 +1203,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	st, sid, createdNew, err := s.resolveSession(ctx, r)
 	if err != nil {
-		if errors.Is(err, errSessionNotFound) {
-			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
-			return
-		}
-		if errors.Is(err, errInvalidSessionHeader) {
-			http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
-			return
-		}
-		if errors.Is(err, errInvalidOriginHeader) {
-			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
-			return
-		}
-		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
+		writeSessionError(w, err)
 		return
 	}
 	if createdNew {

@@ -384,6 +384,8 @@ Non-stream replies include **`metadata`** with **`model`** set to the effective 
 
 Malformed ids (**HTTP 400**). Dedicated **`/coddy/*`** helpers return **503** if persistence is unavailable (`Manager` lacked a **`FileStore`**, primarily in tests).
 
+Creating a bundle - without the header, or with an id that has none yet (step 3) - needs room on the volume that holds the sessions folder (**`<home>/sessions`**, or **`sessions.dir`**). When that volume is full, **`POST /v1/responses`** and **`POST /v1/chat/completions`** answer **`507 Insufficient Storage`** with the error message **`no space left on device: the disk that stores Coddy sessions is full`**, where they used to answer **`500`** **`session unavailable`**. The turn does not start, and the server logs the cause at error level. The web UI shows the message beside the status. A session that is already open keeps running from memory when a save fails: the server logs each failed save at error level, and what changed since the last successful save is missing from the transcript after a restart. See [A chat fails with `no space left on device`](../getting-started/troubleshooting.md#a-chat-fails-with-no-space-left-on-device).
+
 ### Per-session model (bundled UI)
 
 - **`GET /coddy/sessions/{id}/messages`** returns **`model`** (effective YAML backend for the session), **`selectedModelId`** (stored override in **`session.json`**, may be empty), **`selectedReasoning`** (effective reasoning level for the session, empty when the model has none), and **`mode`** (session profile `agent`, `plan`, or `ask`; remote clients restore it on load).

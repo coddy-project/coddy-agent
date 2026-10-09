@@ -20,6 +20,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -606,7 +607,7 @@ func (m *Manager) makePersist(st *State) func() {
 			return
 		}
 		if err := m.store.Save(st); err != nil {
-			m.log.Warn("persist session", "id", st.ID, "error", err)
+			m.logStoreFailure("persist session", err, "id", st.ID)
 		}
 	}
 }
@@ -720,6 +721,12 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 	if m.store != nil && !deferBundle {
 		sessionDir, err = m.store.EnsureLayout(id)
 		if err != nil {
+			// The cause stays in the chain (%w), so a surface that tells a
+			// full disk from any other failure (platform.IsDiskFull) can say
+			// so to its client; the log says it to the operator.
+			if platform.IsDiskFull(err) {
+				m.logDiskFull("create session", err, "id", id)
+			}
 			return nil, fmt.Errorf("session/new: layout: %w", err)
 		}
 	}
@@ -753,7 +760,7 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 
 	if m.store != nil && !deferBundle {
 		if err := m.store.Save(state); err != nil {
-			m.log.Warn("initial session save", "error", err)
+			m.logStoreFailure("initial session save", err, "id", id)
 		}
 	}
 

@@ -58,3 +58,16 @@ func (m *Manager) SetMCPConnectTimeoutForTest(d time.Duration) {
 // SetMCPStopDelayForTest sets how long a shared MCP server nothing holds runs
 // on before the pool stops it.
 func (m *Manager) SetMCPStopDelayForTest(d time.Duration) { m.mcpPool.SetStopDelay(d) }
+
+// SetFaultForTest makes the store fail the operations it names. fn is asked
+// before EnsureLayout ("layout") and Save ("save") touch the filesystem, and
+// a non-nil answer is the error they return; nil restores the real
+// filesystem. A test passes an error shaped like the disk-full one the
+// operating system returns (a wrapped *os.PathError around ENOSPC).
+func (f *FileStore) SetFaultForTest(fn func(op string) error) {
+	if fn == nil {
+		f.testFault.Store(nil)
+		return
+	}
+	f.testFault.Store(&fn)
+}
