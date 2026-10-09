@@ -35,8 +35,12 @@ export type TelegramBridge = {
 type Receiver = (type: string, data: unknown) => void;
 
 type TelegramWindow = Window & {
-  TelegramWebviewProxy?: { postEvent?: (type: string, data: string) => void } | undefined;
-  Telegram?: { WebView?: { receiveEvent?: Receiver | undefined } | undefined } | undefined;
+  TelegramWebviewProxy?:
+    | { postEvent?: (type: string, data: string) => void }
+    | undefined;
+  Telegram?:
+    | { WebView?: { receiveEvent?: Receiver | undefined } | undefined }
+    | undefined;
   TelegramGameProxy?: { receiveEvent?: Receiver | undefined } | undefined;
   TelegramGameProxy_receiveEvent?: Receiver | undefined;
 };
@@ -105,13 +109,18 @@ export function createTelegramBridge(win: Window = window): TelegramBridge {
         w.TelegramWebviewProxy.postEvent(type, JSON.stringify(eventData));
         return;
       }
-      const external = (w as unknown as { external?: { notify?: (s: string) => void } }).external;
+      const external = (
+        w as unknown as { external?: { notify?: (s: string) => void } }
+      ).external;
       if (external && typeof external.notify === "function") {
         external.notify(JSON.stringify({ eventType: type, eventData }));
         return;
       }
       if (framed) {
-        win.parent.postMessage(JSON.stringify({ eventType: type, eventData }), parent);
+        win.parent.postMessage(
+          JSON.stringify({ eventType: type, eventData }),
+          parent,
+        );
       }
     } catch (err) {
       console.error("telegram: post", type, err);
@@ -133,7 +142,10 @@ export function createTelegramBridge(win: Window = window): TelegramBridge {
     if (!msg || typeof msg !== "object") {
       return;
     }
-    const { eventType, eventData } = msg as { eventType?: unknown; eventData?: unknown };
+    const { eventType, eventData } = msg as {
+      eventType?: unknown;
+      eventData?: unknown;
+    };
     if (typeof eventType !== "string" || eventType === "set_custom_style") {
       return;
     }
@@ -150,8 +162,14 @@ export function createTelegramBridge(win: Window = window): TelegramBridge {
     gameProxy: w.TelegramGameProxy,
     gameProxyReceive: w.TelegramGameProxy_receiveEvent,
   };
-  w.Telegram = { ...(w.Telegram ?? {}), WebView: { ...(w.Telegram?.WebView ?? {}), receiveEvent: receive } };
-  w.TelegramGameProxy = { ...(w.TelegramGameProxy ?? {}), receiveEvent: receive };
+  w.Telegram = {
+    ...(w.Telegram ?? {}),
+    WebView: { ...(w.Telegram?.WebView ?? {}), receiveEvent: receive },
+  };
+  w.TelegramGameProxy = {
+    ...(w.TelegramGameProxy ?? {}),
+    receiveEvent: receive,
+  };
   w.TelegramGameProxy_receiveEvent = receive;
   if (framed) {
     win.addEventListener("message", onMessage);

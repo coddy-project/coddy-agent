@@ -115,10 +115,10 @@ function SplitBody({
 }
 
 /**
- * One file of the review window: a header that names it and states its line
+ * One file of the edits window: a header that names it and states its line
  * counts, over its diff.
  *
- * The header carries the two per-file actions the window offers, revealed on
+ * The header carries the per-file actions the window offers, revealed on
  * hover so a long list of files stays quiet until pointed at.
  */
 export function DiffFileSection(props: {
@@ -132,6 +132,9 @@ export function DiffFileSection(props: {
   onToggle: () => void;
   /** Registers the section element so the toolbar can scroll to it. */
   registerRef: (path: string, el: HTMLDivElement | null) => void;
+  /** Puts this file back at HEAD, after asking. */
+  onDiscard?: (() => void) | undefined;
+  discardBusy?: boolean;
 }) {
   const { t } = useT();
   const [copied, setCopied] = useState(false);
@@ -194,30 +197,17 @@ export function DiffFileSection(props: {
           aria-expanded={!props.collapsed}
           data-testid={`dv-file-toggle-${file.path}`}
           onClick={props.onToggle}
-          title={file.path}
+          title={`${file.path} (${t(statusKey(file.status))})`}
         >
           <Chevron open={!props.collapsed} />
-          <span
-            className={"dv-file-badge dv-file-badge--" + file.status}
-            aria-label={t(statusKey(file.status))}
-          />
           <span className="dv-file-path">
             {dir ? <span className="dv-file-dir">{dir + "/"}</span> : null}
             <span className="dv-file-name">{baseName(file.path)}</span>
           </span>
         </button>
 
-        {file.binary ? (
-          <span className="dv-file-stat dv-file-stat--binary">
-            {t("changes.binary")}
-          </span>
-        ) : (
-          <span className="dv-file-stat">
-            <span className="changes-add">{"+" + file.additions}</span>
-            <span className="changes-del">{"−" + file.deletions}</span>
-          </span>
-        )}
-
+        {/* Copy and discard are always in sight; the name folds the diff,
+            so there is no second chevron here. */}
         <span className="dv-file-actions">
           <button
             type="button"
@@ -231,24 +221,46 @@ export function DiffFileSection(props: {
           >
             {copied ? "✓" : "⧉"}
           </button>
-          <button
-            type="button"
-            className="dv-icon-btn"
-            title={
-              props.collapsed
-                ? t("changes.viewer.expandFile")
-                : t("changes.viewer.collapseFile")
-            }
-            aria-label={
-              props.collapsed
-                ? t("changes.viewer.expandFile")
-                : t("changes.viewer.collapseFile")
-            }
-            onClick={props.onToggle}
-          >
-            <Chevron open={!props.collapsed} />
-          </button>
+          {props.onDiscard ? (
+            <button
+              type="button"
+              className="dv-icon-btn dv-icon-btn--danger"
+              title={t("changes.discardFileTitle", { name: file.path })}
+              aria-label={t("changes.discardFileTitle", { name: file.path })}
+              disabled={props.discardBusy === true}
+              data-testid={`dv-discard-${file.path}`}
+              onClick={props.onDiscard}
+            >
+              <svg
+                viewBox="0 0 16 16"
+                width="13"
+                height="13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                aria-hidden="true"
+              >
+                <path
+                  d="M3.5 6.5h6a3.5 3.5 0 0 1 0 7H7M3.5 6.5 6 4M3.5 6.5 6 9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          ) : null}
         </span>
+
+        {/* Git's counts close the row, at its right end. */}
+        {file.binary ? (
+          <span className="dv-file-stat dv-file-stat--binary">
+            {t("changes.binary")}
+          </span>
+        ) : (
+          <span className="dv-file-stat">
+            <span className="changes-add">{"+" + file.additions}</span>
+            <span className="changes-del">{"−" + file.deletions}</span>
+          </span>
+        )}
       </div>
 
       {props.collapsed ? null : (

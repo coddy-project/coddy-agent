@@ -309,7 +309,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     [isSpawnAgentTool, props.argsText],
   );
   const isLoadSkillTool = rawNameLower === "load_skill";
-  const isShareFileTool = rawNameLower === "share_file" || kindLower === "share_file";
+  const isShareFileTool =
+    rawNameLower === "share_file" || kindLower === "share_file";
   const isWebSearchTool = rawNameLower === "websearch";
   const isWebFetchTool = rawNameLower === "webfetch";
   const isSchedulerToolCall = isSchedulerTool(rawNameLower);

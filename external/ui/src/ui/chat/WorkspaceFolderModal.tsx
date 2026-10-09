@@ -261,7 +261,8 @@ export function WorkspaceFolderModal(props: Props) {
               key={f.path}
               type="button"
               className={
-                "workspace-modal-row" + (f.hidden ? " workspace-modal-row--hidden" : "")
+                "workspace-modal-row" +
+                (f.hidden ? " workspace-modal-row--hidden" : "")
               }
               data-testid={`workspace-modal-row-${f.name}`}
               title={f.path}
@@ -323,7 +324,10 @@ export function WorkspaceFolderModal(props: Props) {
             </div>
           ) : null}
         </div>
-        <div className="workspace-modal-actions" data-testid="workspace-modal-actions">
+        <div
+          className="workspace-modal-actions"
+          data-testid="workspace-modal-actions"
+        >
           <button
             type="button"
             className="workspace-modal-btn workspace-modal-btn--add"

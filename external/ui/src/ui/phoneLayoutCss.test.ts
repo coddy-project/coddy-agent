@@ -3,7 +3,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
-import { PHONE_MAX_WIDTH_PX, SHELL_STACK_MAX_WIDTH_PX } from "./shellBreakpoint";
+import {
+  PHONE_MAX_WIDTH_PX,
+  SHELL_STACK_MAX_WIDTH_PX,
+} from "./shellBreakpoint";
 
 // jsdom does no layout, so the phone layout is pinned here by its rules; the
 // live check at 360-430px (docs/surfaces/web-ui.md, Phone layout) measures it.
@@ -59,7 +62,10 @@ function selectorsOf(prelude: string): string[] {
 /** Declarations of every rule whose selector list names `selector`, in source order. */
 function declarations(blocks: Block[], selector: string): string {
   return blocks
-    .filter((b) => !b.prelude.startsWith("@") && selectorsOf(b.prelude).includes(selector))
+    .filter(
+      (b) =>
+        !b.prelude.startsWith("@") && selectorsOf(b.prelude).includes(selector),
+    )
     .map((b) => b.body)
     .join(";");
 }
@@ -71,7 +77,9 @@ function mediaBlocks(query: RegExp): Block[] {
 }
 
 const topLevel = sheet.filter((b) => !b.prelude.startsWith("@"));
-const phone = mediaBlocks(new RegExp(`^@media\\s*\\(max-width:\\s*${PHONE_MAX_WIDTH_PX}px\\)\\s*$`));
+const phone = mediaBlocks(
+  new RegExp(`^@media\\s*\\(max-width:\\s*${PHONE_MAX_WIDTH_PX}px\\)\\s*$`),
+);
 
 function expectDecl(body: string, prop: string, value: RegExp) {
   const re = new RegExp(`(?:^|[;{\\s])${prop}\\s*:\\s*([^;]+)`, "g");
@@ -82,7 +90,11 @@ function expectDecl(body: string, prop: string, value: RegExp) {
 
 describe("the start screen never widens the page", () => {
   test("the hero column is a track that cannot grow past its container", () => {
-    expectDecl(declarations(topLevel, ".hero"), "grid-template-columns", /^minmax\(0,\s*1fr\)$/);
+    expectDecl(
+      declarations(topLevel, ".hero"),
+      "grid-template-columns",
+      /^minmax\(0,\s*1fr\)$/,
+    );
   });
 
   test("the hero composer may shrink below its content's min-content width", () => {
@@ -122,11 +134,19 @@ describe("phone composer", () => {
     expectDecl(tabs, "overflow-y", /^hidden$/);
     expectDecl(tabs, "scrollbar-width", /^none$/);
     expectDecl(tabs, "mask-image", /linear-gradient\(to right/);
-    expectDecl(declarations(phone, ".composer-tabs::-webkit-scrollbar"), "display", /^none$/);
+    expectDecl(
+      declarations(phone, ".composer-tabs::-webkit-scrollbar"),
+      "display",
+      /^none$/,
+    );
   });
 
   test("the send button and the context ring never shrink", () => {
-    expectDecl(declarations(topLevel, ".composer-bar-actions"), "flex-shrink", /^0$/);
+    expectDecl(
+      declarations(topLevel, ".composer-bar-actions"),
+      "flex-shrink",
+      /^0$/,
+    );
   });
 
   test("a long model name ends in an ellipsis instead of widening the strip", () => {
@@ -136,23 +156,32 @@ describe("phone composer", () => {
     expectDecl(llm, "max-width", /\S/);
   });
 
-  test("the context chips are one sideways-scrolling strip and do not squeeze", () => {
-    expectDecl(declarations(phone, ".composer-context-row"), "flex-wrap", /^nowrap$/);
-    const strip = declarations(phone, ".composer-context-scroll");
-    expectDecl(strip, "display", /^flex$/);
-    expectDecl(strip, "flex", /^1 1 auto$/);
-    expectDecl(strip, "min-width", /^0$/);
-    expectDecl(strip, "overflow-x", /^auto$/);
-    expectDecl(strip, "scrollbar-width", /^none$/);
-    expectDecl(declarations(phone, ".composer-context-chips > *"), "flex-shrink", /^0$/);
+  // The composer card holds no row of chips: the folder, the branch and the
+  // worktree are on the plate over it, so the field starts at the card's top.
+  test("the composer has no chip row left to scroll", () => {
+    expect(css).not.toContain(".composer-context-row");
+    expect(css).not.toContain(".composer-context-scroll");
   });
 
-  test("on a wide shell the strip is not a box at all, so the row wraps as before", () => {
-    expectDecl(declarations(topLevel, ".composer-context-scroll"), "display", /^contents$/);
-  });
-
-  test("the enhance button is no longer pulled out of the row on a phone", () => {
-    expect(declarations(phone, ".composer-enhance-btn")).not.toMatch(/position\s*:\s*absolute/);
+  // A finger needs a target of its own: on a phone and on any touch screen the
+  // picks of the plate are tall (they have no ground at rest, so the plate only
+  // grows), and git's count keeps its slim framed look with an invisible hit
+  // area 40px tall laid over it.
+  test("the plate's picks and git's count are finger-sized on a touch screen or a phone", () => {
+    const touch = mediaBlocks(
+      new RegExp(
+        `^@media\\s*\\(max-width:\\s*${PHONE_MAX_WIDTH_PX}px\\),\\s*\\(any-hover:\\s*none\\)\\s*and\\s*\\(any-pointer:\\s*coarse\\)\\s*$`,
+      ),
+    );
+    for (const sel of [".workspace-bar-pick", ".workspace-bar-check"]) {
+      expectDecl(declarations(touch, sel), "min-height", /^(3[4-9]|4\d)px$/);
+    }
+    const count = declarations(touch, ".workspace-bar-edits");
+    expect(count).not.toMatch(/min-height/);
+    expectDecl(count, "position", /^relative$/);
+    const hit = declarations(touch, ".workspace-bar-edits::after");
+    expectDecl(hit, "position", /^absolute$/);
+    expectDecl(hit, "height", /^(3[6-9]|4\d)px$/);
   });
 });
 
@@ -178,15 +207,27 @@ describe("phone settings", () => {
     const head = declarations(phone, ".mcp-list-item-head");
     expectDecl(head, "flex-wrap", /^wrap$/);
     expectDecl(head, "justify-content", /^flex-end$/);
-    expectDecl(declarations(phone, ".mcp-list-item-text"), "flex-basis", /^calc\(100% - var\(--mcp-row-inset\)\)$/);
+    expectDecl(
+      declarations(phone, ".mcp-list-item-text"),
+      "flex-basis",
+      /^calc\(100% - var\(--mcp-row-inset\)\)$/,
+    );
   });
 
   test("a map row puts the value under the name instead of squeezing both", () => {
     // Side by side the name of a default header was 82px at 390px and
     // User-Agent read "User-Ag". On a phone the pair stacks, and the pairs
     // stand further apart than the two fields of one pair.
-    expectDecl(declarations(topLevel, ".settings-map-entry"), "grid-template-columns", /^minmax\(0,\s*2fr\) minmax\(0,\s*3fr\)$/);
-    expectDecl(declarations(phone, ".settings-map-entry"), "grid-template-columns", /^minmax\(0,\s*1fr\)$/);
+    expectDecl(
+      declarations(topLevel, ".settings-map-entry"),
+      "grid-template-columns",
+      /^minmax\(0,\s*2fr\) minmax\(0,\s*3fr\)$/,
+    );
+    expectDecl(
+      declarations(phone, ".settings-map-entry"),
+      "grid-template-columns",
+      /^minmax\(0,\s*1fr\)$/,
+    );
     expectDecl(declarations(phone, ".settings-map"), "gap", /^16px$/);
   });
 });
@@ -199,8 +240,16 @@ describe("text fields do not make iOS Safari zoom", () => {
   );
 
   test("the composer and its highlight mirror are 16px together", () => {
-    expectDecl(declarations(touchOrPhone, "textarea#composer"), "font-size", /^16px$/);
-    expectDecl(declarations(touchOrPhone, ".composer-mirror-inner"), "font-size", /^16px$/);
+    expectDecl(
+      declarations(touchOrPhone, "textarea#composer"),
+      "font-size",
+      /^16px$/,
+    );
+    expectDecl(
+      declarations(touchOrPhone, ".composer-mirror-inner"),
+      "font-size",
+      /^16px$/,
+    );
   });
 
   test("every other text field is at least 16px", () => {
@@ -208,7 +257,11 @@ describe("text fields do not make iOS Safari zoom", () => {
       (b) => /(^|,)\s*input:not\(/.test(b.prelude) && /select/.test(b.prelude),
     );
     expect(fields.length).toBeGreaterThan(0);
-    expectDecl(fields.map((b) => b.body).join(";"), "font-size", /^max\(16px,\s*1em\)$/);
+    expectDecl(
+      fields.map((b) => b.body).join(";"),
+      "font-size",
+      /^max\(16px,\s*1em\)$/,
+    );
   });
 });
 
@@ -224,11 +277,17 @@ test("Android resizes the layout for the on-screen keyboard, so the docked compo
 // it, so the alert sat behind the bar and only its button showed (issue #401).
 describe("the environment banner on the stacked shell", () => {
   const stacked = mediaBlocks(
-    new RegExp(`^@media\\s*\\(max-width:\\s*${SHELL_STACK_MAX_WIDTH_PX}px\\)\\s*$`),
+    new RegExp(
+      `^@media\\s*\\(max-width:\\s*${SHELL_STACK_MAX_WIDTH_PX}px\\)\\s*$`,
+    ),
   );
 
   test("hangs under the top bar rather than behind it", () => {
-    expectDecl(declarations(stacked, ".env-health-banner"), "top", /^var\(--coddy-mobile-bar-h\)$/);
+    expectDecl(
+      declarations(stacked, ".env-health-banner"),
+      "top",
+      /^var\(--coddy-mobile-bar-h\)$/,
+    );
   });
 
   test("moves everything the top inset places down by its own height", () => {

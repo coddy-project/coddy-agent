@@ -60,6 +60,18 @@ var codexStreamTruncationScripts = map[string]string{
 	"stops the response at its output cap": "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello fr\"}\n\n" +
 		"event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"usage\":{\"input_tokens\":5,\"output_tokens\":2}}}\n\n",
 
+	// The shape the live backend sends while the model thinks without a
+	// word: a comment frame of its own after a few seconds of silence, which
+	// the SDK decoder dispatched as an event with no data and failed to
+	// decode as "unexpected end of JSON input".
+	"sends keep-alive comments while the model is silent": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"status\":\"in_progress\"}}\n\n" +
+		"event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":1,\"response\":{\"status\":\"in_progress\"}}\n\n" +
+		": keep-alive\n\n" +
+		"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\n" +
+		": keep-alive\n\n" +
+		"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\" from server\"}\n\n" +
+		"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":5,\"output_tokens\":3}}}\n\n",
+
 	// A framed event (the blank line is there) whose JSON stops short: the
 	// SDK decoder dispatches it and its decode fails at the end of the input,
 	// the error of issue #384. The cut lands inside a string value on
@@ -248,7 +260,7 @@ func initializeStreamTruncationScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^an "openai" provider pointed at a stub server that (cuts the stream after text deltas|ends the stream with a finish_reason but no \[DONE\] marker|cuts the last frame inside its JSON)$`, s.aProviderPointedAtTruncatingStub)
-	sc.Step(`^a "codex" provider pointed at a stub server that (cuts the stream after text deltas|completes the response|stops the response at its output cap|cuts an event inside its JSON after text deltas)$`, s.aCodexProviderPointedAtStub)
+	sc.Step(`^a "codex" provider pointed at a stub server that (cuts the stream after text deltas|completes the response|stops the response at its output cap|cuts an event inside its JSON after text deltas|sends keep-alive comments while the model is silent)$`, s.aCodexProviderPointedAtStub)
 	sc.Step(`^a streaming completion is requested$`, s.aTruncationStreamingCompletionIsRequested)
 	sc.Step(`^the call fails with a truncation error$`, s.theCallFailsWithATruncationError)
 	sc.Step(`^the partial response preserves text "([^"]*)"$`, s.thePartialResponsePreservesText)

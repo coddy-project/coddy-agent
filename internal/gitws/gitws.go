@@ -1,5 +1,11 @@
 // Package gitws inspects and manipulates git working copies for
-// per-session workspace switching (folder, branch, worktree).
+// per-session workspace switching (folder, branch, worktree) and the Edits
+// view of a chat.
+//
+// Every operation drives the git binary when it is on PATH and falls back to
+// a built-in implementation on go-git when it is not (builtin.go,
+// builtin_changes.go), chosen per call by GitAvailable. The built-in one has
+// no rename detection and cannot open a linked worktree (ErrNeedsGitBinary).
 package gitws
 
 import (
@@ -53,11 +59,8 @@ func runGit(dir string, args ...string) (string, error) {
 }
 
 // Clone shallow-clones url into dest. When ref is non-empty it clones that
-// branch or tag. dest must not already exist.
+// branch or tag. dest must not exist or be an empty directory.
 func Clone(url, ref, dest string) error {
-	if !GitAvailable() {
-		return fmt.Errorf("git binary not found on PATH")
-	}
 	url = strings.TrimSpace(url)
 	if url == "" {
 		return fmt.Errorf("empty clone url")
@@ -70,6 +73,9 @@ func Clone(url, ref, dest string) error {
 	ref = strings.TrimSpace(ref)
 	if strings.HasPrefix(ref, "-") {
 		return fmt.Errorf("refusing ref that looks like an option: %q", ref)
+	}
+	if !GitAvailable() {
+		return builtinClone(url, ref, dest)
 	}
 	// Disable the ext:: transport (arbitrary command execution via clone URL).
 	args := []string{"-c", "protocol.ext.allow=never", "clone", "--depth", "1"}
@@ -86,21 +92,21 @@ func Clone(url, ref, dest string) error {
 // Pull fast-forwards the working copy at dir. Used to refresh an existing clone.
 func Pull(dir string) error {
 	if !GitAvailable() {
-		return fmt.Errorf("git binary not found on PATH")
+		return builtinPull(dir)
 	}
 	_, err := runGit(dir, "pull", "--ff-only")
 	return err
 }
 
 // Describe inspects dir. It never fails on plain folders: a non-repo dir
-// (or a missing git binary) yields Info{IsGitRepo: false}.
+// yields Info{IsGitRepo: false}.
 func Describe(dir string) Info {
 	info := Info{Path: dir}
 	if abs, err := filepath.Abs(dir); err == nil {
 		info.Path = abs
 	}
 	if !GitAvailable() {
-		return info
+		return builtinDescribe(info)
 	}
 	toplevel, err := runGit(info.Path, "rev-parse", "--show-toplevel")
 	if err != nil || toplevel == "" {
@@ -136,8 +142,11 @@ func defaultBranch(dir string) string {
 }
 
 // MainCheckoutRoot identifies the main checkout using git's common directory.
-// A plain directory or an unavailable git binary yields an empty string.
+// A plain directory yields an empty string.
 func MainCheckoutRoot(dir string) string {
+	if !GitAvailable() {
+		return builtinMainCheckoutRoot(dir)
+	}
 	common, err := runGit(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil || filepath.Base(common) != ".git" {
 		return ""
@@ -186,6 +195,9 @@ func Checkout(dir, branch string) error {
 	if strings.TrimSpace(branch) == "" {
 		return fmt.Errorf("empty branch name")
 	}
+	if !GitAvailable() {
+		return builtinCheckout(dir, branch)
+	}
 	_, err := runGit(dir, "checkout", branch)
 	return err
 }
@@ -197,16 +209,6 @@ func Checkout(dir, branch string) error {
 // project is, and the operator never has to ignore a stray folder of their own.
 func WorktreesRoot(repoRoot string) string {
 	return filepath.Join(repoRoot, ".coddy", "worktrees")
-}
-
-// IsWorktreesRoot reports whether dir is the folder WorktreesRoot names, for
-// whichever repository it belongs to. Every entry in it is a full checkout of
-// another branch, so a walk of the main checkout - a turn's file snapshot, a
-// directory tree shown to the model - skips it instead of reading the project
-// once per worktree.
-func IsWorktreesRoot(dir string) bool {
-	dir = filepath.Clean(dir)
-	return filepath.Base(dir) == "worktrees" && filepath.Base(filepath.Dir(dir)) == ".coddy"
 }
 
 // EnsureWorktree returns the path of a worktree for branch, creating it under
@@ -227,6 +229,11 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 	dirName := BranchDirName(branch)
 	if dirName == "" {
 		return "", false, fmt.Errorf("branch name has no usable directory name: %q", branch)
+	}
+	// The built-in backend has no `git worktree add`; it says so before
+	// creating anything on disk rather than half-building a tree.
+	if !GitAvailable() {
+		return "", false, fmt.Errorf("open a worktree for %q: %w", branch, ErrNeedsGitBinary)
 	}
 	if _, err := runGit(repoDir, "check-ref-format", "--branch", branch); err != nil {
 		return "", false, fmt.Errorf("invalid branch name %q: %w", branch, err)
@@ -259,27 +266,23 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 	// decision whenever origin/HEAD is already resolved; it must not wait on
 	// the network. A base git has not resolved yet is checked again after
 	// the fetch below.
-	if err := refuseDefaultBranch(repoDir, branch, defaultBranch(repoDir)); err != nil {
+	raw := branch
+	if err := refuseDefaultBranch(repoDir, raw, defaultBranch(repoDir)); err != nil {
 		return "", false, err
 	}
+	// A remote branch picked by its remote-tracking name (upstream/fix/x), or
+	// by its name alone when only a remote has it, stands for the local
+	// branch fix/x, created tracking it when there is none; the checks apply
+	// to that local name.
+	target, dirName, err := resolveWorktreeBranch(repoDir, raw)
+	if err != nil {
+		return "", false, err
+	}
+	branch = target.Branch
 	// Reusing an existing worktree needs no origin at all: keep the fast
 	// path offline-capable.
-	for _, wt := range list {
-		if wt.Branch != branch {
-			continue
-		}
-		if wt.Main {
-			return "", false, fmt.Errorf("branch %q is checked out in the main checkout; switch it away before creating a worktree", branch)
-		}
-		// One of ours that lost its ignore file - `git clean -xdf` deletes the
-		// file and keeps the worktrees - would stay visible in git status
-		// forever, because every later call ends here. Put it back.
-		if isInside(root, wt.Path) {
-			if err := writeWorktreesIgnore(root); err != nil {
-				return "", false, err
-			}
-		}
-		return wt.Path, false, nil
+	if path, found, err := reuseWorktree(list, root, branch); found || err != nil {
+		return path, false, err
 	}
 
 	if _, err := runGit(repoDir, "fetch", "origin"); err != nil {
@@ -287,6 +290,28 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 	}
 	if _, err := runGit(repoDir, "remote", "set-head", "origin", "-a"); err != nil {
 		return "", false, fmt.Errorf("resolve origin/HEAD: %w", err)
+	}
+	// A remote-tracking name the first look could not resolve - a branch
+	// pushed since the last fetch, or one of a remote other than origin that
+	// was never fetched - is looked up again once its remote is fetched, and
+	// refused when the remote does not have it: creating a local branch called
+	// origin/<name> at the default branch is never what was asked for.
+	if remote, _, ok := splitRemoteName(listRemotes(repoDir), raw); ok && target.Remote == "" && target.Branch == raw && !refExists(repoDir, "refs/heads/"+raw) {
+		if remote != "origin" {
+			if _, err := runGit(repoDir, "fetch", "--", remote); err != nil {
+				return "", false, fmt.Errorf("refresh %s before creating a worktree: %w", remote, err)
+			}
+		}
+		if target, dirName, err = resolveWorktreeBranch(repoDir, raw); err != nil {
+			return "", false, err
+		}
+		if target.Branch == raw {
+			return "", false, fmt.Errorf("no branch %q on remote %s", strings.TrimPrefix(raw, remote+"/"), remote)
+		}
+		branch = target.Branch
+		if path, found, err := reuseWorktree(list, root, branch); found || err != nil {
+			return path, false, err
+		}
 	}
 	base := defaultBranch(repoDir)
 	if base == "" {
@@ -317,6 +342,10 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 		// A local branch is reused at its own tip; it is not rebased onto
 		// the fetched default branch.
 		args = append(args, "--", path, branch)
+	case target.Remote != "":
+		// A branch of a named remote with no local tip yet: the same as the
+		// origin case below, for whichever remote was picked.
+		args = append(args, "--track", "-b", branch, "--", path, target.upstreamRef())
 	case refExists(repoDir, "refs/remotes/origin/"+branch):
 		// The branch exists on origin but has no local tip: materialize it
 		// instead of silently redefining it at origin/<base>.
@@ -329,6 +358,53 @@ func EnsureWorktree(repoDir, branch string) (string, bool, error) {
 		return "", false, err
 	}
 	return path, true, nil
+}
+
+// resolveWorktreeBranch resolves the branch a worktree is asked for (see
+// ResolveBranch) and checks the local name it comes to: not the default
+// branch, a usable folder name, a valid branch name.
+func resolveWorktreeBranch(repoDir, name string) (BranchTarget, string, error) {
+	target, err := ResolveBranch(repoDir, name)
+	if err != nil {
+		return BranchTarget{}, "", err
+	}
+	dirName := BranchDirName(target.Branch)
+	if target.Branch == name {
+		return target, dirName, nil
+	}
+	if err := refuseDefaultBranch(repoDir, target.Branch, defaultBranch(repoDir)); err != nil {
+		return BranchTarget{}, "", err
+	}
+	if dirName == "" {
+		return BranchTarget{}, "", fmt.Errorf("branch name has no usable directory name: %q", target.Branch)
+	}
+	if _, err := runGit(repoDir, "check-ref-format", "--branch", target.Branch); err != nil {
+		return BranchTarget{}, "", fmt.Errorf("invalid branch name %q: %w", target.Branch, err)
+	}
+	return target, dirName, nil
+}
+
+// reuseWorktree finds the worktree already holding branch. The main checkout
+// holding it is an error: a worktree cannot check out the same branch.
+func reuseWorktree(list []Worktree, root, branch string) (string, bool, error) {
+	for _, wt := range list {
+		if wt.Branch != branch {
+			continue
+		}
+		if wt.Main {
+			return "", false, fmt.Errorf("branch %q is checked out in the main checkout; switch it away before creating a worktree", branch)
+		}
+		// One of ours that lost its ignore file - `git clean -xdf` deletes the
+		// file and keeps the worktrees - would stay visible in git status
+		// forever, because every later call ends here. Put it back.
+		if isInside(root, wt.Path) {
+			if err := writeWorktreesIgnore(root); err != nil {
+				return "", false, err
+			}
+		}
+		return wt.Path, true, nil
+	}
+	return "", false, nil
 }
 
 // refuseDefaultBranch rejects the default branch itself and local branches

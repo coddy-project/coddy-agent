@@ -44,17 +44,12 @@ function planFilePath(slug: string, path?: string): string {
   return s ? `plans/${s}.plan.md` : "";
 }
 
-function PlanPreviewEyeToggle(p: {
-  previewOn: boolean;
-  onToggle: () => void;
-}) {
+function PlanPreviewEyeToggle(p: { previewOn: boolean; onToggle: () => void }) {
   const { t } = useT();
   return (
     <button
       type="button"
-      className={
-        p.previewOn ? "plan-document-eye is-on" : "plan-document-eye"
-      }
+      className={p.previewOn ? "plan-document-eye is-on" : "plan-document-eye"}
       title={t("prompts.planTogglePreview")}
       aria-label={t("prompts.planTogglePreview")}
       aria-pressed={p.previewOn}
@@ -166,11 +161,15 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
           },
         );
         if (!res.ok) {
-          throw new Error(translate("prompts.planSaveFailed", { status: res.status }));
+          throw new Error(
+            translate("prompts.planSaveFailed", { status: res.status }),
+          );
         }
       } catch (e) {
         setSaveError(
-          e instanceof Error ? e.message : translate("prompts.planSaveFailedNoStatus"),
+          e instanceof Error
+            ? e.message
+            : translate("prompts.planSaveFailedNoStatus"),
         );
       } finally {
         setSaving(false);
@@ -228,7 +227,9 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
           {props.expanded && (saving || saveError) ? (
             <div className="plan-document-head-status">
               {saving ? (
-                <span className="plan-document-save-hint">{t("prompts.planSaving")}</span>
+                <span className="plan-document-save-hint">
+                  {t("prompts.planSaving")}
+                </span>
               ) : null}
               {saveError ? (
                 <span className="plan-document-save-error">{saveError}</span>

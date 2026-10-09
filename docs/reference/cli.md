@@ -17,7 +17,9 @@ Usage:
   coddy -c | --continue (console: continue the latest session here)
   coddy -p | --prompt "..." (console: one-shot prompt, print the answer;
         -p - reads the prompt from stdin, and so does a bare -p when stdin is not a terminal;
-        data piped under a typed prompt is attached to it, --no-stdin leaves it out)
+        data piped under a typed prompt is attached to it, --no-stdin leaves it out;
+        the run is stored as a print run the pickers leave out, -c -p continues it,
+        --ephemeral deletes it when the run ends)
   coddy -i | --prompt-file FILE (console: one-shot prompt read from FILE, - for stdin)
   coddy -h | --help
   coddy -v | --version
@@ -45,7 +47,7 @@ Usage:
   coddy serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
         UI sign-in account into config.yaml; the password is read from the
         terminal, or from stdin when it is a pipe)
-  coddy sessions list [flags]
+  coddy sessions list [--cwd DIR] [--origin local|gateway|print] [--sessions-dir DIR]
   coddy sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   coddy skills list
   coddy skills enable <name>
@@ -67,9 +69,10 @@ Usage:
   coddy hooks list [--cwd DIR]
   coddy hooks trust <file> [--cwd DIR]
   coddy hooks untrust <file> [--cwd DIR]
-  coddy docs [list] | search <words> [--limit N] | show <page>[#section] (the
+  coddy docs [list] [--lang en|ru] | search <words> [--limit N] [--lang en|ru] | show <page>[#section] [--lang en|ru] (the
         documentation built into this binary; F1 in the console, Docs in the
-        web UI)
+        web UI; without --lang it speaks the terminal's language: CODDY_LANG,
+        then LC_ALL, LC_MESSAGES, LANG)
   coddy update [flags]
 ```
 
@@ -81,11 +84,13 @@ Usage of cli (interactive console, also the default for bare coddy on a terminal
   -config string
     	path to config.yaml (CODDY_CONFIG, else <home>/config.yaml)
   -continue
-    	continue the most recent session in this folder
+    	continue the most recent session in this folder (a one-shot run continues the previous one-shot run as well)
   -cwd string
     	session working directory (CODDY_CWD, default process cwd)
   -dry-run
     	check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram and Pachca tokens - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails
+  -ephemeral
+    	one-shot runs only: delete the run's session when the run ends, however it ends (it is stored while it runs; a crash can leave it behind, hidden like every one-shot run)
   -home string
     	agent state directory (CODDY_HOME, default ~/.coddy)
   -i file
@@ -262,6 +267,8 @@ Usage of serve status:
 Usage of sessions list:
   -cwd string
     	only list sessions saved with this cwd (absolute)
+  -origin string
+    	only list the sessions of one surface: local, gateway or print (one-shot runs); empty lists every one, print runs included
   -sessions-dir string
     	sessions root (empty uses config sessions.dir or ~/.coddy/sessions)
 ```

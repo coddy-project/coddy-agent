@@ -5,7 +5,10 @@ let seq = 0;
 const newId = (prefix: string) => `${prefix}_${++seq}`;
 
 /** Walks a history the way the transcript mapping does and returns where each notice lands. */
-function place(roles: Array<"user" | "summary" | "assistant">, rows: RawUiLogRow[]): string[] {
+function place(
+  roles: Array<"user" | "summary" | "assistant">,
+  rows: RawUiLogRow[],
+): string[] {
   const feed = uiLogNoticeFeed(rows, newId);
   const out: string[] = [];
   roles.forEach((role, i) => {
@@ -24,8 +27,20 @@ test("the server counts compaction summaries as turns, and so does the feed", ()
   const placed = place(
     ["user", "assistant", "summary", "summary", "user", "assistant"],
     [
-      { id: "e1", level: "error", message: "first", userTurnIndex: 1, createdAt: "2026-09-23T10:00:00Z" },
-      { id: "e2", level: "error", message: "HTTP 400", userTurnIndex: 4, createdAt: "2026-09-23T11:00:00Z" },
+      {
+        id: "e1",
+        level: "error",
+        message: "first",
+        userTurnIndex: 1,
+        createdAt: "2026-09-23T10:00:00Z",
+      },
+      {
+        id: "e2",
+        level: "error",
+        message: "HTTP 400",
+        userTurnIndex: 4,
+        createdAt: "2026-09-23T11:00:00Z",
+      },
     ],
   );
   expect(placed).toEqual([
@@ -41,15 +56,28 @@ test("the server counts compaction summaries as turns, and so does the feed", ()
 });
 
 test("a notice stamped past the end of the history is still shown", () => {
-  const placed = place(["user", "assistant"], [{ level: "error", message: "lost", userTurnIndex: 9 }]);
+  const placed = place(
+    ["user", "assistant"],
+    [{ level: "error", message: "lost", userTurnIndex: 9 }],
+  );
   expect(placed).toEqual(["user:0", "assistant:1", "notice:lost"]);
 });
 
 test("rows of one turn keep their time order, unknown levels and empty messages stay out", () => {
   const feed = uiLogNoticeFeed(
     [
-      { level: "notice", message: "later", userTurnIndex: 1, createdAt: "2026-09-23T10:00:02Z" },
-      { level: "error", message: "earlier", userTurnIndex: 1, createdAt: "2026-09-23T10:00:01Z" },
+      {
+        level: "notice",
+        message: "later",
+        userTurnIndex: 1,
+        createdAt: "2026-09-23T10:00:02Z",
+      },
+      {
+        level: "error",
+        message: "earlier",
+        userTurnIndex: 1,
+        createdAt: "2026-09-23T10:00:01Z",
+      },
       { level: "debug", message: "hidden", userTurnIndex: 1 },
       { level: "error", message: "  ", userTurnIndex: 1 },
     ],

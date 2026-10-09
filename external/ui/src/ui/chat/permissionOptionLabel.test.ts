@@ -56,5 +56,7 @@ test("the session-wide switches of #292 are translated", () => {
   expect(permissionOptionLabel(edits)).toBe("Allow edits for this session");
   setLocale("ru");
   expect(permissionOptionLabel(bypass)).toBe("Без вопросов до конца сессии");
-  expect(permissionOptionLabel(edits)).toBe("Правки без вопросов до конца сессии");
+  expect(permissionOptionLabel(edits)).toBe(
+    "Правки без вопросов до конца сессии",
+  );
 });

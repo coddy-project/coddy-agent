@@ -86,10 +86,29 @@ export function backgroundWakeItem(
   }
   const tasks = parseBackgroundWakeTasks(raw);
   if (tasks.length === 0) return null;
-  return { id, type: "background_wake", tasks, createdAtUtc: new Date().toISOString() };
+  return {
+    id,
+    type: "background_wake",
+    tasks,
+    createdAtUtc: new Date().toISOString(),
+  };
 }
 
-/** Whether a transcript item opens a turn: a message typed, or a wake. */
-export function opensTurn(it: TranscriptItem | undefined): boolean {
-  return !!it && (it.type === "user_message" || it.type === "background_wake");
+/** A transcript item that opens a turn. */
+export type TurnOpener = Extract<
+  TranscriptItem,
+  { type: "user_message" | "background_wake" | "goal_turn" }
+>;
+
+/**
+ * Whether a transcript item opens a turn: a message typed, a wake, or a turn
+ * the session supervisor started for the goal (chat/goal.ts).
+ */
+export function opensTurn(it: TranscriptItem | undefined): it is TurnOpener {
+  return (
+    !!it &&
+    (it.type === "user_message" ||
+      it.type === "background_wake" ||
+      it.type === "goal_turn")
+  );
 }

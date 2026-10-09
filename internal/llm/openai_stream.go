@@ -25,10 +25,15 @@ import (
 // whole stream with "unexpected end of JSON input", hiding the real server
 // message (issue #104). This file owns the lenient SSE path used instead:
 // the request still goes through the SDK client (auth, base URL, params
-// encoding, HTTP error mapping), but frames are decoded here.
+// encoding, HTTP error mapping), but frames are decoded here. The Codex
+// Responses stream frames through the same scanner (codexEventDecoder): its
+// backend sends a ": keep-alive" comment while the model is silent, which the
+// SDK decoder dispatches as an empty event the same way.
 
 // sseFrame is one server-sent event accumulated from the wire.
 type sseFrame struct {
+	// event is the value of the frame's "event:" field, "" when it has none.
+	event string
 	// data is the newline-joined payload of "data:" lines.
 	data []byte
 	// errData is the payload of the non-standard "error:" field
@@ -62,13 +67,14 @@ func (s *sseScanner) Next() bool {
 		return false
 	}
 	var data, errData bytes.Buffer
+	var event string
 	flush := func() bool {
 		if data.Len() == 0 && errData.Len() == 0 {
 			// Nothing accumulated: comment-only frame or a run of blank
 			// lines. Skip instead of dispatching an empty document.
 			return false
 		}
-		s.cur = sseFrame{data: data.Bytes(), errData: errData.Bytes()}
+		s.cur = sseFrame{event: event, data: data.Bytes(), errData: errData.Bytes()}
 		return true
 	}
 	for s.scn.Scan() {
@@ -84,6 +90,7 @@ func (s *sseScanner) Next() bool {
 			}
 			data.Reset()
 			errData.Reset()
+			event = ""
 			continue
 		}
 		name, value, _ := bytes.Cut(line, []byte(":"))
@@ -92,6 +99,8 @@ func (s *sseScanner) Next() bool {
 		}
 		switch string(name) {
 		case "": // comment line (": keep-alive")
+		case "event":
+			event = string(value)
 		case "data":
 			data.Write(value)
 			data.WriteByte('\n')

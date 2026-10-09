@@ -558,6 +558,37 @@ func TestOpenAIStreamFilter_UsageChunkFollowsTheFinishedChoice(t *testing.T) {
 	}
 }
 
+func TestOpenAIStreamFilter_SumsUsageAcrossCallsAndIncludesCache(t *testing.T) {
+	frames := openAIFilterFrames(t, true,
+		"event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":30,\"outputTokens\":12,\"totalTokens\":42,\"cachedInputTokens\":20}\n\n",
+		"event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":8,\"outputTokens\":3,\"totalTokens\":53,\"cachedInputTokens\":5}\n\n",
+		"data: [DONE]\n\n")
+	usage := frames[len(frames)-2]
+	if !strings.Contains(usage, `"prompt_tokens":38`) || !strings.Contains(usage, `"completion_tokens":15`) || !strings.Contains(usage, `"total_tokens":53`) || !strings.Contains(usage, `"cached_tokens":25`) {
+		t.Fatalf("usage frame did not sum both calls: %s", usage)
+	}
+}
+
+func TestNonStreamingSenderSumsUsageAcrossCalls(t *testing.T) {
+	sender := NewSender(nil, nil, false, "local/m")
+	for _, update := range []acp.TokenUsageUpdate{
+		{InputTokens: 30, OutputTokens: 12, TotalTokens: 42, CachedInputTokens: 20},
+		{InputTokens: 8, OutputTokens: 3, TotalTokens: 53, CachedInputTokens: 5},
+	} {
+		if err := sender.SendSessionUpdate("s", update); err != nil {
+			t.Fatal(err)
+		}
+	}
+	usage := sender.CompletionUsage()
+	if usage["prompt_tokens"] != 38 || usage["completion_tokens"] != 15 || usage["total_tokens"] != 53 {
+		t.Fatalf("non-stream usage did not sum both calls: %+v", usage)
+	}
+	details, _ := usage["prompt_tokens_details"].(map[string]int)
+	if details["cached_tokens"] != 25 {
+		t.Fatalf("non-stream cache usage = %+v", usage)
+	}
+}
+
 func TestOpenAIStreamFilter_ErrorFrameAndKeepaliveReachTheClient(t *testing.T) {
 	frames := openAIFilterFrames(t, false, ": keepalive\n\n", "data: {\"error\":{\"message\":\"boom\"}}\n\n")
 	want := []string{": keepalive", `data: {"error":{"message":"boom"}}`}

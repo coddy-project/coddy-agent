@@ -225,12 +225,7 @@ function gatewaysFieldOverride(ctx: FieldOverrideContext) {
     <ProxySettingField
       value={ctx.value}
       onChange={ctx.onChange}
-      label={schemaFieldLabel(
-        "gateways",
-        ctx.path,
-        ctx.schema.title,
-        "proxy",
-      )}
+      label={schemaFieldLabel("gateways", ctx.path, ctx.schema.title, "proxy")}
       description={schemaFieldDesc(
         "gateways",
         ctx.path,
@@ -267,7 +262,10 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
       return (
         <CodexAuthField
           providerName={providerName}
-          {...(Object.prototype.hasOwnProperty.call(ctx.parentObj ?? {}, "proxy")
+          {...(Object.prototype.hasOwnProperty.call(
+            ctx.parentObj ?? {},
+            "proxy",
+          )
             ? { proxy: String(ctx.parentObj?.proxy ?? "") }
             : {})}
         />
@@ -679,7 +677,10 @@ export function SettingsSection(props: {
   const override: FieldOverride | undefined =
     key === "gateways"
       ? gatewaysFieldOverride
-      : key === "agent" || key === "memory" || key === "compaction"
+      : key === "agent" ||
+          key === "memory" ||
+          key === "compaction" ||
+          key === "supervisor"
         ? (ctx) =>
             ctx.path === "model" ? (
               <ModelPicker
@@ -764,6 +765,20 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
       },
     ];
   }
+  if (key === "supervisor") {
+    return [
+      {
+        id: "checks",
+        legend: translate("settings.group.supervisor.checks"),
+        paths: ["model", "verify", "max_continuations", "token_budget"],
+      },
+      {
+        id: "watchdog",
+        legend: translate("settings.group.supervisor.watchdog"),
+        paths: ["stall_seconds", "max_nudges", "loop_repeat"],
+      },
+    ];
+  }
   if (key === "tools") {
     return [
       {
@@ -781,6 +796,11 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
         paths: ["model", "dir"],
       },
       {
+        id: "instructions",
+        legend: translate("settings.group.memory.instructions"),
+        paths: ["additional_prompt", "additional_prompt_max_chars"],
+      },
+      {
         id: "runs",
         legend: translate("settings.group.memory.runs"),
         paths: ["wait_seconds", "timeout_seconds", "keep_runs"],
@@ -793,12 +813,8 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
           "persist_max_turns",
           "copilot_max_tokens",
           "max_search_hits",
+          "max_note_chars",
         ],
-      },
-      {
-        id: "instructions",
-        legend: translate("settings.group.memory.instructions"),
-        paths: ["additional_prompt", "additional_prompt_max_chars"],
       },
     ];
   }

@@ -63,6 +63,27 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	case acp.BackgroundWakeUpdate:
 		// A turn nobody typed opens with what woke the agent.
 		s.post("🔔 " + session.BackgroundWakeNote(u))
+	case acp.GoalTurnUpdate:
+		// The supervisor starts another turn of the goal: the answer so far
+		// is final, and the next turn's opens below a note saying why.
+		s.mu.Lock()
+		pending := s.responseBuf.Len() > 0 || s.liveID != 0
+		s.mu.Unlock()
+		if pending {
+			s.Flush()
+		}
+		s.post("🎯 " + session.GoalTurnNote(u))
+	case acp.SessionGoalUpdate:
+		// How the goal ended, or where it stands, said once per change.
+		if note := session.GoalEndNote(u); note != "" {
+			s.mu.Lock()
+			pending := s.responseBuf.Len() > 0 || s.liveID != 0
+			s.mu.Unlock()
+			if pending {
+				s.Flush()
+			}
+			s.post("🎯 " + note)
+		}
 	case acp.MessageChunkUpdate:
 		if u.Content.Type != acp.ContentTypeText || u.SessionUpdate == acp.UpdateTypeUserMessageChunk {
 			return nil

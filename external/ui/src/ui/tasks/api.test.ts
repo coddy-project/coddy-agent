@@ -49,10 +49,12 @@ test("stop posts to the task's stop path", async () => {
 });
 
 test("an error status becomes a result, not a throw", async () => {
-  mockFetch((async () =>
-    new Response(JSON.stringify({ error: { message: "no such task" } }), {
-      status: 404,
-    })) as unknown as typeof fetch);
+  mockFetch(
+    (async () =>
+      new Response(JSON.stringify({ error: { message: "no such task" } }), {
+        status: 404,
+      })) as unknown as typeof fetch,
+  );
 
   const res = await getBackgroundTask("s1", "bg_404");
   expect(res).toEqual({ ok: false, status: 404, message: "no such task" });

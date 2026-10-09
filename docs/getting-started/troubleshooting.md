@@ -128,7 +128,7 @@ coddy serve --log-level "info,gateway.telegram=debug"
 
 or the same in the file under `logger.levels`. At `debug` every update is recorded with the reason it was dropped (access denied, an admin-only chat, a group message not addressed to the bot, a full queue). Silence at `warn` and nothing at `debug` means the update never arrived: check the token, the access lists and other pollers. Guide: [Telegram gateway](../surfaces/gateway.md#debugging-a-chat).
 
-To separate Telegram from the bot, run the bot against the fake Bot API of `cmd/tgfake` with `CODDY_TELEGRAM_API_BASE` set: you send the messages from a page on your machine, every Bot API call is listed, and a fault can be injected on demand. Guide: [Debugging against a fake Bot API](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
+To separate Telegram from the bot, run the bot against the fake Bot API of [tgfake](https://github.com/EvilFreelancer/tgfake) with `CODDY_TELEGRAM_API_BASE` set: you send the messages from a page on your machine, every Bot API call is listed, and a fault can be injected on demand. Guide: [Debugging against a fake Bot API](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
 
 ## Hooks or subagent definitions are ignored
 
@@ -249,7 +249,7 @@ Field reference: [`agent`](../reference/config.md#agent), [`providers`](../refer
 
 **Symptom.** The answer stops mid-sentence, and the session log shows a notice such as `The provider failed mid-turn (... server error 500: litellm.MidStreamFallbackError ...). The turn went on after a 5s pause (recovery 1 of 2).` The turn then continues on its own. Before this, such a turn ended with the error and waited for the user to type "continue" ([issue #246](https://github.com/coddy-project/coddy-agent/issues/246)).
 
-**Cause.** The provider's lane failed, not the request: a 5xx from a proxy whose fallback also failed, a connection cut, a stream gone silent. A connection the remote host closed reads `connection reset by peer` on Linux and `wsarecv: An existing connection was forcibly closed by the remote host.` on Windows; both are a cut ([issue #389](https://github.com/coddy-project/coddy-agent/issues/389)). A stream event that arrives framed but ends inside its JSON is a cut too ([issue #384](https://github.com/coddy-project/coddy-agent/issues/384)): before the fix it surfaced as the decoder's own text, `codex stream: unexpected end of JSON input` or `openai stream: undecodable SSE frame: {"choices":...`, and ended the turn; now it reads `stream truncated: an event arrived with incomplete JSON (unexpected end of JSON input)` (Codex and Anthropic also spell the cut `invalid character '\n' in string literal`) or `stream truncated: an event arrived with incomplete JSON (undecodable SSE frame: {"choices":...)` on an OpenAI-compatible server, keeps the text already shown and takes the same recovery. `undecodable SSE frame:` followed by text that is not JSON at all (an HTML error page) means a server or a proxy wrote something else into the stream; the turn ends with that error, and it is not retried. The resilient wrapper retries a call only while nothing has reached the user, so a failure after the first words, or one that outlasts its backoff, reaches the turn. The turn treats it as a breaker:
+**Cause.** The provider's lane failed, not the request: a 5xx from a proxy whose fallback also failed, a connection cut, a stream gone silent. A connection the remote host closed reads `connection reset by peer` on Linux and `wsarecv: An existing connection was forcibly closed by the remote host.` on Windows; both are a cut ([issue #389](https://github.com/coddy-project/coddy-agent/issues/389)). A stream event that arrives framed but ends inside its JSON is a cut too ([issue #384](https://github.com/coddy-project/coddy-agent/issues/384)): before the fix it surfaced as the decoder's own text, `codex stream: unexpected end of JSON input` or `openai stream: undecodable SSE frame: {"choices":...`, and ended the turn; now it reads `stream truncated: an event arrived with incomplete JSON (unexpected end of JSON input)` (Codex and Anthropic also spell the cut `invalid character '\n' in string literal`) or `stream truncated: an event arrived with incomplete JSON (undecodable SSE frame: {"choices":...)` on an OpenAI-compatible server, keeps the text already shown and takes the same recovery. `undecodable SSE frame:` followed by text that is not JSON at all (an HTML error page) means a server or a proxy wrote something else into the stream; the turn ends with that error, and it is not retried. A Codex turn that failed with `stream truncated: an event arrived with incomplete JSON (unexpected end of JSON input)` about five seconds after the model went quiet, recovery after recovery, was not a cut at all: the Codex backend sends a `: keep-alive` comment while the model is silent, and the reader took that comment for an event with nothing in it. Comments and frames without data are skipped now, as they always were on OpenAI-compatible servers. The resilient wrapper retries a call only while nothing has reached the user, so a failure after the first words, or one that outlasts its backoff, reaches the turn. The turn treats it as a breaker:
 
 - the text the user already saw stays in the transcript, and the model is asked to go on from where it stopped rather than start over;
 - the pause before the first recovery is five times `agent.llm_retry_base_ms` (5 s by default) and four times longer before each next one (20 s, 80 s), or the pause the provider asked for in `Retry-After` when that is longer, at most 2 minutes;
@@ -306,6 +306,23 @@ coddy -v
 ```
 
 In a Termux session that was open during the install, `coddy` is found only after `source ~/.bashrc` or in a new session. See [Android (Termux)](android.md).
+
+## The Docker image stops with `exec format error` on an arm64 host
+
+**Symptom.** On a Raspberry Pi, an arm64 server or any other `aarch64` host, `docker run ghcr.io/coddy-project/coddy-agent` exits at once with `exec /bin/coddy: exec format error`, although `docker image inspect` reports `Architecture: arm64`. A host with `qemu-user-static` registered runs the image anyway, slowly, under emulation.
+
+**Cause.** The `linux/arm64` variant of the images published from 0.8.3 to 1.2.85 carries an x86-64 `/bin/coddy`: a default value on `ARG TARGETARCH` in the Dockerfile replaced the platform BuildKit was building for ([issue #482](https://github.com/coddy-project/coddy-agent/issues/482)). Docker labels a variant with the platform it was asked for, whatever binary is inside.
+
+**Fix.** Pull an image published after 1.2.85, or build one on the host from the repository with BuildKit (see [Docker](docker.md#prerequisites)). To see what a variant carries, copy the binary out, since the image has no shell:
+
+```bash
+docker pull ghcr.io/coddy-project/coddy-agent:latest
+c=$(docker create ghcr.io/coddy-project/coddy-agent:latest)
+docker cp "$c:/bin/coddy" ./coddy-from-image && docker rm "$c"
+file ./coddy-from-image   # ARM aarch64 on an arm64 host
+```
+
+A build from source that stops at the first `FROM` with `failed to parse platform` ran on the legacy builder: install the `buildx` plugin, or build with `docker buildx build`. See [Checking the platforms of the image](docker.md#checking-the-platforms-of-the-image).
 
 ## Windows notes
 

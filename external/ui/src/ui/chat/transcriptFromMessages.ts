@@ -1,4 +1,5 @@
 import { parseBackgroundWakeTasks } from "./backgroundWake";
+import { parseGoalTurn } from "./goal";
 import { pickRicherQuestionToolArgs } from "./questionPromptSessionStore";
 import { sessionMessageFiles } from "./sessionMessageFiles";
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
@@ -9,6 +10,7 @@ import {
   partialTurnThinkingItemId,
   stableAssistantItemId,
   stableCompactionItemId,
+  stableGoalTurnItemId,
   stablePlanDocumentItemId,
   stableThinkingItemId,
   stableToolCallItemId,
@@ -65,7 +67,9 @@ const COMPACTION_PREAMBLE = "Summary of the compacted part:";
 
 function stripCompactionPreamble(s: string): string {
   const i = s.indexOf(COMPACTION_PREAMBLE);
-  return i >= 0 ? s.slice(i + COMPACTION_PREAMBLE.length).trimStart() : s.trim();
+  return i >= 0
+    ? s.slice(i + COMPACTION_PREAMBLE.length).trimStart()
+    : s.trim();
 }
 
 /**
@@ -152,6 +156,20 @@ export function transcriptItemsFromMessages(p: {
         });
         return;
       }
+      // Nobody typed the first message of a turn the session supervisor
+      // started for the goal either: its content is the instruction the model
+      // read, and a goal row stands in its place. It opens a turn of its own,
+      // as the server counts it.
+      const goalTurn = parseGoalTurn((m as Record<string, unknown>).goal_turn);
+      if (goalTurn) {
+        next.push({
+          id: stableGoalTurnItemId(userTurnIdx),
+          type: "goal_turn",
+          turn: goalTurn,
+          ...(cat ? { createdAtUtc: cat } : {}),
+        });
+        return;
+      }
       const rawContent = m.content || "";
       const parsedAssets = sessionMessageFiles(
         (m as Record<string, unknown>).files,
@@ -167,6 +185,13 @@ export function transcriptItemsFromMessages(p: {
       return;
     }
     if (role === "assistant") {
+      // A notice the turn went on after belongs before the first message
+      // stored later than it.
+      next.push(
+        ...notices.beforeMessageAt(
+          readMessageCreatedAtUTC(m as Record<string, unknown>),
+        ),
+      );
       const pdRaw = (m as Record<string, unknown>).plan_document;
       if (pdRaw && typeof pdRaw === "object" && !Array.isArray(pdRaw)) {
         const pd = pdRaw as Record<string, unknown>;

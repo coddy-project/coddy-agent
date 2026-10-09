@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -500,6 +501,61 @@ func TestResourceBlocksReachTheRemoteAsAttachments(t *testing.T) {
 	}
 	if len(got.Attachments) != 1 || got.Attachments[0].Path != "file:///a.go" || got.Attachments[0].Source.Literal != "package a // @/etc/passwd" {
 		t.Fatalf("attachments %+v", got.Attachments)
+	}
+}
+
+// The language of the surface crosses the wire as metadata.lang: the server's
+// turn reads it into PromptRunOpts.Lang (langFromHTTP), so the documentation
+// the turn's @coddy: mentions attach speaks the language the person reads.
+func TestPromptSendsTheSurfaceLanguageAsMetadata(t *testing.T) {
+	var got struct {
+		Metadata map[string]string `json:"metadata"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &collectSender{}
+	h.SetServer(sender)
+	_, err = h.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: "sess_test",
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}, sender, &session.PromptRunOpts{Lang: "ru"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Metadata["lang"] != "ru" {
+		t.Fatalf("metadata = %v", got.Metadata)
+	}
+}
+
+// SearchMentions puts the surface's language on the query, so the server's
+// "@coddy:" candidates are named in it.
+func TestSearchMentionsSendsTheSurfaceLanguage(t *testing.T) {
+	var gotURL *url.URL
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURL = r.URL
+		_, _ = w.Write([]byte(`{"items":[],"total":0}`))
+	}))
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.SearchMentions(context.Background(), session.MentionSearch{Query: "coddy:", Lang: "ru"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotURL.Query().Get("lang"); got != "ru" {
+		t.Fatalf("lang query = %q", got)
+	}
+	if gotURL.Query().Has("limit") {
+		t.Fatalf("limit should not be sent when unset: %s", gotURL.RawQuery)
 	}
 }
 

@@ -165,6 +165,17 @@ func (s *remoteFeatureState) sessionRootedAt(name string) error {
 	return nil
 }
 
+// sessionHasUserMessage gives the session a conversation: one nobody wrote in
+// is left out of the listing (issue #357).
+func (s *remoteFeatureState) sessionHasUserMessage() error {
+	st := s.mgr.SessionByID(s.sessionID)
+	if st == nil {
+		return fmt.Errorf("session %q not registered", s.sessionID)
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	return nil
+}
+
 func (s *remoteFeatureState) do(req *http.Request) error {
 	if s.bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+s.bearer)
@@ -500,6 +511,7 @@ func initializeRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the client presents an invalid token$`, s.presentInvalid)
 	sc.Step(`^a workspace folder "([^"]+)"$`, s.plainFolder)
 	sc.Step(`^a session rooted at folder "([^"]+)"$`, s.sessionRootedAt)
+	sc.Step(`^the session already has a user message$`, s.sessionHasUserMessage)
 
 	sc.Step(`^I request the model list$`, s.requestModels)
 	sc.Step(`^I switch the session workspace to folder "([^"]+)"$`, s.switchWorkspace)

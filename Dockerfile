@@ -1,8 +1,14 @@
 ## Multi-stage build producing a minimal scratch runtime image.
 ## Stage 1 (Node) builds the SPA bundle synced into external/ui for go:embed when BUILD_TAGS contains ui.
 ## Stage 2 (Go) respects BUILD_TAGS (comma-separated, same as make / go build -tags).
+## Both build stages run on the build platform and the Go stage cross-compiles
+## for the target one, so a multi-arch build (`--platform linux/amd64,linux/arm64`)
+## runs no step under emulation and every variant gets a binary of its own
+## platform. scripts/check-image.sh (make check-image) holds that.
 
-FROM node:22-bookworm AS ui-builder
+# The bundle is JavaScript, the same for every platform, so it is built once,
+# natively, whatever platforms the image is built for.
+FROM --platform=$BUILDPLATFORM node:22-bookworm AS ui-builder
 
 WORKDIR /ui
 COPY external/ui/package.json external/ui/package-lock.json ./
@@ -16,7 +22,14 @@ COPY docs/assets/coddy-logo-*.svg docs/assets/favicon-32.png docs/assets/favicon
 RUN npm run build:go
 
 
-FROM golang:1.25-bookworm AS build
+# The compiler runs natively too; GOOS and GOARCH below pick the target.
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
+
+# The official image sets GOTOOLCHAIN=local, which would build with whatever
+# 1.26 release a cached copy of this image holds. auto lets go switch to the
+# `toolchain` line of go.mod when the image is older, so the image never links
+# an older standard library than CI and the release archives.
+ENV GOTOOLCHAIN=auto
 
 WORKDIR /src
 
@@ -31,8 +44,11 @@ ARG VERSION=dev
 # by overriding CMD (see docker-compose command override). Pass --build-arg BUILD_TAGS
 # to trim it. CI (docker-build-push.yaml) sets its own BUILD_TAGS for the published image.
 ARG BUILD_TAGS=http,scheduler,ui,memory,gateway,cli,swarm
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+# BuildKit sets these from the platform being built. They are declared without
+# a value on purpose: a default here wins over the value BuildKit passes, which
+# is how the linux/arm64 image shipped an x86-64 binary (issue #482).
+ARG TARGETOS
+ARG TARGETARCH
 
 ENV CGO_ENABLED=0
 ENV GOOS=${TARGETOS}
@@ -63,11 +79,25 @@ RUN mkdir -p /out \
 	fi \
 	&& cp /etc/ssl/certs/ca-certificates.crt /out/ssl-certs/ca-certificates.crt
 
+# The folders the unprivileged user of the runtime image writes: the home
+# (CODDY_HOME and the default config file), the workspace and /tmp, which
+# scratch does not have.
+RUN mkdir -p /out/rootfs/home/user/.coddy /out/rootfs/workspace /out/rootfs/tmp \
+	&& chmod 1777 /out/rootfs/tmp
+
 
 FROM scratch
 
 COPY --from=build /out/coddy /bin/coddy
 COPY --from=build /out/ssl-certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build --chown=1000:1000 /out/rootfs/ /
+
+# Coddy runs as an unprivileged user, uid and gid 1000, the usual first user of
+# a Linux desktop, so the bind mounts of docker-compose.yml stay writable for
+# the operator. Another owner is `--user UID:GID` (CODDY_UID / CODDY_GID in
+# Compose); a home written by an earlier image that ran as root is chowned once
+# (docs/getting-started/docker.md, The container user).
+USER 1000:1000
 
 WORKDIR /workspace
 
@@ -76,6 +106,10 @@ ENV CODDY_CWD=/workspace
 ENV CODDY_CONFIG=/home/user/.coddy.yaml
 
 EXPOSE 12345
+
+# The same check docker-compose.yml runs: the binary starts. A scratch image has
+# no shell or HTTP client to ask the server itself.
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD ["/bin/coddy", "--version"]
 
 ENTRYPOINT ["/bin/coddy"]
 # Default subcommand. `serve` starts every subsystem config.yaml enables; the

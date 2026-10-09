@@ -124,8 +124,6 @@ test("globalMCPPath takes the real file from a home-scoped row", async () => {
     ]),
   ).toBe("/data/coddy/mcp.json");
   // Nothing in the agent home yet: the default location is the answer.
-  expect(globalMCPPath([row({ source_path: "" })])).toBe(
-    "~/.coddy/mcp.json",
-  );
+  expect(globalMCPPath([row({ source_path: "" })])).toBe("~/.coddy/mcp.json");
   expect(globalMCPPath([])).toBe("~/.coddy/mcp.json");
 });

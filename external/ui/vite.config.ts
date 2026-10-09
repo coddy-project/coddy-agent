@@ -9,11 +9,17 @@ const backend = (process.env.CODDY_UI_BACKEND || "").trim();
 
 // Retain vendored grammar notices in the embedded JS distribution. The minifier
 // otherwise strips source comments, including comments marked as licenses.
-const grammarDirectory = path.resolve(import.meta.dirname, "src/ui/markdown/grammars");
+const grammarDirectory = path.resolve(
+  import.meta.dirname,
+  "src/ui/markdown/grammars",
+);
 const syntaxLicenseBanner = readdirSync(grammarDirectory)
   .filter((name) => name.endsWith(".LICENSE"))
   .sort()
-  .map((name) => `/* ${name}\n${readFileSync(path.join(grammarDirectory, name), "utf8")}\n*/`)
+  .map(
+    (name) =>
+      `/* ${name}\n${readFileSync(path.join(grammarDirectory, name), "utf8")}\n*/`,
+  )
   .join("\n");
 
 const syntaxLicensePlugin: Plugin = {
@@ -23,7 +29,8 @@ const syntaxLicensePlugin: Plugin = {
     for (const output of Object.values(bundle)) {
       // The grammars are bundled into the entry; the lazy chunks carry their
       // own libraries' notices.
-      if (output.type === "chunk" && output.isEntry) output.code += `\n${syntaxLicenseBanner}\n`;
+      if (output.type === "chunk" && output.isEntry)
+        output.code += `\n${syntaxLicenseBanner}\n`;
     }
   },
 };
@@ -36,7 +43,10 @@ const katexWoff2OnlyPlugin: Plugin = {
   enforce: "pre",
   transform(code, id) {
     if (!/[\\/]katex[\\/]dist[\\/]katex(\.min)?\.css$/.test(id)) return null;
-    return code.replace(/,\s*url\([^)]*\.woff\)\s*format\("woff"\)\s*,\s*url\([^)]*\.ttf\)\s*format\("truetype"\)/g, "");
+    return code.replace(
+      /,\s*url\([^)]*\.woff\)\s*format\("woff"\)\s*,\s*url\([^)]*\.ttf\)\s*format\("truetype"\)/g,
+      "",
+    );
   },
 };
 

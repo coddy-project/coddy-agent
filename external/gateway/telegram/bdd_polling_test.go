@@ -4,7 +4,7 @@ package telegram
 
 // Godog harness for features/gateway_telegram_polling.feature: runs Bot.Start
 // end to end - getMe, setMyCommands, the getUpdates loop - against the fake
-// Bot API of internal/tgfake served on httptest, with a scripted agent behind
+// Bot API of tgfake served on httptest, with a scripted agent behind
 // the session runner. No LLM and no network beyond the local server.
 
 import (
@@ -16,13 +16,13 @@ import (
 	"testing"
 	"time"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/proxytest"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 const (
@@ -81,8 +81,8 @@ type pollingWorld struct {
 	proxy *proxytest.Proxy
 }
 
-func (w *pollingWorld) fakeBotAPI(username string) error {
-	w.f = openFakeAPI(tgfake.Options{BotUsername: username})
+func (w *pollingWorld) fakeBotAPI(username, name string) error {
+	w.f = openFakeAPI(tgfake.Options{BotUsername: username, BotFirstName: name})
 	w.fake = w.f.fake
 	return nil
 }
@@ -230,14 +230,22 @@ func (w *pollingWorld) agentWasAskedText(text string) error {
 }
 
 func (w *pollingWorld) userReplies(text string) error {
+	// The answer streams into one message that ends with "…" until its turn
+	// is over, and a message "containing" the answer is already that draft: a
+	// reply sent before the last edit quotes the draft (seen under the race
+	// detector). So the reply waits for the bot's last message to be final.
 	var last int
-	for _, m := range w.fake.Chat(pollingChatID).Messages {
-		if m.From == "bot" {
-			last = m.MessageID
+	if err := w.await("the bot's last message is still being written", func(v tgfake.ChatView) bool {
+		last = 0
+		var lastText string
+		for _, m := range v.Messages {
+			if m.From == "bot" && !m.Deleted {
+				last, lastText = m.MessageID, m.Text
+			}
 		}
-	}
-	if last == 0 {
-		return fmt.Errorf("no bot message to reply to")
+		return last != 0 && !strings.HasSuffix(lastText, "…")
+	}); err != nil {
+		return err
 	}
 	upd, _ := w.fake.InjectMessage(tgfake.IncomingMessage{ChatID: pollingChatID, UserID: pollingUserID, Text: text, ReplyToMessageID: last})
 	w.lastUpdate = upd
@@ -440,7 +448,7 @@ func initializePollingScenario(sc *godog.ScenarioContext) {
 		return ctx, err
 	})
 
-	sc.Given(`^a fake Bot API whose bot is "([^"]*)"$`, w.fakeBotAPI)
+	sc.Given(`^a fake Bot API whose bot is "([^"]*)" named "([^"]*)"$`, w.fakeBotAPI)
 	sc.Given(`^a telegram gateway over a scripted agent pointed at it$`, w.gatewayPointedAtIt)
 	sc.Given(`^the agent answers with "([^"]*)"$`, w.agentAnswersWith)
 	sc.Given(`^the Bot API remembers a subscription to messages only$`, w.subscribedToMessagesOnly)

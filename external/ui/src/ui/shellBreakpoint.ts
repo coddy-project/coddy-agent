@@ -41,7 +41,10 @@ export function subscribeShellStack(cb: () => void): () => void {
 
 /** useSyncExternalStore snapshot (client) for the mobile/narrow shell breakpoint. */
 export function snapshotShellStack(): boolean {
-  return typeof window !== "undefined" && window.matchMedia(shellStackMaxWidthMediaQuery).matches;
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia(shellStackMaxWidthMediaQuery).matches
+  );
 }
 
 /** useSyncExternalStore snapshot (server) for the mobile/narrow shell breakpoint. */
@@ -54,7 +57,8 @@ export function serverSnapshotShellStack(): boolean {
  * without a trackpad. Decides what Enter does in the composer; the layout
  * follows the width breakpoint above instead.
  */
-export const touchOnlyMediaQuery = "(any-hover: none) and (any-pointer: coarse)";
+export const touchOnlyMediaQuery =
+  "(any-hover: none) and (any-pointer: coarse)";
 
 /** useSyncExternalStore subscribe for the touch-only query. */
 export function subscribeTouchOnly(cb: () => void): () => void {
@@ -66,7 +70,10 @@ export function subscribeTouchOnly(cb: () => void): () => void {
 
 /** useSyncExternalStore snapshot (client) for the touch-only query. */
 export function snapshotTouchOnly(): boolean {
-  return typeof window !== "undefined" && window.matchMedia(touchOnlyMediaQuery).matches;
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia(touchOnlyMediaQuery).matches
+  );
 }
 
 /** useSyncExternalStore snapshot (server) for the touch-only query. */

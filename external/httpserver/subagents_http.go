@@ -226,10 +226,14 @@ func subagentLink(parentSessionID, name, taskID string) map[string]interface{} {
 func subagentMetaLink(meta *session.SubagentMeta) map[string]interface{} {
 	link := subagentLink(meta.ParentSessionID, meta.Name, meta.TaskID)
 	if meta.Scheduler != nil {
-		link["scheduler"] = map[string]interface{}{
+		sched := map[string]interface{}{
 			"jobId":   meta.Scheduler.JobID,
 			"trigger": meta.Scheduler.Trigger,
 		}
+		if meta.Scheduler.Workspace != "" {
+			sched["workspace"] = meta.Scheduler.Workspace
+		}
+		link["scheduler"] = sched
 	}
 	return link
 }

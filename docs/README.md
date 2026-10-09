@@ -34,7 +34,7 @@ The same agent and the same sessions from a terminal, a browser, an editor or a 
 Running Coddy as a service, reaching it from elsewhere and bounding what it may do.
 
 - [coddy serve and the daemon](operate/serve.md) - One process for every enabled subsystem, the systemd user service (serve install and uninstall), --daemon with status, stop and restart, and configuration reloads.
-- [Remote mode](operate/remote.md) - Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment chip.
+- [Remote mode](operate/remote.md) - Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment menu.
 - [Swarm](operate/swarm.md) - Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel.
 - [Scheduler](operate/scheduler.md) - Cron job files, UTC firing rules, runs as background agent tasks under a job session, the runs panel, the scheduler tools and REST.
 - [Security and trust](operate/security.md) - What the agent may execute and how to bound it, permission modes, project trust for MCP servers, hooks and subagents, tokens and CORS, what is not sandboxed.
@@ -45,6 +45,7 @@ What the agent can do and how each capability is configured.
 
 - [Operating modes](features/modes.md) - agent, plan and ask, which tools each mode allows and how to switch on every surface.
 - [Session settings](features/session-settings.md) - Switching the model, reasoning level, mode and permission mode from the conversation with /model, /reasoning, /think, /nothink, /agent, /plan, /ask and /permissions, for the session or the next turns, the permission dialog's session switch, and the model switching itself.
+- [Session goal and supervisor](features/session-supervisor.md) - /goal keeps the agent working until a second model, judging the evidence, finds the objective met and a read-only verifier confirms it; continuations, budgets, the watchdog for stalls and loops.
 - [Sessions](features/sessions.md) - Session bundles on disk, resuming, history rewind on message edit, todo lists, the sessions CLI.
 - [Git worktrees](features/worktrees.md) - Fresh feature branches from origin, session moves, the web composer and project grouping.
 - [Rules and instructions](features/rules.md) - Rules from the .coddy, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation.
@@ -103,7 +104,8 @@ How Coddy is built, tested, documented and released.
 - [Writing documentation](contributing/documentation.md) - Page types, the navigation map, screenshots and videos, the assets index, generated references and the checks that guard them.
 - [Architecture](contributing/architecture.md) - System design and component overview, package boundaries, session modes, the directory structure.
 - [Build from source](contributing/build.md) - Prerequisites, make build, TAGS against go build -tags, the release binaries and the distribution packages.
-- [AppSec scanning](contributing/security-scanning.md) - Trivy and semgrep locally and in CI through one script, the severity gate, triage and suppression.
+- [Integration tests with tgfake](contributing/tgfake.md) - The fake Telegram Bot API the bot is tested against - the version go.mod pins, the in-process suites, the end-to-end scripts, the CI job and moving to a new tgfake.
+- [AppSec scanning](contributing/security-scanning.md) - Trivy, semgrep and govulncheck locally and in CI through one script, the severity gate, the pinned Go toolchain, triage and suppression.
 - [Custom tools](contributing/custom-tools.md) - Adding a built-in tool to the registry, its schema and permission wiring, with a complete example.
 - [ReAct agent](contributing/react-agent.md) - The loop design, the system prompt structure, the tool-calling contract and mode-specific behaviour.
 - [Web UI design](../DESIGN.md) - Tokens, layout and component contracts of the embedded SPA.

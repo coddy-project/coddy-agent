@@ -28,15 +28,19 @@ https://github.com/user-attachments/assets/34752734-2715-4aa3-936b-acfb5c7233bf
 - **Theme cookie:** **`coddy_ui_theme`** with the seven theme ids (**`dark`**, **`light`**, **`midnight`**, **`solarized-dark`**, **`monokai`**, **`nord`**, **`rose-pine`**; path **`/`**, **`SameSite=Lax`**, 1-year `Max-Age`).
 - **Theme picker:** **Settings** (**`#/settings`**) → **Appearance** → theme swatch grid (**`data-testid="theme-swatch-<id>"`** inside **`appearance-theme-picker`**). Selection applies immediately and is client-side only (no config save).
 - **Language picker:** one native select **directly under the theme grid** (**`data-testid="appearance-language-select"`**) with **Auto** (resolves from **`navigator.language`**, stores no cookie) followed by every locale registered in **`locales.ts`**. The current registry renders **English** and **Русский**; changing the select applies the locale immediately.
-- **Language cookie:** **`coddy_ui_lang`** stores a registered locale id (currently **`en`** or **`ru`**), with the same flags as the theme cookie. Choosing **Auto** clears it. Resolution order on load: **`?lang=<registered-id>`** in the URL (also persisted to the cookie) > cookie > **`navigator.language`**. Switching sets **`document.documentElement.lang`** and re-renders without a reload. Purely client-side (no config save).
+- **Language cookie:** **`coddy_ui_lang`** stores a registered locale id (currently **`en`** or **`ru`**), with the same flags as the theme cookie. Choosing **Auto** clears it. Resolution order on load: **`?lang=<registered-id>`** in the URL (also persisted to the cookie) > cookie > **`navigator.language`**. Switching sets **`document.documentElement.lang`** and re-renders without a reload. The documentation follows it: the reader asks for its pages in that language (**`lang=`** on **`/coddy/docs*`**) and every turn names it (**`metadata.lang`**), so the agent reads and attaches Coddy's documentation in it too ([Built-in documentation](../features/built-in-docs.md#languages)). Nothing is written to the config.
 - **i18n engine:** **`external/ui/src/ui/i18n/`** (**`translate`/`t`**, locale store, **`I18nProvider`** + **`useT()`**). **`locales.ts`** is the single registry for supported ids, picker labels, and dictionaries; picker generation, locale validation, bootstrap, and parity tests derive from it. **`main.tsx`** wraps the app plus shared confirmation provider in **`I18nProvider`**. **`useT()` falls back to `translate` outside a provider**, so components render in tests without wrapping; default-English values match the former hardcoded literals exactly.
 - **Locale maintenance:** adding a locale requires its dictionary plus one **`locales.ts`** entry. Every registered dictionary must add or change the same key and interpolation tokens in one patch; **`messagesParity.test.ts`** enforces both.
 - **Plural copy:** counted strings use **`translatePlural`** / **`tp(key, count)`** with one dictionary entry per CLDR category (**`key.one`**, **`key.few`**, **`key.many`**, **`key.other`**), so Russian declines the noun by the number instead of falling back to one form. Each locale must supply exactly the categories its own **`Intl.PluralRules`** produces; the parity test derives that set per locale.
 - **Coverage:** Appearance + Settings surfaces are translated (Settings shell, sections, MCP, Skills, CodexAuth, ModelField/Picker, Combobox), schema-driven settings field labels and descriptions are translated too (see below), and the conversation surfaces are translated too: nav rail, hero title, composer (modes, model picker, attachments, slash/@ menus, environment and folder modals), message rendering (thinking, tool calls, compaction, copy controls), permission and question prompts, plan document card, History sidebar, scheduler drawer and job editor, background tasks panel, the env health banner, and the swarm screen with its topology graph. Shared destructive confirmations for drafts, chats, and scheduler jobs are translated as well.
-- **Schema field localization:** settings sections rendered from the server JSON Schema (providers, models, agent, tools, subagents, hooks, memory, compaction, scheduler, logger, gateways, sessions, and the parts of the Prompts tab) localize their field labels and descriptions client-side via **`settings/schemaI18n.ts`**: the dictionary key derives deterministically from the section id and the dotted field path (**`settings.schema.<section>.<path>.label` / `.desc`**, the parts of the Prompts tab, folded in from the `prompts` and `instructions` keys, as **`settings.schema.system.<child>.<path>`**). A key no dictionary defines falls back to the schema's own English text, so unmapped or newly added server fields never leak a raw key. Array item rows inherit the domain for their nested fields but keep their own fallback for the row label, so the enclosing fieldset legend and description are not repeated per row.
+- **Schema field localization:** settings sections rendered from the server JSON Schema (providers, models, agent, supervisor, tools, subagents, hooks, memory, compaction, scheduler, logger, gateways, sessions, and the parts of the Prompts tab) localize their field labels and descriptions client-side via **`settings/schemaI18n.ts`**: the dictionary key derives deterministically from the section id and the dotted field path (**`settings.schema.<section>.<path>.label` / `.desc`**, the parts of the Prompts tab, folded in from the `prompts` and `instructions` keys, as **`settings.schema.system.<child>.<path>`**). A key no dictionary defines falls back to the schema's own English text, so unmapped or newly added server fields never leak a raw key. Array item rows inherit the domain for their nested fields but keep their own fallback for the row label, so the enclosing fieldset legend and description are not repeated per row.
 - **Settings shows one tab at a time**: Appearance and Skills are tabs of the same list as the configuration sections.
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
 - **CSS contract:** **`--text`** and **`--bg`** on **`[data-theme="light"]`** are **`#18181b`** and **`#f8f8fa`**; glass panels use **`rgba(255, 255, 255, 0.9)`** (not dark tint). Dark defaults remain on **`:root`** / **`[data-theme="dark"]`**.
+
+## Session goal
+
+When the session has a goal, a target mark sits on the plate over the composer, left of git's `+A −D` count, in the colour of the goal's status (in work, paused, needs you, done, budget used up); pointing at it shows the status and the objective. It appears only once `/goal` has set a goal, and a chat outside a git repository then gets the plate too, naming the folder. It opens the goal menu: the whole objective, the status and its reason, the supervisor's last check with a **verified** mark when the read-only verifier confirmed it, the requirement checklist, the continuations, checks, active time and tokens, then the model that checks it (**Checked by**) with the reasoning level of the check beside it (**Reasoning**: the level `/goal -r` chose, else the model's default level; no Reasoning for a model without levels), and the actions as icons, named in their tips: **Pause**, **Resume**, **Edit** (sends `/goal <new objective>` with the same checker, which replaces the goal and starts work) and **Clear** (asks first). A bare `/goal` sent from the composer opens the same menu and sends nothing; with no goal it offers a field to set one. The turns the supervisor starts show as one-line goal rows, not as your messages, live and after a reload. **Settings → Session goal** edits the `supervisor` keys. See [Session goal and supervisor](../features/session-supervisor.md).
 
 ## Settings: compaction model
 
@@ -106,9 +110,9 @@ Clear the field to use the session model for summarization.
 
 ## Settings: tabs and form layout
 
-- The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**); the loop that runs them (**ReAct loop**, **Context compaction**, **Memory copilot**); what the agent can do (**Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.
+- The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**); the loop that runs them (**ReAct loop**, **Context compaction**, **Memory**); what the agent can do (**Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.
 - **Sessions** edits where the session bundles are stored (**Storage**, `sessions.dir`) above the table of stored sessions; the table itself acts at once, the storage path saves with **Save all**.
-- A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory copilot, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
+- A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
 - A list of values is its inputs, each with a trash button, and **Add** under them: no per-row label and no rule between rows. An entry of a list of objects is a frame of its own, without a numbered title.
 - A map of values, such as the **Default headers** of **HTTP requests** (`tools.http_request.default_headers`), is a row per entry: the name and the value side by side, a trash button, and **Add** under the rows. A row without a name stays on screen and out of the saved configuration; an empty value is saved, and for a header it means "leave this header out".
 - Empty path fields show where the default leads (`${CODDY_HOME}/sessions`, `${CODDY_HOME}/memory`) or an example of what to write.
@@ -120,14 +124,24 @@ Clear the field to use the session model for summarization.
 
 *A save that went through: the Save button is green for two seconds, and nothing else on screen changes.*
 
+![An edit not saved yet: Save stands out and the line before the buttons says Unsaved changes](../assets/settings-unsaved-dark-1280.png)
+
+*An edit that is not saved yet: Save stands out, and the line before the buttons says so.*
+
+![The same in the light theme](../assets/settings-unsaved-light-1280.png)
+
+*The same in the light theme.*
+
 - The drawer opens on the tab its address names at once. The app keeps the schema and the config it read the first time Settings opened in this page, so a later open draws the tab from that copy in its first frame instead of drawing the drawer empty and rebuilding it. The copy follows the server: every **`config_reloaded`** and every reconnect of the events stream read it again in the background.
 - The very first open of the page has nothing to draw from yet. It shows the requested tab as a skeleton - grey fields, grey rows in the section rail or grey tiles on a narrow screen - and never the Appearance tab in its place.
 - A form with no unsaved edits takes a newer copy as it arrives, so a change the agent or another browser made shows up in it. A form that holds unsaved edits keeps them; **Reload** takes what the server has and drops them (a field typed into while Reload is on its way keeps what was typed).
 - A save puts what it wrote into the kept copy at once, so closing and reopening the drawer right after a save shows the saved values even before the server has been read again.
 - **Save all** reports success on the button itself: it turns green for two seconds, without a line of text. A save the server refuses says why in words above the tabs, and the button stays as it was.
+- A change in the form takes effect only after **Save all**, and the drawer says so while one waits: the button stands out - filled with the accent, with a ring around it - and the line before the buttons reads **Unsaved changes**. That covers a provider signed in through **Sign In with ChatGPT** or **Sign In with NeuralDeep** too: the sign-in stores the credential at once, but the provider row reaches `config.yaml` with the save. An edit put back as it was (a value typed back, a field cleared, a switch turned off again) is no edit, and the button goes back to its own look.
+- Closing the drawer over unsaved edits, with its close button, with Escape or with a click beside it, asks first: **Save and close** or **Keep editing**; **Reload** remains the way to drop them. Reloading or closing the page over them asks the browser to confirm. A switch to another environment does not ask: the edits belong to the server being left, and **Save all** never sends them to another server (a page whose reload onto another server was stopped refuses the save and says to reload). An edit typed while a save is on its way stays unsaved against what that save wrote, and **Save and close** keeps the drawer open over it.
 - A save writes into `config.yaml` what changed. A value you did not touch keeps its spelling - `${CODDY_HOME}/memory`, `~/.agents/skills`, `${OPENAI_API_KEY}`, quotes, a list written on one line - a provider or a model entry keeps only the fields it named (a renamed one too), and what the process runs differently from the file (a command-line flag, the relay address `coddy serve` fills in) stays out of it. Indentation and blank lines are not kept: the file comes back indented by two spaces, without blank lines between sections. See [Configuration](../getting-started/configuration.md#environment-variable-references).
 - What you did not touch is measured against what this browser read: the document names the configuration it came from, so when another browser, the agent or a hand edit saved something after you opened the form, your save leaves those values alone and writes only yours. A list you edited is written as you left it.
-- Automated checks: **`Settings.test.tsx`** (a second open drawn from the copy with no request, the skeleton on a wide and on a narrow screen and after a failed first read, a reload reaching an untouched form and never unsaved edits, the green Save button and the error line, a failed save after a green one, edits and a newer copy arriving while a save runs, Logical models opened as a list after a provider, a deep link to a row on the first open, the saved values on a reopen right after a save, edits typed during Reload), **`settingsConfigStore.test.ts`** (one read for every open, the reload notice, answers applied in order, a failed read keeping the copy, a copy older than a failed read read again, the saved document as the copy), **`settingsSaveStateCss.test.ts`** (the green as a state that reduced motion keeps, no success line, the skeleton tinted from the theme's text colour), **`features/config_save_round_trip.feature`** with **`external/httpserver/bdd_config_round_trip_test.go`** (a save without edits leaves the file byte for byte as it was, one edit changes one line, a save from a browser that read the config earlier does not undo another save) and the save tests in **`internal/config/yaml_comments_test.go`**.
+- Automated checks: **`Settings.unsaved.test.tsx`** with **`features/web_ui_settings_unsaved.feature`** (an edit highlighting Save until it is saved, an edit put back, closing and Escape over unsaved edits, leaving the page, no save into another server, edits and switches while a save runs, a newer copy reaching a form whose edit was put back), **`App.settingsUnsaved.test.tsx`** (a click on the backdrop asks first), **`settingsDirty.test.ts`** (what counts as an edit, an empty header value included), **`Settings.test.tsx`** (a second open drawn from the copy with no request, the skeleton on a wide and on a narrow screen and after a failed first read, a reload reaching an untouched form and never unsaved edits, the green Save button and the error line, a failed save after a green one, edits and a newer copy arriving while a save runs, Logical models opened as a list after a provider, a deep link to a row on the first open, the saved values on a reopen right after a save, edits typed during Reload), **`settingsConfigStore.test.ts`** (one read for every open, the reload notice, answers applied in order, a failed read keeping the copy, a copy older than a failed read read again, the saved document as the copy), **`settingsSaveStateCss.test.ts`** (the green and the highlight as states that reduced motion keeps, no success line, the skeleton tinted from the theme's text colour), **`features/config_save_round_trip.feature`** with **`external/httpserver/bdd_config_round_trip_test.go`** (a save without edits leaves the file byte for byte as it was, one edit changes one line, a save from a browser that read the config earlier does not undo another save) and the save tests in **`internal/config/yaml_comments_test.go`**. Browser check: **`npm run check:settings-unsaved`** against a throwaway `coddy serve` (**`scripts/settings-unsaved-check.mjs`**: the highlighted Save and the line before it fit the footer and Save takes a tap, from 320px phones held both ways to a 1280px desktop, in English and Russian; it writes nothing).
 
 ## Settings: field descriptions
 
@@ -180,25 +194,25 @@ Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api
 
 ## Environment (local / remote server)
 
-- **Workspace-row chip:** an environment selector sits in the composer workspace-context row above the input, next to the folder / branch / worktree chips (**`EnvironmentChip.tsx`**, rendered inside **`.composer-context-row`**, styled as a **`.workspace-chip--env`**, **`data-testid="composer-env-btn"`**), Claude-Code style — **not** in Settings. The chip shows **`Local`** or the remote's name. It opens a portal menu (**`data-testid="composer-env-menu"`**, mode-menu family; bottom sheet on mobile) with an **Environment** section (**Local**) and a **Remote** section (configured remotes + **`Connect to…`**). The menu hangs from the chip's left edge and stays inside the window: in the swarm header of a relay the chip is the last control on the right. It is as tall as the room between the chip and the window's edge and scrolls past it, since a relay's agents and the hints under a remote that cannot be used can outgrow the window.
+- **Rail item:** the environment is an item of the nav rail (**`nav/EnvironmentSwitcher.tsx`**, **`data-testid="nav-environment"`**) at its foot, below Settings and above **Sign out** when there is one, the last item otherwise; the composer has no environment chip. Its icon is the host - a laptop for this browser's own server, two chevrons pointing at each other, one a little above the other, for another host - with the active environment's dot on its corner; the tooltip reads **`Environment: <host>`**, the short host name of the machine the page's own server runs on (**`pasha-lt`** for **`pasha-lt.rgs.ru`**, read from **`GET /coddy/info`**; **Local** until it is known), or the remote's name; the wide rail shows the name beside the icon, cut with an ellipsis when it is longer than the rail, the whole host name in its tooltip. On the top bar of a tablet or a phone it is one of the icons and never folds behind **More**. It opens a portal menu (**`data-testid="env-menu"`**, mode-menu family; a bottom sheet on the stacked shell) with an **Environment** section (**Local**) and a **Remote** section (configured remotes + **`Connect to…`**). On the desktop the menu opens beside the rail with its foot level with the item's, grows upward and stays inside the window; it is as tall as the room above the item's foot and scrolls past it, since a relay's agents and the hints under a remote that cannot be used can outgrow the window. The menu with every kind of remote is shown in [Remote mode](../operate/remote.md#the-environment-menu).
 - **Select = connect:** choosing **Local** or a remote connects **immediately** (no confirm step); there is no per-select token prompt. Between two remotes the app starts over on the new one in place, without reloading the page (**`EnvScope`**, **`onEnvironmentSwitch`**); to or from Local the page reloads. A **bearer token** comes from the remote's `httpserver.remotes` entry when it carries one, else it is entered in **`Connect to…`** (name / URL / token) and remembered per-remote in the browser. A remote that refuses its token and has none in the configuration offers **Enter token**, which opens that form filled in for it.
 - **Where each environment was left:** switching the environment starts the app over, so the route is remembered per environment (**`coddy_env_routes`**): back on Local the app opens the conversation Local was left in, a remote opens where it was left or at its home, and a relay's map never follows the app to a plain agent.
-- **Reachability dots:** each remote is probed on menu open (**`env/remoteProbe.ts`**) - **green** when it answers and accepts the token, **red** when it does not, **amber** while probing; **Local** is always green. A red remote says why on a line under it: it does not answer, it refuses the token (an agent's **`httpserver.auth_token`**, a relay's **`swarm.auth_token`**), or the browser keeps its answer from the page, which is how a CORS setting that leaves this origin out looks from a browser (the line names the origin and the two keys). An agent is asked for **`GET /v1/models`**; a relay, which serves no **`/v1`**, is recognised by its public **`GET /swarm/info`** and its token is checked on **`GET /swarm/nodes`**, and a no-CORS request tells a remote that answers from one that does not.
+- **Reachability dots:** each remote is probed on menu open (**`env/remoteProbe.ts`**) - **green** when it answers and accepts the token, **red** when it does not, **amber** while probing; **Local** is always green. A red remote says why on a line under it: it does not answer, it refuses the token (an agent's **`httpserver.auth_token`**, a relay's **`swarm.auth_token`**), or the browser keeps its answer from the page, which is how a CORS setting that leaves this origin out looks from a browser (the line names the origin and the two keys, and, when the page itself is on a loopback address - the laptop's own `coddy serve` - the `allow_loopback` toggle that admits it on any port, **`isLoopbackOrigin`** in **`env/loopbackOrigin.ts`**). An agent is asked for **`GET /v1/models`**; a relay, which serves no **`/v1`**, is recognised by its public **`GET /swarm/info`** and its token is checked on **`GET /swarm/nodes`**, and a no-CORS request tells a remote that answers from one that does not.
 - **A relay's agents:** once a relay accepts the token, its agents are listed under it (every hop deep, from **`GET /swarm/topology`**), each a menu item that enters that node through the relay.
 - **An entry without a name** is shown by the name the remote reports (**`reportedName`** in **`env/remoteProbe.ts`**): a relay's name from its public **`GET /swarm/info`** (its host name unless **`swarm.name`** sets one), an agent's host name from **`GET /coddy/info`**. Its address stays on the right of the row; with no reported name the address is the name, and it is not said twice.
 - **Purpose:** point the UI at a remote, already-running **`coddy serve`** server or swarm relay, or use the local one. Offered remotes come from the local server's **`httpserver.remotes`** (**`[{name, url, token?}]`**), read when the menu opens and again on every configuration reload; **`Connect to…`** takes an ad-hoc name/URL/token.
 - **Client-side state:** the active env lives in **`localStorage`** key **`coddy_env`**; per-remote tokens in **`coddy_env_tokens`**. Never persisted to server config; leave empty for a remote without auth. Workspace **folder recents** are namespaced per environment (**`envStorageSuffix()`**) so each remote remembers its own last paths; **models** and defaults come from the remote's **`GET /v1/models`** after the reload.
 - **Mechanism:** a global **`fetch`** shim (**`external/ui/src/ui/env/remoteEnv.ts`**, installed in **`main.tsx`**) rewrites same-origin API requests (**`/v1/*`**, **`/coddy/*`**, **`/openapi*`**) to the selected remote base URL and adds **`Authorization: Bearer <token>`**. Local mode is a transparent pass-through. Selecting an entry persists the choice and starts the app over (in place between two remotes, with a reload to or from Local) so all state re-fetches from the chosen backend; the SPA shell always loads from the local origin, so you can always switch back to **Local** from the chip even if the remote is down.
 - **Images the browser loads by itself:** an **`<img>`** never goes through the shim, so a picture the server names by an API path - the thumbnail of an image a user message carries (**`preview_url`**) and its original (**`url`**) - would be asked of the page's own origin, without the token: through a swarm relay that origin serves no **`/coddy/`** route and the picture broke. In a remote environment those pictures are fetched through it instead (**`useApiImageSrc`** in **`external/ui/src/ui/env/apiImage.ts`**, the same **`remoteApiRequest`** mapping the shim uses: the base URL in front, the token in the **`Authorization`** header, never in a URL) and shown from an object URL that is released when the picture leaves the screen; until the bytes arrive the image has no **`src`** rather than a broken one. On the local origin, and for **`blob:`** / **`data:`** / other addresses, the URL is used as it is. The lightbox reads the original the same way when it opens.
-- **CORS:** the remote must allow the UI's origin via **`httpserver.cors`** (see [http-api.md](../reference/http-api.md)). SSE re-attach (**`GET /coddy/sessions/{id}/composer-stream`**) is fetched (not `EventSource`), so the bearer header applies; that route also accepts **`?access_token=`** for external `EventSource` clients.
+- **CORS:** the remote must allow the UI's origin via **`httpserver.cors`** - exactly in **`allowed_origins`**, or with **`allow_loopback: true`** when the UI is served from the laptop's own `coddy serve` on a loopback address, whatever its port (see [http-api.md](../reference/http-api.md)). SSE re-attach (**`GET /coddy/sessions/{id}/composer-stream`**) is fetched (not `EventSource`), so the bearer header applies; that route also accepts **`?access_token=`** for external `EventSource` clients.
 - **Failure surfacing (issue #60):** a `fetch()` to a remote that is unreachable / refused / TLS-or-DNS-failed / CORS-blocked rejects with a `TypeError` (no `Response`); the send flow's final `catch` now distinguishes that from the user's own `AbortError` and emits an error `system_notice` (**`remoteSendErrorMessage`**), and a readable `401/403` gets an auth-specific message (**`remoteHttpErrorMessage`**) instead of a bare status. Pure helpers live in **`external/ui/src/ui/env/remoteErrors.ts`**.
-- **Active-env health (issues #60, #401):** a shared monitor (**`external/ui/src/ui/env/activeHealth.ts`**, started in **`main.tsx`**) probes the *selected* environment on load, on a 30 s interval, and on window focus, with the same probe as the menu (**`probeRemote`**): an agent's **`GET /v1/models`**, a relay's **`GET /swarm/info`** and **`GET /swarm/nodes`**. The composer chip dot is driven by that health (green up / red down / amber checking, **`.env-status`**), and **`EnvHealthBanner`** shows a persistent alert with a **Switch to Local** action when the active remote is down, refuses its token or answers in a way the browser keeps from the page, so the app never silently renders empty against a dead backend. The alert says which of the three it is and names the setting that fixes it: the agent's or the relay's token key, or the CORS key with this page's origin (a node reached through a relay is answered by the relay's CORS). On the stacked shell the rail is a bar fixed at the top of the page and the alert hangs under it; its height (**`--coddy-env-banner-h`**) moves the page down, so the bar never covers it. Asked again - on the interval, on focus, or when the same remote is chosen again - a remote keeps its verdict until an answer changes it, so the alert does not blink off for the length of a probe; only the newest ask's answer is kept, and a token rotated in the configuration is asked with at once.
+- **Active-env health (issues #60, #401):** a shared monitor (**`external/ui/src/ui/env/activeHealth.ts`**, started in **`main.tsx`**) probes the *selected* environment on load, on a 30 s interval, and on window focus, with the same probe as the menu (**`probeRemote`**): an agent's **`GET /v1/models`**, a relay's **`GET /swarm/info`** and **`GET /swarm/nodes`**. The composer chip dot is driven by that health (green up / red down / amber checking, **`.env-status`**), and **`EnvHealthBanner`** shows a persistent alert with a **Switch to Local** action when the active remote is down, refuses its token or answers in a way the browser keeps from the page, so the app never silently renders empty against a dead backend. The alert says which of the three it is and names the setting that fixes it: the agent's or the relay's token key, or the CORS key with this page's origin and, for a page on a loopback address, the `allow_loopback` key beside it (a node reached through a relay is answered by the relay's CORS). On the stacked shell the rail is a bar fixed at the top of the page and the alert hangs under it; its height (**`--coddy-env-banner-h`**) moves the page down, so the bar never covers it. Asked again - on the interval, on focus, or when the same remote is chosen again - a remote keeps its verdict until an answer changes it, so the alert does not blink off for the length of a probe; only the newest ask's answer is kept, and a token rotated in the configuration is asked with at once.
 
 ## Layout
 
 ![The wide rail with labels at 1920 px](../assets/nav-rail-wide-1920.png)
 
-*The wide rail with labels at 1920 px*
+*The wide rail with labels at 1920 px; the environment item at its foot names the machine the page's server runs on*
 
 ![The same shell at 390 px: the rail becomes a top bar](../assets/nav-topbar-mobile-390.png)
 
@@ -206,7 +220,7 @@ Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api
 
 ![A chat on the mobile shell](../assets/screenshot-mobile-chat.png)
 
-*A chat on a phone: both chip rows of the composer are one line and scroll sideways, Send stays in place*
+*A chat on a phone: the plate over the composer with git's count as a pill, the selector chips one line, Send in place*
 
 Desktop layout
 
@@ -237,8 +251,8 @@ The shell has four tiers by the width of the window: a **phone** up to **599px**
 
 *A chat at 375 px: the MCP tool row wraps its label and moves its target and duration under it, and the long link in the answer breaks instead of widening the page.*
 
-- **Top bar.** The brand drops its second word and shows **Coddy** alone, the icons are **40px** with a **4px** gap and keep to the right edge. What does not fit next to the brand folds behind a **More** button (three dots): **History** and **Swarm** always stay in the bar, the others come back as room grows in the order **Settings**, **Scheduler**, **Docs**, **Sign out**, and the menu lists the folded ones as **Docs**, **Scheduler**, **Settings** and, under a separator, **Sign out**. A pick, **Escape** or a press outside closes it; the button is highlighted while a folded panel is open. With 40px icons five items fit from about 290px, so on most phones the menu only appears on a relay or a very narrow screen. The split is **`nav/navOverflow.ts`**, measured by **`NavRail`** on the stacked shell only.
-- **Composer, context row.** The environment, folder, branch and worktree chips sit in their own strip, **`.composer-context-scroll`**, which is **`display: contents`** on wider shells (the row wraps as it always did) and a one-line strip scrolling sideways on a phone. The improve-prompt button stays outside the strip, at the end of the row.
+- **Top bar.** The brand drops its second word and shows **Coddy** alone, the icons are **40px** with a **4px** gap and keep to the right edge. What does not fit next to the brand folds behind a **More** button (three dots): **History**, **Swarm** and the environment always stay in the bar, the others come back as room grows in the order **Settings**, **Scheduler**, **Docs**, **Sign out**, and the menu lists the folded ones as **Docs**, **Scheduler**, **Settings** and, under a separator, **Sign out**. A pick, **Escape** or a press outside closes it; the button is highlighted while a folded panel is open. With 40px icons five items fit from about 290px, so on most phones the menu only appears on a relay or a very narrow screen. The split is **`nav/navOverflow.ts`**, measured by **`NavRail`** on the stacked shell only.
+- **Composer, plate.** The composer card has no chip row: the workspace is on the plate over it, one line whose folder and branch shrink with an ellipsis. On a phone and on any touch screen the plate's picks and the worktree checkbox are **36px** tall, and git's count keeps its slim framed look with an invisible **40px** hit area over it, so a finger can hit them; the improve-prompt wand stands in the field's top right corner.
 - **Composer, selector chips.** The attach button of a multimodal model, then mode, model, reasoning and permission (this order on every width) form one strip that scrolls sideways under a fade at its right edge; the context ring and **Send** never shrink, so no chip is ever drawn under them. A long model name ends in an ellipsis.
 - **Start screen.** The hero is one grid track that cannot grow past its container (**`grid-template-columns: minmax(0, 1fr)`**), so the page never scrolls sideways and the title stays centred.
 - **Transcript.** On the stacked shell the transcript is the page, so a row wider than it scrolled the whole page sideways - a tool row named after an MCP tool did it by 400px on a 360px phone, and so did a long link or identifier in an answer. Nothing in the transcript is wider than it now, at every width: a tool row whose label leaves no room on its line moves the target, the failure marker and the duration under it together, a label longer than the row wraps inside it, and prose, links and inline code break where they have to, while tables and code blocks keep their width and scroll in their own box. Tool rows stay folded until tapped.
@@ -321,6 +335,7 @@ Session title
 - UI shows the session title in the chat header.
 - When the title is missing, UI shows `New chat`.
 - Title is editable inline. On blur the UI saves via `PATCH /coddy/sessions/{id}`.
+- While a new chat is being named, the header shows a shimmering bar where the title will be instead of the first message ([Session list](#session-list)).
 
 ### Per-session model
 
@@ -341,7 +356,7 @@ Session title
 *The reasoning level dropdown in the composer, levels fetched from the provider*
 
 - A **Reasoning** selector appears in the composer next to **Model** **only** when the active model exposes **`reasoning_levels`** from **`GET /v1/models`** (reasoning models such as gpt-5 / o-series / Claude thinking models). Levels are derived from **`models[].reasoning_levels`** (auto-detected from the model id when unset) and propagated through **`ModelInfo.reasoningLevels`** → **`llmReasoningLevels`** in **`App.tsx`** → **`Composer`**.
-- **New chat** defaults the level from cookie **`coddy_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from the snapshot's **`settings.reasoning`**, never from the cookie; a session running with thinking off shows **Off** when its logical model enabled **`allow_reasoning_off: true`**, and a session with no level of its own on a model with no **`reasoning_default`** shows **`medium`** or the first level, on entering and after every later snapshot, without sending it until a level is picked. The menu offers **Off** for a session whose snapshot names it. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`).
+- **New chat** defaults the level from cookie **`coddy_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from the snapshot's **`settings.reasoning`**, never from the cookie; a session running with thinking off shows **Off** when its logical model enabled **`allow_reasoning_off: true`**, and a session with no level of its own on a model with no **`reasoning_default`** shows **`medium`** or the first level, on entering and after every later snapshot, without sending it until a level is picked. The menu offers **Off** for a session whose snapshot names it. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
 - Changing the level writes the cookie and **`PATCH`** **`selectedReasoning`** on the active session; ReAct turns also send **`metadata.reasoning`** on **`POST /v1/responses`** so a brand-new session applies it on the first turn.
 
 ### Session settings: permission chip, turn overrides, live mirror
@@ -352,7 +367,8 @@ Session title
 
 - The composer mirrors the session's settings snapshot ([Session settings](../features/session-settings.md)): **`settings`** on **`GET /coddy/sessions/{id}/messages`** and on the **`PATCH /coddy/sessions/{id}`** answer, and **`event: session_settings`** on the turn stream and on **`GET /coddy/events`**. **`chat/sessionSettings.ts`** parses it; **`App.tsx`** keeps the highest **`version`** per session (**`isNewerSettings`**), so the same change arriving down both connections, or an answer arriving after the event of a later change, is applied once and never rolled back.
 - **Mode**, **Model** and **Reasoning** follow a change made anywhere - a typed command, the permission dialog, the model's **`switch_model`**, a console or an editor on the same session. Every **`POST /v1/responses`** carries **`metadata.settingsVersion`**, the version the tab last applied; the server ignores the tab's **`model`** / **`reasoning`** / mode when a newer snapshot has been published since, so a stale tab cannot undo a change it has not seen.
-- The **permission chip** (**`data-testid="composer-permission"`**) is the last selector of the row, after **Model** and **Reasoning**: **Ask first**, **Accept edits** or **Bypass**, the last in red with a glow, its tooltip naming the configuration's mode the session returns to after a restart. Its menu calls **`PATCH`** **`permissionMode`**. On a new chat the pick is held and sent as a **`/permissions <mode>`** line ahead of the first message.
+- **Mode**, **Model** and **Reasoning** belong to the session on screen. Opening a session shows the mode of its snapshot (**`settings.mode`**); a new chat - **New chat**, the Back button to **`#/`**, a draft in History, a session id the server answers **404** to - starts in **Agent** with a new chat's default model and level, never in the mode of the chat just left, and a mode picked on the start screen creates the chat in it. While the opened session is loading, the selectors still show the session left, and a prompt would carry their mode, **`metadata.model`** and **`metadata.reasoning`** with no **`settingsVersion`** of the opened session, so the server would keep them: **Send** and **Enter** wait until the session's own snapshot is applied, and the draft stays in the field. A read that fails is tried again after 1, 3 and 9 seconds and then every 30 seconds while the chat stays open, and only the server's **404** opens the address as a new chat: History holds one page, so a session missing from it may well exist. A message for a running turn still joins the queue, which carries none of them. Contract: **`App.settingsPerSession.test.tsx`**, **`Composer.sessionLoading.test.tsx`**, **`features/web_ui_session_settings.feature`**.
+- The **permission chip** (**`data-testid="composer-permission"`**) is the last selector of the row, after **Model** and **Reasoning**: **Ask first**, **Accept edits** or **Bypass**, the last in red with a glow, its tooltip naming the configuration's mode the session returns to after a restart. Its menu calls **`PATCH`** **`permissionMode`**. On a new chat - the start screen or a draft, before a session exists - the chip names the mode the server is configured with: **`permissionMode`** of **`GET /coddy/info`** (**`tools.permission_mode`**), read through the active environment (the local server, a remote, a node behind a relay's mount) and read again on every **`config_reloaded`** and every reconnect of **`GET /coddy/events`**. A pick there is held and sent as a **`/permissions <mode>`** line ahead of the first message unless it is that configured mode; while the configured mode is not known (no answer yet, a server that does not say) the pick is always sent, so an explicit **Ask first** under a **`bypass`** configuration is never dropped, and with no pick the mode the chip shows is sent, so the first turn never runs under a mode the page could not name. A first message the server never took keeps the pick for the next try into the same session. Contract: **`App.permissionDefault.test.tsx`**.
 - The **overrides line** (**`data-testid="composer-overrides"`**) lists what is changed for the next turns (**`stub/qwen3.8-demo, 2 turns left`**, **`plan this turn`**), with the full list in its tooltip; it shrinks with an ellipsis on narrow shells rather than pushing the send button off the bar.
 - A prompt of settings commands only runs no turn: the stream ends with **`coddy_meta.settings_only`**, the tab drops its optimistic user and assistant rows and re-reads the transcript. The change shows on the selectors and the overrides line, and the transcript gets no row for it.
 - A **SYSTEM** notice row is left only by a change the agent made itself: its **`switch_model`** call, a skill's frontmatter (`Model: stub/qwen3.8-27b for this session`). What the user picks - a selector, a command, the permission dialog, the model and the mode a console or **`coddy -p`** started the session with - is on the selectors already; the rows a session saved by an earlier version holds for such changes are not shown.
@@ -369,7 +385,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **Use auto-detected** appears whenever the key is present and removes it, so the next save omits **`reasoning_levels`** and detection resumes. Removing the last level by hand is the way to reach the **`[]`** opt-out on purpose.
 - The **`[]`** opt-out and the auto-detect default survive a Settings save in both directions: **`ModelEntry.ReasoningLevels`** and **`ModelJSON.ReasoningLevels`** are **`*[]string`**, so an omitted key stays omitted in the written **`config.yaml`** instead of being serialized as **`reasoning_levels: []`**.
 
-### Per-session workspace (folder / branch / worktree chips)
+### Per-session workspace (folder / branch / worktree)
 
 ![The Open folder dialog with New folder and Show hidden on the left of the footer](../assets/ui-folder-picker/folder-picker-after-dark-1280.png)
 
@@ -383,22 +399,36 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 *The Open folder dialog on a phone, opened where History opens*
 
-- A chip row renders at the top of the composer card (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**): **folder chip** (main project basename and path for a worktree, otherwise the current folder), **branch chip** (current git branch; only when the workspace is a git repository), and a **worktree checkbox**. The session cwd remains inside its worktree.
-- **Wrapping**: the chips share one **`flex-wrap`** row (**`.composer-context-row`**) with the environment chip and the improve-prompt control; **`.composer-context-chips`** is **`display: contents`** so each chip wraps on its own. On a narrow viewport only the overflow moves down (e.g. environment+folder, then branch+worktree), and the worktree checkbox stays beside the branch until the branch name is long enough to push it.
+- Before the first message the folder, the branch and the worktree are **picks on the plate over the composer** (**`WorkspaceChips.tsx`** inside the plate's pick mode, helpers in **`chat/workspaceContext.ts`**): the **folder** (main project basename and path for a worktree, otherwise the current folder), the **branch** (current git branch) and a **worktree checkbox**, the last two only when the workspace is a git repository. The composer card itself has no chip row, so the field starts at its top. The session cwd remains inside its worktree.
+- **One line**: the picks are the plate's own items; the folder and the branch shrink with an ellipsis, a lighter ground marks a pick on hover and while its menu is open, and there is no git count before a session. On a phone and on a touch screen the picks and the checkbox are **36px** tall, and git's count keeps its slim look with an invisible **40px** hit area over it, so a finger can hit them.
 - Context loads from **`GET /coddy/workspace/context`** with **`X-Coddy-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
+- **What the start screen remembers**: the folder last picked for a new chat, in this browser (cookie **`coddy_workspace_dir`**, one per environment), else the server's default folder, and the worktree checkbox (cookie **`coddy_worktree`**), one choice for every folder with git. A chat left for the start screen hands it nothing of its own: not its folder, not its linked worktree, not its branch. The branch shown is the one the folder is on now, read again when the start screen opens and when the page gets the focus back, so a `git switch` in a terminal shows; it can be changed there for the new chat.
 - **A new chat follows the folder it picked**: before the first message there is no session, and the pick is kept in **`App.tsx`** (**`pendingWorkspaceRef`**, mirrored in the **`pendingWorkspacePath`** state) and applied on the first send. Everything the composer lists while you type is asked for that folder: every cwd-scoped request (**`/coddy/slash-commands`**, **`/coddy/mentions`**, **`POST /coddy/mentions/check`**, **`/coddy/workspace/file`**) carries **`cwd=<folder>`** next to **`X-Coddy-Session-ID`** (helper **`chat/workspaceScope.ts`**), so the **`/`** menu lists that folder's **`.coddy/skills`**, **`@agent:`** its subagents and **`@`** its files. The known skill names that mark a **`/name`** as a skill in the composer and in the transcript follow the same folder: another pick drops them at once and asks again, and an answer for a folder left since is discarded; a slower preview of an earlier pick never paints over a later one. Settings → Skills and Subagents list the same folder.
-- **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the chips lock (**`workspaceLocked`** — controls disabled, menus closed) and the server answers **409** to **`POST .../workspace`**, and a turn already in flight answers **409** as well.
-- **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`coddy_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, a local filter field for a long recent list, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /coddy/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. The folder list is the dialog's only scrollport: it is the one child allowed to shrink (**`min-height: 0`**), so **Cancel** / **Open** stay reachable on a short browser window instead of being clipped by the dialog's height cap, and a wheel gesture past the last folder stays in the list instead of scrolling the page behind it. Verified in WebKit with **`external/ui/scripts/webkit-scroll-check.mjs`** (see below).
+- **The first message shows at once** (issue #357): the chat opens on it in the frame it is sent, with the live line under it reading `Preparing the session…`, while the folder and the branch picked on the start screen are applied and the server brings in the session's MCP servers. A folder or a branch that cannot be applied is not given up on silently: nothing is sent into another workspace, the start screen comes back as the message was sent from it - the picks, the text and the files in place - and says why under the composer (`The workspace could not be prepared: … The message was not sent.`), so sending again applies the picks again. The text waits on the start screen even when you went to another chat while the picks were being applied, and the chat that was never started does not stay in History.
+- **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages (**`workspaceLocked`**) the picks give way to [the plate of a running chat](#the-plate-over-the-composer), which names where the chat works; the server answers **409** to **`POST .../workspace`**, and a turn already in flight answers **409** as well.
+- **The folder pick** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`coddy_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, a local filter field for a long recent list, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /coddy/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. The folder list is the dialog's only scrollport: it is the one child allowed to shrink (**`min-height: 0`**), so **Cancel** / **Open** stay reachable on a short browser window instead of being clipped by the dialog's height cap, and a wheel gesture past the last folder stays in the list instead of scrolling the page behind it. Verified in WebKit with **`external/ui/scripts/webkit-scroll-check.mjs`** (see below).
 - **Size**: a centred card 560px wide (less on a narrow window) from the tablet width up; on a phone it opens where History opens, as the same glass panel under the top bar, so the folder list gets the full height of the screen. The head is drawn like the heads of History and the Scheduler, and the field, the rows and the buttons use the app's font.
 - **Links to folders**: a directory symlink in the list carries an arrow on its folder icon and its target after the name (**`→ /path/to/target`**), so a link does not read as an ordinary folder; clicking it browses the link's path.
 - **New folder** (the square **+** at the left of the footer, on the colours of the Scheduler's add button, with the **Show hidden** switch right after it; **Cancel** / **Open** sit on the right) opens an inline name row **between the path field and the list** - a sibling of the list, not a row inside it, so it never scrolls away under you and it stays whole on a short window where the list itself has shrunk to nothing. **Enter** or **Create folder** posts **`POST /coddy/workspace/folders`** **`{"path": <browsed folder>, "name"}`**; the dialog then shows the listing the server answers with, which is the **new folder**, so **Open** picks it straight away. **Escape** or the row's **×** abandons it; with no row open, **Escape** closes the dialog as **Cancel** does. The button is disabled on the drive level (there is no directory to create in) and while the row is already open; **Create folder** stays disabled until a name is typed. A name that is already taken (**409**) keeps the row open with the typed text and says so, and so does any other failure - nothing is created and the browsed folder does not change.
 - **Leaving the drive (Windows)** — **`..`** from a drive root opens the **drive level** (**`?path=:drives:`**, **`drives:true`** in the response): one row per volume (**`C:`**, **`D:`**, …), no **`..`** above it, and **Open** disabled because it is a place to navigate, not a workspace. The **path row is an editable field** (**`workspace-modal-path`**): typing or pasting a path and pressing **Enter** jumps there, surrounding quotes from Explorer's *Copy as path* are stripped (**`cleanPathInput`**), and while the field holds an unvisited path the primary button reads **Go** instead of **Open**, so a pasted path is never mistaken for the folder being opened. The browser starts at **`pathParent(ctx.path)`**, which keeps the current drive (it used to collapse Windows paths to **`/`**). Picking calls **`POST /coddy/sessions/{id}/workspace`** **`{"path"}`** — the session cwd switches and persists; skills, project rules, slash commands, configured MCP servers (re-dialed for the new workspace through its trust gate, the old workspace's closed) and the SessionStart hook context re-derive from the new cwd.
-- **Branch chip** opens the branch list (current first, marked selected) with a local filter for long lists. Picking one posts **`{"branch", "worktree": <checkbox>}`**: in-place checkout by default, or a dedicated feature worktree under **`<repo>/.coddy/worktrees/<branch>/`** when the checkbox is on. Worktree creation fetches `origin`, starts a new branch from the fresh `origin/HEAD` default and refuses the default branch or one tracking it. Without the checkbox, selecting a branch already checked out in another worktree jumps there (including back to the main checkout).
+- **The branch pick** opens the branch list (current first, marked selected) with a local filter for long lists. Picking one posts **`{"branch", "worktree": <checkbox>}`**: in-place checkout by default, or a dedicated feature worktree under **`<repo>/.coddy/worktrees/<branch>/`** when the checkbox is on. Worktree creation fetches `origin`, starts a new branch from the fresh `origin/HEAD` default and refuses the default branch or one tracking it. Without the checkbox, selecting a branch already checked out in another worktree jumps there (including back to the main checkout).
+- **The branch list is fresh**: every time it opens, the list first fetches every configured remote of the repository (**`POST /coddy/workspace/fetch`**, the folder the new chat picked or the session's), shows **Fetching branches from the remotes…** while it waits, and then lists the branches as git has them after the fetch, so a branch pushed since the last fetch is there without a terminal, and one deleted on its remote since is gone from it (a local branch of that name stays, it is yours). The fetch is `git fetch --all --prune` without tags: it only moves remote-tracking refs and never checks out, resets, merges or touches the working tree, the index, local branches or tags. It uses the repository's own credentials (a credential helper, the ssh agent) and never asks for one, in a terminal or in an askpass dialog; without the git binary only remotes that need no credentials, or take ssh keys from the agent, can be refreshed. The whole refresh is bounded to 20 seconds, past which it counts as failed.
+- **Branches only on a remote** are in the same list as the local ones, in one alphabetical order after the current branch, named as a local branch would be (**`feature/search`**, not **`origin/feature/search`**) and marked with a cloud at the start of the row; a branch you already have locally is listed once, as the local one, and a name that several remotes carry is listed once too. Picking one creates the local branch tracking the remote one - origin's when origin has it, else that of the first remote by name - in place or in a worktree as the checkbox says; before the first message the plate shows the pick and the branch is made when the chat starts.
+- **A failed refresh** (no network, a refused login, a remote that does not answer) keeps the list it had and says so in an amber note over it, **Could not refresh the remote branches. The list may be out of date.**, with git's first line of the reason under it and the whole of it in the note's tooltip. The workspace stays usable: the branches listed can still be picked.
+
+![The branch list after the refresh: the current branch first, then local branches and branches only on a remote in one alphabetical list, a cloud opening each remote-only row](../assets/ui-branch-menu/branch-menu-remote-dark-1280.png)
+
+*The branch list after the refresh: branches only on a remote are marked with a cloud*
+
+![A refresh that failed: an amber note over the list with git's reason, the cached branches still listed and pickable](../assets/ui-branch-menu/branch-menu-fetch-failed-dark-1280.png)
+
+*A refresh that failed keeps the cached list under a warning*
+
 - **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
 - **History folder grouping** uses the main checkout path returned as `repoRoot` on each git session row. A conversation in `main` and conversations in its worktrees appear under one project heading, while each session keeps its own cwd. See [Git worktrees](../features/worktrees.md).
 - **Pre-session (draft/home)**: picks are stored client-side, previewed via **`GET /coddy/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Returning from a project conversation to the start screen keeps that conversation's folder as the next-chat preview; switching to another session drops pending picks.
 - Errors (missing folder **400**, git conflicts / locked workspace **409**) keep the current chips; the context is re-fetched to stay truthful.
-- Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, modal, lock); backend behavior is specified executable in **`features/workspace_switching.feature`** (godog).
+- Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, the refresh before the branch list, the warning, remote rows, modal, lock), **`App.workspaceHome.test.tsx`** (which folder a refresh is asked for); backend behavior is specified executable in **`features/workspace_switching.feature`** (godog), the fetch itself in **`internal/gitws/remotes_test.go`** (every remote, prune, nothing local touched, the refspec guard, the deadline, both git backends).
 
 ## Session list
 
@@ -410,6 +440,10 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 *Pinned conversations lead every mode as one group, dragged into order by the row itself; the row being moved fades and the one it would land on is picked out*
 
+![History while a new chat started with a slash command is being named: a shimmering bar for its title and two for its tags](../assets/session-title-naming-dark-1280.png)
+
+*The chat started with `/rpa-init` while the describe call works out its name: its History row holds a placeholder for the title and the tags instead of the command.*
+
 ![The row menu of one conversation](../assets/sessions-history-row-menu-dark-1280.png)
 
 *One control per row: pin, rename and tags, then a rule and the two that take the conversation out of the list, with delete in the destructive colour*
@@ -420,7 +454,11 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 ![The History filter menu](../assets/sessions-history-filters-dark-1280.png)
 
-*Four rows, each naming its question and the answer in force; only a value moved off its default is coloured, and the choices open beside the row*
+*Four rows, each naming its question and the answer in force; only a value moved off its default is coloured, and the choices open beside the row. Here **CLI runs** is chosen, and the list holds only the runs scripts started with `coddy -p`*
+
+![The History filter menu on a phone](../assets/sessions-history-filters-phone-dark-390.png)
+
+*On a phone neither side of the menu has room for a list, so the choices fold out under their row, inside the screen*
 
 ![The shared confirmation dialog before a chat is deleted](../assets/confirm-delete-chat-dark-1280.png)
 
@@ -429,9 +467,9 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **History** panel lists sessions via `GET /coddy/sessions` (still a **drawer**, not a persistent second column).
 - Pagination uses `limit` and `cursor`, with **infinite scroll** for older rows.
 - Optional **`q`** query string (**title, workspace path, a tag, or the first **`user`** message content**, case insensitive substring; **not** full-chat search). Search input updates use client debouncing.
-- **Everything that decides what the list shows is one control**: the sliders button at the right end of the search row opens a menu of four rows (**`SessionsFilterMenu.tsx`**). It sits with the search because both narrow the list below; the drawer head keeps only its close button. Each row names its question and the answer in force, and its choices open beside it - hover or click a row, and the one before it folds. The menu is rendered into the document rather than into the drawer, which clips what overflows it, so a submenu reaches past the drawer's edge (and flips to the other side near the window's).
+- **Everything that decides what the list shows is one control**: the sliders button at the right end of the search row opens a menu of four rows (**`SessionsFilterMenu.tsx`**). It sits with the search because both narrow the list below; the drawer head keeps only its close button. Each row names its question and the answer in force, and its choices open beside it - hover a row with the mouse, or click or tap it, and the one before it folds; clicking the row the mouse has just opened keeps it open. The menu is rendered into the document rather than into the drawer, which clips what overflows it, so a submenu reaches past the drawer's edge. A list opens on whichever side has its whole width, the right first and the left near the window's edge; on a phone, where neither side has it, the choices fold out under their row inside the menu, and a tap on a row opens or folds it. The menu is never wider than the room left of its control, and with a list folded in it scrolls rather than run off the bottom of the screen.
   - **Status** - **Active** (the default), **Archived**, **All**: the **`archived`** query parameter. It leads, because it is the question asked most often.
-  - **Environment** - **All**, **Local**, **Gateway**, then one row per configured remote. The first three narrow the listing of whichever server is being read (**`origin`**): every conversation, the ones opened on this host, or the chats a messenger gateway is holding. They are a **filter**, so they reload nothing. A remote row is a **switch**: it points the whole app at that server, the same one the composer's environment chip makes, and that does reload - the origin filter goes with everything else. The section is left out entirely when there is only one row to choose from.
+  - **Environment** - **All**, **Local**, **Gateway**, **CLI runs**, then one row per configured remote. The first four narrow the listing of whichever server is being read (**`origin`**): every conversation, the ones opened on this host, the chats a messenger gateway is holding, or the runs of one-shot print mode (**`coddy -p`**), which every other row leaves out ([Sessions](../features/sessions.md#tags-and-the-archive)). They are a **filter**, so they reload nothing. A remote row is a **switch**: it points the whole app at that server, the same one the environment menu of the rail makes, and that does reload - the origin filter goes with everything else. The section is left out entirely when there is only one row to choose from.
   - **Group by** - **None**, **Date**, **Folder** (the default - a conversation is remembered by which checkout it was about far more often than by which day it happened on), **Tag**.
   - **Sort by** - **Last activity** (the default), **Date created**, **Name**: the **`sort`** parameter, each with the direction that reads naturally for its kind of value.
 
@@ -448,6 +486,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **An archived conversation is dimmed in the list and cannot be written to**: its row is muted, and opening it replaces the composer with a notice saying it is archived and one button that takes it back out. Nothing is refused on the server - the archive is a shelf, not a lock - but leaving the composer there would invite a prompt that silently undoes the operator's own *not now*. The composer learns this from **`GET /coddy/sessions/{id}/messages`**, which carries **`archived`**: the session listing skips the archive, so the conversation on screen may be in no page the client holds.
 - **Archiving** takes a conversation out of the working list without deleting it (**`PATCH`** with **`archived`**). The row leaves the list at once, the request goes behind it, and the list is not read again, so the rows scrolling has loaded and the place in the list stay where they were - the next conversation to archive is right there. A refused request puts the row back where it stood and says so on the row itself (*The conversation was not archived*), because the top of the list, where a list error shows, is usually out of view by then; the note goes when you try again or close History. A listing already on its way when the request settled cannot put the row back, and the next page starts one row earlier for each conversation archived out of the loaded part, so none falls between two pages. An archived row carries the archive **mark** beside its title - the state a conversation is in, not a label among its tags - and the same menu item puts it back. Archiving the conversation that is on screen swaps the composer for the same archived notice at once, and putting it back brings the composer back - the flag follows the **`PATCH`** answer, so it does not wait for the next transcript load. The **Status** filter remembers what it was set to, so a session put aside stays out of the way until the operator asks for it.
 - **Tags** of a row render under its title as small chips (the title keeps the first line to itself). They are proposed by the title generation, edited by hand in the **Tags** editor of the row menu, and written by the model's own `session_describe` tool ([Sessions](../features/sessions.md#tags-and-the-archive)).
+- **A chat being named** - the `POST /coddy/describe` call of a new chat's first message - shows a shimmering bar where its title will be, on its History row and in the chat header, and two short bars where its tags will be, instead of the first message (a `/rpa-init` token) or *New chat*. Both take the name and the tags the moment the call answers; an empty answer, a failure or 30 seconds without one end the placeholder too, and a name that arrives later still lands. The bars stand still under `prefers-reduced-motion`. A first message that runs a command is named by what the command does ([Sessions](../features/sessions.md#tags-and-the-archive)).
 - **The tag editor is one component in both places that show tags** (**`SessionTagEditor.tsx`**): a cross on every chip, a box that offers the labels this history already uses (most used first, its own excluded, prefix matches leading), **Enter** to file what was typed, arrow keys and **Enter** to take a suggestion, **Backspace** on an empty box to drop the last chip, **Escape** to close. There is no Save: every change is a **`PATCH`** at once. The row takes the new set **before** the request, so a second gesture made while the first is still in flight builds on it instead of undoing it; the set the server answers with - folded to lower case, whitespace as hyphens, at most eight - then replaces it, so a chip never changes spelling one refresh later, and a refused write puts back what the row carried. The folded form of what is being typed is shown under the box only when it differs from what was typed.
 - Indicators
   - A pulsing dot - the violet unread dot, a third darker - appears on every row whose turn is still running, the open conversation included. It also appears on a row with **background tasks still in flight and no turn running**, because detached work outlives the turn that started it and a row without the mark reads as finished; the dot's tooltip names which of the two it is. The count is **`backgroundRunning`** of the session listing (the model's own tasks, nothing finished, no system errand), and the listing is re-read on the turn events and on the drawer's poll, so a task that starts or ends **outside** a turn moves the dot on the next poll rather than at once. A turn waiting on a permission or a question shows that mark instead.
@@ -480,14 +519,15 @@ Session delete UX
 
 ![The session management table with the open conversation protected](../assets/sessions-management-table-dark-1280.png)
 
-*Everything stored, the archive included: a row says where it sits and what it is filed under, the **+** after its tags opens the same editor History uses, the columns sort the whole listing, and the two icons beside the search are the only destructive controls*
+*Everything stored, the archive and the print runs included: a row says where it sits and what it is filed under, a terminal sign leads the title of a run `coddy -p` started, the **+** after its tags opens the same editor History uses, the two selects under the search narrow the archive and the source, the columns sort the whole listing, and the two icons beside the search are the only destructive controls*
 
 **Settings -> Sessions** (**`#/settings/sessions_manager`**, **`SessionsManager.tsx`**, pure helpers in **`sessions/sessionManagerRows.ts`**) is the stored history as a table rather than a list to scroll, in a **Session management** fieldset whose (i) says what the table is for. It is a client-side tab like Appearance: the table reads and removes session bundles over **`/coddy/sessions`**, so it renders before the config schema has loaded. Its id is **`sessions_manager`** because **`sessions`** is already a config key - the storage directory, which this tab edits above the table (**Storage**) once the schema is in, saved with **Save all**.
 
-- **Rows** come from **`GET /coddy/sessions?include_stats=true`**, 50 at a time with a **Load more** button. Each one shows the title with its **workspace** underneath, the **model** the session overrode (**`default`** when it never did, meaning whatever **`agent.model`** was at the time), the **message count**, the **total tokens** (input and output in the cell tooltip), and **created** / **updated** dates (the exact instant in the tooltip). A bundle stored before Coddy recorded a creation stamp shows **—** rather than a date invented from a later save.
+- **Rows** come from **`GET /coddy/sessions?include_stats=true&include_print=true`**, 50 at a time with a **Load more** button. Each one shows the title with its **workspace** underneath, the **model** the session overrode (**`default`** when it never did, meaning whatever **`agent.model`** was at the time), the **message count**, the **total tokens** (input and output in the cell tooltip), and **created** / **updated** dates (the exact instant in the tooltip). A bundle stored before Coddy recorded a creation stamp shows **—** rather than a date invented from a later save.
 - **Search** is the same **`q`** filter the History drawer uses - title, workspace, a tag or the first user message, case insensitive - debounced as you type.
 - **Sorting** is the column headers: **Conversation** (title), **Msgs**, **Tokens**, **Created** and **Updated** are buttons, the sorted one carries a caret and an **`aria-sort`**. Clicking the column that is already sorted flips it; a different one starts where its kind of value reads naturally, a date or a count at its largest and a title at its first letter. The order goes to the server (**`sort`** and **`order`**) and applies to the **whole filtered listing before paging**, so **Load more** continues the sorted result rather than re-sorting a page.
 - **The archive** is a select beside the search: **Working list** (the default), **Archive**, **Everything**. An archived row carries a neutral **archived** badge whose tooltip says when it was put aside. Conversations are archived from **History**, not here; this tab is where you look at what the archive holds and empty it.
+- **The source** is a second select: **All sources** (the default), **Local**, **Gateway**, **CLI runs** (**`origin`**). Unlike History, the table lists the runs of one-shot print mode (**`coddy -p`**) with the rest, because this is where they are cleaned up, and such a row leads its title with a terminal sign whose tooltip reads **CLI run** ([Sessions](../features/sessions.md#tags-and-the-archive)). Both delete scopes reach print runs too.
 - **Deleting is two scopes, never more**: a trash icon beside the search field removes the **ticked** rows (**`POST /coddy/sessions/bulk-delete`** with their ids), and an archive-box icon beside it empties the **archive** (**`scope: "archived"`**, with the open conversation named in **`except`** so the protection below holds even for a scope the server resolves), both behind the shared confirmation dialog. What each does is its **tooltip** and its accessible name, not a label on its face; the only text drawn is the **selection count** badge on the first, which a tooltip cannot show at a glance. The ticked rows are what the operator can see; the archive is a scope the server resolves, because the archive may hold more than the page does - which the confirmation says in words. There is no third button that reaches further than either.
 - **Tags** render under the title as chips. Clicking one narrows the table to the conversations filed under it (**`tags`**), and a line under the toolbar says which tag is showing with a link that clears it.
 - A row has **no delete of its own**: the tick and the one button are the whole per-row surface, so the scope of a destructive click is never ambiguous.
@@ -559,7 +599,7 @@ On the same 3306-message session at CPU x6 in a phone viewport, the newest messa
 Scrolling up in a long chat leaves the newest messages off screen, and dragging the scrollbar back is the only way down. A round control above the composer does it in one press.
 
 - **When it is there** - the transcript follows new output while the scrollport sits within `TRANSCRIPT_BOTTOM_THRESHOLD_PX` (**80px**) of the end. The button appears exactly when that stops being true and goes away when it starts again, so seeing it means the transcript has something below the fold. It fades in and out on one mounted node (**~0.14s** in, **0.12s** out); hidden, it is `inert` and out of the tab order.
-- **Where it sits** - inside the composer's own column (`.chat-bottom-inner`), against its right edge, `10px` above the docked block. That is one set of coordinates for every shell: the absolute desktop dock, the `position: fixed` composer below `1200px`, and the inset the background tasks panel reserves.
+- **Where it sits** - inside the composer's own column (`.chat-bottom-inner`), against its right edge, `10px` above the docked block; under a composer it stands over the expand control, both 10px apart and centred on the improve-prompt wand's vertical line. That is one set of coordinates for every shell: the absolute desktop dock, the `position: fixed` composer below `1200px`, and the inset the background tasks panel reserves.
 - **The jump** takes **220-460ms** by distance, on an ease-out curve: away at speed, settling into the last pixels rather than stopping dead. It is driven frame by frame (`transcriptJumpDurationMs` / `easeTranscriptJump` in `chat/transcriptScrollPosition.ts`), not handed to `scrollTo({ behavior: "smooth" })`, so the feel is the same in every engine. Arriving re-arms the follow, and the rest of the turn scrolls by itself again.
 - **Streaming under a reader who scrolled away** - the position does not move and the button stays, because the distance to the end only grows. A jump started mid-turn re-reads the end on every frame, so it lands on the newest message rather than where the transcript ended when the button was pressed.
 - **The reader always wins** - a wheel, a finger or a press on the scrollbar stops the travel where it is and brings the button straight back if they stopped short of the end.
@@ -567,17 +607,44 @@ Scrolling up in a long chat leaves the newest messages off screen, and dragging 
 - **Both scroll surfaces** - the wide shell scrolls `.chat-scroll`, the narrow one scrolls the document; the same module reads the distance and the end position for both, and one reading drives the follow flag, the button and the jump.
 - **`prefers-reduced-motion: reduce`** puts the transcript at the end in one step and drops the button's fade.
 - **Accessible name and tooltip** are both `chat.scrollToBottom`; the empty hero never renders it.
+- **Opening another conversation** lands on its newest message, wherever the last one was left: a History pick, a link to `#/s/<id>` or the back button after reading far up in one chat no longer opens the next one at the old offset (issue #342). The jump in the air is cancelled and the follow re-armed when the session id changes, before the new rows arrive.
+
+## Long prompts in the composer
+
+![The docked composer expanded over the chat, dark theme at 1280 px](../assets/composer-expanded-dark-1280.png)
+
+*The docked composer expanded over the chat for a long prompt, its control one step under the title, dark theme at 1280 px*
+
+The composer's field follows its text (issue #342). It starts at the height it always had - five rows on the start screen, two and a 76px minimum in a chat - and grows line by line up to **eight lines**, or **40%** of the visible viewport when that is less (a phone with its keyboard open), then scrolls. Deleting text shrinks it back; a narrower window, the keyboard opening and a page zoom fit it again. The rule is **`chat/composerHeight.ts`**, applied by **`chat/useComposerFieldHeight.ts`**.
+
+- **Expand** - in a chat, a round control 10px over the composer and centred on the improve-prompt wand's vertical line, the size of the scroll-to-bottom button, which stands 10px above it on the same line when it shows (`data-testid="composer-expand"`, **Expand the message field** / **Collapse the message field**, `aria-pressed`), gives the field the whole chat under its header, for writing or pasting a long prompt; its arrows spread to the corners, and come back together while expanded. Expanded, the title, the control and the card stand one step apart, the step from the window's edge to the top bar (10px on phones and tablets, 14px on a desktop), and the jump to the newest message is hidden.
+- **Pickers in an expanded field** - the skills, mention and command pickers open inside the field, at its foot over the composer's bar, and keep to its height; on phones and tablets they dim nothing behind them, expanded or not.
+- **On-screen keyboard** - the expanded field ends above the keyboard: where the keyboard shrinks the page (Android) the window is shorter, and where it covers the page (iOS Safari) the composer is lifted above it and keeps to the visible area, under the title or under the top of what can be seen when the page was pushed up. On a phone too small for the field's minimum with the keyboard open, the field stays at its minimum.
+- **Folding back** - the same control, **Escape** in the field (before Escape leaves an edit: folding loses nothing), sending or queueing the prompt, and opening another chat. The text stays as it was.
+- **The start screen** grows with its text but has no expand control: the card stands in the middle of the page with room around it.
+
+## Quoting the transcript
+
+![A selection in an answer offering Quote, and a sent prompt showing its quotes, dark theme at 1280 px](../assets/transcript-quote-dark-1280.png)
+
+*A selection in an answer offers Quote; a sent prompt shows the passages it quotes, dark theme at 1280 px*
+
+Select text anywhere in the transcript - an answer, a prompt, a tool card - and a **Quote** button appears by the selection once it rests (`data-testid="transcript-quote"`, **`chat/TranscriptQuoteButton.tsx`**). With a mouse it stands above the selection; on a touch screen below it, since the browser's own selection menu takes the space above. It keeps between the chat header and the composer and leaves when the selection collapses or scrolls out of view. The chat's title, the composer and anything outside the transcript offer nothing, and neither does a read-only subagent transcript or an archived chat, which have no composer.
+
+- **What a press does** - the passage goes into the draft as Markdown quote lines (`> `, a bare `>` for a blank line), after what is already written with a blank line on both sides and an empty line under it to write on; the selection is cleared and the caret goes to the end of the draft (the field takes the focus wherever the app may focus it, so not on a phone, where focus opens the keyboard). Quote again and the passages pile up in the order they were taken (issue #342).
+- **The draft is plain text** - a quote is part of the draft, so whatever keeps, queues or brings back a draft keeps its quotes too, and removing one is editing the text. The model reads it as a Markdown quote; the documentation reader's **Ask about the selection** quotes the same way (**`chat/quoteDraft.ts`**).
+- **In the conversation** - a sent prompt shows the lines it quotes as quote blocks with a bar on the left, in a quieter tint than the text written around them (`data-testid="user-message-quote"`). Only a marker at the start of a line followed by a space or nothing opens a quote, so `>=5` stays text. Copy and the pencil still hand back the prompt exactly as it was sent.
 
 ## Composer primary action (`#btn-send`)
 
-![The improve-prompt wand at the right end of the composer's chip row](../assets/composer-improve-prompt-dark-1280.png)
+![The improve-prompt wand in the top right corner of the composer's field](../assets/composer-improve-prompt-dark-1280.png)
 
-*The improve-prompt wand at the right end of the composer's chip row, lit while the draft has text*
+*The improve-prompt wand in the field's top right corner, lit while the draft has text*
 
 Context ring and breakdown popover
 
 - **Hover** on **`.composer-context-tip-host`**: compact tooltip (percent, input/output/total, max context) unchanged.
-- **Click** opens **`ContextBreakdownPopover`** beside the ring on wide viewports (**`context-breakdown-menu--portal`**); on stacked shell (**`max-width: 1199px`**) it uses the same bottom sheet + scrim as slash / **`@`** pickers (**`context-breakdown-menu--sheet`**, **`slash-sheet-backdrop`**). **Escape** or **Close** dismisses; hover tooltip returns when closed.
+- **Click** opens **`ContextBreakdownPopover`** beside the ring on wide viewports (**`context-breakdown-menu--portal`**); on stacked shell (**`max-width: 1199px`**) it uses the same bottom sheet as the slash / **`@`** pickers, over a dimming scrim of its own (**`context-breakdown-menu--sheet`**, **`slash-sheet-backdrop`**; the pickers' backdrop is transparent). **Escape** or **Close** dismisses; hover tooltip returns when closed.
 - Legend keys map to **`contextBreakdown`** on **`GET /coddy/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`). Live **`usage_update`** SSE replaces the displayed total immediately (including after `/compact` or automatic compaction), then the UI refreshes the detailed stats. Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`) and **`consumeComposerSse.order.test.ts`** (`usage_update replaces the displayed current context after compaction`).
 
 Shape and glyphs
@@ -594,7 +661,7 @@ Behavior
 - **Enter** submits when idle and queues the draft while the session has an active turn, on every device with a keyboard, a desktop window narrower than **1200px** included; **`Shift+Enter`** inserts a newline. **`Ctrl+Enter`** or **`Alt+Enter`** inserts a newline too, except on a line containing only **`````**, where it opens an empty fenced code block and puts the caret inside its monospace field; arrow keys naturally leave the block through its line boundary. What Enter does follows the input device, not the width: on a **touch-only** device (**`(any-hover: none) and (any-pointer: coarse)`**, a phone) Return inserts a newline and the primary button sends or queues, because a phone keyboard has no Shift+Enter; **`Cmd+Enter`** still sends from an attached keyboard. The textarea's **`enterkeyhint`** says the same to the on-screen keyboard (**`send`**, or **`enter`** on a touch-only device). Enter that confirms an input-method candidate (**`isComposing`**, **`keyCode` 229**) never sends. The rule is **`chat/composerEnter.ts`**. No key the input method is composing with reaches the rest of the composer either (the check opens the textarea's **`onKeyDown`** in **`Composer.tsx`**): the slash, **`@`**, command option and line-range pickers take no row, move no highlight and do not close on it, and Ctrl+Z does not restore the draft from before Improve prompt. A keydown counts as composing when it carries **`isComposing`**, or when it is a **`keyCode` 229** keydown within 100 ms of **`compositionend`**, the key Safari sends after ending a composition. Any other 229, which Android keyboards send for ordinary keys, works the pickers as an ordinary key, while the send rule above still declines an Enter that carries it.
 - **Stop** sends **`POST /coddy/sessions/{id}/cancel`** and aborts the tab's own reader at once, so the request does not wait for a connection that reader holds. Failure remains visible and retryable, and the tab rejoins the running turn; acknowledgement alone does not mark the turn idle. Partial assistant persistence and transcript merging follow [Parallel sessions and generation cancel](#parallel-sessions-and-generation-cancel).
 - **A send the server never took** comes back to the composer: the text, ahead of anything typed since, and the attached files. That covers a refusal by status (**409** busy, a **4xx** or **5xx**), a request that failed on the way (a dropped upload, a refused connection) and an attachment the browser could not read (a file moved or changed on disk after it was picked, a cloud photo not on the device), in which case nothing is sent. The optimistic bubble leaves the transcript, and a red notice says why, with the browser's reason or the server's message in parentheses (`Failed to fetch`, `request body too large`), so a failure that never reached the server, and therefore left nothing in its log, can still be told apart from a stopped server. After a request that failed on the way the transcript is not read again, since that read would wipe the notice; if the server did take the turn after all, the activity refresh attaches to it and its end reloads the transcript. The rule is **`streamResponses`** in **`App.tsx`**.
-- **Improve prompt**: the compact **24×24px** wand button (**`data-testid="composer-enhance-btn"`**) lives at the **right edge** of the workspace-context row, next to the Local / folder / branch / worktree controls — not in the textarea or lower composer bar. On a phone it stays at the end of that row, outside the chip strip that scrolls sideways. It has `title` and accessible name **`Improve prompt`**, is disabled for blank drafts and while a request or generation is active, calls **`POST /coddy/enhance-prompt`**, and replaces the draft only on success. **Ctrl+Z** / **⌘Z** restores the pre-improvement draft; a failure leaves it unchanged and displays an inline error.
+- **Improve prompt**: the compact **24×24px** wand button (**`data-testid="composer-enhance-btn"`**) stands in the **top right corner of the field**, 8px under the plate's seam and 12px from the card's edge (the two read alike), so the field and its placeholder start at the top of the card, the first line level with the wand; the text keeps clear of it, and git's count on the plate above ends on its right edge. It is not in the lower composer bar. It has `title` and accessible name **`Improve prompt`**, is disabled for blank drafts and while a request or generation is active, calls **`POST /coddy/enhance-prompt`**, and replaces the draft only on success. **Ctrl+Z** / **⌘Z** restores the pre-improvement draft; a failure leaves it unchanged and displays an inline error.
 
 Regression
 
@@ -638,7 +705,7 @@ Functional regression checklist:
   - **Clipboard paste** in **`textarea#composer`**: image items (`kind === "file"`, `image/*`) are attached and the default paste is cancelled; plain-text paste is untouched. Pasted images get deterministic names **`pasted-<n>.<ext>`** (browsers name every clipboard image `image.png`).
   - **Drag & drop** onto **`.composer-card`**: dropped files attach like a picker selection; while files are dragged over the card it shows the **`.composer-card--dragover`** drop-target affordance.
 - When the model is **not** multimodal, paste/drop rejection shows the transient inline notice **`.composer-attach-hint`** (`role="status"`, auto-clears after ~4s) instead of attaching.
-- An `image/*` attachment is a **preview card**, not a chip: the picture fills a **128×96** card (**`.composer-attachment-card`** on the composer side, **`.msg-user-file-card`** in the sent bubble, `object-fit: cover`, 12px radius) so the operator can see what was attached. Hovering highlights the card, the cursor is **`zoom-in`**, and a click opens the image in the shared viewer (**`ui/components/ImageLightbox.tsx`**: zoom levels, **+ / - / 0**, drag to pan, wheel and pinch to zoom, **Esc**, portal into `document.body`). Non-image files and locked edit-mode chips keep the icon chip with the file name.
+- An `image/*` attachment is a **preview card**, not a chip: the picture fills a **128×96** card (**`.composer-attachment-card`** on the composer side, **`.msg-user-file-card`** in the sent bubble, `object-fit: cover`, 12px radius) so the operator can see what was attached. Hovering highlights the card, the cursor is **`zoom-in`**, and a click opens the image in the shared viewer (**`ui/components/ImageLightbox.tsx`**: zoom levels, **+ / - / 0**, drag to pan, wheel and pinch to zoom, **Esc**, portal into `document.body`). Non-image files and locked edit-mode chips keep the icon chip with the file name. A right click on the picture, in the card or in the viewer, offers **Copy image** and **Save image** ([Workspace files](#workspace-files) describes the menu).
   - In the composer the card's **remove** control (**`composer.removeAttachment`**) sits in its top-right corner and fades in on hover; it stays in the tab order and is visible on **`:focus-visible`**, and removing never opens the viewer. The picture the viewer opens is the local object URL - the file itself, at full size.
   - The **sent user bubble** first renders an optimistic **`previewUrl`** blob in the card, then replaces it with the backend **`files[].preview_url`** after persistence; the blob URL is revoked at that point. What the card opens is **`files[].url`**, the original bytes from the session bundle; a message sent before that field existed opens its **`preview_url`** instead of losing the click. Reloading the dialog restores both through **`GET /coddy/sessions/{id}/messages`**.
 - **Attachment-only send** is valid while the selected model is multimodal: **Send** (button or **Enter**) unlocks with attachments even when the draft is empty and submits **`onSend("", files)`**; the server accepts an empty-string `input` alongside `inline_files`. If the user switches to a non-multimodal model, existing chips remain visible with **`.composer-attachment-chip--disabled`**, attachment-only Send becomes disabled, and a text send omits and retains those files.
@@ -687,7 +754,7 @@ Picker and segmentation
 Mirror and caret alignment
 
 - Non-empty drafts: textarea text is drawn **transparent**; **`.composer-mirror-inner`** shows the visible line including **`.composer-skill-chip-inline`** (**`data-testid="composer-skill-chip"`**).
-- Composer chips **must not** use horizontal **padding**, **margin**, or a **border** that changes inline width. Use **`box-shadow`** for outline. **`font-family`**, **`font-size`**, **`line-height`**, **`font-weight`**, **`letter-spacing`** on chip and **`#composer`** must match so the caret lines up (**`ResizeObserver`** syncs scrollbar gutter).
+- Composer chips **must not** use horizontal **padding**, **margin**, or a **border** that changes inline width. Use **`box-shadow`** for outline. **`font-family`**, **`font-size`**, **`line-height`**, **`font-weight`**, **`letter-spacing`** on chip and **`#composer`** must match so the caret lines up. The scrollbar gutter is reserved by the stylesheet on both the textarea and the mirror (**`scrollbar-gutter: stable`**), the mirror scrolls itself with the field and takes its height, and it lines up again on a window resize and a change of screen density (**`DESIGN.md`**, *Composer mirror and caret sync*).
 
 Transcript vs composer
 
@@ -712,14 +779,20 @@ Verification use cases
 
 ## Composer command options
 
-Once **`/compact`** opens the draft, the composer completes what the command takes. Two dashes after it (**`/compact --`**) offer the option **`--model`** (a lone **`-`** offers nothing, since the instructions may be a list); after **`--model `** or **`--model=`** the list holds the configured models (the ids the composer's model selector offers, **`props.llmModels`**), narrowed as the id is typed by a case-insensitive substring match, the broadest of the rules the server resolves a name by (a whole id or a model name without its provider wins first, see [Context compaction](../features/compaction.md#the-compact-command)). **ArrowDown** / **ArrowUp** move the highlight, **Enter** and **Tab** put the row into the draft with a space after it, **Escape** closes the list and leaves the draft alone. Picking **`--model`** opens the models at once.
+Once **`/compact`** opens the draft, the composer completes what the command takes. Two dashes after it (**`/compact --`**) offer the options **`--model`** and **`--reasoning`** (a lone **`-`** offers nothing, since the instructions may be a list); after **`--model `** or **`--model=`** (or the short **`-m`**) the list holds the configured models (the ids the composer's model selector offers, **`props.llmModels`**), narrowed as the id is typed by a case-insensitive substring match, the broadest of the rules the server resolves a name by (a whole id or a model name without its provider wins first, see [Context compaction](../features/compaction.md#the-compact-command)). **ArrowDown** / **ArrowUp** move the highlight, **Enter** and **Tab** put the row into the draft with a space after it, **Escape** closes the list and leaves the draft alone. Picking **`--model`** opens the models at once.
+
+After **`--reasoning `** (or **`-r`**) the list holds **`default`** and the levels of the model the draft's **`--model`** names. **`/goal`** takes the same two options: **`--model`**, completed from the configured models, and **`--reasoning`**, completed from **`default`** and the levels of the model the draft's **`--model`** names (resolved like the server does: the exact id, else the one id that contains it), or of the session's model when the draft names none (**`commandReasoningChoices`**). The levels come from **`GET /v1/models`** (**`reasoning_levels`** of every row, **`llmReasoningLevelsByModel`**). See [Session goal and supervisor](../features/session-supervisor.md#commands).
 
 ![The model list under the composer after /compact --model](../assets/compact-model-picker-open-dark-1280.png)
 
 *The composer completing the value of `--model` (Dark, 1280 px).*
 
+![The reasoning levels under the composer after /compact -m luna -r](../assets/compact-reasoning-picker-open-dark-1280.png)
+
+*The composer completing `-r` with the levels of the model `-m` names (Dark, 1280 px).*
+
 - The list is the third face of the picker shell (**`.slash-menu`**, the bottom sheet on the stacked shell), **`data-testid="command-arg-menu"`**, rows **`command-arg-row-<id>`**; it needs no request.
-- Visibility, the replaced range and the typed prefix come from **`commandArgDraftAtCaret`** in **`external/ui/src/ui/skills/draftCommandArg.ts`**, which mirrors **`parseCompactCommand`** (**`internal/agent/compact.go`**): the command opens the draft, options come first, and the first word that is not an option starts the instructions, where nothing is completed. A bare **`/compact `** opens nothing, so **Enter** still sends the command.
+- Visibility, the replaced range and the typed prefix come from **`commandArgDraftAtCaret`** in **`external/ui/src/ui/skills/draftCommandArg.ts`**, which mirrors **`parseCompactCommand`** (**`internal/agent/compact.go`**) and **`ParseGoalCommand`** (**`internal/session/goal_command.go`**): the command opens the draft, options come first, and the first word that is not an option starts the instructions or the objective, where nothing is completed. A bare **`/compact `** or **`/goal `** opens nothing, so **Enter** still sends the command.
 - Tests: **`draftCommandArg.test.ts`**, **`Composer.commandArg.test.tsx`**.
 
 ## Composer **`@`** mentions
@@ -733,7 +806,7 @@ Once **`/compact`** opens the draft, the composer completes what the command tak
 - The draft lexer (**`atMenuDraftAtCaret`**) opens the menu on an **`@`** at line start or after whitespace, an opening bracket or a quote; it accepts **`~`** and **`+`**, a quoted prefix (**`@"my no`**, spaces allowed until the quote closes) and **`:`** right after **`session`**, **`rule`** or **`agent`**. Fenced code blocks, inline code spans and Markdown blockquote lines suppress it, in parity with **`draftSlash`** (**`inMarkdownFenceBeforeCaret`**, **`blockquoteLine`**).
 - Mirror **`@`** styling uses **`segmentComposerMirrorSpans`** (**`composer-at-chip-inline`**, **`data-testid="composer-at-chip"`**). **`listAtPathSpans`** (**`draftAt.ts`**, built on **`parseMentions`**, the twin of **`internal/mention`**'s **`Parse`**) finds the tokens - a path, a folder, **`@session:<id>`**, **`@rule:<name>`**, **`@agent:<name>`**, a quoted path, a web page - and a token is chipped only when the server has said sending would attach it: 150 ms after typing stops the composer posts the draft to **`POST /coddy/mentions/check`**, which runs the resolver dry (nothing read, listed or fetched) and answers per token with the part that resolves (**`typed`**) and what it names. So **`@google/genai`** in **`npm install @google/genai`** stays text, **`compare @src/a.go b.go`** chips **`@src/a.go`** alone, and a token not answered for yet stays text; a row picked in the picker is chipped at once. The draft at the caret keeps its chip while the picker is open on it; text after the caret that is still inside the draft stays on the active token until the **`atMenuDraftAtCaret`** lexer breaks out. **`draftAt.test.ts`** reads **`internal/mention/testdata/grammar_cases.json`**, the cases the Go grammar is tested against.
 - A query with zero matches keeps the picker open (**`Nothing matches`**) instead of collapsing the menu (**`composer-at-chip-inline`** hides for **`atNoMatch`**, same **`atIdx`**, **`prefix`** as the stale filter).
-- Stacked-shell viewports (**`(max-width: 1199px)`**) render the mention and slash pickers as a **`slash-menu--sheet`** with **`slash-sheet-backdrop`** so the panel is usable on phones.
+- Stacked-shell viewports (**`(max-width: 1199px)`**) render the mention and slash pickers as a **`slash-menu--sheet`** so the panel is usable on phones, over a transparent backdrop (**`slash-sheet-backdrop--clear`**) that closes it on a press outside and dims nothing.
 - The user bubble collapses every **`<coddy_attachment>`** the message was sent with (**`stripCoddyAttachmentsForUserDisplay`**, the twin of **`mention.ForDisplay`**): back to the mention that brought it (the **`mention`** attribute, else **`path`**), or to nothing when the text already carries that mention; the body of a **`/skill`** and a rule a mentioned path pulled in show nothing. The scan walks CDATA sections, so a file that contains **`</coddy_attachment>`** cannot leak its tail into the bubble.
 
 ### Line ranges (**`@path:N-M`**)
@@ -801,6 +874,10 @@ For the whole of a running turn, streaming text included, the typing dots carry 
 
 *The live line of a running turn: the turn clock, the generated tokens, the running background task and what the agent is doing*
 
+![The first message of a new chat on screen at once, the live line reading Preparing the session while the session's MCP server starts](../assets/session-start-preparing-dark-1280.png)
+
+*A new chat three seconds after its first message: the message is on screen, the chat already named, and the live line says the session is being prepared while its MCP server starts*
+
 - The turn's own numbers lead the line: how long the turn has been running, how many tokens the model has generated in it, how many background tasks are running right now (`15m 08s · 13.5k tokens · 1 running task · Thinking…`). Before the first token the line is the clock and the phrase alone (`57s · Waiting for the model`), and the tasks segment appears only while something runs. It is a button: it opens the [Tasks panel](../features/background-tasks.md#ui).
 - When the turn has ended and background tasks it started are still running, the dots stay at the tail of the transcript with the count and nothing else (`1 running task`): no clock and no tokens, because there is no turn to time. It opens the same panel, and it goes as soon as the last task finishes.
 - The clock and the tokens are the server's: the agent publishes `turn_progress` on the turn stream ([HTTP API](../reference/http-api.md)) and keeps the same numbers behind `GET /coddy/sessions/{id}/activity`, which a reloaded tab reads, so the clock carries on where it was. `chat/turnProgress.ts` folds the two sources: a reading names its turn by the server's `startedAt` and is dated by the turn's age on the server's clock, so the newer reading wins whichever way it came - an activity answer read before the stream's last frame and delivered after it is dropped, and an answer a throttled tab handles seconds late is still the same turn. The tab drops the numbers when the turn ends and on any activity read that finds the session idle, so the next turn never opens on the previous turn's clock. A server that predates `turn_progress` leaves the clock counting from the turn's user message, without tokens.
@@ -809,6 +886,7 @@ For the whole of a running turn, streaming text included, the typing dots carry 
 - Priority: unresolved permission prompt → unresolved question prompt → running tool call (an `in_progress` call beats a later announced `pending` one) → in-progress thinking (`Thinking…`) → a memory run in flight (`Working with memory`, from the `memory_run` events of the stream; the run itself is an invisible `memory_run` item of the turn, nothing renders it) → answer text as the turn's newest row (`Writing the answer`) → waiting on the model. The line always carries a phrase; it is never three bare dots.
 - The two prompt states render **no** step counter: nothing is running while the operator decides. The turn clock keeps counting.
 - A plain wait escalates with time: `Waiting for the model` → `The model is taking longer than usual` (15 s, `typing-dots-status--slow`) → `Still no response from the server` (60 s).
+- Before that, a turn that has shown nothing since its message reads `Preparing the session…` until the server reports it talks to its model: the first `turn_progress` of a turn carries the `preparing` phase while the turn brings in its MCP servers and waits for its model's context window (`withPreparingPhase` in `chat/liveStatus.ts`). The wait does not escalate meanwhile, since it is not the model that is slow.
 - A tool Coddy does not define takes the generic `Running a tool`, which says nothing about a call an MCP server serves, so that one phrase names the server and the tool instead - `Calling browser_navigate on the MCP server playwright`. That is the identity of the step, not its arguments; what the call acts on is read on the transcript row above, which names the server and the tool as well.
 - Derivation scans back to the last `user_message`, so a stale `in_progress` row from a finished turn never drives the label. The console twin of the phrase table lives in `external/cli/status.go`.
 
@@ -863,7 +941,11 @@ A `read` that showed the model a picture ([Images](../features/images.md)) previ
 
 `share_file` gives the agent an explicit, permission-gated way to hand a report or other workspace file back to the operator. A successful call renders a downloadable file card under its tool row. The browser downloads an immutable copy kept in the session bundle, so the link does not follow later workspace changes; in a remote environment the same action fetches through the configured bearer-authenticated API route. A missing copy stays visible as unavailable rather than becoming a broken image or link.
 
-When a later assistant answer refers to verified shared files, their cards render inline with that answer. Adjacent file markers form one responsive row, which wraps on narrow screens and keeps a 16px gap before the next paragraph. Image artifacts show a thumbnail and open the shared image lightbox at their verified inline preview URL; non-image files keep their type tile. Every card keeps the same actions menu for download, mention, copying paths, and revealing the source on the server host.
+When a later assistant answer refers to verified shared files, their cards render inline with that answer. Adjacent file markers form one responsive row, which wraps on narrow screens and keeps a 16px gap before the next paragraph; a row that ends the answer leaves the gap above the answer's copy button and time to their own 8px. A card is 134x140px (at most 118x132px on a phone, two to a row). Image artifacts show a thumbnail and open the shared image lightbox at their verified inline preview URL; non-image files keep their type tile. Every card keeps the same actions menu for download, mention, copying paths, and revealing the source on the server host. Its **⋮** sits in the top right corner level with the extension badge in the top left, shows under the pointer, and is always shown on a phone or another screen without hover; the menu opens under it (above it near the bottom of the window), stays inside the window, follows the card while the page scrolls, and closes on a second press of **⋮**, a press elsewhere, **Escape**, **Tab** (the focus moving on from **⋮**), or when the card scrolls out of sight - out of the window, or under the chat's title or the composer. In a window shorter than the menu its items scroll. A reveal the server could not carry out shows **Reveal failed** on the card and leaves the download available. A right click on a card opens the same menu.
+
+![A shared file card inline in an answer, its actions menu open under the trigger](../assets/web-ui/shared-file-menu-open-dark-1280.png)
+
+*A shared file card inline in an answer, its actions menu open under the trigger*
 
 `spawn_agent` has a dedicated argument card: agent icon and name, optional description, a labelled timeout badge, and an inset panel for the multiline prompt. The prompt starts as a compact preview; **More…** opens a bounded, scrollable viewport and **Less** restores the preview, so a long subagent instruction does not take over the transcript. When the spawned task has a child session, the card offers **Show transcript**; the same action is below captured output on the opened background-task card. The timeout is the supplied execution limit in seconds, separate from the elapsed duration beside the tool title. The layout wraps on narrow screens and follows the active light/dark theme. Calls with truncated history arguments load the full arguments once per incomplete preview, including running calls; malformed arguments or failed fetches retain the plain argument preview. Card labels follow the active English/Russian UI locale.
 
@@ -917,9 +999,19 @@ Automated checks:
 Editing a sent message rewrites the conversation in place: the history is rewound to that message and the edited text is sent in the same session - no sibling conversation, nothing to navigate.
 
 - Every user bubble carries a pencil button (**`.msg-user-edit`**, **`data-testid="user-message-edit"`**, accessible name **`Edit message`**) in **`.msg-user-foot`**, directly left of the copy control with the same **`.msg-copy-icon-btn`** chrome - always visible, in flow. It loads that message back into the composer draft (attachment chips are recovered from the persisted session-assets annotation) and records the 0-based **user** message index being edited.
+- While a message is loaded for an edit, the composer says so: a banner above the card (**`.composer-edit-banner`**, **`data-testid="composer-edit-banner"`**) names it (**Editing message**, the start of its text, *Sending rewinds the conversation to this message*), the send button's accessible name becomes **Send edit**, the bubble is outlined (**`.msg-user-stack--editing`**) and every row after it is faded, since sending removes exactly those rows. **Escape** in the field (once no picker or popover claimed it) or the banner's cross (**`data-testid="composer-edit-cancel"`**) leaves the edit and puts back the draft and attachments the pencil replaced; a second pencil switches the message and keeps the same draft to return to. Sending the edit gives that draft back too, so a follow-up written before the pencil is not lost.
 - Sending that draft calls **`POST /coddy/sessions/{id}/rewind`** with **`{"userMessageIndex"}`**. The draft and the editing state stay until the rewind lands - a failed request surfaces as a UI-log error row and nothing is lost.
 - On **200** the client drops the shadow transcript and the persisted permission prompts of the removed tail, reloads the kept prefix from **`GET .../messages`**, and sends the edited text as the next turn of the same session.
-- The server truncates **`messages.json`** at the edit point, prunes the **`tool_calls/`** entries and **`ui_log`** rows of the removed turns, and clears a pending permission prompt whose tool call left the transcript. **`session_rewound`** on **`GET /coddy/events`** tells every other tab or surface holding the session to reload the same way.
+- The server truncates **`messages.json`** at the edit point, moves the **`tool_calls/`** entries and **`ui_log`** rows of the removed turns into the undo snapshot (**`rewind_undo/`**, removed once a later prompt or another rewind retires it), and clears a pending permission prompt whose tool call left the transcript. **`session_rewound`** on **`GET /coddy/events`** tells every other tab or surface holding the session to reload the same way.
+- A sent edit can be taken back while **`GET .../messages`** carries **`rewindUndo`**: the edited prompt carries **Undo edit** in its foot (**`.msg-user-undo-edit`**, **`data-testid="user-message-undo-edit"`**) and the banner slot says **Message edited** with **Undo** (**`data-testid="composer-undo-banner"`**, hidden by its cross for that edit; the prompt's control stays). Undo stops the edited turn if it still runs, calls **`POST /coddy/sessions/{id}/rewind/undo`**, and reloads the transcript; a refusal is an error row. Sending another prompt ends the undo, as it does on the server. File changes the removed turns made are not reverted, and both controls say so.
+
+![The edit banner above the composer while a sent message is being edited](../assets/web-ui/message-edit-banner-dark-1280.png)
+
+*Editing a sent message: the banner names it, the bubble is outlined and the turns sending will remove are faded.*
+
+![The undo banner after an edit was sent](../assets/web-ui/message-edit-undo-dark-1280.png)
+
+*After the edit is sent, Undo on the prompt and in the banner restores the conversation as it was.*
 
 Automated checks:
 
@@ -927,7 +1019,10 @@ Automated checks:
 - **features/session_rewind.feature** + **external/httpserver/bdd_rewind_test.go** (the endpoint's happy path)
 - **external/ui/src/ui/messages/userMsgIndices.test.ts** (the index an edit names, a wake counting as a turn)
 - **external/ui/src/ui/messages/MessageList.test.tsx** (the index an edit names when the transcript holds only the end of a long history, see **Long sessions**)
-- **external/ui/src/ui/messages/UserMessage.test.tsx** (edit control visibility)
+- **external/ui/src/ui/messages/UserMessage.test.tsx** (edit control visibility, the editing mark, Undo edit)
+- **external/ui/src/ui/chat/Composer.editBanner.test.tsx** (the edit and undo banners, Escape, the send button's name)
+- **external/ui/src/ui/App.messageEdit.test.tsx** (cancelling restores the draft, Undo restores the conversation)
+- **internal/session/rewind_undo_test.go**, **features/session_rewind_undo.feature** and **external/httpserver/coddy_rewind_undo_test.go** (the kept tail, when the undo ends, stopping the edited turn)
 
 ## Background tasks panel
 
@@ -937,12 +1032,12 @@ The panel is docked **inside the session**, to the right of the transcript (`.bg
 
 - It **polls** rather than listening on SSE, because a background task outlives the turn that started it: every 2.5s while anything runs, every 15s otherwise. A poll against an unreachable server yields a normal error result, never an unhandled rejection.
 - **Every task is one card** (`TaskCard`): status dot, a tag (`taskTag`: `shell`, the agent's name, `memory`, `server`), the title (`taskTitle`: the command, or the description of an agent run without the `agent <name>:` prefix the pool writes) and a meta line (`taskMetaLine`: elapsed against the estimate while it runs, `20s · 12:50` afterwards - the outcome is the dot's colour, and in words only in the open card's foot). An agent run carries the model and the tokens its calls spent at the right of the meta line (`agentUsage`: `agent.model` by its short name, `agent.input_tokens` plus `agent.output_tokens`), dropping under the status whole when the two do not fit; the full model id and the input / output split are the opener's `title`. Under both, on a row of its own, the card carries the way into the task, and at most one of them: an agent run carries **Show transcript** (`.bgtask-card-transcript`, `data-testid="bgtask-open-transcript-<id>"`), which opens the child session at `#/s/<child id>` the way a History pick does; a running preview server carries its address (`.bgtask-card-link`, `data-testid="bgtask-link-<id>"`, `target="_blank"`, `rel="noopener noreferrer"`), which opens the page in a new tab and wraps whole rather than truncating when it is long. The card does not have to be expanded for either, and, like Stop, both stand above the card's own click surface so they never expand it. Show transcript is disabled, with a title saying why, until the row carries `agent.session_id`; a server that has stopped carries no address, because the page it named is gone. Running cards stand at the top under no heading of their own - everything above the **Finished N** counter is running - and add Stop, a **bell** after the title (`.bgtask-notify`, `data-testid="bgtask-notify-<id>"`, `title` and accessible name *Wakes the agent when it ends*) when the task carries `notify_on_finish`, and, only when the model supplied `expected_seconds`, a progress bar. A finished card keeps the bell when the row carries `woke_agent` - its end started a turn - with *Woke the agent when it ended*: the woken turn shows nothing in the transcript, so the card is where the web UI says what woke the agent.
-- **The card is one control and opens in place.** The opener button is stretched over the card's summary, so a click anywhere expands it and the summary tints under the pointer; Stop is a sibling above that surface and never toggles the card. The open card shows the command with a copy control (neither an agent run nor a preview server has a shell behind it, and nothing is shown there), the error unless it only repeats the exit code (`taskErrorText`), the output in a box with its own scroll, and once the task has finished a foot with the outcome and the exit code (`Failed · Exit code 2`; no exit code for an agent run or a preview server: the pool's code for them is synthetic). How long the task ran and the way into the task are the summary's and are not said again inside the card. Any number of cards are open at once, each reading its own output through the panel's `loadOutput` (again every 2.5 s while its task runs, once more when it ends); there is no detail pane. Which cards are open is the panel's state, not the address: the route is `#/s/<id>/tasks`, and a link that still names a task (`#/s/<id>/tasks/<task_id>`) or **Open in Tasks** on a transcript row opens that card through the panel's `focus` prop, after which the address drops the id. The pointer names its chat and is good for one use (`onFocusHonoured`): every session numbers its tasks from `bg_1` and the panel unmounts with the drawer, so a pointer the shell kept would open a card again on the next opening, in whichever chat is on screen.
-- **Finished N** is a counter; expanding it shows the same cards, capped at 40 rendered with a note naming what stays on disk - a card that is open is shown wherever it stands, so **Open in Tasks** on an early row of a long session does not open a card nobody can see - and an open card whose task has just ended opens the section with it. **Clear** drops the finished history for the session.
+- **The card is one control and opens in place.** The opener button is stretched over the card's summary, so a click anywhere expands it and the summary tints under the pointer; Stop is a sibling above that surface and never toggles the card. The open card shows the command with a copy control (neither an agent run nor a preview server has a shell behind it, and nothing is shown there), the error unless it only repeats the exit code (`taskErrorText`), the output in a box with its own scroll, and once the task has finished a foot with the outcome and the exit code (`Failed · Exit code 2`; no exit code for an agent run or a preview server: the pool's code for them is synthetic). How long the task ran and the way into the task are the summary's and are not said again inside the card. Any number of cards are open at once, each reading its own output through the panel's `loadOutput` (again every 2.5 s while its task runs, once more when it ends); there is no detail pane. Which cards are open is the panel's state, not the address: the route is `#/s/<id>/tasks`, and a link that still names a task (`#/s/<id>/tasks/<task_id>`) opens that card through the panel's `focus` prop, after which the address drops the id. The pointer names its chat and is good for one use (`onFocusHonoured`): every session numbers its tasks from `bg_1` and the panel unmounts with the drawer, so a pointer the shell kept would open a card again on the next opening, in whichever chat is on screen.
+- **Finished N** is a counter; expanding it shows the same cards, capped at 40 rendered with a note naming what stays on disk - a card that is open is shown wherever it stands, so a link to an early task of a long session does not open a card nobody can see - and an open card whose task has just ended opens the section with it. **Clear** drops the finished history for the session.
 - Ordering is purely by start time, newest first, among the live cards and inside the finished history alike.
-- The **opener** is the **Tasks** control at the right edge of the sticky chat header (`chat-header-tasks`), not a nav rail entry. It is rendered from the first message (`Tasks`), adds `running / total` once the chat has tasks (`Tasks 1 / 3`), is a toggle with `aria-expanded`, and at phone width keeps the dot and the numbers. While a turn runs the live status line names the running tasks and opens the same panel. Both count through `countTasks` (`tasks/taskStatus.ts`), which leaves out system tasks such as the memory run of a turn. Nothing is rendered under the transcript.
+- The **opener** is the **Tasks** button at the right edge of the sticky chat header (`chat-views-tasks`), not a nav rail entry. It is rendered from the first message (`Tasks`), adds `running / total` once the chat has tasks (`Tasks 1 / 3`), is a toggle with `aria-pressed`, and at phone width keeps the dot and the numbers. While a turn runs the live status line names the running tasks and opens the same panel. Both count through `countTasks` (`tasks/taskStatus.ts`), which leaves out system tasks such as the memory run of a turn. Nothing is rendered under the transcript.
 - On `max-width: 1199px` the panel takes the screen, the cards take more padding, Stop grows to 30px and the output box to 46vh.
-- A transcript `run_command` row that started a task reads like any other command row: the label says it is a background run (*running a command in the background*) and the duration slot carries the task's ticking clock instead of the call's meaningless `0ms`. The outcome is **not** on the row - status, estimate, exit code and error are read on the task's card in this panel, which **Open in Tasks** opens. Expanding the row gives **Open in Tasks** and, while running, **Stop**: tab buttons attached to the bottom edge of the card above them. Driven by the same poll.
+- A transcript `run_command` row that started a task reads like any other command row: the label says it is a background run (*running a command in the background*) and the duration slot carries the task's ticking clock instead of the call's meaningless `0ms`. The outcome is **not** on the row - status, estimate, exit code and error are read on the task's card in this panel. Expanding the row keeps the clock and adds no task controls: Stop is on the task's card. Driven by the same poll.
 - An agent task is read without opening its card: the model, the tokens, the elapsed time and **Show transcript** are all on the folded card. Opening it adds only the child's live progress log, which ends with the `=== subagent report ===` block. A preview server reads the same way - its address is on the folded card - and opening it adds only the request log.
 
 Automated checks:
@@ -950,7 +1045,7 @@ Automated checks:
 - **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers)
 - **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (one card shape for every task, the tag and the title, the card as one control with Stop apart, expanding in place with the command, copy, output and foot, several cards open at once, a card the shell points at, output re-read while a task runs, the finished counter, Clear, Show transcript on the folded card and said once, empty and error states)
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
-- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the header control: present in an empty chat, `running / total` without system tasks, `aria-expanded`) and **ChatScreen.test.tsx** (the toggle, nothing under the transcript)
+- **external/ui/src/ui/chat/ChatHeader.test.tsx** (the view buttons: Files and Tasks in that order and no Edits button, Tasks with the dot and `running / total` without system tasks, icon, short name and tooltip, `aria-pressed`), **external/ui/src/ui/changes/workingCopy.test.tsx** (one read of git's report per chat, read again on the server's word, a finished tool call and the page's focus) and **ChatScreen.test.tsx** (the toggle, the count on the plate only while git reports changes, nothing under the transcript)
 - **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (panel docking, the tag, the stretched click surface with Stop above it, the hover tint, the bounded output box, the header control, the live line on a phone, reduced motion)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (the background row: its label, the task clock in the duration slot, and that no outcome leaks onto the row)
 
@@ -999,83 +1094,229 @@ A held project hooks file surfaces in the transcript as a **notice-level system 
 - **external/ui/src/ui/messages/SystemNoticeMessage.test.tsx** (notice row: status role, notice class, no retry)
 - **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `hooks` config tab)
 
-## Session changed files card
+## Views of a chat
 
-The card sits at the **end of the transcript**, next to the subagent permission
-rows (`.changes-card`, `external/ui/src/ui/changes/`). It summarises what the
-**whole session** did to the workspace — `N files changed`, `+A −D`, then a row
-per file with its own counts — because the numbers describe every turn above it
-together, not any single message.
+A chat has three views beside the conversation: its **files**, its **background
+tasks** and its **edits**. Files and background tasks are a row of buttons at the top
+of the chat: **Files**, and **Tasks** at the right edge. On a desktop and a tablet
+Files is an icon with a short name; a phone shows the icon alone, the size of its top
+bar's buttons. Tasks is the control the header always had: a dot and, once the chat
+has tasks, how many run out of how many there are, the dot lit while work is in
+flight. Every button has its full name in a tooltip, the Files one with its key. A
+button opens its view, and pressed again puts it away; the button of the view on show brightens, its
+text, border and ground, the way a pointed-at one does, and the accent is kept for
+tasks that run. The background tasks open in the dock beside the chat, the files in a window
+over the chat. The edits have no button in the header: git's count on [the plate over
+the composer](#the-plate-over-the-composer) opens them. Each icon beside a word sits on
+the middle of its lowercase letters, not of the capitals: the words are mostly
+lowercase, and centred on the line the icon reads a pixel high.
 
-![The changed-files card under a finished turn: 3 files changed, +8 −1, with Undo and Review](../assets/session-changes-card-dark-1280.png)
+![A running chat: the view buttons Files and Tasks at the top, and the plate over the composer naming the repository, the branch and git's count](../assets/views-toolbar-dark-1280.png)
 
-*The changed-files card under the transcript: the net change of the whole session, one row per file*
+*The view buttons at the top of a chat, and the plate over its composer*
 
-- Data comes from `GET /coddy/sessions/{id}/changes`, which collapses the
-  per-turn workspace diffs stored in the session bundle. Those diffs are captured
-  by snapshotting the workspace around each turn, so an edit made by a shell
-  command is listed exactly like one made by the `edit` tool.
-- **While the agent works the card steps aside**; the set is still moving. When the
-  turn ends it waits for **`event: session_changes`** on `GET /coddy/events`,
-  which the server sends once the turn's diff is on disk, then reads and shows the
-  set. Reading on the end of the stream instead raced the capture and could show the
-  old set. With no event within 4 s (the stream is down, the turn came through
-  another door) it reads anyway. A failed read keeps the previous set on screen — a
-  restarting server must not look like "nothing changed".
-- **Ctrl+S / Cmd+S shows or hides the card** at any time; the browser's "Save
-  page" never opens. Opened mid-turn it lists the finished turns plus what the
-  running turn has written so far — the server compares the workspace with the
-  turn's pre-turn snapshot — and it re-reads after every finished tool call while
-  it stays open. Hidden, it reads nothing. Opened in a chat that changed nothing,
-  it says so in one line.
-- A session that changed nothing renders **no card at all**, and neither does one
-  where every change cancelled out (a file created and removed again, or edited
-  and edited back, is left out of the set).
-- **Review** and the summary open the review window; **clicking a file row**
-  opens the docked drawer on that one file.
-- **`.idea`, `.vscode`, `.git` and `.svn` never appear.** An editor rewrites its
-  settings on its own schedule and a VCS client rewrites its administrative area.
-  The rule is `session.IsToolStatePath` and it applies three times over: the
-  workspace snapshot skips those folders, the aggregate drops them when a session
-  recorded by an older build is read back, and the working-copy scopes filter them
-  as well. Matching is on whole path segments, so `docs/idea.md`, `.ideas/plan.md`
-  and `git-notes.txt` are ordinary files.
-- **Undo** asks first, then POSTs `.../changes/revert`, which reverses every turn
-  diff of the session: edited files go back to their pre-session content and
-  created files are removed. Tool state is skipped here too - putting `.git/index`
-  back would leave the client describing a tree that is no longer there. Git is
-  not involved, so the confirmation says plainly that it undoes the whole session.
-- `ui.session_changes: false` in config.yaml hides the card and stops it
-  fetching; omitted keeps the default (on).
+On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
+(`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
+the composer included.
 
-Two surfaces read the change set, picked by the question being asked. A **file
-row** asks about one file and opens the drawer on it; the **summary**, **Review**
-and **`+N more`** ask about the whole set and open the review window.
+## Workspace files
 
-The **drawer** (`.changes-panel`, `SessionChangesPanel.tsx`) and the **Tasks
-panel** are two faces of one right dock (`dockTab` in `App.tsx`): opening one
-closes the other, a tab strip in the panel head switches between them, and the
-chat column reserves exactly the width of the face on show. The drawer shows the
-file list on top and the unified diff of the selected file below. The diff body
-reuses `PermissionToolPreview` — the same renderer the permission gate and the
-transcript foldouts use — fed by `diffPreviewFromPatch`, so a diff looks the same
-everywhere in the app. A binary file is listed but has no diff to show.
+The **Files** window shows the session's workspace over the chat, the way the
+documentation reader does: the tree on the left, the files opened from it as tabs on
+the right. Open it with the **Files** button of the chat header, with `Ctrl+Shift+F`,
+or by clicking a workspace mention in a sent message or a file tool's path. Its address keeps the file and an
+optional line, `#/s/<id>/files?path=notes/readme.md&line=15`, so a reload opens it
+there. Escape or the close button returns to the chat and gives the focus back to
+what opened the window; whatever the dock showed stays under it, on a phone or a
+tablet too, and a click beside the window closes it the same way. Reopened, the window
+shows the files it had open, each at its line, and the address names the one on show.
 
-![The right dock on its Changed files face: the file list on top, the diff of notes.txt below](../assets/session-changes-dock-dark-1280.png)
+![The Files window: the workspace tree beside two open files, README.md on show as its source with numbered lines](../assets/workspace-files-window-dark-1280.png)
 
-*The shared right dock on the Changed files face; the tab strip in the head switches to Background tasks*
+*The Files window over a chat: folders first in the tree, the open files as tabs*
 
-The **review window** (`.dv-window`, `DiffViewerModal.tsx`) is a modal holding
-every changed file diff in one scrollable document. Its toolbar carries a scope
-select (**All edits** / **Last turn** / **Uncommitted** / **All changed files**,
-with that scope's `+A −D` beside it), collapse/expand all, go to file, the
-unified/split toggle, and the file tree. A file section has a sticky header with
-copy-path and collapse on hover. Between hunks sits a wordless separator rather
-than an `N unmodified lines` filler row.
+Additional captures: [Light theme, 1280 px](../assets/workspace-files-window-light-1280.png)
+and [phone, 390 px](../assets/workspace-files-window-dark-390.png).
 
-![The review window: a scope select, the totals, and one section per changed file](../assets/session-changes-review-window-dark-1280.png)
+The tree lists folders first, then files, and loads each folder as it opens. The
+filter above it searches the **whole workspace by name**, folders nobody opened
+included, with the same index as the composer's `@` picker; Escape clears it. The
+window's **⋮** menu shows hidden files (dotfiles, `node_modules`, `vendor`), wraps
+long lines, switches an SVG or an HTML file between what it draws and its source
+(**Preview**), and for the file on show reloads it, copies its path or downloads it.
+Showing hidden files does not restrict access: an explicit workspace path may still
+open a hidden file. Symlinks and special files are listed with ↗ but are not opened.
+The tree switch at the left of the head folds the tree away, and the arrows at the
+right expand the window over the whole screen. The open files stay open for the life
+of the page, so closing and reopening the window finds them where they were. Tabs that
+do not fit scroll sideways with the wheel or a swipe, and the tab on show is brought
+into view.
 
-*The review window over the whole change set: every file diff in one scrollable document*
+An open file is its content and nothing over it: the tab names it, so the window shows
+no second name, no size or time and no switch of views over the file. Text files show
+numbered line windows, a line's number level with its text; a line an address or a
+link names is scrolled to, not marked, since for now a file is only read. A long file
+scrolls through without the old 512 KiB file limit: the next lines are read as you near
+the end of those on screen, so there are no pages to click. Markdown is text like any other: its source, line by line, so a
+picture or HTML in it is a line to read and nothing is loaded or run. Raster images
+have fit and actual size controls; images above 20 MiB remain downloadable.
+
+A right click on a picture (a long press on a touch screen) opens a menu with **Copy
+image** and **Save image**, here and everywhere else the web UI shows a picture: an
+attachment or a tool's picture in the chat, a diagram, the documentation and the
+full-screen viewer. **Copy image** puts the picture on the clipboard as a PNG, an SVG
+drawn at its own size; it is offered only where the browser lets a page write a
+picture there, which a page served over plain HTTP from another host does not.
+**Save image** downloads the picture, a file of the workspace under its own name.
+Escape closes the menu and leaves the viewer under it open. A picture from another
+site keeps the browser's own menu.
+
+![The Files window with the menu a right click opens on a picture: Copy image and Save image](../assets/workspace-files-window-image-menu-dark-1280.png)
+
+*The menu of a picture in the Files window*
+
+Source is coloured with the grammars of the chat's code blocks, in the active theme's
+colours, so a language the chat colours (Dart, Elixir, Haskell, Scala, PowerShell, a `Dockerfile`, a `Jenkinsfile`,
+`CMakeLists.txt` and the rest) is coloured in the window too; the grammar is chosen by
+the file's extension or name, never guessed. The lines on screen are coloured as one
+text, so a block comment or a string that spans lines keeps its colour on every line.
+A line longer than 4096 characters, a minified bundle for example, stays plain, and
+past 200,000 characters on screen the text is shown without colour.
+
+![The Files window showing an SVG drawing of the workspace as a picture](../assets/workspace-files-window-svg-dark-1280.png)
+
+*An SVG opens as a picture; **Preview** in the ⋮ menu switches it to its source*
+
+An **SVG** opens as a picture and an **HTML** file as its source; **Preview** in the
+⋮ menu switches the kind to its other view, and the browser remembers the choice for
+every file of that kind. The picture of an SVG is an image of its bytes, so a script
+in it never runs and nothing it links to is loaded. An HTML page is drawn in a
+sandboxed frame that runs no script, submits no form, opens no window and loads
+nothing from the network: its inline styles and embedded `data:` pictures show, while
+its scripts, stylesheet links and relative pictures do not, and a link out of the page
+does nothing. The page draws on a white canvas whatever the theme, as a browser tab
+would show it. A page longer than 2,000,000 characters is not drawn; its source still
+is.
+
+![The Files window drawing an HTML report of the workspace in a sandboxed frame](../assets/workspace-files-window-html-preview-dark-1280.png)
+
+*An HTML page with **Preview** on: its own styles apply, its scripts never run*
+
+Audio and video use native controls and byte ranges, including on an authenticated
+remote server and through a swarm relay, which carries the file's temporary signed
+address to the node without vouching for it ([Swarm](../operate/swarm.md)). The
+address expires after one hour; **Reload** renews it.
+
+A **PDF** opens in the browser's own viewer, the one it uses for a PDF opened from a
+link (Chrome, Edge, Firefox and Safari on a computer have one). Its bytes come through
+the same authenticated reader as a picture, up to 50 MiB, so a remote server and a
+swarm relay work too. A browser without a viewer of its own, Chrome on Android for
+one, offers the PDF as a download, as does a PDF the window could not read. Other
+binary formats can be downloaded safely.
+
+![The Files window showing a one-page PDF in the browser's own viewer](../assets/workspace-files-window-pdf-dark-1280.png)
+
+*A PDF in the browser's own viewer*
+
+Returning to the page or finishing a tool call checks the open file and the open folders again. A file that
+did not change is not read again, so the text stays where it is and a sound or a
+film keeps playing; a changed file shows *This file changed. The preview has been refreshed.* and starts over at its top
+instead of combining lines from different versions. Folders keep the rows **Load
+more files** added, and a folder that is gone folds away. The filter offers files of
+the workspace only, never paths above it or elsewhere on the disk. Selected remote environments apply to file previews and session image thumbnails. On a phone the window shows the tree or the file, one at a
+time: a file picked in the tree takes its place, and the tree switch brings the tree
+back.
+
+## Edits of a chat
+
+The edits of a chat are what git reports for its folder: every tracked file that
+differs from `HEAD`, staged or not, and every new file git does not ignore. Nothing is
+recorded per turn, so a file written by the `edit` tool, by a shell command or by an
+editor beside Coddy reads the same, and a folder that is not in a git repository has
+no edits to show. Without the `git` binary on PATH the server answers through its
+built-in implementation (go-git); that one detects no renames, so a staged rename
+reads as a deletion plus an addition.
+
+- Data comes from `GET /coddy/sessions/{id}/changes`. One copy per chat
+  (`changes/workingCopy.ts`) serves every view that shows it: git's count on the
+  plate over the composer and the edits window. It is read when
+  the chat opens, after every turn of any chat (`event: turn_ended` on
+  `GET /coddy/events`, whichever surface ran the turn: chats share folders, so another
+  chat's turn moves this one's too), after a discard (`event: session_changes`),
+  shortly after a burst of finished tool calls, and when the page gets the focus back,
+  since the folder may have been edited elsewhere. A failed read keeps the last answer
+  on screen, since a restarting server must not look like a clean folder, and the
+  edits window says why the read failed when it has nothing to show yet.
+- New files are read up to 500 of them and 2 MB each; the edits window says how many
+  it left out. A repository nested in the folder is one entry, the way
+  git lists it: nothing in it is read or discarded. Files git ignores never appear.
+- When the session runs in a subfolder of a repository, only that subfolder is
+  reported, by paths relative to it.
+
+### The plate over the composer
+
+![A running chat in a linked worktree: the plate joined to the top of the composer names the repository, the worktree's branch, and git's count framed at its right edge](../assets/workspace-bar-worktree-dark-1280.png)
+
+*The plate over the composer of a chat that runs in a linked worktree*
+
+Before the first message the plate offers the folder, the branch and the worktree as a
+choice ([Per-session workspace](#per-session-workspace-folder--branch--worktree)); there
+is no git count before a session. Once a chat runs, where it works is a fact rather than
+a choice, and the plate names it (`WorkspaceBar.tsx`). The plate looks like a queued message and is joined to the top edge of the composer card,
+the card's top border being the seam between them. On the left it names the
+repository (the main checkout's name in a linked worktree, with the full path in the
+tooltip) and the branch; at the right edge, while the folder has uncommitted changes,
+git's `+A −D` for it. The count sits in a light frame so it reads as a button; on hover
+the frame and the ground brighten, and it opens the edits window. A chat that runs in a
+linked worktree shows the same branch icon, and the tooltip names the worktree's
+folder. The plate is git's: a running chat in a folder that is in no git repository has
+no plate, and its composer card keeps its rounded top. The count's right edge is the
+improve-prompt wand's under it, and on a phone or a touch screen the count keeps its slim
+look with an invisible 40px hit area laid over it.
+
+### The edits window
+
+The edits have one view: a window over the chat (`EditsView.tsx`) holding every diff
+of the folder's uncommitted changes in one scrollable document. It is framed and
+headed the way the [Files window](#workspace-files) is, in the same place and at
+the same distance from the edges of the browser window: on the left of its head the
+tree switch and the title **Edits** over the folder's name and git's `+A −D`, on the
+right the **⋮** menu, the expand button and the close button. The menu holds **Side by
+side** (the split view, not offered on a phone or a tablet, where every diff reads
+inline), **Collapse all diffs** / **Expand all diffs** and **Discard all**. Git's count on the plate
+over the composer opens the window; Escape, the close button or a click beside it puts
+it away. Its address is `#/s/<id>/changes`, so a reload opens it again. There is no dock
+face for the edits: the dock beside the chat holds the background tasks, and stays as
+it was under the window.
+
+On the left the tree lists the changed files and only them, git's uncommitted changes
+in the folders they sit in, each with git's letter at the end of its row (**A** added,
+**M** modified, **D** deleted). The diffs follow in the same order. Its filter narrows the list by path; a
+file picked there scrolls the diffs to it and stays put while the diffs above it are
+still loading, and as you scroll the tree marks the file at the top, scrolling itself
+to keep that row in view when the list is long. On a
+phone the window opens on the diffs and the tree switch brings the list over them.
+
+A file section has a sticky header: the name, which folds the diff, then copy-path and
+discard, always in sight, and the file's `+a −b` at the right end. Between hunks sits a wordless separator
+rather than an `N unmodified lines` filler row. In a folder with nothing to show it says
+so: clean, or not in a git repository.
+
+![The edits window: the changed files in the tree on the left, one section per changed file on the right](../assets/session-changes-review-window-dark-1280.png)
+
+*The edits window over the folder's uncommitted changes: the tree of the changed files beside every diff in one scrollable document*
+
+**Discard** in a file's header puts that file back at `HEAD`, and **Discard all** in the
+menu every change. Each asks first in the shared confirmation dialog, which says whether the file
+goes back to its last committed content or, new since that commit, is deleted; Escape
+there answers the question and leaves the window open. Then the page posts
+`.../changes/revert` with `{"paths":[...]}` or `{"all":true}`: a tracked file gets its
+content and index entry from `HEAD` back, a file `HEAD` does not hold is deleted along
+with any folder it leaves empty, and files git ignores are never touched. A turn running in
+that folder, in this chat or in another one working there, refuses the discard
+(**409**); so does a file git no longer reports - committed or put
+back meanwhile - and then nothing of the request is applied. A commit is not offered:
+the window reads, and discarding is the one thing it writes.
 
 Code is coloured by `lowlight` (highlight.js behind a tree API, the same engine
 `rehype-highlight` gives the markdown renderer), so the `hljs-*` styles already
@@ -1083,33 +1324,24 @@ in the stylesheet apply and the viewer never injects markup. The grammar comes
 from the file extension via `diffLanguage.ts`; an unknown extension renders as
 plain text rather than being guessed at.
 
-The scopes come from `?scope=` on the same two routes. `turn` folds only the
-newest stored turn. `uncommitted` leaves the session behind and diffs the
-**tracked** working copy against **`git HEAD`**, counting untracked files in a
-banner without reading them. `all` is that plus the untracked files themselves,
-for when the question is what is in this folder that HEAD has not — capped at 500
-files and 2 MB each, with whatever it left out reported in the same banner under a
-different heading. Neither reads what git is told to ignore, so a build directory
-or a virtualenv stays out on its own. In a folder that is not a git repository
-the window says so instead of showing an empty diff (`vcsAvailable: false`).
-
-The detail route reads only the file it was asked for
-(`gitws.UncommittedChangeFor`, `gitws.WorktreeChangeFor`): the viewer loads one
-patch at a time, and resolving the whole set per request meant a git subprocess
-per changed file on every one of them. An untracked path is only read once git
-has named it, so the route cannot be pointed at an arbitrary file.
+The detail route reads only the file it was asked for (`gitws.WorktreeChangeFor`):
+the viewer loads one patch at a time, and resolving the whole set per request meant a
+git subprocess per changed file on every one of them. A new file is only read once
+git has named it, so the route cannot be pointed at an arbitrary file. When git's
+report moves, the window reads again only the files whose state moved.
 
 Automated checks:
 
-- **external/ui/src/ui/changes/sessionChangesText.test.ts** (Russian plural buckets, path splitting)
-- **external/ui/src/ui/changes/SessionChangesCard.test.tsx** (counts, empty session, preference off, undo confirmation, which surface each entry point opens)
+- **external/ui/src/ui/changes/workingCopy.test.tsx** (one read for every view of a chat, the reads on the server's word, a tool call and the page's focus, a failed read, a folder in no repository, another environment)
+- **external/ui/src/ui/chat/WorkspaceBar.test.tsx** (the repository, the branch and the worktree in its tooltip, the count and its language)
+- **external/ui/src/ui/changes/sessionChangesText.test.ts** (path splitting) and **plurals.test.ts** (file counts by locale)
 - **external/ui/src/ui/changes/diffRows.test.ts** (unified and split row building, uneven runs, hunk gaps)
 - **external/ui/src/ui/changes/fileTree.test.ts** (directory grouping and single-child chain collapsing)
-- **external/ui/src/ui/changes/DiffViewerModal.test.tsx** (scope switching, view toggle, collapse all, go to file, tree, copy path, untracked banner, no-git notice, colouring on and off)
+- **external/ui/src/ui/changes/EditsView.test.tsx** (the frame and head of the Files window, the menu: side by side, collapse all, discard all; the tree of the changed files only, its filter, a pick scrolled to and marked; copy path, the skipped banner, the no-git notice, colouring on and off, a re-read only of the files that moved, discarding a file and everything after a question)
 - **external/ui/src/ui/changes/diffLanguage.test.ts** + **highlightLine.test.ts** (grammar choice, and that colouring reproduces the line exactly)
 - **internal/linediff** (unified diff and line stats; Myers' O(ND) algorithm in linear space, so a scattered edit in a large file stays a scattered edit - the old LCS table had to be abandoned above a size cap and reported such a file as a whole rewrite. The search is bounded by `snakeBudget`, which only a pair that is both enormous and almost entirely different can exhaust; that pair falls back to a wholesale replacement)
-- **internal/gitws/changes_test.go** (working-copy statuses, untracked counting and inclusion, the read caps, .gitignore, whitespace-preserving blob reads, renames, and that an unlisted path stays unreadable)
-- **features/session_changes.feature** (end to end: a turn edits a file, the card reports it, the viewer reads the diff, the last-turn scope narrows it, undo restores the workspace)
+- **internal/gitws** (`changes_test.go`, `backend_test.go`: every scenario with the git binary and again with it hidden from PATH - working-copy statuses, untracked files and the read caps, .gitignore, whitespace-preserving blob reads, a nested repository, discarding a file, a subfolder or everything, and paths outside the change set refused before anything is touched; renames with the binary only)
+- **features/session_changes.feature** (end to end over a repository: a turn edits a file and git reports it, an edit made outside the agent too, the viewer reads the diff, one file and then everything is discarded)
 
 ### Subagent transcripts
 
@@ -1461,9 +1693,9 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   agent never shows it. It sits at the foot of the rail, above **Docs** and **Settings**.
 - On a relay the swarm map **is** the home screen: no composer, no `ChatScreen`,
   no History entry and no Scheduler entry, because a relay holds no sessions of
-  its own. Its header carries the environment selector, which normally lives in
-  the composer; the selector remains there in the map's empty and error states
-  as well, so an unavailable relay does not remove the way to change environments.
+  its own. The environment menu stays at the foot of the rail there too, in the
+  map's empty and error states as well, so an unavailable relay does not remove
+  the way to change environments.
 - **Clicking a node on the map switches to it** and leaves the map open over
   it, the node now ringed; what to do there is the next click. There is no list
   of nodes under the map and no filter chips: from a node, every ordinary screen
@@ -1511,9 +1743,6 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   changed bounds.
 - Built with `-tags "swarm ui"` the relay serves this SPA at its own address;
   without the `ui` tag its root explains how to rebuild.
-- The environment selector in the map header opens **downward**, because on a
-  relay the chip sits at the top of the window rather than in the composer at
-  the foot.
 
 ## Documentation screen
 
@@ -1647,6 +1876,39 @@ CODDY_UI_URL=http://127.0.0.1:5241 npm --prefix external/ui run check:chevron
 
 **`CODDY_ENGINE=webkit`** (or **`firefox`**) runs the same measurements in another engine, and **`CODDY_CHEVRON_TOLERANCE_PX`** raises the allowance. Like the WebKit harness above, this one is **not part of `make test`**: it is a manual check, run when a change touches the chevron, the rows it sits on or the type around them.
 
+### Checking the composer caret at every zoom
+
+The composer's textarea keeps the caret and paints its glyphs transparent; the mirror under it draws the draft with its chips (**`DESIGN.md`**, *Composer mirror and caret sync*). When the two lay the text out differently - a text box of another width wraps a line at another word, a scroll offset snapped to another device pixel moves the lines - the caret stands away from the text the user reads. That showed under a browser's page zoom and after a window was dragged to a monitor of another density, in Chrome and Yandex Browser alike. **`external/ui/scripts/composer-caret-check.mjs`** measures it in a real engine: for every case it screenshots the field twice, the textarea's glyphs painted red with the mirror hidden and then the mirror's, and fails when any pixel differs. The cases are a new chat and a docked chat at 1280 px and a phone at 390 px, device scale factors 1 to 3, page zoom 110% to 175% (emulated with the root's CSS **`zoom`**, which keeps the scrollbar in device pixels the way a page zoom does), a draft that scrolls and one that does not, the field scrolled part of the way back with the wheel, a zoom changed after typing and, in Chromium, a density changed under the open page with no resize of the window.
+
+It drives **`src/composer-caret-check.html`**, a stand that mounts the real **`Composer`** against the real stylesheet, so it needs a **`vite`** dev server and no backend at all.
+
+```bash
+cd external/ui && npm i --no-save playwright && npx playwright install chromium
+```
+
+```bash
+cd external/ui && npx vite --port 5241 &
+CODDY_UI_URL=http://127.0.0.1:5241 npm --prefix external/ui run check:caret
+```
+
+**`CODDY_ENGINE=webkit`** (or **`firefox`**) runs it in another engine, **`CODDY_BROWSER_PATH`** points it at an installed Chromium (Yandex Browser's binary included), and **`CODDY_CARET_TOLERANCE`** raises the count of pixels that may differ. Firefox skips the zoom changed after typing: it keeps a fractional scroll offset in a textarea and rounds a div's when only the CSS **`zoom`** changes, which its own page zoom, a change of density, does not do. Like the other harnesses here, it is a manual check, run when a change touches the composer's field, its mirror or the type around them.
+
+### Checking long prompts and quotes
+
+How tall the composer's field grows, where the expanded composer stops, where the Quote button stands and where a conversation opens are layout facts jsdom cannot see (issue #342; **`DESIGN.md`**, *Composer field height and expand*, *Quote from the transcript*, *Transcript scroll-to-bottom button*). **`external/ui/scripts/long-prompts-check.mjs`** measures them against a running **`coddy serve`** with a mouse at 1280 px and with a finger at 390x844, 320x568 and 844x390: the field grows with a draft and stops at its ceiling (eight lines, 40% of the visible viewport, never so tall that the docked block rides over the chat header); the expand control stands over the composer's right edge; on phones and tablets the top bar stands one step of the top rhythm under the window's edge and the title one step under the bar; expanded, title, control and card stand one step apart, the field keeps the focus through the press (a phone's keyboard stays open), and the skills picker opens at the field's foot and dims nothing; folded, the field is back to its text; with a keyboard that shrinks the page and with one that overlays it (a stand-in for the visual viewport), the expanded composer ends above it; a selection in the last answer offers Quote inside the band between the header and the docked block, above it with a mouse and below it with a finger, and a press appends the quote to the draft; another conversation opens on its newest message after the reader scrolled to the top of the first; the expand control stands 10px over the composer on the wand's vertical line and the jump to the newest message 10px over it; and the page never scrolls sideways.
+
+It needs a server with two sessions, each longer than two screens and with a paragraph in an answer: the first two of **`GET /coddy/sessions`**, or the ids in **`CODDY_SESSIONS`**. A stand that cannot show what a check measures stops with exit status 2 and says why, rather than passing on nothing.
+
+```bash
+cd external/ui && npm i --no-save playwright && npx playwright install chromium webkit
+```
+
+```bash
+CODDY_URL=http://127.0.0.1:18081 npm --prefix external/ui run check:long-prompts
+```
+
+**`CODDY_ENGINE=webkit`** runs it in WebKit, which is where a tap on Quote used to do nothing (a cancelled **`pointerdown`** costs a touch its click there). **`CODDY_BROWSER_PATH`** points Chromium at an installed browser. Run it when a change touches the composer's height, the expand control, the Quote button or the jumps of the transcript.
+
 ### Checking a long transcript
 
 Whether a long conversation opens at once and scrolls without jumps is a question of layout and time that jsdom cannot answer. **`external/ui/scripts/transcript-window-check.mjs`** answers it against the real binary: it writes a session of 3306 messages (about 9 MB, the size of issue #338) and a short one to a scratch home, serves a scripted OpenAI-compatible model of its own, starts a **`coddy serve`** node with the web UI and a **`coddy serve --swarm`** relay that mounts it, and drives Chromium under CPU throttling (x4 by default). It checks, and prints as a table:
@@ -1689,9 +1951,72 @@ CODDY_BIN=build/coddy npm --prefix external/ui run check:queue
 
 **`CODDY_SHOTS_DIR`** also takes the screenshots of [Message queue](../features/message-queue.md) on a second node reached directly, **`CODDY_BROWSER_PATH`** points at an installed Chromium, **`CODDY_PORT_BASE`** moves its four ports and **`CODDY_E2E_KEEP=1`** leaves the stand running. CI runs it in the **`http,scheduler,ui,memory,cli,swarm`** job of the test matrix, after the transcript check.
 
+### Checking the views of a chat through a swarm relay
+
+The view buttons, the dock and the Files window are checked against the real binary by
+**`external/ui/scripts/files-check.mjs`**: it serves a scripted model whose first
+answer writes a file through the `write` tool, starts a **`coddy serve`** node that
+asks for a bearer token and a **`coddy serve --swarm`** relay that mounts it with its
+own client token, and drives a browser through the relay's mount only. It checks:
+
+- **the view buttons** show Files and Tasks in that order beside the title and no
+  Edits button, Files an 18px icon with its short name on a desktop, Tasks the dot,
+  the tooltip in the window on hover (the Files one with its key), the pressed one for
+  the view on show, brighter and not in the accent, which a second press puts away;
+- **the plate over the composer** names the repository and the branch, is joined to
+  the top of the composer card with the same left and right edges, carries git's count
+  at its right edge with no outline, and lightens the count's background on hover; a
+  chat in a clean folder has the plate without a count;
+- **the edits window** opens from the count, with the file the turn wrote and its
+  address, and Escape puts it away; **the dock** shows the background tasks, with no
+  tab strip anywhere; every icon beside a word sits on the middle of its lowercase
+  letters, at every width;
+- **discarding** a file from the edits window asks first, goes through the relay, and
+  with nothing left the window says the folder is clean and the count leaves the
+  plate;
+- **the Files window** opens over the chat with the filter focused, lists folders
+  first, finds a file three folders down by name, opens files as tabs with nothing over
+  the file, shows a README as its source with no picture loaded, loads a picture of the
+  workspace through the relay, expands over the rail, closes
+  on Escape, opens and closes on `Ctrl+Shift+F` with its tabs kept, and opens a
+  mention of the conversation at its line;
+- **the kinds the window draws**: a comment over three lines is coloured on each; an
+  SVG opens as a picture read through the relay, its script never runs and the beacon
+  it names is never fetched, and **Preview** turned off shows its source; an HTML file
+  opens as its source, **Preview** draws it in a frame with `sandbox=""` that fills the
+  file's place, its own style applies, its script never runs and nothing it names is
+  fetched; a PDF opens in the browser's own viewer from a `blob:` address, in a frame
+  with no sandbox (the run takes the full Chromium for this, since the headless shell
+  has no PDF viewer, and checks the download notice instead where it has none);
+- **a sound plays through the relay** from its signed address alone, the address
+  answers a range with no header, a forged one is refused by the node, and
+  **Download** saves the file under its name;
+- **on a phone** the window fits the screen, shows a file opened by its address
+  without the tree, Files is a 40 px icon beside the title, Tasks the dot and its word,
+  and the plate stays joined to the composer card with the count at its right edge;
+- **from another origin** (the node's own web UI with the relay as its environment)
+  the window reads through the relay, a `HEAD` with `If-None-Match` passes the
+  relay's preflight, the `ETag` is readable, and an open file is revalidated;
+- **at every tier of the grid** (600 to 1920 px), in English and in Russian, the
+  window fits the viewport with the tree beside the file, and the view buttons sit
+  beside the title in one row, icon and short name whole, at the top bar's height.
+
+```bash
+make build TAGS="http ui swarm"
+npm --prefix external/ui i --no-save playwright && npx --prefix external/ui playwright install chromium
+CODDY_BIN=build/coddy npm --prefix external/ui run check:files
+```
+
+**`CODDY_ENGINE=webkit`** runs it in WebKit, **`CODDY_SHOTS_DIR`** also takes the
+screenshots of this page on a third node reached directly, **`CODDY_BROWSER_PATH`**
+points at an installed Chromium, **`CODDY_PORT_BASE`** moves its four ports and
+**`CODDY_E2E_KEEP=1`** leaves the stand running. CI runs it in the
+**`http,scheduler,ui,memory,cli,swarm`** job of the test matrix, after the message
+queue check.
+
 ### Checking the Telegram Mini App
 
-`npm run check:telegram` (`external/ui/scripts/telegram-mini-app-check.mjs`) opens the web UI as a Telegram Mini App with no Telegram. It starts `cmd/tgfake` with its scripted model and a real `coddy serve` whose bot talks to the stand, and drives the stand's chat page, which opens the bot's `/app` button in its phone frame. It checks the menu button and `/app`; what the Mini App asks of the client (expand, swipes off, the header colour, ready last); an address free of the launch data; the half-open window, entered while the transcript is parked at its newest message (the composer and that message in sight, nothing wider than the page, the chat title still sticky); the mode sheet and the start screen's context sheet inside the visible part; Back; Telegram's light theme; and the sign-in note in a cross-site frame (the stand's page on `localhost`, the web UI on `127.0.0.1`).
+`npm run check:telegram` (`external/ui/scripts/telegram-mini-app-check.mjs`) opens the web UI as a Telegram Mini App with no Telegram. It starts [tgfake](../contributing/tgfake.md) with its scripted model and a real `coddy serve` whose bot talks to the stand, and drives the stand's chat page, which opens the bot's `/app` button in its phone frame. It checks the menu button and `/app`; what the Mini App asks of the client (expand, swipes off, the header colour, ready last); an address free of the launch data; the half-open window, entered while the transcript is parked at its newest message (the composer and that message in sight, nothing wider than the page, the chat title still sticky); the mode sheet and the start screen's context sheet inside the visible part; Back; Telegram's light theme; and the sign-in note in a cross-site frame (the stand's page on `localhost`, the web UI on `127.0.0.1`).
 
 ```bash
 make build TAGS="http ui gateway"
@@ -1725,6 +2050,19 @@ CODDY_UI_URL=http://127.0.0.1:5241 npm --prefix external/ui run check:overflow
 ```
 
 The Playwright install is the one of the chevron check above. **`CODDY_BROWSER_PATH`** points the script at an installed browser (**`/usr/bin/chromium`**) instead of the one Playwright downloads, and **`CODDY_ENGINE=webkit`** runs it in WebKit. It is **not part of `make test`**: run it when a change touches the transcript's rows, the Markdown styles or the grid.
+
+### Checking the shared file cards
+
+The card of a shared file clips what overflows it (its thumbnail to its corners), so its actions menu is rendered into the document and placed from **⋮** (**`DESIGN.md`**, *Shared file cards*); while the menu was inside the card, a click on **⋮** drew nothing. Whether a menu can be seen and reached, and where a mark lands, are layout facts jsdom cannot answer. **`external/ui/scripts/artifact-card-check.mjs`** measures them in a real engine, in a wide and a narrow desktop window and on emulated phones (touch, no hover) of **390**, **360** and **320px** held upright and **844** and **568px** on their side, in both shipped languages: every card is its design size, **⋮** is level with the extension badge and mirrors it across the card, its dots are centred in it, it shows under the pointer and always on a touch screen, a click or a tap opens one menu inside the window whose every item answers the pointer at its centre and none is cut off, the menu takes the focus, a second press, a press elsewhere and **Escape** (which hands the focus back to **⋮**) close it, a right click opens it, near the bottom of the window it opens upward, it follows its card through a scroll and closes once the card has left the window or a layer covers **⋮** (as the chat's sticky title and the docked composer do), a window shorter than the menu keeps it inside and scrolls its items, the copy button under an answer that ends with cards stands only its own margin below them, and the page never scrolls sideways. It exits non-zero on any of them.
+
+It drives **`src/artifact-card-check.html`**, a stand that mounts a row of cards inline in an answer, one under a **`share_file`** row and one ending an answer at the foot of a long page from the real components against the real stylesheet, so it needs a **`vite`** dev server and no backend.
+
+```bash
+cd external/ui && npx vite --port 5243 &
+CODDY_UI_URL=http://127.0.0.1:5243 npm --prefix external/ui run check:artifacts
+```
+
+The Playwright install is the one of the chevron check above. **`CODDY_BROWSER_PATH`** and **`CODDY_ENGINE=webkit`** (or **`firefox`**) work as in the checks above, and **`CODDY_ARTIFACT_TOLERANCE_PX`** raises the **1px** allowance. It is **not part of `make test`**: run it when a change touches the shared file cards, their menu or their styles.
 
 ## UI test scenarios
 

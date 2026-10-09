@@ -49,7 +49,10 @@ export type DocsResult<T> =
   | { ok: true; data: T }
   | { ok: false; status: number; message: string };
 
-async function getJSON<T>(path: string, signal?: AbortSignal): Promise<DocsResult<T>> {
+async function getJSON<T>(
+  path: string,
+  signal?: AbortSignal,
+): Promise<DocsResult<T>> {
   const init: RequestInit = { headers: { Accept: "application/json" } };
   if (signal) {
     init.signal = signal;
@@ -79,21 +82,28 @@ async function getJSON<T>(path: string, signal?: AbortSignal): Promise<DocsResul
   return { ok: true, data: (await res.json()) as T };
 }
 
-export function fetchDocsContents(signal?: AbortSignal) {
-  return getJSON<DocsContents>("/coddy/docs", signal);
+export function fetchDocsContents(lang: string, signal?: AbortSignal) {
+  return getJSON<DocsContents>(
+    `/coddy/docs?lang=${encodeURIComponent(lang)}`,
+    signal,
+  );
 }
 
-export function fetchDocsPage(ref: string, signal?: AbortSignal) {
-  return getJSON<DocsPage>(`/coddy/docs/page?ref=${encodeURIComponent(ref)}`, signal);
+export function fetchDocsPage(ref: string, lang: string, signal?: AbortSignal) {
+  return getJSON<DocsPage>(
+    `/coddy/docs/page?ref=${encodeURIComponent(ref)}&lang=${encodeURIComponent(lang)}`,
+    signal,
+  );
 }
 
 export async function searchDocs(
   q: string,
+  lang: string,
   signal?: AbortSignal,
   limit = 20,
 ): Promise<DocsResult<DocsHit[]>> {
   const res = await getJSON<{ hits: DocsHit[] }>(
-    `/coddy/docs/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    `/coddy/docs/search?q=${encodeURIComponent(q)}&limit=${limit}&lang=${encodeURIComponent(lang)}`,
     signal,
   );
   return res.ok ? { ok: true, data: res.data.hits || [] } : res;

@@ -405,7 +405,7 @@ Seven **`coddy_`** tools (`internal/tools/todo`) drive the checklist. Plan mutat
 
 | Tool name | Purpose |
 |-----------|---------|
-| **`coddy_todo_plan_read`** | Return the markdown checklist rendering of the active plan (`{}`). |
+| **`coddy_todo_plan_read`** | Return the markdown checklist rendering of the active plan (`{}`); when no plan is active, a one-line note naming **`coddy_todo_plan_replace`**, not an empty string. |
 | **`coddy_todo_plan_replace`** | Swap the entire plan (`markdown`). Rejected while any row is unfinished unless you **`coddy_todo_plan_archive`** first. Completed lists archive **`todos/active.md`** before swapping. |
 | **`coddy_todo_plan_archive`** | Mark every unfinished row **`completed`**, write **`todos/archive/plan_<unix_seconds>.md`** when **`SessionDir`**, clear in-memory plan, emit empty **`plan`**. |
 | **`coddy_todo_item_add`** | Append or insert (`content`, optional `status`, optional `after_index`; `-1` prepends). |

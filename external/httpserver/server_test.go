@@ -324,9 +324,18 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/enhance-prompt", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/config/reasoning-levels", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace", "/coddy/sessions/{id}/rewind", "/coddy/sessions/{id}/queue", "/coddy/sessions/{id}/queue/{message_id}", "/coddy/subagents", "/coddy/subagents/{name}/trust", "/coddy/subagents/{name}/untrust", "/coddy/auth/me", "/coddy/auth/login", "/coddy/auth/logout", "/coddy/docs", "/coddy/docs/page", "/coddy/docs/search", "/coddy/info"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/enhance-prompt", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/fetch", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/config/reasoning-levels", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace", "/coddy/sessions/{id}/rewind", "/coddy/sessions/{id}/queue", "/coddy/sessions/{id}/queue/{message_id}", "/coddy/subagents", "/coddy/subagents/{name}/trust", "/coddy/subagents/{name}/untrust", "/coddy/auth/me", "/coddy/auth/login", "/coddy/auth/logout", "/coddy/docs", "/coddy/docs/page", "/coddy/docs/search", "/coddy/info"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
+		}
+	}
+	// The branch list reads the remote branches and the refresh outcome off
+	// the context shape; a client generated from the spec has to see both.
+	ctxSchema, _ := doc["components"].(map[string]interface{})["schemas"].(map[string]interface{})["CoddyWorkspaceContext"].(map[string]interface{})
+	ctxProps, _ := ctxSchema["properties"].(map[string]interface{})
+	for _, must := range []string{"remote_branches", "fetch"} {
+		if _, ok := ctxProps[must]; !ok {
+			t.Fatalf("CoddyWorkspaceContext misses %s", must)
 		}
 	}
 	// The cookie a browser signs in with is a security scheme of its own, or a
@@ -343,6 +352,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	for path, ops := range map[string][]string{
 		"/coddy/sessions/{id}":        {"patch", "delete"},
 		"/coddy/sessions/{id}/rewind": {"post"},
+		"/coddy/workspace/fetch":      {"post"},
 	} {
 		entry, ok := paths[path].(map[string]interface{})
 		if !ok {
@@ -906,6 +916,7 @@ func TestCoddySessionsList(t *testing.T) {
 		t.Fatal(err)
 	}
 	sid := res.SessionID
+	giveConversation(t, mgr, sid)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -1394,6 +1405,7 @@ func TestCoddySessionsListIncludeActivityCountsBackgroundTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	sid := res.SessionID
+	giveConversation(t, mgr, sid)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -2180,7 +2192,7 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	for _, it := range items {
 		names = append(names, fmt.Sprint(it["name"]))
 	}
-	want := "model reasoning think nothink agent plan ask permissions compact export plugin"
+	want := "model reasoning think nothink agent plan ask permissions compact goal export plugin"
 	if strings.Join(names, " ") != want {
 		t.Fatalf("commands = %v, want %s", names, want)
 	}
@@ -2189,6 +2201,9 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	}
 	if items[0]["hint"] != "<model id> [--once|--count=N]" {
 		t.Fatalf("model hint = %v", items[0]["hint"])
+	}
+	if items[9]["name"] != "goal" || items[9]["hint"] != "[-m|--model <id>] [-r|--reasoning <level>] [<objective>|pause|resume|clear]" {
+		t.Fatalf("goal command = %v", items[9])
 	}
 	for _, it := range items {
 		if strings.TrimSpace(fmt.Sprint(it["description"])) == "" {
@@ -3376,6 +3391,143 @@ func TestHTTPCORSDisabledNoHeaders(t *testing.T) {
 	}
 }
 
+// cfgWithLoopbackCORS is the laptop case: a token on the server and CORS that
+// admits the browser's own machine on any port.
+func cfgWithLoopbackCORS(token string) *config.Config {
+	c := cfgWithAuth(token)
+	c.HTTPServer.CORS = config.HTTPCORSConfig{Enabled: true, AllowLoopback: true}
+	return c
+}
+
+func TestHTTPCORSLoopbackPreflightEchoesTheOrigin(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithLoopbackCORS("s3cret"))
+	for _, origin := range []string{"http://localhost:5173", "http://127.0.0.1:12345", "http://[::1]:12345"} {
+		req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/v1/models", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "GET")
+		req.Header.Set("Access-Control-Request-Headers", "authorization")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		if res.StatusCode != http.StatusNoContent {
+			t.Fatalf("%s: preflight status %d want 204", origin, res.StatusCode)
+		}
+		if got := res.Header.Get("Access-Control-Allow-Origin"); got != origin {
+			t.Fatalf("%s: ACAO = %q want the origin echoed", origin, got)
+		}
+		if !strings.Contains(res.Header.Get("Vary"), "Origin") {
+			t.Fatalf("%s: an echoed origin needs Vary: Origin, got %q", origin, res.Header.Get("Vary"))
+		}
+	}
+}
+
+func TestHTTPCORSLoopbackRefusesOtherHosts(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithLoopbackCORS("s3cret"))
+	for _, origin := range []string{"http://localhost.evil.com", "http://10.0.0.5:12345", "https://ui.example"} {
+		req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/v1/models", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "GET")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
+			t.Fatalf("%s: got ACAO %q, want none", origin, got)
+		}
+	}
+}
+
+// CORS decides whether the browser shows the page an answer; it never decides
+// whether the server gives one. A loopback page without the token is told 401,
+// and told it with the CORS headers on, so the page can read the refusal.
+func TestHTTPCORSLoopbackDoesNotBypassTheToken(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithLoopbackCORS("s3cret"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no token: status %d want 401", res.StatusCode)
+	}
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Fatalf("the refusal lost its CORS headers: ACAO = %q", got)
+	}
+	req, _ = http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Authorization", "Bearer s3cret")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("with the token: status %d want 200", res.StatusCode)
+	}
+}
+
+// Two loopback ports are two origins but one site, so the SameSite=Strict
+// cookie of the sign-in form travels from a page on another port. What keeps
+// that page from writing is the same-origin check on cookie-authenticated
+// state changes; a bearer request from the same origin is not subject to it.
+func TestHTTPCORSLoopbackCookieWriteFromAnotherPortIsRefused(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: t.TempDir(), CWD: root},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+		HTTPServer: config.HTTPServerConfig{
+			AuthToken: "s3cret",
+			Login:     configuredLogin(t),
+			CORS:      config.HTTPCORSConfig{Enabled: true, AllowLoopback: true},
+		},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	log := slog.New(slog.DiscardHandler)
+	mgr := session.NewManager(cfg, noopSender{}, runner, log, root, &session.FileStore{Root: t.TempDir()})
+	srv := New(cfg, mgr, log, root)
+	t.Cleanup(srv.Drain)
+
+	// The session cookie is named per host, so the sign-in and the write have
+	// to be addressed to the same one: the server's own port.
+	const host = "localhost:12345"
+	login := loginRequest(loginTestUser, loginTestPassword)
+	login.Host = host
+	signedIn := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(signedIn, login)
+	c := sessionCookieOf(t, signedIn)
+
+	cookie := httptest.NewRequest(http.MethodPost, "/coddy/sessions/abc/workspace", nil)
+	cookie.Host = host
+	cookie.AddCookie(c)
+	cookie.Header.Set("Origin", "http://localhost:5173")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, cookie)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a cookie write from another loopback port: status %d want 403 (%s)", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Fatalf("the refusal should still carry CORS so the page can read it: ACAO = %q", got)
+	}
+
+	bearer := httptest.NewRequest(http.MethodPost, "/coddy/sessions/abc/workspace", nil)
+	bearer.Host = host
+	bearer.Header.Set("Origin", "http://localhost:5173")
+	bearer.Header.Set("Authorization", "Bearer s3cret")
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, bearer)
+	if w.Code == http.StatusForbidden || w.Code == http.StatusUnauthorized {
+		t.Fatalf("the gate refused a bearer request from a loopback page: status %d (%s)", w.Code, w.Body.String())
+	}
+}
+
 func TestHTTPAuthComposerStreamQueryToken(t *testing.T) {
 	_, ts := authTestServer(t, cfgWithAuth("stream-secret"))
 	sid := "sess_deadbeefdeadbeef"
@@ -3505,6 +3657,31 @@ func TestCompactEndpointRefusesAnUnknownModelBeforeTheTurn(t *testing.T) {
 	code, _ := postCompact(t, ts, sid, `{"model":"nope"}`)
 	if code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", code)
+	}
+}
+
+// A reasoning level the summarizer does not offer is refused the same way, once
+// the session is known (its model is the summarizer when nothing else names
+// one) and before it is admitted.
+func TestCompactEndpointRefusesAReasoningLevelBeforeTheTurn(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 3)
+	unlock, err := mgr.AcquireComposerTurnLock(sid, mgr.SessionByID(sid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	for _, body := range []string{`{"reasoning":"ultra"}`, `{"model":"qwen","reasoning":"ultra"}`} {
+		code, parsed := postCompact(t, ts, sid, body)
+		if code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d, want 400 (%v)", body, code, parsed)
+		}
+	}
+	// With the summarizer named, the session is not needed to refuse the
+	// level: the request is answered like an unknown model, before a 404.
+	if code, parsed := postCompact(t, ts, "sess_does_not_exist", `{"model":"qwen","reasoning":"ultra"}`); code != http.StatusBadRequest {
+		t.Fatalf("unknown session: status = %d, want 400 (%v)", code, parsed)
 	}
 }
 
@@ -5004,6 +5181,8 @@ func TestCoddySessionsListFiltersByWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	giveConversation(t, mgr, inWorkspace.SessionID)
+	giveConversation(t, mgr, elsewhere.SessionID)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -5989,5 +6168,74 @@ func TestCoddyMCPSaveKeepsRedactedValues(t *testing.T) {
 	}
 	if !mcp.NewTrustStore(home).Approved(home, servers[0]) {
 		t.Fatal("the saved project entry is not approved")
+	}
+}
+
+// giveConversation writes a first prompt into a live session: a conversation
+// nobody wrote in is left out of the session list (issue #357).
+func giveConversation(t *testing.T, mgr *session.Manager, sid string) {
+	t.Helper()
+	st := mgr.SessionByID(sid)
+	if st == nil {
+		t.Fatalf("session %s is not live", sid)
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hello"})
+}
+
+// A new chat is in History from its first send: its first turn appends the
+// prompt only once its MCP servers and its model's context window are in, and
+// a turn running in a session that holds no message yet keeps it listed.
+func TestCoddySessionsListKeepsANewChatWhoseFirstTurnRuns(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		close(entered)
+		<-release
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	turn := make(chan error, 1)
+	go func() {
+		_, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "hi"}},
+		})
+		turn <- err
+	}()
+	<-entered
+	defer func() {
+		close(release)
+		if err := <-turn; err != nil {
+			t.Error(err)
+		}
+	}()
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	resHTTP, err := http.Get(ts.URL + "/coddy/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		ActiveCount int `json:"active_count"`
+		Sessions    []struct {
+			ID string `json:"id"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Sessions) != 1 || parsed.Sessions[0].ID != sid {
+		t.Fatalf("listing = %s, want the chat whose first turn runs", b)
+	}
+	if parsed.ActiveCount != 1 {
+		t.Fatalf("active_count = %d, want 1", parsed.ActiveCount)
 	}
 }

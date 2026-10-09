@@ -4,7 +4,9 @@ Feature: The documentation built into the binary
   agent looks up is the documentation of the very binary that runs, with
   no request to a site. The agent searches and reads it with two tools, the
   web UI has a reader with a search box, the console opens a help screen on
-  F1, and coddy docs prints it on the command line.
+  F1, and coddy docs prints it on the command line. The pages exist in
+  English and in Russian, and every surface shows the language it knows the
+  person uses, under the same addresses.
 
   @tools
   Scenario: The agent looks up how a feature works
@@ -21,6 +23,13 @@ Feature: The documentation built into the binary
     Then it gets the next part of the page
 
   @tools
+  Scenario: The agent looks up a feature in Russian for a person who writes Russian
+    When the agent searches its documentation for "прокси Telegram-шлюза"
+    Then a result points at the section "surfaces/gateway#proxy"
+    When the agent reads "surfaces/gateway#proxy" in Russian
+    Then it gets the section "Прокси" of the page "Telegram-шлюз"
+
+  @tools
   Scenario: The agent asks for the contents first
     When the agent reads its documentation without naming a page
     Then it gets the contents with the page "features/mentions" and its summary
@@ -35,12 +44,35 @@ Feature: The documentation built into the binary
     When the browser searches the documentation for "homebrew"
     Then the results include the page "getting-started/homebrew"
 
+  @http
+  Scenario: The web reader shows the documentation in the language of the interface
+    Given a running coddy serve
+    When the browser asks for the documentation contents in Russian
+    Then the contents list the group "Возможности" with the page "features/mentions" titled "Упоминания"
+    When the browser opens the page "features/mentions#what-the-model-receives" in Russian
+    Then it gets the section "Что получает модель" in Russian under the anchor "what-the-model-receives"
+    When the browser searches the documentation for "упоминание файла" in Russian
+    Then the results include the page "features/mentions"
+
+  @http
+  Scenario: A turn from the web UI in Russian reads the documentation in Russian
+    Given a running coddy serve
+    When the web UI sends "explain @coddy:features/mentions#what-the-model-receives" with its language "ru"
+    Then the turn runs in Russian with the section "Что получает модель" attached
+
   @cli
   Scenario: coddy docs prints a page and a search from the shell
     When the operator runs "coddy docs show features/mentions#what-the-model-receives"
     Then the output starts with "## What the model receives"
     When the operator runs "coddy docs search homebrew cask"
     Then the output lists "getting-started/homebrew"
+
+  @cli
+  Scenario: coddy docs speaks the language of the terminal
+    When the operator runs "coddy docs show features/mentions#what-the-model-receives" in a terminal with LANG "ru_RU.UTF-8"
+    Then the output starts with "## Что получает модель"
+    When the operator runs "coddy docs search --lang ru упоминание файла"
+    Then the output lists "features/mentions"
 
   @cli
   Scenario: The agent is taught the spelling the binary really answers
@@ -56,3 +88,5 @@ Feature: The documentation built into the binary
     And a page mentioned in a sent message opens the reader
     And /docs in the composer opens the reader on a search instead of reaching the agent
     And the chat names a documentation lookup by what it does
+    And the reader's close button stays where it stood as a page loads
+    And the reader asks for the documentation in the language of the interface

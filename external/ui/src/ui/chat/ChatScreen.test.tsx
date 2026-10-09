@@ -5,6 +5,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  within,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -504,6 +505,101 @@ test("the reader reaching for the wheel cancels a jump still in the air", async 
   }
 });
 
+test("a conversation opened after the reader scrolled up in another one lands on its newest message", async () => {
+  const { container, rerender } = render(
+    <ChatScreen {...scrollBase} items={firstTurn} />,
+  );
+  const viewport = transcriptViewport(container, {
+    scrollHeight: 1200,
+    clientHeight: 400,
+  });
+  viewport.scrollTop = 200;
+  fireEvent.scroll(viewport);
+  await waitFor(() => expect(scrollButtonShown()).toBe(true));
+
+  // Another conversation straight from the cache of transcripts: the same
+  // scroller, new rows, and the offset the last one was read at.
+  Object.defineProperty(viewport, "scrollHeight", {
+    value: 1600,
+    configurable: true,
+  });
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s2"
+      items={[
+        { type: "user_message", id: "s2-u1", content: "another chat" },
+        { type: "assistant_message", id: "s2-a1", content: "its answer" },
+      ]}
+    />,
+  );
+  await waitFor(() => expect(viewport.scrollTop).toBe(1200));
+  expect(scrollButtonShown()).toBe(false);
+
+  // And one read from the server after a skeleton: the scroller is new.
+  rerender(
+    <ChatScreen {...scrollBase} sessionId="s3" items={[]} sessionLoading />,
+  );
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s3"
+      items={[
+        { type: "user_message", id: "s3-u1", content: "a third chat" },
+        { type: "assistant_message", id: "s3-a1", content: "its answer" },
+      ]}
+    />,
+  );
+  const reopened = transcriptViewport(container, {
+    scrollHeight: 900,
+    clientHeight: 400,
+  });
+  reopened.scrollTop = 0;
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s3"
+      items={[
+        { type: "user_message", id: "s3-u1", content: "a third chat" },
+        { type: "assistant_message", id: "s3-a1", content: "its answer" },
+        { type: "assistant_message", id: "s3-a2", content: "and more" },
+      ]}
+    />,
+  );
+  await waitFor(() => expect(reopened.scrollTop).toBe(500));
+  expect(scrollButtonShown()).toBe(false);
+
+  // A scroll event between the switch and the new rows - the old rows still
+  // fading out at the offset they were read at - does not decide for it.
+  reopened.scrollTop = 100;
+  fireEvent.scroll(reopened);
+  await waitFor(() => expect(scrollButtonShown()).toBe(true));
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s4"
+      items={[
+        { type: "user_message", id: "s3-u1", content: "a third chat" },
+        { type: "assistant_message", id: "s3-a1", content: "its answer" },
+        { type: "assistant_message", id: "s3-a2", content: "and more" },
+      ]}
+    />,
+  );
+  fireEvent.scroll(reopened);
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s4"
+      items={[
+        { type: "user_message", id: "s4-u1", content: "a fourth chat" },
+        { type: "assistant_message", id: "s4-a1", content: "its answer" },
+      ]}
+    />,
+  );
+  await waitFor(() => expect(reopened.scrollTop).toBe(500));
+  expect(scrollButtonShown()).toBe(false);
+});
+
 test("output arriving while the reader is scrolled up keeps the button and the reading position", async () => {
   const { container, rerender } = render(
     <ChatScreen {...scrollBase} items={firstTurn} />,
@@ -573,7 +669,16 @@ function composerBlock(container: HTMLElement) {
   return {
     grow(height: number) {
       host.getBoundingClientRect = () =>
-        ({ height, width: 0, top: 0, left: 0, right: 0, bottom: height, x: 0, y: 0 }) as DOMRect;
+        ({
+          height,
+          width: 0,
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: height,
+          x: 0,
+          y: 0,
+        }) as DOMRect;
       act(() => resizeCallbacks.forEach((cb) => cb()));
     },
   };
@@ -602,7 +707,9 @@ class ResizeObserverStandIn {
 test("a banner rising over the composer keeps a transcript at the newest message there", () => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStandIn);
   try {
-    const { container } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
     const viewport = transcriptViewport(container, {
       scrollHeight: 1200,
       clientHeight: 400,
@@ -610,7 +717,10 @@ test("a banner rising over the composer keeps a transcript at the newest message
     viewport.scrollTop = 800;
     fireEvent.scroll(viewport);
 
-    Object.defineProperty(viewport, "scrollHeight", { value: 1260, configurable: true });
+    Object.defineProperty(viewport, "scrollHeight", {
+      value: 1260,
+      configurable: true,
+    });
     composerBlock(container).grow(250);
 
     expect(viewport.scrollTop).toBe(860);
@@ -623,7 +733,9 @@ test("a banner rising over the composer keeps a transcript at the newest message
 test("a banner rising over the composer leaves a reader who scrolled up where they are", () => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStandIn);
   try {
-    const { container } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+    const { container } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
     const viewport = transcriptViewport(container, {
       scrollHeight: 1200,
       clientHeight: 400,
@@ -631,7 +743,10 @@ test("a banner rising over the composer leaves a reader who scrolled up where th
     viewport.scrollTop = 200;
     fireEvent.scroll(viewport);
 
-    Object.defineProperty(viewport, "scrollHeight", { value: 1260, configurable: true });
+    Object.defineProperty(viewport, "scrollHeight", {
+      value: 1260,
+      configurable: true,
+    });
     composerBlock(container).grow(250);
 
     expect(viewport.scrollTop).toBe(200);
@@ -646,8 +761,13 @@ test("a banner rising over the composer leaves a reader who scrolled up where th
 // on-screen keyboard that lets the page scroll past the old end) must not send
 // them back up the transcript.
 test("the scroll-to-bottom button never moves the transcript up", async () => {
-  const { container } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
-  const viewport = transcriptViewport(container, { scrollHeight: 1200, clientHeight: 400 });
+  const { container } = render(
+    <ChatScreen {...scrollBase} items={firstTurn} />,
+  );
+  const viewport = transcriptViewport(container, {
+    scrollHeight: 1200,
+    clientHeight: 400,
+  });
   viewport.scrollTop = 200;
   fireEvent.scroll(viewport);
   await waitFor(() => expect(scrollButtonShown()).toBe(true));
@@ -673,11 +793,20 @@ test("on the stacked shell the composer block rises above an overlaying keyboard
     removeListener: () => {},
     dispatchEvent: () => false,
   }));
-  const vv = Object.assign(new EventTarget(), { height: window.innerHeight, offsetTop: 0, scale: 1 });
-  Object.defineProperty(window, "visualViewport", { value: vv, configurable: true });
+  const vv = Object.assign(new EventTarget(), {
+    height: window.innerHeight,
+    offsetTop: 0,
+    scale: 1,
+  });
+  Object.defineProperty(window, "visualViewport", {
+    value: vv,
+    configurable: true,
+  });
   const root = document.documentElement;
   try {
-    const { unmount } = render(<ChatScreen {...scrollBase} items={firstTurn} />);
+    const { unmount } = render(
+      <ChatScreen {...scrollBase} items={firstTurn} />,
+    );
     expect(root.style.getPropertyValue("--coddy-keyboard-inset")).toBe("0px");
     vv.height = window.innerHeight - 320;
     act(() => {
@@ -687,7 +816,10 @@ test("on the stacked shell the composer block rises above an overlaying keyboard
     unmount();
     expect(root.style.getPropertyValue("--coddy-keyboard-inset")).toBe("");
   } finally {
-    Object.defineProperty(window, "visualViewport", { value: undefined, configurable: true });
+    Object.defineProperty(window, "visualViewport", {
+      value: undefined,
+      configurable: true,
+    });
     vi.unstubAllGlobals();
   }
 });
@@ -817,10 +949,10 @@ test("the live line of a running turn names the running tasks and opens the Task
 test("the transcript ends with the conversation: the way to the tasks is the header control", () => {
   render(turnLineScreen({ generating: false }));
   expect(screen.queryByTestId("bgtask-chip")).toBeNull();
-  expect(screen.getByTestId("chat-header-tasks")).toBeInTheDocument();
+  expect(screen.getByTestId("chat-views-tasks")).toBeInTheDocument();
 });
 
-test("the header control opens the Tasks panel and puts it away again", () => {
+test("the Tasks button opens the Tasks panel and puts it away again", () => {
   const onOpen = vi.fn();
   const onClose = vi.fn();
   const { rerender } = render(
@@ -830,7 +962,7 @@ test("the header control opens the Tasks panel and puts it away again", () => {
       onCloseBackgroundTasks: onClose,
     }),
   );
-  fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  fireEvent.click(screen.getByTestId("chat-views-tasks"));
   expect(onOpen).toHaveBeenCalledTimes(1);
   rerender(
     turnLineScreen({
@@ -840,9 +972,146 @@ test("the header control opens the Tasks panel and puts it away again", () => {
       backgroundTasksOpen: true,
     }),
   );
-  fireEvent.click(screen.getByTestId("chat-header-tasks"));
+  fireEvent.click(screen.getByTestId("chat-views-tasks"));
   expect(onClose).toHaveBeenCalledTimes(1);
   expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
+/** What git reports for the session's folder: n changed files. */
+function stubSessionChanges(n: number, vcs = "git") {
+  const fetchMock = vi.fn(async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/changes")) {
+      return new Response(
+        JSON.stringify({
+          sessionId: "sess_turn",
+          vcs,
+          files: Array.from({ length: n }, (_, i) => ({
+            path: `f${i}.txt`,
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+            truncated: false,
+          })),
+          totals: { files: n, additions: n, deletions: 0 },
+          skipped: 0,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response("{}", { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+// The edits open from git's count in the bar over the composer, which is
+// there only while git reports changes; the header has no Edits button.
+test("the count of the edits is there only while git reports changes", async () => {
+  stubSessionChanges(0);
+  const { unmount } = render(turnLineScreen(workspaceProps(true)));
+  await screen.findByTestId("workspace-bar");
+  await act(async () => new Promise((r) => setTimeout(r, 20)));
+  expect(screen.queryByTestId("workspace-bar-edits")).toBeNull();
+  expect(screen.queryByTestId("chat-views-edits")).toBeNull();
+  unmount();
+  stubSessionChanges(2);
+  render(turnLineScreen(workspaceProps(true)));
+  await screen.findByTestId("workspace-bar-edits");
+  expect(screen.queryByTestId("chat-views-edits")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+const repoCtx = {
+  path: "/home/me/src/coddy-agent",
+  name: "coddy-agent",
+  is_git_repo: true,
+  is_worktree: false,
+  repo_root: "/home/me/src/coddy-agent",
+  branch: "feat/session-changes",
+  branches: ["main", "feat/session-changes"],
+};
+
+function workspaceProps(locked: boolean) {
+  return {
+    generating: false,
+    onOpenEdits: () => {},
+    workspaceCtx: repoCtx,
+    workspaceLocked: locked,
+    worktreePref: false,
+    onWorkspacePickFolder: () => {},
+    onWorkspacePickBranch: () => {},
+    onWorktreeToggle: () => {},
+  };
+}
+
+// Once the chat runs, where it works is a fact: a plate joined to the top of
+// the composer card names the repository and the branch and counts git's
+// changes at its right edge, and the composer carries no workspace chips.
+test("a running chat names its repository, branch and changes over the composer", async () => {
+  stubSessionChanges(2);
+  const onOpenEdits = vi.fn();
+  render(turnLineScreen({ ...workspaceProps(true), onOpenEdits }));
+  const bar = screen.getByTestId("workspace-bar");
+  expect(within(bar).getByTestId("workspace-bar-repo").textContent).toBe(
+    "coddy-agent",
+  );
+  expect(within(bar).getByTestId("workspace-bar-branch").textContent).toBe(
+    "feat/session-changes",
+  );
+  const edits = await within(bar).findByTestId("workspace-bar-edits");
+  expect(edits.textContent).toBe("+2−0");
+  fireEvent.click(edits);
+  expect(onOpenEdits).toHaveBeenCalledWith();
+  // The plate is the card's top: right before it, the card joined to it, and
+  // the card has no folder chips.
+  const card = document.querySelector(".composer-card")!;
+  expect(bar.nextElementSibling).toBe(card);
+  expect(card).toHaveClass("composer-card--joined");
+  // The count is the last thing on the plate, at its right edge.
+  expect(bar.lastElementChild).toBe(edits);
+  expect(screen.queryByTestId("composer-workspace-chip")).toBeNull();
+  expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
+  expect(screen.queryByTestId("composer-files")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+// The plate is git's: a running chat in a folder outside any repository has
+// no branch and no count to show, so it has no plate at all.
+test("a running chat in a folder with no git has no plate over the composer", () => {
+  stubSessionChanges(0);
+  const plain = {
+    path: "/tmp/plain",
+    name: "plain",
+    is_git_repo: false,
+    is_worktree: false,
+  };
+  render(turnLineScreen({ ...workspaceProps(true), workspaceCtx: plain }));
+  expect(screen.queryByTestId("workspace-bar")).toBeNull();
+  expect(document.querySelector(".composer-card")).not.toHaveClass(
+    "composer-card--joined",
+  );
+  vi.unstubAllGlobals();
+});
+
+// Before the first message the plate over the composer is a choice: the
+// folder and the branch are picks, the worktree a checkbox, and git's count
+// waits for the chat to start.
+test("before the chat starts the folder, branch and worktree are picks on the plate", () => {
+  stubSessionChanges(2);
+  render(turnLineScreen(workspaceProps(false)));
+  const plate = screen.getByTestId("workspace-bar");
+  expect(plate).toHaveClass("workspace-bar--pick");
+  expect(within(plate).getByTestId("composer-workspace-chip").tagName).toBe(
+    "BUTTON",
+  );
+  expect(within(plate).getByTestId("composer-branch-chip").tagName).toBe(
+    "BUTTON",
+  );
+  expect(within(plate).getByTestId("composer-worktree-checkbox")).toBeTruthy();
+  expect(within(plate).queryByTestId("workspace-bar-edits")).toBeNull();
+  vi.unstubAllGlobals();
 });
 
 test("the turn has ended and its tasks have not: the tail keeps the dots and the count", () => {
@@ -900,9 +1169,13 @@ test("the top of a transcript with history above offers it, says it is loading, 
   );
   const control = screen.getByTestId("transcript-earlier");
   // It stands above the first row, inside the transcript's column.
-  expect(control.parentElement?.classList.contains("messages-inner")).toBe(true);
+  expect(control.parentElement?.classList.contains("messages-inner")).toBe(
+    true,
+  );
   expect(control.nextElementSibling?.getAttribute("data-row-id")).toBe("u1");
-  fireEvent.click(screen.getByRole("button", { name: "Show earlier messages" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Show earlier messages" }),
+  );
   expect(onLoadOlder).toHaveBeenCalledTimes(1);
 
   rerender(
@@ -914,7 +1187,9 @@ test("the top of a transcript with history above offers it, says it is loading, 
       onLoadOlderTranscript={onLoadOlder}
     />,
   );
-  expect(screen.getByRole("status")).toHaveTextContent("Loading earlier messages…");
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Loading earlier messages…",
+  );
 
   rerender(
     <ChatScreen
@@ -925,7 +1200,9 @@ test("the top of a transcript with history above offers it, says it is loading, 
       onLoadOlderTranscript={onLoadOlder}
     />,
   );
-  expect(screen.getByRole("alert")).toHaveTextContent("Earlier messages did not load.");
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Earlier messages did not load.",
+  );
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(onLoadOlder).toHaveBeenCalledTimes(2);
 });
@@ -938,7 +1215,11 @@ test("a transcript holding its whole history has nothing above it", () => {
 test("the reader reaching the newest message is reported, and leaving it too", () => {
   const onAtTail = vi.fn();
   const { container } = render(
-    <ChatScreen {...scrollBase} items={firstTurn} onReaderAtTailChange={onAtTail} />,
+    <ChatScreen
+      {...scrollBase}
+      items={firstTurn}
+      onReaderAtTailChange={onAtTail}
+    />,
   );
   const viewport = transcriptViewport(container, {
     scrollHeight: 1200,
@@ -950,4 +1231,139 @@ test("the reader reaching the newest message is reported, and leaving it too", (
   viewport.scrollTop = 800;
   fireEvent.scroll(viewport);
   expect(onAtTail).toHaveBeenLastCalledWith(true);
+});
+
+/** jsdom has no layout for a range; the quote button needs a box to stand by. */
+function stubRangeBox() {
+  const had = Object.getOwnPropertyDescriptor(
+    Range.prototype,
+    "getBoundingClientRect",
+  );
+  Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value: () =>
+      ({
+        top: 300,
+        bottom: 320,
+        left: 100,
+        right: 300,
+        width: 200,
+        height: 20,
+        x: 100,
+        y: 300,
+        toJSON: () => ({}),
+      }) as DOMRect,
+  });
+  return () => {
+    if (had)
+      Object.defineProperty(Range.prototype, "getBoundingClientRect", had);
+    else
+      delete (Range.prototype as { getBoundingClientRect?: unknown })
+        .getBoundingClientRect;
+  };
+}
+
+function selectText(node: Node) {
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  const sel = document.getSelection()!;
+  sel.removeAllRanges();
+  sel.addRange(range);
+  act(() => {
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+}
+
+test("selecting text in an answer offers Quote, which adds it to the draft as a quote after what is already there", async () => {
+  const restore = stubRangeBox();
+  const onDraftChange = vi.fn();
+  try {
+    render(
+      <ChatScreen
+        {...scrollBase}
+        title="Flushing"
+        draft="Why is that?"
+        onDraftChange={onDraftChange}
+        items={[
+          { type: "user_message", id: "u1", content: "how does it stream" },
+          {
+            type: "assistant_message",
+            id: "a1",
+            content: "The stream must flush after every frame.",
+          },
+        ]}
+      />,
+    );
+
+    // The chat's title is not the transcript: nothing to quote there.
+    selectText(screen.getByText("Flushing"));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole("button", { name: "Quote" })).toBeNull();
+
+    selectText(screen.getByText("The stream must flush after every frame."));
+    const quote = await screen.findByRole("button", { name: "Quote" });
+    expect(quote).toHaveAttribute(
+      "title",
+      "Quote the selected text in your message",
+    );
+    fireEvent.click(quote);
+
+    expect(onDraftChange).toHaveBeenCalledWith(
+      "Why is that?\n\n> The stream must flush after every frame.\n\n",
+    );
+    expect(document.getSelection()?.rangeCount ?? 0).toBe(0);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Quote" })).toBeNull(),
+    );
+  } finally {
+    restore();
+    document.getSelection()?.removeAllRanges();
+  }
+});
+
+test("the expand control stands under the jump to the newest message, which an expanded composer hides, and another chat opens folded", async () => {
+  const { container, rerender } = render(
+    <ChatScreen {...scrollBase} items={firstTurn} />,
+  );
+  const viewport = transcriptViewport(container, {
+    scrollHeight: 1200,
+    clientHeight: 400,
+  });
+  viewport.scrollTop = 800;
+  fireEvent.scroll(viewport);
+  const expand = screen.getByTestId("composer-expand");
+  // Its own circle in the composer's column, in the slot right over the
+  // composer; the stylesheet puts the jump a slot higher when it is there.
+  const dock = expand.closest(".chat-bottom-inner");
+  expect(dock).not.toBeNull();
+  expect(expand.closest(".composer-card")).toBeNull();
+  expect(expand).toHaveAccessibleName("Expand the message field");
+  expect(expand).toHaveAttribute("aria-pressed", "false");
+  // Only the jump down: no jump up is offered anywhere.
+  expect(screen.queryByTestId("chat-scroll-top")).toBeNull();
+
+  viewport.scrollTop = 200;
+  fireEvent.scroll(viewport);
+  await waitFor(() => expect(scrollButtonShown()).toBe(true));
+  expect(screen.getByTestId("chat-scroll-bottom").parentElement).toBe(dock);
+
+  // Expanded, the transcript is under the composer: the jump is hidden.
+  fireEvent.click(expand);
+  expect(expand).toHaveAccessibleName("Collapse the message field");
+  expect(expand).toHaveAttribute("aria-pressed", "true");
+  expect(scrollButtonShown()).toBe(false);
+  expect(container.querySelector(".composer-wrap--expanded")).not.toBeNull();
+
+  rerender(
+    <ChatScreen
+      {...scrollBase}
+      sessionId="s2"
+      items={[{ type: "user_message", id: "s2-u1", content: "another chat" }]}
+    />,
+  );
+  expect(screen.getByTestId("composer-expand")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  expect(container.querySelector(".composer-wrap--expanded")).toBeNull();
 });

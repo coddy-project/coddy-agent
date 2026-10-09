@@ -1,4 +1,4 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-report
+.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -68,6 +68,13 @@ ui-test: ui-deps
 # `make lint`. vite only transpiles, so a type error ships unless this runs.
 ui-typecheck: ui-deps
 	cd external/ui && npm run typecheck
+
+# Prettier over the whole SPA at its defaults, external/ui/.prettierignore
+# keeping the build output and the vendored grammars out: the format gate of
+# the pre-commit hook and of CI's Lint job. `npm run fmt` in external/ui fixes
+# what it reports.
+ui-format-check: ui-deps
+	cd external/ui && npm run format:check
 
 # Build the coddy CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:
@@ -165,6 +172,17 @@ brew-formula:
 brew-check:
 	scripts/check-homebrew-submission.sh --version "$(VERSION)"
 
+# `check-image` builds the runtime image (Dockerfile) for every platform the
+# release publishes and checks that each one carries a coddy binary of its own
+# platform; the binary of the host's platform must also print $(VERSION). Docker
+# with buildx is all it needs: the build stages run natively and cross-compile,
+# so a plain docker driver builds linux/arm64 on an amd64 host and back. The
+# release runs the same script before it pushes (docker-build-push.yaml).
+IMAGE_PLATFORMS ?= linux/amd64,linux/arm64
+
+check-image:
+	scripts/check-image.sh --version "$(VERSION)" --platforms "$(IMAGE_PLATFORMS)" --out "$(DIST_DIR)/image"
+
 # Publish internal/config/config.schema.json (the schema embedded into the
 # binary for -t / --test-config) to the site repository, which serves it at
 # coddy.dev/config.schema.json - the address Coddy writes into every config it
@@ -209,6 +227,13 @@ site-docs:
 
 site-docs-check:
 	CHECK=1 scripts/sync-site-docs.sh
+
+# docs-stamp records that the translations named in PAGES follow their English
+# pages as they are now (docs/contributing/documentation.md, Translations). It
+# refuses a page whose translation did not change since HEAD; UNCHANGED=1
+# accepts one when the English change needs no translation.
+docs-stamp:
+	go run ./cmd/docsgen -stamp $(if $(filter 1 true yes,$(UNCHANGED)),-unchanged) $(PAGES)
 
 docs-changelog:
 	$(MAKE) build TAGS="$(FULL_TAGS)"
@@ -330,16 +355,20 @@ test-perf:
 	go test -run '^$$' -bench '$(BENCH)' -benchtime $(BENCHTIME) -benchmem ./...
 
 # AppSec gate (issue #374): trivy (dependency vulnerabilities, secrets;
-# misconfig report-only) and semgrep (SAST) over the checkout. One script is
-# the only scanner invocation — CI's security.yaml calls `make security`, so
-# local runs and the pipeline share versions, flags and thresholds. A binary
-# on PATH is used when present; otherwise the pinned docker image runs
-# (SEC_DOCKER=0 forbids the fallback). Reports and the severity summary land
-# in dist/security/. SEC_FAIL_TRIVY (default CRITICAL, vuln+secret only) and
-# SEC_FAIL_SEMGREP (default off — report only until the backlog shrinks) set
-# the gate. Guide: docs/contributing/security-scanning.md.
+# misconfig report-only), semgrep (SAST) and govulncheck (Go vulnerabilities
+# the code reaches, the pinned toolchain's standard library included) over the
+# checkout. One script is the only scanner invocation — CI's security.yaml
+# calls `make security`, so local runs and the pipeline share versions, flags
+# and thresholds. A binary on PATH is used when present; otherwise the pinned
+# docker image runs (SEC_DOCKER=0 forbids the fallback). Reports and the
+# severity summary land in dist/security/. SEC_FAIL_TRIVY (default CRITICAL,
+# vuln+secret only), SEC_FAIL_SEMGREP (default off — report only until the
+# backlog shrinks) and SEC_FAIL_GOVULNCHECK (default symbol: a vulnerable
+# function the code calls) set the gate. govulncheck builds with every shipped
+# tag but ui, whose embedded assets a fresh checkout does not hold. Guide:
+# docs/contributing/security-scanning.md.
 security:
-	scripts/security-scan.sh
+	GOVULNCHECK_TAGS=$(LINT_TAGS_NO_UI_CSV) scripts/security-scan.sh
 
 sec-trivy:
 	SEC_SCANNERS=trivy scripts/security-scan.sh
@@ -347,10 +376,14 @@ sec-trivy:
 sec-semgrep:
 	SEC_SCANNERS=semgrep scripts/security-scan.sh
 
+sec-govulncheck:
+	SEC_SCANNERS=govulncheck GOVULNCHECK_TAGS=$(LINT_TAGS_NO_UI_CSV) scripts/security-scan.sh
+
 # Same scans with the gate off: findings never fail this target, operational
 # errors (missing tool, dead docker, crashed scan) still do.
 sec-report:
-	SEC_FAIL_TRIVY=off SEC_FAIL_SEMGREP=off scripts/security-scan.sh
+	SEC_FAIL_TRIVY=off SEC_FAIL_SEMGREP=off SEC_FAIL_GOVULNCHECK=off \
+		GOVULNCHECK_TAGS=$(LINT_TAGS_NO_UI_CSV) scripts/security-scan.sh
 
 # Console startup timings: the first frame timed in a real pty (pexpect + pyte,
 # examples/cli/requirements.txt), with an empty, a real and a synthetic skill
@@ -446,5 +479,5 @@ lint-windows: ui-build
 # Bypass a single commit with: git commit --no-verify
 hooks:
 	git config core.hooksPath .githooks
-	@echo "Enabled .githooks — 'git commit' now runs the linter (scripts/checks.sh)."
-	@echo "Add tests with CODDY_HOOK_TESTS=fast|full|matrix; skip lint with CODDY_HOOK_LINT=0; bypass once with --no-verify."
+	@echo "Enabled .githooks — 'git commit' now runs the linter, and Prettier over the SPA when it stages SPA files (scripts/checks.sh)."
+	@echo "Add tests with CODDY_HOOK_TESTS=fast|full|matrix; skip lint with CODDY_HOOK_LINT=0, Prettier with CODDY_HOOK_FORMAT=0; bypass once with --no-verify."

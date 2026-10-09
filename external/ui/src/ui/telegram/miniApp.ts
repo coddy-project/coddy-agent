@@ -24,7 +24,11 @@ import {
   type TelegramBridge,
   versionAtLeast,
 } from "./bridge";
-import { captureTelegramLaunch, telegramLaunch, type TelegramLaunch } from "./launch";
+import {
+  captureTelegramLaunch,
+  telegramLaunch,
+  type TelegramLaunch,
+} from "./launch";
 
 type Insets = { top: number; bottom: number; left: number; right: number };
 
@@ -35,9 +39,18 @@ function px(n: number): string {
 }
 
 function readInsets(data: unknown): Insets {
-  const d = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
-  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
-  return { top: n(d.top), bottom: n(d.bottom), left: n(d.left), right: n(d.right) };
+  const d = (data && typeof data === "object" ? data : {}) as Record<
+    string,
+    unknown
+  >;
+  const n = (v: unknown) =>
+    typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
+  return {
+    top: n(d.top),
+    bottom: n(d.bottom),
+    left: n(d.left),
+    right: n(d.right),
+  };
 }
 
 /**
@@ -74,12 +87,18 @@ export function followTelegramTheme(themeParams: Record<string, string>): void {
 
 /** canvasColor reads one of the theme's canvas tokens as #rrggbb, or "". */
 function canvasColor(doc: Document, token: string): string {
-  const raw = getComputedStyle(doc.documentElement).getPropertyValue(token).trim();
+  const raw = getComputedStyle(doc.documentElement)
+    .getPropertyValue(token)
+    .trim();
   return /^#[0-9a-f]{6}$/i.test(raw) ? raw.toLowerCase() : "";
 }
 
 /** postThemeColors gives Telegram's header, background and bottom bar the theme's colours. */
-function postThemeColors(bridge: TelegramBridge, launch: TelegramLaunch, doc: Document): void {
+function postThemeColors(
+  bridge: TelegramBridge,
+  launch: TelegramLaunch,
+  doc: Document,
+): void {
   const top = canvasColor(doc, "--coddy-canvas-gradient-top");
   const bottom = canvasColor(doc, "--coddy-canvas-gradient-bottom");
   if (top && versionAtLeast(launch.version, "6.9")) {
@@ -122,7 +141,8 @@ export function initTelegramMiniApp(
   let lastHidden = -1;
   const apply = () => {
     const layout = layoutHeight();
-    const shown = visible > 0 ? Math.min(visible, visualHeight()) : visualHeight();
+    const shown =
+      visible > 0 ? Math.min(visible, visualHeight()) : visualHeight();
     const steady = Math.min(stable > 0 ? stable : layout, layout);
     root.style.setProperty("--coddy-telegram-viewport-height", px(shown));
     root.style.setProperty("--coddy-telegram-stable-height", px(steady));
@@ -133,10 +153,22 @@ export function initTelegramMiniApp(
     root.style.setProperty("--coddy-telegram-hidden-bottom", px(hidden));
     // The content safe area is measured inside the device's (fullscreen: the
     // status bar, then Telegram's own buttons), so what to keep clear is the sum.
-    root.style.setProperty("--coddy-telegram-safe-top", px(safe.top + content.top));
-    root.style.setProperty("--coddy-telegram-safe-bottom", px(safe.bottom + content.bottom));
-    root.style.setProperty("--coddy-telegram-safe-left", px(safe.left + content.left));
-    root.style.setProperty("--coddy-telegram-safe-right", px(safe.right + content.right));
+    root.style.setProperty(
+      "--coddy-telegram-safe-top",
+      px(safe.top + content.top),
+    );
+    root.style.setProperty(
+      "--coddy-telegram-safe-bottom",
+      px(safe.bottom + content.bottom),
+    );
+    root.style.setProperty(
+      "--coddy-telegram-safe-left",
+      px(safe.left + content.left),
+    );
+    root.style.setProperty(
+      "--coddy-telegram-safe-right",
+      px(safe.right + content.right),
+    );
     if (hidden !== lastHidden) {
       const first = lastHidden < 0;
       lastHidden = hidden;
@@ -153,8 +185,15 @@ export function initTelegramMiniApp(
   const offs: Array<() => void> = [];
   offs.push(
     bridge.on("viewport_changed", (data) => {
-      const d = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
-      if (typeof d.height === "number" && Number.isFinite(d.height) && d.height > 0) {
+      const d = (data && typeof data === "object" ? data : {}) as Record<
+        string,
+        unknown
+      >;
+      if (
+        typeof d.height === "number" &&
+        Number.isFinite(d.height) &&
+        d.height > 0
+      ) {
         visible = d.height;
         if (d.is_state_stable) {
           stable = d.height;
@@ -171,9 +210,11 @@ export function initTelegramMiniApp(
       apply();
     }),
     bridge.on("theme_changed", (data) => {
-      const params = (data && typeof data === "object" ? (data as Record<string, unknown>).theme_params : null) as
-        | Record<string, string>
-        | null;
+      const params = (
+        data && typeof data === "object"
+          ? (data as Record<string, unknown>).theme_params
+          : null
+      ) as Record<string, string> | null;
       if (params && typeof params === "object") {
         followTelegramTheme(params);
       }
@@ -188,11 +229,18 @@ export function initTelegramMiniApp(
   bridge.post("web_app_request_theme");
   bridge.post("web_app_expand");
   if (versionAtLeast(launch.version, "7.7")) {
-    bridge.post("web_app_setup_swipe_behavior", { allow_vertical_swipe: false });
+    bridge.post("web_app_setup_swipe_behavior", {
+      allow_vertical_swipe: false,
+    });
   }
   postThemeColors(bridge, launch, doc);
-  const themeWatch = new MutationObserver(() => postThemeColors(bridge, launch, doc));
-  themeWatch.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+  const themeWatch = new MutationObserver(() =>
+    postThemeColors(bridge, launch, doc),
+  );
+  themeWatch.observe(root, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
   const disposeBack = versionAtLeast(launch.version, "6.1")
     ? installTelegramBackButton(bridge, win, doc)
     : () => {};

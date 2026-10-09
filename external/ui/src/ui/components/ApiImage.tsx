@@ -24,7 +24,13 @@ export function ApiImage(props: {
 }
 
 /** The original of an image the server named, enlarged, read the same way as its thumbnail. */
-export function ApiImageLightbox(props: { src: string; alt: string; onClose: () => void }) {
+export function ApiImageLightbox(props: {
+  src: string;
+  alt: string;
+  onClose: () => void;
+}) {
   const src = useApiImageSrc(props.src);
-  return src ? <ImageLightbox src={src} alt={props.alt} onClose={props.onClose} /> : null;
+  return src ? (
+    <ImageLightbox src={src} alt={props.alt} onClose={props.onClose} />
+  ) : null;
 }

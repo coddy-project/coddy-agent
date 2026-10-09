@@ -50,8 +50,21 @@ export const AssistantMessage = memo(function AssistantMessage(props: {
       <div className="msg msg-assistant">
         {contentTokens.map((token, index) =>
           token.type === "artifacts" ? (
-            <ToolArtifactCards key={`${token.artifacts.map((artifact) => artifact.id).join("-")}-${index}`} artifacts={token.artifacts} inline {...(props.onMentionArtifact ? { onMention: props.onMentionArtifact } : {})} />
-          ) : token.text ? <Markdown key={index} text={token.text} {...(props.streaming ? { streaming: true } : {})} /> : null,
+            <ToolArtifactCards
+              key={`${token.artifacts.map((artifact) => artifact.id).join("-")}-${index}`}
+              artifacts={token.artifacts}
+              inline
+              {...(props.onMentionArtifact
+                ? { onMention: props.onMentionArtifact }
+                : {})}
+            />
+          ) : token.text ? (
+            <Markdown
+              key={index}
+              text={token.text}
+              {...(props.streaming ? { streaming: true } : {})}
+            />
+          ) : null,
         )}
         {showFoot ? (
           <div className="msg-assistant-foot">

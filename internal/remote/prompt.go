@@ -61,9 +61,10 @@ type metaFrame struct {
 // HandleSessionPromptWithSender runs one remote turn: it POSTs the prompt to
 // /v1/responses with stream:true, translates SSE frames back into ACP session
 // updates for sender, and answers permission or question events through the
-// /coddy REST endpoints. opts is accepted for signature parity with
-// session.Manager and ignored (detach semantics live on the server).
-func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, _ *session.PromptRunOpts) (*acp.SessionPromptResult, error) {
+// /coddy REST endpoints. Of opts only Lang crosses the wire, as metadata.lang;
+// the rest is accepted for signature parity with session.Manager and ignored
+// (detach semantics live on the server).
+func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error) {
 	if sender == nil {
 		return nil, fmt.Errorf("remote: prompt needs a sender")
 	}
@@ -104,6 +105,12 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if selected != "" {
 		body.Metadata = map[string]string{"model": selected}
 	}
+	if opts != nil && opts.Lang != "" {
+		if body.Metadata == nil {
+			body.Metadata = map[string]string{}
+		}
+		body.Metadata["lang"] = opts.Lang
+	}
 	effectiveModel := selected
 	if effectiveModel == "" {
 		effectiveModel = defaultModel
@@ -136,6 +143,12 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		return nil, err
 	}
 	req.Header.Set("X-Coddy-Session-ID", sid)
+	h.mu.Lock()
+	origin := st.createOrigin
+	h.mu.Unlock()
+	if origin != "" {
+		req.Header.Set(session.OriginHeader, origin)
+	}
 
 	res, err := h.hc.Do(req)
 	if err != nil {
@@ -275,6 +288,28 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		var u acp.SessionSettingsUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			t.h.mirrorSettings(t.sessionID, u.Settings)
+		}
+	case "session_goal":
+		// The goal changed during this turn: set, checked, continued. The
+		// events stream carries the same change, and the surface keeps the
+		// highest version; this copy is what a client without that stream
+		// (coddy acp --remote) hears.
+		var u acp.SessionGoalUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			u.SessionUpdate = acp.UpdateTypeSessionGoal
+			if u.SessionID == "" {
+				u.SessionID = t.sessionID
+			}
+			t.h.mirrorGoal(u.SessionID, u.Goal, u.Version)
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "goal_turn":
+		// The first frame of a turn the supervisor started: the row that
+		// stands for its instruction message.
+		var u acp.GoalTurnUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			u.SessionUpdate = acp.UpdateTypeGoalTurn
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}
 	case "available_commands":
 		var u acp.AvailableCommandsUpdate

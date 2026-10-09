@@ -1,5 +1,12 @@
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { ConfirmProvider } from "./components/useConfirm";
@@ -94,7 +101,8 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       });
     if (suffix === "/stats") return json({ stats: {} });
     if (suffix === "/background-tasks") return json({ data: [], running: 0 });
-    if (suffix === "/activity") return json({ sessionId: sid, turnActive: false });
+    if (suffix === "/activity")
+      return json({ sessionId: sid, turnActive: false });
     if (!suffix) return json({});
   }
   if (path === "/coddy/config") return json({});
@@ -168,7 +176,9 @@ test("a config reload leaves the level the reader picked", async () => {
   fireEvent.click(await screen.findByRole("menuitem", { name: "Low" }));
   await waitFor(() => expect(reasoningChip()).toHaveTextContent("Low"));
 
-  const before = fetchMock.mock.calls.filter((c) => String(c[0]) === "/v1/models").length;
+  const before = fetchMock.mock.calls.filter(
+    (c) => String(c[0]) === "/v1/models",
+  ).length;
   await act(async () => {
     eventsController?.enqueue(
       new TextEncoder().encode(`event: config_reloaded\ndata: {}\n\n`),

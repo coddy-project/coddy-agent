@@ -37,6 +37,9 @@ func TestSwarmFingerprintMovesWithEverySettingButTheAddress(t *testing.T) {
 			c.Swarm.CORS.Enabled = true
 			c.Swarm.CORS.AllowedOrigins = []string{"http://laptop:12345"}
 		},
+		// Alone, so the case proves the flag itself moves the fingerprint and
+		// not the two settings the "cors" case already flips.
+		"cors loopback": func(c *config.Config) { c.Swarm.CORS.AllowLoopback = true },
 		"client token":  func(c *config.Config) { c.Swarm.AuthToken = "rotated" },
 		"name":          func(c *config.Config) { c.Swarm.Name = "office-2" },
 		"pairing token": func(c *config.Config) { c.Swarm.PairingTokens = []string{"p"} },

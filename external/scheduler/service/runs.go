@@ -15,29 +15,13 @@ import (
 )
 
 // jobRunning reports whether this process has a run of the job in flight.
-func jobRunning(abs string) bool {
+func jobRunning(ref storage.JobRef) bool {
 	rt := CurrentRuntime()
 	if rt == nil {
 		return false
 	}
-	_, ok := rt.RunningRun(abs)
+	_, ok := rt.RunningRun(ref)
 	return ok
-}
-
-// existingJobPath resolves jobID to its canonical file path, refusing an id
-// that is malformed or names no file.
-func (o *Service) existingJobPath(jobID string) (string, error) {
-	abs, err := o.jobAbsPath(jobID)
-	if err != nil {
-		return "", err
-	}
-	if _, err := os.Stat(abs); err != nil {
-		if os.IsNotExist(err) {
-			return "", ErrJobNotFound
-		}
-		return "", err
-	}
-	return abs, nil
 }
 
 // sessionStore is the bundle store the run history lives in.
@@ -53,22 +37,19 @@ const legacyRunPrefix = "sched_"
 
 // JobSessionIDFor names the job session of a job: the pointer in its sidecar,
 // or the bundle in the sessions root whose session.json says it belongs to the
-// job when the pointer is missing (a sidecar deleted by hand, or written by the
-// old scheduler). "" for a job that never ran. The walk is the fallback, never
-// the first read: it costs one small file per session.
-func JobSessionIDFor(store *session.FileStore, jobPath string) string {
-	abs := storage.CanonicalSchedulerJobPath(jobPath)
-	if abs == "" {
-		abs = jobPath
-	}
-	id, _ := storage.ReadJobSessionID(storage.StatePath(abs))
+// job - same id, same workspace (none for a user job) - when the pointer is
+// missing (a sidecar deleted by hand, or written by the old scheduler). "" for
+// a job that never ran. The walk is the fallback, never the first read: it
+// costs one small file per session.
+func JobSessionIDFor(store *session.FileStore, ref storage.JobRef) string {
+	id, _ := storage.ReadJobSessionID(ref.StatePath)
 	if id != "" && session.ValidateFolderSessionID(id) == nil {
 		return id
 	}
 	if store == nil || store.Root == "" {
 		return ""
 	}
-	jobID := jobIDFromMDPath(abs)
+	jobID := ref.ID
 	entries, err := os.ReadDir(store.Root)
 	if err != nil {
 		return ""
@@ -81,7 +62,8 @@ func JobSessionIDFor(store *session.FileStore, jobPath string) string {
 		if err != nil {
 			continue
 		}
-		if meta.SchedulerRun && !meta.IsSubagentRun() && strings.TrimSpace(meta.SchedulerJobID) == jobID {
+		if meta.SchedulerRun && !meta.IsSubagentRun() && strings.TrimSpace(meta.SchedulerJobID) == jobID &&
+			strings.TrimSpace(meta.SchedulerJobWorkspace) == ref.Workspace {
 			return ent.Name()
 		}
 	}
@@ -89,15 +71,15 @@ func JobSessionIDFor(store *session.FileStore, jobPath string) string {
 }
 
 // JobSessionID names the job session of a job, "" before its first run.
-func (o *Service) JobSessionID(jobID string) (string, error) {
+func (o *Service) JobSessionID(addr JobAddr) (string, error) {
 	if err := o.requireEnabled(); err != nil {
 		return "", err
 	}
-	abs, err := o.existingJobPath(jobID)
+	ref, err := o.existingRef(addr)
 	if err != nil {
 		return "", err
 	}
-	return o.jobSessionIDOf(abs), nil
+	return o.jobSessionIDOf(ref), nil
 }
 
 // RunsOf lists the run tasks of a job session, newest first: what the pool
@@ -173,10 +155,10 @@ func runPool() *bgtask.Pool {
 	return bgtask.Default()
 }
 
-// runRows lists the runs of a job by its path, newest first, at most limit.
-func (o *Service) runRows(abs string, limit int) []SchedulerRunEntry {
+// runRows lists the runs of a job, newest first, at most limit.
+func (o *Service) runRows(ref storage.JobRef, limit int) []SchedulerRunEntry {
 	store := o.sessionStore()
-	jobSessionID := JobSessionIDFor(store, abs)
+	jobSessionID := JobSessionIDFor(store, ref)
 	if jobSessionID == "" {
 		return []SchedulerRunEntry{}
 	}
@@ -193,43 +175,39 @@ func (o *Service) runRows(abs string, limit int) []SchedulerRunEntry {
 
 // TriggerJobRun starts one manual run of a job and returns the ids the run
 // answers to. It does not advance the cron checkpoint: the cron timing stays
-// what the schedule says. ErrJobPaused for a paused job, ErrJobBusy while a
-// run of the job is in flight, ErrQueueSaturated when scheduler.max_queue runs
-// are already going, ErrLauncherNotConfigured when no daemon runs here.
-func (o *Service) TriggerJobRun(jobID string) (RunRef, error) {
+// what the schedule says. ErrJobUntrusted for a project job that is not
+// trusted, ErrJobPaused for a paused job, ErrJobBusy while a run of the job is
+// in flight, ErrQueueSaturated when scheduler.max_queue runs are already
+// going, ErrLauncherNotConfigured when no daemon runs here.
+func (o *Service) TriggerJobRun(addr JobAddr) (RunRef, error) {
 	if err := o.requireEnabled(); err != nil {
 		return RunRef{}, err
 	}
-	abs, err := o.existingJobPath(jobID)
+	ref, err := o.existingRef(addr)
 	if err != nil {
 		return RunRef{}, err
 	}
-	fm, body, err := storage.ParseJobFile(abs)
+	snap, err := RunnableSnapshot(o.Cfg, ref)
 	if err != nil {
 		return RunRef{}, err
 	}
-	if fm.Paused {
+	if snap.FM.Paused {
 		return RunRef{}, ErrJobPaused
 	}
 	rt := CurrentRuntime()
 	if rt == nil {
 		return RunRef{}, ErrLauncherNotConfigured
 	}
-	return rt.StartRun(context.Background(), RunRequest{
-		JobPath:     abs,
-		Frontmatter: fm,
-		Body:        body,
-		Trigger:     TriggerManual,
-	})
+	return rt.StartRun(context.Background(), RunRequest{Snapshot: snap, Trigger: TriggerManual})
 }
 
 // CancelJobRun stops the run of the job that is in flight. cancelled is false
 // when the job was not running.
-func (o *Service) CancelJobRun(jobID string) (cancelled bool, err error) {
+func (o *Service) CancelJobRun(addr JobAddr) (cancelled bool, err error) {
 	if err := o.requireEnabled(); err != nil {
 		return false, err
 	}
-	abs, err := o.existingJobPath(jobID)
+	ref, err := o.existingRef(addr)
 	if err != nil {
 		return false, err
 	}
@@ -237,17 +215,17 @@ func (o *Service) CancelJobRun(jobID string) (cancelled bool, err error) {
 	if rt == nil {
 		return false, nil
 	}
-	return rt.CancelRun(abs), nil
+	return rt.CancelRun(ref), nil
 }
 
 // ListJobRuns returns the runs of a job, newest first: the run in flight and
 // the finished ones the retention kept. It reads the job session's bundle, so
 // it answers whether or not the daemon runs in this process.
-func (o *Service) ListJobRuns(jobID string, limit int) ([]SchedulerRunEntry, error) {
+func (o *Service) ListJobRuns(addr JobAddr, limit int) ([]SchedulerRunEntry, error) {
 	if err := o.requireEnabled(); err != nil {
 		return nil, err
 	}
-	abs, err := o.existingJobPath(jobID)
+	ref, err := o.existingRef(addr)
 	if err != nil {
 		return nil, err
 	}
@@ -257,16 +235,16 @@ func (o *Service) ListJobRuns(jobID string, limit int) ([]SchedulerRunEntry, err
 	if limit > 100 {
 		limit = 100
 	}
-	return o.runRows(abs, limit), nil
+	return o.runRows(ref, limit), nil
 }
 
 // ClearJobRuns removes every finished run of a job, task records and
 // transcripts, and reports how many went. A run in flight stays.
-func (o *Service) ClearJobRuns(jobID string) (int, error) {
+func (o *Service) ClearJobRuns(addr JobAddr) (int, error) {
 	if err := o.requireEnabled(); err != nil {
 		return 0, err
 	}
-	abs, err := o.existingJobPath(jobID)
+	ref, err := o.existingRef(addr)
 	if err != nil {
 		return 0, err
 	}
@@ -274,17 +252,17 @@ func (o *Service) ClearJobRuns(jobID string) (int, error) {
 	if rt == nil {
 		return 0, ErrLauncherNotConfigured
 	}
-	return rt.ClearRuns(abs)
+	return rt.ClearRuns(ref)
 }
 
 // jobSessionIDOf names the job session of a job, "" before its first run.
-func (o *Service) jobSessionIDOf(abs string) string {
-	return JobSessionIDFor(o.sessionStore(), abs)
+func (o *Service) jobSessionIDOf(ref storage.JobRef) string {
+	return JobSessionIDFor(o.sessionStore(), ref)
 }
 
 // lastRunOf returns the newest run of a job, nil when it never ran.
-func (o *Service) lastRunOf(abs string) *SchedulerRunEntry {
-	rows := o.runRows(abs, 1)
+func (o *Service) lastRunOf(ref storage.JobRef) *SchedulerRunEntry {
+	rows := o.runRows(ref, 1)
 	if len(rows) == 0 {
 		return nil
 	}

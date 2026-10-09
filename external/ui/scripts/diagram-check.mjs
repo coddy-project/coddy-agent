@@ -27,27 +27,44 @@
  * points it at an installed Chromium instead of the one Playwright downloads.
  */
 
-const URL_BASE = (process.env.CODDY_UI_URL || "http://127.0.0.1:5247").replace(/\/+$/, "");
+const URL_BASE = (process.env.CODDY_UI_URL || "http://127.0.0.1:5247").replace(
+  /\/+$/,
+  "",
+);
 const ENGINE = process.env.CODDY_ENGINE || "chromium";
 const BROWSER_PATH = process.env.CODDY_BROWSER_PATH || "";
 if (BROWSER_PATH && ENGINE !== "chromium") {
-  console.error("CODDY_BROWSER_PATH points at a Chromium; WebKit and Firefox run Playwright's own builds");
+  console.error(
+    "CODDY_BROWSER_PATH points at a Chromium; WebKit and Firefox run Playwright's own builds",
+  );
   process.exit(2);
 }
 
-const THEMES = ["dark", "light", "midnight", "solarized-dark", "monokai", "nord", "rose-pine"];
+const THEMES = [
+  "dark",
+  "light",
+  "midnight",
+  "solarized-dark",
+  "monokai",
+  "nord",
+  "rose-pine",
+];
 const WIDTHS = [360, 1280];
 
 let playwright;
 try {
   playwright = await import("playwright");
 } catch {
-  console.error("playwright is not installed. Run: npm i --no-save playwright && npx playwright install chromium");
+  console.error(
+    "playwright is not installed. Run: npm i --no-save playwright && npx playwright install chromium",
+  );
   process.exit(2);
 }
 const launcher = playwright[ENGINE];
 if (!launcher) {
-  console.error(`unknown CODDY_ENGINE ${ENGINE} (use chromium, webkit or firefox)`);
+  console.error(
+    `unknown CODDY_ENGINE ${ENGINE} (use chromium, webkit or firefox)`,
+  );
   process.exit(2);
 }
 
@@ -57,7 +74,9 @@ function check(label, ok, detail) {
   if (!ok) failures.push(label);
 }
 
-const browser = await launcher.launch(BROWSER_PATH ? { executablePath: BROWSER_PATH } : {});
+const browser = await launcher.launch(
+  BROWSER_PATH ? { executablePath: BROWSER_PATH } : {},
+);
 try {
   for (const theme of THEMES) {
     for (const width of WIDTHS) {
@@ -69,7 +88,8 @@ try {
       page.on("pageerror", (e) => errors.push(e.message));
       page.on("request", (r) => {
         const path = new URL(r.url()).pathname;
-        if (/\/(chunks|node_modules\/\.vite\/deps)\//.test(path)) chunks.push(path);
+        if (/\/(chunks|node_modules\/\.vite\/deps)\//.test(path))
+          chunks.push(path);
       });
       await page.goto(`${URL_BASE}/diagram-check.html?theme=${theme}`);
       // Every picture decided (drawn or failed) and the formulas typeset.
@@ -77,50 +97,102 @@ try {
         .waitForFunction(
           () =>
             [...document.querySelectorAll('[data-testid="md-figure"]')].every(
-              (f) => f.querySelector("img")?.complete || f.querySelector('[data-testid="md-figure-error"]'),
-            ) && document.querySelectorAll(".md-math-display .katex-display").length >= 3,
+              (f) =>
+                f.querySelector("img")?.complete ||
+                f.querySelector('[data-testid="md-figure-error"]'),
+            ) &&
+            document.querySelectorAll(".md-math-display .katex-display")
+              .length >= 3,
           null,
           { timeout: 20000 },
         )
         .catch(() => {});
       await page.evaluate(() => document.fonts.ready);
       const r = await page.evaluate(() => {
-        const column = document.querySelector(".messages-inner").getBoundingClientRect();
-        const figures = [...document.querySelectorAll('[data-testid="md-figure"]')].map((f) => {
+        const column = document
+          .querySelector(".messages-inner")
+          .getBoundingClientRect();
+        const figures = [
+          ...document.querySelectorAll('[data-testid="md-figure"]'),
+        ].map((f) => {
           const img = f.querySelector("img");
           const box = img?.getBoundingClientRect();
           return {
             kind: f.dataset.kind,
             drawn: !!img && img.naturalWidth > 0 && img.naturalHeight > 0,
-            inside: !box || (box.left >= column.left - 0.5 && box.right <= column.right + 0.5),
-            error: f.querySelector('[data-testid="md-figure-error"]')?.textContent || "",
+            inside:
+              !box ||
+              (box.left >= column.left - 0.5 &&
+                box.right <= column.right + 0.5),
+            error:
+              f.querySelector('[data-testid="md-figure-error"]')?.textContent ||
+              "",
           };
         });
-        const sticking = [...document.querySelectorAll(".md-figure, .md-math-inline")].filter((el) => {
+        const sticking = [
+          ...document.querySelectorAll(".md-figure, .md-math-inline"),
+        ].filter((el) => {
           const b = el.getBoundingClientRect();
           return b.right > column.right + 0.5 || b.left < column.left - 0.5;
         }).length;
         return {
           figures,
-          display: document.querySelectorAll(".md-math-display .katex-display").length,
+          display: document.querySelectorAll(".md-math-display .katex-display")
+            .length,
           inline: document.querySelectorAll(".md-math-inline .katex").length,
-          katexFont: [...document.fonts].some((f) => f.family.replace(/"/g, "") === "KaTeX_Main" && f.status === "loaded"),
+          katexFont: [...document.fonts].some(
+            (f) =>
+              f.family.replace(/"/g, "") === "KaTeX_Main" &&
+              f.status === "loaded",
+          ),
           price: document.body.innerText.includes("costs $5 and $10 a month"),
-          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          overflow:
+            document.documentElement.scrollWidth -
+            document.documentElement.clientWidth,
           sticking,
         };
       });
       const drawn = r.figures.filter((f) => f.kind && !f.error);
-      check(`${label}: seven pictures drawn`, drawn.length === 7 && drawn.every((f) => f.drawn), JSON.stringify(r.figures));
-      check(`${label}: pictures inside the column`, r.figures.every((f) => f.inside));
-      check(`${label}: the broken diagram names its error`, r.figures.filter((f) => f.error).length === 1);
-      check(`${label}: formulas typeset`, r.display >= 3 && r.inline >= 2, `display=${r.display} inline=${r.inline}`);
+      check(
+        `${label}: seven pictures drawn`,
+        drawn.length === 7 && drawn.every((f) => f.drawn),
+        JSON.stringify(r.figures),
+      );
+      check(
+        `${label}: pictures inside the column`,
+        r.figures.every((f) => f.inside),
+      );
+      check(
+        `${label}: the broken diagram names its error`,
+        r.figures.filter((f) => f.error).length === 1,
+      );
+      check(
+        `${label}: formulas typeset`,
+        r.display >= 3 && r.inline >= 2,
+        `display=${r.display} inline=${r.inline}`,
+      );
       check(`${label}: KaTeX font loaded`, r.katexFont);
       check(`${label}: a price stays text`, r.price);
-      check(`${label}: no sideways scroll`, r.overflow <= 0 && r.sticking === 0, `overflow=${r.overflow} sticking=${r.sticking}`);
-      check(`${label}: no console errors`, errors.length === 0, errors.slice(0, 3).join(" | "));
+      check(
+        `${label}: no sideways scroll`,
+        r.overflow <= 0 && r.sticking === 0,
+        `overflow=${r.overflow} sticking=${r.sticking}`,
+      );
+      check(
+        `${label}: no console errors`,
+        errors.length === 0,
+        errors.slice(0, 3).join(" | "),
+      );
       if (theme === THEMES[0] && width === WIDTHS[0]) {
-        check(`renderers fetched on demand`, chunks.some((p) => /mermaid/i.test(p)) && chunks.some((p) => /katex/i.test(p)), chunks.filter((p) => /mermaid|katex/i.test(p)).slice(0, 4).join(" "));
+        check(
+          `renderers fetched on demand`,
+          chunks.some((p) => /mermaid/i.test(p)) &&
+            chunks.some((p) => /katex/i.test(p)),
+          chunks
+            .filter((p) => /mermaid|katex/i.test(p))
+            .slice(0, 4)
+            .join(" "),
+        );
       }
       await page.close();
     }

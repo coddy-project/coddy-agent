@@ -47,6 +47,9 @@ type footer struct {
 	permission string
 	// overrides are the settings changed for a number of turns.
 	overrides []acp.TurnOverride
+	// goal is the session goal, nil without one; the first line names its
+	// status (goal.go).
+	goal *acp.SessionGoal
 
 	// usages holds the latest usage update per provider row; the active
 	// model's renders. now is the clock of the reset-time wording (tests pin
@@ -104,6 +107,72 @@ func (f *footer) SetSettings(permission string, overrides []acp.TurnOverride) {
 // SetPermission adopts the permission mode alone, keeping the override line.
 func (f *footer) SetPermission(permission string) {
 	f.permission = permission
+}
+
+// SetGoal adopts the session goal the first line names; nil takes the note
+// down.
+func (f *footer) SetGoal(g *acp.SessionGoal) {
+	if g == nil {
+		f.goal = nil
+		return
+	}
+	copied := *g
+	f.goal = &copied
+}
+
+// goalNoteMinPath is how much of the folder the goal note leaves on a narrow
+// line before it gives up its longer forms.
+const goalNoteMinPath = 16
+
+// goalNote is the goal's segment of the first line in the longest form that
+// fits avail cells, and the colour of its status. The forms shorten from the
+// whole note with the command that opens the goal menu, through the note
+// without the command, to the status alone; the longer forms are taken only
+// while the folder keeps goalNoteMinPath cells, and a line that cannot hold
+// even the status gets no note.
+func (f *footer) goalNote(avail int) (note, role string) {
+	g := f.goal
+	if g == nil {
+		return "", ""
+	}
+	status := strings.TrimSpace(g.Status)
+	if status == "" {
+		status = acp.GoalStatusActive
+	}
+	head := " • ◎ goal " + tui.SanitizeText(status)
+	progress := ""
+	if status == acp.GoalStatusActive && g.MaxContinuations > 0 {
+		progress = " " + itoa(g.Continuations) + "/" + itoa(g.MaxContinuations)
+	}
+	forms := []string{head + progress + " (/goal)", head + progress, head}
+	role = goalStatusRole(status)
+	for _, form := range forms {
+		if tui.VisibleWidth(form) <= avail-goalNoteMinPath {
+			return form, role
+		}
+	}
+	if last := forms[len(forms)-1]; tui.VisibleWidth(last) <= avail {
+		return last, role
+	}
+	return "", ""
+}
+
+// goalStatusRole is the colour of a goal status: the accent while the
+// supervisor works on it, the warning when it waits for the operator, success
+// once it is met, muted while it is held.
+func goalStatusRole(status string) string {
+	switch status {
+	case acp.GoalStatusActive:
+		return roleAccent
+	case acp.GoalStatusBlocked:
+		return roleWarning
+	case acp.GoalStatusComplete:
+		return roleSuccess
+	case acp.GoalStatusPaused, acp.GoalStatusLimited:
+		return roleMuted
+	default:
+		return roleDim
+	}
 }
 
 // overridesText renders the turn overrides: "next 2 turns: model x".
@@ -215,12 +284,18 @@ func (f *footer) Render(width int) []string {
 	if f.permission != "" && f.permission != "ask" {
 		perm = " • " + strings.ReplaceAll(f.permission, "_", " ")
 	}
-	if room := width - tui.VisibleWidth(notes) - tui.VisibleWidth(perm); tui.VisibleWidth(line1) > room {
+	// The session goal sits between the notes and the permission mode, in the
+	// colour of its status. It is what the supervisor does with the next turn
+	// end, so it stays with the notes, shortened before the path is cut to
+	// nothing and dropped only where not even its status fits.
+	goal, goalRole := f.goalNote(width - tui.VisibleWidth(notes) - tui.VisibleWidth(perm))
+	tail := tui.VisibleWidth(notes) + tui.VisibleWidth(goal) + tui.VisibleWidth(perm)
+	if room := width - tail; tui.VisibleWidth(line1) > room {
 		// On a line too narrow for even a shortened path, the path goes and
 		// the notes stay.
 		if room >= 8 {
 			line1 = tui.TruncateToWidth(line1, room, "...")
-		} else if tui.VisibleWidth(notes)+tui.VisibleWidth(perm) <= width {
+		} else if tail <= width {
 			line1 = ""
 		}
 	}
@@ -254,15 +329,23 @@ func (f *footer) Render(width int) []string {
 
 	// The permission mode closes the first line when it is not the asking
 	// one: bypass in the warning colour, so a session that approves
-	// everything never looks like one that asks.
+	// everything never looks like one that asks. The goal note comes before
+	// it, coloured by its status.
 	first := th.Fg(roleDim, tui.TruncateToWidth(line1, width, "..."))
-	if perm != "" {
-		if room := width - tui.VisibleWidth(perm); room >= 8 {
-			role := roleDim
-			if f.permission == "bypass" {
-				role = roleWarning
+	if suffix := tui.VisibleWidth(goal) + tui.VisibleWidth(perm); suffix > 0 {
+		if room := width - suffix; room >= 8 || (room >= 0 && tui.VisibleWidth(line1) <= room) {
+			colored := ""
+			if goal != "" {
+				colored += th.Fg(goalRole, goal)
 			}
-			first = th.Fg(roleDim, tui.TruncateToWidth(line1, room, "...")) + th.Fg(role, perm)
+			if perm != "" {
+				role := roleDim
+				if f.permission == "bypass" {
+					role = roleWarning
+				}
+				colored += th.Fg(role, perm)
+			}
+			first = th.Fg(roleDim, tui.TruncateToWidth(line1, room, "...")) + colored
 		}
 	}
 	lines := []string{

@@ -3,7 +3,7 @@
 package telegram
 
 // Godog harness for features/gateway_session_identity.feature: drives a chat
-// message through the real handler against the fake Bot API (internal/tgfake)
+// message through the real handler against the fake Bot API (tgfake)
 // and a scripted agent, and asserts on the session id, on the prompt the agent
 // was handed and on the text that reached the chat. No LLM and no network
 // beyond the local httptest server.
@@ -17,13 +17,13 @@ import (
 	"sync"
 	"testing"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 const (
@@ -48,6 +48,8 @@ type scriptedRunner struct {
 	surfaces []string
 	// restricted records whether each turn came with a restriction.
 	restricted []bool
+	// langs records the language each turn carried.
+	langs []string
 }
 
 func newScriptedRunner() *scriptedRunner {
@@ -85,6 +87,11 @@ func (r *scriptedRunner) HandleSessionPromptWithSender(_ context.Context, params
 	}
 	r.surfaces = append(r.surfaces, surface)
 	r.restricted = append(r.restricted, opts != nil && opts.Restriction != nil)
+	lang := ""
+	if opts != nil {
+		lang = opts.Lang
+	}
+	r.langs = append(r.langs, lang)
 	answer := r.answer
 	r.mu.Unlock()
 

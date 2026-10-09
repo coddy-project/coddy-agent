@@ -124,6 +124,12 @@ function IconArchiveRow(props: { out?: boolean }) {
 
 export function SessionsSidebar(props: {
   sessionId: string;
+  /**
+   * Sessions whose name a describe call is still working out: their rows
+   * show a placeholder for the title and the tags instead of the first
+   * message they would be listed under.
+   */
+  namingSessionIds?: ReadonlySet<string>;
   /** Session ids with an unresolved permission_prompt in the composer. */
   permissionPendingSessionIds?: ReadonlySet<string>;
   /** Session ids with an unresolved question_prompt in the composer. */
@@ -416,6 +422,7 @@ export function SessionsSidebar(props: {
     group.labelKey ? t(group.labelKey) : String(group.label ?? "");
 
   const renderRow = (s: SessionRow, pinnedIndex = -1) => {
+    const naming = props.namingSessionIds?.has(s.id) === true;
     const showsActivity = sessionRowShowsActivity(
       s,
       permissionPending,
@@ -560,52 +567,78 @@ export function SessionsSidebar(props: {
                   />
                 )
               ) : null}
-                {showsPermission ? (
-                  <span
-                    className="session-permission-icon"
-                    role="img"
-                    aria-label={t("sessions.permissionRequired")}
-                    data-testid={`session-permission-${s.id}`}
-                    title={t("sessions.permissionRequired")}
-                  >
-                    ?
-                  </span>
-                ) : null}
-                {showsQuestion ? (
-                  <span
-                    className="session-question-icon"
-                    role="img"
-                    aria-label={t("sessions.questionPending")}
-                    data-testid={`session-question-${s.id}`}
-                    title={t("sessions.questionPending")}
-                  >
-                    ?
-                  </span>
-                ) : null}
-                {s.archived ? (
-                  <span
-                    className="session-archived-mark"
-                    role="img"
-                    data-testid={`session-archived-${s.id}`}
-                    aria-label={t("sessions.archivedBadge")}
-                    title={t("sessions.archivedBadge")}
-                  >
-                    <IconArchiveRow />
-                  </span>
-                ) : null}
+              {showsPermission ? (
+                <span
+                  className="session-permission-icon"
+                  role="img"
+                  aria-label={t("sessions.permissionRequired")}
+                  data-testid={`session-permission-${s.id}`}
+                  title={t("sessions.permissionRequired")}
+                >
+                  ?
+                </span>
+              ) : null}
+              {showsQuestion ? (
+                <span
+                  className="session-question-icon"
+                  role="img"
+                  aria-label={t("sessions.questionPending")}
+                  data-testid={`session-question-${s.id}`}
+                  title={t("sessions.questionPending")}
+                >
+                  ?
+                </span>
+              ) : null}
+              {s.archived ? (
+                <span
+                  className="session-archived-mark"
+                  role="img"
+                  data-testid={`session-archived-${s.id}`}
+                  aria-label={t("sessions.archivedBadge")}
+                  title={t("sessions.archivedBadge")}
+                >
+                  <IconArchiveRow />
+                </span>
+              ) : null}
             </span>
             <div className="session-row-leading">
-              <span
-                className="session-title"
-                title={s.title || t("sessions.newChatFallback")}
-              >
-                {s.title || t("sessions.newChatFallback")}
-              </span>
+              {naming ? (
+                <span
+                  className="session-title session-title--pending"
+                  data-testid={`session-title-pending-${s.id}`}
+                  aria-busy="true"
+                  title={t("sessions.naming")}
+                >
+                  <span
+                    className="session-title-skeleton naming-skeleton-bar"
+                    aria-hidden="true"
+                  />
+                  <span className="sr-only">{t("sessions.naming")}</span>
+                </span>
+              ) : (
+                <span
+                  className="session-title"
+                  title={s.title || t("sessions.newChatFallback")}
+                >
+                  {s.title || t("sessions.newChatFallback")}
+                </span>
+              )}
             </div>
             {/* The tags sit under the title rather than beside it: the title is
             what the row is for, and a long one must not be pushed out of view
-            by labels. Grouping by tag is how they are navigated. */}
-            {(s.tags ?? []).length > 0 ? (
+            by labels. Grouping by tag is how they are navigated. While the
+            chat is being named, the tags the same answer brings are on their
+            way too. */}
+            {naming ? (
+              <div
+                className="session-row-tags session-row-tags--pending"
+                data-testid={`session-tags-pending-${s.id}`}
+                aria-hidden="true"
+              >
+                <span className="session-tag-skeleton naming-skeleton-bar" />
+                <span className="session-tag-skeleton naming-skeleton-bar" />
+              </div>
+            ) : (s.tags ?? []).length > 0 ? (
               <div
                 className="session-row-tags"
                 data-testid={`session-tags-${s.id}`}
@@ -871,7 +904,10 @@ export function SessionsSidebar(props: {
                       }
                     >
                       <span className="session-group-label">{label}</span>
-                      <Chevron open={!isCollapsed} className="session-group-caret" />
+                      <Chevron
+                        open={!isCollapsed}
+                        className="session-group-caret"
+                      />
                     </button>
                     {/* A folder heading is also where a conversation about that
                       folder starts: the plus opens a new chat already pointed

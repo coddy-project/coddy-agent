@@ -190,6 +190,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/info", s.coddyInfoGet)
 	s.mux.HandleFunc("GET /coddy/workspace/files", s.coddyWorkspaceFilesGet)
 	s.mux.HandleFunc("GET /coddy/workspace/context", s.coddyWorkspaceContextGet)
+	s.mux.HandleFunc("POST /coddy/workspace/fetch", s.coddyWorkspaceFetchPost)
 	s.mux.HandleFunc("GET /coddy/workspace/folders", s.coddyWorkspaceFoldersGet)
 	s.mux.HandleFunc("POST /coddy/workspace/folders", s.coddyWorkspaceFoldersPost)
 	s.mux.HandleFunc("GET /coddy/workspace/file", s.coddyWorkspaceFileGet)
@@ -228,12 +229,14 @@ func (s *Server) registerCoddyRoutes() {
 	s.registerMemoryRoutes()
 	s.registerBackgroundRoutes()
 	s.registerQueueRoutes()
+	s.registerGoalRoutes()
 	s.registerSubagentRoutes()
 	s.registerHookRoutes()
 	s.registerDocsRoutes()
 	s.registerSchedulerRoutes()
 	s.registerRewindRoute()
 	s.registerChangesRoutes()
+	s.registerWorkspaceViewerRoutes()
 	s.registerSkillsManagementRoutes()
 	s.registerMCPManagementRoutes()
 }
@@ -371,7 +374,7 @@ func (s *Server) coddySessionArtifactRevealPost(w http.ResponseWriter, r *http.R
 		http.NotFound(w, r)
 		return
 	}
-	if err := platform.RevealFile(path); err != nil {
+	if err := s.revealFile(path); err != nil {
 		if errors.Is(err, platform.ErrRevealHeadless) || errors.Is(err, platform.ErrRevealUnsupported) {
 			http.Error(w, `{"error":{"message":"artifact reveal is unavailable on this server"}}`, http.StatusServiceUnavailable)
 			return
@@ -553,11 +556,25 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A text made only of settings commands configures the session and names
+	// nothing: the answer is empty, and the chat keeps whatever name it has.
+	text, ok := describePromptText(raw)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"object": "coddy.describe",
+			"short":  "",
+			"tags":   jsonTagList(nil),
+		})
+		return
+	}
+
 	// Every text is asked about, however short. A first message of two words is
 	// exactly the one that needs the model: "git status" is a usable title and
 	// no filing at all, and the tags ride on this call - echoing the words back
 	// would leave the shortest conversations the only unlabelled ones.
-	words := strings.Fields(raw)
+	commands := s.describeInvokedCommands(r, text)
+	words := describeFallbackWords(text, commands)
 
 	provider, err := s.providerFactory(s.activeCfg())
 	if err != nil {
@@ -568,17 +585,8 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	resp, err := provider.Complete(ctx, []llm.Message{
-		{
-			Role: llm.RoleSystem,
-			Content: prompts.WithIdentity(
-				"You generate short descriptions for chat titles and command labels. " +
-					"Return exactly one short phrase (3 to 8 words) describing what the user's text is about. " +
-					"Match the user's language when possible. " +
-					"No quotes, no preamble, no headings, no numbering. " +
-					"Then, on a second line, write " + describeTagsPrefix + " followed by 1 to 3 comma separated topic labels " +
-					"for filing the conversation - one or two words each, lower case, in English. Output nothing else."),
-		},
-		{Role: llm.RoleUser, Content: raw},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(describeSystemPrompt(commands))},
+		{Role: llm.RoleUser, Content: text},
 	}, nil)
 	if err != nil {
 		s.log.Error("describe llm", "error", err)
@@ -587,7 +595,7 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	phraseLines, tags := describeSplitTagsLine(resp.Content)
-	short := describePickPhraseFromLLM(phraseLines, words)
+	short := describePickPhraseFromLLM(describeDropCommandEchoes(phraseLines, commands), words)
 	if short == "" {
 		short = strings.Join(words[:min(3, len(words))], " ")
 	}
@@ -1024,6 +1032,7 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	includeScheduler := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_scheduler")), "true")
 	includeSubagents := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_subagents")), "true")
+	includePrint := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_print")), "true")
 	archived, ok := session.ParseArchiveFilter(r.URL.Query().Get("archived"))
 	if !ok {
 		http.Error(w, `{"error":{"message":"archived must be \"exclude\", \"only\" or \"all\""}}`, http.StatusBadRequest)
@@ -1031,7 +1040,7 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	}
 	origin, ok := session.ParseOriginFilter(r.URL.Query().Get("origin"))
 	if !ok {
-		http.Error(w, `{"error":{"message":"origin must be \"local\" or \"gateway\""}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"origin must be \"local\", \"gateway\" or \"print\""}}`, http.StatusBadRequest)
 		return
 	}
 	sortKey, ok := session.ParseSortKey(r.URL.Query().Get("sort"))
@@ -1051,6 +1060,13 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		Archived:             archived,
 		Tags:                 session.ParseTagList(r.URL.Query().Get("tags")),
 		Origin:               origin,
+		IncludePrintRuns:     includePrint,
+		// A conversation nobody wrote in stays out of History (issue #357),
+		// except while its first turn runs: that turn appends the prompt only
+		// once its MCP servers and its model's context window are in, and
+		// the chat is in History from its first send. Decided below, where
+		// the activity of a session is known.
+		IncludeEmpty: true,
 	}
 	rows, err := fs.ListSnapshotsWith(listOpts)
 	if err != nil {
@@ -1063,19 +1079,29 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	// History itself keeps their rows hidden.
 	historyRows := rows
 	if !isNormalHistoryList(listOpts) || !listOpts.IncludeSubagents {
-		historyRows, err = fs.ListSnapshotsWith(session.ListOptions{IncludeSubagents: true})
+		historyRows, err = fs.ListSnapshotsWith(session.ListOptions{IncludeSubagents: true, IncludeEmpty: true})
 		if err != nil {
 			s.log.Error("coddy sessions active count", "error", err)
 			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
 			return
 		}
 	}
+	turnActive := func(id string) bool {
+		return s.mgr.SessionTurnActiveInProcess(id) || session.TurnLockHeld(fs.SessionPath(id))
+	}
 	activeCount := 0
 	for _, row := range historyRows {
-		if s.mgr.SessionTurnActiveInProcess(row.SessionID) || session.TurnLockHeld(fs.SessionPath(row.SessionID)) {
+		if turnActive(row.SessionID) {
 			activeCount++
 		}
 	}
+	kept := rows[:0]
+	for _, row := range rows {
+		if !row.HoldsNoMessage() || turnActive(row.SessionID) {
+			kept = append(kept, row)
+		}
+	}
+	rows = kept
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
 		rows, err = fs.FilterSnapshotListForSearch(rows, q)
 		if err != nil {
@@ -1244,7 +1270,8 @@ func isNormalHistoryList(opts session.ListOptions) bool {
 		!opts.IncludeSubagents &&
 		opts.Archived == session.ArchiveExclude &&
 		len(opts.Tags) == 0 &&
-		opts.Origin == session.OriginAny
+		opts.Origin == session.OriginAny &&
+		!opts.IncludePrintRuns
 }
 
 // coddySessionTokenUsage reads the provider token totals a session accumulated.
@@ -1407,6 +1434,11 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir string, msgs []llm.Mess
 		if m.Role == llm.RoleUser && m.BackgroundWake != nil {
 			// Nobody typed this message: a woken turn opened with it.
 			item["background_wake"] = m.BackgroundWake
+		}
+		if m.Role == llm.RoleUser && m.GoalTurn != nil {
+			// Nobody typed this message either: the supervisor opened a
+			// goal turn with it.
+			item["goal_turn"] = m.GoalTurn
 		}
 		// A prompt's attachments, and the pictures a tool call showed the
 		// model (read on an image file), which stay on that call's result.
@@ -1738,13 +1770,22 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		out["subagent"] = subagentMetaLink(meta)
 	} else if st.IsSchedulerJob() {
 		out["readOnly"] = true
-		out["schedulerJob"] = map[string]interface{}{"jobId": st.GetSchedulerJobID()}
+		job := map[string]interface{}{"jobId": st.GetSchedulerJobID()}
+		if ws := st.GetSchedulerJobWorkspace(); ws != "" {
+			job["workspace"] = ws
+		}
+		out["schedulerJob"] = job
 	}
 	// An archived session is where the composer learns it must not offer a
 	// prompt. It cannot be read off the session listing: that skips the archive,
 	// so the conversation on screen may be in no page the client holds.
 	if archived, _ := st.ArchiveState(); archived {
 		out["archived"] = true
+	}
+	// The last rewind can still be taken back: the client offers Undo on the
+	// prompt it edited.
+	if idx, ok := s.mgr.RewindUndoAvailable(id); ok {
+		out["rewindUndo"] = map[string]int{"userMessageIndex": idx}
 	}
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
@@ -1756,6 +1797,11 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		if snap, err := s.mgr.SessionSettings(id); err == nil {
 			out["settings"] = snap
 		}
+	}
+	// The session goal, versioned like the session_goal frames: null when
+	// there is none.
+	if u, err := s.mgr.SessionGoal(id); err == nil {
+		out["goal"] = goalPayload(u)
 	}
 	// A session saved before only the agent's own settings changes were
 	// noted keeps the notices of the operator's: they are not shown.
@@ -2023,7 +2069,9 @@ func (s *Server) lowestPinRank() int {
 	if fs == nil {
 		return 0
 	}
-	rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: session.ArchiveAll})
+	// Every pin counts, a pinned print run's and a pinned conversation
+	// nobody wrote in included: a new pin goes above all of them.
+	rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: session.ArchiveAll, IncludeEmpty: true, IncludePrintRuns: true})
 	if err != nil {
 		s.log.Warn("read pin ranks", "error", err)
 		return 0
@@ -2180,12 +2228,17 @@ func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request)
 		// client happens to have loaded. Scheduler runs stay out of it, and
 		// subagent children go with the parent they belong to. "all" reaches
 		// into the archive as well: a scope that left sessions behind because
-		// they were put aside would not be the whole history.
+		// they were put aside would not be the whole history. The runs of
+		// one-shot print mode are part of it too: the table these scopes come
+		// from lists them, and emptying the archive must not leave an archived
+		// print run behind.
 		archived := session.ArchiveAll
 		if scope == "archived" {
 			archived = session.ArchiveOnly
 		}
-		rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: archived})
+		// A session nobody wrote in is out of the listing people read, and in
+		// the history this scope deletes all the same.
+		rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: archived, IncludeEmpty: true, IncludePrintRuns: true})
 		if err != nil {
 			s.log.Error("coddy sessions bulk delete list", "error", err)
 			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)

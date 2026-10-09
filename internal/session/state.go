@@ -66,6 +66,13 @@ type State struct {
 	// HookContext is the context SessionStart hooks handed to the session;
 	// every system prompt of the session carries it (see docs/features/hooks.md).
 	HookContext string
+	goal        GoalState
+	// goalNotify publishes a goal change (State.SetGoalNotifier).
+	goalNotify func(notice string)
+	// turnGoal is the marker of the goal turn about to run (SetTurnGoal);
+	// goalCommandNotice the answer of a /goal command for the result.
+	turnGoal          *llm.GoalTurn
+	goalCommandNotice string
 
 	// Messages is the conversation history.
 	Messages []llm.Message
@@ -212,6 +219,9 @@ type State struct {
 	// turnRestriction is what the surface running the current turn took away
 	// from it; turn-scoped and never persisted.
 	turnRestriction *TurnRestriction
+	// turnLang is the language of the surface running the current turn (the
+	// web UI's locale, the terminal's); turn-scoped and never persisted.
+	turnLang string
 	// turnWake is the background wake the current turn was started for, until
 	// the agent takes it to mark the turn's first message; turn-scoped.
 	turnWake *llm.BackgroundWake
@@ -225,6 +235,10 @@ type State struct {
 	// schedulerJobId, which is what keeps it out of the working list.
 	SchedulerRun   bool
 	SchedulerJobID string
+	// SchedulerJobWorkspace is the canonical workspace of a project job's
+	// session; empty for a user job. It is what keeps a user job and a project
+	// job of the same id from finding each other's session.
+	SchedulerJobWorkspace string
 
 	// PermissionMode is the session-level override for tools.permission_mode.
 	// Empty means use the config default. Values: "ask", "accept_edits", "bypass".
@@ -256,6 +270,9 @@ type State struct {
 	// resumed run takes its live entry over: from then on the copy's persist
 	// hook writes nothing, since the run's state owns the bundle.
 	superseded atomic.Bool
+	// bundleDeferred says the session's bundle waits for its first prompt
+	// (Manager.SetDeferNewSessionBundle): SessionDir is empty until then.
+	bundleDeferred atomic.Bool
 
 	// sessionMCPDecls are the ACP client-supplied MCP declarations this session
 	// dialed, kept so a child session can redial them: they exist nowhere in
@@ -373,6 +390,12 @@ func (s *State) setSessionDir(dir string) {
 	s.mu.Unlock()
 }
 
+// BundleDeferred reports whether the session's bundle still waits for its
+// first prompt (Manager.SetDeferNewSessionBundle): nothing of it is on disk.
+func (s *State) BundleDeferred() bool {
+	return s.bundleDeferred.Load()
+}
+
 // GetPersistedSessionDir returns the filesystem bundle dir if persistence is enabled.
 func (s *State) GetPersistedSessionDir() string {
 	s.mu.RLock()
@@ -388,6 +411,22 @@ func (s *State) SetSchedulerJobWithoutPersist(jobID string) {
 	s.SchedulerRun = true
 	s.SchedulerJobID = strings.TrimSpace(jobID)
 	s.mu.Unlock()
+}
+
+// SetSchedulerJobWorkspaceWithoutPersist records the workspace of a project
+// job's session (see SchedulerJobWorkspace); empty for a user job.
+func (s *State) SetSchedulerJobWorkspaceWithoutPersist(workspace string) {
+	s.mu.Lock()
+	s.SchedulerJobWorkspace = strings.TrimSpace(workspace)
+	s.mu.Unlock()
+}
+
+// GetSchedulerJobWorkspace returns the workspace of a project job's session,
+// "" for a user job or an ordinary session.
+func (s *State) GetSchedulerJobWorkspace() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SchedulerJobWorkspace
 }
 
 // IsSchedulerJob reports whether this session belongs to a scheduler job: the
@@ -510,8 +549,11 @@ type SubagentMeta struct {
 
 // SchedulerRunMeta is the origin of a scheduled run.
 type SchedulerRunMeta struct {
-	// JobID is the scheduler job (the file basename under scheduler.dir).
+	// JobID is the scheduler job (the basename of its *.md file).
 	JobID string
+	// Workspace is the canonical workspace of a project job; empty for a
+	// user job.
+	Workspace string
 	// Trigger is "cron" for a run the tick started, "manual" for one asked
 	// for through the API or a tool.
 	Trigger string
@@ -532,6 +574,11 @@ func (m *SchedulerRunMeta) clone() *SchedulerRunMeta {
 // SubagentKindMemory is the Kind of the memory subagent, the child a user
 // turn starts to recall and persist long-term memory.
 const SubagentKindMemory = "memory"
+
+// SubagentKindGoalVerifier is the Kind of the goal verifier, the child the
+// session supervisor starts to confirm a met goal against the workspace
+// (internal/agent/goal_verifier.go).
+const SubagentKindGoalVerifier = "goal-verifier"
 
 // SetSubagentMeta marks the session as a child run. It does not persist by
 // itself: the manager saves the state right after building it.
@@ -1519,6 +1566,24 @@ func (s *State) SetSurfaceSystemPrompt(block string) {
 	s.mu.Lock()
 	s.surfaceSystemPrompt = strings.TrimSpace(block)
 	s.mu.Unlock()
+}
+
+// SetTurnLang records the language of the surface running the current turn:
+// the documentation the turn's @coddy: mentions attach and the agent's
+// documentation tools read is in that language. Turn-scoped like
+// SetSurfaceSystemPrompt; "" clears it.
+func (s *State) SetTurnLang(lang string) {
+	s.mu.Lock()
+	s.turnLang = strings.TrimSpace(lang)
+	s.mu.Unlock()
+}
+
+// GetTurnLang returns the current turn's language, "" when its surface named
+// none.
+func (s *State) GetTurnLang() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.turnLang
 }
 
 // SetTurnRestriction records what the surface running the current turn takes

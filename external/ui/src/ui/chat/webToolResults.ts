@@ -168,7 +168,9 @@ function safeParse(text: string): unknown {
  * an error, an older result shape, a preview cut before the first whole hit - in
  * which case the caller keeps the plain text it already had.
  */
-export function webSearchResultMarkdown(resultText: string | undefined): string | null {
+export function webSearchResultMarkdown(
+  resultText: string | undefined,
+): string | null {
   const raw = (resultText || "").trim();
   if (!raw.startsWith("{")) return null;
   const parsed = safeParse(raw);

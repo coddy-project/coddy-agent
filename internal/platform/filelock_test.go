@@ -1,4 +1,4 @@
-//go:build unix || windows
+//go:build darwin || dragonfly || freebsd || linux || netbsd || openbsd || windows
 
 package platform
 
@@ -40,4 +40,30 @@ func TestLockFileHoldsOffASecondHolder(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the lock was not handed on after its release")
 	}
+}
+
+func TestTryLockFileSkipsHeldLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json.lock")
+	release, err := LockFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second, acquired, err := TryLockFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acquired || second != nil {
+		t.Fatal("TryLockFile acquired a lock that another holder owns")
+	}
+
+	release()
+	second, acquired, err = TryLockFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acquired || second == nil {
+		t.Fatal("TryLockFile did not acquire a released lock")
+	}
+	second()
 }

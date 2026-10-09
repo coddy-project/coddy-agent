@@ -1,5 +1,5 @@
 /**
- * The changed-file paths arranged as a tree for the review window's file panel.
+ * The changed-file paths arranged as a tree for the edits window's file panel.
  *
  * Pure so the shape - especially the chain collapsing - is testable without
  * rendering anything.
@@ -72,7 +72,12 @@ function finish(node: Building, prefix: string): FileTreeNode[] {
 
 function toNode(node: Building, prefix: string): FileTreeNode {
   if (node.filePath !== undefined && node.children.size === 0) {
-    return { kind: "file", label: node.name, path: node.filePath, children: [] };
+    return {
+      kind: "file",
+      label: node.name,
+      path: node.filePath,
+      children: [],
+    };
   }
 
   // A directory holding exactly one directory adds a row that says nothing on
@@ -93,4 +98,17 @@ function toNode(node: Building, prefix: string): FileTreeNode {
 
   const path = prefix ? prefix + "/" + label : label;
   return { kind: "dir", label, path, children: finish(current, path) };
+}
+
+/** The paths in the order the tree shows them: folders first, each by name. */
+export function treeOrder(paths: string[]): string[] {
+  const out: string[] = [];
+  const walk = (nodes: FileTreeNode[]) => {
+    for (const node of nodes) {
+      if (node.kind === "file") out.push(node.path);
+      else walk(node.children);
+    }
+  };
+  walk(buildFileTree(paths));
+  return out;
 }

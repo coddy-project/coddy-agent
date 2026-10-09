@@ -3,9 +3,10 @@ import type { TranscriptItem } from "./types";
 type PlanDocumentItem = Extract<TranscriptItem, { type: "plan_document" }>;
 
 /** Plan fields that change layout chrome only; must not trigger stick-to-bottom scroll. */
-function planDocumentScrollNeutral(
-  it: PlanDocumentItem,
-): Omit<PlanDocumentItem, "expanded" | "discarded"> & {
+function planDocumentScrollNeutral(it: PlanDocumentItem): Omit<
+  PlanDocumentItem,
+  "expanded" | "discarded"
+> & {
   discarded?: never;
   expanded?: never;
 } {

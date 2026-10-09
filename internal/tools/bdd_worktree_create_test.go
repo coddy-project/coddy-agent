@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -25,6 +26,8 @@ type worktreeCreateState struct {
 	output    string
 	worktree  string
 	createErr error
+	// created is what worktree_create answered.
+	created string
 }
 
 func (s *worktreeCreateState) git(dir string, args ...string) (string, error) {
@@ -74,12 +77,53 @@ func (s *worktreeCreateState) setup() error {
 }
 
 func (s *worktreeCreateState) create(branch string) error {
-	_, err := apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeCreate,
+	out, err := apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeCreate,
 		fmt.Sprintf(`{"branch":%q}`, branch), s.env)
 	if err != nil {
 		return err
 	}
+	s.created = out
 	s.worktree = s.state.GetCWD()
+	return nil
+}
+
+// remoteOnlyBranch leaves branch on origin and in refs/remotes/origin, with
+// no local branch of that name.
+func (s *worktreeCreateState) remoteOnlyBranch(branch string) error {
+	for _, args := range [][]string{
+		{"branch", branch},
+		{"push", "origin", branch},
+		{"branch", "-D", branch},
+		{"fetch", "origin"},
+	} {
+		if _, err := s.git(s.root, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *worktreeCreateState) reportsBranch(branch string) error {
+	var answer struct {
+		Branch string `json:"branch"`
+	}
+	if err := json.Unmarshal([]byte(s.created), &answer); err != nil {
+		return fmt.Errorf("tool answer %q: %w", s.created, err)
+	}
+	if answer.Branch != branch {
+		return fmt.Errorf("tool reports branch %q, want %q", answer.Branch, branch)
+	}
+	return nil
+}
+
+func (s *worktreeCreateState) worktreeTracks(upstream string) error {
+	got, err := s.git(s.worktree, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	if err != nil {
+		return err
+	}
+	if got != upstream {
+		return fmt.Errorf("worktree upstream = %q, want %q", got, upstream)
+	}
 	return nil
 }
 
@@ -134,6 +178,9 @@ func TestWorktreeCreateFeature(t *testing.T) {
 			sc.Step(`^the creation is refused and the session stays in the main checkout$`, s.refused)
 			sc.Step(`^the agent runs "([^"]*)" without a cwd argument$`, s.run)
 			sc.Step(`^the command runs inside the new worktree$`, s.check)
+			sc.Step(`^origin has a branch "([^"]*)" the repository has fetched but not checked out$`, s.remoteOnlyBranch)
+			sc.Step(`^the tool reports the branch "([^"]*)"$`, s.reportsBranch)
+			sc.Step(`^the new worktree's branch tracks "([^"]*)"$`, s.worktreeTracks)
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/worktree_create.feature"}, TestingT: t, Strict: true},
 	}

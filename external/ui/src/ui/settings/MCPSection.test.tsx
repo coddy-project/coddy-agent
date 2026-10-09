@@ -56,7 +56,7 @@ const listResponse = {
 };
 
 function stubFetch() {
-	const calls: Array<{ url: string; method: string }> = [];
+  const calls: Array<{ url: string; method: string }> = [];
   vi.stubGlobal(
     "fetch",
     vi.fn().mockImplementation((url: string, init?: RequestInit) => {
@@ -64,7 +64,7 @@ function stubFetch() {
       return Promise.resolve({ ok: true, json: async () => listResponse });
     }),
   );
-	return calls;
+  return calls;
 }
 
 test("lists MCP servers for the selected session workspace", async () => {
@@ -335,8 +335,11 @@ test("an unapproved project server shows what it would run and offers approval",
 // A header value is never shown, so the variables of the Coddy process the
 // declaration would read and send are named in the note instead.
 test("the approval note names the variables a declaration reads", async () => {
-  const { command: _command, args: _args, ...pending } =
-    pendingListResponse.items[0]!;
+  const {
+    command: _command,
+    args: _args,
+    ...pending
+  } = pendingListResponse.items[0]!;
   const response = {
     ...pendingListResponse,
     items: [
@@ -351,9 +354,11 @@ test("the approval note names the variables a declaration reads", async () => {
   };
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockImplementation(() =>
-      Promise.resolve({ ok: true, json: async () => response }),
-    ),
+    vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve({ ok: true, json: async () => response }),
+      ),
   );
   render(<MCPSection />);
   await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
@@ -842,9 +847,7 @@ test("an edit keeps the hidden values: placeholder, hint and the fingerprint sho
   );
   fireEvent.click(screen.getByTestId("mcp-editor-save"));
 
-  await waitFor(() =>
-    expect(calls.some((c) => c.method === "PUT")).toBe(true),
-  );
+  await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
   const put = calls.find((c) => c.method === "PUT")!;
   expect(put.url).toBe(
     "/coddy/mcp/files?scope=global&fingerprint=sha256%3Ashown",
@@ -866,9 +869,7 @@ test("a new server sends no fingerprint and shows no values hint", async () => {
     target: { value: "fresh" },
   });
   fireEvent.click(screen.getByTestId("mcp-editor-save"));
-  await waitFor(() =>
-    expect(calls.some((c) => c.method === "PUT")).toBe(true),
-  );
+  await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
   expect(calls.find((c) => c.method === "PUT")!.url).toBe(
     "/coddy/mcp/fresh?scope=local",
   );

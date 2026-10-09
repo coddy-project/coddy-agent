@@ -6,6 +6,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -40,10 +41,13 @@ type Handler struct {
 	hc   *http.Client
 	log  *slog.Logger
 
-	mu          sync.Mutex
-	sender      acp.UpdateSender
-	sessions    map[string]*sessionState
-	preferred   string
+	mu        sync.Mutex
+	sender    acp.UpdateSender
+	sessions  map[string]*sessionState
+	preferred string
+	// nextOrigin is the origin the next HandleSessionNew asks the server to
+	// record on a session it creates (SetNextSessionOrigin).
+	nextOrigin  string
 	models      []remoteModel
 	defModel    string
 	controlCtx  context.Context
@@ -76,9 +80,13 @@ type Handler struct {
 }
 
 type sessionState struct {
-	mode      string
-	modelID   string
-	reasoning string
+	// createOrigin is the origin the server is asked to record when the first
+	// prompt creates this session (X-Coddy-Session-Origin); empty for a
+	// session that exists on the server already.
+	createOrigin string
+	mode         string
+	modelID      string
+	reasoning    string
 	// permissionMode mirrors the server session's permission mode, and
 	// settingsVersion the last settings snapshot adopted (settings.go).
 	permissionMode  string
@@ -103,6 +111,11 @@ type sessionState struct {
 	// overrides are what the last snapshot said the session changed for its
 	// running and next turns.
 	overrides []acp.TurnOverride
+
+	// goal mirrors the session goal and goalVersion the version of the
+	// snapshot adopted last (goal.go).
+	goal        *acp.SessionGoal
+	goalVersion uint64
 }
 
 // remoteTurn is the identity of one locally admitted request, not the server's
@@ -243,6 +256,8 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	h.mu.Lock()
 	preferred := h.preferred
 	h.preferred = ""
+	origin := h.nextOrigin
+	h.nextOrigin = ""
 	h.mu.Unlock()
 
 	id := preferred
@@ -255,11 +270,13 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	}
 
 	st := h.session(id)
+	fresh := preferred == ""
 	if preferred != "" {
 		msgs, err := h.sessionMessages(ctx, id)
 		switch {
 		case isNotFound(err):
 			// no such session remotely: a fresh one starts under this id
+			fresh = true
 		case err != nil:
 			return nil, fmt.Errorf("session/new: reopen %s: %w", id, err)
 		case err == nil:
@@ -274,7 +291,18 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 				st.mode = msgs.Mode
 			}
 			h.mu.Unlock()
+			if msgs.Goal != nil {
+				h.mirrorGoal(id, msgs.Goal.Goal, msgs.Goal.Version)
+			}
 		}
+	}
+
+	if fresh && origin != "" {
+		// The server creates the bundle on the first prompt, and records the
+		// origin only then: the header is harmless on any later one.
+		h.mu.Lock()
+		st.createOrigin = origin
+		h.mu.Unlock()
 	}
 
 	h.log.Info("remote session created", "id", id, "remote", h.opts.BaseURL)
@@ -317,6 +345,10 @@ func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 	if msgs.Settings != nil {
 		h.mirrorSettings(id, *msgs.Settings)
 	}
+	// The goal is the session's too: the footer shows it on entering.
+	if msgs.Goal != nil {
+		h.mirrorGoal(id, msgs.Goal.Goal, msgs.Goal.Version)
+	}
 	h.replayMessages(id, msgs.Messages)
 	// A background subagent of this session may have asked before the console
 	// opened it; the server announced that prompt then, and it is shown now.
@@ -339,7 +371,7 @@ func (h *Handler) HandleSessionList(ctx context.Context, params acp.SessionListP
 	if params.CWD != nil {
 		cwd = strings.TrimSpace(*params.CWD)
 	}
-	res, err := h.listSessions(ctx, cursor, cwd)
+	res, err := h.listSessions(ctx, cursor, cwd, false)
 	if err != nil {
 		return nil, err
 	}
@@ -361,6 +393,31 @@ func (h *Handler) HandleSessionList(ctx context.Context, params acp.SessionListP
 		out.NextCursor = &c
 	}
 	return out, nil
+}
+
+// LatestSessionID is the session the server changed last, for --continue.
+// The listing puts pinned sessions first whatever its order, so the answer is
+// the newest stamp of the page rather than its first row; includePrint counts
+// the runs of one-shot print mode, which only a print run continues.
+func (h *Handler) LatestSessionID(ctx context.Context, includePrint bool) (string, error) {
+	res, err := h.listSessions(ctx, "", "", includePrint)
+	if err != nil {
+		return "", fmt.Errorf("list remote sessions: %w", err)
+	}
+	latest, latestAt := "", time.Time{}
+	for _, row := range res.Sessions {
+		at, err := time.Parse(time.RFC3339Nano, row.UpdatedAt)
+		if err != nil {
+			at = time.Time{}
+		}
+		if latest == "" || at.After(latestAt) {
+			latest, latestAt = row.ID, at
+		}
+	}
+	if latest == "" {
+		return "", errors.New(`no previous session on the remote server (run one first, e.g. coddy --remote <server> -p "...")`)
+	}
+	return latest, nil
 }
 
 // HandleSessionPrompt runs a turn against the registered surface sender.
@@ -566,6 +623,9 @@ func (h *Handler) HandleSessionReady(sessionID string) {
 	if len(replay) > 0 {
 		h.replayMessages(sessionID, replay)
 	}
+	// A goal the session carries is on screen from the start, as the local
+	// manager sends it on ready.
+	h.sendHeldGoal(sessionID)
 	if sender := h.currentSender(); sender != nil {
 		if commands := h.commandCatalog(context.Background(), sessionID); len(commands) > 0 {
 			_ = sender.SendSessionUpdate(sessionID, acp.AvailableCommandsUpdate{
@@ -578,6 +638,16 @@ func (h *Handler) HandleSessionReady(sessionID string) {
 	// console's session-ready refresh; the server's cache answers when warm,
 	// and the load never waits for it.
 	h.pullProviderUsageAsync(sessionID, false)
+}
+
+// SetNextSessionOrigin sets the origin the next HandleSessionNew asks the
+// server to record on the session it creates (one-shot print mode marks its
+// runs "print"). A session the server already stores is never relabelled: the
+// mark is spent without being sent.
+func (h *Handler) SetNextSessionOrigin(origin string) {
+	h.mu.Lock()
+	h.nextOrigin = strings.TrimSpace(origin)
+	h.mu.Unlock()
 }
 
 // SetPreferredSessionID pins the id the next HandleSessionNew adopts.
@@ -736,6 +806,12 @@ func (h *Handler) replayMessages(sessionID string, rows []messageRow) {
 		case "user":
 			if row.BackgroundWake != nil {
 				_ = sender.SendSessionUpdate(sessionID, session.BackgroundWakeUpdate(row.BackgroundWake))
+				continue
+			}
+			// A goal turn's first message is the supervisor's: replayed as
+			// the row it was live, never as its instruction text.
+			if row.GoalTurn != nil {
+				_ = sender.SendSessionUpdate(sessionID, session.GoalTurnUpdate(row.GoalTurn))
 				continue
 			}
 			if text := strings.TrimSpace(row.Content); text != "" {

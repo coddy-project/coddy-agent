@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildFileTree } from "./fileTree";
+import { buildFileTree, treeOrder } from "./fileTree";
 
 describe("buildFileTree", () => {
   test("groups files under their directories", () => {
@@ -19,10 +19,7 @@ describe("buildFileTree", () => {
   });
 
   test("stops collapsing where a directory branches", () => {
-    const tree = buildFileTree([
-      "external/ui/a.ts",
-      "external/docs/b.md",
-    ]);
+    const tree = buildFileTree(["external/ui/a.ts", "external/docs/b.md"]);
     expect(tree).toHaveLength(1);
     expect(tree[0]!.label).toBe("external");
     expect(tree[0]!.children.map((c) => c.label)).toEqual(["docs", "ui"]);
@@ -44,5 +41,27 @@ describe("buildFileTree", () => {
   test("sorts directories before files", () => {
     const tree = buildFileTree(["z.txt", "a/inner.txt"]);
     expect(tree.map((n) => n.kind)).toEqual(["dir", "file"]);
+  });
+});
+
+describe("treeOrder", () => {
+  // The diffs read in the order the tree lists them, so the mark that follows
+  // the reader's scroll walks the tree from top to bottom.
+  test("lists the paths the way the tree reads, folders first", () => {
+    expect(
+      treeOrder([
+        "README.md",
+        "src/z.go",
+        "docs/b.md",
+        "src/a/x.go",
+        "docs/a.md",
+      ]),
+    ).toEqual([
+      "docs/a.md",
+      "docs/b.md",
+      "src/a/x.go",
+      "src/z.go",
+      "README.md",
+    ]);
   });
 });

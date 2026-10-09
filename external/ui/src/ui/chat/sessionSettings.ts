@@ -71,6 +71,25 @@ export function parseSessionSettings(raw: unknown): SessionSettings | null {
   };
 }
 
+/**
+ * permissionModeOfInfo reads the permission mode a new session starts under
+ * off an answer of `GET /coddy/info` (`permissionMode`: the server's
+ * `tools.permission_mode`, the same value a snapshot names as
+ * `configuredPermissionMode`). The start screen has no session and so no
+ * snapshot; this is how it knows which mode its first turn will run under.
+ * Null when the answer names no mode this page knows - a server from before
+ * the field, a relay's own page, an error - and never a guess, because a mode
+ * picked on the start screen is compared with it before it is left out of the
+ * first message.
+ */
+export function permissionModeOfInfo(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const mode = str((raw as Record<string, unknown>).permissionMode);
+  return (PERMISSION_MODES as readonly string[]).includes(mode) ? mode : null;
+}
+
 /** The payload of `event: session_settings`. */
 export type SessionSettingsEvent = {
   sessionId: string;

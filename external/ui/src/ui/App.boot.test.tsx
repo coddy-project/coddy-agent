@@ -19,10 +19,7 @@ type ChatScreenProps = {
 const chatScreenRenders: ChatScreenProps[] = [];
 
 vi.mock("./chat/ChatScreen", () => ({
-  ChatScreen: (props: {
-    sessionId?: string;
-    sessionLoading?: boolean;
-  }) => {
+  ChatScreen: (props: { sessionId?: string; sessionLoading?: boolean }) => {
     chatScreenRenders.push({
       sessionId: props.sessionId,
       sessionLoading: props.sessionLoading,

@@ -1,65 +1,55 @@
-Feature: Reviewing what a session changed
-  Every turn is captured as a workspace snapshot diff, so Coddy can tell the
-  user which files a session touched without asking the agent to report it. The
-  changed-files card under the transcript reads that change set, its viewer
-  reads the per-file diff, and one button rolls the whole session back.
+Feature: Reviewing and discarding the edits of a session's working copy
+  The Edits view of a chat reads what git reports for the session's folder:
+  every tracked file that differs from HEAD and every new file git does not
+  ignore, whoever made the change. Nothing is recorded per turn. The view can
+  discard the uncommitted changes, one file at a time or all of them.
 
   Background:
-    Given a running coddy HTTP server with a workspace
-    And the workspace contains "notes.txt" with "one\ntwo\nthree\n"
+    Given a running coddy HTTP server whose workspace is a git repository
+    And the repository has "notes.txt" committed as "one\ntwo\nthree\n"
 
-  Scenario: A session with no edits has nothing to show
-    When I ask what the session changed
+  Scenario: A clean working copy has nothing to show
+    When I ask what the working copy changed
     Then no files are reported as changed
+    And git is named as the version control
 
   Scenario: An edited file is reported with its line counts
     When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
-    And I ask what the session changed
+    And I ask what the working copy changed
     Then 1 file is reported as changed with 1 addition and 1 deletion
     And "notes.txt" is reported as "modified"
 
-  Scenario: A created file is reported as an addition
+  Scenario: A new file git does not ignore is an addition
     When the agent runs a turn that writes "extra.txt" as "fresh\n"
-    And I ask what the session changed
+    And I ask what the working copy changed
     Then "extra.txt" is reported as "added"
 
-  Scenario: Edits across several turns collapse into one net change
-    When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
-    And the agent runs a turn that writes "notes.txt" as "one\nTWO\nTHREE\n"
-    And I ask what the session changed
-    Then 1 file is reported as changed with 2 additions and 2 deletions
-
-  Scenario: The review window can narrow the set to the last turn
-    When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
-    And the agent runs a turn that writes "extra.txt" as "fresh\n"
-    And I ask what the last turn changed
-    Then 1 file is reported as changed with 1 addition and 0 deletions
-    And "extra.txt" is reported as "added"
+  Scenario: An edit made outside the agent is an edit too
+    When "notes.txt" is changed on disk to "ONE\ntwo\nthree\n"
+    And I ask what the working copy changed
+    Then "notes.txt" is reported as "modified"
 
   Scenario: The viewer reads the diff of one file
     When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
     And I open the diff for "notes.txt"
     Then the diff removes "two" and adds "TWO"
 
-  Scenario: The card is told when a finished turn's changes are recorded
-    Given a client listening for server events
-    When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
-    Then the client hears that the session's changes are recorded
-    When I ask what the session changed
-    Then "notes.txt" is reported as "modified"
-
-  Scenario: The card opened mid-turn shows what the running turn has written
-    When the agent writes "extra.txt" as "fresh\n" and keeps working
-    And I ask what the session changed
-    Then "extra.txt" is reported as "added"
-    When the running turn finishes
-    And I ask what the session changed
-    Then 1 file is reported as changed with 1 addition and 0 deletions
-
-  Scenario: Rolling the session back restores the workspace
+  Scenario: Discarding one file puts it back at HEAD
     When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
     And the agent runs a turn that writes "extra.txt" as "fresh\n"
-    And I roll the session changes back
+    And I discard the changes of "notes.txt"
     Then "notes.txt" contains "one\ntwo\nthree\n"
+    When I ask what the working copy changed
+    Then 1 file is reported as changed with 1 addition and 0 deletions
+    And "extra.txt" is reported as "added"
+
+  Scenario: Discarding everything returns the working copy to HEAD
+    Given a client listening for server events
+    When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
+    And the agent runs a turn that writes "extra.txt" as "fresh\n"
+    And I discard every change
+    Then the client hears that the session's working copy changed
+    And "notes.txt" contains "one\ntwo\nthree\n"
     And "extra.txt" no longer exists
-    And no files are reported as changed
+    When I ask what the working copy changed
+    Then no files are reported as changed

@@ -38,15 +38,26 @@ var inlineCodeRE = regexp.MustCompile("`[^`\n]*`")
 // that a "#fragment" on a markdown target names a heading of that file.
 // Absolute URLs, mailto: and bare fragments are not checked.
 func CheckLinks(root string, files []string) []Problem {
+	return CheckLinksIn(root, files, func(rel string) (string, error) {
+		b, err := os.ReadFile(filepath.Join(root, rel))
+		return string(b), err
+	})
+}
+
+// CheckLinksIn is CheckLinks over the text read gives for each file: a run
+// checks the links of the pages as it leaves them (a translation's links made
+// right for its folder), not as the disk holds them before it writes. The
+// headings a fragment names are read from the disk: a run moves no heading.
+func CheckLinksIn(root string, files []string, read func(rel string) (string, error)) []Problem {
 	var problems []Problem
 	headings := map[string]map[string]bool{}
 	for _, rel := range files {
-		data, err := os.ReadFile(filepath.Join(root, rel))
+		data, err := read(rel)
 		if err != nil {
 			problems = append(problems, Problem{rel, err.Error()})
 			continue
 		}
-		text := inlineCodeRE.ReplaceAllString(fencedRE.ReplaceAllString(string(data), ""), "")
+		text := inlineCodeRE.ReplaceAllString(fencedRE.ReplaceAllString(data, ""), "")
 		dir := filepath.Dir(rel)
 		self := filepath.ToSlash(filepath.Join(root, rel))
 		for _, m := range linkRE.FindAllStringSubmatch(text, -1) {
@@ -62,7 +73,7 @@ func CheckLinks(root string, files []string) []Problem {
 				if headings[self] == nil {
 					headings[self] = headingAnchors(self)
 				}
-				if !headings[self][strings.ToLower(target[1:])] {
+				if !headings[self][normalFragment(target[1:])] {
 					problems = append(problems, Problem{rel, "link " + target + ": no heading with that anchor on this page"})
 				}
 				continue
@@ -87,13 +98,22 @@ func CheckLinks(root string, files []string) []Problem {
 			if headings[key] == nil {
 				headings[key] = headingAnchors(abs)
 			}
-			if !headings[key][strings.ToLower(frag)] {
+			if !headings[key][normalFragment(frag)] {
 				problems = append(problems, Problem{rel, fmt.Sprintf("link %s: no heading with anchor #%s in %s", target, frag, path)})
 			}
 		}
 	}
 	sort.Slice(problems, func(i, j int) bool { return problems[i].String() < problems[j].String() })
 	return problems
+}
+
+// normalFragment is a link's fragment as anchors are written: percent-decoded
+// (a Cyrillic anchor may be written either way) and lower-cased.
+func normalFragment(frag string) string {
+	if u, err := url.PathUnescape(frag); err == nil {
+		frag = u
+	}
+	return strings.ToLower(frag)
 }
 
 // headingAnchors returns the GitHub-style anchors of every heading in a file,

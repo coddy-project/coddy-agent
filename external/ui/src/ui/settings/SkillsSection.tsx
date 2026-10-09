@@ -56,7 +56,9 @@ async function fetchInstalled(
 // viewed session's workspace, like the marketplaces list they follow: a
 // project marketplace approved there is offered, and one held there is
 // neither checked nor updated from.
-async function fetchUpdates(sessionId: string | undefined): Promise<SkillUpdate[]> {
+async function fetchUpdates(
+  sessionId: string | undefined,
+): Promise<SkillUpdate[]> {
   const res = await fetch("/coddy/skills/updates", {
     headers: sessionHeaders(sessionId),
   });
@@ -170,15 +172,18 @@ export function SkillsSection(props: {
   // A list asked for a workspace left since (Settings open while another
   // folder is picked) must not paint over the list of the current one.
   const installedGenRef = useRef(0);
-  const loadInstalled = useCallback(async (firstLoad = false) => {
-    const gen = ++installedGenRef.current;
-    if (firstLoad) setLoading(true);
-    const rows = await fetchInstalled(workspacePath);
-    if (gen !== installedGenRef.current) return;
-    setInstalled(rows);
-    // The latest load ends the placeholder, whichever call started it.
-    setLoading(false);
-  }, [workspacePath]);
+  const loadInstalled = useCallback(
+    async (firstLoad = false) => {
+      const gen = ++installedGenRef.current;
+      if (firstLoad) setLoading(true);
+      const rows = await fetchInstalled(workspacePath);
+      if (gen !== installedGenRef.current) return;
+      setInstalled(rows);
+      // The latest load ends the placeholder, whichever call started it.
+      setLoading(false);
+    },
+    [workspacePath],
+  );
 
   const sessionId = props.activeSessionId;
   const refreshUpdates = useCallback(async () => {

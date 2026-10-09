@@ -87,7 +87,10 @@ async function isRelay(
  * and failed the ordinary request is one whose CORS settings leave this page
  * out - which the browser otherwise reports exactly like a machine that is off.
  */
-async function answersOpaquely(base: string, timeoutMs: number): Promise<boolean> {
+async function answersOpaquely(
+  base: string,
+  timeoutMs: number,
+): Promise<boolean> {
   try {
     await localFetch(base + "/swarm/info", {
       mode: "no-cors",
@@ -167,7 +170,10 @@ export async function reportedName(
   const read = async (path: string, field: string, auth: boolean) => {
     try {
       const res = await localFetch(base + path, {
-        headers: { ...(auth ? authHeaders(token) : {}), Accept: "application/json" },
+        headers: {
+          ...(auth ? authHeaders(token) : {}),
+          Accept: "application/json",
+        },
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) {

@@ -213,6 +213,7 @@ func botCommands(cfg *config.TelegramGatewayConfig) []tgbotapi.BotCommand {
 		{Command: "plan", Description: "Plan mode: read-only, plans the work"},
 		{Command: "ask", Description: "Ask mode: read-only answers"},
 		{Command: "context", Description: "Show context window usage"},
+		{Command: "goal", Description: "Work on a goal until it is checked done"},
 		{Command: "resume", Description: "Continue another session (pick from the list or name it)"},
 	}
 	if cfg.MiniApp.URL != "" {
@@ -236,6 +237,7 @@ func helpText(cfg *config.TelegramGatewayConfig, botName string) string {
 		"/think, /nothink, /reasoning <level> — thinking and reasoning level\n" +
 		"Add --once or --count=N to change a setting for the next messages only, and write the message after it.\n" +
 		"/context — show context window usage\n" +
+		"/goal <objective> — work on a goal until a second model confirms it; /goal shows it, /goal pause, /goal resume, /goal clear\n" +
 		"/resume [id or title] — continue another session\n" +
 		app +
 		"/clear — start a new session (forgets previous context)\n" +
@@ -446,7 +448,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	// and answers with a notice, or applies it to the turn the rest starts.
 	// /permissions is not one of them here: the bot approves its chat agent
 	// itself, and the mode would only change what other surfaces ask.
-	if text == "" || (msg.IsCommand() && !isSettingsCommand(msg)) {
+	if text == "" || (msg.IsCommand() && !isSettingsCommand(msg) && !isCommand(msg, "goal")) {
 		return
 	}
 
@@ -454,13 +456,13 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	text = strings.TrimSpace(stripMention(text, b.botName))
 	// A reply asks about the message it answers: the session receives that
 	// message quoted in front of what the person wrote, and a mention alone
-	// under a reply asks about the quoted message. A settings command is not
-	// quoted - the manager reads it off the start of the text.
+	// under a reply asks about the quoted message. A settings command and
+	// /goal are not quoted - the manager reads them off the start of the text.
 	author, quoted := replyContext(msg.ReplyToMessage)
 	if text == "" && quoted == "" {
 		return
 	}
-	if !isSettingsCommand(msg) {
+	if !isSettingsCommand(msg) && !isCommand(msg, "goal") {
 		text = replyquote.Prompt(author, quoted, text)
 	}
 
@@ -534,7 +536,13 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	mirrored, releaseMirror := session.Mirror(b.mirror, st.GetID(), sender)
 	defer releaseMirror()
 
-	// A chat has no status bar: no provider usage refresh at the end.
+	// A chat has no status bar: no provider usage refresh at the end. The
+	// sender's Telegram locale is the language the turn's documentation reads
+	// and @coddy: mentions speak; a message without a sender names none.
+	lang := ""
+	if msg.From != nil {
+		lang = msg.From.LanguageCode
+	}
 	result, err := b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
 		SessionID: st.GetID(),
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
@@ -542,6 +550,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		SkipUsagePublish:    true,
 		SurfaceSystemPrompt: surfaceSystemPrompt(rich),
 		Restriction:         restriction,
+		Lang:                lang,
 	})
 	sender.Flush()
 

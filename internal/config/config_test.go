@@ -673,8 +673,8 @@ agent:
 		t.Fatalf("max_queue %d", cfg.Scheduler.MaxQueue)
 	}
 	wantDir := filepath.Join(home, "scheduler")
-	if cfg.Scheduler.Dir != wantDir {
-		t.Fatalf("dir %q want %q", cfg.Scheduler.Dir, wantDir)
+	if got := cfg.SchedulerUserDir(); got != wantDir {
+		t.Fatalf("user jobs dir %q want %q", got, wantDir)
 	}
 }
 
@@ -847,6 +847,124 @@ func TestHTTPServerCORSAndRemotesRoundTrip(t *testing.T) {
 	}
 	if len(back.HTTPServer.Remotes) != 1 || back.HTTPServer.Remotes[0].URL != "https://box.example:12345" {
 		t.Fatalf("remotes lost in round-trip: %+v", back.HTTPServer.Remotes)
+	}
+}
+
+// allow_loopback admits a page served from the browser's own machine on any
+// port and in each spelling of loopback the setting names, without naming each
+// origin. The echo is the origin itself, never "*", so a browser keeps treating
+// the answer as one for this page alone. The host test is syntactic: no DNS, so
+// a name that happens to resolve to loopback on the laptop is still refused
+// here.
+func TestHTTPCORSAllowLoopbackOrigins(t *testing.T) {
+	c := config.HTTPCORSConfig{Enabled: true, AllowLoopback: true}
+	// The origins live in testdata/loopback_origin_cases.json, which
+	// external/ui/src/ui/env/loopbackOrigin.test.ts reads too: the server and the
+	// SPA's hint are held to the same literals. A browser sends a serialized
+	// origin and nothing more, and the echo goes into Access-Control-Allow-Origin,
+	// which must be an origin, not a URL; the hosts admitted are the ones the
+	// contract names - localhost, *.localhost, 127.0.0.0/8 in dotted form and
+	// ::1 - and not every address net.IP.IsLoopback calls loopback.
+	raw, err := os.ReadFile(filepath.Join("testdata", "loopback_origin_cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Origin   string `json:"origin"`
+		Loopback bool   `json:"loopback"`
+	}
+	if err := json.Unmarshal(raw, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) < 40 {
+		t.Fatalf("only %d shared cases", len(cases))
+	}
+	for _, tc := range cases {
+		allow, ok := c.AllowOrigin(tc.Origin)
+		if tc.Loopback && (!ok || allow != tc.Origin) {
+			t.Errorf("AllowOrigin(%q) = %q,%v; want the origin echoed", tc.Origin, allow, ok)
+		}
+		if !tc.Loopback && (ok || allow != "") {
+			t.Errorf("AllowOrigin(%q) = %q,%v; want refused", tc.Origin, allow, ok)
+		}
+	}
+	// The switch is part of the policy: with CORS off it admits nothing.
+	off := config.HTTPCORSConfig{Enabled: false, AllowLoopback: true}
+	if _, ok := off.AllowOrigin("http://localhost:5173"); ok {
+		t.Error("allow_loopback with enable: false admitted an origin")
+	}
+	// The list is consulted first and "*" still wins over the echo.
+	star := config.HTTPCORSConfig{Enabled: true, AllowLoopback: true, AllowedOrigins: []string{"*"}}
+	if allow, ok := star.AllowOrigin("http://localhost:5173"); !ok || allow != "*" {
+		t.Errorf("with * in the list AllowOrigin = %q,%v; want *", allow, ok)
+	}
+	// Exact origins and the toggle compose: a listed remote page and the
+	// laptop's loopback pages are both admitted.
+	both := config.HTTPCORSConfig{Enabled: true, AllowLoopback: true, AllowedOrigins: []string{"https://ui.example"}}
+	for _, origin := range []string{"https://ui.example", "http://localhost:5173"} {
+		if allow, ok := both.AllowOrigin(origin); !ok || allow != origin {
+			t.Errorf("list + loopback AllowOrigin(%q) = %q,%v", origin, allow, ok)
+		}
+	}
+}
+
+// OpenToUnlistedOrigins names the two settings that admit pages nobody listed
+// - "*" and allow_loopback - which is what the startup warning and the dry run
+// ask before saying that a server without a credential is open to them.
+func TestHTTPCORSOpenToUnlistedOrigins(t *testing.T) {
+	for name, tc := range map[string]struct {
+		c    config.HTTPCORSConfig
+		want bool
+	}{
+		"off":            {config.HTTPCORSConfig{AllowLoopback: true, AllowedOrigins: []string{"*"}}, false},
+		"exact only":     {config.HTTPCORSConfig{Enabled: true, AllowedOrigins: []string{"http://localhost:12345"}}, false},
+		"loopback":       {config.HTTPCORSConfig{Enabled: true, AllowLoopback: true}, true},
+		"star":           {config.HTTPCORSConfig{Enabled: true, AllowedOrigins: []string{"https://ui.example", " * "}}, true},
+		"enabled, empty": {config.HTTPCORSConfig{Enabled: true}, false},
+	} {
+		if got := tc.c.OpenToUnlistedOrigins(); got != tc.want {
+			t.Errorf("%s: OpenToUnlistedOrigins() = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// The toggle is a setting like the rest of cors: it loads from the file and
+// survives the GET -> edit -> PUT round trip of the settings form.
+func TestHTTPCORSAllowLoopbackRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	yaml := httpAuthBaseYAML +
+		"httpserver:\n" +
+		"  cors:\n" +
+		"    enable: true\n" +
+		"    allow_loopback: true\n" +
+		"swarm:\n" +
+		"  cors:\n" +
+		"    enable: true\n" +
+		"    allow_loopback: true\n"
+	if err := os.WriteFile(f, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HTTPServer.CORS.AllowLoopback || !cfg.Swarm.CORS.AllowLoopback {
+		t.Fatalf("allow_loopback not parsed: http %+v swarm %+v", cfg.HTTPServer.CORS, cfg.Swarm.CORS)
+	}
+	raw, err := json.Marshal(config.ConfigToJSONDTO(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"allow_loopback":true`) {
+		t.Fatalf("the config document does not carry allow_loopback: %s", raw)
+	}
+	back, err := config.ParseConfigJSONPreservingSecrets(raw, cfg.Paths, cfg)
+	if err != nil {
+		t.Fatalf("round-trip parse: %v", err)
+	}
+	if !back.HTTPServer.CORS.AllowLoopback || !back.Swarm.CORS.AllowLoopback {
+		t.Fatalf("allow_loopback lost in round-trip: http %+v swarm %+v", back.HTTPServer.CORS, back.Swarm.CORS)
 	}
 }
 
@@ -1577,7 +1695,6 @@ logger:
 		want string
 	}{
 		{"sessions.dir", cfg.Sessions.Dir, filepath.Join(launch, "sessions")},
-		{"scheduler.dir", cfg.Scheduler.Dir, filepath.Join(launch, ".scheduler")},
 		{"memory.dir", cfg.Memory.Dir, filepath.Join(launch, "memory")},
 		{"logger.file", cfg.Logger.File, filepath.Join(launch, "coddy.log")},
 	}
@@ -1961,5 +2078,106 @@ func TestLegacySkillsSourcesMoveIntoHomeMarketplacesJSON(t *testing.T) {
 	}
 	if backups, _ := filepath.Glob(path + ".bak-*"); len(backups) != 1 {
 		t.Fatalf("want one backup for both moves, got %v", backups)
+	}
+}
+
+// scheduler.dir left config.yaml: the user jobs folder is fixed at
+// ${CODDY_HOME}/scheduler. A config that still names another folder has its
+// jobs and their .state sidecars copied there on load - a job the target has
+// with the same bytes is skipped, one with other bytes lands as
+// <id>-migrated.md - the old folder left as it was, and the key cut out.
+func TestLegacySchedulerDirCopiesJobsIntoTheHome(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	old := filepath.Join(dir, "jobs")
+	userDir := filepath.Join(home, "scheduler")
+	for _, d := range []string{old, userDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(old, "nightly.md"), "---\nschedule: \"0 3 * * *\"\n---\nold nightly\n")
+	write(filepath.Join(old, "nightly.state"), "{\"session_id\":\"sess_x\"}\n")
+	write(filepath.Join(old, "taken.md"), "---\nschedule: \"0 4 * * *\"\n---\nold taken\n")
+	write(filepath.Join(old, "taken.state"), "{\"session_id\":\"sess_old\"}\n")
+	write(filepath.Join(userDir, "taken.md"), "---\nschedule: \"0 5 * * *\"\n---\nhome taken\n")
+	write(filepath.Join(old, "same.md"), "---\nschedule: \"0 6 * * *\"\n---\nsame\n")
+	write(filepath.Join(userDir, "same.md"), "---\nschedule: \"0 6 * * *\"\n---\nsame\n")
+	write(filepath.Join(old, "same.state"), "{\"session_id\":\"sess_same\"}\n")
+	write(filepath.Join(old, "twice.md"), "---\nschedule: \"0 7 * * *\"\n---\nold twice\n")
+	write(filepath.Join(userDir, "twice.md"), "---\nschedule: \"0 7 * * *\"\n---\nhome twice\n")
+	write(filepath.Join(userDir, "twice-migrated.md"), "---\nschedule: \"0 7 * * *\"\n---\nan earlier copy\n")
+
+	body := "agent:\n  model: local/m\nscheduler:\n  enable: true\n  dir: " + old + "\n  max_queue: 3\n"
+	path := filepath.Join(dir, "config.yaml")
+	write(path, body)
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: dir, ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Scheduler.MaxQueue != 3 || !cfg.Scheduler.Enabled {
+		t.Fatalf("the rest of the scheduler section was lost: %+v", cfg.Scheduler)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "nightly.md")); !strings.Contains(string(got), "old nightly") {
+		t.Fatalf("nightly.md not copied: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "nightly.state")); !strings.Contains(string(got), "sess_x") {
+		t.Fatalf("nightly.state not copied: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "taken.md")); !strings.Contains(string(got), "home taken") {
+		t.Fatalf("a job the home already had was overwritten: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "taken-migrated.md")); !strings.Contains(string(got), "old taken") {
+		t.Fatalf("a clashing job was not copied aside: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "taken-migrated.state")); !strings.Contains(string(got), "sess_old") {
+		t.Fatalf("the clashing job's state did not follow it: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(userDir, "same-migrated.md")); err == nil {
+		t.Fatal("a job with the same bytes was copied aside")
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "same.state")); !strings.Contains(string(got), "sess_same") {
+		t.Fatalf("the checkpoint of a job the home already had was not carried: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(userDir, "twice-migrated-2.md")); !strings.Contains(string(got), "old twice") {
+		t.Fatalf("a job whose -migrated name was taken was dropped: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(old, "nightly.md")); err != nil {
+		t.Fatalf("the old folder was touched: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "agent:\n  model: local/m\nscheduler:\n  enable: true\n  max_queue: 3\n"; string(after) != want {
+		t.Fatalf("config.yaml after the move:\n%s\nwant:\n%s", after, want)
+	}
+}
+
+// A scheduler.dir that already names ${CODDY_HOME}/scheduler only leaves the
+// file.
+func TestLegacySchedulerDirAtTheDefaultIsCutOnly(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	body := "scheduler:\n  dir: ${CODDY_HOME}/scheduler\n  enable: false\n"
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.LoadWithPaths(config.Paths{Home: home, CWD: dir, ConfigPath: path}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "scheduler:\n  enable: false\n"; string(after) != want {
+		t.Fatalf("config.yaml after the move:\n%s\nwant:\n%s", after, want)
 	}
 }

@@ -35,7 +35,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: cwd},
-		Scheduler: config.SchedulerConfig{Enabled: true, Dir: schedRoot},
+		Scheduler: config.SchedulerConfig{Enabled: true},
 		Sessions:  config.Sessions{Dir: sessRoot},
 		Models:    []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
 		Agent:     config.Agent{Model: "openai/gpt-4o"},
@@ -274,5 +274,67 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("include_scheduler listing missing sess_ui: %s", blsw)
+	}
+}
+
+// A per-job route reaches a project job of another workspace only when the
+// scheduler already scans that workspace, and a create never takes a raw cwd:
+// an arbitrary folder must not get a job written or approved without a
+// session in it.
+func TestSchedulerProjectRoutesRefuseUnknownWorkspaces(t *testing.T) {
+	root := t.TempDir()
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
+	home, cwd, other := filepath.Join(root, "home"), filepath.Join(root, "cwd"), filepath.Join(root, "other")
+	for _, d := range []string{home, cwd, other, filepath.Join(root, "sessions")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: cwd},
+		Scheduler: config.SchedulerConfig{Enabled: true},
+		Sessions:  config.Sessions{Dir: filepath.Join(root, "sessions")},
+		Models:    []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "openai/gpt-4o"},
+	}
+	cfg.Scheduler.ApplyDefaults(cfg.Paths)
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), cwd, &session.FileStore{Root: filepath.Join(root, "sessions")})
+	ts := httptest.NewServer(New(cfg, mgr, slog.Default(), cwd).Handler())
+	defer ts.Close()
+
+	if err := os.MkdirAll(filepath.Join(other, ".coddy", "scheduler"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, ".coddy", "scheduler", "lint.md"), []byte("---\nschedule: \"0 3 * * *\"\n---\nx\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	trust := ts.URL + "/coddy/scheduler/jobs/lint/trust?scope=project&workspace=" + url.QueryEscape(other)
+	res, err := http.Post(trust, "application/json", strings.NewReader(`{"digest":"sha256:x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("approval in a workspace nobody opened = %d, want 403", res.StatusCode)
+	}
+
+	create := ts.URL + "/coddy/scheduler/jobs?cwd=" + url.QueryEscape(other)
+	res, err = http.Post(create, "application/json", strings.NewReader(`{"scope":"project","job_id":"planted","schedule":"0 3 * * *","body":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if _, err := os.Stat(filepath.Join(other, ".coddy", "scheduler", "planted.md")); err == nil {
+		t.Fatal("a create honoured a raw cwd")
+	}
+	if res.StatusCode == http.StatusCreated {
+		if _, err := os.Stat(filepath.Join(cwd, ".coddy", "scheduler", "planted.md")); err != nil {
+			t.Fatalf("created, but not in the server's own workspace: %v", err)
+		}
 	}
 }

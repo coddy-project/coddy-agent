@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
@@ -22,6 +21,7 @@ func jobDeleteTool(cfg *config.Config) *tooling.Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"scope": scopeProperty(),
 					"job_id": map[string]interface{}{
 						"type":        "string",
 						"description": "Flat job basename without slashes",
@@ -34,12 +34,17 @@ func jobDeleteTool(cfg *config.Config) *tooling.Tool {
 		Execute: func(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
 			var in struct {
 				JobID string `json:"job_id"`
+				Scope string `json:"scope"`
 			}
 			if err := json.Unmarshal([]byte(argsJSON), &in); err != nil {
 				return "", err
 			}
-			op := schedservice.NewService(cfg, nil, toolEnvCWD(env))
-			if err := op.DeleteJob(strings.TrimSpace(in.JobID)); err != nil {
+			op := toolService(cfg, env)
+			addr, err := toolAddr(op, in.Scope, in.JobID)
+			if err != nil {
+				return "", err
+			}
+			if err := op.DeleteJob(addr); err != nil {
 				return "", err
 			}
 			return fmt.Sprintf(`{"object":"coddy.scheduler_job_deleted","job_id":%q}`, strings.TrimSpace(in.JobID)), nil

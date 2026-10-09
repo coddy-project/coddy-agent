@@ -78,7 +78,9 @@ function triggerDownload(url: string, name: string): void {
  * Downloads directly on the local origin. A selected remote needs an explicit
  * fetch so its bearer token stays in a header rather than leaking into a URL.
  */
-export async function downloadToolArtifact(artifact: ToolArtifact): Promise<void> {
+export async function downloadToolArtifact(
+  artifact: ToolArtifact,
+): Promise<void> {
   if (!artifact.url) throw new Error("artifact URL is unavailable");
   const request = remoteApiRequest(artifact.url);
   if (!request) {
@@ -86,7 +88,8 @@ export async function downloadToolArtifact(artifact: ToolArtifact): Promise<void
     return;
   }
   const response = await fetch(request.url, request.init);
-  if (!response.ok) throw new Error(`artifact download failed (${response.status})`);
+  if (!response.ok)
+    throw new Error(`artifact download failed (${response.status})`);
   const objectUrl = URL.createObjectURL(await response.blob());
   try {
     triggerDownload(objectUrl, artifact.name);

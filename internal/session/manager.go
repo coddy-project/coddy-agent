@@ -16,6 +16,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
@@ -34,7 +35,11 @@ type Manager struct {
 	server     acp.UpdateSender
 	skillsLoad *skills.Loader
 	runner     AgentRunner
-	log        *slog.Logger
+	// goalJudge and goalVerifier check a goal turn's result
+	// (supervisor.go); nil judge means the model-based default.
+	goalJudge    GoalJudge
+	goalVerifier GoalVerifier
+	log          *slog.Logger
 	// defaultCWD is used when session/new passes an empty cwd (from CLI default or os.Getwd).
 	defaultCWD string
 	store      *FileStore
@@ -45,6 +50,11 @@ type Manager struct {
 
 	// preferredNewSessionID, when non-empty before session/new is handled, selects the id for the next new session (--session-id).
 	preferredNewSessionID string
+	// nextSessionOrigin, when non-empty before session/new is handled, is the
+	// origin the next session/new stamps on the session it creates (one-shot
+	// print mode marks its runs "print"); a session/new that reopens a stored
+	// bundle spends it without applying it.
+	nextSessionOrigin string
 
 	sessions map[string]*State
 	mu       sync.RWMutex
@@ -53,6 +63,12 @@ type Manager struct {
 	// opens, new or restored, to a worker the state owns
 	// (SetBackgroundMCPConnect); only the console sets it.
 	backgroundMCP atomic.Bool
+	// backgroundNewMCP does the same for new sessions only
+	// (SetNewSessionsBackgroundMCP); coddy serve sets it.
+	backgroundNewMCP atomic.Bool
+	// deferNewBundle leaves a new session's bundle off the disk until its
+	// first prompt (SetDeferNewSessionBundle); the console sets it.
+	deferNewBundle atomic.Bool
 	// mcpConnectTimeout overrides defaultMCPConnectTimeout; tests shorten it.
 	mcpConnectTimeout time.Duration
 	// mcpPool shares the configured MCP servers between the sessions of the
@@ -104,6 +120,8 @@ type Manager struct {
 	// settingsObs fans every change of a session's settings out the same way
 	// (settings.go).
 	settingsObs settingsObservers
+	// goalObs fans every goal change out to the surfaces (goal.go).
+	goalObs goalObservers
 
 	// cfgObservers are told whenever the live configuration is replaced, from
 	// whichever path replaced it (see config_observers.go).
@@ -562,6 +580,15 @@ func (m *Manager) SetPreferredSessionID(id string) {
 	m.preferredNewSessionID = strings.TrimSpace(id)
 }
 
+// SetNextSessionOrigin sets the origin the next session/new records when it
+// creates a session: written before the first save of session.json, so no
+// listing ever sees the bundle unmarked. A session/new that reopens a stored
+// session spends it without applying it - continuing somebody's chat from a
+// script does not relabel it.
+func (m *Manager) SetNextSessionOrigin(origin string) {
+	m.nextSessionOrigin = strings.TrimSpace(origin)
+}
+
 // SetServer injects the update sender (used when server and manager are constructed together).
 func (m *Manager) SetServer(server acp.UpdateSender) {
 	m.server = server
@@ -632,7 +659,16 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		preferredConsumed = strings.TrimSpace(m.preferredNewSessionID)
 		m.preferredNewSessionID = ""
 	}
+	origin := m.nextSessionOrigin
+	m.nextSessionOrigin = ""
+	return m.newSession(ctx, params, preferredConsumed, origin)
+}
 
+// newSession creates a session under preferredConsumed (a fresh id when it is
+// empty), or reopens the stored bundle of that id, and records origin on a
+// session it creates. EnsureHTTPSessionAs calls it with explicit values rather
+// than through the one-shot fields, which concurrent requests would share.
+func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, preferredConsumed, origin string) (*acp.SessionNewResult, error) {
 	var id string
 	if preferredConsumed != "" {
 		if err := ValidateFolderSessionID(preferredConsumed); err != nil {
@@ -676,8 +712,12 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		return nil, fmt.Errorf("session/new: %w", err)
 	}
 
+	// A console's session is written with its first prompt (issue #357): one
+	// started and closed without a prompt leaves nothing on disk. Until then
+	// it runs as a session without a store, which every path already knows.
+	deferBundle := m.store != nil && m.deferNewBundle.Load()
 	var sessionDir string
-	if m.store != nil {
+	if m.store != nil && !deferBundle {
 		sessionDir, err = m.store.EnsureLayout(id)
 		if err != nil {
 			return nil, fmt.Errorf("session/new: layout: %w", err)
@@ -688,7 +728,14 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	if err != nil {
 		return nil, err
 	}
+	// Before anything can persist the bundle: the SessionStart hooks below
+	// and the initial save both write session.json.
+	state.SetOriginWithoutPersist(origin)
+	if deferBundle {
+		state.bundleDeferred.Store(true)
+	}
 
+	m.attachGoalNotifier(state)
 	m.mu.Lock()
 	prev := m.sessions[id]
 	m.sessions[id] = state
@@ -704,7 +751,7 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 	m.runSessionStartHooks(ctx, state, hookSourceStartup)
 
-	if m.store != nil {
+	if m.store != nil && !deferBundle {
 		if err := m.store.Save(state); err != nil {
 			m.log.Warn("initial session save", "error", err)
 		}
@@ -820,6 +867,9 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		mode = ModeAgent
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory)
+	if snap.Meta.Goal != nil {
+		st.RestoreGoalWithoutPersist(*snap.Meta.Goal)
+	}
 	jobSession := false
 	if snap.Meta.IsSubagentRun() {
 		// A restored child is a read-only transcript; the meta keeps the guard
@@ -836,6 +886,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		// it carries, and nothing below (skills, hooks, MCP) is for it, since
 		// no turn ever runs on it.
 		st.SetSchedulerJobWithoutPersist(snap.Meta.SchedulerJobID)
+		st.SetSchedulerJobWorkspaceWithoutPersist(snap.Meta.SchedulerJobWorkspace)
 		jobSession = true
 	} else if kept, ok := m.keptProcessSettings(params.SessionID); ok {
 		// A surface let go of this session earlier in this process: its
@@ -926,6 +977,13 @@ func (m *Manager) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 // EnsureHTTPSession returns an in-memory session for an already-valid folder id:
 // reuse active session, load from disk if a snapshot exists, or create an empty persisted bundle using the pinned id.
 func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*State, error) {
+	return m.EnsureHTTPSessionAs(ctx, sessionID, defaultCWD, "")
+}
+
+// EnsureHTTPSessionAs is EnsureHTTPSession for a caller that says where a
+// session it creates comes from: origin is recorded only when the bundle is
+// created here, never on a session that is live or stored already.
+func (m *Manager) EnsureHTTPSessionAs(ctx context.Context, sessionID, defaultCWD, origin string) (*State, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, fmt.Errorf("empty session id")
 	}
@@ -956,8 +1014,7 @@ func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defau
 		}
 		return st, nil
 	}
-	m.SetPreferredSessionID(sessionID)
-	res, err := m.HandleSessionNew(ctx, acp.SessionNewParams{CWD: defaultCWD})
+	res, err := m.newSession(ctx, acp.SessionNewParams{CWD: defaultCWD}, sessionID, strings.TrimSpace(origin))
 	if err != nil {
 		return nil, err
 	}
@@ -1147,6 +1204,13 @@ type PromptRunOpts struct {
 	// asked about, whatever the session's permission mode. Turn-scoped, like
 	// SurfaceSystemPrompt, and never persisted.
 	Restriction *TurnRestriction
+	// Lang is the language of the surface running this turn: the web UI's
+	// locale, the terminal's, a messenger user's. The documentation the
+	// turn's @coddy: mentions attach and the agent's documentation tools read
+	// follows it (docs.KnownLang reads any spelling of a locale). Empty, or a
+	// language the documentation is not written in, leaves the choice to the
+	// language of the prompt; turn-scoped like SurfaceSystemPrompt.
+	Lang string
 
 	// BackgroundWake says the prompt was not typed by anybody: finished
 	// background tasks that finished with notification enabled started this
@@ -1258,6 +1322,10 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 		state.SetTurnSender(adm.sender)
 		state.SetQueueNotifier(func() { m.PublishMessageQueue(sessionID, state) })
 		state.OpenMessageQueue()
+		// The turn is taken: the surface hears so now, before the MCP servers
+		// and the context window below, which can take seconds, and the loop's
+		// own progress takes over from the same clock (issue #357).
+		announceTurnPreparing(sessionID, adm.sender, turnStartedAt)
 	}
 	// The ran marker lives on this admission's context, so a concurrent
 	// admission that loses the lock cannot reset it.
@@ -1326,6 +1394,54 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 		m.AwaitContextWindows(turnCtx, cfg, []string{state.EffectiveModelID(cfg)}, ContextWindowWait)
 	}
 	return turnCtx, finish, nil
+}
+
+// SetDeferNewSessionBundle leaves the bundle of every new session this manager
+// opens from now on off the disk until its first prompt: settings, a mode, a
+// hook's context stay in memory and are written with that prompt, and a
+// session closed without one leaves no folder behind (issue #357). Only the
+// console turns it on: its prompt takes the turn lock after the bundle is
+// written, while the HTTP surface takes the lock before it reads the prompt.
+func (m *Manager) SetDeferNewSessionBundle(on bool) {
+	m.deferNewBundle.Store(on)
+}
+
+// writeDeferredBundle lays out and saves the bundle of a session whose bundle
+// waited for its first prompt; it does nothing for any other session.
+func (m *Manager) writeDeferredBundle(state *State) error {
+	if m.store == nil || !state.bundleDeferred.Load() {
+		return nil
+	}
+	dir, err := m.store.EnsureLayout(state.GetID())
+	if err != nil {
+		return fmt.Errorf("session layout: %w", err)
+	}
+	state.setSessionDir(dir)
+	if err := m.store.Save(state); err != nil {
+		return fmt.Errorf("session save: %w", err)
+	}
+	// Only a written bundle ends the wait: a failed save is tried again by
+	// the next prompt.
+	state.bundleDeferred.Store(false)
+	return nil
+}
+
+// announceTurnPreparing sends the first turn_progress of a turn admitted at
+// startedAt: the preparing phase, no tokens yet.
+func announceTurnPreparing(sessionID string, sender acp.UpdateSender, startedAt time.Time) {
+	if sender == nil || startedAt.IsZero() {
+		return
+	}
+	elapsed := time.Since(startedAt)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	_ = sender.SendSessionUpdate(sessionID, acp.TurnProgressUpdate{
+		SessionUpdate: acp.UpdateTypeTurnProgress,
+		StartedAt:     startedAt.UTC().Format(time.RFC3339Nano),
+		ElapsedMs:     elapsed.Milliseconds(),
+		Phase:         acp.TurnPhasePreparing,
+	})
 }
 
 // admissible decides, under the live-map lock, whether a turn may run on
@@ -1429,6 +1545,12 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 	}
 
+	// The first prompt that is more than settings commands writes a deferred
+	// bundle, before the turn takes its lock in the bundle's folder.
+	if err := m.writeDeferredBundle(state); err != nil {
+		return nil, err
+	}
+
 	turnBase := ctx
 	if opts != nil && opts.DetachFromRequest {
 		turnBase = context.WithoutCancel(ctx)
@@ -1466,6 +1588,19 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		state.SetTurnRestriction(opts.Restriction)
 		defer state.SetTurnRestriction(nil)
 	}
+	// The language of the turn: the surface's when it names a language the
+	// documentation is written in, else the language the person wrote the
+	// prompt in (its mentions aside), so every surface - ACP editors, API
+	// clients, a subagent's task - gets the documentation it asks in.
+	turnLang := ""
+	if opts != nil {
+		turnLang, _ = docs.KnownLang(opts.Lang)
+	}
+	if turnLang == "" {
+		turnLang = promptLang(params.Prompt)
+	}
+	state.SetTurnLang(turnLang)
+	defer state.SetTurnLang("")
 	// A turn no person started says so, the same way: held for this turn
 	// only, taken by the agent for the first message, and announced to the
 	// observers once the turn holds the session.
@@ -1548,7 +1683,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	ranRunner = true
 	MarkTurnRan(turnCtx)
-	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
+	stopReason, err := m.runSupervisedTurn(turnCtx, state, hydrated, sender, opts)
 	if err != nil {
 		state.TakeTurnStopNotice()
 		if errors.Is(err, context.Canceled) {
@@ -1609,7 +1744,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		// No client typed this prompt into its view of the turn, so the run
 		// announces it (PromptEcho) before it answers it.
 		rev := state.MessagesRev()
-		stopReason, err = m.runner(withPromptEcho(turnCtx, params.SessionID), state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender)
+		stopReason, err = m.runSupervisedTurn(withPromptEcho(turnCtx, params.SessionID), state, state.ResolveQueuedMentions(QueuedPromptBlocks(queued)), sender, opts)
 		if turnCtx.Err() != nil && state.MessagesRev() == rev {
 			// Stopped before the prompt entered the conversation: nothing read
 			// it. An after_turn message waits again, as Stop promises, and the
@@ -1634,6 +1769,11 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 
 	res := &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}
+	// A /goal command answers like a settings command: its notice is the
+	// reply of a surface that shows no session update (the HTTP JSON answer).
+	if notice := state.takeGoalCommandNotice(); notice != "" {
+		res.SettingsNotice = notice
+	}
 	// A turn that stopped before its answer - its step limit, the model's
 	// output limit - says why, on every surface (issue #255): the notice is
 	// kept in the UI log and handed to the caller.
@@ -1736,6 +1876,7 @@ func (m *Manager) registerSession(id string, st *State) (winner *State, register
 		return existing, false
 	}
 	m.sessions[id] = st
+	m.attachGoalNotifier(st)
 	// What a surface let go of is the live state's again (loadSessionFromDisk
 	// restored it). Taken under the lock ForgetLiveSession sets it aside under,
 	// so a let-go right after this registration keeps what it reads.
@@ -1776,6 +1917,11 @@ func (m *Manager) HandleSessionReady(sessionID string) {
 		}
 	}
 	m.sendAvailableSlashCommands(sessionID, st)
+	// A goal the session carries is on screen from the start: a client that
+	// opens or loads it learns where the supervisor stands.
+	if st != nil && st.GetGoal().Set() && m.server != nil {
+		_ = m.server.SendSessionUpdate(sessionID, m.goalUpdate(st, ""))
+	}
 	// The footer is populated before the first prompt: an automatic read,
 	// served from the cache when it is warm.
 	m.publishProviderUsageOnReady(sessionID, st)
@@ -2236,6 +2382,9 @@ func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (f
 		return nil, err
 	}
 	return func() {
+		// A turn that followed an edited one ends the undo of that edit; its
+		// kept tail leaves the bundle while the lock is still ours.
+		retireStaleRewindUndo(st)
 		unlock()
 		m.drainPendingMCPReload(sessionID, st)
 	}, nil

@@ -32,6 +32,8 @@ If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (de
 
 When the primary file exists but is invalid (YAML parse or validation error), the loader automatically recovers from **`config.yaml.bak`** in the same directory (see **`internal/config/recovery.go`**). After every successful load the server writes **`config.yaml.bak`**. The HTTP **`PUT /coddy/config`** route (see **`docs/reference/http-api.md`**) also snapshots the current file to **`config.yaml.bak`** before overwriting, so a failed reload can be rolled back.
 
+The file holds provider keys and tokens, so Coddy writes `config.yaml`, its backups and `mcp.json` readable by their owner only (mode `0600`), whatever mode the file had before. A file created by hand or by an older version keeps its mode until Coddy saves it; `coddy -t` warns while other users of the machine can read it, and `chmod 600 ~/.coddy/config.yaml ~/.coddy/config.yaml.bak` closes it at once.
+
 The `coddy acp` subcommand also accepts **`--home`** (override `CODDY_HOME`), **`--sessions-dir`**, and **`--session-id`**. Optional **`sessions.dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$CODDY_HOME/sessions`**).
 
 ## Checking the file from the command line
@@ -54,7 +56,7 @@ $ coddy serve -t
 config test failed
 ```
 
-The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `coddy serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - a file without the `# yaml-language-server:` header, and a setting the provider never sends: `max_tokens` on a model served by a `codex` provider bounds nothing, because the Codex backend takes no output cap. The loader keeps accepting that one, since the settings form seeds `max_tokens` on every model row it adds, and `coddy serve` names it in a warning at startup. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
+The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `coddy serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - a file without the `# yaml-language-server:` header, a file other users of the machine can read (the fix is the `chmod 600` that closes it), and a setting the provider never sends: `max_tokens` on a model served by a `codex` provider bounds nothing, because the Codex backend takes no output cap. The loader keeps accepting that one, since the settings form seeds `max_tokens` on every model row it adds, and `coddy serve` names it in a warning at startup. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
 
 A file that does not parse at all is placed differently from one whose values are merely wrong. The parser reports the line the block it was reading began on, which in a file with a header of comments is a blank line far above the mistake, so the check re-reads the file to find the line whose arrival stops it parsing and reports that one instead. A start prints the same line, so `coddy -t` and `coddy serve` send you to the same place.
 
@@ -65,7 +67,7 @@ What an editor leaves in the file is not part of the configuration. A file writt
 `--dry-run` looks at the world the file describes, after the same check `--test-config` performs. Every command that takes `-t` takes it too: `coddy --dry-run`, `coddy cli --dry-run`, `coddy acp --dry-run`, `coddy serve --dry-run`, with `--config` and `--home` selecting the file as for a start. The static check runs first, and a file with errors stops there - probing what a broken file names would only bury the first mistake under its consequences. When the file is clean, the configuration is loaded without side effects (no `config.yaml.bak` written or restored) and probed:
 
 - **memory** - `memory.additional_prompt` longer than `memory.additional_prompt_max_chars` is a warning at the key: the memory subagent reads the cut text;
-- **paths** - `sessions.dir`, `logger.file`, `scheduler.dir` and `memory.dir` are fine when missing as long as they can be created (the process makes them at start), and an error when a regular file stands in the way; `prompts.dir` has to exist, and a template missing from it is a warning; `skills.dirs`, `subagents.dirs` and `hooks.files` entries you wrote are warnings when missing, while absent defaults stay quiet; a hook file that exists has to parse; `swarm.tls` must load and every `dial.ca_file` must hold a certificate;
+- **paths** - `sessions.dir`, `logger.file`, `memory.dir` and the scheduler's jobs folder are fine when missing as long as they can be created (the process makes them at start), and an error when a regular file stands in the way; `prompts.dir` has to exist, and a template missing from it is a warning; `skills.dirs`, `subagents.dirs` and `hooks.files` entries you wrote are warnings when missing, while absent defaults stay quiet; a hook file that exists has to parse; an `instructions.files` entry is a warning when its file does not exist, cannot be read, is a folder or is empty, except a relative or `${CWD}` one missing from the workspace the check runs in, which is skipped (another workspace may carry it); `swarm.tls` must load and every `dial.ca_file` must hold a certificate;
 - **LLM providers** - each provider is asked for its model list, which exercises the address, the proxy and the credential in one request (`coddy providers login` credentials included); a provider aimed at a vendor's official endpoint with nothing to present is reported without a request. Every `models[]` entry is then checked against that list: a model the server does not name is a warning, since some servers serve more than they list. A `max_tokens` on a `codex` model is a warning whatever the provider answers, since no request carries it;
 - **MCP servers** of `~/.coddy/mcp.json` - the executable of a stdio server is resolved in `PATH` the way the spawn would, without spawning it; a remote server is asked for any HTTP answer, with its headers. Project-local `.coddy/mcp.json` declarations are not contacted: they sit behind the workspace trust gate;
 - **Telegram** - when `gateways.telegram.enable` is true the token is checked against the Bot API (`getMe`), through `gateways.telegram.proxy` when set; the report names the bot;
@@ -130,7 +132,7 @@ dry run: 2 errors, 3 warnings, 4 ok
 dry run failed
 ```
 
-`ok` and `skipped` lines carry no fix; a `warning` never fails the run; an `error` does. A file that fails the static check is always shown, whichever flags were given: nothing else can be probed until it is fixed. Network probes run concurrently and each is bounded to ten seconds, so a dead server costs one wait, not one per model. Secrets are not echoed: a Telegram token is masked in any error text and a provider key is never printed. `CODDY_TELEGRAM_API_BASE` points the Telegram probe, and the bot itself, at another Bot API origin: a self-hosted server, or the offline stand of [`cmd/tgfake`](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
+`ok` and `skipped` lines carry no fix; a `warning` never fails the run; an `error` does. A file that fails the static check is always shown, whichever flags were given: nothing else can be probed until it is fixed. Network probes run concurrently and each is bounded to ten seconds, so a dead server costs one wait, not one per model. Secrets are not echoed: a Telegram token is masked in any error text and a provider key is never printed. `CODDY_TELEGRAM_API_BASE` points the Telegram probe, and the bot itself, at another Bot API origin: a self-hosted server, or the offline stand [tgfake](../surfaces/gateway.md#debugging-against-a-fake-bot-api).
 
 ## Full Configuration Schema
 
@@ -284,8 +286,8 @@ sessions:
 # Context compaction (Go: config.Compaction, internal/config/compaction.go).
 # Summarizes history older than the keep-recent boundary into one transcript row;
 # later LLM prompts replay only the summary plus the kept tail. Trigger manually
-# with the built-in /compact command (optional --model <id> for that one summary, then
-# optional trailing summarizer instructions)
+# with the built-in /compact command (optional -m/--model <id> and -r/--reasoning <level>
+# for that one summary, then optional trailing summarizer instructions)
 # or automatically at threshold_percent of the model's context window
 # (models[].max_context_tokens, else the window the provider reports, else 128000).
 compaction:
@@ -313,6 +315,7 @@ memory:
   persist_max_turns: 12
   copilot_max_tokens: 4096
   max_search_hits: 8
+  max_note_chars: 900   # longest body one saved note may have, in characters; 0 = no cap
   additional_prompt: ""          # your own instructions for the memory subagent only; the main agent never sees them
   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
 
@@ -389,10 +392,11 @@ tools:
 #   host: "127.0.0.1"
 #   port: 8080
 
-# Cron scheduler (only with go build -tags=scheduler). UTC crontab; flat *.md jobs under scheduler.dir.
+# Cron scheduler (only with go build -tags=scheduler). UTC crontab; flat *.md jobs in ${CODDY_HOME}/scheduler
+# and, once approved, in <workspace>/.coddy/scheduler.
 # scheduler:
 #   enable: false
-#   dir: ""
+#   project_trust: ask
 #   max_queue: 10
 #   timeout: "30m"
 #   retain_sessions: 5  # max completed run session dirs kept per job_id (default 5)
@@ -488,7 +492,7 @@ Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80); f
 
 The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enable: true`** in YAML or pass **`coddy acp -scheduler`** / **`coddy serve -scheduler`** to set **`scheduler.enable`** for that process without editing the config file.
 
-Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`coddy`** was started), **`model`**, **`mode`** (`agent`, `plan`, or `ask`), optional **`agent`** (a subagent definition the run is made under), optional **`permission_mode`** (`ask`, `accept_edits` or `bypass`; empty is `bypass`, the unattended default), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the run, which is a background agent task under the job's own session ([Scheduler](../operate/scheduler.md)). One sidecar, **`basename.state`** (the last fired slot and the job session id), sits next to **`basename.md`**.
+Jobs are flat **`*.md`** files in two fixed folders: your own in **`${CODDY_HOME}/scheduler`**, and the project jobs a repository carries in **`<workspace>/.coddy/scheduler`**, which run only once trusted under **`scheduler.project_trust`** (`ask` by default; a project job you create through Coddy is approved at once, see [Scheduler](../operate/scheduler.md#project-jobs-and-trust)). The old **`scheduler.dir`** key is no longer read: the next start copies its jobs into **`${CODDY_HOME}/scheduler`** and removes it. Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`coddy`** was started, or to its workspace for a project job, whose cwd must stay inside it), **`model`**, **`mode`** (`agent`, `plan`, or `ask`), optional **`agent`** (a subagent definition the run is made under), optional **`permission_mode`** (`ask`, `accept_edits` or `bypass`; empty is `bypass`, the unattended default), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the run, which is a background agent task under the job's own session ([Scheduler](../operate/scheduler.md)). One sidecar, **`basename.state`** (the last fired slot and the job session id), sits next to **`basename.md`** for a user job and under **`${CODDY_HOME}/scheduler/.projects/`** for a project job.
 
 **`retain_sessions`** (default **5**) caps how many **finished** runs are kept per **`job_id`** (their task records and transcripts, under the job session); older runs are removed when a run finishes. **`max_queue`** caps the runs in flight across all jobs and **`timeout`** is a run's hard limit (the background task pool still caps it at **`tools.background.max_timeout_seconds`**).
 

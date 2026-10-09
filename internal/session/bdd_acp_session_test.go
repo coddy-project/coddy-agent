@@ -402,7 +402,20 @@ func (s *acpSessionFeatureState) sessionCreatedThroughSymlinkedPath(ctx context.
 		return err
 	}
 	s.realProjectDir = real
-	return s.createACPSessionAt(filepath.Join(s.root, "link", "project"))
+	if err := s.createACPSessionAt(filepath.Join(s.root, "link", "project")); err != nil {
+		return err
+	}
+	// A conversation holds a message: a session nobody wrote in is left out
+	// of session/list (issue #357). The first prompt is written into the
+	// bundle the way a turn saves it, so the scenario needs no model.
+	msgs, err := json.Marshal(map[string]interface{}{
+		"version":  1,
+		"messages": []map[string]string{{"role": "user", "content": "hello"}},
+	})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.sessionsRoot, s.sessionID, "messages.json"), msgs, 0o644)
 }
 
 func (s *acpSessionFeatureState) clientListsSessionsThroughRealPath() error {
@@ -494,7 +507,7 @@ func initializeACPSessionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^MCP server "([^"]+)" is added to the home mcp.json$`, s.mcpAddedToHomeMCPJSON)
 	sc.Step(`^the current session exposes MCP tool "([^"]+)"$`, s.currentSessionExposesMCPTool)
 	sc.Step(`^Coddy ACP keeps its sessions on disk$`, s.coddyACPKeepsSessionsOnDisk)
-	sc.Step(`^a session was created for the workspace through a symlinked path$`, s.sessionCreatedThroughSymlinkedPath)
+	sc.Step(`^a session with a first prompt was created for the workspace through a symlinked path$`, s.sessionCreatedThroughSymlinkedPath)
 	sc.Step(`^an ACP client lists the sessions of that workspace through its real path$`, s.clientListsSessionsThroughRealPath)
 	sc.Step(`^the session list includes the created session$`, s.sessionListIncludesCreatedSession)
 }

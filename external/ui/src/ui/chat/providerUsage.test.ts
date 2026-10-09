@@ -38,9 +38,33 @@ function fixture(): ProviderUsage {
     plan: "pro",
     keyName: "coddy",
     windows: [
-      { id: "session", label: "3h", used: 407, limit: 15000, remaining: 14593, usedPercent: 2.71, resetsAt: "2026-09-06T17:59:59Z", resetInSec: 777 },
-      { id: "week", label: "week", used: 9981, limit: 150000, remaining: 140019, usedPercent: 6.65, resetsAt: "2026-09-07T00:00:00Z", resetInSec: 22378 },
-      { id: "day", label: "day", usedPercent: 0, resetsAt: "2026-09-07T00:00:00Z", resetInSec: 22378 },
+      {
+        id: "session",
+        label: "3h",
+        used: 407,
+        limit: 15000,
+        remaining: 14593,
+        usedPercent: 2.71,
+        resetsAt: "2026-09-06T17:59:59Z",
+        resetInSec: 777,
+      },
+      {
+        id: "week",
+        label: "week",
+        used: 9981,
+        limit: 150000,
+        remaining: 140019,
+        usedPercent: 6.65,
+        resetsAt: "2026-09-07T00:00:00Z",
+        resetInSec: 22378,
+      },
+      {
+        id: "day",
+        label: "day",
+        usedPercent: 0,
+        resetsAt: "2026-09-07T00:00:00Z",
+        resetInSec: 22378,
+      },
     ],
     rate: { used: 2, limit: 120, remaining: 118, resetInSec: 58 },
     wallet: { balanceRub: -1229.24, spentRub30d: 2000.74 },
@@ -55,7 +79,9 @@ describe("providerUsage helpers", () => {
     expect(usageProviderOf("plain")).toBe("");
     expect(modelUnlimited(fixture(), "neuraldeep/qwen3.6-35b-a3b")).toBe(true);
     expect(modelUnlimited(fixture(), "neuraldeep/qwen3.8-27b")).toBe(false);
-    expect(modelUnlimited({ ...fixture(), unlimited: true }, "neuraldeep/x")).toBe(true);
+    expect(
+      modelUnlimited({ ...fixture(), unlimited: true }, "neuraldeep/x"),
+    ).toBe(true);
   });
 
   test("the plan name gets a capital, nothing else", () => {
@@ -74,8 +100,12 @@ describe("providerUsage helpers", () => {
     expect(formatRub(1250)).toBe("1 250 ₽");
     expect(formatRub(999)).toBe("999 ₽");
     expect(formatResetTime("2026-09-06T17:59:59Z", now, "en-US")).toMatch(/59/);
-    expect(formatResetTime("2026-09-09T03:00:00Z", now, "en-US")).toMatch(/Wed|Tue/);
-    expect(formatResetTime("2026-09-20T03:00:00Z", now, "en-US")).toMatch(/Sep.*\d{1,2}:\d{2}/);
+    expect(formatResetTime("2026-09-09T03:00:00Z", now, "en-US")).toMatch(
+      /Wed|Tue/,
+    );
+    expect(formatResetTime("2026-09-20T03:00:00Z", now, "en-US")).toMatch(
+      /Sep.*\d{1,2}:\d{2}/,
+    );
     expect(formatResetTime(undefined, now)).toBe("");
   });
 
@@ -90,29 +120,60 @@ describe("providerUsage helpers", () => {
     windowAt(warm, 0).usedPercent = 85;
     const w = summarizeUsage(warm, "neuraldeep/qwen3.8-27b");
     expect(w.kind === "metered" && w.warn).toBe(true);
-    expect(usageBannerKey(warm)).toBe("neuraldeep@session@2026-09-06T17:59:59Z");
+    expect(usageBannerKey(warm)).toBe(
+      "neuraldeep@session@2026-09-06T17:59:59Z",
+    );
   });
 
   test("summary hides foreign providers, unsupported and empty snapshots", () => {
     expect(summarizeUsage(fixture(), "stub/model").kind).toBe("none");
-    expect(summarizeUsage({ provider: "neuraldeep", unsupported: true }, "neuraldeep/x").kind).toBe("none");
-    expect(summarizeUsage({ provider: "neuraldeep", error: "unavailable" }, "neuraldeep/x").kind).toBe("none");
+    expect(
+      summarizeUsage(
+        { provider: "neuraldeep", unsupported: true },
+        "neuraldeep/x",
+      ).kind,
+    ).toBe("none");
+    expect(
+      summarizeUsage(
+        { provider: "neuraldeep", error: "unavailable" },
+        "neuraldeep/x",
+      ).kind,
+    ).toBe("none");
     expect(summarizeUsage(null, "neuraldeep/x").kind).toBe("none");
   });
 
   test("unlimited model, rejected key and blocks", () => {
-    expect(summarizeUsage(fixture(), "neuraldeep/qwen3.6-35b-a3b").kind).toBe("unlimited");
-    const rejected = summarizeUsage({ ...fixture(), error: "unauthorized" }, "neuraldeep/x");
+    expect(summarizeUsage(fixture(), "neuraldeep/qwen3.6-35b-a3b").kind).toBe(
+      "unlimited",
+    );
+    const rejected = summarizeUsage(
+      { ...fixture(), error: "unauthorized" },
+      "neuraldeep/x",
+    );
     expect(rejected).toEqual({ kind: "unauthorized", provider: "neuraldeep" });
-    const blocked: ProviderUsage = { ...fixture(), blocked: true, blockers: ["session_exhausted"], retryAt: "2026-09-06T17:59:59Z", retryInSec: 767 };
+    const blocked: ProviderUsage = {
+      ...fixture(),
+      blocked: true,
+      blockers: ["session_exhausted"],
+      retryAt: "2026-09-06T17:59:59Z",
+      retryInSec: 767,
+    };
     const b = summarizeUsage(blocked, "neuraldeep/x");
     expect(b.kind === "blocked" && b.block).toBe("window");
     expect(usageBlockKind({ ...blocked, retryInSec: 42 })).toBe("rate");
-    expect(usageBlockKind({ ...blocked, blockers: ["wallet_empty"] })).toBe("wallet");
-    expect(usageBlockKind({ ...blocked, blockers: ["user_blocked"] })).toBe("account");
+    expect(usageBlockKind({ ...blocked, blockers: ["wallet_empty"] })).toBe(
+      "wallet",
+    );
+    expect(usageBlockKind({ ...blocked, blockers: ["user_blocked"] })).toBe(
+      "account",
+    );
     expect(usageBlockKind({ ...blocked, blockers: ["mystery"] })).toBe("other");
-    expect(usageBannerKey(blocked)).toBe("neuraldeep@blocked@2026-09-06T17:59:59Z@session_exhausted");
-    expect(usageBannerKey({ ...blocked, provider: "nd-work" })).not.toBe(usageBannerKey(blocked));
+    expect(usageBannerKey(blocked)).toBe(
+      "neuraldeep@blocked@2026-09-06T17:59:59Z@session_exhausted",
+    );
+    expect(usageBannerKey({ ...blocked, provider: "nd-work" })).not.toBe(
+      usageBannerKey(blocked),
+    );
   });
 
   test("a tie prefers the hub read, long delays are capped, snapshots order by read time", () => {
@@ -122,36 +183,72 @@ describe("providerUsage helpers", () => {
     tie.refreshPending = true;
     tie.refreshInSec = 9;
     expect(usageNextReadMs(tie)).toEqual({ delayMs: 11_000, forced: true });
-    const long: ProviderUsage = { ...fixture(), windows: [], blocked: true, retryInSec: 40 * 24 * 3600 };
-    expect(usageNextReadMs(long)).toEqual({ delayMs: USAGE_TIMER_MAX_MS, forced: true });
-    const older: ProviderUsage = { ...fixture(), fetchedAt: "2026-09-06T17:47:00Z" };
-    const newer: ProviderUsage = { ...fixture(), fetchedAt: "2026-09-06T17:47:20Z" };
+    const long: ProviderUsage = {
+      ...fixture(),
+      windows: [],
+      blocked: true,
+      retryInSec: 40 * 24 * 3600,
+    };
+    expect(usageNextReadMs(long)).toEqual({
+      delayMs: USAGE_TIMER_MAX_MS,
+      forced: true,
+    });
+    const older: ProviderUsage = {
+      ...fixture(),
+      fetchedAt: "2026-09-06T17:47:00Z",
+    };
+    const newer: ProviderUsage = {
+      ...fixture(),
+      fetchedAt: "2026-09-06T17:47:20Z",
+    };
     expect(usageIsNewer(newer, older)).toBe(true);
     expect(usageIsNewer(older, newer)).toBe(false);
     expect(usageIsNewer(older, older)).toBe(true);
     expect(usageIsNewer(newer, null)).toBe(true);
     expect(usageIsNewer({ provider: "neuraldeep" }, newer)).toBe(false);
     expect(usageIsNewer(newer, { provider: "neuraldeep" })).toBe(true);
-    expect(usageIsNewer(older, { provider: "nd-work", fetchedAt: "2026-09-06T17:47:40Z" })).toBe(true);
+    expect(
+      usageIsNewer(older, {
+        provider: "nd-work",
+        fetchedAt: "2026-09-06T17:47:40Z",
+      }),
+    ).toBe(true);
     expect(usageWindowLabelKey({ id: "week" })).toBe("usage.window.week");
     expect(usageWindowLabelKey({ id: "day" })).toBe("usage.window.day");
     expect(usageWindowLabelKey({ id: "session" })).toBe("");
   });
 
   test("next read: resets and retries reach the hub, a deferred refresh reads the cache", () => {
-    expect(usageNextReadMs(fixture())).toEqual({ delayMs: 777 * 1000 + 2000, forced: true });
+    expect(usageNextReadMs(fixture())).toEqual({
+      delayMs: 777 * 1000 + 2000,
+      forced: true,
+    });
     const deferred = fixture();
     for (const w of deferred.windows!) w.resetInSec = 0;
     deferred.refreshPending = true;
     deferred.refreshInSec = 9;
-    expect(usageNextReadMs(deferred)).toEqual({ delayMs: 11_000, forced: false });
+    expect(usageNextReadMs(deferred)).toEqual({
+      delayMs: 11_000,
+      forced: false,
+    });
     expect(usagePassedResetKey(deferred)).toBe("session@2026-09-06T17:59:59Z");
     const rateOnly = fixture();
     for (const w of rateOnly.windows!) w.resetInSec = 0;
     expect(usageNextReadMs(rateOnly).delayMs).toBe(0);
     // A passed day reset is a real refresh signal for the quota sources;
     // NeuralDeep's day meter is a wallet budget that resets constantly.
-    const devin = { provider: "devin", providerType: "devin", windows: [{ id: "day", label: "day", usedPercent: 0, resetsAt: "2026-09-07T00:00:00Z" }] };
+    const devin = {
+      provider: "devin",
+      providerType: "devin",
+      windows: [
+        {
+          id: "day",
+          label: "day",
+          usedPercent: 0,
+          resetsAt: "2026-09-07T00:00:00Z",
+        },
+      ],
+    };
     expect(usagePassedResetKey(devin)).toBe("day@2026-09-07T00:00:00Z");
     const ndDay = fixture();
     for (const w of ndDay.windows!) w.resetInSec = 0;
@@ -164,18 +261,35 @@ describe("providerUsage helpers", () => {
     const fetchImpl = vi.fn(async (url: string) => {
       calls.push(url);
       if (url.includes("/stub/")) {
-        return new Response(JSON.stringify({ ok: false, unsupported: true }), { status: 200 });
+        return new Response(JSON.stringify({ ok: false, unsupported: true }), {
+          status: 200,
+        });
       }
       if (url.includes("/gone/")) return new Response("", { status: 404 });
       if (url.includes("?refresh=1")) {
-        return new Response(JSON.stringify({ ok: false, error: "unavailable", usage: { ...fixture(), stale: true, error: "unavailable" } }), { status: 200 });
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: "unavailable",
+            usage: { ...fixture(), stale: true, error: "unavailable" },
+          }),
+          { status: 200 },
+        );
       }
-      return new Response(JSON.stringify({ ok: true, usage: fixture() }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, usage: fixture() }), {
+        status: 200,
+      });
     }) as unknown as typeof fetch;
     const ok = await fetchProviderUsage("neuraldeep", false, fetchImpl);
     expect(ok.ok && ok.usage.plan).toBe("pro");
-    expect(await fetchProviderUsage("stub", false, fetchImpl)).toEqual({ ok: false, unsupported: true });
-    expect(await fetchProviderUsage("gone", false, fetchImpl)).toEqual({ ok: false, unsupported: true });
+    expect(await fetchProviderUsage("stub", false, fetchImpl)).toEqual({
+      ok: false,
+      unsupported: true,
+    });
+    expect(await fetchProviderUsage("gone", false, fetchImpl)).toEqual({
+      ok: false,
+      unsupported: true,
+    });
     const stale = await fetchProviderUsage("neuraldeep", true, fetchImpl);
     expect(!stale.ok && "error" in stale && stale.error).toBe("unavailable");
     expect(!stale.ok && "usage" in stale && stale.usage?.stale).toBe(true);
@@ -190,16 +304,20 @@ describe("providerUsage helpers", () => {
 describe("a model blocked on a green account", () => {
   const blocked = (): ProviderUsage => ({
     ...fixture(),
-    blockedModels: [{
-      model: "kimi-k2.6",
-      blocker: "kimi_budget_exhausted",
-      retryAt: "2026-10-09T20:15:41Z",
-      retryInSec: 2860119,
-    }],
+    blockedModels: [
+      {
+        model: "kimi-k2.6",
+        blocker: "kimi_budget_exhausted",
+        retryAt: "2026-10-09T20:15:41Z",
+        retryInSec: 2860119,
+      },
+    ],
   });
 
   test("the selector suffix is matched case-insensitively", () => {
-    expect(modelBlocked(blocked(), "neuraldeep/KIMI-K2.6")?.blocker).toBe("kimi_budget_exhausted");
+    expect(modelBlocked(blocked(), "neuraldeep/KIMI-K2.6")?.blocker).toBe(
+      "kimi_budget_exhausted",
+    );
     expect(modelBlocked(blocked(), "neuraldeep/qwen3.8-27b")).toBeNull();
     expect(modelBlocked(null, "neuraldeep/kimi-k2.6")).toBeNull();
   });
@@ -214,11 +332,14 @@ describe("a model blocked on a green account", () => {
   });
 
   test("another model on the same key stays metered", () => {
-    expect(summarizeUsage(blocked(), "neuraldeep/qwen3.8-27b").kind).toBe("metered");
+    expect(summarizeUsage(blocked(), "neuraldeep/qwen3.8-27b").kind).toBe(
+      "metered",
+    );
   });
 
   test("the banner key follows the blocked model, so a new block is announced", () => {
-    expect(usageBannerKey(blocked(), "neuraldeep/kimi-k2.6"))
-      .not.toBe(usageBannerKey(fixture(), "neuraldeep/kimi-k2.6"));
+    expect(usageBannerKey(blocked(), "neuraldeep/kimi-k2.6")).not.toBe(
+      usageBannerKey(fixture(), "neuraldeep/kimi-k2.6"),
+    );
   });
 });

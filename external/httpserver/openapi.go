@@ -75,6 +75,7 @@ func openAPISpec() map[string]interface{} {
 						"Optional **`metadata`** on agent/plan/ask only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
 						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools, **`content_filter`** when the provider's content filter cut a direct answer short), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
+						"A non-streaming JSON completion includes **`usage`** with **`prompt_tokens`**, **`completion_tokens`** and **`total_tokens`** when the provider reported token counts, summing the model calls of an agent turn's own loop (a spawned subagent, a compaction and the memory run are not counted); **`prompt_tokens_details.cached_tokens`** is included when positive. If no counts were reported, **`usage`** is omitted rather than invented as zero. " +
 						"A direct **`models[].model`** id is coddy standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, any other value leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools, 256 KiB of **`parameters`** per tool, 16 images per message, 20 MiB per image URL string, else **400**. The **agent** / **plan** / **ask** profiles run coddy's own tools, never read the client's, and take no trailing **`tool`** message. " +
 						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent**: those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
@@ -89,6 +90,11 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Existing session id. If absent, the server may create a new session.",
 						},
+						map[string]interface{}{
+							"name": "X-Coddy-Session-Origin", "in": "header", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"print"}},
+							"description": "Where a session this request creates comes from. **`print`** marks the run of one-shot print mode (a remote **`coddy -p`** sends it), which **GET /coddy/sessions** and the session pickers leave out unless asked. Recorded only when this request creates the session, never on one that exists already; any other value is a **400**.",
+						},
 					},
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -102,7 +108,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completion JSON, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, exactly one of them non-null (`stop`, `length` for a turn cut by `max_turns` / `max_tokens`, `tool_calls`, or `content_filter`), an optional usage chunk, then `data: [DONE]`. A provider stream cut before its terminal event is an error, not a finished choice.",
+							"description": "Completion JSON with `usage` when provider token counts are known, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, exactly one of them non-null (`stop`, `length` for a turn cut by `max_turns` / `max_tokens`, `tool_calls`, or `content_filter`), an optional usage chunk, then `data: [DONE]`. A provider stream cut before its terminal event is an error, not a finished choice.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -142,6 +148,11 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Existing session id. If absent, the server creates a session for this turn.",
 						},
+						map[string]interface{}{
+							"name": "X-Coddy-Session-Origin", "in": "header", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"print"}},
+							"description": "Where a session this request creates comes from. **`print`** marks the run of one-shot print mode (a remote **`coddy -p`** sends it), which **GET /coddy/sessions** and the session pickers leave out unless asked. Recorded only when this request creates the session, never on one that exists already; any other value is a **400**.",
+						},
 					},
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -155,7 +166,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update** (pending file-writing calls may include `_meta.coddy.toolInputProgress`: `path`, decoded `bytes` and `lines`, raw `argumentBytes`, and a bounded draft `preview`; at most five updates per second per call plus a final flush; this never authorizes execution; a completed call that showed the model a picture, **read** on an image file, carries `_meta.coddy.images` with each picture's `name`, `mime_type`, `asset`, `url` and `preview_url`), **plan**, **token_usage** (completed model-call counters), **usage_update** (`used` / `size` for the current context window), **turn_progress** (the running turn's clock and generated tokens: **`startedAt`**, **`elapsedMs`**, **`outputTokens`**, **`estimated`**; sent when the turn starts, at most once a second while a model call streams and after every call, so a client shows the elapsed time alone before the first token and the count after it), **memory_run** (with **`memory.enable`**: the memory subagent run of the turn - **`started`** with its **`taskId`** and **`childSessionId`**, **`finished`** with the task **`taskStatus`**, **`durationMs`** and whether the report was **`delivered`** to the model in this turn, or **`skipped`** with a **`reason`**; no text travels on it, the Tasks drawer and the child transcript are the record), **background_wake** (the first frame of a turn nobody typed: background tasks the model started ended with their wake on (**notify_on_finish**, on by default) and the server woke the agent; **`tasks`** lists each with **`id`**, **`kind`**, **`label`**, **`agent`**, **`status`**, **`exitCode`**, **`durationMs`** and **`error`**; the turn's first message is persisted with the same tasks as **`background_wake`**, so no client shows the instruction as a user bubble, live or after a reload - the bundled UI shows nothing in its place, and the task row says **woke_agent**), **session_settings** (the session's whole settings snapshot with its **version** and the **source** of the change, whenever a setting changes during the stream: a leading settings command, the permission dialog's session switch, the model's **switch_model**; a **notice** of what changed only when the agent made the change itself - its **switch_model**, a skill's frontmatter), **`coddy_meta`** (effective **`metadata`** map last; for agent/plan/ask turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason, and **`settings_only`** `\"true\"` when the prompt was settings commands only and no turn ran: the notices were the answer, and the transcript keeps nothing of the exchange), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update** (pending file-writing calls may include `_meta.coddy.toolInputProgress`: `path`, decoded `bytes` and `lines`, raw `argumentBytes`, and a bounded draft `preview`; at most five updates per second per call plus a final flush; this never authorizes execution; a completed call that showed the model a picture, **read** on an image file, carries `_meta.coddy.images` with each picture's `name`, `mime_type`, `asset`, `url` and `preview_url`), **plan**, **token_usage** (completed model-call counters), **usage_update** (`used` / `size` for the current context window), **turn_progress** (the running turn's clock and generated tokens: **`startedAt`**, **`elapsedMs`**, **`outputTokens`**, **`estimated`**; the first one, sent as soon as the turn is taken and before it brings in its MCP servers and waits for its model's context window, also carries **`phase: \"preparing\"`**; then sent when the loop starts, at most once a second while a model call streams and after every call, so a client shows the elapsed time alone before the first token and the count after it), **memory_run** (with **`memory.enable`**: the memory subagent run of the turn - **`started`** with its **`taskId`** and **`childSessionId`**, **`finished`** with the task **`taskStatus`**, **`durationMs`** and whether the report was **`delivered`** to the model in this turn, or **`skipped`** with a **`reason`**; no text travels on it, the Tasks drawer and the child transcript are the record), **background_wake** (the first frame of a turn nobody typed: background tasks the model started ended with their wake on (**notify_on_finish**, on by default) and the server woke the agent; **`tasks`** lists each with **`id`**, **`kind`**, **`label`**, **`agent`**, **`status`**, **`exitCode`**, **`durationMs`** and **`error`**; the turn's first message is persisted with the same tasks as **`background_wake`**, so no client shows the instruction as a user bubble, live or after a reload - the bundled UI shows nothing in its place, and the task row says **woke_agent**), **session_settings** (the session's whole settings snapshot with its **version** and the **source** of the change, whenever a setting changes during the stream: a leading settings command, the permission dialog's session switch, the model's **switch_model**; a **notice** of what changed only when the agent made the change itself - its **switch_model**, a skill's frontmatter), **session_goal** (the session goal whenever it changes during the stream - set by **/goal**, checked by the supervisor, continued, paused, cleared: **`{goal, version, notice}`** in the shape of **GET /coddy/sessions/{id}/goal**), **goal_turn** (the first frame of a turn the session supervisor started - **`kind`** kickoff, continue, recover, resume or wrapup, **`index`** of **`limit`**, **`objective`**, **`reason`**, **`remaining`**; the turn's first message is persisted with the same marker as **`goal_turn`**, so a client shows a one-line row instead of the instruction text the model reads), **`coddy_meta`** (effective **`metadata`** map last; for agent/plan/ask turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason, and **`settings_only`** `\"true\"` when the prompt was settings commands only and no turn ran: the notices were the answer, and the transcript keeps nothing of the exchange), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -216,7 +227,9 @@ func openAPISpec() map[string]interface{} {
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
 						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
+						"The runs of one-shot print mode (**`coddy -p`**, **origin** **`print`**) are hidden unless **include_print=true** or **origin=print**, and the children they spawned with them. " +
 						"Sessions the operator **archived** are hidden unless **archived** says otherwise, and a row carries **tags**, **archived** / **archivedAt**, **origin** and **pinned** / **pinnedAt** when it has them. " +
+						"A session that holds no message - opened and left without a prompt - is not listed unless it is pinned or its first turn is running; the **all** and **archived** scopes of **POST /coddy/sessions/bulk-delete** still remove it. " +
 						"A **pinned** session leads the listing whatever **sort** says - a pin that worked in one order only would not be one - and the pins are ordered among themselves by **pinnedRank**, the order the operator dragged them into, newest pin first until one is dragged. " +
 						"A row inside a git checkout also carries **repoRoot**, the main checkout path shared by its worktrees, so clients can group conversations by project. " +
 						"**sort** and **order** replace the default ordering; they are applied to the whole filtered listing before paging, so page two of a sorted listing continues page one.",
@@ -237,6 +250,11 @@ func openAPISpec() map[string]interface{} {
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, include child sessions spawned by **spawn_agent**; each such row carries **subagent** **`{parentSessionId, name, taskId}`** read from its bundle. The default listing hides them and opens no child bundle.",
 					}, map[string]interface{}{
+						"name":        "include_print",
+						"in":          "query",
+						"schema":      map[string]string{"type": "boolean"},
+						"description": "When true, include the runs of one-shot print mode (**`coddy -p`**, **origin** **`print`**), which the default listing leaves out like scheduler runs and subagent children.",
+					}, map[string]interface{}{
 						"name":        "archived",
 						"in":          "query",
 						"schema":      map[string]interface{}{"type": "string", "enum": []string{"exclude", "only", "all"}},
@@ -250,9 +268,9 @@ func openAPISpec() map[string]interface{} {
 					}, map[string]interface{}{
 						"name":   "origin",
 						"in":     "query",
-						"schema": map[string]interface{}{"type": "string", "enum": []string{"local", "gateway"}},
-						"description": "Keeps the sessions of one surface: **`local`** for the ones opened on this host, **`gateway`** for the chats a messenger gateway is holding. " +
-							"Omit it for every surface. A row a gateway started carries **`origin`** (**`gateway:telegram`**), written once by the surface that created the session. An unknown value is a **400**.",
+						"schema": map[string]interface{}{"type": "string", "enum": []string{"local", "gateway", "print"}},
+						"description": "Keeps the sessions of one surface: **`local`** for the ones a person opened on this host, **`gateway`** for the chats a messenger gateway is holding, **`print`** for the runs of one-shot print mode (it lists them without **include_print**; **`local`** never does). " +
+							"Omit it for every surface but print runs. A row a gateway started carries **`origin`** (**`gateway:telegram`**), a print run **`print`**, written once by the surface that created the session. An unknown value is a **400**.",
 					}, map[string]interface{}{
 						"name":   "sort",
 						"in":     "query",
@@ -415,8 +433,24 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Generate a short text description",
 					"description": "Accepts arbitrary text and returns a short phrase describing what it is about, plus the **tags** the model proposed for filing the conversation. " +
 						"The tags ride on the call that already names a new chat, so a session is filed without a second request to the model; a model that ignores the instruction answers the phrase alone and **tags** is empty. " +
-						"Every text is asked about, however short: a first message of two words is the one that needs the labels most, and echoing it back would leave the shortest conversations unfiled.",
+						"Every text is asked about, however short: a first message of two words is the one that needs the labels most, and echoing it back would leave the shortest conversations unfiled. " +
+						"A **/name** word that names a skill or a built-in action of the workspace is described to the model (the catalog row of that command), so a first message such as **/rpa-init** is named by what the command does; a phrase that is only a command name is not taken as the title, which falls back to the user's own words around the command, or to the command as typed when it was typed alone. " +
+						"Settings commands at the start of the text (**/model**, **/plan**, ...) are taken off it; a text made of nothing else names nothing and answers an empty **short** without asking the model. " +
+						"The workspace is the session in **X-Coddy-Session-ID** when the server holds it, else the folder in **cwd**, else the server's default; an unknown session or an unusable folder falls back instead of failing the call.",
 					"operationId": "coddyDescribe",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose workspace supplies the command catalog. Ignored when the server does not hold the session.",
+						},
+						map[string]interface{}{
+							"name": "cwd", "in": "query", "required": false,
+							"schema": map[string]string{"type": "string"},
+							"description": "Absolute path of the folder whose command catalog is read when no session is behind the request: the folder a new chat picked before its session exists. " +
+								"A relative path or a missing folder falls back to the server's default workspace.",
+						},
+					},
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -440,7 +474,10 @@ func openAPISpec() map[string]interface{} {
 										"type": "object",
 										"properties": map[string]interface{}{
 											"object": map[string]string{"type": "string", "example": "coddy.describe"},
-											"short":  map[string]string{"type": "string"},
+											"short": map[string]interface{}{
+												"type":        "string",
+												"description": "The phrase that names the text; empty when the text was only settings commands.",
+											},
 											"tags": map[string]interface{}{
 												"type":        "array",
 												"items":       map[string]string{"type": "string"},
@@ -560,7 +597,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/commands": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List built-in slash commands",
-					"description": "Returns the built-in commands that run without an LLM turn, so the composer can show a **Commands** group alongside skills: the settings commands first (**`/model`**, **`/reasoning`**, **`/think`**, **`/nothink`**, **`/agent`**, **`/plan`**, **`/ask`**, **`/permissions`**; **kind** **setting**, with the **setting** they change, an argument **hint**, **aliases**, the **choices** of their argument for the session named by **X-Coddy-Session-ID** or the fixed **value** a command without one sets), then the deterministic actions (**`/compact`** only while **`compaction.enable`** is true, **`/export`**, **`/plugin`**; **kind** **action**). **duringTurn** says a command may be sent while a turn runs. Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/coddy/slash-commands`** (skills only).",
+					"description": "Returns the built-in commands that run without an LLM turn, so the composer can show a **Commands** group alongside skills: the settings commands first (**`/model`**, **`/reasoning`**, **`/think`**, **`/nothink`**, **`/agent`**, **`/plan`**, **`/ask`**, **`/permissions`**; **kind** **setting**, with the **setting** they change, an argument **hint**, **aliases**, the **choices** of their argument for the session named by **X-Coddy-Session-ID** or the fixed **value** a command without one sets), then the deterministic actions (**`/compact`** only while **`compaction.enable`** is true, **`/goal`**, **`/export`**, **`/plugin`**; **kind** **action**). **duringTurn** says a command may be sent while a turn runs. Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/coddy/slash-commands`** (skills only).",
 					"operationId": "listBuiltinCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -662,8 +699,16 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Contents of the built-in documentation",
 					"description": "Every group of **`docs/nav.yaml`** with its pages, as this binary carries them: the documentation is embedded at build time, so **`version`** is the binary's and no page is fetched from a site. " +
-						"A page's **`slug`** is its path under **`docs/`** without **`.md`**, the same address as **`https://coddy.dev/docs/<slug>`** and **`@coddy:<slug>`**. Pages the map keeps outside **`docs/`** (the contributing guide, the design contract, the agent notes) are not carried.",
+						"A page's **`slug`** is its path under **`docs/`** without **`.md`**, the same address as **`https://coddy.dev/docs/<slug>`** and **`@coddy:<slug>`**. Pages the map keeps outside **`docs/`** (the contributing guide, the design contract, the agent notes) are not carried. " +
+						"The documentation exists in English and Russian (**`docs/ru/`**); **`lang`** picks the language, and the response says which one it is.",
 					"operationId": "getDocsContents",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "lang", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string", "example": "ru"},
+							"description": "The language of the documentation, any spelling of a locale (**`ru`**, **`ru-RU`**, **`ru_RU.UTF-8`**): **`en`** or **`ru`**. Omitted, or a language the documentation is not translated into, is English.",
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("The contents", "#/components/schemas/CoddyDocs"),
 						"500": errorResponseRef(),
@@ -674,13 +719,19 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "One page of the built-in documentation",
 					"description": "The page **`ref`** names, whole, with its headings and its neighbours in map order. **`ref`** takes a slug (**`features/mentions`**), the file path with or without **`docs/`** and **`.md`**, a **`coddy:`** link, an **`@coddy:`** mention, a **`coddy.dev/docs`** address, a file name only one page has, or a title; a **`#section`** is returned as **`anchor`** for the reader to scroll to. " +
-						"In **`markdown`** a link to another page is written **`coddy:<slug>#<anchor>`**, and an image or a repository file is an address on GitHub at the release the binary was built from (**`main`** for a development build).",
+						"In **`markdown`** a link to another page is written **`coddy:<slug>#<anchor>`**, and an image or a repository file is an address on GitHub at the release the binary was built from (**`main`** for a development build). " +
+						"A section has one anchor in every language, the one GitHub gives its English heading: a Russian page answers to it (and to the anchor of its Russian heading, which **`ref`** may name as well), and its **`headings`** carry the Russian text under the shared **`anchor`**. **`lang`** of the response is the language of the page's text: English for a page the translation lacks.",
 					"operationId": "getDocsPage",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "ref", "in": "query", "required": true,
 							"schema":      map[string]string{"type": "string"},
 							"description": "The page, optionally with **`#section`**.",
+						},
+						map[string]interface{}{
+							"name": "lang", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string", "example": "ru"},
+							"description": "The language of the documentation, any spelling of a locale (**`ru`**, **`ru-RU`**, **`ru_RU.UTF-8`**): **`en`** or **`ru`**. Omitted, or a language the documentation is not translated into, is English.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -694,7 +745,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/docs/search": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Search the built-in documentation",
-					"description": "Sections of the documentation ranked against **`q`** with BM25 over the page title, the section heading and the text (the title and the heading weigh more). Words match case-insensitively after a light English stemming, and a word of three letters or more also finds the words it begins, so a query typed letter by letter finds pages before it is finished. " +
+					"description": "Sections of the documentation in **`lang`** ranked against **`q`** with BM25 over the page title, the section heading and the text (the title and the heading weigh more). Words match case-insensitively after stemming (a light English one, the Snowball stemmer for Russian words, **ё** read as **е**), and a word of three letters or more also finds the words it begins, so a query typed letter by letter finds pages before it is finished. " +
 						"At most three sections of one page are returned. A hit without **`anchor`** is the part of a page above its first section. **`snippet`** is the run of the section's text holding the most matched words, split into fragments with **`hit`** set on the matched ones. An empty **`q`** answers no hits.",
 					"operationId": "searchDocs",
 					"parameters": []interface{}{
@@ -707,6 +758,11 @@ func openAPISpec() map[string]interface{} {
 							"name": "limit", "in": "query", "required": false,
 							"schema":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
 							"description": "Most sections to return.",
+						},
+						map[string]interface{}{
+							"name": "lang", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string", "example": "ru"},
+							"description": "The language of the documentation, any spelling of a locale (**`ru`**, **`ru-RU`**, **`ru_RU.UTF-8`**): **`en`** or **`ru`**. Omitted, or a language the documentation is not translated into, is English.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -746,6 +802,11 @@ func openAPISpec() map[string]interface{} {
 							"name": "refresh", "in": "query", "required": false,
 							"schema":      map[string]interface{}{"type": "string", "enum": []interface{}{"", "1", "true", "yes", "0", "false"}},
 							"description": "Rebuild the workspace index before answering.",
+						},
+						map[string]interface{}{
+							"name": "lang", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string", "example": "ru"},
+							"description": "The language of the surface: **`coddy:`** pages and sections are named in it (**`detail`**), the inserted address is the same in every language. Omitted, the language of **`q`** (Cyrillic means Russian).",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -856,7 +917,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Workspace context for the composer chips (folder, git branch, worktree)",
 					"description": "Describes the workspace of the session in **`X-Coddy-Session-ID`** (or the server default cwd without the header). " +
 						"With **`path`** the given folder is described instead (pre-session preview); a missing folder yields **400**. " +
-						"Inside a git repository the payload adds **`repo_root`** (the main checkout path), **`base_branch`** (the branch named by origin/HEAD, when available), **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. **`shell`** is the interpreter `run_command` executes through on the server host.",
+						"Inside a git repository the payload adds **`repo_root`** (the main checkout path), **`base_branch`** (the branch named by origin/HEAD, when available), **`branch`**, **`branches`** (local), **`remote_branches`** (branches that exist on a configured remote and not locally, named as a local branch would be, each once, as the last fetch left them; **POST /coddy/workspace/fetch** refreshes them), and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. **`shell`** is the interpreter `run_command` executes through on the server host.",
 					"operationId": "coddyWorkspaceContextGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -873,6 +934,44 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Workspace context",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/CoddyWorkspaceContext",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/workspace/fetch": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Refresh the remote branches before the branch list opens",
+					"description": "Fetches every configured remote of the workspace's git repository, the way `git fetch --all --prune` does, and answers with the workspace context read afterwards plus a **`fetch`** block. " +
+						"Only remote-tracking refs move: the working tree, the index, HEAD, local branches and tags are never touched (tags are not fetched, a remote whose fetch refspec writes outside `refs/remotes/` is left out and reported, remotes with `skipFetchAll` are left out). " +
+						"Credentials come from the repository's own git configuration (credential helpers, the ssh agent); nothing is prompted for, no askpass program included. Without the git binary (the go-git fallback) only remotes that need no credentials, or take ssh keys from the agent, can be refreshed. Concurrent calls for one repository share a single fetch; the whole refresh is bounded to 20 seconds. " +
+						"**`fetch.status`** is **`ok`** (with **`remotes`** and **`fetched_at`**), **`failed`** (with **`remotes`** it set out to fetch and **`error`**, credentials in URLs masked; the branches in the context are the cached ones and must not be presented as fresh), or **`skipped`** (with **`reason`**: **`not a git repository`**, or **`no remotes to fetch`** when there is none or every one is marked **`skipFetchAll`**). A failed fetch is still **200**. " +
+						"The folder is chosen like **GET /coddy/workspace/context**: **`path`** when given (a new chat before its session exists), else the session in **`X-Coddy-Session-ID`**, else the server default cwd. A missing folder yields **400**.",
+					"operationId": "coddyWorkspaceFetchPost",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is refreshed (ignored when **`path`** is set).",
+						},
+						map[string]interface{}{
+							"name": "path", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute folder to refresh instead of the session cwd.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Workspace context after the refresh, with the **`fetch`** outcome",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -1077,7 +1176,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/info": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Which build serves this API, and where",
-					"description": "Names the version of the coddy binary serving this API, the same string `coddy -v` prints, and the host name of the machine it runs on. The web UI shows the version in the start screen's footer, for the server the page is talking to (the local one, a remote or a node reached through a relay), and names the machine the page runs on by its host name on the swarm map.",
+					"description": "Names the version of the coddy binary serving this API, the same string `coddy -v` prints, the host name of the machine it runs on, and the permission mode a new session starts under (**`tools.permission_mode`** of the live configuration, **`ask`** when it names none - the **configuredPermissionMode** of a session's settings snapshot). The web UI shows the version in the start screen's footer, for the server the page is talking to (the local one, a remote or a node reached through a relay), and names the machine the page runs on by its host name on the swarm map. Its start screen has no session yet, so its permission chip shows **permissionMode** and sends a mode picked there with the first message (as **`/permissions <mode>`**) when it differs from this one; the answer follows every reload of the configuration (**event: config_reloaded** on **GET /coddy/events**).",
 					"operationId": "coddyInfoGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -1086,11 +1185,16 @@ func openAPISpec() map[string]interface{} {
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
 										"type":     "object",
-										"required": []string{"object", "version", "hostname"},
+										"required": []string{"object", "version", "hostname", "permissionMode"},
 										"properties": map[string]interface{}{
 											"object":   map[string]interface{}{"type": "string", "enum": []string{"coddy.info"}},
 											"version":  map[string]interface{}{"type": "string", "example": "1.2.35"},
 											"hostname": map[string]interface{}{"type": "string", "description": "The machine's host name; empty when the system does not say."},
+											"permissionMode": map[string]interface{}{
+												"type":        "string",
+												"enum":        []string{"ask", "accept_edits", "bypass"},
+												"description": "The permission mode a new session starts under: `tools.permission_mode` of the live configuration, `ask` when it names none.",
+											},
 										},
 									},
 								},
@@ -1255,6 +1359,59 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "The empty queue"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/goal": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "The session goal",
+					"description": "Answers **{object: \"coddy.session_goal\", sessionId, goal, version}**: **goal** is null without one, else **id**, **objective**, **status** (**active**, **paused**, **blocked**, **complete**, **limited**), **statusReason**, **setAt**, **updatedAt**, **continuations** of **maxContinuations**, **checks**, **activeMs**, **tokensUsed** and **tokenBudget** (0 for none), **lastCheck** (**verdict** met / not_met / needs_user / impossible, **reason**, **remaining**, **verified**, **at**, **model**) and **checklist** (**text**, **status** met / not_met / unverified, **evidence**), and **model** / **reasoning**, the checker **/goal --model** and **--reasoning** chose (absent when the goal follows the configuration), and **checkModel** / **checkReasoning**, what the next check runs on: **model**, else **supervisor.model**, else the session's model, at **reasoning**, else that model's **reasoning_default** (**default** when the model offers levels but configures none, absent when it offers none). **version** orders it against the **session_goal** frames of **GET /coddy/events** and of a turn's stream. Setting a goal and starting work on it is a prompt, **/goal <objective>**, sent through **POST /v1/responses**; so is **/goal resume**.",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The goal and its version"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+				"patch": map[string]interface{}{
+					"summary":     "Pause the goal or set its objective",
+					"description": "Send exactly one of **status** or **objective**. **status: \"paused\"** stops the automatic continuations and keeps the goal (a turn working on it finishes its step); no goal answers **409** with code **no_goal**, any other status **400** with **invalid_request**. **objective** replaces the goal with a fresh active one without starting a turn: the next prompt works under it; an empty one or one over 4000 characters is a **400**. Answers like **GET**.",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"status":    map[string]interface{}{"type": "string", "enum": []interface{}{"paused"}},
+										"objective": map[string]interface{}{"type": "string", "maxLength": 4000},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The goal and its version"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Clear the goal",
+					"description": "Removes the goal; a turn working on it finishes its step and gets no continuation. Answers like **GET** with **goal: null**.",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "The goal (null) and its version"},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 					},
@@ -1764,7 +1921,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Rewind the session history to a user message",
 					"description": "Truncates the conversation **in place**: the user message at **userMessageIndex** (0-based over **`user`** rows, a background wake counting as one) and everything after it are dropped, so resending an edited version of that message continues the same session rather than forking a new one. " +
-						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, prunes orphaned **`tool_calls/`** entries, and drops **`ui_log`** rows of the dropped turns. " +
+						"The truncation bumps **messagesRev**, removes legacy **branches.json** and **diffs/** artifacts from the bundle, clears a pending permission prompt whose tool call left the transcript, moves the **`tool_calls/`** entries and **`ui_log`** rows of the dropped turns into the bundle's undo snapshot, which **POST /coddy/sessions/{id}/rewind/undo** restores. " +
 						"A **`session_rewound`** event is published on **`GET /coddy/events`** so other watchers of the session refetch their transcript. The session must be idle: a turn in flight is refused.",
 					"operationId": "coddyRewind",
 					"parameters": []interface{}{
@@ -1823,17 +1980,14 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/sessions/{id}/changes": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary": "List every file the session changed",
-					"description": "Collapses the per-turn workspace diffs stored in the session bundle into one net change per file: the content the file had before the first turn that touched it against the content after the last one. " +
-						"Because those diffs come from snapshotting the workspace around each turn, an edit made by a shell command is reported exactly like one made by the **`edit`** tool. " +
-						"Files created and removed again within the session, or edited and edited back, are left out, as is anything under `.git` or `.idea` at any depth - a tool rewrites those on its own schedule, and that holds for every scope. " +
+					"summary": "List what git reports for the session's folder",
+					"description": "The working copy changes of the session's folder, as git reports them: every tracked file that differs from **`HEAD`** (staged or not) and every new file git does not ignore, whoever made the change - the agent, a shell command or an editor next to it. Nothing is recorded per turn. " +
+						"When the session runs in a subfolder of a repository only that folder is reported, by paths relative to it. Without the git binary on PATH the server answers through its built-in implementation, which does not detect renames (a staged rename reads as a deletion plus an addition). " +
 						"**`status`** is **`added`**, **`modified`**, or **`deleted`**; a **`binary`** file carries no line counts and no patch. " +
 						"By default only stats are returned - **`include=patch`** adds the unified diff and **`include=content`** the decoded before/after sides (both may be combined, comma separated). " +
-						"A patch cut short at 256 KB sets **`truncated`**; **`additions`** and **`deletions`** still describe the whole file. This is what the SPA changed-files card and its review window read. " +
-						"**`scope`** narrows what is reported: **`turn`** folds only the newest stored turn, **`uncommitted`** ignores the session entirely and diffs the **tracked** working copy against its base revision (git **`HEAD`**), and **`all`** adds the files git does not track yet. " +
-						"Which system answers is decided by the folder: git when it is a git repository, nothing otherwise. " +
-						"The working-copy scopes add **`untracked`** (files the scope did not show because they are untracked - every one of them under **`uncommitted`**, only those past the read cap under **`all`**), **`vcs`** (**`git`** or empty) and **`vcsAvailable`** (**`false`** when the folder is under no VCS, which is how the SPA review window explains an empty result). " +
-						"Files git is told to ignore are never read, so a build directory or a virtualenv stays out on its own.",
+						"A patch cut short at 256 KB sets **`truncated`**; **`additions`** and **`deletions`** still describe the whole file. " +
+						"New files are read up to 500 of them and 2 MB each, regular files only; **`skipped`** counts the ones left out (a symbolic link and a nested repository included). In a repository with no commit yet, every file of the index is an addition. **`vcs`** is **`git`**, or empty when the folder is in no repository, and the list is then empty. " +
+						"This is what the SPA's edits window and git's count on the plate over the composer read.",
 					"operationId": "coddySessionChangesList",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1846,21 +2000,10 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Comma-separated extras: `patch`, `content`.",
 						},
-						map[string]interface{}{
-							"name": "scope", "in": "query", "required": false,
-							"schema": map[string]interface{}{
-								"type": "string",
-								"enum": []interface{}{"session", "turn", "uncommitted", "all"},
-							},
-							"description": "Which change set to report. `session` (default) is every turn, " +
-								"`turn` only the newest one, `uncommitted` the tracked working copy against git HEAD, " +
-								"and `all` that plus the files git does not track yet. " +
-								"An unrecognised value is a 400.",
-						},
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Session change set",
+							"description": "Working copy changes",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -1868,21 +2011,14 @@ func openAPISpec() map[string]interface{} {
 										"properties": map[string]interface{}{
 											"object":    map[string]string{"type": "string"},
 											"sessionId": map[string]string{"type": "string"},
-											"scope": map[string]interface{}{
-												"type": "string",
-												"enum": []interface{}{"session", "turn", "uncommitted", "all"},
-											},
-											"untracked": map[string]interface{}{
-												"type":        "integer",
-												"description": "Working-copy scopes only: untracked files the scope did not show.",
-											},
-											"vcsAvailable": map[string]interface{}{
-												"type":        "boolean",
-												"description": "Working-copy scopes only: false when the folder is under no VCS.",
-											},
 											"vcs": map[string]interface{}{
-												"type": "string",
-												"enum": []interface{}{"git", ""},
+												"type":        "string",
+												"enum":        []interface{}{"git", ""},
+												"description": "`git` when the folder is inside a repository, empty otherwise.",
+											},
+											"skipped": map[string]interface{}{
+												"type":        "integer",
+												"description": "New files not listed: past the cap of 500, larger than 2 MB, or not a regular file (a symbolic link, a nested repository).",
 											},
 											"files": map[string]interface{}{
 												"type":  "array",
@@ -1909,10 +2045,9 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/sessions/{id}/changes/file": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary": "Read one changed file of a session",
-					"description": "Same aggregation as **GET .../changes**, narrowed to one file and always carrying **`patch`**, **`before`** and **`after`**. " +
-						"**`path`** is matched against the session change set, never resolved on disk, so this route cannot be pointed at a file the session did not touch: an unknown or traversing path yields **404**. " +
-						"**`scope`** must match the list the path came from, or a file present in one scope would be read from another.",
+					"summary": "Read one changed file of the session's folder",
+					"description": "One file of **GET .../changes**, always carrying **`patch`**, **`before`** and **`after`**; only that file is read. " +
+						"**`path`** is matched against what git reports, never resolved on disk, so this route cannot be pointed at a file outside the change set: an unchanged, ignored, unknown or traversing path yields **404**. Either separator names the same file.",
 					"operationId": "coddySessionChangeFile",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1923,17 +2058,7 @@ func openAPISpec() map[string]interface{} {
 						map[string]interface{}{
 							"name": "path", "in": "query", "required": true,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Workspace-relative path exactly as listed by GET .../changes.",
-						},
-						map[string]interface{}{
-							"name": "scope", "in": "query", "required": false,
-							"schema": map[string]interface{}{
-								"type": "string",
-								"enum": []interface{}{"session", "turn", "uncommitted", "all"},
-							},
-							"description": "Which change set to report. `session` (default) is every turn, " +
-								"`turn` only the newest one, and `uncommitted` the working copy against git HEAD. " +
-								"An unrecognised value is a 400.",
+							"description": "Path relative to the session's folder, as listed by GET .../changes.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -1953,11 +2078,12 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/sessions/{id}/changes/revert": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary": "Roll back every file change of the session",
-					"description": "Reverses every stored turn diff of the session in its cwd: files the session edited go back to the content they had before it started, and files it created are removed. " +
-						"git is not involved, so uncommitted work in those files is lost. " +
-						"While a turn of this session is running the request yields **409** rather than rewriting files under a working agent. **`note`** reports which turns were reversed. " +
-						"A **`session_changes`** event is published on **`GET /coddy/events`** so every watcher of the session re-reads the now-empty change set.",
+					"summary": "Discard uncommitted changes of the session's folder",
+					"description": "Puts the named files, or all of them, back at **`HEAD`** through git: a tracked file gets its content and index entry from **`HEAD`** back, a file **`HEAD`** does not hold (new, or only added to the index) is deleted, and a folder left empty by that goes with it. Files git ignores are never touched. " +
+						"The body says what it means: **`{\"paths\":[...]}`** with at least one path as **GET .../changes** lists them, or **`{\"all\":true}`**; an empty, malformed or ambiguous body (both keys, an empty or null list, an unknown key, anything after the object) is **400** and nothing is discarded. **`all`** also clears index entries that differ from **`HEAD`** where the disk does not. " +
+						"A path git does not report any more (committed, or put back meanwhile) is **409** and nothing of the request is applied. A folder in no repository is **400**. " +
+						"While a turn runs in this session, or in any other session of this process whose folder is this one or lies inside or around it, the request yields **409**; the discard holds the session turn lock. " +
+						"A **`session_changes`** event is published on **`GET /coddy/events`** so every watcher of the session reads its working copy again.",
 					"operationId": "coddySessionChangesRevert",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1966,9 +2092,31 @@ func openAPISpec() map[string]interface{} {
 							"description": "Session id.",
 						},
 					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"paths": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"minItems":    1,
+											"description": "Files to discard, relative to the session's folder. Not with `all`.",
+										},
+										"all": map[string]interface{}{
+											"type":        "boolean",
+											"description": "Discard every change git reports for the folder.",
+										},
+									},
+								},
+							},
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Workspace restored",
+							"description": "Changes discarded",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -1976,7 +2124,7 @@ func openAPISpec() map[string]interface{} {
 										"properties": map[string]interface{}{
 											"object":    map[string]string{"type": "string"},
 											"sessionId": map[string]string{"type": "string"},
-											"note":      map[string]string{"type": "string"},
+											"at":        map[string]string{"type": "string"},
 										},
 									},
 								},
@@ -1989,12 +2137,55 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/rewind/undo": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Undo the last rewind of the session",
+					"operationId": "coddyRewindUndo",
+					"description": "Takes back the last **POST /coddy/sessions/{id}/rewind**: a running turn of the session (the edited prompt) is cancelled first, whatever was appended after the cut is dropped, and the cut messages, their **uiLog** rows and tool-call detail come back. Available while **GET /coddy/sessions/{id}/messages** carries **rewindUndo**: until a second prompt follows the edited one, another rewind replaces it, or the kept prefix changes (a compaction). File changes the removed turns made are not reverted. Publishes **session_rewound** on **GET /coddy/events**.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Last rewind taken back",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":      map[string]string{"type": "string"},
+											"sessionId":   map[string]string{"type": "string"},
+											"messagesRev": map[string]string{"type": "integer"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "There is no rewind to undo, the edited turn is still running, or the session is a read-only transcript.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/workspace": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Switch the session workspace folder, git branch, or worktree",
 					"description": "Body **`{\"path\": dir}`** switches the session cwd to an existing folder — validated before the session exists, so a fresh session is created straight in the target workspace — and re-derives workspace-scoped state: skills, project rules, slash commands, the SessionStart hook context (re-fired with source `workspace`), and the configured MCP servers, which are re-dialed for the new cwd through the trust gate (the new workspace's `.coddy/mcp.json` is merged and freshly gated) while the previous workspace's configured clients are closed and ACP client-supplied servers are preserved. " +
 						"Body **`{\"branch\": b}`** checks the branch out in place and runs the same workspace-scoped reload; when the branch is already checked out in another worktree (including the main one) the session cwd jumps there instead. " +
 						"Body **`{\"branch\": b, \"worktree\": true}`** ensures a dedicated worktree for the branch (created on demand under **`<repo>/.coddy/worktrees/<branch>/`**, below a self-ignoring folder) and moves the session cwd into it. " +
+						"A **`b`** that exists only on a remote (an entry of **`remote_branches`**) creates the local branch tracking the remote one, **origin**'s when origin has it, else that of the first remote by name. A **`b`** written as a remote-tracking branch (`<remote>/<branch>`) with no local branch of that name means the local **`<branch>`** tracking that remote: created when it does not exist, the existing one when it already tracks that remote branch, and **409** when an unrelated local **`<branch>`** is in the way. Either way the same in-place or worktree rules apply to that local branch. " +
 						"The workspace is chosen **once per session**: as soon as the conversation has messages, or a turn is in flight, switching yields **409** (`workspace is locked once the conversation starts` / `while a turn is running`). " +
 						"A missing folder or a branch switch outside a git repository yields **400**; git checkout/worktree failures yield **409**. The session is created on demand (draft flow). Responds with the fresh workspace context.",
 					"operationId": "coddySessionWorkspacePost",
@@ -2050,14 +2241,15 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Read conversation transcript",
 					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** reports the session profile (`agent`, `plan`, or `ask`) so remote clients restore it on load. **settings** is the whole settings snapshot of the session (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides**, **version**), the same one **event: session_settings** carries: a composer mirrors it and names its **version** as **`metadata.settingsVersion`** when it sends. **uiLog** holds a **notice** row for a settings change the agent made itself (the model's **switch_model**, a skill's frontmatter); a change the user made - a command, **PATCH**, the permission dialog - leaves none, and the rows a session saved by an earlier version holds for such changes are not returned. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata, and a tool row carries in **`files`** the pictures its call showed the model (**`read`** on an image file); persisted images carry a session-scoped **`preview_url`** (the bounded thumbnail) and, while the asset is still in the bundle, **`url`** for the original bytes a preview card opens enlarged. " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
-						"A **user** row that opened a turn nobody typed - finished background tasks the model started woke the agent (**notify_on_finish**, on by default) - carries **`background_wake`** **`{tasks: [{id, kind, label, agent, status, exit_code, duration_ms, error}]}`**; its **content** is the instruction the model read, and a UI does not render the row as a message from the user (the bundled UI shows nothing for it: the turn reads as the agent carrying on). " +
+						"A **user** row that opened a turn nobody typed - finished background tasks the model started woke the agent (**notify_on_finish**, on by default) - carries **`background_wake`** **`{tasks: [{id, kind, label, agent, status, exit_code, duration_ms, error}]}`**; its **content** is the instruction the model read, and a UI does not render the row as a message from the user (the bundled UI shows nothing for it: the turn reads as the agent carrying on). A **user** row the session supervisor opened a goal turn with carries **`goal_turn`** **`{kind, index, limit, objective, reason, remaining}`**; a UI shows it as a one-line goal row, not as a message from the user. The answer also carries **goal**, the session goal in the shape of **GET /coddy/sessions/{id}/goal**. " +
 						"A memory subagent run leaves nothing in this payload: its record is the **agent** task of kind agent with **`agent.system`** true under **GET /coddy/sessions/{id}/background-tasks**, and its transcript is the child session named there. " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
 						"**messagesRev** is the revision of the history these **messages** were read at; pass it to **GET /coddy/sessions/{id}/composer-stream** as **`?since_rev=`** to be replayed only the frames of a running turn this transcript does not already hold. " +
 						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
 						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat. " +
 						"**Paged reads.** Without **limit**, **before** or **from** the whole history is returned. **`?limit=N`** returns a page of about **N** messages ending at **before** (default: the end of the history); **`?limit=N&before=K`** is the page before a window that starts at message **K**; **`?from=K`** re-reads a window from message **K** to **before** or the end (it cannot be combined with **limit**); **before** alone is refused, since it would read the whole prefix. A page never splits a tool step - a start or an end that falls on a tool result moves back to the assistant message that issued the call - and with **limit** it starts at the prompt of its turn when one lies within half a page, so consecutive pages join without a gap or an overlap. Positions past the history are clamped; a value that is not a non-negative integer, or a **limit** outside 1..1000, is **400**. " +
-						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /coddy/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it.",
+						"Every read carries **window** **`{offset, total, turnsBefore, userRowsBefore}`**: **offset** is the index of the first returned message and **total** the length of the history; **turnsBefore** counts the user messages before the page that are not compaction summaries (a prompt's **userMessageIndex** for **POST /coddy/sessions/{id}/rewind** is **turnsBefore** plus its position among the page's prompts) and **userRowsBefore** counts every user-role message before it (the numbering of **uiLog** **userTurnIndex**). **uiLog** holds only the rows of the page: a row stamped with turn **t** sits before the **t**-th user-role message (0-based), or at the end of the history, and a row on the boundary between two pages opens the newer one, so the newest page still shows what ended the turn before it. " +
+						"**rewindUndo** **`{userMessageIndex}`** is present while the last rewind can be taken back with **POST /coddy/sessions/{id}/rewind/undo**; **userMessageIndex** names the prompt that was edited.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 						map[string]interface{}{"name": "activate_mcp", "in": "query", "required": false, "description": "Set to `1` only on the SPA's initial, unpaged selected-session read with a matching `X-Coddy-Session-ID` header. It starts that restored ordinary session's deferred configured MCP connections in the background; all other reads remain passive.", "schema": map[string]interface{}{"type": "string", "enum": []string{"1"}}},
@@ -2162,7 +2354,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; **event: session_question_pending** (**`{object:\"coddy.session_question_pending\", sessionId}`**) when an interactive `question` wait is registered or settled (both edges use the same notification and carry no question text; this event and **questionPending** are process-local to the Coddy server process that owns the wait; clients re-read **GET /coddy/sessions** or **GET /coddy/sessions/{id}/activity** for **questionPending**); and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. It emits **event: session_changes** (**`{object:\"coddy.session_changes\", sessionId, at}`**) once a finished turn's workspace diff is stored (also when there was nothing to store, and after **POST /coddy/sessions/{id}/changes/revert**), so the changed-files card reads **GET /coddy/sessions/{id}/changes** exactly when the answer covers that turn. **event: session_rewound** (**`{object:\"coddy.session_rewound\", sessionId, messagesRev}`**) after a **POST /coddy/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"coddy.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /coddy/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"coddy.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /coddy/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /coddy/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it; **event: provider_usage** (**`{object, sessionId, usage}`**) whenever a fresh account-usage snapshot was built outside a request; **event: session_question_pending** (**`{object:\"coddy.session_question_pending\", sessionId}`**) when an interactive `question` wait is registered or settled (both edges use the same notification and carry no question text; this event and **questionPending** are process-local to the Coddy server process that owns the wait; clients re-read **GET /coddy/sessions** or **GET /coddy/sessions/{id}/activity** for **questionPending**); and **event: config_reloaded** (**`{object:\"coddy.config_reloaded\", at}`**) after every swap of the live configuration - a **PUT /coddy/config** save, the agent's **config_commit** or **config_rollback**, a skill install. The reload event names nothing that changed: what a reload moved is already behind **GET /v1/models** and **GET /coddy/slash-commands**, and it is published only once the new configuration is live, so a client re-reads those and cannot catch the outgoing one. It emits **event: session_changes** (**`{object:\"coddy.session_changes\", sessionId, at}`**) after **POST /coddy/sessions/{id}/changes/revert** discarded changes of the session's folder, so every Edits view of the session reads **GET /coddy/sessions/{id}/changes** again; after a turn, which may have edited the folder too, **turn_ended** is that signal. **event: session_rewound** (**`{object:\"coddy.session_rewound\", sessionId, messagesRev}`**) after a **POST /coddy/sessions/{id}/rewind** truncated the session's history in place, so a watcher of that session refetches its transcript instead of keeping a tail that no longer exists. **event: session_settings** (**`{object:\"coddy.session_settings\", sessionId, settings, notice, source}`**) whenever a session's settings change from any surface - a command, **PATCH /coddy/sessions/{id}**, the permission dialog, the model's own **switch_model**, a console or an editor, with a **notice** of the change only when the agent made it itself: **settings** is the whole snapshot (**model**, **reasoning**, **reasoningChoices**, **mode**, **permissionMode**, **configuredPermissionMode**, **overrides** for the running and the next turns, and a **version** a client keeps the highest of; the turn stream carries the same frame). **event: background_wake** (**`{object:\"coddy.background_wake\", sessionId, phase:\"woken\", at, tasks}`**, the tasks in the shape of the turn stream's **background_wake** frame) says the turn now holding a session was started by finished background tasks rather than typed: a client that reads only the turns it starts - a console attached over **--remote** - follows it on **GET /coddy/sessions/{id}/composer-stream**, where a permission prompt the woken turn raises is asked and answered through **POST /coddy/sessions/{id}/permission** like any other. **event: subagent_permission** tracks the permission prompt of a **detached** subagent - one whose spawning turn has ended: phase **asked** (**`{object:\"coddy.subagent_permission\", phase, parentSessionId, childSessionId, taskId, toolCallId, agentName, askedAt, request}`**, where **request** is the payload of the SSE **permission** event with the *child* session id) when it starts waiting, and phase **settled** (the same ids, no request) once it is answered anywhere, withdrawn or its run ends, so a client that did not answer takes its copy down. The answer goes to **POST /coddy/sessions/{childSessionId}/permission**; the first answer from any surface wins. On connect it replays one **turn_started** per turn already running, whose **at** is when that turn started rather than when the client connected - followed, for a turn finished background tasks started, by its **background_wake** with the same **at** (a live **background_wake** is dated at the turn's start too, so a client that hears of a wake twice knows it is the same turn) - and one **subagent_permission** (**asked**) per prompt still waiting, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. **event: session_goal** (**`{object:\"coddy.session_goal\", sessionId, goal, version, notice}`**, **goal** null once cleared) follows every change of a session's goal from any surface, in the shape of **GET /coddy/sessions/{id}/goal**. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of server-wide events"},
 						"500": errorResponseRef(),
@@ -3111,7 +3303,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/compact": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Compact (summarize) older session history",
-					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command (**model** is its **--model** option). It runs as a turn of the session: **GET /coddy/events** publishes **turn_started** and **turn_ended** for it, so a client watching the session reloads the smaller context usage, and a second turn meanwhile is refused. **400** when compaction is disabled, the body is malformed or **model** names no single configured model (checked before the session is admitted: no turn starts for it). **409** when another agent turn is running or the session is being deleted; a child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well. A history larger than the summarizer's own context window is folded in several passes rather than refused, each pass carrying the summary so far; **steps** reports how many it took, and the progress is published as a **compact_context** tool-call row on the session stream.",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command (**model** is its **--model** option, **reasoning** its **--reasoning**). It runs as a turn of the session: **GET /coddy/events** publishes **turn_started** and **turn_ended** for it, so a client watching the session reloads the smaller context usage, and a second turn meanwhile is refused. **400** when compaction is disabled, the body is malformed, **model** names no single configured model or **reasoning** is a level the summarizer does not offer (checked before the session is admitted: no turn starts for it). **409** when another agent turn is running or the session is being deleted; a child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well. A history larger than the summarizer's own context window is folded in several passes rather than refused, each pass carrying the summary so far; **steps** reports how many it took, and the progress is published as a **compact_context** tool-call row on the session stream.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -3135,6 +3327,10 @@ func openAPISpec() map[string]interface{} {
 										"model": map[string]string{
 											"type":        "string",
 											"description": "Optional summarizer for this one compaction: a configured models[].model or its name without the provider (either in any letter case), or a part of one that matches exactly one model (case-insensitive). The configured chain (compaction.model, compaction.fallback_models, the session's model) stays behind it as the fallback when its provider fails. A name that matches no model, or more than one, is refused with 400 and nothing is compacted. Omitted or empty follows the configuration.",
+										},
+										"reasoning": map[string]string{
+											"type":        "string",
+											"description": "Optional reasoning level the summary is written at: a level the summarizer's model offers (the one model names, else compaction.model, else the session's), or default for its own. Fallback models that do not offer it run at their own level. A level the model does not offer is refused with 400 and nothing is compacted. The **/compact** command's **--reasoning** (**-r**).",
 										},
 									},
 								},
@@ -3730,7 +3926,7 @@ func openAPISpec() map[string]interface{} {
 						"stream": map[string]string{"type": "boolean"},
 						"stream_options": map[string]interface{}{
 							"type":        "object",
-							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`) after the choice finishes. Streamed responses only.",
+							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`, summed over the model calls of the turn by the same rule as the JSON answer - a spawned subagent, a compaction and the memory run are not counted - zero when the provider reported none, plus `prompt_tokens_details.cached_tokens` only when it reported cached input) after the choice finishes. Streamed responses only.",
 							"properties": map[string]interface{}{
 								"include_usage": map[string]string{"type": "boolean"},
 							},
@@ -3784,7 +3980,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -3797,6 +3993,20 @@ func openAPISpec() map[string]interface{} {
 						"object":  map[string]string{"type": "string", "example": "chat.completion"},
 						"created": map[string]string{"type": "integer", "format": "int64"},
 						"model":   map[string]string{"type": "string"},
+						"usage": map[string]interface{}{
+							"type":        "object",
+							"description": "Provider-reported counters for this request; omitted when the provider returned no counts.",
+							"properties": map[string]interface{}{
+								"prompt_tokens":     map[string]string{"type": "integer"},
+								"completion_tokens": map[string]string{"type": "integer"},
+								"total_tokens":      map[string]string{"type": "integer"},
+								"prompt_tokens_details": map[string]interface{}{
+									"type":       "object",
+									"properties": map[string]interface{}{"cached_tokens": map[string]string{"type": "integer"}},
+								},
+							},
+							"required": []string{"prompt_tokens", "completion_tokens", "total_tokens"},
+						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
 							"description":          "Effective YAML model selector under `model`, optional `api_model`, and for a direct completion that reasoned, the level the provider was asked for under `reasoning_effort`.",
@@ -3843,7 +4053,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
@@ -4002,6 +4212,7 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"object":  map[string]string{"type": "string", "example": "coddy.docs"},
 						"version": map[string]string{"type": "string", "description": "The version of the binary, which is the version of its documentation."},
+						"lang":    map[string]string{"type": "string", "description": "The language of the contents, en or ru.", "example": "ru"},
 						"groups": map[string]interface{}{
 							"type": "array",
 							"items": map[string]interface{}{
@@ -4019,13 +4230,14 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 					},
-					"required": []string{"object", "version", "groups"},
+					"required": []string{"object", "version", "lang", "groups"},
 				},
 				"CoddyDocsPage": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"object":  map[string]string{"type": "string", "example": "coddy.docs_page"},
 						"version": map[string]string{"type": "string"},
+						"lang":    map[string]string{"type": "string", "description": "The language of the page's text: the one asked for, or en for a page its translation lacks."},
 						"slug":    map[string]string{"type": "string"},
 						"title":   map[string]string{"type": "string"},
 						"summary": map[string]string{"type": "string"},
@@ -4045,22 +4257,23 @@ func openAPISpec() map[string]interface{} {
 								"properties": map[string]interface{}{
 									"level":  map[string]string{"type": "integer"},
 									"text":   map[string]string{"type": "string", "description": "The heading without its inline markup."},
-									"anchor": map[string]string{"type": "string", "description": "The fragment GitHub generates for the heading."},
+									"anchor": map[string]string{"type": "string", "description": "The fragment GitHub generates for the English heading at this position: the section's address in every language."},
 								},
 								"required": []string{"level", "text", "anchor"},
 							},
 						},
 						"prev": map[string]interface{}{"$ref": "#/components/schemas/CoddyDocsPageRef", "nullable": true},
 						"next": map[string]interface{}{"$ref": "#/components/schemas/CoddyDocsPageRef", "nullable": true},
-						"url":  map[string]string{"type": "string", "description": "The public address of the page, https://coddy.dev/docs/<slug>."},
+						"url":  map[string]string{"type": "string", "description": "The public address of the page in its language, https://coddy.dev/docs/<slug> or https://coddy.dev/ru/docs/<slug>."},
 					},
-					"required": []string{"object", "version", "slug", "title", "markdown", "headings", "url"},
+					"required": []string{"object", "version", "lang", "slug", "title", "markdown", "headings", "url"},
 				},
 				"CoddyDocsSearch": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"object":  map[string]string{"type": "string", "example": "coddy.docs_search"},
 						"version": map[string]string{"type": "string"},
+						"lang":    map[string]string{"type": "string", "description": "The language searched, en or ru."},
 						"query":   map[string]string{"type": "string"},
 						"hits": map[string]interface{}{
 							"type": "array",
@@ -4088,7 +4301,7 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 					},
-					"required": []string{"object", "version", "query", "hits"},
+					"required": []string{"object", "version", "lang", "query", "hits"},
 				},
 				"CoddyMentionCandidate": map[string]interface{}{
 					"type": "object",
@@ -4180,8 +4393,31 @@ func openAPISpec() map[string]interface{} {
 						"base_branch": map[string]string{"type": "string"},
 						"branch":      map[string]string{"type": "string"},
 						"branches": map[string]interface{}{
-							"type":  "array",
-							"items": map[string]string{"type": "string"},
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Local branches.",
+						},
+						"remote_branches": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Branches that exist on a configured remote and not locally, named as a local branch would be (feature/x, not origin/feature/x), each once however many remotes have it, sorted, as the last fetch left them. Picking one in POST /coddy/sessions/{id}/workspace creates the local branch tracking the remote one (origin's when origin has it).",
+							"example":     []string{"feature/search", "fix/typo"},
+						},
+						"fetch": map[string]interface{}{
+							"type":        "object",
+							"description": "Present on POST /coddy/workspace/fetch answers only: the outcome of the refresh of the remote branches.",
+							"properties": map[string]interface{}{
+								"status": map[string]interface{}{"type": "string", "enum": []string{"ok", "failed", "skipped"}},
+								"remotes": map[string]interface{}{
+									"type":        "array",
+									"items":       map[string]string{"type": "string"},
+									"description": "The remotes fetched (ok), or the ones it set out to fetch (failed): after a timeout some of them may not have been tried.",
+								},
+								"fetched_at": map[string]interface{}{"type": "string", "format": "date-time", "description": "When the refresh finished (ok only)."},
+								"error":      map[string]string{"type": "string", "description": "Why the refresh failed, credentials in URLs masked (failed only)."},
+								"reason":     map[string]string{"type": "string", "description": "Why nothing was fetched: `not a git repository`, or `no remotes to fetch` (skipped only)."},
+							},
+							"required": []string{"status"},
 						},
 						"worktrees": map[string]interface{}{
 							"type": "array",
@@ -4206,6 +4442,7 @@ func openAPISpec() map[string]interface{} {
 	}
 	mergeOpenAPISchedulerDoc(&doc)
 	mergeOpenAPIMemoryDoc(&doc)
+	mergeWorkspaceViewerOpenAPI(doc)
 	return doc
 }
 
@@ -4251,7 +4488,7 @@ func sessionChangeFileSchema() map[string]interface{} {
 			"status": map[string]interface{}{
 				"type":        "string",
 				"enum":        []string{"added", "modified", "deleted"},
-				"description": "What the session did to the file, net of every turn.",
+				"description": "How the working copy differs from HEAD: added (HEAD does not hold it), modified, or deleted.",
 			},
 			"additions": map[string]string{"type": "integer"},
 			"deletions": map[string]string{"type": "integer"},
@@ -4269,11 +4506,11 @@ func sessionChangeFileSchema() map[string]interface{} {
 			},
 			"before": map[string]string{
 				"type":        "string",
-				"description": "Decoded content before the session. Present with include=content.",
+				"description": "Decoded content at HEAD. Present with include=content.",
 			},
 			"after": map[string]string{
 				"type":        "string",
-				"description": "Decoded content after the session. Present with include=content.",
+				"description": "Decoded content in the working copy. Present with include=content.",
 			},
 		},
 	}

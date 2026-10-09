@@ -177,7 +177,9 @@ func (s *Server) serveContinue(w http.ResponseWriter, r *http.Request) {
 	s.challenges[code] = challenge
 	s.mu.Unlock()
 	u, err := url.Parse(redirect)
-	if err != nil {
+	if err != nil || !loopbackCallback(u) {
+		// Like the real sign-in for a command-line client, the browser is
+		// sent back only to a callback on this machine.
 		http.Error(w, "bad redirect_uri", http.StatusBadRequest)
 		return
 	}
@@ -185,7 +187,22 @@ func (s *Server) serveContinue(w http.ResponseWriter, r *http.Request) {
 	back.Set("code", code)
 	back.Set("state", state)
 	u.RawQuery = back.Encode()
-	http.Redirect(w, r, u.String(), http.StatusFound)
+	// loopbackCallback above admits only an http callback on 127.0.0.1, ::1
+	// or localhost, so this redirect cannot leave the machine.
+	http.Redirect(w, r, u.String(), http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
+}
+
+// loopbackCallback reports whether u is an http callback on this machine, the
+// only redirect a command-line sign-in accepts.
+func loopbackCallback(u *url.URL) bool {
+	if u.Scheme != "http" || u.User != nil {
+		return false
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "::1", "localhost":
+		return true
+	}
+	return false
 }
 
 // serveToken exchanges a code for the session token, checking the PKCE

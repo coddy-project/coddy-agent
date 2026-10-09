@@ -21,7 +21,11 @@ function Probe() {
 beforeEach(() => {
   mounts = 0;
   localStorage.clear();
-  setEnv({ mode: "remote", baseUrl: "http://relay:1/swarm/nodes/a", token: "t" });
+  setEnv({
+    mode: "remote",
+    baseUrl: "http://relay:1/swarm/nodes/a",
+    token: "t",
+  });
 });
 
 afterEach(() => cleanup());
@@ -36,15 +40,27 @@ test("starts the app over on another server, and on a rotated token", () => {
   // The same token again (a configuration read that changed nothing) is not a
   // reason to start over.
   act(() =>
-    setEnv({ mode: "remote", baseUrl: "http://relay:1/swarm/nodes/a", token: "t" }),
+    setEnv({
+      mode: "remote",
+      baseUrl: "http://relay:1/swarm/nodes/a",
+      token: "t",
+    }),
   );
   expect(mounts).toBe(1);
   act(() =>
-    setEnv({ mode: "remote", baseUrl: "http://relay:1/swarm/nodes/a", token: "rotated" }),
+    setEnv({
+      mode: "remote",
+      baseUrl: "http://relay:1/swarm/nodes/a",
+      token: "rotated",
+    }),
   );
   expect(mounts).toBe(2);
   act(() =>
-    setEnv({ mode: "remote", baseUrl: "http://relay:1/swarm/nodes/b", token: "rotated" }),
+    setEnv({
+      mode: "remote",
+      baseUrl: "http://relay:1/swarm/nodes/b",
+      token: "rotated",
+    }),
   );
   expect(mounts).toBe(3);
 });

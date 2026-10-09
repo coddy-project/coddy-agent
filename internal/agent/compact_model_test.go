@@ -29,6 +29,14 @@ func TestParseCompactCommandOptions(t *testing.T) {
 		{in: "/compact --model=", want: compactCommandArgs{ModelMissing: true}},
 		{in: "/compact --model --fast", want: compactCommandArgs{ModelMissing: true, UnknownOptions: []string{"--fast"}}},
 		{in: "/compact --fast keep it short", want: compactCommandArgs{UnknownOptions: []string{"--fast"}, Instructions: "keep it short"}},
+		// The reasoning level, and the short spellings of both options.
+		{in: "/compact --model qwen --reasoning high keep it", want: compactCommandArgs{Model: "qwen", Reasoning: "high", Instructions: "keep it"}},
+		{in: "/compact -m qwen -r low", want: compactCommandArgs{Model: "qwen", Reasoning: "low"}},
+		{in: "/compact -r=high -m=qwen", want: compactCommandArgs{Model: "qwen", Reasoning: "high"}},
+		{in: "/compact -r", want: compactCommandArgs{ReasoningMissing: true}},
+		// Only -m and -r are short options: a list in the instructions stays text.
+		{in: "/compact - keep the paths\n- and the tests", want: compactCommandArgs{Instructions: "- keep the paths\n- and the tests"}},
+		{in: "/compact -x keep", want: compactCommandArgs{Instructions: "-x keep"}},
 	}
 	for _, tc := range cases {
 		got, ok := parseCompactCommand(tc.in)
@@ -74,12 +82,45 @@ func TestCompactSessionUsesTheModelNamedForTheCall(t *testing.T) {
 	}
 }
 
+// The summary is written at the level --reasoning named, by every model of
+// the chain that offers it; a level the summarizer does not offer is refused
+// before anything runs.
+func TestCompactSessionRunsAtTheReasoningLevelNamedForTheCall(t *testing.T) {
+	keep := 1
+	levels := []string{"low", "high"}
+	st := seededCompactState(t, 3)
+	ag, _, _ := twoModelCompactAgent(t, st, config.Compaction{KeepRecentTurns: &keep})
+	ag.cfg.Models[len(ag.cfg.Models)-1].ReasoningLevels = &levels
+	var efforts []string
+	inner := ag.providerFactory
+	ag.providerFactory = func(in llm.ProviderInput) (llm.Provider, error) {
+		efforts = append(efforts, in.Model+"="+in.ReasoningEffort)
+		return inner(in)
+	}
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Model: "second", Reasoning: "HIGH", Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(efforts) == 0 || efforts[0] != "second-qwen=high" {
+		t.Fatalf("provider inputs = %v, want the named model at high", efforts)
+	}
+	for _, e := range efforts[1:] {
+		if strings.HasSuffix(e, "=high") {
+			t.Fatalf("a fallback that offers no levels ran at high: %v", efforts)
+		}
+	}
+
+	_, err := ag.CompactSession(context.Background(), CompactOptions{Model: "second", Reasoning: "ultra", Force: true})
+	if !errors.Is(err, ErrCompactionModel) || !strings.Contains(err.Error(), `reasoning "ultra" is not offered`) {
+		t.Fatalf("an unknown level: %v", err)
+	}
+}
+
 func TestCompactionChainPutsTheNamedModelFirst(t *testing.T) {
 	keep := 1
 	st := seededCompactState(t, 2)
 	ag, _, _ := twoModelCompactAgent(t, st, config.Compaction{KeepRecentTurns: &keep, Model: "fake/model"})
 
-	chain, err := ag.compactionChain("fake/second-qwen")
+	chain, err := ag.compactionChain("fake/second-qwen", "")
 	if err != nil {
 		t.Fatal(err)
 	}

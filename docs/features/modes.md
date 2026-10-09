@@ -72,7 +72,7 @@ The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/
 
 | Surface | How |
 |---|---|
-| Web UI | the **Mode** pill in the composer, next to **Model**, or `/agent`, `/plan`, `/ask` typed or picked from the `/` menu; the pill's choice travels as the top-level `model` of `POST /v1/responses` |
+| Web UI | the **Mode** pill in the composer, next to **Model**, or `/agent`, `/plan`, `/ask` typed or picked from the `/` menu; the pill's choice travels as the top-level `model` of `POST /v1/responses`; the pill shows the mode of the session on screen and a new chat starts in `agent` ([Session settings](session-settings.md#web-ui)) |
 | Console | `/agent`, `/plan` or `/ask` in the chat, or `--mode agent\|plan\|ask` at launch, which also combines with `-c`, `--resume` and `-p`; in `--remote` mode the command switches the server's session |
 | ACP | `session/set_config_option` with `configId` `mode` and `value` `agent`, `plan` or `ask` (preferred), or the legacy `session/set_mode` with `modeId`; the agent answers with `current_mode_update` and `config_option_update`, and `session/new` advertises the three in `configOptions` and `modes` |
 | HTTP API | `model` set to `agent`, `plan` or `ask` on `POST /v1/responses` or `POST /v1/chat/completions`; `GET /v1/models` lists the three with `owned_by` `coddy`, and `metadata.model` picks the backend |

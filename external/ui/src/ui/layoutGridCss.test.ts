@@ -44,7 +44,9 @@ const key = (q: Query) => `${q.kind}-width: ${q.px}px`;
 /** The "Layout grid" section of DESIGN.md, up to the next heading of its level. */
 function gridSection(): string {
   const start = design.indexOf("### Layout grid");
-  expect(start, "DESIGN.md has a Layout grid section").toBeGreaterThanOrEqual(0);
+  expect(start, "DESIGN.md has a Layout grid section").toBeGreaterThanOrEqual(
+    0,
+  );
   const next = design.indexOf("\n### ", start + 1);
   return design.slice(start, next < 0 ? undefined : next);
 }
@@ -79,10 +81,13 @@ const TIER_EDGES = new Set(
 function widthsIn(query: string): { queries: Query[]; strays: string[] } {
   const queries: Query[] = [];
   const strays: string[] = [];
-  const rest = query.replace(/\((min|max)-width:\s*(\d+)px\)/g, (_, kind: string, px: string) => {
-    queries.push({ kind: kind as "min" | "max", px: Number(px) });
-    return "";
-  });
+  const rest = query.replace(
+    /\((min|max)-width:\s*(\d+)px\)/g,
+    (_, kind: string, px: string) => {
+      queries.push({ kind: kind as "min" | "max", px: Number(px) });
+      return "";
+    },
+  );
   if (/width/.test(rest)) strays.push(query.trim());
   return { queries, strays };
 }
@@ -96,7 +101,8 @@ function sourceFiles(root: string): string[] {
   for (const name of readdirSync(root)) {
     const path = join(root, name);
     if (statSync(path).isDirectory()) out.push(...sourceFiles(path));
-    else if (/\.(ts|tsx)$/.test(name) && !/\.test\.(ts|tsx)$/.test(name)) out.push(path);
+    else if (/\.(ts|tsx)$/.test(name) && !/\.test\.(ts|tsx)$/.test(name))
+      out.push(path);
   }
   return out;
 }
@@ -108,13 +114,16 @@ describe("the layout grid", () => {
     for (const prelude of mediaPreludes()) {
       const { queries, strays: other } = widthsIn(prelude);
       strays.push(...other);
-      for (const q of queries) if (!allowed.has(key(q))) strays.push(`${prelude} (${key(q)})`);
+      for (const q of queries)
+        if (!allowed.has(key(q))) strays.push(`${prelude} (${key(q)})`);
     }
     expect(strays).toEqual([]);
   });
 
   test("the phone rules live under one query, not a second threshold of their own", () => {
-    const used = new Set(mediaPreludes().flatMap((p) => widthsIn(p).queries.map(key)));
+    const used = new Set(
+      mediaPreludes().flatMap((p) => widthsIn(p).queries.map(key)),
+    );
     // The phone block used to sit at 520px and the turn line's caption at 480px.
     expect(used.has("max-width: 520px")).toBe(false);
     expect(used.has("max-width: 480px")).toBe(false);
@@ -123,14 +132,22 @@ describe("the layout grid", () => {
 
   test("DESIGN.md names every tier edge the stylesheet uses, and every threshold it lists is in use", () => {
     const grid = gridSection();
-    const used = new Set(mediaPreludes().flatMap((p) => widthsIn(p).queries.map(key)));
+    const used = new Set(
+      mediaPreludes().flatMap((p) => widthsIn(p).queries.map(key)),
+    );
     for (const edge of TIER_EDGES) {
-      if (used.has(edge)) expect(grid, `${edge} is in the Layout grid section`).toContain(edge);
+      if (used.has(edge))
+        expect(grid, `${edge} is in the Layout grid section`).toContain(edge);
     }
     const thresholds = componentThresholds();
-    expect(thresholds.size, "the grid lists its component thresholds").toBeGreaterThan(0);
+    expect(
+      thresholds.size,
+      "the grid lists its component thresholds",
+    ).toBeGreaterThan(0);
     for (const [threshold, name] of thresholds) {
-      expect(used.has(threshold), `${threshold} (${name}) is still used`).toBe(true);
+      expect(used.has(threshold), `${threshold} (${name}) is still used`).toBe(
+        true,
+      );
     }
   });
 
@@ -139,7 +156,9 @@ describe("the layout grid", () => {
     const offenders = sourceFiles(root)
       .filter((path) => !path.endsWith("shellBreakpoint.ts"))
       .filter((path) =>
-        /matchMedia\(\s*["'`][^"'`]*width[^"'`]*\d+(px|em|rem)/.test(readFileSync(path, "utf8")),
+        /matchMedia\(\s*["'`][^"'`]*width[^"'`]*\d+(px|em|rem)/.test(
+          readFileSync(path, "utf8"),
+        ),
       )
       .map((path) => relative(root, path));
     expect(offenders).toEqual([]);

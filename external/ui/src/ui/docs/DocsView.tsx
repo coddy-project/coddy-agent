@@ -45,7 +45,11 @@ export function DocsView(props: {
   slug: string | null;
   anchor: string | null;
   /** Moves the reader, as following a link does. */
-  onOpen: (slug: string, anchor?: string | null, opts?: { replace?: boolean }) => void;
+  onOpen: (
+    slug: string,
+    anchor?: string | null,
+    opts?: { replace?: boolean },
+  ) => void;
   /** Starts a chat with a draft; absent where there is no chat to start. */
   onAsk?: (draft: string) => void;
   onClose?: () => void;
@@ -53,7 +57,7 @@ export function DocsView(props: {
   /** A search to show, from `/docs <words>` in the composer; a new nonce shows it again. */
   searchSeed?: { query: string; nonce: number };
 }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const { slug, anchor, onOpen } = props;
   const [contents, setContents] = useState<DocsContents | null>(null);
   const [page, setPage] = useState<DocsPage | null>(null);
@@ -68,7 +72,9 @@ export function DocsView(props: {
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [selection, setSelection] = useState("");
   // The image opened over the page, if any.
-  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(
+    null,
+  );
   // The section being read, followed as the page scrolls ("On this page").
   const [reading, setReading] = useState<string | null>(null);
   const articleRef = useRef<HTMLElement | null>(null);
@@ -92,7 +98,7 @@ export function DocsView(props: {
 
   useEffect(() => {
     const ac = new AbortController();
-    void fetchDocsContents(ac.signal)
+    void fetchDocsContents(locale, ac.signal)
       .then((res) => {
         if (res.ok) {
           setContents(res.data);
@@ -102,7 +108,7 @@ export function DocsView(props: {
       })
       .catch(() => {});
     return () => ac.abort();
-  }, []);
+  }, [locale]);
 
   // No page named: the reader opens on the first page of the contents.
   useEffect(() => {
@@ -119,7 +125,7 @@ export function DocsView(props: {
       return undefined;
     }
     const ac = new AbortController();
-    void fetchDocsPage(slug, ac.signal)
+    void fetchDocsPage(slug, locale, ac.signal)
       .then((res) => {
         if (res.ok) {
           setPage(res.data);
@@ -132,7 +138,7 @@ export function DocsView(props: {
     setTocOpen(false);
     setOutlineOpen(false);
     return () => ac.abort();
-  }, [slug]);
+  }, [slug, locale]);
 
   // Headings get the anchors the server computed, then the reader scrolls to
   // the section the address names, or to the top of a page just opened.
@@ -142,8 +148,12 @@ export function DocsView(props: {
       return;
     }
     assignHeadingIds(root, page.headings);
-    addHeadingLinks(root, page.slug, (heading) => t("docs.anchor.label", { heading }));
-    const target = anchor ? root.querySelector(`[id="${CSS.escape(anchor)}"]`) : null;
+    addHeadingLinks(root, page.slug, (heading) =>
+      t("docs.anchor.label", { heading }),
+    );
+    const target = anchor
+      ? root.querySelector(`[id="${CSS.escape(anchor)}"]`)
+      : null;
     if (target instanceof HTMLElement) {
       target.scrollIntoView?.({ block: "start" });
     } else {
@@ -152,10 +162,11 @@ export function DocsView(props: {
   }, [page, slug, anchor, t]);
 
   // The header is laid on the columns of the page, but only the body scrolls:
-  // a classic scrollbar narrows the body's columns and not the header's. The
-  // header leaves the same width free on its right (--docs-scrollbar in
-  // styles.css), so the search ends where the text does. The scrollbar comes
-  // and goes with the page's height, which the layout's width follows.
+  // a classic scrollbar takes its width out of the body alone. The body gives
+  // that width out of its right padding (--docs-scrollbar in styles.css), so
+  // the text ends where the search does and the header keeps the same inset
+  // on both sides. The scrollbar comes and goes with the page's height, which
+  // the layout's width follows.
   useLayoutEffect(() => {
     const view = viewRef.current;
     const body = bodyRef.current;
@@ -163,7 +174,8 @@ export function DocsView(props: {
     const apply = () => {
       const style = getComputedStyle(body);
       const borders =
-        (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.borderRightWidth) || 0);
+        (parseFloat(style.borderLeftWidth) || 0) +
+        (parseFloat(style.borderRightWidth) || 0);
       const gutter = Math.max(0, body.offsetWidth - body.clientWidth - borders);
       view.style.setProperty("--docs-scrollbar", `${gutter}px`);
     };
@@ -178,7 +190,9 @@ export function DocsView(props: {
 
   // The selected hit stays in view as Up and Down move it.
   useEffect(() => {
-    document.getElementById(`docs-hit-${hitIndex}`)?.scrollIntoView?.({ block: "nearest" });
+    document
+      .getElementById(`docs-hit-${hitIndex}`)
+      ?.scrollIntoView?.({ block: "nearest" });
   }, [hitIndex, hits]);
 
   // "On this page" follows the reader: the section whose heading last went
@@ -247,7 +261,7 @@ export function DocsView(props: {
     }
     const ac = new AbortController();
     const timer = window.setTimeout(() => {
-      void searchDocs(q, ac.signal)
+      void searchDocs(q, locale, ac.signal)
         .then((res) => {
           setHits(res.ok ? res.data : []);
           setHitIndex(0);
@@ -258,14 +272,20 @@ export function DocsView(props: {
       window.clearTimeout(timer);
       ac.abort();
     };
-  }, [query]);
+  }, [query, locale]);
 
   // What the reader selected on the page: "Ask the agent" quotes it.
   useEffect(() => {
     const onChange = () => {
       const sel = document.getSelection();
       const root = articleRef.current;
-      if (!sel || sel.isCollapsed || !root || !sel.anchorNode || !root.contains(sel.anchorNode)) {
+      if (
+        !sel ||
+        sel.isCollapsed ||
+        !root ||
+        !sel.anchorNode ||
+        !root.contains(sel.anchorNode)
+      ) {
         setSelection("");
         return;
       }
@@ -342,7 +362,9 @@ export function DocsView(props: {
         <div className="docs-title-block">
           <h1 className="docs-title">{t("docs.title")}</h1>
           <p className="docs-subtitle">
-            {contents ? t("docs.subtitle", { version: contents.version }) : t("docs.loading")}
+            {contents
+              ? t("docs.subtitle", { version: contents.version })
+              : t("docs.loading")}
           </p>
         </div>
         <div
@@ -350,7 +372,9 @@ export function DocsView(props: {
           ref={searchBoxRef}
           onBlur={(e) => {
             // Moving into the results keeps them; leaving the box closes them.
-            if (!searchBoxRef.current?.contains(e.relatedTarget as Node | null)) {
+            if (
+              !searchBoxRef.current?.contains(e.relatedTarget as Node | null)
+            ) {
               setResultsOpen(false);
             }
           }}
@@ -365,7 +389,9 @@ export function DocsView(props: {
             aria-controls="docs-hits"
             aria-expanded={resultsOpen && !!hits && hits.length > 0}
             aria-activedescendant={
-              resultsOpen && hits && hits.length > 0 ? `docs-hit-${hitIndex}` : undefined
+              resultsOpen && hits && hits.length > 0
+                ? `docs-hit-${hitIndex}`
+                : undefined
             }
             placeholder={t("docs.search.placeholder")}
             aria-label={t("docs.search.placeholder")}
@@ -406,17 +432,26 @@ export function DocsView(props: {
                         className={`docs-hit${i === hitIndex ? " is-selected" : ""}`}
                         title={snippetText(h.snippet)}
                         onMouseEnter={() => setHitIndex(i)}
-                        onClick={(ev) => sameTabInAppNavClick(ev, () => openHit(h))}
+                        onClick={(ev) =>
+                          sameTabInAppNavClick(ev, () => openHit(h))
+                        }
                       >
                         <span className="docs-hit-title">
                           {h.title}
                           {h.heading ? (
-                            <span className="docs-hit-heading"> › {h.heading}</span>
+                            <span className="docs-hit-heading">
+                              {" "}
+                              › {h.heading}
+                            </span>
                           ) : null}
                         </span>
                         <span className="docs-hit-snippet">
                           {(h.snippet ?? []).map((f, k) =>
-                            f.hit ? <mark key={k}>{f.text}</mark> : <span key={k}>{f.text}</span>,
+                            f.hit ? (
+                              <mark key={k}>{f.text}</mark>
+                            ) : (
+                              <span key={k}>{f.text}</span>
+                            ),
                           )}
                         </span>
                       </a>
@@ -434,7 +469,11 @@ export function DocsView(props: {
               className="docs-ask"
               data-testid="docs-ask"
               disabled={loading}
-              title={selection ? t("docs.ask.selectionTitle") : t("docs.ask.pageTitle")}
+              title={
+                selection
+                  ? t("docs.ask.selectionTitle")
+                  : t("docs.ask.pageTitle")
+              }
               // Keep the selection the reader made: a click would clear it.
               onMouseDown={(e) => e.preventDefault()}
               onClick={ask}
@@ -476,7 +515,11 @@ export function DocsView(props: {
               <span>{t("docs.toc.label")}</span>
               <Chevron pointing="down" open={tocOpen} />
             </button>
-            <nav className="docs-toc" aria-label={t("docs.toc.label")} data-testid="docs-toc">
+            <nav
+              className="docs-toc"
+              aria-label={t("docs.toc.label")}
+              data-testid="docs-toc"
+            >
               {contents?.groups.map((g) => (
                 <div key={g.id} className="docs-toc-group">
                   <div className="docs-toc-group-title">{g.title}</div>
@@ -488,7 +531,9 @@ export function DocsView(props: {
                           className={`docs-toc-page${p.slug === slug ? " is-active" : ""}`}
                           aria-current={p.slug === slug ? "page" : undefined}
                           title={p.summary}
-                          onClick={(ev) => sameTabInAppNavClick(ev, () => onOpen(p.slug))}
+                          onClick={(ev) =>
+                            sameTabInAppNavClick(ev, () => onOpen(p.slug))
+                          }
                         >
                           {p.title}
                         </a>
@@ -541,10 +586,16 @@ export function DocsView(props: {
                       href={appNavHrefDocs(shown.prev.slug)}
                       className="docs-pager-link docs-pager-prev"
                       data-testid="docs-prev"
-                      onClick={(ev) => sameTabInAppNavClick(ev, () => onOpen(shown.prev!.slug))}
+                      onClick={(ev) =>
+                        sameTabInAppNavClick(ev, () => onOpen(shown.prev!.slug))
+                      }
                     >
-                      <span className="docs-pager-dir">{t("docs.pager.prev")}</span>
-                      <span className="docs-pager-title">{shown.prev.title}</span>
+                      <span className="docs-pager-dir">
+                        {t("docs.pager.prev")}
+                      </span>
+                      <span className="docs-pager-title">
+                        {shown.prev.title}
+                      </span>
                     </a>
                   ) : (
                     <span />
@@ -554,10 +605,16 @@ export function DocsView(props: {
                       href={appNavHrefDocs(shown.next.slug)}
                       className="docs-pager-link docs-pager-next"
                       data-testid="docs-next"
-                      onClick={(ev) => sameTabInAppNavClick(ev, () => onOpen(shown.next!.slug))}
+                      onClick={(ev) =>
+                        sameTabInAppNavClick(ev, () => onOpen(shown.next!.slug))
+                      }
                     >
-                      <span className="docs-pager-dir">{t("docs.pager.next")}</span>
-                      <span className="docs-pager-title">{shown.next.title}</span>
+                      <span className="docs-pager-dir">
+                        {t("docs.pager.next")}
+                      </span>
+                      <span className="docs-pager-title">
+                        {shown.next.title}
+                      </span>
                     </a>
                   ) : null}
                 </nav>
@@ -582,14 +639,20 @@ export function DocsView(props: {
                 <span>{t("docs.outline.label")}</span>
                 <Chevron pointing="down" open={outlineOpen} />
               </button>
-              <div className="docs-outline-title">{t("docs.outline.label")}</div>
+              <div className="docs-outline-title">
+                {t("docs.outline.label")}
+              </div>
               <ul>
                 {outline.map((h) => (
                   <li key={h.anchor} className={`docs-outline-l${h.level}`}>
                     <a
                       href={appNavHrefDocs(shown!.slug, h.anchor)}
-                      className={h.anchor === activeSection ? "is-active" : undefined}
-                      aria-current={h.anchor === activeSection ? "location" : undefined}
+                      className={
+                        h.anchor === activeSection ? "is-active" : undefined
+                      }
+                      aria-current={
+                        h.anchor === activeSection ? "location" : undefined
+                      }
                       onClick={(ev) =>
                         sameTabInAppNavClick(ev, () => {
                           setOutlineOpen(false);
@@ -607,7 +670,11 @@ export function DocsView(props: {
         </div>
       </div>
       {lightbox ? (
-        <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />
+        <ImageLightbox
+          src={lightbox.src}
+          alt={lightbox.alt}
+          onClose={() => setLightbox(null)}
+        />
       ) : null}
     </section>
   );

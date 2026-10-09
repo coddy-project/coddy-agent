@@ -128,15 +128,17 @@ npx skillsbd list
 
 Skills from skillsbd are also installed into **`~/.agents/skills/`** by default, so Coddy picks them up automatically via the default `skills.dirs`.
 
-You can also browse and install through the Coddy web UI: **Settings → Skills → Registry**.
+You can also browse and install through the Coddy web UI: the install search of **Installed skills** in **Settings → Skills**.
 
 ---
 
 ## Marketplaces and sources
 
 Coddy can fetch skills itself, without any external CLI, from a **GitHub repo**, a **git URL**, or
-an **http(s) URL** to an [agents-standard](https://agents.md) `marketplace.json`. What it may fetch
-is declared in two files of one shape, never in `config.yaml`:
+an **http(s) URL** to an [agents-standard](https://agents.md) `marketplace.json`. Git sources use
+the Git executable when it is available and the built-in go-git backend otherwise; remote staging
+lives under `${CODDY_HOME}/tmp`, so a minimal image needs a writable Coddy home but no system `/tmp`.
+What it may fetch is declared in two files of one shape, never in `config.yaml`:
 
 | File | Written by | Takes effect |
 |------|------------|--------------|
@@ -163,8 +165,8 @@ is declared in two files of one shape, never in `config.yaml`:
   `plugin marketplace add` reads its list, its plugins are installed one by one with
   `plugin install <plugin>@<name>`, and an update touches only those.
 
-Declaring either downloads nothing: `coddy skills sync`, **Sync** in Settings or
-`POST /coddy/skills/sync` fetches, and nothing is fetched automatically. Whatever an entry installs
+Declaring either downloads nothing: `coddy skills sync`, **Sync all** (or a marketplace's own sync
+button) in Settings or `POST /coddy/skills/sync` fetches, and nothing is fetched automatically. Whatever an entry installs
 goes into `${CODDY_HOME}/skills`, whichever file declared it, so a project's marketplace brings its
 skills into your Coddy home, not into the checkout. The built-in
 [`EvilFreelancer/rpa-skills`](#the-marketplace-that-comes-with-it) sits beside both files. An entry
@@ -305,8 +307,9 @@ Three surfaces stay in parity — pick whichever fits:
 - **CLI** — `coddy plugin ...` (and `coddy skills ...`).
 - **Chat** — the `/plugin ...` command.
 - **Web UI** — **Settings → Skills → Marketplaces** (add a source to your file or the project's,
-  approve a project entry with its shield, **Sync**, remove), **Refresh** to check versions, and a
-  per-skill **Update** button when a newer version exists. The install search there also offers the
+  approve a project entry with its shield, sync it or **Sync all**, remove), a version check after
+  every sync, and a per-skill download button (*Download update* in its tooltip) when a newer version
+  exists. The install search there also offers the
   plugins of the marketplaces in effect.
 
 ### Versions and updates
@@ -326,9 +329,9 @@ description: ...
 A top-level `version:` key, the form older skills used, is still read; `metadata.version` wins when a
 file has both. Coddy records the installed version in the
 `${CODDY_HOME}/skills/.remote.json` lockfile and shows it in `coddy skills list`, `coddy plugin list`,
-the HTTP skill rows, and the Settings UI. `coddy plugin marketplace sync` (or the UI **Refresh**
-button, backed by `GET /coddy/skills/updates`) re-reads each source's manifest and reports which skills
-have a newer version upstream; the per-skill **Update** button (or `POST /coddy/skills/{name}/update`)
+the HTTP skill rows, and the Settings UI. `coddy plugin marketplace sync` (or the version check
+the UI runs after every sync, backed by `GET /coddy/skills/updates`) re-reads each source's manifest and reports which skills
+have a newer version upstream; the per-skill download button (*Download update* in its tooltip, or `POST /coddy/skills/{name}/update`)
 re-syncs just that skill's source to install it. Version-less plugins are shown without a version and
 are never flagged for updates (no false positives).
 
@@ -341,7 +344,7 @@ again and records the new version.
 
 ### How a source is resolved
 
-1. `owner/repo` shorthands and git URLs are cloned (`git clone --depth 1`, refreshed with `git pull --ff-only`); an API URL is downloaded as JSON.
+1. `owner/repo` shorthands and git URLs are shallow-cloned and refreshed. Coddy uses the Git CLI when present and its built-in go-git backend otherwise; an API URL is downloaded as JSON.
 2. If the repo (or API response) is an agents-standard **marketplace** (`.agents/plugins/marketplace.json` or `.claude-plugin/marketplace.json`), each listed plugin is resolved:
    - an **external** source (`{"source":"github","repo":"owner/repo"}` / `{"source":"url","url":"…","ref":"…"}`) is cloned;
    - an **archive** source (`{"source":"archive","url":"https://…/plugin.zip","sha256":"…"}`) is downloaded and unpacked, without git (see [below](#plugins-published-as-zip-archives));
@@ -351,7 +354,7 @@ again and records the new version.
 
 Provenance is tracked in `${CODDY_HOME}/skills/.remote.json`. Because synced skills live in a normal skills directory, `enable`/`disable` work on them like any other skill; `remove` deletes the copy (re-running `sync` re-installs it unless you also remove the source from its `marketplaces.json`).
 
-Private repositories rely on your ambient `git` credentials; API URLs and plugin archives are checked against the same SSRF guard used by the `webfetch` tool.
+Private repositories use the credentials their selected Git backend can access. Git-less environments support HTTPS and `file://` sources through go-git; SSH sources require an authentication mechanism go-git can use in that process. An HTTP(S) marketplace may name only HTTP(S) external plugin URLs, which pass the same SSRF guard as API URLs and plugin archives. A local or SSH marketplace the operator explicitly selected may resolve plugins over its matching non-HTTP transport.
 
 ### Plugins published as zip archives
 
@@ -541,7 +544,7 @@ is read over the network for that.
   `marketplaces.json` files. A source's manifest or
   repository is fetched only when someone asks for it - `coddy skills sync`,
   `coddy plugin marketplace sync` and `/plugin`, Settings → Skills
-  (**Refresh**, **Update**), `GET /coddy/skills/updates` - so a large
+  (**Sync all**, the install search, a skill's download button), `GET /coddy/skills/updates` - so a large
   marketplace, or a source that does not answer, never delays a session.
 
 What can hold a start up are the configured MCP servers; the console
@@ -569,4 +572,4 @@ ACP clients receive `available_commands_update` after `session/new` and `session
 - Implementation: `internal/skills/`, wiring in `internal/session/`, `internal/agent/system_prompt.go`, `internal/agent/react.go`
 - Config reference: [config.md](../getting-started/configuration.md) → `skills`
 - Rules (separate mechanism): [rules.md](rules.md)
-- Registry UI: Settings → Skills (requires `coddy serve`)
+- Web UI: Settings → Skills (requires `coddy serve`)

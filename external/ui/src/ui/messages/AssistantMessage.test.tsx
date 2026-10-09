@@ -1,5 +1,11 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { AssistantMessage } from "./AssistantMessage";
 
@@ -41,15 +47,21 @@ test("renders only a verified file marker as an inline artifact card with action
   };
   render(
     <AssistantMessage
-      content={'Ready.\n\n<coddy_file id="artifact-1"/>\n\n<coddy_file id="invented"/>'}
+      content={
+        'Ready.\n\n<coddy_file id="artifact-1"/>\n\n<coddy_file id="invented"/>'
+      }
       artifacts={new Map([[artifact.id, artifact]])}
     />,
   );
   expect(screen.getByTestId("inline-artifact-card-artifact-1")).toBeVisible();
   expect(screen.getByText('<coddy_file id="invented"/>')).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Actions for report.pdf" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Actions for report.pdf" }),
+  );
   expect(screen.getByRole("menu")).toBeVisible();
-  expect(screen.getByRole("menuitem", { name: "Mention source" })).toBeEnabled();
+  expect(
+    screen.getByRole("menuitem", { name: "Mention source" }),
+  ).toBeEnabled();
 });
 
 test("groups adjacent shared files and opens every image in the shared lightbox", () => {
@@ -78,12 +90,16 @@ test("groups adjacent shared files and opens every image in the shared lightbox"
   };
   render(
     <AssistantMessage
-      content={'Prepared files:\n\n<coddy_file id="report"/>\n<coddy_file id="chart"/>\n<coddy_file id="cover"/>\n\nOpen either image for a preview.'}
-      artifacts={new Map([
-        [report.id, report],
-        [chart.id, chart],
-        [cover.id, cover],
-      ])}
+      content={
+        'Prepared files:\n\n<coddy_file id="report"/>\n<coddy_file id="chart"/>\n<coddy_file id="cover"/>\n\nOpen either image for a preview.'
+      }
+      artifacts={
+        new Map([
+          [report.id, report],
+          [chart.id, chart],
+          [cover.id, cover],
+        ])
+      }
     />,
   );
 

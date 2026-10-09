@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
-import { deriveLiveStatus } from "../chat/liveStatus";
+import { deriveLiveStatus, withPreparingPhase } from "../chat/liveStatus";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
 import { userMsgIndices } from "./userMsgIndices";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
@@ -13,13 +13,17 @@ import { AssistantMessage } from "./AssistantMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { CompactionMessage } from "./CompactionMessage";
+import { GoalTurnMessage } from "./GoalTurnMessage";
 import { opensTurn } from "../chat/backgroundWake";
 import { ToolCallMessage } from "./ToolCallMessage";
 import type { BackgroundTask } from "../tasks/types";
 import type { TurnProgress } from "../chat/turnProgress";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
-import { artifactMarkerIds, artifactMarkersForAssistant } from "../chat/inlineArtifacts";
+import {
+  artifactMarkerIds,
+  artifactMarkersForAssistant,
+} from "../chat/inlineArtifacts";
 
 /**
  * The turn's clock and tokens for the live line: what the server reported, and until it
@@ -71,6 +75,13 @@ export function MessageList(props: {
   onPlanDocumentRun?: (slug: string) => void;
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
+  /** The server index of the prompt loaded into the composer for an edit. */
+  editingUserMsgIdx?: number | null;
+  /** The server index of the prompt the last rewind edited, while it can
+   *  still be taken back; that prompt carries Undo. */
+  rewindUndoUserMsgIdx?: number | null;
+  onUndoEdit?: () => void;
+  undoEditBusy?: boolean;
   /** Re-run the last turn; shown as a refresh button on the last system_notice. */
   onRetryLast?: () => void;
   /** Background tasks of this session keyed by the tool call that started them. */
@@ -108,9 +119,10 @@ export function MessageList(props: {
     return byId;
   }, [props.items]);
 
-  // The server numbers every user-role message of the transcript, a woken
-  // turn's first message included, so the wake counts here too: an edit of a
-  // later message must name the message the server knows by that index.
+  // The server numbers every user-role message of the transcript, the first
+  // message of a woken turn and of a goal turn included, so those count here
+  // too: an edit of a later message must name the message the server knows by
+  // that index.
   const userMsgIndexById = useMemo(
     () => userMsgIndices(props.items, props.userMsgIndexBase ?? 0),
     [props.items, props.userMsgIndexBase],
@@ -145,8 +157,11 @@ export function MessageList(props: {
 
   // What the running turn is doing right now, for the label next to the typing dots.
   const liveStatus = useMemo(
-    () => (props.generating === true ? deriveLiveStatus(props.items) : null),
-    [props.generating, props.items],
+    () =>
+      props.generating === true
+        ? withPreparingPhase(deriveLiveStatus(props.items), props.turnProgress)
+        : null,
+    [props.generating, props.items, props.turnProgress],
   );
 
   const renderStart = Math.max(0, props.renderStart ?? 0);
@@ -162,7 +177,11 @@ export function MessageList(props: {
     const ids = new Set<string>();
     props.items.forEach((item, index) => {
       if (item.type === "assistant_message") {
-        for (const id of artifactMarkerIds(item.content, artifactMarkersForAssistant(props.items, index))) ids.add(id);
+        for (const id of artifactMarkerIds(
+          item.content,
+          artifactMarkersForAssistant(props.items, index),
+        ))
+          ids.add(id);
       }
     });
     return ids;
@@ -189,6 +208,17 @@ export function MessageList(props: {
                 ? { onEdit: props.onEdit, userMsgIndex: myIdx }
                 : {})}
               {...(it.files && it.files.length > 0 ? { files: it.files } : {})}
+              {...(myIdx !== undefined && props.editingUserMsgIdx === myIdx
+                ? { editing: true }
+                : {})}
+              {...(props.onUndoEdit &&
+              myIdx !== undefined &&
+              props.rewindUndoUserMsgIdx === myIdx
+                ? {
+                    onUndoEdit: props.onUndoEdit,
+                    ...(props.undoEditBusy ? { undoEditBusy: true } : {}),
+                  }
+                : {})}
             />
           );
         }
@@ -220,6 +250,12 @@ export function MessageList(props: {
           // panel keeps a bell for what woke it.
           return null;
         }
+        if (it.type === "goal_turn") {
+          // A turn the session supervisor started for the goal: a compact
+          // row, never a user bubble, since nobody typed the instruction the
+          // model read. It opens a turn and has no edit or copy controls.
+          return <GoalTurnMessage key={it.id} rowId={it.id} turn={it.turn} />;
+        }
         if (it.type === "memory_run") {
           // The memory subagent's run is the live status line's business and
           // the Tasks drawer's record; the transcript shows nothing for it.
@@ -237,7 +273,9 @@ export function MessageList(props: {
               rowId={it.id}
               content={it.content}
               artifacts={artifactMarkersForAssistant(props.items, idx)}
-              {...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {})}
+              {...(props.onMentionArtifact
+                ? { onMentionArtifact: props.onMentionArtifact }
+                : {})}
               showFoot={turnClosingAssistantIds.has(it.id)}
               {...(typeof it.streaming === "boolean"
                 ? { streaming: it.streaming }
@@ -371,7 +409,13 @@ export function MessageList(props: {
               : {})}
             {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
             {...(it.images !== undefined ? { images: it.images } : {})}
-            {...(it.artifacts !== undefined ? { artifacts: it.artifacts.filter((artifact) => !inlineArtifactIds.has(artifact.id)) } : {})}
+            {...(it.artifacts !== undefined
+              ? {
+                  artifacts: it.artifacts.filter(
+                    (artifact) => !inlineArtifactIds.has(artifact.id),
+                  ),
+                }
+              : {})}
             {...(typeof it.durationMs === "number"
               ? { durationMs: it.durationMs }
               : {})}

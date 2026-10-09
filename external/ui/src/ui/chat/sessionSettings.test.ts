@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   isNewerSettings,
   parseSessionSettings,
+  permissionModeOfInfo,
   sessionSettingsEventOf,
 } from "./sessionSettings";
 import { dispatchServerEvent, parseServerEvent } from "./serverEvents";
@@ -15,12 +16,17 @@ const snapshot = {
   mode: "plan",
   permissionMode: "bypass",
   configuredPermissionMode: "ask",
-  overrides: [{ setting: "model", value: "nd/gpt-oss-120b", turnsLeft: 2, active: true }],
+  overrides: [
+    { setting: "model", value: "nd/gpt-oss-120b", turnsLeft: 2, active: true },
+  ],
 };
 
 test("a snapshot is read whole, overrides included", () => {
   const snap = parseSessionSettings(snapshot);
-  expect(snap).toEqual({ ...snapshot, overrides: [{ ...snapshot.overrides[0] }] });
+  expect(snap).toEqual({
+    ...snapshot,
+    overrides: [{ ...snapshot.overrides[0] }],
+  });
   expect(parseSessionSettings({ version: 3 })).toBeNull();
   expect(parseSessionSettings(null)).toBeNull();
 });
@@ -58,7 +64,12 @@ test("only a newer snapshot of the viewed session replaces what a tab shows", ()
 test("the events stream parses and dispatches session_settings", () => {
   const event = parseServerEvent({
     event: "session_settings",
-    data: JSON.stringify({ sessionId: "sess_a", settings: snapshot, notice: "", source: "web" }),
+    data: JSON.stringify({
+      sessionId: "sess_a",
+      settings: snapshot,
+      notice: "",
+      source: "web",
+    }),
   });
   expect(event?.type).toBe("session_settings");
   const seen: string[] = [];
@@ -66,9 +77,28 @@ test("the events stream parses and dispatches session_settings", () => {
     {
       onTurnStarted: () => {},
       onTurnEnded: () => {},
-      onSessionSettings: (e) => seen.push(`${e.sessionId}:${e.settings.version}`),
+      onSessionSettings: (e) =>
+        seen.push(`${e.sessionId}:${e.settings.version}`),
     },
     event!,
   );
   expect(seen).toEqual(["sess_a:7"]);
+});
+
+test("the configured permission mode is read off GET /coddy/info", () => {
+  const info = { object: "coddy.info", version: "1.2.3", hostname: "box" };
+  expect(permissionModeOfInfo({ ...info, permissionMode: "bypass" })).toBe(
+    "bypass",
+  );
+  expect(
+    permissionModeOfInfo({ ...info, permissionMode: " accept_edits " }),
+  ).toBe("accept_edits");
+  expect(permissionModeOfInfo({ ...info, permissionMode: "ask" })).toBe("ask");
+  // A server from before the field, a mode this page does not know, or no
+  // answer at all: unknown, never a guess, because a pick is compared with it.
+  expect(permissionModeOfInfo(info)).toBeNull();
+  expect(permissionModeOfInfo({ ...info, permissionMode: "yolo" })).toBeNull();
+  expect(permissionModeOfInfo({ ...info, permissionMode: 1 })).toBeNull();
+  expect(permissionModeOfInfo(null)).toBeNull();
+  expect(permissionModeOfInfo("bypass")).toBeNull();
 });

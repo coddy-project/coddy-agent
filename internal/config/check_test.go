@@ -14,7 +14,7 @@ func checkYAML(t *testing.T, body string) *CheckReport {
 	t.Helper()
 	home := t.TempDir()
 	path := filepath.Join(home, "config.yaml")
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := Check(CLIPaths{Home: home, Config: path})
@@ -123,6 +123,14 @@ func TestCheckWarnsAboutAKeyThatMovedOut(t *testing.T) {
 	}
 	if w := warningsOf(sources); len(w) != 1 || w[0].Path != "skills.sources" || !strings.Contains(w[0].Fix, "marketplaces.json") {
 		t.Fatalf("want one warning at skills.sources naming marketplaces.json, got %+v", sources.Findings)
+	}
+
+	sched := checkYAML(t, withModeline("scheduler:\n  dir: /srv/jobs\n"))
+	if errs := errorsOf(sched); len(errs) != 0 {
+		t.Fatalf("scheduler.dir must not be an error: %+v", errs)
+	}
+	if w := warningsOf(sched); len(w) != 1 || w[0].Path != "scheduler.dir" || !strings.Contains(w[0].Fix, ".coddy/scheduler") {
+		t.Fatalf("want one warning at scheduler.dir naming the fixed folders, got %+v", sched.Findings)
 	}
 }
 

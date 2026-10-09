@@ -38,6 +38,11 @@ type Runtime struct {
 	running map[string]*runningEntry
 	slots   chan struct{}
 
+	// skipped remembers the digest of each project job the daemon last
+	// reported as not runnable, so the log says it once per content, not
+	// once a minute.
+	skipped map[string]string
+
 	// historyMu serialises the sweeps over a job session's runs (retention
 	// after a run, Clear from the API, the delete of a job), so two of them
 	// never drop the same run at once and a Clear reports what it removed.
@@ -74,22 +79,20 @@ func NewRuntime(ctx context.Context, cfg func() *config.Config, mgr *session.Man
 		log:        log,
 		processCWD: processCWD,
 		running:    map[string]*runningEntry{},
+		skipped:    map[string]string{},
 		slots:      make(chan struct{}, maxQueue),
 	}
 }
 
 var _ schedservice.Runtime = (*Runtime)(nil)
 
-func canonicalJobPath(jobPath string) string {
-	abs := storage.CanonicalSchedulerJobPath(jobPath)
-	if abs == "" {
-		abs = filepath.Clean(jobPath)
+// jobCWD is where a run of the job works: a project job inside its
+// workspace (an escape refused), a user job against the process cwd.
+func jobCWD(processCWD string, snap storage.JobSnapshot) (string, error) {
+	if snap.Ref.IsProject() {
+		return storage.ProjectCWD(snap.Ref.Workspace, snap.FM.CWD)
 	}
-	return abs
-}
-
-func jobIDFromMDPath(abs string) string {
-	return strings.TrimSuffix(filepath.Base(abs), ".md")
+	return resolveJobCWD(processCWD, snap.FM)
 }
 
 func resolveJobCWD(processCWD string, fm *storage.JobFrontmatter) (string, error) {
@@ -151,25 +154,47 @@ func (r *Runtime) resolveDefinition(cfg *config.Config, fm *storage.JobFrontmatt
 	return def, nil
 }
 
+// noteSkipped logs once per content that a job is not run because it is not
+// trusted.
+func (r *Runtime) noteSkipped(snap storage.JobSnapshot, state schedservice.TrustState, reason string) {
+	key := snap.Ref.Key()
+	r.mu.Lock()
+	seen := r.skipped[key] == snap.Digest+string(state)
+	r.skipped[key] = snap.Digest + string(state)
+	r.mu.Unlock()
+	if !seen {
+		r.log.Info("scheduler project job not run", "job", snap.Ref.ID, "workspace", snap.Ref.Workspace, "trust", string(state), "reason", reason)
+	}
+}
+
 // StartRun implements schedservice.Runtime. The job is reserved (running mark
 // and max_queue slot) under the mutex before anything is launched, so a cron
 // tick and a manual run cannot both start it; the reservation is released by
 // the watcher that sees the run finish, whatever the exit path, and by the
 // failure paths below.
 func (r *Runtime) StartRun(_ context.Context, req schedservice.RunRequest) (schedservice.RunRef, error) {
-	if req.Frontmatter == nil {
+	snap := req.Snapshot
+	if snap.FM == nil {
 		return schedservice.RunRef{}, fmt.Errorf("scheduler run: job frontmatter is required")
 	}
-	if req.Frontmatter.Paused {
+	fm := snap.FM
+	if fm.Paused {
 		return schedservice.RunRef{}, schedservice.ErrJobPaused
 	}
 	cfg := r.cfg()
 	if cfg == nil {
 		return schedservice.RunRef{}, fmt.Errorf("scheduler run: configuration is required")
 	}
-	abs := canonicalJobPath(req.JobPath)
-	jobID := jobIDFromMDPath(abs)
-	cwd, err := resolveJobCWD(r.processCWD, req.Frontmatter)
+	// Trust is decided again on the very snapshot that runs, before anything
+	// is reserved: a receipt revoked or a user job created since the caller
+	// looked stops the run here.
+	if state, reason := schedservice.Decide(cfg, snap); state != schedservice.TrustTrusted {
+		return schedservice.RunRef{}, fmt.Errorf("%w: job %q is %s: %s", schedservice.ErrJobUntrusted, snap.Ref.ID, state, reason)
+	}
+	ref := snap.Ref
+	key := ref.Key()
+	jobID := ref.ID
+	cwd, err := jobCWD(r.processCWD, snap)
 	if err != nil {
 		return schedservice.RunRef{}, fmt.Errorf("scheduler run cwd: %w", err)
 	}
@@ -180,13 +205,13 @@ func (r *Runtime) StartRun(_ context.Context, req schedservice.RunRequest) (sche
 
 	// Trust is decided before anything is reserved: a refused definition
 	// starts nothing and holds nothing.
-	def, err := r.resolveDefinition(cfg, req.Frontmatter, cwd)
+	def, err := r.resolveDefinition(cfg, fm, cwd)
 	if err != nil {
 		return schedservice.RunRef{}, err
 	}
 
 	r.mu.Lock()
-	if _, busy := r.running[abs]; busy {
+	if _, busy := r.running[key]; busy {
 		r.mu.Unlock()
 		return schedservice.RunRef{}, schedservice.ErrJobBusy
 	}
@@ -197,20 +222,20 @@ func (r *Runtime) StartRun(_ context.Context, req schedservice.RunRequest) (sche
 		return schedservice.RunRef{}, fmt.Errorf("%w (scheduler.max_queue is %d)", schedservice.ErrQueueSaturated, cap(r.slots))
 	}
 	entry := &runningEntry{ref: schedservice.RunRef{JobID: jobID, Trigger: trigger, StartedAt: time.Now().UTC()}}
-	r.running[abs] = entry
+	r.running[key] = entry
 	r.mu.Unlock()
 
 	var releaseOnce sync.Once
 	release := func() {
 		releaseOnce.Do(func() {
 			r.mu.Lock()
-			delete(r.running, abs)
+			delete(r.running, key)
 			r.mu.Unlock()
 			<-r.slots
 		})
 	}
 
-	jobSessionID, jobSessionDir, err := r.ensureJobSession(abs, jobID, cwd)
+	jobSessionID, jobSessionDir, err := r.ensureJobSession(ref, cwd)
 	if err != nil {
 		release()
 		return schedservice.RunRef{}, err
@@ -220,7 +245,7 @@ func (r *Runtime) StartRun(_ context.Context, req schedservice.RunRequest) (sche
 	// tick (a minute away) never treats the same slot as due while the run
 	// is being created.
 	if req.UpdateState {
-		if werr := storage.WriteJobState(storage.StatePath(abs), req.FireSlot); werr != nil {
+		if werr := storage.WriteJobState(ref.StatePath, req.FireSlot); werr != nil {
 			release()
 			return schedservice.RunRef{}, fmt.Errorf("scheduler run state write: %w", werr)
 		}
@@ -234,6 +259,7 @@ func (r *Runtime) StartRun(_ context.Context, req schedservice.RunRequest) (sche
 	now := time.Now().UTC()
 	spec := agent.ScheduledRunSpec{
 		JobID:          jobID,
+		JobWorkspace:   ref.Workspace,
 		JobSessionID:   jobSessionID,
 		JobSessionDir:  jobSessionDir,
 		RunSessionID:   runID,
@@ -241,40 +267,40 @@ func (r *Runtime) StartRun(_ context.Context, req schedservice.RunRequest) (sche
 		Trigger:        trigger,
 		FireSlot:       req.FireSlot,
 		CWD:            cwd,
-		Mode:           req.Frontmatter.Mode,
-		Model:          req.Frontmatter.Model,
-		PermissionMode: req.Frontmatter.PermissionMode,
-		Instruction:    req.Body,
+		Mode:           fm.Mode,
+		Model:          fm.Model,
+		PermissionMode: fm.PermissionMode,
+		Instruction:    snap.Body,
 		TimeoutSeconds: int(timeout / time.Second),
 		Definition:     def,
 		MCPServerNames: mcpServerNames(cfg, cwd, r.log),
 	}
-	snap, err := agent.RunScheduledJob(r.ctx, cfg, r.mgr, r.pool, r.log, spec)
+	task, err := agent.RunScheduledJob(r.ctx, cfg, r.mgr, r.pool, r.log, spec)
 	if err != nil {
 		release()
 		return schedservice.RunRef{}, err
 	}
-	ref := schedservice.RunRef{
+	runRef := schedservice.RunRef{
 		JobID:        jobID,
 		JobSessionID: jobSessionID,
-		TaskID:       snap.ID,
+		TaskID:       task.ID,
 		RunSessionID: runID,
 		Trigger:      trigger,
-		StartedAt:    snap.StartedAt.UTC(),
+		StartedAt:    task.StartedAt.UTC(),
 	}
 	r.mu.Lock()
-	entry.ref = ref
+	entry.ref = runRef
 	cancelled := entry.cancelRequested
 	r.mu.Unlock()
-	r.log.Info("scheduler_run_spawn", "job_id", jobID, "session_id", runID, "task_id", snap.ID, "trigger", trigger)
+	r.log.Info("scheduler_run_spawn", "job_id", jobID, "session_id", runID, "task_id", task.ID, "trigger", trigger)
 	if cancelled {
 		// A cancel that arrived while the job was reserved but its task did
 		// not exist yet is honoured now, the task being the first thing there
 		// is to stop.
-		go func() { _, _ = r.pool.Stop(ref.JobSessionID, ref.TaskID) }()
+		go func() { _, _ = r.pool.Stop(runRef.JobSessionID, runRef.TaskID) }()
 	}
-	go r.watch(abs, ref, release)
-	return ref, nil
+	go r.watch(runRef, release)
+	return runRef, nil
 }
 
 // mcpServerNames lists the configured MCP servers the trust gate admits for
@@ -297,7 +323,7 @@ func mcpServerNames(cfg *config.Config, cwd string, log *slog.Logger) []string {
 // cancels its runs, which is what settles them, and the bookkeeping below has
 // to run for a run that settled that way too. The pool's own hard timeout is
 // what guarantees every task settles, so the wait cannot hang for good.
-func (r *Runtime) watch(abs string, ref schedservice.RunRef, release func()) {
+func (r *Runtime) watch(ref schedservice.RunRef, release func()) {
 	snap, err := r.pool.Wait(context.Background(), ref.JobSessionID, ref.TaskID, 0)
 	status := string(snap.Status)
 	if err != nil || status == "" {
@@ -328,10 +354,9 @@ func (r *Runtime) watch(abs string, ref schedservice.RunRef, release func()) {
 // CancelRun implements schedservice.Runtime. A job reserved whose task is
 // not registered yet is cancelled too: the request is kept on the reservation
 // and applied to the task as soon as StartRun has it.
-func (r *Runtime) CancelRun(jobPath string) bool {
-	abs := canonicalJobPath(jobPath)
+func (r *Runtime) CancelRun(job storage.JobRef) bool {
 	r.mu.Lock()
-	entry, ok := r.running[abs]
+	entry, ok := r.running[job.Key()]
 	if !ok {
 		r.mu.Unlock()
 		return false
@@ -350,11 +375,10 @@ func (r *Runtime) CancelRun(jobPath string) bool {
 }
 
 // RunningRun implements schedservice.Runtime.
-func (r *Runtime) RunningRun(jobPath string) (schedservice.RunRef, bool) {
-	abs := canonicalJobPath(jobPath)
+func (r *Runtime) RunningRun(job storage.JobRef) (schedservice.RunRef, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entry, ok := r.running[abs]
+	entry, ok := r.running[job.Key()]
 	if !ok {
 		return schedservice.RunRef{}, false
 	}
@@ -374,25 +398,25 @@ func (r *Runtime) Pool() *bgtask.Pool {
 }
 
 // jobSessionID names the job session of a job, "" before its first run.
-func (r *Runtime) jobSessionID(jobPath string) string {
-	return schedservice.JobSessionIDFor(r.mgr.FileStore(), jobPath)
+func (r *Runtime) jobSessionID(job storage.JobRef) string {
+	return schedservice.JobSessionIDFor(r.mgr.FileStore(), job)
 }
 
 // ensureJobSession returns the live job session of a job, minting and
 // recording its id on the first run.
-func (r *Runtime) ensureJobSession(abs, jobID, cwd string) (id, dir string, err error) {
-	id = r.jobSessionID(abs)
+func (r *Runtime) ensureJobSession(job storage.JobRef, cwd string) (id, dir string, err error) {
+	id = r.jobSessionID(job)
 	if id == "" {
 		id = session.NewSessionID()
-		if werr := storage.WriteJobSessionID(storage.StatePath(abs), id); werr != nil {
+		if werr := storage.WriteJobSessionID(job.StatePath, id); werr != nil {
 			return "", "", fmt.Errorf("scheduler job session pointer: %w", werr)
 		}
-	} else if recorded, _ := storage.ReadJobSessionID(storage.StatePath(abs)); recorded != id {
+	} else if recorded, _ := storage.ReadJobSessionID(job.StatePath); recorded != id {
 		// Re-attached from the bundles: record the pointer so the walk is
 		// not needed again.
-		_ = storage.WriteJobSessionID(storage.StatePath(abs), id)
+		_ = storage.WriteJobSessionID(job.StatePath, id)
 	}
-	st, err := r.mgr.EnsureSchedulerJobSession(r.ctx, session.SchedulerJobSessionSpec{ID: id, JobID: jobID, CWD: cwd})
+	st, err := r.mgr.EnsureSchedulerJobSession(r.ctx, session.SchedulerJobSessionSpec{ID: id, JobID: job.ID, Workspace: job.Workspace, CWD: cwd})
 	if err != nil {
 		return "", "", fmt.Errorf("scheduler job session: %w", err)
 	}
@@ -450,8 +474,8 @@ func (r *Runtime) retain(jobSessionID string, keep int) error {
 }
 
 // ClearRuns implements schedservice.Runtime.
-func (r *Runtime) ClearRuns(jobPath string) (int, error) {
-	jobSessionID := r.jobSessionID(jobPath)
+func (r *Runtime) ClearRuns(job storage.JobRef) (int, error) {
+	jobSessionID := r.jobSessionID(job)
 	if jobSessionID == "" {
 		return 0, nil
 	}
@@ -475,8 +499,8 @@ func (r *Runtime) ClearRuns(jobPath string) (int, error) {
 }
 
 // DeleteJobHistory implements schedservice.Runtime.
-func (r *Runtime) DeleteJobHistory(jobPath string) error {
-	jobSessionID := r.jobSessionID(jobPath)
+func (r *Runtime) DeleteJobHistory(job storage.JobRef) error {
+	jobSessionID := r.jobSessionID(job)
 	if jobSessionID == "" {
 		return nil
 	}

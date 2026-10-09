@@ -75,9 +75,20 @@ func CheckNav(root string, nav *Nav) []Problem {
 		return append(problems, Problem{"docs", err.Error()})
 	}
 	for _, rel := range files {
-		if !listed[rel] && !strings.HasPrefix(rel, internalDir) {
+		if !listed[rel] && !strings.HasPrefix(rel, internalDir) && !isTranslation(rel) {
 			problems = append(problems, Problem{rel, "not listed in " + NavFile})
 		}
 	}
 	return problems
+}
+
+// isTranslation reports a file of a translation's folder: CheckTranslation
+// owns those.
+func isTranslation(rel string) bool {
+	for _, l := range Translations {
+		if strings.HasPrefix(rel, TranslationDir(l)) {
+			return true
+		}
+	}
+	return false
 }

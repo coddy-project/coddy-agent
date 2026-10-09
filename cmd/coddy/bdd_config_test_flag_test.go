@@ -67,7 +67,7 @@ func (s *configTestFlagState) close() {
 
 func (s *configTestFlagState) write(body string) error {
 	s.written = body
-	return os.WriteFile(s.cfgPath, []byte(body), 0o644)
+	return os.WriteFile(s.cfgPath, []byte(body), 0o600)
 }
 
 func (s *configTestFlagState) validConfig() error {

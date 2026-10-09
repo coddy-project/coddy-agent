@@ -38,6 +38,10 @@ var (
 	// ErrQueuedMessageNotFound is returned when a cancel names a message the
 	// queue no longer holds - usually because the agent has just read it.
 	ErrQueuedMessageNotFound = errors.New("queued message not found")
+
+	// ErrGoalCommandAfterTurn refuses to read a queued /goal command into the
+	// running step, where it would reach the model as text.
+	ErrGoalCommandAfterTurn = errors.New("a /goal command runs between turns: it stays after_turn")
 )
 
 // QueuedMessage is a follow-up written while a turn was running. Its mode

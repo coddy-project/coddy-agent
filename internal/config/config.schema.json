@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://coddy.dev/config.schema.json",
   "title": "Coddy config.yaml",
-  "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: https://coddy.dev/docs/reference/config. Any string value may reference environment variables with ${VAR_NAME}. ${CODDY_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir), except in the process-scoped sessions.dir, scheduler.dir, memory.dir and logger.file, where it means the default working directory. MCP servers are not declared here: they live in <home>/mcp.json and the project's .coddy/mcp.json, and an old mcp_servers key is moved into <home>/mcp.json on load.",
+  "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: https://coddy.dev/docs/reference/config. Any string value may reference environment variables with ${VAR_NAME}. ${CODDY_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir), except in the process-scoped sessions.dir, memory.dir and logger.file, where it means the default working directory. MCP servers are not declared here: they live in <home>/mcp.json and the project's .coddy/mcp.json, and an old mcp_servers key is moved into <home>/mcp.json on load.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -241,6 +241,22 @@
           "default": 14400000,
           "minimum": 0
         }
+      }
+    },
+    "supervisor": {
+      "type": "object",
+      "title": "Session supervisor",
+      "description": "Checks a session goal (/goal) after every turn with a second model, continues unfinished work within bounds, and watches for stalled or looping turns; see https://coddy.dev/docs/features/session-supervisor.",
+      "additionalProperties": false,
+      "properties": {
+        "enable": {"type": "boolean", "description": "Check ordinary turns against the latest request even without a /goal. A session goal is checked whatever this switch says.", "default": false},
+        "model": {"type": "string", "description": "Configured models[].model that checks the work. Empty uses the session's own model, which then grades its own work; a model of another family is the better judge.", "default": ""},
+        "verify": {"type": ["boolean", "null"], "description": "Confirm a met verdict before the goal is closed: the goal-verifier subagent reads the workspace with read-only tools and checks every requirement. Unset means true.", "default": true},
+        "stall_seconds": {"type": ["integer", "null"], "description": "Seconds a goal turn may go without any update before the watchdog cuts it and starts a recovery turn. Permission prompts, running tools and running background tasks pause the timer. 0 disables it.", "default": 300, "minimum": 0},
+        "max_nudges": {"type": ["integer", "null"], "description": "Recovery turns after a stall, a tool loop or a failed turn, per run of the supervisor.", "default": 2, "minimum": 0},
+        "max_continuations": {"type": ["integer", "null"], "description": "Automatic continuation turns one goal may use; when they run out the goal gets one wrap-up turn and stops as limited.", "default": 10, "minimum": 0},
+        "loop_repeat": {"type": ["integer", "null"], "description": "How many times a repeating cycle of identical tool operations (same call, same result) may come round before the watchdog cuts the turn. 0 disables loop detection.", "default": 3, "minimum": 0},
+        "token_budget": {"type": ["integer", "null"], "description": "Uncached input plus output tokens one goal's turns may spend; 0 means no cap.", "default": 0, "minimum": 0}
       }
     },
     "prompts": {
@@ -1026,6 +1042,14 @@
           "description": "Maximum snippets returned by memory_search.",
           "default": 8
         },
+        "max_note_chars": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Longest body one note saved by coddy_memory_save may have, in characters (not bytes). An explicit 0 removes the cap.",
+          "default": 900
+        },
         "additional_prompt": {
           "type": "string",
           "description": "Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing.",
@@ -1145,18 +1169,23 @@
         },
         "allow_insecure": {
           "type": "boolean",
-          "description": "Silence the startup warning about a non-loopback bind without authentication.",
+          "description": "Silence the two startup warnings about a server without authentication - a non-loopback bind, and CORS that admits pages nobody listed (allow_loopback or \"*\") - and the --dry-run findings that mirror them.",
           "default": false
         },
         "cors": {
           "type": "object",
           "title": "CORS",
-          "description": "Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies.",
+          "description": "Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies: CORS decides whether a browser shows a page the answer, never whether the server gives one.",
           "additionalProperties": false,
           "properties": {
             "enable": {
               "type": "boolean",
               "description": "Handle CORS preflight and emit Access-Control-* headers for allowed origins.",
+              "default": false
+            },
+            "allow_loopback": {
+              "type": "boolean",
+              "description": "Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. The laptop case of a remote coddy serve, where the web UI comes from the laptop's own coddy serve and its port moves. Narrower than \"*\", and like \"*\" only as safe as the token or sign-in behind the API.",
               "default": false
             },
             "allowed_origins": {
@@ -1262,6 +1291,11 @@
             "enable": {
               "type": "boolean",
               "description": "Handle CORS preflight and emit Access-Control-* headers for allowed origins.",
+              "default": false
+            },
+            "allow_loopback": {
+              "type": "boolean",
+              "description": "Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. A laptop's web UI reaching this relay, whatever port its own coddy serve took. Narrower than \"*\"; the client token still applies.",
               "default": false
             },
             "allowed_origins": {
@@ -1441,32 +1475,19 @@
           ],
           "description": "Serve the embedded SPA at GET /. Defaults to true; set false to run an API-only server (the API still requires httpserver.auth_token when configured).",
           "default": true
-        },
-        "session_changes": {
-          "type": [
-            "boolean",
-            "null"
-          ],
-          "description": "Show a card under the transcript summarising every file the session changed, with a review window for the per-file diffs and a button to roll the whole session back. Defaults to true; set false to hide the card.",
-          "default": true
         }
       }
     },
     "scheduler": {
       "type": "object",
       "title": "Cron scheduler",
-      "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.",
+      "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter in ${CODDY_HOME}/scheduler (user jobs) and <workspace>/.coddy/scheduler (project jobs, which run once approved); five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.",
       "additionalProperties": false,
       "properties": {
         "enable": {
           "type": "boolean",
           "description": "Run the scheduler daemon and expose the coddy_scheduler_* tools. Can also be forced per process with coddy serve --scheduler (or coddy acp -scheduler).",
           "default": false
-        },
-        "dir": {
-          "type": "string",
-          "description": "Directory with *.md job definitions. Empty resolves to ${CODDY_HOME}/scheduler.",
-          "default": ""
         },
         "max_queue": {
           "type": "integer",
@@ -1477,6 +1498,16 @@
           "type": "string",
           "description": "Wall-clock limit for one run, as a Go duration (e.g. \"30m\", \"1h30m\"); the background task pool still caps it at tools.background.max_timeout_seconds.",
           "default": "30m"
+        },
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for project jobs, the *.md files in <workspace>/.coddy/scheduler that travel with the checkout: \"ask\" lists them but runs one only once the operator approved that exact file for that workspace (the shield in the scheduler drawer, or POST /coddy/scheduler/jobs/{job_id}/trust?scope=project from a session in it); a job the operator creates through Coddy is approved at once; \"allow\" runs them like the operator's own jobs; \"deny\" never runs them. See https://coddy.dev/docs/operate/scheduler#project-jobs-and-trust.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
         },
         "retain_sessions": {
           "type": "integer",
@@ -1599,7 +1630,7 @@
               "properties": {
                 "url": {
                   "type": "string",
-                  "description": "The public https address the web UI is served at, for example https://coddy.example.com/. Plain http is accepted only for a loopback host (the offline stand cmd/tgfake). No fragment: Telegram puts its launch parameters there. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.",
+                  "description": "The public https address the web UI is served at, for example https://coddy.example.com/. Plain http is accepted only for a loopback host (an offline stand such as tgfake). No fragment: Telegram puts its launch parameters there. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone.",
                   "default": ""
                 },
                 "menu_button": {

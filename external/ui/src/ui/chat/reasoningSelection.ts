@@ -23,7 +23,10 @@ export function pickReasoningLevel(opts: {
   const has = (v: string) => levels.includes(v);
 
   const session = (opts.sessionLevel || "").trim();
-  if (session && (has(session) || (opts.sessionChoices ?? []).includes(session))) {
+  if (
+    session &&
+    (has(session) || (opts.sessionChoices ?? []).includes(session))
+  ) {
     return session;
   }
   const cookie = (opts.cookie || "").trim();

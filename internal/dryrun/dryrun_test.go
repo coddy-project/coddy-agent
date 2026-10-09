@@ -582,6 +582,31 @@ func TestRelativeDirsAreProbedInTheWorkspace(t *testing.T) {
 	}
 }
 
+// instructions.files is how several agents with configurations of their own
+// share one set of instructions, and a session skips a file it cannot read
+// without a word. The check is where the operator learns that an entry
+// naming the same file in every workspace points at nothing; a workspace
+// entry missing from the folder the check runs in is only skipped, since the
+// list may serve workspaces that carry it.
+func TestInstructionFilesAreProbed(t *testing.T) {
+	shared := t.TempDir()
+	readable := filepath.Join(shared, "house-style.md")
+	if err := os.WriteFile(readable, []byte("HOUSE STYLE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(shared, "infrastructure.md")
+	rep := run(t, fmt.Sprintf("instructions:\n  files:\n    - %q\n    - %q\n    - \"docs/STYLE.md\"\n", readable, missing), nil)
+	if c := find(t, rep, "instructions.files[0]"); c.Status != StatusOK || !strings.Contains(c.Message, readable) {
+		t.Errorf("readable file %+v", c)
+	}
+	if c := find(t, rep, "instructions.files[1]"); c.Status != StatusWarning || !strings.Contains(c.Message, missing+" does not exist") || c.Line != 5 || c.Fix == "" {
+		t.Errorf("missing absolute file %+v", c)
+	}
+	if c := find(t, rep, "instructions.files[2]"); c.Status != StatusSkipped {
+		t.Errorf("workspace file absent from the default workspace %+v", c)
+	}
+}
+
 func TestHooksFileParses(t *testing.T) {
 	dir := t.TempDir()
 	good := filepath.Join(dir, "good.json")
@@ -872,6 +897,45 @@ func TestMiniAppChecks(t *testing.T) {
 	dead.Close()
 	if c := find(t, run(t, body(deadURL), nil), "gateways.telegram.mini_app.url"); c.Status != StatusWarning || !strings.Contains(c.Message, "cannot reach") {
 		t.Errorf("an unreachable address: %+v", c)
+	}
+}
+
+// A CORS setting that admits pages nobody listed - allow_loopback or "*" - is
+// only as safe as the credential behind it. With the web UI open (no token, no
+// sign-in, no allow_insecure) the dry run says so once, under httpserver.cors;
+// a credential, or exact origins alone, keeps it silent.
+func TestCORSOpenToUnlistedOriginsWithoutCredentialIsWarned(t *testing.T) {
+	loopback := "httpserver:\n  cors:\n    enable: true\n    allow_loopback: true\n"
+	c := find(t, run(t, loopback, func(r *Request) { r.WebUIOpen = true }), "httpserver.cors")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "loopback") || c.Line == 0 {
+		t.Errorf("loopback CORS on an open server: %+v", c)
+	}
+	for _, c := range run(t, loopback, nil).Checks {
+		if c.Path == "httpserver.cors" {
+			t.Errorf("a server with a credential was warned: %+v", c)
+		}
+	}
+
+	star := "httpserver:\n  cors:\n    enable: true\n    allowed_origins: [\"*\"]\n"
+	c = find(t, run(t, star, func(r *Request) { r.WebUIOpen = true }), "httpserver.cors")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "any page") {
+		t.Errorf("* CORS on an open server: %+v", c)
+	}
+
+	// "*" is read before allow_loopback, so with both on the server is open to
+	// any page anywhere, and the finding says that and points at the list.
+	both := "httpserver:\n  cors:\n    enable: true\n    allow_loopback: true\n    allowed_origins: [\"*\"]\n"
+	listLine := strings.Count(modeline+both[:strings.Index(both, "allowed_origins")], "\n") + 1
+	c = find(t, run(t, both, func(r *Request) { r.WebUIOpen = true }), "httpserver.cors")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "any page") || c.Line != listLine {
+		t.Errorf("* with allow_loopback on an open server: %+v", c)
+	}
+
+	exact := "httpserver:\n  cors:\n    enable: true\n    allowed_origins: [\"http://localhost:12345\"]\n"
+	for _, c := range run(t, exact, func(r *Request) { r.WebUIOpen = true }).Checks {
+		if c.Path == "httpserver.cors" {
+			t.Errorf("exact origins were warned about: %+v", c)
+		}
 	}
 }
 

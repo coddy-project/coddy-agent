@@ -386,6 +386,18 @@ func UISchemaMap() map[string]interface{} {
 				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off"},
 				[]string{"model"}),
 		},
+		"supervisor": objectSchema("Session supervisor", "Checks goals with a second model and watches for stalled or looping turns.",
+			map[string]interface{}{
+				"enable":            boolProp("Check every turn", "Check ordinary turns against the latest request even when no /goal is set. A session goal is checked regardless of this switch."),
+				"model":             strProp("Supervisor model", "Configured model that checks the work. Empty uses the session model, which then grades its own work; a model of another family is the better judge."),
+				"verify":            boolProp("Verify before closing", "Before a goal is closed, a read-only subagent opens the workspace and confirms every requirement the check found met."),
+				"stall_seconds":     intProp("Stall seconds", "Silence before a goal turn is cut, excluding permission prompts, running tools and background tasks. 0 disables stall detection."),
+				"max_nudges":        intProp("Max nudges", "Recovery turns after a stall, a tool loop or a failed turn."),
+				"max_continuations": intProp("Max continuations", "Automatic follow-up turns one goal may use before it stops as limited."),
+				"loop_repeat":       intProp("Loop repeat", "How many times a repeating cycle of identical tool operations may come round. 0 disables loop detection."),
+				"token_budget":      intProp("Token budget", "Uncached input plus output tokens one goal may spend. 0 means no cap."),
+			},
+			[]string{"enable", "model", "verify", "max_continuations", "token_budget", "stall_seconds", "max_nudges", "loop_repeat"}, nil),
 		"agent": objectSchema("ReAct loop", "Defaults for the main agent loop (model id and safety caps).",
 			map[string]interface{}{
 				"queue_mode": map[string]interface{}{"type": "string", "title": "Queue mode", "description": "Preferred action for Enter while a turn runs. Choose steer for the next ReAct step or after_turn for a new turn after the answer.", "enum": []interface{}{"steer", "after_turn"}},
@@ -605,7 +617,7 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"dirs", "project_trust", "auto_discovery"},
 			nil),
-		"memory": objectSchema("Memory copilot", "Optional memory subagent (requires the memory build tag and a provider).",
+		"memory": objectSchema("Memory", "Optional memory subagent (requires the memory build tag and a provider).",
 			map[string]interface{}{
 				"enable": boolProp("Enabled", "Runs the memory subagent on every user turn (memory build tag)."),
 				"model":  strProp("Memory model", "Logical model the memory subagent runs on; empty uses the session's model."),
@@ -623,10 +635,11 @@ func UISchemaMap() map[string]interface{} {
 				"persist_max_turns":           intProp("Persist max turns", "Bounds the memory subagent's rounds together with recall_max_turns; the cap is the larger of the two."),
 				"copilot_max_tokens":          intProp("Max tokens per call", "Completion token cap for the memory model's calls."),
 				"max_search_hits":             intProp("Max search hits", "Maximum snippets returned by memory search tools."),
+				"max_note_chars":              intProp("Note size cap (characters)", "Longest body one saved note may have, in characters; 0 means no cap (default 900)."),
 				"additional_prompt":           strProp("Additional instructions", "Your own instructions for the memory subagent, a section of its system prompt; the main agent never sees them."),
 				"additional_prompt_max_chars": intProp("Additional instructions cap (characters)", "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap."),
 			},
-			[]string{"enable", "model", "dir", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "additional_prompt", "additional_prompt_max_chars"},
+			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
 			nil),
 		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API about a shell command before it runs without a permission prompt, and reject the ones it classifies as unsafe.",
 			map[string]interface{}{
@@ -645,12 +658,17 @@ func UISchemaMap() map[string]interface{} {
 		"scheduler": objectSchema("Scheduler", "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.",
 			map[string]interface{}{
 				"enable":          boolProp("Enabled", "When true, this process may run the scheduler daemon and REST."),
-				"dir":             strProp("Jobs directory", "Directory of job markdown definitions."),
 				"max_queue":       intProp("Max queue", "Runs in flight across all jobs at once; a due slot past the cap is skipped, a manual run refused."),
 				"timeout":         strProp("Run timeout", "Wall-clock limit of one run, e.g. 30m or 1h30m (the task pool caps it at tools.background.max_timeout_seconds)."),
 				"retain_sessions": intProp("Retain runs", "Finished runs kept per job (task records and transcripts); older ones are removed when a run finishes."),
+				"project_trust": map[string]interface{}{
+					"type":        "string",
+					"title":       "Project jobs",
+					"description": "Jobs in a workspace's .coddy/scheduler travel with the checkout. \"ask\": list them but run nothing until that exact job is approved for this workspace (the shield in the scheduler drawer). \"allow\": run them like your own jobs. \"deny\": never run them.",
+					"enum":        []string{ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny},
+				},
 			},
-			[]string{"enable", "dir", "max_queue", "timeout", "retain_sessions"},
+			[]string{"enable", "project_trust", "max_queue", "timeout", "retain_sessions"},
 			nil),
 		"prompts": objectSchema("Prompts", "Built-in system prompt files relative to dir.",
 			map[string]interface{}{
@@ -783,7 +801,7 @@ func UISchemaMap() map[string]interface{} {
 	// folds into one System tab). The sessions key belongs to the Sessions tab.
 	rootOrder := []string{
 		"providers", "models",
-		"agent", "compaction", "memory", "decisions",
+		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions",

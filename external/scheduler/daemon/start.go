@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	schedservice "github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
+	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
@@ -19,7 +20,7 @@ import (
 // runtime is registered with the service (so the HTTP handlers and the tools
 // reach it), the cron loop starts, and both are withdrawn when ctx ends. cfg
 // is read live, so a reload the manager applied is what the next tick reads;
-// what a reload cannot change in place (the directory, the limits) is the
+// what a reload cannot change in place (the limits) is the
 // supervisor's reason to start a fresh daemon.
 func Start(ctx context.Context, cfg func() *config.Config, log *slog.Logger, processCWD string, mgr *session.Manager, pool *bgtask.Pool) {
 	c := cfg()
@@ -51,7 +52,7 @@ func Start(ctx context.Context, cfg func() *config.Config, log *slog.Logger, pro
 	rt := NewRuntime(ctx, cfg, mgr, pool, log, pcwd)
 	schedservice.SetRuntime(rt)
 	warnTimeoutCap(c, log)
-	log.Info("scheduler daemon enabled", "dir", c.Scheduler.Dir)
+	log.Info("scheduler daemon enabled", "dir", c.SchedulerUserDir(), "project_dir", storage.ProjectDirName, "project_trust", c.Scheduler.ResolvedProjectTrust())
 	go func() {
 		runDaemon(ctx, rt, log)
 		if schedservice.CurrentRuntime() == rt {

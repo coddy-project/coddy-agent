@@ -15,7 +15,10 @@ export function parseDocsCommand(text: string): string | null {
  * it has a `/`, a `#` or a scheme - and so does the page's exact title; one
  * word such as "proxy" is a search even when some page is called that.
  */
-export function docsCommandOpensPage(arg: string, resolvedTitle: string): boolean {
+export function docsCommandOpensPage(
+  arg: string,
+  resolvedTitle: string,
+): boolean {
   if (/[/#:]/.test(arg)) {
     return true;
   }

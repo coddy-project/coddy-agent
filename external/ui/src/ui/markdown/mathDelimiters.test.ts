@@ -33,7 +33,9 @@ describe("normalizeMathDelimiters", () => {
     expect(normalizeMathDelimiters("run `echo \\(x\\)` now \\(y\\)")).toBe(
       "run `echo \\(x\\)` now $y$",
     );
-    expect(normalizeMathDelimiters("``a ` \\(x\\)`` b")).toBe("``a ` \\(x\\)`` b");
+    expect(normalizeMathDelimiters("``a ` \\(x\\)`` b")).toBe(
+      "``a ` \\(x\\)`` b",
+    );
   });
 
   it("does not pair delimiters across a blank line", () => {
@@ -43,24 +45,35 @@ describe("normalizeMathDelimiters", () => {
 
   it("keeps an escaped backslash before a paren", () => {
     // \\( is a literal backslash followed by a paren in Markdown.
-    expect(normalizeMathDelimiters("path C:\\\\(x) ok")).toBe("path C:\\\\(x) ok");
+    expect(normalizeMathDelimiters("path C:\\\\(x) ok")).toBe(
+      "path C:\\\\(x) ok",
+    );
   });
 
   it("leaves escaped brackets and parentheses in prose alone", () => {
-    for (const text of ["item a\\[0\\] here", "as noted \\(see below\\) now", "x\\(y\\)", "\\[0\\]"]) {
+    for (const text of [
+      "item a\\[0\\] here",
+      "as noted \\(see below\\) now",
+      "x\\(y\\)",
+      "\\[0\\]",
+    ]) {
       expect(normalizeMathDelimiters(text)).toBe(text);
     }
   });
 
   it("converts short names and operators", () => {
-    expect(normalizeMathDelimiters("let \\(n\\) and \\(i+1\\)")).toBe("let $n$ and $i+1$");
+    expect(normalizeMathDelimiters("let \\(n\\) and \\(i+1\\)")).toBe(
+      "let $n$ and $i+1$",
+    );
   });
 
   it("keeps a display formula inside its quote or list item", () => {
-    expect(normalizeMathDelimiters("> The formula \\[x^2\\] is here\n> and more")).toBe(
-      "> The formula $$x^2$$ is here\n> and more",
+    expect(
+      normalizeMathDelimiters("> The formula \\[x^2\\] is here\n> and more"),
+    ).toBe("> The formula $$x^2$$ is here\n> and more");
+    expect(normalizeMathDelimiters("- see \\[a+b\\] there\n- next")).toBe(
+      "- see $$a+b$$ there\n- next",
     );
-    expect(normalizeMathDelimiters("- see \\[a+b\\] there\n- next")).toBe("- see $$a+b$$ there\n- next");
   });
 
   it("does not pair delimiters across list items or quote depths", () => {
@@ -90,10 +103,26 @@ describe("normalizeMathDelimiters", () => {
   });
 
   it("escapes a dollar whose partner sits in a code span, and a literal pair's opener", () => {
-    expect(normalizeMathDelimiters("Set ${A}/x and `echo $B` now")).toBe("Set \\${A}/x and `echo $B` now");
-    expect(normalizeMathDelimiters("from $10 to $25 a month")).toBe("from \\$10 to $25 a month");
-    expect(normalizeMathDelimiters("Take $x^2$ and `a$b`")).toBe("Take $x^2$ and `a$b`");
+    expect(normalizeMathDelimiters("Set ${A}/x and `echo $B` now")).toBe(
+      "Set \\${A}/x and `echo $B` now",
+    );
+    expect(normalizeMathDelimiters("from $10 to $25 a month")).toBe(
+      "from \\$10 to $25 a month",
+    );
+    expect(normalizeMathDelimiters("Take $x^2$ and `a$b`")).toBe(
+      "Take $x^2$ and `a$b`",
+    );
     expect(normalizeMathDelimiters("$$\nx\n$$")).toBe("$$\nx\n$$");
+  });
+
+  // A long page is mostly prose full of code spans (the web UI guide: 300 KB,
+  // thousands of spans). Looking every span up at every character made the
+  // pass quadratic and took two seconds there, on every render of the page.
+  it("stays linear in the code spans of a long stretch of prose", () => {
+    const text = "Costs $5 here. " + "Run `cmd` then `x`. ".repeat(20_000);
+    const started = performance.now();
+    expect(normalizeMathDelimiters(text)).toBe(text);
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 });
 

@@ -68,7 +68,7 @@ groups:
         summary: One process for every enabled subsystem, the systemd user service (serve install and uninstall), --daemon with status, stop and restart, and configuration reloads.
       - path: operate/remote.md
         title: Remote mode
-        summary: Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment chip.
+        summary: Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment menu.
       - path: operate/swarm.md
         title: Swarm
         summary: Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel.
@@ -88,6 +88,9 @@ groups:
       - path: features/session-settings.md
         title: Session settings
         summary: Switching the model, reasoning level, mode and permission mode from the conversation with /model, /reasoning, /think, /nothink, /agent, /plan, /ask and /permissions, for the session or the next turns, the permission dialog's session switch, and the model switching itself.
+      - path: features/session-supervisor.md
+        title: Session goal and supervisor
+        summary: /goal keeps the agent working until a second model, judging the evidence, finds the objective met and a read-only verifier confirms it; continuations, budgets, the watchdog for stalls and loops.
       - path: features/sessions.md
         title: Sessions
         summary: Session bundles on disk, resuming, history rewind on message edit, todo lists, the sessions CLI.
@@ -229,9 +232,12 @@ groups:
       - path: contributing/build.md
         title: Build from source
         summary: Prerequisites, make build, TAGS against go build -tags, the release binaries and the distribution packages.
+      - path: contributing/tgfake.md
+        title: Integration tests with tgfake
+        summary: The fake Telegram Bot API the bot is tested against - the version go.mod pins, the in-process suites, the end-to-end scripts, the CI job and moving to a new tgfake.
       - path: contributing/security-scanning.md
         title: AppSec scanning
-        summary: Trivy and semgrep locally and in CI through one script, the severity gate, triage and suppression.
+        summary: Trivy, semgrep and govulncheck locally and in CI through one script, the severity gate, the pinned Go toolchain, triage and suppression.
       - path: contributing/custom-tools.md
         title: Custom tools
         summary: Adding a built-in tool to the registry, its schema and permission wiring, with a complete example.

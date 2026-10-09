@@ -87,11 +87,12 @@
     );
   }
 
-  /* Bottom sheets: the composer's menus, and the slash, @ and context
-     pickers on the start screen (above the docked composer they are placed
-     from its card, which is lifted already). Capped to what is visible under
-     the top bar. */
+  /* Bottom sheets: the composer's menus and the goal popover, and the slash,
+     @ and context pickers on the start screen (above the docked composer they
+     are placed from its card, which is lifted already). Capped to what is
+     visible under the top bar. */
   html[data-telegram-mini-app="true"] .mode-menu--sheet,
+  html[data-telegram-mini-app="true"] .goal-popover--sheet,
   html[data-telegram-mini-app="true"]
     .slash-menu--sheet:not(.slash-menu--above-composer),
   html[data-telegram-mini-app="true"]
@@ -111,7 +112,10 @@
   html[data-telegram-mini-app="true"]
     .context-breakdown-menu--sheet
     .context-breakdown-menu-scroll {
-    max-height: min(46vh, calc(var(--coddy-telegram-stable-height, 100dvh) * 0.55));
+    max-height: min(
+      46vh,
+      calc(var(--coddy-telegram-stable-height, 100dvh) * 0.55)
+    );
   }
 
   /* Dialogs and the image viewer centre in what is visible. */

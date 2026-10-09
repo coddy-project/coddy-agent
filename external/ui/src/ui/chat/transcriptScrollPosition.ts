@@ -81,7 +81,10 @@ export function documentTranscriptMetrics(
 export function keyboardInset(view: Window): number {
   const vv = view.visualViewport;
   if (!vv || Math.abs((vv.scale || 1) - 1) > 0.01) return 0;
-  return Math.max(0, Math.round(view.innerHeight - vv.height - (vv.offsetTop || 0)));
+  return Math.max(
+    0,
+    Math.round(view.innerHeight - vv.height - (vv.offsetTop || 0)),
+  );
 }
 
 /** Furthest `scrollTop` of a scrollport: where "the newest message" actually is. */

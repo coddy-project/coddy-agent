@@ -10,7 +10,7 @@ A machine-readable [JSON Schema](../../internal/config/config.schema.json) accom
 
 VS Code (with the YAML extension), Zed, Neovim and Helix pick this comment up automatically, and Coddy writes it into every `config.yaml` it saves (see [Configuration](../getting-started/configuration.md)); JetBrains IDEs do not read it and need the URL registered under **JSON Schema Mappings** instead. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`. Optional tri-state fields (for example `compaction.enable`, `models[].stream`, `tools.output_limits.*`) accept `null` as well as a value: `null` means unset, exactly like an omitted key. When Coddy saves the file it simply leaves unset fields out - it never writes `null` itself, and it adds a key only when its value differs from the built-in default, so a hand-kept file stays sparse.
 
-Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` - the UI does this automatically for the `proxy` fields. `${CODDY_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `scheduler.dir`, `memory.dir`, and `logger.file` (see [Configuration](../getting-started/configuration.md#environment-variable-references)).
+Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` - the UI does this automatically for the `proxy` fields. `${CODDY_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `memory.dir`, and `logger.file` (see [Configuration](../getting-started/configuration.md#environment-variable-references)).
 
 ## Agent self-configuration
 
@@ -273,6 +273,7 @@ Optional memory subagent (implementation in external/memory; enable at runtime w
 | `memory.persist_max_turns` | integer | 12 | Bounds the memory subagent's ReAct rounds together with recall_max_turns; the child's cap is the larger of the two. |
 | `memory.copilot_max_tokens` | integer | 4096 | Completion token cap for the memory model's calls. |
 | `memory.max_search_hits` | integer | 8 | Maximum snippets returned by memory_search. |
+| `memory.max_note_chars` | integer or null | 900 | Longest body one note saved by coddy_memory_save may have, in characters (not bytes). An explicit 0 removes the cap. |
 | `memory.additional_prompt` | string | "" | Operator instructions for the memory subagent alone: a section of its system prompt that the main agent never sees. Empty adds nothing. |
 | `memory.additional_prompt_max_chars` | integer | 0 | Cap on additional_prompt in characters; a longer text is cut there, the agent log says so and coddy -t reports it. 0 means no cap. |
 
@@ -293,9 +294,10 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 | `httpserver.login.password_hash` | string | "" | argon2id hash of the password in PHC form ("$argon2id$v=19$m=...$..."), written by `coddy serve set-password`. Never echoed back by GET /coddy/config, and a save from the settings screen preserves it. Put a plaintext password in CODDY_HTTP_PASSWORD instead of here. |
 | `httpserver.login.session_ttl_hours` | integer | 0 | How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session. |
 | `httpserver.public_docs` | boolean | false | When auth is enabled, keep /docs and /openapi.* reachable without a token. |
-| `httpserver.allow_insecure` | boolean | false | Silence the startup warning about a non-loopback bind without authentication. |
-| `httpserver.cors` | object |  | Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies. |
+| `httpserver.allow_insecure` | boolean | false | Silence the two startup warnings about a server without authentication - a non-loopback bind, and CORS that admits pages nobody listed (allow_loopback or "*") - and the --dry-run findings that mirror them. |
+| `httpserver.cors` | object |  | Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies: CORS decides whether a browser shows a page the answer, never whether the server gives one. |
 | `httpserver.cors.enable` | boolean | false | Handle CORS preflight and emit Access-Control-* headers for allowed origins. |
+| `httpserver.cors.allow_loopback` | boolean | false | Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. The laptop case of a remote coddy serve, where the web UI comes from the laptop's own coddy serve and its port moves. Narrower than "*", and like "*" only as safe as the token or sign-in behind the API. |
 | `httpserver.cors.allowed_origins` | list of strings | [] | Exact origins permitted to call the API, e.g. "http://localhost:5173". A single "*" allows any origin. |
 | `httpserver.remotes` | list of objects | [] | Remote coddy serve servers and swarm relays offered in the UI environment selector and resolved by `coddy --remote <name>`. An entry may carry the token to present; without one the UI keeps the token in the browser per remote and the console reads --remote-token or CODDY_REMOTE_TOKEN. |
 | `httpserver.remotes[].name` | string |  | Display label for the remote. Empty: the web UI shows the name the remote reports (a relay's swarm.name, else the host name it runs on; an agent's host name), else its address. |
@@ -319,6 +321,7 @@ Stateless relay that nodes register into and that chains into other relays. The 
 | `swarm.allow_private_upstreams` | list of strings | [] | Hosts a node may advertise even though they resolve into loopback or private ranges, which are otherwise refused so a registration cannot turn the relay into a probe of its own network. |
 | `swarm.cors` | object |  | Cross-origin access for the relay API. The SPA reaches a relay from another origin by construction, so this usually has to be on. Allow-Headers includes Last-Event-ID so an SSE stream can be resumed through the relay. |
 | `swarm.cors.enable` | boolean | false | Handle CORS preflight and emit Access-Control-* headers for allowed origins. |
+| `swarm.cors.allow_loopback` | boolean | false | Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. A laptop's web UI reaching this relay, whatever port its own coddy serve took. Narrower than "*"; the client token still applies. |
 | `swarm.cors.allowed_origins` | list of strings | [] | Exact origins permitted to call the API, e.g. "http://localhost:5173". A single "*" allows any origin. |
 | `swarm.tls` | object |  | Serve the relay over HTTPS. Set both files or neither. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart. |
 | `swarm.tls.cert_file` | string | "" | PEM certificate chain. |
@@ -353,18 +356,17 @@ Controls the bundled single-page UI (only meaningful in binaries built with -tag
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `ui.enable` | boolean or null | true | Serve the embedded SPA at GET /. Defaults to true; set false to run an API-only server (the API still requires httpserver.auth_token when configured). |
-| `ui.session_changes` | boolean or null | true | Show a card under the transcript summarising every file the session changed, with a review window for the per-file diffs and a button to roll the whole session back. Defaults to true; set false to hide the card. |
 
 ### `scheduler`
 
-Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.
+Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter in ${CODDY_HOME}/scheduler (user jobs) and <workspace>/.coddy/scheduler (project jobs, which run once approved); five-field crontab in UTC. A run is a background agent task under the job's own session, which is the job's run history.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `scheduler.enable` | boolean | false | Run the scheduler daemon and expose the coddy_scheduler_* tools. Can also be forced per process with coddy serve --scheduler (or coddy acp -scheduler). |
-| `scheduler.dir` | string | "" | Directory with *.md job definitions. Empty resolves to ${CODDY_HOME}/scheduler. |
 | `scheduler.max_queue` | integer | 10 | Runs in flight across all jobs at once; a due slot past the cap is skipped until a run finishes, and a manual run past it is refused. |
 | `scheduler.timeout` | string | 30m | Wall-clock limit for one run, as a Go duration (e.g. "30m", "1h30m"); the background task pool still caps it at tools.background.max_timeout_seconds. |
+| `scheduler.project_trust` | string, one of `ask`, `allow`, `deny` | ask | Trust policy for project jobs, the *.md files in <workspace>/.coddy/scheduler that travel with the checkout: "ask" lists them but runs one only once the operator approved that exact file for that workspace (the shield in the scheduler drawer, or POST /coddy/scheduler/jobs/{job_id}/trust?scope=project from a session in it); a job the operator creates through Coddy is approved at once; "allow" runs them like the operator's own jobs; "deny" never runs them. See https://coddy.dev/docs/operate/scheduler#project-jobs-and-trust. |
 | `scheduler.retain_sessions` | integer | 5 | Finished runs kept per job_id (their task records and transcripts under the job session); older runs are removed when a run finishes. |
 
 ### `gateways`
@@ -389,7 +391,7 @@ Messenger bot adapters (used only by binaries built with -tags gateway, or -tags
 | `gateways.telegram.chats[].isolation` | string, one of `individual`, `shared`, `admin` |  | Per-chat session isolation override. |
 | `gateways.telegram.chats[].access` | string |  | Per-chat access override: "all", "admins", or "group:<name>". |
 | `gateways.telegram.mini_app` | object |  | Makes the web UI of this coddy serve the bot's Telegram Mini App. The web UI adapts to Telegram by itself; these keys tell the bot where it is, so it can set its menu button and answer /app with a button that opens the chat's own conversation. Telegram opens Mini Apps over https only, so the web UI has to be published behind a TLS proxy, with sign-in on (httpserver.login). See https://coddy.dev/docs/surfaces/gateway#mini-app. |
-| `gateways.telegram.mini_app.url` | string | "" | The public https address the web UI is served at, for example https://coddy.example.com/. Plain http is accepted only for a loopback host (the offline stand cmd/tgfake). No fragment: Telegram puts its launch parameters there. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone. |
+| `gateways.telegram.mini_app.url` | string | "" | The public https address the web UI is served at, for example https://coddy.example.com/. Plain http is accepted only for a loopback host (an offline stand such as tgfake). No fragment: Telegram puts its launch parameters there. Empty: the bot offers no Mini App and leaves a menu button set in @BotFather alone. |
 | `gateways.telegram.mini_app.menu_button` | boolean or null | true | Make the bot's menu button (beside the message field) open the web UI. Turned off, with url emptied or while the web UI asks for no sign-in, the bot puts back the menu button it replaced (a Mini App set in @BotFather, else the commands), as long as the button still opens the address the bot set. |
 | `gateways.pachca` | object |  | Pachca integration bot adapter: reads the bot's events history and answers through the Pachca REST API. Turn on Save events history (events_history_enabled) in the bot's outgoing webhook settings. See https://coddy.dev/docs/surfaces/pachca. |
 | `gateways.pachca.enable` | boolean | false | Run the Pachca bot in this coddy serve process. |
@@ -416,6 +418,21 @@ Ask the NeuralDeep decisions API whether a shell command that would run without 
 | `decisions.enable` | boolean | false | Check every run_command call no permission prompt covers (bypass mode, the command allowlist, a session grant or a hook's allow) against the decisions endpoint and reject the commands it classifies as unsafe; the rejection is returned as the tool result, so the session records it. Commands the operator approved in a prompt are not checked again. Needs a NeuralDeep credential: providers[].api_key of type neuraldeep, api_key_command, the NEURALDEEP_API_KEY environment variable or a stored hub sign-in. When the endpoint stays unreachable or rate-limited past the retry window, the command is not executed either. |
 | `decisions.model` | string, one of `frida-decisions`, `clef-flash` | frida-decisions | Decisions model to ask: frida-decisions (encoder pass, up to 512 tokens of command text, ~20 ms per request) or clef-flash (up to 8192 tokens, ~150 ms). |
 | `decisions.threshold` | number | 0.5 | Probability of the unsafe option at or above which the command is rejected. 0 uses the default (0.5); lower rejects more aggressively, higher lets borderline commands through. A bare unsafe answer counts as 1. |
+
+### `supervisor`
+
+Checks a session goal (/goal) after every turn with a second model, continues unfinished work within bounds, and watches for stalled or looping turns; see https://coddy.dev/docs/features/session-supervisor.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `supervisor.enable` | boolean | false | Check ordinary turns against the latest request even without a /goal. A session goal is checked whatever this switch says. |
+| `supervisor.model` | string | "" | Configured models[].model that checks the work. Empty uses the session's own model, which then grades its own work; a model of another family is the better judge. |
+| `supervisor.verify` | boolean or null | true | Confirm a met verdict before the goal is closed: the goal-verifier subagent reads the workspace with read-only tools and checks every requirement. Unset means true. |
+| `supervisor.stall_seconds` | integer or null | 300 | Seconds a goal turn may go without any update before the watchdog cuts it and starts a recovery turn. Permission prompts, running tools and running background tasks pause the timer. 0 disables it. |
+| `supervisor.max_nudges` | integer or null | 2 | Recovery turns after a stall, a tool loop or a failed turn, per run of the supervisor. |
+| `supervisor.max_continuations` | integer or null | 10 | Automatic continuation turns one goal may use; when they run out the goal gets one wrap-up turn and stops as limited. |
+| `supervisor.loop_repeat` | integer or null | 3 | How many times a repeating cycle of identical tool operations (same call, same result) may come round before the watchdog cuts the turn. 0 disables loop detection. |
+| `supervisor.token_budget` | integer or null | 0 | Uncached input plus output tokens one goal's turns may spend; 0 means no cap. |
 <!-- docsgen:config:end -->
 
 ## Notes

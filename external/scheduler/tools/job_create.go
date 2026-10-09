@@ -3,12 +3,13 @@
 package schedtools
 
 import (
+	schedservice "github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
+
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
@@ -18,12 +19,13 @@ func jobCreateTool(cfg *config.Config) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name: toolJobCreate,
-			Description: "Creates a new flat scheduler job markdown file (.md directly under scheduler.dir). " +
+			Description: "Creates a new scheduler job markdown file: a user job in ${CODDY_HOME}/scheduler, or with scope project a project job in <session cwd>/.coddy/scheduler that travels with the repository (approved at once for the operator; a project job may not take the id of a user job, nor a user job the id of a project job). " +
 				"Provide job_id plus YAML fields description, schedule (5-field cron UTC line), optional cwd/model/mode/paused, optional agent (a subagent definition name) and permission_mode (ask, accept_edits, bypass; empty is bypass), " +
 				"and markdown instruction body. Validates cron, the permission mode and the agent name before writing. Conflict if job_id exists. Requires permission.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"scope":           scopeProperty(),
 					"job_id":          map[string]interface{}{"type": "string", "description": "New job basename (no slashes)"},
 					"description":     map[string]interface{}{"type": "string"},
 					"schedule":        map[string]interface{}{"type": "string", "description": "5-field cron in UTC"},
@@ -44,7 +46,7 @@ func jobCreateTool(cfg *config.Config) *tooling.Tool {
 			if err := json.Unmarshal([]byte(argsJSON), &in); err != nil {
 				return "", err
 			}
-			op := schedservice.NewService(cfg, nil, toolEnvCWD(env))
+			op := toolService(cfg, env)
 			if err := op.CreateJob(in); err != nil {
 				return "", err
 			}

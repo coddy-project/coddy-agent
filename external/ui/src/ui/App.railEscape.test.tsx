@@ -1,5 +1,12 @@
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { ConfirmProvider } from "./components/useConfirm";
@@ -58,7 +65,9 @@ const docsContents = {
       id: "features",
       title: "Features",
       summary: "What it does.",
-      pages: [{ slug: "features/modes", title: "Operating modes", summary: "Modes." }],
+      pages: [
+        { slug: "features/modes", title: "Operating modes", summary: "Modes." },
+      ],
     },
   ],
 };
@@ -135,11 +144,14 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     });
   }
   if (path.startsWith("/coddy/scheduler/jobs/nightly")) return json(job);
-  if (path.startsWith("/coddy/scheduler/jobs")) return json({ scheduler, jobs: [job] });
-  if (path === "/coddy/docs") return json(docsContents);
+  if (path.startsWith("/coddy/scheduler/jobs"))
+    return json({ scheduler, jobs: [job] });
+  if (path === "/coddy/docs" || path.startsWith("/coddy/docs?"))
+    return json(docsContents);
   if (path.startsWith("/coddy/docs/page")) return json(docsPage);
   if (path === "/coddy/config/schema") return json(configSchema);
-  if (path === "/coddy/config") return json({ models: [{ model: "fake/alpha" }] });
+  if (path === "/coddy/config")
+    return json({ models: [{ model: "fake/alpha" }] });
   if (path.startsWith("/coddy/sessions?")) {
     return json({
       active_count: 2,
@@ -186,7 +198,9 @@ function mountInChat() {
 }
 
 /** Escape as a keyboard sends it: at whatever has the focus, up to the window. */
-function pressEscape(target: Element = document.activeElement ?? document.body) {
+function pressEscape(
+  target: Element = document.activeElement ?? document.body,
+) {
   return fireEvent.keyDown(target, { key: "Escape" });
 }
 
@@ -226,7 +240,9 @@ test("Escape still closes the scheduler, its job editor first", async () => {
   fireEvent.click(await screen.findByTestId("nav-scheduler"));
   await screen.findByTestId("scheduler-drawer");
   fireEvent.click(await screen.findByText("nightly"));
-  await waitFor(() => expect(window.location.hash).toBe("#/scheduler/jobs/nightly"));
+  await waitFor(() =>
+    expect(window.location.hash).toBe("#/scheduler/jobs/nightly"),
+  );
   pressEscape();
   await waitFor(() => expect(window.location.hash).toBe("#/scheduler"));
   expect(screen.getByTestId("scheduler-drawer")).toBeTruthy();
@@ -240,7 +256,9 @@ test("in Settings Escape leaves an open row for its list first, then Settings", 
   window.dispatchEvent(new HashChangeEvent("hashchange"));
   await screen.findByTestId("settings-head-back");
   pressEscape();
-  await waitFor(() => expect(screen.queryByTestId("settings-head-back")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByTestId("settings-head-back")).toBeNull(),
+  );
   expect(screen.getByTestId("settings-master-item-0")).toBeTruthy();
   expect(window.location.hash).toBe("#/settings/models");
   pressEscape();
@@ -316,7 +334,9 @@ test("on desktop Tasks follows the chat picked in History and outlives its backd
   await waitFor(() =>
     expect(
       fetchMock.mock.calls.some(([input]) =>
-        String(input).startsWith(`/coddy/sessions/${OTHER_SID}/background-tasks`),
+        String(input).startsWith(
+          `/coddy/sessions/${OTHER_SID}/background-tasks`,
+        ),
       ),
     ).toBe(true),
   );
@@ -368,7 +388,10 @@ test("an Escape the documentation search takes clears it and leaves the reader o
  * link points, and what it draws. A Record: a screen added to the rail does not
  * compile here until it says both, and the test below then holds it to Escape.
  */
-const RAIL_SCREEN_PAGES: Record<RailScreenId, { href: string; testId: string }> = {
+const RAIL_SCREEN_PAGES: Record<
+  RailScreenId,
+  { href: string; testId: string }
+> = {
   history: { href: appNavHrefHistory(), testId: "sessions" },
   scheduler: { href: appNavHrefScheduler(), testId: "scheduler-drawer" },
   swarm: { href: appNavHrefSwarm(), testId: "swarm-view" },
@@ -388,7 +411,9 @@ test("every screen of the rail closes on Escape and gives the address back to th
     // first page): the operator presses Escape on a screen they see.
     await settle();
     pressEscape();
-    await waitFor(() => expect(screen.queryByTestId(page.testId), id).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByTestId(page.testId), id).toBeNull(),
+    );
     await waitFor(() => expect(window.location.hash, id).toBe(`#/s/${SID}`));
     cleanup();
   }
@@ -430,7 +455,9 @@ test("on a relay the swarm is home: Escape leaves it, and closes what opened ove
   fireEvent.click(await screen.findByTestId("nav-settings"));
   await screen.findByTestId("settings-screen");
   pressEscape();
-  await waitFor(() => expect(screen.queryByTestId("settings-screen")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByTestId("settings-screen")).toBeNull(),
+  );
   expect(screen.getByTestId("swarm-view")).toBeTruthy();
   expect(window.location.hash).toBe("");
 });
@@ -448,18 +475,27 @@ test("on a relay the Swarm entry stays lit, and the brand leads to the map", asy
   );
   await screen.findByTestId("swarm-view");
   await waitFor(() =>
-    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "true"),
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    ),
   );
   // The page is the relay's own, which has no documentation to read.
   await waitFor(() => expect(screen.queryByTestId("nav-docs")).toBeNull());
   fireEvent.click(await screen.findByTestId("nav-settings"));
   await screen.findByTestId("settings-screen");
   await waitFor(() =>
-    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "false"),
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    ),
   );
   fireEvent.click(screen.getByTestId("nav-home"));
   await screen.findByTestId("swarm-view");
   await waitFor(() =>
-    expect(screen.getByTestId("nav-swarm")).toHaveAttribute("aria-pressed", "true"),
+    expect(screen.getByTestId("nav-swarm")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    ),
   );
 });

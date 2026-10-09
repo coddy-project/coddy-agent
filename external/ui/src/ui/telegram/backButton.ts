@@ -33,7 +33,10 @@ export const TELEGRAM_BACK_LAYERS =
 /** backButtonWanted reports whether there is something to go back from. */
 export function backButtonWanted(doc: Document): boolean {
   const route = parseAppHash();
-  if (route.branch !== "none" || ("historyOpen" in route && route.historyOpen)) {
+  if (
+    route.branch !== "none" ||
+    ("historyOpen" in route && route.historyOpen)
+  ) {
     return true;
   }
   return doc.querySelector(TELEGRAM_BACK_LAYERS) !== null;
@@ -44,7 +47,10 @@ export function backButtonWanted(doc: Document): boolean {
  * it, and when nothing does, the start screen instead of an open conversation.
  * It returns what happened, for tests.
  */
-export function pressBack(win: Window, doc: Document): "escape" | "home" | "nothing" {
+export function pressBack(
+  win: Window,
+  doc: Document,
+): "escape" | "home" | "nothing" {
   const ev = new KeyboardEvent("keydown", {
     key: "Escape",
     code: "Escape",
@@ -65,7 +71,8 @@ export function pressBack(win: Window, doc: Document): "escape" | "home" | "noth
   };
   doc.addEventListener("keydown", last);
   try {
-    const target = doc.activeElement instanceof HTMLElement ? doc.activeElement : doc.body;
+    const target =
+      doc.activeElement instanceof HTMLElement ? doc.activeElement : doc.body;
     target.dispatchEvent(ev);
   } finally {
     doc.removeEventListener("keydown", last);

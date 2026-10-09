@@ -29,6 +29,7 @@ _coddy() {
         '(-p --prompt)'{-p,--prompt}'[run one prompt and exit (- reads it from stdin)]:prompt:' \
         '(-i --prompt-file)'{-i,--prompt-file}'[run one prompt read from a file (- for stdin)]:prompt file:_files' \
         '--no-stdin[one-shot run: do not attach piped stdin]' \
+        '--ephemeral[one-shot run: delete its session when the run ends]' \
         '--resume[pick a session to resume]' \
         '1: :->command' \
         '*:: :->argument'
@@ -39,7 +40,16 @@ _coddy() {
             ;;
         argument)
             case $words[1] in
-                sessions) _values 'subcommand' list export ;;
+                sessions)
+                    if (( CURRENT > 2 )) && [[ $words[2] == list ]]; then
+                        _arguments \
+                            '--cwd[only the sessions saved with this directory]:directory:_files -/' \
+                            '--origin[only the sessions of one surface]:origin:(local gateway print)' \
+                            '--sessions-dir[sessions root]:directory:_files -/'
+                    else
+                        _values 'subcommand' list export
+                    fi
+                    ;;
                 skills)   _values 'subcommand' list enable disable add sync remove ;;
                 plugin)
                     if (( CURRENT == 3 )) && [[ $words[2] == marketplace ]]; then
@@ -65,13 +75,27 @@ _coddy() {
                     ;;
                 rules)    _values 'subcommand' list ;;
                 docs)
-                    if (( CURRENT == 3 )) && [[ $words[2] == show ]]; then
+                    # The verb and the words after it, the flags and their
+                    # values aside: --lang may stand anywhere, before the verb too.
+                    local verb="" npos=0 i
+                    for (( i = 2; i < CURRENT; i++ )); do
+                        case $words[i] in
+                            --lang|--limit) (( i++ )) ;;
+                            --lang=*|--limit=*) ;;
+                            *) if [[ -z $verb ]]; then verb=$words[i]; else (( npos++ )); fi ;;
+                        esac
+                    done
+                    if [[ $words[CURRENT-1] == --lang ]]; then
+                        _values 'language' en ru
+                    elif [[ -z $verb ]]; then
+                        compadd -- list search show --lang
+                    elif [[ $verb == show ]] && (( npos == 0 )); then
                         # The pages the binary carries, from the binary itself.
                         _values 'page' ${(f)"$(coddy docs list --slugs 2>/dev/null)"}
-                    elif (( CURRENT > 2 )) && [[ $words[2] == search ]]; then
-                        _arguments '--limit[sections to print]:count:'
+                    elif [[ $verb == search ]]; then
+                        compadd -- --limit --lang
                     else
-                        _values 'subcommand' list search show
+                        compadd -- --lang
                     fi
                     ;;
                 update)

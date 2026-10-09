@@ -94,10 +94,7 @@ test("reconstructed pending question clears its marker after settlement", () => 
       "coddy_qp_v1:sess_x",
       JSON.stringify([{ requestId: "q_pending", payload }]),
     );
-    const pending = mergeStoredQuestionPromptsIntoTranscript(
-      merged,
-      "sess_x",
-    );
+    const pending = mergeStoredQuestionPromptsIntoTranscript(merged, "sess_x");
     expect(hasUnresolvedQuestionPrompt(pending)).toBe(true);
 
     window.localStorage.setItem(
@@ -114,10 +111,7 @@ test("reconstructed pending question clears its marker after settlement", () => 
         },
       ]),
     );
-    const settled = mergeStoredQuestionPromptsIntoTranscript(
-      merged,
-      "sess_x",
-    );
+    const settled = mergeStoredQuestionPromptsIntoTranscript(merged, "sess_x");
     expect(hasUnresolvedQuestionPrompt(settled)).toBe(false);
   } finally {
     try {

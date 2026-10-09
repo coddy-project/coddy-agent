@@ -39,7 +39,7 @@ The `background_*` tools are registered only while `tools.background` is enabled
 |---|---|---|---|---|
 | `run_command` | Run a shell command in the workspace through the host shell; optional `cwd` changes the directory for this command only. `background: true` returns a task id and wakes the agent on completion by default where available. A foreground command that outlives its timeout is handed to the pool and also wakes on completion by default; `notify_on_finish: false` disables either wake | `command`, `cwd`, `permission_rationale`, `timeout_seconds`, `background`, `notify_on_finish`, `expected_seconds` | command | agent, plan |
 | `share_file` | Copy one regular, non-symlink file from the workspace into the current persisted session as an immutable downloadable artifact. The copy is content-addressed, capped at 25 MiB (100 MiB per session), and does not enter model prompt content or transcript exports. It is unavailable to subagents. | `path` | always | agent |
-| `worktree_create` | Fetch origin, create or reuse a [feature worktree](../features/worktrees.md) from its default branch (creation needs a reachable `origin`), and move the session into it | `branch` | always | agent |
+| `worktree_create` | Fetch origin, create or reuse a [feature worktree](../features/worktrees.md) from its default branch (creation needs a reachable `origin`), and move the session into it; a `branch` written as `<remote>/<name>` opens the local `<name>` tracking that remote branch | `branch` | always | agent |
 | `background_list` | List the session's background tasks with status, elapsed time and estimate | none | none | agent, plan |
 | `background_output` | Return the captured stdout and stderr of a task | `task_id`, `tail_lines` | none | agent, plan |
 | `background_wait` | Wait for a task to finish, bounded by a default and a maximum | `task_id`, `timeout_seconds` | none | agent, plan |
@@ -66,8 +66,8 @@ The `background_*` tools are registered only while `tools.background` is enabled
 |---|---|---|---|---|
 | `question` | Ask the user one or more multiple-choice questions and wait for the answers | `questions[]` of `header`, `question`, `options[]` (`label`, `description`), `multiple`, `custom` | none (the turn waits for the user) | agent, plan, ask |
 | `load_skill` | Load the full instructions of a catalogued skill by name; registered only while `skills.auto_discovery` is on ([Skills](../features/skills.md)) | `name` | none | agent, plan, ask |
-| `coddy_docs_search` | Search Coddy's own documentation, built into the binary, with BM25 over the sections ([Built-in documentation](../features/built-in-docs.md#the-agents-tools)) | `query`, `limit` | none | agent, plan, ask |
-| `coddy_docs_read` | Read a page or a section of that documentation, or its contents without a page; long pages come in parts | `page`, `offset` | none | agent, plan, ask |
+| `coddy_docs_search` | Search Coddy's own documentation, built into the binary, with BM25 over the sections, in English or Russian ([Built-in documentation](../features/built-in-docs.md#the-agents-tools)) | `query`, `limit`, `lang` | none | agent, plan, ask |
+| `coddy_docs_read` | Read a page or a section of that documentation, or its contents without a page, in the turn's language unless `lang` names one; long pages come in parts | `page`, `offset`, `lang` | none | agent, plan, ask |
 | `spawn_agent` | Delegate a self-contained task to a subagent, waiting for its report or running it as a background task. A detached child wakes the parent on completion by default where available; `notify_on_finish: false` disables it. `resume` continues a finished run in its own child session instead of starting over ([Subagents](../features/subagents.md#the-spawn_agent-tool)) | `agent`, `prompt`, `description`, `model`, `reasoning`, `background`, `expected_seconds`, `timeout_seconds`, `notify_on_finish`, `resume` | none itself; the child's own calls prompt through the parent | agent, plan (the child of a plan-mode parent stays in plan mode); hidden in ask, at `subagents.max_depth` unless the session's own definition declared a `spawns` allowlist, and where no runtime exists, such as a scheduled run |
 | `switch_model` | Change the model or reasoning level only when the user asks; applies from the next request for the session by default, or only this turn with `scope: turn` ([Session settings](../features/session-settings.md#changing-the-model-on-request)) | `model`, `reasoning`, `scope` (`session` or `turn`) | none | agent, plan, ask; never offered to a subagent |
 
@@ -77,7 +77,7 @@ The session's plan document as a checklist, persisted in the bundle and shown as
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `coddy_todo_plan_read` | Read the checklist without changing it | none | none | agent |
+| `coddy_todo_plan_read` | Read the checklist without changing it; with no checklist it answers with a note that none is active and names `coddy_todo_plan_replace`, never an empty result | none | none | agent |
 | `coddy_todo_plan_replace` | Replace the whole checklist from Markdown | `markdown` | none | agent |
 | `coddy_todo_plan_archive` | Finalise the checklist: incomplete items are marked completed and the plan is archived | none | none | agent |
 | `coddy_todo_item_add` | Add one item, at the end or after an index | `content`, `status`, `after_index` | none | agent |
@@ -125,20 +125,20 @@ Staged edits to the live `config.yaml` ([config.yaml reference](../reference/con
 
 ## Scheduler
 
-Compiled in with the `scheduler` tag and registered only while the scheduler is enabled (`internal/tools/scheduler_hook.go`, `external/scheduler/tools/register.go`). `job_id` is the file basename under `scheduler.dir`; the job fields are those of the frontmatter ([Scheduler](../operate/scheduler.md#tools-when-scheduler-is-enabled)). Agent mode only.
+Compiled in with the `scheduler` tag and registered only while the scheduler is enabled (`internal/tools/scheduler_hook.go`, `external/scheduler/tools/register.go`). `job_id` is the file basename; every per-job tool takes `scope`, `user` (default, `${CODDY_HOME}/scheduler`) or `project` (`<session cwd>/.coddy/scheduler`, a job that runs only once the operator approved it; no tool approves one); the job fields are those of the frontmatter ([Scheduler](../operate/scheduler.md#tools-when-scheduler-is-enabled)). Agent mode only.
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
-| `coddy_scheduler_jobs_list` | List every job file | `include_body` | none | agent |
-| `coddy_scheduler_job_get` | Load one job | `job_id` | none | agent |
-| `coddy_scheduler_job_runs` | List the runs of a job, newest first: the task under the job session, the run session that holds the transcript, trigger, status and timing | `job_id`, `limit` | none | agent |
-| `coddy_scheduler_job_create` | Create a job file | `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent |
-| `coddy_scheduler_job_replace` | Replace every field of a job | `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent |
-| `coddy_scheduler_job_patch` | Change only the given fields, optionally renaming the job | `job_id`, `new_job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent |
-| `coddy_scheduler_job_pause`, `coddy_scheduler_job_resume` | Set or clear `paused` | `job_id` | always | agent |
-| `coddy_scheduler_job_delete` | Delete a job, its `.state` sidecar and its run history when no run is in flight | `job_id` | always | agent |
-| `coddy_scheduler_job_run` | Start one run now, as a background agent task under the job session; answers with the task and the run session | `job_id` | always | agent |
-| `coddy_scheduler_job_cancel` | Stop the run of a job that is in flight | `job_id` | always | agent |
+| `coddy_scheduler_jobs_list` | List the user jobs and the project jobs of the session's workspace and of the workspaces the scheduler runs, each with its scope and trust | `include_body` | none | agent |
+| `coddy_scheduler_job_get` | Load one job | `scope`, `job_id` | none | agent |
+| `coddy_scheduler_job_runs` | List the runs of a job, newest first: the task under the job session, the run session that holds the transcript, trigger, status and timing | `scope`, `job_id`, `limit` | none | agent |
+| `coddy_scheduler_job_create` | Create a job file | `scope`, `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent |
+| `coddy_scheduler_job_replace` | Replace every field of a job | `scope`, `job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent |
+| `coddy_scheduler_job_patch` | Change only the given fields, optionally renaming the job | `scope`, `job_id`, `new_job_id`, `description`, `schedule`, `paused`, `cwd`, `model`, `mode`, `agent`, `permission_mode`, `body` | always | agent |
+| `coddy_scheduler_job_pause`, `coddy_scheduler_job_resume` | Set or clear `paused` | `scope`, `job_id` | always | agent |
+| `coddy_scheduler_job_delete` | Delete a job, its `.state` sidecar and its run history when no run is in flight | `scope`, `job_id` | always | agent |
+| `coddy_scheduler_job_run` | Start one run now, as a background agent task under the job session; answers with the task and the run session | `scope`, `job_id` | always | agent |
+| `coddy_scheduler_job_cancel` | Stop the run of a job that is in flight | `scope`, `job_id` | always | agent |
 
 ## Memory subagent
 

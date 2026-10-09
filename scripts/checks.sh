@@ -21,6 +21,14 @@
 #                                      (the CLI reference needs a full-tag build and is left
 #                                      to `make docs-check` in CI)
 #
+#   CODDY_HOOK_FORMAT 0|1              (default: 1)   when the commit stages SPA sources
+#                                      (external/ui: .ts, .tsx, .js, .jsx, .mjs, .cjs, .css,
+#                                      .json, .html; package-lock.json and build output aside),
+#                                      check the whole SPA with Prettier (`prettier --check .`,
+#                                      what `make ui-format-check` and CI run): the tree is
+#                                      Prettier-clean, and a file left out of the commit is
+#                                      held to it too
+#
 #   CODDY_HOOK_SKIP   1                bypass the whole gate (prints a warning)
 #
 # Exit code: 0 = everything requested passed (or skipped), non-zero = a failure.
@@ -68,6 +76,42 @@ if [ "$lint" = "1" ]; then
   fi
 fi
 
+# --- format: Prettier over the whole SPA when the commit stages SPA sources ---
+# The working tree is checked, as the linter checks it; external/ui/.prettierignore
+# keeps the build output and the vendored grammars out. node_modules comes from
+# `make ui-deps` when the lint stage above did not install it already.
+format="${CODDY_HOOK_FORMAT:-1}"
+format_ran=0
+if [ "$format" = "1" ]; then
+  fmt_files=()
+  while IFS= read -r -d '' f; do
+    case "$f" in
+      external/ui/package-lock.json) continue ;;
+      external/ui/*.ts | external/ui/*.tsx | external/ui/*.js | external/ui/*.jsx | \
+      external/ui/*.mjs | external/ui/*.cjs | external/ui/*.css | external/ui/*.json | \
+      external/ui/*.html)
+        [ -f "$f" ] && fmt_files+=("${f#external/ui/}") ;;
+    esac
+  done < <(git diff --cached --name-only -z --diff-filter=ACMR 2>/dev/null)
+  if [ "${#fmt_files[@]}" -gt 0 ]; then
+    format_ran=1
+    prettier="external/ui/node_modules/.bin/prettier"
+    if [ ! -x "$prettier" ]; then
+      make ui-deps >/dev/null || { status=1; log "format: make ui-deps failed"; }
+    fi
+    if [ -x "$prettier" ]; then
+      log "format: prettier --check over external/ui (the commit stages ${#fmt_files[@]} SPA file(s))"
+      if ! (cd external/ui && ./node_modules/.bin/prettier --check .); then
+        status=1
+        log "format: run 'cd external/ui && npm run fmt' (or npx prettier --write <file>...), then re-stage"
+      fi
+    else
+      status=1
+      log "format: prettier not found in external/ui/node_modules"
+    fi
+  fi
+fi
+
 # --- tests (opt-in; off by default because even the express run takes minutes) ---
 case "$tests" in
   off)  : ;;
@@ -86,13 +130,16 @@ if [ "$docs" = "1" ]; then
   if git diff --cached --name-only --diff-filter=ACMRD 2>/dev/null \
        | grep -E '^(docs/|README\.md$|AGENTS\.md$|DESIGN\.md$|CONTRIBUTING\.md$|internal/config/config\.schema\.json$|internal/docsgen/|cmd/docsgen/)' >/dev/null; then
     docs_ran=1
-    log "docs: go run ./cmd/docsgen -skip-cli (nav, links, assets, generated pages)"
-    go run ./cmd/docsgen -skip-cli || { status=1; log "docs: run 'make docs' to regenerate, then re-stage"; }
+    # A translation behind its English page is a warning here and an error in
+    # CI: a commit of an English page may come before its translation, the
+    # pull request may not.
+    log "docs: go run ./cmd/docsgen -skip-cli (nav, links, assets, generated pages, translations)"
+    go run ./cmd/docsgen -skip-cli -stale-translations warn || { status=1; log "docs: run 'make docs' to regenerate, then re-stage"; }
   fi
 fi
 
 if [ "$status" -eq 0 ]; then
-  log "PASS (lint=$lint, tests=$tests, docs=$docs_ran)"
+  log "PASS (lint=$lint, format=$format_ran, tests=$tests, docs=$docs_ran)"
 else
   log "FAIL — fix the reported issues before committing (bypass once: git commit --no-verify)."
 fi

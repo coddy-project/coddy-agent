@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/EvilFreelancer/tgfake/pkg/llmstub"
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
@@ -30,8 +32,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake/llmstub"
 )
 
 const (
@@ -97,7 +97,7 @@ func (w *pictureWorld) chatThatReadsImages(name string) error {
 	w.shot = buf.Bytes()
 
 	read, _ := json.Marshal(map[string]any{"path": name})
-	stub := &llmstub.Server{Rules: []llmstub.Rule{
+	stub := &llmstub.Server{Model: "coddy-demo", StripTags: []string{"turn_context"}, Rules: []llmstub.Rule{
 		{Match: "look at the screenshot", Tool: &llmstub.ToolCall{Name: "read", Arguments: read}},
 		{Match: "pictures the tool calls above returned", Answer: "It is a red square."},
 	}}

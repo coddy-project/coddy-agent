@@ -39,6 +39,14 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			LoopNudgeMax:           intPtr(AgentDefaultLoopNudgeMax),
 			WaitForLimitResetMaxMS: intPtr(AgentDefaultWaitForLimitResetMaxMS),
 		},
+		Supervisor: Supervisor{
+			StallSeconds:     intPtr(SupervisorDefaultStallSeconds),
+			MaxNudges:        intPtr(SupervisorDefaultMaxNudges),
+			MaxContinuations: intPtr(SupervisorDefaultMaxContinuations),
+			LoopRepeat:       intPtr(SupervisorDefaultLoopRepeat),
+			TokenBudget:      intPtr(0),
+			Verify:           boolPtr(true),
+		},
 		Prompts: PromptsJSON{
 			Dir:         "",
 			AgentPrompt: "agent.md",
@@ -85,6 +93,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			PersistMaxTurns:  12,
 			CopilotMaxTokens: 4096,
 			MaxSearchHits:    8,
+			MaxNoteChars:     intPtr(MemoryDefaultMaxNoteChars),
 		},
 		Decisions: DecisionsJSON{
 			Enabled:   false,
@@ -110,10 +119,10 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		Scheduler: SchedulerJSON{
 			Enabled:        false,
-			Dir:            "${CODDY_HOME}/scheduler",
 			MaxQueue:       10,
 			Timeout:        "30m",
 			RetainSessions: 5,
+			ProjectTrust:   ProjectTrustAsk,
 		},
 		Gateways: GatewaysJSON{
 			Telegram: TelegramGatewayJSON{

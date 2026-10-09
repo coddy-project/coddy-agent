@@ -281,8 +281,9 @@ func TestOpenAIStreamedErrorRetryClassification(t *testing.T) {
 }
 
 // TestSSEScannerFrameAssembly pins the lenient scanner's frame handling:
-// SSE-spec behaviors (CRLF, multi-line data join, comments, leading BOM) and
-// the llama.cpp dialect ("error:" field, unterminated final frame).
+// SSE-spec behaviors (CRLF, multi-line data join, comments, leading BOM, the
+// event name of each frame) and the llama.cpp dialect ("error:" field,
+// unterminated final frame).
 func TestSSEScannerFrameAssembly(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -310,6 +311,9 @@ func TestSSEScannerFrameAssembly(t *testing.T) {
 		{"field without colon or value is harmless",
 			"data\n\ndata: x\n\n",
 			[]sseFrame{{data: []byte("\n")}, {data: []byte("x\n")}}},
+		{"event name rides with its frame only",
+			"event: response.created\ndata: x\n\nevent: keepalive\n\n: keep-alive\n\ndata: y\n\n",
+			[]sseFrame{{event: "response.created", data: []byte("x\n")}, {data: []byte("y\n")}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -318,6 +322,7 @@ func TestSSEScannerFrameAssembly(t *testing.T) {
 			for sc.Next() {
 				f := sc.Frame()
 				got = append(got, sseFrame{
+					event:   f.event,
 					data:    append([]byte(nil), f.data...),
 					errData: append([]byte(nil), f.errData...),
 				})
@@ -329,9 +334,9 @@ func TestSSEScannerFrameAssembly(t *testing.T) {
 				t.Fatalf("frames = %d, want %d (%q)", len(got), len(tc.want), got)
 			}
 			for i := range got {
-				if string(got[i].data) != string(tc.want[i].data) || string(got[i].errData) != string(tc.want[i].errData) {
-					t.Errorf("frame %d = {data:%q err:%q}, want {data:%q err:%q}",
-						i, got[i].data, got[i].errData, tc.want[i].data, tc.want[i].errData)
+				if got[i].event != tc.want[i].event || string(got[i].data) != string(tc.want[i].data) || string(got[i].errData) != string(tc.want[i].errData) {
+					t.Errorf("frame %d = {event:%q data:%q err:%q}, want {event:%q data:%q err:%q}",
+						i, got[i].event, got[i].data, got[i].errData, tc.want[i].event, tc.want[i].data, tc.want[i].errData)
 				}
 			}
 		})
@@ -670,6 +675,79 @@ func TestAnthropicStreamWithTerminalEventSucceeds(t *testing.T) {
 	}
 	if resp == nil || resp.Content != "Paris" || resp.StopReason != "end_turn" {
 		t.Fatalf("resp = %+v, want complete end_turn with %q", resp, "Paris")
+	}
+}
+
+func TestAnthropicStreamIncludesCacheInInputUsage(t *testing.T) {
+	prefix := strings.Replace(anthropicStreamPrefix,
+		`"input_tokens":3,"output_tokens":0`,
+		`"input_tokens":3,"cache_creation_input_tokens":7,"cache_read_input_tokens":11,"output_tokens":0`, 1)
+	p, done := anthropicStreamStub(t, prefix+
+		"event: content_block_stop\n"+
+		"data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"+
+		"event: message_delta\n"+
+		"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n\n"+
+		"event: message_stop\n"+
+		"data: {\"type\":\"message_stop\"}\n\n")
+	defer done()
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.InputTokens != 21 || resp.OutputTokens != 5 || resp.CachedInputTokens != 11 {
+		t.Fatalf("usage = in %d out %d cached %d, want 21/5/11", resp.InputTokens, resp.OutputTokens, resp.CachedInputTokens)
+	}
+}
+
+func TestAnthropicStreamUsesFinalInputUsageWhenProvided(t *testing.T) {
+	prefix := strings.Replace(anthropicStreamPrefix,
+		`"input_tokens":3,"output_tokens":0`,
+		`"input_tokens":3,"cache_creation_input_tokens":7,"cache_read_input_tokens":11,"output_tokens":0`, 1)
+	p, done := anthropicStreamStub(t, prefix+
+		"event: content_block_stop\n"+
+		"data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"+
+		"event: message_delta\n"+
+		"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":4,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":20,\"output_tokens\":5}}\n\n"+
+		"event: message_stop\n"+
+		"data: {\"type\":\"message_stop\"}\n\n")
+	defer done()
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.InputTokens != 24 || resp.OutputTokens != 5 || resp.CachedInputTokens != 20 {
+		t.Fatalf("final usage = in %d out %d cached %d, want 24/5/20", resp.InputTokens, resp.OutputTokens, resp.CachedInputTokens)
+	}
+}
+
+// An Anthropic-compatible gateway may fill the input counters of the final
+// message_delta with zeros. No prompt has zero input, so the counters of
+// message_start stay.
+func TestAnthropicStreamKeepsStartUsageWhenFinalInputIsZero(t *testing.T) {
+	prefix := strings.Replace(anthropicStreamPrefix,
+		`"input_tokens":3,"output_tokens":0`,
+		`"input_tokens":3,"cache_creation_input_tokens":7,"cache_read_input_tokens":11,"output_tokens":0`, 1)
+	for name, deltaUsage := range map[string]string{
+		"input only":   `{"input_tokens":0,"output_tokens":5}`,
+		"all counters": `{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, done := anthropicStreamStub(t, prefix+
+				"event: content_block_stop\n"+
+				"data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"+
+				"event: message_delta\n"+
+				"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":"+deltaUsage+"}\n\n"+
+				"event: message_stop\n"+
+				"data: {\"type\":\"message_stop\"}\n\n")
+			defer done()
+			resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.InputTokens != 21 || resp.OutputTokens != 5 || resp.CachedInputTokens != 11 {
+				t.Fatalf("usage = in %d out %d cached %d, want 21/5/11", resp.InputTokens, resp.OutputTokens, resp.CachedInputTokens)
+			}
+		})
 	}
 }
 

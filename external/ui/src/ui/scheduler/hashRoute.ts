@@ -24,6 +24,12 @@ export type ParsedAppHash =
       historyOpen: boolean;
       tasksOpen: boolean;
       taskId: string | null;
+      /** The edits window is open over the chat. */
+      editsOpen?: boolean;
+      /** The Files window is open over the chat, on this file and line. */
+      filesOpen?: boolean;
+      filePath?: string;
+      fileLine?: number;
     }
   | { branch: "draft"; draftId: string; historyOpen: boolean }
   | { branch: "history" }
@@ -211,6 +217,37 @@ export function parseAppHash(): ParsedAppHash {
       runTaskId: null,
     };
   }
+  const sessFiles = /^s\/([^/]+)\/files$/.exec(h);
+  if (sessFiles?.[1]) {
+    const params = new URLSearchParams(search);
+    const requestedLine = Number(params.get("line"));
+    // A window over the chat, not a face of the dock: whatever the dock
+    // showed stays under it.
+    return {
+      branch: "session",
+      sessionId: decodeURIComponent(sessFiles[1]),
+      historyOpen,
+      tasksOpen: false,
+      taskId: null,
+      filesOpen: true,
+      filePath: params.get("path") || "",
+      fileLine:
+        Number.isSafeInteger(requestedLine) && requestedLine > 0
+          ? requestedLine
+          : 1,
+    };
+  }
+  const sessChanges = /^s\/([^/]+)\/changes$/.exec(h);
+  if (sessChanges?.[1]) {
+    return {
+      branch: "session",
+      sessionId: decodeURIComponent(sessChanges[1]),
+      historyOpen,
+      tasksOpen: false,
+      taskId: null,
+      editsOpen: true,
+    };
+  }
   const sessTask = /^s\/([^/]+)\/tasks\/(.+)$/.exec(h);
   if (sessTask && sessTask[1] && sessTask[2]) {
     return {
@@ -367,7 +404,11 @@ export function setSettingsSectionHash(
     setSettingsHash(opts);
     return;
   }
-  const next = appNavHrefSettingsSection(id, opts?.item, !!opts?.historySidebar);
+  const next = appNavHrefSettingsSection(
+    id,
+    opts?.item,
+    !!opts?.historySidebar,
+  );
   if (window.location.hash !== next) {
     history.replaceState(
       null,
@@ -393,6 +434,40 @@ export function setSessionTasksHash(
     ? `#/s/${encodeURIComponent(sid)}/tasks/${encodeURIComponent(tid)}`
     : `#/s/${encodeURIComponent(sid)}/tasks`;
   const next = withHistoryQuery(base, !!opts?.historySidebar);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
+}
+
+export function setSessionFilesHash(
+  sessionId: string,
+  path = "",
+  line = 1,
+): void {
+  if (!sessionId.trim()) return;
+  const params = new URLSearchParams();
+  if (path) params.set("path", path);
+  if (line > 1) params.set("line", String(line));
+  const query = params.toString();
+  const next = `#/s/${encodeURIComponent(sessionId)}/files${query ? "?" + query : ""}`;
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
+}
+
+export function setSessionChangesHash(sessionId: string): void {
+  if (!sessionId.trim()) return;
+  const next = `#/s/${encodeURIComponent(sessionId)}/changes`;
   if (window.location.hash !== next) {
     history.replaceState(
       null,
@@ -499,7 +574,10 @@ export function appNavHrefSettings(): string {
 }
 
 /** The reader, one page of it, or one section of a page. */
-export function appNavHrefDocs(slug?: string | null, anchor?: string | null): string {
+export function appNavHrefDocs(
+  slug?: string | null,
+  anchor?: string | null,
+): string {
   const s = (slug || "").trim();
   if (!s) {
     return "#/docs";

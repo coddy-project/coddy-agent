@@ -4,6 +4,7 @@ import {
   sessionSettingsEventOf,
   type SessionSettingsEvent,
 } from "./sessionSettings";
+import { sessionGoalEventOf, type SessionGoalUpdate } from "./goal";
 
 /** What a caller does with the events of `GET /coddy/events`. */
 export type ServerEventHandlers = {
@@ -22,16 +23,18 @@ export type ServerEventHandlers = {
    *  follow-up onto the turn it is watching. Carries the whole queue and its
    *  version; the caller keeps the highest version it has seen. */
   onMessageQueue?: (sessionId: string, queue: QueuedMessageEvent) => void;
-  /** A session's recorded change set settled or moved: a finished turn's workspace
-   *  diff is on disk, or the session was rolled back. The changed-files card reads
-   *  the set when this arrives rather than when the stream ends, which the capture
-   *  can still be racing. */
+  /** Uncommitted changes of a session's folder were discarded, from this window
+   *  or another: every Edits view of the session reads git's report again. */
   onSessionChanges?: (sessionId: string) => void;
   /** A session's settings changed - model, reasoning, mode, permission mode,
    *  the overrides for the next turns - from any surface. Carries the whole
    *  versioned snapshot, and a notice of the change when the agent made it
    *  itself. */
   onSessionSettings?: (event: SessionSettingsEvent) => void;
+  /** A session's goal changed - set, paused, checked, continued, cleared -
+   *  from any surface or by the supervisor. Carries the whole goal (null once
+   *  cleared) and its version; the caller keeps the highest it has seen. */
+  onSessionGoal?: (update: SessionGoalUpdate) => void;
   /** A background subagent of this parent session started waiting for a
    *  permission answer, or stopped waiting (answered anywhere, withdrawn, its
    *  run ended). The prompt itself waits on the subagent's task row, so the
@@ -69,6 +72,7 @@ export type ServerEvent =
   | { type: "message_queue"; sessionId: string; queue: QueuedMessageEvent }
   | { type: "session_changes"; sessionId: string }
   | { type: "session_settings"; event: SessionSettingsEvent }
+  | { type: "session_goal"; update: SessionGoalUpdate }
   | { type: "config_reloaded" }
   | { type: "subagent_permission"; parentSessionId: string }
   | { type: "session_question_pending"; sessionId: string }
@@ -175,6 +179,10 @@ export function parseServerEvent(ev: {
       const parsed = sessionSettingsEventOf(ev.data);
       return parsed ? { type: "session_settings", event: parsed } : null;
     }
+    case "session_goal": {
+      const parsed = sessionGoalEventOf(ev.data);
+      return parsed ? { type: "session_goal", update: parsed } : null;
+    }
     case "config_reloaded":
       // Nothing to parse: the payload is the announcement itself.
       return { type: "config_reloaded" };
@@ -218,6 +226,9 @@ export function dispatchServerEvent(
       return;
     case "session_settings":
       h.onSessionSettings?.(event.event);
+      return;
+    case "session_goal":
+      h.onSessionGoal?.(event.update);
       return;
     case "config_reloaded":
       h.onConfigReloaded?.();

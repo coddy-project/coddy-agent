@@ -233,3 +233,26 @@ func TestRuntimeReplacementsReachObserversInTheOrderTheyWereStored(t *testing.T)
 		t.Fatalf("the observer was left on %p while the runtime holds %p", last, rt.Cfg())
 	}
 }
+
+// TestRuntimeConnectsANewSessionsServersInTheBackground: a session coddy serve
+// opens - the first message of a web chat, a messenger chat - returns before
+// its MCP servers answer, and its first turn says it was taken before it waits
+// for them (issue #357). A cold stdio server held the first frame of a chat for
+// sixteen seconds.
+func TestRuntimeConnectsANewSessionsServersInTheBackground(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Paths.Home = t.TempDir()
+	rt := &Runtime{}
+	if err := rt.Init(Options{Cfg: cfg, NeedsSessions: true, SessionsRoot: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if rt.Mgr == nil {
+		t.Fatal("a process that runs turns opened no session manager")
+	}
+	if !rt.Mgr.NewSessionsBackgroundMCP() {
+		t.Fatal("coddy serve connects a new session's MCP servers before session/new returns")
+	}
+	if rt.Mgr.BackgroundMCPConnect() {
+		t.Fatal("coddy serve starts a stored session's MCP servers when it is loaded to be read")
+	}
+}

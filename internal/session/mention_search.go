@@ -54,6 +54,9 @@ type MentionSearch struct {
 	// index (0: mentionIndexFirstWait). The console waits little and redraws
 	// when the build lands; an HTTP client has nothing to redraw with.
 	Wait time.Duration
+	// Lang is the language of the surface asking: "@coddy:" pages and
+	// sections are named in it. Empty reads the language of the query.
+	Lang string
 }
 
 // MentionCandidate is one row a picker offers.
@@ -119,7 +122,7 @@ func (m *Manager) searchMentions(ctx context.Context, req MentionSearch) Mention
 
 	if scheme, rest, ok := strings.Cut(q, ":"); ok {
 		if sc, known := mention.ParseScheme(scheme); known {
-			return m.searchScheme(ctx, st, cwd, sc, rest, limit)
+			return m.searchScheme(ctx, st, cwd, sc, rest, limit, req.Lang)
 		}
 	}
 	if browsesDirectory(q) {
@@ -430,9 +433,9 @@ func (m *Manager) sessionsMentionable(st *State) bool {
 }
 
 // searchScheme lists one kind: "@session:", "@rule:", "@agent:", "@coddy:".
-func (m *Manager) searchScheme(_ context.Context, st *State, cwd string, sc mention.Scheme, q string, limit int) MentionSearchResult {
+func (m *Manager) searchScheme(_ context.Context, st *State, cwd string, sc mention.Scheme, q string, limit int, lang string) MentionSearchResult {
 	if sc == mention.SchemeCoddy {
-		return docCandidates(q, limit)
+		return docCandidates(q, limit, lang)
 	}
 	var items []MentionCandidate
 	switch sc {
@@ -480,9 +483,14 @@ func (m *Manager) searchScheme(_ context.Context, st *State, cwd string, sc ment
 // docCandidates completes "@coddy:": the pages of the built-in documentation
 // in map order for an empty query; the pages whose slug or title the query
 // matches, then the sections its words find; the sections of one page once
-// the query names it and a "#".
-func docCandidates(q string, limit int) MentionSearchResult {
-	lib, err := docs.Default()
+// the query names it and a "#". Titles and headings are in lang, or in the
+// language of the query when lang is empty; what is inserted is the address
+// every language shares.
+func docCandidates(q string, limit int, lang string) MentionSearchResult {
+	if strings.TrimSpace(lang) == "" {
+		lang = docs.LangOfText(q)
+	}
+	lib, err := docs.For(lang)
 	if err != nil {
 		return MentionSearchResult{Items: []MentionCandidate{}}
 	}

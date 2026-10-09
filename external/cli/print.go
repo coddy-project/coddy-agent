@@ -6,12 +6,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -45,6 +48,41 @@ type PrintOptions struct {
 	PermMode string
 	// Config supplies paths and the permission fallback (local and remote).
 	Config *config.Config
+	// Ephemeral removes the session the run created when the run ends,
+	// however it ends (mirrors --ephemeral). The session exists while the run
+	// does, so subagents, background tasks and tool records work as in any
+	// run; the caller refuses it together with ContinueLast and SessionID.
+	Ephemeral bool
+}
+
+// ephemeralRemoveTimeout bounds the removal of an --ephemeral run's session:
+// it runs after the prompt's own context may be gone (ctrl+c), and a server
+// that stopped answering must not keep the process alive.
+const ephemeralRemoveTimeout = 30 * time.Second
+
+// removeEphemeralSession deletes the session an --ephemeral run created, with
+// everything it spawned: in-process the manager's tree delete (turns
+// cancelled and awaited, subagent and background tasks stopped, bundles
+// removed deepest first), over --remote the server's DELETE of the same. A
+// failure is a warning: the run already answered, and a hidden print run left
+// behind costs less than a script retrying a run that worked.
+func removeEphemeralSession(mgr backend, id string, errOut io.Writer) {
+	ctx, cancel := context.WithTimeout(context.Background(), ephemeralRemoveTimeout)
+	defer cancel()
+	var err error
+	switch b := mgr.(type) {
+	case *session.Manager:
+		err = b.DeleteSessionTree(id, bgtask.Default())
+	case interface {
+		DeleteSession(ctx context.Context, id string) error
+	}:
+		err = b.DeleteSession(ctx, id)
+	default:
+		err = fmt.Errorf("this backend cannot delete sessions")
+	}
+	if err != nil && errOut != nil {
+		_, _ = fmt.Fprintf(errOut, "warning: --ephemeral could not remove session %s: %v\n", id, err)
+	}
 }
 
 // printSender streams assistant text to a writer and resolves permissions
@@ -61,6 +99,26 @@ type printSender struct {
 }
 
 func (p *printSender) SendSessionUpdate(_ string, update interface{}) error {
+	switch u := update.(type) {
+	case acp.GoalTurnUpdate:
+		// A turn the session supervisor started: its answer starts on a
+		// paragraph of its own on stdout, and why it runs goes to stderr,
+		// which a script reading the answer does not parse.
+		if p.wrote {
+			_, _ = io.WriteString(p.out, "\n\n")
+		}
+		if p.errOut != nil {
+			_, _ = fmt.Fprintln(p.errOut, "[goal] "+session.GoalTurnNote(u))
+		}
+		return nil
+	case acp.SessionGoalUpdate:
+		// How the goal ended: complete, blocked with the question, paused,
+		// out of budget.
+		if note := session.GoalEndNote(u); p.errOut != nil && note != "" {
+			_, _ = fmt.Fprintln(p.errOut, "[goal] "+note)
+		}
+		return nil
+	}
 	if chunk, ok := update.(acp.MessageChunkUpdate); ok {
 		if chunk.SessionUpdate == "agent_message_chunk" && chunk.Content.Type == "text" && chunk.Content.Text != "" {
 			text := chunk.Content.Text
@@ -139,8 +197,9 @@ func promptBlocks(opts PrintOptions) []acp.ContentBlock {
 }
 
 // PrintPrompt runs one prompt turn without a TUI and streams the assistant
-// text to opts.Out. The session persists like any other surface, so a later
-// `coddy -c` (interactive or print) continues it.
+// text to opts.Out. The session persists like any other surface, marked as a
+// print run: the pickers a person uses leave it out, a later `coddy -c -p`
+// continues it, and --ephemeral removes it when the run ends.
 func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	if strings.TrimSpace(opts.Prompt) == "" {
 		return fmt.Errorf("empty prompt")
@@ -153,7 +212,9 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 
 	switch {
 	case opts.ContinueLast:
-		id, err := latestBackendSessionID(ctx, mgr, cwd)
+		// A print run continues the previous run of the folder, print runs
+		// included: that is how a script chains its turns.
+		id, err := latestBackendSessionID(ctx, mgr, cwd, true)
 		if err != nil {
 			return err
 		}
@@ -165,9 +226,17 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 		mgr.SetPreferredSessionID(opts.SessionID)
 	}
 
+	// A session this run creates is a print run, marked before its first
+	// write; one it reopens (-c, an existing --session-id) keeps its origin.
+	mgr.SetNextSessionOrigin(session.PrintOrigin)
 	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: cwd})
 	if err != nil {
 		return fmt.Errorf("session/new: %w", err)
+	}
+	if opts.Ephemeral {
+		// Deferred, so a failed setting, a failed turn and a cancelled one
+		// remove the session as well; it runs after waitForMemoryRun below.
+		defer removeEphemeralSession(mgr, res.SessionID, opts.ErrOut)
 	}
 	// HandleSessionReady is deliberately not called: a reopened bundle would
 	// otherwise replay its whole transcript into stdout.
@@ -197,7 +266,7 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	result, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 		SessionID: res.SessionID,
 		Prompt:    promptBlocks(opts),
-	}, snd, &session.PromptRunOpts{SkipUsagePublish: true})
+	}, snd, &session.PromptRunOpts{SkipUsagePublish: true, Lang: docs.TurnLangFromEnv(os.Getenv)})
 	if snd.wrote {
 		_, _ = io.WriteString(opts.Out, "\n")
 	}

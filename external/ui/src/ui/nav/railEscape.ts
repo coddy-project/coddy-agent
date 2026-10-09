@@ -22,8 +22,12 @@ import type { NavItemId } from "./navOverflow";
  * the screen.
  */
 
-/** A screen the rail opens: every rail item but sign-out. */
-export type RailScreenId = Exclude<NavItemId, "signOut">;
+/**
+ * A screen the rail opens: every rail item but sign-out and the environment,
+ * which opens a menu (it answers Escape through useEscapeCloses) rather than
+ * a screen.
+ */
+export type RailScreenId = Exclude<NavItemId, "signOut" | "environment">;
 
 /** Whether a screen is on screen, and what Escape does to it. */
 export type RailScreen = { open: boolean; close: () => void };
@@ -95,7 +99,10 @@ function lastStep(screen: RailScreenId): Step | undefined {
  * list, a section of the stacked shell back to the tiles). `null` while there
  * is no step to take, and Escape closes the screen.
  */
-export function useRailEscapeStep(screen: RailScreenId, step: (() => void) | null): void {
+export function useRailEscapeStep(
+  screen: RailScreenId,
+  step: (() => void) | null,
+): void {
   const stepRef = useRef(step);
   useLayoutEffect(() => {
     stepRef.current = step;
@@ -111,6 +118,50 @@ export function useRailEscapeStep(screen: RailScreenId, step: (() => void) | nul
       steps = steps.filter((s) => s !== entry);
     };
   }, [screen, active]);
+}
+
+type Guard = { screen: RailScreenId; run: () => void };
+
+// What closing a screen by a gesture of the shell - a click on the backdrop
+// beside it - runs instead, while the screen asks to be asked first (Settings
+// over unsaved edits). Registered by the screen like its Escape step.
+let guards: Guard[] = [];
+
+/**
+ * useRailCloseGuard registers what a click on the backdrop beside the screen
+ * runs instead of closing it: the screen's own close, which may ask first.
+ * `null` while the screen may close without asking.
+ */
+export function useRailCloseGuard(
+  screen: RailScreenId,
+  guard: (() => void) | null,
+): void {
+  const guardRef = useRef(guard);
+  useLayoutEffect(() => {
+    guardRef.current = guard;
+  });
+  const active = guard !== null;
+  useLayoutEffect(() => {
+    if (!active) {
+      return undefined;
+    }
+    const entry: Guard = { screen, run: () => guardRef.current?.() };
+    guards = [...guards, entry];
+    return () => {
+      guards = guards.filter((g) => g !== entry);
+    };
+  }, [screen, active]);
+}
+
+/** railCloseGuard is the guard the screen registered, if it asks first now. */
+export function railCloseGuard(screen: RailScreenId): (() => void) | null {
+  for (let i = guards.length - 1; i >= 0; i--) {
+    const guard = guards[i];
+    if (guard && guard.screen === screen) {
+      return guard.run;
+    }
+  }
+  return null;
 }
 
 /**

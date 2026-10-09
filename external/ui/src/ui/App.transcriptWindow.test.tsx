@@ -30,7 +30,11 @@ function buildHistory(): Msg[] {
         { id: `call_${i}`, function: { name: "read_file", arguments: "{}" } },
       ],
     });
-    out.push({ role: "tool", content: `result ${i}`, tool_call_id: `call_${i}` });
+    out.push({
+      role: "tool",
+      content: `result ${i}`,
+      tool_call_id: `call_${i}`,
+    });
     out.push({ role: "assistant", content: `answer ${i}` });
   }
   return out;
@@ -71,53 +75,63 @@ const reads: string[] = [];
 const held = new Map<string, () => void>();
 let holdQuery: string | null = null;
 
-const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-  const url = new URL(String(input), "http://localhost");
-  const path = url.pathname;
-  if (path === "/coddy/events")
-    return new Response(new ReadableStream<Uint8Array>(), {
-      headers: { "Content-Type": "text/event-stream" },
-    });
-  if (path === "/v1/models") return json({ data: [] });
-  if (path.startsWith("/coddy/sessions") && !path.includes(SID))
-    return json({ sessions: [{ id: SID, title: "Long" }] });
-  if (path === `/coddy/sessions/${SID}/messages`) {
-    reads.push(url.search);
-    if (holdQuery !== null && url.search === holdQuery) {
-      await new Promise<void>((resolve) => held.set(url.search, resolve));
+const fetchMock = vi.fn(
+  async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    const path = url.pathname;
+    if (path === "/coddy/events")
+      return new Response(new ReadableStream<Uint8Array>(), {
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    if (path === "/v1/models") return json({ data: [] });
+    if (path.startsWith("/coddy/sessions") && !path.includes(SID))
+      return json({ sessions: [{ id: SID, title: "Long" }] });
+    if (path === `/coddy/sessions/${SID}/messages`) {
+      reads.push(url.search);
+      if (holdQuery !== null && url.search === holdQuery) {
+        await new Promise<void>((resolve) => held.set(url.search, resolve));
+      }
+      const { offset, end } = pageOf(url.searchParams);
+      let turnsBefore = 0;
+      for (const m of msgs.slice(0, offset))
+        if (m.role === "user") turnsBefore++;
+      return json({
+        messages: msgs.slice(offset, end),
+        window: {
+          offset,
+          total: msgs.length,
+          turnsBefore,
+          userRowsBefore: turnsBefore,
+        },
+      });
     }
-    const { offset, end } = pageOf(url.searchParams);
-    let turnsBefore = 0;
-    for (const m of msgs.slice(0, offset)) if (m.role === "user") turnsBefore++;
-    return json({
-      messages: msgs.slice(offset, end),
-      window: {
-        offset,
-        total: msgs.length,
-        turnsBefore,
-        userRowsBefore: turnsBefore,
-      },
-    });
-  }
-  if (path === `/coddy/sessions/${SID}/tool-calls`) return json({ toolCalls: [] });
-  if (path === `/coddy/sessions/${SID}/rewind`) {
-    // Cut the history at the prompt named, the way the server does.
-    const body = JSON.parse(String(init?.body ?? "{}"));
-    let seen = -1;
-    const at = msgs.findIndex((m) => m.role === "user" && ++seen === body.userMessageIndex);
-    if (at >= 0) msgs = msgs.slice(0, at);
-    return json({ object: "coddy.session_rewound", sessionId: SID, messagesRev: 2 });
-  }
-  if (path === `/coddy/sessions/${SID}/activity`)
-    return json({ sessionId: SID, turnActive: false });
-  if (path === `/coddy/sessions/${SID}/background-tasks`)
-    return json({ data: [], running: 0 });
-  if (path === `/coddy/sessions/${SID}/stats`) return json({ stats: {} });
-  if (path === `/coddy/sessions/${SID}/queue`) return json({ messages: [] });
-  if (path === "/coddy/workspace/context")
-    return json({ cwd: "/workspace", is_git_repo: false });
-  return json({});
-});
+    if (path === `/coddy/sessions/${SID}/tool-calls`)
+      return json({ toolCalls: [] });
+    if (path === `/coddy/sessions/${SID}/rewind`) {
+      // Cut the history at the prompt named, the way the server does.
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      let seen = -1;
+      const at = msgs.findIndex(
+        (m) => m.role === "user" && ++seen === body.userMessageIndex,
+      );
+      if (at >= 0) msgs = msgs.slice(0, at);
+      return json({
+        object: "coddy.session_rewound",
+        sessionId: SID,
+        messagesRev: 2,
+      });
+    }
+    if (path === `/coddy/sessions/${SID}/activity`)
+      return json({ sessionId: SID, turnActive: false });
+    if (path === `/coddy/sessions/${SID}/background-tasks`)
+      return json({ data: [], running: 0 });
+    if (path === `/coddy/sessions/${SID}/stats`) return json({ stats: {} });
+    if (path === `/coddy/sessions/${SID}/queue`) return json({ messages: [] });
+    if (path === "/coddy/workspace/context")
+      return json({ cwd: "/workspace", is_git_repo: false });
+    return json({});
+  },
+);
 
 type ChatProps = {
   sessionId: string;
@@ -263,7 +277,9 @@ test("a page above that a rewind made moot leaves the control ready, not loading
   await act(async () => chat!.onSend!(`prompt ${TURNS}, edited`));
   // The kept prefix is read from its newest page, then the edit is sent.
   await waitFor(() =>
-    expect(reads.filter((q) => q === "?limit=60").length).toBeGreaterThanOrEqual(1),
+    expect(
+      reads.filter((q) => q === "?limit=60").length,
+    ).toBeGreaterThanOrEqual(1),
   );
   await waitFor(() => expect(prompts()).toContain(`prompt ${TURNS - 1}`));
   held.get("?limit=80&before=180")!();

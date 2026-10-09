@@ -3,7 +3,6 @@ package skills
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -29,13 +28,14 @@ type SourceStatus struct {
 func MarketplaceStatus(ctx context.Context, cfg *config.Config, cwd string) []SourceStatus {
 	srcs := ListSources(cfg, cwd)
 	out := make([]SourceStatus, 0, len(srcs))
+	managedDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
 	for _, src := range srcs {
-		out = append(out, probeSource(ctx, src))
+		out = append(out, probeSource(ctx, managedDir, src))
 	}
 	return out
 }
 
-func probeSource(ctx context.Context, src string) SourceStatus {
+func probeSource(ctx context.Context, managedDir, src string) SourceStatus {
 	st := SourceStatus{Source: src}
 	spec, err := parseSource(src)
 	if err != nil {
@@ -61,13 +61,13 @@ func probeSource(ctx context.Context, src string) SourceStatus {
 		return st
 
 	case "git":
-		tmp, err := os.MkdirTemp("", "coddy-mpstat-")
+		tmp, cleanup, err := remoteStagingDir(managedDir, "coddy-mpstat-")
 		if err != nil {
 			st.Standard = "unreachable"
 			st.Error = err.Error()
 			return st
 		}
-		defer func() { _ = os.RemoveAll(tmp) }()
+		defer cleanup()
 		clone := filepath.Join(tmp, "repo")
 		if err := safeClone(spec.url, spec.ref, clone); err != nil {
 			st.Standard = "unreachable"
@@ -381,7 +381,7 @@ func pluginMarketplaceList(ctx context.Context, cfg *config.Config, cwd string) 
 	if len(added) > 0 {
 		fmt.Fprintf(&b, "%d added marketplace(s), install a plugin with `plugin install <plugin>@<marketplace>`:\n", len(added))
 		for _, m := range added {
-			fmt.Fprintf(&b, "  - %s  [%s; %s; %s]\n", m.Name, statusDetail(probeSource(ctx, m.Source)), m.Source, originLabel(m.Origin))
+			fmt.Fprintf(&b, "  - %s  [%s; %s; %s]\n", m.Name, statusDetail(probeSource(ctx, cfg.Skills.ManagedDir(cfg.Paths.Home), m.Source)), m.Source, originLabel(m.Origin))
 		}
 	}
 	if len(statuses) > 0 {

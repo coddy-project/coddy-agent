@@ -40,13 +40,13 @@ const (
 // reasoningOpenAIBackend is an OpenAI-compatible server streaming the dialect of
 // a reasoning model (vLLM, SGLang, llama.cpp): a role chunk, reasoning_content
 // deltas, content deltas, the finish_reason chunk and a trailing usage chunk.
-type reasoningOpenAIBackend struct{}
+type reasoningOpenAIBackend struct{ omitUsage bool }
 
-func (reasoningOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (b reasoningOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
 	if !gjson.GetBytes(raw, "stream").Bool() {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		answer := map[string]any{
 			"id": "chatcmpl-compat", "object": "chat.completion", "model": "qwen3-1.7b",
 			"choices": []map[string]any{{
 				"index": 0, "finish_reason": "stop",
@@ -55,8 +55,14 @@ func (reasoningOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 					"reasoning_content": openAICompatReasoning,
 				},
 			}},
-			"usage": map[string]int{"prompt_tokens": 12, "completion_tokens": 5, "total_tokens": 17},
-		})
+		}
+		if !b.omitUsage {
+			answer["usage"] = map[string]any{
+				"prompt_tokens": 12, "completion_tokens": 5, "total_tokens": 17,
+				"prompt_tokens_details": map[string]int{"cached_tokens": 4},
+			}
+		}
+		_ = json.NewEncoder(w).Encode(answer)
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -75,11 +81,11 @@ func (reasoningOpenAIBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	for _, piece := range []string{"Hi", " there", "."} {
 		frames = append(frames, chunk(map[string]any{"content": piece}, nil))
 	}
-	frames = append(frames,
-		chunk(map[string]any{}, "stop"),
-		`data: {"id":"chatcmpl-compat","object":"chat.completion.chunk","created":1786903885,"model":"qwen3-1.7b","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17}}`+"\n\n",
-		"data: [DONE]\n\n",
-	)
+	frames = append(frames, chunk(map[string]any{}, "stop"))
+	if !b.omitUsage {
+		frames = append(frames, `data: {"id":"chatcmpl-compat","object":"chat.completion.chunk","created":1786903885,"model":"qwen3-1.7b","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17,"prompt_tokens_details":{"cached_tokens":4}}}`+"\n\n")
+	}
+	frames = append(frames, "data: [DONE]\n\n")
 	for _, f := range frames {
 		_, _ = io.WriteString(w, f)
 	}
@@ -118,13 +124,14 @@ func parseSSEFrames(body string) []sseFrame {
 }
 
 type openAIStreamCompatState struct {
-	root      string
-	cwd       string
-	backendTS *httptest.Server
-	srv       *Server
-	ts        *httptest.Server
-	sseBody   string
-	frames    []sseFrame
+	root           string
+	cwd            string
+	backendTS      *httptest.Server
+	srv            *Server
+	ts             *httptest.Server
+	sseBody        string
+	frames         []sseFrame
+	backendNoUsage bool
 }
 
 func (s *openAIStreamCompatState) reset() error {
@@ -166,7 +173,7 @@ func (s *openAIStreamCompatState) startServer() error {
 			return err
 		}
 	}
-	s.backendTS = httptest.NewServer(reasoningOpenAIBackend{})
+	s.backendTS = httptest.NewServer(reasoningOpenAIBackend{omitUsage: s.backendNoUsage})
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: s.cwd},
 		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
@@ -361,6 +368,19 @@ func (s *openAIStreamCompatState) lastChunkReportsUsage(input, output int) error
 	return nil
 }
 
+func (s *openAIStreamCompatState) usageChunkReportsCachedTokens(cached int) error {
+	chunks := s.chunks()
+	if len(chunks) == 0 {
+		return fmt.Errorf("no chunks on the stream: %s", s.sseBody)
+	}
+	last := chunks[len(chunks)-1]
+	got := gjson.Get(last, "usage.prompt_tokens_details.cached_tokens")
+	if !got.Exists() || got.Int() != int64(cached) {
+		return fmt.Errorf("cached prompt tokens = %s, want %d in %s", got.Raw, cached, last)
+	}
+	return nil
+}
+
 func (s *openAIStreamCompatState) usageChunkCarriesEmptyChoices() error {
 	chunks := s.chunks()
 	last := chunks[len(chunks)-1]
@@ -395,6 +415,7 @@ func initializeOpenAIStreamCompatScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the streamed reasoning "([^"]+)" survives as reasoning_content$`, s.reasoningSurvivesAsReasoningContent)
 	sc.Step(`^the last chunk before \[DONE\] reports (\d+) input and (\d+) output tokens$`, s.lastChunkReportsUsage)
 	sc.Step(`^that usage chunk carries an empty choices array$`, s.usageChunkCarriesEmptyChoices)
+	sc.Step(`^that usage chunk reports (\d+) cached prompt tokens$`, s.usageChunkReportsCachedTokens)
 }
 
 func TestOpenAIStreamCompat(t *testing.T) {

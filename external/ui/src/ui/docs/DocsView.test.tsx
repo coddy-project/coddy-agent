@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -7,6 +8,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DocsView } from "./DocsView";
+import { I18nProvider } from "../i18n/I18nProvider";
+import { setLocale } from "../i18n/i18n";
 import { focusAt, scrollToKeep } from "../components/ImageLightbox";
 import { docsCommandOpensPage, parseDocsCommand } from "./docsCommand";
 import {
@@ -26,7 +29,11 @@ const contents = {
       summary: "What it does.",
       pages: [
         { slug: "features/modes", title: "Operating modes", summary: "Modes." },
-        { slug: "features/mentions", title: "Mentions", summary: "At mentions." },
+        {
+          slug: "features/mentions",
+          title: "Mentions",
+          summary: "At mentions.",
+        },
       ],
     },
   ],
@@ -44,7 +51,11 @@ const mentionsPage = {
     "# Mentions\n\nIntro text.\n\n![The picker](https://raw.githubusercontent.com/x/y/main/docs/assets/p.png)\n\n## What a prompt can mention\n\nFiles and [modes](coddy:features/modes#agent).\n\n```bash\n# not a heading\n```\n\n### Line ranges\n\nRanges.\n\n## Completion\n\nThe picker.\n",
   headings: [
     { level: 1, text: "Mentions", anchor: "mentions" },
-    { level: 2, text: "What a prompt can mention", anchor: "what-a-prompt-can-mention" },
+    {
+      level: 2,
+      text: "What a prompt can mention",
+      anchor: "what-a-prompt-can-mention",
+    },
     { level: 3, text: "Line ranges", anchor: "line-ranges" },
     { level: 2, text: "Completion", anchor: "completion" },
   ],
@@ -72,7 +83,7 @@ function stubFetch() {
         status,
         headers: { "Content-Type": "application/json" },
       });
-    if (url === "/coddy/docs") {
+    if (url === "/coddy/docs" || url.startsWith("/coddy/docs?")) {
       return json(contents);
     }
     if (url.startsWith("/coddy/docs/page?ref=features%2Fmentions")) {
@@ -102,7 +113,9 @@ describe("DocsView", () => {
     const onOpen = vi.fn();
     render(<DocsView slug={null} anchor={null} onOpen={onOpen} />);
     await waitFor(() =>
-      expect(onOpen).toHaveBeenCalledWith("features/modes", null, { replace: true }),
+      expect(onOpen).toHaveBeenCalledWith("features/modes", null, {
+        replace: true,
+      }),
     );
     // The version alone under the title: where the pages come from goes without saying.
     expect(await screen.findByText("Coddy 1.2.3")).toBeTruthy();
@@ -116,7 +129,9 @@ describe("DocsView", () => {
     const active = screen.getByText("Mentions", { selector: ".docs-toc-page" });
     expect(active.getAttribute("aria-current")).toBe("page");
     // Headings carry the anchors the server computed; a # line in code is not one.
-    expect(document.getElementById("what-a-prompt-can-mention")?.tagName).toBe("H2");
+    expect(document.getElementById("what-a-prompt-can-mention")?.tagName).toBe(
+      "H2",
+    );
     expect(document.getElementById("line-ranges")?.tagName).toBe("H3");
     expect(document.getElementById("completion")?.tagName).toBe("H2");
     // A link to another page opens it in the reader.
@@ -149,16 +164,26 @@ describe("DocsView", () => {
         disconnect() {}
       },
     );
-    render(<DocsView slug="features/mentions" anchor={null} onOpen={() => {}} />);
+    render(
+      <DocsView slug="features/mentions" anchor={null} onOpen={() => {}} />,
+    );
     await screen.findByText("Intro text.");
     const view = screen.getByTestId("docs-view");
     const body = view.querySelector(".docs-body") as HTMLElement;
     expect(view.style.getPropertyValue("--docs-scrollbar")).toBe("0px");
     // A classic scrollbar appears once the page is taller than the body.
-    Object.defineProperty(body, "offsetWidth", { value: 1066, configurable: true });
-    Object.defineProperty(body, "clientWidth", { value: 1056, configurable: true });
+    Object.defineProperty(body, "offsetWidth", {
+      value: 1066,
+      configurable: true,
+    });
+    Object.defineProperty(body, "clientWidth", {
+      value: 1056,
+      configurable: true,
+    });
     callbacks.forEach((fire) => fire());
-    await waitFor(() => expect(view.style.getPropertyValue("--docs-scrollbar")).toBe("10px"));
+    await waitFor(() =>
+      expect(view.style.getPropertyValue("--docs-scrollbar")).toBe("10px"),
+    );
   });
 
   it("folds On this page into a button that a section link closes", async () => {
@@ -174,7 +199,9 @@ describe("DocsView", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(outline.className).toContain("is-open");
     // Going to a section is what the fold was opened for: it closes behind it.
-    fireEvent.click(screen.getByText("Completion", { selector: ".docs-outline a" }));
+    fireEvent.click(
+      screen.getByText("Completion", { selector: ".docs-outline a" }),
+    );
     expect(onOpen).toHaveBeenCalledWith("features/mentions", "completion");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
   });
@@ -203,36 +230,102 @@ describe("DocsView", () => {
     expect((input as HTMLInputElement).value).toBe("");
   });
 
+  it("asks for the documentation in the language of the interface", async () => {
+    const fetchMock = stubFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const urls = () => fetchMock.mock.calls.map((c) => String(c[0]));
+    setLocale("ru");
+    try {
+      render(
+        <I18nProvider>
+          <DocsView slug="features/mentions" anchor={null} onOpen={vi.fn()} />
+        </I18nProvider>,
+      );
+      await screen.findByText("Intro text.");
+      expect(urls()).toContain("/coddy/docs?lang=ru");
+      expect(urls()).toContain(
+        "/coddy/docs/page?ref=features%2Fmentions&lang=ru",
+      );
+      fireEvent.change(screen.getByTestId("docs-search"), {
+        target: { value: "picker" },
+      });
+      await screen.findByTestId("docs-hits");
+      expect(urls()).toContain("/coddy/docs/search?q=picker&limit=20&lang=ru");
+      // A change of the interface's language reads the documentation again
+      // in the new one: there is no switch of its own in the reader.
+      act(() => {
+        setLocale("en");
+      });
+      await waitFor(() => expect(urls()).toContain("/coddy/docs?lang=en"));
+      await waitFor(() =>
+        expect(urls()).toContain(
+          "/coddy/docs/page?ref=features%2Fmentions&lang=en",
+        ),
+      );
+    } finally {
+      setLocale("en");
+    }
+  });
+
   it("lists a hit whose section has no text of its own", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         const body = url.startsWith("/coddy/docs/search")
-          ? { hits: [{ slug: "features/mentions", title: "Mentions", group: "Features", anchor: "completion", heading: "Completion", snippet: null }] }
-          : url === "/coddy/docs"
+          ? {
+              hits: [
+                {
+                  slug: "features/mentions",
+                  title: "Mentions",
+                  group: "Features",
+                  anchor: "completion",
+                  heading: "Completion",
+                  snippet: null,
+                },
+              ],
+            }
+          : url === "/coddy/docs" || url.startsWith("/coddy/docs?")
             ? contents
             : mentionsPage;
-        return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }),
     );
-    render(<DocsView slug="features/mentions" anchor={null} onOpen={vi.fn()} />);
+    render(
+      <DocsView slug="features/mentions" anchor={null} onOpen={vi.fn()} />,
+    );
     await screen.findByText("Intro text.");
-    fireEvent.change(screen.getByTestId("docs-search"), { target: { value: "completion" } });
-    expect((await screen.findByTestId("docs-hits")).textContent).toContain("Mentions › Completion");
+    fireEvent.change(screen.getByTestId("docs-search"), {
+      target: { value: "completion" },
+    });
+    expect((await screen.findByTestId("docs-hits")).textContent).toContain(
+      "Mentions › Completion",
+    );
   });
 
   it("says when a search finds nothing", async () => {
-    render(<DocsView slug="features/mentions" anchor={null} onOpen={vi.fn()} />);
+    render(
+      <DocsView slug="features/mentions" anchor={null} onOpen={vi.fn()} />,
+    );
     await screen.findByText("Intro text.");
-    fireEvent.change(screen.getByTestId("docs-search"), { target: { value: "zzz" } });
+    fireEvent.change(screen.getByTestId("docs-search"), {
+      target: { value: "zzz" },
+    });
     expect(await screen.findByTestId("docs-search-empty")).toBeTruthy();
   });
 
   it("asks the agent about the page with the page mentioned", async () => {
     const onAsk = vi.fn();
     render(
-      <DocsView slug="features/mentions" anchor="completion" onOpen={vi.fn()} onAsk={onAsk} />,
+      <DocsView
+        slug="features/mentions"
+        anchor="completion"
+        onOpen={vi.fn()}
+        onAsk={onAsk}
+      />,
     );
     await screen.findByText("Intro text.");
     const ask = screen.getByTestId("docs-ask");
@@ -242,14 +335,18 @@ describe("DocsView", () => {
   });
 
   it("opens an image in a modal that zooms, and closes it", async () => {
-    render(<DocsView slug="features/mentions" anchor={null} onOpen={vi.fn()} />);
+    render(
+      <DocsView slug="features/mentions" anchor={null} onOpen={vi.fn()} />,
+    );
     await screen.findByText("Intro text.");
     fireEvent.click(screen.getByAltText("The picker"));
     const dialog = screen.getByRole("dialog");
     expect(dialog.getAttribute("aria-modal")).toBe("true");
     expect(dialog.textContent).toContain("The picker");
     const img = dialog.querySelector("img")!;
-    expect(img.getAttribute("src")).toBe("https://raw.githubusercontent.com/x/y/main/docs/assets/p.png");
+    expect(img.getAttribute("src")).toBe(
+      "https://raw.githubusercontent.com/x/y/main/docs/assets/p.png",
+    );
     expect(dialog.getAttribute("data-zoom")).toBe("fit");
     // Fitted, the level is an icon; zoomed, the percentage. Both put the image back to fit.
     const level = screen.getByTestId("docs-lightbox-fit");
@@ -259,7 +356,9 @@ describe("DocsView", () => {
     fireEvent.click(screen.getByTestId("docs-lightbox-zoom-in"));
     expect(dialog.getAttribute("data-zoom")).toBe("1");
     expect(level.textContent).toBe("100%");
-    expect(level.getAttribute("aria-label")).toBe("100%, Fit to the window (0)");
+    expect(level.getAttribute("aria-label")).toBe(
+      "100%, Fit to the window (0)",
+    );
     fireEvent.click(img);
     expect(dialog.getAttribute("data-zoom")).toBe("fit");
     fireEvent.click(img);
@@ -269,7 +368,9 @@ describe("DocsView", () => {
   });
 
   it("has no ask button where there is no chat to start", async () => {
-    render(<DocsView slug="features/mentions" anchor={null} onOpen={vi.fn()} />);
+    render(
+      <DocsView slug="features/mentions" anchor={null} onOpen={vi.fn()} />,
+    );
     await screen.findByText("Intro text.");
     expect(screen.queryByTestId("docs-ask")).toBeNull();
   });
@@ -285,8 +386,12 @@ describe("DocsView", () => {
 describe("/docs in the composer", () => {
   it("is the command alone or with an argument, nothing else", () => {
     expect(parseDocsCommand("/docs")).toBe("");
-    expect(parseDocsCommand("  /docs   telegram proxy  ")).toBe("telegram proxy");
-    expect(parseDocsCommand("/docs\nfeatures/mentions")).toBe("features/mentions");
+    expect(parseDocsCommand("  /docs   telegram proxy  ")).toBe(
+      "telegram proxy",
+    );
+    expect(parseDocsCommand("/docs\nfeatures/mentions")).toBe(
+      "features/mentions",
+    );
     expect(parseDocsCommand("/docsify")).toBeNull();
     expect(parseDocsCommand("see /docs")).toBeNull();
     expect(parseDocsCommand("/doc")).toBeNull();
@@ -294,9 +399,15 @@ describe("/docs in the composer", () => {
 
   it("opens a page named by its address or its title, and searches anything else", () => {
     // The console's rule: a reference, or the exact title of the page it found.
-    expect(docsCommandOpensPage("features/mentions#completion", "Mentions")).toBe(true);
-    expect(docsCommandOpensPage("coddy:features/modes", "Operating modes")).toBe(true);
-    expect(docsCommandOpensPage("operating MODES", "Operating modes")).toBe(true);
+    expect(
+      docsCommandOpensPage("features/mentions#completion", "Mentions"),
+    ).toBe(true);
+    expect(
+      docsCommandOpensPage("coddy:features/modes", "Operating modes"),
+    ).toBe(true);
+    expect(docsCommandOpensPage("operating MODES", "Operating modes")).toBe(
+      true,
+    );
     expect(docsCommandOpensPage("mentions", "Mentions")).toBe(true);
     expect(docsCommandOpensPage("proxy", "Telegram gateway")).toBe(false);
   });
@@ -346,7 +457,9 @@ describe("ImageLightbox zoom", () => {
 
   it("never scrolls before the start", () => {
     const img = { left: 0, top: 50, width: 100, height: 100 };
-    expect(scrollToKeep(focusAt(stage, img, 0, 50), stage, img, { left: 0, top: 0 })).toEqual({
+    expect(
+      scrollToKeep(focusAt(stage, img, 0, 50), stage, img, { left: 0, top: 0 }),
+    ).toEqual({
       left: 0,
       top: 0,
     });
@@ -355,10 +468,12 @@ describe("ImageLightbox zoom", () => {
 
 describe("docsReader", () => {
   it("quotes the selection above the mention of the section", () => {
-    expect(askDraftFor("features/mentions", null, "")).toBe("@coddy:features/mentions ");
-    expect(askDraftFor("features/mentions", "completion", "line one\n\nline two ")).toBe(
-      "> line one\n>\n> line two\n\n@coddy:features/mentions#completion ",
+    expect(askDraftFor("features/mentions", null, "")).toBe(
+      "@coddy:features/mentions ",
     );
+    expect(
+      askDraftFor("features/mentions", "completion", "line one\n\nline two "),
+    ).toBe("> line one\n>\n> line two\n\n@coddy:features/mentions#completion ");
   });
 
   it("keeps the sections two levels deep for the outline", () => {
@@ -382,7 +497,9 @@ describe("docsReader", () => {
       { level: 2, text: "Real x one", anchor: "real-x-one" },
       { level: 3, text: "Sub", anchor: "sub" },
     ]);
-    const ids = Array.from(root.querySelectorAll("h1, h2, h3")).map((el) => el.id);
+    const ids = Array.from(root.querySelectorAll("h1, h2, h3")).map(
+      (el) => el.id,
+    );
     expect(ids).toEqual(["title", "", "real-x-one", "sub"]);
   });
 
@@ -394,6 +511,8 @@ describe("docsReader", () => {
     expect(sectionAnchorAt(root, text("p0"))).toBeNull();
     expect(sectionAnchorAt(root, text("p1"))).toBe("a");
     expect(sectionAnchorAt(root, text("p2"))).toBe("b");
-    expect(sectionAnchorAt(root, root.querySelector("#a")!.firstChild!)).toBe("a");
+    expect(sectionAnchorAt(root, root.querySelector("#a")!.firstChild!)).toBe(
+      "a",
+    );
   });
 });

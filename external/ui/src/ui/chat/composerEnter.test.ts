@@ -25,15 +25,21 @@ describe("composerEnterAction with a keyboard (not a touch-only device)", () => 
   });
 
   test("Shift+Enter leaves the newline to the browser", () => {
-    expect(composerEnterAction(key({ shiftKey: true }), false)).toBe("newline-native");
+    expect(composerEnterAction(key({ shiftKey: true }), false)).toBe(
+      "newline-native",
+    );
   });
 
   test("Ctrl+Enter inserts a newline, because the browser inserts none", () => {
-    expect(composerEnterAction(key({ ctrlKey: true }), false)).toBe("newline-insert");
+    expect(composerEnterAction(key({ ctrlKey: true }), false)).toBe(
+      "newline-insert",
+    );
   });
 
   test("Alt+Enter inserts a newline like Ctrl+Enter", () => {
-    expect(composerEnterAction(key({ altKey: true }), false)).toBe("newline-insert");
+    expect(composerEnterAction(key({ altKey: true }), false)).toBe(
+      "newline-insert",
+    );
   });
 
   test("Cmd+Enter sends", () => {
@@ -50,8 +56,12 @@ describe("composerEnterAction with a keyboard (not a touch-only device)", () => 
   });
 
   test("other keys are none of its business", () => {
-    expect(composerEnterAction(key({ key: "a", keyCode: 65 }), false)).toBe("none");
-    expect(composerEnterAction(key({ key: "Tab", keyCode: 9 }), false)).toBe("none");
+    expect(composerEnterAction(key({ key: "a", keyCode: 65 }), false)).toBe(
+      "none",
+    );
+    expect(composerEnterAction(key({ key: "Tab", keyCode: 9 }), false)).toBe(
+      "none",
+    );
   });
 });
 
@@ -61,8 +71,12 @@ describe("composerEnterAction on a touch-only device", () => {
   });
 
   test("an attached keyboard keeps its combinations", () => {
-    expect(composerEnterAction(key({ shiftKey: true }), true)).toBe("newline-native");
-    expect(composerEnterAction(key({ ctrlKey: true }), true)).toBe("newline-insert");
+    expect(composerEnterAction(key({ shiftKey: true }), true)).toBe(
+      "newline-native",
+    );
+    expect(composerEnterAction(key({ ctrlKey: true }), true)).toBe(
+      "newline-insert",
+    );
     expect(composerEnterAction(key({ metaKey: true }), true)).toBe("send");
   });
 

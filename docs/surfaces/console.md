@@ -59,6 +59,12 @@ session: sess_1a2b3c4d
 continue: coddy cli --session-id sess_1a2b3c4d  (or: coddy -c)
 ```
 
+A session is written to disk with its first prompt. A console started and
+closed without one - or left with `/new` before anything was sent - leaves no
+folder in the sessions root and no row in History, and prints no hint: there
+is nothing to continue. The settings changed before that first prompt (the
+model, the mode, the permission mode) are kept in memory and written with it.
+
 
 ## Live file drafts
 
@@ -111,7 +117,10 @@ Top to bottom:
   (`escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ctrl+o more`);
   a dim welcome line; `[Context]` (the documents the session's prompt carries:
   your and the workspace's `AGENTS.md` and `DESIGN.md` that exist, then the
-  files `instructions.files` adds, each once) and
+  files `instructions.files` adds, each once; after them, in the warning
+  colour, an `instructions.files` entry whose file the session cannot read,
+  as `<path> (not read: <reason>)`, see
+  [Rules](../features/rules.md#more-instruction-files)) and
   `[Skills]` (the loaded skills, the bundled ones first).
   `ctrl+o` expands the full hint list and adds `[Rules]` and `[MCP]` sections;
   `[MCP]` names the servers a session of this workspace starts: the enabled ones
@@ -147,8 +156,8 @@ Top to bottom:
   step that runs something other than the model, a counter of its own (`2m 05s ·
   1.2k tokens · Running a command · 45s`, `Running a subagent · 40s` while a
   `spawn_agent` call is in flight); thinking, responding and waiting are covered
-  by the turn clock. The line carries the phase and **nothing the step acts on**
-  - no command, no path, no url: what a call acts on is named once, by the tool
+  by the turn clock. The line carries the phase and **nothing the step acts on** -
+  no command, no path, no url: what a call acts on is named once, by the tool
   box above the line, so every phrase is complete on its own (`Running a
   command`, never `Running` waiting for a command to follow it). A plain wait
   escalates with time:
@@ -247,7 +256,8 @@ Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
 `/think`, `/nothink`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
 `--once` or `--count=N` for the next turns only
 ([Session settings](../features/session-settings.md)); client-side `/resume`,
-`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit`; server-driven `/compact`, `/export`,
+`/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit`, and a bare `/goal`, which opens
+the goal menu; server-driven `/compact`, `/goal <objective>` and its `pause`, `resume` and `clear` forms, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
 A bare `/model`, `/reasoning` or `/permissions` opens its picker; with a value
 the command is applied by the session manager and the footer shows the change,
@@ -301,6 +311,37 @@ same menu works over `--remote` through the MCP management routes.
 
 *`/mcp` shows both scopes and the trust state before opening a server's controls.*
 
+The session goal ([Session goal and supervisor](../features/session-supervisor.md))
+shows in the console as transcript rows, a footer note and a menu.
+`/goal <objective>` goes to the session manager like any prompt: it sets the goal and starts working on it at once,
+and so do `/goal pause`, `/goal resume` and `/goal clear`. A turn the
+supervisor starts is a dim row in the transcript instead of the instruction
+the model reads - `◎ Goal set: ...`, `◎ Goal continuation 1 of 10: <what the
+check found>` with the remaining work under it, `◎ Goal resumed: ...` - live
+and when the session is resumed, and a change the supervisor makes on its own
+(`Goal blocked: <its question>`, `Goal complete: ...`) is one line, in the
+warning colour for a goal that waits for the operator. While there is a goal
+the footer names it after the notes of the first line: `◎ goal active 1/10
+(/goal)` in the accent colour, `blocked` in the warning colour, `complete` in
+green, `paused` and `limited` muted; on a narrow terminal the note drops the
+command, then the count, before the path is cut to nothing. A bare `/goal`
+opens the goal menu in place of the editor: the objective, the status and why,
+the last check with its verdict, whether a verifier confirmed it and the work
+it found remaining, the checklist the supervisor keeps, and the numbers -
+continuations used of `supervisor.max_continuations`, checks, the time the
+goal's turns ran and the tokens they spent against `supervisor.token_budget`.
+**Pause** is offered while the supervisor works on the goal, **Resume** while it
+is paused, blocked or out of budget (it sends `/goal resume`, which starts a
+turn), and **Clear** asks before it removes the goal. The menu follows the goal
+while it is open. Under `--remote` the menu reads and changes the goal through
+`GET`, `PATCH` and `DELETE /coddy/sessions/{id}/goal`, and the footer follows
+the `session_goal` events of the server, so a goal paused in a browser shows
+here too.
+
+![The console with a blocked session goal: the goal rows, the blocked notice, the goal menu and the footer note](../assets/session-supervisor/goal-console-blocked-dark-1280.png)
+
+*A goal the supervisor continued once and then blocked on a question: the rows in the transcript, the goal menu over the editor and `◎ goal blocked (/goal)` in the footer.*
+
 `/tasks` opens the background tasks of the session in the place of the editor
 ([Background tasks](../features/background-tasks.md#in-the-console)). The
 agent has had `background_list`, `background_output` and `background_stop`
@@ -337,7 +378,9 @@ typing searches the sections, **enter** opens one at its section, **tab** moves
 between sections, **n** and **p** turn the pages, **escape** goes back.
 `/docs [words or page]` opens the same screen where the terminal keeps F1 for
 itself (GNOME Terminal does), on a search or straight on a page:
-`/docs features/mentions#completion`.
+`/docs features/mentions#completion`. The pages are in the terminal's language,
+`CODDY_LANG` or the locale (`LC_ALL`, `LC_MESSAGES`, `LANG`), and so is the
+documentation the console's turns attach and the agent reads.
 
 ![The console help on F1: the sections a search found](../assets/cli-tui/19-docs-search.png)
 
@@ -521,9 +564,11 @@ check report and every probe (see
 [config.md](../getting-started/configuration.md#dry-run-probing-what-the-file-points-at)).
 `--session-id <id>` reopens (or creates) that session and replays its
 transcript. `-c/--continue` reopens the most recent session recorded for this
-folder (errors when none exists; mutually exclusive with `--session-id` and
+folder, leaving out the runs of one-shot print mode, which only `-c -p`
+continues (errors when none exists; mutually exclusive with `--session-id` and
 `--resume`). `--resume` opens the session picker first and creates nothing
-until you choose (mutually exclusive with `--session-id`; `--model`,
+until you choose, print runs left out of it too (mutually exclusive with
+`--session-id`; `--model`,
 `--mode`, and `--permission-mode` apply to whichever session the picker
 selects). `--model`, `--mode agent|plan|ask`, and
 `--permission-mode ask|accept_edits|bypass` apply through the validated
@@ -543,13 +588,30 @@ for example `--log-level "info,agent=debug"` (see
 `coddy -p "..."` (or `coddy cli --prompt "..."`) runs a single agent turn
 without a terminal: assistant text streams to stdout, diagnostics go to
 stderr, and the process exits non-zero on errors or a cancelled turn. No tty
-is required, so it fits scripts and cron. The turn persists as a normal
-session, and `-c -p "..."` continues it — tokens, files, and tool state
-carry over exactly like the interactive console. Permission requests resolve
-non-interactively: `bypass` allows, anything else rejects the call with a
-note on stderr. The question tool returns empty answers. `--model`, `--mode`,
-`--permission-mode`, `--session-id`, and `--continue` all combine with
-`--prompt`; `--resume` does not (it needs the interactive picker).
+is required, so it fits scripts and cron. The turn persists as a session
+marked as a print run (`origin: print` in `session.json`), and `-c -p "..."`
+continues it - tokens, files, and tool state carry over exactly like the
+interactive console. The lists a person picks a conversation from leave print
+runs out: the web UI's History until its **CLI runs** filter is chosen,
+`/resume`, the interactive `coddy -c` and an editor's `session/list`
+([Sessions](../features/sessions.md#tags-and-the-archive)). `coddy sessions
+list` still lists them, so a run that timed out is found by its folder and
+continued with `--session-id <id> -p "..."`. A session the run reopens (`-c`,
+an existing `--session-id`) keeps the origin it had. Permission requests
+resolve non-interactively: `bypass` allows, anything else rejects the call
+with a note on stderr. The question tool returns empty answers. `--model`,
+`--mode`, `--permission-mode`, `--session-id`, and `--continue` all combine
+with `--prompt`; `--resume` does not (it needs the interactive picker).
+
+`--ephemeral` deletes the run's session when the run ends, however it ends:
+a failed setting, a failed turn and a cancelled one included. The session
+exists while the run does, so subagents, background commands and tool
+records work as in any run, and the deletion stops whatever the run left
+running. A crash can leave the session behind, hidden like every print run.
+A deletion that fails is a warning on stderr and leaves the exit status to
+the turn. Under `--remote` the server deletes it. The flag is refused without
+a one-shot prompt, and with `-c` or `--session-id`, whose sessions are not
+the run's own to remove.
 
 ### Prompt from a file or stdin
 

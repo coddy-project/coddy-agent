@@ -111,6 +111,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	var toolCalls []ToolCall
 	var stopReason string
 	var inputTokens, outputTokens, cachedInputTokens int
+	var uncachedInput, cacheCreation, cacheRead int64
 	var thinkingBuf strings.Builder
 	var thinkingSig string
 
@@ -175,10 +176,28 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		case anthropic.MessageDeltaEvent:
 			stopReason = mapAnthropicStopReason(string(e.Delta.StopReason))
 			outputTokens = int(e.Usage.OutputTokens)
+			// A final delta normally carries only output usage. Anthropic may
+			// also replace the input counters after a model fallback mid-stream.
+			if anthropicDeltaReportsInput(e.Usage) {
+				if e.Usage.JSON.InputTokens.Valid() {
+					uncachedInput = e.Usage.InputTokens
+				}
+				if e.Usage.JSON.CacheCreationInputTokens.Valid() {
+					cacheCreation = e.Usage.CacheCreationInputTokens
+				}
+				if e.Usage.JSON.CacheReadInputTokens.Valid() {
+					cacheRead = e.Usage.CacheReadInputTokens
+				}
+				inputTokens = anthropicTotalInputTokens(uncachedInput, cacheCreation, cacheRead)
+				cachedInputTokens = int(cacheRead)
+			}
 
 		case anthropic.MessageStartEvent:
-			inputTokens = int(e.Message.Usage.InputTokens)
-			cachedInputTokens = int(e.Message.Usage.CacheReadInputTokens)
+			uncachedInput = e.Message.Usage.InputTokens
+			cacheCreation = e.Message.Usage.CacheCreationInputTokens
+			cacheRead = e.Message.Usage.CacheReadInputTokens
+			inputTokens = anthropicTotalInputTokens(uncachedInput, cacheCreation, cacheRead)
+			cachedInputTokens = int(cacheRead)
 		}
 	}
 
@@ -429,8 +448,9 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 
 func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, error) {
 	r := &Response{
-		StopReason:        mapAnthropicStopReason(string(resp.StopReason)),
-		InputTokens:       int(resp.Usage.InputTokens),
+		StopReason: mapAnthropicStopReason(string(resp.StopReason)),
+		InputTokens: anthropicTotalInputTokens(resp.Usage.InputTokens,
+			resp.Usage.CacheCreationInputTokens, resp.Usage.CacheReadInputTokens),
 		OutputTokens:      int(resp.Usage.OutputTokens),
 		CachedInputTokens: int(resp.Usage.CacheReadInputTokens),
 	}
@@ -453,6 +473,31 @@ func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, er
 	}
 
 	return r, nil
+}
+
+// Anthropic reports uncached input, cache writes and cache reads separately.
+// Response.InputTokens includes all three, like OpenAI prompt_tokens does.
+func anthropicTotalInputTokens(input, cacheCreation, cacheRead int64) int {
+	return int(input + cacheCreation + cacheRead)
+}
+
+// anthropicDeltaReportsInput says whether a message_delta carries input
+// counters to take over. They are cumulative, so the ones present replace what
+// message_start said. A delta whose input counters add up to zero reports
+// nothing: no prompt has zero input, and an Anthropic-compatible gateway that
+// fills the fields with zeros must not erase the counts it sent at the start.
+func anthropicDeltaReportsInput(u anthropic.MessageDeltaUsage) bool {
+	var input int64
+	if u.JSON.InputTokens.Valid() {
+		input += u.InputTokens
+	}
+	if u.JSON.CacheCreationInputTokens.Valid() {
+		input += u.CacheCreationInputTokens
+	}
+	if u.JSON.CacheReadInputTokens.Valid() {
+		input += u.CacheReadInputTokens
+	}
+	return input > 0
 }
 
 func mapAnthropicStopReason(reason string) string {

@@ -168,6 +168,22 @@ agent:
   #                                          # included; under 60 s it also bounds ordinary 429 retries;
   #                                          # a longer pause ends the turn; 0 never waits
 
+# Session goal and supervisor: /goal <objective> starts work on a goal, and a
+# second model checks every turn against it, continues unfinished work and
+# hands the goal back to you when it needs you. No key is needed for that:
+# without this section, or with "supervisor: {}", the session's own model
+# checks the work. /goal --model <id> --reasoning <level> picks the checker of
+# one goal. enable also checks ordinary turns against the latest request.
+# supervisor:
+#   enable: false
+#   model: ""                     # the checking model; empty uses the session's (another family judges best)
+#   verify: true                  # a read-only subagent confirms a met goal against the files
+#   max_continuations: 10         # automatic turns per goal, then one wrap-up turn
+#   token_budget: 0               # uncached input + output tokens per goal; 0 = no cap
+#   stall_seconds: 300            # 0 disables the stall timer
+#   max_nudges: 2                 # recovery turns after a stall, a loop or a failed turn
+#   loop_repeat: 3                # repeated identical tool operations; 0 disables
+
 sessions:
   # Directory to store session bundles.
   # Leave empty to use default $CODDY_HOME/sessions.
@@ -466,18 +482,24 @@ tools:
 #     password_hash: "$$argon2id$$v=19$$m=19456,t=2,p=1$$..."
 #     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
 #   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
-#   allow_insecure: false   # silence the "reachable without auth" warning on a non-loopback bind
+#   allow_insecure: false   # silence the warnings about a server without a credential: a non-loopback
+#                           # bind, and cors.allow_loopback or "*" (and their --dry-run findings)
 #   # CORS lets a browser UI on another origin call this API (needed when the UI points here as a
-#   # remote). Bearer auth still applies. allowed_origins accepts exact origins or a single "*".
+#   # remote). Bearer auth still applies. allowed_origins accepts exact origins or a single "*";
+#   # allow_loopback admits every page served from the browser's own machine (localhost,
+#   # *.localhost, 127.0.0.0/8, [::1]) on any port - a laptop's own coddy serve, whatever its
+#   # port. Neither "*" nor allow_loopback is safe without a token or the sign-in form.
 #   cors:
 #     enable: false
+#     allow_loopback: false
 #     allowed_origins: ["http://localhost:12345"]
 #   # Remote coddy serve servers and swarm relays offered in the UI environment selector and
 #   # resolved by `coddy --remote <name>`. An entry may carry the token to present (usually a
 #   # ${ENV} reference): every browser that reads this config receives it, which is the choice
 #   # of whoever writes it here. Without one, the UI keeps the token in the browser per remote
-#   # and the console reads --remote-token or CODDY_REMOTE_TOKEN. A relay also has to list the
-#   # page's origin in its swarm.cors.allowed_origins.
+#   # and the console reads --remote-token or CODDY_REMOTE_TOKEN. A relay also has to admit the
+#   # page's origin in its swarm.cors: listed in allowed_origins, or allow_loopback for a page
+#   # served from the browser's own machine.
 #   remotes:
 #     - name: "prod box"
 #       url: "https://box.example:12345"
@@ -490,16 +512,16 @@ tools:
 # requiring httpserver.auth_token when configured. Defaults to enabled when omitted.
 # ui:
 #   enable: true
-#   session_changes: true # false = hide the changed-files card under the transcript
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
-# Jobs live under scheduler.dir (${CODDY_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
-# (5-field crontab, UTC), optional cwd, model, mode; markdown body is the one-shot agent instruction. Sidecars: basename.state,
-# basename.lock during a run.
+# Jobs live in two fixed folders: your own in ${CODDY_HOME}/scheduler, and the project jobs a repository carries in
+# <workspace>/.coddy/scheduler, which run only once approved (project_trust). YAML frontmatter description, schedule
+# (5-field crontab, UTC), optional cwd, model, mode; markdown body is the one-shot agent instruction. Sidecar: basename.state
+# (kept in ${CODDY_HOME} for a project job).
 # Enable with scheduler.enable, or per run with `coddy serve --scheduler`.
 # scheduler:
 #   enable: false
-#   dir: ""              # empty = ${CODDY_HOME}/scheduler
+#   project_trust: ask   # ask (approve each project job), allow (run them like your own) or deny
 #   max_queue: 10        # concurrent scheduled runs (default); when saturated the daemon skips extras until slots free (see logs)
 #   timeout: "30m"       # per scheduled agent run
 
@@ -524,6 +546,7 @@ tools:
 #   persist_max_turns: 12
 #   copilot_max_tokens: 4096
 #   max_search_hits: 8
+#   max_note_chars: 900  # longest body one saved note may have, in characters; 0 = no cap
 #   additional_prompt: ""          # your own instructions for the memory subagent only, e.g. "only deal with the
 #                                  # notes; never answer the task itself"; the main agent never sees them
 #   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
@@ -636,7 +659,8 @@ logger:
 #     - "${CODDY_SWARM_PAIRING_TOKEN}"
 #   cors:
 #     enable: true
-#     allowed_origins: ["http://localhost:5173"]
+#     allow_loopback: true    # a laptop's web UI on any loopback port
+#     allowed_origins: ["https://ui.example"]
 #   tls:
 #     cert_file: "/etc/coddy/relay.crt"
 #     key_file: "/etc/coddy/relay.key"

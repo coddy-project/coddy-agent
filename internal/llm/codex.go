@@ -14,6 +14,7 @@ import (
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
+	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
 )
@@ -59,12 +60,12 @@ func newCodexProvider(model, authPath string, cliLogin bool, baseURL string, htt
 	}
 }
 
-// responsesClient builds a Responses service authenticated with a fresh Codex
+// apiClient builds an OpenAI client authenticated with a fresh Codex
 // credential and the headers the Codex backend expects.
-func (p *codexProvider) responsesClient(ctx context.Context) (responses.ResponseService, error) {
+func (p *codexProvider) apiClient(ctx context.Context) (openai.Client, error) {
 	cred, err := p.auth.Credential(ctx)
 	if err != nil {
-		return responses.ResponseService{}, err
+		return openai.Client{}, err
 	}
 	// The OpenAI SDK defaults to two HTTP retries; Coddy owns retry pacing
 	// through resilientProvider, so disable hidden retries here as well.
@@ -72,6 +73,10 @@ func (p *codexProvider) responsesClient(ctx context.Context) (responses.Response
 		option.WithMaxRetries(0),
 		option.WithBaseURL(p.baseURL),
 		option.WithAPIKey(cred.AccessToken),
+		// The SDK asks for application/json. Asking for the event stream the
+		// backend sends, as the Codex CLI does, is what tells the stall guard
+		// the body is one: the answer names no Content-Type (isEventStream).
+		option.WithHeader("Accept", "text/event-stream"),
 		option.WithHeader("OpenAI-Beta", "responses=experimental"),
 		option.WithHeader("originator", "codex_cli_rs"),
 		option.WithHeader("session_id", p.sessionID),
@@ -82,8 +87,54 @@ func (p *codexProvider) responsesClient(ctx context.Context) (responses.Response
 	if p.httpClient != nil {
 		opts = append(opts, option.WithHTTPClient(p.httpClient))
 	}
-	return openai.NewClient(opts...).Responses, nil
+	return openai.NewClient(opts...), nil
 }
+
+// codexEventDecoder is the ssestream.Decoder the Codex stream is read
+// through. The openai-go decoder dispatches an event at every blank line,
+// whatever came before it, so the ": keep-alive" comment the backend sends
+// while the model is silent arrived as an event with no data, whose decode
+// failed as "unexpected end of JSON input": an event cut inside its JSON to
+// streamDecodeTruncation, which ended the turn. This one frames through the
+// lenient scanner of the OpenAI-compatible path and hands on only the frames
+// that carry data; decoding the event, the in-band "error" member and the
+// [DONE] marker stay with the SDK's stream.
+type codexEventDecoder struct {
+	body io.ReadCloser
+	scn  *sseScanner
+	evt  ssestream.Event
+}
+
+// newCodexEventDecoder mirrors ssestream.NewDecoder: no response, or one
+// without a body, is a nil Decoder, which the SDK's stream never reads or
+// closes.
+func newCodexEventDecoder(res *http.Response) ssestream.Decoder {
+	if res == nil || res.Body == nil {
+		return nil
+	}
+	return &codexEventDecoder{body: res.Body, scn: newSSEScanner(res.Body)}
+}
+
+func (d *codexEventDecoder) Next() bool {
+	for d.scn.Next() {
+		f := d.scn.Frame()
+		if len(bytes.TrimSpace(f.data)) == 0 {
+			// Nothing to decode: an event name alone, data lines with
+			// nothing in them, or only the non-standard "error:" field,
+			// which the SDK decoder does not read either.
+			continue
+		}
+		d.evt = ssestream.Event{Type: f.event, Data: f.data}
+		return true
+	}
+	return false
+}
+
+func (d *codexEventDecoder) Event() ssestream.Event { return d.evt }
+
+func (d *codexEventDecoder) Close() error { return d.body.Close() }
+
+func (d *codexEventDecoder) Err() error { return d.scn.Err() }
 
 func (p *codexProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
 	// The Codex backend only serves streaming responses; accumulate the stream.
@@ -93,12 +144,16 @@ func (p *codexProvider) Complete(ctx context.Context, messages []Message, tools 
 }
 
 func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	svc, err := p.responsesClient(ctx)
+	client, err := p.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 	params := p.buildParams(messages, tools)
-	stream := svc.NewStreaming(ctx, params)
+	// The request is the one ResponseService.NewStreaming sends; only the
+	// frames are read by codexEventDecoder instead of the SDK decoder.
+	var raw *http.Response
+	reqErr := client.Post(ctx, "responses", params, &raw, option.WithJSONSet("stream", true))
+	stream := ssestream.NewStream[responses.ResponseStreamEventUnion](newCodexEventDecoder(raw), reqErr)
 	defer func() { _ = stream.Close() }()
 
 	var fullContent, reasoning string

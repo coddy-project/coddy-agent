@@ -83,6 +83,18 @@ func Serve(ctx context.Context, opts Options) error {
 				"a token for API clients: httpserver.auth_token / --auth-token / "+TokenEnvVar+"; "+
 				"httpserver.allow_insecure: true silences this")
 	}
+	// CORS that admits pages nobody listed - allow_loopback or "*" - lets a
+	// page in a browser read this API, and without a credential that is every
+	// page served from the browser's own machine (a dev server, a desktop app)
+	// or, with "*", every page anywhere. The bind address does not matter: a
+	// loopback bind is exactly where such pages reach.
+	if !authOn && !cfg.HTTPServer.AllowInsecure && cfg.HTTPServer.CORS.OpenToUnlistedOrigins() {
+		log.Warn("CORS admits pages nobody listed and the API asks for no credential",
+			"addr", opts.ListenAddr,
+			"hint", "httpserver.cors.allow_loopback or allowed_origins: [\"*\"] is only as safe as the credential behind the API: "+
+				"set a token (httpserver.auth_token / --auth-token / "+TokenEnvVar+") or run `coddy serve set-password`; "+
+				"httpserver.allow_insecure: true silences this")
+	}
 	// The two credentials are not interchangeable: a browser signs in at the
 	// form, and everything that is not a browser - `coddy --remote`, `coddy acp
 	// --remote`, a swarm relay reaching this node, the Python harnesses - still

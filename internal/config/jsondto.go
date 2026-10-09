@@ -11,6 +11,7 @@ type ConfigJSON struct {
 	Providers    []ProviderJSON   `json:"providers,omitempty"`
 	Models       []ModelJSON      `json:"models,omitempty"`
 	Agent        AgentJSON        `json:"agent,omitempty"`
+	Supervisor   Supervisor       `json:"supervisor,omitempty"`
 	Prompts      PromptsJSON      `json:"prompts,omitempty"`
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
 	Skills       SkillsJSON       `json:"skills,omitempty"`
@@ -174,8 +175,7 @@ type RulesJSON struct {
 
 // UIJSON mirrors UIConfig for JSON APIs.
 type UIJSON struct {
-	Enabled        *bool `json:"enable,omitempty"`
-	SessionChanges *bool `json:"session_changes,omitempty"`
+	Enabled *bool `json:"enable,omitempty"`
 }
 
 // ToolsJSON mirrors Tools for JSON APIs.
@@ -313,6 +313,7 @@ type MemoryJSON struct {
 	PersistMaxTurns  int      `json:"persist_max_turns,omitempty"`
 	CopilotMaxTokens int      `json:"copilot_max_tokens,omitempty"`
 	MaxSearchHits    int      `json:"max_search_hits,omitempty"`
+	MaxNoteChars     *int     `json:"max_note_chars,omitempty"`
 	// AdditionalPrompt and its cap: the operator's instructions for the
 	// memory subagent (issue #266).
 	AdditionalPrompt         string `json:"additional_prompt,omitempty"`
@@ -360,6 +361,7 @@ type HTTPLoginJSON struct {
 // HTTPCORSJSON mirrors HTTPCORSConfig.
 type HTTPCORSJSON struct {
 	Enabled        bool     `json:"enable,omitempty"`
+	AllowLoopback  bool     `json:"allow_loopback,omitempty"`
 	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 }
 
@@ -458,10 +460,10 @@ type HooksJSON struct {
 // SchedulerJSON mirrors SchedulerConfig.
 type SchedulerJSON struct {
 	Enabled        bool   `json:"enable,omitempty"`
-	Dir            string `json:"dir,omitempty"`
 	MaxQueue       int    `json:"max_queue,omitempty"`
 	Timeout        string `json:"timeout,omitempty"`
 	RetainSessions int    `json:"retain_sessions,omitempty"`
+	ProjectTrust   string `json:"project_trust,omitempty"`
 }
 
 // ConfigToJSONDTO copies a loaded Config into ConfigJSON (for GET /coddy/config).
@@ -501,6 +503,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		WaitForLimitReset:      c.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
 	}
+	out.Supervisor = c.Supervisor.clone()
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt, AskPrompt: c.Prompts.AskPrompt,
 	}
@@ -577,6 +580,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		WaitSeconds: cloneIntPtr(c.Memory.WaitSeconds), TimeoutSeconds: c.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(c.Memory.KeepRuns),
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
+		MaxNoteChars:     cloneIntPtr(c.Memory.MaxNoteChars),
 		AdditionalPrompt: c.Memory.AdditionalPrompt, AdditionalPromptMaxChars: c.Memory.AdditionalPromptMaxChars,
 	}
 	out.Decisions = DecisionsJSON{Enabled: c.Decisions.Enabled, Model: c.Decisions.Model, Threshold: c.Decisions.Threshold}
@@ -601,6 +605,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LoginConfigured: c.HTTPServer.Login.HasAccount() && !c.HTTPServer.Login.IsExplicitlyDisabled(),
 		CORS: HTTPCORSJSON{
 			Enabled:        c.HTTPServer.CORS.Enabled,
+			AllowLoopback:  c.HTTPServer.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), c.HTTPServer.CORS.AllowedOrigins...),
 		},
 	}
@@ -619,6 +624,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		AllowPrivateUpstreams:    append([]string(nil), c.Swarm.AllowPrivateUpstreams...),
 		CORS: HTTPCORSJSON{
 			Enabled:        c.Swarm.CORS.Enabled,
+			AllowLoopback:  c.Swarm.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), c.Swarm.CORS.AllowedOrigins...),
 		},
 		TLS:                  SwarmTLSJSON{CertFile: c.Swarm.TLS.CertFile, KeyFile: c.Swarm.TLS.KeyFile},
@@ -641,10 +647,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Dial:                   swarmDialToJSON(j.Dial),
 		})
 	}
-	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled), SessionChanges: cloneBoolPtr(c.UI.SessionChanges)}
+	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled)}
 	out.Scheduler = SchedulerJSON{
-		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
+		Enabled: c.Scheduler.Enabled, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
+		ProjectTrust: c.Scheduler.ProjectTrust,
 	}
 	out.Subagents = SubagentsJSON{
 		Enabled:               cloneBoolPtr(c.Subagents.Enabled),
@@ -726,6 +733,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		WaitForLimitReset:      j.Agent.WaitForLimitReset,
 		WaitForLimitResetMaxMS: cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
 	}
+	cfg.Supervisor = j.Supervisor.clone()
 	if j.Agent.MaxTurns != nil {
 		cfg.Agent.MaxTurns = *j.Agent.MaxTurns
 		cfg.Agent.maxTurnsSet = true
@@ -808,6 +816,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		WaitSeconds: cloneIntPtr(j.Memory.WaitSeconds), TimeoutSeconds: j.Memory.TimeoutSeconds, KeepRuns: cloneIntPtr(j.Memory.KeepRuns),
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
+		MaxNoteChars:     cloneIntPtr(j.Memory.MaxNoteChars),
 		AdditionalPrompt: j.Memory.AdditionalPrompt, AdditionalPromptMaxChars: j.Memory.AdditionalPromptMaxChars,
 	}
 	cfg.Decisions = DecisionsConfig{Enabled: j.Decisions.Enabled, Model: j.Decisions.Model, Threshold: j.Decisions.Threshold}
@@ -827,6 +836,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		AllowInsecure: j.HTTPServer.AllowInsecure,
 		CORS: HTTPCORSConfig{
 			Enabled:        j.HTTPServer.CORS.Enabled,
+			AllowLoopback:  j.HTTPServer.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), j.HTTPServer.CORS.AllowedOrigins...),
 		},
 	}
@@ -845,6 +855,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		AllowPrivateUpstreams:    append([]string(nil), j.Swarm.AllowPrivateUpstreams...),
 		CORS: HTTPCORSConfig{
 			Enabled:        j.Swarm.CORS.Enabled,
+			AllowLoopback:  j.Swarm.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), j.Swarm.CORS.AllowedOrigins...),
 		},
 		TLS:                  SwarmTLSConfig{CertFile: j.Swarm.TLS.CertFile, KeyFile: j.Swarm.TLS.KeyFile},
@@ -865,10 +876,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Dial:   swarmDialFromJSON(jn.Dial),
 		})
 	}
-	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled), SessionChanges: cloneBoolPtr(j.UI.SessionChanges)}
+	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled)}
 	cfg.Scheduler = SchedulerConfig{
-		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
+		Enabled: j.Scheduler.Enabled, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,
+		ProjectTrust: j.Scheduler.ProjectTrust,
 	}
 	cfg.Subagents = Subagents{
 		Enabled:               cloneBoolPtr(j.Subagents.Enabled),

@@ -41,51 +41,69 @@ func runDaemon(ctx context.Context, rt *Runtime, log *slog.Logger) {
 	}
 }
 
-// doTickAtMinute starts every job whose schedule fires at evalMinute and whose
-// checkpoint is before it. "Is it running" has one answer, the runtime's; the
-// checkpoint is written by StartRun before the run exists, so the next tick,
-// a minute away, never sees this slot as due again.
+// doTickAtMinute starts every trusted job whose schedule fires at evalMinute
+// and whose checkpoint is before it: the user jobs and the project jobs of
+// every workspace the daemon scans. Each file is read once; trust is decided
+// on that read before the eligibility check and the checkpoint write, and the
+// same snapshot is what StartRun launches (and re-checks). "Is it running"
+// has one answer, the runtime's; the checkpoint is written by StartRun before
+// the run exists, so the next tick, a minute away, never sees this slot as due
+// again.
 func doTickAtMinute(rt *Runtime, log *slog.Logger, evalMinute time.Time) {
 	cfg := rt.cfg()
 	if cfg == nil {
 		return
 	}
-	paths, err := storage.ListFlatJobMarkdownFiles(cfg.SchedulerScanRoots())
+	roots := schedservice.RootsOf(cfg)
+	refs, err := roots.ListUser()
 	if err != nil {
-		log.Warn("scheduler scan", "error", err)
-		return
+		log.Warn("scheduler scan", "dir", roots.User, "error", err)
+	}
+	for _, ws := range schedservice.ScanWorkspaces(cfg, rt.processCWD) {
+		projectRefs, err := roots.ListProject(ws)
+		if err != nil {
+			log.Warn("scheduler scan", "workspace", ws, "error", err)
+			continue
+		}
+		refs = append(refs, projectRefs...)
 	}
 	evalMinute = storage.TruncateUTCToMinute(evalMinute)
-	for _, path := range paths {
-		fm, body, err := storage.ParseJobFile(path)
+	for _, ref := range refs {
+		snap, err := storage.ReadSnapshot(ref)
 		if err != nil {
-			log.Debug("scheduler skip file", "path", path, "error", err)
+			log.Debug("scheduler skip file", "path", ref.Path, "error", err)
 			continue
 		}
-		if !jobRunnableForTick(fm) {
+		if snap.Err != nil {
+			log.Debug("scheduler skip file", "path", ref.Path, "error", snap.Err)
 			continue
 		}
-		sch, err := storage.ParseCronUTC(fm.Schedule)
-		if err != nil {
-			log.Warn("scheduler bad cron", "path", path, "error", err)
+		if !jobRunnableForTick(snap.FM) {
 			continue
 		}
-		lastSched, err := storage.ReadJobState(storage.StatePath(path))
+		if state, reason := schedservice.Decide(cfg, snap); state != schedservice.TrustTrusted {
+			rt.noteSkipped(snap, state, reason)
+			continue
+		}
+		sch, err := storage.ParseCronUTC(snap.FM.Schedule)
 		if err != nil {
-			log.Warn("scheduler state read", "path", path, "error", err)
+			log.Warn("scheduler bad cron", "path", ref.Path, "error", err)
+			continue
+		}
+		lastSched, err := storage.ReadJobState(ref.StatePath)
+		if err != nil {
+			log.Warn("scheduler state read", "path", ref.Path, "error", err)
 			continue
 		}
 		if !storage.CronJobEligibleForMinute(sch, lastSched, evalMinute) {
 			continue
 		}
-		if _, running := rt.RunningRun(path); running {
-			log.Debug("scheduler job still running, slot skipped", "job", path, "slot", evalMinute.Format(time.RFC3339))
+		if _, running := rt.RunningRun(ref); running {
+			log.Debug("scheduler job still running, slot skipped", "job", ref.Path, "slot", evalMinute.Format(time.RFC3339))
 			continue
 		}
 		_, err = rt.StartRun(context.Background(), schedservice.RunRequest{
-			JobPath:     path,
-			Frontmatter: fm,
-			Body:        body,
+			Snapshot:    snap,
 			Trigger:     schedservice.TriggerCron,
 			FireSlot:    evalMinute,
 			UpdateState: true,
@@ -93,15 +111,15 @@ func doTickAtMinute(rt *Runtime, log *slog.Logger, evalMinute time.Time) {
 		switch {
 		case err == nil:
 		case errors.Is(err, schedservice.ErrJobBusy):
-			log.Debug("scheduler job still running, slot skipped", "job", path)
+			log.Debug("scheduler job still running, slot skipped", "job", ref.Path)
 		case errors.Is(err, schedservice.ErrQueueSaturated):
 			log.Warn("scheduler max_queue saturated, skipping job until a run finishes (raise scheduler.max_queue if needed)",
-				"job", path, "max_queue", cfg.Scheduler.MaxQueue)
+				"job", ref.Path, "max_queue", cfg.Scheduler.MaxQueue)
 		default:
 			// The checkpoint may already be written for this slot: it is
 			// committed before the run is created, so the slot does not fire
 			// again on the next tick. The operator sees the reason here.
-			log.Warn("scheduler run not started; its cron slot is checkpointed and will not fire again", "job", path, "slot", evalMinute.Format(time.RFC3339), "error", err)
+			log.Warn("scheduler run not started; its cron slot is checkpointed and will not fire again", "job", ref.Path, "slot", evalMinute.Format(time.RFC3339), "error", err)
 		}
 	}
 }

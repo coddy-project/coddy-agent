@@ -19,11 +19,9 @@ const (
 
 // RunRequest is what the service hands the daemon to start one run of a job.
 type RunRequest struct {
-	// JobPath is the canonical absolute path of the job's markdown file.
-	JobPath string
-	// Frontmatter and Body are the parsed job file.
-	Frontmatter *storage.JobFrontmatter
-	Body        string
+	// Snapshot is the one read of the job file the run is made of: its trust
+	// was decided on these bytes, and these bytes are what runs.
+	Snapshot storage.JobSnapshot
 	// Trigger is TriggerCron or TriggerManual.
 	Trigger string
 	// FireSlot is the committed UTC minute of a cron fire; zero for a manual
@@ -53,12 +51,13 @@ type Runtime interface {
 	// StartRun starts one run of a job and returns as soon as its task is
 	// registered. ErrJobBusy while a run of the job is in flight,
 	// ErrQueueSaturated when scheduler.max_queue runs are already going,
-	// ErrRunRefused (with the reason) when the job's definition may not run.
+	// ErrRunRefused (with the reason) when the job's definition may not run,
+	// ErrJobUntrusted when the snapshot is not trusted.
 	StartRun(ctx context.Context, req RunRequest) (RunRef, error)
 	// CancelRun stops the run of the job that is in flight; false when none is.
-	CancelRun(jobPath string) bool
+	CancelRun(ref storage.JobRef) bool
 	// RunningRun reports the run of the job in flight, if any.
-	RunningRun(jobPath string) (RunRef, bool)
+	RunningRun(ref storage.JobRef) (RunRef, bool)
 	// RunningCount reports how many runs are in flight across every job.
 	RunningCount() int
 	// Pool is the background task pool the runs are tasks of: what the run
@@ -67,10 +66,10 @@ type Runtime interface {
 	Pool() *bgtask.Pool
 	// ClearRuns removes every finished run of a job - task record and
 	// transcript - and reports how many went.
-	ClearRuns(jobPath string) (int, error)
+	ClearRuns(ref storage.JobRef) (int, error)
 	// DeleteJobHistory removes the job session with every run under it, for a
 	// job being deleted.
-	DeleteJobHistory(jobPath string) error
+	DeleteJobHistory(ref storage.JobRef) error
 }
 
 var (

@@ -4,8 +4,16 @@ package schedservice
 
 // SchedulerInfo is the envelope object returned with GET /coddy/scheduler/jobs.
 type SchedulerInfo struct {
-	Enabled        bool   `json:"enabled"`
-	Dir            string `json:"dir"`
+	Enabled bool `json:"enabled"`
+	// Dir is the folder of the user jobs, ${CODDY_HOME}/scheduler.
+	Dir string `json:"dir"`
+	// ProjectDir is where a workspace keeps its project jobs, relative to it.
+	ProjectDir string `json:"project_dir"`
+	// ProjectTrust is scheduler.project_trust: ask, allow or deny.
+	ProjectTrust string `json:"project_trust"`
+	// Workspace is the canonical workspace the request named (its session or
+	// its cwd); empty when it named none.
+	Workspace      string `json:"workspace,omitempty"`
 	Timeout        string `json:"timeout"`
 	MaxQueue       int    `json:"max_queue"`
 	RunsActive     int    `json:"runs_active"`
@@ -14,7 +22,25 @@ type SchedulerInfo struct {
 
 // SchedulerJob is the wire shape for one task.
 type SchedulerJob struct {
-	JobID                string `json:"job_id"`
+	JobID string `json:"job_id"`
+	// Scope is user (${CODDY_HOME}/scheduler) or project
+	// (<workspace>/.coddy/scheduler).
+	Scope string `json:"scope"`
+	// Workspace is the canonical workspace of a project job.
+	Workspace string `json:"workspace,omitempty"`
+	// Trust is trusted, needs_approval, denied, conflict or invalid; only a
+	// trusted job runs.
+	Trust TrustState `json:"trust"`
+	// TrustReason says why a job that is not trusted does not run.
+	TrustReason string `json:"trust_reason,omitempty"`
+	// Digest is the sha256 of the job file an approval is bound to.
+	Digest string `json:"digest,omitempty"`
+	// Scheduled is false for a project job whose workspace the daemon does
+	// not scan: listed for the session that asked, it will not fire.
+	Scheduled bool `json:"scheduled"`
+	// Raw is the file text of a project job (GET of one job): what the
+	// approval view shows.
+	Raw                  string `json:"raw,omitempty"`
 	Description          string `json:"description,omitempty"`
 	Schedule             string `json:"schedule"`
 	Paused               bool   `json:"paused"`
@@ -40,8 +66,22 @@ type JobsListResponse struct {
 	Jobs      []SchedulerJob `json:"jobs"`
 }
 
+// JobAddr addresses one job: a user job by its id, a project job by its id
+// and the canonical workspace it lives in.
+type JobAddr struct {
+	Scope     string
+	Workspace string
+	ID        string
+}
+
+// UserJob addresses a user job.
+func UserJob(id string) JobAddr { return JobAddr{Scope: "user", ID: id} }
+
 // SchedulerJobCreate is POST /coddy/scheduler/jobs.
 type SchedulerJobCreate struct {
+	// Scope is user (the default) or project: a project job is written to
+	// the workspace of the request's session and approved at once.
+	Scope          string `json:"scope,omitempty"`
 	JobID          string `json:"job_id"`
 	Description    string `json:"description"`
 	Schedule       string `json:"schedule"`

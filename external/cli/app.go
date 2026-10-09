@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -52,7 +54,20 @@ type App struct {
 	mgr   backend
 	// settingsVersion is the version of the last settings snapshot shown.
 	settingsVersion uint64
-	log             *slog.Logger
+	// The session goal (goal.go): the snapshot on screen and its version; the
+	// versions whose notice was handled already, so the copy of an update that
+	// arrives down a second stream is not printed twice; whether the running
+	// turn is a goal command typed here, which answers for its first notice
+	// itself; and the goal menu while it is on screen.
+	goal        *acp.SessionGoal
+	goalVersion uint64
+	goalNoticed []uint64
+	goalEchoes  []string
+	// promptsAfterTurn are menu prompts whose turn was over before they could
+	// queue behind it, sent once the console sees it end (queue.go).
+	promptsAfterTurn []heldPrompt
+	goalMenu         *selectorModal
+	log              *slog.Logger
 
 	// remoteURL is set when mgr talks to a remote coddy serve server.
 	remoteURL string
@@ -311,6 +326,9 @@ func (a *App) newCompletion() *completionProvider {
 			Limit:     mentionListLimit,
 			Refresh:   refresh,
 			Wait:      mentionConsoleWait,
+			// The "@coddy:" pages and sections are named in the terminal's
+			// language.
+			Lang: docs.LangFromEnv(os.Getenv),
 		})
 	}
 	p := newCompletionProvider(a.slashCatalog, search, a.remoteURL != "")
@@ -403,6 +421,7 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 	if switched {
 		a.remoteTurnActive, a.remoteActivityRevision = false, 0
 		a.queue.Reset()
+		a.resetGoal()
 	}
 	a.sessionID = id
 	if switched {
@@ -473,22 +492,33 @@ func (a *App) populateHeader() {
 	if st != nil {
 		cwd = st.GetCWD()
 	}
-	// The documents the session's prompt carries: the AGENTS.md and DESIGN.md
-	// of the agent home and of the workspace, then the files instructions.files
-	// adds, each once (rules.LoadStanding).
-	var contextFiles []string
-	standing := rules.LoadStanding(cfg.Paths.Home, cwd, session.ResolveInstructionFiles(cfg.Instructions.Files, cwd, cfg.Paths.Home))
-	for _, doc := range append(standing.Docs, standing.User...) {
-		contextFiles = append(contextFiles, doc.Label)
-	}
+	contextFiles, unreadFiles := standingContextFiles(cfg, cwd)
 	if st != nil {
 		for _, sk := range st.GetSkills() {
 			skillNames = append(skillNames, sk.Name)
 		}
 		rulesCount = len(st.GetRulesCatalog())
 	}
-	a.header.SetSections(contextFiles, skillNames, rulesCount, a.headerMCPNames())
+	a.header.SetSections(contextFiles, unreadFiles, skillNames, rulesCount, a.headerMCPNames())
 	a.seedMCPStatus()
+}
+
+// standingContextFiles lists the documents a session in cwd carries in its
+// prompt - the AGENTS.md and DESIGN.md of the agent home and of the workspace,
+// then the files instructions.files adds, each once (rules.LoadStanding) -
+// and, apart, the entries of instructions.files that name a file the session
+// cannot read, each with the reason (session.UnreadInstructionFiles): a file
+// the session skips would otherwise simply be missing from the list.
+func standingContextFiles(cfg *config.Config, cwd string) (read, unread []string) {
+	home := cfg.Paths.Home
+	standing := rules.LoadStanding(home, cwd, session.ResolveInstructionFiles(cfg.Instructions.Files, cwd, home))
+	for _, doc := range append(standing.Docs, standing.User...) {
+		read = append(read, doc.Label)
+	}
+	for _, u := range session.UnreadInstructionFiles(cfg.Instructions.Files, cwd, home) {
+		unread = append(unread, rules.UserDocLabel(cwd, u.Path)+" (not read: "+u.Reason()+")")
+	}
+	return read, unread
 }
 
 // headerMCPNames lists the MCP servers a session in the console's workspace
@@ -879,10 +909,17 @@ func (a *App) submitPrompt(text string) {
 		return
 	}
 	a.chat.AddChild(newUserMessage(a.theme, text))
+	// A goal command answers for itself in its turn (goal.go), so the notice
+	// of the change it makes is not printed a second time.
+	a.expectGoalEcho(text)
+	// The language of the terminal rides on the turn: the documentation the
+	// turn's @coddy: mentions attach and its documentation tools read follows
+	// it on the server this console drives. A locale with no translation
+	// sends none, and the server goes by the language of the prompt.
 	a.startTurnWorker(acp.SessionPromptParams{
 		SessionID: a.sessionID,
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
-	}, nil, nil)
+	}, &session.PromptRunOpts{Lang: docs.TurnLangFromEnv(os.Getenv)}, nil)
 }
 
 // startTurnWorker runs one prompt on the manager and posts turnDone when it
@@ -1374,6 +1411,7 @@ func (a *App) resetTranscript() {
 	a.curAssistant = nil
 	a.lastToolID = ""
 	a.foot.ResetTokens()
+	a.resetGoal()
 }
 
 // newSession starts a fresh session (used by /new). Switches serialize: a
@@ -1441,6 +1479,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 		tui.AutocompleteItem{Value: "usage", Label: "usage", Description: "Show the provider's account usage and limits"},
 		tui.AutocompleteItem{Value: "tasks", Label: "tasks", Description: "List the session's background tasks, read their output, stop one"},
 		tui.AutocompleteItem{Value: "mcp", Label: "mcp", Description: "Manage MCP servers, tools and workspace trust"},
+		tui.AutocompleteItem{Value: "goal", Label: "goal", Description: "Show and manage the session goal; /goal <objective> sets one and starts work"},
 		tui.AutocompleteItem{Value: "docs", Label: "docs", Description: "Search and read Coddy's built-in documentation (F1); /docs <words or page>"},
 		tui.AutocompleteItem{Value: "quit", Label: "quit", Description: "Exit coddy"},
 	)
@@ -1497,6 +1536,11 @@ func (a *App) ExitHint() string {
 	if a.sessionID == "" {
 		return ""
 	}
+	// A local session that got no prompt was never written: there is nothing
+	// to continue.
+	if st := a.mgr.SessionByID(a.sessionID); a.remoteURL == "" && st != nil && st.BundleDeferred() {
+		return ""
+	}
 	if a.remoteURL != "" {
 		return fmt.Sprintf("session: %s\ncontinue: coddy --remote %s --session-id %s  (or: coddy --remote %s -c)",
 			a.sessionID, a.remoteURL, a.sessionID, a.remoteURL)
@@ -1507,7 +1551,7 @@ func (a *App) ExitHint() string {
 // StartContinue reopens the most recent session recorded for this folder
 // (the -c/--continue flag).
 func (a *App) StartContinue(ctx context.Context) error {
-	id, err := latestBackendSessionID(ctx, a.mgr, a.config().Paths.CWD)
+	id, err := latestBackendSessionID(ctx, a.mgr, a.config().Paths.CWD, false)
 	if err != nil {
 		return err
 	}

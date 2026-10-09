@@ -9,12 +9,16 @@ _coddy() {
 
     commands="cli acp serve sessions skills plugin mcp providers rules agents hooks docs update"
     # The one-shot flags of the console, after `coddy` and after `coddy cli`.
-    local prompt_flags="-p --prompt -i --prompt-file --no-stdin"
+    local prompt_flags="-p --prompt -i --prompt-file --no-stdin --ephemeral"
 
     # -i reads the prompt from a file (or - for stdin).
     case "${prev}" in
         -i|--prompt-file)
             COMPREPLY=($(compgen -f -- "${cur}"))
+            return
+            ;;
+        --origin)
+            COMPREPLY=($(compgen -W "local gateway print" -- "${cur}"))
             return
             ;;
     esac
@@ -27,7 +31,8 @@ _coddy() {
     case "${COMP_WORDS[1]}" in
         sessions)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list export" -- "${cur}"))
-            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--format --out --no-tools --no-thinking" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = list ] && COMPREPLY=($(compgen -W "--cwd --origin --sessions-dir" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = export ] && COMPREPLY=($(compgen -W "--format --out --no-tools --no-thinking" -- "${cur}"))
             ;;
         skills)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list enable disable add sync remove" -- "${cur}"))
@@ -55,13 +60,34 @@ _coddy() {
             [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--cwd" -- "${cur}"))
             ;;
         docs)
-            if [ "${COMP_CWORD}" -eq 2 ]; then
-                COMPREPLY=($(compgen -W "list search show" -- "${cur}"))
-            elif [ "${COMP_WORDS[2]}" = show ] && [ "${COMP_CWORD}" -eq 3 ]; then
+            # The verb and the words after it, the flags and their values
+            # aside: --lang may stand anywhere, before the verb too. Bash
+            # splits --lang=ru into --lang, = and ru, so a value after = is
+            # skipped as well.
+            local verb="" npos=0 i
+            for ((i = 2; i < COMP_CWORD; i++)); do
+                case "${COMP_WORDS[i]}" in
+                    --lang|--limit)
+                        ((i++))
+                        [ "${COMP_WORDS[i]}" = "=" ] && ((i++))
+                        ;;
+                    --lang=*|--limit=*) ;;
+                    *) if [ -z "${verb}" ]; then verb="${COMP_WORDS[i]}"; else ((npos++)); fi ;;
+                esac
+            done
+            if [ "${prev}" = "--lang" ] || { [ "${prev}" = "=" ] && [ "${COMP_WORDS[COMP_CWORD-2]}" = "--lang" ]; }; then
+                COMPREPLY=($(compgen -W "en ru" -- "${cur}"))
+            elif [[ "${cur}" == --lang=* ]]; then
+                COMPREPLY=($(compgen -P "--lang=" -W "en ru" -- "${cur#--lang=}"))
+            elif [ -z "${verb}" ]; then
+                COMPREPLY=($(compgen -W "list search show --lang" -- "${cur}"))
+            elif [ "${verb}" = show ] && [ "${npos}" -eq 0 ]; then
                 # The pages the binary carries, from the binary itself.
                 COMPREPLY=($(compgen -W "$(coddy docs list --slugs 2>/dev/null)" -- "${cur}"))
-            elif [ "${COMP_WORDS[2]}" = search ]; then
-                COMPREPLY=($(compgen -W "--limit" -- "${cur}"))
+            elif [ "${verb}" = search ]; then
+                COMPREPLY=($(compgen -W "--limit --lang" -- "${cur}"))
+            else
+                COMPREPLY=($(compgen -W "--lang" -- "${cur}"))
             fi
             ;;
         update)

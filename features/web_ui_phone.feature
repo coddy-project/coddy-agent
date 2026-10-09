@@ -7,8 +7,9 @@ Feature: The web UI on a phone
   width of the window: wherever a keyboard is attached, a narrow desktop window
   included, Enter sends and Shift+Enter or Ctrl+Enter starts a new line; on a
   touch-only phone Return stays a newline and the Send button sends. The layout
-  gives a phone one-line chip strips that scroll sideways beside the controls
-  that must stay put, a top bar whose icons never cover the brand and fold
+  gives a phone a one-line selector strip that scrolls sideways beside the
+  controls that must stay put, a plate over the composer whose picks and count a
+  finger can hit, a top bar whose icons never cover the brand and fold
   behind a More button when they do not fit, a start screen and a transcript
   that never widen the page, settings tiles that spell their whole name, and
   text fields large enough that iOS Safari does not zoom into them. Tablets and
@@ -25,7 +26,7 @@ Feature: The web UI on a phone
 
   Scenario: The composer fits a phone
     Then the selector chips scroll sideways in one strip and never run under Send
-    And the context chips scroll sideways in one strip beside the improve-prompt button
+    And the composer card has no chip row and the plate over it is finger-sized
     And the composer text is large enough that iOS Safari does not zoom into it
 
   Scenario: The top bar and the start screen fit a phone

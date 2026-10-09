@@ -97,7 +97,7 @@ func (m *Manager) runPlanAdmitted(ctx context.Context, sessionID, slug string, s
 		return nil, err
 	}
 	MarkTurnRan(ctx)
-	stopReason, err := m.runner(ctx, state, hydrated, sender)
+	stopReason, err := m.runSupervisedTurn(ctx, state, hydrated, sender, nil)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			outcome = ActivityOutcomeCanceled

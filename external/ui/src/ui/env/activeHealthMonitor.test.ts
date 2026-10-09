@@ -52,7 +52,9 @@ test("the newest ask decides, not the one that answers last", async () => {
   await vi.waitFor(() => expect(held.length).toBe(2));
   held[1]!(new Response(JSON.stringify({ data: [] }), { status: 200 }));
   await vi.waitFor(() => expect(snapshotHealth()).toBe("up"));
-  held[0]!(Object.assign(new Error("signal timed out"), { name: "TimeoutError" }));
+  held[0]!(
+    Object.assign(new Error("signal timed out"), { name: "TimeoutError" }),
+  );
   await new Promise((r) => setTimeout(r, 0));
   expect(snapshotHealth()).toBe("up");
 });

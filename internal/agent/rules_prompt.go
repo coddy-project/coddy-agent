@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -38,6 +39,16 @@ func (a *Agent) standingParts() *session.RulesPrompt {
 	cwd, home := a.state.GetCWD(), a.cfg.Paths.Home
 	render := func() *session.RulesPrompt {
 		st := rules.LoadStanding(home, cwd, session.ResolveInstructionFiles(a.cfg.Instructions.Files, cwd, home))
+		// LoadStanding skips a file it cannot read without a word, which is
+		// right for a workspace file this workspace does not carry and wrong
+		// for one the operator named for every session: say so once per
+		// generation, where the operator of the process looks.
+		for _, u := range session.UnreadInstructionFiles(a.cfg.Instructions.Files, cwd, home) {
+			a.log.Warn("instructions file not read",
+				"entry", fmt.Sprintf("instructions.files[%d]", u.Index),
+				"path", u.Path,
+				"reason", u.Reason())
+		}
 		return &session.RulesPrompt{
 			Docs: rules.RenderDocs(st.Docs),
 			User: rules.RenderUserDocs(st.User),

@@ -1,4 +1,4 @@
-import type { CSSProperties, Dispatch, SetStateAction } from "react";
+import type { CSSProperties, Dispatch, ReactNode, SetStateAction } from "react";
 import { HeroFooter } from "./HeroFooter";
 import {
   useCallback,
@@ -13,6 +13,8 @@ import type { HeroAccentVerb } from "./heroTitleWords";
 import { useT } from "../i18n/I18nProvider";
 import type { PermissionResolvedState } from "./permissionTypes";
 import type { TurnOverride } from "./sessionSettings";
+import type { SessionGoal } from "./goal";
+import type { GoalActions } from "./GoalPopover";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { UsageBanner } from "./UsageBanner";
@@ -24,7 +26,8 @@ import type { MessageListProps } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { countRunningTasks, isAwaitingPermission } from "../tasks/taskStatus";
 import { finishedToolCalls } from "../changes/toolActivity";
-import { SessionChangesCard } from "../changes/SessionChangesCard";
+import { useWorkingCopy } from "../changes/workingCopy";
+import { WorkspaceBar } from "./WorkspaceBar";
 import type { TurnProgress } from "./turnProgress";
 import { SubagentPermissionCards } from "./SubagentPermissionCard";
 import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
@@ -34,7 +37,13 @@ import {
   subscribeShellStack,
   snapshotShellStack,
   serverSnapshotShellStack,
+  subscribeTouchOnly,
+  snapshotTouchOnly,
+  serverSnapshotTouchOnly,
 } from "../shellBreakpoint";
+import { ComposerExpandButton } from "./ComposerExpandButton";
+import { appendQuoteToDraft, quoteMarkdown } from "./quoteDraft";
+import { TranscriptQuoteButton } from "./TranscriptQuoteButton";
 import { transcriptItemsAffectAutoScroll } from "./transcriptAutoScroll";
 import {
   documentScrollBottom,
@@ -47,10 +56,21 @@ import {
   transcriptJumpDurationMs,
 } from "./transcriptScrollPosition";
 import { ScrollToBottomButton } from "./ScrollToBottomButton";
+import { openWorkspaceFile } from "../files/fileBus";
 import { TranscriptList, type TranscriptListHandle } from "./TranscriptList";
+
+/** The composer's expand control: the scroll-to-bottom circle's size. */
+const COMPOSER_EXPAND_BUTTON_PX = 34;
 
 export function ChatScreen(props: {
   title: string;
+  /** The chat's name is being worked out: the header shows a placeholder. */
+  titlePending?: boolean;
+  /**
+   * Why the first message of a new chat was not sent: the start screen it came
+   * back to says so under the composer (issue #357).
+   */
+  startNotice?: string;
   sessionId: string;
   /** Accent verb for "What do you want to …?" on the empty hero (session-stable or home rotation). */
   heroAccentVerb: HeroAccentVerb;
@@ -93,6 +113,7 @@ export function ChatScreen(props: {
   llmModelMultimodal?: boolean;
   /** Reasoning levels offered by the current model (empty hides the selector). */
   llmReasoningLevels?: string[];
+  llmReasoningLevelsByModel?: Readonly<Record<string, readonly string[]>>;
   llmReasoning?: string;
   onLlmReasoningChange?: (level: string) => void;
   onModeChange: (mode: string) => void;
@@ -102,6 +123,10 @@ export function ChatScreen(props: {
   configuredPermissionMode?: string;
   onPermissionModeChange?: ((mode: string) => void) | undefined;
   settingsOverrides?: TurnOverride[];
+  /** The session goal and what the composer's goal mark and popover can do
+   *  with it (chat/goal.ts); passed through to the composer. */
+  goal?: SessionGoal | null;
+  goalActions?: GoalActions;
   onDraftChange: (v: string) => void;
   onMentionArtifact?: (path: string) => void;
   onSend: (text: string, files?: File[]) => void;
@@ -143,6 +168,19 @@ export function ChatScreen(props: {
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
   editingFiles?: { name: string; mimeType: string }[];
+  /** The server index of the prompt loaded into the composer for an edit. */
+  editingUserMsgIdx?: number | null;
+  /** What the edit banner names: the text of that prompt. */
+  editingSnippet?: string;
+  /** Leaves the edit and puts back the draft it replaced. */
+  onCancelEdit?: () => void;
+  /** The prompt of the last edit while the server can still take it back. */
+  rewindUndoUserMsgIdx?: number | null;
+  /** The composer's banner offers that Undo too, until dismissed. */
+  rewindUndoBanner?: boolean;
+  rewindUndoBusy?: boolean;
+  onUndoEdit?: () => void;
+  onDismissRewindUndo?: () => void;
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
   knownSkillNames?: Set<string>;
@@ -155,10 +193,12 @@ export function ChatScreen(props: {
   /** The Tasks panel is showing, for the header control's expanded state. */
   backgroundTasksOpen?: boolean;
   onCloseBackgroundTasks?: () => void;
-  /** Opens the session diff viewer from the changed-files card under the transcript. */
-  onOpenSessionChanges?: (path?: string) => void;
-  /** Opens the full-screen review window from the card summary. */
-  onOpenChangesViewer?: () => void;
+  /** Opens the edits window: what git reports for the chat's folder. */
+  onOpenEdits?: () => void;
+  /** Opens (or puts away) the Files window from the header. */
+  onOpenFiles?: () => void;
+  /** The Files window is open. */
+  filesOpen?: boolean;
   /** Re-read the task rows: a background subagent's prompt was answered here. */
   onBackgroundTasksChanged?: () => void;
   /** Roots this session works in - its own directory, then its worktrees -
@@ -176,6 +216,10 @@ export function ChatScreen(props: {
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
+  /** Fetches the remotes before the branch list shows; resolves with the outcome. */
+  onWorkspaceRefreshBranches?: () => Promise<
+    import("./workspaceContext").WorkspaceBranchFetch | null
+  >;
   /** Set when this session is a subagent's transcript: the composer gives way to a read-only notice. */
   subagentTranscript?: SubagentTranscriptMeta | null;
   /** True when the conversation on screen is archived: the composer gives way to the notice that offers to take it back out. */
@@ -201,11 +245,19 @@ export function ChatScreen(props: {
   );
   const showSkeleton = isEmpty && !!props.sessionLoading;
   const stickToBottomRef = useRef(true);
+  // Another conversation is opening: until its rows land on their end, no
+  // scroll event - the old rows fading out, the old window still anchoring -
+  // may decide the reader left the newest message.
+  const openingRef = useRef(false);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
   const prevPermissionsForScrollRef = useRef(new Set<string>());
   const jumpFrameRef = useRef<number | null>(null);
   const [composerReserve, setComposerReserve] = useState(200);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  // The docked composer expanded over the chat (issue #342): its control
+  // stands under the jump to the newest message, which an expanded composer
+  // hides.
+  const [composerExpanded, setComposerExpanded] = useState(false);
   // Shared by hero and docked composers so disabled files survive the first text turn.
   const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
   const attachedFiles = props.attachedFiles ?? localAttachedFiles;
@@ -215,6 +267,53 @@ export function ChatScreen(props: {
     snapshotShellStack,
     serverSnapshotShellStack,
   );
+  const touchOnly = useSyncExternalStore(
+    subscribeTouchOnly,
+    snapshotTouchOnly,
+    serverSnapshotTouchOnly,
+  );
+  const titleColumnRef = useRef<HTMLDivElement | null>(null);
+  // A quote taken from the transcript goes after the draft, and the caret
+  // after the quote (issue #342).
+  const draftRef = useRef(props.draft);
+  draftRef.current = props.draft;
+  const onDraftChangeRef = useRef(props.onDraftChange);
+  onDraftChangeRef.current = props.onDraftChange;
+  const [quoteEpoch, setQuoteEpoch] = useState(0);
+  const quoteSelection = useCallback((text: string) => {
+    const quote = quoteMarkdown(text);
+    if (!quote) return;
+    onDraftChangeRef.current(appendQuoteToDraft(draftRef.current, quote));
+    setQuoteEpoch((n) => n + 1);
+  }, []);
+  // The band between the chat header and the docked block: the quote button
+  // keeps in it, and the expanded composer grows up to its top.
+  const headerBottom = useCallback(
+    () => titleColumnRef.current?.getBoundingClientRect().bottom ?? 0,
+    [],
+  );
+  const dockTop = useCallback(
+    () =>
+      composerHostRef.current?.getBoundingClientRect().top ??
+      window.innerHeight,
+    [],
+  );
+  // An expanded composer reaches one step of the top rhythm under the header,
+  // its control in that strip with a step on either side: the same distance
+  // as from the window's edge to the top bar and from the bar to the header.
+  // With an on-screen keyboard that overlays the page (iOS Safari), the
+  // visible area may start below the header: the composer keeps to it.
+  const expandRoomPx = useCallback(() => {
+    const rhythm =
+      parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          "--coddy-top-rhythm",
+        ),
+      ) || 10;
+    const visibleTop = window.visualViewport?.offsetTop ?? 0;
+    const top = Math.max(headerBottom(), visibleTop);
+    return dockTop() - top - rhythm - COMPOSER_EXPAND_BUTTON_PX - rhythm;
+  }, [dockTop, headerBottom]);
   const readerAtTailRef = useRef<boolean | null>(null);
   const onReaderAtTailChangeRef = useRef(props.onReaderAtTailChange);
   onReaderAtTailChangeRef.current = props.onReaderAtTailChange;
@@ -279,15 +378,15 @@ export function ChatScreen(props: {
   const syncTranscriptPosition = useCallback(() => {
     // A jump owns the position while it travels. Reading it mid-flight would
     // put the button back on screen for every frame above the band.
-    if (jumpFrameRef.current !== null) return;
-    let atBottom: boolean;
-    if (mobileDocScroll) {
-      atBottom = isTranscriptAtBottom(documentTranscriptMetrics(window));
-    } else {
-      const el = messagesRef.current;
-      if (!el) return;
-      atBottom = isTranscriptAtBottom(elementTranscriptMetrics(el));
-    }
+    if (jumpFrameRef.current !== null || openingRef.current) return;
+    const el = messagesRef.current;
+    const metrics = mobileDocScroll
+      ? documentTranscriptMetrics(window)
+      : el
+        ? elementTranscriptMetrics(el)
+        : null;
+    if (!metrics) return;
+    const atBottom = isTranscriptAtBottom(metrics);
     // A window cut short of the newest rows is not at the newest message,
     // wherever its own end is.
     const atNewest = atBottom && transcriptAttached();
@@ -377,6 +476,21 @@ export function ChatScreen(props: {
     };
   }, [cancelTranscriptJump]);
 
+  // Another conversation opens on its newest message, wherever the reader left
+  // the last one: the follow below then lands on the end of the new rows
+  // instead of keeping the offset the previous transcript was read at. It runs
+  // before that follow (a layout effect), in the render the id changes.
+  const openedSessionIdRef = useRef(props.sessionId);
+  useLayoutEffect(() => {
+    if (openedSessionIdRef.current === props.sessionId) return;
+    openedSessionIdRef.current = props.sessionId;
+    cancelTranscriptJump();
+    stickToBottomRef.current = true;
+    openingRef.current = true;
+    setShowScrollToBottom(false);
+    setComposerExpanded(false);
+  }, [props.sessionId, cancelTranscriptJump]);
+
   useEffect(() => {
     if (isEmpty) return;
     const prev = prevItemsForScrollRef.current;
@@ -398,7 +512,12 @@ export function ChatScreen(props: {
       (key) => !prevPermissionsForScrollRef.current.has(key),
     );
     prevPermissionsForScrollRef.current = permissions;
-    if (!newPermission && !transcriptItemsAffectAutoScroll(prev, props.items)) {
+    const opening = openingRef.current;
+    if (
+      !opening &&
+      !newPermission &&
+      !transcriptItemsAffectAutoScroll(prev, props.items)
+    ) {
       return;
     }
     // A jump already chases the end of a growing transcript; a hard scroll here
@@ -406,11 +525,13 @@ export function ChatScreen(props: {
     if (jumpFrameRef.current !== null) return;
     // Content grew under a reader who scrolled away: leave them where they are
     // and re-read the position, which is what reveals the button mid-stream.
-    if (!stickToBottomRef.current) {
+    if (!opening && !stickToBottomRef.current) {
       syncTranscriptPosition();
       return;
     }
     const follow = () => {
+      openingRef.current = false;
+      stickToBottomRef.current = true;
       writeTranscriptScrollTop(transcriptScrollBottom());
       syncTranscriptPosition();
     };
@@ -518,6 +639,42 @@ export function ChatScreen(props: {
     />
   ) : null;
 
+  // What git reports for the chat's folder, counted by the bar over the
+  // composer, whose count opens the edits window. Every finished tool call may
+  // have written a file.
+  const workingCopy = useWorkingCopy(props.sessionId ?? "", {
+    // Outside a git repository there is no count to show, and no plate.
+    enabled: !!props.onOpenEdits && props.workspaceCtx?.is_git_repo !== false,
+    toolActivity: finishedToolCalls(props.items),
+  });
+  // Once the chat runs, where it works is a fact rather than a choice: a plate
+  // joined to the top of the composer card names it.
+  // The plate of a running chat is git's - the repository, the branch, the
+  // count - so a folder outside any repository has none, unless the session
+  // has a goal: the plate carries the goal mark (left of the count), and then
+  // names the folder alone.
+  const hasGoal = !!props.goalActions && !!props.goal;
+  const workspaceCtx = props.workspaceCtx;
+  const workspaceBar =
+    !readOnlyNotice &&
+    props.sessionId &&
+    props.workspaceLocked &&
+    workspaceCtx &&
+    (workspaceCtx.is_git_repo || hasGoal)
+      ? (goalMark: ReactNode) => (
+          <WorkspaceBar
+            context={workspaceCtx}
+            workingCopy={workingCopy}
+            onOpenEdits={props.onOpenEdits}
+            goal={goalMark}
+          />
+        )
+      : undefined;
+  // The Files window belongs to a chat, so it opens only once one exists.
+  const openFiles = props.sessionId
+    ? (props.onOpenFiles ?? (() => openWorkspaceFile()))
+    : undefined;
+
   const messageListProps: Omit<
     MessageListProps,
     "items" | "renderStart" | "renderEnd"
@@ -555,6 +712,16 @@ export function ChatScreen(props: {
       ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
       : {}),
     ...(props.onEdit ? { onEdit: props.onEdit } : {}),
+    ...(props.editingUserMsgIdx !== undefined
+      ? { editingUserMsgIdx: props.editingUserMsgIdx }
+      : {}),
+    ...(props.rewindUndoUserMsgIdx !== undefined && props.onUndoEdit
+      ? {
+          rewindUndoUserMsgIdx: props.rewindUndoUserMsgIdx,
+          onUndoEdit: props.onUndoEdit,
+          ...(props.rewindUndoBusy ? { undoEditBusy: true } : {}),
+        }
+      : {}),
     ...(props.knownSkillNames
       ? { knownSkillNames: props.knownSkillNames }
       : {}),
@@ -567,7 +734,9 @@ export function ChatScreen(props: {
       ? { backgroundNowMs: props.backgroundNowMs }
       : {}),
     ...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {}),
-    ...(props.onMentionArtifact ? { onMentionArtifact: props.onMentionArtifact } : {}),
+    ...(props.onMentionArtifact
+      ? { onMentionArtifact: props.onMentionArtifact }
+      : {}),
   };
 
   const mainClassName = [
@@ -699,6 +868,12 @@ export function ChatScreen(props: {
                       llmModel: props.llmModel,
                       onLlmModelChange: props.onLlmModelChange,
                       llmModelMultimodal: props.llmModelMultimodal,
+                      ...(props.llmReasoningLevelsByModel !== undefined
+                        ? {
+                            llmReasoningLevelsByModel:
+                              props.llmReasoningLevelsByModel,
+                          }
+                        : {}),
                       ...(props.llmReasoningLevels !== undefined &&
                       props.llmReasoningLevels.length > 0 &&
                       props.onLlmReasoningChange !== undefined
@@ -722,6 +897,9 @@ export function ChatScreen(props: {
                   : {})}
                 {...(props.settingsOverrides
                   ? { settingsOverrides: props.settingsOverrides }
+                  : {})}
+                {...(props.goalActions
+                  ? { goal: props.goal ?? null, goalActions: props.goalActions }
                   : {})}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
@@ -765,11 +943,22 @@ export function ChatScreen(props: {
                       workspaceLocked: props.workspaceLocked ?? false,
                       onWorkspacePickFolder: props.onWorkspacePickFolder,
                       onWorkspacePickBranch: props.onWorkspacePickBranch,
+                      onWorkspaceRefreshBranches:
+                        props.onWorkspaceRefreshBranches,
                       onWorktreeToggle: props.onWorktreeToggle,
                     }
                   : {})}
               />
             )}
+            {props.startNotice ? (
+              <p
+                className="hero-start-notice"
+                role="alert"
+                data-testid="hero-start-notice"
+              >
+                {props.startNotice}
+              </p>
+            ) : null}
           </div>
           <HeroFooter />
         </div>
@@ -789,22 +978,30 @@ export function ChatScreen(props: {
             ref={messagesRef}
           >
             <div className="chat-scroll-sticky-head">
-              <div className="chat-title-column">
+              <div className="chat-title-column" ref={titleColumnRef}>
                 <ChatHeader
                   title={props.title}
+                  titlePending={props.titlePending === true}
                   editable={true}
                   onTitleSave={props.onTitleSave}
                   {...(props.onOpenBackgroundTasks
                     ? {
                         tasks: props.backgroundTasks ?? [],
-                        // The header control is where the panel was opened
-                        // from, so a second click puts it away again.
+                        // The header menu is where a view was opened from, so
+                        // picking it again puts it away.
                         onOpenTasks:
                           props.backgroundTasksOpen === true &&
                           props.onCloseBackgroundTasks
                             ? props.onCloseBackgroundTasks
                             : props.onOpenBackgroundTasks,
                         tasksOpen: props.backgroundTasksOpen === true,
+
+                        ...(openFiles
+                          ? {
+                              onOpenFiles: openFiles,
+                              filesOpen: props.filesOpen === true,
+                            }
+                          : {}),
                       }
                     : {})}
                 />
@@ -837,29 +1034,41 @@ export function ChatScreen(props: {
                       onAnswered={() => props.onBackgroundTasksChanged?.()}
                     />
                   ) : null}
-                  {props.onOpenSessionChanges &&
-                  props.onOpenChangesViewer &&
-                  props.sessionId ? (
-                    <SessionChangesCard
-                      sessionId={props.sessionId}
-                      generating={props.generating === true}
-                      toolActivity={finishedToolCalls(props.items)}
-                      onOpenReview={props.onOpenSessionChanges}
-                      onOpenViewer={props.onOpenChangesViewer}
-                    />
-                  ) : null}
                 </>
               }
             />
             <div className="chat-scroll-tail" aria-hidden />
           </div>
+          {readOnlyNotice ? null : (
+            <TranscriptQuoteButton
+              root={() =>
+                messagesRef.current?.querySelector<HTMLElement>(
+                  ".messages-inner",
+                ) ?? null
+              }
+              topLimit={headerBottom}
+              bottomLimit={dockTop}
+              touch={touchOnly}
+              onQuote={quoteSelection}
+              watch={() => [
+                messagesRef.current?.querySelector(".messages-inner") ?? null,
+                composerHostRef.current,
+              ]}
+            />
+          )}
 
           <div className="chat-bottom">
             <div className="chat-bottom-inner" ref={composerHostRef}>
               <ScrollToBottomButton
-                visible={showScrollToBottom}
+                visible={showScrollToBottom && !composerExpanded}
                 onClick={jumpToNewestMessage}
               />
+              {readOnlyNotice ? null : (
+                <ComposerExpandButton
+                  expanded={composerExpanded}
+                  onToggle={() => setComposerExpanded((v) => !v)}
+                />
+              )}
               {readOnlyNotice ? null : (
                 <UsageBanner
                   usage={props.providerUsage}
@@ -874,6 +1083,7 @@ export function ChatScreen(props: {
               )}
               {readOnlyNotice ?? (
                 <Composer
+                  cardTop={workspaceBar}
                   value={props.draft}
                   isEmpty={false}
                   providerUsage={props.providerUsage ?? null}
@@ -904,6 +1114,12 @@ export function ChatScreen(props: {
                         llmModel: props.llmModel,
                         onLlmModelChange: props.onLlmModelChange,
                         llmModelMultimodal: props.llmModelMultimodal,
+                        ...(props.llmReasoningLevelsByModel !== undefined
+                          ? {
+                              llmReasoningLevelsByModel:
+                                props.llmReasoningLevelsByModel,
+                            }
+                          : {}),
                         ...(props.llmReasoningLevels !== undefined &&
                         props.llmReasoningLevels.length > 0 &&
                         props.onLlmReasoningChange !== undefined
@@ -916,6 +1132,7 @@ export function ChatScreen(props: {
                       }
                     : {})}
                   onModeChange={props.onModeChange}
+                  sessionLoading={props.sessionLoading}
                   {...(props.permissionMode !== undefined
                     ? { permissionMode: props.permissionMode }
                     : {})}
@@ -931,8 +1148,18 @@ export function ChatScreen(props: {
                   {...(props.settingsOverrides
                     ? { settingsOverrides: props.settingsOverrides }
                     : {})}
+                  {...(props.goalActions
+                    ? {
+                        goal: props.goal ?? null,
+                        goalActions: props.goalActions,
+                      }
+                    : {})}
                   onChange={props.onDraftChange}
                   onSend={props.onSend}
+                  expandRoomPx={expandRoomPx}
+                  expanded={composerExpanded}
+                  onExpandedChange={setComposerExpanded}
+                  caretToEndEpoch={quoteEpoch}
                   {...(props.onDocsCommand
                     ? { onDocsCommand: props.onDocsCommand }
                     : {})}
@@ -969,6 +1196,25 @@ export function ChatScreen(props: {
                   {...(props.editingFiles && props.editingFiles.length > 0
                     ? { editingFiles: props.editingFiles }
                     : {})}
+                  {...(props.editingUserMsgIdx != null && props.onCancelEdit
+                    ? {
+                        editingMessage: {
+                          snippet: props.editingSnippet ?? "",
+                          onCancel: props.onCancelEdit,
+                        },
+                      }
+                    : {})}
+                  {...(props.rewindUndoBanner === true &&
+                  props.onUndoEdit &&
+                  props.onDismissRewindUndo
+                    ? {
+                        rewindUndo: {
+                          onUndo: props.onUndoEdit,
+                          onDismiss: props.onDismissRewindUndo,
+                          ...(props.rewindUndoBusy ? { busy: true } : {}),
+                        },
+                      }
+                    : {})}
                   {...(props.onWorkspacePickFolder
                     ? {
                         workspaceCtx: props.workspaceCtx ?? null,
@@ -976,6 +1222,8 @@ export function ChatScreen(props: {
                         workspaceLocked: props.workspaceLocked ?? false,
                         onWorkspacePickFolder: props.onWorkspacePickFolder,
                         onWorkspacePickBranch: props.onWorkspacePickBranch,
+                        onWorkspaceRefreshBranches:
+                          props.onWorkspaceRefreshBranches,
                         onWorktreeToggle: props.onWorktreeToggle,
                       }
                     : {})}

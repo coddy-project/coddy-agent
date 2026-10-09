@@ -18,13 +18,18 @@ const SINGLE_WORD_KEYS = new Set([
   "status.thinking",
 ]);
 
-function statusEntries(locale: (typeof UI_LOCALE_IDS)[number]): [string, string][] {
+function statusEntries(
+  locale: (typeof UI_LOCALE_IDS)[number],
+): [string, string][] {
   const dict = UI_LOCALES[locale].messages as Record<string, string>;
   return Object.entries(dict).filter(([key]) => key.startsWith("status."));
 }
 
 function wordCount(phrase: string): number {
-  return phrase.trim().split(/\s+/).filter((word) => word !== "").length;
+  return phrase
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word !== "").length;
 }
 
 describe("live status phrases stand on their own", () => {

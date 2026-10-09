@@ -19,7 +19,9 @@ import (
 //   - anything else – new hosts are added; changed keys are replaced (TOFU, default).
 func hostKeyCallback(mode, knownHostsPath string) (gossh.HostKeyCallback, error) {
 	if mode == "insecure" {
-		return gossh.InsecureIgnoreHostKey(), nil //nolint:gosec // intentional for insecure mode
+		// The operator's explicit choice (tools.permission_mode bypass); every
+		// other mode verifies through known_hosts below.
+		return gossh.InsecureIgnoreHostKey(), nil //nolint:gosec // nosemgrep: go.lang.security.audit.crypto.insecure_ssh.avoid-ssh-insecure-ignore-host-key
 	}
 	return autoUpdateCallback(knownHostsPath)
 }

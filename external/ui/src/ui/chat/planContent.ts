@@ -7,12 +7,18 @@ export function splitPlanFileContent(raw: string): {
 } {
   let s = raw.replace(/^\uFEFF/, "").trim();
   if (!s.startsWith(FRONTMATTER_DELIM)) {
-    return { frontmatter: "", body: raw.replace(/\r\n/g, "\n").replace(/\n+$/, "") };
+    return {
+      frontmatter: "",
+      body: raw.replace(/\r\n/g, "\n").replace(/\n+$/, ""),
+    };
   }
   let rest = s.slice(FRONTMATTER_DELIM.length).replace(/^\r?\n/, "");
   const closeIdx = rest.indexOf("\n" + FRONTMATTER_DELIM);
   if (closeIdx < 0) {
-    return { frontmatter: "", body: raw.replace(/\r\n/g, "\n").replace(/\n+$/, "") };
+    return {
+      frontmatter: "",
+      body: raw.replace(/\r\n/g, "\n").replace(/\n+$/, ""),
+    };
   }
   const frontmatter = rest.slice(0, closeIdx).trim();
   const body = rest

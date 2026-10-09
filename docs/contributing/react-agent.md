@@ -92,8 +92,8 @@ Already on disk:
 
 - the **wall clock**, always - stamped once when the turn's prompt was rendered and reused by every
   step of that turn, because the lane re-issues a step that produced nothing and that replay has to
-  be the request that failed, byte for byte (*Lane replays* in
-  [architecture.md](architecture.md));
+  be the request that failed, byte for byte (*Empty-assistant re-issue* under
+  [Loop Steps](#loop-steps));
 - the **todo checklist** (markdown from **`internal/tools/todo.FormatPlanMarkdown`** over
   **`session.Plan`**), when the session has one - so a **`coddy_todo_*`** call in this turn is
   reflected on the very next step;
@@ -151,7 +151,10 @@ mark and make the projection flap between two shapes. See
 Providers report the cached share of a request as
 **`usage.prompt_tokens_details.cached_tokens`** (OpenAI-compatible) or
 **`cache_read_input_tokens`** (Anthropic). Coddy carries it as
-**`llm.Response.CachedInputTokens`** and logs it per call:
+**`llm.Response.CachedInputTokens`**, a part of **`llm.Response.InputTokens`**, which counts the
+whole prompt the way OpenAI's **`prompt_tokens`** does: Anthropic's **`input_tokens`**,
+**`cache_creation_input_tokens`** and **`cache_read_input_tokens`** are added together. It logs
+both per call:
 
 ```
 export CODDY_LOG_LEVEL=debug   # or logger.levels: {agent: debug}

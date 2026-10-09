@@ -54,7 +54,9 @@ export function showsEntryTrustControl(
  * a draft kept in the browser (draft_<hex>) is not one, and naming it would
  * get a 404 instead of the server's default workspace.
  */
-export function liveSessionId(sessionId: string | undefined): string | undefined {
+export function liveSessionId(
+  sessionId: string | undefined,
+): string | undefined {
   const id = (sessionId ?? "").trim();
   return id && !isClientDraftSessionId(id) ? id : undefined;
 }

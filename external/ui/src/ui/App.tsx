@@ -55,13 +55,23 @@ import {
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
+import { readOpening, type OpeningRead } from "./chat/openingRead";
 import {
   isNewerSettings,
   parseSessionSettings,
+  permissionModeOfInfo,
   type SessionSettings,
   type SessionSettingsEvent,
   type TurnOverride,
 } from "./chat/sessionSettings";
+import {
+  GOAL_RESUME_PROMPT,
+  isNewerGoal,
+  parseSessionGoalUpdate,
+  type SessionGoal,
+  type SessionGoalUpdate,
+} from "./chat/goal";
+import type { GoalActions } from "./chat/GoalPopover";
 import { useSessionTurnActivity } from "./chat/useSessionTurnActivity";
 import { mergeTurnProgress, type TurnProgress } from "./chat/turnProgress";
 import type { QueuedMessageEvent } from "./chat/serverEvents";
@@ -118,12 +128,14 @@ import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { applyMemoryRunToItems } from "./chat/memoryRun";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
-import type { WorkspaceContext } from "./chat/workspaceContext";
+import type {
+  WorkspaceBranchFetch,
+  WorkspaceContext,
+} from "./chat/workspaceContext";
 import { setHostShell } from "./chat/hostShell";
 import { NavRail } from "./nav/NavRail";
 import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
 import { SwarmView } from "./swarm/SwarmView";
-import { EnvironmentChip } from "./chat/EnvironmentChip";
 import { probeSwarm } from "./swarm/api";
 import {
   connectLocal,
@@ -156,7 +168,7 @@ import {
   type PendingNewChatWorkspace,
 } from "./sessions/newChatWorkspace";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
-import { useRailScreenEscape } from "./nav/railEscape";
+import { railCloseGuard, useRailScreenEscape } from "./nav/railEscape";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
   pickDefaultLlmModelForNewChat,
@@ -218,7 +230,10 @@ import {
   type ClientDraftSession,
 } from "./sessions/draftSessions";
 import { isRedundantSessionPick } from "./sessions/pickSessionGuard";
-import { startSuggestSessionTitle } from "./sessionTitleSuggest";
+import {
+  startSuggestSessionTitle,
+  type TitleSuggestHandle,
+} from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
 import {
   extractSessionAssetsXml,
@@ -235,6 +250,7 @@ import {
   schedulerClearJobRuns,
   schedulerListJobs,
   schedulerRunJob,
+  setSchedulerSessionHeaders,
 } from "./scheduler/api";
 import {
   parseAppHash,
@@ -255,6 +271,23 @@ import {
   setDocsHash,
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
+import { FilesView } from "./files/FilesView";
+import { useFilesWindowKey } from "./files/filesWindowKey";
+import { isFilesHotkey } from "./files/filesHotkey";
+import {
+  readLastWorkspaceDir,
+  readWorktreePref,
+  writeLastWorkspaceDir,
+  writeWorktreePref,
+} from "./chat/workspaceCookies";
+import { onOpenWorkspaceFile } from "./files/fileBus";
+import { relativeFilePath } from "./files/api";
+import { useRightDock, useRightDockEscape } from "./components/useRightDock";
+import { finishedToolCalls } from "./changes/toolActivity";
+import {
+  setSessionFilesHash,
+  setSessionChangesHash,
+} from "./scheduler/hashRoute";
 import { fetchDocsPage } from "./docs/api";
 import { docsCommandOpensPage } from "./docs/docsCommand";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
@@ -263,14 +296,8 @@ import {
   BackgroundTasksPanel,
   type TaskFocus,
 } from "./tasks/BackgroundTasksPanel";
-import { DockTabs } from "./components/DockTabs";
-import { SessionChangesPanel } from "./changes/SessionChangesPanel";
-import { DiffViewerModal } from "./changes/DiffViewerModal";
+import { EditsView } from "./changes/EditsView";
 import { emitChangesSettled } from "./changes/sessionChangesBus";
-import {
-  setSessionChangesEnabled,
-  readSessionChangesFromConfigDoc,
-} from "./chat/sessionChangesConfig";
 import {
   clearFinishedBackgroundTasks,
   getBackgroundTask,
@@ -284,6 +311,7 @@ import {
 } from "./chat/subagentTranscript";
 import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
+import { parseSchedulerJobRef, schedulerJobRef } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 import { noteSettingsConfigReloaded } from "./settings/settingsConfigStore";
 import { MCP_SECTION_ID } from "./settings/settingsSections";
@@ -420,7 +448,7 @@ function isStackedShell(): boolean {
 }
 
 export function App() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const confirm = useConfirm();
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
     () => new Set(),
@@ -455,6 +483,16 @@ export function App() {
   const [sessionLoading, setSessionLoading] = useState(
     () => initialRoute.branch === "session",
   );
+  // Whether the session on screen still waits, as the retries of its opening
+  // read ask it after a pause: the state their render held is long gone.
+  const sessionLoadingRef = useRef(sessionLoading);
+  sessionLoadingRef.current = sessionLoading;
+  /**
+   * The status of a session's last transcript read that failed, 0 when it got
+   * no answer: for the read that opens the session, a 404 says the server has
+   * no such session and anything else is read again.
+   */
+  const failedReadStatusRef = useRef(new Map<string, number>());
   const [sessionFadingOut, setSessionFadingOut] = useState(false);
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
@@ -466,6 +504,25 @@ export function App() {
   const [editingFiles, setEditingFiles] = useState<
     { name: string; mimeType: string }[]
   >([]);
+  // What the edit banner names: the text of the prompt being edited.
+  const [editingSnippet, setEditingSnippet] = useState("");
+  // The draft and attachments the pencil replaced, put back when the edit is
+  // cancelled; null while no edit is open.
+  const editingPrevDraftRef = useRef<{ draft: string; files: File[] } | null>(
+    null,
+  );
+  // The prompt the last rewind edited while the server can still take it
+  // back (rewindUndo of GET .../messages), for the session it was read for.
+  const [rewindUndo, setRewindUndo] = useState<{
+    sid: string;
+    userMsgIdx: number;
+  } | null>(null);
+  // "sid:index" of an undo whose composer banner was put away; the Undo on the
+  // prompt stays.
+  const [rewindUndoDismissed, setRewindUndoDismissed] = useState("");
+  const [rewindUndoBusy, setRewindUndoBusy] = useState(false);
+  // Held synchronously, so two clicks inside one render post one undo.
+  const rewindUndoBusyRef = useRef(false);
   const [draft, setDraft] = useState(() => {
     if (initialRoute.branch !== "draft") return "";
     const id = initialRoute.draftId.trim();
@@ -479,7 +536,8 @@ export function App() {
   const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(
     null,
   );
-  const [worktreePref, setWorktreePref] = useState(false);
+  // The worktree checkbox is this browser's choice for every folder (cookie).
+  const [worktreePref, setWorktreePref] = useState(() => readWorktreePref());
   // Pre-session workspace choices, applied right before the first send creates the session.
   const pendingWorkspaceRef = useRef<{
     path?: string;
@@ -506,6 +564,7 @@ export function App() {
     pendingWorkspacePath,
     workspaceCtx?.path,
   );
+  const filesWindowKey = useFilesWindowKey(sessionId, workspaceCtx?.path || "");
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
   >(() => readClientDraftSessions());
@@ -525,7 +584,11 @@ export function App() {
   const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
     SessionStats["contextBreakdown"]
   > | null>(null);
-  const [compactionSettings, setCompactionSettings] = useState({ enabled: true, autoEnabled: true, threshold: 80 });
+  const [compactionSettings, setCompactionSettings] = useState({
+    enabled: true,
+    autoEnabled: true,
+    threshold: 80,
+  });
   // A provider listing can arrive after /v1/models returned its fallback.
   // Keep the live window per session, scoped to its model and config version;
   // stats refreshes must not replace it with the earlier model-list value.
@@ -698,6 +761,7 @@ export function App() {
     configReloaded: () => void;
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
     sessionSettings: (event: SessionSettingsEvent) => void;
+    sessionGoal: (update: SessionGoalUpdate) => void;
     subagentPermission: (parentSid: string) => void;
     questionPending: (sid: string) => void;
     sessionRewound: (sid: string) => void;
@@ -709,6 +773,7 @@ export function App() {
     configReloaded: () => {},
     messageQueue: () => {},
     sessionSettings: () => {},
+    sessionGoal: () => {},
     subagentPermission: () => {},
     questionPending: () => {},
     sessionRewound: () => {},
@@ -985,12 +1050,13 @@ export function App() {
 
   // Text of the most recent user turn, used to re-run it from the retry button
   // on a failed/system notice (e.g. "model did not respond"). A turn a finished
-  // background task started has no text anybody typed, so there is nothing to
-  // re-run and no retry is offered.
+  // background task or the goal supervisor started has no text anybody typed,
+  // so there is nothing to re-run and no retry is offered.
   const lastUserText = useMemo(() => {
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
-      if (it && it.type === "background_wake") return "";
+      if (it && (it.type === "background_wake" || it.type === "goal_turn"))
+        return "";
       if (it && it.type === "user_message") {
         return typeof it.content === "string" ? it.content : "";
       }
@@ -1160,17 +1226,28 @@ export function App() {
     null,
   );
   const [schedulerRunsLoading, setSchedulerRunsLoading] = useState(false);
-  const [tasksOpen, setTasksOpen] = useState(
-    () => initialRoute.branch === "session" && initialRoute.tasksOpen,
+  const { open: tasksOpen, setOpen: setTasksOpen } = useRightDock(
+    initialRoute.branch === "session" && initialRoute.tasksOpen,
   );
-  // Which face of the shared right dock is showing. Tasks keep every existing
-  // entry point; the changed-files card asks for the Changes face.
-  const [dockTab, setDockTab] = useState<"tasks" | "changes">("tasks");
-  // The file a card row click asked the Changes face to open on.
-  const [changesPath, setChangesPath] = useState<string>("");
-  // The full review window is a modal rather than a drawer: it needs the whole
-  // width to put two diff columns side by side.
-  const [changesViewerOpen, setChangesViewerOpen] = useState(false);
+  // The Files window over the chat: open, and on which file and line. It is not
+  // a face of the dock, whose tasks stay as they were under it.
+  const [filesOpen, setFilesOpen] = useState(
+    initialRoute.branch === "session" && initialRoute.filesOpen === true,
+  );
+  // Bumps on every request to show a file, so the same path asked for again
+  // (its tab closed meanwhile) opens again.
+  const [fileOpenSeq, setFileOpenSeq] = useState(0);
+  const [filePath, setFilePath] = useState(
+    initialRoute.branch === "session" ? initialRoute.filePath || "" : "",
+  );
+  const [fileLine, setFileLine] = useState(
+    initialRoute.branch === "session" ? initialRoute.fileLine || 1 : 1,
+  );
+  // The edits window (EditsView) is the one view of the edits, a window over
+  // the chat framed like the Files window.
+  const [changesViewerOpen, setChangesViewerOpen] = useState(
+    initialRoute.branch === "session" && initialRoute.editsOpen === true,
+  );
   // A card the shell asks the Tasks panel to open from a task-targeted link. Which
   // cards are open otherwise is the panel's own business and is not part of the address.
   //
@@ -1267,7 +1344,7 @@ export function App() {
   );
   // The remotes this server offers as environments, read from the local config
   // rather than the active one - the list of places to go must not travel with
-  // the place you are. Shared with the composer's environment chip and read
+  // the place you are. Shared with the rail's environment menu and read
   // again on every config reload (env/configuredRemotes.ts).
   const configuredRemotes = useConfiguredRemotes();
   // A folder picked from a History heading, waiting for the conversation on
@@ -1322,6 +1399,22 @@ export function App() {
   const [permissionMode, setPermissionMode] = useState("ask");
   const [configuredPermissionMode, setConfiguredPermissionMode] =
     useState("ask");
+  /**
+   * The permission mode the server says a new session starts under (GET
+   * /coddy/info, read again after every configuration reload and every
+   * reconnect of the events stream): the start screen has no session and so
+   * no snapshot, and this is the mode its first turn runs under unless the
+   * operator picks another. Null while unknown - before the answer, while a
+   * reload is read again, from a server that does not say - and a pick is then
+   * always sent. The ref is what a send compares with, the state what renders.
+   */
+  const [serverPermissionMode, setServerPermissionMode] = useState<
+    string | null
+  >(null);
+  const serverPermissionModeRef = useRef<string | null>(null);
+  const serverPermissionReadRef = useRef(0);
+  /** The read of the mode in flight, which a first send waits for. */
+  const serverPermissionReadingRef = useRef<Promise<void> | null>(null);
   const [settingsOverrides, setSettingsOverrides] = useState<TurnOverride[]>(
     [],
   );
@@ -1329,9 +1422,83 @@ export function App() {
     sid: "",
     version: 0,
   });
-  /** A permission mode picked before the chat has a session: it rides in as a
-   *  command at the start of the first message, where the server takes it. */
-  const pendingPermissionModeRef = useRef("");
+  /**
+   * The viewed session's goal (chat/goal.ts) and the version of the snapshot
+   * it came from, kept the way the settings are: the messages read, the turn
+   * stream, the events stream and the answers of the goal's own routes all
+   * deliver it, and the highest version wins. A goal of another session is
+   * not shown: the chip reads `goal` only while `sid` is the viewed session.
+   */
+  const [viewedGoal, setViewedGoal] = useState<{
+    sid: string;
+    goal: SessionGoal | null;
+  }>({ sid: "", goal: null });
+  const goalVersionRef = useRef<{ sid: string; version: number }>({
+    sid: "",
+    version: 0,
+  });
+  /**
+   * A permission mode picked before the chat has a session: it rides in as a
+   * command at the start of the first message, where the server takes it,
+   * unless it is the mode the server named as its configured one (decided
+   * when sending, against what the server said last). `sid` is empty on the
+   * start screen and names the session the first send creates from then on:
+   * the pick stays until the server has taken a message of that session, so a
+   * first send that never reached it (Recoverable composer sends) does not
+   * leave the pick behind for the next try. The state mirrors the mode for the
+   * chip.
+   */
+  const pendingPermissionModeRef = useRef({ mode: "", sid: "" });
+  const [pendingPermissionMode, setPendingPermissionModeState] = useState("");
+  const setPendingPermissionMode = useCallback((mode: string, sid = "") => {
+    pendingPermissionModeRef.current = { mode, sid };
+    setPendingPermissionModeState(mode);
+  }, []);
+  /**
+   * readServerPermissionMode asks the server which permission mode a new
+   * session starts under. The fetch shim sends it to the environment the app
+   * is on: the local server, a remote, a node behind a relay's mount. The mode
+   * held so far stops counting as known at once, because the read follows a
+   * reload or a reconnect, either of which may have moved it: a pick sent
+   * against an unknown mode is at worst redundant, while one left out against
+   * a stale mode runs the first turn under a mode nobody chose.
+   */
+  const readServerPermissionMode = useStableHandler(() => {
+    const read = ++serverPermissionReadRef.current;
+    serverPermissionModeRef.current = null;
+    const reading = fetch("/coddy/info", {
+      headers: { Accept: "application/json" },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(permissionModeOfInfo)
+      .catch(() => null)
+      .then((mode) => {
+        if (read !== serverPermissionReadRef.current || !isAppEnvironment()) {
+          return;
+        }
+        serverPermissionReadingRef.current = null;
+        serverPermissionModeRef.current = mode;
+        setServerPermissionMode(mode);
+        if (mode) {
+          setConfiguredPermissionMode(mode);
+        }
+      });
+    serverPermissionReadingRef.current = reading;
+    return reading;
+  });
+  // configEpoch bumps after every configuration swap, which can move
+  // tools.permission_mode as well as the models.
+  useEffect(() => {
+    void readServerPermissionMode();
+  }, [configEpoch, readServerPermissionMode]);
+  // The configured mode the chip names: the server's own answer when it gave
+  // one, else the last snapshot's (a server that does not say it in /coddy/info).
+  const shownConfiguredPermissionMode =
+    serverPermissionMode ?? configuredPermissionMode;
+  // What the start screen's chip names, and the first turn runs under: the
+  // mode picked there, else the configured one.
+  const startPermissionMode =
+    pendingPermissionMode || shownConfiguredPermissionMode;
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [llmModel, setLlmModel] = useState("");
   const applyContextUsage = useStableHandler(
@@ -1406,6 +1573,21 @@ export function App() {
     sessionId: string;
     title: string;
   } | null>(null);
+  // Sessions whose name a describe call is still working out: their header
+  // and their History row show a placeholder instead of the first message
+  // (issue #435). Kept per session, so a chat left while it is being named
+  // keeps its placeholder in History until its own describe settles.
+  const [namingSessionIds, setNamingSessionIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  // Why the last first send of a new chat was not sent, shown on the start
+  // screen it returned to (issue #357); cleared by the next send.
+  const [startNotice, setStartNotice] = useState("");
+  // What the start screen gets back when a first send returns to it: set just
+  // before the route leaves the chat, taken by the effect that sees it go.
+  const startScreenRestoreRef = useRef<{ text: string; files: File[] } | null>(
+    null,
+  );
   const heroAccentVerb = useMemo(
     () => pickHeroAccentVerb(sessionId, heroHomeGeneration),
     [sessionId, heroHomeGeneration],
@@ -1745,9 +1927,123 @@ export function App() {
     [isAppEnvironment],
   );
 
+  /**
+   * Reads the start screen's folder again - the pending pick, else the
+   * server's default - so it names the branch the folder is on now: one
+   * switched with git switch since it was last read shows. A branch picked on
+   * the start screen stays the choice over the folder's own.
+   */
+  const refreshHomeWorkspace = useCallback(async () => {
+    const path = pendingWorkspaceRef.current?.path;
+    if (!path) {
+      await refreshWorkspaceContext("");
+      return;
+    }
+    const gen = ++workspaceCtxGenRef.current;
+    try {
+      const res = await fetch(
+        "/coddy/workspace/context?path=" + encodeURIComponent(path),
+      );
+      if (gen !== workspaceCtxGenRef.current) {
+        return;
+      }
+      if (res.status === 400) {
+        // The folder is gone: forget it and fall back to the server's default.
+        if (readLastWorkspaceDir() === path) {
+          writeLastWorkspaceDir("");
+        }
+        setPendingWorkspace(null);
+        await refreshWorkspaceContext("");
+        return;
+      }
+      if (!res.ok) {
+        return;
+      }
+      const ctx = (await res.json()) as WorkspaceContext;
+      if (gen !== workspaceCtxGenRef.current) {
+        return;
+      }
+      const picked = pendingWorkspaceRef.current;
+      setWorkspaceCtx(
+        picked?.branch
+          ? {
+              ...ctx,
+              branch: picked.branch,
+              is_worktree: Boolean(picked.worktree),
+            }
+          : ctx,
+      );
+    } catch {
+      // ignore: the plate keeps the context it has
+    }
+  }, [refreshWorkspaceContext]);
+
+  /**
+   * Fetches the remotes of the folder the branch list is about - the session's,
+   * or before a session exists the folder the new chat picked - and takes the
+   * context the server read after the fetch, so a branch pushed since the last
+   * fetch is listed. A branch picked on the start screen stays the choice. The
+   * outcome goes back to the list, which warns when the refresh failed: the
+   * context it shows then is the one from before.
+   */
+  // The chat on screen now, for an answer that arrives after it may have
+  // changed (the branch refresh below).
+  const viewedSessionRef = useRef(sessionId);
+  useEffect(() => {
+    viewedSessionRef.current = sessionId;
+  }, [sessionId]);
+
+  const refreshWorkspaceBranches =
+    useCallback(async (): Promise<WorkspaceBranchFetch | null> => {
+      const sid = sessionId.trim();
+      const path = sid ? "" : (pendingWorkspaceRef.current?.path ?? "");
+      const gen = ++workspaceCtxGenRef.current;
+      try {
+        const res = await fetch(
+          "/coddy/workspace/fetch" +
+            (path ? "?path=" + encodeURIComponent(path) : ""),
+          { method: "POST", headers: sid ? { [HDR]: sid } : {} },
+        );
+        if (!res.ok) {
+          return { status: "failed", error: `HTTP ${res.status}` };
+        }
+        const body = (await res.json()) as WorkspaceContext & {
+          fetch?: WorkspaceBranchFetch;
+        };
+        const { fetch: outcome, ...ctx } = body;
+        // Another chat or another folder since: the list this was for is gone.
+        const stillHere =
+          viewedSessionRef.current.trim() === sid &&
+          (sid || (pendingWorkspaceRef.current?.path ?? "") === path);
+        if (!stillHere) {
+          return null;
+        }
+        // A read of the same folder that started while the fetch ran (the
+        // page got the focus back) saw the refs from before it: the fetched
+        // context wins whichever answered first, and a read still out is
+        // dropped by taking a newer ticket.
+        if (gen !== workspaceCtxGenRef.current) {
+          workspaceCtxGenRef.current += 1;
+        }
+        const picked = sid ? null : pendingWorkspaceRef.current;
+        setWorkspaceCtx(
+          picked?.branch
+            ? {
+                ...ctx,
+                branch: picked.branch,
+                is_worktree: Boolean(picked.worktree),
+              }
+            : ctx,
+        );
+        return outcome ?? null;
+      } catch {
+        return { status: "failed" };
+      }
+    }, [sessionId]);
+
   // Load the workspace context whenever the viewed session changes. A pending
-  // home workspace is already being previewed and must survive the route
-  // change so the next chat starts where the user left off.
+  // home workspace survives the route change so the next chat starts where the
+  // user left off, and is read again for the branch it is on now.
   //
   // A folder picked from a History heading is applied here rather than where it
   // was picked: leaving a conversation is asynchronous, and a workspace change
@@ -1762,6 +2058,14 @@ export function App() {
       return;
     }
     if (!sessionId && pendingWorkspaceRef.current?.path) {
+      void refreshHomeWorkspace();
+      return;
+    }
+    // The start screen opens on the folder last picked in this browser.
+    const remembered = sessionId ? "" : readLastWorkspaceDir();
+    if (remembered) {
+      setPendingWorkspace({ path: remembered });
+      void refreshHomeWorkspace();
       return;
     }
     setPendingWorkspace(null);
@@ -1769,9 +2073,28 @@ export function App() {
   }, [
     sessionId,
     refreshWorkspaceContext,
+    refreshHomeWorkspace,
     newChatWorkspaceEpoch,
     setPendingWorkspace,
   ]);
+
+  // On the start screen, coming back to the page reads the folder again: its
+  // branch may have been switched in a terminal meanwhile.
+  useEffect(() => {
+    if (sessionId.trim()) {
+      return undefined;
+    }
+    const reread = () => void refreshHomeWorkspace();
+    const visible = () => {
+      if (document.visibilityState === "visible") reread();
+    };
+    window.addEventListener("focus", reread);
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      window.removeEventListener("focus", reread);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [sessionId, refreshHomeWorkspace]);
 
   async function switchWorkspace(payload: {
     path?: string;
@@ -1781,6 +2104,10 @@ export function App() {
     const sid = sessionId.trim();
     if (!sid) {
       // No session yet: remember the choice and preview the target context.
+      // A folder picked is this browser's for the next start screen too.
+      if (payload.path) {
+        writeLastWorkspaceDir(payload.path);
+      }
       setPendingWorkspace({
         ...(pendingWorkspaceRef.current || {}),
         ...payload,
@@ -1838,12 +2165,16 @@ export function App() {
   }
 
   // Applies pre-session workspace choices to the freshly created session id
-  // right before the first send.
-  async function applyPendingWorkspace(sid: string) {
+  // right before the first send. Answers why it could not, or null: a send
+  // whose folder or branch did not take is not sent into another workspace
+  // (issue #357). The pick is cleared once the session holds it, so the folder
+  // the chat is scoped to never falls back to a stale preview in between, and
+  // kept when it did not take, for the start screen the send returns to.
+  async function applyPendingWorkspace(sid: string): Promise<string | null> {
     const pending = pendingWorkspaceRef.current;
     if (!pending || (!pending.path && !pending.branch)) {
       setPendingWorkspace(null);
-      return;
+      return null;
     }
     const base = { "Content-Type": "application/json", [HDR]: sid };
     try {
@@ -1851,27 +2182,40 @@ export function App() {
       // keeps the chips and everything scoped by chatWorkspace on the picked
       // folder from the moment the pending pick is cleared, instead of on a
       // preview that may not have answered yet.
-      const applied = async (res: Response) => {
+      const applied = async (res: Response): Promise<string | null> => {
         if (!res.ok) {
-          return;
+          const reason = await res
+            .json()
+            .then((b: { error?: { message?: unknown } }) =>
+              typeof b?.error?.message === "string" ? b.error.message : "",
+            )
+            .catch(() => "");
+          // The server's own reason says what to fix (a folder that is gone,
+          // a branch checked out elsewhere); a refused token keeps the hint
+          // that names the environment's token.
+          return reason && res.status !== 401 && res.status !== 403
+            ? reason
+            : remoteHttpErrorMessage(res.status, getEnv(), reason);
         }
         const gen = ++workspaceCtxGenRef.current;
         const ctx = (await res.json()) as WorkspaceContext;
         if (gen === workspaceCtxGenRef.current) {
           setWorkspaceCtx(ctx);
         }
+        return null;
       };
       if (pending.path) {
-        await applied(
+        const failed = await applied(
           await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
             body: JSON.stringify({ path: pending.path }),
           }),
         );
+        if (failed) return failed;
       }
       if (pending.branch) {
-        await applied(
+        const failed = await applied(
           await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/workspace`, {
             method: "POST",
             headers: base,
@@ -1881,13 +2225,12 @@ export function App() {
             }),
           }),
         );
+        if (failed) return failed;
       }
-    } catch {
-      // ignore: the session still starts in the default workspace
-    } finally {
-      // Cleared once the session holds the pick, so the folder the chat is
-      // scoped to never falls back to a stale preview in between.
       setPendingWorkspace(null);
+      return null;
+    } catch (err) {
+      return errorDetail(err) || t("app.workspacePrepareFailedUnknown");
     }
   }
 
@@ -1957,6 +2300,14 @@ export function App() {
     void refreshBackgroundTasks({ silent: true });
   }, [sessionId, refreshBackgroundTasks]);
 
+  // Requests about one project job carry the chat's session, so a job of the
+  // chat's workspace opens and is approved before the scheduler scans it.
+  useEffect(() => {
+    setSchedulerSessionHeaders(
+      workspaceScope(sessionId, chatWorkspace).headers,
+    );
+  }, [sessionId, chatWorkspace]);
+
   const refreshSchedulerJobs = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = !!opts?.silent;
@@ -1964,7 +2315,10 @@ export function App() {
         setSchedulerListLoading(true);
         setSchedulerListError(null);
       }
-      const res = await schedulerListJobs(false);
+      const res = await schedulerListJobs(
+        false,
+        workspaceScope(sessionId, chatWorkspace),
+      );
       if (!silent) {
         setSchedulerListLoading(false);
       }
@@ -2014,11 +2368,15 @@ export function App() {
       setSchedulerInfo(res.data.scheduler);
       setSchedulerJobs(res.data.jobs || []);
     },
-    [sessionId, t, isAppEnvironment],
+    [sessionId, chatWorkspace, t, isAppEnvironment],
   );
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    // The Files and the edits windows have addresses of their own; any other
+    // one puts them away.
+    if (!(p.branch === "session" && p.filesOpen)) setFilesOpen(false);
+    if (!(p.branch === "session" && p.editsOpen)) setChangesViewerOpen(false);
     if (p.branch === "docs") {
       setDocsRoute({ slug: p.slug, anchor: p.anchor });
       if (p.slug) {
@@ -2036,15 +2394,31 @@ export function App() {
     if (p.branch === "session") {
       setSettingsRoute(false);
       setActiveDraftId("");
+      const switchingSession =
+        viewedSessionIdRef.current !== p.sessionId.trim();
       viewedSessionIdRef.current = p.sessionId.trim();
       setSessionId(p.sessionId);
-      setSessionLoading(true);
+      if (switchingSession) setSessionLoading(true);
       void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen((wasOpen) =>
-        p.tasksOpen || (!isStackedShell() && wasOpen),
+      // The Files and the edits windows open over the dock and leave it as it
+      // was, on the stacked shell too, where any other chat address puts the
+      // dock away.
+      setTasksOpen(
+        (wasOpen) =>
+          p.tasksOpen ||
+          ((p.filesOpen === true ||
+            p.editsOpen === true ||
+            !isStackedShell()) &&
+            wasOpen),
       );
+      if (p.filesOpen) {
+        setFilesOpen(true);
+        setFilePath(p.filePath || "");
+        setFileLine(p.fileLine || 1);
+      }
+      setChangesViewerOpen(p.editsOpen === true);
       if (p.tasksOpen && p.taskId) {
         // A link that names a task opens its card once; the address goes back to
         // saying only that the panel is showing.
@@ -2197,6 +2571,8 @@ export function App() {
 
   const closeAllShellDrawers = useCallback(() => {
     setSessionsOpen(false);
+    setFilesOpen(false);
+    setChangesViewerOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     // On desktop Tasks is the side panel of the chat on screen, not a screen of
@@ -2399,7 +2775,9 @@ export function App() {
     if (!schedulerRunsJobId) {
       return "";
     }
-    const job = schedulerJobs.find((j) => j.job_id === schedulerRunsJobId);
+    const job = schedulerJobs.find(
+      (j) => schedulerJobRef(j) === schedulerRunsJobId,
+    );
     return (job?.session_id || "").trim();
   }, [schedulerJobs, schedulerRunsJobId]);
 
@@ -2821,7 +3199,6 @@ export function App() {
           autoEnabled: compaction?.auto_enable !== false,
           threshold: threshold >= 1 && threshold <= 100 ? threshold : 80,
         });
-        setSessionChangesEnabled(readSessionChangesFromConfigDoc(res.data));
       }
     })();
   }, [headers, configEpoch]);
@@ -2914,6 +3291,9 @@ export function App() {
   serverEventHandlersRef.current = {
     sessionSettings: (event: SessionSettingsEvent) =>
       applySessionSettings(event.settings),
+    // A goal set in a console, paused in another tab or checked by the
+    // supervisor shows here too, not only in the tab reading the turn.
+    sessionGoal: (update: SessionGoalUpdate) => applySessionGoal(update),
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
       const key = sid.trim();
@@ -2989,8 +3369,10 @@ export function App() {
     ready: () => {
       void loadSessionsList(true);
       // A config_reloaded may have been missed while the stream was down: the
-      // Settings copy is read again if the drawer ever held one.
+      // Settings copy is read again if the drawer ever held one, and so is the
+      // permission mode a new chat starts under.
       noteSettingsConfigReloaded();
+      void readServerPermissionMode();
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
       stoppedTurnBySidRef.current.clear();
@@ -3014,7 +3396,11 @@ export function App() {
           notifyLocalApiUnauthorized();
       },
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
-      onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onTurnEnded: (sid) => {
+        // Whatever surface ran it, the turn may have edited the folder.
+        emitChangesSettled(sid);
+        serverEventHandlersRef.current.turnEnded(sid);
+      },
       onProviderUsage: (_sid, usage) =>
         serverEventHandlersRef.current.providerUsage(usage),
       onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
@@ -3023,6 +3409,8 @@ export function App() {
       onSessionChanges: (sid) => emitChangesSettled(sid),
       onSessionSettings: (event) =>
         serverEventHandlersRef.current.sessionSettings(event),
+      onSessionGoal: (update) =>
+        serverEventHandlersRef.current.sessionGoal(update),
       onSubagentPermission: (parentSid) =>
         serverEventHandlersRef.current.subagentPermission(parentSid),
       onQuestionPending: (sid) =>
@@ -3071,6 +3459,97 @@ export function App() {
    * merges line up. Older pages never take part: they sit above the live
    * window in `olderTranscript` (issue #338).
    */
+  /**
+   * Mirrors what a messages read says about the settings of the session on
+   * screen: the whole snapshot - the model, the level, the mode, the
+   * permission mode, the overrides for the next turns, and the version the
+   * next send names. The transcript read and the settings-only read of a
+   * running chat both come here.
+   */
+  function mirrorSettingsRead(
+    sid: string,
+    data: {
+      settings?: unknown;
+      model?: string;
+      selectedModelId?: string;
+      selectedReasoning?: string;
+    },
+  ) {
+    const snap = parseSessionSettings(data.settings);
+    // Stash the session's own selection; an effect applies it once the
+    // backends list is loaded (the two fetches race on reload). It is the
+    // snapshot's: the top-level model and selectedReasoning name what a
+    // running turn holds, and a turn override taken for the session's
+    // model would become it with the next message. A read whose snapshot
+    // is older than the one this tab already applied - the events stream
+    // got ahead of a slow read - says nothing new and moves nothing back.
+    // The same version still stashes a model the backends list did not hold
+    // when the events stream applied that snapshot first, and dropped it.
+    const held =
+      settingsVersionRef.current.sid === sid
+        ? settingsVersionRef.current.version
+        : 0;
+    const modelDropped =
+      !!snap &&
+      snap.sessionId === sid &&
+      snap.version === held &&
+      !llmModelIds.includes(snap.model);
+    if (!snap || isNewerSettings(held, sid, snap) || modelDropped) {
+      setOpenSessionSelection({
+        sid,
+        model: snap
+          ? snap.model
+          : (data.model || data.selectedModelId || "").trim(),
+        reasoning: snap
+          ? snap.reasoning
+          : (data.selectedReasoning || "").trim(),
+        choices: snap?.reasoningChoices ?? [],
+      });
+    }
+    if (snap) {
+      applySessionSettings(snap);
+    }
+  }
+
+  /**
+   * Reads the settings of the session on screen alone, for the visit that
+   * keeps its rows from the shadow of a turn this tab runs and so reads no
+   * transcript.
+   */
+  async function readViewedSettings(sid: string): Promise<OpeningRead> {
+    try {
+      const res = await fetchJSON<{
+        settings?: unknown;
+        model?: string;
+        selectedModelId?: string;
+        selectedReasoning?: string;
+      }>(`/coddy/sessions/${encodeURIComponent(sid)}/messages?limit=1`, {
+        headers: sid === sessionId ? headers : { [HDR]: sid },
+      });
+      if (viewedSessionIdRef.current.trim() !== sid) return "superseded";
+      if (res.status === 404) return "missing";
+      if (!res.ok || !res.data) return "failed";
+      mirrorSettingsRead(sid, res.data);
+      return "read";
+    } catch {
+      return "failed";
+    }
+  }
+
+  /**
+   * The server has no session under the id on screen: there is nothing to
+   * wait for, and the first message creates it with what the selectors show.
+   * They must not show another session's settings, so a snapshot of another
+   * session gives way to a new chat's; the start screen's picks for a chat
+   * this tab is creating (no snapshot held yet) stay.
+   */
+  function settleUnknownSession(sid: string) {
+    if (viewedSessionIdRef.current.trim() !== sid) return;
+    const held = settingsVersionRef.current.sid;
+    if (held !== "" && held !== sid) resetNewChatSettings();
+    setSessionLoading(false);
+  }
+
   async function loadMessages(
     idOverride?: string,
     opts?: LoadMessagesOpts,
@@ -3151,6 +3630,7 @@ export function App() {
       selectedModelId?: string;
       selectedReasoning?: string;
       settings?: unknown;
+      goal?: unknown;
       subagent?: {
         parentSessionId?: string;
         name?: string;
@@ -3158,6 +3638,7 @@ export function App() {
       } | null;
       readOnly?: boolean;
       archived?: boolean;
+      rewindUndo?: { userMessageIndex?: number } | null;
       messagesRev?: number;
       uiLog?: Array<{
         id?: string;
@@ -3179,6 +3660,7 @@ export function App() {
     const viewingNow = viewedSessionIdRef.current.trim();
     if (!sameStream()) return null;
     if (!res.ok || !res.data) {
+      failedReadStatusRef.current.set(sid, res.status);
       if (!opts?.preserveOnError) {
         if (viewingNow === sid) {
           setItems([]);
@@ -3187,35 +3669,13 @@ export function App() {
       return null;
     }
     if (viewingNow === sid) {
-      // The whole snapshot: the model, the level, the mode, the permission
-      // mode, the overrides for the next turns, and the version the next send
-      // names.
-      const snap = parseSessionSettings(res.data.settings);
-      // Stash the session's own selection; an effect applies it once the
-      // backends list is loaded (the two fetches race on reload). It is the
-      // snapshot's: the top-level model and selectedReasoning name what a
-      // running turn holds, and a turn override taken for the session's
-      // model would become it with the next message. A read whose snapshot
-      // is older than the one this tab already applied - the events stream
-      // got ahead of a slow read - says nothing new and moves nothing back.
-      const held =
-        settingsVersionRef.current.sid === sid
-          ? settingsVersionRef.current.version
-          : 0;
-      if (!snap || isNewerSettings(held, sid, snap)) {
-        setOpenSessionSelection({
-          sid,
-          model: snap
-            ? snap.model
-            : (res.data.model || res.data.selectedModelId || "").trim(),
-          reasoning: snap
-            ? snap.reasoning
-            : (res.data.selectedReasoning || "").trim(),
-          choices: snap?.reasoningChoices ?? [],
-        });
-      }
-      if (snap) {
-        applySessionSettings(snap);
+      mirrorSettingsRead(sid, res.data);
+      // The session goal, versioned like the settings: the chip and the
+      // popover mirror it, and a read older than an event already applied
+      // moves nothing back.
+      const goalUpdate = parseSessionGoalUpdate(res.data.goal, sid);
+      if (goalUpdate) {
+        applySessionGoal(goalUpdate);
       }
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
@@ -3230,6 +3690,13 @@ export function App() {
           ? archiveWrite.archived
           : !!res.data.archived,
       );
+      // Every read says whether the last rewind can still be taken back.
+      const undoIdx = res.data.rewindUndo?.userMessageIndex;
+      const offered = typeof undoIdx === "number" && undoIdx >= 0;
+      setRewindUndo(offered ? { sid, userMsgIdx: undoIdx } : null);
+      // A banner put away belongs to that undo only: once it is gone, the
+      // next edit of the same prompt announces itself again.
+      if (!offered) setRewindUndoDismissed("");
     }
     const pageMessages = res.data.messages || [];
     const pageWindow = parseTranscriptWindow(
@@ -3618,30 +4085,14 @@ export function App() {
     setDraft(draft);
   }
 
-  function goHome() {
-    persistComposerDraftBeforeLeave();
-    if (sessionId && workspaceCtx?.path && !pendingWorkspaceRef.current?.path) {
-      setPendingWorkspace({ path: workspaceCtx.path });
-    }
-    setSessionsOpen(false);
-    setSchedulerOpen(false);
-    setSchedulerEditor(null);
-    setTasksOpen(false);
-    if (fadeOutTimerRef.current !== null) {
-      clearTimeout(fadeOutTimerRef.current);
-      fadeOutTimerRef.current = null;
-    }
-    clearSessionRoute();
-    setHeroHomeGeneration((g) => g + 1);
-    setItems([]);
-    setSessionLoading(false);
-    setSessionFadingOut(false);
-    setDraft("");
-    setTokenUsage(null);
-    setContextBreakdown(null);
-    setDescribePreview(null);
-    reasoningDurationMsByContentRef.current = new Map();
-    evictStaleSessionCaches("");
+  /**
+   * Puts the composer's selectors back to a new chat's: Agent mode, the default
+   * model and level, the configured permission mode. goHome does it, and so
+   * does every other way to the start screen (the Back button to "#/", a draft
+   * in History) and a session the server does not have: the first message
+   * creates the session with whatever the selectors show.
+   */
+  function resetNewChatSettings() {
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
@@ -3650,8 +4101,12 @@ export function App() {
     reasoningImpliedRef.current = false;
     // A new chat runs under the configured permission mode until it is changed.
     settingsVersionRef.current = { sid: "", version: 0 };
-    pendingPermissionModeRef.current = "";
-    setPermissionMode(configuredPermissionMode);
+    // The mode is one more of the session's settings: the chat left may have
+    // been in Plan or Ask, and a new one is created in the mode shown.
+    setMode("agent");
+    // The start screen's chip names the configured mode again (or a mode
+    // picked there): it is derived, so nothing of the session left is shown.
+    setPendingPermissionMode("");
     setSettingsOverrides([]);
     if (llmModelIds.length > 0) {
       const model = pickDefaultLlmModelForNewChat({
@@ -3673,6 +4128,36 @@ export function App() {
         );
       }
     }
+  }
+  function goHome() {
+    // The chat left hands nothing of its workspace to the next one: the start
+    // screen opens on the folder last picked in this browser (the effect on
+    // the session id reads it once the chat is gone), on that folder's branch.
+    persistComposerDraftBeforeLeave();
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    if (fadeOutTimerRef.current !== null) {
+      clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
+    clearSessionRoute();
+    setHeroHomeGeneration((g) => g + 1);
+    setItems([]);
+    setSessionLoading(false);
+    setSessionFadingOut(false);
+    setDraft("");
+    setTokenUsage(null);
+    setContextBreakdown(null);
+    setDescribePreview(null);
+    reasoningDurationMsByContentRef.current = new Map();
+    evictStaleSessionCaches("");
+    resetNewChatSettings();
+    // Nor does it hold the goal of the chat just left: the next snapshot of
+    // that session is read afresh, whatever version a restarted server gives.
+    goalVersionRef.current = { sid: "", version: 0 };
+    setViewedGoal({ sid: "", goal: null });
   }
 
   async function deleteSession(id: string) {
@@ -4007,25 +4492,106 @@ export function App() {
     try {
       await loadMessages(sid, { freshLoad: true });
     } catch (err) {
+      // The edited text stays in the field as an ordinary draft; the edit
+      // itself is over, so nothing of it may outlive this branch.
       setEditingUserMsgIdx(null);
       setEditingAssetNote("");
       setEditingFiles([]);
+      setEditingSnippet("");
+      editingPrevDraftRef.current = null;
       showRewindError(
         `Rewind applied but reloading failed: ${err instanceof Error ? err.message : String(err)}`,
       );
       return;
     }
-    setDraft("");
+    // The edit is on its way: the draft the pencil set aside comes back, so a
+    // follow-up written before the edit is not lost with it.
+    const prev = editingPrevDraftRef.current;
+    editingPrevDraftRef.current = null;
+    setDraft(prev?.draft ?? "");
+    setComposerFiles(prev?.files ?? []);
     setEditingUserMsgIdx(null);
     setEditingAssetNote("");
     setEditingFiles([]);
+    setEditingSnippet("");
     void streamResponses(text);
+  }
+
+  /**
+   * Takes the last edit back: a turn the edit started is stopped first, then
+   * the server restores the conversation as it was before the rewind and the
+   * transcript is read again.
+   */
+  async function handleUndoEdit() {
+    const sid = sessionId.trim();
+    if (!sid || rewindUndoBusyRef.current) return;
+    rewindUndoBusyRef.current = true;
+    setRewindUndoBusy(true);
+    const showUndoError = (error: string) => {
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev,
+        {
+          id: newId("s"),
+          type: "system_notice" as const,
+          level: "error" as const,
+          message: t("app.undoEditFailed", { error }),
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    };
+    try {
+      if (turnActivity.get(sid) ?? activeComposerSidRef.current.has(sid)) {
+        // Releases this tab's stream of the turn; the server cancels the turn
+        // and waits for it to end before restoring anyway.
+        await stopActiveGeneration();
+      }
+      let res: Response;
+      try {
+        res = await fetch(
+          `/coddy/sessions/${encodeURIComponent(sid)}/rewind/undo`,
+          { method: "POST", headers: { ...headers } },
+        );
+      } catch (err) {
+        showUndoError(err instanceof Error ? err.message : String(err));
+        return;
+      }
+      if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`;
+        try {
+          const body = (await res.json()) as { error?: { message?: string } };
+          if (body?.error?.message) errMsg = body.error.message;
+        } catch {
+          /* ignore */
+        }
+        showUndoError(errMsg);
+        return;
+      }
+      // The history changed under this client the way a rewind changes it.
+      setRewindUndo(null);
+      setRewindUndoDismissed("");
+      streamShadowBySidRef.current.delete(sid);
+      clearPermissionPromptRecords(sid);
+      try {
+        await loadMessages(sid, { freshLoad: true });
+      } catch (err) {
+        showUndoError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      rewindUndoBusyRef.current = false;
+      setRewindUndoBusy(false);
+    }
   }
 
   useEffect(() => {
     setEditingUserMsgIdx(null);
     setEditingAssetNote("");
     setEditingFiles([]);
+    setEditingSnippet("");
+    // Attachments outlive a switch of conversation; the ones an open edit set
+    // aside go back to the composer instead of being dropped with the edit.
+    const setAside = editingPrevDraftRef.current;
+    editingPrevDraftRef.current = null;
+    if (setAside && setAside.files.length > 0) setComposerFiles(setAside.files);
     // Another conversation: the older pages read for the last one go, and the
     // reader starts at the newest message of this one.
     setOlderTranscript(null);
@@ -4039,10 +4605,18 @@ export function App() {
     setSubagentTranscript(null);
     setViewedArchived(false);
     if (!sessionId) {
+      // A first send whose workspace did not take comes back to the start
+      // screen as it was sent from: its text, its files, its picks.
+      const back = startScreenRestoreRef.current;
+      startScreenRestoreRef.current = null;
       setItems([]);
-      setDraft("");
+      setDraft(back ? back.text : "");
+      if (back && back.files.length > 0) setComposerFiles(back.files);
       setSessionLoading(false);
       void loadSessionsList(true);
+      // The Back button to "#/" or a draft in History leaves the chat without
+      // going through goHome.
+      if (!back) resetNewChatSettings();
       return;
     }
     setDraft("");
@@ -4051,15 +4625,14 @@ export function App() {
     tokenBaselineRef.current = { input: 0, output: 0, total: 0 };
     const lifecycle = new AbortController();
     void (async () => {
-      const list = await loadSessionsList(true);
+      await loadSessionsList(true);
       if (lifecycle.signal.aborted) {
         return;
       }
-      // A session spawned by another one is hidden from History and nothing
-      // about its id sets it apart, so an id History does not carry is still
-      // fetched: the messages endpoint serves it and marks it read-only, and
-      // answers 404 when it names nothing.
-      const listed = !!list?.some((s) => s.id === sessionId);
+      // A session spawned by another one is hidden from History, and History
+      // holds one page, so an id it does not carry is still fetched: the
+      // messages endpoint serves it (a child marked read-only), and only its
+      // 404 says the session is not there.
       // A block, so `sess` stays out of the way of the rest of the effect.
       {
         const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
@@ -4082,29 +4655,67 @@ export function App() {
           shadowSnap.length > 0
         ) {
           setItems([...shadowSnap]);
-          setSessionLoading(false);
+          // The rows come from the shadow of a turn this tab runs here, so no
+          // transcript is read and the selectors would keep naming the session
+          // visited before: its settings are read alone, and Send waits for
+          // them. A snapshot of the session that comes another way (the
+          // events stream) ends the wait too, and so does the read the turn
+          // ends with.
+          const held = () => settingsVersionRef.current.sid === sessionId;
+          const outcome = await readOpening(
+            () => readViewedSettings(sessionId),
+            () => sessionLoadingRef.current && !held(),
+            lifecycle.signal,
+          );
+          if (
+            lifecycle.signal.aborted ||
+            viewedSessionIdRef.current.trim() !== sessionId
+          ) {
+            return;
+          }
+          if (outcome === "missing") settleUnknownSession(sessionId);
+          else if (outcome === "read" || held()) setSessionLoading(false);
         } else {
           // freshLoad when no shadow: prevents stale itemsRef from a previous session
           // bleeding into this session (e.g. React StrictMode double-invoke of effects).
           const noShadow = !shadowSnap || shadowSnap.length === 0;
-          const loaded = await loadMessages(undefined, { freshLoad: noShadow });
+          const read: { items: TranscriptItem[] | null } = { items: null };
+          const outcome = await readOpening(
+            async () => {
+              failedReadStatusRef.current.delete(sessionId);
+              try {
+                read.items = await loadMessages(undefined, {
+                  freshLoad: noShadow,
+                });
+              } catch {
+                failedReadStatusRef.current.set(sessionId, 0);
+              }
+              if (read.items) return "read";
+              const status = failedReadStatusRef.current.get(sessionId);
+              if (status === undefined) return "superseded";
+              return status === 404 ? "missing" : "failed";
+            },
+            () => sessionLoadingRef.current,
+            lifecycle.signal,
+          );
           if (lifecycle.signal.aborted) {
             return;
           }
+          // An id the server does not serve: nothing to keep a skeleton up
+          // for, so it lands on the empty state like any unknown id, and its
+          // first message creates it. A read that fails keeps the skeleton
+          // and runs again: the session may well be there.
+          if (outcome === "missing") settleUnknownSession(sessionId);
+          const loaded = read.items;
+          // The rows of a turn this tab runs in it are shown; they say nothing
+          // of the settings, which the read above has settled by now.
           if (
-            loaded === null &&
-            !listed &&
+            activeComposerSidRef.current.has(sessionId) &&
             viewedSessionIdRef.current.trim() === sessionId
           ) {
-            // An id the server does not serve: nothing to keep a skeleton up
-            // for, so it lands on the empty state like any unknown id.
-            setSessionLoading(false);
-          }
-          if (activeComposerSidRef.current.has(sessionId)) {
             const sh = streamShadowBySidRef.current.get(sessionId);
             if (sh && sh.length > 0) {
               setItems([...sh]);
-              setSessionLoading(false);
             }
           }
           if (loaded && turnActivity.get(sessionId) === true) {
@@ -4115,6 +4726,7 @@ export function App() {
     })();
     return () => {
       lifecycle.abort();
+      failedReadStatusRef.current.delete(sessionId);
     };
     // Intentionally sessionId only for loadMessages coalescing; rejoin runs detached.
   }, [sessionId]);
@@ -4296,6 +4908,7 @@ export function App() {
           }
         },
         onSessionSettings: (e) => applySessionSettings(e.settings),
+        onSessionGoal: (u) => applySessionGoal(u),
         onTurnProgress: (progress) => {
           if (ownsRelay() && !fetchCtl.signal.aborted) {
             applyTurnProgress(key, progress, "stream");
@@ -4483,6 +5096,7 @@ export function App() {
     let completedNormally = false;
     let assistantStreamId = "";
     const isNewChatFirstSend = !sessionId.trim();
+    setStartNotice("");
     let releaseSessionId: ((id: string) => void) | undefined;
     const sessionIdWhenKnown = isNewChatFirstSend
       ? new Promise<string>((resolve) => {
@@ -4501,6 +5115,19 @@ export function App() {
     // new chat's workspace, the file read) loses nothing either.
     let restoreKey = "";
     let userItemId = "";
+    const restoreToComposer = () => {
+      setDraft((current) =>
+        !current.trim() || current.trim() === text.trim()
+          ? text
+          : `${text}\n\n${current}`,
+      );
+      const files = opts?.files ?? [];
+      if (files.length > 0)
+        setComposerFiles((prev) => [
+          ...files,
+          ...prev.filter((f) => !files.includes(f)),
+        ]);
+    };
     const giveBack = () => {
       const key = restoreKey || sessionId.trim();
       if (userItemId)
@@ -4512,18 +5139,17 @@ export function App() {
         (key && viewedSessionIdRef.current.trim() !== key)
       )
         return;
-      setDraft((current) =>
-        !current.trim() || current.trim() === text.trim()
-          ? text
-          : `${text}\n\n${current}`,
-      );
-      const files = opts.files ?? [];
-      if (files.length > 0)
-        setComposerFiles((prev) => [
-          ...files,
-          ...prev.filter((f) => !files.includes(f)),
-        ]);
+      restoreToComposer();
     };
+    // The opened session's settings are still being read, so the selectors
+    // name another session's, and what a prompt takes from them (the mode as
+    // the top-level `model`, metadata.model, metadata.reasoning) would be
+    // applied to this session and kept. The composer holds Send back; this is
+    // the one door every other sender passes.
+    if (sessionLoading) {
+      giveBack();
+      return;
+    }
     const ownsPost = () =>
       postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
@@ -4531,8 +5157,11 @@ export function App() {
       let sid = sessionId;
       if (!sid) {
         sid = randomSessionId();
+        // The chat opens on its first message at once (issue #357): what the
+        // first send still has to settle - the mode the server starts it
+        // under, the folder and the branch picked on the start screen - is
+        // settled below, with the message already on screen.
         migrateWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, sid);
-        await applyPendingWorkspace(sid);
         if (activeDraftId.trim()) {
           setClientDraftSessions(
             removeClientDraftSession(activeDraftId.trim()),
@@ -4580,21 +5209,53 @@ export function App() {
         }
       };
 
-      if (isNewChatFirstSend && sessionIdWhenKnown) {
-        startSuggestSessionTitle({
+      // A first send of attachments alone has no text to name the chat by.
+      let naming: TitleSuggestHandle | null = null;
+      if (isNewChatFirstSend && sessionIdWhenKnown && text.trim()) {
+        const namingFolder = chatWorkspace;
+        setNamingSessionIds((prev) => new Set(prev).add(sid));
+        // The chat is in History from its first send, under a placeholder
+        // for the name describe is working out.
+        setSessions((prev) =>
+          prev.some((s) => s.id === sid)
+            ? prev
+            : [
+                {
+                  id: sid,
+                  title: "",
+                  ...(namingFolder ? { cwd: namingFolder } : {}),
+                },
+                ...prev,
+              ],
+        );
+        naming = startSuggestSessionTitle({
           userText: text,
+          // The folder this chat was started in, as the send saw it: the
+          // server describes the slash commands of that workspace.
+          scope: workspaceScope(sid, namingFolder),
           sessionIdPromise: sessionIdWhenKnown,
           getPreviewSessionId: () => latestPreviewSid,
-          onShortReady: (cid, ttl) => {
+          onShortReady: (cid, ttl, tags) => {
             setDescribePreview({ sessionId: cid, title: ttl });
+            const named = (s: SessionRow): SessionRow =>
+              tags.length > 0
+                ? { ...s, title: ttl, tags }
+                : { ...s, title: ttl };
             setSessions((prev) => {
               const i = prev.findIndex((s) => s.id === cid);
               if (i >= 0) {
-                return prev.map((s) =>
-                  s.id === cid ? { ...s, title: ttl } : s,
-                );
+                return prev.map((s) => (s.id === cid ? named(s) : s));
               }
-              return [{ id: cid, title: ttl }, ...prev];
+              return [named({ id: cid }), ...prev];
+            });
+          },
+          onDescribeSettled: () => {
+            const done = [sid, latestPreviewSid];
+            setNamingSessionIds((prev) => {
+              if (!done.some((id) => prev.has(id))) return prev;
+              const next = new Set(prev);
+              for (const id of done) next.delete(id);
+              return next;
             });
           },
           onApplied: (id, appliedTitle) => {
@@ -4642,6 +5303,69 @@ export function App() {
       }
       if (viewingNow === streamKey) {
         setTokenUsage(null);
+      }
+
+      if (isNewChatFirstSend) {
+        // The start screen's pick now belongs to the session this send
+        // creates, and the chip keeps naming what the start screen showed
+        // until that session's own snapshot arrives. With no pick and no word
+        // from the server on its configured mode, what the chip shows is sent
+        // as the pick: the first turn runs under the mode the operator saw,
+        // never under one the page could not name.
+        // A read of the mode in flight (a reload, a reconnect) is waited for,
+        // briefly: the chip may still show the mode it is replacing, and a
+        // first turn pinned to that one would outlive the change.
+        const reading = serverPermissionReadingRef.current;
+        if (reading) {
+          await Promise.race([
+            reading,
+            new Promise((resolve) => setTimeout(resolve, 1500)),
+          ]);
+        }
+        setPendingPermissionMode(
+          pendingPermissionModeRef.current.mode ||
+            (serverPermissionModeRef.current === null
+              ? startPermissionMode
+              : ""),
+          sid,
+        );
+        setPermissionMode(startPermissionMode);
+        // The folder and the branch picked on the start screen: a send whose
+        // workspace did not take is not sent into another one (below).
+        const workspaceFailed = await applyPendingWorkspace(sid);
+        if (workspaceFailed) {
+          // A retry from a chat created without its workspace would go into
+          // another one: the start screen comes back with the picks still
+          // made and the text in the composer, and says why nothing was sent.
+          // The session never reached the server: whatever the send gave
+          // it - a name on its way, a row in History, the start screen's
+          // "@" picks - goes back.
+          giveBack();
+          naming?.cancel();
+          setSessions((prev) => prev.filter((row) => row.id !== sid));
+          setDescribePreview((p) => (p?.sessionId === sid ? null : p));
+          migrateWorkspaceAtRecents(sid, WORKSPACE_AT_RECENTS_NO_SESSION_KEY);
+          setStartNotice(
+            t("app.workspacePrepareFailed", { reason: workspaceFailed }),
+          );
+          // The text goes back to the start screen wherever the operator is
+          // now: at once when they are on it, when they next open it when
+          // they went on to another chat.
+          const viewing = viewedSessionIdRef.current.trim();
+          if (opts?.restoreOnRefusal) {
+            if (!viewing) {
+              restoreToComposer();
+            } else {
+              startScreenRestoreRef.current = {
+                text,
+                files: opts.files ?? [],
+              };
+            }
+          }
+          if (viewing === sid) clearSessionRoute();
+          completedNormally = true;
+          return;
+        }
       }
 
       const reqBody: Record<string, unknown> = {
@@ -4734,6 +5458,9 @@ export function App() {
       // draws: Mermaid and SVG fences as pictures, LaTeX as formulas
       // (external/httpserver/webui_prompt.go).
       const meta: Record<string, string> = { surface: "webui" };
+      // The turn's @coddy: mentions and the agent's documentation tools
+      // follow the interface's language (webui_prompt.go, langFromHTTP).
+      meta.lang = locale;
       if (yamlSel) meta.model = yamlSel;
       if (sendReasoning) meta.reasoning = reasoningSel;
       if (runSlug) meta.runPlanSlug = runSlug;
@@ -4741,9 +5468,18 @@ export function App() {
       reqBody.metadata = meta;
       // A permission mode picked before the chat had a session goes first,
       // as the command that asks for it; the server takes it off the text.
-      if (!sid.trim() && pendingPermissionModeRef.current) {
-        reqBody.input = `/permissions ${pendingPermissionModeRef.current}\n${text}`;
-        pendingPermissionModeRef.current = "";
+      // It is left out only when it is the mode the server named as the one
+      // a new session starts under: against a mode not known (no answer yet,
+      // a reload being read again, a server that does not say) it is sent,
+      // because the configured mode may be another one - bypass, say, under
+      // an explicit "Ask first".
+      const pick = pendingPermissionModeRef.current;
+      if (
+        pick.mode &&
+        pick.sid === sid.trim() &&
+        pick.mode !== serverPermissionModeRef.current
+      ) {
+        reqBody.input = `/permissions ${pick.mode}\n${text}`;
       }
       if (!ownsPost() || abortCtl.signal.aborted) return;
       const res = await fetch("/v1/responses", {
@@ -4753,6 +5489,10 @@ export function App() {
         signal: abortCtl.signal,
       });
       responded = true;
+      // The server took the session's first message, and with it the pick.
+      if (res.ok && pendingPermissionModeRef.current.sid === sid.trim()) {
+        setPendingPermissionMode("");
+      }
       if (!ownsPost() || abortCtl.signal.aborted) return;
       pendingPostBySidRef.current.delete(postSessionKey);
 
@@ -4816,6 +5556,12 @@ export function App() {
         setDescribePreview((p) =>
           p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
         );
+        setNamingSessionIds((prev) => {
+          if (!prev.has(sid)) return prev;
+          const next = new Set(prev);
+          next.delete(sid);
+          return next.add(sidHdr);
+        });
         setSessions((prev) =>
           prev.map((s) => (s.id === sid ? { ...s, id: sidHdr } : s)),
         );
@@ -4888,6 +5634,7 @@ export function App() {
           }
         },
         onSessionSettings: (e) => applySessionSettings(e.settings),
+        onSessionGoal: (u) => applySessionGoal(u),
         onTurnProgress: (progress) => {
           if (ownsPost() && !abortCtl.signal.aborted) {
             applyTurnProgress(streamKey, progress, "stream");
@@ -5210,6 +5957,18 @@ export function App() {
     return row?.multimodal ?? false;
   }, [modelInfos, llmModel]);
 
+  // Every configured model's levels: /goal --reasoning completes the levels
+  // of the model its --model names.
+  const llmReasoningLevelsByModel = useMemo(() => {
+    const out: Record<string, readonly string[]> = {};
+    for (const m of modelInfos) {
+      if (m.ownedBy !== "coddy") {
+        out[m.id] = m.reasoningLevels ?? [];
+      }
+    }
+    return out;
+  }, [modelInfos]);
+
   const llmReasoningLevels = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
     const levels = row?.reasoningLevels ?? [];
@@ -5313,6 +6072,63 @@ export function App() {
     );
   });
 
+  /**
+   * applySessionGoal mirrors a goal snapshot of the viewed session in the
+   * composer's chip and popover. A snapshot of another session, or one older
+   * than the one shown, is dropped: the same change reaches a tab down the
+   * turn stream and the events stream, and an action's answer can land after
+   * the event of a later change.
+   */
+  const applySessionGoal = useStableHandler((update: SessionGoalUpdate) => {
+    const viewed = viewedSessionIdRef.current.trim();
+    const held =
+      goalVersionRef.current.sid === update.sessionId
+        ? goalVersionRef.current.version
+        : 0;
+    if (!isNewerGoal(held, viewed, update)) {
+      return;
+    }
+    goalVersionRef.current = {
+      sid: update.sessionId,
+      version: update.version,
+    };
+    setViewedGoal({ sid: update.sessionId, goal: update.goal });
+  });
+
+  /**
+   * sendGoalRequest pauses or clears the viewed session's goal over REST and
+   * mirrors the answer, which has the shape of the events stream's frame.
+   * Resolves false when the server refused (no goal, an unknown session).
+   */
+  const sendGoalRequest = useCallback(
+    async (method: "PATCH" | "DELETE", body?: unknown): Promise<boolean> => {
+      const sid = sessionId.trim();
+      if (!sid) return false;
+      try {
+        const res = await fetch(
+          `/coddy/sessions/${encodeURIComponent(sid)}/goal`,
+          {
+            method,
+            headers: {
+              ...headers,
+              ...(body !== undefined
+                ? { "Content-Type": "application/json" }
+                : {}),
+            },
+            ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          },
+        );
+        if (!res.ok) return false;
+        const update = parseSessionGoalUpdate(await res.json(), sid);
+        if (update) applySessionGoal(update);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [sessionId, headers, applySessionGoal],
+  );
+
   /** patchSessionSettings sends a settings change and mirrors the answer. */
   const patchSessionSettings = useCallback(
     (sid: string, body: Record<string, unknown>) =>
@@ -5341,14 +6157,25 @@ export function App() {
       setPermissionMode(pm);
       const sid = sessionId.trim();
       if (!sid) {
-        // No session yet: the choice rides in with the first message.
-        pendingPermissionModeRef.current =
-          pm === configuredPermissionMode ? "" : pm;
+        // No session yet: the choice rides in with the first message. It is
+        // kept even when it is the configured mode, which may move before
+        // the message is sent; the send decides against what the server says
+        // then. A first send already under way (its workspace being applied)
+        // has bound the pick to the session it creates: the new choice keeps
+        // that binding, or neither choice would ride in.
+        setPendingPermissionMode(pm, pendingPermissionModeRef.current.sid);
         return;
+      }
+      if (pendingPermissionModeRef.current.sid === sid) {
+        // A session whose first message the server has not taken yet (the
+        // send failed on the way): the choice rides in with the next try, and
+        // the PATCH below applies it at once should the server have taken it
+        // after all.
+        setPendingPermissionMode(pm, sid);
       }
       void patchSessionSettings(sid, { permissionMode: pm });
     },
-    [sessionId, configuredPermissionMode, patchSessionSettings],
+    [sessionId, patchSessionSettings, setPendingPermissionMode],
   );
 
   const onLlmReasoningChange = useCallback(
@@ -5485,39 +6312,46 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setSettingsRoute(false);
-    setDockTab("tasks");
     setTasksOpen(true);
     if (isStackedShell()) {
       setSessionTasksHash(sid);
     }
   }, [sessionId]);
 
-  /** Opens the dock on its Changes face, from the changed-files card. An empty
-   *  path is the whole set; a path preselects the clicked file's diff. */
-  const openChangesDock = useCallback(
-    (path?: string) => {
-      const sid = sessionId.trim();
-      if (!sid) {
-        return;
-      }
-      setSessionsOpen(false);
-      setSchedulerOpen(false);
-      setSchedulerEditor(null);
-      setSettingsRoute(false);
-      setChangesPath(path || "");
-      setDockTab("changes");
-      setTasksOpen(true);
-      if (isStackedShell()) {
-        setSessionTasksHash(sid);
-      }
-    },
-    [sessionId],
-  );
+  /** Opens the edits window, from git's count in the bar over the composer;
+   *  it takes the Files window's place, so one Escape never closes two
+   *  layers. */
+  const openEditsWindow = useCallback(() => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSettingsRoute(false);
+    setDocsRoute(null);
+    setSwarmRoute(false);
+    setFilesOpen(false);
+    setChangesViewerOpen(true);
+    setSessionChangesHash(sid);
+  }, [sessionId]);
+
+  /** Puts the edits window away; the address goes back to the chat, or to the
+   *  tasks when the dock under it shows them on the stacked shell. */
+  const closeEditsWindow = useCallback(() => {
+    setChangesViewerOpen(false);
+    const sid = sessionId.trim();
+    if (!sid) return;
+    if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
+    else setSessionHashInLocation(sid);
+  }, [sessionId, tasksOpen]);
 
   const closeTasksDrawer = useCallback(() => {
     setTasksOpen(false);
     // A pointer at a task that never showed up does not wait for the next opening.
     setTasksFocus(null);
+    setSessionHashInLocation(sessionId.trim());
     if (!isStackedShell()) {
       return;
     }
@@ -5536,6 +6370,71 @@ export function App() {
       );
     }
   }, [sessionId, sessionsOpen]);
+
+  /** Opens the Files window over the chat. Without a path it opens on the
+   *  files it had open; with one, on that file and line. */
+  const openFilesWindow = useCallback(
+    (path?: string, line?: number) => {
+      const sid = sessionId.trim();
+      if (!sid) return;
+      setSessionsOpen(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setSettingsRoute(false);
+      setDocsRoute(null);
+      setSwarmRoute(false);
+      // One window over the chat at a time: the files take the edits' place.
+      setChangesViewerOpen(false);
+      setFilePath(path || "");
+      setFileLine(line || 1);
+      if (path) setFileOpenSeq((n) => n + 1);
+      setFilesOpen(true);
+      setSessionFilesHash(sid, path || "", line || 1);
+    },
+    [sessionId],
+  );
+
+  /** Puts the Files window away. The address goes back to the chat, or to the
+   *  tasks when the dock under it shows them on the stacked shell. */
+  const closeFilesWindow = useCallback(() => {
+    setFilesOpen(false);
+    const sid = sessionId.trim();
+    if (!sid) return;
+    if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
+    else setSessionHashInLocation(sid);
+  }, [sessionId, tasksOpen]);
+
+  // Ctrl+Shift+F (Cmd+Shift+F) opens and closes the Files window of the chat
+  // on screen, wherever the focus is, the composer included.
+  useEffect(() => {
+    if (!sessionId.trim()) return undefined;
+    const onKey = (ev: KeyboardEvent) => {
+      if (!isFilesHotkey(ev)) return;
+      ev.preventDefault();
+      if (filesOpen) closeFilesWindow();
+      else openFilesWindow();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [sessionId, filesOpen, openFilesWindow, closeFilesWindow]);
+
+  useEffect(
+    () =>
+      onOpenWorkspaceFile((request) => {
+        if (!sessionId.trim()) return;
+        const match = /^(.*?)(?:(?::|#L)(\d+)(?:-L?\d*)?)?$/i.exec(
+          request.path,
+        );
+        const raw = (match?.[1] || request.path).replace(
+          /^(["'])(.*)\1$/,
+          "$2",
+        );
+        const path = relativeFilePath(raw, "", workspaceCtx?.path || "");
+        if (path === null) return;
+        openFilesWindow(path, request.line || Number(match?.[2]) || 1);
+      }),
+    [sessionId, workspaceCtx?.path, openFilesWindow],
+  );
 
   /** Opens a session in this tab: the child transcript behind an agent task,
    *  or the parent chat from a read-only notice. Same path as a History pick,
@@ -5618,7 +6517,7 @@ export function App() {
     if (localServer !== "agent" || getEnv().mode !== "remote") {
       return undefined;
     }
-    return { name: localHost || t("composer.env.local") };
+    return { name: localHost || t("env.local") };
   }, [localServer, localHost, t]);
 
   // Entering a node points the whole app at that node's mount, so every screen
@@ -5654,9 +6553,7 @@ export function App() {
       // same-origin: the relay is then this page's origin. Without that fallback
       // the one entry point this screen exists for silently did nothing.
       const relay =
-        env.mode === "remote"
-          ? swarmRootRelay(env)
-          : window.location.origin;
+        env.mode === "remote" ? swarmRootRelay(env) : window.location.origin;
       if (!relay) {
         return;
       }
@@ -5690,9 +6587,7 @@ export function App() {
         return;
       }
       const relay =
-        env.mode === "remote"
-          ? swarmRootRelay(env)
-          : window.location.origin;
+        env.mode === "remote" ? swarmRootRelay(env) : window.location.origin;
       if (!relay) {
         return;
       }
@@ -5800,7 +6695,7 @@ export function App() {
         openDocsFromNav();
         return;
       }
-      void fetchDocsPage(arg).then((res) => {
+      void fetchDocsPage(arg, locale).then((res) => {
         if (res.ok && docsCommandOpensPage(arg, res.data.title)) {
           setDocsSearchSeed(null);
           openDocsAt(res.data.slug, res.data.anchor || null);
@@ -5810,7 +6705,7 @@ export function App() {
         openDocsFromNav();
       });
     },
-    [openDocsAt, openDocsFromNav],
+    [openDocsAt, openDocsFromNav, locale],
   );
 
   /** Following a link of the reader adds a history entry, so Back returns to
@@ -5912,18 +6807,25 @@ export function App() {
   }, [backgroundTasks]);
 
   // The panel belongs to a chat, so it only exists when one is open.
-  const tasksPanelOpen = tasksOpen && dockTab === "tasks" && !!sessionId.trim();
-  // Tasks and Changes are two faces of one right dock: `tasksOpen` keeps being
-  // the dock's open state (every Escape path and stacked-shell rule already
-  // speaks it), the tab picks the face on show.
-  const dockOpen = tasksOpen && !!sessionId.trim();
+  const tasksPanelOpen = tasksOpen && !!sessionId.trim();
+  // The dock beside the chat holds the background tasks; `tasksOpen` is its
+  // open state, which every Escape path and stacked-shell rule speaks.
+  const dockOpen = tasksPanelOpen;
 
+  // A window over the chat - the files or the edits - is one more layer the
+  // shell's backdrop covers the chat under.
+  const chatWindowOpen = (filesOpen || changesViewerOpen) && !!sessionId.trim();
   const shellBackdropOpen =
+    chatWindowOpen ||
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute ||
     swarmRoute ||
     docsRoute !== null;
+
+  // A window over the dock (FilesView, EditsView) takes Escape itself, and the
+  // backdrop covers it, so the dock waits for the next one.
+  useRightDockEscape(dockOpen && !shellBackdropOpen, closeTasksDrawer);
 
   const filteredSchedulerJobs = useMemo(() => {
     const q = schedulerFilterQ.trim().toLowerCase();
@@ -5947,15 +6849,15 @@ export function App() {
    * The environments the History filter offers. Two kinds share the list,
    * because to an operator they are one question - where is this conversation:
    * the origin rows narrow the listing of whichever server is being read, and a
-   * remote row points the whole app at another server, the way the composer's
-   * environment chip does.
+   * remote row points the whole app at another server, the way the rail's
+   * environment menu does.
    */
   const sessionEnvironments = useMemo<SessionsEnvironmentOption[]>(() => {
     const onRemote = activeEnv.mode === "remote";
     const activeConfiguredRemote = onRemote
       ? configuredRemoteFor(activeEnv.baseUrl, configuredRemotes)
       : undefined;
-    // The first three rows filter whichever server is active. Configured
+    // The origin rows filter whichever server is active. Configured
     // remote rows below switch the server the whole app reads instead.
     const narrowTo = (origin: SessionOriginFilter) => () => {
       setSessionsOrigin(origin);
@@ -5983,6 +6885,13 @@ export function App() {
         active: sessionsOrigin === "gateway",
         onPick: narrowTo("gateway"),
       },
+      {
+        kind: "origin",
+        key: "print",
+        label: t("sessions.filter.env.print"),
+        active: sessionsOrigin === "print",
+        onPick: narrowTo("print"),
+      },
     ];
     for (const remote of configuredRemotes) {
       rows.push({
@@ -5999,6 +6908,7 @@ export function App() {
 
   const sessionPanelShared = {
     sessionId: sidebarActiveId,
+    namingSessionIds,
     permissionPendingSessionIds: permissionPendingSids,
     questionPendingSessionIds: questionPendingSids,
     sessions: sessionsForSidebar,
@@ -6095,12 +7005,32 @@ export function App() {
   const handleEditUserMessage = useStableHandler(
     (content: string, userMsgIdx: number) => {
       const assetNote = extractSessionAssetsXml(content);
-      setDraft(stripCoddyAttachmentsForUserDisplay(content));
+      const text = stripCoddyAttachmentsForUserDisplay(content);
+      // The draft to come back to is the one written before the first pencil:
+      // a second pencil only switches the message being edited.
+      if (editingPrevDraftRef.current === null) {
+        editingPrevDraftRef.current = { draft, files: composerFiles };
+      }
+      // An edit resends its own attachments; files attached to the draft it
+      // replaced wait for it in editingPrevDraftRef.
+      setComposerFiles([]);
+      setDraft(text);
       setEditingUserMsgIdx(userMsgIdx);
+      setEditingSnippet(text);
       setEditingAssetNote(assetNote);
       setEditingFiles(parseSessionAssetFiles(content));
     },
   );
+  const handleCancelEdit = useStableHandler(() => {
+    const prev = editingPrevDraftRef.current;
+    editingPrevDraftRef.current = null;
+    setEditingUserMsgIdx(null);
+    setEditingSnippet("");
+    setEditingAssetNote("");
+    setEditingFiles([]);
+    setDraft(prev?.draft ?? "");
+    setComposerFiles(prev?.files ?? []);
+  });
   /**
    * Queue the draft for the turn that is running instead of refusing it.
    *
@@ -6130,6 +7060,16 @@ export function App() {
     })();
   });
 
+  /**
+   * streamResponses as the latest render has it, for a send that resumes
+   * after an await (the queue's fallback): the one its own render held would
+   * read the loading, the mode, the model and the level of that moment, not
+   * of the moment it sends.
+   */
+  const sendLatest = useStableHandler(
+    (text: string, opts?: Parameters<typeof streamResponses>[1]) =>
+      streamResponses(text, opts),
+  );
   const handleQueueMessage = useStableHandler(
     (text: string, mode: QueueMode, files: File[] = []) => {
       const sid = sessionId.trim();
@@ -6195,7 +7135,7 @@ export function App() {
           // ordinary prompt; if the admission has not been released yet and that
           // is refused too, the text comes back to the composer rather than
           // being lost between the two answers.
-          void streamResponses(body, { files, restoreOnRefusal: true });
+          void sendLatest(body, { files, restoreOnRefusal: true });
           return;
         }
         if (viewedSessionIdRef.current.trim() === sid) {
@@ -6317,6 +7257,39 @@ export function App() {
   const handleRetryLast = useStableHandler(
     () => void streamResponses(lastUserText),
   );
+  /**
+   * The goal popover's prompts (`/goal resume`, `/goal <objective>`) go the
+   * way a typed message goes - a turn of this chat, its optimistic row, the
+   * stream - without touching the draft or an edit in progress. Nothing is
+   * sent while a turn runs (the popover says so and waits): like the plan
+   * card's Run plan. An objective the server never took returns to the
+   * composer, since somebody wrote it.
+   */
+  const sendGoalPrompt = useStableHandler((text: string) => {
+    if (subagentTranscript) return;
+    if (
+      sessionId.trim() &&
+      (turnActivity.get(sessionId) ??
+        activeComposerSidRef.current.has(sessionId.trim()))
+    ) {
+      return;
+    }
+    void streamResponses(text, {
+      restoreOnRefusal: text.trim() !== GOAL_RESUME_PROMPT,
+    });
+  });
+  const goalActions = useMemo<GoalActions>(
+    () => ({
+      pause: () => sendGoalRequest("PATCH", { status: "paused" }),
+      clear: () => sendGoalRequest("DELETE"),
+      sendPrompt: sendGoalPrompt,
+    }),
+    [sendGoalRequest, sendGoalPrompt],
+  );
+  const viewedSessionGoal =
+    viewedGoal.sid !== "" && viewedGoal.sid === sessionId.trim()
+      ? viewedGoal.goal
+      : null;
   const handleFetchToolCallFull = useStableHandler(
     async (toolCallId: string) => {
       if (!sessionId) return;
@@ -6358,6 +7331,7 @@ export function App() {
     >
       <EnvHealthBanner />
       <NavRail
+        localHost={localHost}
         // A relay has no chat to start: its home is the map, and the brand
         // leads there as it leads an agent's page to a new chat.
         onNewChat={atSwarmRoot ? openSwarmFromNav : goHome}
@@ -6388,7 +7362,6 @@ export function App() {
           "shell-main",
           sessionsOpen ? "shell-history-open" : "",
           dockOpen ? "shell-tasks-open" : "",
-          dockOpen && dockTab === "changes" ? "shell-changes-open" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -6403,8 +7376,21 @@ export function App() {
         <div
           className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
           onClick={() => {
-            if (shellBackdropOpen) {
-              closeAllShellDrawers();
+            if (!shellBackdropOpen) return;
+            // Over the chat a window is all the backdrop covers: closing it
+            // gives the address back to what the dock under it shows.
+            if (chatWindowOpen) {
+              if (filesOpen) closeFilesWindow();
+              else closeEditsWindow();
+              setSessionsOpen(false);
+              setSchedulerOpen(false);
+              setSchedulerEditor(null);
+            } else {
+              // Settings over unsaved edits asks first, as its close
+              // button does.
+              const guard = settingsRoute ? railCloseGuard("settings") : null;
+              if (guard) guard();
+              else closeAllShellDrawers();
             }
           }}
           aria-hidden={!shellBackdropOpen}
@@ -6456,7 +7442,7 @@ export function App() {
                 open
                 className="scheduler-runs-dock"
                 title={t("scheduler.runsTitle", {
-                  jobId: schedulerEditor.jobId,
+                  jobId: parseSchedulerJobRef(schedulerEditor.jobId).id,
                 })}
                 emptyText={t("scheduler.runsEmpty")}
                 focus={schedulerRunsFocus}
@@ -6492,6 +7478,9 @@ export function App() {
               availableModels={llmModelIds}
               defaultModel={llmModel}
               currentCwd={currentSessionCwd}
+              sessionHeaders={workspaceScope(sessionId, chatWorkspace).headers}
+              workspacePath={sessionId.trim() ? chatWorkspace : ""}
+              projectTrust={schedulerInfo?.project_trust || "ask"}
               onClose={closeSchedulerEditor}
               onSaved={(createdId) => {
                 void refreshSchedulerJobs({ silent: true });
@@ -6568,56 +7557,66 @@ export function App() {
             />
           </div>
         ) : null}
-        {changesViewerOpen && sessionId.trim() ? (
-          <DiffViewerModal
+        {dockOpen ? (
+          <BackgroundTasksPanel
             open
-            sessionId={sessionId}
-            onClose={() => setChangesViewerOpen(false)}
+            focus={
+              tasksFocus && tasksFocus.sid === sessionId.trim()
+                ? tasksFocus
+                : null
+            }
+            onFocusHonoured={spendTasksFocus}
+            tasks={backgroundTasks}
+            loadOutput={loadBackgroundTaskOutput}
+            listError={backgroundListError}
+            loading={backgroundListLoading}
+            nowMs={backgroundNowMs}
+            onClose={closeTasksDrawer}
+            onStopTask={stopBackgroundTaskById}
+            onClearFinished={() => {
+              void clearFinishedTasks();
+            }}
+            onOpenSession={openSessionInPlace}
           />
         ) : null}
-        {dockOpen ? (
-          dockTab === "changes" ? (
-            <SessionChangesPanel
-              open
-              sessionId={sessionId}
-              initialPath={changesPath || undefined}
-              dockTab={dockTab}
-              onDockTab={setDockTab}
-              onClose={closeTasksDrawer}
-            />
-          ) : (
-            <BackgroundTasksPanel
-              open
-              headAddon={
-                <DockTabs tab={dockTab} onTab={setDockTab} />
-              }
-              focus={
-                tasksFocus && tasksFocus.sid === sessionId.trim()
-                  ? tasksFocus
-                  : null
-              }
-              onFocusHonoured={spendTasksFocus}
-              tasks={backgroundTasks}
-              loadOutput={loadBackgroundTaskOutput}
-              listError={backgroundListError}
-              loading={backgroundListLoading}
-              nowMs={backgroundNowMs}
-              onClose={closeTasksDrawer}
-              onStopTask={stopBackgroundTaskById}
-              onClearFinished={() => {
-                void clearFinishedTasks();
-              }}
-              onOpenSession={openSessionInPlace}
-            />
-          )
+
+        {/* After the dock, so on the stacked shell, where both are sheets over
+            the chat, the window is the one on top. */}
+        {changesViewerOpen && sessionId.trim() ? (
+          <EditsView
+            key={`edits:${sessionId}`}
+            sessionId={sessionId}
+            workspacePath={workspaceCtx?.path || ""}
+            onClose={closeEditsWindow}
+          />
+        ) : null}
+        {filesOpen && sessionId.trim() ? (
+          <FilesView
+            key={filesWindowKey}
+            sessionId={sessionId}
+            workspacePath={workspaceCtx?.path || ""}
+            initialPath={filePath}
+            initialLine={fileLine}
+            openSeq={fileOpenSeq}
+            toolActivity={finishedToolCalls(transcriptItems)}
+            onNavigate={(path, line) =>
+              setSessionFilesHash(sessionId, path, line)
+            }
+            onClose={closeFilesWindow}
+          />
         ) : null}
 
         {atSwarmRoot ? null : (
           <ChatScreen
             title={currentTitle}
+            titlePending={namingSessionIds.has(sessionId.trim())}
+            {...(startNotice ? { startNotice } : {})}
             sessionId={sessionId}
-            onOpenChangesViewer={() => setChangesViewerOpen(true)}
-            onOpenSessionChanges={openChangesDock}
+            onOpenEdits={openEditsWindow}
+            onOpenFiles={() =>
+              filesOpen ? closeFilesWindow() : openFilesWindow()
+            }
+            filesOpen={filesOpen}
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
             onBackgroundTasksChanged={() => {
@@ -6644,7 +7643,13 @@ export function App() {
             onWorkspacePickBranch={(b: string, wt: boolean) =>
               void switchWorkspace({ branch: b, worktree: wt })
             }
-            onWorktreeToggle={() => setWorktreePref((v) => !v)}
+            onWorkspaceRefreshBranches={refreshWorkspaceBranches}
+            onWorktreeToggle={() =>
+              setWorktreePref((v) => {
+                writeWorktreePref(!v);
+                return !v;
+              })
+            }
             sessionLoading={sessionLoading}
             sessionFadingOut={sessionFadingOut}
             heroAccentVerb={heroAccentVerb}
@@ -6689,6 +7694,7 @@ export function App() {
                   llmModel,
                   onLlmModelChange,
                   llmModelMultimodal,
+                  llmReasoningLevelsByModel,
                   ...(llmReasoningLevels.length > 0
                     ? {
                         llmReasoningLevels,
@@ -6699,16 +7705,21 @@ export function App() {
                 }
               : {})}
             onModeChange={setMode}
-            permissionMode={permissionMode}
-            configuredPermissionMode={configuredPermissionMode}
+            permissionMode={
+              sessionId.trim() ? permissionMode : startPermissionMode
+            }
+            configuredPermissionMode={shownConfiguredPermissionMode}
             onPermissionModeChange={
               subagentTranscript ? undefined : onPermissionModeChange
             }
             settingsOverrides={settingsOverrides}
+            {...(subagentTranscript
+              ? {}
+              : { goal: viewedSessionGoal, goalActions })}
             onDraftChange={setDraft}
             onMentionArtifact={(path: string) =>
-              setDraft((current) =>
-                `${current}${current.trim() ? " " : ""}@${path}`,
+              setDraft(
+                (current) => `${current}${current.trim() ? " " : ""}@${path}`,
               )
             }
             generating={generating}
@@ -6790,6 +7801,31 @@ export function App() {
                 })}
             {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
             {...(editingFiles.length > 0 ? { editingFiles } : {})}
+            {...(!subagentTranscript && editingUserMsgIdx !== null
+              ? {
+                  editingUserMsgIdx,
+                  editingSnippet,
+                  onCancelEdit: handleCancelEdit,
+                }
+              : {})}
+            {...(!subagentTranscript
+              ? (() => {
+                  const undoIdx =
+                    rewindUndo && rewindUndo.sid === sessionId.trim()
+                      ? rewindUndo.userMsgIdx
+                      : null;
+                  return {
+                    rewindUndoUserMsgIdx: undoIdx,
+                    rewindUndoBanner:
+                      undoIdx !== null &&
+                      rewindUndoDismissed !== `${sessionId.trim()}:${undoIdx}`,
+                    rewindUndoBusy,
+                    onUndoEdit: () => void handleUndoEdit(),
+                    onDismissRewindUndo: () =>
+                      setRewindUndoDismissed(`${sessionId.trim()}:${undoIdx}`),
+                  };
+                })()
+              : {})}
             {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
             onDocsCommand={openDocsCommand}
             onMCPCommand={() => {
@@ -6826,6 +7862,9 @@ export function App() {
                 void handleRewindSend(textWithAssets, idx);
               } else {
                 setDraft("");
+                // A prompt after the edited turn ends the undo on the server.
+                setRewindUndo(null);
+                setRewindUndoDismissed("");
                 void streamResponses(text, {
                   restoreOnRefusal: true,
                   ...(files ? { files } : {}),

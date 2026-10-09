@@ -21,11 +21,11 @@ import (
 )
 
 type retryOwnershipState struct {
-	server    *httptest.Server
-	provider  Provider
-	mode      string
-	requests  atomic.Int32
-	callErr   error
+	server   *httptest.Server
+	provider Provider
+	mode     string
+	requests atomic.Int32
+	callErr  error
 	// codex wiring: a temp auth.json and the previous CODDY_CODEX_BASE_URL so
 	// NewProvider's codex branch reaches the request-counting server.
 	prevCodexBaseURL string

@@ -18,7 +18,13 @@
     "check:queue": "node scripts/queue-modes-check.mjs",
     "check:telegram": "node scripts/telegram-mini-app-check.mjs",
     "check:diagrams": "node scripts/diagram-check.mjs",
-    "fmt": "prettier -w ."
+    "check:files": "node scripts/files-check.mjs",
+    "check:artifacts": "node scripts/artifact-card-check.mjs",
+    "check:caret": "node scripts/composer-caret-check.mjs",
+    "check:long-prompts": "node scripts/long-prompts-check.mjs",
+    "check:settings-unsaved": "node scripts/settings-unsaved-check.mjs",
+    "fmt": "prettier -w .",
+    "format:check": "prettier --check ."
   },
   "keywords": [],
   "author": "",
@@ -34,13 +40,13 @@
     "jsdom": "^26.1.0",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3",
-    "vite": "^8.0.11",
-    "vitest": "^3.2.4"
+    "vite": "^8.0.16",
+    "vitest": "^3.2.7"
   },
   "dependencies": {
     "cronstrue": "^2.59.0",
     "highlight.js": "^11.11.1",
-    "katex": "^0.16.47",
+    "katex": "^0.19.0",
     "lowlight": "^3.3.0",
     "mermaid": "^12.1.0",
     "react": "^19.0.0",
@@ -51,5 +57,8 @@
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5"
+  },
+  "overrides": {
+    "katex": "$katex"
   }
 }

@@ -67,7 +67,5 @@ test("finished and error dots keep the shared circle geometry", () => {
   expect(rule(".session-error-dot\.is-seen")).toMatch(
     /background:\s*transparent;/,
   );
-  expect(rule(".session-error-dot\.is-seen")).toMatch(
-    /box-shadow:\s*inset/,
-  );
+  expect(rule(".session-error-dot\.is-seen")).toMatch(/box-shadow:\s*inset/);
 });

@@ -47,7 +47,8 @@ test("code-block copy button is centred on the first line of the block", () => {
   expect(fontSize).toBe(12);
   expect(lineHeight).toBe(1.5);
   const lineCentre = 1 /* border */ + padTop + (fontSize * lineHeight) / 2;
-  const buttonHeight = 2 /* border */ + 2 * px(copy, "padding") + px(glyph, "height");
+  const buttonHeight =
+    2 /* border */ + 2 * px(copy, "padding") + px(glyph, "height");
   const buttonCentre = px(copy, "top") + buttonHeight / 2;
   expect(buttonCentre).toBe(lineCentre);
 });

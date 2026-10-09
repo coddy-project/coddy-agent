@@ -58,12 +58,12 @@ function task(over: Partial<BackgroundTask>): BackgroundTask {
 test("the tasks control is in the header of a chat that never ran a task, without counts", () => {
   const onOpenTasks = vi.fn();
   render(<ChatHeader title="Hello" tasks={[]} onOpenTasks={onOpenTasks} />);
-  const control = screen.getByTestId("chat-header-tasks");
+  const control = screen.getByTestId("chat-views-tasks");
   expect(control).not.toHaveClass("is-running");
-  expect(control.querySelector(".chat-header-tasks-label")?.textContent).toBe(
-    "Tasks",
-  );
-  expect(screen.queryByTestId("chat-header-tasks-counts")).toBeNull();
+  // The dot the control always had, and its word.
+  expect(control.querySelector(".bgtask-dot--muted")).toBeTruthy();
+  expect(control.querySelector(".chat-view-label")?.textContent).toBe("Tasks");
+  expect(screen.queryByTestId("chat-views-tasks-count")).toBeNull();
   expect(control.getAttribute("aria-label")).toBe("Background tasks: none yet");
   fireEvent.click(control);
   expect(onOpenTasks).toHaveBeenCalledTimes(1);
@@ -87,14 +87,18 @@ test("with tasks the control says how many are running out of how many there are
       onOpenTasks={() => {}}
     />,
   );
-  const control = screen.getByTestId("chat-header-tasks");
+  const control = screen.getByTestId("chat-views-tasks");
   expect(control).toHaveClass("is-running");
-  expect(screen.getByTestId("chat-header-tasks-counts").textContent).toBe(
+  expect(control.querySelector(".bgtask-dot--running")).toBeTruthy();
+  expect(screen.getByTestId("chat-views-tasks-count").textContent).toBe(
     "1 / 3",
   );
   expect(control.getAttribute("aria-label")).toBe(
     "Background tasks: 1 running, 3 in total",
   );
+  expect(
+    control.parentElement?.querySelector(".chat-view-tip")?.textContent,
+  ).toBe("Background tasks: 1 running, 3 in total");
 });
 
 test("once everything has finished the control keeps the total and drops the live mark", () => {
@@ -108,34 +112,121 @@ test("once everything has finished the control keeps the total and drops the liv
       onOpenTasks={() => {}}
     />,
   );
-  const control = screen.getByTestId("chat-header-tasks");
+  const control = screen.getByTestId("chat-views-tasks");
   expect(control).not.toHaveClass("is-running");
-  expect(screen.getByTestId("chat-header-tasks-counts").textContent).toBe(
+  expect(screen.getByTestId("chat-views-tasks-count").textContent).toBe(
     "0 / 2",
   );
+  expect(control.getAttribute("aria-label")).toBe(
+    "Background tasks: 0 running, 2 in total",
+  );
 });
 
-test("the control says whether the panel it opens is showing", () => {
-  const { rerender } = render(
-    <ChatHeader title="Hello" tasks={[task({})]} onOpenTasks={() => {}} />,
-  );
-  expect(
-    screen.getByTestId("chat-header-tasks").getAttribute("aria-expanded"),
-  ).toBe("false");
-  rerender(
+test("without a way to open the panel the header has no views", () => {
+  render(<ChatHeader title="Hello" tasks={[task({})]} />);
+  expect(screen.queryByTestId("chat-views")).toBeNull();
+});
+
+// The views of a chat in its header - its files, its background tasks - are a
+// row of buttons, the way the views of a session sit at the top of Claude's
+// app: Files an icon with its short name (a phone keeps the icon alone),
+// Background tasks last with the dot and the counts, the full name in a
+// tooltip; no tab strip inside a panel, no menu to open first. The edits open
+// from git's count in the bar over the composer, never from the header.
+function viewsHeader(
+  over: Partial<React.ComponentProps<typeof ChatHeader>> = {},
+) {
+  return (
     <ChatHeader
       title="Hello"
-      tasks={[task({})]}
+      tasks={[
+        task({ id: "bg_1" }),
+        task({ id: "bg_2", status: "succeeded", running: false }),
+      ]}
       onOpenTasks={() => {}}
-      tasksOpen={true}
-    />,
+      onOpenFiles={() => {}}
+      {...over}
+    />
   );
+}
+
+test("the header shows files and background tasks as buttons in a row", () => {
+  render(viewsHeader());
+  const row = screen.getByRole("toolbar", { name: "Views of this chat" });
+  const buttons = Array.from(row.querySelectorAll("button"));
+  // Background tasks stand at the right edge; no Edits button.
+  expect(buttons.map((b) => b.getAttribute("data-testid"))).toEqual([
+    "chat-views-files",
+    "chat-views-tasks",
+  ]);
+  // Files: an icon and a short name; Tasks: the dot and the counts.
+  expect(buttons[0]!.querySelector("svg.chat-view-icon")).toBeTruthy();
+  expect(buttons[1]!.querySelector("svg")).toBeNull();
+  expect(buttons[1]!.querySelector(".bgtask-dot")).toBeTruthy();
   expect(
-    screen.getByTestId("chat-header-tasks").getAttribute("aria-expanded"),
-  ).toBe("true");
+    buttons.map((b) => b.querySelector(".chat-view-label")?.textContent),
+  ).toEqual(["Files", "Tasks"]);
+  expect(screen.getByTestId("chat-views-tasks-count").textContent).toBe(
+    "1 / 2",
+  );
+  const tips = Array.from(row.querySelectorAll('[role="tooltip"]')).map(
+    (tip) => tip.textContent,
+  );
+  // The Files tooltip names its key.
+  expect(tips[0]).toMatch(/^Workspace files \((Ctrl\+Shift\+F|⇧⌘F)\)$/);
+  expect(tips[1]).toBe("Background tasks: 1 running, 2 in total");
+  expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(tips);
 });
 
-test("without a way to open the panel the header has no tasks control", () => {
-  render(<ChatHeader title="Hello" tasks={[task({})]} />);
-  expect(screen.queryByTestId("chat-header-tasks")).toBeNull();
+test("a button opens its view", () => {
+  const onOpenTasks = vi.fn();
+  const onOpenFiles = vi.fn();
+  render(viewsHeader({ onOpenTasks, onOpenFiles }));
+  fireEvent.click(screen.getByTestId("chat-views-files"));
+  expect(onOpenFiles).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByTestId("chat-views-tasks"));
+  expect(onOpenTasks).toHaveBeenCalledTimes(1);
+});
+
+test("the button of the view on show is pressed", () => {
+  const { rerender } = render(viewsHeader());
+  for (const id of ["tasks", "files"])
+    expect(
+      screen.getByTestId(`chat-views-${id}`).getAttribute("aria-pressed"),
+    ).toBe("false");
+  rerender(viewsHeader({ filesOpen: true }));
+  expect(
+    screen.getByTestId("chat-views-files").getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(screen.getByTestId("chat-views-files")).toHaveClass("is-active");
+});
+
+// Issue #435: while a new chat is being named, a shimmering bar stands where
+// the title will be, never the first message ("/rpa-init") or "New chat".
+test("a title being worked out shows a placeholder", () => {
+  const { rerender } = render(
+    <ChatHeader
+      title="/rpa-init"
+      titlePending
+      editable
+      onTitleSave={() => {}}
+    />,
+  );
+  // A screen reader names the button by what is going on, not "Chat title".
+  const btn = screen.getByRole("button", { name: /naming the chat/i });
+  expect(btn).toHaveAttribute("aria-busy", "true");
+  expect(screen.getByTestId("chat-title-pending")).toBeInTheDocument();
+  expect(btn).not.toHaveTextContent("/rpa-init");
+
+  rerender(
+    <ChatHeader
+      title="Repository onboarding"
+      editable
+      onTitleSave={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("chat-title-pending")).toBeNull();
+  expect(btn).not.toHaveAttribute("aria-busy");
+  expect(btn).toHaveTextContent("Repository onboarding");
+  expect(screen.getByRole("button", { name: /chat title/i })).toBe(btn);
 });

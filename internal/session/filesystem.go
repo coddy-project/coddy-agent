@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -397,9 +398,10 @@ type SessionMeta struct {
 	SelectedReasoning string `json:"selectedReasoning,omitempty"`
 	AgentMemory       string `json:"agentMemory,omitempty"`
 	// HookContext is what SessionStart hooks handed to the session.
-	HookContext string `json:"hookContext,omitempty"`
-	Title       string `json:"title,omitempty"`
-	TitlePinned string `json:"titlePinned,omitempty"`
+	HookContext string     `json:"hookContext,omitempty"`
+	Goal        *GoalState `json:"goal,omitempty"`
+	Title       string     `json:"title,omitempty"`
+	TitlePinned string     `json:"titlePinned,omitempty"`
 	// Tags are the flat labels the listing filters and groups by, normalized
 	// by NormalizeTags before they reach this struct.
 	Tags []string `json:"tags,omitempty"`
@@ -409,7 +411,8 @@ type SessionMeta struct {
 	ArchivedAt string `json:"archivedAt,omitempty"`
 	// Origin names the surface that started the session: empty for one a
 	// person opened on this host, "gateway:<messenger>" for a conversation a
-	// messenger gateway is holding.
+	// messenger gateway is holding, "print" (PrintOrigin) for a run of
+	// one-shot print mode, which the listings leave out unless asked.
 	Origin string `json:"origin,omitempty"`
 	// Pinned keeps a session at the top of every listing; PinnedAt records when.
 	Pinned     bool   `json:"pinned,omitempty"`
@@ -434,10 +437,13 @@ type SessionMeta struct {
 	// below) it names the job the run belongs to, with SchedulerTrigger
 	// ("cron" or "manual") and SchedulerFireSlot (the committed UTC minute of
 	// a cron fire, RFC3339) saying how the run started.
-	SchedulerRun      bool   `json:"schedulerRun,omitempty"`
-	SchedulerJobID    string `json:"schedulerJobId,omitempty"`
-	SchedulerTrigger  string `json:"schedulerTrigger,omitempty"`
-	SchedulerFireSlot string `json:"schedulerFireSlot,omitempty"`
+	SchedulerRun   bool   `json:"schedulerRun,omitempty"`
+	SchedulerJobID string `json:"schedulerJobId,omitempty"`
+	// SchedulerJobWorkspace is the canonical workspace of a project job (its
+	// file is <workspace>/.coddy/scheduler/<id>.md); empty for a user job.
+	SchedulerJobWorkspace string `json:"schedulerJobWorkspace,omitempty"`
+	SchedulerTrigger      string `json:"schedulerTrigger,omitempty"`
+	SchedulerFireSlot     string `json:"schedulerFireSlot,omitempty"`
 	// Subagent-run bundle: a child session spawned by another session's
 	// spawn_agent call; omitted for normal chats. The pool task that represents
 	// the run lives under ParentSessionID.
@@ -761,6 +767,16 @@ type SessionListEntry struct {
 	// nested child bundle.
 	bundleDir         string
 	messageCountKnown bool
+	// noMessage marks a conversation nobody wrote in, listed because the
+	// listing asked for every bundle (ListOptions.IncludeEmpty).
+	noMessage bool
+}
+
+// HoldsNoMessage reports whether the row is a conversation nobody wrote in: an
+// ordinary session, not pinned, whose transcript is empty. Only a listing with
+// ListOptions.IncludeEmpty returns such a row.
+func (e SessionListEntry) HoldsNoMessage() bool {
+	return e.noMessage
 }
 
 // ListOptions selects which persisted sessions ListSnapshotsWith returns.
@@ -782,6 +798,26 @@ type ListOptions struct {
 	// Origin selects sessions by the surface that started them; the zero value
 	// is every surface.
 	Origin OriginFilter
+	// IncludeEmpty lists the conversations that hold no message as well: a
+	// console started and closed without a prompt, an editor's thread nobody
+	// wrote in, a chat whose first send never ran. A listing for a person
+	// leaves them out (issue #357), so the zero value does; a caller that
+	// acts on every bundle (a bulk delete) sets it. A pinned conversation is
+	// listed either way, and so are the bundles of scheduler jobs, subagent
+	// runs and print runs, which the options above decide on: a print run that
+	// failed before its prompt is still a run a script may look at.
+	IncludeEmpty bool
+	// IncludePrintRuns adds the sessions one-shot print mode created (origin
+	// "print"), and the children they spawned. The zero value leaves them out,
+	// like scheduler runs and subagent children: they are a script's runs, not
+	// conversations a person picks from a list. Origin OriginPrint lists them
+	// without it.
+	IncludePrintRuns bool
+}
+
+// admitsPrintRuns reports whether a listing with these options shows print runs.
+func (o ListOptions) admitsPrintRuns() bool {
+	return o.IncludePrintRuns || o.Origin == OriginPrint
 }
 
 // ListSnapshots scans Root for persisted sessions (requires session.json).
@@ -815,8 +851,9 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 			continue
 		}
 		dir := filepath.Join(f.Root, ent.Name())
-		out = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
-		if opts.IncludeSubagents {
+		var descend bool
+		out, descend = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
+		if opts.IncludeSubagents && descend {
 			out = f.appendChildRows(out, dir, cwdFilter, opts, 0)
 		}
 	}
@@ -840,31 +877,42 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 // appendBundleRow reads one bundle's metadata and adds its row when opts admit
 // it. It deliberately does not open messages.json: default History needs no
 // transcript fields, and archive filters must exclude a row before a large or
-// damaged transcript can affect the scan.
-func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) []SessionListEntry {
+// damaged transcript can affect the scan. descend is false for a print run the
+// options leave out, whose children stay out with it.
+func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) (_ []SessionListEntry, descend bool) {
 	meta, err := f.readListMetaAt(dir, id)
 	if err != nil {
-		return out
+		return out, true
+	}
+	if IsPrintOrigin(meta.Origin) && !opts.admitsPrintRuns() {
+		return out, false
 	}
 	if recovered, ok := RecoverManagedWorktreeCWD(meta.CWD); ok {
 		meta.CWD = recovered
 	}
 	if !opts.IncludeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
-		return out
+		return out, true
 	}
 	if !opts.IncludeSubagents && meta.IsSubagentRun() {
-		return out
+		return out, true
 	}
 	if cwdFilter != "" && !matchesWorkspace(cwdFilter, meta.CWD) {
-		return out
+		return out, true
 	}
 	if !opts.Archived.Keeps(meta.Archived) {
-		return out
+		return out, true
 	}
 	if !opts.Origin.Keeps(meta.Origin) {
-		return out
+		return out, true
 	}
 	messageCount, known := meta.messageCountMatches(filepath.Join(dir, messagesFile))
+	noMessage := false
+	if !meta.Pinned && !meta.ExcludedFromComposerSessionList(id) && !meta.IsSubagentRun() && !IsPrintOrigin(meta.Origin) {
+		noMessage = known && messageCount == 0 || !known && transcriptHoldsNoMessage(dir)
+	}
+	if noMessage && !opts.IncludeEmpty {
+		return out, true
+	}
 	row := SessionListEntry{
 		SessionID:         meta.ID,
 		CWD:               meta.CWD,
@@ -886,11 +934,12 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 		SubagentTaskID:    meta.SubagentTaskID,
 		bundleDir:         dir,
 		messageCountKnown: known,
+		noMessage:         noMessage,
 	}
 	if !SessionMatchesAnyTag(row, opts.Tags) {
-		return out
+		return out, true
 	}
-	return append(out, row)
+	return append(out, row), true
 }
 
 // readListMetaAt reads the durable metadata necessary to list a bundle. A
@@ -932,6 +981,35 @@ func (f *FileStore) EnrichMessageCounts(rows []SessionListEntry) {
 	}
 }
 
+// emptyTranscriptMaxBytes is the size up to which a transcript is read to tell
+// whether it holds a message: an empty one is a few dozen bytes, and anything
+// larger holds at least one.
+const emptyTranscriptMaxBytes = 256
+
+// transcriptHoldsNoMessage answers, for a bundle whose recorded count does not
+// name its transcript (an older build wrote it), whether the transcript is
+// empty, without decoding one that holds a conversation: only a file small
+// enough to be empty is read. A missing transcript holds nothing.
+func transcriptHoldsNoMessage(dir string) bool {
+	path := filepath.Join(dir, messagesFile)
+	info, err := os.Stat(path)
+	if err != nil {
+		return errors.Is(err, os.ErrNotExist)
+	}
+	if info.Size() > emptyTranscriptMaxBytes {
+		return false
+	}
+	b, err := readFileWithRetry(path)
+	if err != nil {
+		return false
+	}
+	var wrap messagesFileData
+	if err := json.Unmarshal(b, &wrap); err != nil {
+		return false
+	}
+	return len(wrap.Messages) == 0
+}
+
 // messageCountAt keeps the historical list behavior for a missing or corrupt
 // transcript: its count is zero, not a listing failure.
 func (f *FileStore) messageCountAt(dir string) int {
@@ -953,7 +1031,7 @@ func (f *FileStore) appendChildRows(out []SessionListEntry, dir, cwdFilter strin
 		return out
 	}
 	for _, child := range f.childBundleDirs(dir) {
-		out = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
+		out, _ = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
 		out = f.appendChildRows(out, child, cwdFilter, opts, depth+1)
 	}
 	return out
@@ -1167,9 +1245,13 @@ func (f *FileStore) Save(state *State) error {
 		PinnedAt:          strings.TrimSpace(pinnedAt),
 		PinnedRank:        pinnedRank,
 	}
+	if goal := state.GetGoal(); goal.Set() {
+		meta.Goal = &goal
+	}
 	if state.IsSchedulerJob() {
 		meta.SchedulerRun = true
 		meta.SchedulerJobID = strings.TrimSpace(state.GetSchedulerJobID())
+		meta.SchedulerJobWorkspace = strings.TrimSpace(state.GetSchedulerJobWorkspace())
 	}
 	if sub := state.Subagent(); sub != nil {
 		meta.SubagentRun = true
@@ -1179,6 +1261,7 @@ func (f *FileStore) Save(state *State) error {
 		meta.SubagentDepth = sub.Depth
 		if sub.Scheduler != nil {
 			meta.SchedulerJobID = strings.TrimSpace(sub.Scheduler.JobID)
+			meta.SchedulerJobWorkspace = strings.TrimSpace(sub.Scheduler.Workspace)
 			meta.SchedulerTrigger = strings.TrimSpace(sub.Scheduler.Trigger)
 			if !sub.Scheduler.FireSlot.IsZero() {
 				meta.SchedulerFireSlot = sub.Scheduler.FireSlot.UTC().Format(time.RFC3339)

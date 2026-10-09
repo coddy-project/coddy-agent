@@ -146,3 +146,20 @@ Feature: Instructions and rules of the operator, shared by every project
     When the model reads "docs/guide.md" and then answers
     Then every request carries "DOCS_AGENTS_TOKEN" exactly once
     And every request after the read carries "DOCS_DESIGN_TOKEN"
+
+  Scenario: A file shared by several agents is read by its absolute path, named and counted as rules
+    Given a folder outside the agent home and the project holds "house-style.md" with "SHARED_STYLE_TOKEN"
+    And instructions.files lists that shared file by its absolute path
+    And a project without an AGENTS.md of its own
+    And a coddy agent session in that project
+    When the model answers without touching any file
+    Then the request carries "SHARED_STYLE_TOKEN"
+    And the request names the shared file in a heading above its text
+    And the context estimate counts the shared file under rules
+
+  Scenario: An absolute entry of instructions.files that cannot be read is reported
+    Given instructions.files lists an absolute path that does not exist
+    And a project without an AGENTS.md of its own
+    And a coddy agent session in that project
+    When the model answers without touching any file
+    Then the log warns that the instructions file was not read and names its path

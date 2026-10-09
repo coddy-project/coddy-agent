@@ -80,6 +80,12 @@ type Message struct {
 	// finished notify_on_finish task started a turn with (excluded from what
 	// the provider is sent; the Content still is).
 	BackgroundWake *BackgroundWake `json:"background_wake,omitempty"`
+	// GoalTurn marks a user-role message no person typed: the one the session
+	// supervisor opened a goal turn with - the kickoff of a new goal, a
+	// continuation after a check found work left, a recovery after a stalled
+	// or failed turn. Surfaces show a one-line row instead of the text, which
+	// the model reads like any other user message.
+	GoalTurn *GoalTurn `json:"goal_turn,omitempty"`
 }
 
 type Artifact struct {
@@ -128,7 +134,9 @@ type Response struct {
 	// StopReason explains why generation stopped.
 	// "end_turn" | "tool_use" | "max_tokens"
 	StopReason string
-	// InputTokens and OutputTokens are for usage tracking.
+	// InputTokens and OutputTokens are for usage tracking. InputTokens is the
+	// whole prompt, like OpenAI prompt_tokens: a provider that reports cache
+	// reads and cache writes apart from the rest (Anthropic, Devin) adds them in.
 	InputTokens  int
 	OutputTokens int
 	// CachedInputTokens is the part of InputTokens the provider served from its

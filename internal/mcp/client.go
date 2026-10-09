@@ -240,11 +240,14 @@ func (c *Client) Close() error {
 
 // callTool invokes a tool over the connection and returns its text result.
 func (c *conn) callTool(ctx context.Context, toolName, argsJSON string) (string, error) {
-	var args interface{}
+	// The arguments go to the server as the JSON the model wrote, checked
+	// rather than decoded into an arbitrary value.
+	var args json.RawMessage
 	if argsJSON != "" {
-		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-			return "", fmt.Errorf("mcp callTool parse args: %w", err)
+		if !json.Valid([]byte(argsJSON)) {
+			return "", fmt.Errorf("mcp callTool parse args: invalid JSON")
 		}
+		args = json.RawMessage(argsJSON)
 	}
 
 	result, err := c.call(ctx, "tools/call", map[string]interface{}{
@@ -515,7 +518,9 @@ func (c *conn) dispatch(data []byte) {
 		return
 	}
 
-	var id interface{}
+	// Calls go out with numeric ids and wait under them as float64; an id
+	// of any other kind answers nothing of ours.
+	var id float64
 	if err := json.Unmarshal(idRaw, &id); err != nil {
 		return
 	}

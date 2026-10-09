@@ -309,6 +309,9 @@ func TestRenderHubAndLLMSIndex(t *testing.T) {
 		t.Fatalf("hub:\n%s", hub)
 	}
 	idx := RenderLLMSIndex(nav, "# Coddy documentation\n\nOne binary.\n\n<!-- docsgen:nav:start -->\n", "https://raw.example/main/")
+	if !strings.Contains(idx, "- [Russian documentation](https://coddy.dev/ru/llms.txt)") {
+		t.Fatalf("llms index does not name the Russian one:\n%s", idx)
+	}
 	if !strings.Contains(idx, "> One binary.") || !strings.Contains(idx, "(https://raw.example/main/docs/getting-started/install.md): How.") || !strings.Contains(idx, "(https://raw.example/main/CONTRIBUTING.md): Why.") {
 		t.Fatalf("llms index:\n%s", idx)
 	}

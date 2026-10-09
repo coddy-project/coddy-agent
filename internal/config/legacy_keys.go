@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -56,6 +57,12 @@ func migrateLegacyKeys(paths Paths, data []byte) []byte {
 		if k, v := mappingEntry(skills, "sources"); k != nil {
 			moves = append(moves, legacyMove{path: "skills.sources", key: k, value: v,
 				move: func(v *yaml.Node) ([]string, []string, error) { return moveLegacySkillSources(paths, v) }})
+		}
+	}
+	if _, sched := mappingEntry(root, "scheduler"); sched != nil && sched.Kind == yaml.MappingNode {
+		if k, v := mappingEntry(sched, "dir"); k != nil {
+			moves = append(moves, legacyMove{path: "scheduler.dir", key: k, value: v,
+				move: func(v *yaml.Node) ([]string, []string, error) { return moveLegacySchedulerDir(paths, v) }})
 		}
 	}
 	if len(moves) == 0 {
@@ -251,6 +258,123 @@ func moveLegacySkillSources(paths Paths, value *yaml.Node) (moved, kept []string
 		}
 	}
 	return moved, kept, nil
+}
+
+// moveLegacySchedulerDir carries the jobs of an old scheduler.dir into the
+// fixed user jobs folder, ${CODDY_HOME}/scheduler. Each *.md job and its .state
+// sidecar is copied, never moved: the old folder stays as it was, so nothing
+// is lost when it was shared or kept under version control. A job the target
+// has already with the same bytes is skipped and reported as kept; one it has
+// with other bytes is copied as <id>-migrated.md (with <id>-migrated.state),
+// so no job silently stops running. A folder that is the target itself, or
+// that does not exist, has nothing to carry.
+func moveLegacySchedulerDir(paths Paths, value *yaml.Node) (moved, kept []string, err error) {
+	var raw string
+	if err := value.Decode(&raw); err != nil {
+		return nil, nil, fmt.Errorf("scheduler.dir does not read as a path: %w", err)
+	}
+	raw = strings.TrimSpace(raw)
+	target := SchedulerUserDirFor(paths)
+	if raw == "" || target == "" {
+		return nil, nil, nil
+	}
+	src := filepath.Clean(ExpandPathVars(raw, paths))
+	if sameDir(src, target) {
+		return nil, nil, nil
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	for _, ent := range entries {
+		name := ent.Name()
+		if ent.IsDir() || strings.HasPrefix(name, ".") || !strings.EqualFold(filepath.Ext(name), ".md") {
+			continue
+		}
+		base := strings.TrimSuffix(name, filepath.Ext(name))
+		dstBase := base
+		if existing, err := os.ReadFile(filepath.Join(target, name)); err == nil {
+			mine, err := os.ReadFile(filepath.Join(src, name))
+			if err != nil {
+				return moved, kept, err
+			}
+			if string(existing) == string(mine) {
+				// Same job: carry its checkpoint along when the home has
+				// none yet.
+				if _, err := os.Stat(filepath.Join(target, base+".state")); os.IsNotExist(err) {
+					if err := copyRegularFile(filepath.Join(src, base+".state"), filepath.Join(target, base+".state")); err != nil && !os.IsNotExist(err) {
+						return moved, kept, err
+					}
+				}
+				kept = append(kept, name)
+				continue
+			}
+			dstBase = freeMigratedBase(target, base)
+		}
+		if err := copyRegularFile(filepath.Join(src, name), filepath.Join(target, dstBase+".md")); err != nil {
+			return moved, kept, err
+		}
+		if _, err := os.Stat(filepath.Join(target, dstBase+".state")); os.IsNotExist(err) {
+			if err := copyRegularFile(filepath.Join(src, base+".state"), filepath.Join(target, dstBase+".state")); err != nil && !os.IsNotExist(err) {
+				return moved, kept, err
+			}
+		}
+		moved = append(moved, dstBase+".md")
+	}
+	return moved, kept, nil
+}
+
+// freeMigratedBase is the first <base>-migrated, <base>-migrated-2, ... name
+// with no job file in target.
+func freeMigratedBase(target, base string) string {
+	for i := 1; ; i++ {
+		name := base + "-migrated"
+		if i > 1 {
+			name = fmt.Sprintf("%s-migrated-%d", base, i)
+		}
+		if _, err := os.Stat(filepath.Join(target, name+".md")); os.IsNotExist(err) {
+			return name
+		}
+	}
+}
+
+// sameDir reports whether two folder paths name the same folder, links
+// resolved where they exist.
+func sameDir(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
+}
+
+// copyRegularFile copies src to dst, creating dst's folder; dst must not
+// exist yet.
+func copyRegularFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // legacyMCPServerToJSON is the mcp.json entry of a declaration read from the

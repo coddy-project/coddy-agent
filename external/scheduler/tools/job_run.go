@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
@@ -23,6 +22,7 @@ func jobRunTool(cfg *config.Config) *tooling.Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"scope": scopeProperty(),
 					"job_id": map[string]interface{}{
 						"type":        "string",
 						"description": "Existing flat job basename",
@@ -35,12 +35,17 @@ func jobRunTool(cfg *config.Config) *tooling.Tool {
 		Execute: func(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
 			var in struct {
 				JobID string `json:"job_id"`
+				Scope string `json:"scope"`
 			}
 			if err := json.Unmarshal([]byte(argsJSON), &in); err != nil {
 				return "", err
 			}
-			op := schedservice.NewService(cfg, nil, toolEnvCWD(env))
-			ref, err := op.TriggerJobRun(strings.TrimSpace(in.JobID))
+			op := toolService(cfg, env)
+			addr, err := toolAddr(op, in.Scope, in.JobID)
+			if err != nil {
+				return "", err
+			}
+			ref, err := op.TriggerJobRun(addr)
 			if err != nil {
 				return "", err
 			}

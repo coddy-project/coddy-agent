@@ -72,8 +72,9 @@ func Run(args []string, deps CommandDeps) error {
 	sessionID := fs.String("session-id", "", "reopen or create the session under this id")
 	resume := fs.Bool("resume", false, "open the session picker before starting")
 	var contFlag bool
-	fs.BoolVar(&contFlag, "continue", false, "continue the most recent session in this folder")
+	fs.BoolVar(&contFlag, "continue", false, "continue the most recent session in this folder (a one-shot run continues the previous one-shot run as well)")
 	fs.BoolVar(&contFlag, "c", false, "shorthand for --continue")
+	ephemeral := fs.Bool("ephemeral", false, "one-shot runs only: delete the run's session when the run ends, however it ends (it is stored while it runs; a crash can leave it behind, hidden like every one-shot run)")
 	prompt := newPromptRequest()
 	prompt.register(fs)
 	modelFlag := fs.String("model", "", "select a configured model id (provider/model)")
@@ -105,6 +106,19 @@ func Run(args []string, deps CommandDeps) error {
 	// console keeps ignoring them, as it always has.
 	if rest := fs.Args(); len(rest) > 0 && prompt.printMode() {
 		return fmt.Errorf("unexpected argument %q: quote the whole prompt (-p \"...\"), or pass it with -i or on stdin", rest[0])
+	}
+	// --ephemeral deletes the session a one-shot run creates: there is none
+	// to delete in the interactive console, and a continued or named session
+	// is not the run's own to remove.
+	if *ephemeral {
+		switch {
+		case !prompt.printMode():
+			return errors.New("--ephemeral works with a one-shot run (-p, -i or a pipe), not with the interactive console")
+		case contFlag:
+			return errors.New("--ephemeral and --continue are mutually exclusive: a continued session is not the run's own to delete")
+		case strings.TrimSpace(*sessionID) != "":
+			return errors.New("--ephemeral and --session-id are mutually exclusive: a named session is not the run's own to delete")
+		}
 	}
 	stdin, stdout, stderr := deps.stdio()
 
@@ -236,6 +250,7 @@ func Run(args []string, deps CommandDeps) error {
 			Mode:         opts.mode,
 			PermMode:     opts.permMode,
 			Config:       cfg,
+			Ephemeral:    *ephemeral,
 		}
 		if ropts != nil {
 			ropts.Log = log
@@ -256,6 +271,7 @@ func Run(args []string, deps CommandDeps) error {
 			return newTurnAgent(mgr, nil, st, snd, log).Run(rctx, prompt)
 		}
 		mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+		mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: stdout, errOut: stderr}
 		startScheduler(ctx, cfg, mgr, log)
 		defer mgr.CloseMCP()
@@ -325,6 +341,7 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	}
 	lateSender := &lateBoundSender{}
 	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+	mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 	wireLocalManager(mgr)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
@@ -421,6 +438,9 @@ func buildRemoteApp(cfg *config.Config, ropts *remote.Options, log *slog.Logger,
 // sessions, so /new and /resume reuse them instead of starting them again.
 func wireLocalManager(mgr *session.Manager) {
 	mgr.SetBackgroundMCPConnect(true)
+	// A session is written with its first prompt: a console started and
+	// closed without one leaves no folder in History (issue #357).
+	mgr.SetDeferNewSessionBundle(true)
 	mgr.StartGlobalMCPServers()
 }
 

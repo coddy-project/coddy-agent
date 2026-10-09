@@ -8,7 +8,9 @@ export type RenderedPicture = { svg: string; width: number; height: number };
 export type PictureKind = "mermaid" | "svg";
 
 /** Fence labels drawn as pictures, by the first word of the info string. */
-export function pictureKindOf(className: string | undefined): PictureKind | null {
+export function pictureKindOf(
+  className: string | undefined,
+): PictureKind | null {
   const m = /(?:^|\s)language-([\w-]+)/.exec(className || "");
   const lang = (m?.[1] || "").toLowerCase();
   if (lang === "mermaid") return "mermaid";
@@ -33,14 +35,22 @@ const MAX_SVG_CHARS = 512 * 1024;
  * size). Throws on text that is not an SVG document.
  */
 export function standaloneSvg(text: string): RenderedPicture {
-  if (text.length > MAX_SVG_CHARS) throw new Error("the SVG is larger than 512 KB");
+  if (text.length > MAX_SVG_CHARS)
+    throw new Error("the SVG is larger than 512 KB");
   const doc = new DOMParser().parseFromString(text, "image/svg+xml");
   const root = doc.documentElement;
-  if (!root || root.nodeName.toLowerCase() !== "svg" || doc.getElementsByTagName("parsererror").length) {
+  if (
+    !root ||
+    root.nodeName.toLowerCase() !== "svg" ||
+    doc.getElementsByTagName("parsererror").length
+  ) {
     throw new Error("not an SVG document");
   }
   if (!root.getAttribute("xmlns")) root.setAttribute("xmlns", SVG_NS);
-  const box = (root.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
+  const box = (root.getAttribute("viewBox") || "")
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number);
   const vbW = box.length === 4 && box[2]! > 0 ? box[2]! : 0;
   const vbH = box.length === 4 && box[3]! > 0 ? box[3]! : 0;
   let width = pixels(root.getAttribute("width"));
@@ -68,7 +78,11 @@ export function standaloneSvg(text: string): RenderedPicture {
     if (kept) root.setAttribute("style", kept);
     else root.removeAttribute("style");
   }
-  return { svg: new XMLSerializer().serializeToString(root), width: round(width), height: round(height) };
+  return {
+    svg: new XMLSerializer().serializeToString(root),
+    width: round(width),
+    height: round(height),
+  };
 }
 
 function pixels(value: string | null): number {
@@ -137,7 +151,9 @@ export function diagramPalette(theme: UiThemeMode): DiagramPalette | null {
     const text = resolve("--text", background);
     const accent = resolve("--accent", background);
     if (!text || !accent) return null;
-    const series = SERIES_TOKENS.map((t) => resolve(t, background)).filter((c): c is Rgb => c !== null);
+    const series = SERIES_TOKENS.map((t) => resolve(t, background)).filter(
+      (c): c is Rgb => c !== null,
+    );
     return {
       dark: !LIGHT_THEMES.has(theme),
       background,
@@ -152,15 +168,28 @@ export function diagramPalette(theme: UiThemeMode): DiagramPalette | null {
 }
 
 /** rgb(), rgba() and color(srgb ...) as a browser serialises a computed colour. */
-export function parseCssColor(value: string): [number, number, number, number] | null {
+export function parseCssColor(
+  value: string,
+): [number, number, number, number] | null {
   const v = value.trim();
-  let m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/i.exec(v);
+  let m =
+    /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/i.exec(
+      v,
+    );
   if (m) {
     return [Number(m[1]), Number(m[2]), Number(m[3]), alphaOf(m[4])];
   }
-  m = /^color\(\s*srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)$/i.exec(v);
+  m =
+    /^color\(\s*srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)$/i.exec(
+      v,
+    );
   if (m) {
-    return [Number(m[1]) * 255, Number(m[2]) * 255, Number(m[3]) * 255, alphaOf(m[4])];
+    return [
+      Number(m[1]) * 255,
+      Number(m[2]) * 255,
+      Number(m[3]) * 255,
+      alphaOf(m[4]),
+    ];
   }
   return null;
 }
@@ -190,7 +219,11 @@ export function contrastRatio(a: Rgb, b: Rgb): number {
 function awayFrom(c: Rgb, surface: Rgb, ratio: number): Rgb {
   const target: Rgb = luminance(surface) < 0.5 ? [255, 255, 255] : [0, 0, 0];
   let out = c;
-  for (let step = 1; step <= 20 && contrastRatio(out, surface) < ratio; step++) {
+  for (
+    let step = 1;
+    step <= 20 && contrastRatio(out, surface) < ratio;
+    step++
+  ) {
     out = mix(target, c, step / 20);
   }
   return out;
@@ -205,7 +238,9 @@ function distance(a: Rgb, b: Rgb): number {
 
 /** `top` at weight `w` over `base`. */
 function mix(top: Rgb, base: Rgb, w: number): Rgb {
-  return [0, 1, 2].map((i) => Math.round(top[i]! * w + base[i]! * (1 - w))) as Rgb;
+  return [0, 1, 2].map((i) =>
+    Math.round(top[i]! * w + base[i]! * (1 - w)),
+  ) as Rgb;
 }
 
 function hex(c: Rgb): string {
@@ -225,7 +260,9 @@ function hex(c: Rgb): string {
  *   them in light and dark themes alike since the syntax palette contrasts
  *   with the surface.
  */
-export function mermaidThemeVariables(p: DiagramPalette): Record<string, unknown> {
+export function mermaidThemeVariables(
+  p: DiagramPalette,
+): Record<string, unknown> {
   const bg = p.background;
   const fg = hex(p.text);
   const tint = (c: Rgb, w: number) => hex(mix(c, bg, w));
@@ -239,7 +276,9 @@ export function mermaidThemeVariables(p: DiagramPalette): Record<string, unknown
   // syntax colours): two slices of one pie must not look alike.
   const marks = p.series
     .map((c) => awayFrom(c, bg, MARK_CONTRAST))
-    .filter((c, i, all) => all.findIndex((o) => distance(o, c) < DISTINCT) === i);
+    .filter(
+      (c, i, all) => all.findIndex((o) => distance(o, c) < DISTINCT) === i,
+    );
   const series = (i: number) => marks[i % marks.length]!;
   const vars: Record<string, unknown> = {
     darkMode: p.dark,
@@ -386,7 +425,11 @@ function mermaidConfig(p: DiagramPalette | null, dark: boolean) {
     // and downloaded as a file, and both read plain SVG best.
     htmlLabels: false,
     flowchart: { htmlLabels: false },
-    theme: p ? ("base" as const) : dark ? ("dark" as const) : ("default" as const),
+    theme: p
+      ? ("base" as const)
+      : dark
+        ? ("dark" as const)
+        : ("default" as const),
     // Mermaid sets no anchor on the text of a mindmap's round root with SVG
     // labels, so its name starts at the centre and runs out of the circle.
     themeCSS: ".mindmap-node.section-root text { text-anchor: middle; }",
@@ -398,7 +441,11 @@ function mermaidConfig(p: DiagramPalette | null, dark: boolean) {
 const CACHE_LIMIT = 64;
 const cache = new Map<string, RenderedPicture>();
 
-export function cachedPicture(kind: PictureKind, source: string, theme: string): RenderedPicture | undefined {
+export function cachedPicture(
+  kind: PictureKind,
+  source: string,
+  theme: string,
+): RenderedPicture | undefined {
   const key = cacheKey(kind, source, theme);
   const hit = cache.get(key);
   if (hit) {
@@ -422,7 +469,11 @@ function cacheKey(kind: PictureKind, source: string, theme: string): string {
 let queue: Promise<unknown> = Promise.resolve();
 let renderSeq = 0;
 
-export function renderPicture(kind: PictureKind, source: string, theme: UiThemeMode): Promise<RenderedPicture> {
+export function renderPicture(
+  kind: PictureKind,
+  source: string,
+  theme: UiThemeMode,
+): Promise<RenderedPicture> {
   const key = cacheKey(kind, source, theme);
   const hit = cache.get(key);
   if (hit) return Promise.resolve(hit);
@@ -442,8 +493,11 @@ export function renderPicture(kind: PictureKind, source: string, theme: UiThemeM
     // The palette is read from the page when the job runs, not when it was
     // queued: a job for a theme the page has already left would draw in the
     // new colours and file the picture under the old theme.
-    if (readAppliedUiTheme() !== theme) throw new Error("the theme changed before the diagram was drawn");
-    mermaid.initialize(mermaidConfig(diagramPalette(theme), !LIGHT_THEMES.has(theme)));
+    if (readAppliedUiTheme() !== theme)
+      throw new Error("the theme changed before the diagram was drawn");
+    mermaid.initialize(
+      mermaidConfig(diagramPalette(theme), !LIGHT_THEMES.has(theme)),
+    );
     const id = `coddy-mermaid-${++renderSeq}`;
     try {
       // parse() names the error without leaving Mermaid's error picture behind.

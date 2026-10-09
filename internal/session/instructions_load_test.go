@@ -15,8 +15,14 @@ import (
 // entries resolved by session.ResolveInstructionFiles, read by
 // rules.LoadStanding after the AGENTS.md and DESIGN.md of layerHome and
 // layerCWD ("" for none), which a file of the list is never sent next to.
+// It returns the texts read, in order, without the heading each one gets in
+// the prompt (rules.RenderUserDocs).
 func userInstructions(cwd, home string, files []string, layerHome, layerCWD string) string {
-	return rules.RenderUserDocs(rules.LoadStanding(layerHome, layerCWD, session.ResolveInstructionFiles(files, cwd, home)).User)
+	var parts []string
+	for _, doc := range rules.LoadStanding(layerHome, layerCWD, session.ResolveInstructionFiles(files, cwd, home)).User {
+		parts = append(parts, doc.Content)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // write creates a file with body and returns its path.
@@ -257,5 +263,99 @@ func TestRulesPromptLastsForOneGeneration(t *testing.T) {
 	st.StoreRulesPrompt(&session.RulesPrompt{Generation: gen, Inputs: "inputs", Rules: "STALE"})
 	if cached, _ := st.CachedRulesPrompt("inputs"); cached != nil {
 		t.Fatalf("a stale rendering was stored: %+v", cached)
+	}
+}
+
+// An entry that names the same file in every workspace - an absolute path, ~,
+// ${CODDY_HOME} - is how several agents with configurations of their own share
+// one set of instructions. When that file cannot be read the session has
+// nothing to show for it, so the entry is reported with the reason; an entry
+// that resolves inside the workspace is left alone while its file is merely
+// absent, since one list serves workspaces that do not all carry the file.
+func TestUnreadInstructionFiles(t *testing.T) {
+	cwd, home, shared := t.TempDir(), t.TempDir(), t.TempDir()
+	readable := write(t, shared, "house-style.md", "SHARED")
+	write(t, shared, "blank.md", "  \n\n")
+	if err := os.MkdirAll(filepath.Join(shared, "folder.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, home, "team.md", "TEAM")
+
+	entries := []string{
+		readable,                            // 0: read
+		filepath.Join(shared, "missing.md"), // 1: absolute, absent
+		filepath.Join(shared, "blank.md"),   // 2: absolute, empty
+		filepath.Join(shared, "folder.md"),  // 3: absolute, a folder
+		"${CODDY_HOME}/team.md",             // 4: read
+		"${CODDY_HOME}/gone.md",             // 5: home, absent
+		"docs/STYLE.md",                     // 6: workspace, absent here
+		"${CWD}/docs/RULES.md",              // 7: workspace, absent here
+		"",                                  // 8: blank, nothing to say
+	}
+	got := session.UnreadInstructionFiles(entries, cwd, home)
+	want := map[int]string{
+		1: "does not exist",
+		2: "is empty",
+		3: "is a folder, not a file",
+		5: "does not exist",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("unread = %+v, want entries %v", got, want)
+	}
+	for _, u := range got {
+		reason, ok := want[u.Index]
+		if !ok {
+			t.Fatalf("entry %d (%q) reported as unread: %v", u.Index, u.Entry, u.Err)
+		}
+		if u.Entry != entries[u.Index] {
+			t.Fatalf("entry %d is reported as %q, want %q", u.Index, u.Entry, entries[u.Index])
+		}
+		if r := u.Reason(); r != reason {
+			t.Fatalf("entry %d: reason %q, want %q", u.Index, r, reason)
+		}
+		if !filepath.IsAbs(u.Path) {
+			t.Fatalf("entry %d: path %q is not absolute", u.Index, u.Path)
+		}
+	}
+	if got[3].Path != filepath.Join(home, "gone.md") {
+		t.Fatalf("the ${CODDY_HOME} entry resolves to %q", got[3].Path)
+	}
+}
+
+// A file in the workspace that exists and cannot be read is a problem of the
+// configuration whichever way the entry names it.
+func TestUnreadInstructionFilesWorkspaceFileWithoutPermission(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("file modes do not deny a read here")
+	}
+	cwd := t.TempDir()
+	locked := write(t, cwd, "LOCKED.md", "SECRET")
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o644) })
+	got := session.UnreadInstructionFiles([]string{"LOCKED.md"}, cwd, "")
+	if len(got) != 1 || got[0].Reason() != "cannot be read: permission denied" {
+		t.Fatalf("unread = %+v, want the locked file with permission denied", got)
+	}
+}
+
+// CheckInstructionFile is what --dry-run asks of every entry: where it points,
+// whether that place belongs to the workspace, and why it would not be read.
+func TestCheckInstructionFile(t *testing.T) {
+	cwd, home := t.TempDir(), t.TempDir()
+	write(t, cwd, "AGENTS.md", "PROJECT")
+	if path, workspace, err := session.CheckInstructionFile("AGENTS.md", cwd, home); err != nil || !workspace || path != filepath.Join(cwd, "AGENTS.md") {
+		t.Fatalf("relative entry: path %q workspace %v err %v", path, workspace, err)
+	}
+	if _, workspace, err := session.CheckInstructionFile("${CWD}/nope.md", cwd, home); !workspace || err == nil {
+		t.Fatalf("${CWD} entry: workspace %v err %v, want a workspace file that is absent", workspace, err)
+	}
+	abs := filepath.Join(home, "missing.md")
+	if path, workspace, err := session.CheckInstructionFile(abs, cwd, home); workspace || err == nil || path != abs {
+		t.Fatalf("absolute entry: path %q workspace %v err %v", path, workspace, err)
+	}
+	if path, _, _ := session.CheckInstructionFile("   ", cwd, home); path != "" {
+		t.Fatalf("a blank entry resolves to %q", path)
 	}
 }

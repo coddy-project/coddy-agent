@@ -28,7 +28,10 @@ test("system notice action row is inset by the message card's horizontal padding
   const css = cssText();
   const card = block(css, ".msg");
   const cardPadding = /padding:\s*(\d+)px\s+(\d+)px\s*;/.exec(card);
-  expect(cardPadding, ".msg keeps a vertical/horizontal padding pair").not.toBeNull();
+  expect(
+    cardPadding,
+    ".msg keeps a vertical/horizontal padding pair",
+  ).not.toBeNull();
   const horizontal = cardPadding![2];
   const foot = block(css, ".msg-system-foot");
   expect(foot).toMatch(new RegExp(`padding-left:\\s*${horizontal}px\\s*;`));

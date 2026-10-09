@@ -120,14 +120,16 @@ type schedulerRunsState struct {
 	script    runScript
 	providers map[string]*scriptedRunProvider
 
-	retain    int
-	maxQueue  int
-	levels    []string
-	agentName string
-	lastErr   error
-	refs      []schedservice.RunRef
-	release   chan struct{}
-	inFlight  schedservice.RunRef
+	retain       int
+	maxQueue     int
+	projectTrust string
+	projectJobs  map[string]bool
+	levels       []string
+	agentName    string
+	lastErr      error
+	refs         []schedservice.RunRef
+	release      chan struct{}
+	inFlight     schedservice.RunRef
 }
 
 func (s *schedulerRunsState) reset() error {
@@ -147,6 +149,8 @@ func (s *schedulerRunsState) reset() error {
 	}
 	s.retain = 0
 	s.maxQueue = 0
+	s.projectTrust = ""
+	s.projectJobs = map[string]bool{}
 	s.levels = nil
 	s.agentName = ""
 	s.lastErr = nil
@@ -193,7 +197,7 @@ func (s *schedulerRunsState) buildConfig() *config.Config {
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
 		Agent:     config.Agent{Model: "fake/model", MaxTurns: 8},
 		Sessions:  config.Sessions{Dir: filepath.Join(s.root, "sessions")},
-		Scheduler: config.SchedulerConfig{Enabled: true, Dir: s.schedDir, Timeout: "1m", RetainSessions: s.retain, MaxQueue: s.maxQueue},
+		Scheduler: config.SchedulerConfig{Enabled: true, Timeout: "1m", RetainSessions: s.retain, MaxQueue: s.maxQueue, ProjectTrust: s.projectTrust},
 	}
 	if s.levels != nil {
 		levels := append([]string(nil), s.levels...)
@@ -251,8 +255,20 @@ func (noopSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*
 	return &acp.QuestionResult{}, nil
 }
 
-func (s *schedulerRunsState) jobPath(jobID string) string {
-	return storage.CanonicalSchedulerJobPath(filepath.Join(s.schedDir, jobID+".md"))
+// jobRef is the job a step names: the project job of the scenario's
+// workspace when the scenario made one of that id, the user job otherwise.
+func (s *schedulerRunsState) jobRef(jobID string) storage.JobRef {
+	roots := schedservice.RootsOf(s.cfg)
+	if s.projectJobs[jobID] {
+		return roots.ProjectRef(schedservice.CanonicalWorkspace(s.cwd), jobID)
+	}
+	return roots.UserRef(jobID)
+}
+
+// jobAddr is jobRef as the service addresses it.
+func (s *schedulerRunsState) jobAddr(jobID string) schedservice.JobAddr {
+	ref := s.jobRef(jobID)
+	return schedservice.JobAddr{Scope: ref.Scope, Workspace: ref.Workspace, ID: jobID}
 }
 
 func (s *schedulerRunsState) writeJob(jobID, schedule, body string) error {
@@ -402,14 +418,14 @@ func (s *schedulerRunsState) waitRunSettled(ref schedservice.RunRef) error {
 	// The watcher applies retention and releases the reservation after the
 	// pool reports the task settled.
 	return waitFor("the run to be released", func() bool {
-		_, running := s.rt.RunningRun(s.jobPath(ref.JobID))
+		_, running := s.rt.RunningRun(s.jobRef(ref.JobID))
 		return !running
 	})
 }
 
 func (s *schedulerRunsState) runByHand(jobID, answer string) error {
 	s.setScript(answer, nil)
-	ref, err := s.svc.TriggerJobRun(jobID)
+	ref, err := s.svc.TriggerJobRun(s.jobAddr(jobID))
 	if err != nil {
 		return err
 	}
@@ -429,7 +445,7 @@ func (s *schedulerRunsState) runByHandTimes(jobID string, times int, answer stri
 func (s *schedulerRunsState) runInFlight(jobID string) error {
 	s.release = make(chan struct{})
 	s.setScript("done", s.release)
-	ref, err := s.svc.TriggerJobRun(jobID)
+	ref, err := s.svc.TriggerJobRun(s.jobAddr(jobID))
 	if err != nil {
 		return err
 	}
@@ -469,7 +485,7 @@ func (s *schedulerRunsState) tickAndAnswer(when, answer string) error {
 	}
 	// The tick started at most one run per job; wait for every run in flight.
 	for _, job := range s.jobIDs() {
-		ref, running := s.rt.RunningRun(s.jobPath(job))
+		ref, running := s.rt.RunningRun(s.jobRef(job))
 		if !running {
 			continue
 		}
@@ -482,16 +498,19 @@ func (s *schedulerRunsState) tickAndAnswer(when, answer string) error {
 }
 
 func (s *schedulerRunsState) jobIDs() []string {
-	paths, _ := storage.ListFlatJobMarkdownFiles([]string{s.schedDir})
-	out := make([]string, 0, len(paths))
-	for _, p := range paths {
-		out = append(out, strings.TrimSuffix(filepath.Base(p), ".md"))
+	refs, _ := schedservice.RootsOf(s.cfg).ListUser()
+	if project, err := schedservice.RootsOf(s.cfg).ListProject(schedservice.CanonicalWorkspace(s.cwd)); err == nil {
+		refs = append(refs, project...)
+	}
+	out := make([]string, 0, len(refs))
+	for _, r := range refs {
+		out = append(out, r.ID)
 	}
 	return out
 }
 
 func (s *schedulerRunsState) runs(jobID string) ([]schedservice.SchedulerRunEntry, error) {
-	return s.svc.ListJobRuns(jobID, 0)
+	return s.svc.ListJobRuns(s.jobAddr(jobID), 0)
 }
 
 func (s *schedulerRunsState) lastRun(jobID string) (schedservice.SchedulerRunEntry, error) {
@@ -506,7 +525,7 @@ func (s *schedulerRunsState) lastRun(jobID string) (schedservice.SchedulerRunEnt
 }
 
 func (s *schedulerRunsState) runIsAgentTaskUnderJobSession(jobID string) error {
-	jobSID := s.rt.jobSessionID(s.jobPath(jobID))
+	jobSID := s.rt.jobSessionID(s.jobRef(jobID))
 	if jobSID == "" {
 		return fmt.Errorf("job %q has no job session", jobID)
 	}
@@ -533,11 +552,11 @@ func (s *schedulerRunsState) runIsAgentTaskUnderJobSession(jobID string) error {
 }
 
 func (s *schedulerRunsState) sidecarNamesJobSession(jobID string) error {
-	got, err := storage.ReadJobSessionID(storage.StatePath(s.jobPath(jobID)))
+	got, err := storage.ReadJobSessionID(s.jobRef(jobID).StatePath)
 	if err != nil {
 		return err
 	}
-	want := s.rt.jobSessionID(s.jobPath(jobID))
+	want := s.rt.jobSessionID(s.jobRef(jobID))
 	if got == "" || got != want {
 		return fmt.Errorf("sidecar session id = %q, want %q", got, want)
 	}
@@ -553,7 +572,7 @@ func (s *schedulerRunsState) runSessionBelongs(jobID, trigger string) error {
 	if err != nil {
 		return err
 	}
-	jobSID := s.rt.jobSessionID(s.jobPath(jobID))
+	jobSID := s.rt.jobSessionID(s.jobRef(jobID))
 	if !meta.SubagentRun || meta.ParentSessionID != jobSID {
 		return fmt.Errorf("run meta = %+v, want a child of %s", meta, jobSID)
 	}
@@ -614,7 +633,7 @@ func (s *schedulerRunsState) outputLogCarries(text string) error {
 
 func (s *schedulerRunsState) jobNotRunning(jobID string) error {
 	return waitFor("the job to stop running", func() bool {
-		_, running := s.rt.RunningRun(s.jobPath(jobID))
+		_, running := s.rt.RunningRun(s.jobRef(jobID))
 		return !running
 	})
 }
@@ -635,7 +654,7 @@ func (s *schedulerRunsState) checkpointIs(jobID, when string) error {
 	if err != nil {
 		return err
 	}
-	got, err := storage.ReadJobState(storage.StatePath(s.jobPath(jobID)))
+	got, err := storage.ReadJobState(s.jobRef(jobID).StatePath)
 	if err != nil {
 		return err
 	}
@@ -657,7 +676,7 @@ func (s *schedulerRunsState) jobHasRuns(jobID string, n int) error {
 }
 
 func (s *schedulerRunsState) cancelJob(jobID string) error {
-	cancelled, err := s.svc.CancelJobRun(jobID)
+	cancelled, err := s.svc.CancelJobRun(s.jobAddr(jobID))
 	if err != nil {
 		return err
 	}
@@ -722,7 +741,7 @@ func (s *schedulerRunsState) oldestTaskRecordGone() error {
 }
 
 func (s *schedulerRunsState) promptJobSession(jobID string) error {
-	jobSID := s.rt.jobSessionID(s.jobPath(jobID))
+	jobSID := s.rt.jobSessionID(s.jobRef(jobID))
 	if _, err := s.mgr.EnsureSchedulerJobSession(context.Background(), session.SchedulerJobSessionSpec{ID: jobSID, JobID: jobID, CWD: s.cwd}); err != nil {
 		return err
 	}
@@ -744,7 +763,7 @@ func (s *schedulerRunsState) promptRefusedForJob(jobID string) error {
 }
 
 func (s *schedulerRunsState) jobSessionHidden(jobID string) error {
-	jobSID := s.rt.jobSessionID(s.jobPath(jobID))
+	jobSID := s.rt.jobSessionID(s.jobRef(jobID))
 	rows, err := s.store.ListSnapshotsWith(session.ListOptions{})
 	if err != nil {
 		return err
@@ -802,12 +821,12 @@ func (s *schedulerRunsState) systemPromptNamesJobAndRole(jobID, role string) err
 }
 
 func (s *schedulerRunsState) clearRuns(jobID string) error {
-	_, err := s.svc.ClearJobRuns(jobID)
+	_, err := s.svc.ClearJobRuns(s.jobAddr(jobID))
 	return err
 }
 
 func (s *schedulerRunsState) noRunBundleLeft(jobID string) error {
-	jobSID := s.rt.jobSessionID(s.jobPath(jobID))
+	jobSID := s.rt.jobSessionID(s.jobRef(jobID))
 	entries, err := os.ReadDir(filepath.Join(s.store.SessionPath(jobSID), session.ChildSessionsDirName))
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -819,6 +838,12 @@ func (s *schedulerRunsState) noRunBundleLeft(jobID string) error {
 }
 
 func initializeSchedulerRunsScenario(sc *godog.ScenarioContext) {
+	initializeSchedulerRunsSteps(sc)
+}
+
+// initializeSchedulerRunsSteps registers the steps of the scheduler runs
+// feature and returns their state, which the project jobs feature extends.
+func initializeSchedulerRunsSteps(sc *godog.ScenarioContext) *schedulerRunsState {
 	s := &schedulerRunsState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		return ctx, s.reset()
@@ -841,7 +866,7 @@ func initializeSchedulerRunsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the job "([^"]*)" is run by hand (\d+) times and the model answers "([^"]*)"$`, s.runByHandTimes)
 	sc.Step(`^a run of "([^"]*)" is in flight$`, s.runInFlight)
 	sc.Step(`^the job "([^"]*)" is run by hand$`, func(jobID string) error {
-		_, s.lastErr = s.svc.TriggerJobRun(jobID)
+		_, s.lastErr = s.svc.TriggerJobRun(s.jobAddr(jobID))
 		return nil
 	})
 	sc.Step(`^the manual run is refused because the job is running$`, func() error {
@@ -895,6 +920,7 @@ func initializeSchedulerRunsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the run's model was offered "([^"]*)" and not "([^"]*)"$`, s.offeredAndNot)
 	sc.Step(`^the run's system prompt names the scheduled job "([^"]*)" and carries the role "([^"]*)"$`, s.systemPromptNamesJobAndRole)
 	sc.Step(`^no run bundle is left under the job session of "([^"]*)"$`, s.noRunBundleLeft)
+	return s
 }
 
 func TestSchedulerRunsFeature(t *testing.T) {

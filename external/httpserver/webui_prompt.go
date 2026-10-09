@@ -52,3 +52,20 @@ func surfacePromptFromHTTP(raw json.RawMessage) string {
 	}
 	return ""
 }
+
+// langFromHTTP is the language a request's metadata names for the turn
+// (`metadata.lang`, the web UI's locale), "" when it names none. The turn's
+// @coddy: mentions and the agent's documentation tools follow it
+// (session.PromptRunOpts.Lang).
+func langFromHTTP(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var m struct {
+		Lang string `json:"lang"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(m.Lang)
+}

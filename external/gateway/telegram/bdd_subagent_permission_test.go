@@ -4,7 +4,7 @@ package telegram
 
 // Godog harness for features/gateway_telegram_subagent_permission.feature: a
 // subagent's permission request is asked in the chat through the real sender,
-// broker and callback handler, against the fake Bot API (internal/tgfake). A
+// broker and callback handler, against the fake Bot API (tgfake). A
 // tap presses the button the request really carries, on the message it came
 // with, and the steps read the chat as the person sees it. No LLM and no
 // network beyond the local httptest server.
@@ -17,13 +17,13 @@ import (
 	"testing"
 	"time"
 
+	tgfake "github.com/EvilFreelancer/tgfake/pkg/server"
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/tgfake"
 )
 
 const (

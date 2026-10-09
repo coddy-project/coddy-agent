@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -21,7 +22,35 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
+// revealRecorder stands in for the desktop opener: a test never starts the
+// real one, which outlives the test and then opens (or, its folder gone, fails
+// on) a temporary path on the developer's desktop.
+type revealRecorder struct {
+	mu    sync.Mutex
+	paths []string
+}
+
+func (r *revealRecorder) reveal(path string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.paths = append(r.paths, path)
+	return nil
+}
+
+func (r *revealRecorder) revealed() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.paths...)
+}
+
 func artifactServer(t *testing.T) (*httptest.Server, *session.Manager, string, string, session.Artifact) {
+	t.Helper()
+	ts, mgr, one, two, a, _ := artifactServerRevealing(t)
+	return ts, mgr, one, two, a
+}
+
+// artifactServerRevealing is artifactServer plus the opener every reveal reaches.
+func artifactServerRevealing(t *testing.T) (*httptest.Server, *session.Manager, string, string, session.Artifact, *revealRecorder) {
 	t.Helper()
 	root := t.TempDir()
 	cwd := filepath.Join(root, "workspace")
@@ -52,7 +81,9 @@ func artifactServer(t *testing.T) (*httptest.Server, *session.Manager, string, s
 		t.Fatal(err)
 	}
 	srv := New(cfg, mgr, slog.Default(), cwd)
-	return httptest.NewServer(srv.Handler()), mgr, one.SessionID, two.SessionID, a
+	opener := &revealRecorder{}
+	srv.revealFile = opener.reveal
+	return httptest.NewServer(srv.Handler()), mgr, one.SessionID, two.SessionID, a, opener
 }
 
 func artifactBMPBytes() []byte {
@@ -238,7 +269,7 @@ func TestSessionArtifactPreviewServesOnlyImages(t *testing.T) {
 }
 
 func TestSessionArtifactRevealIsScopedToStoredArtifactSource(t *testing.T) {
-	ts, _, id, other, a := artifactServer(t)
+	ts, _, id, other, a, opener := artifactServerRevealing(t)
 	defer ts.Close()
 	post := func(path string) int {
 		r, err := ts.Client().Post(ts.URL+path, "application/json", nil)
@@ -250,8 +281,11 @@ func TestSessionArtifactRevealIsScopedToStoredArtifactSource(t *testing.T) {
 	}
 
 	path := "/coddy/sessions/" + id + "/artifacts/" + a.ID + "/reveal"
-	if got := post(path); got != http.StatusNoContent && got != http.StatusServiceUnavailable {
-		t.Fatalf("reveal status = %d, want accepted or clear unavailable", got)
+	if got := post(path); got != http.StatusNoContent {
+		t.Fatalf("reveal status = %d, want 204", got)
+	}
+	if got := opener.revealed(); len(got) != 1 || got[0] != a.SourcePath {
+		t.Fatalf("the opener was handed %v, want only the stored source %q", got, a.SourcePath)
 	}
 	for _, path := range []string{
 		"/coddy/sessions/" + other + "/artifacts/" + a.ID + "/reveal",
@@ -261,6 +295,9 @@ func TestSessionArtifactRevealIsScopedToStoredArtifactSource(t *testing.T) {
 		if got := post(path); got != http.StatusNotFound {
 			t.Errorf("POST %s = %d, want 404", path, got)
 		}
+	}
+	if got := opener.revealed(); len(got) != 1 {
+		t.Fatalf("a refused reveal reached the opener: %v", got)
 	}
 }
 

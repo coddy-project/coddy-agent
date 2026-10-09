@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Console e2e for the background wake (issue #305), in a real pty.
 
-Self-boots the scripted model of cmd/tgfake (examples/shared/wake_e2e_common.py),
+Self-boots the scripted model of tgfake (examples/shared/wake_e2e_common.py),
 so no key and no network. The model starts a failing command in the background
 with notify_on_finish; when it ends, the agent is woken:
 

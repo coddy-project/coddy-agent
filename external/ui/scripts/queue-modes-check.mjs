@@ -36,7 +36,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const BIN = path.resolve(process.env.CODDY_BIN || path.join(here, "../../../build/coddy"));
+const BIN = path.resolve(
+  process.env.CODDY_BIN || path.join(here, "../../../build/coddy"),
+);
 const BROWSER_PATH = process.env.CODDY_BROWSER_PATH || "";
 const PORT_BASE = Number(process.env.CODDY_PORT_BASE || 19880);
 const SHOTS = process.env.CODDY_SHOTS_DIR || "";
@@ -53,11 +55,15 @@ let playwright;
 try {
   playwright = await import("playwright");
 } catch {
-  console.error("playwright is not installed. Run: npm i --no-save playwright && npx playwright install chromium");
+  console.error(
+    "playwright is not installed. Run: npm i --no-save playwright && npx playwright install chromium",
+  );
   process.exit(2);
 }
 if (!fs.existsSync(BIN)) {
-  console.error(`${BIN} not found; build it with: make build TAGS="http ui swarm"`);
+  console.error(
+    `${BIN} not found; build it with: make build TAGS="http ui swarm"`,
+  );
   process.exit(2);
 }
 
@@ -70,7 +76,10 @@ const PNG = Buffer.from(
 // ------------------------------------------------------------ scripted model
 
 /** The prompts that start a turn the script keeps running until it releases it. */
-const HOLD_PROMPTS = new Set(["Review the implementation", "Start the second task"]);
+const HOLD_PROMPTS = new Set([
+  "Review the implementation",
+  "Start the second task",
+]);
 
 /**
  * The model: every request is recorded; a HOLD_PROMPTS prompt streams a first
@@ -98,7 +107,9 @@ function typedOf(messages) {
   for (const m of [...messages].reverse()) {
     if (m.role !== "user") continue;
     // The note of the files saved with the session's assets is Coddy's, not typed.
-    const t = textOf(m).replace(/<coddy_session_assets>[\s\S]*?<\/coddy_session_assets>/g, "").trim();
+    const t = textOf(m)
+      .replace(/<coddy_session_assets>[\s\S]*?<\/coddy_session_assets>/g, "")
+      .trim();
     if (t && !t.startsWith("<turn_context>")) return t;
   }
   return "";
@@ -110,8 +121,16 @@ function startModel(port) {
     req.on("data", (c) => (body += c));
     req.on("end", async () => {
       if (req.url.endsWith("/models")) {
-        res.writeHead(200, { "Content-Type": "application/json", Connection: "close" });
-        res.end(JSON.stringify({ object: "list", data: [{ id: "coddy-demo", object: "model" }] }));
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          Connection: "close",
+        });
+        res.end(
+          JSON.stringify({
+            object: "list",
+            data: [{ id: "coddy-demo", object: "model" }],
+          }),
+        );
         return;
       }
       let parsed = {};
@@ -123,14 +142,40 @@ function startModel(port) {
       const messages = parsed.messages || [];
       const typed = typedOf(messages);
       if (!parsed.stream) {
-        res.writeHead(200, { "Content-Type": "application/json", Connection: "close" });
-        res.end(JSON.stringify({ id: "x", object: "chat.completion", model: "coddy-demo", choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: "Queue demo" } }], usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } }));
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          Connection: "close",
+        });
+        res.end(
+          JSON.stringify({
+            id: "x",
+            object: "chat.completion",
+            model: "coddy-demo",
+            choices: [
+              {
+                index: 0,
+                finish_reason: "stop",
+                message: { role: "assistant", content: "Queue demo" },
+              },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+          }),
+        );
         return;
       }
       model.requests.push({ typed, messages });
-      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "close" });
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "close",
+      });
       const send = (v) => res.write(`data: ${JSON.stringify(v)}\n\n`);
-      const chunk = (delta, finish = null) => ({ id: "x", object: "chat.completion.chunk", model: "coddy-demo", choices: [{ index: 0, delta, finish_reason: finish }] });
+      const chunk = (delta, finish = null) => ({
+        id: "x",
+        object: "chat.completion.chunk",
+        model: "coddy-demo",
+        choices: [{ index: 0, delta, finish_reason: finish }],
+      });
       send(chunk({ role: "assistant", content: "" }));
       if (HOLD_PROMPTS.has(typed)) {
         send(chunk({ content: "Working on it. " }));
@@ -138,16 +183,26 @@ function startModel(port) {
         await new Promise((resolve) => model.holds.push(resolve));
         clearInterval(keepAlive);
       }
-      for (const piece of `Answer to: ${typed.replace(/\s+/g, " ").slice(0, 60)}`.split(" ")) {
+      for (const piece of `Answer to: ${typed.replace(/\s+/g, " ").slice(0, 60)}`.split(
+        " ",
+      )) {
         await new Promise((r) => setTimeout(r, 40));
         send(chunk({ content: piece + " " }));
       }
       send(chunk({}, "stop"));
-      send({ id: "x", object: "chat.completion.chunk", model: "coddy-demo", choices: [], usage: { prompt_tokens: 1, completion_tokens: 3, total_tokens: 4 } });
+      send({
+        id: "x",
+        object: "chat.completion.chunk",
+        model: "coddy-demo",
+        choices: [],
+        usage: { prompt_tokens: 1, completion_tokens: 3, total_tokens: 4 },
+      });
       res.end("data: [DONE]\n\n");
     });
   });
-  return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));
+  return new Promise((resolve) =>
+    server.listen(port, "127.0.0.1", () => resolve(server)),
+  );
 }
 
 // ------------------------------------------------------------------- stand
@@ -157,7 +212,10 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "coddy-queue-modes-"));
 
 function start(args, name) {
   const log = fs.openSync(path.join(scratch, `${name}.log`), "w");
-  const proc = spawn(BIN, args, { stdio: ["ignore", log, log], detached: false });
+  const proc = spawn(BIN, args, {
+    stdio: ["ignore", log, log],
+    detached: false,
+  });
   procs.push(proc);
   return proc;
 }
@@ -227,7 +285,9 @@ logger:
 `;
 fs.writeFileSync(path.join(nodeHome, "config.yaml"), nodeConfig);
 fs.writeFileSync(path.join(shotsHome, "config.yaml"), nodeConfig);
-fs.writeFileSync(path.join(relayHome, "config.yaml"), `swarm:
+fs.writeFileSync(
+  path.join(relayHome, "config.yaml"),
+  `swarm:
   name: "relay"
   upstreams:
     - name: "node"
@@ -236,17 +296,67 @@ fs.writeFileSync(path.join(relayHome, "config.yaml"), `swarm:
 logger:
   level: warn
   outputs: [stderr]
-`);
-start(["serve", "--config", path.join(nodeHome, "config.yaml"), "--home", nodeHome, "--cwd", nodeHome, "-H", "127.0.0.1", "-P", String(NODE_PORT)], "node");
-start(["serve", "--config", path.join(relayHome, "config.yaml"), "--home", relayHome, "--swarm", "--http=false", "--swarm-host", "127.0.0.1", "--swarm-port", String(RELAY_PORT), "--swarm-auth-token", RELAY_TOKEN], "relay");
+`,
+);
+start(
+  [
+    "serve",
+    "--config",
+    path.join(nodeHome, "config.yaml"),
+    "--home",
+    nodeHome,
+    "--cwd",
+    nodeHome,
+    "-H",
+    "127.0.0.1",
+    "-P",
+    String(NODE_PORT),
+  ],
+  "node",
+);
+start(
+  [
+    "serve",
+    "--config",
+    path.join(relayHome, "config.yaml"),
+    "--home",
+    relayHome,
+    "--swarm",
+    "--http=false",
+    "--swarm-host",
+    "127.0.0.1",
+    "--swarm-port",
+    String(RELAY_PORT),
+    "--swarm-auth-token",
+    RELAY_TOKEN,
+  ],
+  "relay",
+);
 if (SHOTS) {
-  start(["serve", "--config", path.join(shotsHome, "config.yaml"), "--home", shotsHome, "--cwd", shotsHome, "-H", "127.0.0.1", "-P", String(SHOTS_NODE_PORT)], "shots-node");
+  start(
+    [
+      "serve",
+      "--config",
+      path.join(shotsHome, "config.yaml"),
+      "--home",
+      shotsHome,
+      "--cwd",
+      shotsHome,
+      "-H",
+      "127.0.0.1",
+      "-P",
+      String(SHOTS_NODE_PORT),
+    ],
+    "shots-node",
+  );
   await waitFor(`${SHOTS_NODE}/v1/models`, "the screenshot node");
 }
 await waitFor(`${NODE}/v1/models`, "the node");
 await waitFor(`${RELAY}/swarm/info`, "the relay");
 for (let i = 0; i < 80; i++) {
-  const res = await fetch(`${MOUNT}/v1/models`, { headers: { Authorization: `Bearer ${RELAY_TOKEN}` } }).catch(() => null);
+  const res = await fetch(`${MOUNT}/v1/models`, {
+    headers: { Authorization: `Bearer ${RELAY_TOKEN}` },
+  }).catch(() => null);
   if (res && res.ok) break;
   await new Promise((r) => setTimeout(r, 250));
 }
@@ -255,7 +365,11 @@ for (let i = 0; i < 80; i++) {
 async function viaMount(p, init = {}) {
   const res = await fetch(`${MOUNT}${p}`, {
     ...init,
-    headers: { Authorization: `Bearer ${RELAY_TOKEN}`, "Content-Type": "application/json", ...(init.headers || {}) },
+    headers: {
+      Authorization: `Bearer ${RELAY_TOKEN}`,
+      "Content-Type": "application/json",
+      ...(init.headers || {}),
+    },
   });
   const raw = await res.text();
   let json = null;
@@ -269,26 +383,38 @@ async function viaMount(p, init = {}) {
 
 // ----------------------------------------------------------------- browser
 
-const browser = await playwright.chromium.launch(BROWSER_PATH ? { executablePath: BROWSER_PATH } : {});
+const browser = await playwright.chromium.launch(
+  BROWSER_PATH ? { executablePath: BROWSER_PATH } : {},
+);
 
 /** A dark page, 1280 wide, pointed at the node through the relay or directly. */
 async function openPage({ throughRelay, width = 1280, height = 820 }) {
-  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, colorScheme: "dark" });
+  const context = await browser.newContext({
+    viewport: { width, height },
+    deviceScaleFactor: 1,
+    colorScheme: "dark",
+  });
   const origin = throughRelay ? RELAY : NODE;
-  await context.addCookies([{ name: "coddy_ui_theme", value: "dark", url: origin }]);
+  await context.addCookies([
+    { name: "coddy_ui_theme", value: "dark", url: origin },
+  ]);
   if (throughRelay) {
-    await context.addInitScript(`localStorage.setItem("coddy_env", ${JSON.stringify(JSON.stringify({ mode: "remote", baseUrl: MOUNT, token: RELAY_TOKEN }))});`);
+    await context.addInitScript(
+      `localStorage.setItem("coddy_env", ${JSON.stringify(JSON.stringify({ mode: "remote", baseUrl: MOUNT, token: RELAY_TOKEN }))});`,
+    );
   }
   const page = await context.newPage();
   page.on("pageerror", (err) => console.log(`     page error: ${err.message}`));
   page.on("console", (msg) => {
-    if (msg.type() === "error" || msg.type() === "warning") console.log(`     console ${msg.type()}: ${msg.text().slice(0, 300)}`);
+    if (msg.type() === "error" || msg.type() === "warning")
+      console.log(`     console ${msg.type()}: ${msg.text().slice(0, 300)}`);
   });
   const mountRequests = [];
   const allRequests = [];
   page.on("request", (r) => {
     allRequests.push(r.url());
-    if (r.url().startsWith(MOUNT)) mountRequests.push(`${r.method()} ${r.url().slice(MOUNT.length)}`);
+    if (r.url().startsWith(MOUNT))
+      mountRequests.push(`${r.method()} ${r.url().slice(MOUNT.length)}`);
   });
   return { context, page, origin, mountRequests, allRequests };
 }
@@ -296,7 +422,11 @@ async function openPage({ throughRelay, width = 1280, height = 820 }) {
 async function shoot(page, name) {
   if (!SHOTS) return;
   fs.mkdirSync(SHOTS, { recursive: true });
-  await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+  await page.evaluate(
+    () =>
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.blur(),
+  );
   await page.waitForTimeout(250);
   await page.screenshot({ path: path.join(SHOTS, `${name}.png`) });
   console.log(`     shot ${name}.png`);
@@ -352,17 +482,28 @@ async function until(what, fn, timeout = 20000) {
  * the bug this guards (the picker's live FileList cleared before the update).
  */
 async function attachImage(page) {
-  await page.getByTestId("composer-file-input").setInputFiles({ name: "shot.png", mimeType: "image/png", buffer: PNG });
-  await page.getByTestId("composer-attachment-chip").first().waitFor({ timeout: 10000 });
+  await page
+    .getByTestId("composer-file-input")
+    .setInputFiles({ name: "shot.png", mimeType: "image/png", buffer: PNG });
+  await page
+    .getByTestId("composer-attachment-chip")
+    .first()
+    .waitFor({ timeout: 10000 });
 }
 
 /** The natural width of the first user-message thumbnail once it has loaded, else 0. */
 function thumbLoaded(page) {
-  return until("a loaded thumbnail", () =>
-    page.evaluate(() => {
-      const img = document.querySelector(".msg-user-file-thumb");
-      return img && img.complete && img.naturalWidth > 0 ? img.naturalWidth : 0;
-    }), 20000).catch(() => 0);
+  return until(
+    "a loaded thumbnail",
+    () =>
+      page.evaluate(() => {
+        const img = document.querySelector(".msg-user-file-thumb");
+        return img && img.complete && img.naturalWidth > 0
+          ? img.naturalWidth
+          : 0;
+      }),
+    20000,
+  ).catch(() => 0);
 }
 
 async function sessionIdOf(page) {
@@ -383,123 +524,292 @@ async function scenario() {
   await composer(a.page).press("Enter");
   await a.page.getByText("Working on it.").waitFor({ timeout: 30000 });
   const sid = await sessionIdOf(a.page);
-  check("the turn runs through the relay's mount", a.mountRequests.some((r) => r.startsWith("POST /v1/responses")), a.mountRequests.filter((r) => r.startsWith("POST")).join(", "));
+  check(
+    "the turn runs through the relay's mount",
+    a.mountRequests.some((r) => r.startsWith("POST /v1/responses")),
+    a.mountRequests.filter((r) => r.startsWith("POST")).join(", "),
+  );
 
   // The first message written during the turn asks what Enter should do.
   await composer(a.page).fill("Please check the Windows path too");
   await composer(a.page).press("Enter");
   const choice = a.page.getByTestId("composer-queue-choice");
-  check("the first queued message asks which mode Enter uses", await choice.isVisible());
-  check("nothing is queued before the answer", (await queueRows(a.page)).length === 0);
+  check(
+    "the first queued message asks which mode Enter uses",
+    await choice.isVisible(),
+  );
+  check(
+    "nothing is queued before the answer",
+    (await queueRows(a.page)).length === 0,
+  );
   await choice.getByRole("button", { name: "Steer now" }).click();
-  await until("the steer row", async () => (await queueRows(a.page)).length === 1);
+  await until(
+    "the steer row",
+    async () => (await queueRows(a.page)).length === 1,
+  );
   let rows = await queueRows(a.page);
-  check("the message is queued to steer", rows[0]?.mode === "Steer" && rows[0]?.text.includes("Windows path"), JSON.stringify(rows));
+  check(
+    "the message is queued to steer",
+    rows[0]?.mode === "Steer" && rows[0]?.text.includes("Windows path"),
+    JSON.stringify(rows),
+  );
   const cfg = await until("the saved preference", async () => {
     const r = await viaMount("/coddy/config");
     return r.json?.agent?.queue_mode ? r : null;
   });
-  check("the answer is saved as agent.queue_mode through the relay", cfg.json.agent.queue_mode === "steer", cfg.json.agent.queue_mode);
-  check("the node's config.yaml holds it", fs.readFileSync(path.join(nodeHome, "config.yaml"), "utf8").includes("queue_mode: steer"));
+  check(
+    "the answer is saved as agent.queue_mode through the relay",
+    cfg.json.agent.queue_mode === "steer",
+    cfg.json.agent.queue_mode,
+  );
+  check(
+    "the node's config.yaml holds it",
+    fs
+      .readFileSync(path.join(nodeHome, "config.yaml"), "utf8")
+      .includes("queue_mode: steer"),
+  );
 
   // An image with text, sent with Tab: the other mode, the image with it,
   // picked while the turn streams.
   await attachImage(a.page);
   await composer(a.page).fill("Summarize after the answer");
   await composer(a.page).press("Tab");
-  await until("the after-turn row", async () => (await queueRows(a.page)).length === 2);
+  await until(
+    "the after-turn row",
+    async () => (await queueRows(a.page)).length === 2,
+  );
   rows = await queueRows(a.page);
-  check("Tab queues for after the turn, with its image", rows[1]?.mode === "After turn" && rows[1]?.images.trim() === "1", JSON.stringify(rows));
-  check("the composer is cleared of the text and the image", (await composer(a.page).inputValue()) === "" && (await a.page.getByTestId("composer-attachment-chip").count()) === 0);
+  check(
+    "Tab queues for after the turn, with its image",
+    rows[1]?.mode === "After turn" && rows[1]?.images.trim() === "1",
+    JSON.stringify(rows),
+  );
+  check(
+    "the composer is cleared of the text and the image",
+    (await composer(a.page).inputValue()) === "" &&
+      (await a.page.getByTestId("composer-attachment-chip").count()) === 0,
+  );
   let q = await viaMount(`/coddy/sessions/${sid}/queue`);
-  check("the queue lists the modes and names the image", q.json?.messages?.[1]?.mode === "after_turn" && q.json?.messages?.[1]?.imageParts?.[0]?.name === "shot.png", q.raw.slice(0, 300));
+  check(
+    "the queue lists the modes and names the image",
+    q.json?.messages?.[1]?.mode === "after_turn" &&
+      q.json?.messages?.[1]?.imageParts?.[0]?.name === "shot.png",
+    q.raw.slice(0, 300),
+  );
   check("the queue never carries the image bytes", !q.raw.includes("base64"));
 
   // A second browser, straight on the node: the same session, the same queue.
   const b = await openPage({ throughRelay: false });
   await b.page.goto(`${NODE}/#/s/${sid}`);
-  await until("the queue in the second browser", async () => (await queueRows(b.page)).length === 2);
+  await until(
+    "the queue in the second browser",
+    async () => (await queueRows(b.page)).length === 2,
+  );
   rows = await queueRows(b.page);
-  check("a browser on the node sees the queue made through the relay", rows[0]?.mode === "Steer" && rows[1]?.mode === "After turn" && rows[1]?.images.trim() === "1", JSON.stringify(rows));
+  check(
+    "a browser on the node sees the queue made through the relay",
+    rows[0]?.mode === "Steer" &&
+      rows[1]?.mode === "After turn" &&
+      rows[1]?.images.trim() === "1",
+    JSON.stringify(rows),
+  );
 
   // A click on a mode switches it, through the relay, for everyone.
-  await a.page.getByTestId(`composer-queue-mode-${q.json.messages[0].id}`).click();
-  await until("the switched row in the second browser", async () => (await queueRows(b.page))[0]?.mode === "After turn");
+  await a.page
+    .getByTestId(`composer-queue-mode-${q.json.messages[0].id}`)
+    .click();
+  await until(
+    "the switched row in the second browser",
+    async () => (await queueRows(b.page))[0]?.mode === "After turn",
+  );
   q = await viaMount(`/coddy/sessions/${sid}/queue`);
-  check("PATCH switches a mode through the relay", q.json?.messages?.[0]?.mode === "after_turn", q.raw.slice(0, 200));
-  await a.page.getByTestId(`composer-queue-mode-${q.json.messages[0].id}`).click();
-  await until("the row back to steer", async () => (await queueRows(b.page))[0]?.mode === "Steer");
+  check(
+    "PATCH switches a mode through the relay",
+    q.json?.messages?.[0]?.mode === "after_turn",
+    q.raw.slice(0, 200),
+  );
+  await a.page
+    .getByTestId(`composer-queue-mode-${q.json.messages[0].id}`)
+    .click();
+  await until(
+    "the row back to steer",
+    async () => (await queueRows(b.page))[0]?.mode === "Steer",
+  );
   check("and back again, seen by the other browser", true);
 
   // Taking the image message back returns its text and image to the draft.
-  await a.page.getByTestId(`composer-queue-remove-${q.json.messages[1].id}`).click();
-  await until("the draft back in the composer", async () => (await composer(a.page).inputValue()) === "Summarize after the answer");
+  await a.page
+    .getByTestId(`composer-queue-remove-${q.json.messages[1].id}`)
+    .click();
+  await until(
+    "the draft back in the composer",
+    async () =>
+      (await composer(a.page).inputValue()) === "Summarize after the answer",
+  );
   // An image card shows its thumbnail, not its name: the name is in its title.
   const chip = await until("the image back in the composer", async () =>
-    (await a.page.getByTestId("composer-attachment-chip").count()) > 0 ? a.page.getByTestId("composer-attachment-chip").first().getAttribute("title") : null,
+    (await a.page.getByTestId("composer-attachment-chip").count()) > 0
+      ? a.page
+          .getByTestId("composer-attachment-chip")
+          .first()
+          .getAttribute("title")
+      : null,
   );
-  check("taking a message back returns its text and image", chip.includes("shot.png"), JSON.stringify(chip));
+  check(
+    "taking a message back returns its text and image",
+    chip.includes("shot.png"),
+    JSON.stringify(chip),
+  );
   await composer(a.page).press("Tab");
-  await until("the row queued again", async () => (await queueRows(a.page)).length === 2);
+  await until(
+    "the row queued again",
+    async () => (await queueRows(a.page)).length === 2,
+  );
 
   // The answer: the steer message joins the turn, the deferred one gets its own prompt.
   const before = model.requests.length;
   check("the held answer is released", model.release() === 1);
-  await until("the deferred prompt answered", async () =>
-    (await transcript(a.page)).some((row) => row.startsWith("assistant:") && row.includes("Answer to: Summarize after the answer")), 60000);
-  await until("the queue emptied", async () => (await queueRows(a.page)).length === 0);
-  const asked = model.requests.slice(before).map((r) => r.typed.replace(/\s+/g, " "));
+  await until(
+    "the deferred prompt answered",
+    async () =>
+      (await transcript(a.page)).some(
+        (row) =>
+          row.startsWith("assistant:") &&
+          row.includes("Answer to: Summarize after the answer"),
+      ),
+    60000,
+  );
+  await until(
+    "the queue emptied",
+    async () => (await queueRows(a.page)).length === 0,
+  );
+  const asked = model.requests
+    .slice(before)
+    .map((r) => r.typed.replace(/\s+/g, " "));
   check(
     "after the answer the model reads the steer message, then the deferred one as a prompt of its own",
-    asked.join(" | ") === "Please check the Windows path too | Summarize after the answer",
+    asked.join(" | ") ===
+      "Please check the Windows path too | Summarize after the answer",
     asked.join(" | "),
   );
-  const deferred = model.requests.find((r) => r.typed === "Summarize after the answer");
-  const imageSent = deferred?.messages.some((m) => m.role === "user" && Array.isArray(m.content) && m.content.some((p) => p.type === "image_url"));
+  const deferred = model.requests.find(
+    (r) => r.typed === "Summarize after the answer",
+  );
+  const imageSent = deferred?.messages.some(
+    (m) =>
+      m.role === "user" &&
+      Array.isArray(m.content) &&
+      m.content.some((p) => p.type === "image_url"),
+  );
   check("the deferred message's image reaches the model", Boolean(imageSent));
   const rowsA = await transcript(a.page);
-  const iSteer = rowsA.findIndex((r) => r === "user:Please check the Windows path too");
-  const iDeferred = rowsA.findIndex((r) => r.startsWith("user:Summarize after the answer"));
-  const iDeferredAnswer = rowsA.findIndex((r) => r.startsWith("assistant:") && r.includes("Answer to: Summarize after the answer"));
-  check("the live transcript shows the steer message where it was read", iSteer > 0, JSON.stringify(rowsA));
-  check("the live transcript shows the deferred message above its answer", iDeferred > iSteer && iDeferred < iDeferredAnswer, `${iSteer} < ${iDeferred} < ${iDeferredAnswer}`);
-  const deferredFiles = await a.page.$$eval(".messages-inner > [data-row-id]", (rows) => {
-    const row = rows.find((r) => (r.querySelector(".msg-user-body")?.textContent || "").includes("Summarize after the answer"));
-    return row ? [...row.querySelectorAll(".msg-user-file-chip")].map((c) => c.textContent || c.getAttribute("title") || "") : [];
-  });
-  check("the deferred message's bubble shows its image", deferredFiles.length === 1, JSON.stringify(deferredFiles));
+  const iSteer = rowsA.findIndex(
+    (r) => r === "user:Please check the Windows path too",
+  );
+  const iDeferred = rowsA.findIndex((r) =>
+    r.startsWith("user:Summarize after the answer"),
+  );
+  const iDeferredAnswer = rowsA.findIndex(
+    (r) =>
+      r.startsWith("assistant:") &&
+      r.includes("Answer to: Summarize after the answer"),
+  );
+  check(
+    "the live transcript shows the steer message where it was read",
+    iSteer > 0,
+    JSON.stringify(rowsA),
+  );
+  check(
+    "the live transcript shows the deferred message above its answer",
+    iDeferred > iSteer && iDeferred < iDeferredAnswer,
+    `${iSteer} < ${iDeferred} < ${iDeferredAnswer}`,
+  );
+  const deferredFiles = await a.page.$$eval(
+    ".messages-inner > [data-row-id]",
+    (rows) => {
+      const row = rows.find((r) =>
+        (r.querySelector(".msg-user-body")?.textContent || "").includes(
+          "Summarize after the answer",
+        ),
+      );
+      return row
+        ? [...row.querySelectorAll(".msg-user-file-chip")].map(
+            (c) => c.textContent || c.getAttribute("title") || "",
+          )
+        : [];
+    },
+  );
+  check(
+    "the deferred message's bubble shows its image",
+    deferredFiles.length === 1,
+    JSON.stringify(deferredFiles),
+  );
   // Through the relay the thumbnail comes through the mount, with the
   // environment's token, and the original opens the same way; the relay's
   // own origin is never asked for an asset, and no URL carries the token.
-  check("its image thumbnail loads through the relay", (await thumbLoaded(a.page)) > 0);
+  check(
+    "its image thumbnail loads through the relay",
+    (await thumbLoaded(a.page)) > 0,
+  );
   await shoot(a.page, "relay-thumbnail-dark-1280");
   await a.page.reload();
   await composer(a.page).waitFor();
   check("and again after a reload", (await thumbLoaded(a.page)) > 0);
   await a.page.locator("[data-testid=msg-user-file-open]").first().click();
-  const full = await until("the original in the lightbox", () =>
-    a.page.evaluate(() => {
-      const img = document.querySelector(".docs-lightbox-stage img");
-      return img && img.complete && img.naturalWidth > 0 ? img.naturalWidth : 0;
-    }), 20000).catch(() => 0);
+  const full = await until(
+    "the original in the lightbox",
+    () =>
+      a.page.evaluate(() => {
+        const img = document.querySelector(".docs-lightbox-stage img");
+        return img && img.complete && img.naturalWidth > 0
+          ? img.naturalWidth
+          : 0;
+      }),
+    20000,
+  ).catch(() => 0);
   check("the original opens through the relay", full > 0, `${full}px`);
   await a.page.keyboard.press("Escape");
-  const assetOfRelay = (u) => u.startsWith(`${RELAY}/coddy/sessions/`) && u.includes("/assets/");
+  const assetOfRelay = (u) =>
+    u.startsWith(`${RELAY}/coddy/sessions/`) && u.includes("/assets/");
   check(
     "no asset is asked of the relay's own origin, and no URL carries the token",
-    !a.allRequests.some(assetOfRelay) && !a.allRequests.some((u) => u.includes(RELAY_TOKEN)),
-    a.allRequests.filter((u) => assetOfRelay(u) || u.includes(RELAY_TOKEN)).slice(0, 3).join(" "),
+    !a.allRequests.some(assetOfRelay) &&
+      !a.allRequests.some((u) => u.includes(RELAY_TOKEN)),
+    a.allRequests
+      .filter((u) => assetOfRelay(u) || u.includes(RELAY_TOKEN))
+      .slice(0, 3)
+      .join(" "),
   );
   // The browser on the node watched the same turn: the deferred message sits
   // above its answer there too, and its thumbnail loads from the node itself.
-  await until("the deferred answer in the second browser", async () =>
-    (await transcript(b.page)).some((row) => row.startsWith("assistant:") && row.includes("Answer to: Summarize after the answer")), 30000);
+  await until(
+    "the deferred answer in the second browser",
+    async () =>
+      (await transcript(b.page)).some(
+        (row) =>
+          row.startsWith("assistant:") &&
+          row.includes("Answer to: Summarize after the answer"),
+      ),
+    30000,
+  );
   const rowsB = await transcript(b.page);
-  const jB = rowsB.findIndex((r) => r.startsWith("user:Summarize after the answer"));
-  const kB = rowsB.findIndex((r) => r.startsWith("assistant:") && r.includes("Answer to: Summarize after the answer"));
-  check("a browser that only watched the turn shows the deferred message above its answer", jB >= 0 && jB < kB, `${jB} < ${kB}`);
-  check("its image thumbnail loads on the node", (await thumbLoaded(b.page)) > 0);
-
+  const jB = rowsB.findIndex((r) =>
+    r.startsWith("user:Summarize after the answer"),
+  );
+  const kB = rowsB.findIndex(
+    (r) =>
+      r.startsWith("assistant:") &&
+      r.includes("Answer to: Summarize after the answer"),
+  );
+  check(
+    "a browser that only watched the turn shows the deferred message above its answer",
+    jB >= 0 && jB < kB,
+    `${jB} < ${kB}`,
+  );
+  check(
+    "its image thumbnail loads on the node",
+    (await thumbLoaded(b.page)) > 0,
+  );
 
   // Stop keeps what waits for after the turn, without starting it.
   await composer(a.page).fill("Start the second task");
@@ -507,34 +817,64 @@ async function scenario() {
   await until("the second turn running", () => model.holds.length === 1, 30000);
   await composer(a.page).fill("Deferred after stop");
   await composer(a.page).press("Tab");
-  await until("the deferred row", async () => (await queueRows(a.page)).length === 1);
+  await until(
+    "the deferred row",
+    async () => (await queueRows(a.page)).length === 1,
+  );
   await a.page.locator("#btn-send").click();
-  await until("the turn stopped", async () => {
-    const act = await viaMount(`/coddy/sessions/${sid}/activity`);
-    return act.json && act.json.turnActive === false;
-  }, 30000);
+  await until(
+    "the turn stopped",
+    async () => {
+      const act = await viaMount(`/coddy/sessions/${sid}/activity`);
+      return act.json && act.json.turnActive === false;
+    },
+    30000,
+  );
   model.release();
   rows = await until("the kept row", async () => {
     const r = await queueRows(a.page);
     return r.length === 1 ? r : null;
   });
   q = await viaMount(`/coddy/sessions/${sid}/queue`);
-  check("Stop keeps an after-turn message waiting", rows[0]?.mode === "After turn" && q.json?.messages?.[0]?.mode === "after_turn", q.raw.slice(0, 200));
+  check(
+    "Stop keeps an after-turn message waiting",
+    rows[0]?.mode === "After turn" &&
+      q.json?.messages?.[0]?.mode === "after_turn",
+    q.raw.slice(0, 200),
+  );
   const afterStop = model.requests.length;
   await a.page.waitForTimeout(800);
-  check("and does not start it", model.requests.length === afterStop && !model.requests.some((r) => r.typed === "Deferred after stop"));
+  check(
+    "and does not start it",
+    model.requests.length === afterStop &&
+      !model.requests.some((r) => r.typed === "Deferred after stop"),
+  );
   await composer(a.page).fill("Next task");
   await composer(a.page).press("Enter");
-  await until("the kept message answered after the next task", async () =>
-    (await transcript(a.page)).some((row) => row.includes("Answer to: Deferred after stop")), 60000);
+  await until(
+    "the kept message answered after the next task",
+    async () =>
+      (await transcript(a.page)).some((row) =>
+        row.includes("Answer to: Deferred after stop"),
+      ),
+    60000,
+  );
   const order = model.requests.slice(afterStop).map((r) => r.typed);
-  check("the kept message runs after the next answer", order[0] === "Next task" && order.includes("Deferred after stop"), order.join(" | "));
+  check(
+    "the kept message runs after the next answer",
+    order[0] === "Next task" && order.includes("Deferred after stop"),
+    order.join(" | "),
+  );
 
   // The preference lives in Settings.
   await a.page.goto(`${RELAY}/#/settings/agent`);
   const field = a.page.getByRole("combobox", { name: "Queue mode" });
   await field.waitFor({ timeout: 15000 });
-  check("Settings shows the saved queue mode on the Agent tab", (await field.inputValue()) === "steer", await field.inputValue());
+  check(
+    "Settings shows the saved queue mode on the Agent tab",
+    (await field.inputValue()) === "steer",
+    await field.inputValue(),
+  );
 
   await b.context.close();
   await a.context.close();
@@ -560,21 +900,39 @@ async function documentationShots() {
   await shoot(d.page, "message-queue-choice-dark-1280");
   await shootNarrow(d.page, "message-queue-choice-dark-390");
   await choice.getByRole("button", { name: "Steer now" }).click();
-  await until("the steer row", async () => (await queueRows(d.page)).length === 1);
+  await until(
+    "the steer row",
+    async () => (await queueRows(d.page)).length === 1,
+  );
   await attachImage(d.page);
   await composer(d.page).fill("Summarize after the answer");
   await composer(d.page).press("Tab");
-  await until("the after-turn row", async () => (await queueRows(d.page)).length === 2);
+  await until(
+    "the after-turn row",
+    async () => (await queueRows(d.page)).length === 2,
+  );
   await shoot(d.page, "message-queue-modes-dark-1280");
   await shootNarrow(d.page, "message-queue-modes-dark-390");
   model.release();
-  await until("the deferred prompt answered", async () =>
-    (await transcript(d.page)).some((row) => row.startsWith("assistant:") && row.includes("Answer to: Summarize after the answer")), 60000);
-  await until("the thumbnail", () =>
-    d.page.evaluate(() => {
-      const img = document.querySelector(".msg-user-file-thumb");
-      return Boolean(img && img.complete && img.naturalWidth > 0);
-    }), 20000);
+  await until(
+    "the deferred prompt answered",
+    async () =>
+      (await transcript(d.page)).some(
+        (row) =>
+          row.startsWith("assistant:") &&
+          row.includes("Answer to: Summarize after the answer"),
+      ),
+    60000,
+  );
+  await until(
+    "the thumbnail",
+    () =>
+      d.page.evaluate(() => {
+        const img = document.querySelector(".msg-user-file-thumb");
+        return Boolean(img && img.complete && img.naturalWidth > 0);
+      }),
+    20000,
+  );
   await shoot(d.page, "message-queue-after-turn-dark-1280");
   await d.page.goto(`${SHOTS_NODE}/#/settings/agent`);
   const field = d.page.getByRole("combobox", { name: "Queue mode" });
@@ -605,7 +963,10 @@ try {
         })
         .catch(() => "");
       console.error(`--- ${page.url()}\n${card}`);
-      if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `failure-${Date.now()}.png`) }).catch(() => {});
+      if (SHOTS)
+        await page
+          .screenshot({ path: path.join(SHOTS, `failure-${Date.now()}.png`) })
+          .catch(() => {});
     }
   }
 } finally {
@@ -613,14 +974,18 @@ try {
   modelServer.closeAllConnections?.();
   modelServer.close();
   if (KEEP) {
-    console.log(`stand left running: node ${NODE}, relay ${RELAY}, home ${scratch}`);
+    console.log(
+      `stand left running: node ${NODE}, relay ${RELAY}, home ${scratch}`,
+    );
     await new Promise(() => {});
   }
 }
 
 cleanup();
 if (failures.length > 0) {
-  console.error(`\n${failures.length} check(s) failed:\n- ${failures.join("\n- ")}`);
+  console.error(
+    `\n${failures.length} check(s) failed:\n- ${failures.join("\n- ")}`,
+  );
   process.exit(1);
 }
 console.log("\nmessage queue: all checks passed");

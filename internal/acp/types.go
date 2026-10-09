@@ -333,6 +333,8 @@ const (
 	UpdateTypeTurnProgress            = "turn_progress"
 	UpdateTypeBackgroundWake          = "background_wake"
 	UpdateTypeSessionSettings         = "session_settings"
+	UpdateTypeSessionGoal             = "session_goal"
+	UpdateTypeGoalTurn                = "goal_turn"
 )
 
 // TurnOverride is a setting changed for a number of operator turns rather
@@ -379,6 +381,122 @@ type SessionSettingsUpdate struct {
 	Notice string `json:"notice,omitempty"`
 	// Source names who asked for the change.
 	Source string `json:"source,omitempty"`
+}
+
+// Goal statuses: what the supervisor does after the next turn of a session
+// with a goal (docs/features/session-supervisor.md).
+const (
+	// GoalStatusActive: every turn end is checked against the objective and
+	// unfinished work gets an automatic continuation.
+	GoalStatusActive = "active"
+	// GoalStatusPaused: kept, but nothing is checked or continued until it is
+	// resumed - by the operator, or by the system with a reason (a usage
+	// limit, turns that kept failing, a check that kept failing).
+	GoalStatusPaused = "paused"
+	// GoalStatusBlocked: the supervisor found that the work needs the
+	// operator (a question, missing access, a conflict between the request
+	// and the tests) or cannot be done, or continuations stopped making
+	// progress. The reason says which.
+	GoalStatusBlocked = "blocked"
+	// GoalStatusComplete: the supervisor checked the result as met.
+	GoalStatusComplete = "complete"
+	// GoalStatusLimited: the continuation or token budget ran out first.
+	GoalStatusLimited = "limited"
+)
+
+// SessionGoal is a session's goal as every surface shows it: the objective,
+// where the supervisor stands, and what it found the last time it checked.
+type SessionGoal struct {
+	ID        string `json:"id"`
+	Objective string `json:"objective"`
+	Status    string `json:"status"`
+	// StatusReason says why a goal is paused, blocked or limited: the
+	// supervisor's question, the error that paused it.
+	StatusReason string `json:"statusReason,omitempty"`
+	SetAt        string `json:"setAt"`
+	UpdatedAt    string `json:"updatedAt,omitempty"`
+	// Continuations counts the automatic turns the goal has used, out of
+	// MaxContinuations (supervisor.max_continuations).
+	Continuations    int `json:"continuations"`
+	MaxContinuations int `json:"maxContinuations"`
+	// Checks counts the supervisor's verdicts.
+	Checks int `json:"checks"`
+	// ActiveMs is the wall time the goal's turns have run.
+	ActiveMs int64 `json:"activeMs"`
+	// TokensUsed sums uncached input and output tokens of the goal's turns;
+	// TokenBudget is supervisor.token_budget, 0 for none.
+	TokensUsed  int        `json:"tokensUsed"`
+	TokenBudget int        `json:"tokenBudget,omitempty"`
+	LastCheck   *GoalCheck `json:"lastCheck,omitempty"`
+	Checklist   []GoalItem `json:"checklist,omitempty"`
+	// Model and Reasoning are what /goal --model and --reasoning chose to
+	// check this goal; empty when the goal follows supervisor.model or the
+	// session's model and its default level.
+	Model     string `json:"model,omitempty"`
+	Reasoning string `json:"reasoning,omitempty"`
+	// CheckModel and CheckReasoning are what the next check runs on: Model,
+	// else supervisor.model, else the session's model; Reasoning, else that
+	// model's default level, "default" when it offers levels but configures
+	// no default, empty when it offers none.
+	CheckModel     string `json:"checkModel,omitempty"`
+	CheckReasoning string `json:"checkReasoning,omitempty"`
+}
+
+// GoalCheck is one supervisor verdict.
+type GoalCheck struct {
+	// Verdict is met, not_met, needs_user or impossible.
+	Verdict   string   `json:"verdict"`
+	Reason    string   `json:"reason,omitempty"`
+	Remaining []string `json:"remaining,omitempty"`
+	// Verified says a met verdict was confirmed by the verifier, which read
+	// the workspace itself.
+	Verified bool   `json:"verified,omitempty"`
+	At       string `json:"at,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
+// GoalItem is one requirement of the objective the supervisor tracks.
+type GoalItem struct {
+	Text string `json:"text"`
+	// Status is met, not_met or unverified.
+	Status   string `json:"status"`
+	Evidence string `json:"evidence,omitempty"`
+}
+
+// SessionGoalUpdate publishes a session's goal after every change: set,
+// cleared (Goal nil), paused, checked, continued.
+type SessionGoalUpdate struct {
+	SessionUpdate string       `json:"sessionUpdate"` // "session_goal"
+	SessionID     string       `json:"sessionId,omitempty"`
+	Goal          *SessionGoal `json:"goal"`
+	// Version orders the snapshots of one session that reach a client down
+	// more than one connection; a client keeps the highest it has seen.
+	Version uint64 `json:"version"`
+	// Notice is a one-line note for a surface that shows it ("Goal paused:
+	// usage limit reached"); empty for a plain resend.
+	Notice string `json:"notice,omitempty"`
+}
+
+// Goal turn kinds: why the supervisor started a turn nobody typed.
+const (
+	GoalTurnKickoff  = "kickoff"
+	GoalTurnContinue = "continue"
+	GoalTurnRecover  = "recover"
+	GoalTurnResume   = "resume"
+	GoalTurnWrapUp   = "wrapup"
+)
+
+// GoalTurnUpdate stands for the user-role message the supervisor opens a goal
+// turn with: surfaces show a one-line row ("Goal check 2 of 10: tests still
+// fail") instead of the instruction text the model reads.
+type GoalTurnUpdate struct {
+	SessionUpdate string   `json:"sessionUpdate"` // "goal_turn"
+	Kind          string   `json:"kind"`
+	Index         int      `json:"index,omitempty"`
+	Limit         int      `json:"limit,omitempty"`
+	Objective     string   `json:"objective"`
+	Reason        string   `json:"reason,omitempty"`
+	Remaining     []string `json:"remaining,omitempty"`
 }
 
 // QueuedMessage is one follow-up waiting for the running turn to read it.
@@ -493,10 +611,11 @@ type ConfigOptionUpdate struct {
 
 // TokenUsageUpdate reports token consumption for the current turn.
 type TokenUsageUpdate struct {
-	SessionUpdate string `json:"sessionUpdate"` // "token_usage"
-	InputTokens   int    `json:"inputTokens"`
-	OutputTokens  int    `json:"outputTokens"`
-	TotalTokens   int    `json:"totalTokens"`
+	SessionUpdate     string `json:"sessionUpdate"` // "token_usage"
+	InputTokens       int    `json:"inputTokens"`
+	OutputTokens      int    `json:"outputTokens"`
+	TotalTokens       int    `json:"totalTokens"`
+	CachedInputTokens int    `json:"cachedInputTokens,omitempty"`
 }
 
 // TurnProgressUpdate reports how far the running turn has come: when it was
@@ -518,7 +637,15 @@ type TurnProgressUpdate struct {
 	ElapsedMs    int64 `json:"elapsedMs"`
 	OutputTokens int   `json:"outputTokens"`
 	Estimated    bool  `json:"estimated"`
+	// Phase is TurnPhasePreparing on the update a turn sends as soon as it is
+	// taken, while it still brings in its MCP servers and waits for its model's
+	// context window; empty once the loop runs (issue #357).
+	Phase string `json:"phase,omitempty"`
 }
+
+// TurnPhasePreparing is the TurnProgressUpdate phase of a turn that was taken
+// and is not yet talking to its model.
+const TurnPhasePreparing = "preparing"
 
 // UsageUpdate reports how much of the model context window is currently occupied.
 type UsageUpdate struct {

@@ -19,8 +19,39 @@ var docsVerbs = []string{"list", "search", "show"}
 // docsUsage is the one usage line of `coddy docs`, spelled from the verb list so
 // the two cannot drift.
 func docsUsage() string {
-	return fmt.Sprintf("usage: %s docs [%s] | %s <words> [--limit N] | %s <page>[#section]",
+	return fmt.Sprintf("usage: %s docs [%s] [--lang en|ru] | %s <words> [--limit N] [--lang en|ru] | %s <page>[#section] [--lang en|ru]",
 		os.Args[0], docsVerbList("list"), docsVerbList("search"), docsVerbList("show"))
+}
+
+// docsLang takes --lang <en|ru> (also written --lang=<x>) out of the arguments,
+// wherever it stands among them, so every verb accepts it the same way. A flag
+// without a value, with a flag for a value or with a language the
+// documentation is not written in is a usage error.
+func docsLang(args []string) (lang string, rest []string, ok bool) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		value, isLang := "", false
+		switch {
+		case a == "--lang":
+			if i+1 >= len(args) {
+				return "", nil, false
+			}
+			value, isLang = args[i+1], true
+			i++
+		case strings.HasPrefix(a, "--lang="):
+			value, isLang = strings.TrimPrefix(a, "--lang="), true
+		default:
+			rest = append(rest, a)
+		}
+		if isLang {
+			known, found := docs.KnownLang(value)
+			if !found || strings.HasPrefix(value, "-") {
+				return "", nil, false
+			}
+			lang = known
+		}
+	}
+	return lang, rest, true
 }
 
 // docsVerbList returns want when docsVerbs still has it, and otherwise a spelling
@@ -38,7 +69,16 @@ func docsVerbList(want string) string {
 // search, or a page or one section of it. It works in every build, the lean
 // one without the console included, and reads nothing but the binary.
 func runDocs(args []string, out io.Writer) error {
-	lib, err := docs.Default()
+	usage := fmt.Errorf("%s", docsUsage())
+	lang, args, ok := docsLang(args)
+	if !ok {
+		return usage
+	}
+	if lang == "" {
+		// No --lang: the documentation speaks the language of the terminal.
+		lang = docs.LangFromEnv(os.Getenv)
+	}
+	lib, err := docs.For(lang)
 	if err != nil {
 		return err
 	}
@@ -46,7 +86,6 @@ func runDocs(args []string, out io.Writer) error {
 	if len(args) > 0 {
 		verb, args = args[0], args[1:]
 	}
-	usage := fmt.Errorf("%s", docsUsage())
 	switch verb {
 	case "list":
 		if len(args) > 0 && args[0] == "--slugs" {

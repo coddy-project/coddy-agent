@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { deriveSettingsSections } from "./settingsSections";
+import { deriveSettingsSections, knownSectionLabel } from "./settingsSections";
 import type { JsonSchema } from "./SchemaForm";
 import { initLocale } from "../i18n/i18n";
 
@@ -42,7 +42,7 @@ const rootSchema: JsonSchema = {
     agent: { type: "object", title: "ReAct loop", properties: {} },
     tools: { type: "object", title: "Tools and permissions", properties: {} },
     skills: { type: "object", title: "Skills", properties: {} },
-    memory: { type: "object", title: "Memory copilot", properties: {} },
+    memory: { type: "object", title: "Memory", properties: {} },
     decisions: {
       type: "object",
       title: "Command safety (decisions)",
@@ -161,7 +161,7 @@ test("skills is its own combined tab; english labels match schema titles", () =>
   expect(byId.skills?.kind).toBe("skills");
   expect(byId.agent?.kind).toBe("object");
   expect(byId.agent?.label).toBe("ReAct loop");
-  expect(byId.memory?.label).toBe("Memory copilot");
+  expect(byId.memory?.label).toBe("Memory");
   expect(byId.decisions?.label).toBe("Command safety (decisions)");
   expect(byId.decisions?.description).toBe("Unsafe command screening");
 });
@@ -174,7 +174,7 @@ test("known section labels and descriptions follow the active locale", () => {
   expect(byId.appearance?.label).toBe("Оформление");
   expect(byId.providers?.label).toBe("Провайдеры LLM");
   expect(byId.tools?.label).toBe("Инструменты и разрешения");
-  expect(byId.memory?.label).toBe("Копайлот памяти");
+  expect(byId.memory?.label).toBe("Память");
   expect(byId.decisions?.label).toBe("Безопасность команд (decisions)");
   expect(byId.decisions?.description).toBe("Проверка небезопасных команд");
   expect(byId.scheduler?.label).toBe("Планировщик");
@@ -257,7 +257,14 @@ test("a relay's settings leave out the Sessions tab and name the swarm section",
 // On a relay that predates its settings page the schema is not there at all;
 // the app knows it is on a relay and still leaves the Sessions tab out.
 test("a relay without a settings page keeps only Appearance", () => {
-  expect(deriveSettingsSections(null, { relay: true }).map((s) => s.id)).toEqual([
-    "appearance",
-  ]);
+  expect(
+    deriveSettingsSections(null, { relay: true }).map((s) => s.id),
+  ).toEqual(["appearance"]);
+});
+
+test("the session goal tab is named in the active locale", () => {
+  initLocale("ru");
+  expect(knownSectionLabel("supervisor")).toBe("Цель сессии");
+  initLocale("en");
+  expect(knownSectionLabel("supervisor")).toBe("Session goal");
 });

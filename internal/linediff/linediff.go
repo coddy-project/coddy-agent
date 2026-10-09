@@ -1,8 +1,9 @@
 // Package linediff computes line-level differences between two versions of a
 // text file and renders them as a standard unified diff.
 //
-// It exists because the session changed-files card and its diff viewers need
-// one answer to "what changed" on every surface that renders one. Deriving
+// It exists because the Edits views of a chat - the count on the plate over the
+// composer and the edits window - need one answer to "what changed" on every
+// surface that renders one. Deriving
 // that separately per surface is how the same edit ends up reported as
 // "+8 -0" in one place and "+9 -1" in another.
 package linediff
@@ -50,7 +51,7 @@ func splitLines(s string) []string {
 	if s == "" {
 		return nil
 	}
-	lines := strings.Split(s, "\n")
+	lines := strings.SplitAfter(s, "\n")
 	// A trailing newline yields one empty trailing element that is not a line.
 	if lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
@@ -170,8 +171,11 @@ func Unified(path, before, after string, context int) (patch string, truncated b
 			case opInsert:
 				b.WriteString("+")
 			}
-			b.WriteString(o.text)
+			b.WriteString(strings.TrimSuffix(o.text, "\n"))
 			b.WriteString("\n")
+			if !strings.HasSuffix(o.text, "\n") {
+				b.WriteString("\\ No newline at end of file\n")
+			}
 			if b.Len() > maxPatchBytes {
 				return b.String(), true
 			}

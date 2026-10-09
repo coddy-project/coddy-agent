@@ -30,7 +30,9 @@ function isEntry(x: unknown): x is WorkspaceAtRecentStored {
  * MRU list for **`@`** picker (files and folder rows). Separate list per workspace key
  * (normally **`sessionId`**).
  */
-export function readWorkspaceAtRecents(workspaceKey: string): WorkspaceAtRecentStored[] {
+export function readWorkspaceAtRecents(
+  workspaceKey: string,
+): WorkspaceAtRecentStored[] {
   if (typeof localStorage === "undefined") {
     return [];
   }
@@ -112,7 +114,10 @@ export function recordWorkspaceAtRecent(
 /**
  * Move recents when the client or server assigns a new session id (first send, or header refresh).
  */
-export function migrateWorkspaceAtRecents(fromKey: string, toKey: string): void {
+export function migrateWorkspaceAtRecents(
+  fromKey: string,
+  toKey: string,
+): void {
   if (typeof localStorage === "undefined") {
     return;
   }

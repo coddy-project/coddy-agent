@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { formatTurnTokens } from "../chat/turnProgress";
 import { BellIcon } from "../components/BellIcon";
@@ -403,9 +403,6 @@ export function BackgroundTasksPanel(props: {
   title?: string;
   /** Copy for an empty list; the chat's wording unless the caller names it. */
   emptyText?: string;
-  /** Extra controls between the heading and the close button, e.g. the dock's
-   *  tab strip; the panel renders them as they are given. */
-  headAddon?: ReactNode;
   /** A card to open on the shell's behalf. */
   focus?: TaskFocus | null;
   /**
@@ -621,7 +618,6 @@ export function BackgroundTasksPanel(props: {
     >
       <div className="sessions-head bgtasks-panel-head">
         <span>{props.title || t("tasks.panelTitle")}</span>
-        {props.headAddon}
         <button
           type="button"
           className="sessions-close"

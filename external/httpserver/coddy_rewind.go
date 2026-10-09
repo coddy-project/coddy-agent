@@ -8,13 +8,16 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // registerRewindRoute adds the in-place history rewind endpoint.
 func (s *Server) registerRewindRoute() {
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/rewind", s.coddyRewind)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/rewind/undo", s.coddyRewindUndo)
 }
 
 // coddyRewind handles POST /coddy/sessions/{id}/rewind.
@@ -94,6 +97,77 @@ func (s *Server) coddyRewind(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object":      "coddy.session_rewound",
+		"sessionId":   id,
+		"messagesRev": rev,
+	})
+}
+
+// coddyRewindUndo handles POST /coddy/sessions/{id}/rewind/undo.
+//
+// Response:
+//
+//	{ "object": "coddy.session_rewind_undone", "sessionId": "...", "messagesRev": N }
+func (s *Server) coddyRewindUndo(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if err := session.ValidateFolderSessionID(id); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	st := s.coddyEnsureLoaded(w, r, id)
+	if st == nil {
+		return
+	}
+	// The same read-only transcripts as the rewind: a child session and the
+	// session of a scheduler job have no history this surface may rewrite.
+	if st.IsReadOnlyTranscript() {
+		writeSubagentsError(w, http.StatusConflict, subagentReadOnlyMessage(st))
+		return
+	}
+	if _, ok := s.mgr.RewindUndoAvailable(id); !ok {
+		writeSubagentsError(w, http.StatusConflict, "session "+id+" has no rewind to undo")
+		return
+	}
+	// The edited turn is still running: it is stopped first, or it would keep
+	// appending onto the history the undo restores. UndoRewind holds the
+	// prompt turn lock across the restore, so a turn admitted between this
+	// wait and the restore either shows in the flag or runs after it.
+	if s.sessionTurnActive(id) {
+		s.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: id})
+		deadline := time.Now().Add(15 * time.Second)
+		for s.sessionTurnActive(id) && time.Now().Before(deadline) {
+			select {
+			case <-r.Context().Done():
+				deadline = time.Now()
+			case <-time.After(25 * time.Millisecond):
+			}
+		}
+		if s.sessionTurnActive(id) {
+			writeSubagentsError(w, http.StatusConflict, "session "+id+" has a turn in flight")
+			return
+		}
+	}
+
+	rev, err := s.mgr.UndoRewind(id)
+	if err != nil {
+		switch {
+		case errors.Is(err, session.ErrRewindUndoUnavailable),
+			errors.Is(err, session.ErrSessionTurnActive),
+			errors.Is(err, session.ErrSubagentReadOnly),
+			errors.Is(err, session.ErrSchedulerSessionReadOnly):
+			writeSubagentsError(w, http.StatusConflict, err.Error())
+		default:
+			s.log.Error("rewind undo", "session", id, "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	s.publishSessionRewound(id, rev)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":      "coddy.session_rewind_undone",
 		"sessionId":   id,
 		"messagesRev": rev,
 	})

@@ -36,7 +36,9 @@ test("completed without a measured duration shows no duration", () => {
 });
 
 test("in_progress before the clock starts reads the same way", () => {
-  const { container } = render(<ThinkingMessage status="in_progress" content="x" />);
+  const { container } = render(
+    <ThinkingMessage status="in_progress" content="x" />,
+  );
   expect(container.querySelector(".thinking-dur")).toBeNull();
 });
 
@@ -63,7 +65,11 @@ test("a long reasoning step reads in minutes and seconds, not in fractions of a 
 // rendered when the reader opens the row.
 test("a closed reasoning row renders its body only once it is opened", async () => {
   const { container } = render(
-    <ThinkingMessage status="in_progress" content="**Weighing** the options" startedAtMs={Date.now()} />,
+    <ThinkingMessage
+      status="in_progress"
+      content="**Weighing** the options"
+      startedAtMs={Date.now()}
+    />,
   );
   expect(container.querySelector(".thinking-body")).toBeNull();
   const details = container.querySelector("details")!;

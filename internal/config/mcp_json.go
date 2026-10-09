@@ -238,7 +238,7 @@ func writeMCPJSONFileEntries(path string, entries map[string]MCPJSONServer) erro
 		return err
 	}
 	data = append(data, '\n')
-	return atomicWriteFile(path, data, 0o644)
+	return atomicWriteFile(path, data, credentialFileMode)
 }
 
 // UpsertMCPJSONServer creates or replaces one named entry in an mcp.json file.

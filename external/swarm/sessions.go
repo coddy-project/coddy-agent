@@ -209,7 +209,9 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 	// A ring can deliver the same agent through more than one child. The rows
 	// are the same sessions, so they collapse on identity; the route kept is
-	// the shortest one, because that is the one a client should use.
+	// the shortest one, because that is the one a client should use, and of
+	// equally short ones the one the topology picks, so it does not change from
+	// one request to the next.
 	rows = dedupeByIdentity(rows)
 	sortSessionRows(rows)
 
@@ -272,6 +274,28 @@ func (s *Server) fanOut(ctx context.Context, nodes []Node, p fanoutParams) map[s
 	return out
 }
 
+// forwardedListParams are the switches of a listing a relay hands every child
+// as the caller sent them: what kinds of sessions the page holds is the
+// caller's question, not the relay's.
+var forwardedListParams = []string{"include_activity", "include_scheduler", "include_subagents", "include_print", "origin"}
+
+// nodeListQuery is the query one child is asked with.
+func nodeListQuery(p fanoutParams, search string) url.Values {
+	q := url.Values{}
+	// Every child is asked for at least what the caller wants. A shorter page
+	// would silently drop rows that belonged in the merged answer.
+	q.Set("limit", strconv.Itoa(p.limit))
+	if search != "" {
+		q.Set("q", search)
+	}
+	for _, pass := range forwardedListParams {
+		if v := p.query.Get(pass); v != "" {
+			q.Set(pass, v)
+		}
+	}
+	return q
+}
+
 // askNode fetches one node's page and labels it.
 func (s *Server) askNode(ctx context.Context, node Node, p fanoutParams) nodeReport {
 	if node.Transport == nil || !node.Transport.Alive() {
@@ -297,18 +321,7 @@ func (s *Server) askNode(ctx context.Context, node Node, p fanoutParams) nodeRep
 		path = "/swarm/sessions"
 	}
 
-	q := url.Values{}
-	// Every child is asked for at least what the caller wants. A shorter page
-	// would silently drop rows that belonged in the merged answer.
-	q.Set("limit", strconv.Itoa(p.limit))
-	if search != "" {
-		q.Set("q", search)
-	}
-	for _, pass := range []string{"include_activity", "include_scheduler", "include_subagents"} {
-		if v := p.query.Get(pass); v != "" {
-			q.Set(pass, v)
-		}
-	}
+	q := nodeListQuery(p, search)
 
 	base := strings.TrimRight(target.Path, "/")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.Scheme+"://"+target.Host+base+path+"?"+q.Encode(), nil)
@@ -459,7 +472,12 @@ func (s *Server) relayName() string {
 	return s.uuid[:8]
 }
 
-// dedupeByIdentity collapses the same session arriving by several routes.
+// dedupeByIdentity collapses the same session arriving by several routes. The
+// shortest route is kept and, of routes of the same length, the one whose hops
+// sort first. The rows arrive in the order the fan-out happened to finish in,
+// so without a tie-break of its own the same session would come back by a
+// different route from one request to the next, and by another one than the
+// topology gives the agent.
 func dedupeByIdentity(rows []sessionRow) []sessionRow {
 	if len(rows) < 2 {
 		return rows
@@ -480,11 +498,27 @@ func dedupeByIdentity(rows []sessionRow) []sessionRow {
 			out = append(out, row)
 			continue
 		}
-		if len(row.NodePath) < len(out[idx].NodePath) {
+		if preferredRoute(row.NodePath, out[idx].NodePath) {
 			out[idx] = row
 		}
 	}
 	return out
+}
+
+// preferredRoute reports whether route a is kept over route b: fewer hops, then
+// the first hop that differs sorting first by name, which is the order
+// ComputeRoutes walks the graph in. Hops are compared one by one rather than as
+// a joined path, where a hyphen in one name would sort before the separator.
+func preferredRoute(a, b []string) bool {
+	if len(a) != len(b) {
+		return len(a) < len(b)
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	return false
 }
 
 // sortSessionRows orders by recency, then deterministically, so two clients

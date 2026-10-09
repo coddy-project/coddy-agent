@@ -145,14 +145,23 @@ test("a malformed event payload is skipped rather than thrown", async () => {
 test("provider_usage frames reach their handler with the session that caused them", async () => {
   const seen: Array<{ sid: string; used: number | undefined }> = [];
   const ctl = new AbortController();
-  const frame =
-    `event: provider_usage\ndata: ${JSON.stringify({
-      object: "coddy.provider_usage",
-      sessionId: "sess_a",
-      usage: { provider: "neuraldeep", providerType: "neuraldeep", windows: [{ id: "session", label: "3h", used: 42, limit: 100, usedPercent: 42 }] },
-    })}\n\n`;
+  const frame = `event: provider_usage\ndata: ${JSON.stringify({
+    object: "coddy.provider_usage",
+    sessionId: "sess_a",
+    usage: {
+      provider: "neuraldeep",
+      providerType: "neuraldeep",
+      windows: [
+        { id: "session", label: "3h", used: 42, limit: 100, usedPercent: 42 },
+      ],
+    },
+  })}\n\n`;
   const fetchImpl = vi.fn(async () =>
-    responseOf(`event: ready\ndata: {"object":"coddy.events_ready"}\n\n` + frame + `event: provider_usage\ndata: {"broken":true}\n\n`),
+    responseOf(
+      `event: ready\ndata: {"object":"coddy.events_ready"}\n\n` +
+        frame +
+        `event: provider_usage\ndata: {"broken":true}\n\n`,
+    ),
   );
   await subscribeServerEvents({
     onTurnStarted: () => {},
@@ -173,16 +182,19 @@ test("provider_usage frames reach their handler with the session that caused the
 test("a message_queue frame reaches its handler with the session and the version", async () => {
   const seen: Array<{ sid: string; texts: string[]; version: number }> = [];
   const ctl = new AbortController();
-  const frame =
-    `event: message_queue\ndata: ${JSON.stringify({
-      object: "coddy.message_queue",
-      sessionId: "sess_shared",
-      messages: [
-        { id: "q_1", text: "check the Windows path too", createdAt: "2026-09-14T00:00:00Z" },
-        { id: "q_2", text: "and skip the integration suite" },
-      ],
-      version: 4,
-    })}\n\n`;
+  const frame = `event: message_queue\ndata: ${JSON.stringify({
+    object: "coddy.message_queue",
+    sessionId: "sess_shared",
+    messages: [
+      {
+        id: "q_1",
+        text: "check the Windows path too",
+        createdAt: "2026-09-14T00:00:00Z",
+      },
+      { id: "q_2", text: "and skip the integration suite" },
+    ],
+    version: 4,
+  })}\n\n`;
   const fetchImpl = vi.fn(async () =>
     responseOf(
       `event: ready\ndata: {"object":"coddy.events_ready"}\n\n` +
@@ -216,8 +228,8 @@ test("a message_queue frame reaches its handler with the session and the version
   ]);
 });
 
-// The changed-files card reads the change set when this says a finished turn's
-// diff is on disk - reading earlier races the capture and shows the old set.
+// The Edits views read the folder again when this says its changes were
+// discarded, from this window or another.
 test("a session_changes frame reaches its handler with the session", async () => {
   const settled: string[] = [];
   const ctl = new AbortController();
@@ -245,6 +257,50 @@ test("a session_changes frame reaches its handler with the session", async () =>
   });
 
   expect(settled).toEqual(["sess_c"]);
+});
+
+test("a session_goal frame reaches its handler with the goal and its version", async () => {
+  const got: Array<{ sid: string; objective: string | null; v: number }> = [];
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: session_goal\ndata: ${JSON.stringify({
+        object: "coddy.session_goal",
+        sessionId: "sess_g",
+        goal: { objective: "Ship it", status: "paused", continuations: 2 },
+        version: 12,
+        notice: "Goal paused: Ship it",
+      })}\n\n` +
+        `event: session_goal\ndata: ${JSON.stringify({
+          object: "coddy.session_goal",
+          sessionId: "sess_g",
+          goal: null,
+          version: 13,
+          notice: "Goal cleared",
+        })}\n\n`,
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onSessionGoal: (u) => {
+      got.push({
+        sid: u.sessionId,
+        objective: u.goal?.objective ?? null,
+        v: u.version,
+      });
+      if (got.length === 2) ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(got).toEqual([
+    { sid: "sess_g", objective: "Ship it", v: 12 },
+    { sid: "sess_g", objective: null, v: 13 },
+  ]);
 });
 
 test("a config reload tells the client to re-read what the config decides", async () => {

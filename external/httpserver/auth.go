@@ -55,6 +55,14 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pol := s.authPolicyNow()
 		_, pattern := s.mux.Handler(r)
+		if pattern == workspaceRawPattern && r.URL.Query().Has("access_token") {
+			if s.acceptWorkspaceCapability(r) {
+				next.ServeHTTP(w, r)
+			} else {
+				http.Error(w, "invalid media capability", http.StatusUnauthorized)
+			}
+			return
+		}
 		if !pol.enabled || !isProtectedPattern(pattern, pol.publicDocs) {
 			next.ServeHTTP(w, r)
 			return

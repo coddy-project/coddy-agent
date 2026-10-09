@@ -5,6 +5,7 @@ package httpserver
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,13 +35,22 @@ var errSessionNotFound = errors.New("session not found")
 
 var errInvalidSessionHeader = errors.New("invalid X-Coddy-Session-ID")
 
+// errInvalidOriginHeader refuses an X-Coddy-Session-Origin the server does not
+// record: only a print run's mark is accepted from a client.
+var errInvalidOriginHeader = errors.New(`invalid ` + session.OriginHeader + `: the only accepted value is "print"`)
+
 // Server serves OpenAI-compatible HTTP endpoints.
 type Server struct {
-	cfgAt                atomic.Pointer[config.Config]
-	mgr                  *session.Manager
-	log                  *slog.Logger
-	defaultCWD           string
-	mux                  *http.ServeMux
+	workspaceMediaKey string
+	cfgAt             atomic.Pointer[config.Config]
+	mgr               *session.Manager
+	log               *slog.Logger
+	defaultCWD        string
+	mux               *http.ServeMux
+	// revealFile asks the host desktop to show a verified artifact path
+	// (platform.RevealFile). Tests replace it: the real one starts the
+	// desktop's opener, which outlives the test and its temporary folder.
+	revealFile           func(path string) error
 	providerFactory      func(*config.Config) (llm.Provider, error)
 	agentProviderFactory func(llm.ProviderInput) (llm.Provider, error)
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion)
@@ -88,12 +98,6 @@ type Server struct {
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
 
-	// liveTurnMu guards liveTurns: the pre-turn snapshot of every turn this
-	// process is running, which the changed-files card reads when it is opened
-	// mid-turn (coddy_changes_live.go).
-	liveTurnMu sync.Mutex
-	liveTurns  map[string]*liveTurn
-
 	// detachedPrompts is the broker turns this server builds itself hand their
 	// detached subagents; nil means this server alone (SetDetachedPrompts).
 	detachedPrompts agent.DetachedPermissionBroker
@@ -115,6 +119,9 @@ type Server struct {
 	// feeds session_settings frames to the events stream, so a model switched
 	// in a console or an editor is mirrored by every browser tab.
 	removeSettingsObserver func()
+	// removeGoalObserver detaches the session goal observer that feeds
+	// session_goal frames to the events stream.
+	removeGoalObserver func()
 
 	codexAuthIssuer string
 	// codexAuthMu guards both browser-login attempt maps; the attempts share
@@ -140,6 +147,9 @@ func (s *Server) Drain() {
 	}
 	if s.removeQueueObserver != nil {
 		s.removeQueueObserver()
+	}
+	if s.removeGoalObserver != nil {
+		s.removeGoalObserver()
 	}
 	if s.removeSettingsObserver != nil {
 		s.removeSettingsObserver()
@@ -170,10 +180,12 @@ func (s *Server) Drain() {
 // server, and so does one the manager made before the server subscribed.
 func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
 	s := &Server{
+		workspaceMediaKey:    rand.Text(),
 		mgr:                  mgr,
 		log:                  log,
 		defaultCWD:           defaultCWD,
 		mux:                  http.NewServeMux(),
+		revealFile:           platform.RevealFile,
 		providerFactory:      defaultProviderFromAgentModel,
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
@@ -200,6 +212,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		// may be reading the stream of the turn that is running.
 		s.removeQueueObserver = mgr.AddMessageQueueObserver(s.publishMessageQueueEvent)
 		s.removeSettingsObserver = mgr.AddSessionSettingsObserver(s.publishSessionSettingsEvent)
+		s.removeGoalObserver = mgr.AddSessionGoalObserver(s.publishSessionGoalEvent)
 		// The manager is the one place every reload path passes through - the
 		// settings screen, the agent's config_commit tool, the console - so
 		// following it is how the handlers see an edit no matter who made it.
@@ -605,6 +618,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
 			return
 		}
+		if errors.Is(err, errInvalidOriginHeader) {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
 		return
 	}
@@ -681,11 +698,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata)}
-		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
-		// The changed-files card, opened mid-turn, compares against this snapshot.
-		live := s.beginLiveTurn(sessionID, st.GetCWD(), beforeSnap)
-		turnsBefore := session.CountUserTurns(st.GetMessages())
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(req.Metadata), Lang: langFromHTTP(req.Metadata)}
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
 		stopKeepalive := bridge.StartIdleKeepalive()
@@ -697,7 +710,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Meta:       sessionPromptMetaFromHTTP(req.Metadata),
 		}, bridge, promptOpts)
 		stopKeepalive()
-		s.settleTurnDiff(st, beforeSnap, live, turnsBefore, err)
 		if err != nil {
 			s.log.Error("session prompt", "error", err)
 			// Watchers hear about the failure either way; only the caller's own answer
@@ -745,6 +757,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				},
 				"finish_reason": "stop",
 			}},
+		}
+		if usage := bridge.CompletionUsage(); usage != nil {
+			resp["usage"] = usage
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
@@ -833,6 +848,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		"metadata": meta,
 		"choices":  []map[string]interface{}{{"index": 0, "message": message, "finish_reason": finish}},
 	}
+	if usage := completionUsageFromResponse(directRes).openAI(); usage != nil {
+		resp["usage"] = usage
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -850,26 +868,33 @@ func profileTurnContext(ctx context.Context, st *session.State, stream bool) (co
 }
 
 func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *session.State, id string, createdNew bool, err error) {
+	// The origin a client asks a session it creates to carry (a remote
+	// `coddy -p` marks its run "print"); recorded only when this request
+	// creates the bundle, never on a session that exists already.
+	origin, ok := session.ParseRequestedOrigin(r.Header.Get(session.OriginHeader))
+	if !ok {
+		return nil, "", false, errInvalidOriginHeader
+	}
 	sid := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
 	if sid != "" {
 		if err := session.ValidateFolderSessionID(sid); err != nil {
 			return nil, "", false, errInvalidSessionHeader
 		}
-		st2, err := s.mgr.EnsureHTTPSession(ctx, sid, s.defaultCWD)
+		st2, err := s.mgr.EnsureHTTPSessionAs(ctx, sid, s.defaultCWD, origin)
 		if err != nil {
 			return nil, "", false, err
 		}
 		return st2, sid, false, nil
 	}
-	res, err := s.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: s.defaultCWD})
+	// A fresh id through the same path, not session/new: the origin travels
+	// as an argument rather than through the manager's one-shot fields, which
+	// concurrent requests would share.
+	newID := session.NewSessionID()
+	st, err = s.mgr.EnsureHTTPSessionAs(ctx, newID, s.defaultCWD, origin)
 	if err != nil {
 		return nil, "", false, err
 	}
-	st = s.mgr.SessionByID(res.SessionID)
-	if st == nil {
-		return nil, "", false, fmt.Errorf("internal session")
-	}
-	return st, res.SessionID, true, nil
+	return st, newID, true, nil
 }
 
 func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {
@@ -1040,9 +1065,11 @@ func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
 		if len(t.Function.Parameters) > maxClientToolSchemaBytes {
 			return nil, fmt.Errorf("tool %q: parameters exceed %d bytes", name, maxClientToolSchemaBytes)
 		}
-		var schema interface{}
-		if len(bytes.TrimSpace(t.Function.Parameters)) > 0 {
-			if err := json.Unmarshal(t.Function.Parameters, &schema); err != nil {
+		// A function's parameters are a JSON Schema object; anything else is
+		// refused rather than decoded into an arbitrary value.
+		var schema map[string]interface{}
+		if params := bytes.TrimSpace(t.Function.Parameters); len(params) > 0 && !bytes.Equal(params, []byte("null")) {
+			if err := json.Unmarshal(params, &schema); err != nil {
 				return nil, fmt.Errorf("tool %q: invalid parameters: %w", name, err)
 			}
 		}
@@ -1159,6 +1186,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
 			return
 		}
+		if errors.Is(err, errInvalidOriginHeader) {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
 		return
 	}
@@ -1256,7 +1287,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata)}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, SurfaceSystemPrompt: surfacePromptFromHTTP(body.Metadata), Lang: langFromHTTP(body.Metadata)}
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,
@@ -1270,15 +1301,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		// See the /v1/chat/completions path: a blocking model's turn is silent on the
 		// wire until it finishes, and idle proxies drop a stream that says nothing.
-		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
-		// The changed-files card, opened mid-turn, compares against this snapshot.
-		live2 := s.beginLiveTurn(sid, st.GetCWD(), beforeSnap2)
-		turnsBefore2 := session.CountUserTurns(st.GetMessages())
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
 		promptRes, err := s.mgr.HandleSessionPromptWithSender(profileCtx, promptParams, bridge, promptOpts)
 		stopKeepalive()
-		s.settleTurnDiff(st, beforeSnap2, live2, turnsBefore2, err)
 		if err != nil {
 			s.log.Error("responses prompt", "error", err)
 			_ = bridge.SendErrorFor(err)

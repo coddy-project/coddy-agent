@@ -156,7 +156,7 @@ func Resolve(cli CLIPaths) (Paths, error) {
 }
 
 // ExpandPathVars substitutes ${CODDY_HOME} and ${CWD}, then expands ~.
-// Use for process-scoped path fields (sessions.dir, scheduler.dir, memory.dir,
+// Use for process-scoped path fields (sessions.dir, memory.dir,
 // logger.file) whose ${CWD} means the default working directory. The raw config
 // body goes through expandConfigBody instead, which keeps ${CWD} in place for
 // the per-session consumers (skills, subagents, hooks, prompts, MCP servers).

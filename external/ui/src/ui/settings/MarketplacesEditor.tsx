@@ -183,7 +183,8 @@ export function MarketplacesEditor(props: {
       );
       if (!res.ok)
         setError(
-          res.error || translate("skills.sources.error.remove", { source: key }),
+          res.error ||
+            translate("skills.sources.error.remove", { source: key }),
         );
       await load();
     });
@@ -217,7 +218,9 @@ export function MarketplacesEditor(props: {
         scope: effectiveScope,
       });
       if (!res.ok) {
-        setError(res.error || translate("skills.sources.error.add", { source }));
+        setError(
+          res.error || translate("skills.sources.error.add", { source }),
+        );
         return;
       }
       setDraft("");
@@ -238,7 +241,10 @@ export function MarketplacesEditor(props: {
         description={t("skills.sources.description")}
       />
       {loadError ? (
-        <p className="settings-error" data-testid="skills-marketplaces-load-error">
+        <p
+          className="settings-error"
+          data-testid="skills-marketplaces-load-error"
+        >
           {loadError}
         </p>
       ) : null}
@@ -248,7 +254,10 @@ export function MarketplacesEditor(props: {
         </p>
       ))}
       {error ? <p className="settings-error">{error}</p> : null}
-      <ul className="skills-marketplaces" data-testid="skills-marketplaces-list">
+      <ul
+        className="skills-marketplaces"
+        data-testid="skills-marketplaces-list"
+      >
         {entries.map((e) => {
           const key = entryKey(e);
           const held = e.status !== "ready";
@@ -398,7 +407,9 @@ export function MarketplacesEditor(props: {
                 ? undefined
                 : t("skills.sources.scope.noSessionTitle")
             }
-            onChange={(ev) => setScope(ev.target.value === "local" ? "local" : "global")}
+            onChange={(ev) =>
+              setScope(ev.target.value === "local" ? "local" : "global")
+            }
             aria-label={t("skills.sources.scopeAria")}
             data-testid="skills-marketplace-scope"
           >

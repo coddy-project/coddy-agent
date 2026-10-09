@@ -780,3 +780,37 @@ func TestPermissionClickFromANonAdminInASharedGroupIsIgnored(t *testing.T) {
 		t.Fatal("the admin's click did not answer the request")
 	}
 }
+
+// A goal's turns arrive on one sender: each answer is final before the note
+// of the next turn, and how the goal ended is a message of its own.
+func TestSender_GoalTurnsAreMessagesInOrder(t *testing.T) {
+	e := newTestEnv(t, pachcafake.Options{}, nil)
+	chat := e.fake.PersonalChat(5)
+	s := e.bot.newSender(context.Background(), e.client, ChatTarget(chat), 0)
+	chunk := func(text string) acp.MessageChunkUpdate {
+		return acp.MessageChunkUpdate{SessionUpdate: acp.UpdateTypeAgentMessageChunk, Content: acp.ContentBlock{Type: acp.ContentTypeText, Text: text}}
+	}
+	_ = s.SendSessionUpdate("s", chunk("First answer."))
+	_ = s.SendSessionUpdate("s", acp.GoalTurnUpdate{SessionUpdate: acp.UpdateTypeGoalTurn, Kind: acp.GoalTurnContinue, Index: 1, Limit: 10, Objective: "x", Reason: "tests fail"})
+	_ = s.SendSessionUpdate("s", chunk("Second answer."))
+	_ = s.SendSessionUpdate("s", acp.SessionGoalUpdate{SessionUpdate: acp.UpdateTypeSessionGoal, Notice: "Goal check: the supervisor is reviewing the turn"})
+	_ = s.SendSessionUpdate("s", acp.SessionGoalUpdate{SessionUpdate: acp.UpdateTypeSessionGoal, Notice: "Goal complete: x"})
+	s.Flush()
+	var got []string
+	for _, m := range e.fake.Messages(chat) {
+		got = append(got, m.Content)
+	}
+	joined := strings.Join(got, "\n---\n")
+	want := []string{"First answer.", "Goal continuation 1 of 10: tests fail", "Second answer.", "Goal complete: x"}
+	last := -1
+	for _, w := range want {
+		i := strings.Index(joined, w)
+		if i <= last {
+			t.Fatalf("messages out of order or missing %q:\n%s", w, joined)
+		}
+		last = i
+	}
+	if strings.Contains(joined, "Goal check:") || strings.Contains(got[0], "Second answer.") {
+		t.Fatalf("progress posted or answers merged:\n%s", joined)
+	}
+}

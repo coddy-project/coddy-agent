@@ -2,7 +2,7 @@
 
 Coddy executes what the model decides on the machine it runs on, with the rights of the user who started it. This page gathers in one place what bounds that: the permission gate and the modes, the trust receipts for files that arrive with a checkout, where secrets live and where they are redacted, what the HTTP, Telegram and swarm surfaces expose, hooks as a policy layer, the loop guards, and what is not sandboxed at all. Each section points at the page that carries the detail.
 
-For the repository's own AppSec posture — trivy and semgrep run locally and in CI, the severity gate and triage — see [AppSec scanning](../contributing/security-scanning.md).
+For the repository's own AppSec posture — trivy, semgrep and govulncheck run locally and in CI, the severity gate and triage — see [AppSec scanning](../contributing/security-scanning.md).
 
 ## What is not sandboxed
 
@@ -77,9 +77,9 @@ A session that finds a held hooks file records a notice, so you learn that hooks
 - set a bearer token - `httpserver.auth_token` (`${ENV}` expanded), `--auth-token`, or `CODDY_HTTP_TOKEN`; every `/v1/*` and `/coddy/*` route then answers `401` without `Authorization: Bearer`, the SPA shell stays public, and `/docs` and `/openapi.*` are protected unless `httpserver.public_docs: true`;
 - close the browser surface with an account - `coddy serve set-password`, or `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD` in `$CODDY_HOME/.env`; a browser then signs in at a form and carries an `HttpOnly` cookie, which gates the same routes the token gates. A token is for API clients and the form is for browsers: set **both** when anything other than a browser talks to the server, because a password alone leaves `coddy --remote`, `coddy acp --remote`, a swarm relay and every script without a credential;
 - put a TLS-terminating reverse proxy in front, since the server speaks plain HTTP;
-- enable CORS (`httpserver.cors.enable`, `allowed_origins`) only for the origins that need it; `"*"` still requires the token but lets any page try;
+- enable CORS (`httpserver.cors`) only for the origins that need it, and in this order: exact `allowed_origins` first, `allow_loopback` for a laptop's own `coddy serve` on any loopback port, `"*"` last. None of the three is a credential: CORS decides whether a browser shows a page the answer, the token or the sign-in form decides whether the server gives one. So on a server with neither, `allow_loopback` hands the API - `GET /coddy/config` with the provider keys, a turn with the shell tools - to every page served from the browser's own machine (a dev server, a desktop app's page), and `"*"` to every page anywhere; `coddy serve` warns at start and `--dry-run` reports it when either is on without a credential, whatever the bind address, and `httpserver.allow_insecure` silences that warning like the other. Two loopback ports are one site, so the sign-in cookie does travel from a page on another local port; what keeps that page out is that the server never sets `Access-Control-Allow-Credentials` (the browser withholds the answer) and refuses a cookie-authenticated write from another origin with `403`;
 - prefer the header over `?access_token=`, which only the two SSE routes accept and which reaches proxy access logs;
-- leave `httpserver.allow_insecure` unset: it silences the warning about a non-loopback bind without a token, and nothing else.
+- leave `httpserver.allow_insecure` unset: it silences the two startup warnings about a server without a credential - a non-loopback bind, and CORS that admits pages nobody listed - together with the `--dry-run` findings that mirror them, and nothing else.
 
 The sign-in form stores an argon2id hash, never a plaintext password, and `GET /coddy/config` reports only that an account exists and where it came from. Wrong passwords are answered in constant time and progressively more slowly per source address, counted before they are judged so a burst pays the wait too, with loopback exempt so the machine cannot lock itself out - and behind a reverse proxy, where every request arrives from loopback, the forwarded client address is what the throttle counts. The session cookie is `HttpOnly` and `SameSite=Strict`, so no script reads it and no request another site caused carries it; on top of that a cookie-authenticated request that changes state is refused unless it came from this origin (`Sec-Fetch-Site` or `Origin`), while bearer requests are not subject to that check. Sessions are held in memory only, so restarting the process ends them, and rotating the password ends every session it opened.
 
@@ -106,7 +106,7 @@ A `PreToolUse` hook runs before the permission prompt on every matching call, wh
 - a bearer token is set and reaches the process by environment or flag, not as a literal in the file;
 - the browser surface has an account (`coddy serve set-password`, or `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD`), so a page that finds the port is asked who it is;
 - TLS terminates in front of the server, or clients come in over a tunnel;
-- `httpserver.cors.allowed_origins` names only the origins that need it;
+- `httpserver.cors` admits only the origins that need it, and `allow_loopback` or `"*"` is on only behind a token or the sign-in form;
 - `mcp.project_trust`, `hooks.project_trust`, `subagents.project_trust` and `skills.project_trust` are `ask` or `deny` for checkouts you do not control;
 - `tools.permission_mode` is not `bypass` unless the host is disposable, and a `failClosed` `PreToolUse` hook covers what a prompt cannot;
 - the process runs in a container with a read-only root filesystem and only the workspace mounted.

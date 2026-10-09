@@ -3,7 +3,7 @@
 // environment shim, because the list of places to go must not travel with the
 // place you are.
 //
-// The environment chip and the History filter both list them. Each used to read
+// The rail's environment menu and the History filter both list them. Each used to read
 // the configuration once, when it mounted, so a remote committed while the page
 // was open (a settings save, the agent's config_commit) stayed invisible until
 // the composer happened to mount again (issue #401). The list lives here now:

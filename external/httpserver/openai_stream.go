@@ -69,8 +69,8 @@ type openAIStreamFilter struct {
 	done bool
 	// stopReason is the ACP stop reason read off coddy_meta, "" until then.
 	stopReason string
-	// usage is the last token_usage event seen, nil when the turn reported none.
-	usage *acp.TokenUsageUpdate
+	// usage sums the provider counters of every model call in the turn.
+	usage completionUsage
 }
 
 // newOpenAIStreamFilter wraps the client's response writer. model is the id the
@@ -186,7 +186,9 @@ func (f *openAIStreamFilter) named(event, data string) {
 	case "token_usage":
 		var u acp.TokenUsageUpdate
 		if err := json.Unmarshal([]byte(data), &u); err == nil {
-			f.usage = &u
+			f.usage.input += u.InputTokens
+			f.usage.output += u.OutputTokens
+			f.usage.cached += u.CachedInputTokens
 		}
 	}
 }
@@ -261,11 +263,11 @@ func (f *openAIStreamFilter) finish() error {
 	if !f.includeUsage {
 		return nil
 	}
-	usage := map[string]int{"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-	if f.usage != nil {
-		usage["prompt_tokens"] = f.usage.InputTokens
-		usage["completion_tokens"] = f.usage.OutputTokens
-		usage["total_tokens"] = f.usage.TotalTokens
+	usage := f.usage.openAI()
+	if usage == nil {
+		// Keep the streaming contract: an explicitly requested usage chunk
+		// exists even when the provider supplied no counters.
+		usage = map[string]interface{}{"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 	}
 	line, err := json.Marshal(map[string]any{
 		"id":      f.chatID,
