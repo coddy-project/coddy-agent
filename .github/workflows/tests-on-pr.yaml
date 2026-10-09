@@ -376,7 +376,7 @@ jobs:
       # mentions suite does not resolve a "~" path and the built-in docs suite
       # reads the CRLF checkout, both open at the time of writing.
       - name: Run file and path tests
-        run: go test ./cmd/coddy/... ./internal/config/... ./internal/dryrun/... ./internal/swarm/...
+        run: go test ./cmd/coddy/... ./internal/config/... ./internal/dryrun/... ./internal/swarm/... ./internal/pki/...
 
   # The console is a raw-mode terminal program, and nothing above runs it on
   # macOS, where bare `coddy` opens on a Terminal.app pty. A hang there was
