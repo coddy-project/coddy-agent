@@ -90,3 +90,40 @@ test("a link of an inline SVG asks for a window the sandbox refuses", () => {
   expect(doc.getElementById("new")?.getAttribute("target")).toBe("_blank");
   expect(doc.getElementById("part")?.hasAttribute("target")).toBe(false);
 });
+
+// What the frame's own parser would bring back to life, or an animation would
+// change after the cleaning, must not carry a link out of the page.
+test("a declarative shadow root stays an inert template in the preview", () => {
+  const out = htmlPreviewDocument(
+    '<div><template shadowrootmode="open"><a href="https://example.test/">out</a></template></div>' +
+      '<div><template shadowroot="open"><a href="https://example.test/">old</a></template></div>',
+  );
+  const doc = parse(out);
+  for (const template of doc.querySelectorAll("template")) {
+    expect(template.hasAttribute("shadowrootmode")).toBe(false);
+    expect(template.hasAttribute("shadowroot")).toBe(false);
+  }
+  expect(out).not.toMatch(/shadowroot/i);
+});
+
+test("an SVG animation cannot point a link out of the page or change its target", () => {
+  const doc = parse(
+    htmlPreviewDocument(
+      '<svg xmlns="http://www.w3.org/2000/svg">' +
+        '<a id="moved" href="#top"><set attributeName="href" to="https://example.test/"/><text>a</text></a>' +
+        '<a id="xmoved" href="#top"><animate attributeName="xlink:href" values="https://example.test/"/><text>b</text></a>' +
+        '<a id="retargeted" href="https://example.test/"><set attributeName="target" to="_self"/><text>c</text></a>' +
+        '<circle r="4"><animate id="kept" attributeName="r" values="4;8"/></circle>' +
+        "</svg>",
+    ),
+  );
+  expect(doc.querySelectorAll("set").length).toBe(0);
+  expect(
+    doc.querySelectorAll('animate[attributeName="xlink:href"]').length,
+  ).toBe(0);
+  expect(doc.getElementById("retargeted")?.getAttribute("target")).toBe(
+    "_blank",
+  );
+  // An animation of anything else stays.
+  expect(doc.getElementById("kept")).not.toBeNull();
+});

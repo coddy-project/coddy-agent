@@ -23,9 +23,13 @@ export function pdfViewerAvailable(): boolean {
  * the authenticated reader (so a remote environment and a swarm relay work as
  * for a picture) and only as a PDF, into a `blob:` address the frame shows.
  * The frame has no `sandbox`: every engine's viewer refuses to run inside one,
- * so the viewer itself is what stands between the document and the page, as
- * it does for a PDF opened from a link. A read that fails, or a file past
- * `PDF_BYTE_CAP`, falls back to the download notice.
+ * so the viewer itself is what stands between the document and the page. A
+ * `blob:` address belongs to the web UI's origin, where the node's raw route
+ * would serve the same PDF in its own origin under a sandbox policy, so a flaw
+ * in the browser's viewer would reach further from here: the risk the
+ * operator accepted for a preview (docs/plans/file-viewer.md, section 16). A
+ * read that fails, or a file past `PDF_BYTE_CAP`, falls back to the download
+ * notice.
  */
 export function FilePdf(props: {
   sessionId: string;

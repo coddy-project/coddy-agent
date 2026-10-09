@@ -29,6 +29,24 @@ export function htmlPreviewDocument(source: string): string {
   )) {
     node.remove();
   }
+  // A declarative shadow root is an inert template here and live content in
+  // the frame, where nothing above or below reaches its links: it stays a
+  // template there too.
+  for (const node of doc.querySelectorAll("template")) {
+    node.removeAttribute("shadowrootmode");
+    node.removeAttribute("shadowroot");
+  }
+  // An SVG animation can change a link after this cleaning: point it out of
+  // the page, or take back the target set below. Those animations go; any
+  // other animation stays.
+  for (const node of doc.querySelectorAll("set, animate")) {
+    const name = (node.getAttribute("attributeName") || "")
+      .trim()
+      .toLowerCase();
+    if (name === "href" || name === "xlink:href" || name === "target") {
+      node.remove();
+    }
+  }
   // A link out of the page would take the frame to another site; it asks for
   // a new window instead, which the sandbox refuses. A link to a part of the
   // page still moves within it. An inline SVG's link may name its address in

@@ -491,8 +491,10 @@ converter in Go costs only its own code. The operator chose:
   This revisits section 13, which kept PDF a download because no engine draws a PDF in a
   sandboxed frame. The bytes now come through the authenticated reader (as a picture does,
   up to 50 MiB, accepted only as `application/pdf`) into a `blob:` address an iframe shows
-  **without** `sandbox`; the viewer itself is the boundary, as it is for a PDF opened from a
-  link. The operator accepted that risk. The raw route is unchanged: its `sandbox` policy
+  **without** `sandbox`; the viewer itself is the boundary. That is weaker than a PDF opened
+  from the raw route, which runs in the node's origin under its `sandbox` policy: a `blob:`
+  document belongs to the SPA's origin, so a flaw in a browser's viewer would reach the
+  page's storage. The operator accepted that risk for the preview. The raw route is unchanged: its `sandbox` policy
   still covers every byte it serves. Chrome titles a `blob:` PDF with the address's UUID;
   naming the file would mean serving the PDF from the raw route under a relaxed policy,
   which was not done.
@@ -527,6 +529,11 @@ Two more asks of the operator came with the review of the first captures:
   rule of 2026-09-10, which predates both windows. The selectors are one
   `:is(.md-code, .files-code, .dv-code)` list now, held by a stylesheet test and by the
   computed colour of a token in both windows in the browser check.
+- **The second round of the cross-review** found three ways a link of an HTML preview still
+  loaded a page in the frame: a declarative shadow root (`<template shadowrootmode>`), inert
+  where the page is cleaned and live in the frame, and SVG `<set>` / `<animate>` changing a
+  link's `href` or `target` after the cleaning. Such templates lose the attribute and such
+  animations are removed.
 - **The tree's column.** A top-level row's name started 3px left of the filter's text and its
   glyph 2px left of the magnifier. The geometry is one module now (`files/treeGeometry.ts`,
   the edits tree included), held to the stylesheet by a test and measured in the browser.
