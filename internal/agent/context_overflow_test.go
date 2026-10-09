@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -180,4 +181,21 @@ func TestRunKeepsTheProvidersStatusOnAnOverflow(t *testing.T) {
 	if !llm.IsContextOverflow(err) {
 		t.Fatal("the typed error no longer classifies as an overflow")
 	}
+}
+
+// apiRefusal is the error the OpenAI client builds for an answer of the given
+// status: a typed error whose body, when it has an "error" object, is parsed.
+// Without one it carries nothing, as it does for an nginx page.
+func apiRefusal(t *testing.T, status int, body string) error {
+	t.Helper()
+	var apiErr openai.Error
+	if body != "" {
+		if err := apiErr.UnmarshalJSON([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	apiErr.StatusCode = status
+	apiErr.Request = httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080/v1/chat/completions", nil)
+	apiErr.Response = &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}
+	return fmt.Errorf("openai complete: %w", &apiErr)
 }

@@ -6,8 +6,10 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"testing"
 
@@ -544,6 +546,119 @@ func TestFoldLogsTheEstimatedAndTheRefusedSize(t *testing.T) {
 	for _, want := range []string{"compaction pass refused as too large", "estimatedTokens=", "providerTokens=", "providerLimit=1000", "retryTokens="} {
 		if !strings.Contains(logs.String(), want) {
 			t.Errorf("log lacks %q:\n%s", want, logs.String())
+		}
+	}
+}
+
+// The old fold shrank on any refusal; an answer in the wording of a backend
+// the classifier has never seen must not leave a session that only /compact
+// could save with no way out. A 400 or a 413 that no phrase recognises is cut
+// once.
+func TestFoldShrinksOnceOnARefusalItCannotRecognise(t *testing.T) {
+	for _, status := range []int{400, 413} {
+		t.Run(fmt.Sprintf("status %d", status), func(t *testing.T) {
+			st := seededCompactState(t, 2)
+			keep := 1
+			provider := &compactSizeRefusingProvider{
+				limit: 4500, summary: "SUMMARY",
+				refusal: func(int) error { return apiRefusal(t, status, "") },
+			}
+			ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+
+			rest := longHead(2, 3000)
+			chunk := nextCompactionChunk(rest, 100000)
+			chain := []compactionCandidate{{provider: provider, modelID: "fake/model"}}
+			out, _, covered, err := ag.foldOnePass(context.Background(), chain, "", rest, chunk, "")
+			if err != nil {
+				t.Fatalf("a single-model chain did not recover after one cut: %v", err)
+			}
+			if out != "SUMMARY" || covered != 1 {
+				t.Fatalf("summary %q covering %d messages, want SUMMARY covering the 1 that fits", out, covered)
+			}
+			if provider.refused != 1 {
+				t.Fatalf("the provider refused %d times, want once", provider.refused)
+			}
+		})
+	}
+}
+
+func TestFoldFailsOverAfterOneCutWhenAnUnrecognisedBadRequestPersists(t *testing.T) {
+	st := seededCompactState(t, 2)
+	keep := 1
+	broken := &compactCannedProvider{t: t, err: apiRefusal(t, 400, "")}
+	working := &compactCannedProvider{t: t, summary: "SUMMARY"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, working)
+
+	rest := longHead(4, 2000)
+	chunk := nextCompactionChunk(rest, 100000)
+	chain := []compactionCandidate{
+		{provider: broken, modelID: "fake/broken"},
+		{provider: working, modelID: "fake/model"},
+	}
+	out, used, _, err := ag.foldOnePass(context.Background(), chain, "", rest, chunk, "")
+	if err != nil || out != "SUMMARY" || used != "fake/model" {
+		t.Fatalf("pass = %q by %q, %v; want the fallback's summary", out, used, err)
+	}
+	if len(broken.requests) != 2 {
+		t.Fatalf("the refusing summarizer was asked %d times, want the pass and one cut of it", len(broken.requests))
+	}
+	if len(working.requests) != 1 {
+		t.Fatalf("the fallback was asked %d times, want once", len(working.requests))
+	}
+}
+
+func TestFoldDoesNotCutForAStatusThatIsNotAboutSize(t *testing.T) {
+	for _, status := range []int{401, 403, 404, 429, 500, 502} {
+		t.Run(fmt.Sprintf("status %d", status), func(t *testing.T) {
+			st := seededCompactState(t, 2)
+			keep := 1
+			broken := &compactCannedProvider{t: t, err: apiRefusal(t, status, "")}
+			working := &compactCannedProvider{t: t, summary: "SUMMARY"}
+			ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, working)
+
+			rest := longHead(4, 2000)
+			chunk := nextCompactionChunk(rest, 100000)
+			chain := []compactionCandidate{
+				{provider: broken, modelID: "fake/broken"},
+				{provider: working, modelID: "fake/model"},
+			}
+			if _, _, _, err := ag.foldOnePass(context.Background(), chain, "", rest, chunk, ""); err != nil {
+				t.Fatal(err)
+			}
+			if len(broken.requests) != 1 {
+				t.Fatalf("a %d was asked %d times, want once", status, len(broken.requests))
+			}
+		})
+	}
+}
+
+// A refusal can say anything. Figures no window has must not reach arithmetic
+// that wraps (2^62 * 100 is 0 in 64 bits).
+func TestShrunkenPassTokensSurvivesAbsurdFigures(t *testing.T) {
+	text := errors.New("400: prompt is too long: 4611686018427387904 tokens > 1 maximum")
+	if got := shrunkenPassTokens(8000, llm.OverflowDetailOf(text)); got != 4000 {
+		t.Fatalf("shrunkenPassTokens on the figures of %q = %d, want halving", text, got)
+	}
+	for _, d := range []llm.OverflowDetail{
+		{Prompt: 4611686018427387904, Limit: 1},
+		{Prompt: math.MaxInt, Limit: math.MaxInt - 1},
+		{Prompt: math.MaxInt, Limit: 1},
+	} {
+		if got := shrunkenPassTokens(8000, d); got < 0 || got > 4000 {
+			t.Errorf("shrunkenPassTokens(8000, %+v) = %d, want a figure between 0 and the half", d, got)
+		}
+	}
+}
+
+func TestElideToTokensCutsEvenWhenTheCorrectionRoundsToNothing(t *testing.T) {
+	long := strings.Repeat("abcdefghij", 1000)
+	for _, tokens := range []int{1, 2, 5} {
+		out := elideToTokens(long, tokens)
+		if len(out) >= len(long) {
+			t.Errorf("elideToTokens(%d chars, %d) returned %d chars: the entry went through uncut", len(long), tokens, len(out))
+		}
+		if !strings.Contains(out, "characters omitted") {
+			t.Errorf("elideToTokens(%d) does not say what it cut: %q", tokens, out)
 		}
 	}
 }

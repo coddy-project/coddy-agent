@@ -51,6 +51,13 @@ const (
 	// compactionShrinkAttempts is how many times a pass the provider refused
 	// as too large is cut down before the compaction reports the failure.
 	compactionShrinkAttempts = 3
+	// compactionUnrecognisedCuts is how many times a pass refused with a 400 or
+	// a 413 the classifier does not recognise is cut before the pass moves on.
+	// The old fold cut on any refusal, and a backend worded in a way no phrase
+	// knows must not leave a session that only a compaction can save with no
+	// way out; one cut is what a size problem needs shown, and a refusal that
+	// is something else costs one more call.
+	compactionUnrecognisedCuts = 1
 	// compactionCharsPerToken is how many ASCII characters one token of
 	// session.EstimateContextTokens stands for, the unit passes are sized in.
 	compactionCharsPerToken = 3
@@ -153,7 +160,8 @@ func elideToTokens(s string, tokens int) string {
 		if got <= tokens || chars <= 1 {
 			break
 		}
-		chars = chars * tokens / got
+		// At least one character: elideMiddle takes none for "keep all".
+		chars = max(chars*tokens/got, 1)
 		out = elideMiddle(s, chars)
 	}
 	return out
@@ -212,11 +220,13 @@ func (a *Agent) foldCompactionHead(
 
 // foldOnePass makes one summarization call and reports how many messages it
 // covered. A pass the provider refuses because the request does not fit its
-// window (llm.IsContextOverflow) is cut down and sent again, because the
-// estimate the pass was sized with can fall short of the provider's tokenizer
-// and the window a provider reports is not always the one it enforces. Any
-// other refusal - a key, an outage, a schema - fails the same way at half the
-// size, so the pass goes to the next model of the chain at once.
+// window (llm.IsContextOverflow) is cut down and sent again, up to
+// compactionShrinkAttempts times, because the estimate the pass was sized with
+// can fall short of the provider's tokenizer and the window a provider reports
+// is not always the one it enforces. A 400 or a 413 nothing recognises is cut
+// once (compactionUnrecognisedCuts). Any other refusal - a key, an outage, a
+// limit - fails the same way at half the size, so the pass goes to the next
+// model of the chain at once.
 func (a *Agent) foldOnePass(
 	ctx context.Context,
 	chain []compactionCandidate,
@@ -241,8 +251,20 @@ func (a *Agent) foldOnePass(
 			if ctx.Err() != nil {
 				return "", "", 0, fmt.Errorf("compaction LLM call: %w", callErr)
 			}
-			if !llm.IsContextOverflow(callErr) || attempt >= compactionShrinkAttempts {
+			overflow := llm.IsContextOverflow(callErr)
+			cuts := 0
+			switch status := llm.UpstreamStatus(callErr); {
+			case overflow:
+				cuts = compactionShrinkAttempts
+			case status == 400 || status == 413:
+				cuts = compactionUnrecognisedCuts
+			}
+			if attempt >= cuts {
 				break
+			}
+			why := "compaction pass refused as too large"
+			if !overflow {
+				why = "compaction pass refused with a status that can mean too large"
 			}
 			// Both sizes go to the log: what this fold estimated for the request
 			// and what the provider says it counted, so a refusal at a size the
@@ -258,7 +280,7 @@ func (a *Agent) foldOnePass(
 				"retryTokens", target, "error", callErr,
 			}
 			if smaller := nextCompactionChunk(rest, target); smaller.count < chunk.count {
-				a.log.Warn("compaction pass refused as too large; retrying with fewer messages",
+				a.log.Warn(why+"; retrying with fewer messages",
 					append(refused, "messages", chunk.count, "retryMessages", smaller.count)...)
 				chunk = smaller
 				continue
@@ -270,7 +292,7 @@ func (a *Agent) foldOnePass(
 			if len([]rune(body)) >= len([]rune(chunk.body)) {
 				break
 			}
-			a.log.Warn("compaction pass refused as too large; retrying with a shortened message", refused...)
+			a.log.Warn(why+"; retrying with a shortened message", refused...)
 			chunk.body = body
 		}
 		if i+1 < len(chain) {
@@ -289,7 +311,9 @@ func (a *Agent) foldOnePass(
 func shrunkenPassTokens(bodyTokens int, detail llm.OverflowDetail) int {
 	half := bodyTokens / 2
 	if detail.Prompt > 0 && detail.Limit > 0 && detail.Prompt > detail.Limit {
-		aimed := int(int64(bodyTokens) * int64(detail.Limit) * compactionRetryAimPercent / (int64(detail.Prompt) * 100))
+		// In floating point: the figures are a refusal's own words, and the
+		// product of three of them wraps an int64.
+		aimed := int(float64(bodyTokens) * float64(detail.Limit) / float64(detail.Prompt) * compactionRetryAimPercent / 100)
 		if aimed < half {
 			return aimed
 		}

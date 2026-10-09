@@ -13,11 +13,15 @@ package llm
 // wrapper's to retry, not a request to shrink.
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
@@ -67,9 +71,6 @@ var contextOverflowNeedles = []string{
 	"exceeds the maximum number of tokens allowed",
 	// Moonshot: "Your request exceeded model token limit: N".
 	"exceeded model token limit",
-	// Cohere: "too many tokens: total number of tokens in the prompt exceeds
-	// the limit of N".
-	"too many tokens",
 	// A gateway in front of a local model: "Request too long: N input tokens
 	// over the limit of M".
 	"input tokens over the limit",
@@ -82,6 +83,15 @@ var contextOverflowNeedles = []string{
 	"context limit is",
 }
 
+// statusNeedles are phrases that mean the same only where a status says the
+// request was refused: a Codex rate limit is worded "too many tokens per min"
+// and arrives with none.
+var statusNeedles = []string{
+	// Cohere: "too many tokens: total number of tokens in the prompt exceeds
+	// the limit of N".
+	"too many tokens",
+}
+
 // IsContextOverflow reports whether err is a provider's refusal of a request
 // that does not fit the model's context window - the prompt, or the prompt and
 // the completion it asked room for, is larger than the window. Such a request
@@ -91,8 +101,9 @@ var contextOverflowNeedles = []string{
 // An error without a status (an in-stream frame, a Codex failure event, a
 // provider that flattens its answer to text) is judged by its words alone; one
 // with a status only when that is 400, 404, 413 or 422, and a typed
-// context_length_exceeded code is enough in any status. A cancellation or a
-// deadline is never one, whatever it wraps.
+// context_length_exceeded code is enough in any status. A phrase that also
+// words a rate limit (statusNeedles) counts only next to a status. A
+// cancellation or a deadline is never one, whatever it wraps.
 func IsContextOverflow(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
@@ -101,7 +112,8 @@ func IsContextOverflow(err error) bool {
 	if errors.As(err, &oai) && oai.Code == contextOverflowCode {
 		return true
 	}
-	switch UpstreamStatus(err) {
+	status := UpstreamStatus(err)
+	switch status {
 	case 0, 400, 404, 413, 422:
 	default:
 		return false
@@ -112,26 +124,107 @@ func IsContextOverflow(err error) bool {
 			return true
 		}
 	}
+	if status == 0 {
+		return false
+	}
+	for _, needle := range statusNeedles {
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
 	return false
 }
 
-// overflowText is what the provider said, for the classifier to read. A typed
-// client error contributes the body it kept and nothing else - its own message
-// also holds the address the request went to, and the provider label a caller
-// wrapped it in is no part of the answer - while any other error is its text.
+// overflowText is what the provider said, for the classifier to read.
 func overflowText(err error) string {
+	var detailed *codexDetailError
+	if errors.As(err, &detailed) {
+		// The Codex backend answers {"detail": ...}, which the client drops;
+		// codexRequestError has read the body for it already.
+		return detailed.detail + "\n" + clientText(err)
+	}
+	return clientText(err)
+}
+
+// clientText is the body of the answer a typed client error stands for. The
+// OpenAI client keeps only the body's "error" field, so a flat body (vLLM's
+// {"object":"error","message":...}, Cohere's, Mistral's) and a plain-text one
+// leave the typed error empty; then the response the client attached is read,
+// and where there is none the error's own text is the last resort. The label
+// a caller wrapped the error in and the address of the request are no part of
+// the answer, which is why a typed error is not read through Error() while it
+// has a body.
+func clientText(err error) string {
 	var oai *openai.Error
 	if errors.As(err, &oai) {
-		if raw := oai.RawJSON(); raw != "" {
-			return raw
-		}
-		return oai.Message
+		return firstNonEmpty(oai.RawJSON(), oai.Message, keptBody(oai.Response), errorText(err))
 	}
 	var ant *anthropic.Error
 	if errors.As(err, &ant) {
-		return ant.RawJSON()
+		return firstNonEmpty(ant.RawJSON(), keptBody(ant.Response), errorText(err))
 	}
+	return errorText(err)
+}
+
+func firstNonEmpty(texts ...string) string {
+	for _, t := range texts {
+		if t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// errorText is err.Error() for an error built without the parts its message
+// reads (a client error with no request), which would otherwise panic.
+func errorText(err error) (text string) {
+	defer func() {
+		if recover() != nil {
+			text = ""
+		}
+	}()
 	return err.Error()
+}
+
+// keptBodyLimit is how much of a failed response the classifier reads.
+const keptBodyLimit = 64 << 10
+
+// keptBodyMu serializes the read-and-put-back of keptBody, so two
+// classifications of the same error cannot each take half of the body.
+var keptBodyMu sync.Mutex
+
+// keptBody is the head of a failed response's body, as far as keptBodyLimit.
+// The clients put the body back in the response after reading it for their
+// error ("so that debugging utilities can conveniently dump the response"),
+// and it is put back here too: the next classification reads the same bytes,
+// and whoever dumps the response reads all of them, a body past the limit
+// included.
+func keptBody(resp *http.Response) string {
+	if resp == nil {
+		return ""
+	}
+	// Before the first look at resp.Body: another classification may be
+	// replacing it.
+	keptBodyMu.Lock()
+	defer keptBodyMu.Unlock()
+	if resp.Body == nil || resp.Body == http.NoBody {
+		return ""
+	}
+	head, _ := io.ReadAll(io.LimitReader(resp.Body, keptBodyLimit))
+	if len(head) < keptBodyLimit {
+		// All of it: an in-memory copy takes the place of the reader.
+		_ = resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewReader(head))
+	} else {
+		resp.Body = replayedBody{Reader: io.MultiReader(bytes.NewReader(head), resp.Body), Closer: resp.Body}
+	}
+	return string(head)
+}
+
+// replayedBody reads a head already taken from a body, then the rest of it.
+type replayedBody struct {
+	io.Reader
+	io.Closer
 }
 
 // OverflowDetail is what a refusal says about the sizes involved, in the
@@ -190,8 +283,10 @@ func OverflowDetailOf(err error) OverflowDetail {
 	text := strings.ToLower(overflowText(err))
 	var d OverflowDetail
 	if m := overflowSumPattern.FindStringSubmatch(text); m != nil {
-		d.Prompt = atoiOrZero(m[1]) + atoiOrZero(m[2])
-		d.Limit = atoiOrZero(m[3])
+		input, asked, limit := atoiOrZero(m[1]), atoiOrZero(m[2]), atoiOrZero(m[3])
+		if input > 0 && asked > 0 && limit > 0 {
+			d.Prompt, d.Limit = input+asked, limit
+		}
 	}
 	if d.Limit == 0 {
 		d.Limit = firstNumber(overflowLimitPatterns, text)
@@ -214,9 +309,14 @@ func firstNumber(patterns []*regexp.Regexp, text string) int {
 	return 0
 }
 
+// maxOverflowFigure is the largest size a refusal is believed to report. No
+// window is near a billion tokens, and a figure past it is a refusal's noise
+// that arithmetic on sizes must not meet.
+const maxOverflowFigure = 1_000_000_000
+
 func atoiOrZero(s string) int {
 	n, err := strconv.Atoi(s)
-	if err != nil || n < 0 {
+	if err != nil || n < 0 || n > maxOverflowFigure {
 		return 0
 	}
 	return n

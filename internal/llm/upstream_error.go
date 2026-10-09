@@ -71,6 +71,11 @@ func IsTransientProviderError(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
+	// The same request asks the same thing again, whatever status carried the
+	// refusal.
+	if IsContextOverflow(err) {
+		return false
+	}
 	var reset *QuotaResetError
 	if errors.As(err, &reset) {
 		return false
