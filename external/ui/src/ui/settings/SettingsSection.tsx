@@ -83,6 +83,7 @@ const CODDY_IDENTITY_PATHS = new Set([
   "ca_file",
   "client_cert_file",
   "client_key_file",
+  "tls_auto",
 ]);
 
 const USAGE_PANEL_PROVIDER_TYPES = new Set([
@@ -729,6 +730,7 @@ export function SettingsSection(props: {
                     "ca_file",
                     "client_cert_file",
                     "client_key_file",
+                    "tls_auto",
                   ],
                   collapsible: true,
                 },
