@@ -4,9 +4,10 @@ Feature: Each provider reaches its server the way its own proxy setting says
   "none" connects directly and ignores that proxy, and a proxy URL sends the
   row's requests through that proxy instead. Leaving the key out, or writing
   "inherit", keeps the behaviour Coddy always had. The setting covers every
-  request the row makes - completions, model lists, account usage, sign-ins,
-  token refreshes and sign-outs, and for a neuraldeep row the command safety
-  check's decisions - and belongs to its row alone, so a provider
+  request the row makes - completions, model lists, account usage, the pings
+  of a call to another Coddy, sign-ins, token refreshes and sign-outs, and for
+  a neuraldeep row the command safety check's decisions - and belongs to its
+  row alone, so a provider
   that needs a proxy and one that must go direct live side by side in one
   config.
 
