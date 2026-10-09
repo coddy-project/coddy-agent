@@ -178,7 +178,9 @@ func printUsage(w io.Writer) {
   %[1]s -c | --continue (console: continue the latest session here)
   %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer;
         -p - reads the prompt from stdin, and so does a bare -p when stdin is not a terminal;
-        data piped under a typed prompt is attached to it, --no-stdin leaves it out)
+        data piped under a typed prompt is attached to it, --no-stdin leaves it out;
+        the run is stored as a print run the pickers leave out, -c -p continues it,
+        --ephemeral deletes it when the run ends)
   %[1]s -i | --prompt-file FILE (console: one-shot prompt read from FILE, - for stdin)
   %[1]s -h | --help
   %[1]s -v | --version
@@ -206,7 +208,7 @@ func printUsage(w io.Writer) {
   %[1]s serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
         UI sign-in account into config.yaml; the password is read from the
         terminal, or from stdin when it is a pipe)
-  %[1]s sessions list [flags]
+  %[1]s sessions list [--cwd DIR] [--origin local|gateway|print] [--sessions-dir DIR]
   %[1]s sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   %[1]s skills list
   %[1]s skills enable <name>
@@ -455,7 +457,7 @@ func openSessionStore(flagValue string, cfg *config.Config) (*session.FileStore,
 
 func runSessions(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s sessions list [--sessions-dir <path>] [--cwd <filter>] | sessions export <session-id> [flags]", os.Args[0])
+		return fmt.Errorf("usage: %s sessions list [--sessions-dir <path>] [--cwd <filter>] [--origin local|gateway|print] | sessions export <session-id> [flags]", os.Args[0])
 	}
 	switch strings.TrimSpace(args[0]) {
 	case "export":
@@ -476,11 +478,16 @@ func runSessions(args []string) error {
 		fs.SetOutput(os.Stderr)
 		rootFlag := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
 		cwdFilter := fs.String("cwd", "", "only list sessions saved with this cwd (absolute)")
+		originFlag := fs.String("origin", "", "only list the sessions of one surface: local, gateway or print (one-shot runs); empty lists every one, print runs included")
 		if err := fs.Parse(args[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
 			return err
+		}
+		origin, ok := session.ParseOriginFilter(*originFlag)
+		if !ok {
+			return fmt.Errorf("--origin must be local, gateway or print, not %q", *originFlag)
 		}
 		cfg, err := config.LoadFromCLI(config.CLIPaths{})
 		if err != nil {
@@ -493,21 +500,33 @@ func runSessions(args []string) error {
 		if store == nil || store.Root == "" {
 			return fmt.Errorf("session store not available")
 		}
-		rows, err := store.ListSnapshots(strings.TrimSpace(*cwdFilter), false)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("%s\t%s\t%s\t%s\n", "SESSION_ID", "UPDATED_AT", "CWD", "TITLE")
-		for _, r := range rows {
-			title := strings.ReplaceAll(r.Title, "\t", " ")
-			title = strings.ReplaceAll(title, "\n", " ")
-			fmt.Printf("%s\t%s\t%s\t%s\n", r.SessionID, r.UpdatedAt, r.CWD, title)
-		}
-		fmt.Printf("(total %d)\n", len(rows))
-		return nil
+		return sessionsList(os.Stdout, store, *cwdFilter, origin)
 	default:
 		return fmt.Errorf("unknown sessions subcommand %q (try %s sessions list or sessions export)", args[0], os.Args[0])
 	}
+}
+
+// sessionsList prints the stored sessions newest first, one tab-separated row
+// each. Unlike the pickers it lists the runs of one-shot print mode: a script
+// reads it to find the run it wants to continue with --session-id. Scheduler
+// runs and child sessions stay out.
+func sessionsList(w io.Writer, store *session.FileStore, cwd string, origin session.OriginFilter) error {
+	rows, err := store.ListSnapshotsWith(session.ListOptions{
+		CWD:              strings.TrimSpace(cwd),
+		Origin:           origin,
+		IncludePrintRuns: true,
+	})
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", "SESSION_ID", "UPDATED_AT", "CWD", "TITLE")
+	for _, r := range rows {
+		title := strings.ReplaceAll(r.Title, "\t", " ")
+		title = strings.ReplaceAll(title, "\n", " ")
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.SessionID, r.UpdatedAt, r.CWD, title)
+	}
+	_, _ = fmt.Fprintf(w, "(total %d)\n", len(rows))
+	return nil
 }
 
 func runSkills(args []string) error {

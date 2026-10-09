@@ -143,6 +143,12 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		return nil, err
 	}
 	req.Header.Set("X-Coddy-Session-ID", sid)
+	h.mu.Lock()
+	origin := st.createOrigin
+	h.mu.Unlock()
+	if origin != "" {
+		req.Header.Set(session.OriginHeader, origin)
+	}
 
 	res, err := h.hc.Do(req)
 	if err != nil {

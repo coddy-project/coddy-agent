@@ -410,7 +410,8 @@ type SessionMeta struct {
 	ArchivedAt string `json:"archivedAt,omitempty"`
 	// Origin names the surface that started the session: empty for one a
 	// person opened on this host, "gateway:<messenger>" for a conversation a
-	// messenger gateway is holding.
+	// messenger gateway is holding, "print" (PrintOrigin) for a run of
+	// one-shot print mode, which the listings leave out unless asked.
 	Origin string `json:"origin,omitempty"`
 	// Pinned keeps a session at the top of every listing; PinnedAt records when.
 	Pinned     bool   `json:"pinned,omitempty"`
@@ -786,6 +787,17 @@ type ListOptions struct {
 	// Origin selects sessions by the surface that started them; the zero value
 	// is every surface.
 	Origin OriginFilter
+	// IncludePrintRuns adds the sessions one-shot print mode created (origin
+	// "print"), and the children they spawned. The zero value leaves them out,
+	// like scheduler runs and subagent children: they are a script's runs, not
+	// conversations a person picks from a list. Origin OriginPrint lists them
+	// without it.
+	IncludePrintRuns bool
+}
+
+// admitsPrintRuns reports whether a listing with these options shows print runs.
+func (o ListOptions) admitsPrintRuns() bool {
+	return o.IncludePrintRuns || o.Origin == OriginPrint
 }
 
 // ListSnapshots scans Root for persisted sessions (requires session.json).
@@ -819,8 +831,9 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 			continue
 		}
 		dir := filepath.Join(f.Root, ent.Name())
-		out = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
-		if opts.IncludeSubagents {
+		var descend bool
+		out, descend = f.appendBundleRow(out, dir, ent.Name(), cwdFilter, opts)
+		if opts.IncludeSubagents && descend {
 			out = f.appendChildRows(out, dir, cwdFilter, opts, 0)
 		}
 	}
@@ -844,29 +857,33 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 // appendBundleRow reads one bundle's metadata and adds its row when opts admit
 // it. It deliberately does not open messages.json: default History needs no
 // transcript fields, and archive filters must exclude a row before a large or
-// damaged transcript can affect the scan.
-func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) []SessionListEntry {
+// damaged transcript can affect the scan. descend is false for a print run the
+// options leave out, whose children stay out with it.
+func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) (_ []SessionListEntry, descend bool) {
 	meta, err := f.readListMetaAt(dir, id)
 	if err != nil {
-		return out
+		return out, true
+	}
+	if IsPrintOrigin(meta.Origin) && !opts.admitsPrintRuns() {
+		return out, false
 	}
 	if recovered, ok := RecoverManagedWorktreeCWD(meta.CWD); ok {
 		meta.CWD = recovered
 	}
 	if !opts.IncludeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
-		return out
+		return out, true
 	}
 	if !opts.IncludeSubagents && meta.IsSubagentRun() {
-		return out
+		return out, true
 	}
 	if cwdFilter != "" && !matchesWorkspace(cwdFilter, meta.CWD) {
-		return out
+		return out, true
 	}
 	if !opts.Archived.Keeps(meta.Archived) {
-		return out
+		return out, true
 	}
 	if !opts.Origin.Keeps(meta.Origin) {
-		return out
+		return out, true
 	}
 	messageCount, known := meta.messageCountMatches(filepath.Join(dir, messagesFile))
 	row := SessionListEntry{
@@ -892,9 +909,9 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 		messageCountKnown: known,
 	}
 	if !SessionMatchesAnyTag(row, opts.Tags) {
-		return out
+		return out, true
 	}
-	return append(out, row)
+	return append(out, row), true
 }
 
 // readListMetaAt reads the durable metadata necessary to list a bundle. A
@@ -957,7 +974,7 @@ func (f *FileStore) appendChildRows(out []SessionListEntry, dir, cwdFilter strin
 		return out
 	}
 	for _, child := range f.childBundleDirs(dir) {
-		out = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
+		out, _ = f.appendBundleRow(out, child, filepath.Base(child), cwdFilter, opts)
 		out = f.appendChildRows(out, child, cwdFilter, opts, depth+1)
 	}
 	return out

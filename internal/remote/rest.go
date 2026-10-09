@@ -264,14 +264,18 @@ type sessionListResponse struct {
 }
 
 // listSessions reads one page of the server's session list; a non-empty cwd
-// narrows it to that workspace, the way ACP session/list does.
-func (h *Handler) listSessions(ctx context.Context, cursor, cwd string) (*sessionListResponse, error) {
+// narrows it to that workspace, the way ACP session/list does, and
+// includePrint adds the runs of one-shot print mode the listing leaves out.
+func (h *Handler) listSessions(ctx context.Context, cursor, cwd string, includePrint bool) (*sessionListResponse, error) {
 	q := url.Values{"limit": {"100"}}
 	if cursor != "" {
 		q.Set("cursor", cursor)
 	}
 	if cwd != "" {
 		q.Set("cwd", cwd)
+	}
+	if includePrint {
+		q.Set("include_print", "true")
 	}
 	var res sessionListResponse
 	if err := h.getJSON(ctx, "/coddy/sessions?"+q.Encode(), &res); err != nil {
@@ -326,6 +330,13 @@ func (h *Handler) sessionMessages(ctx context.Context, id string) (*messagesResp
 		return nil, err
 	}
 	return &res, nil
+}
+
+// DeleteSession removes a session and everything it spawned on the server
+// (DELETE /coddy/sessions/{id}): how an --ephemeral print run leaves nothing
+// behind there.
+func (h *Handler) DeleteSession(ctx context.Context, id string) error {
+	return h.deleteJSON(ctx, "/coddy/sessions/"+url.PathEscape(id), nil)
 }
 
 func (h *Handler) cancelSession(ctx context.Context, id string) error {

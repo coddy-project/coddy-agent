@@ -35,14 +35,22 @@ var errSessionNotFound = errors.New("session not found")
 
 var errInvalidSessionHeader = errors.New("invalid X-Coddy-Session-ID")
 
+// errInvalidOriginHeader refuses an X-Coddy-Session-Origin the server does not
+// record: only a print run's mark is accepted from a client.
+var errInvalidOriginHeader = errors.New(`invalid ` + session.OriginHeader + `: the only accepted value is "print"`)
+
 // Server serves OpenAI-compatible HTTP endpoints.
 type Server struct {
-	workspaceMediaKey    string
-	cfgAt                atomic.Pointer[config.Config]
-	mgr                  *session.Manager
-	log                  *slog.Logger
-	defaultCWD           string
-	mux                  *http.ServeMux
+	workspaceMediaKey string
+	cfgAt             atomic.Pointer[config.Config]
+	mgr               *session.Manager
+	log               *slog.Logger
+	defaultCWD        string
+	mux               *http.ServeMux
+	// revealFile asks the host desktop to show a verified artifact path
+	// (platform.RevealFile). Tests replace it: the real one starts the
+	// desktop's opener, which outlives the test and its temporary folder.
+	revealFile           func(path string) error
 	providerFactory      func(*config.Config) (llm.Provider, error)
 	agentProviderFactory func(llm.ProviderInput) (llm.Provider, error)
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion)
@@ -177,6 +185,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		log:                  log,
 		defaultCWD:           defaultCWD,
 		mux:                  http.NewServeMux(),
+		revealFile:           platform.RevealFile,
 		providerFactory:      defaultProviderFromAgentModel,
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
@@ -609,6 +618,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
 			return
 		}
+		if errors.Is(err, errInvalidOriginHeader) {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
 		return
 	}
@@ -855,26 +868,33 @@ func profileTurnContext(ctx context.Context, st *session.State, stream bool) (co
 }
 
 func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *session.State, id string, createdNew bool, err error) {
+	// The origin a client asks a session it creates to carry (a remote
+	// `coddy -p` marks its run "print"); recorded only when this request
+	// creates the bundle, never on a session that exists already.
+	origin, ok := session.ParseRequestedOrigin(r.Header.Get(session.OriginHeader))
+	if !ok {
+		return nil, "", false, errInvalidOriginHeader
+	}
 	sid := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
 	if sid != "" {
 		if err := session.ValidateFolderSessionID(sid); err != nil {
 			return nil, "", false, errInvalidSessionHeader
 		}
-		st2, err := s.mgr.EnsureHTTPSession(ctx, sid, s.defaultCWD)
+		st2, err := s.mgr.EnsureHTTPSessionAs(ctx, sid, s.defaultCWD, origin)
 		if err != nil {
 			return nil, "", false, err
 		}
 		return st2, sid, false, nil
 	}
-	res, err := s.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: s.defaultCWD})
+	// A fresh id through the same path, not session/new: the origin travels
+	// as an argument rather than through the manager's one-shot fields, which
+	// concurrent requests would share.
+	newID := session.NewSessionID()
+	st, err = s.mgr.EnsureHTTPSessionAs(ctx, newID, s.defaultCWD, origin)
 	if err != nil {
 		return nil, "", false, err
 	}
-	st = s.mgr.SessionByID(res.SessionID)
-	if st == nil {
-		return nil, "", false, fmt.Errorf("internal session")
-	}
-	return st, res.SessionID, true, nil
+	return st, newID, true, nil
 }
 
 func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {
@@ -1164,6 +1184,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, errInvalidSessionHeader) {
 			http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, errInvalidOriginHeader) {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, errInvalidOriginHeader.Error()), http.StatusBadRequest)
 			return
 		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)

@@ -50,6 +50,11 @@ type Manager struct {
 
 	// preferredNewSessionID, when non-empty before session/new is handled, selects the id for the next new session (--session-id).
 	preferredNewSessionID string
+	// nextSessionOrigin, when non-empty before session/new is handled, is the
+	// origin the next session/new stamps on the session it creates (one-shot
+	// print mode marks its runs "print"); a session/new that reopens a stored
+	// bundle spends it without applying it.
+	nextSessionOrigin string
 
 	sessions map[string]*State
 	mu       sync.RWMutex
@@ -569,6 +574,15 @@ func (m *Manager) SetPreferredSessionID(id string) {
 	m.preferredNewSessionID = strings.TrimSpace(id)
 }
 
+// SetNextSessionOrigin sets the origin the next session/new records when it
+// creates a session: written before the first save of session.json, so no
+// listing ever sees the bundle unmarked. A session/new that reopens a stored
+// session spends it without applying it - continuing somebody's chat from a
+// script does not relabel it.
+func (m *Manager) SetNextSessionOrigin(origin string) {
+	m.nextSessionOrigin = strings.TrimSpace(origin)
+}
+
 // SetServer injects the update sender (used when server and manager are constructed together).
 func (m *Manager) SetServer(server acp.UpdateSender) {
 	m.server = server
@@ -639,7 +653,16 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		preferredConsumed = strings.TrimSpace(m.preferredNewSessionID)
 		m.preferredNewSessionID = ""
 	}
+	origin := m.nextSessionOrigin
+	m.nextSessionOrigin = ""
+	return m.newSession(ctx, params, preferredConsumed, origin)
+}
 
+// newSession creates a session under preferredConsumed (a fresh id when it is
+// empty), or reopens the stored bundle of that id, and records origin on a
+// session it creates. EnsureHTTPSessionAs calls it with explicit values rather
+// than through the one-shot fields, which concurrent requests would share.
+func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, preferredConsumed, origin string) (*acp.SessionNewResult, error) {
 	var id string
 	if preferredConsumed != "" {
 		if err := ValidateFolderSessionID(preferredConsumed); err != nil {
@@ -695,6 +718,9 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	if err != nil {
 		return nil, err
 	}
+	// Before anything can persist the bundle: the SessionStart hooks below
+	// and the initial save both write session.json.
+	state.SetOriginWithoutPersist(origin)
 
 	m.attachGoalNotifier(state)
 	m.mu.Lock()
@@ -938,6 +964,13 @@ func (m *Manager) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 // EnsureHTTPSession returns an in-memory session for an already-valid folder id:
 // reuse active session, load from disk if a snapshot exists, or create an empty persisted bundle using the pinned id.
 func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*State, error) {
+	return m.EnsureHTTPSessionAs(ctx, sessionID, defaultCWD, "")
+}
+
+// EnsureHTTPSessionAs is EnsureHTTPSession for a caller that says where a
+// session it creates comes from: origin is recorded only when the bundle is
+// created here, never on a session that is live or stored already.
+func (m *Manager) EnsureHTTPSessionAs(ctx context.Context, sessionID, defaultCWD, origin string) (*State, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, fmt.Errorf("empty session id")
 	}
@@ -968,8 +1001,7 @@ func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defau
 		}
 		return st, nil
 	}
-	m.SetPreferredSessionID(sessionID)
-	res, err := m.HandleSessionNew(ctx, acp.SessionNewParams{CWD: defaultCWD})
+	res, err := m.newSession(ctx, acp.SessionNewParams{CWD: defaultCWD}, sessionID, strings.TrimSpace(origin))
 	if err != nil {
 		return nil, err
 	}
