@@ -235,3 +235,22 @@ func TestTLSHostsAreTheBindAndAdvertiseHostsOnly(t *testing.T) {
 		t.Errorf("a peer's address is not a name of this machine: %v", cfg.TLSHosts())
 	}
 }
+
+// With no home there is nowhere to keep the built-in certificates, and a listener asked to require a client certificate would silently ask
+// for none: the configuration is refused instead.
+func TestAutoWithNoHomeIsRefused(t *testing.T) {
+	cfg := &Config{}
+	applyDefaults(cfg)
+	cfg.HTTPServer.TLS = HTTPTLSConfig{Auto: true, RequireClientCert: true, CertFile: "/c", KeyFile: "/k"}
+	err := validateSubconfigs(cfg)
+	if err == nil || !strings.Contains(err.Error(), "agent home") {
+		t.Fatalf("error = %v, want one naming the agent home", err)
+	}
+	cfg.Paths.Home = t.TempDir()
+	if err := validateSubconfigs(cfg); err != nil {
+		t.Fatalf("with a home: %v", err)
+	}
+	if f := cfg.HTTPListenerFiles(); f.ClientCA == "" {
+		t.Fatalf("require_client_cert with a home resolved to no client CA: %+v", f)
+	}
+}

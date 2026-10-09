@@ -62,7 +62,11 @@
    "capacity": 2
   },
   {
-   "name": "leaked",
+   "name": "leakedDead",
+   "capacity": 1
+  },
+  {
+   "name": "leakedDone",
    "capacity": 1
   }
  ],

@@ -115,6 +115,11 @@ func validateSubconfigs(cfg *Config) error {
 	}
 	cfg.Swarm.Normalize()
 	cfg.TLS.Normalize()
+	// `auto: true` names files under <home>/tls: with no home they would resolve to nothing, and a listener asked to require a client
+	// certificate would silently ask for none.
+	if cfg.BuiltinTLSWanted() && strings.TrimSpace(cfg.Paths.Home) == "" {
+		return fmt.Errorf("tls: auto: true needs an agent home to keep the built-in certificates in (set CODDY_HOME or --home)")
+	}
 	if err := cfg.Swarm.Validate(); err != nil {
 		return err
 	}

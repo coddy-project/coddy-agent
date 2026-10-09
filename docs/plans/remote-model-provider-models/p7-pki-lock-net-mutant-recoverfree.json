@@ -1,5 +1,5 @@
 {
- "name": "p7-pki-lock-net-mutant-crashkeep",
+ "name": "p7-pki-lock-net-mutant-recoverfree",
  "places": [
   {
    "name": "lockFree",
@@ -123,6 +123,10 @@
    ],
    "outputs": [
     {
+     "place": "lockFree",
+     "weight": 1
+    },
+    {
      "place": "deadA",
      "weight": 1
     },
@@ -132,10 +136,6 @@
     },
     {
      "place": "gone",
-     "weight": 1
-    },
-    {
-     "place": "leakedDead",
      "weight": 1
     }
    ]
@@ -192,6 +192,10 @@
    ],
    "outputs": [
     {
+     "place": "lockFree",
+     "weight": 1
+    },
+    {
      "place": "deadB",
      "weight": 1
     },
@@ -202,10 +206,6 @@
     {
      "place": "gone",
      "weight": 1
-    },
-    {
-     "place": "leakedDead",
-     "weight": 1
     }
    ]
   },
@@ -215,14 +215,6 @@
     {
      "place": "idleR",
      "weight": 1
-    },
-    {
-     "place": "lockFree",
-     "weight": 1
-    },
-    {
-     "place": "gone",
-     "weight": 2
     }
    ],
    "outputs": [
@@ -241,10 +233,6 @@
     }
    ],
    "outputs": [
-    {
-     "place": "lockFree",
-     "weight": 1
-    },
     {
      "place": "doneR",
      "weight": 1
