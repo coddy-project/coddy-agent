@@ -119,6 +119,6 @@ func (s *Server) principalOf(r *http.Request) principal {
 // handshake then requires a certificate that chains to it, nodes that join and browsers included. It returns nil when no client CA is
 // set: the listener then asks for no certificate. The server certificate is the caller's (ListenAndServeTLS loads cert_file and
 // key_file). The CA is startup state: changing it takes a restart.
-func ClientCertTLS(t config.SwarmTLSConfig) (*tls.Config, error) {
-	return netx.ClientCertTLS(t.ClientCAFile, "swarm.tls.client_ca_file")
+func ClientCertTLS(clientCAFile string) (*tls.Config, error) {
+	return netx.ClientCertTLS(clientCAFile, "swarm.tls.client_ca_file")
 }

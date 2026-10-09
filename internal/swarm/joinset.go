@@ -73,6 +73,7 @@ func StartJoins(ctx context.Context, cfg *config.Config, opts StartJoinsOptions)
 		if nodeToken == "" && kind == KindRelay {
 			nodeToken = strings.TrimSpace(cfg.Swarm.AuthToken)
 		}
+		df := cfg.DialFiles(j.Dial)
 		client, err := NewClient(JoinOptions{
 			RelayURL:     j.URL,
 			Name:         j.Name,
@@ -84,10 +85,10 @@ func StartJoins(ctx context.Context, cfg *config.Config, opts StartJoinsOptions)
 			Labels:       DerivedLabels(cfg, j, kind),
 			Dial: netx.Options{
 				Proxy:              j.Dial.Proxy,
-				CAFile:             j.Dial.CAFile,
+				CAFile:             df.CAFile,
 				InsecureSkipVerify: j.Dial.InsecureSkipVerify,
-				CertFile:           j.Dial.CertFile,
-				KeyFile:            j.Dial.KeyFile,
+				CertFile:           df.CertFile,
+				KeyFile:            df.KeyFile,
 			},
 			InstanceUUID: instance,
 			Handler:      handler,

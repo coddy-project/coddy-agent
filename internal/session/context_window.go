@@ -347,7 +347,7 @@ func (m *Manager) startListingLocked(cfg *config.Config, prov config.ProviderCon
 			APIKey:    prov.EffectiveAPIKeyContext(ctx),
 			BaseURL:   prov.APIBase,
 			ProxyURL:  prov.Proxy,
-			ClientTLS: prov.ClientTLS(),
+			ClientTLS: cfg.ProviderClientTLS(&prov),
 			AuthPath:  authPath,
 			// The same account a request of this row would use.
 			NoCLILogin: !cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),

@@ -102,6 +102,12 @@ type SwarmTLSConfig struct {
 	// against. With it the handshake requires a certificate that chains to
 	// it, and refuses a peer without one.
 	ClientCAFile string `yaml:"client_ca_file"`
+	// Auto serves with the built-in certificates (coddy tls, $CODDY_HOME/tls): cert_file and key_file default to the server pair.
+	// A file named here wins.
+	Auto bool `yaml:"auto"`
+	// RequireClientCert, with Auto, makes the handshake require a client certificate that chains to a CA of the built-in bundle (this
+	// machine's and the ones it trusts); client_ca_file does the same for a bundle of your own.
+	RequireClientCert bool `yaml:"require_client_cert"`
 }
 
 // validate holds the rules of a TLS block named at (swarm.tls, httpserver.tls).
@@ -112,14 +118,17 @@ func (t SwarmTLSConfig) validate(at string) error {
 		return fmt.Errorf("%s: cert_file and key_file must be set together", at)
 	}
 	if strings.TrimSpace(t.ClientCAFile) != "" && !t.Enabled() {
-		return fmt.Errorf("%s.client_ca_file: needs %s.cert_file and key_file: client certificates are asked for over TLS", at, at)
+		return fmt.Errorf("%s.client_ca_file: needs %s.cert_file and key_file (or %s.auto): client certificates are asked for over TLS", at, at, at)
+	}
+	if t.RequireClientCert && !t.Auto && strings.TrimSpace(t.ClientCAFile) == "" {
+		return fmt.Errorf("%s.require_client_cert: needs %s.auto (the built-in bundle) or %s.client_ca_file (your own)", at, at, at)
 	}
 	return nil
 }
 
-// Enabled reports whether TLS is configured.
+// Enabled reports whether TLS is configured: a pair of files, or the built-in certificates.
 func (t SwarmTLSConfig) Enabled() bool {
-	return strings.TrimSpace(t.CertFile) != "" && strings.TrimSpace(t.KeyFile) != ""
+	return t.Auto || (strings.TrimSpace(t.CertFile) != "" && strings.TrimSpace(t.KeyFile) != "")
 }
 
 // SwarmNodeTLSConfig is the TLS identity of the relay's own leg to a node that
@@ -135,11 +144,14 @@ type SwarmNodeTLSConfig struct {
 	// without a restart.
 	CertFile string `yaml:"cert_file"`
 	KeyFile  string `yaml:"key_file"`
+	// Auto uses the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones) and
+	// cert_file and key_file to the client pair. A file named here wins.
+	Auto bool `yaml:"auto"`
 }
 
 // IsZero reports whether no key of the block is set.
 func (n SwarmNodeTLSConfig) IsZero() bool {
-	return strings.TrimSpace(n.CAFile) == "" && strings.TrimSpace(n.CertFile) == "" && strings.TrimSpace(n.KeyFile) == ""
+	return !n.Auto && strings.TrimSpace(n.CAFile) == "" && strings.TrimSpace(n.CertFile) == "" && strings.TrimSpace(n.KeyFile) == ""
 }
 
 // SwarmDialConfig is how one leg of the swarm reaches the other side. Relays
@@ -159,6 +171,9 @@ type SwarmDialConfig struct {
 	// certificates, a relay dialling a pinned node). Both or neither.
 	CertFile string `yaml:"cert_file"`
 	KeyFile  string `yaml:"key_file"`
+	// Auto uses the built-in certificates (coddy tls): ca_file defaults to the bundle and cert_file and key_file to the client pair.
+	// A file named here wins.
+	Auto bool `yaml:"auto"`
 }
 
 // SwarmUpstream is a node the relay knows about without being told by the node.

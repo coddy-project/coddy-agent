@@ -26,3 +26,13 @@ Feature: Coddy makes the TLS certificates it needs
     Given a machine "a" with certificates
     When the operator issues a client certificate named "proxy" on "a"
     Then the issued certificate verifies against the CA that was written next to it
+
+  Scenario: a configuration that asks for the built-in certificates gets them at the start of a run
+    Given a machine "a" whose configuration asks for the built-in certificates with "httpserver.tls.auto"
+    When a run starts on "a"
+    Then machine "a" has a CA, a server pair, a client pair and a bundle
+
+  Scenario: a configuration that asks for nothing gets no certificates
+    Given a machine "a" whose configuration names its own certificate files
+    When a run starts on "a"
+    Then machine "a" has no certificate directory

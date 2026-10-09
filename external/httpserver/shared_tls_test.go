@@ -98,7 +98,7 @@ func mtlsFixture(t *testing.T, opts ...sharedFixtureOption) (*sharedFixture, *mt
 		c.HTTPServer.TLS = config.HTTPTLSConfig{ClientCAFile: ca.file}
 	})}, opts...)
 	fx := newSharedFixture(t, all...)
-	tlsCfg, err := listenerTLS(fx.cfg.HTTPServer.TLS)
+	tlsCfg, err := listenerTLS(fx.cfg.HTTPListenerFiles().ClientCA)
 	if err != nil || tlsCfg == nil {
 		t.Fatalf("listenerTLS: %v %v", tlsCfg, err)
 	}
@@ -200,7 +200,7 @@ func TestTheHandshakeAdmitsByTheChainOnly(t *testing.T) {
 }
 
 func TestListenerTLSIsNilWithoutAClientCA(t *testing.T) {
-	cfg, err := listenerTLS(config.HTTPTLSConfig{CertFile: "c", KeyFile: "k"})
+	cfg, err := listenerTLS("")
 	if err != nil || cfg != nil {
 		t.Fatalf("%v %v", cfg, err)
 	}

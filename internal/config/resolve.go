@@ -209,7 +209,7 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		APIKey:       prov.EffectiveAPIKey(),
 		BaseURL:      prov.APIBase,
 		ProxyURL:     prov.Proxy,
-		ClientTLS:    prov.ClientTLS(),
+		ClientTLS:    c.ProviderClientTLS(prov),
 		AuthPath:     ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 		NoCLILogin:   !c.ProviderMayUseCLILogin(prov.Name, prov.Type),
 		MaxTokens:    entry.MaxTokens,

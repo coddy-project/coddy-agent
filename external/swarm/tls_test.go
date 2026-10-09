@@ -99,7 +99,7 @@ func mtlsRelay(t *testing.T, ca *testCA, node *recordingNode) (*Server, *httptes
 		t.Fatal(err)
 	}
 	registerRecording(t, srv, "nas02", node)
-	tlsCfg, err := ClientCertTLS(cfg.Swarm.TLS)
+	tlsCfg, err := ClientCertTLS(cfg.SwarmListenerFiles().ClientCA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,19 +237,19 @@ func TestATokenOverACertificateWorksOverHTTP2(t *testing.T) {
 
 func TestClientCertTLSBuildsTheListenerConfig(t *testing.T) {
 	ca := newTestCA(t)
-	if cfg, err := ClientCertTLS(config.SwarmTLSConfig{}); err != nil || cfg != nil {
+	if cfg, err := ClientCertTLS(""); err != nil || cfg != nil {
 		t.Errorf("no CA: %v %v, want no config", cfg, err)
 	}
-	cfg, err := ClientCertTLS(config.SwarmTLSConfig{ClientCAFile: ca.file})
+	cfg, err := ClientCertTLS(ca.file)
 	if err != nil || cfg.ClientAuth != tls.RequireAndVerifyClientCert || cfg.MinVersion != tls.VersionTLS12 {
 		t.Errorf("a CA means the handshake requires a certificate: %+v %v", cfg, err)
 	}
-	if _, err := ClientCertTLS(config.SwarmTLSConfig{ClientCAFile: filepath.Join(ca.dir, "absent.pem")}); err == nil {
+	if _, err := ClientCertTLS(filepath.Join(ca.dir, "absent.pem")); err == nil {
 		t.Error("a missing CA file must be an error")
 	}
 	bad := filepath.Join(ca.dir, "bad.pem")
 	_ = os.WriteFile(bad, []byte("not pem"), 0o600)
-	if _, err := ClientCertTLS(config.SwarmTLSConfig{ClientCAFile: bad}); err == nil {
+	if _, err := ClientCertTLS(bad); err == nil {
 		t.Error("a CA file with no certificate must be an error")
 	}
 }
