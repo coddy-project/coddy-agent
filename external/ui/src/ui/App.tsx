@@ -4620,8 +4620,8 @@ export function App() {
           // transcript is read and the selectors would keep naming the session
           // visited before: its settings are read alone, and Send waits for
           // them. A snapshot of the session that comes another way (the
-          // events stream) ends the wait too; should every try fail, the
-          // read the turn ends with brings them and lets Send go.
+          // events stream) ends the wait too, and so does the read the turn
+          // ends with.
           const held = () => settingsVersionRef.current.sid === sessionId;
           const outcome = await readOpening(
             () => readViewedSettings(sessionId),
@@ -4664,15 +4664,19 @@ export function App() {
           }
           // An id the server does not serve: nothing to keep a skeleton up
           // for, so it lands on the empty state like any unknown id, and its
-          // first message creates it. A read that failed every time keeps
-          // the skeleton: the session may well be there.
+          // first message creates it. A read that fails keeps the skeleton
+          // and runs again: the session may well be there.
           if (outcome === "missing") settleUnknownSession(sessionId);
           const loaded = read.items;
-          if (activeComposerSidRef.current.has(sessionId)) {
+          // The rows of a turn this tab runs in it are shown; they say nothing
+          // of the settings, which the read above has settled by now.
+          if (
+            activeComposerSidRef.current.has(sessionId) &&
+            viewedSessionIdRef.current.trim() === sessionId
+          ) {
             const sh = streamShadowBySidRef.current.get(sessionId);
             if (sh && sh.length > 0) {
               setItems([...sh]);
-              setSessionLoading(false);
             }
           }
           if (loaded && turnActivity.get(sessionId) === true) {

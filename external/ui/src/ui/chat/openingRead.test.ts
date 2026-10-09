@@ -36,16 +36,32 @@ test("a 404 is final: the session is not there", async () => {
   expect(read).toHaveBeenCalledTimes(1);
 });
 
-test("every try failing gives failed", async () => {
-  const read = reads();
+// An outage longer than the first tries still ends: the read keeps running,
+// at the slower pace, for as long as the visit lasts.
+test("a read that keeps failing runs at the slower pace until it gets through", async () => {
+  const read = reads("failed", "failed", "failed", "failed", "failed", "read");
   const outcome = await readOpening(
     read,
     () => true,
     new AbortController().signal,
     DELAYS,
+    5,
   );
-  expect(outcome).toBe("failed");
-  expect(read).toHaveBeenCalledTimes(DELAYS.length);
+  expect(outcome).toBe("read");
+  expect(read).toHaveBeenCalledTimes(6);
+});
+
+test("a read that keeps failing stops when the visit ends", async () => {
+  const visit = new AbortController();
+  let calls = 0;
+  const read = vi.fn(async (): Promise<OpeningRead> => {
+    calls += 1;
+    if (calls === 6) visit.abort();
+    return "failed";
+  });
+  const outcome = await readOpening(read, () => true, visit.signal, DELAYS, 5);
+  expect(outcome).toBe("superseded");
+  expect(read).toHaveBeenCalledTimes(6);
 });
 
 // A later read took this one's place; should that one fail too, the session
