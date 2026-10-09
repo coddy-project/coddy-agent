@@ -25,6 +25,12 @@ export type TurnProgress = {
    * the reading: of two readings of one turn, the larger one is the newer.
    */
   serverElapsedMs?: number;
+  /**
+   * "preparing" while the turn was taken and does not talk to its model yet: it
+   * still brings in its MCP servers and waits for the model's context window
+   * (issue #357). Only the stream says so; the loop's first report ends it.
+   */
+  phase?: "preparing";
 };
 
 /**
@@ -96,7 +102,7 @@ export function turnProgressFromFrame(
   }
   const f = raw as Record<string, unknown>;
   const age = finiteNonNegative(ageMs) ?? 0;
-  return build(
+  const progress = build(
     f.elapsedMs,
     f.startedAt,
     f.outputTokens,
@@ -104,6 +110,10 @@ export function turnProgressFromFrame(
     age,
     nowMs,
   );
+  if (progress && f.phase === "preparing") {
+    progress.phase = "preparing";
+  }
+  return progress;
 }
 
 /** The progress fields of `GET /coddy/sessions/{id}/activity`; null when it carries none. */
@@ -173,14 +183,23 @@ export function mergeTurnProgress(
     next.startedAtMs < prev.startedAtMs - EARLIER_START_MS
       ? next.startedAtMs
       : prev.startedAtMs;
+  // Only the stream knows the phase: an activity read neither starts nor ends it.
+  const phase = source === "stream" ? next.phase : prev.phase;
   if (
     prev.outputTokens === next.outputTokens &&
     prev.estimated === next.estimated &&
-    startedAtMs === prev.startedAtMs
+    startedAtMs === prev.startedAtMs &&
+    prev.phase === phase
   ) {
     return prev;
   }
-  return { ...next, startedAtMs };
+  const merged: TurnProgress = { ...next, startedAtMs };
+  if (phase) {
+    merged.phase = phase;
+  } else {
+    delete merged.phase;
+  }
+  return merged;
 }
 
 /** 0, 433, 1.2k, 13.5k, 240k, 1.2M - the width of the number never jumps around. */

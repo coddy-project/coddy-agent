@@ -600,7 +600,13 @@ and paged transcript reads, never start a deferred server.
    ([Console](../surfaces/console.md)): `coddy` draws at once, the footer
    counts the servers while they come up, and a prompt sent before they have
    answered waits for its tool list on the status line (`Connecting MCP
-   servers`)
+   servers`). `coddy serve` does the same for the sessions it creates - the
+   first message of a web chat, a messenger chat - and only for those: the
+   session exists at once, and its first turn says it was taken (a
+   `turn_progress` in the `preparing` phase) before it waits for the servers,
+   so a cold server no longer holds the first message of a chat without a
+   byte on the wire. A stored session it loads still starts its servers only
+   for its first turn
 2. The agent calls `tools/list` on each server and registers the tools
 3. An edit of `~/.coddy/mcp.json` while sessions run - in an editor, in Settings, by the
    agent with its file tools - reaches them as [Edits made outside

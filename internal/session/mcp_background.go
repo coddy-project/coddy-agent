@@ -4,9 +4,11 @@ package session
 // session/new or a load from disk has returned: the progress record
 // (MCPConnectUpdate), the worker that dials them, the control update the
 // console renders, and the wait a turn makes for its tool list
-// (WaitMCPConnect on State). Only the interactive console turns this on;
-// every other surface keeps connecting a new session's servers in
-// session/new and a restored session's before its first turn.
+// (WaitMCPConnect on State). The interactive console turns it on for every
+// session it opens (SetBackgroundMCPConnect); coddy serve for new sessions
+// only (SetNewSessionsBackgroundMCP), leaving a restored session's servers
+// for its first turn; the ACP server keeps connecting a new session's
+// servers in session/new.
 
 import (
 	"context"
@@ -86,8 +88,9 @@ func (u MCPConnectUpdate) clone() MCPConnectUpdate {
 const mcpRetryHint = "The next prompt tries it once more"
 
 // controlUpdateSender is the optional in-process surface boundary a background
-// connect reports through. The console implements it; the ACP server and the
-// HTTP relay do not, and they never connect in the background either.
+// connect reports through. The console implements it; the HTTP relay does
+// not, and a turn there says it is preparing (a turn_progress in the
+// preparing phase) while it waits for the dial.
 type controlUpdateSender interface {
 	SendControlUpdate(sessionID string, update any) error
 }
@@ -103,6 +106,23 @@ type controlUpdateSender interface {
 // session to read it start nothing until its first turn.
 func (m *Manager) SetBackgroundMCPConnect(on bool) {
 	m.backgroundMCP.Store(on)
+}
+
+// SetNewSessionsBackgroundMCP makes the new sessions this manager opens from
+// now on connect their configured MCP servers in the background, the way
+// SetBackgroundMCPConnect does, while a session restored from disk still
+// leaves them for its first turn. coddy serve turns it on (issue #357): a new
+// chat's first message is answered at once with the first event of its turn
+// instead of waiting, without a byte on the wire, for a cold server to start,
+// and a stored chat opened only to be read starts nothing.
+func (m *Manager) SetNewSessionsBackgroundMCP(on bool) {
+	m.backgroundNewMCP.Store(on)
+}
+
+// NewSessionsBackgroundMCP reports whether the manager connects the configured
+// MCP servers of the new sessions it opens in the background.
+func (m *Manager) NewSessionsBackgroundMCP() bool {
+	return m.backgroundMCP.Load() || m.backgroundNewMCP.Load()
 }
 
 // BackgroundMCPConnect reports whether the manager connects the configured
@@ -141,7 +161,7 @@ func (m *Manager) ActivateDeferredMCP(ctx context.Context, sessionID string) err
 // session: the tool filter, then the dial - in the background when the
 // manager connects there, in the caller's context otherwise.
 func (m *Manager) connectNewSessionMCPServers(ctx context.Context, state *State) {
-	if m.backgroundMCP.Load() {
+	if m.backgroundMCP.Load() || m.backgroundNewMCP.Load() {
 		m.installMCPFilter(state)
 		m.startBackgroundMCPConnect(state)
 		return

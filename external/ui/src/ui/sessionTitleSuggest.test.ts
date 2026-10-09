@@ -391,3 +391,54 @@ test("a send without text settles the naming at once", async () => {
   });
   expect(fetchImpl).not.toHaveBeenCalled();
 });
+
+// The first send was not admitted, so the chat will never exist: a name that
+// comes afterwards is neither shown nor sent, the describe request is
+// aborted, and the placeholder goes at once.
+test("a cancelled naming reports and patches nothing", async () => {
+  let answerDescribe!: () => void;
+  let describeSignal: AbortSignal | undefined;
+  const patches: string[] = [];
+  const fetchImpl = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/coddy/describe")) {
+        describeSignal = init?.signal ?? undefined;
+        await new Promise<void>((resolve) => {
+          answerDescribe = resolve;
+        });
+        return new Response(JSON.stringify({ short: "Too late" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      patches.push(url);
+      return new Response("not found", { status: 404 });
+    },
+  );
+  const onShortReady = vi.fn();
+  const onApplied = vi.fn();
+  const onDescribeSettled = vi.fn();
+
+  const naming = startSuggestSessionTitle({
+    userText: "/rpa-init",
+    sessionIdPromise: Promise.resolve("sess_gone"),
+    getPreviewSessionId: () => "sess_gone",
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    onShortReady,
+    onApplied,
+    onDescribeSettled,
+  });
+  await vi.waitFor(() => expect(describeSignal).toBeDefined());
+
+  naming.cancel();
+  expect(describeSignal?.aborted).toBe(true);
+  expect(onDescribeSettled).toHaveBeenCalledTimes(1);
+
+  answerDescribe();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(onShortReady).not.toHaveBeenCalled();
+  expect(onApplied).not.toHaveBeenCalled();
+  expect(patches).toEqual([]);
+  expect(onDescribeSettled).toHaveBeenCalledTimes(1);
+});

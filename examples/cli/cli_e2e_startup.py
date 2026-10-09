@@ -2,9 +2,9 @@
 """Startup: the console draws its chrome in a real pty, takes keys and exits.
 
 No model is contacted. The script proves the terminal path on the host it
-runs on - raw mode, the first frame, the keyboard, the resume hint printed
-after the terminal is restored - which is what the macOS and Linux CI jobs
-check with the real binary (the Go suite drives the app over a fake
+runs on - raw mode, the first frame, the keyboard, a clean exit that leaves
+no session behind when nothing was sent - which is what the macOS and Linux
+CI jobs check with the real binary (the Go suite drives the app over a fake
 terminal and never opens a pty).
 """
 
@@ -45,13 +45,19 @@ def first_frame_keys_and_exit() -> None:
         tui.send(CTRL_C)
         tui.wait_for("Press ctrl+c again to exit", timeout=5)
         tui.send(CTRL_C)
-        # The resume hint lands in the scrollback once the terminal is back
-        # in cooked mode.
-        tui.wait_for("continue: coddy cli --session-id", timeout=10)
+        # Everything the console writes up to its exit, the scrollback it
+        # leaves once the terminal is back in cooked mode included.
+        tui.pump(10)
         tui.child.expect(pexpect.EOF, timeout=10)
         tui.child.close()
         if tui.child.exitstatus != 0:
             raise AssertionError(f"console exited with {tui.child.exitstatus} (signal {tui.child.signalstatus})")
+        # Nothing was sent, so there is nothing to resume: no resume hint and
+        # no session folder (coddy-project/coddy-agent#357).
+        if "continue: coddy cli" in tui.written():
+            raise AssertionError("a console closed without a message printed a resume hint")
+        if tui.session_dirs():
+            raise AssertionError(f"a console closed without a message left {[d.name for d in tui.session_dirs()]}")
     finally:
         tui.close()
 

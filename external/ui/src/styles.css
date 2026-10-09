@@ -1075,6 +1075,9 @@ body {
 .rail-env-icon {
   position: relative;
   display: inline-flex;
+  /* The wrapper, not the svg inside it, is what the wide rail's grid places:
+     centred in the icon track like every other item's icon. */
+  justify-self: center;
 }
 
 .rail-env-status {
@@ -1113,6 +1116,15 @@ body {
   justify-self: start;
   min-width: 0;
   transition: color 140ms ease;
+}
+
+/* The environment item names the machine the page runs on (issue #357): a
+   long host name is cut to the rail's width, and the whole of it is in the
+   tooltip. */
+.rail-env-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rail-nav-hit-svg {
@@ -2372,6 +2384,17 @@ a.rail-brand {
   100% {
     background-position: -100% 0;
   }
+}
+
+/* Why the first message of a new chat was not sent, under the start screen's
+   composer it came back to (issue #357): the folder or the branch picked there
+   could not be applied. The text and the picks are still in place. */
+.hero-start-notice {
+  margin: 12px 4px 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--coddy-danger, #f87171);
+  overflow-wrap: anywhere;
 }
 
 /* The name of a new chat while the describe call works it out (issue #435):

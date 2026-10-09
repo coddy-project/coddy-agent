@@ -1165,6 +1165,9 @@ export const messagesRu: Record<string, string> = {
   "app.stopFailed": "Не удалось остановить генерацию. Попробуйте ещё раз.",
   "app.undoEditFailed": "Не удалось отменить правку: {error}",
   "app.emptyResponseBody": "Пустое тело ответа",
+  "app.workspacePrepareFailed":
+    "Не удалось подготовить рабочую папку: {reason}. Сообщение не отправлено.",
+  "app.workspacePrepareFailedUnknown": "ошибка сети",
 
   "nav.ariaLabel": "Навигация",
   "nav.brandTitle": "Coddy",
@@ -2349,6 +2352,7 @@ export const messagesRu: Record<string, string> = {
   "status.awaitingPermission": "Жду разрешения",
   "status.awaitingAnswer": "Жду ответа",
   "status.writing": "Пишу ответ",
+  "status.preparingSession": "Готовлю сессию…",
   "status.waitingModel": "Жду ответ модели",
   "status.waitingSlow": "Модель отвечает дольше обычного",
   "status.waitingStuck": "Ответа от сервера всё ещё нет",

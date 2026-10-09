@@ -10,6 +10,8 @@ Feature: Session settings on the console
   Scenario: The footer follows the session entered and the session keeps its settings
     Given a coddy console app over a stub agent runner
     When the console app starts
+    And the operator submits the prompt "first work"
+    And the stub turn streams the text "done"
     And the operator switches the permission mode to "bypass"
     And the operator arms the model "stub/model-two" for the next 2 turns
     Then the footer shows the permission mode "bypass"

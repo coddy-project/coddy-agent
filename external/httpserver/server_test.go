@@ -916,6 +916,7 @@ func TestCoddySessionsList(t *testing.T) {
 		t.Fatal(err)
 	}
 	sid := res.SessionID
+	giveConversation(t, mgr, sid)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -1404,6 +1405,7 @@ func TestCoddySessionsListIncludeActivityCountsBackgroundTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	sid := res.SessionID
+	giveConversation(t, mgr, sid)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -5179,6 +5181,8 @@ func TestCoddySessionsListFiltersByWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	giveConversation(t, mgr, inWorkspace.SessionID)
+	giveConversation(t, mgr, elsewhere.SessionID)
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -6164,5 +6168,74 @@ func TestCoddyMCPSaveKeepsRedactedValues(t *testing.T) {
 	}
 	if !mcp.NewTrustStore(home).Approved(home, servers[0]) {
 		t.Fatal("the saved project entry is not approved")
+	}
+}
+
+// giveConversation writes a first prompt into a live session: a conversation
+// nobody wrote in is left out of the session list (issue #357).
+func giveConversation(t *testing.T, mgr *session.Manager, sid string) {
+	t.Helper()
+	st := mgr.SessionByID(sid)
+	if st == nil {
+		t.Fatalf("session %s is not live", sid)
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hello"})
+}
+
+// A new chat is in History from its first send: its first turn appends the
+// prompt only once its MCP servers and its model's context window are in, and
+// a turn running in a session that holds no message yet keeps it listed.
+func TestCoddySessionsListKeepsANewChatWhoseFirstTurnRuns(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		close(entered)
+		<-release
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	turn := make(chan error, 1)
+	go func() {
+		_, err := mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: sid, Prompt: []acp.ContentBlock{{Type: "text", Text: "hi"}},
+		})
+		turn <- err
+	}()
+	<-entered
+	defer func() {
+		close(release)
+		if err := <-turn; err != nil {
+			t.Error(err)
+		}
+	}()
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	resHTTP, err := http.Get(ts.URL + "/coddy/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		ActiveCount int `json:"active_count"`
+		Sessions    []struct {
+			ID string `json:"id"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Sessions) != 1 || parsed.Sessions[0].ID != sid {
+		t.Fatalf("listing = %s, want the chat whose first turn runs", b)
+	}
+	if parsed.ActiveCount != 1 {
+		t.Fatalf("active_count = %d, want 1", parsed.ActiveCount)
 	}
 }

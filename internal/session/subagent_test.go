@@ -760,7 +760,9 @@ func TestABundleInTheSessionsRootIsNeverReadAsDelegated(t *testing.T) {
 	if snap.Meta.IsSubagentRun() {
 		t.Fatalf("a session in the sessions root reads as a delegated run: %+v", snap.Meta)
 	}
-	rows, err := store.ListSnapshotsWith(session.ListOptions{})
+	// The bundle holds no message yet; the listing for people leaves such a
+	// conversation out, which is not what this test is about.
+	rows, err := store.ListSnapshotsWith(session.ListOptions{IncludeEmpty: true})
 	if err != nil {
 		t.Fatal(err)
 	}
