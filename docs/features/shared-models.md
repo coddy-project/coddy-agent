@@ -339,7 +339,7 @@ httpserver:
 
 - **What TLS does.** The listener presents its certificate. With `client_ca_file` the handshake **requires** a certificate that chains to that authority and refuses a peer without one. Nothing else: **Coddy reads no identity out of a certificate**, so a certificate is no credential, no class and no budget. The credential is a token (`httpserver.shared_models.tokens` for the shared routes, the main token for the whole API), and the budget is the token's.
 - **A certificate alone opens nothing.** A caller with a certificate and no token gets the same `401` as a caller with neither; a token over a certificate does what the token does.
-- **What a certificate holder may do** (which route, how often, from which address) is for a **reverse proxy** in front of the node and for the infrastructure: [where the other risks go](../operate/certificates.md#12-where-the-other-risks-go).
+- **What a certificate holder may do** (which route, how often, from which address) is for a **reverse proxy** in front of the node and for the infrastructure: [where the other risks go](../operate/certificates.md#where-the-other-risks-go).
 - **HTTP/1.1 only.** The listener serves TLS without HTTP/2, so a shared call keeps a connection of its own and the [liveness bound](#a-peer-that-vanishes) applies to it. The CA and the server certificate are startup state: rotating them takes a restart.
 - **Not through an intermediary.** A TLS terminator in front, or the swarm tunnel, carries no client certificate to the node: the node sees the terminator or the relay. Where a certificate is required, require it there.
 - **Checks.** `coddy -t` refuses a half pair and a CA without a certificate pair; `--dry-run` loads the pair and the CA bundle.

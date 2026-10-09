@@ -517,7 +517,7 @@ refuses every peer without one: nodes that join and browsers included, so a node
 
 - **Coddy reads no identity out of a certificate.** No name, no subject, no class. A relay client is told apart by its **token**: a `swarm.clients` entry is a bearer entry, a certificate opens nothing and adds nothing
   to a request, and a request with a certificate and no token is a `401` like a request with neither. What a certificate holder may do is for a **reverse proxy** in front of the relay
-  and for the infrastructure around it: [Certificates and TLS](certificates.md#12-where-the-other-risks-go).
+  and for the infrastructure around it: [Certificates and TLS](certificates.md#where-the-other-risks-go).
 - **Coddy makes the certificates** (`coddy tls`, built in): `swarm.tls.auto: true` serves the relay with the server pair, with `require_client_cert: true` the handshake requires a certificate of the built-in bundle, and `auto: true` on a `swarm.join[].dial`, a `swarm.upstreams[].dial` or `swarm.node_tls` presents the client pair and trusts the bundle; see [Certificates and TLS](certificates.md#built-in-certificates-coddy-tls). An authority of your own or a public one, named by hand, is the same setup, and a file named by hand wins over `auto`.
 - The full class and the scoped class are unchanged: the full token opens the relay, an entry's token opens the shared-model routes of the nodes it lists.
 
