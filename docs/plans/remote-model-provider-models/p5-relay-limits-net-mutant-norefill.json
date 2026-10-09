@@ -1,0 +1,258 @@
+{
+ "name": "p5-relay-limits-net-mutant-norefill",
+ "places": [
+  {
+   "name": "ready",
+   "initial": 2,
+   "capacity": 2
+  },
+  {
+   "name": "hasSlot",
+   "capacity": 2
+  },
+  {
+   "name": "forwarding",
+   "capacity": 2
+  },
+  {
+   "name": "inService",
+   "capacity": 2
+  },
+  {
+   "name": "rslotFree",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "nodeFree",
+   "initial": 1,
+   "capacity": 1
+  },
+  {
+   "name": "otherHolds",
+   "capacity": 1
+  },
+  {
+   "name": "wtok",
+   "initial": 2,
+   "capacity": 2
+  },
+  {
+   "name": "wempty",
+   "capacity": 2
+  }
+ ],
+ "transitions": [
+  {
+   "name": "takeSlot",
+   "inputs": [
+    {
+     "place": "ready",
+     "weight": 1
+    },
+    {
+     "place": "rslotFree",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "hasSlot",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "takeToken",
+   "inputs": [
+    {
+     "place": "hasSlot",
+     "weight": 1
+    },
+    {
+     "place": "wtok",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "forwarding",
+     "weight": 1
+    },
+    {
+     "place": "wempty",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "rateRefuse",
+   "inputs": [
+    {
+     "place": "hasSlot",
+     "weight": 1
+    },
+    {
+     "place": "wempty",
+     "weight": 2
+    }
+   ],
+   "outputs": [
+    {
+     "place": "ready",
+     "weight": 1
+    },
+    {
+     "place": "rslotFree",
+     "weight": 1
+    },
+    {
+     "place": "wempty",
+     "weight": 2
+    }
+   ]
+  },
+  {
+   "name": "nodeAdmits",
+   "inputs": [
+    {
+     "place": "forwarding",
+     "weight": 1
+    },
+    {
+     "place": "nodeFree",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "inService",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "serviceEnds",
+   "inputs": [
+    {
+     "place": "inService",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "ready",
+     "weight": 1
+    },
+    {
+     "place": "rslotFree",
+     "weight": 1
+    },
+    {
+     "place": "nodeFree",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "nodeBusyRefund",
+   "inputs": [
+    {
+     "place": "forwarding",
+     "weight": 1
+    },
+    {
+     "place": "wempty",
+     "weight": 1
+    },
+    {
+     "place": "otherHolds",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "ready",
+     "weight": 1
+    },
+    {
+     "place": "rslotFree",
+     "weight": 1
+    },
+    {
+     "place": "wtok",
+     "weight": 1
+    },
+    {
+     "place": "otherHolds",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "nodeBusyWindowFull",
+   "inputs": [
+    {
+     "place": "forwarding",
+     "weight": 1
+    },
+    {
+     "place": "wtok",
+     "weight": 2
+    },
+    {
+     "place": "otherHolds",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "ready",
+     "weight": 1
+    },
+    {
+     "place": "rslotFree",
+     "weight": 1
+    },
+    {
+     "place": "wtok",
+     "weight": 2
+    },
+    {
+     "place": "otherHolds",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "otherTakes",
+   "inputs": [
+    {
+     "place": "nodeFree",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "otherHolds",
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "otherEnds",
+   "inputs": [
+    {
+     "place": "otherHolds",
+     "weight": 1
+    }
+   ],
+   "outputs": [
+    {
+     "place": "nodeFree",
+     "weight": 1
+    }
+   ]
+  }
+ ]
+}
