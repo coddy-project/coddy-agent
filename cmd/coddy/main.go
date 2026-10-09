@@ -237,6 +237,11 @@ func printUsage(w io.Writer) {
         documentation built into this binary; F1 in the console, Docs in the
         web UI; without --lang it speaks the terminal's language: CODDY_LANG,
         then LC_ALL, LC_MESSAGES, LANG)
+  %[1]s tls ensure [--quiet] [--force-ca] [--name HOST]... [--home DIR] (make or renew the
+        built-in certificates under ~/.coddy/tls: a CA, a server pair, a client pair;
+        nothing to do when they are right)
+  %[1]s tls status [--json] | renew | export (the CA certificate on stdout)
+  %[1]s tls trust <file|-> (trust another machine's CA) | issue client <name> [-o DIR]
   %[1]s update [flags]
 `, os.Args[0])
 }

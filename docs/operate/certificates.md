@@ -9,6 +9,33 @@ Coddy speaks TLS in several places, and each place wants a different piece of ke
 
 Everything here is **opt-in**. A relay or a node with no certificate settings speaks plain HTTP, which is right on a loopback address, behind a reverse proxy that terminates TLS, or inside a tunnel. The settings below are for the other cases: you want Coddy itself to terminate TLS, to ask its callers for a certificate, or to present one.
 
+## Built-in certificates: `coddy tls`
+
+Coddy makes the certificates it needs itself, with the Go standard library and no external tool (no `openssl`, no `mkcert`), under `$CODDY_HOME/tls` (mode 0700, keys 0600):
+
+| File | What |
+|---|---|
+| `ca.crt`, `ca.key` | this machine's CA: ECDSA P-256, ten years, path length 0. **The CA key never leaves the machine.** |
+| `server.crt`, `server.key` | the certificate of this machine's listeners: one year, `serverAuth`, carrying the host name, `localhost`, the loopback addresses, the address of each non-link-local interface, the bind and `advertise_url` hosts of the configuration and any `--name` |
+| `client.crt`, `client.key` | the certificate this machine presents when it dials: one year, `clientAuth` |
+| `trusted/*.crt` | the CAs of other machines this one was told to trust |
+| `bundle.pem` | this CA plus every trusted CA: what a client's `ca_file` and a listener's `client_ca_file` point at |
+
+```bash
+coddy tls ensure            # make what is missing or ending; nothing to do when all is right
+coddy tls status [--json]   # what is there, the names, the days left, what ensure would do
+coddy tls renew             # issue both certificates again now (the CA stays)
+coddy tls export > a-ca.crt # this machine's CA certificate, the one thing to give a peer
+coddy tls trust a-ca.crt    # trust another machine's CA (a file, or - for stdin)
+coddy tls issue client ci -o ./ci   # a client certificate for something that has no Coddy
+```
+
+`ensure` is idempotent and safe to run from anywhere, at once: it plans from what is on disk, applies the plan under a file lock with atomic writes (key first, certificate second), replaces a valid CA never (only `--force-ca`, or an expired one, does, and it says that every peer must then trust the new CA), and issues a leaf again only for a reason it names: missing, its key does not match, signed by another CA, expired or within 30 days of its end, or lacking a wanted name.
+
+**Two machines trust each other without a private key moving**: on A `coddy tls export > a-ca.crt`, on B `coddy tls trust a-ca.crt`, and the same the other way; each side then verifies the other's server and client certificates against its `bundle.pem`.
+
+TLS here is the transport's business and nothing else: a certificate admits a peer at the handshake and is no credential, and Coddy reads no name out of it. Public certificates (ACME, an enterprise CA) are the same setup with the files named by hand. Everything else (who may call what, rate limits, allowlists, revocation, audit) belongs to the reverse proxy and the infrastructure: [where the other risks go](#12-where-the-other-risks-go).
+
 ## 1. The picture
 
 Six legs use TLS. For each, one side **serves** (it has a certificate and a key) and the other **dials** (it checks the certificate it is shown, and may show one of its own).
