@@ -84,6 +84,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.mcp_servers.label": "MCP-серверы",
   "settings.section.skills.label": "Навыки",
   "settings.section.memory.label": "Копайлот памяти",
+  "settings.section.decisions.label": "Безопасность команд (decisions)",
   "settings.section.system.label": "Промпты",
   "settings.section.compaction.label": "Сжатие контекста",
   "settings.section.subagents.label": "Субагенты",
@@ -97,6 +98,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.mcp_servers.desc": "Внешние MCP-инструменты",
   "settings.section.skills.desc": "Установленные скилы (slash)",
   "settings.section.memory.desc": "Параметры субагента памяти",
+  "settings.section.decisions.desc": "Проверка небезопасных команд",
   "settings.section.system.desc": "Шаблоны и файлы инструкций",
   "settings.section.compaction.desc": "Сжатие истории диалога",
   "settings.section.subagents.desc": "Пул делегирования и доверие",
@@ -583,6 +585,12 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.model.label": "Модель памяти",
   "settings.schema.memory.model.desc":
     "Модель, на которой работает субагент памяти; пусто - модель сессии.",
+  "settings.schema.decisions.enable.label": "Включено",
+  "settings.schema.decisions.enable.desc":
+    "Спрашивать NeuralDeep decisions API о каждой команде оболочки, которая выполняется без запроса разрешения (режим bypass, список разрешённых команд, грант сессии или allow-хука), и отклонять небезопасные; отказ попадает в чат как результат команды. Команды, одобренные в запросе разрешения, повторно не проверяются.",
+  "settings.schema.decisions.model.label": "Модель decisions",
+  "settings.schema.decisions.model.desc":
+    "frida-decisions: проход энкодера, до 512 токенов текста команды, ~20 мс на запрос, 1 единица квоты. clef-flash: до 8192 токенов, ~150 мс, 4 единицы квоты.",
   "settings.schema.memory.fallback_models.label": "Резервные модели памяти",
   "settings.schema.memory.fallback_models.desc":
     "Пробуются по порядку, когда предыдущая модель отказала до ответа; модель сессии остаётся последним вариантом.",

@@ -118,6 +118,11 @@ type Agent struct {
 	// limitWaitHeartbeat overrides how often a waiting turn re-sends its
 	// countdown (tests); zero means limitWaitHeartbeat.
 	limitWaitHeartbeat time.Duration
+	// decisionsRetryWindow and decisionsRetryBackoff override how long a
+	// command waits for the decisions endpoint between retries (tests);
+	// zero means the package defaults (decisions.go).
+	decisionsRetryWindow  time.Duration
+	decisionsRetryBackoff time.Duration
 	// limitLedger is the user turn's account of time spent on usage
 	// limits (limit_wait.go); Run starts a fresh one.
 	limitLedger *limitWaitLedger
@@ -1962,6 +1967,18 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	}
 	if hookRes.ask {
 		requiresPerm = true
+	}
+
+	// The decisions safety check guards exactly the calls no human is about
+	// to confirm: a run_command that the mode, the allowlist, a session grant
+	// or a hook let through without a prompt. A call the operator already
+	// approved (skipPermission, the resume of a prompt) is not checked again -
+	// the human in the loop is the stronger verdict.
+	if tc.Name == "run_command" && !requiresPerm && !skipPermission && a.cfg.Decisions.Enabled {
+		if rejection := a.gateCommandSafety(ctx, tc.InputJSON, env); rejection != "" {
+			a.finishToolCall(sessionDir, sessionID, tc, rejection, nil, "cancelled")
+			return rejection, nil
+		}
 	}
 
 	if requiresPerm && !skipPermission {

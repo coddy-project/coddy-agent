@@ -406,6 +406,15 @@ Messenger bot adapters (used only by binaries built with -tags gateway, or -tags
 | `gateways.pachca.chats[].chat_id` | integer |  | Pachca chat id. |
 | `gateways.pachca.chats[].isolation` | string, one of `individual`, `shared`, `admin` |  | Per-chat session isolation override. |
 | `gateways.pachca.chats[].access` | string |  | Per-chat access override: "all", "admins", or "group:<name>". |
+
+### `decisions`
+
+Ask the NeuralDeep decisions API whether a shell command that would run without asking the operator is safe, and reject the ones it classifies as unsafe. See https://coddy.dev/docs/features/decisions.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `decisions.enable` | boolean | false | Check every run_command call no permission prompt covers (bypass mode, the command allowlist, a session grant or a hook's allow) against the decisions endpoint and reject the commands it classifies as unsafe; the rejection is returned as the tool result, so the session records it. Commands the operator approved in a prompt are not checked again. Needs a NeuralDeep credential: providers[].api_key of type neuraldeep, api_key_command, the NEURALDEEP_API_KEY environment variable or a stored hub sign-in. When the endpoint stays unreachable or rate-limited past the retry window, the command is not executed either. |
+| `decisions.model` | string, one of `frida-decisions`, `clef-flash` | frida-decisions | Decisions model to ask: frida-decisions (encoder pass, up to 512 tokens of command text, ~20 ms per request) or clef-flash (up to 8192 tokens, ~150 ms). |
 <!-- docsgen:config:end -->
 
 ## Notes

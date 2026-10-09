@@ -628,6 +628,18 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enable", "model", "dir", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "additional_prompt", "additional_prompt_max_chars"},
 			nil),
+		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API about a shell command before it runs without a permission prompt, and reject the ones it classifies as unsafe.",
+			map[string]interface{}{
+				"enable": boolProp("Enabled", "Check every run_command call no prompt covers (bypass mode, the command allowlist, a session grant, a hook's allow) against the decisions endpoint and reject the commands it classifies as unsafe. Commands you approved in a prompt are not checked again."),
+				"model": map[string]interface{}{
+					"type":        "string",
+					"title":       "Decisions model",
+					"description": "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request. clef-flash: up to 8192 tokens, ~150 ms.",
+					"enum":        []string{DecisionsModelFRIDA, DecisionsModelClef},
+				},
+			},
+			[]string{"enable", "model"},
+			nil),
 		"scheduler": objectSchema("Scheduler", "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.",
 			map[string]interface{}{
 				"enable":          boolProp("Enabled", "When true, this process may run the scheduler daemon and REST."),
@@ -769,7 +781,7 @@ func UISchemaMap() map[string]interface{} {
 	// folds into one System tab). The sessions key belongs to the Sessions tab.
 	rootOrder := []string{
 		"providers", "models",
-		"agent", "compaction", "memory",
+		"agent", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions",

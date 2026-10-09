@@ -23,6 +23,7 @@ type Config struct {
 	Sessions   Sessions         `yaml:"sessions"`
 	Compaction Compaction       `yaml:"compaction"`
 	Memory     MemoryConfig     `yaml:"memory"`
+	Decisions  DecisionsConfig  `yaml:"decisions"`
 	HTTPServer HTTPServerConfig `yaml:"httpserver"`
 	Swarm      SwarmConfig      `yaml:"swarm"`
 	UI         UIConfig         `yaml:"ui"`

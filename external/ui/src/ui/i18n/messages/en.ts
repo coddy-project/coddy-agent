@@ -89,6 +89,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.mcp_servers.label": "MCP servers",
   "settings.section.skills.label": "Skills",
   "settings.section.memory.label": "Memory copilot",
+  "settings.section.decisions.label": "Command safety (decisions)",
   "settings.section.system.label": "Prompts",
   "settings.section.compaction.label": "Context compaction",
   "settings.section.subagents.label": "Subagents",
@@ -102,6 +103,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.mcp_servers.desc": "External MCP tools",
   "settings.section.skills.desc": "Installed slash skills",
   "settings.section.memory.desc": "Memory subagent options",
+  "settings.section.decisions.desc": "Unsafe command screening",
   "settings.section.system.desc": "Templates and instruction files",
   "settings.section.compaction.desc": "Conversation history compaction",
   "settings.section.subagents.desc": "Delegation pool & trust",
@@ -575,6 +577,12 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.memory.model.label": "Memory model",
   "settings.schema.memory.model.desc":
     "Model the memory subagent runs on; empty uses the session's model.",
+  "settings.schema.decisions.enable.label": "Enabled",
+  "settings.schema.decisions.enable.desc":
+    "Ask the NeuralDeep decisions API about every shell command that would run without a permission prompt (bypass mode, the command allowlist, a session grant, a hook's allow) and reject the ones it classifies as unsafe; the rejection lands in the chat as the command's result. Commands you approved in a prompt are not checked again.",
+  "settings.schema.decisions.model.label": "Decisions model",
+  "settings.schema.decisions.model.desc":
+    "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request, 1 quota unit. clef-flash: up to 8192 tokens, ~150 ms, 4 quota units.",
   "settings.schema.memory.fallback_models.label": "Fallback memory models",
   "settings.schema.memory.fallback_models.desc":
     "Tried in order when the model before them fails before answering; the session's own model is the last resort.",

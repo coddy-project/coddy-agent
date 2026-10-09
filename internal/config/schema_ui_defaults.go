@@ -86,6 +86,10 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			CopilotMaxTokens: 4096,
 			MaxSearchHits:    8,
 		},
+		Decisions: DecisionsJSON{
+			Enabled: false,
+			Model:   DecisionsModelFRIDA,
+		},
 		Subagents: SubagentsJSON{
 			Enabled:               boolPtr(true),
 			Dirs:                  []string{}, // the default folders are read beside subagents.dirs

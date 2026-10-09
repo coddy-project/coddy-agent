@@ -23,6 +23,7 @@ type ConfigJSON struct {
 	Sessions     SessionsJSON     `json:"sessions,omitempty"`
 	Compaction   CompactionJSON   `json:"compaction,omitempty"`
 	Memory       MemoryJSON       `json:"memory,omitempty"`
+	Decisions    DecisionsJSON    `json:"decisions,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Swarm        SwarmJSON        `json:"swarm,omitempty"`
 	UI           UIJSON           `json:"ui,omitempty"`
@@ -318,6 +319,12 @@ type MemoryJSON struct {
 	AdditionalPromptMaxChars int    `json:"additional_prompt_max_chars,omitempty"`
 }
 
+// DecisionsJSON mirrors DecisionsConfig.
+type DecisionsJSON struct {
+	Enabled bool   `json:"enable,omitempty"`
+	Model   string `json:"model,omitempty"`
+}
+
 // HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
 // populates it (redacted), reporting only whether one is set via AuthConfigured.
 type HTTPServerJSON struct {
@@ -571,6 +578,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
 		AdditionalPrompt: c.Memory.AdditionalPrompt, AdditionalPromptMaxChars: c.Memory.AdditionalPromptMaxChars,
 	}
+	out.Decisions = DecisionsJSON{Enabled: c.Decisions.Enabled, Model: c.Decisions.Model}
 	out.HTTPServer = HTTPServerJSON{
 		Enabled:       c.HTTPServer.Enabled,
 		Host:          c.HTTPServer.Host,
@@ -801,6 +809,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 		AdditionalPrompt: j.Memory.AdditionalPrompt, AdditionalPromptMaxChars: j.Memory.AdditionalPromptMaxChars,
 	}
+	cfg.Decisions = DecisionsConfig{Enabled: j.Decisions.Enabled, Model: j.Decisions.Model}
 	cfg.HTTPServer = HTTPServerConfig{
 		Enabled:   j.HTTPServer.Enabled,
 		Host:      j.HTTPServer.Host,

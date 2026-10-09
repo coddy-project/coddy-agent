@@ -142,6 +142,9 @@ groups:
       - path: features/memory.md
         title: Long-term memory
         summary: The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
+      - path: features/decisions.md
+        title: Command safety (decisions)
+        summary: The NeuralDeep decisions check that screens shell commands running without a permission prompt and rejects the ones it classifies as unsafe.
       - path: features/session-export.md
         title: Session export
         summary: /export and coddy sessions export, formats, path rules, trimming options, the JSON document.

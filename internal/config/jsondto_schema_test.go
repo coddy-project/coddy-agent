@@ -65,7 +65,7 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 	// the process last.
 	want := []interface{}{
 		"providers", "models",
-		"agent", "compaction", "memory",
+		"agent", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions",

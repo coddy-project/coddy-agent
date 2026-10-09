@@ -134,6 +134,9 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Memory.Validate(cfg); err != nil {
 		return fmt.Errorf("memory: %w", err)
 	}
+	if err := cfg.Decisions.Validate(); err != nil {
+		return fmt.Errorf("decisions: %w", err)
+	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return fmt.Errorf("scheduler: %w", err)
 	}
@@ -193,6 +196,9 @@ func applyDefaults(cfg *Config) {
 
 	cfg.Memory.Normalize(p)
 	cfg.Memory.ApplyDefaults()
+
+	cfg.Decisions.Normalize()
+	cfg.Decisions.ApplyDefaults()
 
 	cfg.Scheduler.Normalize(p)
 	cfg.Scheduler.ApplyDefaults(p)
