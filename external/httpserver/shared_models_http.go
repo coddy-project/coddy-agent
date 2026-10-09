@@ -41,7 +41,9 @@ const (
 )
 
 // isSharedLLMPattern reports the routes a shared-model token opens, and nothing
-// else: the listing, the usage of one alias and the completions.
+// else: the listing, the usage of one alias, the completions and the probe's
+// ping. The model p5-gate holds that set: a route added here or dropped changes
+// which credential classes open it.
 func isSharedLLMPattern(pattern string) bool {
 	switch pattern {
 	case sharedModelsPattern, sharedUsagePattern, sharedCompletionsPattern, sharedAlivePattern:
