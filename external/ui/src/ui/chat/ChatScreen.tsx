@@ -1115,6 +1115,7 @@ export function ChatScreen(props: {
                       }
                     : {})}
                   onModeChange={props.onModeChange}
+                  sessionLoading={props.sessionLoading}
                   {...(props.permissionMode !== undefined
                     ? { permissionMode: props.permissionMode }
                     : {})}

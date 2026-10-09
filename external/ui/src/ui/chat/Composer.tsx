@@ -469,6 +469,14 @@ export function Composer(props: {
   /** Known skill names from the catalog — chips confirmed `/name` tokens in the mirror overlay. */
   knownSkillNames?: Set<string>;
   onModeChange: (mode: string) => void;
+  /**
+   * The opened session is still loading, its settings included: the selectors
+   * above name another session's, and a prompt carries the mode, the model and
+   * the level from them while the server keeps what it is given. Send and
+   * Enter wait (the app also refuses any other sender); a message for a
+   * running turn still joins the queue, which carries none of them.
+   */
+  sessionLoading?: boolean | undefined;
   /** The session's permission mode (ask, accept_edits, bypass) and the one a
    *  restart would give back; the chip is hidden without a handler. */
   permissionMode?: string;
@@ -3475,6 +3483,11 @@ export function Composer(props: {
                       queueDraft();
                       return;
                     }
+                    if (props.sessionLoading) {
+                      // The opened session's settings are still on the way:
+                      // the draft waits in the field, as Send does.
+                      return;
+                    }
                     const txt = props.value.trim();
                     if (!txt && sendableAttachedFiles.length === 0) {
                       return;
@@ -3693,7 +3706,10 @@ export function Composer(props: {
                         ? t("composer.sendEdit")
                         : t("composer.send")
                 }
-                disabled={!props.generating && idleSendDisabled}
+                disabled={
+                  !props.generating &&
+                  (idleSendDisabled || props.sessionLoading)
+                }
                 onClick={() => {
                   if (queueArmed) {
                     queueDraft();
