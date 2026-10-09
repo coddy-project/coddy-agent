@@ -424,6 +424,13 @@ func isRetryableLLMError(err error) bool {
 	if errors.Is(err, context.Canceled) {
 		return false
 	}
+	// A request the provider refused for its size is refused again the same
+	// way. Typed statuses already keep it out of the switch below, but an
+	// error that reached this far as text is read for a status by its digits,
+	// and "your messages resulted in 4500 tokens" holds a "500 ".
+	if IsContextOverflow(err) {
+		return false
+	}
 	// Ahead of the deadline gate: a dial that ran out of time matches
 	// context.DeadlineExceeded just like the caller's own timer does, and
 	// the caller's timer is already ruled out by the ctx.Err() check in

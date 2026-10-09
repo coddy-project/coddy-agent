@@ -258,6 +258,14 @@ Field reference: [`agent`](../reference/config.md#agent), [`providers`](../refer
 
 **Fix.** Nothing is needed for a lane that recovers in seconds. For one that keeps failing, check the provider's status, or put the model behind a gateway with healthier deployments. A longer outage is a reason to raise `agent.llm_retry_base_ms`, which stretches the pauses. A subagent that failed this way keeps its transcript, and its report tells the parent to continue it with `spawn_agent` `resume` rather than start a second subagent on the same task ([Resuming a run](../features/subagents.md#resuming-a-run)).
 
+## A turn ends with `context window exceeded`
+
+**Symptom.** A turn ends with `context window exceeded: the provider refused the request because it does not fit the model's context window (...)`, and the provider's own answer closes the message, for instance `404 Not Found "Context limit is 49152 tokens; prompt=51402 leaves 0 output tokens, below the minimum 16"` or `This model's maximum context length is 8192 tokens`. Before this message, such a turn ended with `LLM error:` and the provider's text alone ([issue #490](https://github.com/coddy-project/coddy-agent/issues/490)).
+
+**Cause.** The request outgrew the window of the model or of the server behind it. Automatic compaction folds earlier turns and never the prompt being answered, so one long turn - a prompt and dozens of tool steps - can outgrow a small window with nothing to fold. A window set above what the server actually runs with has the same effect: the trigger measures against `max_context_tokens`, and a local server started with a smaller context refuses the request before the trigger fires. The message shows Coddy's estimate of the request, the window it measured against and, when the provider's answer holds them, the provider's own figures.
+
+**Fix.** Run `/compact`, which folds the history together with the prompt that was being answered, and continue the task; or start a new session; or split the task so that one turn reads less. When the provider's limit is below the window the message shows, set `max_context_tokens` of the model entry to the provider's figure so that automatic compaction starts in time ([The context window](../features/compaction.md#the-context-window)). Field reference: [`models`](../reference/config.md#models), [`compaction`](../reference/config.md#compaction).
+
 ## A turn stops before the task is done
 
 **Symptom.** The agent stops working with the task unfinished, and a notice under the last answer says why: `Stopped after 40 steps, the step limit set by agent.max_turns. ...`, or `The answer was cut off at the model's output limit (max_tokens). ...`. The console prints the same line, `coddy -p` writes it to stderr, and a Telegram chat receives it as a message of its own ([issue #255](https://github.com/coddy-project/coddy-agent/issues/255)).
