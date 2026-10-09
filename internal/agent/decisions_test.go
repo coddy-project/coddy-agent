@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -64,7 +65,12 @@ func newDecisionsStand(t *testing.T, responses ...decisionResponse) *decisionsSt
 }
 
 func decisionUnsafeBody() string {
-	return `{"answers":{"safety":{"choice":"unsafe","probabilities":{"safe":0.01,"unsafe":0.99}}}}`
+	return decisionBody("unsafe", 0.01, 0.99)
+}
+
+// decisionBody answers one choice with the given option and probabilities.
+func decisionBody(option string, safe, unsafe float64) string {
+	return fmt.Sprintf(`{"answers":{"safety":{"choice":%q,"probabilities":{"safe":%v,"unsafe":%v}}}}`, option, safe, unsafe)
 }
 
 // newDecisionsAgent builds an agent whose run_command calls run in bypass
@@ -134,8 +140,8 @@ func TestDecisionsGateBlocksUnsafeCommandWithoutAPrompt(t *testing.T) {
 	if strings.Contains(res, "coddy-shell-ok") {
 		t.Fatalf("the command ran anyway: %q", res)
 	}
-	if !strings.Contains(res, "p(unsafe)=0.99") {
-		t.Fatalf("result = %q, want the probability", res)
+	if !strings.Contains(res, "unsafe option at 0.99") || !strings.Contains(res, "threshold 0.50") {
+		t.Fatalf("result = %q, want the probability and the threshold", res)
 	}
 	if stand.calls.Load() != 1 {
 		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
@@ -201,6 +207,47 @@ func TestDecisionsGateChecksAllowlistedCommandInAskMode(t *testing.T) {
 	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
 	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
 		t.Fatalf("result = %q, want the unsafe rejection", res)
+	}
+	if stand.calls.Load() != 1 {
+		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
+	}
+}
+
+func TestDecisionsGateThresholdRejectsBorderlineCommands(t *testing.T) {
+	// p(unsafe)=0.6 sits above the default 0.5 but below a strict 0.9.
+	newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionBody("unsafe", 0.4, 0.6)})
+	ag, st, dir := newDecisionsAgent(t, true)
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
+		t.Fatalf("result = %q, want the borderline rejection at the default threshold", res)
+	}
+	if !strings.Contains(res, "threshold 0.50") {
+		t.Fatalf("result = %q, want the default threshold in the refusal", res)
+	}
+
+	stand2 := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionBody("unsafe", 0.4, 0.6)})
+	ag2, st2, dir2 := newDecisionsAgent(t, true)
+	ag2.cfg.Decisions.Threshold = 0.9
+	res2 := runCommandToolCall(t, ag2, st2, dir2, "echo coddy-shell-ok", false)
+	if !strings.Contains(res2, "coddy-shell-ok") {
+		t.Fatalf("result = %q, want the command to run below a high threshold", res2)
+	}
+	if stand2.calls.Load() != 1 {
+		t.Fatalf("calls = %d, want one decision request", stand2.calls.Load())
+	}
+}
+
+func TestDecisionsGateRunsAChosenUnsafeBelowTheThreshold(t *testing.T) {
+	// The endpoint picked unsafe, but at p=0.7 a threshold of 0.9 lets it run.
+	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionBody("unsafe", 0.3, 0.7)})
+	ag, st, dir := newDecisionsAgent(t, true)
+	ag.cfg.Decisions.Threshold = 0.9
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+	if strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
+		t.Fatalf("result = %q, want the command to run below the threshold", res)
+	}
+	if !strings.Contains(res, "coddy-shell-ok") {
+		t.Fatalf("result = %q, want the command output", res)
 	}
 	if stand.calls.Load() != 1 {
 		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())

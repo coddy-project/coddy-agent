@@ -29,6 +29,10 @@ func IsDecisionsModel(model string) bool {
 	return false
 }
 
+// DecisionsDefaultThreshold is the probability of the unsafe option at or
+// above which a command is rejected when decisions.threshold names none.
+const DecisionsDefaultThreshold = 0.5
+
 // DecisionsConfig controls the command safety check that asks the NeuralDeep
 // decisions endpoint about a shell command before it runs without a permission
 // prompt (transport in internal/llm/decisions.go, the gate itself in
@@ -41,6 +45,11 @@ type DecisionsConfig struct {
 
 	// Model is the decisions model to ask. Empty uses DecisionsModelFRIDA.
 	Model string `yaml:"model"`
+
+	// Threshold is the probability of the unsafe option at or above which a
+	// command is rejected. 0 uses the default (0.5); lower rejects more
+	// aggressively, higher lets borderline commands through.
+	Threshold float64 `yaml:"threshold"`
 }
 
 // Normalize trims string fields in place.
@@ -64,10 +73,22 @@ func (d *DecisionsConfig) EffectiveModel() string {
 	return d.Model
 }
 
-// Validate rejects a model the decisions endpoint does not serve.
+// Validate rejects a model the decisions endpoint does not serve and a
+// threshold outside (0, 1].
 func (d *DecisionsConfig) Validate() error {
-	if d.Model == "" || IsDecisionsModel(d.Model) {
-		return nil
+	if d.Model != "" && !IsDecisionsModel(d.Model) {
+		return fmt.Errorf("model %q is not a decisions model (one of %s)", d.Model, strings.Join(DecisionsModels, ", "))
 	}
-	return fmt.Errorf("model %q is not a decisions model (one of %s)", d.Model, strings.Join(DecisionsModels, ", "))
+	if d.Threshold < 0 || d.Threshold > 1 {
+		return fmt.Errorf("threshold %v is outside 0..1 (0 uses the default %v)", d.Threshold, DecisionsDefaultThreshold)
+	}
+	return nil
+}
+
+// EffectiveThreshold returns threshold with the default applied.
+func (d *DecisionsConfig) EffectiveThreshold() float64 {
+	if d.Threshold <= 0 {
+		return DecisionsDefaultThreshold
+	}
+	return d.Threshold
 }

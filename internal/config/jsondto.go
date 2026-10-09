@@ -321,8 +321,9 @@ type MemoryJSON struct {
 
 // DecisionsJSON mirrors DecisionsConfig.
 type DecisionsJSON struct {
-	Enabled bool   `json:"enable,omitempty"`
-	Model   string `json:"model,omitempty"`
+	Enabled   bool    `json:"enable,omitempty"`
+	Model     string  `json:"model,omitempty"`
+	Threshold float64 `json:"threshold,omitempty"`
 }
 
 // HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
@@ -578,7 +579,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
 		AdditionalPrompt: c.Memory.AdditionalPrompt, AdditionalPromptMaxChars: c.Memory.AdditionalPromptMaxChars,
 	}
-	out.Decisions = DecisionsJSON{Enabled: c.Decisions.Enabled, Model: c.Decisions.Model}
+	out.Decisions = DecisionsJSON{Enabled: c.Decisions.Enabled, Model: c.Decisions.Model, Threshold: c.Decisions.Threshold}
 	out.HTTPServer = HTTPServerJSON{
 		Enabled:       c.HTTPServer.Enabled,
 		Host:          c.HTTPServer.Host,
@@ -809,7 +810,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 		AdditionalPrompt: j.Memory.AdditionalPrompt, AdditionalPromptMaxChars: j.Memory.AdditionalPromptMaxChars,
 	}
-	cfg.Decisions = DecisionsConfig{Enabled: j.Decisions.Enabled, Model: j.Decisions.Model}
+	cfg.Decisions = DecisionsConfig{Enabled: j.Decisions.Enabled, Model: j.Decisions.Model, Threshold: j.Decisions.Threshold}
 	cfg.HTTPServer = HTTPServerConfig{
 		Enabled:   j.HTTPServer.Enabled,
 		Host:      j.HTTPServer.Host,

@@ -542,6 +542,7 @@ tools:
 # decisions:
 #   enable: false
 #   model: frida-decisions  # frida-decisions (512 tokens of command text, ~20 ms) or clef-flash (8192 tokens, ~150 ms)
+#   threshold: 0.5          # reject once p(unsafe) reaches this; 0 = default 0.5, lower is stricter, higher is looser
 
 # Messenger gateways (external/gateway/; build with: go build -tags gateway, or
 # -tags gateway.telegram / -tags gateway.pachca for one adapter).

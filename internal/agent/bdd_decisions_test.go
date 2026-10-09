@@ -168,7 +168,14 @@ func (s *bddDecisionsState) sessionUnderPermissions(mode string) error {
 // endpointClassifies serves one canned choice for every decision request and
 // redirects the client at itself through the base-URL environment variable.
 func (s *bddDecisionsState) endpointClassifies(choice string) error {
-	body := fmt.Sprintf(`{"answers":{"safety":{"choice":%q,"probabilities":{"safe":0.01,"unsafe":0.99}}}}`, choice)
+	// The probabilities carry the verdict now, not the choice alone: they must
+	// agree with it the way the real endpoint's answer does.
+	safeP, unsafeP := "0.99", "0.01"
+	if choice == "unsafe" {
+		safeP, unsafeP = "0.01", "0.99"
+	}
+	body := fmt.Sprintf(`{"answers":{"safety":{"choice":%q,"probabilities":{"safe":%s,"unsafe":%s}}}}`,
+		choice, safeP, unsafeP)
 	s.stand = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.standHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")

@@ -591,6 +591,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.decisions.model.label": "Модель decisions",
   "settings.schema.decisions.model.desc":
     "frida-decisions: проход энкодера, до 512 токенов текста команды, ~20 мс на запрос, 1 единица квоты. clef-flash: до 8192 токенов, ~150 мс, 4 единицы квоты.",
+  "settings.schema.decisions.threshold.label": "Порог небезопасности",
+  "settings.schema.decisions.threshold.desc":
+    "Вероятность опции «небезопасно», начиная с которой команда отклоняется. 0 — значение по умолчанию (0,5); ниже — строже, выше — допускает пограничные команды.",
   "settings.schema.memory.fallback_models.label": "Резервные модели памяти",
   "settings.schema.memory.fallback_models.desc":
     "Пробуются по порядку, когда предыдущая модель отказала до ответа; модель сессии остаётся последним вариантом.",

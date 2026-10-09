@@ -1057,6 +1057,13 @@
             "clef-flash"
           ],
           "default": "frida-decisions"
+        },
+        "threshold": {
+          "type": "number",
+          "description": "Probability of the unsafe option at or above which the command is rejected. 0 uses the default (0.5); lower rejects more aggressively, higher lets borderline commands through. A bare unsafe answer counts as 1.",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.5
         }
       }
     },

@@ -74,3 +74,33 @@ func TestDecisionsNormalizeTrimsModel(t *testing.T) {
 		t.Fatalf("model = %q", d.Model)
 	}
 }
+
+func TestDecisionsThresholdValidationAndDefault(t *testing.T) {
+	cfg, err := parseValidateYAMLBytes("decisions:\n  threshold: 0.9\n", Paths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Decisions.EffectiveThreshold(); got != 0.9 {
+		t.Fatalf("threshold = %v, want 0.9", got)
+	}
+	// 0 and unset both mean the default.
+	cfg, err = parseValidateYAMLBytes("decisions:\n  threshold: 0\n", Paths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Decisions.EffectiveThreshold(); got != DecisionsDefaultThreshold {
+		t.Fatalf("threshold 0 = %v, want the default %v", got, DecisionsDefaultThreshold)
+	}
+	cfg, err = parseValidateYAMLBytes("", Paths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Decisions.EffectiveThreshold(); got != DecisionsDefaultThreshold {
+		t.Fatalf("unset threshold = %v, want %v", got, DecisionsDefaultThreshold)
+	}
+	for _, bad := range []string{"-0.1", "1.5"} {
+		if _, err := parseValidateYAMLBytes("decisions:\n  threshold: "+bad+"\n", Paths{}); err == nil {
+			t.Fatalf("threshold %s must fail validation", bad)
+		}
+	}
+}

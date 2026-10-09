@@ -583,6 +583,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.decisions.model.label": "Decisions model",
   "settings.schema.decisions.model.desc":
     "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request, 1 quota unit. clef-flash: up to 8192 tokens, ~150 ms, 4 quota units.",
+  "settings.schema.decisions.threshold.label": "Unsafe threshold",
+  "settings.schema.decisions.threshold.desc":
+    "The probability of the unsafe option at or above which a command is rejected. 0 uses the default (0.5); lower rejects more aggressively, higher lets borderline commands through.",
   "settings.schema.memory.fallback_models.label": "Fallback memory models",
   "settings.schema.memory.fallback_models.desc":
     "Tried in order when the model before them fails before answering; the session's own model is the last resort.",

@@ -637,8 +637,10 @@ func UISchemaMap() map[string]interface{} {
 					"description": "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request. clef-flash: up to 8192 tokens, ~150 ms.",
 					"enum":        []string{DecisionsModelFRIDA, DecisionsModelClef},
 				},
+				"threshold": numProp("Unsafe threshold",
+					"The probability of the unsafe option at or above which a command is rejected. 0 uses the default (0.5); lower rejects more aggressively, higher lets borderline commands through."),
 			},
-			[]string{"enable", "model"},
+			[]string{"enable", "model", "threshold"},
 			nil),
 		"scheduler": objectSchema("Scheduler", "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.",
 			map[string]interface{}{

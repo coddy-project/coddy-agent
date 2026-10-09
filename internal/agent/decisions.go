@@ -73,20 +73,27 @@ func (a *Agent) gateCommandSafety(ctx context.Context, argsJSON string, env *too
 	}
 	provider := decisionsProvider(a.cfg)
 	model := a.cfg.Decisions.EffectiveModel()
+	threshold := a.cfg.Decisions.EffectiveThreshold()
 	authPath := config.NeuralDeepAuthPath(a.cfg.Paths.Home, provider.Name)
 	deadline := time.Now().Add(a.effectiveDecisionsRetryWindow())
 	backoff := a.effectiveDecisionsRetryBackoff()
 	for {
 		decision, err := llm.NeuralDeepDecisionForProvider(ctx, provider, authPath, model, command, cwd)
 		if err == nil {
-			if decision.Choice != llm.NeuralDeepDecisionUnsafe {
-				if decision.Choice != llm.NeuralDeepDecisionSafe {
+			// The verdict is the probability of the unsafe option, not the
+			// endpoint's own pick: the threshold is the operator's dial, so a
+			// model that chose unsafe below it still runs the command.
+			p := decision.Probability(llm.NeuralDeepDecisionUnsafe)
+			if p < threshold {
+				if decision.Choice == llm.NeuralDeepDecisionUnsafe {
+					a.log.Warn("decisions check chose unsafe below the configured threshold; running the command", "p_unsafe", p, "threshold", threshold)
+				} else if decision.Choice != llm.NeuralDeepDecisionSafe {
 					a.log.Warn("decisions check answered an option the safety question does not offer", "option", decision.Choice)
 				}
 				return ""
 			}
-			return fmt.Sprintf("%sthe decisions model %s classified it as unsafe (p(unsafe)=%.2f); ask the operator or use a safer alternative",
-				commandRejectedAsUnsafePrefix, model, decision.Probability(llm.NeuralDeepDecisionUnsafe))
+			return fmt.Sprintf("%sthe decisions model %s put the unsafe option at %.2f, at or above the threshold %.2f; ask the operator or use a safer alternative",
+				commandRejectedAsUnsafePrefix, model, p, threshold)
 		}
 		de, ok := llm.IsNeuralDeepDecisionError(err)
 		if !ok {

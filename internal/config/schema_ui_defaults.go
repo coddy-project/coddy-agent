@@ -87,8 +87,9 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			MaxSearchHits:    8,
 		},
 		Decisions: DecisionsJSON{
-			Enabled: false,
-			Model:   DecisionsModelFRIDA,
+			Enabled:   false,
+			Model:     DecisionsModelFRIDA,
+			Threshold: DecisionsDefaultThreshold,
 		},
 		Subagents: SubagentsJSON{
 			Enabled:               boolPtr(true),

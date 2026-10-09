@@ -7,7 +7,7 @@ afterEach(cleanup);
 
 function Harness() {
   const [doc, setDoc] = React.useState<Record<string, unknown>>({
-    decisions: { enable: false, model: "frida-decisions" },
+    decisions: { enable: false, model: "frida-decisions", threshold: 0.5 },
   });
   return (
     <>
@@ -30,6 +30,7 @@ function Harness() {
                   enum: ["frida-decisions", "clef-flash"],
                   default: "frida-decisions",
                 },
+                threshold: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
               },
             },
           },
@@ -60,6 +61,7 @@ test("toggling the switch flips decisions.enable and keeps the model", () => {
   expect(doc.decisions).toEqual({
     enable: true,
     model: "frida-decisions",
+    threshold: 0.5,
   });
 });
 
@@ -71,5 +73,16 @@ test("picking another decisions model writes it to the document", () => {
   expect(doc.decisions).toEqual({
     enable: false,
     model: "clef-flash",
+    threshold: 0.5,
   });
+});
+
+test("raising the unsafe threshold writes it to the document", () => {
+  render(<Harness />);
+  const input = screen.getByRole("spinbutton", { name: /unsafe threshold/i });
+  expect(input).toHaveAttribute("min", "0");
+  expect(input).toHaveAttribute("max", "1");
+  fireEvent.change(input, { target: { value: "0.9", valueAsNumber: 0.9 } });
+  const doc = JSON.parse(screen.getByTestId("doc").textContent!);
+  expect(doc.decisions.threshold).toBe(0.9);
 });
