@@ -59,7 +59,7 @@ coddy tls issue client ci -o ./ci   # a client certificate for something that ha
 
 `ensure` is idempotent and safe to run from anywhere, at once: it plans from what is on disk, applies the plan under a file lock with atomic writes (key first, certificate second), replaces a valid CA never (only `--force-ca`, or an expired one, does, and it says that every peer must then trust the new CA), and issues a leaf again only for a reason it names: missing, its key does not match, signed by another CA, expired or within 30 days of its end, or lacking a wanted name.
 
-**Two machines trust each other without a private key moving**: on A `coddy tls export > a-ca.crt`, on B `coddy tls trust a-ca.crt`, and the same the other way; each side then verifies the other's server and client certificates against its `bundle.pem`.
+**Two machines trust each other without a private key moving**: on A `coddy tls export > a-ca.crt`, on B `coddy tls trust a-ca.crt`, and the same the other way; each side then verifies the other's server and client certificates against its `bundle.pem`. What trusting means: a CA you `trust` is trusted by **Coddy's own connections that use the bundle** (`auto: true`, `tls_auto`) and by nothing else, since the bundle is never added to the system's store or a browser's, but within those connections the holder of its key can vouch for any name, because the built-in CAs carry no name constraints. Trust the machines you would trust with the traffic, and prefer one CA per trust domain.
 
 **Use it from the configuration** with `auto: true` on the block that names certificate files, and the files are filled in with these (a file you name wins, per key; nothing is written into your `config.yaml`):
 
