@@ -9,12 +9,16 @@ _coddy() {
 
     commands="cli acp serve sessions skills plugin mcp providers rules agents hooks docs update"
     # The one-shot flags of the console, after `coddy` and after `coddy cli`.
-    local prompt_flags="-p --prompt -i --prompt-file --no-stdin"
+    local prompt_flags="-p --prompt -i --prompt-file --no-stdin --ephemeral"
 
     # -i reads the prompt from a file (or - for stdin).
     case "${prev}" in
         -i|--prompt-file)
             COMPREPLY=($(compgen -f -- "${cur}"))
+            return
+            ;;
+        --origin)
+            COMPREPLY=($(compgen -W "local gateway print" -- "${cur}"))
             return
             ;;
     esac
@@ -27,7 +31,8 @@ _coddy() {
     case "${COMP_WORDS[1]}" in
         sessions)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list export" -- "${cur}"))
-            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--format --out --no-tools --no-thinking" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = list ] && COMPREPLY=($(compgen -W "--cwd --origin --sessions-dir" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && [ "${COMP_WORDS[2]}" = export ] && COMPREPLY=($(compgen -W "--format --out --no-tools --no-thinking" -- "${cur}"))
             ;;
         skills)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list enable disable add sync remove" -- "${cur}"))

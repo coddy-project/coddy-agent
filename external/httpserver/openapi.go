@@ -90,6 +90,11 @@ func openAPISpec() map[string]interface{} {
 							"schema":      map[string]string{"type": "string"},
 							"description": "Existing session id. If absent, the server may create a new session.",
 						},
+						map[string]interface{}{
+							"name": "X-Coddy-Session-Origin", "in": "header", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"print"}},
+							"description": "Where a session this request creates comes from. **`print`** marks the run of one-shot print mode (a remote **`coddy -p`** sends it), which **GET /coddy/sessions** and the session pickers leave out unless asked. Recorded only when this request creates the session, never on one that exists already; any other value is a **400**.",
+						},
 					},
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -142,6 +147,11 @@ func openAPISpec() map[string]interface{} {
 							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
 							"schema":      map[string]string{"type": "string"},
 							"description": "Existing session id. If absent, the server creates a session for this turn.",
+						},
+						map[string]interface{}{
+							"name": "X-Coddy-Session-Origin", "in": "header", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"print"}},
+							"description": "Where a session this request creates comes from. **`print`** marks the run of one-shot print mode (a remote **`coddy -p`** sends it), which **GET /coddy/sessions** and the session pickers leave out unless asked. Recorded only when this request creates the session, never on one that exists already; any other value is a **400**.",
 						},
 					},
 					"requestBody": map[string]interface{}{
@@ -217,6 +227,7 @@ func openAPISpec() map[string]interface{} {
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
 						"Child sessions of subagent runs (**subagentRun** metadata, stored inside the parent's bundle) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer. " +
+						"The runs of one-shot print mode (**`coddy -p`**, **origin** **`print`**) are hidden unless **include_print=true** or **origin=print**, and the children they spawned with them. " +
 						"Sessions the operator **archived** are hidden unless **archived** says otherwise, and a row carries **tags**, **archived** / **archivedAt**, **origin** and **pinned** / **pinnedAt** when it has them. " +
 						"A **pinned** session leads the listing whatever **sort** says - a pin that worked in one order only would not be one - and the pins are ordered among themselves by **pinnedRank**, the order the operator dragged them into, newest pin first until one is dragged. " +
 						"A row inside a git checkout also carries **repoRoot**, the main checkout path shared by its worktrees, so clients can group conversations by project. " +
@@ -238,6 +249,11 @@ func openAPISpec() map[string]interface{} {
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, include child sessions spawned by **spawn_agent**; each such row carries **subagent** **`{parentSessionId, name, taskId}`** read from its bundle. The default listing hides them and opens no child bundle.",
 					}, map[string]interface{}{
+						"name":        "include_print",
+						"in":          "query",
+						"schema":      map[string]string{"type": "boolean"},
+						"description": "When true, include the runs of one-shot print mode (**`coddy -p`**, **origin** **`print`**), which the default listing leaves out like scheduler runs and subagent children.",
+					}, map[string]interface{}{
 						"name":        "archived",
 						"in":          "query",
 						"schema":      map[string]interface{}{"type": "string", "enum": []string{"exclude", "only", "all"}},
@@ -251,9 +267,9 @@ func openAPISpec() map[string]interface{} {
 					}, map[string]interface{}{
 						"name":   "origin",
 						"in":     "query",
-						"schema": map[string]interface{}{"type": "string", "enum": []string{"local", "gateway"}},
-						"description": "Keeps the sessions of one surface: **`local`** for the ones opened on this host, **`gateway`** for the chats a messenger gateway is holding. " +
-							"Omit it for every surface. A row a gateway started carries **`origin`** (**`gateway:telegram`**), written once by the surface that created the session. An unknown value is a **400**.",
+						"schema": map[string]interface{}{"type": "string", "enum": []string{"local", "gateway", "print"}},
+						"description": "Keeps the sessions of one surface: **`local`** for the ones a person opened on this host, **`gateway`** for the chats a messenger gateway is holding, **`print`** for the runs of one-shot print mode (it lists them without **include_print**; **`local`** never does). " +
+							"Omit it for every surface but print runs. A row a gateway started carries **`origin`** (**`gateway:telegram`**), a print run **`print`**, written once by the surface that created the session. An unknown value is a **400**.",
 					}, map[string]interface{}{
 						"name":   "sort",
 						"in":     "query",

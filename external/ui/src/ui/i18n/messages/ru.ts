@@ -1252,6 +1252,9 @@ export const messagesRu: Record<string, string> = {
   "sessions.manage.archive.only": "Архив",
   "sessions.manage.archive.all": "Всё",
   "sessions.manage.archivedBadge": "в архиве",
+  "sessions.manage.printBadge": "запуск CLI",
+  "sessions.manage.origin.label": "Источник",
+  "sessions.manage.origin.all": "Все источники",
   "sessions.manage.archivedOn": "В архиве с {date}",
   "sessions.manage.deleteArchived": "Удалить все архивные диалоги",
   "sessions.manage.confirm.archived.title": "Очистить архив?",
@@ -1274,6 +1277,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.filter.env.all": "Все",
   "sessions.filter.env.local": "Локальные",
   "sessions.filter.env.gateway": "Мессенджеры",
+  "sessions.filter.env.print": "Запуски CLI",
 
   "sessions.sort.updated": "Последней активности",
   "sessions.sort.created": "Дате создания",

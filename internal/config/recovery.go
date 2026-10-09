@@ -19,6 +19,12 @@ const backupFileName = "config.yaml.bak"
 // the previous committed configuration so config_rollback can restore it.
 const prevFileName = "config.yaml.prev"
 
+// credentialFileMode is the mode of every file that can carry credentials -
+// config.yaml, its backups and mcp.json: provider keys, bot and server tokens
+// and MCP headers are readable by their owner only, whatever mode the file had
+// before it was rewritten.
+const credentialFileMode fs.FileMode = 0o600
+
 // BackupPath returns the path to the config backup file for the given config file path.
 func BackupPath(configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), backupFileName)
@@ -29,16 +35,18 @@ func PrevConfigPath(configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), prevFileName)
 }
 
-// WriteBackup writes data to config.yaml.bak atomically.
+// WriteBackup writes data to config.yaml.bak atomically, owner-only
+// (credentialFileMode).
 // Called after every successful config load and after a successful HTTP PUT.
 func WriteBackup(configPath string, data []byte) error {
 	if strings.TrimSpace(configPath) == "" {
 		return fmt.Errorf("config path is empty")
 	}
-	return atomicWriteFile(BackupPath(configPath), data, 0o644)
+	return atomicWriteFile(BackupPath(configPath), data, credentialFileMode)
 }
 
-// BackupCurrent copies the current config file to config.yaml.bak.
+// BackupCurrent copies the current config file to config.yaml.bak, written
+// owner-only (credentialFileMode).
 // Used by the HTTP PUT handler before overwriting config.yaml so rollback is possible.
 func BackupCurrent(configPath string) error {
 	src := strings.TrimSpace(configPath)
@@ -59,13 +67,14 @@ func BackupCurrent(configPath string) error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(BackupPath(src), data, 0o644)
+	return atomicWriteFile(BackupPath(src), data, credentialFileMode)
 }
 
 // AtomicWriteConfigYAML writes yamlBytes to configPath using a temp file and rename.
 // The file keeps the line endings it already had, so a config an operator edits on
 // Windows is not turned into a Unix file by a save from the settings screen; a file
-// that is not there yet is written as it was rendered.
+// that is not there yet is written as it was rendered. The file is written
+// owner-only (credentialFileMode), whatever mode it had before.
 func AtomicWriteConfigYAML(configPath string, yamlBytes []byte) error {
 	if strings.TrimSpace(configPath) == "" {
 		return fmt.Errorf("config path is empty")
@@ -73,7 +82,7 @@ func AtomicWriteConfigYAML(configPath string, yamlBytes []byte) error {
 	if current, err := os.ReadFile(configPath); err == nil {
 		yamlBytes = applyLineEnding(yamlBytes, configLineEnding(current))
 	}
-	return atomicWriteFile(configPath, yamlBytes, 0o644)
+	return atomicWriteFile(configPath, yamlBytes, credentialFileMode)
 }
 
 func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {

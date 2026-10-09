@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -170,7 +171,33 @@ func Check(cli CLIPaths) (*CheckReport, error) {
 		return rep, nil
 	}
 	rep.Findings = checkConfigBytes(data, paths)
+	if f := readableByOthersFinding(paths.ConfigPath); f != nil {
+		rep.Findings = append(rep.Findings, *f)
+	}
 	return rep, nil
+}
+
+// readableByOthersFinding warns about a config file that users other than its
+// owner can read: it holds provider keys and tokens. Coddy writes the file
+// owner-only itself (credentialFileMode), so this catches a file created by
+// hand or by an older version. Windows has no such mode bits.
+func readableByOthersFinding(path string) *Finding {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	perm := st.Mode().Perm()
+	if perm&0o077 == 0 {
+		return nil
+	}
+	return &Finding{
+		Severity: SeverityWarning,
+		Message:  fmt.Sprintf("the file is readable by other users of this machine (mode %04o) and holds credentials", perm),
+		Fix:      "chmod 600 " + path,
+	}
 }
 
 // RunCheck prints the report for the config file the flags select and fails

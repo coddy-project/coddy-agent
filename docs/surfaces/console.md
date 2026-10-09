@@ -558,9 +558,11 @@ check report and every probe (see
 [config.md](../getting-started/configuration.md#dry-run-probing-what-the-file-points-at)).
 `--session-id <id>` reopens (or creates) that session and replays its
 transcript. `-c/--continue` reopens the most recent session recorded for this
-folder (errors when none exists; mutually exclusive with `--session-id` and
+folder, leaving out the runs of one-shot print mode, which only `-c -p`
+continues (errors when none exists; mutually exclusive with `--session-id` and
 `--resume`). `--resume` opens the session picker first and creates nothing
-until you choose (mutually exclusive with `--session-id`; `--model`,
+until you choose, print runs left out of it too (mutually exclusive with
+`--session-id`; `--model`,
 `--mode`, and `--permission-mode` apply to whichever session the picker
 selects). `--model`, `--mode agent|plan|ask`, and
 `--permission-mode ask|accept_edits|bypass` apply through the validated
@@ -580,13 +582,30 @@ for example `--log-level "info,agent=debug"` (see
 `coddy -p "..."` (or `coddy cli --prompt "..."`) runs a single agent turn
 without a terminal: assistant text streams to stdout, diagnostics go to
 stderr, and the process exits non-zero on errors or a cancelled turn. No tty
-is required, so it fits scripts and cron. The turn persists as a normal
-session, and `-c -p "..."` continues it — tokens, files, and tool state
-carry over exactly like the interactive console. Permission requests resolve
-non-interactively: `bypass` allows, anything else rejects the call with a
-note on stderr. The question tool returns empty answers. `--model`, `--mode`,
-`--permission-mode`, `--session-id`, and `--continue` all combine with
-`--prompt`; `--resume` does not (it needs the interactive picker).
+is required, so it fits scripts and cron. The turn persists as a session
+marked as a print run (`origin: print` in `session.json`), and `-c -p "..."`
+continues it - tokens, files, and tool state carry over exactly like the
+interactive console. The lists a person picks a conversation from leave print
+runs out: the web UI's History until its **CLI runs** filter is chosen,
+`/resume`, the interactive `coddy -c` and an editor's `session/list`
+([Sessions](../features/sessions.md#tags-and-the-archive)). `coddy sessions
+list` still lists them, so a run that timed out is found by its folder and
+continued with `--session-id <id> -p "..."`. A session the run reopens (`-c`,
+an existing `--session-id`) keeps the origin it had. Permission requests
+resolve non-interactively: `bypass` allows, anything else rejects the call
+with a note on stderr. The question tool returns empty answers. `--model`,
+`--mode`, `--permission-mode`, `--session-id`, and `--continue` all combine
+with `--prompt`; `--resume` does not (it needs the interactive picker).
+
+`--ephemeral` deletes the run's session when the run ends, however it ends:
+a failed setting, a failed turn and a cancelled one included. The session
+exists while the run does, so subagents, background commands and tool
+records work as in any run, and the deletion stops whatever the run left
+running. A crash can leave the session behind, hidden like every print run.
+A deletion that fails is a warning on stderr and leaves the exit status to
+the turn. Under `--remote` the server deletes it. The flag is refused without
+a one-shot prompt, and with `-c` or `--session-id`, whose sessions are not
+the run's own to remove.
 
 ### Prompt from a file or stdin
 
