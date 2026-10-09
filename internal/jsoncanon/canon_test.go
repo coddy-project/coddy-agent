@@ -5,12 +5,12 @@ import "testing"
 func TestCanonicalSortsKeysAndDropsSpace(t *testing.T) {
 	for in, want := range map[string]string{
 		`{"b": 1, "a": {"d": [1, 2, {"z": true, "y": null}], "c": "x"}}`: `{"a":{"c":"x","d":[1,2,{"y":null,"z":true}]},"b":1}`,
-		`  [ "a" , 2.5 , false ]  `: `["a",2.5,false]`,
-		`"just a string"`:           `"just a string"`,
-		`42`:                        `42`,
-		`{}`:                        `{}`,
-		`[]`:                        `[]`,
-		`{"k": "a<b & c"}`:          `{"k":"a<b & c"}`,
+		`  [ "a" , 2.5 , false ]  `:                                      `["a",2.5,false]`,
+		`"just a string"`:                                                `"just a string"`,
+		`42`:                                                             `42`,
+		`{}`:                                                             `{}`,
+		`[]`:                                                             `[]`,
+		`{"k": "a<b & c"}`:                                               `{"k":"a<b & c"}`,
 	} {
 		got, err := Canonical([]byte(in))
 		if err != nil {

@@ -91,7 +91,7 @@ Two rules from the code review section of [AGENTS.md](AGENTS.md) come up often e
 
 ## Code style
 
-- `gofmt` before committing; `make lint` is the gate: `golangci-lint` over the untagged tree, over every tag but `ui` and over the shipped tag set (three passes that compile every Go file of the host platform once), then `tsc --noEmit` over the SPA sources (`make ui-typecheck`).
+- `gofmt` before committing; `make lint` is the gate: `golangci-lint` over the untagged tree, over every tag but `ui` and over the shipped tag set (three passes that compile every Go file of the host platform once), then `tsc --noEmit` over the SPA sources (`make ui-typecheck`). `.golangci.yml` enables the `gofmt` formatter (`gofmt -s`) next to the default linters, so a file `gofmt` would change fails the run; `gofmt -w <file>` or `golangci-lint fmt` fixes it.
 - Comments in code, and every technical Markdown file in this repository, are in English.
 - Follow the neighbouring files: import grouping, naming, error handling, table-driven tests where they clarify the cases, no real network in a test unless it is documented as integration-style.
 - The SPA is formatted with Prettier (`npm run fmt` in `external/ui`); [DESIGN.md](DESIGN.md) is its contract for tokens, layout and component behaviour, and the localization rules (every dictionary changed in the same commit) are in [AGENTS.md](AGENTS.md).
