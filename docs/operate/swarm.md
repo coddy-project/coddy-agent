@@ -547,7 +547,7 @@ swarm:
 - **What the node sees.** The relay's certificate, for every client of the relay alike: the node tells the relay apart, not the relay's clients (they keep their
   scoped entries on the relay). The certificate is presented to whichever address a node advertises, as any TLS client certificate is: it names the relay and proves
   nothing to a host that does not hold the authority the node trusts.
-- **Rotation.** The pair is read at each handshake and cached by size and modification time, so a renewed certificate is used by the next connection. The
+- **Rotation.** The pair is read at each handshake (both files each time, parsed again only when their bytes changed), so a renewed certificate is used by the next connection. The
   authority is read when a node's route is built, which is at its next registration; a change to the `swarm` block (this one, a client, a limit) rebuilds the relay in the same process, which starts the registry, the client windows and the counters afresh.
 - **Checks.** `coddy -t` refuses a certificate without its key; `--dry-run` loads the pair and the authority bundle; a relay whose `ca_file` cannot be read does not start, and names `swarm.node_tls`.
 
