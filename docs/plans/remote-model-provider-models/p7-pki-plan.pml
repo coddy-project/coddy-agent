@@ -34,6 +34,7 @@
      BUNDLEEQ 1 the bundle is rebuilt when it is not the present CA's (0: only when it is missing)
      FORCEONCE 1 a forced renewal acts on the first pass only (0: on every pass)
      NOCHECK 0 the reader refuses a pair whose halves differ (1: serves it)
+     REC 1 the recovery run is part of the world (0: it is left out, for the mutants that need a smaller space)
      NP, NR, CR, MAXP, the events EVCA (the CA ends), EVLEAF (the leaves end), EVNAME (a name is wanted), EVKEY (the CA key is lost) (1 on, 0 off), F0 R0 F1 R1 (the inputs of runs 0 and 1)
    Properties (ghost latches, one asserted per run with -D ASSERT_PROP=<latch>, expected to stay 0)
      K1 gOrphan      a certificate file exists whose key file does not (the CA's, the server's or the client's)
@@ -47,6 +48,11 @@
      K8 gServed      the reader served a pair whose halves differ
      K9 gRecover     the recovery run ended with the directory not right (it errors out only when the CA is unusable, which it repairs by
                      making a CA: so it never does)
+     K4 and K9 are bounded by the world: each change that lands in a pass needs a pass to repair and the loop ends with an empty-plan
+     pass, so with MAXP = 4 they hold when at most two world changes land in one run (every pair of events verifies) and are violated
+     by three (every triple of events: the counterexample puts one change in each pass). The code's answer is the error 'the plan is not
+     empty after 4 passes', and the next run repairs; in the real world a name wanted or a clock moving cannot change under a run, whose
+     Want is fixed, so only a lost key can.
      sanity   sCrash (a run died), sNewCA (a CA was made), sLeaf (a leaf was issued), sRepair (a run repaired what a death left), sWaited (a run
               waited for the lock), sServed (the reader served a pair), sErr (a run ended in the error "the CA is unusable")
 
@@ -89,6 +95,9 @@
 #ifndef NP
 #define NP 2
 #endif
+#ifndef REC
+#define REC 1
+#endif
 #ifndef NR
 #define NR 1
 #endif
@@ -128,6 +137,7 @@ byte srvC, srvK, srvS;            /* server.crt, server.key, and the CA generati
 byte cliC, cliK, cliS;
 byte bundleV;                     /* the CA generation bundle.pem carries, 0 absent               */
 bit caExpired, srvEnding, cliEnding, nameMissing;
+bit caKeyLost;                    /* an operator removed ca.key: the missing key is the world's doing, not a writer's */
 byte lcaA[4], snapA[4], wA[4];     /* what each run holds: the CA it signs with, the CA of its snapshot, the generation it is writing */
 bit lockHeld; byte inCS; byte nw;
 byte crashes;                     /* deaths so far                                                */
@@ -149,7 +159,7 @@ inline latch() {
 /* the invariant checked after every write */
 inline chk() {
     if
-    :: (caV != 0 && caKeyV == 0) || (srvC != 0 && srvK == 0) || (cliC != 0 && cliK == 0) -> gOrphan = 1
+    :: (caV != 0 && caKeyV == 0 && !caKeyLost) || (srvC != 0 && srvK == 0) || (cliC != 0 && cliK == 0) -> gOrphan = 1
     :: else -> skip
     fi;
     if :: deadHolder != 0 && lockHeld -> gLockStuck = 1 :: else -> skip fi;
@@ -262,13 +272,13 @@ proctype Ensure(byte id; bit f0; bit r0; bit crashable) {
              legit = (caV == 0 || caKeyV != caV || f0 || caExpired);
              if :: caV != 0 && !legit -> gCAReplaced = 1 :: else -> skip fi;
 #if KEYFIRST == 1
-             caKeyV = W; chk();
+             atomic { caKeyV = W; caKeyLost = 0 }; chk();
              if :: crashable -> crashpoint() :: else -> skip fi;
              caV = W; caExpired = 0; chk();
 #else
              caV = W; caExpired = 0; chk();
              if :: crashable -> crashpoint() :: else -> skip fi;
-             caKeyV = W; chk();
+             atomic { caKeyV = W; caKeyLost = 0 }; chk();
 #endif
              LCA = W; sNewCA = 1
         :: else -> skip
@@ -363,7 +373,7 @@ proctype Recover() {
         };
         if :: emptyPlan -> break :: else -> skip fi;
         LCA = caV;
-        if :: pCA -> atomic { fresh(); W = nw }; caKeyV = W; caV = W; caExpired = 0; LCA = W; chk() :: else -> skip fi;
+        if :: pCA -> atomic { fresh(); W = nw }; atomic { caKeyV = W; caKeyLost = 0 }; caV = W; caExpired = 0; LCA = W; chk() :: else -> skip fi;
         if :: pS -> atomic { fresh(); W = nw }; srvK = W; srvC = W; srvS = LCA; srvEnding = 0; nameMissing = 0; chk() :: else -> skip fi;
         if :: pC -> atomic { fresh(); W = nw }; cliK = W; cliC = W; cliS = LCA; cliEnding = 0; chk() :: else -> skip fi;
         if :: pB -> if :: pCA -> bundleV = LCA :: else -> bundleV = SNAP fi; chk() :: else -> skip fi;
@@ -381,7 +391,7 @@ end:
     :: EVCA && !e1 && caV != 0 -> atomic { e1 = 1; caExpired = 1; quiet = 0 }
     :: EVLEAF && !e2 && srvC != 0 -> atomic { e2 = 1; srvEnding = 1; cliEnding = 1; quiet = 0 }
     :: EVNAME && !e4 && srvC != 0 -> atomic { e4 = 1; nameMissing = 1; quiet = 0 }
-    :: EVKEY && !e8 && caKeyV != 0 -> atomic { e8 = 1; caKeyV = 0; quiet = 0 }
+    :: EVKEY && !e8 && caKeyV != 0 -> atomic { e8 = 1; caKeyV = 0; caKeyLost = 1; quiet = 0 }
     od
 }
 
@@ -416,6 +426,9 @@ init {
 #endif
         run Env();
         run Reader();
-        run Recover()
+#if REC == 1
+        run Recover();
+#endif
+        skip
     }
 }
