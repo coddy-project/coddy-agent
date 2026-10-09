@@ -454,8 +454,15 @@ func TestIssueClientFilesIsSignedByTheCAAndKeepsItsKey(t *testing.T) {
 			t.Errorf("the name %q was accepted", bad)
 		}
 	}
-	if _, _, _, err := IssueClientFiles(filepath.Join(t.TempDir(), "empty"), "x", out, time.Now(), 0); err == nil {
-		t.Error("a certificate was issued with no CA")
+	if _, _, _, err := IssueClientFiles(filepath.Join(t.TempDir(), "empty"), "x", out, time.Now(), 0); err == nil || !strings.Contains(err.Error(), "coddy tls ensure") {
+		t.Errorf("no certificate directory: %v, want the error that names coddy tls ensure", err)
+	}
+	empty := filepath.Join(t.TempDir(), "emptydir")
+	if err := os.MkdirAll(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := IssueClientFiles(empty, "x", out, time.Now(), 0); err == nil || !strings.Contains(err.Error(), "coddy tls ensure") {
+		t.Errorf("a directory with no CA: %v, want the error that names coddy tls ensure", err)
 	}
 }
 

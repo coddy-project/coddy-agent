@@ -383,6 +383,9 @@ func IssueClientFiles(dir, name, outDir string, now time.Time, validity time.Dur
 	if validity <= 0 {
 		validity = DefaultLeafValidity
 	}
+	if _, err := os.Stat(dir); err != nil {
+		return "", "", "", errors.New("there is no CA: run `coddy tls ensure` first")
+	}
 	unlock, err := platform.LockFile(filepath.Join(dir, lockName))
 	if err != nil {
 		return "", "", "", err
