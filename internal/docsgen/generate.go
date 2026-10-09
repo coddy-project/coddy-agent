@@ -231,7 +231,7 @@ func Generate(o Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	res.Problems = append(res.Problems, CheckLinks(o.Root, linkFiles)...)
+	res.Problems = append(res.Problems, CheckLinksIn(o.Root, linkFiles, read)...)
 	return res, nil
 }
 

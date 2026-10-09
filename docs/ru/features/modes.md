@@ -73,7 +73,7 @@
 
 | Интерфейс | Как |
 |---|---|
-| Веб-интерфейс | кнопка **Режим** в поле ввода рядом с **Модель** или `/agent`, `/plan`, `/ask`, набранные вручную или выбранные в меню `/`. Выбор кнопки передаётся как `model` верхнего уровня в `POST /v1/responses` |
+| Веб-интерфейс | кнопка **Режим** в поле ввода рядом с **Модель** или `/agent`, `/plan`, `/ask`, набранные вручную или выбранные в меню `/`. Выбор кнопки передаётся как `model` верхнего уровня в `POST /v1/responses`. Кнопка показывает режим сессии на экране, а новый чат начинается в режиме `agent` ([Настройки сессии](session-settings.md#веб-интерфейс)) |
 | Консоль | `/agent`, `/plan` или `/ask` в чате или `--mode agent\|plan\|ask` при запуске, который сочетается также с `-c`, `--resume` и `-p`. В режиме `--remote` команда переключает сессию на сервере |
 | ACP | `session/set_config_option` с `configId` `mode` и `value` `agent`, `plan` или `ask` (предпочтительный способ) или устаревший `session/set_mode` с `modeId`. Агент отвечает `current_mode_update` и `config_option_update`, а `session/new` объявляет все три режима в `configOptions` и `modes` |
 | HTTP API | `model`, равный `agent`, `plan` или `ask`, в `POST /v1/responses` или `POST /v1/chat/completions`. `GET /v1/models` перечисляет все три с `owned_by` `coddy`, а `metadata.model` выбирает бэкенд |
@@ -84,4 +84,4 @@
 
 Разовый запуск выбирает режим так же. `coddy --mode ask -p "..."` отвечает, не трогая рабочую папку. Руководства по интерфейсам - [Консоль (TUI)](../surfaces/console.md), [Веб-интерфейс](../surfaces/web-ui.md), [Протокол ACP](../reference/acp-protocol.md), [HTTP API](../reference/http-api.md), [Telegram-шлюз](../surfaces/gateway.md), [Планировщик](../operate/scheduler.md).
 
-<!-- docsgen:source sha256=74a6d8ea3bc7722e -->
+<!-- docsgen:source sha256=1da66e2fc315ef0a -->

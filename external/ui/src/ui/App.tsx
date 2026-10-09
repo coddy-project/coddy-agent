@@ -55,6 +55,7 @@ import {
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
+import { readOpening, type OpeningRead } from "./chat/openingRead";
 import {
   isNewerSettings,
   parseSessionSettings,
@@ -479,6 +480,16 @@ export function App() {
   const [sessionLoading, setSessionLoading] = useState(
     () => initialRoute.branch === "session",
   );
+  // Whether the session on screen still waits, as the retries of its opening
+  // read ask it after a pause: the state their render held is long gone.
+  const sessionLoadingRef = useRef(sessionLoading);
+  sessionLoadingRef.current = sessionLoading;
+  /**
+   * The status of a session's last transcript read that failed, 0 when it got
+   * no answer: for the read that opens the session, a 404 says the server has
+   * no such session and anything else is read again.
+   */
+  const failedReadStatusRef = useRef(new Map<string, number>());
   const [sessionFadingOut, setSessionFadingOut] = useState(false);
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
@@ -3414,6 +3425,97 @@ export function App() {
    * merges line up. Older pages never take part: they sit above the live
    * window in `olderTranscript` (issue #338).
    */
+  /**
+   * Mirrors what a messages read says about the settings of the session on
+   * screen: the whole snapshot - the model, the level, the mode, the
+   * permission mode, the overrides for the next turns, and the version the
+   * next send names. The transcript read and the settings-only read of a
+   * running chat both come here.
+   */
+  function mirrorSettingsRead(
+    sid: string,
+    data: {
+      settings?: unknown;
+      model?: string;
+      selectedModelId?: string;
+      selectedReasoning?: string;
+    },
+  ) {
+    const snap = parseSessionSettings(data.settings);
+    // Stash the session's own selection; an effect applies it once the
+    // backends list is loaded (the two fetches race on reload). It is the
+    // snapshot's: the top-level model and selectedReasoning name what a
+    // running turn holds, and a turn override taken for the session's
+    // model would become it with the next message. A read whose snapshot
+    // is older than the one this tab already applied - the events stream
+    // got ahead of a slow read - says nothing new and moves nothing back.
+    // The same version still stashes a model the backends list did not hold
+    // when the events stream applied that snapshot first, and dropped it.
+    const held =
+      settingsVersionRef.current.sid === sid
+        ? settingsVersionRef.current.version
+        : 0;
+    const modelDropped =
+      !!snap &&
+      snap.sessionId === sid &&
+      snap.version === held &&
+      !llmModelIds.includes(snap.model);
+    if (!snap || isNewerSettings(held, sid, snap) || modelDropped) {
+      setOpenSessionSelection({
+        sid,
+        model: snap
+          ? snap.model
+          : (data.model || data.selectedModelId || "").trim(),
+        reasoning: snap
+          ? snap.reasoning
+          : (data.selectedReasoning || "").trim(),
+        choices: snap?.reasoningChoices ?? [],
+      });
+    }
+    if (snap) {
+      applySessionSettings(snap);
+    }
+  }
+
+  /**
+   * Reads the settings of the session on screen alone, for the visit that
+   * keeps its rows from the shadow of a turn this tab runs and so reads no
+   * transcript.
+   */
+  async function readViewedSettings(sid: string): Promise<OpeningRead> {
+    try {
+      const res = await fetchJSON<{
+        settings?: unknown;
+        model?: string;
+        selectedModelId?: string;
+        selectedReasoning?: string;
+      }>(`/coddy/sessions/${encodeURIComponent(sid)}/messages?limit=1`, {
+        headers: sid === sessionId ? headers : { [HDR]: sid },
+      });
+      if (viewedSessionIdRef.current.trim() !== sid) return "superseded";
+      if (res.status === 404) return "missing";
+      if (!res.ok || !res.data) return "failed";
+      mirrorSettingsRead(sid, res.data);
+      return "read";
+    } catch {
+      return "failed";
+    }
+  }
+
+  /**
+   * The server has no session under the id on screen: there is nothing to
+   * wait for, and the first message creates it with what the selectors show.
+   * They must not show another session's settings, so a snapshot of another
+   * session gives way to a new chat's; the start screen's picks for a chat
+   * this tab is creating (no snapshot held yet) stay.
+   */
+  function settleUnknownSession(sid: string) {
+    if (viewedSessionIdRef.current.trim() !== sid) return;
+    const held = settingsVersionRef.current.sid;
+    if (held !== "" && held !== sid) resetNewChatSettings();
+    setSessionLoading(false);
+  }
+
   async function loadMessages(
     idOverride?: string,
     opts?: LoadMessagesOpts,
@@ -3524,6 +3626,7 @@ export function App() {
     const viewingNow = viewedSessionIdRef.current.trim();
     if (!sameStream()) return null;
     if (!res.ok || !res.data) {
+      failedReadStatusRef.current.set(sid, res.status);
       if (!opts?.preserveOnError) {
         if (viewingNow === sid) {
           setItems([]);
@@ -3532,36 +3635,7 @@ export function App() {
       return null;
     }
     if (viewingNow === sid) {
-      // The whole snapshot: the model, the level, the mode, the permission
-      // mode, the overrides for the next turns, and the version the next send
-      // names.
-      const snap = parseSessionSettings(res.data.settings);
-      // Stash the session's own selection; an effect applies it once the
-      // backends list is loaded (the two fetches race on reload). It is the
-      // snapshot's: the top-level model and selectedReasoning name what a
-      // running turn holds, and a turn override taken for the session's
-      // model would become it with the next message. A read whose snapshot
-      // is older than the one this tab already applied - the events stream
-      // got ahead of a slow read - says nothing new and moves nothing back.
-      const held =
-        settingsVersionRef.current.sid === sid
-          ? settingsVersionRef.current.version
-          : 0;
-      if (!snap || isNewerSettings(held, sid, snap)) {
-        setOpenSessionSelection({
-          sid,
-          model: snap
-            ? snap.model
-            : (res.data.model || res.data.selectedModelId || "").trim(),
-          reasoning: snap
-            ? snap.reasoning
-            : (res.data.selectedReasoning || "").trim(),
-          choices: snap?.reasoningChoices ?? [],
-        });
-      }
-      if (snap) {
-        applySessionSettings(snap);
-      }
+      mirrorSettingsRead(sid, res.data);
       // The session goal, versioned like the settings: the chip and the
       // popover mirror it, and a read older than an event already applied
       // moves nothing back.
@@ -3977,30 +4051,14 @@ export function App() {
     setDraft(draft);
   }
 
-  function goHome() {
-    // The chat left hands nothing of its workspace to the next one: the start
-    // screen opens on the folder last picked in this browser (the effect on
-    // the session id reads it once the chat is gone), on that folder's branch.
-    persistComposerDraftBeforeLeave();
-    setSessionsOpen(false);
-    setSchedulerOpen(false);
-    setSchedulerEditor(null);
-    setTasksOpen(false);
-    if (fadeOutTimerRef.current !== null) {
-      clearTimeout(fadeOutTimerRef.current);
-      fadeOutTimerRef.current = null;
-    }
-    clearSessionRoute();
-    setHeroHomeGeneration((g) => g + 1);
-    setItems([]);
-    setSessionLoading(false);
-    setSessionFadingOut(false);
-    setDraft("");
-    setTokenUsage(null);
-    setContextBreakdown(null);
-    setDescribePreview(null);
-    reasoningDurationMsByContentRef.current = new Map();
-    evictStaleSessionCaches("");
+  /**
+   * Puts the composer's selectors back to a new chat's: Agent mode, the default
+   * model and level, the configured permission mode. goHome does it, and so
+   * does every other way to the start screen (the Back button to "#/", a draft
+   * in History) and a session the server does not have: the first message
+   * creates the session with whatever the selectors show.
+   */
+  function resetNewChatSettings() {
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
@@ -4009,10 +4067,9 @@ export function App() {
     reasoningImpliedRef.current = false;
     // A new chat runs under the configured permission mode until it is changed.
     settingsVersionRef.current = { sid: "", version: 0 };
-    // Nor does it hold the goal of the chat just left: the next snapshot of
-    // that session is read afresh, whatever version a restarted server gives.
-    goalVersionRef.current = { sid: "", version: 0 };
-    setViewedGoal({ sid: "", goal: null });
+    // The mode is one more of the session's settings: the chat left may have
+    // been in Plan or Ask, and a new one is created in the mode shown.
+    setMode("agent");
     // The start screen's chip names the configured mode again (or a mode
     // picked there): it is derived, so nothing of the session left is shown.
     setPendingPermissionMode("");
@@ -4037,6 +4094,36 @@ export function App() {
         );
       }
     }
+  }
+  function goHome() {
+    // The chat left hands nothing of its workspace to the next one: the start
+    // screen opens on the folder last picked in this browser (the effect on
+    // the session id reads it once the chat is gone), on that folder's branch.
+    persistComposerDraftBeforeLeave();
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    if (fadeOutTimerRef.current !== null) {
+      clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
+    clearSessionRoute();
+    setHeroHomeGeneration((g) => g + 1);
+    setItems([]);
+    setSessionLoading(false);
+    setSessionFadingOut(false);
+    setDraft("");
+    setTokenUsage(null);
+    setContextBreakdown(null);
+    setDescribePreview(null);
+    reasoningDurationMsByContentRef.current = new Map();
+    evictStaleSessionCaches("");
+    resetNewChatSettings();
+    // Nor does it hold the goal of the chat just left: the next snapshot of
+    // that session is read afresh, whatever version a restarted server gives.
+    goalVersionRef.current = { sid: "", version: 0 };
+    setViewedGoal({ sid: "", goal: null });
   }
 
   async function deleteSession(id: string) {
@@ -4488,6 +4575,9 @@ export function App() {
       setDraft("");
       setSessionLoading(false);
       void loadSessionsList(true);
+      // The Back button to "#/" or a draft in History leaves the chat without
+      // going through goHome.
+      resetNewChatSettings();
       return;
     }
     setDraft("");
@@ -4496,15 +4586,14 @@ export function App() {
     tokenBaselineRef.current = { input: 0, output: 0, total: 0 };
     const lifecycle = new AbortController();
     void (async () => {
-      const list = await loadSessionsList(true);
+      await loadSessionsList(true);
       if (lifecycle.signal.aborted) {
         return;
       }
-      // A session spawned by another one is hidden from History and nothing
-      // about its id sets it apart, so an id History does not carry is still
-      // fetched: the messages endpoint serves it and marks it read-only, and
-      // answers 404 when it names nothing.
-      const listed = !!list?.some((s) => s.id === sessionId);
+      // A session spawned by another one is hidden from History, and History
+      // holds one page, so an id it does not carry is still fetched: the
+      // messages endpoint serves it (a child marked read-only), and only its
+      // 404 says the session is not there.
       // A block, so `sess` stays out of the way of the rest of the effect.
       {
         const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
@@ -4527,29 +4616,67 @@ export function App() {
           shadowSnap.length > 0
         ) {
           setItems([...shadowSnap]);
-          setSessionLoading(false);
+          // The rows come from the shadow of a turn this tab runs here, so no
+          // transcript is read and the selectors would keep naming the session
+          // visited before: its settings are read alone, and Send waits for
+          // them. A snapshot of the session that comes another way (the
+          // events stream) ends the wait too, and so does the read the turn
+          // ends with.
+          const held = () => settingsVersionRef.current.sid === sessionId;
+          const outcome = await readOpening(
+            () => readViewedSettings(sessionId),
+            () => sessionLoadingRef.current && !held(),
+            lifecycle.signal,
+          );
+          if (
+            lifecycle.signal.aborted ||
+            viewedSessionIdRef.current.trim() !== sessionId
+          ) {
+            return;
+          }
+          if (outcome === "missing") settleUnknownSession(sessionId);
+          else if (outcome === "read" || held()) setSessionLoading(false);
         } else {
           // freshLoad when no shadow: prevents stale itemsRef from a previous session
           // bleeding into this session (e.g. React StrictMode double-invoke of effects).
           const noShadow = !shadowSnap || shadowSnap.length === 0;
-          const loaded = await loadMessages(undefined, { freshLoad: noShadow });
+          const read: { items: TranscriptItem[] | null } = { items: null };
+          const outcome = await readOpening(
+            async () => {
+              failedReadStatusRef.current.delete(sessionId);
+              try {
+                read.items = await loadMessages(undefined, {
+                  freshLoad: noShadow,
+                });
+              } catch {
+                failedReadStatusRef.current.set(sessionId, 0);
+              }
+              if (read.items) return "read";
+              const status = failedReadStatusRef.current.get(sessionId);
+              if (status === undefined) return "superseded";
+              return status === 404 ? "missing" : "failed";
+            },
+            () => sessionLoadingRef.current,
+            lifecycle.signal,
+          );
           if (lifecycle.signal.aborted) {
             return;
           }
+          // An id the server does not serve: nothing to keep a skeleton up
+          // for, so it lands on the empty state like any unknown id, and its
+          // first message creates it. A read that fails keeps the skeleton
+          // and runs again: the session may well be there.
+          if (outcome === "missing") settleUnknownSession(sessionId);
+          const loaded = read.items;
+          // The rows of a turn this tab runs in it are shown; they say nothing
+          // of the settings, which the read above has settled by now.
           if (
-            loaded === null &&
-            !listed &&
+            activeComposerSidRef.current.has(sessionId) &&
             viewedSessionIdRef.current.trim() === sessionId
           ) {
-            // An id the server does not serve: nothing to keep a skeleton up
-            // for, so it lands on the empty state like any unknown id.
-            setSessionLoading(false);
-          }
-          if (activeComposerSidRef.current.has(sessionId)) {
             const sh = streamShadowBySidRef.current.get(sessionId);
             if (sh && sh.length > 0) {
               setItems([...sh]);
-              setSessionLoading(false);
             }
           }
           if (loaded && turnActivity.get(sessionId) === true) {
@@ -4560,6 +4687,7 @@ export function App() {
     })();
     return () => {
       lifecycle.abort();
+      failedReadStatusRef.current.delete(sessionId);
     };
     // Intentionally sessionId only for loadMessages coalescing; rejoin runs detached.
   }, [sessionId]);
@@ -4970,6 +5098,15 @@ export function App() {
           ...prev.filter((f) => !files.includes(f)),
         ]);
     };
+    // The opened session's settings are still being read, so the selectors
+    // name another session's, and what a prompt takes from them (the mode as
+    // the top-level `model`, metadata.model, metadata.reasoning) would be
+    // applied to this session and kept. The composer holds Send back; this is
+    // the one door every other sender passes.
+    if (sessionLoading) {
+      giveBack();
+      return;
+    }
     const ownsPost = () =>
       postAbortBySidRef.current.get(postSessionKey) === abortCtl;
 
@@ -6792,6 +6929,16 @@ export function App() {
     })();
   });
 
+  /**
+   * streamResponses as the latest render has it, for a send that resumes
+   * after an await (the queue's fallback): the one its own render held would
+   * read the loading, the mode, the model and the level of that moment, not
+   * of the moment it sends.
+   */
+  const sendLatest = useStableHandler(
+    (text: string, opts?: Parameters<typeof streamResponses>[1]) =>
+      streamResponses(text, opts),
+  );
   const handleQueueMessage = useStableHandler(
     (text: string, mode: QueueMode, files: File[] = []) => {
       const sid = sessionId.trim();
@@ -6857,7 +7004,7 @@ export function App() {
           // ordinary prompt; if the admission has not been released yet and that
           // is refused too, the text comes back to the composer rather than
           // being lost between the two answers.
-          void streamResponses(body, { files, restoreOnRefusal: true });
+          void sendLatest(body, { files, restoreOnRefusal: true });
           return;
         }
         if (viewedSessionIdRef.current.trim() === sid) {
