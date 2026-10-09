@@ -59,7 +59,8 @@ Working directory: {{.CWD}}
 
 Системное сообщение рендерится **один раз за ход** функцией **`buildSystemPromptParts`**
 (**`internal/agent/system_prompt.go`**), и каждый шаг цикла ReAct затем отправляет это же
-сообщение байт в байт. Между шагами **`messages[0]`** никто не переписывает.
+сообщение байт в байт. Между шагами **`messages[0]`** никто не переписывает, кроме шаблона из
+**`prompts.dir`**, который сам печатает часы или чек-лист (см. конец следующего раздела).
 
 Причина в кэше промптов у провайдера. Провайдер кэширует запрос по **префиксу** (сначала определения
 инструментов, затем сообщения с начала), и первый байт, отличающийся от предыдущего запроса,
@@ -218,7 +219,7 @@ messages: [
 ```
 1. BUILD_MESSAGES
    - Load applicable skills and project rules for current context (separate prompt sections)
-   - Build system prompt (template + TemplateData incl. TodoList snapshot)
+   - Build system prompt once for the turn (`buildSystemPromptParts`: template + TemplateData; the built-in templates print neither the clock nor the todo checklist, the turn context block carries them)
    - Skill bodies are already in the history: on Run entry, before the user turn is persisted, Run appends the body of each skill the typed text invokes as `/name` to that message as a `<coddy_attachment kind="skill">` element (`invokedSkillBlocks`), so later requests replay the same bytes and the prefix cache holds. Surfaces leave the element out of the transcript (`mention.ForDisplay`, `stripCoddyAttachments.ts`); queued follow-ups get their skill bodies the same way.
    - Prepend system to session history (user turn already persisted on Run entry)
 
@@ -238,8 +239,11 @@ messages: [
      d. Send session/update(tool_call_update, status=completed|failed, content=result)
      e. Append tool result to conversation history
 
-5. REFRESH_SYSTEM
-   - Next loop iteration repeats from step 2 after rewriting messages[0] with a fresh **`Render`** (same session state, potentially new Plan rows)
+5. REFRESH_TURN_CONTEXT
+   - messages[0] is not rewritten: the system message stays as the turn rendered it, and what moved since (wall clock, todo checklist, memory report, running background tasks) is rebuilt by `buildTurnContext` and appended after the history at the send boundary
+   - A template under `prompts.dir` that prints `{{.UTCNow}}` or `{{.TodoList}}` is the exception: it is re-rendered before every call, and its block carries no clock or checklist
+   - An automatic compaction or a workspace switch re-renders the system message for the new history or workspace; no other step of the turn does
+   - Next loop iteration repeats from step 2
 
 6. CHECK_COMPLETION
    - If no tool calls in last response -> DONE (stopReason: end_turn)
@@ -474,4 +478,4 @@ messages: [
 - Слишком длинный контекст - старые сообщения сжимаются в сводку, работа продолжается со сводкой;
 - Отмена - все операции прерываются, возвращается причина остановки `cancelled`.
 
-<!-- docsgen:source sha256=8d79f9689579eb27 -->
+<!-- docsgen:source sha256=8da696b6bfdbd18b -->

@@ -59,7 +59,8 @@ The environment block is appended outside the configurable template so OS and sh
 
 The system message is rendered **once per turn**, by **`buildSystemPromptParts`**
 (**`internal/agent/system_prompt.go`**), and every step of the ReAct loop then sends that same
-message back byte for byte. Nothing rewrites **`messages[0]`** between the steps.
+message back byte for byte. Nothing rewrites **`messages[0]`** between the steps, except a template under
+**`prompts.dir`** that prints the clock or the checklist itself (see the end of the next section).
 
 The reason is the provider's prompt cache. A provider caches a request by its **prefix** - the tool
 definitions, then the messages from the start - and the first byte that differs from the previous
@@ -217,7 +218,7 @@ messages: [
 ```
 1. BUILD_MESSAGES
    - Load applicable skills and project rules for current context (separate prompt sections)
-   - Build system prompt (template + TemplateData incl. TodoList snapshot)
+   - Build system prompt once for the turn (`buildSystemPromptParts`: template + TemplateData; the built-in templates print neither the clock nor the todo checklist, the turn context block carries them)
    - Skill bodies are already in the history: on Run entry, before the user turn is persisted, Run appends the body of each skill the typed text invokes as `/name` to that message as a `<coddy_attachment kind="skill">` element (`invokedSkillBlocks`), so later requests replay the same bytes and the prefix cache holds. Surfaces leave the element out of the transcript (`mention.ForDisplay`, `stripCoddyAttachments.ts`); queued follow-ups get their skill bodies the same way.
    - Prepend system to session history (user turn already persisted on Run entry)
 
@@ -237,8 +238,11 @@ messages: [
      d. Send session/update(tool_call_update, status=completed|failed, content=result)
      e. Append tool result to conversation history
 
-5. REFRESH_SYSTEM
-   - Next loop iteration repeats from step 2 after rewriting messages[0] with a fresh **`Render`** (same session state, potentially new Plan rows)
+5. REFRESH_TURN_CONTEXT
+   - messages[0] is not rewritten: the system message stays as the turn rendered it, and what moved since (wall clock, todo checklist, memory report, running background tasks) is rebuilt by `buildTurnContext` and appended after the history at the send boundary
+   - A template under `prompts.dir` that prints `{{.UTCNow}}` or `{{.TodoList}}` is the exception: it is re-rendered before every call, and its block carries no clock or checklist
+   - An automatic compaction or a workspace switch re-renders the system message for the new history or workspace; no other step of the turn does
+   - Next loop iteration repeats from step 2
 
 6. CHECK_COMPLETION
    - If no tool calls in last response -> DONE (stopReason: end_turn)
