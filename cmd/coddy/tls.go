@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -61,12 +62,37 @@ func (f *tlsFlags) dir(errw io.Writer) (string, *config.Config, error) {
 
 // tlsWant is what the configuration and the flags ask the authority for.
 func tlsWant(cfg *config.Config, extra []string) pki.Want {
-	host := pki.Hostname()
-	var hosts []string
-	if cfg != nil {
-		hosts = cfg.TLSHosts()
+	if cfg == nil {
+		host := pki.Hostname()
+		return pki.Want{Host: host, Names: pki.DefaultNames(host, nil, nil, extra)}
 	}
-	return pki.Want{Host: host, Names: pki.DefaultNames(host, nil, hosts, extra)}
+	return cfg.TLSWant(extra...)
+}
+
+// ensureBuiltinTLS makes or renews the built-in certificates when a block of the configuration asks for them (`auto: true`), before
+// the listeners and the dials read their files: at the start of a run, and again when a reload brought such a block. It reports what it
+// did through log, or on stderr when the process has no logger yet, and does nothing for a configuration that asks for none.
+func ensureBuiltinTLS(cfg *config.Config, log *slog.Logger) error {
+	res, err := config.EnsureBuiltinTLS(cfg, nil)
+	if err != nil {
+		return fmt.Errorf("built-in TLS certificates (%s): %w", pki.Dir(cfg.Paths.Home), err)
+	}
+	if !res.Changed() {
+		return nil
+	}
+	steps := make([]string, 0, len(res.Steps))
+	for _, s := range res.Steps {
+		steps = append(steps, string(s.Action))
+	}
+	if log != nil {
+		log.Info("built-in TLS certificates made or renewed", "dir", pki.Dir(cfg.Paths.Home), "steps", strings.Join(steps, ","), "new_ca", res.NewCA)
+		if res.NewCA {
+			log.Warn("the built-in CA is new: every peer that trusted the old one must trust this one", "hint", "coddy tls export, then coddy tls trust on the peer")
+		}
+		return nil
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "built-in TLS certificates made or renewed in %s: %s\n", pki.Dir(cfg.Paths.Home), strings.Join(steps, ", "))
+	return nil
 }
 
 func runTLS(args []string, out, errw io.Writer, in io.Reader) error {

@@ -146,7 +146,7 @@ func (s *Server) writeProviderModels(w http.ResponseWriter, ctx context.Context,
 		APIKey:    prov.EffectiveAPIKeyContext(ctx),
 		BaseURL:   prov.APIBase,
 		ProxyURL:  prov.Proxy,
-		ClientTLS: prov.ClientTLS(),
+		ClientTLS: c.ProviderClientTLS(prov),
 		AuthPath:  config.ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 		// An unsaved row counts toward the rows of its type too, so the
 		// preview uses the account a saved row would.

@@ -24,6 +24,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/pki"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -174,6 +175,12 @@ func Run(args []string, deps CommandDeps) error {
 	// built. Best effort: a home that cannot be written still gets the copies
 	// the binary carries (skills.Bundled).
 	_, _ = skills.SeedDelivery(cfg)
+	// A provider row with tls_auto presents the built-in client certificate: make it before anything dials.
+	if res, err := config.EnsureBuiltinTLS(cfg, nil); err != nil {
+		return fmt.Errorf("built-in TLS certificates: %w", err)
+	} else if res.Changed() {
+		fmt.Fprintf(os.Stderr, "built-in TLS certificates made or renewed in %s\n", pki.Dir(cfg.Paths.Home))
+	}
 	if *schedulerEnabled {
 		cfg.Scheduler.Enabled = true
 	}

@@ -62,8 +62,9 @@ func swarmDialUISchema() map[string]interface{} {
 			"insecure_skip_verify": boolProp("Skip certificate check", "For a lab only: every connection is logged as insecure."),
 			"cert_file":            strProp("Client certificate", "PEM certificate this end presents when the other asks for one. Set together with the key file."),
 			"key_file":             strProp("Client key", "PEM private key of the client certificate."),
+			"auto":                 boolProp("Built-in certificates", "Use the built-in certificates (coddy tls): the CA file defaults to the bundle (this machine's CA and the trusted ones), the client certificate and key to the client pair. A file named here wins."),
 		},
-		[]string{"proxy", "ca_file", "insecure_skip_verify", "cert_file", "key_file"},
+		[]string{"proxy", "ca_file", "insecure_skip_verify", "cert_file", "key_file", "auto"},
 		nil)
 }
 
@@ -130,19 +131,22 @@ func swarmUISchema() map[string]interface{} {
 				nil),
 			"tls": objectSchema("TLS", "Certificate and key the relay serves HTTPS with. Both or neither.",
 				map[string]interface{}{
-					"cert_file":      strProp("Certificate file", "PEM certificate chain."),
-					"key_file":       strProp("Key file", "PEM private key."),
-					"client_ca_file": strProp("Client CA file", "PEM bundle client certificates are verified against. The handshake then requires a certificate that chains to it, nodes that join included. Needs the certificate and key above. Takes a restart."),
+					"cert_file":           strProp("Certificate file", "PEM certificate chain."),
+					"key_file":            strProp("Key file", "PEM private key."),
+					"client_ca_file":      strProp("Client CA file", "PEM bundle client certificates are verified against. The handshake then requires a certificate that chains to it, nodes that join included. Needs the certificate and key above. Takes a restart."),
+					"auto":                boolProp("Built-in certificates", "Serve with the built-in certificates (coddy tls): the certificate and key default to the server pair, which Coddy makes at start. A file named here wins. Takes a restart."),
+					"require_client_cert": boolProp("Require a client certificate", "With the built-in certificates: the handshake requires a client certificate that chains to a CA of the built-in bundle (this machine's and the trusted ones). Coddy reads no identity out of it."),
 				},
-				[]string{"cert_file", "key_file", "client_ca_file"},
+				[]string{"cert_file", "key_file", "client_ca_file", "auto", "require_client_cert"},
 				nil),
 			"node_tls": objectSchema("Node certificates", "How this relay reaches the nodes that registered themselves over an address: the authority their certificates are verified against and the client certificate the relay presents when a node asks for one. A hand-written upstream with a dial block of its own keeps it and gets nothing from here; every other direct node gets this. A CA here replaces the system roots. Takes a restart.",
 				map[string]interface{}{
 					"ca_file":   strProp("CA file", "PEM bundle the nodes' server certificates are verified against, when they are signed privately."),
 					"cert_file": strProp("Client certificate file", "PEM certificate chain the relay presents to a node that asks for one (httpserver.tls.client_ca_file on the node). Needs the key below."),
 					"key_file":  strProp("Client key file", "PEM private key of the client certificate."),
+					"auto":      boolProp("Built-in certificates", "Use the built-in certificates (coddy tls): the CA file defaults to the bundle and the client certificate and key to the client pair."),
 				},
-				[]string{"ca_file", "cert_file", "key_file"},
+				[]string{"ca_file", "cert_file", "key_file", "auto"},
 				nil),
 			"lease_ttl_seconds":          intProp("Lease TTL (seconds)", "How long a registration lasts without a refresh; nodes refresh at a third of it."),
 			"fanout_timeout_seconds":     intProp("Fan-out timeout (seconds)", "How long the aggregated session list and the topology wait for a node."),

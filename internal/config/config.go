@@ -114,6 +114,7 @@ func validateSubconfigs(cfg *Config) error {
 		return fmt.Errorf("rules: %w", err)
 	}
 	cfg.Swarm.Normalize()
+	cfg.TLS.Normalize()
 	if err := cfg.Swarm.Validate(); err != nil {
 		return err
 	}

@@ -21,6 +21,7 @@ import (
 
 	"github.com/cucumber/godog"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 	"github.com/EvilFreelancer/coddy-agent/internal/pki"
 )
@@ -66,6 +67,40 @@ func (s *tlsBDD) operatorRunsOn(command, name string) error {
 		return fmt.Errorf("not a coddy tls command: %q", command)
 	}
 	return s.run(append(fields[2:], "--home", s.home(name))...)
+}
+
+func (s *tlsBDD) configAsks(name, key string) error {
+	parts := strings.Split(key, ".")
+	yaml := ""
+	for i, p := range parts[:len(parts)-1] {
+		yaml += strings.Repeat("  ", i) + p + ":\n"
+	}
+	yaml += strings.Repeat("  ", len(parts)-1) + parts[len(parts)-1] + ": true\n"
+	return os.WriteFile(filepath.Join(s.homeDir(name), "config.yaml"), []byte(yaml), 0o600)
+}
+
+func (s *tlsBDD) configNamesFiles(name string) error {
+	return os.WriteFile(filepath.Join(s.homeDir(name), "config.yaml"),
+		[]byte("httpserver:\n  tls:\n    cert_file: /etc/coddy/s.crt\n    key_file: /etc/coddy/s.key\n"), 0o600)
+}
+
+// homeDir makes the home of a machine, so a configuration can be put in it.
+func (s *tlsBDD) homeDir(name string) string {
+	h := s.home(name)
+	_ = os.MkdirAll(h, 0o700)
+	return h
+}
+
+func (s *tlsBDD) runStarts(name string) error {
+	_, err := loadRunConfig(config.CLIPaths{Home: s.home(name), CWD: s.root})
+	return err
+}
+
+func (s *tlsBDD) hasNoDirectory(name string) error {
+	if _, err := os.Stat(s.tlsDir(name)); err == nil {
+		return fmt.Errorf("machine %s has a certificate directory it never asked for", name)
+	}
+	return nil
 }
 
 func (s *tlsBDD) hasEverything(name string) error {
@@ -242,6 +277,10 @@ func initializeTLSScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a machine "([^"]*)" with certificates$`, s.withCertificates)
 	sc.Step(`^the operator runs "([^"]*)" on "([^"]*)"$`, s.operatorRunsOn)
 	sc.Step(`^machine "([^"]*)" has a CA, a server pair, a client pair and a bundle$`, s.hasEverything)
+	sc.Step(`^a machine "([^"]*)" whose configuration asks for the built-in certificates with "([^"]*)"$`, s.configAsks)
+	sc.Step(`^a machine "([^"]*)" whose configuration names its own certificate files$`, s.configNamesFiles)
+	sc.Step(`^a run starts on "([^"]*)"$`, s.runStarts)
+	sc.Step(`^machine "([^"]*)" has no certificate directory$`, s.hasNoDirectory)
 	sc.Step(`^the private keys of machine "([^"]*)" are readable by its owner only$`, s.keysArePrivate)
 	sc.Step(`^the output says there was nothing to do$`, s.nothingToDo)
 	sc.Step(`^machine "([^"]*)" serves HTTPS and asks for client certificates$`, s.serves)

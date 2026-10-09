@@ -21,7 +21,7 @@ const identityExpiryWarning = 14 * 24 * time.Hour
 // expiry within 14 days as a warning and a past NotAfter as an error, at the
 // key of the certificate. A row with no identity yields nothing.
 func (r *runner) coddyIdentityChecks(prov *config.ProviderConfig) []Check {
-	id := prov.ClientTLS()
+	id := r.req.Cfg.ProviderClientTLS(prov)
 	if id.IsZero() {
 		return nil
 	}

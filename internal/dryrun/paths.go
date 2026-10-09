@@ -87,11 +87,11 @@ func (r *runner) paths() {
 		r.rep.add(r.creatableDir("memory.dir", cfg.Memory.Dir))
 	}
 
-	if cfg.HTTPServer.IsEnabled() && cfg.HTTPServer.TLS.Enabled() {
-		for _, c := range r.serverPairChecks("httpserver.tls", cfg.HTTPServer.TLS.CertFile, cfg.HTTPServer.TLS.KeyFile) {
+	if hf := cfg.HTTPListenerFiles(); cfg.HTTPServer.IsEnabled() && cfg.HTTPServer.TLS.Enabled() && !(r.builtinPending && cfg.HTTPServer.TLS.Auto) {
+		for _, c := range r.serverPairChecks("httpserver.tls", hf.Cert, hf.Key) {
 			r.rep.add(c)
 		}
-		if ca := strings.TrimSpace(cfg.HTTPServer.TLS.ClientCAFile); ca != "" {
+		if ca := hf.ClientCA; ca != "" {
 			if _, err := netx.ClientCertTLS(ca, "httpserver.tls.client_ca_file"); err != nil {
 				r.rep.add(r.check(StatusError, "httpserver.tls.client_ca_file", "httpserver.tls.client_ca_file", "the client CA bundle is unusable: "+err.Error(), "point httpserver.tls.client_ca_file at a PEM bundle of certificates"))
 			} else {
@@ -100,19 +100,22 @@ func (r *runner) paths() {
 		}
 	}
 
-	if cfg.Swarm.Enabled && !cfg.Swarm.NodeTLS.IsZero() {
-		nt := cfg.Swarm.NodeTLS
-		for _, c := range r.clientPairChecks("swarm.node_tls.cert_file", strings.TrimSpace(nt.CertFile), strings.TrimSpace(nt.KeyFile)) {
+	if cfg.Swarm.Enabled && !cfg.Swarm.NodeTLS.IsZero() && !(r.builtinPending && cfg.Swarm.NodeTLS.Auto) {
+		nt := cfg.NodeDialFiles()
+		for _, c := range r.clientPairChecks("swarm.node_tls.cert_file", nt.CertFile, nt.KeyFile) {
 			r.rep.add(c)
 		}
-		if ca := strings.TrimSpace(nt.CAFile); ca != "" {
+		if ca := nt.CAFile; ca != "" {
 			r.rep.add(r.caFileCheck("swarm.node_tls.ca_file", ca))
 		}
 	}
 
-	if cfg.Swarm.Enabled && cfg.Swarm.TLS.Enabled() {
-		for _, c := range r.serverPairChecks("swarm.tls", cfg.Swarm.TLS.CertFile, cfg.Swarm.TLS.KeyFile) {
+	if sf := cfg.SwarmListenerFiles(); cfg.Swarm.Enabled && cfg.Swarm.TLS.Enabled() && !(r.builtinPending && cfg.Swarm.TLS.Auto) {
+		for _, c := range r.serverPairChecks("swarm.tls", sf.Cert, sf.Key) {
 			r.rep.add(c)
+		}
+		if ca := sf.ClientCA; ca != "" && cfg.Swarm.TLS.Auto {
+			r.rep.add(r.caFileCheck("swarm.tls.client_ca_file", ca))
 		}
 	}
 }

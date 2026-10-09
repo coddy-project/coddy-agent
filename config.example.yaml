@@ -116,6 +116,10 @@ providers:
   #   # this call waits for a free slot for up to this long. Above zero it wins over
   #   # agent.shared_busy_wait_ms; 0 or absent follows that key (30000 unless set).
   #   # busy_wait_ms: 60000
+  #   # Present this machine's built-in client certificate and trust the CAs of its bundle
+  #   # (coddy tls ensure makes them; coddy tls trust adds the remote's CA), with no file named.
+  #   # ca_file, client_cert_file and client_key_file win when you write them.
+  #   # tls_auto: true
 
 models:
   - model: "openai/gpt-5.6-terra"
@@ -548,15 +552,20 @@ tools:
 #     - name: "office relay"
 #       url: "http://relay.lan:12346"
 #       token: "${CODDY_RELAY_TOKEN}"   # the relay's client token (its swarm.auth_token)
-#   # Terminate TLS here instead of in a reverse proxy; HTTP/1.1 only. With client_ca_file the
-#   # server asks for a client certificate (optional: peers without one still get in; required: refused
-#   # at the handshake). A certificate opens only what shared_models.cert_names says. A terminator in front
-#   # or the swarm tunnel carries none.
+#   # Terminate TLS here instead of in a reverse proxy; HTTP/1.1 only. TLS is the transport's
+#   # business: Coddy reads no identity out of a certificate, so who may do what is for the proxy.
+#   # auto: true serves with the built-in certificates (coddy tls; made at start under
+#   # $CODDY_HOME/tls, no openssl): cert_file and key_file default to the server pair, and
+#   # require_client_cert makes the handshake require a certificate of the built-in bundle (this
+#   # machine's CA and the ones trusted with coddy tls trust). A file named here wins. With client_ca_file
+#   # of your own the handshake requires a certificate that chains to it. A terminator in front or the
+#   # swarm tunnel carries no client certificate.
 #   tls:
-#     cert_file: "/etc/coddy/server.crt"
-#     key_file: "/etc/coddy/server.key"
-#     client_ca_file: "/etc/coddy/clients-ca.pem"
-#     client_auth: "optional"
+#     auto: true
+#     require_client_cert: false
+#     # cert_file: "/etc/coddy/server.crt"        # or your own files (an ACME or enterprise certificate)
+#     # key_file: "/etc/coddy/server.key"
+#     # client_ca_file: "/etc/coddy/clients-ca.pem"
 #   # Serving models[] rows that carry shared_as to other Coddys (GET /coddy/llm/models,
 #   # POST /coddy/llm/completions). A shared-model token opens only those routes and
 #   # nothing else; httpserver.auth_token opens the whole API, so give a borrower one of
@@ -573,10 +582,17 @@ tools:
 #     rate_per_minute: 30    # calls one credential may start per minute; 0 or absent = no limit
 #                            # a call past the window is answered busy at once, with a Retry-After
 #     rate_burst: 5          # calls that may start at once before the rate applies
-#     cert_names: ["alice.example"]   # names of verified client certificates (httpserver.tls.client_ca_file)
-#                            # that open the LLM routes, each name with its own slots and window
 #     max_call_ms: 1800000   # longest blocking (stream: false) call of a shared model; absent = 30 min,
 #                            # at most 28800000 (8 h), 0 = that ceiling, never "no bound"
+
+# The built-in certificate authority (coddy tls, $CODDY_HOME/tls). Coddy makes the certificates
+# a block asks for with `auto: true` (httpserver.tls, swarm.tls, swarm.node_tls, the dial blocks
+# of swarm.join and swarm.upstreams, a coddy provider's tls_auto) at install, at update (coddy
+# update), at coddy serve start and on demand (coddy tls ensure), with no external tool. The server
+# certificate carries the host name, localhost, the loopback addresses, the interface addresses
+# and the bind and advertise_url hosts of this file; names Coddy cannot see go here.
+# tls:
+#   names: ["proxy.example", "203.0.113.7"]
 
 # Embedded web UI (only with -tags http,ui). Set enable: false to run an API-only server
 # (e.g. a remote box) — the SPA at GET / is replaced by a short notice, and the API keeps
@@ -719,10 +735,12 @@ logger:
 #   tls:
 #     cert_file: "/etc/coddy/relay.crt"
 #     key_file: "/etc/coddy/relay.key"
-#     # Client certificates: verified against this bundle; a certificate name that
-#     # a swarm.clients entry lists stands for that client (below).
+#     # With client_ca_file the handshake requires a certificate that chains to it, nodes that join
+#     # included. A certificate is no credential: a client of the relay is told apart by its token
+#     # (swarm.clients below). auto: true uses the built-in certificates (coddy tls) instead of files.
 #     client_ca_file: "/etc/coddy/clients-ca.pem"
-#     client_auth: "optional"      # optional (peers without a certificate still get in) or required
+#     # auto: true
+#     # require_client_cert: true
 #   # How this relay reaches nodes that registered themselves over an address and ask for a client
 #   # certificate (httpserver.tls.client_ca_file on the node): the authority their certificates are
 #   # verified against and the certificate the relay presents. A swarm.upstreams entry with a dial
@@ -731,6 +749,7 @@ logger:
 #     ca_file: "/etc/coddy/nodes-ca.pem"
 #     cert_file: "/etc/coddy/relay-client.crt"
 #     key_file: "/etc/coddy/relay-client.key"
+#     # auto: true   # or the built-in bundle and client pair (coddy tls), with no file named
 #   # A borrower of shared models gets a credential of its own that opens only
 #   # GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage and
 #   # POST /coddy/llm/completions of the nodes it names, with limits the relay holds it to.
@@ -742,7 +761,6 @@ logger:
 #       max_streams: 2                   # calls held at once; 0 = no limit
 #       rate_per_minute: 30              # calls started per minute; 0 = no limit
 #       rate_burst: 5
-#       cert_names: ["acme.example"]     # DNS or URI names of its client certificate
 #   # Nodes listed by hand, for one that cannot run the join loop.
 #   upstreams:
 #     - name: "nas02"
@@ -767,3 +785,4 @@ logger:
 #         ca_file: "/etc/coddy/internal-ca.pem"
 #         cert_file: "/etc/coddy/node.crt"   # the client certificate a relay with swarm.tls.client_ca_file asks for
 #         key_file: "/etc/coddy/node.key"
+#         # auto: true                       # or the built-in bundle and client pair (coddy tls)

@@ -435,6 +435,9 @@ func loadRunConfig(cli config.CLIPaths) (*config.Config, error) {
 		return nil, err
 	}
 	_, _ = skills.SeedDelivery(cfg)
+	if err := ensureBuiltinTLS(cfg, nil); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 

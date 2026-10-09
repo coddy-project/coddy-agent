@@ -75,8 +75,8 @@ A package `internal/pki` (pure planner plus an atomic writer) and a command `cod
 | Update | `coddy update` runs `ensure` with the **new** binary after it replaces the executable, when `$CODDY_HOME/tls` exists or the configuration asks for the built-in mode (an update revisits what the user already chose); the unit's `ExecStartPre` covers the restart |
 | On demand | `coddy tls ...`; and `coddy serve` calls `ensure` when a configured block asks for the built-in mode and its files are missing |
 
-**Configuration.** One new key, `auto: true`, on the four blocks that already name certificate files: `httpserver.tls`, `swarm.tls` (the listener: `cert_file` and `key_file` default to `server.*`, `client_ca_file` to `bundle.pem` when `client_auth` is `required`), `swarm.node_tls`, `swarm.join[].dial` and `swarm.upstreams[].dial`
-(`ca_file` defaults to `bundle.pem`, `cert_file` and `key_file` to `client.*`), and `providers[].tls_auto` for a `coddy` row. A file named explicitly wins. The files are **resolved** at load and never written into the user's `config.yaml`; `coddy -t` and `--dry-run` report what the built-in mode resolved to, and warn when a file is missing or within 30 days of its end.
+**Configuration (as built).** One new key, `auto: true`, on the blocks that already name certificate files: `httpserver.tls` and `swarm.tls` (the listener: `cert_file` and `key_file` default to `server.*`; `require_client_cert: true` makes `client_ca_file` default to `bundle.pem`, so the handshake requires a certificate of the bundle; there is no `client_auth`), `swarm.node_tls`, `swarm.join[].dial` and `swarm.upstreams[].dial`
+(`ca_file` defaults to `bundle.pem`, `cert_file` and `key_file` to `client.*`), and `providers[].tls_auto` for a `coddy` row; plus a top-level `tls.names` for extra names (hidden from the settings form: a deployment key). A file named explicitly wins, per key. The files are **derived at use**, never at load and never stored: `Config.HTTPListenerFiles`, `SwarmListenerFiles`, `NodeDialFiles`, `DialFiles`, `ProviderClientTLS` (`internal/config/tls_builtin.go`) fill what a block left empty from `<home>/tls`, so a save of the configuration keeps `auto: true` and no path (a test holds it). `config.EnsureBuiltinTLS` makes what a block asks for; it runs at the start of `coddy serve`, `coddy acp` and the console, before each `Run` of the HTTP and swarm subsystems, and on every configuration reload. `coddy --dry-run` reports "not made yet" once (and skips what would read the files) or the findings of `pki.Status` (missing, ending within 30 days, a key that does not match).
 A public certificate (ACME, an enterprise CA) is the same setup with the files named by hand: Coddy reads them and does not care where they came from.
 
 ## 4. What goes to the reverse proxy and the infrastructure
@@ -108,10 +108,10 @@ The documentation gives a minimal proxy example for the shared-model route and t
 | Stage | Work | Commit |
 |---|---|---|
 | T0 | This plan; the earlier proposal marked withdrawn; the verification plan and the main plan updated | docs |
-| T1 | Remove the certificate identity from the application: config, gate, relay principal, `netx`, dry-run, schema, UI schema, skill, tests, features, docs; `client_auth: optional` refused; first the tests (red), then the removal | code + docs |
-| T2 | `internal/pki`: planner, writer, lock, SANs, bundle, trust; unit tests | code |
-| T3 | `coddy tls`: commands, usage, man page, completions, `usage_test.go` | code |
-| T4 | `auto` on the four blocks and the provider: resolution at load, `ensure` at `coddy serve`, `coddy -t` and `--dry-run`; schema, UI schema, skill, `config.example.yaml`, `make docs` | code + docs |
+| T1 | Remove the certificate identity from the application: config, gate, relay principal, `netx`, dry-run, schema, UI schema, skill, tests, features, docs; `client_auth: optional` refused; first the tests (red), then the removal | code + docs (done, 855f4ec1) |
+| T2 | `internal/pki`: planner, writer, lock, SANs, bundle, trust; unit tests | code (done, 78b40ccc) |
+| T3 | `coddy tls`: commands, usage, man page, completions, `usage_test.go` | code (done, 42fa651b) |
+| T4 | `auto` on the four blocks and the provider, `ensure` at the start of a run, `coddy -t` and `--dry-run`; schema, UI schema, skill, `config.example.yaml`, `make docs` | code + docs (done) |
 | T5 | Installation and update: `coddy serve install`, the unit, `coddy update`, the package message | code + docs |
 | T6 | The models `p7-pki-plan` and `p7-gate`, each cross-reviewed twice, on `relay-huron` | docs |
 | T7 | Documentation: `certificates.md` rewritten around `coddy tls`, the split of section 4 with proxy examples, `security.md`, `swarm.md`, `shared-models.md`, `AGENTS.md`, the e2e without `openssl` | docs + examples |
@@ -120,10 +120,11 @@ The documentation gives a minimal proxy example for the shared-model route and t
 
 - **A removal in a branch that documents it.** `cert_names` is described in the phase 3 plan, the main plan and several reports. Those records are not rewritten; each gets a line saying it was removed in phase 4b.
 - **A CA per machine means a manual exchange of CA certificates.** It is the price of never moving a private key; `export` and `trust` are one command each, and a fleet CA (one machine issues for the others) is a later option, not this stage.
-- **A leaf near its end on a service that never restarts.** `ensure` runs at start and at update; a long-running `coddy serve` re-runs the planner once a day and, when it reissues a leaf, the certificate loader picks the new pair at the next handshake (the listener's own pair is read at start, so the planner asks the supervisor to rebuild the listener).
+- **A leaf near its end on a service that never restarts.** `ensure` runs at start, at update and on a configuration reload, and `coddy -t --dry-run` and `coddy tls status` warn 30 days ahead. A dialling side reads its pair at each handshake, so a renewed client pair is used at once; a listener reads its pair at start (as it does for files named by hand), so a renewed server pair takes a restart, which the unit's `ExecStartPre` makes routine. A daily renewal inside a long-running `coddy serve`, with a listener that reads its pair per handshake, is not built (open question 3).
 - **The install script is in another repository.** The line it needs is recorded here; the in-repository paths (`serve install`, the unit, `update`) make a working setup without it.
 
 ## 8. Open questions
 
 1. Should a fleet CA (one machine issues server and client certificates for the others) be offered, or is the per-machine CA with `export` and `trust` enough for the first release?
-2. Is `tls.names` enough for the extra names, or should the planner also ask the configured `advertise_url`s only? (The plan takes both.)
+2. Is `tls.names` enough for the extra names, or should the planner also ask the configured `advertise_url`s only? (Built as both: the bind hosts and the `advertise_url` hosts of the configuration, and `tls.names`.)
+3. Should a long-running `coddy serve` renew its own leaf (a daily planner run, the listener reading its pair per handshake through the certificate loader), or is renewal at start, update and reload enough? (Not built: a year-long uptime without an update is the case.)

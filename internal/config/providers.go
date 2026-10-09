@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
@@ -66,6 +65,9 @@ type ProviderConfig struct {
 	CAFile         string `yaml:"ca_file,omitempty"`
 	ClientCertFile string `yaml:"client_cert_file,omitempty"`
 	ClientKeyFile  string `yaml:"client_key_file,omitempty"`
+	// TLSAuto uses the built-in certificates (coddy tls) for a provider of type coddy: ca_file defaults to the bundle (this machine's
+	// CA and the trusted ones), client_cert_file and client_key_file to the client pair. A file named here wins.
+	TLSAuto bool `yaml:"tls_auto,omitempty"`
 	// UsageLimitsPanel switches the account usage panel of this row: the
 	// console footer line and /usage, the web UI's usage section and banner,
 	// and the reads behind them (GET /v1/limits for a neuraldeep row). A nil
@@ -218,6 +220,9 @@ func (p *ProviderConfig) Validate() error {
 		}
 		return p.validateCoddyBase()
 	}
+	if p.TLSAuto {
+		return fmt.Errorf("providers[%s].tls_auto: only a provider of type coddy takes a TLS identity, and this one is of type %s: nothing would present it", p.Name, p.Type)
+	}
 	for _, kv := range []struct{ key, value string }{
 		{"ca_file", p.CAFile}, {"client_cert_file", p.ClientCertFile}, {"client_key_file", p.ClientKeyFile},
 	} {
@@ -239,15 +244,6 @@ func (p *ProviderConfig) validateClientIdentity() error {
 		return fmt.Errorf("providers[%s].client_key_file: client_cert_file and client_key_file must be set together", p.Name)
 	}
 	return nil
-}
-
-// ClientTLS is the identity of this provider's connections.
-func (p *ProviderConfig) ClientTLS() netx.ClientTLS {
-	return netx.ClientTLS{
-		CAFile:   strings.TrimSpace(p.CAFile),
-		CertFile: strings.TrimSpace(p.ClientCertFile),
-		KeyFile:  strings.TrimSpace(p.ClientKeyFile),
-	}
 }
 
 // validateCoddyBase checks the api_base of a provider of type coddy: the origin

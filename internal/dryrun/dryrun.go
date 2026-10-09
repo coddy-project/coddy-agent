@@ -118,6 +118,9 @@ type probe func(ctx context.Context) []Check
 type runner struct {
 	req Request
 	rep *Report
+	// builtinPending is set when a block asks for the built-in certificates and they are not all there yet: `coddy serve` makes
+	// them at start, so a dry run reports that once and skips the checks and probes that would read them.
+	builtinPending bool
 }
 
 // Run probes everything the request describes. Local checks (paths, commands,
@@ -133,6 +136,7 @@ func Run(ctx context.Context, req Request) *Report {
 		req.Timeout = defaultTimeout
 	}
 	r := &runner{req: req, rep: rep}
+	r.builtinPending = r.builtinTLS()
 	r.subsystems()
 	r.paths()
 	r.mcpCommands()

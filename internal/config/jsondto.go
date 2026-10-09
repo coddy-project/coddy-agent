@@ -25,6 +25,7 @@ type ConfigJSON struct {
 	Memory       MemoryJSON       `json:"memory,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Swarm        SwarmJSON        `json:"swarm,omitempty"`
+	TLS          TLSJSON          `json:"tls,omitempty"`
 	UI           UIJSON           `json:"ui,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
@@ -109,6 +110,8 @@ type ProviderJSON struct {
 	CAFile         string `json:"ca_file,omitempty"`
 	ClientCertFile string `json:"client_cert_file,omitempty"`
 	ClientKeyFile  string `json:"client_key_file,omitempty"`
+	// TLSAuto: the built-in certificates fill what the three above leave empty.
+	TLSAuto bool `json:"tls_auto,omitempty"`
 	// UsageLimitsPanel keeps the three states of the YAML key: absent (on),
 	// true, false. omitempty leaves an unset switch out of the document.
 	UsageLimitsPanel *bool `json:"usage_limits_panel,omitempty"`
@@ -444,13 +447,21 @@ type SwarmNodeTLSJSON struct {
 	CAFile   string `json:"ca_file,omitempty"`
 	CertFile string `json:"cert_file,omitempty"`
 	KeyFile  string `json:"key_file,omitempty"`
+	Auto     bool   `json:"auto,omitempty"`
 }
 
 // SwarmTLSJSON mirrors SwarmTLSConfig.
 type SwarmTLSJSON struct {
-	CertFile     string `json:"cert_file,omitempty"`
-	KeyFile      string `json:"key_file,omitempty"`
-	ClientCAFile string `json:"client_ca_file,omitempty"`
+	CertFile          string `json:"cert_file,omitempty"`
+	KeyFile           string `json:"key_file,omitempty"`
+	ClientCAFile      string `json:"client_ca_file,omitempty"`
+	Auto              bool   `json:"auto,omitempty"`
+	RequireClientCert bool   `json:"require_client_cert,omitempty"`
+}
+
+// TLSJSON mirrors TLSConfig.
+type TLSJSON struct {
+	Names []string `json:"names,omitempty"`
 }
 
 // SwarmDialJSON mirrors SwarmDialConfig. The proxy URL can carry credentials,
@@ -462,6 +473,7 @@ type SwarmDialJSON struct {
 	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
 	CertFile           string `json:"cert_file,omitempty"`
 	KeyFile            string `json:"key_file,omitempty"`
+	Auto               bool   `json:"auto,omitempty"`
 }
 
 // SwarmUpstreamJSON mirrors SwarmUpstream.
@@ -669,7 +681,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			RateBurst:        c.HTTPServer.SharedModels.RateBurst,
 		},
 		TLS: SwarmTLSJSON{CertFile: c.HTTPServer.TLS.CertFile, KeyFile: c.HTTPServer.TLS.KeyFile,
-			ClientCAFile: c.HTTPServer.TLS.ClientCAFile},
+			ClientCAFile: c.HTTPServer.TLS.ClientCAFile, Auto: c.HTTPServer.TLS.Auto, RequireClientCert: c.HTTPServer.TLS.RequireClientCert},
 	}
 	for _, rm := range c.HTTPServer.Remotes {
 		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
@@ -690,7 +702,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			AllowedOrigins: append([]string(nil), c.Swarm.CORS.AllowedOrigins...),
 		},
 		TLS: SwarmTLSJSON{CertFile: c.Swarm.TLS.CertFile, KeyFile: c.Swarm.TLS.KeyFile,
-			ClientCAFile: c.Swarm.TLS.ClientCAFile},
+			ClientCAFile: c.Swarm.TLS.ClientCAFile, Auto: c.Swarm.TLS.Auto, RequireClientCert: c.Swarm.TLS.RequireClientCert},
 		NodeTLS:              SwarmNodeTLSJSON(c.Swarm.NodeTLS),
 		LeaseTTLSeconds:      c.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: c.Swarm.FanoutTimeoutSeconds,
@@ -770,6 +782,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Chats:            chatsToJSON(pc.Chats),
 	}
 	out.Gateways = GatewaysJSON{Telegram: tgJSON, Pachca: pcJSON}
+	out.TLS = TLSJSON{Names: append([]string(nil), c.TLS.Names...)}
 	return out
 }
 
@@ -920,7 +933,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			RateBurst:     j.HTTPServer.SharedModels.RateBurst,
 		},
 		TLS: HTTPTLSConfig{CertFile: j.HTTPServer.TLS.CertFile, KeyFile: j.HTTPServer.TLS.KeyFile,
-			ClientCAFile: j.HTTPServer.TLS.ClientCAFile},
+			ClientCAFile: j.HTTPServer.TLS.ClientCAFile, Auto: j.HTTPServer.TLS.Auto, RequireClientCert: j.HTTPServer.TLS.RequireClientCert},
 	}
 	for _, rm := range j.HTTPServer.Remotes {
 		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))
@@ -941,7 +954,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			AllowedOrigins: append([]string(nil), j.Swarm.CORS.AllowedOrigins...),
 		},
 		TLS: SwarmTLSConfig{CertFile: j.Swarm.TLS.CertFile, KeyFile: j.Swarm.TLS.KeyFile,
-			ClientCAFile: j.Swarm.TLS.ClientCAFile},
+			ClientCAFile: j.Swarm.TLS.ClientCAFile, Auto: j.Swarm.TLS.Auto, RequireClientCert: j.Swarm.TLS.RequireClientCert},
 		NodeTLS:              SwarmNodeTLSConfig(j.Swarm.NodeTLS),
 		LeaseTTLSeconds:      j.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: j.Swarm.FanoutTimeoutSeconds,
@@ -1018,6 +1031,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Chats:            chatsFromJSON(jp.Chats),
 	}
 	cfg.Gateways = GatewayConfig{Telegram: tg, Pachca: pc}
+	cfg.TLS = TLSConfig{Names: append([]string(nil), j.TLS.Names...)}
 	return cfg
 }
 
@@ -1243,6 +1257,7 @@ func swarmDialToJSON(d SwarmDialConfig) SwarmDialJSON {
 		InsecureSkipVerify: d.InsecureSkipVerify,
 		CertFile:           d.CertFile,
 		KeyFile:            d.KeyFile,
+		Auto:               d.Auto,
 	}
 }
 
@@ -1253,6 +1268,7 @@ func swarmDialFromJSON(d SwarmDialJSON) SwarmDialConfig {
 		InsecureSkipVerify: d.InsecureSkipVerify,
 		CertFile:           d.CertFile,
 		KeyFile:            d.KeyFile,
+		Auto:               d.Auto,
 	}
 }
 

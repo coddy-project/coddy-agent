@@ -216,6 +216,7 @@ func UISchemaMap() map[string]interface{} {
 		"ca_file":          strProp("CA file", "Provider of type coddy only: PEM bundle of the authority that signed the remote's or the relay's certificate."),
 		"client_cert_file": strProp("Client certificate", "Provider of type coddy only: PEM certificate presented when the remote or the relay asks for one. Set together with the client key."),
 		"client_key_file":  strProp("Client key", "Provider of type coddy only: PEM private key of the client certificate. A path, never the key itself."),
+		"tls_auto":         boolProp("Built-in certificates", "Provider of type coddy only: use the built-in certificates (coddy tls): the CA file defaults to the bundle (this machine's CA and the trusted ones), the client certificate and key to the client pair. A file named here wins."),
 		"busy_wait_ms": intProp("Wait for a free slot ms",
 			"coddy providers only: how long one call waits for a free slot of the remote when it answers busy. Above zero it wins; 0 follows the agent's shared busy wait (30000 unless set)."),
 		// Defaults to true when the key is absent, like models[].stream: the
@@ -389,7 +390,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "busy_wait_ms", "ca_file", "client_cert_file", "client_key_file", "usage_limits_panel"},
+				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "busy_wait_ms", "ca_file", "client_cert_file", "client_key_file", "tls_auto", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -836,12 +837,17 @@ func toIfaceOrder(keys []string) []interface{} {
 //	             edits the user-global file, where it rarely needs touching.
 //	ui         - toggles the SPA the page is served from; like httpserver, the
 //	             page cannot switch itself off.
+//	tls        - the names of the built-in certificate authority's server
+//	             certificate (tls.names): deployment, like the listeners whose
+//	             certificate they go into, set in the file or with
+//	             coddy tls --name.
 //	revision   - not a setting: it names the configuration a GET document was
 //	             read from (ConfigJSON.Revision) and travels back with the PUT.
 var uiHiddenConfigKeys = map[string]struct{}{
 	"httpserver": {},
 	"mcp":        {},
 	"swarm":      {},
+	"tls":        {},
 	"rules":      {},
 	"ui":         {},
 	"revision":   {},

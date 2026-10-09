@@ -34,6 +34,16 @@ coddy tls issue client ci -o ./ci   # a client certificate for something that ha
 
 **Two machines trust each other without a private key moving**: on A `coddy tls export > a-ca.crt`, on B `coddy tls trust a-ca.crt`, and the same the other way; each side then verifies the other's server and client certificates against its `bundle.pem`.
 
+**Use it from the configuration** with `auto: true` on the block that names certificate files, and the files are filled in with these (a file you name wins, per key; nothing is written into your `config.yaml`):
+
+| Block | `auto: true` fills |
+|---|---|
+| `httpserver.tls`, `swarm.tls` (a listener) | `cert_file`, `key_file` with the server pair; with `require_client_cert: true`, `client_ca_file` with the bundle, so the handshake requires a client certificate that chains to this machine's CA or a trusted one |
+| `swarm.node_tls`, `swarm.join[].dial`, `swarm.upstreams[].dial` | `ca_file` with the bundle, `cert_file` and `key_file` with the client pair |
+| `providers[].tls_auto: true` (type `coddy`) | `ca_file` with the bundle, `client_cert_file` and `client_key_file` with the client pair |
+
+`tls.names` adds names Coddy cannot see (a proxy's name, a DNS alias, a public address) to the server certificate. `coddy serve` makes what a block asks for before it listens or dials, `coddy -t --dry-run` reports what is missing or ending, `coddy tls ensure` does it by hand, and a listener reads its pair at start, so a renewed server certificate takes a restart.
+
 TLS here is the transport's business and nothing else: a certificate admits a peer at the handshake and is no credential, and Coddy reads no name out of it. Public certificates (ACME, an enterprise CA) are the same setup with the files named by hand. Everything else (who may call what, rate limits, allowlists, revocation, audit) belongs to the reverse proxy and the infrastructure: [where the other risks go](#12-where-the-other-risks-go).
 
 ## 1. The picture

@@ -28,4 +28,5 @@ type Config struct {
 	UI         UIConfig         `yaml:"ui"`
 	Scheduler  SchedulerConfig  `yaml:"scheduler"`
 	Gateways   GatewayConfig    `yaml:"gateways"`
+	TLS        TLSConfig        `yaml:"tls"`
 }

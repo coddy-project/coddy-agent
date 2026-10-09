@@ -124,7 +124,7 @@ The window is checked after the slot and before the body is read, and a call spe
 
 ### Counters
 
-The node counts what its shared-model routes did, in memory since it started, and serves the counters at `GET /coddy/shared-models/stats` with a main token or a sign-in (a shared-model token gets the same `401` as on every other route): `{since, rows[{alias, class, outcome, calls, input_tokens, output_tokens, duration_ms, max_duration_ms}]}`. `class` is `main`, `shared`, `mtls` (a verified client certificate name), `login`, `anonymous` or `unknown` (a credential the gate refused, a missing one included), `alias` is `-` when the request named no row of this node or was refused before the body named one, and `outcome` is `ok`, `busy`, `limited` (the window), `rate` or `quota` (the upstream's own 429), `upstream`, `invalid`, `auth`, `gone` or `write`. Labels only: no token, no digest of a token, no prompt, and nothing that links an alias to a credential. The log line of a call carries the same `class` and the token counts.
+The node counts what its shared-model routes did, in memory since it started, and serves the counters at `GET /coddy/shared-models/stats` with a main token or a sign-in (a shared-model token gets the same `401` as on every other route): `{since, rows[{alias, class, outcome, calls, input_tokens, output_tokens, duration_ms, max_duration_ms}]}`. `class` is `main`, `shared`, `login`, `anonymous` or `unknown` (a credential the gate refused, a missing one included), `alias` is `-` when the request named no row of this node or was refused before the body named one, and `outcome` is `ok`, `busy`, `limited` (the window), `rate` or `quota` (the upstream's own 429), `upstream`, `invalid`, `auth`, `gone` or `write`. Labels only: no token, no digest of a token, no prompt, and nothing that links an alias to a credential. The log line of a call carries the same `class` and the token counts.
 
 `max_call_ms` exists because a row with `stream: false` is not stall-guarded - its answer arrives in one piece - and `providers[].timeout_ms` is 0 by default, so a hung blocking row would otherwise hold its slot until the client left, and a client that receives only heartbeats never leaves. On expiry the call ends as `upstream` with cause `timeout` and frees its slot. A streamed row is not cut by it: it is bounded by the stall guard per gap instead. `coddy -t` warns about an effective `max_call_ms` above 30 minutes together with a shared `stream: false` row whose provider has no `timeout_ms`.
 
@@ -327,10 +327,15 @@ TLS is the transport's business and nothing else. `coddy serve` can terminate it
 ```yaml
 httpserver:
   tls:
-    cert_file: /etc/coddy/server.crt
-    key_file: /etc/coddy/server.key
-    client_ca_file: /etc/coddy/clients-ca.pem   # optional: the handshake then requires a certificate that chains to it
+    auto: true                  # the built-in certificates: coddy serve makes them at start (coddy tls ensure)
+    require_client_cert: true   # optional: the handshake then requires a certificate of the built-in bundle
+    # or your own files, which win over auto:
+    # cert_file: /etc/coddy/server.crt
+    # key_file: /etc/coddy/server.key
+    # client_ca_file: /etc/coddy/clients-ca.pem   # optional: the handshake then requires a certificate that chains to it
 ```
+
+- **Built-in certificates.** With `auto: true` the listener serves the server pair of `$CODDY_HOME/tls` (a CA of this machine, a server certificate with this host's names, a client certificate: [Certificates and TLS](../operate/certificates.md#built-in-certificates-coddy-tls)), made with no external tool at install, at update, at start and on demand. A machine that borrows trusts the node by `coddy tls export` on the node and `coddy tls trust` on the borrower, and a `coddy` provider row with `tls_auto: true` presents its own client certificate and trusts the bundle. Private keys never move.
 
 - **What TLS does.** The listener presents its certificate. With `client_ca_file` the handshake **requires** a certificate that chains to that authority and refuses a peer without one. Nothing else: **Coddy reads no identity out of a certificate**, so a certificate is no credential, no class and no budget. The credential is a token (`httpserver.shared_models.tokens` for the shared routes, the main token for the whole API), and the budget is the token's.
 - **A certificate alone opens nothing.** A caller with a certificate and no token gets the same `401` as a caller with neither; a token over a certificate does what the token does.

@@ -67,7 +67,7 @@ func (m *Manager) fetchProviderUsage(ctx context.Context, provider config.Provid
 			return acp.ProviderUsageUpdate{}, &llm.ProviderUsageError{Kind: llm.ProviderUsageUnavailable, Detail: "credential helper cut short: " + helperErr.Error()}
 		}
 		w, err := llm.CoddyUsageForProvider(ctx, llm.ProviderInput{
-			Name: provider.Name, Type: provider.Type, APIKey: key, BaseURL: provider.APIBase, ProxyURL: provider.Proxy, ClientTLS: provider.ClientTLS(),
+			Name: provider.Name, Type: provider.Type, APIKey: key, BaseURL: provider.APIBase, ProxyURL: provider.Proxy, ClientTLS: m.Cfg().ProviderClientTLS(&provider),
 		}, alias)
 		if err != nil {
 			return acp.ProviderUsageUpdate{}, err

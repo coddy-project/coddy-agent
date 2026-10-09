@@ -134,8 +134,9 @@ func Serve(ctx context.Context, opts Options) error {
 
 	srv := httpx.NewServer(opts.ListenAddr, s.Handler())
 	tlsOn := cfg.HTTPServer.TLS.Enabled()
+	files := cfg.HTTPListenerFiles()
 	if tlsOn {
-		clientTLS, err := listenerTLS(cfg.HTTPServer.TLS)
+		clientTLS, err := listenerTLS(files.ClientCA)
 		if err != nil {
 			return err
 		}
@@ -147,9 +148,9 @@ func Serve(ctx context.Context, opts Options) error {
 	errs := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", opts.ListenAddr, "auth", authOn, "tls", tlsOn,
-			"client_ca", cfg.HTTPServer.TLS.ClientCAFile != "")
+			"client_ca", files.ClientCA != "", "builtin", cfg.HTTPServer.TLS.Auto)
 		if tlsOn {
-			errs <- srv.ListenAndServeTLS(cfg.HTTPServer.TLS.CertFile, cfg.HTTPServer.TLS.KeyFile)
+			errs <- srv.ListenAndServeTLS(files.Cert, files.Key)
 			return
 		}
 		errs <- srv.ListenAndServe()

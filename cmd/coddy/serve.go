@@ -324,7 +324,14 @@ func runServe(args []string) error {
 	// Only the newest configuration is worth keeping: an observer must not
 	// block the goroutine that replaced it, and a queued older document is
 	// already wrong by the time the supervisor would read it.
-	removeObserver := rt.AddConfigObserver(func(next *config.Config) { offerNewest(reloads, next) })
+	removeObserver := rt.AddConfigObserver(func(next *config.Config) {
+		// A reload that brought a block asking for the built-in certificates (a provider row with tls_auto, a join with auto) finds them
+		// made before anything dials; a failure is logged, and the dial that needed them then names the missing file.
+		if err := ensureBuiltinTLS(next, log); err != nil {
+			log.Warn("built-in TLS certificates", "err", err)
+		}
+		offerNewest(reloads, next)
+	})
 	defer removeObserver()
 
 	// Not every writer of config.yaml is this process. `coddy providers
@@ -515,6 +522,9 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 				// OnServer is called with the live server and then with nil,
 				// both from this instance's goroutine.
 				withdrawPrompts := func() {}
+				if err := ensureBuiltinTLS(cfg, rt.Log); err != nil {
+					return err
+				}
 				return httpserver.Serve(ctx, httpserver.Options{
 					Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
@@ -587,6 +597,9 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			// register and open their tunnels again within seconds.
 			Fingerprint: swarmFingerprint,
 			Run: func(ctx context.Context, cfg *config.Config) error {
+				if err := ensureBuiltinTLS(cfg, rt.Log); err != nil {
+					return err
+				}
 				return swarm.Serve(ctx, swarm.Options{
 					Cfg: cfg, Log: rt.Log, Home: deps.home,
 					ListenAddr: deps.swarmListenAddr(cfg), ExtraAuthTokens: deps.swarmAuthTokens,

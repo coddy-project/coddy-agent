@@ -79,6 +79,11 @@
             "description": "Provider of type coddy only: PEM private key of client_cert_file. A path: the key itself never goes in the configuration. Another provider type refuses the key.",
             "default": ""
           },
+          "tls_auto": {
+            "type": "boolean",
+            "description": "Provider of type coddy only: use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones), client_cert_file and client_key_file to the client pair, which Coddy makes at start. A file named here wins. Another provider type refuses the key.",
+            "default": false
+          },
           "usage_limits_panel": {
             "type": [
               "boolean",
@@ -1287,6 +1292,16 @@
               "type": "string",
               "description": "PEM bundle that client certificates are verified against. With it the TLS handshake requires a certificate that chains to it and refuses every peer without one (mutual TLS admission at the transport level: Coddy reads no identity out of the certificate, so who may do what is for a reverse proxy). Needs cert_file and key_file. Startup state: changing it takes a restart.",
               "default": ""
+            },
+            "auto": {
+              "type": "boolean",
+              "description": "Serve with the built-in certificates (coddy tls ensure, $CODDY_HOME/tls): cert_file and key_file default to the server pair, which Coddy makes at start and renews when it ends within 30 days, so there is no openssl step. A file named here wins. The listener reads its pair at start, so a renewed one takes a restart.",
+              "default": false
+            },
+            "require_client_cert": {
+              "type": "boolean",
+              "description": "With auto, make the handshake require a client certificate that chains to a CA of the built-in bundle (this machine's and the ones trusted with coddy tls trust). Coddy reads no identity out of it. client_ca_file does the same for a bundle of your own.",
+              "default": false
             }
           }
         }
@@ -1397,6 +1412,16 @@
               "type": "string",
               "description": "PEM bundle that client certificates are verified against. With it the TLS handshake requires a certificate that chains to it and refuses every peer without one, nodes that join included (they present dial.cert_file and key_file). Coddy reads no identity out of the certificate: a client of the relay is told apart by its token. Needs cert_file and key_file. Startup state: changing it takes a restart.",
               "default": ""
+            },
+            "auto": {
+              "type": "boolean",
+              "description": "Serve with the built-in certificates (coddy tls ensure, $CODDY_HOME/tls): cert_file and key_file default to the server pair, which Coddy makes at start and renews when it ends within 30 days, so there is no openssl step. A file named here wins. The listener reads its pair at start, so a renewed one takes a restart.",
+              "default": false
+            },
+            "require_client_cert": {
+              "type": "boolean",
+              "description": "With auto, make the handshake require a client certificate that chains to a CA of the built-in bundle (this machine's and the ones trusted with coddy tls trust). Coddy reads no identity out of it. client_ca_file does the same for a bundle of your own.",
+              "default": false
             }
           }
         },
@@ -1420,6 +1445,11 @@
               "type": "string",
               "description": "PEM private key of cert_file.",
               "default": ""
+            },
+            "auto": {
+              "type": "boolean",
+              "description": "Use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones) and cert_file and key_file to the client pair, which Coddy makes at start. A file named here wins.",
+              "default": false
             }
           }
         },
@@ -1495,6 +1525,11 @@
                     "type": "string",
                     "description": "PEM private key of cert_file.",
                     "default": ""
+                  },
+                  "auto": {
+                    "type": "boolean",
+                    "description": "Use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones) and cert_file and key_file to the client pair, which Coddy makes at start. A file named here wins.",
+                    "default": false
                   }
                 }
               }
@@ -1570,6 +1605,11 @@
                     "type": "string",
                     "description": "PEM private key of cert_file.",
                     "default": ""
+                  },
+                  "auto": {
+                    "type": "boolean",
+                    "description": "Use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones) and cert_file and key_file to the client pair, which Coddy makes at start. A file named here wins.",
+                    "default": false
                   }
                 }
               }
@@ -1625,6 +1665,21 @@
             "required": ["name", "scope", "nodes"]
           },
           "default": []
+        }
+      }
+    },
+    "tls": {
+      "type": "object",
+      "title": "Built-in TLS certificates",
+      "description": "What the built-in certificate authority (coddy tls, files under $CODDY_HOME/tls) puts into the server certificate beyond what it finds by itself: the host name, localhost, the loopback addresses, the addresses of the interfaces and the bind and advertise_url hosts of this file are always there. TLS is the transport's business: nothing here is an identity or a credential.",
+      "additionalProperties": false,
+      "properties": {
+        "names": {
+          "type": "array",
+          "description": "Extra DNS names and IP addresses for the server certificate, for a host reached by a name Coddy cannot see: a proxy's name, a DNS alias, a public address behind NAT. A new name makes coddy tls ensure issue the server certificate again.",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
