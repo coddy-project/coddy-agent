@@ -390,7 +390,7 @@ r.Register(gitLogTool())
 
 | Имя инструмента | Назначение |
 |-----------|---------|
-| **`coddy_todo_plan_read`** | Возвращает активный план в виде markdown-чек-листа (`{}`). |
+| **`coddy_todo_plan_read`** | Возвращает активный план в виде markdown-чек-листа (`{}`); если активного плана нет, возвращает однострочную пометку с именем **`coddy_todo_plan_replace`** вместо пустой строки. |
 | **`coddy_todo_plan_replace`** | Заменяет весь план (`markdown`). Отклоняется, пока есть незавершённая строка, если сначала не вызвать **`coddy_todo_plan_archive`**. Завершённые списки перед заменой архивируют **`todos/active.md`**. |
 | **`coddy_todo_plan_archive`** | Помечает каждую незавершённую строку как **`completed`**, записывает **`todos/archive/plan_<unix_seconds>.md`**, если задан **`SessionDir`**, очищает план в памяти и отправляет пустой **`plan`**. |
 | **`coddy_todo_item_add`** | Добавляет строку в конец или вставляет её (`content`, необязательные `status` и `after_index`; `-1` вставляет в начало). |
@@ -431,4 +431,4 @@ r.Register(gitLogTool())
 Инструменты MCP регистрируются во время работы с префиксом `serverName__toolName` и подчиняются
 той же модели `RequiresPermission` и списка разрешённых для плана, что и встроенные инструменты.
 
-<!-- docsgen:source sha256=c06dfa83e8fabe0c -->
+<!-- docsgen:source sha256=d49cff04750aebd3 -->
