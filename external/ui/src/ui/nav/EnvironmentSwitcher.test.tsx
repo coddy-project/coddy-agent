@@ -455,3 +455,46 @@ describe("EnvironmentSwitcher menu height", () => {
     );
   });
 });
+
+// Issue #357: the local environment is named by the machine the page runs on,
+// in its short form, and a long name is cut to fit the rail with the whole
+// of it in the tooltip; "Local" stands in while the name is not known.
+describe("EnvironmentSwitcher local name", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({ ok: true, status: 200, json: async () => ({}) }) as Response,
+      ),
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("names the local environment by the short host name", () => {
+    render(
+      <EnvironmentSwitcher
+        className="rail-hit"
+        wide={true}
+        localHost="pasha-lt.rgs.ru"
+      />,
+    );
+    const btn = screen.getByTestId("nav-environment");
+    expect(btn).toHaveAttribute("aria-label", "Environment: pasha-lt");
+    const label = within(btn).getByText("pasha-lt");
+    expect(label).toHaveClass("rail-env-label");
+    expect(label).toHaveAttribute("title", "pasha-lt.rgs.ru");
+  });
+
+  it("says Local while the host name is unknown", () => {
+    render(<EnvironmentSwitcher className="rail-hit" wide={true} />);
+    expect(screen.getByTestId("nav-environment")).toHaveAttribute(
+      "aria-label",
+      "Environment: Local",
+    );
+  });
+});

@@ -26,7 +26,8 @@ export type LiveStatusKind =
   | "thinking"
   | "memory"
   | "writing"
-  | "waiting";
+  | "waiting"
+  | "preparing";
 
 export type LiveStatus = {
   kind: LiveStatusKind;
@@ -45,6 +46,12 @@ export type LiveStatus = {
   step?: string;
   /** Wall clock ms to count elapsed from; omitted when the start is unknown. */
   startedAtMs?: number;
+  /**
+   * The turn has shown nothing yet - no call, no reasoning, no text - since its
+   * message: it may still be preparing (issue #357), which only the server's
+   * turn_progress phase can tell.
+   */
+  opening?: true;
   /**
    * When the turn's user message was created. It stands in for the turn's start until
    * the server's turn_progress names the real one (an older server never does). A
@@ -384,14 +391,37 @@ export function deriveLiveStatus(items: readonly TranscriptItem[]): LiveStatus {
     return { kind: "writing", key: "status.writing", ...turn };
   }
 
+  const opening = sawStep ? {} : ({ opening: true } as const);
   const startedAtMs = waitingFrom ?? turnStartedAtMs;
   if (startedAtMs === undefined) {
-    return PREPARING;
+    return { ...PREPARING, ...opening };
   }
   return {
     kind: "waiting",
     key: WAITING_KEY,
     startedAtMs,
     ...turn,
+    ...opening,
   };
+}
+
+/**
+ * The live status a turn shows while it prepares: taken, but not yet talking to its
+ * model - it brings in its MCP servers and waits for the model's context window
+ * (issue #357). That is a turn that has shown nothing since its message and either
+ * has not reported its progress yet or reports the preparing phase. Any other status
+ * is returned as it is.
+ */
+export function withPreparingPhase(
+  status: LiveStatus,
+  progress: { phase?: "preparing" } | null | undefined,
+): LiveStatus {
+  if (
+    status.kind !== "waiting" ||
+    status.opening !== true ||
+    (progress && progress.phase !== "preparing")
+  ) {
+    return status;
+  }
+  return { ...status, kind: "preparing", key: "status.preparingSession" };
 }

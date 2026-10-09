@@ -218,6 +218,8 @@ function IconMore(props: { className?: string }) {
 }
 
 export function NavRail(props: {
+  /** The host name of the page's own server, for the environment item. */
+  localHost?: string;
   onNewChat: () => void;
   onOpenHistory: () => void;
   historyOpen: boolean;
@@ -637,7 +639,11 @@ export function NavRail(props: {
           {/* The environment the page drives, at the foot of the rail and
               above the way out: never folded behind More. */}
           {inBar("environment") ? (
-            <EnvironmentSwitcher className={navBtnCls} wide={pillWide} />
+            <EnvironmentSwitcher
+              className={navBtnCls}
+              wide={pillWide}
+              {...(props.localHost ? { localHost: props.localHost } : {})}
+            />
           ) : null}
 
           {inBar("signOut") ? (

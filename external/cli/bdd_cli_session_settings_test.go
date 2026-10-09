@@ -112,6 +112,8 @@ func initializeCLISessionSettingsScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a coddy console app over a stub agent runner$`, s.aConsoleAppOverStubRunner)
 	sc.Step(`^the console app starts$`, s.theConsoleAppStarts)
+	sc.Step(`^the operator submits the prompt "([^"]*)"$`, s.operatorSubmitsPrompt)
+	sc.Step(`^the stub turn streams the text "([^"]*)"$`, s.stubStreamsText)
 	sc.Step(`^the operator switches the permission mode to "([^"]*)"$`, s.operatorSwitchesPermissionMode)
 	sc.Step(`^the footer shows the permission mode "([^"]*)"$`, s.waitFooterPermission)
 	sc.Step(`^the footer shows no permission mode$`, func() error { return s.waitFooterPermission("") })

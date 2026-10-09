@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -766,6 +767,16 @@ type SessionListEntry struct {
 	// nested child bundle.
 	bundleDir         string
 	messageCountKnown bool
+	// noMessage marks a conversation nobody wrote in, listed because the
+	// listing asked for every bundle (ListOptions.IncludeEmpty).
+	noMessage bool
+}
+
+// HoldsNoMessage reports whether the row is a conversation nobody wrote in: an
+// ordinary session, not pinned, whose transcript is empty. Only a listing with
+// ListOptions.IncludeEmpty returns such a row.
+func (e SessionListEntry) HoldsNoMessage() bool {
+	return e.noMessage
 }
 
 // ListOptions selects which persisted sessions ListSnapshotsWith returns.
@@ -787,6 +798,15 @@ type ListOptions struct {
 	// Origin selects sessions by the surface that started them; the zero value
 	// is every surface.
 	Origin OriginFilter
+	// IncludeEmpty lists the conversations that hold no message as well: a
+	// console started and closed without a prompt, an editor's thread nobody
+	// wrote in, a chat whose first send never ran. A listing for a person
+	// leaves them out (issue #357), so the zero value does; a caller that
+	// acts on every bundle (a bulk delete) sets it. A pinned conversation is
+	// listed either way, and so are the bundles of scheduler jobs, subagent
+	// runs and print runs, which the options above decide on: a print run that
+	// failed before its prompt is still a run a script may look at.
+	IncludeEmpty bool
 	// IncludePrintRuns adds the sessions one-shot print mode created (origin
 	// "print"), and the children they spawned. The zero value leaves them out,
 	// like scheduler runs and subagent children: they are a script's runs, not
@@ -886,6 +906,13 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 		return out, true
 	}
 	messageCount, known := meta.messageCountMatches(filepath.Join(dir, messagesFile))
+	noMessage := false
+	if !meta.Pinned && !meta.ExcludedFromComposerSessionList(id) && !meta.IsSubagentRun() && !IsPrintOrigin(meta.Origin) {
+		noMessage = known && messageCount == 0 || !known && transcriptHoldsNoMessage(dir)
+	}
+	if noMessage && !opts.IncludeEmpty {
+		return out, true
+	}
 	row := SessionListEntry{
 		SessionID:         meta.ID,
 		CWD:               meta.CWD,
@@ -907,6 +934,7 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 		SubagentTaskID:    meta.SubagentTaskID,
 		bundleDir:         dir,
 		messageCountKnown: known,
+		noMessage:         noMessage,
 	}
 	if !SessionMatchesAnyTag(row, opts.Tags) {
 		return out, true
@@ -951,6 +979,35 @@ func (f *FileStore) EnrichMessageCounts(rows []SessionListEntry) {
 		rows[i].MessageCount = f.messageCountAt(dir)
 		rows[i].messageCountKnown = true
 	}
+}
+
+// emptyTranscriptMaxBytes is the size up to which a transcript is read to tell
+// whether it holds a message: an empty one is a few dozen bytes, and anything
+// larger holds at least one.
+const emptyTranscriptMaxBytes = 256
+
+// transcriptHoldsNoMessage answers, for a bundle whose recorded count does not
+// name its transcript (an older build wrote it), whether the transcript is
+// empty, without decoding one that holds a conversation: only a file small
+// enough to be empty is read. A missing transcript holds nothing.
+func transcriptHoldsNoMessage(dir string) bool {
+	path := filepath.Join(dir, messagesFile)
+	info, err := os.Stat(path)
+	if err != nil {
+		return errors.Is(err, os.ErrNotExist)
+	}
+	if info.Size() > emptyTranscriptMaxBytes {
+		return false
+	}
+	b, err := readFileWithRetry(path)
+	if err != nil {
+		return false
+	}
+	var wrap messagesFileData
+	if err := json.Unmarshal(b, &wrap); err != nil {
+		return false
+	}
+	return len(wrap.Messages) == 0
 }
 
 // messageCountAt keeps the historical list behavior for a missing or corrupt

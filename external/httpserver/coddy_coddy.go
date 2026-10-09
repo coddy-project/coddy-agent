@@ -1061,6 +1061,12 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		Tags:                 session.ParseTagList(r.URL.Query().Get("tags")),
 		Origin:               origin,
 		IncludePrintRuns:     includePrint,
+		// A conversation nobody wrote in stays out of History (issue #357),
+		// except while its first turn runs: that turn appends the prompt only
+		// once its MCP servers and its model's context window are in, and
+		// the chat is in History from its first send. Decided below, where
+		// the activity of a session is known.
+		IncludeEmpty: true,
 	}
 	rows, err := fs.ListSnapshotsWith(listOpts)
 	if err != nil {
@@ -1073,19 +1079,29 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	// History itself keeps their rows hidden.
 	historyRows := rows
 	if !isNormalHistoryList(listOpts) || !listOpts.IncludeSubagents {
-		historyRows, err = fs.ListSnapshotsWith(session.ListOptions{IncludeSubagents: true})
+		historyRows, err = fs.ListSnapshotsWith(session.ListOptions{IncludeSubagents: true, IncludeEmpty: true})
 		if err != nil {
 			s.log.Error("coddy sessions active count", "error", err)
 			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
 			return
 		}
 	}
+	turnActive := func(id string) bool {
+		return s.mgr.SessionTurnActiveInProcess(id) || session.TurnLockHeld(fs.SessionPath(id))
+	}
 	activeCount := 0
 	for _, row := range historyRows {
-		if s.mgr.SessionTurnActiveInProcess(row.SessionID) || session.TurnLockHeld(fs.SessionPath(row.SessionID)) {
+		if turnActive(row.SessionID) {
 			activeCount++
 		}
 	}
+	kept := rows[:0]
+	for _, row := range rows {
+		if !row.HoldsNoMessage() || turnActive(row.SessionID) {
+			kept = append(kept, row)
+		}
+	}
+	rows = kept
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
 		rows, err = fs.FilterSnapshotListForSearch(rows, q)
 		if err != nil {
@@ -2053,9 +2069,9 @@ func (s *Server) lowestPinRank() int {
 	if fs == nil {
 		return 0
 	}
-	// Every pin counts, a pinned print run's included: a new pin goes above
-	// all of them.
-	rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: session.ArchiveAll, IncludePrintRuns: true})
+	// Every pin counts, a pinned print run's and a pinned conversation
+	// nobody wrote in included: a new pin goes above all of them.
+	rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: session.ArchiveAll, IncludeEmpty: true, IncludePrintRuns: true})
 	if err != nil {
 		s.log.Warn("read pin ranks", "error", err)
 		return 0
@@ -2220,7 +2236,9 @@ func (s *Server) coddySessionsBulkDelete(w http.ResponseWriter, r *http.Request)
 		if scope == "archived" {
 			archived = session.ArchiveOnly
 		}
-		rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: archived, IncludePrintRuns: true})
+		// A session nobody wrote in is out of the listing people read, and in
+		// the history this scope deletes all the same.
+		rows, err := fs.ListSnapshotsWith(session.ListOptions{Archived: archived, IncludeEmpty: true, IncludePrintRuns: true})
 		if err != nil {
 			s.log.Error("coddy sessions bulk delete list", "error", err)
 			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)

@@ -257,6 +257,12 @@ func (r *Runtime) Init(opts Options) error {
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(opts.Cfg, &defaultSender{live: live}, runner, log, paths.CWD, store)
+	// A session this process creates returns before its MCP servers answer,
+	// and its first turn waits for them after announcing itself (issue #357):
+	// a cold server used to hold the first message of a web chat, without a
+	// byte on the wire, for as long as it took to start. A stored session
+	// still starts its servers only for its first turn.
+	mgr.SetNewSessionsBackgroundMCP(true)
 	// A met goal is confirmed against the workspace by the goal verifier.
 	mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
 	if pid := strings.TrimSpace(opts.PreferredSessionID); pid != "" {

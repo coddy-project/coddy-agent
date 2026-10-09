@@ -637,7 +637,15 @@ type TurnProgressUpdate struct {
 	ElapsedMs    int64 `json:"elapsedMs"`
 	OutputTokens int   `json:"outputTokens"`
 	Estimated    bool  `json:"estimated"`
+	// Phase is TurnPhasePreparing on the update a turn sends as soon as it is
+	// taken, while it still brings in its MCP servers and waits for its model's
+	// context window; empty once the loop runs (issue #357).
+	Phase string `json:"phase,omitempty"`
 }
+
+// TurnPhasePreparing is the TurnProgressUpdate phase of a turn that was taken
+// and is not yet talking to its model.
+const TurnPhasePreparing = "preparing"
 
 // UsageUpdate reports how much of the model context window is currently occupied.
 type UsageUpdate struct {

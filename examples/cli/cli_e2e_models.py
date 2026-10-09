@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 
 from cli_tui_driver import CR, CoddyTUI, ok
@@ -18,11 +17,11 @@ def main() -> int:
         tui.type_text("/model rpa/qwen3.6-35b-a3b")
         tui.send(CR)
         tui.wait_for("(rpa) qwen3.6-35b-a3b", timeout=20)
-        session = tui.single_session_dir() / "session.json"
-        data = json.loads(session.read_text())
-        blob = json.dumps(data)
-        if "qwen3.6-35b-a3b" not in blob:
-            raise AssertionError("session.json does not record the switched model")
+        # A settings command is not a message: the session is written with
+        # its first prompt, the model chosen here with it
+        # (TestDeferredBundleKeepsASettingChosenBeforeTheFirstPrompt).
+        if tui.session_dirs():
+            raise AssertionError(f"/model alone wrote the session: {[d.name for d in tui.session_dirs()]}")
         return ok("cli_e2e_models")
     finally:
         tui.close()

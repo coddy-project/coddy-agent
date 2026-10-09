@@ -1054,6 +1054,22 @@ func (s *cliTUIState) footerShowsTokenUsage() error {
 // agentReportsTurnTokens is what the agent loop publishes while a call streams and
 // after it: the turn's own numbers, which lead the status line.
 func (s *cliTUIState) agentReportsTurnTokens(tokens int) error {
+	// The agent reports from inside its loop, after the turn announced itself
+	// (the preparing frame of beginTurn): a frame sent before the turn reached
+	// the runner could be overtaken by that one.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		entered := len(s.prompts) > 0
+		s.mu.Unlock()
+		if entered {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the turn never reached the agent runner")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	return s.app.Sender().SendSessionUpdate(s.app.sessionID, acp.TurnProgressUpdate{
 		SessionUpdate: acp.UpdateTypeTurnProgress,
 		StartedAt:     time.Now().UTC().Format(time.RFC3339Nano),
@@ -2011,6 +2027,9 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the cancelled turn emits a late text chunk "([^"]*)"$`, s.cancelledTurnEmitsLateChunk)
 	sc.Step(`^the transcript does not show "([^"]*)"$`, s.transcriptDoesNotShow)
 	sc.Step(`^the operator presses ctrl\+c twice$`, s.operatorPressesCtrlCTwice)
+	sc.Step(`^the sessions folder holds no session$`, s.sessionsFolderHoldsNoSession)
+	sc.Step(`^the sessions folder holds the console's session$`, s.sessionsFolderHoldsConsoleSession)
+	sc.Step(`^the exit hint names no session to continue$`, s.exitHintNamesNoSession)
 	sc.Step(`^the console app stops within two seconds$`, s.consoleStopsWithinTwoSeconds)
 	sc.Step(`^the exit hint names the session and the continue command$`, s.exitHintNamesSessionAndContinue)
 	sc.Step(`^the console app starts continuing the latest session$`, s.appStartsContinuingLatest)
@@ -2107,6 +2126,59 @@ func (s *cliTUIState) consoleStopsWithinTwoSeconds() error {
 	case <-time.After(2 * time.Second):
 		return fmt.Errorf("the console did not stop after double ctrl+c")
 	}
+}
+
+// sessionBundles lists the session folders the console's store holds.
+func (s *cliTUIState) sessionBundles() ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(s.home, "sessions"))
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
+}
+
+func (s *cliTUIState) sessionsFolderHoldsNoSession() error {
+	got, err := s.sessionBundles()
+	if err != nil {
+		return err
+	}
+	if len(got) != 0 {
+		return fmt.Errorf("the sessions folder holds %v, want nothing before a prompt", got)
+	}
+	return nil
+}
+
+func (s *cliTUIState) sessionsFolderHoldsConsoleSession() error {
+	want := s.app.sessionID
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got, err := s.sessionBundles()
+		if err != nil {
+			return err
+		}
+		if len(got) == 1 && got[0] == want {
+			if _, err := os.Stat(filepath.Join(s.home, "sessions", want, "session.json")); err == nil {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the sessions folder holds %v, want only the console's session %q", got, want)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func (s *cliTUIState) exitHintNamesNoSession() error {
+	if hint := s.app.ExitHint(); hint != "" {
+		return fmt.Errorf("exit hint %q names a session nothing was saved for", hint)
+	}
+	return nil
 }
 
 func (s *cliTUIState) exitHintNamesSessionAndContinue() error {

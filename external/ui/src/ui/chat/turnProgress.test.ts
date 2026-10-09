@@ -253,3 +253,55 @@ test("formatTurnTokens keeps the number short and never rounds up", () => {
   expect(formatTurnTokens(1_250_000)).toBe("1.2M");
   expect(formatTurnTokens(Number.NaN)).toBe("0");
 });
+
+// Issue #357: the turn announces itself in a preparing phase before it talks
+// to its model, and the loop's first report ends that phase.
+test("the preparing phase of a turn is read and ended by the loop's first report", () => {
+  const now = 1_000_000;
+  const preparing = turnProgressFromFrame(
+    {
+      startedAt: new Date(now).toISOString(),
+      elapsedMs: 0,
+      outputTokens: 0,
+      phase: "preparing",
+    },
+    0,
+    now,
+  );
+  expect(preparing?.phase).toBe("preparing");
+  const loop = turnProgressFromFrame(
+    { startedAt: new Date(now).toISOString(), elapsedMs: 900, outputTokens: 0 },
+    0,
+    now + 900,
+  );
+  expect(loop?.phase).toBeUndefined();
+  const merged = mergeTurnProgress(preparing, loop!, "stream");
+  expect(merged.phase).toBeUndefined();
+});
+
+// An activity read carries no phase, so it neither starts nor ends one.
+test("an activity read keeps the phase the stream gave", () => {
+  const now = 1_000_000;
+  const preparing = turnProgressFromFrame(
+    {
+      startedAt: new Date(now).toISOString(),
+      elapsedMs: 0,
+      outputTokens: 0,
+      phase: "preparing",
+    },
+    0,
+    now,
+  );
+  const activity = turnProgressFromActivity(
+    {
+      turnActive: true,
+      turnStartedAt: new Date(now).toISOString(),
+      turnElapsedMs: 500,
+      turnOutputTokens: 0,
+    },
+    now + 500,
+  );
+  expect(mergeTurnProgress(preparing, activity!, "activity").phase).toBe(
+    "preparing",
+  );
+});

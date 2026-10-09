@@ -326,7 +326,10 @@ func (s *remoteClientState) agentReportsProgress(tokens, elapsedSec int, text st
 func (s *remoteClientState) clientReceivedProgress(tokens, elapsedSec int) error {
 	for _, u := range s.sender.snapshot() {
 		p, ok := u.(acp.TurnProgressUpdate)
-		if !ok {
+		// The turn announces itself before the agent reports anything (the
+		// preparing phase, issue #357); the agent's own report is the one
+		// this step checks.
+		if !ok || p.Phase == acp.TurnPhasePreparing {
 			continue
 		}
 		if p.OutputTokens != tokens || p.ElapsedMs != int64(elapsedSec)*1000 || !p.Estimated || p.StartedAt == "" {
