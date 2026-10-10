@@ -576,7 +576,8 @@ manager config-option API before the UI starts, in every launch mode
 (interactive, `--continue`, `--resume`, and `--prompt`), and they are written
 to the session like a switch made in it, the permission mode included, so the
 session keeps them when it is opened again, after a restart too; the permission
-mode also becomes the mode new sessions start in. `--theme
+mode stays with that session and does not become the mode new sessions start
+in, since a run from the command line is a task of its own. `--theme
 dark|light|auto` (auto falls back COLORFGBG → dark). `--plain` disables
 terminal queries, modifyOtherKeys, titles, and OSC 8 for deterministic
 automation. Logging is forced away from the terminal into

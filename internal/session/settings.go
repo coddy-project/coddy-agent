@@ -30,7 +30,8 @@ type SettingsChange struct {
 	Source string
 	// SessionOnly keeps a permission mode change to its session: the mode new
 	// sessions start in stays the operator's last choice. Set for a turn a
-	// messenger user who is not the bot's admin started.
+	// messenger user who is not the bot's admin started, and for the
+	// console's --permission-mode launch flag.
 	SessionOnly bool
 }
 
