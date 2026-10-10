@@ -21,8 +21,14 @@ const plainOutputLimitNotice = "The answer was cut off at the model's output lim
 // outputLimitStep is what one call of outputLimitProvider does.
 type outputLimitStep struct {
 	reasoning string
+	// signature signs the reasoning, as Anthropic extended thinking does.
+	signature string
 	text      string
 	stop      string
+	// calls are the tool calls the step asks for.
+	calls []llm.ToolCall
+	// err fails the call after its text and reasoning were streamed.
+	err error
 	// during runs in the middle of the call, before it answers.
 	during func()
 }
@@ -52,7 +58,10 @@ func (p *outputLimitProvider) Stream(_ context.Context, msgs []llm.Message, _ []
 	if step.text != "" {
 		emit(llm.StreamChunk{TextDelta: step.text})
 	}
-	return &llm.Response{Content: step.text, Reasoning: step.reasoning, StopReason: step.stop, OutputTokens: 7}, nil
+	if step.err != nil {
+		return nil, step.err
+	}
+	return &llm.Response{Content: step.text, Reasoning: step.reasoning, ReasoningSignature: step.signature, ToolCalls: step.calls, StopReason: step.stop, OutputTokens: 7}, nil
 }
 
 func outputLimitAgent(t *testing.T, p llm.Provider, adjust func(*config.Config)) (*Agent, *session.State) {
@@ -264,15 +273,19 @@ func TestOutputLimitRecoveryLeavesAStoppedTurnAlone(t *testing.T) {
 	}
 }
 
-// TestOutputLimitRecoveryNeedsAnIteration: the nudge costs a ReAct iteration
-// like the other recoveries, so on the last allowed step the turn ends at its
-// step limit instead of leaving a dangling nudge.
-func TestOutputLimitRecoveryNeedsAnIteration(t *testing.T) {
+// TestOutputLimitAtTheStepCapEndsOnTheOutputLimit: the nudge needs an iteration
+// to be read in. On the last allowed step the turn does not pretend the step
+// limit was what stopped it: it ends on the output limit, with that notice and
+// without spending a retry slot on a request that cannot be sent.
+func TestOutputLimitAtTheStepCapEndsOnTheOutputLimit(t *testing.T) {
 	p := &outputLimitProvider{steps: []outputLimitStep{cutOff, answered}}
-	ag, _ := outputLimitAgent(t, p, func(c *config.Config) { c.Agent.MaxTurns = 1 })
+	ag, st := outputLimitAgent(t, p, func(c *config.Config) { c.Agent.MaxTurns = 1 })
 	stop, err := runOutputLimitTurn(ag)
-	if err != nil || stop != string(acp.StopReasonMaxTurns) || p.calls != 1 {
-		t.Fatalf("stop = %q, err = %v after %d calls; want max_turns after 1", stop, err, p.calls)
+	if err != nil || stop != string(acp.StopReasonMaxTokens) || p.calls != 1 {
+		t.Fatalf("stop = %q, err = %v after %d calls; want max_tokens after 1", stop, err, p.calls)
+	}
+	if notice := st.TakeTurnStopNotice(); notice != plainOutputLimitNotice {
+		t.Fatalf("notice = %q, want the plain output-limit notice", notice)
 	}
 }
 

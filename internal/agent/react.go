@@ -701,11 +701,30 @@ func emptyRecoveryProjection(messages []llm.Message, nudges ...string) []llm.Mes
 	return messages
 }
 
+// restoreRecoveries puts back, on a history rebuilt from the transcript, what
+// the recoveries in progress had done to the working slice: the steps that came
+// back empty are left out and the local-only nudges the turn has earned follow
+// the history. A rebuild happens after a compaction and after a provider
+// recovery; either one would otherwise end the history on the very step the
+// model was asked to redo, with the nudge gone. Nothing pending leaves the
+// history as it is. The last tail messages of msgs - the answer a provider
+// failure cut off, kept in the transcript after the nudges it was written
+// under - stay behind the nudges.
+func restoreRecoveries(msgs []llm.Message, tail, outputLimit, reissues, empty int) []llm.Message {
+	if outputLimit == 0 && reissues == 0 && empty == 0 {
+		return msgs
+	}
+	cut := max(len(msgs)-tail, 0)
+	kept := append([]llm.Message(nil), msgs[cut:]...)
+	head := emptyRecoveryProjection(msgs[:cut], recoveryNudges(outputLimit, empty)...)
+	return append(head, kept...)
+}
+
 // recoveryNudges lists the local-only nudges a turn has earned so far, for a
-// history rebuilt after compaction: one output-limit message per output-limit
-// recovery, then one wording nudge per empty-answer continuation. They come back
-// grouped by kind, not in the order they were first sent; the rebuilt prefix is
-// new to the provider's cache anyway.
+// history rebuilt from the transcript: one output-limit message per
+// output-limit recovery, then one wording nudge per empty-answer continuation.
+// They come back grouped by kind, not in the order they were first sent; a
+// rebuilt prefix is new to the provider's cache anyway.
 func recoveryNudges(outputLimit, empty int) []string {
 	nudges := make([]string, 0, outputLimit+empty)
 	for i := 0; i < outputLimit; i++ {
@@ -909,9 +928,7 @@ func (a *Agent) runReActLoop(
 		if (turn > 0 || switched) && a.maybeAutoCompact(ctx) {
 			sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 			messages = a.buildMessages(sys.Content)
-			if emptyReissues > 0 || emptyContinuations > 0 || outputLimitRecoveries > 0 {
-				messages = emptyRecoveryProjection(messages, recoveryNudges(outputLimitRecoveries, emptyContinuations)...)
-			}
+			messages = restoreRecoveries(messages, 0, outputLimitRecoveries, emptyReissues, emptyContinuations)
 			turnCtx = a.buildTurnContext(sys)
 			// The rebuilt estimate above was taken without the block; the call
 			// below sends it, so the accounting has to see it too.
@@ -1298,6 +1315,16 @@ func (a *Agent) runReActLoop(
 				case <-timer.C:
 				}
 				messages = a.buildMessages(sys.Content)
+				// The rebuild reads the transcript, which holds the steps that came
+				// back empty and none of the nudges they earned: put back what the
+				// recoveries in progress had done to the working slice, so the step
+				// runs again as the request that failed. The answer kept above is
+				// the last message of the rebuild, and stays behind those nudges.
+				tail := 0
+				if kept && len(messages) > 0 && messages[len(messages)-1].Role == llm.RoleAssistant {
+					tail = 1
+				}
+				messages = restoreRecoveries(messages, tail, outputLimitRecoveries, emptyReissues, emptyContinuations)
 				if kept {
 					// LLM-facing only; never persisted to the transcript.
 					messages = append(messages, llm.Message{Role: llm.RoleUser, Content: providerRecoveryNudge})
@@ -1482,12 +1509,12 @@ func (a *Agent) runReActLoop(
 				// words, to be brief and to split large writes, a bounded number
 				// of times; a step that did produce visible text ends the turn as
 				// before. The empty step stays in the transcript and leaves the
-				// LLM-facing history, like the empty-answer recovery below.
+				// LLM-facing history, like the empty-answer recovery below. The
+				// nudge needs one more iteration to be read in: on the last allowed
+				// step nothing is spent on it, and the turn ends on the output
+				// limit, which is what cut it, rather than on the step limit.
 				if strings.TrimSpace(response.Content) == "" && outputLimitRecoveries < maxOutputLimitRecoveries &&
-					ctx.Err() == nil && !a.state.IsUserCancelledTurn() && retryAllowance.TakeRetry() {
-					if turn+1 >= maxTurns {
-						return string(acp.StopReasonMaxTurns), nil
-					}
+					turn+1 < maxTurns && ctx.Err() == nil && !a.state.IsUserCancelledTurn() && retryAllowance.TakeRetry() {
 					outputLimitRecoveries++
 					messages = emptyRecoveryProjection(messages, outputLimitNudge)
 					nextCallReason = "output_limit_nudge"
@@ -2406,6 +2433,15 @@ func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 		if isLLMHistoryMessage(m) {
 			if m.Role == llm.RoleAssistant {
 				m.Content = session.StripArtifactMarkers(m.Content)
+				// A step that came back empty stays in the transcript, where the
+				// user watched it think, but says nothing the model could read
+				// back; replayed, it makes two assistant turns in a row, which chat
+				// templates that insist on alternation refuse. Dropped by this
+				// rule from every history built here, the same way each time, the
+				// requests of a turn and the next turn's agree on the prefix.
+				if repliesNothing(m) {
+					continue
+				}
 			}
 			filtered = append(filtered, m)
 		}
@@ -2559,6 +2595,17 @@ func typedText(blocks []acp.ContentBlock) string {
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// repliesNothing reports an assistant message that has no text, no tool call
+// and no signed reasoning. Unsigned thinking is never sent back for such a
+// message (an OpenAI-compatible request carries reasoning only next to tool
+// calls), so nothing of it would reach the provider but an empty turn. Signed
+// reasoning is what Anthropic, Codex and Devin replay, so a message carrying it
+// stays in the history.
+func repliesNothing(m llm.Message) bool {
+	return m.Role == llm.RoleAssistant && strings.TrimSpace(m.Content) == "" &&
+		len(m.ToolCalls) == 0 && m.ReasoningSignature == ""
 }
 
 func isLLMHistoryMessage(m llm.Message) bool {

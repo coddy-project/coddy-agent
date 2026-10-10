@@ -336,7 +336,10 @@ func (s *turnEndState) nextRequestContinued() error {
 
 // secondRequestAskedForShortReasoning: the request after the cut-off step ends
 // with the corrective message, after the user's prompt, and does not replay the
-// step that was cut off.
+// step that was cut off. The cut-off step is the only thing the model has said
+// so far, so any assistant message in the request is that step (sent with an
+// empty content: the reasoning of a message without tool calls is never sent),
+// and its reasoning text appears nowhere in the body.
 func (s *turnEndState) secondRequestAskedForShortReasoning() error {
 	calls := s.stub.calls()
 	if len(calls) < 2 {
@@ -359,9 +362,12 @@ func (s *turnEndState) secondRequestAskedForShortReasoning() error {
 			promptAt = i
 		case m.Role == "user" && strings.Contains(text, "output limit") && strings.Contains(text, "keep your reasoning short") && strings.Contains(text, "split"):
 			nudgeAt = i
-		case m.Role == "assistant" && strings.Contains(text, "lay the whole file out"):
+		case m.Role == "assistant":
 			return fmt.Errorf("the second request replays the step that was cut off: %s", calls[1])
 		}
+	}
+	if strings.Contains(string(calls[1]), "lay the whole file out") {
+		return fmt.Errorf("the second request carries the reasoning of the step that was cut off: %s", calls[1])
 	}
 	if promptAt < 0 || nudgeAt < promptAt {
 		return fmt.Errorf("the second request does not carry the corrective message after the prompt (prompt at %d, message at %d): %s", promptAt, nudgeAt, calls[1])

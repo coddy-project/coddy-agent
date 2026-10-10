@@ -284,9 +284,9 @@ messages: [
      one slot and a normal **`max_turns`** iteration. The plain replay uses
      a normal iteration too; transport retries stay inside that iteration.
      The nudge projection also removes the empty assistant message from the
-     LLM-facing history. If auto-compaction rebuilds that history between
-     attempts, the pending recovery projection and its nudges are restored;
-     signed reasoning stays in the transcript. After the budget or nudge limit is exhausted the turn
+     LLM-facing history. If an auto-compaction or a provider recovery
+     rebuilds that history between attempts, the pending recovery projection
+     and its nudges are restored; signed reasoning stays in the transcript. After the budget or nudge limit is exhausted the turn
      ends with **`StopReasonRefused`**.
    - **Output-limit nudge.** A step that stops at `max_tokens`
      (`finish_reason: "length"`) with no tool call and no visible text - only
@@ -294,11 +294,14 @@ messages: [
      ending the turn: the previous step hit the output limit before it
      produced an answer or a tool call, keep the reasoning short, split a
      large file write or edit into several smaller tool calls. The empty step
-     stays in the transcript and leaves the LLM-facing history, and the nudge
-     is appended at its end, so the cached prefix is untouched; an
-     auto-compaction between the attempts restores the pending nudges with the
-     other recovery projection. At most **`maxOutputLimitRecoveries`** (2) in
-     a row. Each consumes one slot and a normal **`max_turns`** iteration, so
+     stays in the transcript. It is left out of every request of the turn, and
+     the nudge is appended at the end of the history, so the cached prefix is
+     untouched. A history rebuilt between the attempts (an auto-compaction, a
+     provider recovery) restores the pending nudges and leaves the empty step
+     out again. At most **`maxOutputLimitRecoveries`** (2) in
+     a row. Each consumes one slot and a normal **`max_turns`** iteration
+     (on the last iteration the turn ends on the output limit, not on the step
+     limit), so
      `llm_retry_max: 0` turns it off, and tool progress or a follow-up resets
      the count. A step that already wrote visible text ends the turn as before.
      Subagents and scheduled runs take the same path. When the nudges are
@@ -483,7 +486,7 @@ messages: [
 
 ## Обработка ошибок в цикле ReAct
 
-- Ошибка API LLM - попытки берутся из общего бюджета шага `agent.llm_retry_max` (по умолчанию 3, явный 0 отключает); повторы транспорта, повторная отправка после тайм-аута первого токена и восстановление после пустого ответа делят один пул; бюджет сбрасывается, когда инструменты продвигают работу, и не ограничивает все вызовы LLM за весь ход;
+- Ошибка API LLM - попытки берутся из общего бюджета шага `agent.llm_retry_max` (по умолчанию 3, явный 0 отключает); повторы транспорта, повторная отправка после тайм-аута первого токена, восстановление после пустого ответа и просьба сократить шаг после упора в предел вывода делят один пул; бюджет сбрасывается, когда инструменты продвигают работу, и не ограничивает все вызовы LLM за весь ход;
 - Поток LLM завис (после первых байтов ничего не приходит в течение `llm_stream_idle_timeout_ms`) - частичный ответ сохраняется, ход завершается ошибкой с указанием зависания; повтор в пределах оставшегося общего бюджета выполняется, только если ничего не было доставлено;
 - Ошибка выполнения инструмента - ошибка возвращается как наблюдение, следующий шаг решает LLM;
 - Отказ в разрешении - возвращается наблюдение "permission denied";
@@ -491,4 +494,4 @@ messages: [
 - Слишком длинный контекст - старые сообщения сжимаются в сводку, работа продолжается со сводкой;
 - Отмена - все операции прерываются, возвращается причина остановки `cancelled`.
 
-<!-- docsgen:source sha256=46b89c7c22a40efc -->
+<!-- docsgen:source sha256=113b35cb4fcbc9dc -->
