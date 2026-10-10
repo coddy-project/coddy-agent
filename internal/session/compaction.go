@@ -288,6 +288,16 @@ func SummaryReplayText(content string) string {
 	return content
 }
 
+// SummaryBody is the summary a summary row carries: the text the summarizer
+// wrote, without the preamble of either kind of row and without the request in
+// front of an in-turn row. Content that is no summary row comes back unchanged.
+func SummaryBody(content string) string {
+	if _, summary, ok := SplitInTurnSummary(content); ok {
+		return summary
+	}
+	return strings.TrimPrefix(content, compactionSummaryPreamble)
+}
+
 // NewCompactionSummaryMessage builds the transcript row holding a generated
 // summary. It uses the user role so every provider replays it as plain
 // conversation input (tool results already travel as user-role messages).

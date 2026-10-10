@@ -16,14 +16,24 @@ import (
 )
 
 // overThresholdAgent is a compact test agent whose context is at 90% of a
-// 10000-token window, with logs captured.
+// 10000-token window, with logs captured: 2000 tokens of conversation and 7000
+// that every request carries besides it, so that the smallest request a fold can
+// produce is still under the threshold of 8000.
 func overThresholdAgent(t *testing.T, st *session.State, comp config.Compaction, provider llm.Provider) (*Agent, *bytes.Buffer) {
+	t.Helper()
+	return windowAgent(t, st, comp, provider, 10000, 7000, 2000)
+}
+
+// windowAgent is a compact test agent on a window of the given size whose last
+// request measured overhead tokens besides the conversation and conversation
+// tokens of it, with logs captured.
+func windowAgent(t *testing.T, st *session.State, comp config.Compaction, provider llm.Provider, window, overhead, conversation int) (*Agent, *bytes.Buffer) {
 	t.Helper()
 	logs := &bytes.Buffer{}
 	ag := compactTestAgent(t, st, comp, provider)
 	ag.log = slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	ag.cfg.Models[0].MaxContextTokens = 10000
-	st.SetLastContextBreakdown(&session.ContextBreakdown{EstimatedTotal: 9000})
+	ag.cfg.Models[0].MaxContextTokens = window
+	st.SetLastContextBreakdown(&session.ContextBreakdown{EstimatedTotal: overhead + conversation, Conversation: conversation})
 	return ag, logs
 }
 
@@ -40,7 +50,7 @@ func TestMaybeAutoCompactFoldsTheTurnInProgressWhenNoEarlierTurnExists(t *testin
 	if !window[0].CompactionSummary || !strings.HasPrefix(window[0].Content, prompt) {
 		t.Fatalf("the window must open with the prompt: %q", window[0].Content)
 	}
-	// The overhead (9000 of the 10000 tokens) leaves no room under the aim, so
+	// The overhead (7000 of the 10000 tokens) leaves no room under the aim, so
 	// the latest step alone stays.
 	if got := len(window); got != 1+2 {
 		t.Fatalf("window holds %d messages, want the row and one step", got)

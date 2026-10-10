@@ -26,6 +26,7 @@ package agent
 // step.
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -254,6 +255,76 @@ func (a *Agent) requestOverhead() int {
 	return 0
 }
 
+// foldFutileError is why an automatic fold inside the turn was not made: the
+// smallest request it can produce is not under the threshold, so the very next
+// step would trigger it again. It unwraps to ErrNothingToCompact, the answer the
+// loop already continues on, and carries the numbers the skip is logged with.
+type foldFutileError struct {
+	// estimate is the smallest request the fold can produce, in estimate tokens:
+	// the sum of the four parts below.
+	estimate int
+	// threshold is compaction.threshold_percent of the window, the trigger.
+	threshold int
+	// overhead is what every request carries besides the conversation.
+	overhead int
+	// row is the summary row's own text apart from the summary: the prefix and
+	// the preamble.
+	row int
+	// summary is the estimate of the summary itself.
+	summary int
+	// tail is the kept tail at the floor of one step.
+	tail int
+}
+
+func (e *foldFutileError) Error() string {
+	return fmt.Sprintf("folding the earlier steps of the turn cannot bring the request under the threshold: "+
+		"the smallest request is about %d tokens (%d overhead + %d prefix and preamble + %d summary + %d latest step) against %d",
+		e.estimate, e.overhead, e.row, e.summary, e.tail, e.threshold)
+}
+
+func (e *foldFutileError) Unwrap() error { return ErrNothingToCompact }
+
+// checkFoldGain refuses an automatic fold inside the turn that cannot bring the
+// request under the threshold. The smallest request the fold can produce is the
+// request's overhead, the summary row's prefix and preamble, an estimate of the
+// summary, and the kept tail at the floor of one step. The summary is estimated
+// as the one the window opens with, when it opens with one: the next summary
+// folds that one and what came after it, so it will be about as long; a window
+// that opens with a prompt has no summary to go by and counts 0.
+//
+// The bar is the threshold, the trigger itself. A request at or above it triggers
+// the fold again at the next step, which is a summarizer call per step and a
+// summary of a summary. The aim of the fold is lower, half of the threshold share
+// (inTurnAimPercent), and a fold that lands between the aim and the threshold
+// still buys several steps before the next one; only a fold that cannot get under
+// the trigger is futile, so that is what is refused. The recovery from a refused
+// request does not come here: it runs once and aims at the refusal's limit.
+func (a *Agent) checkFoldGain(msgs []llm.Message, visibleStart int, projected []llm.Message, limit int) error {
+	floor, ok := session.TurnStepSplitIndex(msgs, 1, a.turnOpening)
+	if !ok {
+		return nil
+	}
+	pct := a.cfg.Compaction.EffectiveThresholdPercent()
+	e := &foldFutileError{
+		overhead:  a.requestOverhead(),
+		threshold: limit * pct / 100,
+		tail:      conversationTokens(projected[floor-visibleStart:], a.modelReadsImages()),
+	}
+	if prefix, ok := a.inTurnPrefix(msgs, floor, limit); ok {
+		e.row = session.EstimateContextTokens(session.NewInTurnCompactionSummaryMessage(prefix, "", "").Content)
+	} else {
+		e.row = session.EstimateContextTokens(session.NewCompactionSummaryMessage("", "").Content)
+	}
+	if visibleStart < len(msgs) && msgs[visibleStart].CompactionSummary {
+		e.summary = session.EstimateContextTokens(session.SummaryBody(msgs[visibleStart].Content))
+	}
+	e.estimate = e.overhead + e.row + e.summary + e.tail
+	if e.estimate*100 < limit*pct {
+		return nil
+	}
+	return e
+}
+
 // inTurnPlan is the boundary of an in-turn compaction and what goes in front of
 // the summary written for it.
 type inTurnPlan struct {
@@ -294,6 +365,11 @@ func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, visibleStart
 	})
 	if err != nil {
 		return nil, err
+	}
+	if !opts.Recovery {
+		if err := a.checkFoldGain(msgs, visibleStart, projected, limit); err != nil {
+			return nil, err
+		}
 	}
 	plan := &inTurnPlan{inTurnSplit: choice}
 	if !choice.regular {

@@ -141,6 +141,10 @@ type Agent struct {
 	// autoCompactSkipLogged records that this turn already logged an
 	// automatic compaction with nothing to fold (compact.go).
 	autoCompactSkipLogged bool
+	// autoCompactFutileLogged is the same for an automatic fold of the turn's
+	// steps skipped because it could not bring the request under the threshold
+	// (checkFoldGain).
+	autoCompactFutileLogged bool
 	// turnOpening records the user message Run appended when this turn started:
 	// the request being answered, which a compaction must keep. Follow-ups the
 	// user queues during the turn are user messages too, and only this record

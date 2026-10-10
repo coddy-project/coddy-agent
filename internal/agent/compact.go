@@ -601,7 +601,25 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 		res, err = a.CompactSession(ctx, CompactOptions{InTurn: true})
 	}
 	if err != nil {
+		var futile *foldFutileError
 		switch {
+		case errors.As(err, &futile):
+			// Over the threshold, but no fold of the turn's steps can bring the
+			// request under it: the next step would fold again. Said once per turn.
+			if !a.autoCompactFutileLogged {
+				a.autoCompactFutileLogged = true
+				a.log.Info("auto-compaction skipped: folding the earlier steps of this turn cannot bring the request under the threshold",
+					"contextTokens", used,
+					"contextWindow", window,
+					"contextWindowSource", source,
+					"thresholdPercent", comp.EffectiveThresholdPercent(),
+					"thresholdTokens", futile.threshold,
+					"smallestRequestTokens", futile.estimate,
+					"overheadTokens", futile.overhead,
+					"rowTokens", futile.row,
+					"summaryTokens", futile.summary,
+					"latestStepTokens", futile.tail)
+			}
 		case errors.Is(err, ErrNothingToCompact):
 			// Over the threshold with only the prompt being answered and its
 			// latest step in the window: said once per turn, not before every
