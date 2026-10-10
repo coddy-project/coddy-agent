@@ -964,7 +964,8 @@
                   "webfetch"
                 ]
               },
-              "description": "Read-only listing tools whose results are evicted besides read and grep, by whole steps (see keep_recent_steps). Omit the key for all four; an explicit empty list evicts read and grep only. run_command and MCP tools are not accepted: their results cannot be safely requested again.",
+              "uniqueItems": true,
+              "description": "Read-only listing tools whose results are evicted besides read and grep, by whole steps (see keep_recent_steps). Omit the key for all four; an explicit empty list evicts read and grep only. run_command and MCP tools are not accepted: their results cannot be safely requested again. Each name may appear once.",
               "default": [
                 "glob",
                 "print_tree",

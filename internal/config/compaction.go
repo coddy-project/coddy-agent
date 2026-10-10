@@ -188,11 +188,17 @@ func (r *ResultEviction) Validate() error {
 		return fmt.Errorf("compaction.result_eviction.keep_recent_steps: must be >= 1")
 	}
 	if r.Tools != nil {
+		seen := make(map[string]bool, len(*r.Tools))
 		for _, name := range *r.Tools {
 			if !slices.Contains(ResultEvictionListingTools, name) {
 				return fmt.Errorf("compaction.result_eviction.tools: unknown tool %q (allowed: %s)",
 					name, strings.Join(ResultEvictionListingTools, ", "))
 			}
+			// The schema says uniqueItems; the loader holds the same line.
+			if seen[name] {
+				return fmt.Errorf("compaction.result_eviction.tools: duplicate tool %q (name each tool once)", name)
+			}
+			seen[name] = true
 		}
 	}
 	return nil

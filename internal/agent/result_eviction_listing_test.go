@@ -517,6 +517,67 @@ func TestPruneListingPlaceholderTexts(t *testing.T) {
 	}
 }
 
+// A call can come without the pattern, the query or the URL a placeholder
+// repeats (the arguments did not parse, the field is empty or only spaces). The
+// placeholder then leaves the slot out instead of printing empty quotes or a
+// double space.
+func TestPruneListingPlaceholderWithoutALabel(t *testing.T) {
+	raw := func(id, tool, input string) []llm.Message {
+		return []llm.Message{
+			asstStep(llm.ToolCall{ID: id, Name: tool, InputJSON: input}),
+			toolResult(id, linesBody("BODY-"+id, 40)),
+		}
+	}
+	calls := []struct {
+		id, tool, input string
+		evicted, stale  string
+	}{
+		{"fetch-bad", "webfetch", `not json`,
+			`[evicted: webfetch result (40 lines); re-fetch if needed]`, ""},
+		{"fetch-empty", "webfetch", `{"url":"   "}`,
+			`[evicted: webfetch result (40 lines); re-fetch if needed]`, ""},
+		{"search-none", "websearch", `{"max_results":5}`,
+			`[evicted: websearch result (40 lines); re-run if needed]`, ""},
+		{"search-blank", "websearch", `{"query":"  "}`,
+			`[evicted: websearch result (40 lines); re-run if needed]`, ""},
+		{"glob-none", "glob", `{"path":"pkg"}`,
+			`[evicted: glob in pkg (40 lines); re-run if needed]`,
+			`[evicted: glob in pkg is stale after pkg/new.go was modified; re-run if needed]`},
+		{"glob-blank", "glob", `{"pattern":"   ","path":"pkg"}`,
+			`[evicted: glob in pkg (40 lines); re-run if needed]`,
+			`[evicted: glob in pkg is stale after pkg/new.go was modified; re-run if needed]`},
+		{"glob-bad", "glob", `not json`,
+			`[evicted: glob in . (40 lines); re-run if needed]`,
+			`[evicted: glob in . is stale after pkg/new.go was modified; re-run if needed]`},
+	}
+
+	var evictedParts [][]llm.Message
+	for _, c := range calls {
+		evictedParts = append(evictedParts, raw(c.id, c.tool, c.input))
+	}
+	evictedParts = append(evictedParts, tailStep())
+	out := pruneToolResults(historyOf(evictedParts...), listingOpts(1))
+	for _, c := range calls {
+		if got := contentByID(out, c.id); got != c.evicted {
+			t.Errorf("%s placeholder = %q, want %q", c.id, got, c.evicted)
+		}
+	}
+
+	// The stale placeholder names the glob the same way. Only the calls with a
+	// folder can go stale.
+	for _, c := range calls {
+		if c.stale == "" {
+			continue
+		}
+		in := historyOf(raw(c.id, c.tool, c.input), []llm.Message{
+			asstWrite("w", "write", filepath.Join("pkg", "new.go")), toolResult("w", "written"),
+		})
+		if got := contentByID(pruneToolResults(in, listingOpts(3)), c.id); got != c.stale {
+			t.Errorf("%s stale placeholder = %q, want %q", c.id, got, c.stale)
+		}
+	}
+}
+
 // A pattern, a query or a URL can be as long as the model likes; the placeholder
 // that replaces a result must not become a result of its own.
 func TestPruneListingPlaceholderCapsLongArguments(t *testing.T) {

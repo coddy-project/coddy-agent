@@ -217,6 +217,7 @@ func TestResultEvictionListingValidate(t *testing.T) {
 	neg := -1
 	zero := 0
 	bad := []string{"glob", "run_command"}
+	twice := []string{"glob", "print_tree", "glob"}
 	mcp := []string{"mcp__files__list"}
 	ok := []string{"glob", "print_tree", "websearch", "webfetch"}
 	empty := []string{}
@@ -233,6 +234,8 @@ func TestResultEvictionListingValidate(t *testing.T) {
 			wantErr: []string{"compaction.result_eviction.tools", `"run_command"`, "glob, print_tree, websearch, webfetch"}},
 		{name: "an MCP tool is refused", r: ResultEviction{Tools: &mcp},
 			wantErr: []string{"compaction.result_eviction.tools", "mcp__files__list"}},
+		{name: "a name twice is refused", r: ResultEviction{Tools: &twice},
+			wantErr: []string{"compaction.result_eviction.tools", "duplicate", `"glob"`}},
 		// A window of no steps would collapse the listing the model has just
 		// asked for in the very next request, so the floor is one step.
 		{name: "zero steps", r: ResultEviction{KeepRecentSteps: &zero},
@@ -329,5 +332,8 @@ compaction:
 
 	if _, err := load("    tools: [run_command]\n"); err == nil || !strings.Contains(err.Error(), "result_eviction.tools") {
 		t.Fatalf("a config naming run_command must be refused at load, got %v", err)
+	}
+	if _, err := load("    tools: [glob, webfetch, glob]\n"); err == nil || !strings.Contains(err.Error(), "result_eviction.tools") || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("a config naming glob twice must be refused at load, got %v", err)
 	}
 }

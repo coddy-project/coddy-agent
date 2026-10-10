@@ -751,20 +751,37 @@ func grepStalePlaceholder(g evGrepResult, w evWrite, cwd string) string {
 		g.pattern, relForDisplay(w.path, cwd))
 }
 
+// listingCall names a listing call in a placeholder: the tool, then the pattern,
+// query or URL it was given, capped and quoted when quote is set. A call that
+// came without one (arguments that did not parse, an empty or blank field) leaves
+// that slot out, so a placeholder never prints empty quotes or a double space;
+// bare is what the call is then called.
+func listingCall(tool, label, bare string, quote bool) string {
+	label = capRunes(strings.TrimSpace(label), listingLabelMax)
+	switch {
+	case label == "":
+		return bare
+	case quote:
+		return fmt.Sprintf("%s %q", tool, label)
+	default:
+		return tool + " " + label
+	}
+}
+
 func listingEvictedPlaceholder(l evListing, cwd string) string {
 	switch l.tool {
 	case "glob":
-		return fmt.Sprintf("[evicted: glob %q in %s (%d lines); re-run if needed]",
-			capRunes(l.label, listingLabelMax), relForDisplay(l.root, cwd), l.lines)
+		return fmt.Sprintf("[evicted: %s in %s (%d lines); re-run if needed]",
+			listingCall("glob", l.label, "glob", true), relForDisplay(l.root, cwd), l.lines)
 	case "print_tree":
 		return fmt.Sprintf("[evicted: print_tree of %s (%d lines); re-run if needed]",
 			relForDisplay(l.root, cwd), l.lines)
 	case "websearch":
-		return fmt.Sprintf("[evicted: websearch %q (%d lines); re-run if needed]",
-			capRunes(l.label, listingLabelMax), l.lines)
+		return fmt.Sprintf("[evicted: %s (%d lines); re-run if needed]",
+			listingCall("websearch", l.label, "websearch result", true), l.lines)
 	case "webfetch":
-		return fmt.Sprintf("[evicted: webfetch %s (%d lines); re-fetch if needed]",
-			capRunes(l.label, listingLabelMax), l.lines)
+		return fmt.Sprintf("[evicted: %s (%d lines); re-fetch if needed]",
+			listingCall("webfetch", l.label, "webfetch result", false), l.lines)
 	default:
 		return fmt.Sprintf("[evicted: %s result (%d lines); re-run if needed]", l.tool, l.lines)
 	}
@@ -774,8 +791,8 @@ func listingEvictedPlaceholder(l evListing, cwd string) string {
 // listing can go stale.
 func listingStalePlaceholder(l evListing, w evWrite, cwd string) string {
 	if l.tool == "glob" {
-		return fmt.Sprintf("[evicted: glob %q in %s is stale after %s was modified; re-run if needed]",
-			capRunes(l.label, listingLabelMax), relForDisplay(l.root, cwd), relForDisplay(w.path, cwd))
+		return fmt.Sprintf("[evicted: %s in %s is stale after %s was modified; re-run if needed]",
+			listingCall("glob", l.label, "glob", true), relForDisplay(l.root, cwd), relForDisplay(w.path, cwd))
 	}
 	return fmt.Sprintf("[evicted: %s of %s is stale after %s was modified; re-run if needed]",
 		l.tool, relForDisplay(l.root, cwd), relForDisplay(w.path, cwd))
