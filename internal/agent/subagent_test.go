@@ -212,6 +212,48 @@ func TestPermissionRelayForwardsToParentSession(t *testing.T) {
 	}
 }
 
+// A PreToolUse hook's ask forces a prompt even in a mode that would
+// auto-approve: a bypass child asks such a call under ask, and the relay must
+// not stamp the child's bypass over it, or the parent's sender waves it
+// through with nobody looking.
+func TestPermissionRelayKeepsTheModeAPromptWasAskedUnder(t *testing.T) {
+	parent := &recordingPermissionSender{}
+	parentID := "sess_parent_hook_ask"
+	turnCtx, cancelTurn := context.WithCancel(context.Background())
+	defer cancelTurn()
+	relay := &permissionRelay{
+		parent:              parent,
+		parentSessionID:     parentID,
+		agentName:           "worker",
+		childPermissionMode: config.PermModeBypass,
+		turnCtx:             turnCtx,
+		childCtx:            turnCtx,
+		arbiter:             acquireArbiter(parentID),
+	}
+	defer releaseArbiter(parentID)
+
+	params := permParams("Run: run_command")
+	params.SessionPermissionMode = config.PermModeAsk
+	if _, err := relay.Request(context.Background(), params); err != nil {
+		t.Fatal(err)
+	}
+	if len(parent.requests) != 1 {
+		t.Fatalf("parent saw %d requests, want 1", len(parent.requests))
+	}
+	if got := parent.requests[0].EffectivePermissionMode; got != config.PermModeAsk {
+		t.Fatalf("stamp = %q, want ask: the bypass child widened a prompt its hook forced", got)
+	}
+
+	// A prompt asked under the child's own mode keeps that mode.
+	params.SessionPermissionMode = config.PermModeBypass
+	if _, err := relay.Request(context.Background(), params); err != nil {
+		t.Fatal(err)
+	}
+	if got := parent.requests[1].EffectivePermissionMode; got != config.PermModeBypass {
+		t.Fatalf("stamp = %q, want the child's bypass", got)
+	}
+}
+
 func TestPermissionRelayDeniesAtOnceWhenTurnAlreadyEnded(t *testing.T) {
 	const parentID = "sess_relay_ended"
 	parent := newBlockingSender()

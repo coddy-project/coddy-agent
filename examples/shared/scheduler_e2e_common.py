@@ -66,6 +66,12 @@ def load_e2e_config(work: Path) -> str:
     return raw.replace("__E2E_LOG_PATH__", str(log_path))
 
 
+def seed_permission_mode(home: Path) -> None:
+    """Start new sessions in a temporary home in bypass, as the demo stands do."""
+    # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+    (home / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}), encoding="utf-8")
+
+
 def httpserver_port_from_demo() -> int:
     raw = CONFIG_DEMO.read_text(encoding="utf-8")
     m = re.search(

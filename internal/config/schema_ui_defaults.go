@@ -65,7 +65,6 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		MCP: MCPJSON{ProjectTrust: ProjectTrustAsk, IdleTimeoutSeconds: intPtr(MCPDefaultIdleTimeoutSeconds)},
 		Tools: ToolsJSON{
-			PermissionMode:   PermModeAsk,
 			CommandAllowlist: nil,
 		},
 		Logger: LoggerJSON{
@@ -94,6 +93,11 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			CopilotMaxTokens: 4096,
 			MaxSearchHits:    8,
 			MaxNoteChars:     intPtr(MemoryDefaultMaxNoteChars),
+		},
+		Decisions: DecisionsJSON{
+			Enabled:   false,
+			Model:     DecisionsModelFRIDA,
+			Threshold: DecisionsDefaultThreshold,
 		},
 		Subagents: SubagentsJSON{
 			Enabled:               boolPtr(true),

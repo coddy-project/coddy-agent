@@ -1416,8 +1416,8 @@ export function App() {
   const [railLabelsWide, setRailLabelsWide] = useState(false);
   const [mode, setMode] = useState<string>("agent");
   /**
-   * The viewed session's permission mode and the one a restart would give it
-   * back, the settings changed for the next turns, and the version of the
+   * The viewed session's permission mode and the configuration's one, which
+   * it follows until it is switched, the settings changed for the next turns, and the version of the
    * snapshot they came from (chat/sessionSettings.ts). The server is the
    * source of truth: every surface's change arrives as a versioned snapshot.
    */
@@ -1425,10 +1425,11 @@ export function App() {
   const [configuredPermissionMode, setConfiguredPermissionMode] =
     useState("ask");
   /**
-   * The permission mode the server says a new session starts under (GET
-   * /coddy/info, read again after every configuration reload and every
-   * reconnect of the events stream): the start screen has no session and so
-   * no snapshot, and this is the mode its first turn runs under unless the
+   * The permission mode the server says a new session starts under, the one
+   * chosen last on any surface (GET /coddy/info, read again after every
+   * configuration reload and every reconnect of the events stream, and moved
+   * by every newer settings snapshot): the start screen has no session and so
+   * no snapshot of its own, and this is the mode its first turn runs under unless the
    * operator picks another. Null while unknown - before the answer, while a
    * reload is read again, from a server that does not say - and a pick is then
    * always sent. The ref is what a send compares with, the state what renders.
@@ -1437,6 +1438,12 @@ export function App() {
     string | null
   >(null);
   const serverPermissionModeRef = useRef<string | null>(null);
+  /**
+   * The version of the newest settings snapshot that named the mode a new
+   * session starts in. Every snapshot names it, whichever session it is
+   * about, since that mode is the one chosen last on any surface (#512).
+   */
+  const startModeVersionRef = useRef(0);
   const serverPermissionReadRef = useRef(0);
   /** The read of the mode in flight, which a first send waits for. */
   const serverPermissionReadingRef = useRef<Promise<void> | null>(null);
@@ -1511,8 +1518,8 @@ export function App() {
     serverPermissionReadingRef.current = reading;
     return reading;
   });
-  // configEpoch bumps after every configuration swap, which can move
-  // tools.permission_mode as well as the models.
+  // configEpoch bumps after every configuration swap and every reconnect, after
+  // which the server says again which mode a new session starts in.
   useEffect(() => {
     void readServerPermissionMode();
   }, [configEpoch, readServerPermissionMode]);
@@ -6125,6 +6132,17 @@ export function App() {
    * record of an existing session.
    */
   const applySessionSettings = useStableHandler((snap: SessionSettings) => {
+    // A session switched anywhere is the mode new sessions start in from now
+    // on: the start screen's chip follows the newest snapshot, whichever
+    // session it is about. A pick made there is left alone.
+    const startsIn = permissionModeOfInfo({
+      permissionMode: snap.configuredPermissionMode,
+    });
+    if (startsIn && snap.version > startModeVersionRef.current) {
+      startModeVersionRef.current = snap.version;
+      serverPermissionModeRef.current = startsIn;
+      setServerPermissionMode(startsIn);
+    }
     const viewed = viewedSessionIdRef.current.trim();
     const held =
       settingsVersionRef.current.sid === snap.sessionId

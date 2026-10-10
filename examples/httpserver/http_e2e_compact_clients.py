@@ -170,8 +170,6 @@ agent:
 compaction:
   enable: true
   threshold_percent: {threshold}
-tools:
-  permission_mode: bypass
 memory:
   enable: false
 logger:
@@ -182,6 +180,8 @@ logger:
 """,
             encoding="utf-8",
         )
+        # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+        (self.home / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}), encoding="utf-8")
         if dotenv_line:
             (self.home / ".env").write_text(dotenv_line + "\n", encoding="utf-8")
         self.base = f"http://127.0.0.1:{port}"

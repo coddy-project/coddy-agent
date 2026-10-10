@@ -120,6 +120,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.mcp_servers.label": "MCP servers",
   "settings.section.skills.label": "Skills",
   "settings.section.memory.label": "Memory",
+  "settings.section.decisions.label": "Command safety (decisions)",
   "settings.section.system.label": "Prompts",
   "settings.section.compaction.label": "Context compaction",
   "settings.section.subagents.label": "Subagents",
@@ -134,6 +135,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.mcp_servers.desc": "External MCP tools",
   "settings.section.skills.desc": "Installed slash skills",
   "settings.section.memory.desc": "Memory subagent options",
+  "settings.section.decisions.desc": "Unsafe command screening",
   "settings.section.system.desc": "Templates and instruction files",
   "settings.section.compaction.desc": "Conversation history compaction",
   "settings.section.subagents.desc": "Delegation pool & trust",
@@ -275,11 +277,13 @@ export const messagesEn: Record<string, string> = {
   "settings.group.compaction.summary": "Summarization",
   "settings.group.supervisor.checks": "Goal checks",
   "settings.group.supervisor.watchdog": "Watchdog",
-  "settings.group.tools.permissions": "Permissions",
   "settings.group.memory.model": "Model and storage",
   "settings.group.memory.runs": "Runs",
   "settings.group.memory.limits": "Limits",
   "settings.group.memory.instructions": "Instructions",
+  "settings.group.decisions.verdict": "Model and threshold",
+  "settings.group.decisions.verdictDesc":
+    "The decisions model is asked about every shell command, local or over SSH, that you did not allow explicitly, and the command counts as unsafe once the probability of the unsafe option reaches the threshold. A command longer than the model reads counts as unsafe too: frida-decisions reads 512 tokens, clef-flash 8192. The check needs a NeuralDeep credential on the neuraldeep provider row.",
   "settings.group.scheduler.jobs": "Jobs",
   "settings.group.logger.main": "Logger settings",
   "settings.group.sessions.storage": "Storage",
@@ -501,9 +505,6 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.agent.loop_nudge_max.desc":
     "How many times one turn may be nudged back on track before the loop guard stops it.",
 
-  "settings.schema.tools.permission_mode.label": "Permission mode",
-  "settings.schema.tools.permission_mode.desc":
-    'Controls when the agent asks for user approval before running tools. "ask": approve commands and writes. "accept_edits": auto-approve writes, approve commands. "bypass": skip all prompts. A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never saved here.',
   "settings.schema.tools.command_allowlist.label": "Command allowlist",
   "settings.schema.tools.command_allowlist.desc":
     "If non-empty, only these shell command prefixes may run without extra policy.",
@@ -636,6 +637,15 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.memory.model.label": "Memory model",
   "settings.schema.memory.model.desc":
     "Model the memory subagent runs on; empty uses the session's model.",
+  "settings.schema.decisions.enable.label": "Enabled",
+  "settings.schema.decisions.enable.desc":
+    "Ask the NeuralDeep decisions API whether a shell command, local or over SSH, is safe before the permission gate decides. A safe command runs without a prompt; an unsafe one is asked about in ask and accept_edits and rejected in bypass, the rejection landing in the chat as the command's result. The command allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked.",
+  "settings.schema.decisions.model.label": "Decisions model",
+  "settings.schema.decisions.model.desc":
+    "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request, 1 quota unit. clef-flash: up to 8192 tokens, ~150 ms, 4 quota units.",
+  "settings.schema.decisions.threshold.label": "Unsafe threshold",
+  "settings.schema.decisions.threshold.desc":
+    "The probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through.",
   "settings.schema.memory.fallback_models.label": "Fallback memory models",
   "settings.schema.memory.fallback_models.desc":
     "Tried in order when the model before them fails before answering; the session's own model is the last resort.",
@@ -1434,7 +1444,7 @@ export const messagesEn: Record<string, string> = {
   "composer.modePlan": "Plan",
   "composer.permission": "Permissions",
   "composer.permissionTitle":
-    "When tools ask for approval in this session (the configuration's mode: {configured})",
+    "When tools ask for approval in this session (new sessions start in: {configured})",
   "composer.permissionAsk": "Ask first",
   "composer.permissionAcceptEdits": "Accept edits",
   "composer.permissionBypass": "Bypass",

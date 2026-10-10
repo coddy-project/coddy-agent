@@ -158,9 +158,6 @@ mcp.idle_timeout_seconds:
 tools:
   en: "Filesystem and shell policy for built-in tools."
   ru: "Политика файловой системы и оболочки для встроенных инструментов."
-tools.permission_mode:
-  en: "When the agent asks for user approval: \"ask\" prompts for commands and file writes; \"accept_edits\" auto-approves writes but prompts for commands; \"bypass\" never asks (trusted environments only). A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never written here."
-  ru: "Когда агент запрашивает одобрение пользователя - \"ask\" спрашивает о командах и записи файлов; \"accept_edits\" одобряет запись автоматически, но спрашивает о командах; \"bypass\" не спрашивает никогда (только для доверенных окружений). Сессия может переключить свой режим до перезапуска процесса (/permissions, чип в поле ввода, окно разрешения); в конфигурацию переключение не записывается."
 tools.command_allowlist:
   en: "Commands that never require permission. Exact or prefix match (prefix + space + any args). \"*\" allows all commands."
   ru: "Команды, которым никогда не нужно разрешение. Точное совпадение или совпадение по префиксу (префикс + пробел + любые аргументы). \"*\" разрешает все команды."
@@ -255,8 +252,8 @@ tools.websearch.brave_api_key:
   en: "Brave Search API subscription token. With it the brave engine uses the official JSON API instead of reading the public result page, which has no parser to break when Brave redeploys. Empty reads the BRAVE_API_KEY environment variable (also from ${CODDY_HOME}/.env), so the key need not be stored here."
   ru: "Токен подписки Brave Search API. С ним движок brave использует официальный JSON API вместо чтения публичной страницы результатов, и парсеру нечему ломаться, когда Brave обновляет сайт. Пусто - читается переменная окружения BRAVE_API_KEY (в том числе из ${CODDY_HOME}/.env), поэтому ключ не обязательно хранить здесь."
 tools.http_request:
-  en: "Policy of the http_request tool, the agent's curl: the destinations it reaches without asking and the headers every request sends. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://coddy.dev/docs/features/http-requests."
-  ru: "Политика инструмента http_request, curl агента, - адреса, к которым он обращается без вопроса, и заголовки, которые отправляет каждый запрос. При permission_mode ask или accept_edits запрос спрашивает оператора, если его адрес не разрешён здесь и не был одобрен в сессии; bypass не спрашивает никогда. См. https://coddy.dev/docs/features/http-requests."
+  en: "Policy of the http_request tool, the agent's curl: the destinations it reaches without asking and the headers every request sends. Under the ask and accept_edits permission modes a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://coddy.dev/docs/features/http-requests."
+  ru: "Политика инструмента http_request, curl агента, - адреса, к которым он обращается без вопроса, и заголовки, которые отправляет каждый запрос. В режимах разрешений ask и accept_edits запрос спрашивает оператора, если его адрес не разрешён здесь и не был одобрен в сессии; bypass не спрашивает никогда. См. https://coddy.dev/docs/features/http-requests."
 tools.http_request.allowlist:
   en: "Destinations a request reaches without asking: a host (api.github.com), a subdomain wildcard (*.example.com), either with an optional :port, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/). \"*\" allows every destination. An entry also covers the files a request uploads and an unchecked certificate; a proxy needs an entry of its own, and a file the response is saved to follows the write policy."
   ru: "Адреса, к которым запрос обращается без вопроса, - хост (api.github.com), шаблон поддоменов (*.example.com), оба с необязательным :port, origin (http://localhost:8080) или префикс адреса (https://api.example.com/v1/). \"*\" разрешает любой адрес. Запись покрывает и файлы, которые запрос загружает, и непроверенный сертификат; прокси нужна своя запись, а файл, в который сохраняется ответ, подчиняется политике записи."
@@ -389,6 +386,18 @@ compaction.result_eviction.start_percent:
 memory:
   en: "Optional memory subagent (implementation in external/memory; enable at runtime with memory.enable)."
   ru: "Необязательный субагент памяти (реализация в external/memory; включается во время работы через memory.enable)."
+decisions:
+  en: "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode. See https://coddy.dev/docs/features/decisions."
+  ru: "Спрашивает NeuralDeep decisions API, безопасна ли shell-команда, до того как решает шлюз разрешений: безопасная команда выполняется без запроса, о небезопасной спрашивают, а в режиме bypass её отклоняют. См. https://coddy.dev/docs/features/decisions."
+decisions.enable:
+  en: "Check run_command and ssh_run_command calls the operator did not allow explicitly against the decisions endpoint before the permission gate decides. A safe command runs without a prompt; an unsafe one, or one the check gave no verdict on, is asked about in ask and accept_edits with the verdict in the prompt, and rejected in bypass mode, the rejection returned as the tool result so the session records it. Commands the allowlist, a session grant or a hook's allow approves are not checked, and neither are commands the operator approved in a prompt. Needs a NeuralDeep credential on the first provider row of type neuraldeep: its api_key or api_key_command, its NAME_API_KEY environment variable (NEURALDEEP_API_KEY for a row named neuraldeep or when there is no row) or its stored hub sign-in."
+  ru: "Проверять через decisions-эндпоинт вызовы run_command и ssh_run_command, которые оператор не разрешил явно, до того как решает шлюз разрешений. Безопасная команда выполняется без запроса. О небезопасной команде или о команде, по которой проверка не дала вердикта, в режимах ask и accept_edits спрашивают, показывая вердикт в запросе, а в режиме bypass её отклоняют, и отказ возвращается как результат инструмента, поэтому сессия его фиксирует. Команды, разрешённые списком разрешённых команд, грантом сессии или allow-хуком, не проверяются, как и команды, которые оператор одобрил в запросе. Нужны учётные данные NeuralDeep на первой строке провайдера с типом neuraldeep: её api_key или api_key_command, её переменная окружения NAME_API_KEY (NEURALDEEP_API_KEY для строки с именем neuraldeep или когда строки нет) или сохранённый вход в хаб."
+decisions.model:
+  en: "Decisions model to ask: frida-decisions (encoder pass, up to 512 tokens of command text, ~20 ms per request) or clef-flash (up to 8192 tokens, ~150 ms)."
+  ru: "Модель decisions для запроса: frida-decisions (проход энкодера, до 512 токенов текста команды, ~20 мс на запрос) или clef-flash (до 8192 токенов, ~150 мс)."
+decisions.threshold:
+  en: "Probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through. A bare unsafe answer counts as 1."
+  ru: "Вероятность опции unsafe, начиная с которой команда считается небезопасной. 0 - значение по умолчанию (0,5); ниже - строже, выше - пропускает пограничные команды. Ответ unsafe без вероятностей считается равным 1."
 memory.enable:
   en: "Run the memory subagent on every user turn (needs the memory build tag)."
   ru: "Запускать субагента памяти на каждом ходе пользователя (нужен тег сборки memory)."

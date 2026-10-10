@@ -18,13 +18,15 @@ import (
 // names the machine the page runs on by its host name on the swarm map, where
 // the connection to a relay starts.
 //
-// It also names the permission mode a new session starts under: the live
-// configuration's tools.permission_mode, resolved the way a session's settings
-// snapshot resolves it (ask when the configuration names none). The start
+// It also names the permission mode a new session starts under: the one
+// chosen last on any surface (session.Manager.DefaultPermissionMode, ask
+// until one is chosen), the configuredPermissionMode of every settings
+// snapshot. The start
 // screen has no session to read a snapshot from, yet its permission chip has
 // to show the mode the first turn will run under, and a mode picked there is
-// sent with the first message only when it differs from this one. The answer
-// follows every reload, which the client hears of as event: config_reloaded.
+// sent with the first message only when it differs from this one. A session
+// switched anywhere moves it, and the client hears of that through the
+// snapshot event: session_settings carries it.
 //
 // And it says how much room the disk that stores the sessions has (storage):
 // the state against sessions.min_free_mb, the figures of the disk and the
@@ -35,7 +37,9 @@ import (
 func (s *Server) coddyInfoGet(w http.ResponseWriter, _ *http.Request) {
 	host, _ := os.Hostname()
 	permissionMode := config.PermModeAsk
-	if cfg := s.activeCfg(); cfg != nil {
+	if s.mgr != nil {
+		permissionMode = s.mgr.DefaultPermissionMode()
+	} else if cfg := s.activeCfg(); cfg != nil {
 		permissionMode = cfg.Tools.ResolvedPermMode()
 	}
 	info := map[string]any{

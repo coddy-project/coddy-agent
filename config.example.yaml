@@ -310,13 +310,12 @@ mcp:
   idle_timeout_seconds: 300
 
 tools:
-  # Controls when the agent asks for user approval before running tools.
-  # ask: always prompt for commands and file writes (default)
-  # accept_edits: auto-approve file writes; prompt for commands
-  # bypass: never ask for permission
-  # A session may switch its own mode until the process restarts (/permissions,
-  # the web composer chip, the permission dialog); the switch is never saved here.
-  permission_mode: ask
+  # The permission mode (ask, accept_edits, bypass) is not configured here. A new
+  # session starts in the mode chosen last on any surface (/permissions, the web
+  # composer chip, the permission dialog, --permission-mode), kept in
+  # ${CODDY_HOME}/permission-mode.json; ask until one is chosen. Each session keeps
+  # its own mode in its session.json. An old tools.permission_mode moves into that
+  # file on the next start.
 
   # Commands that never require user permission.
   # Supports exact match and prefix match (prefix + space + any args).
@@ -394,7 +393,7 @@ tools:
 
   # HTTP requests: the http_request tool is the agent's curl (any method, headers, bodies,
   # multipart uploads, downloads to a file, a proxy and the certificate check per request).
-  # Under permission_mode ask or accept_edits a request asks unless its destination is
+  # Under the permission modes ask and accept_edits a request asks unless its destination is
   # listed here or was approved in the session, and an approval of a destination does not
   # approve the files, the proxy or the unchecked certificate of a later request by itself.
   # An entry here also covers uploads and verify_tls: false for that destination; a proxy
@@ -554,6 +553,27 @@ tools:
 #   additional_prompt: ""          # your own instructions for the memory subagent only, e.g. "only deal with the
 #                                  # notes; never answer the task itself"; the main agent never sees them
 #   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
+
+# Command safety decisions: before the permission gate decides on a shell command
+# (run_command, or the remote command of ssh_run_command) you did not allow
+# explicitly, ask the NeuralDeep decisions API whether it is safe. A safe command
+# runs without a prompt; an unsafe one is asked about in ask and accept_edits, the
+# verdict in the prompt, and rejected in bypass - the rejection comes back as the
+# result of the call, so the session records it. The command allowlist, session
+# grants, a hook's allow and commands you approved in a prompt are not checked.
+# When the endpoint gives no verdict (no credential, a refusal from the hub, a
+# network error, a command longer than the model reads - 512 tokens on
+# frida-decisions) the command counts as unsafe. Needs a NeuralDeep credential on
+# the first provider row of type neuraldeep: its api_key or api_key_command, its
+# NAME_API_KEY variable (NEURALDEEP_API_KEY for a row named neuraldeep or without a
+# row), or its stored hub sign-in. Every checked command draws on the decisions
+# quota - 1 unit on frida-decisions, 4 on clef-flash - and adds ~20 ms
+# (frida-decisions) or ~150 ms (clef-flash).
+# See docs/features/decisions.md.
+# decisions:
+#   enable: false
+#   model: frida-decisions  # frida-decisions (512 tokens of command text, ~20 ms) or clef-flash (8192 tokens, ~150 ms)
+#   threshold: 0.5          # unsafe once p(unsafe) reaches this; 0 = default 0.5, lower is stricter, higher is looser
 
 # Messenger gateways (external/gateway/; build with: go build -tags gateway, or
 # -tags gateway.telegram / -tags gateway.pachca for one adapter).
