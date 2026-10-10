@@ -23,6 +23,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 	"github.com/EvilFreelancer/coddy-agent/internal/update"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -80,7 +81,15 @@ func (r *serverRef) RequestQuestion(ctx context.Context, params acp.QuestionRequ
 	return s.RequestQuestion(ctx, params)
 }
 
+// wireToolCatalog tells the config check which tools this build can offer, so
+// a models[].tools or models[].disallowed_tools entry that names nothing is
+// reported by -t, --dry-run and the start-up log. config sits below
+// internal/tools and cannot import it, so the binary hands the catalog down
+// before any command reads a configuration.
+func wireToolCatalog() { config.RegisterToolCatalog(tools.KnownToolNames) }
+
 func main() {
+	wireToolCatalog()
 	if handled, err := update.RunHelper(os.Args[1:], os.Stdout); handled {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

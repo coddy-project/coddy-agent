@@ -9,10 +9,11 @@ import (
 
 // The lists models[].tools and models[].disallowed_tools name tools, and the
 // registry that knows them sits above this package (internal/tools imports
-// config). The tools package hands its names down at start-up, the way the
-// mention package takes its URL fetcher, so the config check can say which
-// entry names nothing without this package importing upward. Until a catalog
-// is registered nothing is reported: an unknown name is only ever a warning.
+// config). The binary (cmd/coddy) hands the tools package's names down at
+// start-up, the way the mention package takes its URL fetcher, so the config
+// check can say which entry names nothing without this package importing
+// upward. Until a catalog is registered nothing is reported: an unknown name
+// is only ever a warning.
 var (
 	toolCatalogMu sync.RWMutex
 	toolCatalog   func() []string
