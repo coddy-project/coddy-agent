@@ -258,7 +258,7 @@ built with is reported, not started), the listen addresses they would bind (a po
 process holds is named together with the line that set it), every provider's model list,
 the configured models against it, the executables of stdio MCP servers, the Telegram bot
 token against the Bot API, the Pachca bot token and its scopes against Pachca, the relays in `swarm.join` and the upstreams a relay mounts, and
-the directories and files the configuration names. Exit status 1 when a probe fails. Alone
+the directories and files the configuration names, and the free space of the disk that holds the sessions (and of the one that holds the home folder, when that is another). Exit status 1 when a probe fails. Alone
 it prints only the problems and one status line; `coddy serve --dry-run --test-config` prints
 the config check report and every probe. The report and its rules are described in
 [config.md](../getting-started/configuration.md#dry-run-probing-what-the-file-points-at).
