@@ -127,6 +127,14 @@ type Agent struct {
 	// callImages are the pictures the running tool call handed the model
 	// (Env.AttachImage, tool_images.go); they ride on that call's result.
 	callImages []llm.ImagePart
+	// offerModel is the models[].model the tools of the request being worked
+	// on were offered for (model_tools.go): the model of the turn's transport,
+	// moved only when the loop builds a transport for another model, so a call
+	// is checked against the offer that produced it and not against whatever
+	// the session switched to meanwhile. Empty outside a turn, where the
+	// session's current model stands in.
+	offerMu    sync.RWMutex
+	offerModel string
 
 	// hooks is the operator hook runner of the current turn, built on first
 	// use from the definition files (hooks.go). hookStopReason carries a
@@ -337,13 +345,17 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Load skills applicable to this context.
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 
-	toolDefs := a.currentToolDefinitions(mode)
-
 	// Get or create LLM provider.
 	transport, err := a.getProvider(mode)
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
+	// The tools of every request of this turn are offered for the model of the
+	// transport built here, until the loop builds one for another model: a call
+	// is checked against that offer (model_tools.go).
+	a.setOfferModel(transport.model)
+	defer a.setOfferModel("")
+	toolDefs := a.currentToolDefinitions(mode)
 
 	// Restore existing plan via session/update if one was set by coddy todo tools in a previous turn.
 	if existing := a.state.GetPlan(); len(existing) > 0 {
@@ -810,17 +822,25 @@ func (a *Agent) runReActLoop(
 				a.log.Warn("settings changed mid-turn but the new model is unavailable; keeping the current one", "error", err)
 			} else {
 				a.log.Info("model settings changed mid-turn", "from", transport.key, "to", next.key)
+				previous := a.cfg.FindModelEntry(transport.model)
 				transport, switched = next, true
-				// The new model may be offered another set of tools
-				// (models[].tools, disallowed_tools): the request below
-				// carries that set, and the system message that lists it is
-				// rendered again. A model without lists of its own on either
-				// side leaves both exactly as they were.
-				if defs := a.currentToolDefinitions(mode); !sameToolNames(defs, toolDefs) {
-					toolDefs = defs
-					sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
-					if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-						messages[0].Content = sys.Content
+				// The requests from here on are offered their tools for the
+				// new model (models[].tools, disallowed_tools). A call is
+				// checked against the offer of the request that produced it,
+				// so the batch that asked for the switch was judged by the old
+				// offer and the next response is judged by this one. When
+				// either model carries lists the tool set is built again, and
+				// if it moved the request below carries it and the system
+				// message that lists it is rendered again. The switch itself
+				// changes neither between two models that carry no lists.
+				a.setOfferModel(transport.model)
+				if hasToolLists(previous) || hasToolLists(a.cfg.FindModelEntry(transport.model)) {
+					if defs := a.currentToolDefinitions(mode); !sameToolNames(defs, toolDefs) {
+						toolDefs = defs
+						sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+						if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+							messages[0].Content = sys.Content
+						}
 					}
 				}
 				// The request below measures its context against the new
