@@ -43,6 +43,15 @@ const (
 	ResultEvictionDefaultStartPercent = 50
 )
 
+// Defaults for the compaction.in_turn subsection.
+const (
+	// InTurnDefaultKeepRecentSteps is the most steps of the turn being answered
+	// that an in-turn fold leaves verbatim. It is a cap, not a promise: the fold
+	// keeps fewer when the kept steps would not leave the next request room under
+	// the threshold, and always folds at least the steps before the latest one.
+	InTurnDefaultKeepRecentSteps = 4
+)
+
 // ResultEvictionListingTools is the closed set of read-only listing tools that
 // compaction.result_eviction.tools may name, in the order the default list
 // carries them. Their result can be asked for again by repeating the call and
@@ -81,10 +90,57 @@ type Compaction struct {
 	// it; the session's own model is always the last resort, whether or not it
 	// is listed here (issue #247).
 	FallbackModels []string `yaml:"fallback_models"`
+	// InTurn controls the fold of the turn being answered: the automatic
+	// trigger's fallback when there is no earlier turn to fold, and the
+	// recovery from a request the provider refused as too large.
+	InTurn InTurn `yaml:"in_turn"`
 	// ResultEviction controls pruning of superseded tool results (read pages,
 	// grep dumps, and the listings of glob, print_tree, websearch and webfetch)
 	// from the LLM projection (the persisted transcript is never rewritten).
 	ResultEviction ResultEviction `yaml:"result_eviction"`
+}
+
+// InTurn is the YAML compaction.in_turn section: folding the earlier steps of
+// the turn being answered. The automatic trigger folds earlier user turns; when
+// the window holds only the turn in progress it has nothing of that kind to fold,
+// and a long turn (one prompt, dozens of tool steps) grows past the model's
+// window. With the section on, the trigger then folds the turn's own earlier
+// steps into a summary row that starts with the prompt itself, and a request the
+// provider refuses as larger than its window is compacted that way once and sent
+// again.
+type InTurn struct {
+	// Enabled toggles both. A nil pointer means the default (true); false
+	// restores the behaviour before the section existed.
+	Enabled *bool `yaml:"enable"`
+	// KeepRecentSteps caps how many of the latest steps of the turn (an
+	// assistant message with the tool results that follow it) the fold leaves
+	// verbatim.
+	// A nil pointer means the default (4); valid from 1, so the latest step
+	// always stays. The fold keeps fewer when the kept steps would not leave
+	// the next request room under the threshold.
+	KeepRecentSteps *int `yaml:"keep_recent_steps"`
+}
+
+// IsEnabled reports whether the in-turn fold and the overflow recovery are
+// active. Defaults to true when unset.
+func (i *InTurn) IsEnabled() bool {
+	return i.Enabled == nil || *i.Enabled
+}
+
+// EffectiveKeepRecentSteps returns keep_recent_steps with the default applied.
+func (i *InTurn) EffectiveKeepRecentSteps() int {
+	if i.KeepRecentSteps == nil {
+		return InTurnDefaultKeepRecentSteps
+	}
+	return *i.KeepRecentSteps
+}
+
+// Validate checks bounds on explicitly set fields.
+func (i *InTurn) Validate() error {
+	if i.KeepRecentSteps != nil && *i.KeepRecentSteps < 1 {
+		return fmt.Errorf("compaction.in_turn.keep_recent_steps: must be >= 1")
+	}
+	return nil
 }
 
 // ResultEviction is the YAML compaction.result_eviction section: collapsing
@@ -241,6 +297,9 @@ func (c *Compaction) Validate() error {
 	}
 	if c.KeepRecentTurns != nil && *c.KeepRecentTurns < 0 {
 		return fmt.Errorf("compaction.keep_recent_turns: must be >= 0")
+	}
+	if err := c.InTurn.Validate(); err != nil {
+		return err
 	}
 	if err := c.ResultEviction.Validate(); err != nil {
 		return err

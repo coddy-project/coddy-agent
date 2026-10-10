@@ -199,6 +199,15 @@ sessions:
 #   model: ""                # optional models[].model for the summarizer; empty = session model
 #   fallback_models: []      # tried in order when the summarizer above them fails; the session
 #                            # model is the last resort whether or not it is listed
+#   # Fold the earlier steps of the turn being answered when the context reaches
+#   # the threshold and the window holds no earlier turn to fold, and compact and
+#   # ask again once when the provider refuses a request as larger than its window.
+#   # The summary row starts with the prompt itself, verbatim.
+#   in_turn:
+#     enable: true           # false restores the behavior before: such a turn is not folded and a
+#                            # refused request ends the turn
+#     keep_recent_steps: 4   # at most this many latest steps of the turn stay verbatim (>= 1); the
+#                            # fold keeps fewer when they would not fit under the threshold
 #   # Collapse superseded tool results to placeholders in the LLM request (the
 #   # persisted transcript stays complete). read/grep results survive while marked
 #   # or recent; glob, print_tree, websearch and webfetch results survive in the

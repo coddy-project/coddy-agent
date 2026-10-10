@@ -298,6 +298,10 @@ compaction:
   model: ""                # models[].model for the summarizer; empty = session model
   fallback_models: []      # tried in order when the summarizer above them fails; the session
                            # model is the last resort whether or not it is listed
+  in_turn:
+    enable: true           # fold the earlier steps of the turn being answered at the threshold, and
+                           # compact and ask again once when the provider refuses a request as too large
+    keep_recent_steps: 4   # at most this many latest steps of the turn stay verbatim (>= 1)
 
 # Optional long-term memory subagent (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
 # Linked with the memory build tag; enable at runtime with memory.enable. Every user turn then starts a memory
@@ -721,4 +725,4 @@ models:
 ### Локальные OpenAI-совместимые серверы (Ollama, llama.cpp, LM Studio)
 Используйте **`type: openai`** и задайте в **`api_base`** OpenAI-совместимый базовый URL, который уже включает **`/v1`**, например **`http://localhost:11434/v1`** для Ollama.
 
-<!-- docsgen:source sha256=6b50a6222ff8039a -->
+<!-- docsgen:source sha256=e004a17fabb8f211 -->

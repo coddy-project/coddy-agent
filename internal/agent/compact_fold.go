@@ -127,15 +127,27 @@ func nextCompactionChunk(msgs []llm.Message, room int) compactionChunk {
 	return compactionChunk{count: len(msgs), body: b.String()}
 }
 
+// entryCutMarker replaces the middle of a transcript entry the summarizer
+// cannot take whole; its one verb is the count of characters that went.
+const entryCutMarker = "\n[... %d characters omitted: this entry alone does not fit one summarization request ...]\n"
+
 // elideMiddle cuts the middle out of s so it fits maxChars, keeping the head
 // and the tail and saying how much went. A transcript entry is summarized from
 // what it starts and ends with far more often than from its middle.
 func elideMiddle(s string, maxChars int) string {
+	return elideMiddleMarked(s, maxChars, entryCutMarker)
+}
+
+// elideMiddleMarked is elideMiddle with the words of the cut chosen by the
+// caller: marker is a format with one %d, the count of characters omitted. The
+// cut says what it is, because the text it stands in is read by the model, and
+// "does not fit one summarization request" is a false account of anything that
+// is not a summarization request.
+func elideMiddleMarked(s string, maxChars int, marker string) string {
 	r := []rune(s)
 	if maxChars <= 0 || len(r) <= maxChars {
 		return s
 	}
-	const marker = "\n[... %d characters omitted: this entry alone does not fit one summarization request ...]\n"
 	head := maxChars / 2
 	tail := maxChars - head
 	dropped := len(r) - head - tail
@@ -150,19 +162,25 @@ func elideMiddle(s string, maxChars int) string {
 // characters a token is depends on the text, so the length is corrected a few
 // times until the estimate agrees.
 func elideToTokens(s string, tokens int) string {
+	return elideToTokensMarked(s, tokens, entryCutMarker)
+}
+
+// elideToTokensMarked is elideToTokens with the cut's marker chosen by the
+// caller (see elideMiddleMarked).
+func elideToTokensMarked(s string, tokens int, marker string) string {
 	if tokens < 1 {
 		tokens = 1
 	}
 	chars := tokens * compactionCharsPerToken
-	out := elideMiddle(s, chars)
+	out := elideMiddleMarked(s, chars, marker)
 	for i := 0; i < 4; i++ {
 		got := session.EstimateContextTokens(out)
 		if got <= tokens || chars <= 1 {
 			break
 		}
-		// At least one character: elideMiddle takes none for "keep all".
+		// At least one character: elideMiddleMarked takes none for "keep all".
 		chars = max(chars*tokens/got, 1)
-		out = elideMiddle(s, chars)
+		out = elideMiddleMarked(s, chars, marker)
 	}
 	return out
 }
