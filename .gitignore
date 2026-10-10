@@ -57,6 +57,11 @@ Thumbs.db
 /external/ui/styles.css
 /external/ui/app.js
 /external/ui/events-worker.js
+/external/ui/manifest.webmanifest
+/external/ui/sw.js
+/external/ui/icon-192.png
+/external/ui/icon-512.png
+/external/ui/icon-maskable-512.png
 /external/ui/app.js.map
 /external/ui/chunks/
 .playwright-mcp/
