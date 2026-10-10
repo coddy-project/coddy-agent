@@ -14,6 +14,26 @@ export const messagesRu: Record<string, string> = {
   "appearance.theme.monokai": "Monokai",
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
+  "appearance.notificationsLabel": "Уведомления",
+  "appearance.notifications.toggle": "Системные уведомления",
+  "appearance.notifications.hint":
+    "Пока Coddy в фоне, браузер сообщает, что агент закончил ход, просит разрешение или задал вопрос в чате, который вы открыли или куда писали в этой вкладке. Нажатие на уведомление открывает чат. Настройка хранится в этом браузере.",
+  "appearance.notifications.denied":
+    "Браузер запретил уведомления для этого сайта. Разрешите их в настройках сайта в браузере и включите переключатель.",
+  "appearance.notifications.insecure":
+    "Уведомлениям нужно защищённое соединение. Откройте Coddy по https или на localhost.",
+  "appearance.notifications.unsupported":
+    "Этот браузер не показывает уведомления веб-страниц.",
+
+  "notify.untitled": "Coddy",
+  "notify.turnFinished": "Агент закончил ход.",
+  "notify.turnFailed": "Ход завершился ошибкой: {error}",
+  "notify.permission": "Нужно разрешение: {tool}",
+  "notify.toolUnnamed": "инструмент",
+  "notify.question": "Агент задал вам вопрос.",
+  "notify.questionWithText": "Агент спрашивает: {question}",
+  "notify.subagentPermission": "{agent} просит разрешение: {tool}",
+  "notify.subagentUnnamed": "Субагент",
 
   "auth.signIn.logoAlt": "Coddy агент",
   "auth.signIn.title": "Вход",

@@ -7,6 +7,8 @@
 /styles.css
 /index.html
 /events-worker.js
+/manifest.webmanifest
+/sw.js
 # Vendored grammars stay byte for byte as published, next to their notices.
 /src/ui/markdown/grammars/
 # npm writes the lockfile in its own format.

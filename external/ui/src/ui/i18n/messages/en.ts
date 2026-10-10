@@ -16,6 +16,26 @@ export const messagesEn: Record<string, string> = {
   "appearance.theme.monokai": "Monokai",
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
+  "appearance.notificationsLabel": "Notifications",
+  "appearance.notifications.toggle": "System notifications",
+  "appearance.notifications.hint":
+    "While Coddy is in the background, the browser tells you when the agent finishes a turn, asks for permission or asks you a question in a chat you opened or wrote to in this tab. A click on the notification opens the chat. The choice is kept in this browser.",
+  "appearance.notifications.denied":
+    "The browser blocks notifications for this site. Allow them in the browser's site settings, then turn the switch on.",
+  "appearance.notifications.insecure":
+    "Notifications need a secure connection. Open Coddy over https or on localhost.",
+  "appearance.notifications.unsupported":
+    "This browser shows no notifications from web pages.",
+
+  "notify.untitled": "Coddy",
+  "notify.turnFinished": "The agent finished its turn.",
+  "notify.turnFailed": "The turn ended with an error: {error}",
+  "notify.permission": "Permission needed: {tool}",
+  "notify.toolUnnamed": "a tool",
+  "notify.question": "The agent asked you a question.",
+  "notify.questionWithText": "The agent asks: {question}",
+  "notify.subagentPermission": "{agent} needs permission: {tool}",
+  "notify.subagentUnnamed": "A subagent",
 
   // The wordmark says "Coddy agent" in the image; this is what a screen
   // reader says in its place.
