@@ -68,10 +68,11 @@ export type McpToolName = { server: string; tool: string };
 /**
  * Reads the `<server>__<tool>` name every MCP tool joins the function-calling list
  * under (`internal/mcp/client.go`), with the `mcp__` prefix other agents spell the
- * same call with accepted as well (`internal/hooks/matcher.go`). A server name can
- * never contain `__` (`internal/mcp.ValidateServerName`), so the first separator is
- * the split and everything after it is the tool's own name. Returns null for
- * anything that is not a namespaced call.
+ * same call with accepted as well (`internal/hooks/matcher.go`). A server name is
+ * not expected to contain `__` (the management route refuses one,
+ * `internal/mcp.ValidateServerName`), so the first separator is taken as the split
+ * and everything after it as the tool's own name. Returns null for anything that
+ * is not a namespaced call.
  */
 export function parseMcpToolName(rawName: string): McpToolName | null {
   let name = rawName.replace(/^run:\s*/i, "").trim();

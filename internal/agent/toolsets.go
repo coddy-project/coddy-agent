@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
@@ -96,23 +97,50 @@ func ToolSetForMode(mode string) ToolSet {
 	return out
 }
 
-// askToolSet is the ask allowlist as a ToolSet, built once for the per-call check.
-var askToolSet = ToolSet(askToolNames)
+// planToolSet and askToolSet are the allowlists as ToolSets, built once for
+// the per-call check.
+var (
+	planToolSet = ToolSet(planToolNames)
+	askToolSet  = ToolSet(askToolNames)
+)
+
+// isMCPToolName reports whether name is namespaced like the tool of an MCP
+// server (server__tool). executeToolCall routes every such name to callMCPTool
+// and never to the registry, and no built-in tool is named that way (a test
+// pins it). callMCPTool decides about such a name and fails closed for one
+// that is not a connected server's tool: the per-tool filter first, then the
+// lookup of the server ("MCP server not found"), then the server itself.
+func isMCPToolName(name string) bool {
+	return strings.Contains(name, "__")
+}
 
 // toolCallRefusedByMode reports whether a tool call must be refused at execution
 // time in the given mode, with the refusal text returned as the tool result.
 // Definition filtering already hides restricted tools from the LLM, but a model
-// can still replay a call from earlier history (recorded in another mode), so
-// ask mode re-checks its allowlist here. MCP tool names (server__tool) are not
-// in the allowlist and are refused the same way.
+// can still replay a call from earlier history (recorded in another mode) or a
+// provider can ignore the offered list, so ask and plan mode re-check their
+// allowlists here. The same check guards the permission-resume path.
+//
+// Ask offers no MCP tools, so MCP tool names (server__tool) are refused there.
+// Plan offers the tools of the connected MCP servers next to its allowlist, so
+// an MCP name passes the mode check and callMCPTool decides about it as in
+// agent mode: it rejects a server that is not connected and a tool the
+// per-tool switches disabled. Agent mode is unrestricted.
 func toolCallRefusedByMode(mode, name string) (string, bool) {
-	if mode != "ask" {
+	switch mode {
+	case "ask":
+		if askToolSet.Allows(name) {
+			return "", false
+		}
+		return fmt.Sprintf("error: tool %q is not available in Ask mode because it is not read-only", name), true
+	case "plan":
+		if planToolSet.Allows(name) || isMCPToolName(name) {
+			return "", false
+		}
+		return fmt.Sprintf("error: tool %q is not available in Plan mode because it is outside the plan tool set; the user can switch to Agent mode to use it", name), true
+	default:
 		return "", false
 	}
-	if askToolSet.Allows(name) {
-		return "", false
-	}
-	return fmt.Sprintf("error: tool %q is not available in Ask mode because it is not read-only", name), true
 }
 
 // Unrestricted reports whether the set imposes no name filter.
