@@ -308,7 +308,8 @@ func TestRequestPermissionSSECompletesWhenPosted(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if got == nil || got.Outcome != "allow" || got.OptionID != "allow" {
+	// A person answered: the approval is not automatic.
+	if got == nil || got.Outcome != "allow" || got.OptionID != "allow" || got.Automatic {
 		t.Fatalf("unexpected result %#v", got)
 	}
 }
@@ -361,10 +362,10 @@ func TestRequestPermissionHonoursTheStampedEffectiveMode(t *testing.T) {
 		}
 	}
 	nonInteractive := NewSender(cfg, httptest.NewRecorder(), false, "agent-model")
-	if got, _ := nonInteractive.RequestPermission(context.Background(), params("")); got.OptionID != "allow" {
+	if got, _ := nonInteractive.RequestPermission(context.Background(), params("")); got.OptionID != "allow" || !got.Automatic {
 		t.Fatalf("unstamped request under global bypass = %#v, want allow", got)
 	}
-	if got, _ := nonInteractive.RequestPermission(context.Background(), params(config.PermModeBypass)); got.OptionID != "allow" {
+	if got, _ := nonInteractive.RequestPermission(context.Background(), params(config.PermModeBypass)); got.OptionID != "allow" || !got.Automatic {
 		t.Fatalf("stamped bypass = %#v, want allow", got)
 	}
 	if got, _ := nonInteractive.RequestPermission(context.Background(), params(config.PermModeAsk)); got.OptionID != "reject" || got.Outcome != "cancelled" {

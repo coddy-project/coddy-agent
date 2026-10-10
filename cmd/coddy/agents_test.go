@@ -144,10 +144,10 @@ func TestServerRefHonoursTheStampedEffectiveMode(t *testing.T) {
 			EffectivePermissionMode: mode,
 		}
 	}
-	if got, _ := ref.RequestPermission(context.Background(), params("")); got.OptionID != "allow" {
+	if got, _ := ref.RequestPermission(context.Background(), params("")); got.OptionID != "allow" || !got.Automatic {
 		t.Fatalf("unstamped request under global bypass = %#v, want allow", got)
 	}
-	if got, _ := ref.RequestPermission(context.Background(), params(config.PermModeBypass)); got.OptionID != "allow" {
+	if got, _ := ref.RequestPermission(context.Background(), params(config.PermModeBypass)); got.OptionID != "allow" || !got.Automatic {
 		t.Fatalf("stamped bypass = %#v, want allow", got)
 	}
 	if got, _ := ref.RequestPermission(context.Background(), params(config.PermModeAsk)); got.OptionID != "reject" {

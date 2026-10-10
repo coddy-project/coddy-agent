@@ -67,6 +67,9 @@ type bddDecisionsSender struct {
 	resumePermissionSender
 	updates     []interface{}
 	permissions int
+	// alone approves every prompt by itself, the way a messenger bot answers
+	// its chat agent in any mode.
+	alone bool
 }
 
 func (s *bddDecisionsSender) SendSessionUpdate(_ string, update interface{}) error {
@@ -78,7 +81,7 @@ func (s *bddDecisionsSender) SendSessionUpdate(_ string, update interface{}) err
 // bypass, and otherwise as the operator approving the prompt.
 func (s *bddDecisionsSender) RequestPermission(ctx context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	s.permissions++
-	if permission.AutoApproves(p, "") {
+	if s.alone || permission.AutoApproves(p, "") {
 		return permission.AutoAllow(), nil
 	}
 	return s.resumePermissionSender.RequestPermission(ctx, p)
@@ -243,6 +246,11 @@ func (s *bddDecisionsState) endpointWithoutCredential() error {
 	return nil
 }
 
+func (s *bddDecisionsState) surfaceApprovesByItself() error {
+	s.sender.alone = true
+	return nil
+}
+
 func (s *bddDecisionsState) modelRunsARemoteCommandThenAnswers() error {
 	if err := s.modelRunsTheCommandThenAnswers(); err != nil {
 		return err
@@ -388,6 +396,7 @@ func initializeDecisionsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a decisions endpoint without a credential$`, s.endpointWithoutCredential)
 	sc.Step(`^a model that runs the shell command once, then answers$`, s.modelRunsTheCommandThenAnswers)
 	sc.Step(`^a model that runs a remote command over SSH once, then answers$`, s.modelRunsARemoteCommandThenAnswers)
+	sc.Step(`^a surface that approves every prompt of the session by itself$`, s.surfaceApprovesByItself)
 	sc.Step(`^the decisions endpoint was asked about the command on its remote host$`, s.endpointWasAskedAboutTheRemoteCommand)
 	sc.Step(`^the user asks a question$`, s.userAsksQuestion)
 	sc.Step(`^the tool call is answered with the unsafe rejection$`, s.toolCallAnsweredWithTheUnsafeRejection)

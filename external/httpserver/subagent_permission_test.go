@@ -203,7 +203,7 @@ func TestDetachedPermissionShortCircuitsUnderBypass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res == nil || res.OptionID != "allow" {
+	if res == nil || res.OptionID != "allow" || !res.Automatic {
 		t.Fatalf("bypass result = %+v", res)
 	}
 	if pendingDetachedPermission(childID) != nil {

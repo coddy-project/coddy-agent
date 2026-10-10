@@ -47,7 +47,7 @@ func TestPrintSenderDecidesBypassFromTheRequestersMode(t *testing.T) {
 	}
 
 	own, err := p.RequestPermission(context.Background(), params)
-	if err != nil || own == nil || own.OptionID != "allow" {
+	if err != nil || own == nil || own.OptionID != "allow" || !own.Automatic {
 		t.Fatalf("parent's own request under session bypass = %+v, %v, want auto-allow", own, err)
 	}
 

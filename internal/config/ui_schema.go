@@ -649,7 +649,7 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
 			nil),
-		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API about a shell command before it runs without a permission prompt, and reject the ones it classifies as unsafe.",
+		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API about a shell command before it runs with nobody confirming it, and reject the ones it classifies as unsafe.",
 			map[string]interface{}{
 				"enable": boolProp("Enabled", "Check every run_command call no prompt covers (bypass mode, the command allowlist, a session grant, a hook's allow), and every run_command or ssh_run_command whose prompt a surface answers by itself (bypass mode, a messenger bot, a plan run) or a hook allowed, against the decisions endpoint and reject the commands it classifies as unsafe. Commands you approved in a prompt are not checked again."),
 				"model": map[string]interface{}{

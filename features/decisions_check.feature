@@ -1,9 +1,10 @@
 Feature: Decisions command safety check
-  A shell command that would run without a permission prompt - bypass mode,
-  the command allowlist, a session grant or a hook's allow - is asked about
-  on the NeuralDeep decisions endpoint before it runs. A remote command of
-  ssh_run_command is asked about the same way in bypass mode, where every
-  surface answers its prompt by itself. A command the endpoint
+  A shell command nobody confirms - one that runs without a permission prompt
+  (bypass mode, the command allowlist, a session grant or a hook's allow), or
+  one whose prompt a surface answers by itself (every surface in bypass mode,
+  a messenger bot for its chat agent in any mode, a plan run) - is asked
+  about on the NeuralDeep decisions endpoint before it runs. A remote command
+  of ssh_run_command is asked about the same way. A command the endpoint
   classifies as unsafe is rejected: the refusal is the call's tool result, so
   the session records why the command never ran and the model can choose
   another path. A command the operator approved in a prompt is not checked
@@ -25,6 +26,16 @@ Feature: Decisions command safety check
     When the user asks a question
     Then the tool call is answered with the unsafe rejection
     And the decisions endpoint was asked about the command on its remote host
+    And the turn ends with the model's answer
+
+  Scenario: An unsafe command a messenger bot approves by itself is rejected
+    Given a coddy session in agent mode under ask permissions with the decisions check enabled
+    And a surface that approves every prompt of the session by itself
+    And a decisions endpoint that classifies every command as unsafe
+    And a model that runs the shell command once, then answers
+    When the user asks a question
+    Then the tool call is answered with the unsafe rejection
+    And the command output is not in the session
     And the turn ends with the model's answer
 
   Scenario: A safe command runs

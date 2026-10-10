@@ -675,3 +675,10 @@ func TestDecisionsGateChecksARemoteCommandAHookAllowed(t *testing.T) {
 		t.Fatalf("calls = %d prompts = %d, want one decision request and no prompt", stand.calls.Load(), len(sender.prompts))
 	}
 }
+
+func TestTheGoalVerifierSenderRefusesWhatItIsAsked(t *testing.T) {
+	res, err := nopUpdateSender{}.RequestPermission(context.Background(), acp.PermissionRequestParams{})
+	if err != nil || permission.Approved(res) {
+		t.Fatalf("result = %+v %v, want a refusal", res, err)
+	}
+}
