@@ -21,12 +21,16 @@ import (
 // internal/agent/decisions.go.
 
 // Failure kinds of a decision fetch. The rate-limited and unavailable kinds
-// are worth retrying; unauthorized, forbidden and invalid are not.
+// are worth retrying; unauthorized, forbidden, refused and invalid are not.
+// Refused is every other 4xx: the hub read the request and turned it down
+// for a reason a retry cannot change - an empty wallet (402), a model it does
+// not serve (404), a request it cannot take (400, 413, 422).
 const (
 	NeuralDeepDecisionUnauthorized = "unauthorized"
 	NeuralDeepDecisionForbidden    = "forbidden"
 	NeuralDeepDecisionRateLimited  = "rate_limited"
 	NeuralDeepDecisionUnavailable  = "unavailable"
+	NeuralDeepDecisionRefused      = "refused"
 	NeuralDeepDecisionInvalid      = "invalid"
 )
 
@@ -67,9 +71,13 @@ func (e *NeuralDeepDecisionError) Error() string {
 
 // NeuralDeepDecision is the decoded answer of the safety question: the
 // option the model picked and the probability it gave every option.
+// StateTruncated is the hub's report that the state was longer than the
+// model reads (512 tokens on frida-decisions) and was cut, so the answer
+// judged only the head of the command.
 type NeuralDeepDecision struct {
-	Choice        string
-	Probabilities map[string]float64
+	Choice         string
+	Probabilities  map[string]float64
+	StateTruncated bool
 }
 
 // Probability returns the probability of the named option, 0 when the answer
@@ -95,8 +103,10 @@ type neuralDeepDecisionQuestionSpec struct {
 }
 
 // neuralDeepDecisionSafetyQuestion is the one question the command safety
-// check asks. The wording is English on purpose: both served models were
-// trained mostly on English text (FRIDA 71% English / 29% Russian).
+// check asks. The wording is English because what it judges is a shell
+// command, English by nature; frida-decisions was trained on 71% Russian and
+// 29% English text and reads both, and clef-flash is the surer of the two on
+// English.
 func neuralDeepDecisionSafetyQuestion() neuralDeepDecisionQuestionSpec {
 	return neuralDeepDecisionQuestionSpec{
 		Type: "choice",
@@ -115,8 +125,9 @@ func neuralDeepDecisionSafetyQuestion() neuralDeepDecisionQuestionSpec {
 }
 
 // neuralDeepDecisionState frames the command the endpoint judges: the command
-// itself plus where it would run, both bounded well under the 512-token
-// state limit of frida-decisions.
+// itself plus where it would run. Nothing here bounds it: the hub cuts a
+// state longer than the model reads and reports the cut, which the decision
+// carries as StateTruncated.
 func neuralDeepDecisionState(command, cwd string) string {
 	state := "command: " + strings.TrimSpace(command)
 	if dir := strings.TrimSpace(cwd); dir != "" {
@@ -173,6 +184,8 @@ func FetchNeuralDeepDecision(ctx context.Context, apiBase, key, model, command, 
 			RetryAfter: parseUsageRetryAfter(resp.Header.Get("Retry-After")),
 			Detail:     neuralDeepDecisionDetail(body),
 		}
+	case resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusRequestTimeout:
+		return nil, &NeuralDeepDecisionError{Status: resp.StatusCode, Kind: NeuralDeepDecisionRefused, Detail: neuralDeepDecisionDetail(body)}
 	case resp.StatusCode < 200 || resp.StatusCode >= 300:
 		return nil, &NeuralDeepDecisionError{
 			Status:     resp.StatusCode,
@@ -193,10 +206,17 @@ func FetchNeuralDeepDecision(ctx context.Context, apiBase, key, model, command, 
 // the shapes the hub's own libraries produce: an answers map keyed by
 // question id whose value is either a plain option name or an object with
 // the chosen option under choice/decision/label and probabilities beside it.
-// When no option is named, the most probable one stands in for it.
+// When no option is named, the most probable one stands in for it, and a
+// named option the probabilities leave out counts as certain. The usage
+// block's state_truncated flag (or the same flag at the top level) says the
+// model read only the head of the state.
 func neuralDeepDecodeDecision(body []byte) (*NeuralDeepDecision, error) {
 	var top struct {
-		Answers map[string]json.RawMessage `json:"answers"`
+		Answers        map[string]json.RawMessage `json:"answers"`
+		StateTruncated bool                       `json:"state_truncated"`
+		Usage          struct {
+			StateTruncated bool `json:"state_truncated"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &top); err != nil {
 		return nil, errors.New("undecodable payload")
@@ -239,11 +259,18 @@ func neuralDeepDecodeDecision(body []byte) (*NeuralDeepDecision, error) {
 	if choice == "" {
 		return nil, errors.New("answer without a chosen option")
 	}
-	decision := &NeuralDeepDecision{Choice: choice, Probabilities: answer.Probabilities}
-	if _, ok := decision.Probabilities[choice]; !ok && len(answer.Probabilities) == 0 {
-		decision.Probabilities = map[string]float64{choice: 1}
+	probabilities := make(map[string]float64, len(answer.Probabilities)+1)
+	for option, p := range answer.Probabilities {
+		probabilities[option] = p
 	}
-	return decision, nil
+	if _, ok := probabilities[choice]; !ok {
+		probabilities[choice] = 1
+	}
+	return &NeuralDeepDecision{
+		Choice:         choice,
+		Probabilities:  probabilities,
+		StateTruncated: top.StateTruncated || top.Usage.StateTruncated,
+	}, nil
 }
 
 // neuralDeepDecisionDetail extracts a short, redacted description from an

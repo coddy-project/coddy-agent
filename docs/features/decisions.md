@@ -36,16 +36,20 @@ The state sent to the endpoint is the command text plus the working directory it
 
 `frida-decisions` is an encoder pass with no generation, which is why it is both the default and the cheap option; `clef-flash` is the bigger generative model for commands whose context runs long. The check draws on the decisions quota bucket, separate from the chat class - the balance is served by `GET /v1/decisions/quota` on the hub.
 
+The budget is a hard limit. The hub cuts a state longer than the model reads and reports the cut, and a verdict on the head of a command says nothing about the rest, where the destructive part may sit. Coddy therefore does not run a command the model read only in part: the result says the command is too long for the model and tells the agent to split it into shorter commands or to write files with the file tools instead of a heredoc. A head the model already judged unsafe is rejected as unsafe. An operator whose agents run long commands sets `decisions.model` to `clef-flash`.
+
 ## The credential
 
-The check resolves its credential exactly like chat requests through the neuraldeep provider: an explicit `providers[].api_key` (or `api_key_command`) on the first `neuraldeep` row, then the `NEURALDEEP_API_KEY` environment variable, then a stored hub sign-in (`coddy providers login neuraldeep`); `api_base` picks the deployment (`.ru` or `.tech`) and `providers[].proxy` applies. A machine with none of those still works: the row can be absent, and the env key or the stored login under the default name is enough.
+The check resolves its credential exactly like chat requests through the neuraldeep provider: an explicit `providers[].api_key` (or `api_key_command`) on the first `neuraldeep` row, then that row's `NAME_API_KEY` environment variable (`NEURALDEEP_API_KEY` for a row named `neuraldeep`), then the row's stored hub sign-in (`coddy providers login <name>`); `api_base` picks the deployment (`.ru` or `.tech`) and `providers[].proxy` applies. The row can be absent: the check then uses the name `neuraldeep`, so `NEURALDEEP_API_KEY` or the sign-in stored by `coddy providers login neuraldeep` is enough.
 
 ## When the endpoint cannot answer
 
 A safety net that is on must not fail silently open:
 
-- **no credential, a rejected key (401/403), an undecodable answer** - the command is not executed, with the reason and the fix in the result: provide a credential or switch `decisions.enable` off;
-- **rate limit (429) and transient failures (network, timeout, 5xx)** - the call is retried inside a two-minute window, honouring the endpoint's `Retry-After`; a window that runs out also stops the command, with the last error in the result.
+- **no credential, a rejected key (401/403)** - the command is not executed, with the reason and the fix in the result: provide a credential or switch `decisions.enable` off;
+- **a request the hub refuses (an empty wallet, 402; a model it does not serve, 404; any other 4xx) or an undecodable answer** - the command is not executed at once, with the hub's own reason in the result; no retry can change that answer, so none is made;
+- **a command too long for the model to read whole** - the command is not executed (see [The model](#the-model));
+- **rate limit (429) and transient failures (network, a timeout including 408, 5xx)** - the call is retried inside a two-minute window, honouring the endpoint's `Retry-After`; a window that runs out also stops the command, with the last error in the result.
 
 A turn cancelled while waiting ends the wait and the command with it.
 
@@ -59,4 +63,4 @@ NEURALDEEP_API_KEY=... go test ./internal/agent -run TestLiveDecisionsE2E -count
 
 ![The Command safety (decisions) tab of the Settings drawer](../assets/decisions/decisions-settings-dark-1280.png)
 
-*Settings → Command safety (decisions): the enable switch and the model picker*
+*Settings → Command safety (decisions): the enable switch, the model picker and the unsafe threshold*

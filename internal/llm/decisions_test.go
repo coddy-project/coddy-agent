@@ -139,6 +139,7 @@ func TestFetchNeuralDeepDecisionAnswerShapes(t *testing.T) {
 		{"decision naming", `{"answers":{"safety":{"decision":"safe"}}}`, "safe", 1},
 		{"label naming", `{"answers":{"safety":{"label":"unsafe"}}}`, "unsafe", 0},
 		{"probabilities only", `{"answers":{"safety":{"probabilities":{"safe":0.9,"unsafe":0.1}}}}`, "safe", 0.9},
+		{"chosen option without its probability", `{"answers":{"safety":{"choice":"unsafe","probabilities":{"safe":0.3}}}}`, "unsafe", 0.3},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -152,6 +153,39 @@ func TestFetchNeuralDeepDecisionAnswerShapes(t *testing.T) {
 			}
 			if p := dec.Probability(NeuralDeepDecisionSafe); p != tc.wantSafeP {
 				t.Fatalf("p(safe) = %v, want %v", p, tc.wantSafeP)
+			}
+			// The chosen option always carries a probability: one the answer
+			// leaves out counts as certainty, never as zero.
+			if p := dec.Probability(dec.Choice); p <= 0 {
+				t.Fatalf("p(%s) = %v, want the chosen option to carry a probability", dec.Choice, p)
+			}
+		})
+	}
+}
+
+// The hub cuts a state longer than the model reads (512 tokens on
+// frida-decisions) and says so in usage.state_truncated; the decision then
+// covers only the head of the command, and the caller must be told.
+func TestFetchNeuralDeepDecisionReportsATruncatedState(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"usage flag", `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":0.9,"unsafe":0.1}}},"usage":{"state_tokens":512,"state_truncated":true}}`, true},
+		{"top-level flag", `{"state_truncated":true,"answers":{"safety":{"choice":"safe"}}}`, true},
+		{"whole state", decisionAnswerFixture, false},
+		{"no usage block", `{"answers":{"safety":{"choice":"safe"}}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDecisionStand(t, "", http.StatusOK, tc.body, nil)
+			dec, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions", "ls", "", d.srv.Client())
+			if err != nil {
+				t.Fatalf("fetch: %v", err)
+			}
+			if dec.StateTruncated != tc.want {
+				t.Fatalf("state truncated = %v, want %v", dec.StateTruncated, tc.want)
 			}
 		})
 	}
@@ -172,6 +206,13 @@ func TestFetchNeuralDeepDecisionErrorKinds(t *testing.T) {
 		{"rate limited with seconds", http.StatusTooManyRequests, `{"detail":"decisions quota exhausted"}`, map[string]string{"Retry-After": "30"}, NeuralDeepDecisionRateLimited, 30 * time.Second, 429},
 		{"unavailable with seconds", http.StatusServiceUnavailable, `{"detail":"later"}`, map[string]string{"Retry-After": "5"}, NeuralDeepDecisionUnavailable, 5 * time.Second, 503},
 		{"server error", http.StatusInternalServerError, `boom`, nil, NeuralDeepDecisionUnavailable, 0, 500},
+		{"request timeout", http.StatusRequestTimeout, `{"detail":"slow client"}`, nil, NeuralDeepDecisionUnavailable, 0, 408},
+		// Statuses no retry can change: the hub answered, and it refused.
+		{"empty wallet", http.StatusPaymentRequired, `{"detail":"wallet is empty, top up the balance"}`, nil, NeuralDeepDecisionRefused, 0, 402},
+		{"unknown model", http.StatusNotFound, `{"detail":"model 'nosuch' not found, use frida-decisions or clef-flash"}`, nil, NeuralDeepDecisionRefused, 0, 404},
+		{"bad request", http.StatusBadRequest, `{"detail":"questions: field required"}`, nil, NeuralDeepDecisionRefused, 0, 400},
+		{"body too large", http.StatusRequestEntityTooLarge, `{"detail":"body over 256 KB"}`, nil, NeuralDeepDecisionRefused, 0, 413},
+		{"unprocessable", http.StatusUnprocessableEntity, `{"detail":"bad state"}`, nil, NeuralDeepDecisionRefused, 0, 422},
 		{"not json", http.StatusOK, `<html>proxy</html>`, nil, NeuralDeepDecisionInvalid, 0, 200},
 		{"answer missing", http.StatusOK, `{"answers":{}}`, nil, NeuralDeepDecisionInvalid, 0, 200},
 	}

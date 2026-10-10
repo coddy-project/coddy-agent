@@ -29,10 +29,11 @@ const (
 	commandRejectedAsUnsafePrefix = "command rejected as unsafe: "
 
 	// commandNotExecutedPrefix opens the tool result of a command stopped
-	// because the check itself could not answer: no credential, a payload
-	// that is not an answer, or an endpoint that stayed unreachable or
-	// rate-limited past the retry window. A safety net that is on must not
-	// fail silently open.
+	// because the check itself could not answer for it: no credential, a
+	// request the hub refused, a payload that is not an answer, a command
+	// too long for the model to read whole, or an endpoint that stayed
+	// unreachable or rate-limited past the retry window. A safety net that is
+	// on must not fail silently open.
 	commandNotExecutedPrefix = "command not executed: "
 )
 
@@ -84,6 +85,13 @@ func (a *Agent) gateCommandSafety(ctx context.Context, argsJSON string, env *too
 			// endpoint's own pick: the threshold is the operator's dial, so a
 			// model that chose unsafe below it still runs the command.
 			p := decision.Probability(llm.NeuralDeepDecisionUnsafe)
+			if p < threshold && decision.StateTruncated {
+				// The hub cut the state: the verdict covers the head of the
+				// command, and the part the model never read may be the one
+				// that does the damage. An unsafe head is still rejected below.
+				return fmt.Sprintf("%sthe command is too long for the decisions model %s to read whole, so its verdict would not cover all of it. Split it into shorter commands, write files with the file tools instead of a heredoc, or set decisions.model to %s, which reads longer commands",
+					commandNotExecutedPrefix, model, config.DecisionsModelClef)
+			}
 			if p < threshold {
 				if decision.Choice == llm.NeuralDeepDecisionUnsafe {
 					a.log.Warn("decisions check chose unsafe below the configured threshold; running the command", "p_unsafe", p, "threshold", threshold)
@@ -99,11 +107,15 @@ func (a *Agent) gateCommandSafety(ctx context.Context, argsJSON string, env *too
 		if !ok {
 			de = &llm.NeuralDeepDecisionError{Kind: llm.NeuralDeepDecisionUnavailable, Detail: err.Error()}
 		}
+		// Retrying cannot change these answers: the check is on, so the
+		// command waits for the operator to fix the cause, not for the
+		// endpoint.
 		switch de.Kind {
-		case llm.NeuralDeepDecisionUnauthorized, llm.NeuralDeepDecisionForbidden, llm.NeuralDeepDecisionInvalid:
-			// Retrying cannot change the answer: the check is on, so the
-			// command waits for a working credential, not for the endpoint.
+		case llm.NeuralDeepDecisionUnauthorized, llm.NeuralDeepDecisionForbidden:
 			return fmt.Sprintf("%sthe decisions safety check is not available: %s. Provide a NeuralDeep credential (a neuraldeep provider row, NEURALDEEP_API_KEY, or a stored hub sign-in) or switch decisions.enable off",
+				commandNotExecutedPrefix, de.Error())
+		case llm.NeuralDeepDecisionRefused, llm.NeuralDeepDecisionInvalid:
+			return fmt.Sprintf("%sthe decisions safety check is not available: %s. Check decisions.model and the NeuralDeep account behind the key (its balance included) or switch decisions.enable off",
 				commandNotExecutedPrefix, de.Error())
 		}
 		wait := de.RetryAfter

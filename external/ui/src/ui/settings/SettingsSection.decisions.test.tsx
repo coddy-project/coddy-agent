@@ -30,7 +30,12 @@ function Harness() {
                   enum: ["frida-decisions", "clef-flash"],
                   default: "frida-decisions",
                 },
-                threshold: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
+                threshold: {
+                  type: "number",
+                  minimum: 0,
+                  maximum: 1,
+                  default: 0.5,
+                },
               },
             },
           },

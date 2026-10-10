@@ -343,3 +343,79 @@ func TestRunCommandAndCWD(t *testing.T) {
 		t.Fatalf("cmd=%q, want empty on undecodable args", cmd)
 	}
 }
+
+func TestDecisionsGateStopsAtOnceWhenTheHubRefuses(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		detail string
+	}{
+		{"empty wallet", http.StatusPaymentRequired, "wallet is empty, top up the balance"},
+		{"unknown model", http.StatusNotFound, "model 'nosuch' not found, use frida-decisions or clef-flash"},
+		{"bad request", http.StatusBadRequest, "questions: field required"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stand := newDecisionsStand(t, decisionResponse{status: tc.status, body: `{"detail":` + quoteJSON(tc.detail) + `}`})
+			ag, st, dir := newDecisionsAgent(t, true)
+			// The default window (two minutes) stays: a refusal no retry can
+			// change must not spend it.
+			start := time.Now()
+			res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+			if !strings.HasPrefix(res, commandNotExecutedPrefix) {
+				t.Fatalf("result = %q, want the not-executed refusal", res)
+			}
+			if !strings.Contains(res, tc.detail) {
+				t.Fatalf("result = %q, want the hub's reason", res)
+			}
+			if strings.Contains(res, "Provide a NeuralDeep credential") {
+				t.Fatalf("result = %q, want no credential hint for a key the hub accepted", res)
+			}
+			if strings.Contains(res, "coddy-shell-ok") {
+				t.Fatalf("the command ran anyway: %q", res)
+			}
+			if n := stand.calls.Load(); n != 1 {
+				t.Fatalf("calls = %d, want one request and no retries", n)
+			}
+			if elapsed := time.Since(start); elapsed > 10*time.Second {
+				t.Fatalf("gate took %s, want an immediate refusal", elapsed)
+			}
+		})
+	}
+}
+
+func TestDecisionsGateStopsACommandTheModelReadOnlyInPart(t *testing.T) {
+	// The hub cut the state: the safe verdict covers only the head of the
+	// command, and what the model never read may be the dangerous part.
+	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK,
+		body: `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":0.97,"unsafe":0.03}}},"usage":{"state_tokens":512,"state_truncated":true}}`})
+	ag, st, dir := newDecisionsAgent(t, true)
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+	if !strings.HasPrefix(res, commandNotExecutedPrefix) {
+		t.Fatalf("result = %q, want the not-executed refusal", res)
+	}
+	if !strings.Contains(res, "too long") || !strings.Contains(res, "clef-flash") {
+		t.Fatalf("result = %q, want the length reason and the model that reads more", res)
+	}
+	if strings.Contains(res, "coddy-shell-ok") {
+		t.Fatalf("the command ran anyway: %q", res)
+	}
+	if stand.calls.Load() != 1 {
+		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
+	}
+	meta, err := session.ReadToolCallMeta(dir, "call_decisions_1")
+	if err != nil || meta.Status != "cancelled" {
+		t.Fatalf("meta = %+v err = %v, want status cancelled", meta, err)
+	}
+}
+
+func TestDecisionsGateRejectsAnUnsafeHeadOfATruncatedCommand(t *testing.T) {
+	// What the model did read is already unsafe: that verdict stands.
+	newDecisionsStand(t, decisionResponse{status: http.StatusOK,
+		body: `{"answers":{"safety":{"choice":"unsafe","probabilities":{"safe":0.02,"unsafe":0.98}}},"usage":{"state_truncated":true}}`})
+	ag, st, dir := newDecisionsAgent(t, true)
+	res := runCommandToolCall(t, ag, st, dir, "rm -rf /", false)
+	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
+		t.Fatalf("result = %q, want the unsafe rejection", res)
+	}
+}

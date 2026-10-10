@@ -560,7 +560,10 @@ tools:
 # NEURALDEEP_API_KEY, or a stored hub sign-in). Every checked command draws on
 # the decisions quota - 1 unit on frida-decisions, 4 on clef-flash - and adds
 # ~20 ms (frida-decisions) or ~150 ms (clef-flash); an endpoint that stays
-# unreachable or rate-limited past the retry window also stops the command.
+# unreachable or rate-limited past the retry window also stops the command, and
+# so does a refusal from the hub (an empty wallet, an unknown model). A command
+# longer than the model reads (512 tokens on frida-decisions) is not run either:
+# set clef-flash when your agents run long commands.
 # See docs/features/decisions.md.
 # decisions:
 #   enable: false

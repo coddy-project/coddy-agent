@@ -104,3 +104,18 @@ func TestDecisionsThresholdValidationAndDefault(t *testing.T) {
 		}
 	}
 }
+
+// The settings form takes its bounds from the UI schema it is served, so the
+// threshold field there carries the same 0..1 range Validate enforces.
+func TestDecisionsUISchemaBoundsTheThreshold(t *testing.T) {
+	props, _ := UISchemaMap()["properties"].(map[string]interface{})
+	decisions, _ := props["decisions"].(map[string]interface{})
+	fields, _ := decisions["properties"].(map[string]interface{})
+	threshold, _ := fields["threshold"].(map[string]interface{})
+	if threshold == nil {
+		t.Fatal("UI schema has no decisions.threshold")
+	}
+	if threshold["minimum"] != 0.0 || threshold["maximum"] != 1.0 {
+		t.Fatalf("threshold bounds = %v..%v, want 0..1", threshold["minimum"], threshold["maximum"])
+	}
+}
