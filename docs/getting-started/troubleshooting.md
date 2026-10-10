@@ -258,13 +258,23 @@ Field reference: [`agent`](../reference/config.md#agent), [`providers`](../refer
 
 **Fix.** Nothing is needed for a lane that recovers in seconds. For one that keeps failing, check the provider's status, or put the model behind a gateway with healthier deployments. A longer outage is a reason to raise `agent.llm_retry_base_ms`, which stretches the pauses. A subagent that failed this way keeps its transcript, and its report tells the parent to continue it with `spawn_agent` `resume` rather than start a second subagent on the same task ([Resuming a run](../features/subagents.md#resuming-a-run)).
 
+## A turn ends with `context window exceeded`
+
+**Symptom.** A turn ends with `context window exceeded: the provider refused the request because it does not fit the model's context window (...)`, and the provider's own answer closes the message, for instance `404 Not Found "Context limit is 49152 tokens; prompt=51402 leaves 0 output tokens, below the minimum 16"` or `This model's maximum context length is 8192 tokens`. Before this message, such a turn ended with `LLM error:` and the provider's text alone ([issue #490](https://github.com/coddy-project/coddy-agent/issues/490)).
+
+**Cause.** The request outgrew the window of the model or of the server behind it. Automatic compaction folds earlier turns and never the prompt being answered, so one long turn - a prompt and dozens of tool steps - can outgrow a small window with nothing to fold. A window set above what the server actually runs with has the same effect: the trigger measures against `max_context_tokens`, and a local server started with a smaller context refuses the request before the trigger fires. The message shows Coddy's estimate of the request, the window it measured against and, when the provider's answer holds them, the provider's own figures.
+
+**Fix.** Run `/compact`, which folds the history together with the prompt that was being answered, and continue the task; or start a new session; or split the task so that one turn reads less. When the provider's limit is below the window the message shows, set `max_context_tokens` of the model entry to the provider's figure so that automatic compaction starts in time ([The context window](../features/compaction.md#the-context-window)). Field reference: [`models`](../reference/config.md#models), [`compaction`](../reference/config.md#compaction).
+
 ## A turn stops before the task is done
 
 **Symptom.** The agent stops working with the task unfinished, and a notice under the last answer says why: `Stopped after 40 steps, the step limit set by agent.max_turns. ...`, or `The answer was cut off at the model's output limit (max_tokens). ...`. The console prints the same line, `coddy -p` writes it to stderr, and a Telegram chat receives it as a message of its own ([issue #255](https://github.com/coddy-project/coddy-agent/issues/255)).
 
 **Cause.** A limit ended the turn, not the model. `agent.max_turns` caps the ReAct steps of one turn at 165 by default. Set it to `0` only to explicitly disable the cap; a subagent takes its limit from its definition's `max_turns`, then `subagents.max_turns`. `max_tokens` on a model caps one answer.
 
-**Fix.** Send a message to let the agent continue, or raise the limit that the notice names:
+A step that stops at `max_tokens` with no text and no tool call does not end the turn at once. A thinking model can spend the whole cap on reasoning, or on a tool call whose arguments run out of room before they are complete. A replay of the same request would hit the same cap, so the agent leaves that empty step out of the next request, adds a short message at the end of the history, and asks again. The message says the previous step hit the output limit, asks the model to keep its reasoning short and to split a large file write or edit into several smaller tool calls. The agent asks up to twice in a row. Each retry takes one of the `agent.llm_retry_max` extra attempts and one step of `agent.max_turns`, a step that completes a tool call starts the count again, and `agent.llm_retry_max: 0` turns the recovery off. On the last step `agent.max_turns` allows there is no room for a retry, and the turn ends with the output-limit notice. A subagent and a scheduled run, which nobody can tell to continue, recover the same way. The turn ends with the notice only when the model is cut off again after those retries, or when the cut-off step had already written text. After a retry the notice adds that the agent had already asked the model to keep its steps short.
+
+**Fix.** Send a message to let the agent continue, or raise the limit that the notice names. A notice that mentions the retries means the model's `max_tokens` is too small for how it works: a thinking model needs room for its reasoning and the answer.
 
 ```yaml
 agent:
