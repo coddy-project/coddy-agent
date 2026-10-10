@@ -276,6 +276,14 @@ models:
 
 Set `max_turns: 0` only when deliberately disabling the step cap.
 
+## A chat fails with `no space left on device`
+
+**Symptom.** A new chat in the web UI fails with `Request failed (507). (no space left on device: the disk that stores Coddy sessions is full)`, or `POST /v1/responses` answers `507 Insufficient Storage`. In a chat that is already open the turn looks fine, but the transcript lacks it after a restart, and the server log holds error lines such as `persist session: no space left on device` with a `hint` attribute ([issue #465](https://github.com/coddy-project/coddy-agent/issues/465)). Before the failure was told apart, the same state read `Request failed (500). (session unavailable)` and a warning in the log.
+
+**Cause.** The volume that holds the sessions folder (`~/.coddy/sessions` by default, or `sessions.dir`) has no room left, or the account's quota on it is used up. Coddy saves a session on every change. A new session cannot be created without room, so the request fails with 507 and the turn does not start. A session that is already open keeps running from memory while each save fails, so whatever it did since the last successful save exists only in the process. Windows reports the same state as `There is not enough space on the disk.`, and Coddy answers with the same 507 and message.
+
+**Fix.** Free space on that volume, then send the message again. An open session writes everything it holds, the turns it missed included, with its next successful save, which comes with its next change. A session whose process stopped while the disk was full has lost those turns, so leave the server running while you clean up. To find what takes the room, run `du -sh ~/.coddy/*`. The sessions folder holds the transcript, `assets/` and `tool_calls/` of every chat, and `coddy sessions list` shows the chats. Delete the chats you no longer need from the History screen, or point `sessions.dir` at a larger volume. A daemon logs to `~/.coddy/logs/serve.log`; search it for `no space left`.
+
 ## `coddy update` refuses to overwrite a packaged binary
 
 **Symptom.** `coddy update` changes nothing, names the package that owns the installation, prints the package manager command and exits 1; or it points at `brew upgrade`.

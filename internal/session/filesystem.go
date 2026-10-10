@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -61,6 +62,15 @@ type FileStore struct {
 	childDirs    map[string]string
 	childScanned time.Time
 	childScanMu  sync.Mutex
+
+	// testFault stands in for the filesystem in a test (export_test.go): when
+	// it holds a function, EnsureLayout (once the bundle folder exists) and
+	// Save (before it writes) ask it with the operation they are about to
+	// run ("layout" or "save"), and fail with the error it returns. It is how
+	// a test makes the disk "full" without filling one. Empty everywhere
+	// else, and atomic because a save from a session's own goroutine can
+	// overlap the test that sets it.
+	testFault atomic.Pointer[func(op string) error]
 }
 
 // persistedMessages remembers what was last written to one messages.json. A
@@ -329,6 +339,15 @@ func ThumbnailPathInAssets(assetsDir, assetName string) string {
 	return filepath.Join(assetsDir, "thumbnails", assetName+".png")
 }
 
+// injectedFault is the error a test made an operation of the store fail with
+// (testFault), or nil.
+func (f *FileStore) injectedFault(op string) error {
+	if fn := f.testFault.Load(); fn != nil {
+		return (*fn)(op)
+	}
+	return nil
+}
+
 // EnsureLayout creates session.json (if missing), messages.json, assets/, todos/, todos/archive/.
 func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	// A fresh walk, not the rate-limited one: this call is about to write a
@@ -336,15 +355,42 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	// the sessions root for an id another process has already stored inside a
 	// parent. It runs once per session, not once per request.
 	dir = f.sessionPath(sessionID, true)
+	// Whether this call makes the folder decides whether it may take it away
+	// again: a folder that was there before belongs to somebody (a stored
+	// session, another process), whatever state the layout over it ends in.
+	_, statErr := os.Stat(dir)
+	created := os.IsNotExist(statErr)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return dir, err
 	}
-	unlock, err := f.lockSessionBundle(dir)
-	if err != nil {
+	if err := f.layoutBundle(sessionID, dir); err != nil {
+		if created {
+			// A layout that fails partway (a full disk most often) leaves a
+			// half-built folder, and the retry with a new id would leave
+			// another. Nothing was persisted for it, so nothing owns it. The
+			// lock is released by now; a removal that fails is left to the
+			// next sweep of the folder, the error to report is the layout's.
+			_ = os.RemoveAll(dir)
+		}
 		return dir, err
 	}
+	return dir, nil
+}
+
+// layoutBundle writes the bundle of dir under the lock every writer of the
+// bundle takes.
+func (f *FileStore) layoutBundle(sessionID, dir string) error {
+	unlock, err := f.lockSessionBundle(dir)
+	if err != nil {
+		return err
+	}
 	defer unlock()
-	return dir, f.ensureLayoutAt(sessionID, dir)
+	// The fault stands in for a failure partway through the layout: the
+	// folder exists, the files of the bundle are not written.
+	if err := f.injectedFault("layout"); err != nil {
+		return err
+	}
+	return f.ensureLayoutAt(sessionID, dir)
 }
 
 // ensureLayoutAt builds a bundle at an explicit directory, which is what lets
@@ -1129,6 +1175,9 @@ func (f *FileStore) Save(state *State) error {
 	dir := state.SessionDir
 	if dir == "" {
 		return fmt.Errorf("session has no SessionDir")
+	}
+	if err := f.injectedFault("save"); err != nil {
+		return err
 	}
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	msgPath := filepath.Join(dir, messagesFile)

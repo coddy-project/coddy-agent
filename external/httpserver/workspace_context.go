@@ -392,8 +392,15 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 		body.Path = abs
 		createCWD = abs
 	}
-	st, err := s.mgr.EnsureHTTPSession(r.Context(), id, createCWD)
+	st, err := s.ensureHTTPSession(r.Context(), id, createCWD, "")
 	if err != nil {
+		// This route creates the session of a new chat that picked its
+		// folder, and the web UI calls it before the first send: a full
+		// volume is named here too (507), every other failure keeps its 400.
+		if platform.IsDiskFull(err) {
+			writeDiskFull(w)
+			return
+		}
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
 	}
