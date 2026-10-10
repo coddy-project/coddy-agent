@@ -173,7 +173,20 @@ func TestReActRetryBudget(t *testing.T) {
 		{"zero single turn silence", 0, 1, 1, []string{"silent"}, acp.StopReasonRefused, true},
 		{"single turn silence", 3, 1, 1, []string{"silent", "answer"}, acp.StopReasonMaxTurns, false},
 		{"single turn empty", 3, 1, 1, []string{"empty", "answer"}, acp.StopReasonMaxTurns, false},
-		{"token limit is terminal", 3, 10, 1, []string{"max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		{"token limit recovers", 3, 10, 2, []string{"max_tokens", "answer"}, acp.StopReasonEndTurn, false},
+		{"token limit with retries off ends the turn", 0, 10, 1, []string{"max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		{"token limit recoveries are bounded", 10, 10, 1 + maxOutputLimitRecoveries, []string{"max_tokens"}, acp.StopReasonMaxTokens, false},
+		{"token limit takes one slot per recovery", 1, 10, 2, []string{"max_tokens"}, acp.StopReasonMaxTokens, false},
+		{"transport then token limit share allowance", 1, 10, 2, []string{"error", "max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		{"token limit then transport share allowance", 1, 10, 2, []string{"max_tokens", "error", "answer"}, acp.StopReasonRefused, true},
+		{"token limit at the step cap", 3, 1, 1, []string{"max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		{"tool progress resets the token limit budget", 1, 10, 4, []string{"max_tokens", "tool", "max_tokens", "answer"}, acp.StopReasonEndTurn, false},
+		// Two recoveries are the bound. The third cut-off is only recovered
+		// because the tool call in between started the count over, and the
+		// allowance is large enough that it is the count, not the slots, that
+		// ends the turn without that call.
+		{"tool progress resets the token limit count", 10, 20, 5, []string{"max_tokens", "max_tokens", "tool", "max_tokens", "answer"}, acp.StopReasonEndTurn, false},
+		{"the token limit count ends without progress", 10, 20, 3, []string{"max_tokens", "max_tokens", "max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
 		{"one recovery", 1, 10, 2, []string{"reasoning"}, acp.StopReasonRefused, true},
 		{"transport then empty share allowance", 1, 10, 2, []string{"error", "reasoning", "answer"}, acp.StopReasonRefused, true},
 		{"empty then transport share allowance", 1, 10, 2, []string{"reasoning", "error", "answer"}, acp.StopReasonRefused, true},
