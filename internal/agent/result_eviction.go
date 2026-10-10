@@ -11,10 +11,11 @@ package agent
 //     to a file they covered;
 //   - the listings of glob, print_tree, websearch and webfetch (the tools named
 //     by compaction.result_eviction.tools) survive only inside the last
-//     keep_recent_steps steps that hold one - a step is the assistant message
-//     that issued a batch of calls with every result of that batch, so a
-//     fan-out of ten parallel calls is one step - and, for glob and print_tree,
-//     until a write lands under the folder they listed. They have no pins.
+//     keep_recent_steps steps that hold one (never fewer than the latest) - a
+//     step is the assistant message that issued a batch of calls with every
+//     result of that batch, so a fan-out of ten parallel calls is one step -
+//     and, for glob and print_tree, until a write lands under the folder they
+//     listed. They have no pins.
 //
 // Everything else collapses to a short placeholder that keeps the
 // tool_call/tool_result pairing valid for the provider: role, tool call id and
@@ -43,7 +44,11 @@ type resultEvictionOptions struct {
 	// grep (glob, print_tree, websearch, webfetch). Empty evicts read and grep only.
 	ListingTools map[string]bool
 	// KeepRecentSteps is how many of the latest steps that hold a listing
-	// result keep all of those results intact.
+	// result keep all of those results intact. A value below 1 behaves as 1: the
+	// latest such step always keeps its results, so a listing the model has just
+	// asked for reaches it instead of being collapsed in the next request and
+	// asked for again (the configuration refuses 0; this is the same floor for
+	// options built in code).
 	KeepRecentSteps int
 }
 
@@ -253,7 +258,7 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 	// is still reasoning about. Listings are not part of it: they are judged by the
 	// step window below.
 	windowIdx := recentCandidateWindow(reads, greps, opt.KeepRecent)
-	stepWindow := listingStepWindow(listings, opt.KeepRecentSteps)
+	stepWindow := listingStepWindow(listings, max(opt.KeepRecentSteps, 1))
 
 	out := history
 	cloned := false

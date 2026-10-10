@@ -763,7 +763,7 @@ func UISchemaMap() map[string]interface{} {
 					map[string]interface{}{
 						"enable":            boolProp("Enabled", "Master switch for tool result eviction. Defaults to true."),
 						"keep_recent":       intProp("Keep recent results", "How many most recent read and grep results stay intact as a working window (default 2 - enough to hold a read and a grep at once; 0 keeps none)."),
-						"keep_recent_steps": intProp("Keep recent steps", "How many of the most recent steps holding a listing result keep all of their listing results (default 3; 0 keeps none). A step is one assistant message with all its parallel tool results."),
+						"keep_recent_steps": intProp("Keep recent steps", "How many of the most recent steps holding a listing result keep all of their listing results (default 3, at least 1: the latest step that holds a listing always keeps its results). A step is one assistant message with all its parallel tool results."),
 						"min_result_bytes":  intProp("Min result bytes", "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate)."),
 						"start_percent":     intProp("Start at (%)", "Evict only once the estimated context reaches this percent of the model's max_context_tokens (default 50; 0 evicts from the first result). Below it the history is sent untouched so the provider's prompt cache holds."),
 					},

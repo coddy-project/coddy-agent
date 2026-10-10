@@ -32,6 +32,8 @@ const (
 	// all of those results intact. A step is one assistant message with every
 	// result of its tool calls, so ten parallel calls are one step: counting
 	// single results would let one fan-out fill the whole window by itself.
+	// The smallest accepted value is 1: with none, the listing the model has
+	// just asked for would be collapsed in the very next request.
 	ResultEvictionDefaultKeepRecentSteps = 3
 	// ResultEvictionDefaultStartPercent is the share of the model's context
 	// window the conversation must reach before eviction starts rewriting it.
@@ -110,7 +112,8 @@ type ResultEviction struct {
 	Tools *[]string `yaml:"tools,omitempty"`
 	// KeepRecentSteps is how many of the most recent steps holding a listing
 	// result keep all of their listing results intact. A nil pointer means the
-	// default (3); 0 keeps none.
+	// default (3); the minimum is 1, so the latest step that holds a listing
+	// always keeps its results.
 	KeepRecentSteps *int `yaml:"keep_recent_steps"`
 	// MinResultBytes is the size at or below which a result is never evicted.
 	// A nil pointer means the default (2000); 0 makes every result a candidate.
@@ -181,8 +184,8 @@ func (r *ResultEviction) Validate() error {
 	if r.StartPercent != nil && (*r.StartPercent < 0 || *r.StartPercent > 100) {
 		return fmt.Errorf("compaction.result_eviction.start_percent: must be between 0 and 100")
 	}
-	if r.KeepRecentSteps != nil && *r.KeepRecentSteps < 0 {
-		return fmt.Errorf("compaction.result_eviction.keep_recent_steps: must be >= 0")
+	if r.KeepRecentSteps != nil && *r.KeepRecentSteps < 1 {
+		return fmt.Errorf("compaction.result_eviction.keep_recent_steps: must be >= 1")
 	}
 	if r.Tools != nil {
 		for _, name := range *r.Tools {

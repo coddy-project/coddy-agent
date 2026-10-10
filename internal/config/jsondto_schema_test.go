@@ -377,18 +377,18 @@ func TestResultEvictionListingKeysSurviveTheJSONDTO(t *testing.T) {
 		}
 	})
 
-	t.Run("an explicit empty list and an explicit zero are kept", func(t *testing.T) {
+	t.Run("an explicit empty list and an explicit count are kept", func(t *testing.T) {
 		empty := []string{}
-		zero := 0
-		raw, back := roundTrip(t, config.ResultEviction{Tools: &empty, KeepRecentSteps: &zero})
-		if !strings.Contains(raw, `"tools":[]`) || !strings.Contains(raw, `"keep_recent_steps":0`) {
+		one := 1
+		raw, back := roundTrip(t, config.ResultEviction{Tools: &empty, KeepRecentSteps: &one})
+		if !strings.Contains(raw, `"tools":[]`) || !strings.Contains(raw, `"keep_recent_steps":1`) {
 			t.Fatalf("GET DTO dropped the explicit values: %s", raw)
 		}
 		if back.Tools == nil || len(*back.Tools) != 0 {
 			t.Fatalf("PUT path turned tools: [] into %v", back.Tools)
 		}
-		if back.KeepRecentSteps == nil || *back.KeepRecentSteps != 0 {
-			t.Fatalf("PUT path turned keep_recent_steps: 0 into %v", back.KeepRecentSteps)
+		if back.KeepRecentSteps == nil || *back.KeepRecentSteps != 1 {
+			t.Fatalf("PUT path turned keep_recent_steps: 1 into %v", back.KeepRecentSteps)
 		}
 	})
 
@@ -461,14 +461,14 @@ compaction:
 		}
 	})
 
-	t.Run("an explicit empty list and zero steps survive", func(t *testing.T) {
-		cfg, raw := save(t, "    tools: []\n    keep_recent_steps: 0\n")
+	t.Run("an explicit empty list and a single step survive", func(t *testing.T) {
+		cfg, raw := save(t, "    tools: []\n    keep_recent_steps: 1\n")
 		re := cfg.Compaction.ResultEviction
 		if re.Tools == nil || len(*re.Tools) != 0 {
 			t.Fatalf("tools: [] was lost in the round trip: %v\n%s", re.Tools, raw)
 		}
-		if re.KeepRecentSteps == nil || *re.KeepRecentSteps != 0 {
-			t.Fatalf("keep_recent_steps: 0 was lost in the round trip: %v\n%s", re.KeepRecentSteps, raw)
+		if re.KeepRecentSteps == nil || *re.KeepRecentSteps != 1 {
+			t.Fatalf("keep_recent_steps: 1 was lost in the round trip: %v\n%s", re.KeepRecentSteps, raw)
 		}
 		if len(re.EffectiveTools()) != 0 {
 			t.Fatalf("an explicit empty list flipped back to the default: %v", re.EffectiveTools())

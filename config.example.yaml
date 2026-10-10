@@ -209,7 +209,8 @@ sessions:
 #     keep_recent: 2         # most recent evictable read/grep results kept as a working window; 0 keeps none
 #     tools: [glob, print_tree, websearch, webfetch]  # listing tools evicted by whole steps (the
 #                            # default); [] evicts read/grep only; no other name is accepted
-#     keep_recent_steps: 3   # latest steps whose listing results stay whole; 0 keeps none
+#     keep_recent_steps: 3   # latest steps whose listing results stay whole; at least 1, so the
+                           # listing just asked for always reaches the model
 #     min_result_bytes: 2000 # results this size or smaller are never evicted
 #     start_percent: 50      # wait until the context is this full before evicting; 0 = from the
 #                            # first result. A placeholder written into the middle of the history

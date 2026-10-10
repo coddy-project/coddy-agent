@@ -720,7 +720,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.compaction.result_eviction.keep_recent_steps.label":
     "Сохранять последние шаги",
   "settings.schema.compaction.result_eviction.keep_recent_steps.desc":
-    "Сколько последних шагов с результатом просмотра оставляют все свои результаты просмотра (по умолчанию 3; 0 - не сохранять ничего). Шаг - это одно сообщение ассистента со всеми его параллельными результатами инструментов.",
+    "Сколько последних шагов с результатом просмотра оставляют все свои результаты просмотра (по умолчанию 3, не меньше 1: последний шаг с просмотром всегда сохраняет свои результаты). Шаг - это одно сообщение ассистента со всеми его параллельными результатами инструментов.",
   "settings.schema.compaction.result_eviction.min_result_bytes.label":
     "Мин. размер результата, байт",
   "settings.schema.compaction.result_eviction.min_result_bytes.desc":

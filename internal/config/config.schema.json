@@ -977,9 +977,9 @@
                 "integer",
                 "null"
               ],
-              "description": "How many of the most recent steps holding a listing result keep all of their listing results intact. A step is one assistant message with every result of its tool calls, so ten parallel calls are one step. 0 keeps none. A write under the folder a glob or print_tree listed evicts its result even inside the window.",
+              "description": "How many of the most recent steps holding a listing result keep all of their listing results intact. A step is one assistant message with every result of its tool calls, so ten parallel calls are one step. At least 1: the latest step that holds a listing always keeps its results, so a listing the model has just asked for reaches it. A write under the folder a glob or print_tree listed evicts its result even inside the window.",
               "default": 3,
-              "minimum": 0
+              "minimum": 1
             },
             "min_result_bytes": {
               "type": [

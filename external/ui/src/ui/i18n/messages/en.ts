@@ -705,7 +705,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.compaction.result_eviction.keep_recent_steps.label":
     "Keep recent steps",
   "settings.schema.compaction.result_eviction.keep_recent_steps.desc":
-    "How many of the most recent steps holding a listing result keep all of their listing results (default 3; 0 keeps none). A step is one assistant message with all its parallel tool results.",
+    "How many of the most recent steps holding a listing result keep all of their listing results (default 3, at least 1: the latest step that holds a listing always keeps its results). A step is one assistant message with all its parallel tool results.",
   "settings.schema.compaction.result_eviction.min_result_bytes.label":
     "Min result bytes",
   "settings.schema.compaction.result_eviction.min_result_bytes.desc":

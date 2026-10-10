@@ -107,6 +107,12 @@ func historyOf(parts ...[]llm.Message) []llm.Message {
 	return out
 }
 
+// tailStep is a later listing step: under a window of one it takes the only
+// kept place, so every listing before it goes.
+func tailStep() []llm.Message {
+	return globStep("tail", "*.tail", "tail", 40)
+}
+
 func TestPruneListingOutsideLastStepsEvictedInsideKept(t *testing.T) {
 	in := historyOf(
 		globStep("g1", "*.go", "pkg", 40),
@@ -179,12 +185,32 @@ func TestPruneListingFanOutCountsAsOneStep(t *testing.T) {
 	})
 }
 
-func TestPruneListingKeepRecentStepsZeroEvictsEverything(t *testing.T) {
+// Options built in code can carry a window below one. It behaves as one: the
+// latest step that holds a listing keeps its results, so a listing the model has
+// just asked for reaches it instead of being collapsed in the very next request
+// and asked for again.
+func TestPruneListingKeepRecentStepsBelowOneBehavesAsOne(t *testing.T) {
 	in := historyOf(globStep("g1", "*.go", "pkg", 40), globStep("g2", "*.md", "docs", 40))
-	out := pruneToolResults(in, listingOpts(0))
-	for _, id := range []string{"g1", "g2"} {
-		if !evicted(contentByID(out, id)) {
-			t.Fatalf("%s must be evicted with keep_recent_steps 0: %q", id, contentByID(out, id))
+	want := pruneToolResults(in, listingOpts(1))
+	for _, steps := range []int{0, -1} {
+		out := pruneToolResults(in, listingOpts(steps))
+		if !reflect.DeepEqual(out, want) {
+			t.Fatalf("keep_recent_steps %d must behave as 1: g1=%q g2=%q", steps, contentByID(out, "g1"), contentByID(out, "g2"))
+		}
+		if !evicted(contentByID(out, "g1")) {
+			t.Fatalf("keep_recent_steps %d: the older step must be evicted: %q", steps, contentByID(out, "g1"))
+		}
+		if !strings.Contains(contentByID(out, "g2"), "MARK-g2") {
+			t.Fatalf("keep_recent_steps %d: the latest step must stay whole: %q", steps, contentByID(out, "g2"))
+		}
+	}
+
+	// The case that motivated the floor: one listing, nothing after it.
+	only := historyOf(globStep("only", "*.go", "pkg", 40))
+	for _, steps := range []int{0, -1} {
+		out := pruneToolResults(only, listingOpts(steps))
+		if !strings.Contains(contentByID(out, "only"), "MARK-only") {
+			t.Fatalf("keep_recent_steps %d collapsed the listing that was just asked for: %q", steps, contentByID(out, "only"))
 		}
 	}
 }
@@ -196,7 +222,7 @@ func TestPruneListingNoToolsConfiguredLeavesListingsAlone(t *testing.T) {
 		[]llm.Message{asstStep(tcSearch("s1", "coddy")), toolResult("s1", linesBody("SEARCH", 40))},
 		[]llm.Message{asstStep(tcFetch("w1", "https://example.com")), toolResult("w1", linesBody("FETCH", 40))},
 	)
-	opts := listingOpts(0)
+	opts := listingOpts(1)
 	opts.ListingTools = nil
 	out := pruneToolResults(in, opts)
 	if len(out) != len(in) || &out[0] != &in[0] {
@@ -210,7 +236,7 @@ func TestPruneListingNoToolsConfiguredLeavesListingsAlone(t *testing.T) {
 
 	// A tool left off the list is left alone while the others still go.
 	opts.ListingTools = map[string]bool{"glob": true}
-	out = pruneToolResults(in, opts)
+	out = pruneToolResults(append(in, tailStep()...), opts)
 	if !evicted(contentByID(out, "g1")) {
 		t.Fatalf("glob is configured and must be evicted: %q", contentByID(out, "g1"))
 	}
@@ -360,7 +386,7 @@ func TestPruneListingWebToolsNeverStale(t *testing.T) {
 		}
 	}
 
-	out = pruneToolResults(in, listingOpts(0))
+	out = pruneToolResults(append(in, tailStep()...), listingOpts(1))
 	if got, want := contentByID(out, "s"), `[evicted: websearch "coddy agent" (40 lines); re-run if needed]`; got != want {
 		t.Fatalf("websearch placeholder = %q, want %q", got, want)
 	}
@@ -376,8 +402,9 @@ func TestPruneListingPlaceholderTexts(t *testing.T) {
 		[]llm.Message{asstStep(tcTree("t2", filepath.Join("docs", "features"), 0)), toolResult("t2", linesBody("T2", 7))},
 		[]llm.Message{asstStep(tcSearch("s", "go \"quoted\" query")), toolResult("s", linesBody("S", 21))},
 		[]llm.Message{asstStep(tcFetch("f", "https://example.com/a?b=c")), toolResult("f", linesBody("F", 1+99))},
+		tailStep(),
 	)
-	out := pruneToolResults(in, listingOpts(0))
+	out := pruneToolResults(in, listingOpts(1))
 	for id, want := range map[string]string{
 		"g":  `[evicted: glob "**/*.go" in internal/agent (312 lines); re-run if needed]`,
 		"t":  `[evicted: print_tree of . (123 lines); re-run if needed]`,
@@ -399,8 +426,9 @@ func TestPruneListingPlaceholderCapsLongArguments(t *testing.T) {
 		[]llm.Message{asstStep(tcGlob("g", long, "pkg")), toolResult("g", linesBody("G", 40))},
 		[]llm.Message{asstStep(tcSearch("s", long)), toolResult("s", linesBody("S", 40))},
 		[]llm.Message{asstStep(tcFetch("f", "https://example.com/"+long)), toolResult("f", linesBody("F", 40))},
+		tailStep(),
 	)
-	out := pruneToolResults(in, listingOpts(0))
+	out := pruneToolResults(in, listingOpts(1))
 	for _, id := range []string{"g", "s", "f"} {
 		got := contentByID(out, id)
 		if !evicted(got) || len(got) > 200 {
@@ -411,7 +439,7 @@ func TestPruneListingPlaceholderCapsLongArguments(t *testing.T) {
 		}
 	}
 	// Capping is deterministic: the same history gives the same bytes.
-	again := pruneToolResults(in, listingOpts(0))
+	again := pruneToolResults(in, listingOpts(1))
 	if !reflect.DeepEqual(out, again) {
 		t.Fatal("eviction of the same history is not deterministic")
 	}
@@ -424,8 +452,9 @@ func TestPruneListingHasNoPins(t *testing.T) {
 		[]llm.Message{asstStep(llm.ToolCall{ID: "g", Name: "glob", InputJSON: string(args)}), toolResult("g", linesBody("GLOB", 40))},
 		[]llm.Message{asstKeepResult("k", map[string]interface{}{"pattern": "*.go", "path": "pkg"}), toolResult("k", "marked")},
 		[]llm.Message{asstKeepResult("k2", map[string]interface{}{"path": "pkg"}), toolResult("k2", "marked")},
+		tailStep(),
 	)
-	out := pruneToolResults(in, listingOpts(0))
+	out := pruneToolResults(in, listingOpts(1))
 	if !evicted(contentByID(out, "g")) {
 		t.Fatalf("a listing cannot be pinned: %q", contentByID(out, "g"))
 	}
@@ -520,7 +549,7 @@ func TestPruneListingToolResultsWithoutACallAreLeftAlone(t *testing.T) {
 		[]llm.Message{toolResult("orphan", linesBody("ORPHAN", 40))},
 		globStep("g", "*.go", "pkg", 40),
 	)
-	out := pruneToolResults(in, listingOpts(0))
+	out := pruneToolResults(in, listingOpts(1))
 	if !strings.Contains(contentByID(out, "orphan"), "ORPHAN") {
 		t.Fatalf("a result no call announced must not be touched: %q", contentByID(out, "orphan"))
 	}
@@ -636,8 +665,8 @@ func TestPruneListingKeepsPairingOverGeneratedFanOutHistories(t *testing.T) {
 }
 
 // Without writes nothing is stale, so the window is exact: of the steps that
-// hold a listing, the last keepSteps keep every listing result and every earlier
-// step loses all of them.
+// hold a listing, the last keepSteps (at least one) keep every listing result and
+// every earlier step loses all of them.
 func TestPruneListingKeepsExactlyTheLastStepsOverGeneratedFanOutHistories(t *testing.T) {
 	for seed := int64(1); seed <= 40; seed++ {
 		for _, keepSteps := range []int{0, 1, 2, 3, 6} {
@@ -656,8 +685,13 @@ func TestPruneListingKeepsExactlyTheLastStepsOverGeneratedFanOutHistories(t *tes
 					steps = append(steps, s)
 				}
 			}
+			// A window below one is a window of one.
+			window := keepSteps
+			if window < 1 {
+				window = 1
+			}
 			kept := map[int]bool{}
-			for i := len(steps) - 1; i >= 0 && len(kept) < keepSteps; i-- {
+			for i := len(steps) - 1; i >= 0 && len(kept) < window; i-- {
 				kept[steps[i]] = true
 			}
 			for id, s := range listingStep {
@@ -692,10 +726,10 @@ func TestEvictionOptionsCarryTheListingSettings(t *testing.T) {
 	}
 
 	empty := []string{}
-	zero := 0
-	none := build(config.ResultEviction{Tools: &empty, KeepRecentSteps: &zero})
-	if len(none.ListingTools) != 0 || none.KeepRecentSteps != 0 {
-		t.Fatalf("explicit empty list and 0 not honoured: %+v", none)
+	one := 1
+	none := build(config.ResultEviction{Tools: &empty, KeepRecentSteps: &one})
+	if len(none.ListingTools) != 0 || none.KeepRecentSteps != 1 {
+		t.Fatalf("explicit empty list and 1 not honoured: %+v", none)
 	}
 
 	two := []string{"webfetch", "glob"}
