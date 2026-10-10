@@ -86,10 +86,13 @@ def render_config(home: Path, skills_dirs: list[Path], sources: list[str]) -> No
     the sources into <home>/marketplaces.json, where Coddy reads them."""
     text = DEMO_CONFIG.read_text().replace("__E2E_LOG_PATH__", str(home / "e2e.log"))
     start = text.index("skills:\n")
-    end = text.index("\ntools:\n") + 1
+    # The block ends at the next line that starts in column 0: a key or a comment.
+    end = re.compile(r"^[A-Za-z_#]", re.M).search(text, start + len("skills:\n")).start()
     block = "skills:\n  dirs:\n" + "".join(f'    - "{d}"\n' for d in skills_dirs)
     block += "\n"
     (home / "config.yaml").write_text(text[:start] + block + text[end:])
+    # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+    (home / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}))
     marketplaces = home / "marketplaces.json"
     if sources:
         marketplaces.write_text(json.dumps({"sources": sources}, indent=2) + "\n")

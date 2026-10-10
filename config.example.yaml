@@ -306,13 +306,12 @@ mcp:
   idle_timeout_seconds: 300
 
 tools:
-  # Controls when the agent asks for user approval before running tools.
-  # ask: always prompt for commands and file writes (default)
-  # accept_edits: auto-approve file writes; prompt for commands
-  # bypass: never ask for permission
-  # A session may switch its own mode until the process restarts (/permissions,
-  # the web composer chip, the permission dialog); the switch is never saved here.
-  permission_mode: ask
+  # The permission mode (ask, accept_edits, bypass) is not configured here. A new
+  # session starts in the mode chosen last on any surface (/permissions, the web
+  # composer chip, the permission dialog, --permission-mode), kept in
+  # ${CODDY_HOME}/permission-mode.json; ask until one is chosen. Each session keeps
+  # its own mode in its session.json. An old tools.permission_mode moves into that
+  # file on the next start.
 
   # Commands that never require user permission.
   # Supports exact match and prefix match (prefix + space + any args).
@@ -390,7 +389,7 @@ tools:
 
   # HTTP requests: the http_request tool is the agent's curl (any method, headers, bodies,
   # multipart uploads, downloads to a file, a proxy and the certificate check per request).
-  # Under permission_mode ask or accept_edits a request asks unless its destination is
+  # Under the permission modes ask and accept_edits a request asks unless its destination is
   # listed here or was approved in the session, and an approval of a destination does not
   # approve the files, the proxy or the unchecked certificate of a later request by itself.
   # An entry here also covers uploads and verify_tls: false for that destination; a proxy

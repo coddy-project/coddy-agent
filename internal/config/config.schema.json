@@ -623,7 +623,7 @@
         "http_request": {
           "type": "object",
           "title": "HTTP requests",
-          "description": "Policy of the http_request tool, the agent's curl: the destinations it reaches without asking and the headers every request sends. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://coddy.dev/docs/features/http-requests.",
+          "description": "Policy of the http_request tool, the agent's curl: the destinations it reaches without asking and the headers every request sends. Under the ask and accept_edits permission modes a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://coddy.dev/docs/features/http-requests.",
           "additionalProperties": false,
           "properties": {
             "allowlist": {

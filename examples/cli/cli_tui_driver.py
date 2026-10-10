@@ -139,6 +139,9 @@ def _render_config_into(
         f'memory:\n  enable: true\n  model: "{model}"',
     )
     (home / "config.yaml").write_text(resolved)
+    # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+    # The demo stands run in bypass; CoddyTUI's permission_mode becomes --permission-mode, applied after it.
+    (home / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}))
     (home / "sessions").mkdir(exist_ok=True)
     (home / "skills_fixture").mkdir(exist_ok=True)
 
