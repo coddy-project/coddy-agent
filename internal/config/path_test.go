@@ -143,6 +143,52 @@ func TestCommitUCICommandsStringFieldKeepsLiteralText(t *testing.T) {
 	}
 }
 
+// The agent stages compaction.result_eviction.tools through config_set, which
+// edits the YAML tree: an explicit [] has to reach the file as a list (read and
+// grep only), and a tool the eviction cannot take is refused before anything is
+// written.
+func TestCommitUCICommandsEvictionToolsKeepsAnEmptyListAndRefusesUnknownNames(t *testing.T) {
+	const original = "compaction:\n  result_eviction:\n    keep_recent: 1\n"
+	paths := testPathConfig(t, original)
+
+	if _, err := CommitUCICommands(paths, mustParseUCI(t, "set compaction.result_eviction.tools=[]")); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Compaction.ResultEviction.Tools; got == nil || len(*got) != 0 {
+		t.Fatalf("set tools=[] did not reach the file as an explicit empty list: %v", got)
+	}
+
+	if _, err := CommitUCICommands(paths, mustParseUCI(t, `set compaction.result_eviction.tools=["glob","webfetch"]`)); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err = LoadWithPaths(paths); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Compaction.ResultEviction.EffectiveTools(); len(got) != 2 || got[0] != "glob" || got[1] != "webfetch" {
+		t.Fatalf("tools = %v", got)
+	}
+
+	before, err := os.ReadFile(paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = CommitUCICommands(paths, mustParseUCI(t, `set compaction.result_eviction.tools=["run_command"]`))
+	if err == nil || !strings.Contains(err.Error(), "result_eviction.tools") {
+		t.Fatalf("a tool eviction cannot take must be refused, got %v", err)
+	}
+	after, err := os.ReadFile(paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("a refused edit changed the file:\n%s\n---\n%s", before, after)
+	}
+}
+
 func TestReadConfigPathRedactsTheBraveSearchKey(t *testing.T) {
 	// config_get hands its answer to the model; a search API key is as much a
 	// credential as a provider's api_key and must not reach it.

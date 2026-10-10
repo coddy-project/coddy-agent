@@ -1,9 +1,10 @@
 package agent
 
 // Godog harness for features/context_result_eviction.feature: drives the real
-// Agent through a scripted provider that issues read/grep/keep_result tool calls
-// over a real temp workspace, then asserts what the final LLM request contains
-// after read/grep result eviction, and that the persisted transcript stays whole.
+// Agent through a scripted provider that issues read, grep, keep_result, glob and
+// print_tree tool calls over a real temp workspace, then asserts what the final
+// LLM request contains after result eviction, and that the persisted transcript
+// stays whole.
 
 import (
 	"context"
@@ -84,9 +85,16 @@ type evFeatureState struct {
 	sessionDir   string
 	outputLimits config.ToolOutputLimits
 	startPercent int
-	st           *session.State
-	ag           *Agent
-	provider     *evScriptProvider
+	// keepSteps is compaction.result_eviction.keep_recent_steps; nil leaves the
+	// default.
+	keepSteps *int
+	// folders are the workspace folders of the listing scenario, in the order
+	// the model lists them, and filesPerFolder the files each holds.
+	folders        []string
+	filesPerFolder int
+	st             *session.State
+	ag             *Agent
+	provider       *evScriptProvider
 }
 
 func (s *evFeatureState) reset() error {
@@ -94,6 +102,9 @@ func (s *evFeatureState) reset() error {
 	s.provider = &evScriptProvider{}
 	s.outputLimits = config.ToolOutputLimits{}
 	s.startPercent = 0
+	s.keepSteps = nil
+	s.folders = nil
+	s.filesPerFolder = 0
 	var err error
 	if s.cwd, err = s.tempDir(); err != nil {
 		return err
@@ -143,6 +154,7 @@ func (s *evFeatureState) buildAgent() {
 		Agent:     config.Agent{Model: "fake/model"},
 		Compaction: config.Compaction{ResultEviction: config.ResultEviction{
 			Enabled: &enabled, KeepRecent: &keepRecent, MinResultBytes: &minBytes, StartPercent: &startPercent,
+			KeepRecentSteps: s.keepSteps,
 		}},
 		Tools: config.Tools{PermissionMode: config.PermModeBypass, OutputLimits: s.outputLimits},
 	}
@@ -248,20 +260,35 @@ func (s *evFeatureState) requestEvictsPage1And3() error {
 	return nil
 }
 
+// requestHasOneResultPerCall checks the pairing the provider enforces on the last
+// request: every tool call the request carries has exactly one non-empty result,
+// and no result stands without its call.
 func (s *evFeatureState) requestHasOneResultPerCall() error {
 	req := s.lastRequest()
-	seen := map[string]int{}
+	results := map[string]int{}
 	for _, m := range req {
 		if m.Role == llm.RoleTool {
-			seen[m.ToolCallID]++
+			results[m.ToolCallID]++
 			if strings.TrimSpace(m.Content) == "" {
 				return fmt.Errorf("tool result for %s is empty", m.ToolCallID)
 			}
 		}
 	}
-	for _, id := range []string{"r1", "r2", "k1", "r3"} {
-		if seen[id] != 1 {
-			return fmt.Errorf("tool call %s has %d results, want 1", id, seen[id])
+	calls := map[string]bool{}
+	for _, m := range req {
+		for _, tc := range m.ToolCalls {
+			calls[tc.ID] = true
+			if results[tc.ID] != 1 {
+				return fmt.Errorf("tool call %s has %d results, want 1", tc.ID, results[tc.ID])
+			}
+		}
+	}
+	if len(calls) == 0 {
+		return fmt.Errorf("the request carries no tool calls")
+	}
+	for id := range results {
+		if !calls[id] {
+			return fmt.Errorf("tool result %s answers no call of the request", id)
 		}
 	}
 	return nil
@@ -326,7 +353,123 @@ func (s *evFeatureState) transcriptHasBothGreps() error {
 	return nil
 }
 
-// --- Scenario 3: output limit ----------------------------------------------
+// --- Scenario 3: directory listings -----------------------------------------
+
+// listingFolderNames are the folders a listing scenario can create, in the order
+// the model lists them.
+var listingFolderNames = []string{"alpha", "beta", "gamma", "delta"}
+
+// listingFileName is the name of the i-th file (1-based) of a folder: it carries
+// the folder, so a listing that leaked into the request says whose it was.
+func listingFileName(folder string, i int) string {
+	return fmt.Sprintf("%s_file_%02d.go", folder, i)
+}
+
+func (s *evFeatureState) foldersWithFiles(folders, files int) error {
+	if folders < 1 || folders > len(listingFolderNames) {
+		return fmt.Errorf("the harness knows %d folder names, not %d", len(listingFolderNames), folders)
+	}
+	s.folders = listingFolderNames[:folders]
+	s.filesPerFolder = files
+	for _, folder := range s.folders {
+		dir := filepath.Join(s.cwd, folder)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		for i := 1; i <= files; i++ {
+			if err := os.WriteFile(filepath.Join(dir, listingFileName(folder, i)), []byte("package x\n"), 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *evFeatureState) listingStepsKept(n int) error {
+	s.keepSteps = &n
+	return nil
+}
+
+func tcGlobIn(id, pattern, path string) llm.ToolCall {
+	b, _ := json.Marshal(map[string]interface{}{"pattern": pattern, "path": path})
+	return llm.ToolCall{ID: id, Name: "glob", InputJSON: string(b)}
+}
+
+func tcTreeOf(id, path string) llm.ToolCall {
+	b, _ := json.Marshal(map[string]interface{}{"path": path, "depth": 2})
+	return llm.ToolCall{ID: id, Name: "print_tree", InputJSON: string(b)}
+}
+
+// listingIDs are the two call ids of the i-th folder's step (0-based).
+func listingIDs(i int) (glob, tree string) {
+	return fmt.Sprintf("g%d", i+1), fmt.Sprintf("t%d", i+1)
+}
+
+func (s *evFeatureState) modelListsEachFolder() error {
+	s.buildAgent()
+	for i, folder := range s.folders {
+		g, tr := listingIDs(i)
+		s.provider.steps = append(s.provider.steps, evStep{calls: []llm.ToolCall{
+			tcGlobIn(g, "*.go", folder), tcTreeOf(tr, folder),
+		}})
+	}
+	s.provider.steps = append(s.provider.steps, evStep{text: "answer"})
+	return s.run()
+}
+
+func (s *evFeatureState) requestEvictsFirstStepListings() error {
+	req := s.lastRequest()
+	g, tr := listingIDs(0)
+	for _, id := range []string{g, tr} {
+		c := requestToolContent(req, id)
+		if !strings.HasPrefix(c, "[evicted:") {
+			return fmt.Errorf("listing %s of the first step not replaced by a placeholder: %q", id, truncateForError(c))
+		}
+	}
+	if strings.Contains(joinMessages(req), s.folders[0]+"_file_") {
+		return fmt.Errorf("an evicted listing leaked into the request")
+	}
+	return nil
+}
+
+func (s *evFeatureState) requestKeepsLastStepListings(n int) error {
+	req := s.lastRequest()
+	if n > len(s.folders) {
+		return fmt.Errorf("the scenario lists %d folders, not %d", len(s.folders), n)
+	}
+	for i := len(s.folders) - n; i < len(s.folders); i++ {
+		folder := s.folders[i]
+		first, last := listingFileName(folder, 1), listingFileName(folder, s.filesPerFolder)
+		g, tr := listingIDs(i)
+		for _, id := range []string{g, tr} {
+			c := requestToolContent(req, id)
+			if strings.HasPrefix(c, "[evicted:") {
+				return fmt.Errorf("listing %s of %s was collapsed although its step is among the last %d", id, folder, n)
+			}
+			if !strings.Contains(c, first) || !strings.Contains(c, last) {
+				return fmt.Errorf("listing %s of %s is not verbatim (want %s .. %s): %q", id, folder, first, last, truncateForError(c))
+			}
+		}
+	}
+	return nil
+}
+
+func (s *evFeatureState) transcriptHasEveryListing() error {
+	persisted := s.st.GetMessages()
+	for i, folder := range s.folders {
+		first, last := listingFileName(folder, 1), listingFileName(folder, s.filesPerFolder)
+		g, tr := listingIDs(i)
+		for _, id := range []string{g, tr} {
+			c := requestGrepPersisted(persisted, id)
+			if !strings.Contains(c, first) || !strings.Contains(c, last) {
+				return fmt.Errorf("persisted listing %s of %s lost files: %q", id, folder, truncateForError(c))
+			}
+		}
+	}
+	return nil
+}
+
+// --- Scenario 4: output limit ----------------------------------------------
 
 func (s *evFeatureState) fileWithNMatchingLines(name string, n int) error {
 	var b strings.Builder
@@ -415,6 +558,13 @@ func initializeResultEvictionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the next LLM request keeps the "alphaMATCH" results verbatim$`, s.requestKeepsAlphaGrep)
 	sc.Step(`^the next LLM request replaces the "betaMATCH" results with a placeholder$`, s.requestEvictsBetaGrep)
 	sc.Step(`^the persisted transcript still contains both grep results in full$`, s.transcriptHasBothGreps)
+
+	sc.Step(`^a workspace with (\d+) folders of (\d+) files each$`, s.foldersWithFiles)
+	sc.Step(`^listing results are evicted outside the last (\d+) steps$`, s.listingStepsKept)
+	sc.Step(`^the model lists each folder in its own step, with a glob and a tree each, then answers$`, s.modelListsEachFolder)
+	sc.Step(`^the next LLM request replaces the listings of the first step with placeholders$`, s.requestEvictsFirstStepListings)
+	sc.Step(`^the next LLM request keeps the listings of the last (\d+) steps verbatim$`, s.requestKeepsLastStepListings)
+	sc.Step(`^the persisted transcript still contains every listing in full$`, s.transcriptHasEveryListing)
 
 	sc.Step(`^a workspace file "([^"]*)" with (\d+) lines matching "dup"$`, func(name string, n int) error {
 		return s.fileWithNMatchingLines(name, n)

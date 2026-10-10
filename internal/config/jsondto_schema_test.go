@@ -305,6 +305,185 @@ func TestRulesUIAndFallbackModelsSurviveTheJSONDTO(t *testing.T) {
 	}
 }
 
+// The Settings form is drawn from UISchemaMap: the eviction section offers the
+// step window as a number and no longer calls itself read/grep only. The list of
+// listing tools is not on the form: an absent list (all four tools) and an empty
+// one (none) would be drawn alike, so the key stays in config.yaml until the form
+// has a control that tells them apart.
+func TestUISchemaResultEvictionOffersTheStepWindow(t *testing.T) {
+	doc := config.UISchemaMap()
+	compaction := doc["properties"].(map[string]interface{})["compaction"].(map[string]interface{})
+	re := compaction["properties"].(map[string]interface{})["result_eviction"].(map[string]interface{})
+	props := re["properties"].(map[string]interface{})
+
+	if _, ok := props["tools"]; ok {
+		t.Fatal("tools must stay off the form: an empty list there reads as the default but means none")
+	}
+	if steps, ok := props["keep_recent_steps"].(map[string]interface{}); !ok || steps["type"] != "integer" {
+		t.Fatalf("keep_recent_steps = %#v, want an integer field", props["keep_recent_steps"])
+	}
+
+	order, _ := re["x-coddy-property-order"].([]interface{})
+	var got []string
+	for _, v := range order {
+		got = append(got, v.(string))
+	}
+	want := []string{"enable", "keep_recent", "keep_recent_steps", "min_result_bytes", "start_percent"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("result_eviction field order %v, want %v", got, want)
+	}
+	if strings.Contains(re["title"].(string), "Read/grep") || strings.Contains(re["description"].(string), "read/grep") {
+		t.Fatalf("the section still describes itself as read/grep only: %q / %q", re["title"], re["description"])
+	}
+}
+
+// compaction.result_eviction.tools and keep_recent_steps ride the Settings
+// round trip like every other key, and tools keeps the difference between an
+// absent key (the default listing tools) and an explicit [] (read and grep only)
+// exactly as models[].reasoning_levels does.
+func TestResultEvictionListingKeysSurviveTheJSONDTO(t *testing.T) {
+	roundTrip := func(t *testing.T, re config.ResultEviction) (string, config.ResultEviction) {
+		t.Helper()
+		cfg := &config.Config{}
+		cfg.Compaction.ResultEviction = re
+		raw, err := json.Marshal(config.ConfigToJSONDTO(cfg))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var j config.ConfigJSON
+		if err := json.Unmarshal(raw, &j); err != nil {
+			t.Fatal(err)
+		}
+		return string(raw), config.JSONDTOToConfig(&j, config.Paths{}).Compaction.ResultEviction
+	}
+
+	t.Run("unset keys stay unset", func(t *testing.T) {
+		raw, back := roundTrip(t, config.ResultEviction{})
+		var doc struct {
+			Compaction struct {
+				ResultEviction map[string]json.RawMessage `json:"result_eviction"`
+			} `json:"compaction"`
+		}
+		if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"tools", "keep_recent_steps"} {
+			if _, ok := doc.Compaction.ResultEviction[key]; ok {
+				t.Fatalf("an unset %s was written: %s", key, raw)
+			}
+		}
+		if back.Tools != nil || back.KeepRecentSteps != nil {
+			t.Fatalf("unset keys came back set: %+v", back)
+		}
+	})
+
+	t.Run("an explicit empty list and an explicit zero are kept", func(t *testing.T) {
+		empty := []string{}
+		zero := 0
+		raw, back := roundTrip(t, config.ResultEviction{Tools: &empty, KeepRecentSteps: &zero})
+		if !strings.Contains(raw, `"tools":[]`) || !strings.Contains(raw, `"keep_recent_steps":0`) {
+			t.Fatalf("GET DTO dropped the explicit values: %s", raw)
+		}
+		if back.Tools == nil || len(*back.Tools) != 0 {
+			t.Fatalf("PUT path turned tools: [] into %v", back.Tools)
+		}
+		if back.KeepRecentSteps == nil || *back.KeepRecentSteps != 0 {
+			t.Fatalf("PUT path turned keep_recent_steps: 0 into %v", back.KeepRecentSteps)
+		}
+	})
+
+	t.Run("a list and a count are kept", func(t *testing.T) {
+		tools := []string{"glob", "webfetch"}
+		steps := 5
+		_, back := roundTrip(t, config.ResultEviction{Tools: &tools, KeepRecentSteps: &steps})
+		if back.Tools == nil || !reflect.DeepEqual(*back.Tools, tools) {
+			t.Fatalf("tools lost: %v", back.Tools)
+		}
+		if back.KeepRecentSteps == nil || *back.KeepRecentSteps != 5 {
+			t.Fatalf("keep_recent_steps lost: %v", back.KeepRecentSteps)
+		}
+		// The copy must not alias the source.
+		(*back.Tools)[0] = "tampered"
+		if tools[0] != "glob" {
+			t.Fatalf("the DTO conversion shares the tools list with its source: %v", tools)
+		}
+	})
+}
+
+// The same through the whole Settings save - GET document, PUT body, YAML on
+// disk, reload - which is where reasoning_levels once lost its nil / empty
+// distinction.
+func TestResultEvictionListingKeysSurviveASettingsSave(t *testing.T) {
+	const head = `providers:
+  - name: valera
+    type: openai
+    api_base: "http://127.0.0.1:9/v1"
+    api_key: "k"
+models:
+  - model: "valera/m"
+    max_tokens: 4096
+agent:
+  model: "valera/m"
+compaction:
+  result_eviction:
+    keep_recent: 1
+`
+	save := func(t *testing.T, extra string) (*config.Config, string) {
+		t.Helper()
+		p := writeConfig(t, head+extra)
+		cur, err := config.Load(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := json.Marshal(config.ConfigToJSONDTO(cur))
+		if err != nil {
+			t.Fatal(err)
+		}
+		reloaded := saveThroughSettings(t, p, body)
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return reloaded, string(raw)
+	}
+
+	t.Run("absent keys stay absent", func(t *testing.T) {
+		cfg, raw := save(t, "")
+		re := cfg.Compaction.ResultEviction
+		if re.Tools != nil || re.KeepRecentSteps != nil {
+			t.Fatalf("a save invented the keys: tools=%v steps=%v", re.Tools, re.KeepRecentSteps)
+		}
+		if strings.Contains(raw, "keep_recent_steps") || strings.Contains(raw, "tools:") {
+			t.Fatalf("saved YAML must omit the unset keys:\n%s", raw)
+		}
+		if got := re.EffectiveTools(); len(got) != 4 {
+			t.Fatalf("the default listing tools were lost: %v", got)
+		}
+	})
+
+	t.Run("an explicit empty list and zero steps survive", func(t *testing.T) {
+		cfg, raw := save(t, "    tools: []\n    keep_recent_steps: 0\n")
+		re := cfg.Compaction.ResultEviction
+		if re.Tools == nil || len(*re.Tools) != 0 {
+			t.Fatalf("tools: [] was lost in the round trip: %v\n%s", re.Tools, raw)
+		}
+		if re.KeepRecentSteps == nil || *re.KeepRecentSteps != 0 {
+			t.Fatalf("keep_recent_steps: 0 was lost in the round trip: %v\n%s", re.KeepRecentSteps, raw)
+		}
+		if len(re.EffectiveTools()) != 0 {
+			t.Fatalf("an explicit empty list flipped back to the default: %v", re.EffectiveTools())
+		}
+	})
+
+	t.Run("a list survives", func(t *testing.T) {
+		cfg, _ := save(t, "    tools: [print_tree, webfetch]\n    keep_recent_steps: 5\n")
+		re := cfg.Compaction.ResultEviction
+		if !reflect.DeepEqual(re.EffectiveTools(), []string{"print_tree", "webfetch"}) || re.EffectiveKeepRecentSteps() != 5 {
+			t.Fatalf("the configured values were lost: tools=%v steps=%d", re.EffectiveTools(), re.EffectiveKeepRecentSteps())
+		}
+	})
+}
+
 // Every yaml-tagged field of Config must have a ConfigJSON counterpart, or a
 // settings save drops it. rules and ui went missing once already at the top
 // level, and compaction.fallback_models / memory.fallback_models one level

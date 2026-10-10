@@ -964,11 +964,13 @@ func (a *Agent) runReActLoop(
 			})
 		}
 
-		// Prune superseded read/grep results from the projection sent to the model;
-		// the working `messages` slice keeps full content (copy-on-write) so state,
-		// the transcript, and later appends stay intact. The rules a tool call
-		// brought in are joined to its result only here, so an evicted result
-		// keeps them and every request replays them byte for byte.
+		// Prune superseded read, grep and listing (glob, print_tree, websearch,
+		// webfetch) results from the projection sent to the model, once the
+		// history has grown into the start_percent gate. The working `messages`
+		// slice keeps full content (copy-on-write) so state, the transcript, and
+		// later appends stay intact. The rules a tool call brought in are joined
+		// to its result only here, so an evicted result keeps them and every
+		// request replays them byte for byte.
 		sendMessages := withTurnContext(withToolImages(withToolRules(a.prunedForLLM(messages)), a.modelReadsImages(), a.loadToolImage), turnCtx)
 		// Repair only the outbound projection. The persisted transcript remains
 		// unchanged; malformed IDs and misplaced/duplicate results are refused.
@@ -2313,9 +2315,10 @@ func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
 func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 	// After a compaction only the last summary and the messages after it are
 	// replayed to the LLM; earlier history stays in the transcript for the UI.
-	// Read/grep result eviction is applied at the provider.Stream send boundary
-	// (see runReActLoop), not here, so the working message slice keeps full
-	// content while the projection sent to the model is pruned. A message is
+	// Tool result eviction (read, grep and the listing tools) is applied at the
+	// provider.Stream send boundary (see runReActLoop), not here, so the working
+	// message slice keeps full content while the projection sent to the model
+	// is pruned. A message is
 	// replayed exactly as it was stored: what a /skill or an @mention brought
 	// was written into it when it was sent (mentions.go), so no request
 	// rewrites an earlier message and the provider's cached prefix holds.

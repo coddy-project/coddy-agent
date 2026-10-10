@@ -81,6 +81,9 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			ThresholdPercent: CompactionDefaultThresholdPercent,
 			KeepRecentTurns:  intPtr(CompactionDefaultKeepRecentTurns),
 			Model:            "",
+			ResultEviction: ResultEvictionJSON{
+				KeepRecentSteps: intPtr(ResultEvictionDefaultKeepRecentSteps),
+			},
 		},
 		Memory: MemoryJSON{
 			Enabled:          false,

@@ -109,7 +109,7 @@ Already on disk:
   and the section is not written with **`tools.background.enable`** false.
 
 The block is never persisted: it is appended at the **`provider.Stream`** send boundary, next to the
-read/grep eviction projection, and the working message slice the loop keeps appending to never sees
+result eviction projection, and the working message slice the loop keeps appending to never sees
 it. Only the last few hundred tokens of a request are therefore uncached; the conversation behind
 them is a cache hit.
 
@@ -133,10 +133,11 @@ render them - at the cost of that cache, on every request. Such a template gets 
 checklist after the history; its block carries the two sections no template prints, the memory
 report and the running background tasks, and is left out when there is neither.
 
-### The other half: read/grep eviction
+### The other half: result eviction
 
-Freezing the system message is only half of a stable prefix. Read/grep result
-eviction (**`internal/agent/result_eviction.go`**) writes placeholders **into the middle** of the
+Freezing the system message is only half of a stable prefix. Result eviction of reads, greps and
+the listings of `glob`, `print_tree`, `websearch` and `webfetch`
+(**`internal/agent/result_eviction.go`**) writes placeholders **into the middle** of the
 replayed history, which invalidates the cache from that point on just as surely. With the default
 sliding working window that used to happen on nearly every step, so the conversation was reprocessed
 each time even with the prompt frozen. **`compaction.result_eviction.start_percent`** (default 50)

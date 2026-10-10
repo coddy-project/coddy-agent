@@ -707,16 +707,20 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.compaction.model.desc":
     "Необязательный models[].model для вызова суммаризации; пусто — модель сессии.",
   "settings.schema.compaction.result_eviction.label":
-    "Вытеснение результатов read/grep",
+    "Вытеснение результатов инструментов",
   "settings.schema.compaction.result_eviction.desc":
-    "Свёртывает устаревшие результаты read/grep в плейсхолдеры при сборке запроса LLM; сохранённый транскрипт не меняется. Выживают только помеченные (keep_result / keep:true) или самые свежие результаты.",
+    "Свёртывает устаревшие результаты инструментов (страницы read, выдачи grep и просмотры glob, print_tree, websearch и webfetch) в плейсхолдеры при сборке запроса LLM; сохранённый транскрипт не меняется. Результаты read и grep выживают, если помечены (keep_result / keep:true) или входят в число самых свежих; просмотры выживают в последних шагах.",
   "settings.schema.compaction.result_eviction.enable.label": "Включено",
   "settings.schema.compaction.result_eviction.enable.desc":
-    "Главный выключатель вытеснения результатов read/grep. По умолчанию включено.",
+    "Главный выключатель вытеснения результатов инструментов. По умолчанию включено.",
   "settings.schema.compaction.result_eviction.keep_recent.label":
     "Сохранять последние результаты",
   "settings.schema.compaction.result_eviction.keep_recent.desc":
-    "Сколько самых свежих вытесняемых результатов остаются целыми как рабочее окно (по умолчанию 2 — достаточно для одновременных read и grep; 0 — не сохранять ничего).",
+    "Сколько самых свежих результатов read и grep остаются целыми как рабочее окно (по умолчанию 2 - достаточно для одновременных read и grep; 0 - не сохранять ничего).",
+  "settings.schema.compaction.result_eviction.keep_recent_steps.label":
+    "Сохранять последние шаги",
+  "settings.schema.compaction.result_eviction.keep_recent_steps.desc":
+    "Сколько последних шагов с результатом просмотра оставляют все свои результаты просмотра (по умолчанию 3; 0 - не сохранять ничего). Шаг - это одно сообщение ассистента со всеми его параллельными результатами инструментов.",
   "settings.schema.compaction.result_eviction.min_result_bytes.label":
     "Мин. размер результата, байт",
   "settings.schema.compaction.result_eviction.min_result_bytes.desc":
