@@ -161,6 +161,17 @@ func (s *dryRunState) telegramAccepting(username string) error {
 	return s.write(dryRunModeline + "gateways:\n  telegram:\n    enable: true\n    token: \"123456:dry-run\"\n")
 }
 
+// sessionsMinFree writes a config whose low-space threshold is mb: a megabyte
+// is below any disk a test runs on, a petabyte (1<<30 MB) above it, so the
+// outcome does not depend on the room the machine happens to have.
+func (s *dryRunState) sessionsMinFree(mb int) error {
+	return s.write(dryRunModeline + fmt.Sprintf("sessions:\n  min_free_mb: %d\n", mb))
+}
+
+func (s *dryRunState) sessionsMinFreeMoreThanTheDisk() error {
+	return s.sessionsMinFree(1 << 30)
+}
+
 func (s *dryRunState) promptsDirMissing() error {
 	return s.write(dryRunModeline + "prompts:\n  dir: " + filepath.Join(s.home, "no-such-prompts") + "\n")
 }
@@ -273,6 +284,17 @@ func (s *dryRunState) marksOKMentioning(path, text string) error {
 	return nil
 }
 
+func (s *dryRunState) marksWarningMentioning(path, text string) error {
+	l, err := s.checkLine("warning", path)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(l, text) {
+		return fmt.Errorf("the warning line for %s does not mention %q: %s", path, text, l)
+	}
+	return nil
+}
+
 func (s *dryRunState) marksErrorMentioning(path, text string) error {
 	l, err := s.checkLine("error", path)
 	if err != nil {
@@ -317,6 +339,14 @@ func initializeDryRunScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a home mcp\.json with an MCP server "([^"]*)" whose command is "([^"]*)"$`, s.mcpCommand)
 	sc.Step(`^a config\.yaml enabling the Telegram gateway with a token the Bot API accepts as "([^"]*)"$`, s.telegramAccepting)
 	sc.Step(`^a config\.yaml whose prompts\.dir points at a folder that does not exist$`, s.promptsDirMissing)
+	sc.Step(`^a config\.yaml whose sessions\.min_free_mb is (\d+)$`, func(mb string) error {
+		n, err := strconv.Atoi(mb)
+		if err != nil {
+			return err
+		}
+		return s.sessionsMinFree(n)
+	})
+	sc.Step(`^a config\.yaml whose sessions\.min_free_mb is more than the disk holds$`, s.sessionsMinFreeMoreThanTheDisk)
 	sc.Step(`^a config\.yaml whose httpserver section says "enabled: true" on line (\d+)$`, s.misspelledHTTPServerKey)
 	sc.Step(`^a config\.yaml with the HTTP API on a free port and a provider that answers$`, s.httpOnFreePort)
 	sc.Step(`^a config\.yaml with the HTTP API on a port another process holds$`, s.httpOnHeldPort)
@@ -333,6 +363,7 @@ func initializeDryRunScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the report marks ([^ ]+) as ok$`, s.marksOK)
 	sc.Step(`^the report marks ([^ ]+) as ok mentioning "([^"]*)"$`, s.marksOKMentioning)
 	sc.Step(`^the report marks ([^ ]+) as an error mentioning "([^"]*)"$`, s.marksErrorMentioning)
+	sc.Step(`^the report marks ([^ ]+) as a warning mentioning "([^"]*)"$`, s.marksWarningMentioning)
 	sc.Step(`^the report points at line (\d+) of the config file$`, s.pointsAtLine)
 	sc.Step(`^the report points at the line of "([^"]*)"$`, s.pointsAtLineOf)
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // The flag every entrypoint offers.
@@ -67,6 +68,10 @@ type Request struct {
 	WebUIOpen bool
 	// Timeout bounds each network probe; zero means defaultTimeout.
 	Timeout time.Duration
+	// DiskSpace reads the free space of the volume under a path; nil means
+	// platform.ReadDiskSpace. Tests replace it to say how much room a disk has
+	// without filling one.
+	DiskSpace session.StorageProbe
 }
 
 const (
