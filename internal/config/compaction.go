@@ -112,7 +112,8 @@ type Compaction struct {
 // again.
 type InTurn struct {
 	// Enabled toggles both. A nil pointer means the default (true); false
-	// restores the behaviour before the section existed.
+	// restores the behaviour before the section existed. Both need the automatic
+	// trigger, so it does nothing while compaction.auto_enable is false.
 	Enabled *bool `yaml:"enable"`
 	// KeepRecentSteps caps how many of the latest steps of the turn (an
 	// assistant message with the tool results that follow it) the fold leaves

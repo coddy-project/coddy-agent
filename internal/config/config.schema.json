@@ -930,7 +930,7 @@
         "in_turn": {
           "type": "object",
           "title": "In-turn compaction",
-          "description": "Folds the earlier steps of the turn being answered into a summary when the context reaches the compaction threshold and the window holds no earlier turn to fold, and, when the provider refuses a request as larger than its context window, compacts the turn once and asks again. The summary row starts with the prompt itself, verbatim; the latest steps stay as they were. enable: false restores the behavior before this section existed: such a turn is not folded and a refused request ends the turn.",
+          "description": "Folds the earlier steps of the turn being answered into a summary when the context reaches the compaction threshold and the window holds no earlier turn to fold, and, when the provider refuses a request as larger than its context window, compacts the turn once and asks again. The summary row starts with the prompt itself, verbatim; the latest steps stay as they were. enable: false restores the behavior before this section existed: such a turn is not folded and a refused request ends the turn. The section does nothing when compaction.auto_enable is false: the fold and the recovery both need the automatic trigger.",
           "additionalProperties": false,
           "properties": {
             "enable": {
@@ -938,7 +938,7 @@
                 "boolean",
                 "null"
               ],
-              "description": "Master switch for the in-turn fold and for the recovery from a refused request. Defaults to true.",
+              "description": "Master switch for the in-turn fold and for the recovery from a refused request. Defaults to true. Has no effect when compaction.auto_enable is false: the fold and the recovery both need the automatic trigger.",
               "default": true
             },
             "keep_recent_steps": {

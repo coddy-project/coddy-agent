@@ -694,10 +694,10 @@ export const messagesEn: Record<string, string> = {
     "Optional models[].model for the summarization call; empty uses the session model.",
   "settings.schema.compaction.in_turn.label": "In-turn compaction",
   "settings.schema.compaction.in_turn.desc":
-    "Fold the earlier steps of the turn being answered when the context reaches the compaction threshold and there is no earlier turn to fold, and compact and ask again once when the provider refuses a request as larger than its context window. The prompt being answered stays verbatim at the start of the summary row.",
+    "Fold the earlier steps of the turn being answered when the context reaches the compaction threshold and there is no earlier turn to fold, and compact and ask again once when the provider refuses a request as larger than its context window. The prompt being answered stays verbatim at the start of the summary row. Does nothing while automatic compaction (auto_enable) is off.",
   "settings.schema.compaction.in_turn.enable.label": "Enabled",
   "settings.schema.compaction.in_turn.enable.desc":
-    "Master switch for the in-turn fold and the recovery from a refused request. Defaults to true; false restores the behavior before they existed.",
+    "Master switch for the in-turn fold and the recovery from a refused request. Defaults to true; false restores the behavior before they existed. Has no effect while automatic compaction (auto_enable) is off: both need the automatic trigger.",
   "settings.schema.compaction.in_turn.keep_recent_steps.label":
     "Keep recent steps",
   "settings.schema.compaction.in_turn.keep_recent_steps.desc":

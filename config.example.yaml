@@ -205,7 +205,7 @@ sessions:
 #   # The summary row starts with the prompt itself, verbatim.
 #   in_turn:
 #     enable: true           # false restores the behavior before: such a turn is not folded and a
-#                            # refused request ends the turn
+#                            # refused request ends the turn; needs auto_enable: true
 #     keep_recent_steps: 4   # at most this many latest steps of the turn stay verbatim (>= 1); the
 #                            # fold keeps fewer when they would not fit under the threshold
 #   # Collapse superseded tool results to placeholders in the LLM request (the
