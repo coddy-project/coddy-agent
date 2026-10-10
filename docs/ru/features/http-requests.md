@@ -154,7 +154,7 @@ Headers from tools.http_request.default_headers: Accept, User-Agent
 
 ## Разрешения
 
-`http_request` проверяется так же, как `run_command` - спросит ли он разрешения, зависит от `tools.permission_mode`, от `tools.http_request.allowlist` и от того, что было одобрено раньше в этой сессии.
+`http_request` проверяется так же, как `run_command` - спросит ли он разрешения, зависит от режима разрешений сессии, от `tools.http_request.allowlist` и от того, что было одобрено раньше в этой сессии.
 
 | Режим | Что спрашивает |
 |------|-----------|
@@ -247,4 +247,4 @@ tools:
 [Веб-поиск](web-search.md) - `websearch`, а также `webfetch` для чтения страницы;
 [Справочник config.yaml](../reference/config.md) - `tools.http_request.allowlist`, `tools.http_request.default_headers` и `tools.output_limits`.
 
-<!-- docsgen:source sha256=0911040df19691b5 -->
+<!-- docsgen:source sha256=7e50eb6e7b4ee049 -->

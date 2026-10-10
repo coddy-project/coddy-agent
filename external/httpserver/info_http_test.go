@@ -15,8 +15,9 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
-// newInfoTestServer serves the API over a configuration whose
-// tools.permission_mode is mode, with the manager every reload path goes
+// newInfoTestServer serves the API over a configuration built in code whose
+// fallback permission mode (Tools.PermissionMode, what new sessions start in
+// while nothing was chosen) is mode, with the manager every reload path goes
 // through, so a test can swap the configuration the way a settings save does.
 func newInfoTestServer(t *testing.T, mode string) (*httptest.Server, *session.Manager) {
 	t.Helper()
@@ -57,9 +58,9 @@ func readInfo(t *testing.T, ts *httptest.Server) map[string]interface{} {
 // The web UI's start screen has no session to read a settings snapshot from,
 // yet its permission chip has to name the mode the first turn will run under
 // and its pick has to be compared with that mode. GET /coddy/info, which the
-// page already reads through any environment, names it: the configured
-// tools.permission_mode, ask when the configuration names none, and the new
-// value as soon as a reload installs one.
+// page already reads through any environment, names it: the mode a new
+// session starts in (here the fallback of a configuration built in code, ask
+// when it names none), and the new value as soon as a reload installs one.
 func TestCoddyInfoNamesTheConfiguredPermissionMode(t *testing.T) {
 	cases := []struct {
 		configured string

@@ -120,6 +120,12 @@ func TestConfigureCoddyNamesOnlyRealKeys(t *testing.T) {
 	for _, def := range tools.NewRegistryFor(nil).AllToolDefinitions() {
 		known[def.Name] = true
 	}
+	// Names that are real but not config keys: the permission modes (a
+	// session's, chosen on a surface, not in config.yaml) and the
+	// permission_mode key of a scheduler job's or a subagent's front matter.
+	for _, name := range []string{config.PermModeAsk, config.PermModeAcceptEdits, config.PermModeBypass, "permission_mode"} {
+		known[name] = true
+	}
 
 	top, _ := schema["properties"].(map[string]interface{})
 	snake := regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$`)

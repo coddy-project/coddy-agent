@@ -787,15 +787,6 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
       },
     ];
   }
-  if (key === "tools") {
-    return [
-      {
-        id: "permissions",
-        legend: translate("settings.group.tools.permissions"),
-        paths: ["permission_mode"],
-      },
-    ];
-  }
   if (key === "memory") {
     return [
       {
@@ -823,6 +814,18 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
           "max_search_hits",
           "max_note_chars",
         ],
+      },
+    ];
+  }
+  if (key === "decisions") {
+    // The switch opens the tab on its own; the two knobs of the verdict sit
+    // together, what they mean behind the (i).
+    return [
+      {
+        id: "verdict",
+        legend: translate("settings.group.decisions.verdict"),
+        description: translate("settings.group.decisions.verdictDesc"),
+        paths: ["model", "threshold"],
       },
     ];
   }

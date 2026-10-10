@@ -24,6 +24,7 @@ type ConfigJSON struct {
 	Sessions     SessionsJSON     `json:"sessions,omitempty"`
 	Compaction   CompactionJSON   `json:"compaction,omitempty"`
 	Memory       MemoryJSON       `json:"memory,omitempty"`
+	Decisions    DecisionsJSON    `json:"decisions,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Swarm        SwarmJSON        `json:"swarm,omitempty"`
 	UI           UIJSON           `json:"ui,omitempty"`
@@ -190,7 +191,6 @@ type MCPJSON struct {
 }
 
 type ToolsJSON struct {
-	PermissionMode    string                `json:"permission_mode,omitempty"`
 	CommandAllowlist  []string              `json:"command_allowlist,omitempty"`
 	SSHConnectTimeout int                   `json:"ssh_connect_timeout,omitempty"`
 	OutputLimits      ToolOutputLimitsJSON  `json:"output_limits,omitempty"`
@@ -322,6 +322,13 @@ type MemoryJSON struct {
 	// memory subagent (issue #266).
 	AdditionalPrompt         string `json:"additional_prompt,omitempty"`
 	AdditionalPromptMaxChars int    `json:"additional_prompt_max_chars,omitempty"`
+}
+
+// DecisionsJSON mirrors DecisionsConfig.
+type DecisionsJSON struct {
+	Enabled   bool    `json:"enable,omitempty"`
+	Model     string  `json:"model,omitempty"`
+	Threshold float64 `json:"threshold,omitempty"`
 }
 
 // HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
@@ -516,7 +523,6 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust(), IdleTimeoutSeconds: cloneIntPtr(c.MCP.IdleTimeoutSeconds)}
 	out.Tools = ToolsJSON{
-		PermissionMode:    c.Tools.ResolvedPermMode(),
 		CommandAllowlist:  append([]string(nil), c.Tools.CommandAllowlist...),
 		SSHConnectTimeout: c.Tools.SSHConnectTimeout,
 		WebSearch:         ToolWebSearchJSON(c.Tools.WebSearch),
@@ -580,6 +586,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		MaxNoteChars:     cloneIntPtr(c.Memory.MaxNoteChars),
 		AdditionalPrompt: c.Memory.AdditionalPrompt, AdditionalPromptMaxChars: c.Memory.AdditionalPromptMaxChars,
 	}
+	out.Decisions = DecisionsJSON{Enabled: c.Decisions.Enabled, Model: c.Decisions.Model, Threshold: c.Decisions.Threshold}
 	out.HTTPServer = HTTPServerJSON{
 		Enabled:       c.HTTPServer.Enabled,
 		Host:          c.HTTPServer.Host,
@@ -749,7 +756,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust, IdleTimeoutSeconds: cloneIntPtr(j.MCP.IdleTimeoutSeconds)}
 	cfg.Tools = Tools{
-		PermissionMode:    j.Tools.PermissionMode,
 		CommandAllowlist:  append([]string(nil), j.Tools.CommandAllowlist...),
 		SSHConnectTimeout: j.Tools.SSHConnectTimeout,
 		WebSearch:         ToolWebSearch(j.Tools.WebSearch),
@@ -815,6 +821,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		MaxNoteChars:     cloneIntPtr(j.Memory.MaxNoteChars),
 		AdditionalPrompt: j.Memory.AdditionalPrompt, AdditionalPromptMaxChars: j.Memory.AdditionalPromptMaxChars,
 	}
+	cfg.Decisions = DecisionsConfig{Enabled: j.Decisions.Enabled, Model: j.Decisions.Model, Threshold: j.Decisions.Threshold}
 	cfg.HTTPServer = HTTPServerConfig{
 		Enabled:   j.HTTPServer.Enabled,
 		Host:      j.HTTPServer.Host,

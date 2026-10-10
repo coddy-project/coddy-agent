@@ -360,17 +360,14 @@ rules:
 # ~/.coddy/mcp.json on the next start. See docs/features/mcp.md.
 
 # Tool configuration (Go: config.Tools, internal/config/tools.go)
-tools:
-  # Controls when the agent asks for user approval before running tools.
-  # ask          - always prompt for commands and file writes (default)
-  # accept_edits - auto-approve file writes; prompt for shell commands
-  # bypass       - never ask for permission (use only in trusted environments)
-  # Overridable per session (ACP session/set_config_option "permission_mode", /permissions,
-  # the web composer chip); the override lives in memory, a restart comes back to this value.
-  permission_mode: ask
-
-  # TCP dial timeout for SSH connections in seconds (default: 30).
-  # ssh_connect_timeout: 30
+# The permission mode (ask, accept_edits, bypass) is not configured here: a new
+# session starts in the mode chosen last on any surface (/permissions, the composer
+# chip, the permission dialog, --permission-mode, ACP session/set_config_option
+# "permission_mode"), kept in ${CODDY_HOME}/permission-mode.json; ask until one is
+# chosen. See docs/operate/security.md.
+# tools:
+#   # TCP dial timeout for SSH connections in seconds (default: 30).
+#   ssh_connect_timeout: 30
 
 # Subagents (Go: config.Subagents, internal/config/subagents.go). Child agents the model spawns with spawn_agent
 # from markdown definitions; each run is a background task with its own child session. See docs/features/subagents.md.
@@ -443,7 +440,7 @@ logger:
 
 Оба источника работают одновременно - если агент доступен и в нём есть ключи, файлы всё равно служат запасным вариантом на случай, если агент откажет.
 
-**Проверка ключа хоста** - определяется автоматически по `tools.permission_mode`:
+**Проверка ключа хоста** - определяется автоматически по режиму разрешений сессии, которая делает вызов:
 - любой режим, кроме `bypass` **(по умолчанию)**, - новые хосты автоматически добавляются в `~/.ssh/known_hosts` при первом подключении (TOFU); если ключ известного хоста изменился, старая запись заменяется новой;
 - `bypass` - проверка ключа хоста отключена (подходит для временных ВМ и окружений CI).
 
@@ -758,4 +755,4 @@ models:
 ### Локальные OpenAI-совместимые серверы (Ollama, llama.cpp, LM Studio)
 Используйте **`type: openai`** и задайте в **`api_base`** OpenAI-совместимый базовый URL, который уже включает **`/v1`**, например **`http://localhost:11434/v1`** для Ollama.
 
-<!-- docsgen:source sha256=d0231e06d0511434 -->
+<!-- docsgen:source sha256=85f8af1122caf3aa -->
