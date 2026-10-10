@@ -1486,18 +1486,18 @@ Automated checks:
 
 A notice above the composer says when the disk that stores the server's sessions runs low or full (`chat/StorageBanner.tsx`, `data-testid="storage-banner"`). It stands where the [usage notice](#provider-account-usage) stands, in the start screen and in the docked composer, wears the same plate, and is absent from the read-only transcript of a subagent. It reads `storage` of `GET /coddy/info` for the server the page talks to (the local one, a remote, a node behind a relay) and says nothing while the disk has room or the server reports no disk.
 
-![The low-space notice above the composer](../assets/troubleshooting/disk-space-banner-low-dark-1280.png)
+![The low-space notice above the composer](../assets/web-ui/disk-space-banner-low-dark-1280.png)
 
 *The low-space notice above the composer of a chat, on a 16 MB volume against the default threshold of 512 MB*
 
-- **Low** (the warn tone, `role="status"`) names the free space and the disk: `Low disk space: 16 MB left on the disk that stores Coddy sessions. When it runs out, new chats cannot start and new turns are not saved.` The **×** dismisses it for the tab until the disk stops being low; a disk that falls to full shows the notice again.
+- **Low** (the warn tone, `role="status"`) names the free space and the disk: `Low disk space: 16 MB left on the disk that stores Coddy sessions. When it runs out, new chats cannot start and new turns are not saved.` The **×** dismisses it for the tab. The dismissal ends when the disk goes full, or has read ok for three minutes without dipping low again; free space that hovers around the threshold does not bring the notice back at every dip.
 - **Full** (the error tone, `role="alert"`, no **×**) says `The disk that stores Coddy sessions is full. New chats cannot start and the latest turns are not saved. Free some space, then send a message again.` It appears the moment a save fails, from `event: storage_status` on the events stream or from a `507` answer to a send, without waiting for a read.
 
-![The full-disk notice above the composer](../assets/troubleshooting/disk-space-banner-full-dark-1280.png)
+![The full-disk notice above the composer](../assets/web-ui/disk-space-banner-full-dark-1280.png)
 
 *The notice after a message was sent on a full disk*
 
-The page reads `GET /coddy/info` when it opens, every minute while the tab is visible, every 15 seconds while the disk is full, on the window's focus, after a configuration reload and after every reconnect of the events stream. When the disk that holds `CODDY_HOME` is another one and has less room than the sessions disk, both notices name the home folder instead. The threshold is `sessions.min_free_mb` (Settings, Sessions, **Low disk warning (MB)**). Contract: `DESIGN.md` (**Storage banner**), tests `StorageBanner.test.tsx`, `storageStatus.test.ts`, `storageBannerCss.test.ts`, `features/disk_space.feature`, `features/disk_space_http.feature`.
+The page reads `GET /coddy/info` when it opens, every minute while the tab is visible, every 15 seconds while the disk is full, on the window's focus, after a configuration reload and after every reconnect of the events stream. When the disk that holds `CODDY_HOME` is another one and has less room than the sessions disk, both notices name the home folder instead, unless a save has failed: a failed save always names the sessions disk. The threshold is `sessions.min_free_mb` (Settings, Sessions, **Low disk warning (MB)**). Contract: `DESIGN.md` (**Storage banner**), tests `StorageBanner.test.tsx`, `storageStatus.test.ts`, `storageBannerCss.test.ts`, `features/disk_space.feature`, `features/disk_space_http.feature`.
 
 ## Markdown rendering
 

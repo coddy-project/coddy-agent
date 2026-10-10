@@ -989,8 +989,11 @@ up costs the transcript, and the person has no other sign of it.
 - **Low** is the warn tone and **`role="status"`**: *Low disk space: 16 MB left on the disk that
   stores Coddy sessions. When it runs out, new chats cannot start and new turns are not saved.*
   Its **×** (the usage banner's 32px control, a 44px hit area below 1200px) hides it for the
-  tab (**`sessionStorage`** **`coddy_storage_banner_dismissed`**, guarded) until the disk stops
-  being low; a disk that falls to full shows it again.
+  tab (**`sessionStorage`** **`coddy_storage_banner_dismissed`**, guarded). The dismissal is
+  forgotten when the disk goes through full, or has read ok for three minutes (three reads of
+  the minute timer, measured by the clock so that a burst of reads counts once) with no low
+  read in between: free space that hovers around the threshold flips between ok and low, and
+  the warning must not come back at every dip.
 - **Full** is the error tone and **`role="alert"`**, with no **×**: it is the reason a message
   may not be kept. It appears the moment a save fails - **`event: storage_status`** on the events
   stream, or a **507** answer to a send or to the workspace pick of a new chat - before any read
@@ -1000,7 +1003,9 @@ up costs the transcript, and the person has no other sign of it.
   *300 МБ*, *1,5 ГБ*), so no language carries a unit string of its own. The copy is one
   sentence per state and disk (**`storage.banner.low.sessions`**, **`.low.home`**,
   **`.full.sessions`**, **`.full.home`**), so each language keeps its own grammar; the home
-  variants stand when the disk holding **`CODDY_HOME`** is another disk with less room.
+  variants stand when the disk holding **`CODDY_HOME`** is another disk with less room
+  and no failed save is on record (a failed save is always a write into the sessions folder, so it names
+  the sessions disk).
 - **Data flow** (**`env/storageStatus.ts`**, one store per page): **`GET /coddy/info`** (**`storage`**)
   through the environment, read when the page opens, every minute while the tab is visible,
   every 15 seconds while the disk is full (the person is freeing space, and the server tries
