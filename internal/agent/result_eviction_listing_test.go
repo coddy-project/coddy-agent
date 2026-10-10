@@ -107,6 +107,12 @@ func historyOf(parts ...[]llm.Message) []llm.Message {
 	return out
 }
 
+// tailStep is a later listing step: under a window of one it takes the only
+// kept place, so every listing before it goes.
+func tailStep() []llm.Message {
+	return globStep("tail", "*.tail", "tail", 40)
+}
+
 func TestPruneListingOutsideLastStepsEvictedInsideKept(t *testing.T) {
 	in := historyOf(
 		globStep("g1", "*.go", "pkg", 40),
@@ -179,12 +185,32 @@ func TestPruneListingFanOutCountsAsOneStep(t *testing.T) {
 	})
 }
 
-func TestPruneListingKeepRecentStepsZeroEvictsEverything(t *testing.T) {
+// Options built in code can carry a window below one. It behaves as one: the
+// latest step that holds a listing keeps its results, so a listing the model has
+// just asked for reaches it instead of being collapsed in the very next request
+// and asked for again.
+func TestPruneListingKeepRecentStepsBelowOneBehavesAsOne(t *testing.T) {
 	in := historyOf(globStep("g1", "*.go", "pkg", 40), globStep("g2", "*.md", "docs", 40))
-	out := pruneToolResults(in, listingOpts(0))
-	for _, id := range []string{"g1", "g2"} {
-		if !evicted(contentByID(out, id)) {
-			t.Fatalf("%s must be evicted with keep_recent_steps 0: %q", id, contentByID(out, id))
+	want := pruneToolResults(in, listingOpts(1))
+	for _, steps := range []int{0, -1} {
+		out := pruneToolResults(in, listingOpts(steps))
+		if !reflect.DeepEqual(out, want) {
+			t.Fatalf("keep_recent_steps %d must behave as 1: g1=%q g2=%q", steps, contentByID(out, "g1"), contentByID(out, "g2"))
+		}
+		if !evicted(contentByID(out, "g1")) {
+			t.Fatalf("keep_recent_steps %d: the older step must be evicted: %q", steps, contentByID(out, "g1"))
+		}
+		if !strings.Contains(contentByID(out, "g2"), "MARK-g2") {
+			t.Fatalf("keep_recent_steps %d: the latest step must stay whole: %q", steps, contentByID(out, "g2"))
+		}
+	}
+
+	// The case that motivated the floor: one listing, nothing after it.
+	only := historyOf(globStep("only", "*.go", "pkg", 40))
+	for _, steps := range []int{0, -1} {
+		out := pruneToolResults(only, listingOpts(steps))
+		if !strings.Contains(contentByID(out, "only"), "MARK-only") {
+			t.Fatalf("keep_recent_steps %d collapsed the listing that was just asked for: %q", steps, contentByID(out, "only"))
 		}
 	}
 }
@@ -196,7 +222,7 @@ func TestPruneListingNoToolsConfiguredLeavesListingsAlone(t *testing.T) {
 		[]llm.Message{asstStep(tcSearch("s1", "coddy")), toolResult("s1", linesBody("SEARCH", 40))},
 		[]llm.Message{asstStep(tcFetch("w1", "https://example.com")), toolResult("w1", linesBody("FETCH", 40))},
 	)
-	opts := listingOpts(0)
+	opts := listingOpts(1)
 	opts.ListingTools = nil
 	out := pruneToolResults(in, opts)
 	if len(out) != len(in) || &out[0] != &in[0] {
@@ -210,7 +236,7 @@ func TestPruneListingNoToolsConfiguredLeavesListingsAlone(t *testing.T) {
 
 	// A tool left off the list is left alone while the others still go.
 	opts.ListingTools = map[string]bool{"glob": true}
-	out = pruneToolResults(in, opts)
+	out = pruneToolResults(append(in, tailStep()...), opts)
 	if !evicted(contentByID(out, "g1")) {
 		t.Fatalf("glob is configured and must be evicted: %q", contentByID(out, "g1"))
 	}
@@ -315,6 +341,105 @@ func TestPruneListingNotStaleAfterWriteOutsideItsRoot(t *testing.T) {
 	}
 }
 
+// asstPatch is an apply_patch call: one file and the patch applied to it.
+func asstPatch(id, path, patch string) llm.Message {
+	b, _ := json.Marshal(map[string]interface{}{"path": path, "patch": patch})
+	return llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "apply_patch", InputJSON: string(b)}}}
+}
+
+const (
+	v4aUpdatePatch = "*** Begin Patch\n*** Update File: pkg/a.go\n@@\n-old line\n+new line\n*** End Patch"
+	v4aBarePatch   = "@@ func main\n-old line\n+new line"
+	unifiedUpdate  = "--- a/pkg/a.go\n+++ b/pkg/a.go\n@@ -1,2 +1,2 @@\n context\n-old line\n+new line\n"
+	v4aAddPatch    = "*** Begin Patch\n*** Add File: pkg/new.go\n+package pkg\n*** End Patch"
+	v4aDeletePatch = "*** Begin Patch\n*** Delete File: pkg/old.go\n*** End Patch"
+	v4aMovePatch   = "*** Begin Patch\n*** Update File: pkg/a.go\n*** Move to: pkg/b.go\n@@\n-old line\n+new line\n*** End Patch"
+	unifiedNewFile = "--- /dev/null\n+++ b/pkg/new.go\n@@ -0,0 +1 @@\n+package pkg\n"
+	unifiedRemoval = "--- a/pkg/old.go\n+++ /dev/null\n@@ -1 +0,0 @@\n-package pkg\n"
+)
+
+// A print_tree result is names only, sorted by name, so a write that leaves every
+// name where it was cannot make it wrong: an edit, or an apply_patch that updates
+// a file. A write that can create, remove or move an entry still does. A glob
+// result is sorted by modification time, so any write under its root changes it.
+func TestPruneListingPrintTreeStalenessByKindOfWrite(t *testing.T) {
+	inPkg := filepath.Join("pkg", "a.go")
+	rawPatch := func(input string) llm.Message {
+		return llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "w", Name: "apply_patch", InputJSON: input}}}
+	}
+	cases := []struct {
+		name      string
+		write     llm.Message
+		treeStale bool
+	}{
+		{"edit of a file below the root", asstWrite("w", "edit", inPkg), false},
+		{"edit of a file at the root's top", asstWrite("w", "edit", filepath.Join("pkg", "top.go")), false},
+		{"apply_patch updating a file (Codex format)", asstPatch("w", inPkg, v4aUpdatePatch), false},
+		{"apply_patch updating a file (hunk without headers)", asstPatch("w", inPkg, v4aBarePatch), false},
+		{"apply_patch updating a file (unified diff)", asstPatch("w", inPkg, unifiedUpdate), false},
+		{"apply_patch with the legacy diff key", rawPatch(`{"path":"pkg/a.go","diff":"@@\n-old line\n+new line"}`), false},
+		{"write", asstWrite("w", "write", inPkg), true},
+		{"mkdir", asstWrite("w", "mkdir", filepath.Join("pkg", "sub")), true},
+		{"rmdir", asstWrite("w", "rmdir", filepath.Join("pkg", "sub")), true},
+		{"touch", asstWrite("w", "touch", filepath.Join("pkg", "new.go")), true},
+		{"rm", asstWrite("w", "rm", inPkg), true},
+		{"mv out of the root", asstMove("w", inPkg, "elsewhere.go"), true},
+		{"mv into the root", asstMove("w", "elsewhere.go", filepath.Join("pkg", "in.go")), true},
+		{"apply_patch adding a file", asstPatch("w", filepath.Join("pkg", "new.go"), v4aAddPatch), true},
+		{"apply_patch deleting a file", asstPatch("w", filepath.Join("pkg", "old.go"), v4aDeletePatch), true},
+		{"apply_patch moving a file", asstPatch("w", inPkg, v4aMovePatch), true},
+		{"apply_patch with a unified diff from /dev/null", asstPatch("w", filepath.Join("pkg", "new.go"), unifiedNewFile), true},
+		{"apply_patch with a unified diff to /dev/null", asstPatch("w", filepath.Join("pkg", "old.go"), unifiedRemoval), true},
+		{"apply_patch whose patch is missing", rawPatch(`{"path":"pkg/a.go"}`), true},
+		{"apply_patch whose patch cannot be read", rawPatch(`{"path":"pkg/a.go","patch":123}`), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := historyOf(
+				[]llm.Message{asstStep(tcTree("t", "pkg", 3)), toolResult("t", linesBody("TREE", 40))},
+				[]llm.Message{asstStep(tcGlob("g", "*.go", "pkg")), toolResult("g", linesBody("GLOB", 40))},
+				[]llm.Message{tc.write, toolResult("w", "written")},
+			)
+			// Both listings are inside the window: only the write can evict them.
+			out := pruneToolResults(in, listingOpts(3))
+			if got := evicted(contentByID(out, "t")); got != tc.treeStale {
+				t.Fatalf("print_tree stale = %v, want %v: %q", got, tc.treeStale, contentByID(out, "t"))
+			}
+			if !strings.Contains(contentByID(out, "g"), "is stale after") {
+				t.Fatalf("a glob result is sorted by modification time and any write under its root makes it stale: %q", contentByID(out, "g"))
+			}
+		})
+	}
+}
+
+// The fields a stale listing is judged by are recorded on the write itself.
+func TestWriteStructuralKinds(t *testing.T) {
+	cases := []struct {
+		tool, input string
+		structural  bool
+	}{
+		{"write", `{"path":"a.go"}`, true},
+		{"edit", `{"path":"a.go"}`, false},
+		{"mkdir", `{"path":"d"}`, true},
+		{"rmdir", `{"path":"d"}`, true},
+		{"touch", `{"path":"a.go"}`, true},
+		{"rm", `{"path":"a.go"}`, true},
+		{"mv", `{"src":"a.go","dst":"b.go"}`, true},
+		{"apply_patch", `{"path":"a.go","patch":"@@\n-a\n+b"}`, false},
+		{"apply_patch", `{"path":"a.go","patch":"*** Begin Patch\r\n*** Add File: b.go\r\n+x\r\n*** End Patch"}`, true},
+		{"apply_patch", `{"path":"a.go","patch":"  *** Delete File: b.go"}`, true},
+		{"apply_patch", `{"path":"a.go","patch":"--- a/a.go\t2026-01-01\n+++ /dev/null\t2026-01-01\n@@ -1 +0,0 @@\n-a"}`, true},
+		{"apply_patch", `{"path":"a.go","patch":"   ","diff":""}`, true},
+		{"apply_patch", `{"path":"a.go","patch":["x"]}`, true},
+		{"apply_patch", `{"path":"a.go"}`, true},
+	}
+	for _, tc := range cases {
+		if got := writeStructural(tc.tool, tc.input); got != tc.structural {
+			t.Errorf("writeStructural(%s, %s) = %v, want %v", tc.tool, tc.input, got, tc.structural)
+		}
+	}
+}
+
 // A write that came before the listing cannot have made it stale.
 func TestPruneListingNotStaleAfterEarlierWrite(t *testing.T) {
 	in := historyOf(
@@ -360,7 +485,7 @@ func TestPruneListingWebToolsNeverStale(t *testing.T) {
 		}
 	}
 
-	out = pruneToolResults(in, listingOpts(0))
+	out = pruneToolResults(append(in, tailStep()...), listingOpts(1))
 	if got, want := contentByID(out, "s"), `[evicted: websearch "coddy agent" (40 lines); re-run if needed]`; got != want {
 		t.Fatalf("websearch placeholder = %q, want %q", got, want)
 	}
@@ -376,8 +501,9 @@ func TestPruneListingPlaceholderTexts(t *testing.T) {
 		[]llm.Message{asstStep(tcTree("t2", filepath.Join("docs", "features"), 0)), toolResult("t2", linesBody("T2", 7))},
 		[]llm.Message{asstStep(tcSearch("s", "go \"quoted\" query")), toolResult("s", linesBody("S", 21))},
 		[]llm.Message{asstStep(tcFetch("f", "https://example.com/a?b=c")), toolResult("f", linesBody("F", 1+99))},
+		tailStep(),
 	)
-	out := pruneToolResults(in, listingOpts(0))
+	out := pruneToolResults(in, listingOpts(1))
 	for id, want := range map[string]string{
 		"g":  `[evicted: glob "**/*.go" in internal/agent (312 lines); re-run if needed]`,
 		"t":  `[evicted: print_tree of . (123 lines); re-run if needed]`,
@@ -391,6 +517,67 @@ func TestPruneListingPlaceholderTexts(t *testing.T) {
 	}
 }
 
+// A call can come without the pattern, the query or the URL a placeholder
+// repeats (the arguments did not parse, the field is empty or only spaces). The
+// placeholder then leaves the slot out instead of printing empty quotes or a
+// double space.
+func TestPruneListingPlaceholderWithoutALabel(t *testing.T) {
+	raw := func(id, tool, input string) []llm.Message {
+		return []llm.Message{
+			asstStep(llm.ToolCall{ID: id, Name: tool, InputJSON: input}),
+			toolResult(id, linesBody("BODY-"+id, 40)),
+		}
+	}
+	calls := []struct {
+		id, tool, input string
+		evicted, stale  string
+	}{
+		{"fetch-bad", "webfetch", `not json`,
+			`[evicted: webfetch result (40 lines); re-fetch if needed]`, ""},
+		{"fetch-empty", "webfetch", `{"url":"   "}`,
+			`[evicted: webfetch result (40 lines); re-fetch if needed]`, ""},
+		{"search-none", "websearch", `{"max_results":5}`,
+			`[evicted: websearch result (40 lines); re-run if needed]`, ""},
+		{"search-blank", "websearch", `{"query":"  "}`,
+			`[evicted: websearch result (40 lines); re-run if needed]`, ""},
+		{"glob-none", "glob", `{"path":"pkg"}`,
+			`[evicted: glob in pkg (40 lines); re-run if needed]`,
+			`[evicted: glob in pkg is stale after pkg/new.go was modified; re-run if needed]`},
+		{"glob-blank", "glob", `{"pattern":"   ","path":"pkg"}`,
+			`[evicted: glob in pkg (40 lines); re-run if needed]`,
+			`[evicted: glob in pkg is stale after pkg/new.go was modified; re-run if needed]`},
+		{"glob-bad", "glob", `not json`,
+			`[evicted: glob in . (40 lines); re-run if needed]`,
+			`[evicted: glob in . is stale after pkg/new.go was modified; re-run if needed]`},
+	}
+
+	var evictedParts [][]llm.Message
+	for _, c := range calls {
+		evictedParts = append(evictedParts, raw(c.id, c.tool, c.input))
+	}
+	evictedParts = append(evictedParts, tailStep())
+	out := pruneToolResults(historyOf(evictedParts...), listingOpts(1))
+	for _, c := range calls {
+		if got := contentByID(out, c.id); got != c.evicted {
+			t.Errorf("%s placeholder = %q, want %q", c.id, got, c.evicted)
+		}
+	}
+
+	// The stale placeholder names the glob the same way. Only the calls with a
+	// folder can go stale.
+	for _, c := range calls {
+		if c.stale == "" {
+			continue
+		}
+		in := historyOf(raw(c.id, c.tool, c.input), []llm.Message{
+			asstWrite("w", "write", filepath.Join("pkg", "new.go")), toolResult("w", "written"),
+		})
+		if got := contentByID(pruneToolResults(in, listingOpts(3)), c.id); got != c.stale {
+			t.Errorf("%s stale placeholder = %q, want %q", c.id, got, c.stale)
+		}
+	}
+}
+
 // A pattern, a query or a URL can be as long as the model likes; the placeholder
 // that replaces a result must not become a result of its own.
 func TestPruneListingPlaceholderCapsLongArguments(t *testing.T) {
@@ -399,8 +586,9 @@ func TestPruneListingPlaceholderCapsLongArguments(t *testing.T) {
 		[]llm.Message{asstStep(tcGlob("g", long, "pkg")), toolResult("g", linesBody("G", 40))},
 		[]llm.Message{asstStep(tcSearch("s", long)), toolResult("s", linesBody("S", 40))},
 		[]llm.Message{asstStep(tcFetch("f", "https://example.com/"+long)), toolResult("f", linesBody("F", 40))},
+		tailStep(),
 	)
-	out := pruneToolResults(in, listingOpts(0))
+	out := pruneToolResults(in, listingOpts(1))
 	for _, id := range []string{"g", "s", "f"} {
 		got := contentByID(out, id)
 		if !evicted(got) || len(got) > 200 {
@@ -411,7 +599,7 @@ func TestPruneListingPlaceholderCapsLongArguments(t *testing.T) {
 		}
 	}
 	// Capping is deterministic: the same history gives the same bytes.
-	again := pruneToolResults(in, listingOpts(0))
+	again := pruneToolResults(in, listingOpts(1))
 	if !reflect.DeepEqual(out, again) {
 		t.Fatal("eviction of the same history is not deterministic")
 	}
@@ -424,8 +612,9 @@ func TestPruneListingHasNoPins(t *testing.T) {
 		[]llm.Message{asstStep(llm.ToolCall{ID: "g", Name: "glob", InputJSON: string(args)}), toolResult("g", linesBody("GLOB", 40))},
 		[]llm.Message{asstKeepResult("k", map[string]interface{}{"pattern": "*.go", "path": "pkg"}), toolResult("k", "marked")},
 		[]llm.Message{asstKeepResult("k2", map[string]interface{}{"path": "pkg"}), toolResult("k2", "marked")},
+		tailStep(),
 	)
-	out := pruneToolResults(in, listingOpts(0))
+	out := pruneToolResults(in, listingOpts(1))
 	if !evicted(contentByID(out, "g")) {
 		t.Fatalf("a listing cannot be pinned: %q", contentByID(out, "g"))
 	}
@@ -520,7 +709,7 @@ func TestPruneListingToolResultsWithoutACallAreLeftAlone(t *testing.T) {
 		[]llm.Message{toolResult("orphan", linesBody("ORPHAN", 40))},
 		globStep("g", "*.go", "pkg", 40),
 	)
-	out := pruneToolResults(in, listingOpts(0))
+	out := pruneToolResults(in, listingOpts(1))
 	if !strings.Contains(contentByID(out, "orphan"), "ORPHAN") {
 		t.Fatalf("a result no call announced must not be touched: %q", contentByID(out, "orphan"))
 	}
@@ -636,8 +825,8 @@ func TestPruneListingKeepsPairingOverGeneratedFanOutHistories(t *testing.T) {
 }
 
 // Without writes nothing is stale, so the window is exact: of the steps that
-// hold a listing, the last keepSteps keep every listing result and every earlier
-// step loses all of them.
+// hold a listing, the last keepSteps (at least one) keep every listing result and
+// every earlier step loses all of them.
 func TestPruneListingKeepsExactlyTheLastStepsOverGeneratedFanOutHistories(t *testing.T) {
 	for seed := int64(1); seed <= 40; seed++ {
 		for _, keepSteps := range []int{0, 1, 2, 3, 6} {
@@ -656,8 +845,13 @@ func TestPruneListingKeepsExactlyTheLastStepsOverGeneratedFanOutHistories(t *tes
 					steps = append(steps, s)
 				}
 			}
+			// A window below one is a window of one.
+			window := keepSteps
+			if window < 1 {
+				window = 1
+			}
 			kept := map[int]bool{}
-			for i := len(steps) - 1; i >= 0 && len(kept) < keepSteps; i-- {
+			for i := len(steps) - 1; i >= 0 && len(kept) < window; i-- {
 				kept[steps[i]] = true
 			}
 			for id, s := range listingStep {
@@ -692,10 +886,10 @@ func TestEvictionOptionsCarryTheListingSettings(t *testing.T) {
 	}
 
 	empty := []string{}
-	zero := 0
-	none := build(config.ResultEviction{Tools: &empty, KeepRecentSteps: &zero})
-	if len(none.ListingTools) != 0 || none.KeepRecentSteps != 0 {
-		t.Fatalf("explicit empty list and 0 not honoured: %+v", none)
+	one := 1
+	none := build(config.ResultEviction{Tools: &empty, KeepRecentSteps: &one})
+	if len(none.ListingTools) != 0 || none.KeepRecentSteps != 1 {
+		t.Fatalf("explicit empty list and 1 not honoured: %+v", none)
 	}
 
 	two := []string{"webfetch", "glob"}

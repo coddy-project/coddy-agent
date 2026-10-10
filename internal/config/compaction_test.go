@@ -197,13 +197,13 @@ func TestResultEvictionEffectiveToolsIsACopy(t *testing.T) {
 
 func TestResultEvictionListingExplicitValues(t *testing.T) {
 	empty := []string{}
-	zero := 0
-	r := ResultEviction{Tools: &empty, KeepRecentSteps: &zero}
+	one := 1
+	r := ResultEviction{Tools: &empty, KeepRecentSteps: &one}
 	if got := r.EffectiveTools(); len(got) != 0 {
 		t.Fatalf("an explicit empty list must mean no listing tools, got %v", got)
 	}
-	if got := r.EffectiveKeepRecentSteps(); got != 0 {
-		t.Fatalf("keep_recent_steps = %d, want explicit 0", got)
+	if got := r.EffectiveKeepRecentSteps(); got != 1 {
+		t.Fatalf("keep_recent_steps = %d, want the explicit 1", got)
 	}
 
 	two := []string{"webfetch", "glob"}
@@ -215,7 +215,9 @@ func TestResultEvictionListingExplicitValues(t *testing.T) {
 
 func TestResultEvictionListingValidate(t *testing.T) {
 	neg := -1
+	zero := 0
 	bad := []string{"glob", "run_command"}
+	twice := []string{"glob", "print_tree", "glob"}
 	mcp := []string{"mcp__files__list"}
 	ok := []string{"glob", "print_tree", "websearch", "webfetch"}
 	empty := []string{}
@@ -232,8 +234,14 @@ func TestResultEvictionListingValidate(t *testing.T) {
 			wantErr: []string{"compaction.result_eviction.tools", `"run_command"`, "glob, print_tree, websearch, webfetch"}},
 		{name: "an MCP tool is refused", r: ResultEviction{Tools: &mcp},
 			wantErr: []string{"compaction.result_eviction.tools", "mcp__files__list"}},
+		{name: "a name twice is refused", r: ResultEviction{Tools: &twice},
+			wantErr: []string{"compaction.result_eviction.tools", "duplicate", `"glob"`}},
+		// A window of no steps would collapse the listing the model has just
+		// asked for in the very next request, so the floor is one step.
+		{name: "zero steps", r: ResultEviction{KeepRecentSteps: &zero},
+			wantErr: []string{"compaction.result_eviction.keep_recent_steps", ">= 1"}},
 		{name: "negative steps", r: ResultEviction{KeepRecentSteps: &neg},
-			wantErr: []string{"compaction.result_eviction.keep_recent_steps", ">= 0"}},
+			wantErr: []string{"compaction.result_eviction.keep_recent_steps", ">= 1"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -305,7 +313,7 @@ compaction:
 		t.Fatalf("an explicit empty list must mean none, got %v", got)
 	}
 
-	set, err := load("    tools: [glob, webfetch]\n    keep_recent_steps: 0\n")
+	set, err := load("    tools: [glob, webfetch]\n    keep_recent_steps: 1\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,11 +321,19 @@ compaction:
 	if !reflect.DeepEqual(re.EffectiveTools(), []string{"glob", "webfetch"}) {
 		t.Fatalf("tools = %v", re.EffectiveTools())
 	}
-	if re.KeepRecentSteps == nil || *re.KeepRecentSteps != 0 {
-		t.Fatalf("keep_recent_steps: 0 must stay an explicit 0, got %v", re.KeepRecentSteps)
+	if re.KeepRecentSteps == nil || *re.KeepRecentSteps != 1 {
+		t.Fatalf("keep_recent_steps: 1 must stay an explicit 1, got %v", re.KeepRecentSteps)
+	}
+
+	// The loader refuses a window of no steps with the key named.
+	if _, err := load("    keep_recent_steps: 0\n"); err == nil || !strings.Contains(err.Error(), "result_eviction.keep_recent_steps") || !strings.Contains(err.Error(), ">= 1") {
+		t.Fatalf("a config with keep_recent_steps: 0 must be refused at load, got %v", err)
 	}
 
 	if _, err := load("    tools: [run_command]\n"); err == nil || !strings.Contains(err.Error(), "result_eviction.tools") {
 		t.Fatalf("a config naming run_command must be refused at load, got %v", err)
+	}
+	if _, err := load("    tools: [glob, webfetch, glob]\n"); err == nil || !strings.Contains(err.Error(), "result_eviction.tools") || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("a config naming glob twice must be refused at load, got %v", err)
 	}
 }

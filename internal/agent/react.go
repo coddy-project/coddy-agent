@@ -1101,7 +1101,7 @@ func (a *Agent) runReActLoop(
 						_ = session.WriteToolCallMeta(sd, announce.ID, session.ToolCallMeta{
 							ToolCallID: strings.TrimSpace(announce.ID),
 							Name:       announce.Name,
-							Kind:       toolKind(announce.Name),
+							Kind:       session.ToolKind(announce.Name),
 							Status:     "pending",
 						})
 					}
@@ -1110,7 +1110,7 @@ func (a *Agent) runReActLoop(
 					SessionUpdate: acp.UpdateTypeToolCall,
 					ToolCallID:    announce.ID,
 					Title:         announce.Name, // plain name, no "Calling: " prefix
-					Kind:          toolKind(announce.Name),
+					Kind:          session.ToolKind(announce.Name),
 					Status:        "pending",
 				})
 				stopFirstTokenTimer()
@@ -1821,7 +1821,7 @@ func (a *Agent) persistSkippedToolCallResults(calls []llm.ToolCall, reason strin
 		if err := session.WriteToolCallResult(sessionDir, tc.ID, reason); err != nil && a.log != nil {
 			a.log.Error("failed to persist skipped tool result", "tool_call_id", tc.ID, "error", err)
 		}
-		if err := session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), "cancelled"); err != nil && a.log != nil {
+		if err := session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, session.ToolKind(tc.Name), "cancelled"); err != nil && a.log != nil {
 			a.log.Error("failed to persist skipped tool metadata", "tool_call_id", tc.ID, "error", err)
 		}
 	}
@@ -1879,7 +1879,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// any prompt instead of leaving a resume nothing trustworthy to run.
 	var argsPersistErr error
 	if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
-		_ = session.MarkToolCallStarted(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), "in_progress")
+		_ = session.MarkToolCallStarted(sessionDir, tc.ID, tc.Name, session.ToolKind(tc.Name), "in_progress")
 		argsPersistErr = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
 	}
 
@@ -2072,7 +2072,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			ToolCall: acp.PermissionToolCall{
 				ToolCallID: tc.ID,
 				Title:      fmt.Sprintf("Run: %s", tc.Name),
-				Kind:       toolKind(tc.Name),
+				Kind:       session.ToolKind(tc.Name),
 				Status:     "pending",
 				Content: []acp.ToolCallResultItem{
 					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: promptBody}},
@@ -2180,7 +2180,7 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 			finalText = fmt.Sprintf("error: %v", execErr)
 		}
 		_ = session.WriteToolCallResult(sessionDir, tc.ID, finalText)
-		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), status)
+		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, session.ToolKind(tc.Name), status)
 		if len(todoPlanSnapshot) > 0 {
 			_ = session.WriteToolCallPlanSnapshot(sessionDir, tc.ID, todoPlanSnapshot)
 		}
@@ -2864,20 +2864,6 @@ func fileURIPath(uri string) string {
 
 func isASCIILetter(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-}
-
-// toolKind maps a tool name to an ACP tool call kind.
-func toolKind(name string) string {
-	switch name {
-	case "read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "config_get", "config_changes", "coddy_docs_search", "coddy_docs_read":
-		return "read"
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv", "config_commit", "config_rollback":
-		return "write"
-	case "run_command":
-		return "run_command"
-	default:
-		return "other"
-	}
 }
 
 func filesystemWriteTool(name string) bool {
