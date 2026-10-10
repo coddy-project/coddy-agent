@@ -57,6 +57,8 @@ ENV VERSION=${VERSION}
 ENV BUILD_TAGS=${BUILD_TAGS}
 
 COPY --from=ui-builder /ui/index.html /ui/styles.css /ui/app.js /ui/events-worker.js /src/external/ui/
+# The installable app: its manifest, icons and service worker (src/ui/pwa/).
+COPY --from=ui-builder /ui/manifest.webmanifest /ui/sw.js /ui/icon-192.png /ui/icon-512.png /ui/icon-maskable-512.png /src/external/ui/
 # The renderers app.js loads on demand (Mermaid, KaTeX), content-hashed.
 COPY --from=ui-builder /ui/chunks /src/external/ui/chunks
 

@@ -380,6 +380,16 @@ func TestPoolCallerThatGivesUpLeavesTheStartToTheOthers(t *testing.T) {
 		c, err := pool.Acquire(testCtx(t), srv, "")
 		waiter <- result{c, err}
 	}()
+	// The second caller has to be waiting before the first gives up: one that
+	// arrives after the server answered finds nobody kept it, which is another
+	// case (TestPoolStopsAServerNobodyWaitsFor). Without this the test raced
+	// the goroutine and failed on a loaded runner with two starts.
+	if !eventually(t, 10*time.Second, func() bool {
+		running := pool.Running()
+		return len(running) == 1 && running[0].Leases == 2
+	}) {
+		t.Fatal("the second caller never waited for the start")
+	}
 	quit()
 	if err := <-quitErr; !errors.Is(err, context.Canceled) {
 		t.Fatalf("the caller that gave up got %v, want context.Canceled", err)

@@ -63,11 +63,11 @@ models:
     reasoning_levels: []
 agent:
   model: {MODEL}
-tools:
-  permission_mode: ask
 memory:
   enable: false
 """)
+# The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+(home/"permission-mode.json").write_text(json.dumps({"permissionMode": "ask"}))
 class Shot:
     """The pty stand of capture_usage.py: a coddy console on a pyte screen."""
 

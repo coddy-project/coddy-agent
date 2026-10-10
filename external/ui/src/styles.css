@@ -1075,6 +1075,9 @@ body {
 .rail-env-icon {
   position: relative;
   display: inline-flex;
+  /* The wrapper, not the svg inside it, is what the wide rail's grid places:
+     centred in the icon track like every other item's icon. */
+  justify-self: center;
 }
 
 .rail-env-status {
@@ -1086,10 +1089,23 @@ body {
   box-shadow: 0 0 0 1.5px var(--coddy-canvas-gradient-top);
 }
 
+/* The icon of History and Scheduler with the active count on its top right
+   corner. The count is placed from the icon in every shape of the rail -
+   icon-only, labelled and the rows of the More menu - never from the row,
+   which in the labelled rail is as wide as its label. */
+.rail-nav-icon {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  /* The wrapper, not the svg inside it, is what the wide rail's grid places:
+     centred in the icon track like every other item's icon. */
+  justify-self: center;
+}
+
 .rail-active-count {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: -11px;
+  right: -11px;
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
@@ -1113,6 +1129,15 @@ body {
   justify-self: start;
   min-width: 0;
   transition: color 140ms ease;
+}
+
+/* The environment item names the machine the page runs on (issue #357): a
+   long host name is cut to the rail's width, and the whole of it is in the
+   tooltip. */
+.rail-env-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rail-nav-hit-svg {
@@ -2371,6 +2396,69 @@ a.rail-brand {
   }
   100% {
     background-position: -100% 0;
+  }
+}
+
+/* Why the first message of a new chat was not sent, under the start screen's
+   composer it came back to (issue #357): the folder or the branch picked there
+   could not be applied. The text and the picks are still in place. */
+.hero-start-notice {
+  margin: 12px 4px 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--coddy-danger, #f87171);
+  overflow-wrap: anywhere;
+}
+
+/* The name of a new chat while the describe call works it out (issue #435):
+   a shimmering bar where the title will be, in the chat header and on the
+   chat's History row, plus two short bars for the tags the same answer
+   brings. Tinted from --text like the settings skeleton, so the bars read on
+   every theme; sized in em, so they follow the type they stand in for. */
+.naming-skeleton-bar {
+  display: inline-block;
+  vertical-align: middle;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--text) 6%, transparent) 0%,
+    color-mix(in srgb, var(--text) 14%, transparent) 40%,
+    color-mix(in srgb, var(--text) 6%, transparent) 80%
+  );
+  background-size: 300% 100%;
+  animation: chat-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+.chat-title-skeleton {
+  width: 13em;
+  max-width: 100%;
+  height: 0.9em;
+}
+
+.session-title--pending {
+  display: flex;
+  align-items: center;
+  min-height: 1.35em;
+}
+
+.session-title-skeleton {
+  width: 72%;
+  height: 0.8em;
+}
+
+.session-tag-skeleton {
+  width: 44px;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.session-tag-skeleton + .session-tag-skeleton {
+  width: 30px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .naming-skeleton-bar {
+    animation: none;
   }
 }
 
@@ -4710,75 +4798,77 @@ a.rail-brand {
   line-height: 1.5;
 }
 
-/* Token colors inherit the active appearance without re-highlighting code. */
-.md-code .hljs,
-.md-code .hljs-subst {
+/* Token colors inherit the active appearance without re-highlighting code.
+   Every view that colours code takes them: the chat's code blocks, an open
+   file of the Files window and a diff of the edits window. */
+:is(.md-code, .files-code, .dv-code) .hljs,
+:is(.md-code, .files-code, .dv-code) .hljs-subst {
   color: var(--text);
 }
 
-.md-code .hljs-comment,
-.md-code .hljs-quote {
+:is(.md-code, .files-code, .dv-code) .hljs-comment,
+:is(.md-code, .files-code, .dv-code) .hljs-quote {
   color: var(--syntax-comment);
 }
 
-.md-code .hljs-keyword,
-.md-code .hljs-name,
-.md-code .hljs-selector-tag,
-.md-code .hljs-doctag {
+:is(.md-code, .files-code, .dv-code) .hljs-keyword,
+:is(.md-code, .files-code, .dv-code) .hljs-name,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-tag,
+:is(.md-code, .files-code, .dv-code) .hljs-doctag {
   color: var(--syntax-keyword);
 }
 
-.md-code .hljs-string,
-.md-code .hljs-regexp,
-.md-code .hljs-addition {
+:is(.md-code, .files-code, .dv-code) .hljs-string,
+:is(.md-code, .files-code, .dv-code) .hljs-regexp,
+:is(.md-code, .files-code, .dv-code) .hljs-addition {
   color: var(--syntax-string);
 }
 
-.md-code .hljs-number,
-.md-code .hljs-literal,
-.md-code .hljs-symbol,
-.md-code .hljs-bullet {
+:is(.md-code, .files-code, .dv-code) .hljs-number,
+:is(.md-code, .files-code, .dv-code) .hljs-literal,
+:is(.md-code, .files-code, .dv-code) .hljs-symbol,
+:is(.md-code, .files-code, .dv-code) .hljs-bullet {
   color: var(--syntax-number);
 }
 
-.md-code .hljs-title,
-.md-code .hljs-section {
+:is(.md-code, .files-code, .dv-code) .hljs-title,
+:is(.md-code, .files-code, .dv-code) .hljs-section {
   color: var(--syntax-title);
 }
 
-.md-code .hljs-attr,
-.md-code .hljs-property,
-.md-code .hljs-attribute,
-.md-code .hljs-selector-id,
-.md-code .hljs-selector-class,
-.md-code .hljs-selector-attr,
-.md-code .hljs-selector-pseudo {
+:is(.md-code, .files-code, .dv-code) .hljs-attr,
+:is(.md-code, .files-code, .dv-code) .hljs-property,
+:is(.md-code, .files-code, .dv-code) .hljs-attribute,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-id,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-class,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-attr,
+:is(.md-code, .files-code, .dv-code) .hljs-selector-pseudo {
   color: var(--syntax-attribute);
 }
 
-.md-code .hljs-type,
-.md-code .hljs-built_in,
-.md-code .hljs-builtin-name {
+:is(.md-code, .files-code, .dv-code) .hljs-type,
+:is(.md-code, .files-code, .dv-code) .hljs-built_in,
+:is(.md-code, .files-code, .dv-code) .hljs-builtin-name {
   color: var(--syntax-type);
 }
 
-.md-code .hljs-meta,
-.md-code .hljs-operator,
-.md-code .hljs-variable,
-.md-code .hljs-template-tag,
-.md-code .hljs-template-variable {
+:is(.md-code, .files-code, .dv-code) .hljs-meta,
+:is(.md-code, .files-code, .dv-code) .hljs-operator,
+:is(.md-code, .files-code, .dv-code) .hljs-variable,
+:is(.md-code, .files-code, .dv-code) .hljs-template-tag,
+:is(.md-code, .files-code, .dv-code) .hljs-template-variable {
   color: var(--syntax-meta);
 }
 
-.md-code .hljs-deletion {
+:is(.md-code, .files-code, .dv-code) .hljs-deletion {
   color: var(--syntax-deletion);
 }
 
-.md-code .hljs-emphasis {
+:is(.md-code, .files-code, .dv-code) .hljs-emphasis {
   font-style: italic;
 }
 
-.md-code .hljs-strong {
+:is(.md-code, .files-code, .dv-code) .hljs-strong {
   font-weight: 700;
 }
 
@@ -6583,6 +6673,45 @@ html:not([data-theme="light"]) .mode-item.perm-item.perm-bypass {
 /* A refresh of the remote branches that failed: the list under it is the one
    from before, and says so in the warning tone of the context popover - amber,
    not the failure red, since the list is still usable. */
+/* The branch filter holds the refresh spinner at its right end: the list
+   under it stays rendered while the remotes are fetched, so the menu keeps
+   the size it opened with and the spinner takes no space of its own. */
+.workspace-branch-filter {
+  position: relative;
+  margin: 2px 0 6px;
+}
+
+.workspace-branch-filter .mode-menu-filter {
+  margin: 0;
+  padding-right: 28px;
+}
+
+.workspace-branch-refreshing {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.workspace-branch-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  border-top-color: var(--muted);
+  animation: session-spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-branch-spinner {
+    animation: none;
+  }
+}
+
 .workspace-branch-warning {
   display: flex;
   flex-direction: column;
@@ -8865,13 +8994,30 @@ html:not([data-theme="light"]) .context-usage-note--error {
   box-sizing: border-box;
 }
 
+/* Laid out like a History row (.session-row-link): a marks column with the
+   last run's dot on the name's line, and every line under the name indented
+   to it. */
 .scheduler-job-row-text-block {
   flex: 1 1 auto;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  row-gap: 2px;
+  align-items: center;
   text-align: left;
+}
+
+.scheduler-job-row-mark {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+}
+
+.scheduler-job-row-text-block > :not(.scheduler-job-row-mark) {
+  grid-column: 2;
 }
 
 .scheduler-job-row-title-line {
@@ -9099,8 +9245,8 @@ html:not([data-theme="light"]) .context-usage-note--error {
   text-decoration: none;
 }
 
-/* Last run of a job: the Tasks panel's dot, the status and the local clock,
-   under the description so the list says how every job went last time. */
+/* Last run of a job: the status and the local clock under the description, its
+   dot on the name's line (.scheduler-job-row-mark). */
 .scheduler-job-row-last-run {
   display: inline-flex;
   align-items: center;
@@ -9111,10 +9257,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.scheduler-job-row-last-run .bgtask-dot {
-  flex: 0 0 auto;
 }
 
 .scheduler-job-run-icon.composer-icon {
@@ -13732,6 +13874,16 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin-top: 22px;
 }
 
+/* System notifications (ui/pwa/NotificationsSetting.tsx): the switch under
+   the language picker, then a line saying why it cannot be turned on here. */
+.appearance-notify-block {
+  margin-top: 22px;
+}
+
+.appearance-notify-status {
+  margin: 8px 0 0;
+}
+
 .appearance-language-select-wrap {
   position: relative;
 }
@@ -14162,7 +14314,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   text-overflow: ellipsis;
 }
 
+/* The model's name is what gives way; the reasoning level and the tokens never
+   do. */
 .bgtask-card-usage-sep,
+.bgtask-card-reasoning,
 .bgtask-card-tokens {
   flex: none;
   white-space: pre;
@@ -16585,18 +16740,30 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   opacity: 0.75;
 }
 
-.sessions-manager-archive {
-  flex: 0 0 auto;
+/* The two filters of the table share a row under the search, half of it each,
+   so neither the field nor the actions give up width to them at any width. */
+.sessions-manager-filters {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
 }
 
-.sessions-manager-archive-select {
-  width: auto;
+.sessions-manager-archive,
+.sessions-manager-origin {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.sessions-manager-archive-select,
+.sessions-manager-origin-select {
+  width: 100%;
   min-width: 0;
 }
 
 /* The same mark as in History: a state leading the title, not a pill among the
    labels. */
-.sessions-manager-archived-mark {
+.sessions-manager-archived-mark,
+.sessions-manager-print-mark {
   flex: 0 0 auto;
   display: inline-grid;
   place-items: center;
@@ -16605,7 +16772,8 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
 }
 
-.sessions-manager-archived-mark svg {
+.sessions-manager-archived-mark svg,
+.sessions-manager-print-mark svg {
   width: 14px;
   height: 14px;
 }
@@ -16922,20 +17090,6 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   color: var(--accent);
 }
 
-.rail-more-active-count {
-  min-width: 18px;
-  margin-left: auto;
-  padding: 1px 5px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--coddy-on-accent-fg);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.3;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
 .rail-more-sep {
   height: 1px;
   margin: 4px 8px;
@@ -17221,15 +17375,20 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   padding: 0;
 }
 
+/* A top-level row's glyph stands where the filter's magnifier does and its
+   name starts where the filter's text does (files/treeGeometry.ts): 10px of
+   the tree plus 10px of the row is the magnifier's 20px, and 16px of glyph
+   plus a 7px gap brings the name to the text's 43px. Nested rows indent by an
+   inline padding from the same module. */
 .files-tree-row,
 .files-tree-more {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   width: 100%;
   min-height: 28px;
-  padding: 3px 8px;
+  padding: 3px 8px 3px 10px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -17560,6 +17719,54 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   display: block;
   max-width: calc(100% - 28px);
   margin: 14px;
+}
+
+/* A PDF in the browser's own viewer and an HTML page in its sandbox fill the
+   body: the frame scrolls its document, the body around it does not. */
+.files-file-body--frame {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.files-file-body--frame > .files-pdf,
+.files-file-body--frame > .files-html {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+}
+
+/* The menu a right click opens on a picture of the app (ImageMenu.tsx): over
+   every panel, the full-screen viewer (400) included, at the pointer; under
+   the settings field tips (1000), which stay the top layer. */
+.mode-menu.mode-menu--portal.image-menu {
+  z-index: 900;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+}
+
+.image-menu-notice {
+  position: fixed;
+  z-index: 900;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+  transform: translate(8px, 8px);
+}
+
+/* A page draws on the canvas a browser tab gives it, whatever the theme. */
+.files-html {
+  background: #fff;
+  color-scheme: light;
 }
 
 .files-image > button,

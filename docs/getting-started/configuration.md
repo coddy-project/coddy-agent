@@ -32,6 +32,8 @@ If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (de
 
 When the primary file exists but is invalid (YAML parse or validation error), the loader automatically recovers from **`config.yaml.bak`** in the same directory (see **`internal/config/recovery.go`**). After every successful load the server writes **`config.yaml.bak`**. The HTTP **`PUT /coddy/config`** route (see **`docs/reference/http-api.md`**) also snapshots the current file to **`config.yaml.bak`** before overwriting, so a failed reload can be rolled back.
 
+The file holds provider keys and tokens, so Coddy writes `config.yaml`, its backups and `mcp.json` readable by their owner only (mode `0600`), whatever mode the file had before. A file created by hand or by an older version keeps its mode until Coddy saves it; `coddy -t` warns while other users of the machine can read it, and `chmod 600 ~/.coddy/config.yaml ~/.coddy/config.yaml.bak` closes it at once.
+
 The `coddy acp` subcommand also accepts **`--home`** (override `CODDY_HOME`), **`--sessions-dir`**, and **`--session-id`**. Optional **`sessions.dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$CODDY_HOME/sessions`**).
 
 ## Checking the file from the command line
@@ -54,7 +56,7 @@ $ coddy serve -t
 config test failed
 ```
 
-The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `coddy serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - a file without the `# yaml-language-server:` header, and a setting the provider never sends: `max_tokens` on a model served by a `codex` provider bounds nothing, because the Codex backend takes no output cap. The loader keeps accepting that one, since the settings form seeds `max_tokens` on every model row it adds, and `coddy serve` names it in a warning at startup. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
+The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `coddy serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - a file without the `# yaml-language-server:` header, a file other users of the machine can read (the fix is the `chmod 600` that closes it), and a setting the provider never sends: `max_tokens` on a model served by a `codex` provider bounds nothing, because the Codex backend takes no output cap. The loader keeps accepting that one, since the settings form seeds `max_tokens` on every model row it adds, and `coddy serve` names it in a warning at startup. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
 
 A file that does not parse at all is placed differently from one whose values are merely wrong. The parser reports the line the block it was reading began on, which in a file with a header of comments is a blank line far above the mistake, so the check re-reads the file to find the line whose arrival stops it parsing and reports that one instead. A start prints the same line, so `coddy -t` and `coddy serve` send you to the same place.
 
@@ -351,17 +353,14 @@ rules:
 # ~/.coddy/mcp.json on the next start. See docs/features/mcp.md.
 
 # Tool configuration (Go: config.Tools, internal/config/tools.go)
-tools:
-  # Controls when the agent asks for user approval before running tools.
-  # ask          - always prompt for commands and file writes (default)
-  # accept_edits - auto-approve file writes; prompt for shell commands
-  # bypass       - never ask for permission (use only in trusted environments)
-  # Overridable per session (ACP session/set_config_option "permission_mode", /permissions,
-  # the web composer chip); the override lives in memory, a restart comes back to this value.
-  permission_mode: ask
-
-  # TCP dial timeout for SSH connections in seconds (default: 30).
-  # ssh_connect_timeout: 30
+# The permission mode (ask, accept_edits, bypass) is not configured here: a new
+# session starts in the mode chosen last on any surface (/permissions, the composer
+# chip, the permission dialog, --permission-mode, ACP session/set_config_option
+# "permission_mode"), kept in ${CODDY_HOME}/permission-mode.json; ask until one is
+# chosen. See docs/operate/security.md.
+# tools:
+#   # TCP dial timeout for SSH connections in seconds (default: 30).
+#   ssh_connect_timeout: 30
 
 # Subagents (Go: config.Subagents, internal/config/subagents.go). Child agents the model spawns with spawn_agent
 # from markdown definitions; each run is a background task with its own child session. See docs/features/subagents.md.
@@ -434,7 +433,7 @@ The built-in `ssh_run_command` tool lets the agent run commands on remote hosts 
 
 Both sources are active simultaneously — if the agent is available and has keys, files still act as a fallback if the agent declines.
 
-**Host key verification** — derived automatically from `tools.permission_mode`:
+**Host key verification** - derived automatically from the permission mode of the session that runs the call:
 - Any mode except `bypass` **(default)** — new hosts are added to `~/.ssh/known_hosts` automatically on first connect (TOFU); if a known host's key has changed, the old entry is replaced with the new one.
 - `bypass` — host key verification is disabled (suitable for ephemeral VMs or CI environments).
 

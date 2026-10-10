@@ -16,7 +16,7 @@ import { writeLastWorkspaceDir } from "./chat/workspaceCookies";
 /**
  * The start screen has no session, so no settings snapshot says which
  * permission mode the first turn will run under. GET /coddy/info names the one
- * the server is configured with (tools.permission_mode): the chip shows it, and
+ * a new session starts in (the mode chosen last on any surface): the chip shows it, and
  * a mode picked there rides in with the first message as `/permissions <mode>`
  * whenever it is not that mode - an explicit "Ask first" under a bypass
  * configuration included, and any pick while the server has not said.
@@ -296,6 +296,38 @@ test("a configuration reload moves the start screen's chip, never a pick", async
   await waitFor(() => expect(infoReads()).toBeGreaterThan(again));
   await settle();
   expect(permissionChip()).toHaveTextContent("Bypass");
+  expect(await send("hello")).toBe("hello");
+});
+
+test("a session switched elsewhere moves the start screen's chip, never a pick", async () => {
+  // A new session starts in the mode chosen last on any surface (#512): every
+  // settings snapshot names it, whichever session it is about.
+  await mountHome();
+  await waitFor(() => expect(permissionChip()).toHaveTextContent("Bypass"));
+  const snapshot = (v: number, configured: string) => ({
+    sessionId: "sess_elsewhere",
+    settings: {
+      sessionId: "sess_elsewhere",
+      version: v,
+      model: MODEL,
+      reasoning: "",
+      reasoningChoices: [],
+      mode: "agent",
+      permissionMode: configured,
+      configuredPermissionMode: configured,
+      overrides: [],
+    },
+    notice: "",
+    source: "api",
+  });
+  await pushEvent("session_settings", snapshot(500, "accept_edits"));
+  await waitFor(() =>
+    expect(permissionChip()).toHaveTextContent("Accept edits"),
+  );
+  // An older snapshot does not move it back.
+  await pushEvent("session_settings", snapshot(400, "ask"));
+  await settle();
+  expect(permissionChip()).toHaveTextContent("Accept edits");
   expect(await send("hello")).toBe("hello");
 });
 

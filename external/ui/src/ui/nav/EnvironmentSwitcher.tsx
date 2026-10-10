@@ -29,6 +29,7 @@ import {
 } from "../shellBreakpoint";
 import { useActiveEnvHealth } from "../env/activeHealth";
 import { isLoopbackOrigin } from "../env/loopbackOrigin";
+import { shortHostName } from "../env/hostName";
 import { rememberRelayHome } from "../env/pageMemory";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 
@@ -121,6 +122,11 @@ export function EnvironmentSwitcher(props: {
   className: string;
   /** The wide rail shows the environment's name beside the icon. */
   wide: boolean;
+  /**
+   * The host name of the machine the page's own server runs on, empty while it
+   * is not known: the local environment is named by it (issue #357).
+   */
+  localHost?: string;
 }) {
   const { t, tp } = useT();
   const env = useSyncExternalStore(subscribeEnv, snapshotEnv, snapshotEnv);
@@ -219,8 +225,14 @@ export function EnvironmentSwitcher(props: {
     setAdding(true);
   };
 
+  // The local environment is the machine the page runs on, named the way a
+  // person calls it; the whole host name is in the label's tooltip.
+  const localHost = (props.localHost ?? "").trim();
   const label =
-    env.mode === "local" ? t("env.local") : env.name || hostLabel(env.baseUrl);
+    env.mode === "local"
+      ? shortHostName(localHost) || t("env.local")
+      : env.name || hostLabel(env.baseUrl);
+  const fullLabel = env.mode === "local" && localHost ? localHost : label;
   const health = env.mode === "local" ? "local" : activeHealth;
   const useSheet = isMobileShell;
 
@@ -370,11 +382,15 @@ export function EnvironmentSwitcher(props: {
             data-state={health}
           />
         </span>
-        {props.wide ? <span className="rail-nav-label">{label}</span> : null}
+        {props.wide ? (
+          <span className="rail-nav-label rail-env-label" title={fullLabel}>
+            {label}
+          </span>
+        ) : null}
       </button>
       {!props.wide && !open ? (
         <span className="rail-tip" role="tooltip">
-          {t("env.tooltip", { name: label })}
+          {t("env.tooltip", { name: fullLabel })}
         </span>
       ) : null}
       {open && (useSheet || anchor)

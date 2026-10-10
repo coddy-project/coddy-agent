@@ -269,6 +269,8 @@ def main() -> None:
     raw = src_cfg.read_text(encoding="utf-8").replace("__E2E_LOG_PATH__", str(log_f.resolve()))
     cfg = str(Path(home) / "config.resolved.yaml")
     Path(cfg).write_text(raw, encoding="utf-8")
+    # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+    (Path(home) / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}), encoding="utf-8")
 
     install_agents_fixture(work)
     (Path(work) / "notes.txt").write_text(MARKER + "\n", encoding="utf-8")

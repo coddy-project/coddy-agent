@@ -14,6 +14,26 @@ export const messagesRu: Record<string, string> = {
   "appearance.theme.monokai": "Monokai",
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
+  "appearance.notificationsLabel": "Уведомления",
+  "appearance.notifications.toggle": "Системные уведомления",
+  "appearance.notifications.hint":
+    "Пока Coddy в фоне, браузер сообщает, что агент закончил ход, просит разрешение или задал вопрос в чате, который вы открыли или куда писали в этой вкладке. Нажатие на уведомление открывает чат. Настройка хранится в этом браузере.",
+  "appearance.notifications.denied":
+    "Браузер запретил уведомления для этого сайта. Разрешите их в настройках сайта в браузере и включите переключатель.",
+  "appearance.notifications.insecure":
+    "Уведомлениям нужно защищённое соединение. Откройте Coddy по https или на localhost.",
+  "appearance.notifications.unsupported":
+    "Этот браузер не показывает уведомления веб-страниц.",
+
+  "notify.untitled": "Coddy",
+  "notify.turnFinished": "Агент закончил ход.",
+  "notify.turnFailed": "Ход завершился ошибкой: {error}",
+  "notify.permission": "Нужно разрешение: {tool}",
+  "notify.toolUnnamed": "инструмент",
+  "notify.question": "Агент задал вам вопрос.",
+  "notify.questionWithText": "Агент спрашивает: {question}",
+  "notify.subagentPermission": "{agent} просит разрешение: {tool}",
+  "notify.subagentUnnamed": "Субагент",
 
   "auth.signIn.logoAlt": "Coddy агент",
   "auth.signIn.title": "Вход",
@@ -96,6 +116,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.mcp_servers.label": "MCP-серверы",
   "settings.section.skills.label": "Навыки",
   "settings.section.memory.label": "Память",
+  "settings.section.decisions.label": "Безопасность команд (decisions)",
   "settings.section.system.label": "Промпты",
   "settings.section.compaction.label": "Сжатие контекста",
   "settings.section.subagents.label": "Субагенты",
@@ -110,6 +131,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.mcp_servers.desc": "Внешние MCP-инструменты",
   "settings.section.skills.desc": "Установленные скилы (slash)",
   "settings.section.memory.desc": "Параметры субагента памяти",
+  "settings.section.decisions.desc": "Проверка небезопасных команд",
   "settings.section.system.desc": "Шаблоны и файлы инструкций",
   "settings.section.compaction.desc": "Сжатие истории диалога",
   "settings.section.subagents.desc": "Пул делегирования и доверие",
@@ -257,11 +279,13 @@ export const messagesRu: Record<string, string> = {
   "settings.group.compaction.summary": "Суммаризация",
   "settings.group.supervisor.checks": "Проверки цели",
   "settings.group.supervisor.watchdog": "Сторож",
-  "settings.group.tools.permissions": "Разрешения",
   "settings.group.memory.model": "Модель и хранилище",
   "settings.group.memory.runs": "Запуски",
   "settings.group.memory.limits": "Ограничения",
   "settings.group.memory.instructions": "Инструкции",
+  "settings.group.decisions.verdict": "Модель и порог",
+  "settings.group.decisions.verdictDesc":
+    "Модель decisions получает каждую команду оболочки, локальную или через SSH, которую вы не разрешили явно, и команда считается небезопасной, когда вероятность небезопасного варианта достигает порога. Команда длиннее того, что читает модель, тоже считается небезопасной, frida-decisions читает 512 токенов, clef-flash 8192. Для проверки нужны учётные данные NeuralDeep в строке провайдера neuraldeep.",
   "settings.group.scheduler.jobs": "Задания",
   "settings.group.logger.main": "Настройки логирования",
   "settings.group.sessions.storage": "Хранилище",
@@ -487,9 +511,6 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.agent.loop_nudge_max.desc":
     "Сколько раз за один шаг модель можно вернуть на путь, прежде чем защита от зацикливания остановит его.",
 
-  "settings.schema.tools.permission_mode.label": "Режим разрешений",
-  "settings.schema.tools.permission_mode.desc":
-    "Определяет, когда агент запрашивает одобрение перед запуском инструментов. «ask» — подтверждать команды и запись файлов. «accept_edits» — автоматически принимать правки, подтверждать команды. «bypass» — не спрашивать вовсе. Сессия может сменить свой режим до перезапуска процесса (/permissions, чип в композере, диалог разрешений), сюда эта смена не записывается.",
   "settings.schema.tools.command_allowlist.label": "Белый список команд",
   "settings.schema.tools.command_allowlist.desc":
     "Если не пуст, без дополнительной политики могут запускаться только команды с этими префиксами.",
@@ -626,6 +647,15 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.model.label": "Модель памяти",
   "settings.schema.memory.model.desc":
     "Модель, на которой работает субагент памяти; пусто - модель сессии.",
+  "settings.schema.decisions.enable.label": "Включено",
+  "settings.schema.decisions.enable.desc":
+    "Спрашивать NeuralDeep decisions API, безопасна ли команда оболочки, локальная или через SSH, до того как решает шлюз разрешений. Безопасная команда выполняется без запроса. О небезопасной в режимах ask и accept_edits спрашивают, а в режиме bypass её отклоняют, и отказ попадает в чат как результат команды. Список разрешённых команд, гранты сессии, allow-хук и команды, одобренные в запросе разрешения, не проверяются.",
+  "settings.schema.decisions.model.label": "Модель decisions",
+  "settings.schema.decisions.model.desc":
+    "frida-decisions: проход энкодера, до 512 токенов текста команды, ~20 мс на запрос, 1 единица квоты. clef-flash: до 8192 токенов, ~150 мс, 4 единицы квоты.",
+  "settings.schema.decisions.threshold.label": "Порог небезопасности",
+  "settings.schema.decisions.threshold.desc":
+    'Вероятность опции "небезопасно", начиная с которой команда считается небезопасной. 0 - значение по умолчанию (0,5); ниже - строже, выше - допускает пограничные команды.',
   "settings.schema.memory.fallback_models.label": "Резервные модели памяти",
   "settings.schema.memory.fallback_models.desc":
     "Пробуются по порядку, когда предыдущая модель отказала до ответа; модель сессии остаётся последним вариантом.",
@@ -1165,6 +1195,9 @@ export const messagesRu: Record<string, string> = {
   "app.stopFailed": "Не удалось остановить генерацию. Попробуйте ещё раз.",
   "app.undoEditFailed": "Не удалось отменить правку: {error}",
   "app.emptyResponseBody": "Пустое тело ответа",
+  "app.workspacePrepareFailed":
+    "Не удалось подготовить рабочую папку: {reason}. Сообщение не отправлено.",
+  "app.workspacePrepareFailedUnknown": "ошибка сети",
 
   "nav.ariaLabel": "Навигация",
   "nav.brandTitle": "Coddy",
@@ -1205,6 +1238,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.stateFinished": "Завершена",
   "sessions.stateError": "Последний ход завершился ошибкой",
   "sessions.newChatFallback": "Новый чат",
+  "sessions.naming": "Придумываю название чата…",
   "sessions.deleteConversation": "Удалить диалог",
   "sessions.delete": "Удалить",
   "sessions.loadingMore": "Загрузка…",
@@ -1251,6 +1285,9 @@ export const messagesRu: Record<string, string> = {
   "sessions.manage.archive.only": "Архив",
   "sessions.manage.archive.all": "Всё",
   "sessions.manage.archivedBadge": "в архиве",
+  "sessions.manage.printBadge": "запуск CLI",
+  "sessions.manage.origin.label": "Источник",
+  "sessions.manage.origin.all": "Все источники",
   "sessions.manage.archivedOn": "В архиве с {date}",
   "sessions.manage.deleteArchived": "Удалить все архивные диалоги",
   "sessions.manage.confirm.archived.title": "Очистить архив?",
@@ -1273,6 +1310,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.filter.env.all": "Все",
   "sessions.filter.env.local": "Локальные",
   "sessions.filter.env.gateway": "Мессенджеры",
+  "sessions.filter.env.print": "Запуски CLI",
 
   "sessions.sort.updated": "Последней активности",
   "sessions.sort.created": "Дате создания",
@@ -1316,6 +1354,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.tagFilterClear": "Сбросить фильтр по тегам",
 
   "chat.newChat": "Новый чат",
+  "chat.namingChat": "Придумываю название чата…",
   "chat.chatTitleAriaLabel": "Заголовок чата",
   "chat.views.label": "Панели этого чата",
   "chat.views.filesTitle": "Файлы рабочей папки ({key})",
@@ -1439,7 +1478,7 @@ export const messagesRu: Record<string, string> = {
   "composer.modePlan": "План",
   "composer.permission": "Разрешения",
   "composer.permissionTitle":
-    "Когда инструменты спрашивают одобрение в этой сессии (режим конфигурации: {configured})",
+    "Когда инструменты спрашивают одобрение в этой сессии (режим новых сессий: {configured})",
   "composer.permissionAsk": "Спрашивать",
   "composer.permissionAcceptEdits": "Правки без вопросов",
   "composer.permissionBypass": "Без вопросов",
@@ -1780,10 +1819,19 @@ export const messagesRu: Record<string, string> = {
   "files.pdfDownload":
     "Скачайте PDF, чтобы открыть его в программе для просмотра.",
   "files.wrap": "Перенос строк",
+  "files.preview": "Просмотр",
+  "files.htmlTooLarge":
+    'Страница слишком большая для просмотра. Выключите "Просмотр", чтобы читать её исходник.',
   "files.imageUnavailable":
     "Превью изображения недоступно или превышает 20 МБ. Скачайте оригинал.",
   "files.actualSize": "Исходный размер",
   "files.fit": "Вписать изображение",
+  "image.menu": "Изображение",
+  "image.copy": "Копировать изображение",
+  "image.save": "Сохранить изображение",
+  "image.copied": "Изображение скопировано",
+  "image.copyFailed": "Не удалось скопировать изображение",
+  "image.saveFailed": "Не удалось сохранить изображение",
   "changes.binary": "бинарный",
   "changes.binaryBody": "Бинарный файл: построчного диффа нет.",
   "changes.truncated": "сокращён",
@@ -1825,6 +1873,8 @@ export const messagesRu: Record<string, string> = {
   "tasks.estimate": "оценка {value}",
   "tasks.exitCode": "код {code}",
   "tasks.overdue": "просрочена",
+  "tasks.startedTitle": "Запущена {time}",
+  "tasks.finishedTitle": "Завершена {time}",
   "tasks.status.queued": "В очереди",
   "tasks.status.running": "Выполняется",
   "tasks.status.succeeded": "Успешно",
@@ -2334,6 +2384,7 @@ export const messagesRu: Record<string, string> = {
   "status.awaitingPermission": "Жду разрешения",
   "status.awaitingAnswer": "Жду ответа",
   "status.writing": "Пишу ответ",
+  "status.preparingSession": "Готовлю сессию…",
   "status.waitingModel": "Жду ответ модели",
   "status.waitingSlow": "Модель отвечает дольше обычного",
   "status.waitingStuck": "Ответа от сервера всё ещё нет",

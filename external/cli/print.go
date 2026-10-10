@@ -12,6 +12,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/docs"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
@@ -47,6 +48,41 @@ type PrintOptions struct {
 	PermMode string
 	// Config supplies paths and the permission fallback (local and remote).
 	Config *config.Config
+	// Ephemeral removes the session the run created when the run ends,
+	// however it ends (mirrors --ephemeral). The session exists while the run
+	// does, so subagents, background tasks and tool records work as in any
+	// run; the caller refuses it together with ContinueLast and SessionID.
+	Ephemeral bool
+}
+
+// ephemeralRemoveTimeout bounds the removal of an --ephemeral run's session:
+// it runs after the prompt's own context may be gone (ctrl+c), and a server
+// that stopped answering must not keep the process alive.
+const ephemeralRemoveTimeout = 30 * time.Second
+
+// removeEphemeralSession deletes the session an --ephemeral run created, with
+// everything it spawned: in-process the manager's tree delete (turns
+// cancelled and awaited, subagent and background tasks stopped, bundles
+// removed deepest first), over --remote the server's DELETE of the same. A
+// failure is a warning: the run already answered, and a hidden print run left
+// behind costs less than a script retrying a run that worked.
+func removeEphemeralSession(mgr backend, id string, errOut io.Writer) {
+	ctx, cancel := context.WithTimeout(context.Background(), ephemeralRemoveTimeout)
+	defer cancel()
+	var err error
+	switch b := mgr.(type) {
+	case *session.Manager:
+		err = b.DeleteSessionTree(id, bgtask.Default())
+	case interface {
+		DeleteSession(ctx context.Context, id string) error
+	}:
+		err = b.DeleteSession(ctx, id)
+	default:
+		err = fmt.Errorf("this backend cannot delete sessions")
+	}
+	if err != nil && errOut != nil {
+		_, _ = fmt.Fprintf(errOut, "warning: --ephemeral could not remove session %s: %v\n", id, err)
+	}
 }
 
 // printSender streams assistant text to a writer and resolves permissions
@@ -161,8 +197,9 @@ func promptBlocks(opts PrintOptions) []acp.ContentBlock {
 }
 
 // PrintPrompt runs one prompt turn without a TUI and streams the assistant
-// text to opts.Out. The session persists like any other surface, so a later
-// `coddy -c` (interactive or print) continues it.
+// text to opts.Out. The session persists like any other surface, marked as a
+// print run: the pickers a person uses leave it out, a later `coddy -c -p`
+// continues it, and --ephemeral removes it when the run ends.
 func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	if strings.TrimSpace(opts.Prompt) == "" {
 		return fmt.Errorf("empty prompt")
@@ -175,7 +212,9 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 
 	switch {
 	case opts.ContinueLast:
-		id, err := latestBackendSessionID(ctx, mgr, cwd)
+		// A print run continues the previous run of the folder, print runs
+		// included: that is how a script chains its turns.
+		id, err := latestBackendSessionID(ctx, mgr, cwd, true)
 		if err != nil {
 			return err
 		}
@@ -187,9 +226,17 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 		mgr.SetPreferredSessionID(opts.SessionID)
 	}
 
+	// A session this run creates is a print run, marked before its first
+	// write; one it reopens (-c, an existing --session-id) keeps its origin.
+	mgr.SetNextSessionOrigin(session.PrintOrigin)
 	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: cwd})
 	if err != nil {
 		return fmt.Errorf("session/new: %w", err)
+	}
+	if opts.Ephemeral {
+		// Deferred, so a failed setting, a failed turn and a cancelled one
+		// remove the session as well; it runs after waitForMemoryRun below.
+		defer removeEphemeralSession(mgr, res.SessionID, opts.ErrOut)
 	}
 	// HandleSessionReady is deliberately not called: a reopened bundle would
 	// otherwise replay its whole transcript into stdout.
@@ -207,8 +254,11 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 		}
 	}
 	if opts.PermMode != "" {
-		if _, err := mgr.HandleSessionSetConfigOption(ctx, acp.SessionSetConfigOptionParams{
-			SessionID: res.SessionID, ConfigID: "permission_mode", Value: opts.PermMode,
+		// A one-shot run is a task of its own: the flag sets its session's
+		// mode and leaves the mode new sessions start in alone.
+		pm := opts.PermMode
+		if _, err := mgr.ApplySessionSettings(ctx, res.SessionID, session.SettingsChange{
+			PermissionMode: &pm, Source: "console", SessionOnly: true,
 		}); err != nil {
 			return fmt.Errorf("--permission-mode: %w", err)
 		}

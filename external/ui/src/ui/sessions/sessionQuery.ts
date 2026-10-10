@@ -39,14 +39,17 @@ export function defaultSortOrder(key: SessionSortKey): SessionSortOrder {
 
 /**
  * Which surface's conversations a listing keeps: every one (the default), the
- * ones opened on this host, or the chats a messenger gateway is holding.
+ * ones opened on this host, the chats a messenger gateway is holding, or the
+ * runs of one-shot print mode (`coddy -p`), which every other listing leaves
+ * out.
  */
-export type SessionOriginFilter = "" | "local" | "gateway";
+export type SessionOriginFilter = "" | "local" | "gateway" | "print";
 
 export const SESSION_ORIGIN_FILTERS: readonly SessionOriginFilter[] = [
   "",
   "local",
   "gateway",
+  "print",
 ];
 
 /** Type guards, so a cookie from an older build cannot set a state that is gone. */

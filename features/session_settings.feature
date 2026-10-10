@@ -4,7 +4,9 @@ Feature: Session settings from the dialogue
   start of a message changes them for the session or, with --once or
   --count=N, for that many turns; a prompt that is only commands runs no turn.
   The permission dialog can switch the session to bypass for the rest of the
-  session (#292). Every change is published as a versioned snapshot, so every
+  session (#292). The permission mode of a session is part of its metadata,
+  so a session switched to bypass for an unattended run is still in bypass
+  after a restart of the server (#512). Every change is published as a versioned snapshot, so every
   browser tab mirrors it. A model switched while a turn runs answers from the
   turn's next request, and the answer in flight keeps the name of the model
   that wrote it (#362). The transcript notes a change only when the agent made
@@ -43,6 +45,15 @@ Feature: Session settings from the dialogue
     And the session permission mode is switched to "ask" over the API
     When the user sends "run it" and answers the first prompt with "allow"
     Then 1 permission prompt was shown
+
+  Scenario: A session keeps its permission mode across a restart of the server
+    Given the server asks before running commands
+    And the session permission mode is switched to "bypass" over the API
+    And the server restarts
+    And the model runs one command
+    When the user sends "run it" and answers the first prompt with "allow"
+    Then 0 permission prompts were shown
+    And the session permission mode is "bypass"
 
   Scenario: Only a switch the agent made itself leaves a line in the transcript
     Given the session was started on the model "fake/b" in the mode "agent"

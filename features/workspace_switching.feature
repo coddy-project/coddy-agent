@@ -42,7 +42,8 @@ Feature: Workspace switching
     And the context reports the session is in a worktree
     And the worktree path differs from the repository root
     And the context names "main" as the default branch
-    And the session list names "repo" as its main checkout
+    When the session already has a user message
+    Then the session list names "repo" as its main checkout
 
   Scenario: The dedicated worktree lives inside the repository
     Given a workspace git repository "repo" with branches "main, feature/login"
@@ -63,6 +64,7 @@ Feature: Workspace switching
     Given a workspace git repository "repo" with branches "main, feature/login"
     And a session rooted at folder "repo"
     And the session switched to branch "feature/login" in a worktree
+    And the session already has a user message
     When Git removes the session worktree
     And I reopen the session transcript
     Then the context path points to folder "repo"

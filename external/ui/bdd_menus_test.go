@@ -33,6 +33,12 @@ func TestWebUIMenusFeature(t *testing.T) {
 		{`^clicking a History filter row the pointer just opened keeps it open$`,
 			"src/ui/sessions/SessionsFilterMenu.test.tsx",
 			"History filter menu with a mouse keeps a section the pointer just opened when the same pointer clicks it"},
+		{`^the branch list opens with the branches it already has while the remotes refresh$`,
+			"src/ui/chat/WorkspaceChips.test.tsx",
+			"WorkspaceChips lists the branches it already has while the remotes refresh"},
+		{`^a branch is picked from the list while the remotes refresh$`,
+			"src/ui/chat/WorkspaceChips.test.tsx",
+			"WorkspaceChips picks a branch while the remotes refresh"},
 	}
 	suite := godog.TestSuite{
 		Name: "web_ui_menus",

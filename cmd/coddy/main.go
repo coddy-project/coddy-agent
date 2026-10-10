@@ -18,6 +18,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
@@ -52,18 +53,20 @@ func (r *serverRef) SendSessionUpdate(sessionID string, update interface{}) erro
 }
 
 func (r *serverRef) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	// A subagent's request carries the child's own effective mode; that mode
-	// decides the bypass short-circuit, not the operator's global setting,
-	// so a child narrowed to ask is prompted (or denied) even under a
-	// globally bypassed parent.
-	stamped := strings.TrimSpace(params.EffectivePermissionMode)
-	if stamped == config.PermModeBypass {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+	// The same rule as every other surface (permission.AutoApproves): a
+	// subagent's request carries the child's own effective mode, which
+	// decides first, so a child narrowed to ask is prompted (or denied) even
+	// under a globally bypassed parent; then the mode the session's gate
+	// asked under - the session's own, or ask when a PreToolUse hook forced
+	// the prompt - so a session switched to ask reaches the editor under a
+	// bypass config, and one switched to bypass is not asked under an ask
+	// config; the configuration decides only a request with neither stamp.
+	cfgMode := ""
+	if cfg := r.liveCfg(); cfg != nil {
+		cfgMode = cfg.Tools.ResolvedPermMode()
 	}
-	if stamped == "" {
-		if cfg := r.liveCfg(); cfg != nil && cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
-			return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
-		}
+	if permission.AutoApproves(params, cfgMode) {
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	s := *r.p
 	if s == nil {
@@ -178,7 +181,9 @@ func printUsage(w io.Writer) {
   %[1]s -c | --continue (console: continue the latest session here)
   %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer;
         -p - reads the prompt from stdin, and so does a bare -p when stdin is not a terminal;
-        data piped under a typed prompt is attached to it, --no-stdin leaves it out)
+        data piped under a typed prompt is attached to it, --no-stdin leaves it out;
+        the run is stored as a print run the pickers leave out, -c -p continues it,
+        --ephemeral deletes it when the run ends)
   %[1]s -i | --prompt-file FILE (console: one-shot prompt read from FILE, - for stdin)
   %[1]s -h | --help
   %[1]s -v | --version
@@ -206,7 +211,7 @@ func printUsage(w io.Writer) {
   %[1]s serve set-password [--user NAME] [--config PATH] [--home DIR] (write the web
         UI sign-in account into config.yaml; the password is read from the
         terminal, or from stdin when it is a pipe)
-  %[1]s sessions list [flags]
+  %[1]s sessions list [--cwd DIR] [--origin local|gateway|print] [--sessions-dir DIR]
   %[1]s sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   %[1]s skills list
   %[1]s skills enable <name>
@@ -395,9 +400,10 @@ func runACP(args []string) error {
 	defer mgr.CloseMCP()
 	srv = acp.NewServer(mgr, log)
 	// A woken turn opens with a note an editor that renders only the standard
-	// updates can read, live and when session/load replays it.
-	notice := acpWakeNotice{srv}
-	mgr.SetServer(notice)
+	// updates can read, live and when session/load replays it. Everything goes
+	// through serverRef, so a permission request meets the bypass rule before
+	// it reaches the editor.
+	notice := wireLocalACP(mgr, ref)
 	// A task the model started with notify_on_finish begins its own turn here
 	// when it ends, the way it does in the console and under coddy serve.
 	agent.NewBackgroundWaker(log, acpWakeRunner(mgr, notice)).Attach(bgtask.Default())
@@ -455,7 +461,7 @@ func openSessionStore(flagValue string, cfg *config.Config) (*session.FileStore,
 
 func runSessions(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s sessions list [--sessions-dir <path>] [--cwd <filter>] | sessions export <session-id> [flags]", os.Args[0])
+		return fmt.Errorf("usage: %s sessions list [--sessions-dir <path>] [--cwd <filter>] [--origin local|gateway|print] | sessions export <session-id> [flags]", os.Args[0])
 	}
 	switch strings.TrimSpace(args[0]) {
 	case "export":
@@ -476,11 +482,16 @@ func runSessions(args []string) error {
 		fs.SetOutput(os.Stderr)
 		rootFlag := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
 		cwdFilter := fs.String("cwd", "", "only list sessions saved with this cwd (absolute)")
+		originFlag := fs.String("origin", "", "only list the sessions of one surface: local, gateway or print (one-shot runs); empty lists every one, print runs included")
 		if err := fs.Parse(args[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil
 			}
 			return err
+		}
+		origin, ok := session.ParseOriginFilter(*originFlag)
+		if !ok {
+			return fmt.Errorf("--origin must be local, gateway or print, not %q", *originFlag)
 		}
 		cfg, err := config.LoadFromCLI(config.CLIPaths{})
 		if err != nil {
@@ -493,21 +504,33 @@ func runSessions(args []string) error {
 		if store == nil || store.Root == "" {
 			return fmt.Errorf("session store not available")
 		}
-		rows, err := store.ListSnapshots(strings.TrimSpace(*cwdFilter), false)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("%s\t%s\t%s\t%s\n", "SESSION_ID", "UPDATED_AT", "CWD", "TITLE")
-		for _, r := range rows {
-			title := strings.ReplaceAll(r.Title, "\t", " ")
-			title = strings.ReplaceAll(title, "\n", " ")
-			fmt.Printf("%s\t%s\t%s\t%s\n", r.SessionID, r.UpdatedAt, r.CWD, title)
-		}
-		fmt.Printf("(total %d)\n", len(rows))
-		return nil
+		return sessionsList(os.Stdout, store, *cwdFilter, origin)
 	default:
 		return fmt.Errorf("unknown sessions subcommand %q (try %s sessions list or sessions export)", args[0], os.Args[0])
 	}
+}
+
+// sessionsList prints the stored sessions newest first, one tab-separated row
+// each. Unlike the pickers it lists the runs of one-shot print mode: a script
+// reads it to find the run it wants to continue with --session-id. Scheduler
+// runs and child sessions stay out.
+func sessionsList(w io.Writer, store *session.FileStore, cwd string, origin session.OriginFilter) error {
+	rows, err := store.ListSnapshotsWith(session.ListOptions{
+		CWD:              strings.TrimSpace(cwd),
+		Origin:           origin,
+		IncludePrintRuns: true,
+	})
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", "SESSION_ID", "UPDATED_AT", "CWD", "TITLE")
+	for _, r := range rows {
+		title := strings.ReplaceAll(r.Title, "\t", " ")
+		title = strings.ReplaceAll(title, "\n", " ")
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.SessionID, r.UpdatedAt, r.CWD, title)
+	}
+	_, _ = fmt.Fprintf(w, "(total %d)\n", len(rows))
+	return nil
 }
 
 func runSkills(args []string) error {

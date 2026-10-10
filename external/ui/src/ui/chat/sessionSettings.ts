@@ -73,8 +73,8 @@ export function parseSessionSettings(raw: unknown): SessionSettings | null {
 
 /**
  * permissionModeOfInfo reads the permission mode a new session starts under
- * off an answer of `GET /coddy/info` (`permissionMode`: the server's
- * `tools.permission_mode`, the same value a snapshot names as
+ * off an answer of `GET /coddy/info` (`permissionMode`: the mode chosen last
+ * on any surface, the same value a snapshot names as
  * `configuredPermissionMode`). The start screen has no session and so no
  * snapshot; this is how it knows which mode its first turn will run under.
  * Null when the answer names no mode this page knows - a server from before

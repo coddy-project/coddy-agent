@@ -31,6 +31,12 @@ func writeSnapshotFixture(t *testing.T, root, id, cwd string, updatedAt time.Tim
 	if err := os.WriteFile(filepath.Join(dir, "session.json"), meta, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A conversation to continue holds a message: one nobody wrote in is left
+	// out of the listing -c reads (issue #357).
+	msgs := `{"version":1,"messages":[{"role":"user","content":"hello"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "messages.json"), []byte(msgs), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestLatestSessionIDPicksTheNewestForThisFolder(t *testing.T) {
@@ -43,7 +49,7 @@ func TestLatestSessionIDPicksTheNewestForThisFolder(t *testing.T) {
 	writeSnapshotFixture(t, store.Root, "sess-new", work, now.Add(-1*time.Minute))
 	writeSnapshotFixture(t, store.Root, "sess-other", other, now)
 
-	id, err := latestSessionID(store, work)
+	id, err := latestSessionID(store, work, false)
 	if err != nil {
 		t.Fatalf("latestSessionID: %v", err)
 	}
@@ -58,7 +64,7 @@ func TestLatestSessionIDFailsClearlyWhenTheFolderHasNoSessions(t *testing.T) {
 	if err := os.MkdirAll(store.Root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, err := latestSessionID(store, filepath.Join(root, "empty"))
+	_, err := latestSessionID(store, filepath.Join(root, "empty"), false)
 	if err == nil {
 		t.Fatal("expected an error for a folder without sessions")
 	}

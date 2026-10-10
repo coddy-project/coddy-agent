@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-//go:embed index.html styles.css app.js events-worker.js coddy-favicon.svg favicon-32.png favicon.ico apple-touch-icon.png all:chunks
+//go:embed index.html styles.css app.js events-worker.js coddy-favicon.svg favicon-32.png favicon.ico apple-touch-icon.png manifest.webmanifest sw.js icon-192.png icon-512.png icon-maskable-512.png all:chunks
 var Assets embed.FS
 
 // Handler serves the bundled SPA and sets Cache-Control on the fixed asset paths
@@ -22,7 +22,13 @@ func Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/", "/index.html", "/app.js", "/events-worker.js", "/styles.css",
-			"/coddy-favicon.svg", "/favicon-32.png", "/favicon.ico", "/apple-touch-icon.png":
+			"/coddy-favicon.svg", "/favicon-32.png", "/favicon.ico", "/apple-touch-icon.png",
+			"/sw.js", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png":
+			w.Header().Set("Cache-Control", "no-cache")
+		case "/manifest.webmanifest":
+			// The standard library knows no type for the extension, and a
+			// sniffed text/plain is not what the browser asks for.
+			w.Header().Set("Content-Type", "application/manifest+json")
 			w.Header().Set("Cache-Control", "no-cache")
 		default:
 			// The renderers app.js loads on demand: a new build gives a changed

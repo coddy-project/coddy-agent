@@ -212,6 +212,48 @@ func TestPermissionRelayForwardsToParentSession(t *testing.T) {
 	}
 }
 
+// A PreToolUse hook's ask forces a prompt even in a mode that would
+// auto-approve: a bypass child asks such a call under ask, and the relay must
+// not stamp the child's bypass over it, or the parent's sender waves it
+// through with nobody looking.
+func TestPermissionRelayKeepsTheModeAPromptWasAskedUnder(t *testing.T) {
+	parent := &recordingPermissionSender{}
+	parentID := "sess_parent_hook_ask"
+	turnCtx, cancelTurn := context.WithCancel(context.Background())
+	defer cancelTurn()
+	relay := &permissionRelay{
+		parent:              parent,
+		parentSessionID:     parentID,
+		agentName:           "worker",
+		childPermissionMode: config.PermModeBypass,
+		turnCtx:             turnCtx,
+		childCtx:            turnCtx,
+		arbiter:             acquireArbiter(parentID),
+	}
+	defer releaseArbiter(parentID)
+
+	params := permParams("Run: run_command")
+	params.SessionPermissionMode = config.PermModeAsk
+	if _, err := relay.Request(context.Background(), params); err != nil {
+		t.Fatal(err)
+	}
+	if len(parent.requests) != 1 {
+		t.Fatalf("parent saw %d requests, want 1", len(parent.requests))
+	}
+	if got := parent.requests[0].EffectivePermissionMode; got != config.PermModeAsk {
+		t.Fatalf("stamp = %q, want ask: the bypass child widened a prompt its hook forced", got)
+	}
+
+	// A prompt asked under the child's own mode keeps that mode.
+	params.SessionPermissionMode = config.PermModeBypass
+	if _, err := relay.Request(context.Background(), params); err != nil {
+		t.Fatal(err)
+	}
+	if got := parent.requests[1].EffectivePermissionMode; got != config.PermModeBypass {
+		t.Fatalf("stamp = %q, want the child's bypass", got)
+	}
+}
+
 func TestPermissionRelayDeniesAtOnceWhenTurnAlreadyEnded(t *testing.T) {
 	const parentID = "sess_relay_ended"
 	parent := newBlockingSender()
@@ -3352,5 +3394,29 @@ func TestScheduledRunReportOffersNoResume(t *testing.T) {
 	}
 	if log := rig.taskOutput(snap.ID); !strings.Contains(log, "=== subagent report ===") || strings.Contains(log, "resume=") {
 		t.Fatalf("scheduled run report offers spawn_agent resume or is missing:\n%s", log)
+	}
+}
+
+// The task row of a subagent names the reasoning level the child calls its
+// model with: the one the call asks for, else the model's default level.
+func TestSpawnSubagentTaskNamesItsReasoningLevel(t *testing.T) {
+	levels := []string{"low", "medium", "high"}
+	rig := newSubagentRig(t, func(cfg *config.Config) {
+		cfg.Models[0].ReasoningLevels = &levels
+		cfg.Models[0].ReasoningDefault = "medium"
+	})
+	rig.approvedDefinition("worker", "")
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return scripted(answerStep("REPORT: first"), answerStep("REPORT: second"))
+	})
+	mustSpawn(t, rig.parentAgent(), spawnReq("worker"))
+	if got := rig.lastAgentTask().Agent.Reasoning; got != "medium" {
+		t.Fatalf("reasoning of a run that names none = %q, want the model's default medium", got)
+	}
+	req := spawnReq("worker")
+	req.Reasoning = "high"
+	mustSpawn(t, rig.parentAgent(), req)
+	if got := rig.lastAgentTask().Agent.Reasoning; got != "high" {
+		t.Fatalf("reasoning of a run that asks for high = %q", got)
 	}
 }

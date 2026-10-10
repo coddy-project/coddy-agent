@@ -64,6 +64,13 @@ const COMPOSER_EXPAND_BUTTON_PX = 34;
 
 export function ChatScreen(props: {
   title: string;
+  /** The chat's name is being worked out: the header shows a placeholder. */
+  titlePending?: boolean;
+  /**
+   * Why the first message of a new chat was not sent: the start screen it came
+   * back to says so under the composer (issue #357).
+   */
+  startNotice?: string;
   sessionId: string;
   /** Accent verb for "What do you want to …?" on the empty hero (session-stable or home rotation). */
   heroAccentVerb: HeroAccentVerb;
@@ -209,7 +216,7 @@ export function ChatScreen(props: {
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
-  /** Fetches the remotes before the branch list shows; resolves with the outcome. */
+  /** Fetches the remotes while the branch list shows; resolves with the outcome. */
   onWorkspaceRefreshBranches?: () => Promise<
     import("./workspaceContext").WorkspaceBranchFetch | null
   >;
@@ -943,6 +950,15 @@ export function ChatScreen(props: {
                   : {})}
               />
             )}
+            {props.startNotice ? (
+              <p
+                className="hero-start-notice"
+                role="alert"
+                data-testid="hero-start-notice"
+              >
+                {props.startNotice}
+              </p>
+            ) : null}
           </div>
           <HeroFooter />
         </div>
@@ -965,6 +981,7 @@ export function ChatScreen(props: {
               <div className="chat-title-column" ref={titleColumnRef}>
                 <ChatHeader
                   title={props.title}
+                  titlePending={props.titlePending === true}
                   editable={true}
                   onTitleSave={props.onTitleSave}
                   {...(props.onOpenBackgroundTasks

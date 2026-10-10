@@ -16,6 +16,26 @@ export const messagesEn: Record<string, string> = {
   "appearance.theme.monokai": "Monokai",
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
+  "appearance.notificationsLabel": "Notifications",
+  "appearance.notifications.toggle": "System notifications",
+  "appearance.notifications.hint":
+    "While Coddy is in the background, the browser tells you when the agent finishes a turn, asks for permission or asks you a question in a chat you opened or wrote to in this tab. A click on the notification opens the chat. The choice is kept in this browser.",
+  "appearance.notifications.denied":
+    "The browser blocks notifications for this site. Allow them in the browser's site settings, then turn the switch on.",
+  "appearance.notifications.insecure":
+    "Notifications need a secure connection. Open Coddy over https or on localhost.",
+  "appearance.notifications.unsupported":
+    "This browser shows no notifications from web pages.",
+
+  "notify.untitled": "Coddy",
+  "notify.turnFinished": "The agent finished its turn.",
+  "notify.turnFailed": "The turn ended with an error: {error}",
+  "notify.permission": "Permission needed: {tool}",
+  "notify.toolUnnamed": "a tool",
+  "notify.question": "The agent asked you a question.",
+  "notify.questionWithText": "The agent asks: {question}",
+  "notify.subagentPermission": "{agent} needs permission: {tool}",
+  "notify.subagentUnnamed": "A subagent",
 
   // The wordmark says "Coddy agent" in the image; this is what a screen
   // reader says in its place.
@@ -100,6 +120,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.mcp_servers.label": "MCP servers",
   "settings.section.skills.label": "Skills",
   "settings.section.memory.label": "Memory",
+  "settings.section.decisions.label": "Command safety (decisions)",
   "settings.section.system.label": "Prompts",
   "settings.section.compaction.label": "Context compaction",
   "settings.section.subagents.label": "Subagents",
@@ -114,6 +135,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.mcp_servers.desc": "External MCP tools",
   "settings.section.skills.desc": "Installed slash skills",
   "settings.section.memory.desc": "Memory subagent options",
+  "settings.section.decisions.desc": "Unsafe command screening",
   "settings.section.system.desc": "Templates and instruction files",
   "settings.section.compaction.desc": "Conversation history compaction",
   "settings.section.subagents.desc": "Delegation pool & trust",
@@ -255,11 +277,13 @@ export const messagesEn: Record<string, string> = {
   "settings.group.compaction.summary": "Summarization",
   "settings.group.supervisor.checks": "Goal checks",
   "settings.group.supervisor.watchdog": "Watchdog",
-  "settings.group.tools.permissions": "Permissions",
   "settings.group.memory.model": "Model and storage",
   "settings.group.memory.runs": "Runs",
   "settings.group.memory.limits": "Limits",
   "settings.group.memory.instructions": "Instructions",
+  "settings.group.decisions.verdict": "Model and threshold",
+  "settings.group.decisions.verdictDesc":
+    "The decisions model is asked about every shell command, local or over SSH, that you did not allow explicitly, and the command counts as unsafe once the probability of the unsafe option reaches the threshold. A command longer than the model reads counts as unsafe too: frida-decisions reads 512 tokens, clef-flash 8192. The check needs a NeuralDeep credential on the neuraldeep provider row.",
   "settings.group.scheduler.jobs": "Jobs",
   "settings.group.logger.main": "Logger settings",
   "settings.group.sessions.storage": "Storage",
@@ -481,9 +505,6 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.agent.loop_nudge_max.desc":
     "How many times one turn may be nudged back on track before the loop guard stops it.",
 
-  "settings.schema.tools.permission_mode.label": "Permission mode",
-  "settings.schema.tools.permission_mode.desc":
-    'Controls when the agent asks for user approval before running tools. "ask": approve commands and writes. "accept_edits": auto-approve writes, approve commands. "bypass": skip all prompts. A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never saved here.',
   "settings.schema.tools.command_allowlist.label": "Command allowlist",
   "settings.schema.tools.command_allowlist.desc":
     "If non-empty, only these shell command prefixes may run without extra policy.",
@@ -616,6 +637,15 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.memory.model.label": "Memory model",
   "settings.schema.memory.model.desc":
     "Model the memory subagent runs on; empty uses the session's model.",
+  "settings.schema.decisions.enable.label": "Enabled",
+  "settings.schema.decisions.enable.desc":
+    "Ask the NeuralDeep decisions API whether a shell command, local or over SSH, is safe before the permission gate decides. A safe command runs without a prompt; an unsafe one is asked about in ask and accept_edits and rejected in bypass, the rejection landing in the chat as the command's result. The command allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked.",
+  "settings.schema.decisions.model.label": "Decisions model",
+  "settings.schema.decisions.model.desc":
+    "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request, 1 quota unit. clef-flash: up to 8192 tokens, ~150 ms, 4 quota units.",
+  "settings.schema.decisions.threshold.label": "Unsafe threshold",
+  "settings.schema.decisions.threshold.desc":
+    "The probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through.",
   "settings.schema.memory.fallback_models.label": "Fallback memory models",
   "settings.schema.memory.fallback_models.desc":
     "Tried in order when the model before them fails before answering; the session's own model is the last resort.",
@@ -1137,6 +1167,9 @@ export const messagesEn: Record<string, string> = {
   "app.stopFailed": "Could not stop generation. Try again.",
   "app.undoEditFailed": "Could not undo the edit: {error}",
   "app.emptyResponseBody": "Empty response body",
+  "app.workspacePrepareFailed":
+    "The workspace could not be prepared: {reason}. The message was not sent.",
+  "app.workspacePrepareFailedUnknown": "network error",
 
   "nav.ariaLabel": "Nav",
   "nav.brandTitle": "Coddy",
@@ -1172,6 +1205,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.stateFinished": "Finished",
   "sessions.stateError": "Last turn ended with an error",
   "sessions.newChatFallback": "New chat",
+  "sessions.naming": "Naming the chat…",
   "sessions.deleteConversation": "Delete conversation",
   "sessions.delete": "Delete",
   "sessions.loadingMore": "Loading...",
@@ -1214,6 +1248,9 @@ export const messagesEn: Record<string, string> = {
   "sessions.manage.archive.only": "Archive",
   "sessions.manage.archive.all": "Everything",
   "sessions.manage.archivedBadge": "archived",
+  "sessions.manage.printBadge": "CLI run",
+  "sessions.manage.origin.label": "Source",
+  "sessions.manage.origin.all": "All sources",
   "sessions.manage.archivedOn": "Archived on {date}",
   "sessions.manage.deleteArchived": "Delete every archived conversation",
   "sessions.manage.confirm.archived.title": "Empty the archive?",
@@ -1236,6 +1273,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.filter.env.all": "All",
   "sessions.filter.env.local": "Local",
   "sessions.filter.env.gateway": "Gateway",
+  "sessions.filter.env.print": "CLI runs",
 
   "sessions.sort.updated": "Last activity",
   "sessions.sort.created": "Date created",
@@ -1280,6 +1318,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.tagFilterClear": "Clear the tag filter",
 
   "chat.newChat": "New chat",
+  "chat.namingChat": "Naming the chat…",
   "chat.chatTitleAriaLabel": "Chat title",
   "chat.views.label": "Views of this chat",
   "chat.views.filesTitle": "Workspace files ({key})",
@@ -1402,7 +1441,7 @@ export const messagesEn: Record<string, string> = {
   "composer.modePlan": "Plan",
   "composer.permission": "Permissions",
   "composer.permissionTitle":
-    "When tools ask for approval in this session (the configuration's mode: {configured})",
+    "When tools ask for approval in this session (new sessions start in: {configured})",
   "composer.permissionAsk": "Ask first",
   "composer.permissionAcceptEdits": "Accept edits",
   "composer.permissionBypass": "Bypass",
@@ -1732,10 +1771,19 @@ export const messagesEn: Record<string, string> = {
   "files.binary": "Preview is unavailable. You can download this file.",
   "files.pdfDownload": "Download this PDF to open it in your PDF viewer.",
   "files.wrap": "Wrap lines",
+  "files.preview": "Preview",
+  "files.htmlTooLarge":
+    "This page is too large to preview. Turn Preview off to read its source.",
   "files.imageUnavailable":
     "Image preview is unavailable or exceeds 20 MB. Download it to view the original.",
   "files.actualSize": "Actual size",
   "files.fit": "Fit image",
+  "image.menu": "Picture",
+  "image.copy": "Copy image",
+  "image.save": "Save image",
+  "image.copied": "Image copied",
+  "image.copyFailed": "Could not copy the image",
+  "image.saveFailed": "Could not save the image",
   "changes.binary": "binary",
   "changes.binaryBody": "Binary file: no line diff to show.",
   "changes.truncated": "shortened",
@@ -1779,6 +1827,8 @@ export const messagesEn: Record<string, string> = {
   "tasks.estimate": "est. {value}",
   "tasks.exitCode": "exit {code}",
   "tasks.overdue": "overdue",
+  "tasks.startedTitle": "Started {time}",
+  "tasks.finishedTitle": "Finished {time}",
   "tasks.status.queued": "Queued",
   "tasks.status.running": "Running",
   "tasks.status.succeeded": "Succeeded",
@@ -2254,6 +2304,7 @@ export const messagesEn: Record<string, string> = {
   "status.awaitingPermission": "Waiting for your approval",
   "status.awaitingAnswer": "Waiting for your answer",
   "status.writing": "Writing the answer",
+  "status.preparingSession": "Preparing the session…",
   "status.waitingModel": "Waiting for the model",
   "status.waitingSlow": "The model is taking longer than usual",
   "status.waitingStuck": "Still no response from the server",

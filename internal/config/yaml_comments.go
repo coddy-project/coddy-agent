@@ -686,7 +686,7 @@ func hasSchemaModeline(yamlBytes []byte) bool {
 // defaultsBaseline renders the document a save of an untouched config would produce:
 // an empty file carried through the same pipeline the incoming document went through -
 // the loader's defaults and normalization, the JSON DTO round trip that resolves
-// effective values (permission_mode, project_trust and friends come back spelled out
+// effective values (project_trust and friends come back spelled out
 // even when the file never named them), and the secret escaping the real document was
 // encoded with. A subtree identical to it adds nothing a reader could not infer, so a
 // save keeps it out of the file when the previous document never had the key.

@@ -406,8 +406,10 @@ func (a *App) ApplyStartupOptions(ctx context.Context, model, mode, permMode str
 		a.modeID = mode
 	}
 	if permMode != "" {
-		if _, err := a.mgr.HandleSessionSetConfigOption(ctx, acp.SessionSetConfigOptionParams{
-			SessionID: a.sessionID, ConfigID: "permission_mode", Value: permMode,
+		// A launch flag sets the session the console opens; the mode new
+		// sessions start in follows only a choice made inside a session.
+		if _, err := a.mgr.ApplySessionSettings(ctx, a.sessionID, session.SettingsChange{
+			PermissionMode: &permMode, Source: "console", SessionOnly: true,
 		}); err != nil {
 			return fmt.Errorf("--permission-mode: %w", err)
 		}
@@ -1536,6 +1538,11 @@ func (a *App) ExitHint() string {
 	if a.sessionID == "" {
 		return ""
 	}
+	// A local session that got no prompt was never written: there is nothing
+	// to continue.
+	if st := a.mgr.SessionByID(a.sessionID); a.remoteURL == "" && st != nil && st.BundleDeferred() {
+		return ""
+	}
 	if a.remoteURL != "" {
 		return fmt.Sprintf("session: %s\ncontinue: coddy --remote %s --session-id %s  (or: coddy --remote %s -c)",
 			a.sessionID, a.remoteURL, a.sessionID, a.remoteURL)
@@ -1546,7 +1553,7 @@ func (a *App) ExitHint() string {
 // StartContinue reopens the most recent session recorded for this folder
 // (the -c/--continue flag).
 func (a *App) StartContinue(ctx context.Context) error {
-	id, err := latestBackendSessionID(ctx, a.mgr, a.config().Paths.CWD)
+	id, err := latestBackendSessionID(ctx, a.mgr, a.config().Paths.CWD, false)
 	if err != nil {
 		return err
 	}

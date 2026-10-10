@@ -9,7 +9,11 @@ Feature: The menus of the web UI stay with what they serve
   window, so the entries a token is added with are never cut off. On a phone
   the History drawer is the width of the screen and its filter control sits at
   the right edge, so the choices of a filter opened on the left of the menu and
-  ran off the screen: only the column of check marks was left to see.
+  ran off the screen: only the column of check marks was left to see. The
+  branch list over the composer fetched the remotes before it showed a branch,
+  so it opened as one line of text and grew back when the fetch answered; it
+  opens with the branches it already knows, a spinner in its filter field while
+  the remotes are fetched, and every row can be picked meanwhile.
 
   Scenario: Sending or queueing a command closes its menu
     Then Send clicked while the slash menu is open closes the menu
@@ -25,3 +29,7 @@ Feature: The menus of the web UI stay with what they serve
 
   Scenario: A History filter row opened by the pointer stays open when clicked
     Then clicking a History filter row the pointer just opened keeps it open
+
+  Scenario: The branch list shows the branches it knows while the remotes are fetched
+    Then the branch list opens with the branches it already has while the remotes refresh
+    And a branch is picked from the list while the remotes refresh

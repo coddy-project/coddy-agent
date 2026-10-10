@@ -211,11 +211,45 @@ const (
 	// OriginAny is the default: every session, whichever surface started it.
 	OriginAny OriginFilter = ""
 	// OriginLocal keeps the sessions a person started on this host - the
-	// console, an editor, the web UI.
+	// console, an editor, the web UI - and neither a messenger chat nor a
+	// print run.
 	OriginLocal OriginFilter = "local"
 	// OriginGateway keeps the conversations a messenger gateway is holding.
 	OriginGateway OriginFilter = "gateway"
+	// OriginPrint keeps the runs of one-shot print mode and nothing else. It
+	// lists them on its own: a listing that names it needs no IncludePrintRuns.
+	OriginPrint OriginFilter = "print"
 )
+
+// PrintOrigin is the origin one-shot print mode (coddy -p, coddy -i) stamps on
+// a session it creates: a run a script or another agent started, which every
+// listing a person picks a conversation from leaves out unless asked.
+const PrintOrigin = "print"
+
+// IsPrintOrigin reports whether origin marks a run of one-shot print mode.
+func IsPrintOrigin(origin string) bool {
+	return strings.EqualFold(strings.TrimSpace(origin), PrintOrigin)
+}
+
+// OriginHeader is the request header a client sends with the prompt that
+// creates a session to say where it comes from (only PrintOrigin is accepted).
+const OriginHeader = "X-Coddy-Session-Origin"
+
+// ParseRequestedOrigin reads the origin a client asks a session it is about to
+// create to carry (the X-Coddy-Session-Origin header of a remote print run).
+// Only "print" is accepted, and empty means none: a client must not label a
+// session as a messenger chat, and a new surface is a code change, not a
+// value a request invents.
+func ParseRequestedOrigin(s string) (string, bool) {
+	v := strings.TrimSpace(s)
+	switch {
+	case v == "":
+		return "", true
+	case IsPrintOrigin(v):
+		return PrintOrigin, true
+	}
+	return "", false
+}
 
 // gatewayOriginPrefix marks a session a messenger gateway started. The
 // messenger's own name follows it, so "which gateway" survives into the
@@ -248,6 +282,8 @@ func ParseOriginFilter(s string) (OriginFilter, bool) {
 		return OriginLocal, true
 	case OriginGateway:
 		return OriginGateway, true
+	case OriginPrint:
+		return OriginPrint, true
 	}
 	return "", false
 }
@@ -256,9 +292,11 @@ func ParseOriginFilter(s string) (OriginFilter, bool) {
 func (f OriginFilter) Keeps(origin string) bool {
 	switch f {
 	case OriginLocal:
-		return !IsGatewayOrigin(origin)
+		return !IsGatewayOrigin(origin) && !IsPrintOrigin(origin)
 	case OriginGateway:
 		return IsGatewayOrigin(origin)
+	case OriginPrint:
+		return IsPrintOrigin(origin)
 	default:
 		return true
 	}

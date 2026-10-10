@@ -1,11 +1,9 @@
 <p align="center">
-  <a href="https://go.dev/doc/go1.26"><img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go 1.26+" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/EvilFreelancer/coddy-agent" alt="MIT License" /></a>
-  <a href="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
-  <a href="https://github.com/coddy-project/coddy-agent/releases"><img src="https://img.shields.io/github/v/release/coddy-project/coddy-agent" alt="Latest release" /></a>
-  <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="ACP harness" /></a>
-  <img src="https://img.shields.io/badge/distroless%20ready-252525" alt="distroless-ready" />
-  <img src="https://img.shields.io/badge/single%20binary-252525" alt="single binary" />
+  <a href="https://github.com/coddy-project/coddy-agent/releases/latest"><img src="https://img.shields.io/github/v/release/coddy-project/coddy-agent?sort=semver&display_name=tag" alt="Latest release" /></a>
+  <a href="https://github.com/coddy-project/coddy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/coddy-project/coddy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
+  <a href="https://github.com/coddy-project/coddy-agent/actions/workflows/security.yaml?query=branch%3Amain"><img src="https://github.com/coddy-project/coddy-agent/actions/workflows/security.yaml/badge.svg?branch=main" alt="Security scan" /></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/coddy-project/coddy-agent?label=go&logo=go&logoColor=white" alt="Go version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/coddy-project/coddy-agent" alt="MIT License" /></a>
 </p>
 
 <p align="center">
@@ -94,7 +92,7 @@ agent:
 - **Usage and limits**: the quota behind the current model in the console footer and in the web UI for providers that publish one (NeuralDeep, Codex and Devin today), and a turn that hits a limit can wait for the reset and resume by itself ([Console](docs/surfaces/console.md), [config.yaml reference](docs/reference/config.md)).
 - **Config check, dry run and hot reload**: `coddy -t` validates `config.yaml` against the embedded schema with `file:line:col` and a fix line, `--dry-run` probes paths, providers and models, ports, MCP servers, the Telegram token, remotes and swarm joins before anything starts, and a running `coddy serve` picks up an edited file without a restart ([Configuration](docs/getting-started/configuration.md), [coddy serve](docs/operate/serve.md)).
 - **Fleets**: a swarm relay lists and reaches many nodes, mounts their sessions into one list, routes across rings and pulls in nodes that can only dial out through a reverse tunnel; `--remote` drives a `coddy serve` on another machine from the console, an editor or the browser ([Swarm](docs/operate/swarm.md), [Remote mode](docs/operate/remote.md)).
-- **In the browser**: seven themes, English and Russian, `@` mentions and multimodal attachments in the composer, a History grouped by folder with tags, pins and an archive, a plan document card, a Tasks panel, the documentation reader, a scheduler editor and a swarm map with the topology ([Web UI](docs/surfaces/web-ui.md)).
+- **In the browser**: seven themes, English and Russian, `@` mentions and multimodal attachments in the composer, a History grouped by folder with tags, pins and an archive, a plan document card, a Tasks panel, the documentation reader, a scheduler editor and a swarm map with the topology; it installs as an app and notifies you when the agent finishes or waits for you ([Web UI](docs/surfaces/web-ui.md)).
 
 - **Closed when it is on a network**: a bearer token gates the API for clients, and an optional password sign-in gates the browser - `coddy serve set-password`, or `CODDY_HTTP_USER` / `CODDY_HTTP_PASSWORD` in `~/.coddy/.env` - so a `coddy serve` on `0.0.0.0` is not readable by whoever finds the port ([Remote mode](docs/operate/remote.md#the-sign-in-form), [Security and trust](docs/operate/security.md)).
 

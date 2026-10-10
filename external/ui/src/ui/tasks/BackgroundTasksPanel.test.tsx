@@ -147,11 +147,14 @@ test("a folded finished card leaves how it ended to its dot, the open card names
     tasks: [done("bg_2"), done("bg_3", { status: "failed", exit_code: 2 })],
   });
   fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
-  // Folded: how long it ran and when it ended (the clock in the reader's own
-  // format, 12:00 or 12:00 PM); the green or red dot says the rest.
+  // Folded: when it started, how long it ran and when it ended (the clock in
+  // the reader's own format, 12:00 or 12:00 PM); the green or red dot says the
+  // rest.
   for (const id of ["bg_2", "bg_3"]) {
     const meta = screen.getByTestId(`bgtask-meta-${id}`);
-    expect(meta).toHaveTextContent(/^30s · \d{1,2}:\d{2}/);
+    expect(meta).toHaveTextContent(
+      /^\d{1,2}:\d{2}( [AP]M)? · 30s · \d{1,2}:\d{2}/,
+    );
     expect(meta).not.toHaveTextContent(/Succeeded|Failed/);
   }
   expect(
@@ -308,7 +311,9 @@ test("a folded subagent card names its model and the tokens it spent, a command 
   expect(hover).toMatch(/14,345/);
   // It is part of the meta line, which keeps saying how the run is going.
   expect(screen.getByTestId("bgtask-meta-bg_7")).toContainElement(usage);
-  expect(screen.getByTestId("bgtask-meta-bg_7")).toHaveTextContent(/^30s/);
+  expect(screen.getByTestId("bgtask-meta-bg_7")).toHaveTextContent(
+    /^\d{1,2}:\d{2}( [AP]M)? · 30s/,
+  );
 
   // A shell command has no model behind it.
   expect(screen.queryByTestId("bgtask-usage-bg_1")).toBeNull();
@@ -878,4 +883,70 @@ test("an open preview server card does not repeat the address, and a stopped one
 test("an address that is not http(s) never becomes a link", () => {
   renderPanel({ tasks: [serverTask({ url: "javascript:alert(1)" })] });
   expect(screen.queryByTestId("bgtask-link-bg_9")).toBeNull();
+});
+
+// A scheduled run's card in the runs of its job: the job is named once, by
+// the title, and the line under it says the model with its reasoning level
+// and when the run started and ended.
+test("a scheduled run's card names its job once and says its reasoning level and its hours", () => {
+  renderPanel({
+    tasks: [
+      done("bg_3", {
+        kind: "agent",
+        command: "",
+        label: "weekday-digest · cron 2026-07-29 11:50 UTC",
+        started_at: "2026-07-29T11:50:00Z",
+        finished_at: "2026-07-29T11:53:00Z",
+        elapsed_seconds: 180,
+        agent: {
+          name: "weekday-digest",
+          session_id: "sess_run",
+          model: "neuraldeep/qwen3.8-27b",
+          reasoning: "high",
+          input_tokens: 690_000,
+          output_tokens: 11_000,
+        },
+      }),
+    ],
+  });
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  expect(screen.getByTestId("bgtask-card-bg_3")).toBeTruthy();
+  expect(screen.queryByTestId("bgtask-tag-bg_3")).toBeNull();
+  // The first line is the dot and the job, nothing else.
+  expect(screen.getByTestId("bgtask-title-bg_3").textContent).toBe(
+    "weekday-digest",
+  );
+  expect(screen.getByTestId("bgtask-usage-bg_3")).toHaveTextContent(
+    "qwen3.8-27b · High · 701k tokens",
+  );
+  expect(screen.getByTestId("bgtask-reasoning-bg_3")).toHaveTextContent("High");
+  const clock = (iso: string) =>
+    new Date(iso).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  // The second: when it started, how long it ran, when it ended.
+  expect(
+    screen
+      .getByTestId("bgtask-meta-bg_3")
+      .querySelector(".bgtask-card-meta-line")?.textContent,
+  ).toBe(
+    `${clock("2026-07-29T11:50:00Z")} · 3m · ${clock("2026-07-29T11:53:00Z")}`,
+  );
+  // The rest of the time is in the hover text: how the run started, and the
+  // dates of its start and end; then the full model id with its level.
+  const hover = screen.getByTestId("bgtask-open-bg_3").getAttribute("title");
+  expect(hover).toContain("weekday-digest · cron 2026-07-29 11:50 UTC");
+  expect(hover).toMatch(/^Started /m);
+  expect(hover).toMatch(/^Finished /m);
+  expect(hover).toMatch(/neuraldeep\/qwen3\.8-27b · High/);
+});
+
+// The runs of a scheduler job are stopped from the job's row, which carries
+// Stop while a run is in flight: the panel that lists them is given no stop
+// handler, and its cards carry none.
+test("a panel given no stop handler offers no Stop on a running card", () => {
+  renderPanel({ tasks: [agentTask()], onStopTask: undefined });
+  expect(screen.getByTestId("bgtask-card-bg_7")).toBeTruthy();
+  expect(screen.queryByTestId("bgtask-stop-bg_7")).toBeNull();
 });

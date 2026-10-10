@@ -32,6 +32,8 @@
 
 Если основной файл существует, но некорректен (ошибка разбора YAML или проверки), загрузчик автоматически восстанавливает конфигурацию из **`config.yaml.bak`** в том же каталоге (см. **`internal/config/recovery.go`**). После каждой успешной загрузки сервер записывает **`config.yaml.bak`**. HTTP-маршрут **`PUT /coddy/config`** (см. **`docs/reference/http-api.md`**) тоже сохраняет текущий файл в **`config.yaml.bak`** перед перезаписью, чтобы неудачную перезагрузку можно было откатить.
 
+В файле лежат ключи провайдеров и токены, поэтому Coddy записывает `config.yaml`, его резервные копии и `mcp.json` с правами только для владельца (`0600`), какими бы права ни были до этого. Файл, созданный вручную или старой версией, сохраняет свои права, пока Coddy его не перезапишет; `coddy -t` предупреждает, пока его могут читать другие пользователи машины, а `chmod 600 ~/.coddy/config.yaml ~/.coddy/config.yaml.bak` закрывает его сразу.
+
 Подкоманда `coddy acp` принимает также **`--home`** (переопределяет `CODDY_HOME`), **`--sessions-dir`** и **`--session-id`**. Необязательный **`sessions.dir`** в YAML переопределяет корень сессий, если **`--sessions-dir`** не задан (по умолчанию **`$CODDY_HOME/sessions`**).
 
 ## Проверка файла из командной строки
@@ -54,7 +56,7 @@ $ coddy serve -t
 config test failed
 ```
 
-Код выхода равен 1, если в файле есть ошибки, и 0 в остальных случаях, поэтому флаг удобно поставить в скрипт развёртывания прямо перед `coddy serve restart`. Предупреждения (с пометкой `warning:`) проверку никогда не проваливают. Они отмечают написания, которые загрузчик ещё читает, а схема и редакторы отвергают (`yes` для булева значения, `40.0` для целого), файл без заголовка `# yaml-language-server:` и настройку, которую провайдер никогда не отправляет. Например, `max_tokens` у модели, которую обслуживает провайдер `codex`, ничего не ограничивает, потому что бэкенд Codex не принимает предел вывода. Загрузчик такую настройку по-прежнему принимает, поскольку форма настроек проставляет `max_tokens` в каждую добавляемую строку модели, а `coddy serve` называет её в предупреждении при запуске. Отсутствующий файл считается ошибкой, ведь флаг существует для проверки того файла, который использовал бы запуск. Значения ключей, похожих на секреты (`api_key`, `auth_token`, `pairing_tokens`), в сообщениях никогда не выводятся.
+Код выхода равен 1, если в файле есть ошибки, и 0 в остальных случаях, поэтому флаг удобно поставить в скрипт развёртывания прямо перед `coddy serve restart`. Предупреждения (с пометкой `warning:`) проверку никогда не проваливают. Они отмечают написания, которые загрузчик ещё читает, а схема и редакторы отвергают (`yes` для булева значения, `40.0` для целого), файл без заголовка `# yaml-language-server:`, файл, который могут читать другие пользователи машины (исправление - закрывающий его `chmod 600`), и настройку, которую провайдер никогда не отправляет. Например, `max_tokens` у модели, которую обслуживает провайдер `codex`, ничего не ограничивает, потому что бэкенд Codex не принимает предел вывода. Загрузчик такую настройку по-прежнему принимает, поскольку форма настроек проставляет `max_tokens` в каждую добавляемую строку модели, а `coddy serve` называет её в предупреждении при запуске. Отсутствующий файл считается ошибкой, ведь флаг существует для проверки того файла, который использовал бы запуск. Значения ключей, похожих на секреты (`api_key`, `auth_token`, `pairing_tokens`), в сообщениях никогда не выводятся.
 
 Для файла, который вообще не разбирается, место ошибки определяется иначе, чем для файла с просто неверными значениями. Парсер сообщает строку, с которой начинался читаемый им блок, а в файле с шапкой из комментариев это пустая строка далеко выше ошибки. Поэтому проверка перечитывает файл, находит строку, на которой разбор останавливается, и сообщает её. Запуск выводит ту же строку, так что `coddy -t` и `coddy serve` отправляют вас в одно и то же место.
 
@@ -351,17 +353,14 @@ rules:
 # ~/.coddy/mcp.json on the next start. See docs/features/mcp.md.
 
 # Tool configuration (Go: config.Tools, internal/config/tools.go)
-tools:
-  # Controls when the agent asks for user approval before running tools.
-  # ask          - always prompt for commands and file writes (default)
-  # accept_edits - auto-approve file writes; prompt for shell commands
-  # bypass       - never ask for permission (use only in trusted environments)
-  # Overridable per session (ACP session/set_config_option "permission_mode", /permissions,
-  # the web composer chip); the override lives in memory, a restart comes back to this value.
-  permission_mode: ask
-
-  # TCP dial timeout for SSH connections in seconds (default: 30).
-  # ssh_connect_timeout: 30
+# The permission mode (ask, accept_edits, bypass) is not configured here: a new
+# session starts in the mode chosen last on any surface (/permissions, the composer
+# chip, the permission dialog, --permission-mode, ACP session/set_config_option
+# "permission_mode"), kept in ${CODDY_HOME}/permission-mode.json; ask until one is
+# chosen. See docs/operate/security.md.
+# tools:
+#   # TCP dial timeout for SSH connections in seconds (default: 30).
+#   ssh_connect_timeout: 30
 
 # Subagents (Go: config.Subagents, internal/config/subagents.go). Child agents the model spawns with spawn_agent
 # from markdown definitions; each run is a background task with its own child session. See docs/features/subagents.md.
@@ -434,7 +433,7 @@ logger:
 
 Оба источника работают одновременно - если агент доступен и в нём есть ключи, файлы всё равно служат запасным вариантом на случай, если агент откажет.
 
-**Проверка ключа хоста** - определяется автоматически по `tools.permission_mode`:
+**Проверка ключа хоста** - определяется автоматически по режиму разрешений сессии, которая делает вызов:
 - любой режим, кроме `bypass` **(по умолчанию)**, - новые хосты автоматически добавляются в `~/.ssh/known_hosts` при первом подключении (TOFU); если ключ известного хоста изменился, старая запись заменяется новой;
 - `bypass` - проверка ключа хоста отключена (подходит для временных ВМ и окружений CI).
 
@@ -719,4 +718,4 @@ models:
 ### Локальные OpenAI-совместимые серверы (Ollama, llama.cpp, LM Studio)
 Используйте **`type: openai`** и задайте в **`api_base`** OpenAI-совместимый базовый URL, который уже включает **`/v1`**, например **`http://localhost:11434/v1`** для Ollama.
 
-<!-- docsgen:source sha256=ab1f068989e6b221 -->
+<!-- docsgen:source sha256=716ac9ff3e17526e -->

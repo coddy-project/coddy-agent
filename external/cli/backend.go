@@ -18,6 +18,10 @@ import (
 // degradations are encoded in the nil returns (SessionByID, FileStore).
 type backend interface {
 	SetPreferredSessionID(id string)
+	// SetNextSessionOrigin marks the session the next HandleSessionNew
+	// creates (one-shot print mode marks its runs "print"); reopening a stored
+	// session spends the mark without applying it.
+	SetNextSessionOrigin(origin string)
 	ForgetLiveSession(id string)
 	// SessionByID returns local session state; nil on a remote backend.
 	SessionByID(id string) *session.State

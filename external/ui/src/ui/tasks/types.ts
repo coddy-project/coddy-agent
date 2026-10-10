@@ -40,6 +40,8 @@ export type BackgroundTask = {
     system?: boolean;
     /** The model the child runs on. */
     model?: string;
+    /** The reasoning level the child calls its model with; absent when the model offers none. */
+    reasoning?: string;
     /** What the child's model calls have spent so far: input summed over calls, output generated. */
     input_tokens?: number;
     output_tokens?: number;
