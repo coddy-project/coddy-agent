@@ -970,6 +970,21 @@ func (s *State) SetPermissionMode(mode string) {
 	s.touchPersist()
 }
 
+// RestorePermissionModeWithoutPersist puts back the permission mode a
+// session.json recorded for the session, ignoring a value that is not a
+// permission mode, so a damaged file falls back to tools.permission_mode.
+func (s *State) RestorePermissionModeWithoutPersist(mode string) {
+	switch mode = strings.ToLower(strings.TrimSpace(mode)); mode {
+	case config.PermModeAsk, config.PermModeAcceptEdits, config.PermModeBypass:
+	default:
+		mode = ""
+	}
+	s.mu.Lock()
+	s.PermissionMode = mode
+	s.mu.Unlock()
+	s.bumpSettingsRevision()
+}
+
 // GetPermissionMode returns the session-level permission mode override (empty = use config default).
 func (s *State) GetPermissionMode() string {
 	s.mu.RLock()

@@ -892,6 +892,11 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		// A surface let go of this session earlier in this process: its
 		// permission mode and its armed overrides come back with it.
 		st.restoreProcessSettings(kept)
+	} else {
+		// A session opened in a new process: the permission mode it was
+		// switched to is in its metadata (#512); what was armed for its next
+		// turns was not written and starts over.
+		st.RestorePermissionModeWithoutPersist(snap.Meta.SessionPermissionMode)
 	}
 	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
 	st.SetTagsWithoutPersist(snap.Meta.Tags)

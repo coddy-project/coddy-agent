@@ -4,8 +4,8 @@ Feature: Session settings on the console
   turns, not those of the session the operator left. A session keeps a
   permission mode switched on in it, and what it armed for its next turns, for
   as long as the console runs, also after the operator has started another
-  session and come back to it; a restart returns it to tools.permission_mode
-  and forgets the overrides (#362).
+  session and come back to it; a restart keeps the permission mode, which is
+  part of the session's metadata (#512), and forgets the overrides (#362).
 
   Scenario: The footer follows the session entered and the session keeps its settings
     Given a coddy console app over a stub agent runner

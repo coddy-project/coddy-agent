@@ -1290,6 +1290,11 @@ func (s *subagentsFeatureState) childRanWithPermissionMode(mode string) error {
 	if snap.Meta.PermissionMode != mode {
 		return fmt.Errorf("child permission mode = %q, want %q", snap.Meta.PermissionMode, mode)
 	}
+	// The child's mode is a record of what it ran under, never the session
+	// override an ordinary session reads back when it opens again.
+	if snap.Meta.SessionPermissionMode != "" {
+		return fmt.Errorf("child carries a session permission mode %q", snap.Meta.SessionPermissionMode)
+	}
 	return nil
 }
 

@@ -431,7 +431,7 @@ Change a session configuration option (ACP Session Config Options). Supported op
 }
 ```
 
-Valid `permission_mode` values: `ask` | `accept_edits` | `bypass`. The override is session-scoped and takes precedence over the `tools.permission_mode` config file value, but it is kept in the agent's memory only: a restart of the agent returns the session to the configured mode. The option is advertised in the `_permission_mode` category, the reasoning level in `thought_level`.
+Valid `permission_mode` values: `ask` | `accept_edits` | `bypass`. The override is session-scoped and takes precedence over the `tools.permission_mode` config file value, and it is persisted in the session's `session.json`, so a restart of the agent keeps it. The option is advertised in the `_permission_mode` category, the reasoning level in `thought_level`.
 
 A change for the next turns only has no config option: send the settings command as the start of the prompt text (`/model <id> --once review this`, `/nothink --count=3`), and the agent takes it off before the turn starts.
 

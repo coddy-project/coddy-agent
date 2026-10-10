@@ -1618,7 +1618,10 @@ func TestSessionKeepsItsProcessSettingsWhenLetGo(t *testing.T) {
 	}
 }
 
-func TestPermissionModeOverrideDoesNotOutliveTheProcess(t *testing.T) {
+// A session's permission mode is part of its metadata (#512): a session
+// switched to bypass for an unattended run is still in bypass after a
+// restart, and what was armed for the next turns only is not.
+func TestPermissionModeOverrideOutlivesTheProcess(t *testing.T) {
 	cfg := settingsTestConfig()
 	root := t.TempDir()
 	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
@@ -1634,16 +1637,20 @@ func TestPermissionModeOverrideDoesNotOutliveTheProcess(t *testing.T) {
 	if _, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{PermissionMode: &bypass}); err != nil {
 		t.Fatal(err)
 	}
+	mini := "p2/gpt-4o-mini"
+	if _, err := m.ApplySessionSettings(context.Background(), res.SessionID, session.SettingsChange{Model: &mini, Turns: 2}); err != nil {
+		t.Fatal(err)
+	}
 	st := m.SessionByID(res.SessionID)
 	if err := store.Save(st); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(filepath.Join(store.SessionPath(res.SessionID), "session.json"))
+	meta, err := store.ReadMeta(res.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "permissionMode") {
-		t.Fatalf("session.json keeps the override: %s", raw)
+	if meta.SessionPermissionMode != "bypass" {
+		t.Fatalf("session.json permission mode = %q, want bypass", meta.SessionPermissionMode)
 	}
 	fresh := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
 	if _, err := fresh.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: res.SessionID}); err != nil {
@@ -1653,8 +1660,70 @@ func TestPermissionModeOverrideDoesNotOutliveTheProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.PermissionMode != "ask" {
-		t.Fatalf("permission mode after a restart = %q, want the configured ask", snap.PermissionMode)
+	if snap.PermissionMode != "bypass" {
+		t.Fatalf("permission mode after a restart = %q, want the session's bypass", snap.PermissionMode)
+	}
+	if len(snap.Overrides) != 0 {
+		t.Fatalf("turn overrides after a restart = %+v, want none: they live in the process only", snap.Overrides)
+	}
+}
+
+// What a session.json says about the permission mode is read only where it
+// means the session's own choice: the key older versions wrote under
+// "permissionMode" stays ignored, an unknown value falls back to the
+// configuration, and a subagent child's record is never read back.
+func TestPersistedPermissionModeIsReadOnlyWhereItIsTheSessionsChoice(t *testing.T) {
+	cfg := settingsTestConfig()
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	cases := []struct {
+		name  string
+		patch map[string]any
+	}{
+		{"older key", map[string]any{"permissionMode": "bypass"}},
+		{"unknown value", map[string]any{"sessionPermissionMode": "yolo"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Save(m.SessionByID(res.SessionID)); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(store.SessionPath(res.SessionID), "session.json")
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var doc map[string]any
+			if err := json.Unmarshal(raw, &doc); err != nil {
+				t.Fatal(err)
+			}
+			for k, v := range tc.patch {
+				doc[k] = v
+			}
+			raw, _ = json.Marshal(doc)
+			if err := os.WriteFile(path, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			fresh := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+			if _, err := fresh.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: res.SessionID}); err != nil {
+				t.Fatal(err)
+			}
+			snap, err := fresh.SessionSettings(res.SessionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if snap.PermissionMode != "ask" {
+				t.Fatalf("permission mode = %q, want the configured ask", snap.PermissionMode)
+			}
+		})
 	}
 }
 

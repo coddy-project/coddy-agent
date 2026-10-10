@@ -29,7 +29,7 @@ Commands are read only at the start of what you type, and several may follow one
 
 A change without a flag is the session's and lasts until the next change. A change with `--once` or `--count=N` is counted in turns you start: each prompt you send takes one turn from every override, and that turn keeps the values for its whole length, including the steps after a queued follow-up and after a permission prompt. A background wake and a subagent's turn take nothing. A change for the session clears that setting's turn override, the running turn's included, so the last command you typed is the one that holds.
 
-The model, the reasoning level (thinking switched off included) and the mode of a session are kept in its `session.json`. Its permission mode and its turn overrides live in the process's memory: a restart of the console or of `coddy serve` forgets them, so after a restart every session asks again as `tools.permission_mode` says and a bypass switched on for one task does not outlive the process. Until then they stay with the session, also while no surface holds it: the console lets go of a session on `/new` and `/resume`, and coming back to it brings its permission mode and its overrides back.
+The model, the reasoning level (thinking switched off included) and the mode of a session are kept in its `session.json`. Its permission mode is kept there too (`sessionPermissionMode`), so a session switched to `bypass` for an unattended run is still in `bypass` after a restart of the console or of `coddy serve`. Its turn overrides live in the process's memory: a restart forgets them. Until then they stay with the session, also while no surface holds it: the console lets go of a session on `/new` and `/resume`, and coming back to it brings its permission mode and its overrides back.
 
 ## What happens when you send one
 
@@ -136,7 +136,7 @@ The snapshot:
 }
 ```
 
-`version` orders the snapshots of the sessions of one process; a client keeps the highest it has seen. `configuredPermissionMode` is what the session goes back to after a restart. An override with `active: true` is held by the running turn.
+`version` orders the snapshots of the sessions of one process; a client keeps the highest it has seen. `configuredPermissionMode` is what a session follows while it has no permission mode of its own. An override with `active: true` is held by the running turn.
 
 ## Related
 
