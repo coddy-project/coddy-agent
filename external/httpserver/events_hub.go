@@ -201,6 +201,42 @@ func (s *Server) publishConfigReloaded() {
 	}
 }
 
+// storageStatusFrame renders a change of the manager's record of failing saves
+// as one SSE frame: writes have just started failing on a full disk, or the
+// failure has just ended.
+//
+// Thin like configReloadedFrame, for the same reason: the room the disks have
+// is behind GET /coddy/info (storage), and the event only says that it moved
+// and which way, so a client shows the banner at once and reads the figures.
+func storageStatusFrame(ev session.StorageEvent) []byte {
+	body, err := json.Marshal(map[string]interface{}{
+		"object":       "coddy.storage_status",
+		"writeFailing": ev.WriteFailing,
+		"at":           ev.At.UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return nil
+	}
+	frame := make([]byte, 0, len(body)+40)
+	frame = append(frame, "event: storage_status\ndata: "...)
+	frame = append(frame, body...)
+	frame = append(frame, "\n\n"...)
+	return frame
+}
+
+// publishStorageEvent is the Manager observer this server registers in New. It
+// is called on the goroutine whose save failed (or went through again), so it
+// only renders a frame and hands it to the hub, whose sends are non-blocking;
+// it writes nothing into the session that could not be saved.
+func (s *Server) publishStorageEvent(ev session.StorageEvent) {
+	if s.events == nil {
+		return
+	}
+	if frame := storageStatusFrame(ev); frame != nil {
+		s.events.publish(frame)
+	}
+}
+
 // sessionChangesFrame says that the uncommitted changes of one session's
 // folder were discarded. The end of a turn, the other moment the folder may
 // have moved, is turn_ended, which every turn already sends.
