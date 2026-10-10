@@ -1176,7 +1176,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/info": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Which build serves this API, and where",
-					"description": "Names the version of the coddy binary serving this API, the same string `coddy -v` prints, the host name of the machine it runs on, and the permission mode a new session starts under (**`tools.permission_mode`** of the live configuration, **`ask`** when it names none - the **configuredPermissionMode** of a session's settings snapshot). The web UI shows the version in the start screen's footer, for the server the page is talking to (the local one, a remote or a node reached through a relay), and names the machine the page runs on by its host name on the swarm map. Its start screen has no session yet, so its permission chip shows **permissionMode** and sends a mode picked there with the first message (as **`/permissions <mode>`**) when it differs from this one; the answer follows every reload of the configuration (**event: config_reloaded** on **GET /coddy/events**).",
+					"description": "Names the version of the coddy binary serving this API, the same string `coddy -v` prints, the host name of the machine it runs on, and the permission mode a new session starts under (the one chosen last on any surface, **`ask`** until one is chosen - the **configuredPermissionMode** of every settings snapshot). The web UI shows the version in the start screen's footer, for the server the page is talking to (the local one, a remote or a node reached through a relay), and names the machine the page runs on by its host name on the swarm map. Its start screen has no session yet, so its permission chip shows **permissionMode** and sends a mode picked there with the first message (as **`/permissions <mode>`**) when it differs from this one; the answer follows every reload of the configuration (**event: config_reloaded** on **GET /coddy/events**).",
 					"operationId": "coddyInfoGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -1193,7 +1193,7 @@ func openAPISpec() map[string]interface{} {
 											"permissionMode": map[string]interface{}{
 												"type":        "string",
 												"enum":        []string{"ask", "accept_edits", "bypass"},
-												"description": "The permission mode a new session starts under: `tools.permission_mode` of the live configuration, `ask` when it names none.",
+												"description": "The permission mode a new session starts under: the one chosen last on any surface (a session switched to it), `ask` until one is chosen.",
 											},
 										},
 									},

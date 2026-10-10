@@ -116,8 +116,9 @@ func (m *Manager) settingsSnapshot(sessionID string, st *State) acp.SessionSetti
 	if out.Mode == "" {
 		out.Mode = string(ModeAgent)
 	}
+	// What a new session would start in: the mode chosen last (#512).
+	out.ConfiguredPermissionMode = m.DefaultPermissionMode()
 	if cfg != nil {
-		out.ConfiguredPermissionMode = cfg.Tools.ResolvedPermMode()
 		out.Reasoning = st.SessionReasoning(cfg)
 		out.ReasoningChoices = cfg.ReasoningChoicesFor(cfg.FindModelEntry(out.Model))
 	}
@@ -344,6 +345,9 @@ func (m *Manager) writeSettings(sessionID string, st *State, ch SettingsChange, 
 			st.SetMode(v)
 		case SettingPermissionMode:
 			st.SetPermissionMode(v)
+			// A session switched is the operator's latest choice: the
+			// sessions created after it start in it (#512).
+			m.rememberPermissionMode(v)
 		}
 		st.ClearTurnOverride(name)
 	}

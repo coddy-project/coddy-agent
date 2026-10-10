@@ -186,7 +186,6 @@ type MCPJSON struct {
 }
 
 type ToolsJSON struct {
-	PermissionMode    string                `json:"permission_mode,omitempty"`
 	CommandAllowlist  []string              `json:"command_allowlist,omitempty"`
 	SSHConnectTimeout int                   `json:"ssh_connect_timeout,omitempty"`
 	OutputLimits      ToolOutputLimitsJSON  `json:"output_limits,omitempty"`
@@ -519,7 +518,6 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust(), IdleTimeoutSeconds: cloneIntPtr(c.MCP.IdleTimeoutSeconds)}
 	out.Tools = ToolsJSON{
-		PermissionMode:    c.Tools.ResolvedPermMode(),
 		CommandAllowlist:  append([]string(nil), c.Tools.CommandAllowlist...),
 		SSHConnectTimeout: c.Tools.SSHConnectTimeout,
 		WebSearch:         ToolWebSearchJSON(c.Tools.WebSearch),
@@ -753,7 +751,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust, IdleTimeoutSeconds: cloneIntPtr(j.MCP.IdleTimeoutSeconds)}
 	cfg.Tools = Tools{
-		PermissionMode:    j.Tools.PermissionMode,
 		CommandAllowlist:  append([]string(nil), j.Tools.CommandAllowlist...),
 		SSHConnectTimeout: j.Tools.SSHConnectTimeout,
 		WebSearch:         ToolWebSearch(j.Tools.WebSearch),

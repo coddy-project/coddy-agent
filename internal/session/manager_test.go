@@ -1668,6 +1668,121 @@ func TestPermissionModeOverrideOutlivesTheProcess(t *testing.T) {
 	}
 }
 
+// A new session starts in the permission mode the operator chose last, on
+// any surface, and keeps it in its own metadata: switching a session is a new
+// choice for the sessions created after it, and leaves the other sessions as
+// they are (#512). A change for the next turns only is not a choice.
+func TestNewSessionsStartInTheModeChosenLast(t *testing.T) {
+	cfg := settingsTestConfig()
+	root := t.TempDir()
+	cfg.Paths.Home = filepath.Join(root, "home")
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	newSession := func() string {
+		t.Helper()
+		res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.SessionID
+	}
+	modeOf := func(id string) (string, string) {
+		t.Helper()
+		snap, err := m.SessionSettings(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap.PermissionMode, snap.ConfiguredPermissionMode
+	}
+
+	first := newSession()
+	if mode, def := modeOf(first); mode != "ask" || def != "ask" {
+		t.Fatalf("nothing chosen yet: mode %q, default %q, want ask and ask", mode, def)
+	}
+	bypass, ask := "bypass", "ask"
+	if _, err := m.ApplySessionSettings(context.Background(), first, session.SettingsChange{PermissionMode: &bypass}); err != nil {
+		t.Fatal(err)
+	}
+	if got := config.ReadDefaultPermissionMode(cfg.Paths.Home); got != "bypass" {
+		t.Fatalf("the default after a switch = %q, want bypass", got)
+	}
+	second := newSession()
+	if mode, def := modeOf(second); mode != "bypass" || def != "bypass" {
+		t.Fatalf("a session created after the switch: mode %q, default %q, want bypass and bypass", mode, def)
+	}
+
+	// The next switch is a new default, and the session created before it
+	// keeps the mode it has.
+	if _, err := m.ApplySessionSettings(context.Background(), first, session.SettingsChange{PermissionMode: &ask}); err != nil {
+		t.Fatal(err)
+	}
+	if mode, _ := modeOf(second); mode != "bypass" {
+		t.Fatalf("a switch in another session moved this one to %q", mode)
+	}
+	if got := config.ReadDefaultPermissionMode(cfg.Paths.Home); got != "ask" {
+		t.Fatalf("the default after the second switch = %q, want ask", got)
+	}
+
+	// A mode armed for the next turn only is not a choice.
+	if _, err := m.ApplySessionSettings(context.Background(), second, session.SettingsChange{PermissionMode: &bypass, Turns: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if got := config.ReadDefaultPermissionMode(cfg.Paths.Home); got != "ask" {
+		t.Fatalf("a turn override changed the default to %q", got)
+	}
+}
+
+// A session saved before sessions kept their mode (no sessionPermissionMode)
+// takes the default when it is opened again, and keeps it from then on.
+func TestASessionWithoutAStoredModeTakesTheDefault(t *testing.T) {
+	cfg := settingsTestConfig()
+	root := t.TempDir()
+	cfg.Paths.Home = filepath.Join(root, "home")
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(m.SessionByID(res.SessionID)); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(store.SessionPath(res.SessionID), "session.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	delete(doc, "sessionPermissionMode")
+	raw, _ = json.Marshal(doc)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.WriteDefaultPermissionMode(cfg.Paths.Home, "accept_edits"); err != nil {
+		t.Fatal(err)
+	}
+	fresh := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	if _, err := fresh.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: res.SessionID}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fresh.SessionSettings(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.PermissionMode != "accept_edits" {
+		t.Fatalf("an old session opened again = %q, want the default accept_edits", snap.PermissionMode)
+	}
+}
+
 // What a session.json says about the permission mode is read only where it
 // means the session's own choice: the key older versions wrote under
 // "permissionMode" stays ignored, an unknown value falls back to the

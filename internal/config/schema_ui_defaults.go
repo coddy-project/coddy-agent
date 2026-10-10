@@ -65,7 +65,6 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		MCP: MCPJSON{ProjectTrust: ProjectTrustAsk, IdleTimeoutSeconds: intPtr(MCPDefaultIdleTimeoutSeconds)},
 		Tools: ToolsJSON{
-			PermissionMode:   PermModeAsk,
 			CommandAllowlist: nil,
 		},
 		Logger: LoggerJSON{

@@ -31,6 +31,9 @@ func (s *cliTUIState) footerPermission() string {
 
 func (s *cliTUIState) waitFooterPermission(want string) error {
 	deadline := time.Now().Add(3 * time.Second)
+	// The footer spells a mode for people ("accept edits"); a step names it
+	// the way the command takes it ("accept_edits").
+	want = strings.ReplaceAll(want, "_", " ")
 	for {
 		got := s.footerPermission()
 		if got == want {

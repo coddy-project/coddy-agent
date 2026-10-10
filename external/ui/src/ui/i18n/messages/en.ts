@@ -277,7 +277,6 @@ export const messagesEn: Record<string, string> = {
   "settings.group.compaction.summary": "Summarization",
   "settings.group.supervisor.checks": "Goal checks",
   "settings.group.supervisor.watchdog": "Watchdog",
-  "settings.group.tools.permissions": "Permissions",
   "settings.group.memory.model": "Model and storage",
   "settings.group.memory.runs": "Runs",
   "settings.group.memory.limits": "Limits",
@@ -506,9 +505,6 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.agent.loop_nudge_max.desc":
     "How many times one turn may be nudged back on track before the loop guard stops it.",
 
-  "settings.schema.tools.permission_mode.label": "Permission mode",
-  "settings.schema.tools.permission_mode.desc":
-    'Controls when the agent asks for user approval before running tools. "ask": approve commands and writes. "accept_edits": auto-approve writes, approve commands. "bypass": skip all prompts. A session may switch its own mode (/permissions, the composer chip, the permission dialog); the switch is kept with the session, across restarts too, and never saved here.',
   "settings.schema.tools.command_allowlist.label": "Command allowlist",
   "settings.schema.tools.command_allowlist.desc":
     "If non-empty, only these shell command prefixes may run without extra policy.",
@@ -1445,7 +1441,7 @@ export const messagesEn: Record<string, string> = {
   "composer.modePlan": "Plan",
   "composer.permission": "Permissions",
   "composer.permissionTitle":
-    "When tools ask for approval in this session (the configuration's mode: {configured})",
+    "When tools ask for approval in this session (new sessions start in: {configured})",
   "composer.permissionAsk": "Ask first",
   "composer.permissionAcceptEdits": "Accept edits",
   "composer.permissionBypass": "Bypass",

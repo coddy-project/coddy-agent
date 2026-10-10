@@ -443,12 +443,6 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
 			map[string]interface{}{
-				"permission_mode": map[string]interface{}{
-					"type":        "string",
-					"title":       "Permission mode",
-					"description": "Controls when the agent asks for user approval before running tools. \"ask\": approve commands and writes. \"accept_edits\": auto-approve writes, approve commands. \"bypass\": skip all prompts.",
-					"enum":        []string{PermModeAsk, PermModeAcceptEdits, PermModeBypass},
-				},
 				"command_allowlist": map[string]interface{}{
 					"type":        "array",
 					"title":       "Command allowlist",
@@ -544,7 +538,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"allowlist", "default_headers"},
 					nil),
 			},
-			[]string{"permission_mode", "command_allowlist", "output_limits", "background", "preview_server", "websearch", "http_request"},
+			[]string{"command_allowlist", "output_limits", "background", "preview_server", "websearch", "http_request"},
 			nil),
 		"subagents": objectSchema("Subagents",
 			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",

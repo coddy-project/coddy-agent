@@ -779,15 +779,6 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
       },
     ];
   }
-  if (key === "tools") {
-    return [
-      {
-        id: "permissions",
-        legend: translate("settings.group.tools.permissions"),
-        paths: ["permission_mode"],
-      },
-    ];
-  }
   if (key === "memory") {
     return [
       {

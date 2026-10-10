@@ -158,9 +158,6 @@ mcp.idle_timeout_seconds:
 tools:
   en: "Filesystem and shell policy for built-in tools."
   ru: "Политика файловой системы и оболочки для встроенных инструментов."
-tools.permission_mode:
-  en: "When the agent asks for user approval: \"ask\" prompts for commands and file writes; \"accept_edits\" auto-approves writes but prompts for commands; \"bypass\" never asks (trusted environments only). A session may switch its own mode (/permissions, the composer chip, the permission dialog); the switch is kept with the session, across restarts too, and never written here."
-  ru: "Когда агент запрашивает одобрение пользователя - \"ask\" спрашивает о командах и записи файлов; \"accept_edits\" одобряет запись автоматически, но спрашивает о командах; \"bypass\" не спрашивает никогда (только для доверенных окружений). Сессия может переключить свой режим (/permissions, чип в поле ввода, окно разрешения); переключение хранится вместе с сессией, в том числе после перезапуска, и в конфигурацию не записывается."
 tools.command_allowlist:
   en: "Commands that never require permission. Exact or prefix match (prefix + space + any args). \"*\" allows all commands."
   ru: "Команды, которым никогда не нужно разрешение. Точное совпадение или совпадение по префиксу (префикс + пробел + любые аргументы). \"*\" разрешает все команды."

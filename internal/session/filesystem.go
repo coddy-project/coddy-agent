@@ -466,7 +466,7 @@ type SessionMeta struct {
 	// SessionPermissionMode is the permission mode an ordinary session was
 	// switched to (the selectors, /permissions, the permission dialog's
 	// session switch), restored when the session is opened again, after a
-	// restart too (#512). Empty follows tools.permission_mode. Overrides
+	// restart too (#512). Empty takes the default of new sessions. Overrides
 	// armed for the next turns only are never written.
 	SessionPermissionMode string `json:"sessionPermissionMode,omitempty"`
 }

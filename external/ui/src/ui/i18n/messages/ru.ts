@@ -279,7 +279,6 @@ export const messagesRu: Record<string, string> = {
   "settings.group.compaction.summary": "Суммаризация",
   "settings.group.supervisor.checks": "Проверки цели",
   "settings.group.supervisor.watchdog": "Сторож",
-  "settings.group.tools.permissions": "Разрешения",
   "settings.group.memory.model": "Модель и хранилище",
   "settings.group.memory.runs": "Запуски",
   "settings.group.memory.limits": "Ограничения",
@@ -512,9 +511,6 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.agent.loop_nudge_max.desc":
     "Сколько раз за один шаг модель можно вернуть на путь, прежде чем защита от зацикливания остановит его.",
 
-  "settings.schema.tools.permission_mode.label": "Режим разрешений",
-  "settings.schema.tools.permission_mode.desc":
-    "Определяет, когда агент запрашивает одобрение перед запуском инструментов. «ask» — подтверждать команды и запись файлов. «accept_edits» — автоматически принимать правки, подтверждать команды. «bypass» — не спрашивать вовсе. Сессия может сменить свой режим (/permissions, чип в композере, диалог разрешений), смена хранится вместе с сессией, в том числе после перезапуска, и сюда не записывается.",
   "settings.schema.tools.command_allowlist.label": "Белый список команд",
   "settings.schema.tools.command_allowlist.desc":
     "Если не пуст, без дополнительной политики могут запускаться только команды с этими префиксами.",
@@ -1482,7 +1478,7 @@ export const messagesRu: Record<string, string> = {
   "composer.modePlan": "План",
   "composer.permission": "Разрешения",
   "composer.permissionTitle":
-    "Когда инструменты спрашивают одобрение в этой сессии (режим конфигурации: {configured})",
+    "Когда инструменты спрашивают одобрение в этой сессии (режим новых сессий: {configured})",
   "composer.permissionAsk": "Спрашивать",
   "composer.permissionAcceptEdits": "Правки без вопросов",
   "composer.permissionBypass": "Без вопросов",

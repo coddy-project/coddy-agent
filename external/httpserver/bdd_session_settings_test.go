@@ -416,7 +416,8 @@ func (s *settingsFeatureState) switchPermissionOverAPI(mode string) error {
 	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
 		return err
 	}
-	if out.Settings.PermissionMode != mode || out.Settings.ConfiguredPermissionMode != s.cfg.Tools.ResolvedPermMode() {
+	// The switch is the operator's latest choice: new sessions start in it.
+	if out.Settings.PermissionMode != mode || out.Settings.ConfiguredPermissionMode != mode {
 		return fmt.Errorf("PATCH answered settings %+v", out.Settings)
 	}
 	return nil
