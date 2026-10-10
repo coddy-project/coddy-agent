@@ -782,6 +782,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.sessions.dir.desc":
     "Override sessions root; empty resolves under CODDY_HOME.",
   "settings.schema.sessions.dir.ph": "${CODDY_HOME}/sessions",
+  "settings.schema.sessions.min_free_mb.label": "Low disk warning (MB)",
+  "settings.schema.sessions.min_free_mb.desc":
+    "Free space below which the disk holding the sessions (and the home folder, when it is another disk) counts as running out: the web UI shows a banner and --dry-run warns. Default 512; 0 turns the warning off.",
   "settings.schema.gateways.label": "Messenger gateways",
   "settings.schema.gateways.telegram.label": "Telegram",
   "settings.schema.gateways.telegram.desc": "Telegram bot adapter settings.",
@@ -1605,6 +1608,16 @@ export const messagesEn: Record<string, string> = {
   "env.banner.corsEitherLoopback":
     "{name} answers, but the browser keeps the answer from this page. Add {origin} to {relayCors} if it is a relay, or to {agentCors} if it is a coddy serve - or set {relayLoopback} / {agentLoopback} to true: this page is on a loopback address, and that admits it on any port.",
   "env.banner.switchLocal": "Switch to Local",
+
+  "storage.banner.low.sessions":
+    "Low disk space: {free} left on the disk that stores Coddy sessions. When it runs out, new chats cannot start and new turns are not saved.",
+  "storage.banner.low.home":
+    "Low disk space: {free} left on the disk that holds the Coddy home folder. When it runs out, Coddy cannot save its settings, logs and other state.",
+  "storage.banner.full.sessions":
+    "The disk that stores Coddy sessions is full. New chats cannot start and the latest turns are not saved. Free some space, then send a message again.",
+  "storage.banner.full.home":
+    "The disk that holds the Coddy home folder is full. Coddy cannot save its settings, logs and other state. Free some space, then try again.",
+  "storage.banner.dismiss": "Dismiss",
 
   "prompts.questions": "Questions",
   "prompts.questionsCount": "{count} questions",

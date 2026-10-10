@@ -20,7 +20,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
-	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -147,6 +146,10 @@ type Manager struct {
 	// usage is the provider usage cache and schedule (provider_usage.go).
 	usage providerUsageState
 
+	// storage is the record of whether saves are failing for want of room and
+	// who hears of it (storage_watch.go).
+	storage storageWatch
+
 	// windows caches the context windows provider listings report
 	// (context_window.go).
 	windows contextWindowState
@@ -195,6 +198,11 @@ func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner,
 		defaultCWD: defaultCWD,
 		store:      store,
 		sessions:   make(map[string]*State),
+	}
+	if store != nil {
+		// A probe file a dead process left in the sessions folder is not
+		// anybody's session; see storage_watch.go.
+		removeStaleSpaceProbes(store.Root)
 	}
 	m.mcpPool = mcp.NewPool(m.log)
 	m.mcpPool.SetDialTimeout(defaultMCPConnectTimeout)
@@ -608,7 +616,9 @@ func (m *Manager) makePersist(st *State) func() {
 		}
 		if err := m.store.Save(st); err != nil {
 			m.logStoreFailure("persist session", err, "id", st.ID)
+			return
 		}
+		m.noteStoreWrite()
 	}
 }
 
@@ -724,10 +734,7 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 			// The cause stays in the chain (%w), so a surface that tells a
 			// full disk from any other failure (platform.IsDiskFull) can say
 			// so to its client; the log says it to the operator.
-			if platform.IsDiskFull(err) {
-				m.logDiskFull("create session", err, "id", id)
-			}
-			return nil, fmt.Errorf("session/new: layout: %w", err)
+			return nil, fmt.Errorf("session/new: layout: %w", m.logIfDiskFull("create session", err, "id", id))
 		}
 	}
 
@@ -761,6 +768,8 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 	if m.store != nil && !deferBundle {
 		if err := m.store.Save(state); err != nil {
 			m.logStoreFailure("initial session save", err, "id", id)
+		} else {
+			m.noteStoreWrite()
 		}
 	}
 
@@ -1462,12 +1471,13 @@ func (m *Manager) writeDeferredBundle(state *State) error {
 	}
 	dir, err := m.store.EnsureLayout(state.GetID())
 	if err != nil {
-		return fmt.Errorf("session layout: %w", err)
+		return fmt.Errorf("session layout: %w", m.logIfDiskFull("create deferred session", err, "id", state.GetID()))
 	}
 	state.setSessionDir(dir)
 	if err := m.store.Save(state); err != nil {
-		return fmt.Errorf("session save: %w", err)
+		return fmt.Errorf("session save: %w", m.logIfDiskFull("save deferred session", err, "id", state.GetID()))
 	}
+	m.noteStoreWrite()
 	// Only a written bundle ends the wait: a failed save is tried again by
 	// the next prompt.
 	state.bundleDeferred.Store(false)

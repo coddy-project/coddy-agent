@@ -55,6 +55,10 @@ import {
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { subscribeSharedServerEvents } from "./chat/sharedServerEvents";
+import {
+  noteStorageWriteFailing,
+  refreshStorageStatus,
+} from "./env/storageStatus";
 import { readOpening, type OpeningRead } from "./chat/openingRead";
 import {
   isNewerSettings,
@@ -2229,6 +2233,9 @@ export function App() {
       // preview that may not have answered yet.
       const applied = async (res: Response): Promise<string | null> => {
         if (!res.ok) {
+          // 507: the disk that stores the sessions is full; say so beyond the
+          // chat's own notice (the banner above the composer).
+          if (res.status === 507) noteStorageWriteFailing(true);
           const reason = await res
             .json()
             .then((b: { error?: { message?: unknown } }) =>
@@ -3403,6 +3410,8 @@ export function App() {
       setConfigEpoch((e) => e + 1);
       noteSettingsConfigReloaded();
       void refreshConfiguredRemotes();
+      // sessions.min_free_mb may have moved the line the disk is judged by.
+      void refreshStorageStatus();
     },
     // A session is shared: this is what someone else queued, in another
     // browser or from a console attached over --remote.
@@ -3452,6 +3461,8 @@ export function App() {
       // permission mode a new chat starts under.
       noteSettingsConfigReloaded();
       void readServerPermissionMode();
+      // A storage_status may have been missed the same way: the disk is read again.
+      void refreshStorageStatus();
       // Recovery can miss the idle edge. Retire pending acknowledgements too,
       // so an old Stop cannot re-establish the fence after this reconnect.
       stoppedTurnBySidRef.current.clear();
@@ -3484,6 +3495,8 @@ export function App() {
       onProviderUsage: (_sid, usage) =>
         serverEventHandlersRef.current.providerUsage(usage),
       onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
+      // The server's disk: a save failed on a full disk, or the failure ended.
+      onStorageStatus: noteStorageWriteFailing,
       onMessageQueue: (sid, queue) =>
         serverEventHandlersRef.current.messageQueue(sid, queue),
       onSessionChanges: (sid) => emitChangesSettled(sid),
@@ -5659,6 +5672,7 @@ export function App() {
       releaseSessionId?.(sidEffective);
 
       if (!res.ok || !res.body) {
+        if (res.status === 507) noteStorageWriteFailing(true);
         const msg = !res.body
           ? t("app.emptyResponseBody")
           : remoteHttpErrorMessage(

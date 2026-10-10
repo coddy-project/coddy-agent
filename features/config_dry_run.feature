@@ -56,3 +56,16 @@ Feature: A dry run checks that the configured world exists before anything start
     When I run coddy with --dry-run
     Then the command fails
     And the report points at line 3 of the config file
+
+  Scenario: a disk with room for the sessions is reported
+    Given a config.yaml whose sessions.min_free_mb is 1
+    When I run coddy with --dry-run --test-config
+    Then the command succeeds
+    And the report marks sessions.min_free_mb as ok mentioning "free of"
+
+  Scenario: a disk with less room than the threshold is a warning at the key
+    Given a config.yaml whose sessions.min_free_mb is more than the disk holds
+    When I run coddy with --dry-run
+    Then the command succeeds
+    And the report marks sessions.min_free_mb as a warning mentioning "warning below"
+    And the report points at the line of "min_free_mb:"

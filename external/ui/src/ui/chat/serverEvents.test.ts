@@ -508,3 +508,40 @@ data: ${JSON.stringify({
     },
   ]);
 });
+
+// The event says which way the failure moved and nothing else: the client
+// shows the notice at once and reads the figures from GET /coddy/info.
+test("a storage_status frame says whether saves are failing", async () => {
+  const heard: boolean[] = [];
+  const ctl = new AbortController();
+  const frame = (writeFailing: unknown) =>
+    `event: storage_status\ndata: ${JSON.stringify({
+      object: "coddy.storage_status",
+      writeFailing,
+      at: "2026-09-20T12:00:00Z",
+    })}\n\n`;
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: ready\ndata: {"object":"coddy.events_ready"}\n\n` +
+        frame(true) +
+        // A frame that does not say which way it moved is skipped.
+        frame("maybe") +
+        `event: storage_status\ndata: not json\n\n` +
+        frame(false),
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onStorageStatus: (failing) => {
+      heard.push(failing);
+      if (heard.length === 2) ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(heard).toEqual([true, false]);
+});

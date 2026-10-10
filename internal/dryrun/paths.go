@@ -29,6 +29,7 @@ func (r *runner) paths() {
 	cwd := r.req.Paths.CWD
 
 	r.rep.add(r.creatableDir("sessions.dir", cfg.ResolvedSessionsRoot()))
+	r.storage()
 
 	if hasOutput(cfg.Logger.Outputs, config.LogOutputFile) && strings.TrimSpace(cfg.Logger.File) != "" {
 		r.rep.add(r.creatableFile("logger.file", cfg.Logger.File))

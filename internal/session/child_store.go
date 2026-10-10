@@ -211,6 +211,11 @@ func (f *FileStore) EnsureChildLayout(parentSessionID, childSessionID string) (s
 		return "", err
 	}
 	defer unlock()
+	// The fault stands in for a failure partway through the layout, as in
+	// EnsureLayout: the folder exists, the files of the bundle are not written.
+	if err := f.injectedFault("layout"); err != nil {
+		return "", err
+	}
 	if err := f.ensureLayoutAt(childSessionID, dir); err != nil {
 		return "", err
 	}

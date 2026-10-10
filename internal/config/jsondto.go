@@ -276,6 +276,9 @@ type LoggerRotationJSON struct {
 // SessionsJSON mirrors Sessions.
 type SessionsJSON struct {
 	Dir string `json:"dir,omitempty"`
+	// MinFreeMB keeps the unset/explicit distinction (unset takes the
+	// default, an explicit 0 turns the low-space warning off).
+	MinFreeMB *int `json:"min_free_mb,omitempty"`
 }
 
 // CompactionJSON mirrors Compaction. Pointer fields keep the unset/explicit
@@ -557,7 +560,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	for _, lv := range c.Logger.Levels {
 		out.Logger.Levels = append(out.Logger.Levels, LoggerComponentLevelJSON(lv))
 	}
-	out.Sessions = SessionsJSON{Dir: c.Sessions.Dir}
+	out.Sessions = SessionsJSON{Dir: c.Sessions.Dir, MinFreeMB: cloneIntPtr(c.Sessions.MinFreeMB)}
 	out.Compaction = CompactionJSON{
 		Enabled:          cloneBoolPtr(c.Compaction.Enabled),
 		AutoEnabled:      cloneBoolPtr(c.Compaction.AutoEnabled),
@@ -792,7 +795,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	for _, lv := range j.Logger.Levels {
 		cfg.Logger.Levels = append(cfg.Logger.Levels, LoggerComponentLevel(lv))
 	}
-	cfg.Sessions = Sessions{Dir: j.Sessions.Dir}
+	cfg.Sessions = Sessions{Dir: j.Sessions.Dir, MinFreeMB: cloneIntPtr(j.Sessions.MinFreeMB)}
 	cfg.Compaction = Compaction{
 		Enabled:          cloneBoolPtr(j.Compaction.Enabled),
 		AutoEnabled:      cloneBoolPtr(j.Compaction.AutoEnabled),

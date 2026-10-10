@@ -3214,12 +3214,14 @@ a.rail-brand {
 
 /* A usage banner over the composer is the block's top: the two keep their
    10px over it instead of reaching down to the card. */
-.chat-bottom-inner:has(> .usage-banner)
+.chat-bottom-inner:has(> :is(.usage-banner, .storage-banner))
   > .chat-expand-composer:not(.is-expanded) {
   margin-bottom: 10px;
 }
 
-.chat-bottom-inner:has(> .usage-banner):has(> .chat-expand-composer)
+.chat-bottom-inner:has(> :is(.usage-banner, .storage-banner)):has(
+    > .chat-expand-composer
+  )
   > .chat-scroll-bottom {
   margin-bottom: 54px;
 }
@@ -7600,6 +7602,63 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 @media (max-width: 1199px) {
   /* A touch target on a narrow shell: 44 px of hit area, the same visual size. */
   .usage-banner-dismiss {
+    width: 44px;
+    height: 44px;
+    margin: -10px -10px -10px 0;
+  }
+}
+
+/* The notice about the disk that stores the sessions (DESIGN.md, Storage banner):
+   the usage notice's plate and tones, in the same place above the composer. Low is
+   the warn tone and can be dismissed; full is the error tone and has no control. */
+.storage-banner {
+  display: flex;
+  box-sizing: border-box;
+  max-width: 100%;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: color-mix(in srgb, #f59e0b 10%, var(--bg));
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.storage-banner--error {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: color-mix(in srgb, #ef4444 10%, var(--bg));
+}
+
+.storage-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.storage-banner-dismiss {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin: -4px 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.storage-banner-dismiss:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+@media (max-width: 1199px) {
+  /* A touch target on a narrow shell: 44 px of hit area, the same visual size. */
+  .storage-banner-dismiss {
     width: 44px;
     height: 44px;
     margin: -10px -10px -10px 0;

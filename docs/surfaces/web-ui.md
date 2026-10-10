@@ -112,7 +112,7 @@ Clear the field to use the session model for summarization.
 ## Settings: tabs and form layout
 
 - The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**); the loop that runs them (**ReAct loop**, **Context compaction**, **Memory**); what the agent can do (**Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.
-- **Sessions** edits where the session bundles are stored (**Storage**, `sessions.dir`) above the table of stored sessions; the table itself acts at once, the storage path saves with **Save all**.
+- **Sessions** edits where the session bundles are stored (**Storage**, `sessions.dir`, and **Low disk warning (MB)**, `sessions.min_free_mb`) above the table of stored sessions; the table itself acts at once, the storage fields save with **Save all**.
 - A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
 - A list of values is its inputs, each with a trash button, and **Add** under them: no per-row label and no rule between rows. An entry of a list of objects is a frame of its own, without a numbered title.
 - A map of values, such as the **Default headers** of **HTTP requests** (`tools.http_request.default_headers`), is a row per entry: the name and the value side by side, a trash button, and **Add** under the rows. A row without a name stays on screen and out of the saved configuration; an empty value is saved, and for a header it means "leave this header out".
@@ -585,7 +585,7 @@ Session delete UX
 
 ## Server events shared across tabs
 
-Every tab needs **`GET /coddy/events`**: turn starts and ends, queue changes, account usage, question-wait transitions and configuration reloads arrive there. A `session_question_pending` notification carries only `{object, sessionId}` on both lifecycle edges. The notification and `questionPending` are process-local to the Coddy server process that owns the interactive wait; the SPA re-reads session rows to obtain `questionPending`, while question text remains on the per-turn composer stream. Over plain HTTP/1.1 a browser keeps six connections to one host for all of its tabs, so when each tab held a stream of its own, six open tabs took every connection and no request from any tab could be sent - not a prompt, not a Stop, not a history read. The tabs of one environment now share a single connection.
+Every tab needs **`GET /coddy/events`**: turn starts and ends, queue changes, account usage, question-wait transitions, configuration reloads and the moment a save fails on a full disk arrive there. A `session_question_pending` notification carries only `{object, sessionId}` on both lifecycle edges. The notification and `questionPending` are process-local to the Coddy server process that owns the interactive wait; the SPA re-reads session rows to obtain `questionPending`, while question text remains on the per-turn composer stream. Over plain HTTP/1.1 a browser keeps six connections to one host for all of its tabs, so when each tab held a stream of its own, six open tabs took every connection and no request from any tab could be sent - not a prompt, not a Stop, not a history read. The tabs of one environment now share a single connection.
 
 - **SharedWorker** - where the browser has one (desktop Chrome, Edge, Firefox and Safari 16+, on plain http as well as https), **`events-worker.js`** holds the connection. Each tab connects a port and says hello; the first hello opens the stream, the last tab leaving closes it. A remote environment passes its address and bearer token with the hello, because the page's fetch shim does not reach into a worker.
 - **Web Locks and BroadcastChannel** - where there is no SharedWorker, the tabs elect one of their own through **`navigator.locks`**; the tab holding the lock holds the stream and relays it on a **`BroadcastChannel`**. When that tab closes, the next one in line takes the lock and reports the stream down until its own connection is up. Web Locks exist only in secure contexts (https, **`localhost`**, **`127.0.0.1`**).
@@ -1481,6 +1481,23 @@ Automated checks:
   so a slow answer never brings older numbers back. Visual contract:
   **`DESIGN.md`** (**Context popover usage section and usage banner**); design record
   **`docs/plans/neuraldeep-usage.md`**.
+
+## Disk space notice
+
+A notice above the composer says when the disk that stores the server's sessions runs low or full (`chat/StorageBanner.tsx`, `data-testid="storage-banner"`). It stands where the [usage notice](#provider-account-usage) stands, in the start screen and in the docked composer, wears the same plate, and is absent from the read-only transcript of a subagent. It reads `storage` of `GET /coddy/info` for the server the page talks to (the local one, a remote, a node behind a relay) and says nothing while the disk has room or the server reports no disk.
+
+![The low-space notice above the composer](../assets/web-ui/disk-space-banner-low-dark-1280.png)
+
+*The low-space notice above the composer of a chat, on a 16 MB volume against the default threshold of 512 MB*
+
+- **Low** (the warn tone, `role="status"`) names the free space and the disk: `Low disk space: 16 MB left on the disk that stores Coddy sessions. When it runs out, new chats cannot start and new turns are not saved.` The **×** dismisses it for the tab. The dismissal ends when the disk goes full, or has read ok for three minutes without dipping low again; free space that hovers around the threshold does not bring the notice back at every dip.
+- **Full** (the error tone, `role="alert"`, no **×**) says `The disk that stores Coddy sessions is full. New chats cannot start and the latest turns are not saved. Free some space, then send a message again.` It appears the moment a save fails, from `event: storage_status` on the events stream or from a `507` answer to a send, without waiting for a read.
+
+![The full-disk notice above the composer](../assets/web-ui/disk-space-banner-full-dark-1280.png)
+
+*The notice after a message was sent on a full disk*
+
+The page reads `GET /coddy/info` when it opens, every minute while the tab is visible, every 15 seconds while the disk is full, on the window's focus, after a configuration reload and after every reconnect of the events stream. When the disk that holds `CODDY_HOME` is another one and has less room than the sessions disk, both notices name the home folder instead, unless a save has failed: a failed save always names the sessions disk. The threshold is `sessions.min_free_mb` (Settings, Sessions, **Low disk warning (MB)**). Contract: `DESIGN.md` (**Storage banner**), tests `StorageBanner.test.tsx`, `storageStatus.test.ts`, `storageBannerCss.test.ts`, `features/disk_space.feature`, `features/disk_space_http.feature`.
 
 ## Markdown rendering
 

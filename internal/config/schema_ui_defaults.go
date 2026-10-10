@@ -74,7 +74,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Format:   "text",
 			Rotation: LoggerRotationJSON{MaxSizeMB: 0, MaxFiles: 0},
 		},
-		Sessions: SessionsJSON{Dir: ""},
+		Sessions: SessionsJSON{Dir: "", MinFreeMB: intPtr(SessionsDefaultMinFreeMB)},
 		Compaction: CompactionJSON{
 			Enabled:          boolPtr(true),
 			ThresholdPercent: CompactionDefaultThresholdPercent,

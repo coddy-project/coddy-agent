@@ -398,6 +398,7 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 		// folder, and the web UI calls it before the first send: a full
 		// volume is named here too (507), every other failure keeps its 400.
 		if platform.IsDiskFull(err) {
+			s.noteDiskFull(err)
 			writeDiskFull(w)
 			return
 		}

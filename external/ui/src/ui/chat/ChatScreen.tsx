@@ -18,6 +18,7 @@ import type { GoalActions } from "./GoalPopover";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { UsageBanner } from "./UsageBanner";
+import { StorageBanner } from "./StorageBanner";
 import type { ProviderUsage } from "./providerUsage";
 import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
@@ -823,6 +824,7 @@ export function ChatScreen(props: {
             })()}
           </h1>
           <div className="hero-composer">
+            {readOnlyNotice ? null : <StorageBanner />}
             {readOnlyNotice ? null : (
               <UsageBanner
                 usage={props.providerUsage}
@@ -1069,6 +1071,7 @@ export function ChatScreen(props: {
                   onToggle={() => setComposerExpanded((v) => !v)}
                 />
               )}
+              {readOnlyNotice ? null : <StorageBanner />}
               {readOnlyNotice ? null : (
                 <UsageBanner
                   usage={props.providerUsage}

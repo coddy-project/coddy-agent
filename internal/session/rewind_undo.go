@@ -234,8 +234,9 @@ func (m *Manager) UndoRewind(sessionID string) (uint64, error) {
 	// The restored history must reach disk before the parked tool-call
 	// detail moves back: the same ordering the rewind itself keeps.
 	if err := m.store.Save(st); err != nil {
-		return 0, fmt.Errorf("persist restored history: %w", err)
+		return 0, fmt.Errorf("persist restored history: %w", m.logIfDiskFull("persist restored history", err, "id", sessionID))
 	}
+	m.noteStoreWrite()
 	restoreRewoundToolCalls(dir, st.GetMessages())
 	// A permission prompt the cancelled edited turn was waiting on names a call
 	// that left the history; kept, it would come back as a phantom prompt on

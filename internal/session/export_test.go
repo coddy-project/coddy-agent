@@ -60,8 +60,9 @@ func (m *Manager) SetMCPConnectTimeoutForTest(d time.Duration) {
 func (m *Manager) SetMCPStopDelayForTest(d time.Duration) { m.mcpPool.SetStopDelay(d) }
 
 // SetFaultForTest makes the store fail the operations it names. fn is asked
-// by EnsureLayout ("layout", once the bundle folder exists and before its
-// files are written, as a failure partway through the layout looks) and by
+// by EnsureLayout and EnsureChildLayout ("layout", once the bundle folder
+// exists and before its files are written, as a failure partway through the
+// layout looks) and by
 // Save ("save", before it writes), and a non-nil answer is the error they
 // return; nil restores the real filesystem. A test passes an error shaped
 // like the disk-full one the operating system returns (a wrapped
@@ -73,3 +74,36 @@ func (f *FileStore) SetFaultForTest(fn func(op string) error) {
 	}
 	f.testFault.Store(&fn)
 }
+
+// SetStorageProbeForTest replaces the call that reads the room on a volume
+// (platform.ReadDiskSpace); nil restores it.
+func (m *Manager) SetStorageProbeForTest(probe StorageProbe) {
+	m.storage.mu.Lock()
+	m.storage.probe = probe
+	m.storage.mu.Unlock()
+}
+
+// SetStorageWriteProbeForTest replaces the real write StorageStatus tries
+// while a failure is on record; nil restores it. The clock that rate-limits
+// the write is rewound, so the next StorageStatus tries it.
+func (m *Manager) SetStorageWriteProbeForTest(write func(dir string) error) {
+	m.storage.mu.Lock()
+	m.storage.writeProbe = write
+	m.storage.lastProbe = time.Time{}
+	m.storage.mu.Unlock()
+}
+
+// RewindStorageWriteProbeClockForTest lets the next StorageStatus try its write
+// again at once.
+func (m *Manager) RewindStorageWriteProbeClockForTest() {
+	m.storage.mu.Lock()
+	m.storage.lastProbe = time.Time{}
+	m.storage.mu.Unlock()
+}
+
+// StorageFailureOnRecordForTest reports whether a full-disk failure is on
+// record.
+func (m *Manager) StorageFailureOnRecordForTest() bool { return m.storage.failedAt.Load() != 0 }
+
+// NoteStoreWriteForTest runs what every successful save of the store runs.
+func (m *Manager) NoteStoreWriteForTest() { m.noteStoreWrite() }

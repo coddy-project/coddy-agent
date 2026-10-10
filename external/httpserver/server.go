@@ -68,6 +68,11 @@ type Server struct {
 	// make creating a session fail the way a full disk fails it, which no test
 	// can ask a real volume for.
 	ensureSession func(ctx context.Context, sessionID, defaultCWD, origin string) (*session.State, error)
+	// storageStatus reads how much room the disks Coddy writes to have left
+	// (Manager.StorageStatus when nil). Tests override it to say what GET
+	// /coddy/info reports for a disk that is low or full, which no test can ask
+	// a real volume for.
+	storageStatus func() (session.StorageStatus, bool)
 
 	// extraAuthTokens are bearer tokens supplied out-of-band (--auth-token / CODDY_HTTP_TOKEN).
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
@@ -127,6 +132,10 @@ type Server struct {
 	// removeGoalObserver detaches the session goal observer that feeds
 	// session_goal frames to the events stream.
 	removeGoalObserver func()
+	// removeStorageObserver detaches the observer that feeds storage_status
+	// frames to the events stream, so every client hears at once that saves
+	// have started failing for want of room.
+	removeStorageObserver func()
 
 	codexAuthIssuer string
 	// codexAuthMu guards both browser-login attempt maps; the attempts share
@@ -158,6 +167,9 @@ func (s *Server) Drain() {
 	}
 	if s.removeSettingsObserver != nil {
 		s.removeSettingsObserver()
+	}
+	if s.removeStorageObserver != nil {
+		s.removeStorageObserver()
 	}
 	if s.removeConfigObserver != nil {
 		s.removeConfigObserver()
@@ -218,6 +230,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		s.removeQueueObserver = mgr.AddMessageQueueObserver(s.publishMessageQueueEvent)
 		s.removeSettingsObserver = mgr.AddSessionSettingsObserver(s.publishSessionSettingsEvent)
 		s.removeGoalObserver = mgr.AddSessionGoalObserver(s.publishSessionGoalEvent)
+		s.removeStorageObserver = mgr.AddStorageObserver(s.publishStorageEvent)
 		// The manager is the one place every reload path passes through - the
 		// settings screen, the agent's config_commit tool, the console - so
 		// following it is how the handlers see an edit no matter who made it.
@@ -615,7 +628,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	st, sessionID, createdNew, err := s.resolveSession(ctx, r)
 	if err != nil {
-		writeSessionError(w, err)
+		s.answerSessionError(w, err)
 		return
 	}
 	if createdNew {
@@ -906,6 +919,23 @@ func (s *Server) ensureHTTPSession(ctx context.Context, id, cwd, origin string) 
 // disk space.
 func writeDiskFull(w http.ResponseWriter) {
 	http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, session.DiskFullMessage), http.StatusInsufficientStorage)
+}
+
+// answerSessionError answers a request whose session could not be resolved or
+// created (writeSessionError) and, when the cause is a full disk, puts the
+// failure on the manager's record first. The manager records the failures it
+// sees itself; this makes the answer and GET /coddy/info agree whichever path
+// the error took, and tells the other clients on the events stream.
+func (s *Server) answerSessionError(w http.ResponseWriter, err error) {
+	s.noteDiskFull(err)
+	writeSessionError(w, err)
+}
+
+// noteDiskFull records err on the manager when it is a full disk.
+func (s *Server) noteDiskFull(err error) {
+	if s.mgr != nil && platform.IsDiskFull(err) {
+		s.mgr.NoteStorageFailure()
+	}
 }
 
 // writeSessionError answers a request whose session could not be resolved or
@@ -1209,7 +1239,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	st, sid, createdNew, err := s.resolveSession(ctx, r)
 	if err != nil {
-		writeSessionError(w, err)
+		s.answerSessionError(w, err)
 		return
 	}
 	if createdNew {

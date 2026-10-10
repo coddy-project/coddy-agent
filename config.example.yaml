@@ -188,6 +188,10 @@ sessions:
   # Directory to store session bundles.
   # Leave empty to use default $CODDY_HOME/sessions.
   dir: ""
+  # Free space, in MB, below which the disk holding the sessions (and the home
+  # folder, when that is another disk) counts as running out: the web UI shows a
+  # banner, GET /coddy/info reports "low" and --dry-run warns. 0 turns it off.
+  # min_free_mb: 512
 
 # Context compaction: summarize older history so long sessions keep fitting the
 # model context window. Manual /compact command plus automatic trigger.

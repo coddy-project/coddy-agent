@@ -380,7 +380,7 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	} else {
 		sessionDir, err = m.store.EnsureChildLayout(parentID, id)
 		if err != nil {
-			return nil, fmt.Errorf("subagent session layout: %w", err)
+			return nil, fmt.Errorf("subagent session layout: %w", m.logIfDiskFull("create subagent session", err, "id", id, "parent", parentID))
 		}
 	}
 	state.setSessionDir(sessionDir)
@@ -425,8 +425,9 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	// refused at that lock with nothing of its own on disk.
 	if prior == nil {
 		if err := m.store.Save(state); err != nil {
-			return nil, fmt.Errorf("initial subagent session save: %w", err)
+			return nil, fmt.Errorf("initial subagent session save: %w", m.logIfDiskFull("save subagent session", err, "id", id, "parent", parentID))
 		}
+		m.noteStoreWrite()
 	}
 	failed = false
 	if prior != nil {
