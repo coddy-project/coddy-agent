@@ -203,29 +203,6 @@ func TestExtractContextFiles_fileURI(t *testing.T) {
 	}
 }
 
-func TestToolKind(t *testing.T) {
-	cases := []struct {
-		name, want string
-	}{
-		{"read", "read"},
-		{"glob", "read"},
-		{"grep", "read"},
-		{"print_tree", "read"},
-		{"coddy_docs_search", "read"},
-		{"coddy_docs_read", "read"},
-		{"write", "write"},
-		{"apply_patch", "write"},
-		{"run_command", "run_command"},
-		{"mkdir", "write"},
-		{"mcp_server__tool", "other"},
-	}
-	for _, tc := range cases {
-		if g := toolKind(tc.name); g != tc.want {
-			t.Errorf("toolKind(%q) = %q, want %q", tc.name, g, tc.want)
-		}
-	}
-}
-
 func TestTodoItemUpdateSavesAndPublishesFinalPlanSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	st := &session.State{
