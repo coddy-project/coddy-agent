@@ -814,7 +814,13 @@ func (h *Handler) replayMessages(sessionID string, rows []messageRow) {
 				_ = sender.SendSessionUpdate(sessionID, session.GoalTurnUpdate(row.GoalTurn))
 				continue
 			}
-			if text := strings.TrimSpace(row.Content); text != "" {
+			text := row.Content
+			if row.CompactionSummary {
+				// Replayed from the preamble on when the row was written inside
+				// a turn: its request is already shown at its own place.
+				text = session.SummaryReplayText(text)
+			}
+			if text = strings.TrimSpace(text); text != "" {
 				_ = sender.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: acp.UpdateTypeUserMessageChunk,
 					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: text},

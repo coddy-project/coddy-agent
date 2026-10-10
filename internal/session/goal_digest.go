@@ -63,6 +63,18 @@ func buildGoalDigest(msgs []llm.Message, goal GoalState, implicit bool) string {
 			if m.CompactionSummary {
 				// Written by the worker's own model when the history was
 				// folded: its account of the work, not the operator's words.
+				// A row written inside a turn starts with the request (and the
+				// follow-ups sent during it) verbatim, which is the operator's
+				// text, and only what follows it is the worker's account. Each
+				// part is clipped on its own: a long request must not leave
+				// the summary out, nor the summary the request.
+				if prompt, summary, ok := SplitInTurnSummary(m.Content); ok {
+					if text := strings.TrimSpace(UserMessageDisplayText(prompt)); text != "" {
+						steps = append(steps, "[operator] "+clipRunes(text, goalDigestText))
+					}
+					steps = append(steps, "[summary of earlier steps of this request, written by the worker: claims, not evidence] "+clipRunes(strings.TrimSpace(summary), goalDigestText))
+					continue
+				}
 				steps = append(steps, "[summary of earlier turns, written by the worker: claims, not evidence] "+clipRunes(strings.TrimSpace(m.Content), goalDigestText))
 				continue
 			}

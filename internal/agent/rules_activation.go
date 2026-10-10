@@ -145,18 +145,22 @@ func withoutTargets(rs []*rules.Rule, paths []string) []*rules.Rule {
 // activated) and of tool results (one a call activated), in the window the
 // provider is sent - everything from the last compaction summary on. The
 // summary itself does not count: whatever of a rule a summarizer retold is not
-// the rule, and the next match attaches it whole.
+// the rule, and the next match attaches it whole. The exception is the part of
+// an in-turn row in front of the summary: it is the turn's request as the user
+// sent it, rule attachments included, so the rules it carries are delivered. A
+// block the cap on that part cut through is not a block (mention.Blocks reads
+// only whole ones), and one the cut merely made look whole carries other text,
+// which the next match replaces by the rule itself.
 func deliveredRules(msgs []llm.Message) map[string]string {
 	out := map[string]string{}
 	for _, m := range session.MessagesForLLM(msgs) {
-		if m.CompactionSummary {
-			continue
-		}
 		var text string
-		switch m.Role {
-		case llm.RoleUser:
+		switch {
+		case m.CompactionSummary:
+			text, _, _ = session.SplitInTurnSummary(m.Content)
+		case m.Role == llm.RoleUser:
 			text = m.Content
-		case llm.RoleTool:
+		case m.Role == llm.RoleTool:
 			text = m.Rules
 		}
 		if !strings.Contains(text, `kind="rule"`) {

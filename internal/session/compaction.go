@@ -253,6 +253,41 @@ func NewInTurnCompactionSummaryMessage(prompt, summary, model string) llm.Messag
 	return m
 }
 
+// SplitInTurnSummary splits the content of an in-turn summary row, as
+// NewInTurnCompactionSummaryMessage wrote it, into what is in front of the
+// summary - the user's request and the follow-ups it carries, verbatim - and the
+// summary the worker's model wrote. ok is false for any other content, a plain
+// summary row included.
+//
+// The split is at the first occurrence of the preamble line that separates the
+// two, so every reader of a row (the supervisor's digest, the replay for ACP
+// clients, the rule bookkeeping) finds the same boundary. A request that itself
+// quotes the preamble line is the one input it can misread: the part of the
+// request after the quote is taken for the summary. A plain row is recognised by
+// its own leading preamble and is never split, whatever its summary quotes.
+func SplitInTurnSummary(content string) (prompt, summary string, ok bool) {
+	if strings.HasPrefix(content, compactionSummaryPreamble) {
+		return "", "", false
+	}
+	const sep = "\n\n"
+	i := strings.Index(content, sep+inTurnSummaryPreamble)
+	if i < 0 {
+		return "", "", false
+	}
+	return content[:i], content[i+len(sep)+len(inTurnSummaryPreamble):], true
+}
+
+// SummaryReplayText is the text of a summary row as a client that replays the
+// transcript is shown it. A plain row is shown as stored. An in-turn row starts
+// with the request, which the replay has already shown at its own place, so it is
+// shown from its preamble on.
+func SummaryReplayText(content string) string {
+	if _, summary, ok := SplitInTurnSummary(content); ok {
+		return inTurnSummaryPreamble + summary
+	}
+	return content
+}
+
 // NewCompactionSummaryMessage builds the transcript row holding a generated
 // summary. It uses the user role so every provider replays it as plain
 // conversation input (tool results already travel as user-role messages).
