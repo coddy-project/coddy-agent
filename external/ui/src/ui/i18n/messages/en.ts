@@ -327,6 +327,9 @@ export const messagesEn: Record<string, string> = {
   "settings.models.group.model": "Model",
   "settings.models.group.generation": "Generation",
   "settings.models.group.reasoning": "Reasoning",
+  "settings.models.group.tools": "Tools",
+  "settings.models.group.toolsDesc":
+    "Which tools a session is offered while it runs on this model. An entry is an exact tool name, * or a prefix*. An MCP tool is named server__tool, so context7__* is every tool of that server. The allowed tools apply first, the disallowed tools after them, and a tool in both is out. With both lists empty the model is offered every tool the mode would.",
   "settings.providerModels.legend": "Models",
   "settings.providerModels.needsNameAndType":
     "Give the provider an id and pick its type to list its models.",
@@ -435,6 +438,12 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.models.stream.label": "Stream responses",
   "settings.schema.models.stream.desc":
     "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
+  "settings.schema.models.tools.label": "Allowed tools",
+  "settings.schema.models.tools.desc":
+    "Tools offered while a session runs on this model: tool names, * or a prefix* (context7__* is every tool of that MCP server). Empty offers every tool the mode would. It only narrows, and a call to an unlisted tool is refused. Spares a small-context local model the schemas of tools it never calls.",
+  "settings.schema.models.disallowed_tools.label": "Disallowed tools",
+  "settings.schema.models.disallowed_tools.desc":
+    "Tools removed from what this model is offered, applied after the allowed tools, with the same names and patterns. A call to a removed tool is refused.",
 
   "settings.schema.agent.model.label": "Default model",
   "settings.schema.supervisor.enable.label": "Check every turn",

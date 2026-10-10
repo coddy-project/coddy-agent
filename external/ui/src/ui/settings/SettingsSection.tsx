@@ -570,7 +570,9 @@ export function SettingsSection(props: {
             : key === "models"
               ? [
                   // Which model it is and what it can take in, how it
-                  // answers, and how hard it thinks.
+                  // answers, how hard it thinks, and which tools it is
+                  // offered. The two tool lists keep the frame a list has
+                  // inside their block.
                   {
                     id: "model",
                     legend: t("settings.models.group.model"),
@@ -589,6 +591,12 @@ export function SettingsSection(props: {
                       "reasoning_default",
                       "allow_reasoning_off",
                     ],
+                  },
+                  {
+                    id: "tools",
+                    legend: t("settings.models.group.tools"),
+                    description: t("settings.models.group.toolsDesc"),
+                    paths: ["tools", "disallowed_tools"],
                   },
                 ]
               : undefined
