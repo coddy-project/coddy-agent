@@ -11,7 +11,7 @@ This page is for people: the environment, the build, the test runs, the flow of 
 - **Python 3** - for `make test-agent-rules` and the end-to-end harnesses in `examples/`; the console driver needs `pip install -r examples/cli/requirements.txt`.
 
 ```bash
-git clone https://github.com/EvilFreelancer/coddy-agent
+git clone https://github.com/coddy-project/coddy-agent
 cd coddy-agent
 make hooks      # once per clone: git commit runs the gate in .githooks/pre-commit
 make build TAGS="http ui scheduler memory cli gateway swarm"
