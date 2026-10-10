@@ -129,11 +129,11 @@ models:
     reasoning_levels: []
 agent:
   model: {MODEL}
-tools:
-  permission_mode: bypass
 memory:
   enable: false
 """)
+# The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+(home / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}))
 # The background command the scripted turn starts: it prints like a test run and
 # stays alive long enough for the overlay to show it running.
 (work / "Makefile").write_text(

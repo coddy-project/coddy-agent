@@ -54,7 +54,7 @@ type Handler struct {
 	controlStop context.CancelFunc
 	activitySeq uint64
 
-	// serverPermission is the server's tools.permission_mode as the last
+	// serverPermission is the server's default for new sessions as the last
 	// settings snapshot named it: what a session the server has not pinned
 	// yet runs under. Guarded by mu.
 	serverPermission string

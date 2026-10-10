@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -124,7 +125,9 @@ type nopUpdateSender struct{}
 
 func (nopUpdateSender) SendSessionUpdate(string, interface{}) error { return nil }
 func (nopUpdateSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	return &acp.PermissionResult{Outcome: "deny"}, nil
+	// "deny" is not an outcome permission.Approved knows, so it read as an
+	// approval; a refusal is cancelled/reject.
+	return &acp.PermissionResult{Outcome: permission.OutcomeCancelled, OptionID: permission.OptionReject}, nil
 }
 func (nopUpdateSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
 	return &acp.QuestionResult{}, nil

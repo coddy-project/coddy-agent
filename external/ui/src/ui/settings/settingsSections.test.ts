@@ -16,6 +16,7 @@ const rootSchema: JsonSchema = {
     "agent",
     "compaction",
     "memory",
+    "decisions",
     "tools",
     "skills",
     "subagents",
@@ -42,6 +43,11 @@ const rootSchema: JsonSchema = {
     tools: { type: "object", title: "Tools and permissions", properties: {} },
     skills: { type: "object", title: "Skills", properties: {} },
     memory: { type: "object", title: "Memory", properties: {} },
+    decisions: {
+      type: "object",
+      title: "Command safety (decisions)",
+      properties: {},
+    },
     scheduler: { type: "object", title: "Scheduler", properties: {} },
     prompts: { type: "object", title: "Prompts", properties: {} },
     instructions: { type: "object", title: "Instructions", properties: {} },
@@ -69,6 +75,7 @@ test("derives tabs in schema order with Appearance first and System last", () =>
     "agent",
     "compaction",
     "memory",
+    "decisions",
     "tools",
     "mcp_servers",
     "skills",
@@ -155,6 +162,8 @@ test("skills is its own combined tab; english labels match schema titles", () =>
   expect(byId.agent?.kind).toBe("object");
   expect(byId.agent?.label).toBe("ReAct loop");
   expect(byId.memory?.label).toBe("Memory");
+  expect(byId.decisions?.label).toBe("Command safety (decisions)");
+  expect(byId.decisions?.description).toBe("Unsafe command screening");
 });
 
 test("known section labels and descriptions follow the active locale", () => {
@@ -166,6 +175,8 @@ test("known section labels and descriptions follow the active locale", () => {
   expect(byId.providers?.label).toBe("Провайдеры LLM");
   expect(byId.tools?.label).toBe("Инструменты и разрешения");
   expect(byId.memory?.label).toBe("Память");
+  expect(byId.decisions?.label).toBe("Безопасность команд (decisions)");
+  expect(byId.decisions?.description).toBe("Проверка небезопасных команд");
   expect(byId.scheduler?.label).toBe("Планировщик");
   expect(byId.compaction?.label).toBe("Сжатие контекста");
   expect(byId.compaction?.description).toBe("Сжатие истории диалога");

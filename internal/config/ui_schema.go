@@ -38,6 +38,14 @@ func numProp(title, description string) map[string]interface{} {
 	}
 }
 
+// withNumberBounds adds the range the settings form offers a number field
+// (minimum and maximum of its input); the loader's Validate stays the rule.
+func withNumberBounds(prop map[string]interface{}, minimum, maximum float64) map[string]interface{} {
+	prop["minimum"] = minimum
+	prop["maximum"] = maximum
+	return prop
+}
+
 func boolProp(title, description string) map[string]interface{} {
 	return map[string]interface{}{
 		"type":        "boolean",
@@ -435,12 +443,6 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
 			map[string]interface{}{
-				"permission_mode": map[string]interface{}{
-					"type":        "string",
-					"title":       "Permission mode",
-					"description": "Controls when the agent asks for user approval before running tools. \"ask\": approve commands and writes. \"accept_edits\": auto-approve writes, approve commands. \"bypass\": skip all prompts.",
-					"enum":        []string{PermModeAsk, PermModeAcceptEdits, PermModeBypass},
-				},
 				"command_allowlist": map[string]interface{}{
 					"type":        "array",
 					"title":       "Command allowlist",
@@ -536,7 +538,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"allowlist", "default_headers"},
 					nil),
 			},
-			[]string{"permission_mode", "command_allowlist", "output_limits", "background", "preview_server", "websearch", "http_request"},
+			[]string{"command_allowlist", "output_limits", "background", "preview_server", "websearch", "http_request"},
 			nil),
 		"subagents": objectSchema("Subagents",
 			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
@@ -640,6 +642,20 @@ func UISchemaMap() map[string]interface{} {
 				"additional_prompt_max_chars": intProp("Additional instructions cap (characters)", "Longer instructions are cut at this many characters, with a warning in the log; 0 means no cap."),
 			},
 			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
+			nil),
+		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode.",
+			map[string]interface{}{
+				"enable": boolProp("Enabled", "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in ask and accept_edits and rejected in bypass. The allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked."),
+				"model": map[string]interface{}{
+					"type":        "string",
+					"title":       "Decisions model",
+					"description": "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request. clef-flash: up to 8192 tokens, ~150 ms.",
+					"enum":        []string{DecisionsModelFRIDA, DecisionsModelClef},
+				},
+				"threshold": withNumberBounds(numProp("Unsafe threshold",
+					"The probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through."), 0, 1),
+			},
+			[]string{"enable", "model", "threshold"},
 			nil),
 		"scheduler": objectSchema("Scheduler", "Cron-style scheduled jobs (requires scheduler build tag). A run is a background agent task under the job's own session, the job's run history.",
 			map[string]interface{}{
@@ -787,7 +803,7 @@ func UISchemaMap() map[string]interface{} {
 	// folds into one System tab). The sessions key belongs to the Sessions tab.
 	rootOrder := []string{
 		"providers", "models",
-		"agent", "supervisor", "compaction", "memory",
+		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
 		"logger", "sessions", "prompts", "instructions",
