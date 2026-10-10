@@ -135,11 +135,22 @@ func TestACPWakeNoticeAddsATextNoteForEditors(t *testing.T) {
 // before it reaches the editor: under bypass it is approved without asking
 // (and marked automatic, for the decisions check), under ask the editor is
 // asked - here no editor is attached, so it is denied.
+type recordingServerSetter struct{ installed acp.UpdateSender }
+
+func (r *recordingServerSetter) SetServer(s acp.UpdateSender) { r.installed = s }
+
 func TestACPLocalSenderAppliesTheBypassRule(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Tools.PermissionMode = config.PermModeAsk
 	var srv *acp.Server
-	sender := acpLocalSender(&serverRef{p: &srv, cfg: cfg})
+	// What runACP installs on the manager and hands the waker is the sender
+	// under test, not a copy of how it is built.
+	mgr := &recordingServerSetter{}
+	waker := wireLocalACP(mgr, &serverRef{p: &srv, cfg: cfg})
+	sender := mgr.installed
+	if sender == nil || waker != sender {
+		t.Fatalf("installed %#v, waker %#v: want one sender for both", sender, waker)
+	}
 	asked := func(mode string) acp.PermissionRequestParams {
 		return acp.PermissionRequestParams{SessionID: "sess_acp", ToolCall: acp.PermissionToolCall{ToolCallID: "c1"}, SessionPermissionMode: mode}
 	}

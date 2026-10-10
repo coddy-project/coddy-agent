@@ -403,8 +403,7 @@ func runACP(args []string) error {
 	// updates can read, live and when session/load replays it. Everything goes
 	// through serverRef, so a permission request meets the bypass rule before
 	// it reaches the editor.
-	notice := acpLocalSender(ref)
-	mgr.SetServer(notice)
+	notice := wireLocalACP(mgr, ref)
 	// A task the model started with notify_on_finish begins its own turn here
 	// when it ends, the way it does in the console and under coddy serve.
 	agent.NewBackgroundWaker(log, acpWakeRunner(mgr, notice)).Attach(bgtask.Default())
