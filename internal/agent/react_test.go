@@ -210,6 +210,7 @@ func TestToolKind(t *testing.T) {
 		{"read", "read"},
 		{"glob", "read"},
 		{"grep", "read"},
+		{"print_tree", "read"},
 		{"coddy_docs_search", "read"},
 		{"coddy_docs_read", "read"},
 		{"write", "write"},
