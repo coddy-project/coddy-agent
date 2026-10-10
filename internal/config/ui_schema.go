@@ -732,11 +732,12 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"level", "levels", "outputs", "file", "format", "rotation"},
 			nil),
-		"sessions": objectSchema("Sessions", "Where persisted chat bundles are stored.",
+		"sessions": objectSchema("Sessions", "Where persisted chat bundles are stored, and when to warn that the disk holding them is running out.",
 			map[string]interface{}{
-				"dir": strProp("Sessions directory", "Override sessions root; empty resolves under CODDY_HOME."),
+				"dir":         strProp("Sessions directory", "Override sessions root; empty resolves under CODDY_HOME."),
+				"min_free_mb": intProp("Low disk warning (MB)", "Free space below which the disk holding the sessions (and the home folder, when it is another disk) counts as running out: the web UI shows a banner, --dry-run warns. Default 512; 0 turns the warning off."),
 			},
-			[]string{"dir"},
+			[]string{"dir", "min_free_mb"},
 			nil),
 		"compaction": objectSchema("Context compaction", "Summarize older conversation history so long sessions keep fitting the model context window.",
 			map[string]interface{}{

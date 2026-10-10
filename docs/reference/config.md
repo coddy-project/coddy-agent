@@ -232,11 +232,12 @@ Process log level, outputs, format, and file rotation.
 
 ### `sessions`
 
-Where persisted session bundles are stored.
+Where persisted session bundles are stored, and when to warn that the disk holding them is running out.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `sessions.dir` | string | "" | Sessions root directory. Empty resolves to ${CODDY_HOME}/sessions. Supports ${CODDY_HOME} and ~. |
+| `sessions.min_free_mb` | integer or null | 512 | Free space, in MB, below which the disk holding the sessions folder (and the one holding the home folder, when that is another) counts as running out: the web UI shows a low-space banner, GET /coddy/info reports the state low and --dry-run warns. 0 turns the warning off; a save that fails on a full disk is reported either way. |
 
 ### `compaction`
 

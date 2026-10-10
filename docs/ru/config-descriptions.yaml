@@ -342,11 +342,14 @@ logger.rotation.max_files:
   en: "Rotated backups to keep when max_size_mb > 0."
   ru: "Сколько ротированных копий хранить при max_size_mb > 0."
 sessions:
-  en: "Where persisted session bundles are stored."
-  ru: "Где хранятся сохранённые бандлы сессий."
+  en: "Where persisted session bundles are stored, and when to warn that the disk holding them is running out."
+  ru: "Где хранятся сохранённые бандлы сессий и когда предупреждать, что на диске с ними заканчивается место."
 sessions.dir:
   en: "Sessions root directory. Empty resolves to ${CODDY_HOME}/sessions. Supports ${CODDY_HOME} and ~."
   ru: "Корневой каталог сессий. Пусто - ${CODDY_HOME}/sessions. Поддерживает ${CODDY_HOME} и ~."
+sessions.min_free_mb:
+  en: "Free space, in MB, below which the disk holding the sessions folder (and the one holding the home folder, when that is another) counts as running out: the web UI shows a low-space banner, GET /coddy/info reports the state low and --dry-run warns. 0 turns the warning off; a save that fails on a full disk is reported either way."
+  ru: "Свободное место в МБ, ниже которого диск с каталогом сессий (и диск с домашним каталогом, если он другой) считается заканчивающимся: веб-интерфейс показывает баннер о нехватке места, GET /coddy/info сообщает состояние low, а --dry-run предупреждает. 0 отключает предупреждение; сбой сохранения на заполненном диске сообщается в любом случае."
 compaction:
   en: "Summarizes older conversation history so long sessions keep fitting the model context window. Manual compact command plus automatic trigger at a percent of the model's context window."
   ru: "Сворачивает старую историю диалога в сводку, чтобы длинные сессии продолжали помещаться в окно контекста модели. Ручная команда сжатия и автоматический запуск при заданном проценте окна контекста модели."

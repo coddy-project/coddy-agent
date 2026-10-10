@@ -867,13 +867,22 @@
     "sessions": {
       "type": "object",
       "title": "Session storage",
-      "description": "Where persisted session bundles are stored.",
+      "description": "Where persisted session bundles are stored, and when to warn that the disk holding them is running out.",
       "additionalProperties": false,
       "properties": {
         "dir": {
           "type": "string",
           "description": "Sessions root directory. Empty resolves to ${CODDY_HOME}/sessions. Supports ${CODDY_HOME} and ~.",
           "default": ""
+        },
+        "min_free_mb": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Free space, in MB, below which the disk holding the sessions folder (and the one holding the home folder, when that is another) counts as running out: the web UI shows a low-space banner, GET /coddy/info reports the state low and --dry-run warns. 0 turns the warning off; a save that fails on a full disk is reported either way.",
+          "default": 512,
+          "minimum": 0
         }
       }
     },
