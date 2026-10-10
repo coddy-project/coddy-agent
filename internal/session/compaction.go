@@ -253,6 +253,38 @@ func NewInTurnCompactionSummaryMessage(prompt, summary, model string) llm.Messag
 	return m
 }
 
+// restampUILog renumbers the UI log entries for a user-role row about to be
+// inserted at idx. An entry stamped t (UILogEntry.UserTurnIndex) was logged when
+// t user-role rows existed and renders right before the t-th one (0-based), at
+// the end of the turn it was logged in. A row inserted before that point moves
+// the t-th row down by one, so the entries that must stay behind it are
+// renumbered; the ones that must stay in front of the new row keep their number.
+// r is the number of user-role rows before idx.
+//
+//   - At a turn boundary (a real user message follows idx, or the row is
+//     appended) the row opens the turn after the one it ends. An entry with
+//     exactly r ended the turn before it and stays in front of the row; the
+//     entries of the turns after it, t > r, move down with their turns.
+//   - Inside a turn (anything else follows idx) the row is the turn's second
+//     user-role row. The entries logged in that turn carry r, and the ones of the
+//     turns after it more; all of them stay behind the row, at the end of their
+//     turn, so t >= r moves. Left alone, the entries logged earlier in the turn
+//     would render in front of the row, in the middle of the turn.
+//
+// Callers hold s.mu.
+func (s *State) restampUILog(idx int) {
+	if len(s.UILog) == 0 {
+		return
+	}
+	r := CountUserTurns(s.Messages[:idx])
+	boundary := idx >= len(s.Messages) || isRealUser(s.Messages[idx])
+	for i := range s.UILog {
+		if t := s.UILog[i].UserTurnIndex; t > r || (!boundary && t >= r) {
+			s.UILog[i].UserTurnIndex++
+		}
+	}
+}
+
 // SplitInTurnSummary splits the content of an in-turn summary row, as
 // NewInTurnCompactionSummaryMessage wrote it, into what is in front of the
 // summary - the user's request and the follow-ups it carries, verbatim - and the
@@ -312,12 +344,15 @@ func NewCompactionSummaryMessage(summary, model string) llm.Message {
 }
 
 // InsertCompactionSummary inserts msg at index idx (append when out of range)
-// and persists the session.
+// and persists the session. The summary row is a user-role row, and the UI log
+// numbers its entries by the user-role rows before them (CountUserTurns), so the
+// entries are numbered again under the same lock (restampUILog).
 func (s *State) InsertCompactionSummary(idx int, msg llm.Message) {
 	s.mu.Lock()
 	if idx < 0 || idx > len(s.Messages) {
 		idx = len(s.Messages)
 	}
+	s.restampUILog(idx)
 	s.Messages = append(s.Messages[:idx], append([]llm.Message{msg}, s.Messages[idx:]...)...)
 	// An insert is an append only when it lands at the end; anywhere else it
 	// rewrites the tail, and persistence must encode the history afresh.
