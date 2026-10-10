@@ -254,8 +254,11 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 		}
 	}
 	if opts.PermMode != "" {
-		if _, err := mgr.HandleSessionSetConfigOption(ctx, acp.SessionSetConfigOptionParams{
-			SessionID: res.SessionID, ConfigID: "permission_mode", Value: opts.PermMode,
+		// A one-shot run is a task of its own: the flag sets its session's
+		// mode and leaves the mode new sessions start in alone.
+		pm := opts.PermMode
+		if _, err := mgr.ApplySessionSettings(ctx, res.SessionID, session.SettingsChange{
+			PermissionMode: &pm, Source: "console", SessionOnly: true,
 		}); err != nil {
 			return fmt.Errorf("--permission-mode: %w", err)
 		}

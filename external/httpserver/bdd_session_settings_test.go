@@ -145,6 +145,15 @@ func (s *settingsFeatureState) startServer(a, b string) error {
 	}
 	s.cfg.Tools.PermissionMode = config.PermModeAsk
 	s.cfg.Prompts.ApplyDefaults()
+	s.serve()
+	return nil
+}
+
+// serve builds the manager and the HTTP server over the configuration and the
+// sessions folder the scenario holds, so a restart builds new ones over the
+// same files.
+func (s *settingsFeatureState) serve() {
+	cwd := s.cfg.Paths.CWD
 	factory := func(in llm.ProviderInput) (llm.Provider, error) { return s.provider(in.Model), nil }
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		ag := agent.NewAgent(s.cfg, st, snd, slog.Default())
@@ -156,6 +165,23 @@ func (s *settingsFeatureState) startServer(a, b string) error {
 	s.srv = New(s.cfg, s.mgr, slog.Default(), cwd)
 	s.srv.agentProviderFactory = factory
 	s.ts = httptest.NewServer(s.srv.Handler())
+}
+
+// serverRestarts stops the server and the manager and starts new ones over
+// the same sessions folder: nothing of the old process survives but the files.
+func (s *settingsFeatureState) serverRestarts() error {
+	if st := s.mgr.SessionByID(s.sessionID); st != nil {
+		if err := (&session.FileStore{Root: filepath.Join(s.root, "sessions")}).Save(st); err != nil {
+			return err
+		}
+	}
+	if s.stopWatch != nil {
+		s.stopWatch()
+		s.stopWatch = nil
+	}
+	s.ts.Close()
+	s.srv.Drain()
+	s.serve()
 	return nil
 }
 
@@ -390,7 +416,8 @@ func (s *settingsFeatureState) switchPermissionOverAPI(mode string) error {
 	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
 		return err
 	}
-	if out.Settings.PermissionMode != mode || out.Settings.ConfiguredPermissionMode != s.cfg.Tools.ResolvedPermMode() {
+	// The switch is the operator's latest choice: new sessions start in it.
+	if out.Settings.PermissionMode != mode || out.Settings.ConfiguredPermissionMode != mode {
 		return fmt.Errorf("PATCH answered settings %+v", out.Settings)
 	}
 	return nil
@@ -583,6 +610,7 @@ func initializeSessionSettingsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the session permission mode is switched to "([^"]*)" over the API$`, s.switchPermissionOverAPI)
 	sc.Step(`^(\d+) permission prompts? (?:was|were) shown$`, s.promptsShown)
 	sc.Step(`^the session permission mode is "([^"]*)"$`, s.sessionPermissionIs)
+	sc.Step(`^the server restarts$`, s.serverRestarts)
 	sc.Step(`^both commands ran$`, s.bothCommandsRan)
 	sc.Step(`^the browser switches the session to "([^"]*)" while the model "([^"]*)" answers$`, s.browserSwitchesModelDuringAnswer)
 	sc.Step(`^the transcript signs the answers "([^"]*)"$`, s.transcriptSignsAnswers)

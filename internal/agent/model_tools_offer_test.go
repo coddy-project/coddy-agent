@@ -109,10 +109,6 @@ func TestModelToolListsRefusalFollowsTheTransportWhenTheSwitchCannotBeBuilt(t *t
 	}
 }
 
-func quoteJSON(s string) string {
-	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`) + `"`
-}
-
 // A batch that holds a switch_model: each call is decided against the tools the
 // response that produced the batch was offered, so the write that follows the
 // switch still runs, and the next request carries the new model's set.

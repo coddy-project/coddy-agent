@@ -154,7 +154,7 @@ Without `proxy`, a request uses the proxies the environment of the Coddy process
 
 ## Permissions
 
-`http_request` is gated like `run_command`: whether it asks depends on `tools.permission_mode`, on `tools.http_request.allowlist` and on what was approved earlier in the session.
+`http_request` is gated like `run_command`: whether it asks depends on the session's permission mode, on `tools.http_request.allowlist` and on what was approved earlier in the session.
 
 | Mode | What asks |
 |------|-----------|

@@ -2008,8 +2008,36 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		requiresPerm = true
 	}
 
+	// The decisions safety check stands in for the prompt of a shell command
+	// nobody allowed explicitly (decisions.go): safe runs without a prompt,
+	// anything else is asked about, or rejected in bypass where nobody would
+	// be asked. A command the allowlist, a session grant or a hook's allow
+	// approves is trusted and not checked, a hook's ask keeps its prompt, a
+	// restricted turn keeps every prompt for its surface to refuse, and a
+	// call the operator already approved (skipPermission) is not checked again.
+	safetyNote := ""
+	if a.cfg.Decisions.Enabled && !skipPermission && !hookRes.allow && !hookRes.ask && !askAlwaysTurn(a.state) {
+		if subject, ok := commandSafetySubject(tc.Name, tc.InputJSON, env); ok && !commandAllowlisted(tc, env, sessCmdGrants) {
+			verdict := a.classifyCommand(ctx, subject)
+			switch {
+			case verdict.safe:
+				requiresPerm = false
+			case env.PermissionMode == config.PermModeBypass:
+				rejection := verdict.refusal()
+				a.finishToolCall(sessionDir, sessionID, tc, rejection, nil, "cancelled")
+				return rejection, nil
+			default:
+				requiresPerm = true
+				safetyNote = "Safety check: " + verdict.reason + "."
+			}
+		}
+	}
+
 	if requiresPerm && !skipPermission {
 		promptBody := permission.PromptBody(tc.Name, tc.InputJSON)
+		if safetyNote != "" {
+			promptBody += "\n\n" + safetyNote
+		}
 		if tc.Name == toolweb.ToolHTTPRequest {
 			// Raw arguments would bury the address and the files in JSON;
 			// the prompt shows the request as it would go out.

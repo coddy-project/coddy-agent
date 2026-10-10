@@ -59,6 +59,12 @@ func migrateLegacyKeys(paths Paths, data []byte) []byte {
 				move: func(v *yaml.Node) ([]string, []string, error) { return moveLegacySkillSources(paths, v) }})
 		}
 	}
+	if _, tools := mappingEntry(root, "tools"); tools != nil && tools.Kind == yaml.MappingNode {
+		if k, v := mappingEntry(tools, "permission_mode"); k != nil {
+			moves = append(moves, legacyMove{path: "tools.permission_mode", key: k, value: v,
+				move: func(v *yaml.Node) ([]string, []string, error) { return moveLegacyPermissionMode(paths, v) }})
+		}
+	}
 	if _, sched := mappingEntry(root, "scheduler"); sched != nil && sched.Kind == yaml.MappingNode {
 		if k, v := mappingEntry(sched, "dir"); k != nil {
 			moves = append(moves, legacyMove{path: "scheduler.dir", key: k, value: v,
@@ -325,6 +331,28 @@ func moveLegacySchedulerDir(paths Paths, value *yaml.Node) (moved, kept []string
 		moved = append(moved, dstBase+".md")
 	}
 	return moved, kept, nil
+}
+
+// moveLegacyPermissionMode seeds the default permission mode of new sessions
+// (<home>/permission-mode.json) with the old tools.permission_mode, unless the
+// operator has chosen a mode since: the file's choice is newer and stays. An
+// empty or unknown value moves nothing and is dropped with the key.
+func moveLegacyPermissionMode(paths Paths, value *yaml.Node) (moved, kept []string, err error) {
+	var raw string
+	if err := value.Decode(&raw); err != nil {
+		return nil, nil, fmt.Errorf("tools.permission_mode does not read as a mode: %w", err)
+	}
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	if !IsPermissionMode(mode) {
+		return nil, nil, nil
+	}
+	if chosen := ReadDefaultPermissionMode(paths.Home); chosen != "" {
+		return nil, []string{chosen}, nil
+	}
+	if err := WriteDefaultPermissionMode(paths.Home, mode); err != nil {
+		return nil, nil, err
+	}
+	return []string{mode}, nil, nil
 }
 
 // freeMigratedBase is the first <base>-migrated, <base>-migrated-2, ... name
