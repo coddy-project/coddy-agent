@@ -141,6 +141,13 @@ type Agent struct {
 	// autoCompactSkipLogged records that this turn already logged an
 	// automatic compaction with nothing to fold (compact.go).
 	autoCompactSkipLogged bool
+	// evictionForced is set once the provider refused a request of this turn as
+	// larger than its window: from then on result eviction projects the history
+	// whatever start_percent says. The gate exists to keep the provider's prompt
+	// cache, and a provider that refused the request has no use for a cache of
+	// something it will not read. The Agent lives for one turn, so it needs no
+	// reset (result_eviction.go, react.go).
+	evictionForced bool
 	// clock is the wall clock the turn context block reads; nil means
 	// time.Now. Tests that assert on a rendered timestamp set it.
 	clock func() time.Time
@@ -736,6 +743,14 @@ func (a *Agent) runReActLoop(
 	// Consecutive calls the provider's lane failed that the turn ran again
 	// after a pause (issue #246); reset once a call succeeds.
 	var providerRecoveries int
+	// Times the current step's request was refused as larger than the model's
+	// window and the turn was compacted and asked again (compact_in_turn.go);
+	// reset once a call succeeds, so two steps can each be recovered but one step
+	// never twice. overflowCompacted records that the last recovery did fold the
+	// history, which the end of the turn says if the smaller request was refused
+	// too.
+	var overflowRecoveries int
+	var overflowCompacted bool
 	var retryAllowance *llm.RetryAllowance
 	nextCallReason := "step"
 	// A new step earns a fresh allowance; consecutive unanswered requests do
@@ -1304,11 +1319,46 @@ func (a *Agent) runReActLoop(
 				return string(acp.StopReasonRefused), fmt.Errorf("generation was interrupted before producing a response (the model had been silent for %s)", humanDuration(time.Since(callStart)))
 			}
 			// The provider refused the request as larger than the model's window.
-			// Nothing in the loop makes a request smaller in the middle of a
-			// turn, so the turn ends here; the error says what happened and what
-			// to do instead of passing the provider's refusal on as a bare error.
+			// The turn is compacted - the steps before the latest ones folded
+			// behind the prompt, or the earlier turns when there are some - and the
+			// same step is asked again, once; result eviction is switched on past
+			// its gate, since the cache that gate protects is moot now. A refusal
+			// after streamed output is never retried (nothing may be asked again
+			// once the client has seen part of an answer). The retry uses one
+			// max_turns iteration, as a provider recovery does. When there is
+			// nothing to fold, the fold fails, or the smaller request is refused
+			// too, the turn ends here; the error says what happened and what to
+			// do instead of passing the provider's refusal on as a bare error.
 			if llm.IsContextOverflow(streamErr) {
-				return string(acp.StopReasonRefused), a.contextOverflowError(streamErr, estimateAtSend)
+				if !streamedAny && overflowRecoveries < maxOverflowRecoveries && ctx.Err() == nil &&
+					!a.state.IsUserCancelledTurn() && turn+1 < maxTurns &&
+					a.cfg.Compaction.IsAutoEnabled() && a.cfg.Compaction.InTurn.IsEnabled() {
+					overflowRecoveries++
+					a.evictionForced = true
+					if a.recoverFromContextOverflow(ctx, streamErr, estimateAtSend) {
+						overflowCompacted = true
+						sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+						messages = a.buildMessages(sys.Content)
+						if emptyReissues > 0 || emptyContinuations > 0 {
+							messages = emptyRecoveryProjection(messages, emptyContinuations)
+						}
+						nextCallReason = "context_overflow_recovery"
+						retryAllowance = nil
+						continue
+					}
+					if ctx.Err() != nil {
+						// The user's Stop ends the turn as a stop. A deadline or
+						// a shutdown does not: the turn ends with the refusal it
+						// was recovering from and says what cut the compaction
+						// short, as a provider recovery does.
+						if a.state.IsUserCancelledTurn() {
+							return string(acp.StopReasonCancelled), nil
+						}
+						return string(acp.StopReasonRefused), fmt.Errorf("%w (the compaction after the refusal was interrupted: %v)",
+							a.contextOverflowError(streamErr, estimateAtSend, false), ctx.Err())
+					}
+				}
+				return string(acp.StopReasonRefused), a.contextOverflowError(streamErr, estimateAtSend, overflowCompacted)
 			}
 			if ctx.Err() != nil {
 				// Context cancelled for non-context-Canceled stream error: still propagate the real error.
@@ -1318,6 +1368,7 @@ func (a *Agent) runReActLoop(
 		}
 
 		providerRecoveries = 0
+		overflowRecoveries, overflowCompacted = 0, false
 
 		// What the provider served from its prompt cache. A long conversation
 		// only stays affordable while this is most of the input, which is what

@@ -29,9 +29,18 @@ func TestContextOverflowMessage(t *testing.T) {
 		window    int
 		source    string
 		detail    llm.OverflowDetail
+		compacted bool
 		want      []string
 		notWant   []string
 	}{
+		{
+			name: "the turn was compacted and the smaller request was refused too", estimated: 31000, window: 49152, source: session.ContextWindowFromConfig,
+			detail: llm.OverflowDetail{Prompt: 51402, Limit: 49152}, compacted: true,
+			want: []string{
+				"context window exceeded", "the provider counted 51402 tokens against a limit of 49152",
+				"Coddy compacted this turn and asked again, but the provider refused the smaller request too", "run /compact",
+			},
+		},
 		{
 			name: "everything known and the provider agrees with the window", estimated: 38000, window: 49152, source: session.ContextWindowFromConfig,
 			detail: llm.OverflowDetail{Prompt: 51402, Limit: 49152},
@@ -59,11 +68,11 @@ func TestContextOverflowMessage(t *testing.T) {
 		},
 		{
 			name: "nothing is known", want: []string{"context window exceeded", "run /compact"},
-			notWant: []string{"()", "estimated", "the window is", "max_context_tokens"},
+			notWant: []string{"()", "estimated", "the window is", "max_context_tokens", "compacted"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := contextOverflowMessage(tc.estimated, tc.window, tc.source, tc.detail)
+			got := contextOverflowMessage(tc.estimated, tc.window, tc.source, tc.detail, tc.compacted)
 			for _, w := range tc.want {
 				if !strings.Contains(got, w) {
 					t.Errorf("message lacks %q: %s", w, got)
@@ -82,7 +91,7 @@ func TestContextOverflowMessage(t *testing.T) {
 // past a window the config named correctly, so the message is the one that
 // shows the figures side by side and does not tell anyone to change the window.
 func TestContextOverflowMessageOfAnMLXSwapProxyReadsAsAnExplanation(t *testing.T) {
-	got := contextOverflowMessage(47500, 49152, session.ContextWindowFromConfig, llm.OverflowDetail{Prompt: 49182, Limit: 49152})
+	got := contextOverflowMessage(47500, 49152, session.ContextWindowFromConfig, llm.OverflowDetail{Prompt: 49182, Limit: 49152}, false)
 	want := "context window exceeded: the provider refused the request because it does not fit the model's context window " +
 		"(Coddy estimated about 47500 tokens; the window is 49152 tokens; the provider counted 49182 tokens against a limit of 49152); " +
 		"run /compact, start a new session or split the task into smaller steps"

@@ -278,9 +278,10 @@ func (s *compactionFeatureState) contextWindowIs(tokens int) error {
 	return nil
 }
 
-// providerRefusesNextRequest makes every model call fail the way a backend
-// answers a request that does not fit: a 404 whose body names the limit.
-func (s *compactionFeatureState) providerRefusesNextRequest(body string) error {
+// providerRefusesEveryTurnRequest makes every model call of the turn fail the
+// way a backend answers a request that does not fit: a 404 whose body names the
+// limit. The summarizer's calls (Complete) are not the turn's and are answered.
+func (s *compactionFeatureState) providerRefusesEveryTurnRequest(body string) error {
 	s.provider.streamErr = fmt.Errorf("provider %q (http://127.0.0.1:8080/v1): openai stream: POST %q: 404 Not Found %q",
 		"local", "http://127.0.0.1:8080/v1/chat/completions", body)
 	return nil
@@ -311,9 +312,30 @@ func (s *compactionFeatureState) errorSays(want string) error {
 	return nil
 }
 
-func (s *compactionFeatureState) providerWasAskedOnce() error {
-	if got := len(s.provider.streamSeen); got != 1 {
-		return fmt.Errorf("the provider was asked %d times, want once", got)
+// turnRequestSentTwice holds the story of a turn whose request was refused as
+// too large: the loop compacted the turn once (a summary row folds the earlier
+// exchanges, the prompt stays), asked the same step again, was refused again
+// and stopped - it neither gave up at the first refusal nor went on asking.
+func (s *compactionFeatureState) turnRequestSentTwice() error {
+	if got := len(s.provider.streamSeen); got != 2 {
+		return fmt.Errorf("the turn's request was sent %d times, want twice", got)
+	}
+	if len(s.provider.completeSeen) != 1 {
+		return fmt.Errorf("the summarizer was called %d times, want once", len(s.provider.completeSeen))
+	}
+	// The exchanges here are a few words each, so the summary row is no smaller
+	// than what it replaced; that the second request is smaller is held by
+	// features/context_in_turn_compaction.feature, over a history with some bulk.
+	second := s.provider.streamSeen[1]
+	if !strings.Contains(transcriptText(second), "resume") {
+		return fmt.Errorf("the request sent after the compaction lost the prompt")
+	}
+	folded := false
+	for _, m := range second {
+		folded = folded || (m.CompactionSummary && strings.Contains(m.Content, "CANNED-SUMMARY"))
+	}
+	if !folded {
+		return fmt.Errorf("the request sent after the compaction does not start from the summary: %s", transcriptText(second))
 	}
 	return nil
 }
@@ -628,11 +650,11 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the next LLM request does not contain the older exchanges$`, s.nextRequestOmitsOlderExchanges)
 	sc.Step(`^the user sends a new prompt$`, s.userSendsNewPrompt)
 	sc.Step(`^the model's context window is (\d+) tokens$`, s.contextWindowIs)
-	sc.Step(`^the provider refuses the next request: "([^"]+)"$`, s.providerRefusesNextRequest)
+	sc.Step(`^the provider refuses every request of the turn: "([^"]+)"$`, s.providerRefusesEveryTurnRequest)
 	sc.Step(`^the user sends a new prompt and the turn fails$`, s.userSendsPromptAndTheTurnFails)
 	sc.Step(`^the turn is refused with an explanation that the context window was exceeded$`, s.turnWasRefusedWithAnExplanation)
 	sc.Step(`^the error says "([^"]+)"$`, s.errorSays)
-	sc.Step(`^the provider was asked only once$`, s.providerWasAskedOnce)
+	sc.Step(`^the turn's request was sent twice, before and after the compaction$`, s.turnRequestSentTwice)
 	sc.Step(`^the summarizer refuses requests larger than its window$`, s.summarizerRefusesLargeRequests)
 	sc.Step(`^the summarizer refused a request as too large$`, s.summarizerRefusedARequestAsTooLarge)
 	sc.Step(`^the agent replies successfully$`, s.agentRepliesSuccessfully)

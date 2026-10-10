@@ -92,6 +92,12 @@ func (a *Agent) evictionDue(msgs []llm.Message) bool {
 	if !re.IsEnabled() {
 		return false
 	}
+	if a.evictionForced {
+		// The provider refused a request of this turn as too large: the cache the
+		// gate protects is moot, and the projection is part of making the next
+		// request smaller (react.go, recoverFromContextOverflow).
+		return true
+	}
 	start := re.EffectiveStartPercent()
 	if start <= 0 {
 		return true
@@ -105,12 +111,7 @@ func (a *Agent) evictionDue(msgs []llm.Message) bool {
 	// Everything the request carries besides the conversation - the system
 	// message, the tool definitions, the rules - read off the last estimate.
 	// It does not move with eviction, so it cannot make this decision flap.
-	overhead := 0
-	if rs, ok := a.state.(rulesState); ok {
-		if b := rs.GetLastContextBreakdown(); b != nil && b.EstimatedTotal > b.Conversation {
-			overhead = b.EstimatedTotal - b.Conversation
-		}
-	}
+	overhead := a.requestOverhead()
 	total := overhead + conversationTokens(msgs, a.modelReadsImages())
 	return total*100 >= start*ent.MaxContextTokens
 }

@@ -43,6 +43,8 @@ type inTurnProvider struct {
 	refused   []inTurnRefusal
 	issued    []string // the ids of every tool call the model issued
 	summaries int
+	// afterRefusal is the first accepted request that followed a refusal.
+	afterRefusal []llm.Message
 }
 
 type inTurnRefusal struct {
@@ -88,6 +90,9 @@ func (p *inTurnProvider) Stream(_ context.Context, messages []llm.Message, defs 
 		}
 	}
 	req := append([]llm.Message(nil), messages...)
+	if len(p.refused) > 0 && p.afterRefusal == nil {
+		p.afterRefusal = req
+	}
 	p.accepted = append(p.accepted, req)
 	if p.answered >= p.steps {
 		const answer = "all modules audited"
@@ -108,6 +113,7 @@ func (p *inTurnProvider) Stream(_ context.Context, messages []llm.Message, defs 
 type inTurnFeatureState struct {
 	tmpDirs  []string
 	window   int
+	served   int
 	evictOff bool
 	steps    int
 	fanOut   int
@@ -122,7 +128,7 @@ type inTurnFeatureState struct {
 
 func (s *inTurnFeatureState) reset() error {
 	s.close()
-	s.window, s.evictOff, s.steps, s.fanOut, s.refuseAt = 0, false, 0, 0, 0
+	s.window, s.served, s.evictOff, s.steps, s.fanOut, s.refuseAt = 0, 0, false, 0, 0, 0
 	s.provider, s.st, s.ag, s.stop, s.runErr = nil, nil, nil, "", nil
 	return nil
 }
@@ -148,6 +154,11 @@ func (s *inTurnFeatureState) modelWindow(tokens int) error {
 	return nil
 }
 
+func (s *inTurnFeatureState) modelWindowServedUpTo(tokens, served int) error {
+	s.window, s.served = tokens, served
+	return nil
+}
+
 func (s *inTurnFeatureState) evictionOff() error {
 	s.evictOff = true
 	return nil
@@ -160,6 +171,11 @@ func (s *inTurnFeatureState) modelReads(fanOut, steps int) error {
 
 func (s *inTurnFeatureState) providerRefusesAboveWindow() error {
 	s.refuseAt = s.window
+	return nil
+}
+
+func (s *inTurnFeatureState) providerRefusesAboveWhatItServes() error {
+	s.refuseAt = s.served
 	return nil
 }
 
@@ -360,6 +376,46 @@ func (s *inTurnFeatureState) transcriptHoldsEveryOriginalMessage() error {
 	return nil
 }
 
+func (s *inTurnFeatureState) providerRefusedOneRequest() error {
+	if n := len(s.provider.refused); n != 1 {
+		return fmt.Errorf("the provider refused %d request(s), want exactly one", n)
+	}
+	return nil
+}
+
+func (s *inTurnFeatureState) turnCompactedOnce() error {
+	rows := s.summaryRows()
+	if len(rows) != 1 {
+		return fmt.Errorf("the transcript holds %d summary row(s), want one compaction", len(rows))
+	}
+	return nil
+}
+
+func (s *inTurnFeatureState) requestSentAgainIsSmaller() error {
+	if len(s.provider.refused) == 0 || s.provider.afterRefusal == nil {
+		return fmt.Errorf("no request was sent again after a refusal")
+	}
+	refused := s.provider.refused[0]
+	again := requestTokens(s.provider.afterRefusal, nil)
+	before := requestTokens(refused.messages, nil)
+	if again >= before {
+		return fmt.Errorf("the request sent again (%d tokens) is not smaller than the refused one (%d)", again, before)
+	}
+	if err := carriesPrompt(s.provider.afterRefusal); err != nil {
+		return fmt.Errorf("the request sent again: %w", err)
+	}
+	return nil
+}
+
+func (s *inTurnFeatureState) transcriptHoldsSummaryStartingWithPrompt() error {
+	for _, m := range s.summaryRows() {
+		if strings.HasPrefix(m.Content, inTurnPrompt) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no summary row begins with the prompt: %v", s.summaryRows())
+}
+
 func initializeInTurnScenario(sc *godog.ScenarioContext) {
 	s := &inTurnFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -371,9 +427,11 @@ func initializeInTurnScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a model window of (\d+) tokens$`, s.modelWindow)
+	sc.Step(`^a model window of (\d+) tokens that the provider serves only up to (\d+)$`, s.modelWindowServedUpTo)
 	sc.Step(`^result eviction is off, so only compaction can keep the turn inside the window$`, s.evictionOff)
 	sc.Step(`^a model that reads (\d+) files in parallel at each of (\d+) steps and then answers$`, s.modelReads)
 	sc.Step(`^the provider refuses any request larger than the window$`, s.providerRefusesAboveWindow)
+	sc.Step(`^the provider refuses any request larger than what it serves$`, s.providerRefusesAboveWhatItServes)
 	sc.Step(`^the user sends one prompt$`, s.userSendsOnePrompt)
 	sc.Step(`^no request was refused$`, s.noRequestWasRefused)
 	sc.Step(`^the turn ended with the model's answer$`, s.turnEndedWithAnswer)
@@ -381,6 +439,10 @@ func initializeInTurnScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^every request carried the prompt verbatim$`, s.everyRequestCarriedThePrompt)
 	sc.Step(`^every tool result in each request answers a call that request carries$`, s.everyToolResultAnswersACall)
 	sc.Step(`^the transcript still holds every original message$`, s.transcriptHoldsEveryOriginalMessage)
+	sc.Step(`^the provider refused one request as larger than its window$`, s.providerRefusedOneRequest)
+	sc.Step(`^the turn was compacted inside the turn once$`, s.turnCompactedOnce)
+	sc.Step(`^the request sent again is smaller than the refused one and carries the prompt$`, s.requestSentAgainIsSmaller)
+	sc.Step(`^the transcript holds a summary row that starts with the prompt$`, s.transcriptHoldsSummaryStartingWithPrompt)
 }
 
 func TestContextInTurnCompactionFeature(t *testing.T) {
