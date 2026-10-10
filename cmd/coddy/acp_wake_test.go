@@ -11,6 +11,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -126,5 +127,26 @@ func TestACPWakeNoticeAddsATextNoteForEditors(t *testing.T) {
 	}
 	if inner.updates[2] != interface{}(chunk) {
 		t.Fatalf("third update = %+v, want the answer untouched", inner.updates[2])
+	}
+}
+
+// The manager and the waker of a local coddy acp send through serverRef, so
+// a permission request meets the same bypass rule as on every other surface
+// before it reaches the editor: under bypass it is approved without asking
+// (and marked automatic, for the decisions check), under ask the editor is
+// asked - here no editor is attached, so it is denied.
+func TestACPLocalSenderAppliesTheBypassRule(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.PermissionMode = config.PermModeAsk
+	var srv *acp.Server
+	sender := acpLocalSender(&serverRef{p: &srv, cfg: cfg})
+	asked := func(mode string) acp.PermissionRequestParams {
+		return acp.PermissionRequestParams{SessionID: "sess_acp", ToolCall: acp.PermissionToolCall{ToolCallID: "c1"}, SessionPermissionMode: mode}
+	}
+	if got, _ := sender.RequestPermission(context.Background(), asked(config.PermModeBypass)); got == nil || got.OptionID != "allow" || !got.Automatic {
+		t.Fatalf("a prompt asked under bypass = %#v, want an automatic allow", got)
+	}
+	if got, _ := sender.RequestPermission(context.Background(), asked(config.PermModeAsk)); got == nil || got.OptionID != "reject" {
+		t.Fatalf("a prompt asked under ask = %#v, want it forwarded to the editor", got)
 	}
 }

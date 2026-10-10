@@ -53,18 +53,20 @@ func (r *serverRef) SendSessionUpdate(sessionID string, update interface{}) erro
 }
 
 func (r *serverRef) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	// A subagent's request carries the child's own effective mode; that mode
-	// decides the bypass short-circuit, not the operator's global setting,
-	// so a child narrowed to ask is prompted (or denied) even under a
-	// globally bypassed parent.
-	stamped := strings.TrimSpace(params.EffectivePermissionMode)
-	if stamped == config.PermModeBypass {
-		return permission.AutoAllow(), nil
+	// The same rule as every other surface (permission.AutoApproves): a
+	// subagent's request carries the child's own effective mode, which
+	// decides first, so a child narrowed to ask is prompted (or denied) even
+	// under a globally bypassed parent; then the mode the session's gate
+	// asked under - the session's own, or ask when a PreToolUse hook forced
+	// the prompt - so a session switched to ask reaches the editor under a
+	// bypass config, and one switched to bypass is not asked under an ask
+	// config; the configuration decides only a request with neither stamp.
+	cfgMode := ""
+	if cfg := r.liveCfg(); cfg != nil {
+		cfgMode = cfg.Tools.ResolvedPermMode()
 	}
-	if stamped == "" {
-		if cfg := r.liveCfg(); cfg != nil && cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
-			return permission.AutoAllow(), nil
-		}
+	if permission.AutoApproves(params, cfgMode) {
+		return permission.AutoAllow(), nil
 	}
 	s := *r.p
 	if s == nil {
@@ -398,8 +400,10 @@ func runACP(args []string) error {
 	defer mgr.CloseMCP()
 	srv = acp.NewServer(mgr, log)
 	// A woken turn opens with a note an editor that renders only the standard
-	// updates can read, live and when session/load replays it.
-	notice := acpWakeNotice{srv}
+	// updates can read, live and when session/load replays it. Everything goes
+	// through serverRef, so a permission request meets the bypass rule before
+	// it reaches the editor.
+	notice := acpLocalSender(ref)
 	mgr.SetServer(notice)
 	// A task the model started with notify_on_finish begins its own turn here
 	// when it ends, the way it does in the console and under coddy serve.

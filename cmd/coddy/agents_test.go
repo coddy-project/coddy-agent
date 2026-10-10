@@ -128,6 +128,42 @@ func TestAgentsTrustOfBuiltinAndUnknownDefinitions(t *testing.T) {
 	}
 }
 
+// The mode the agent asked a prompt under decides, as it does on every other
+// surface (permission.AutoApproves): a session switched to ask under a
+// globally bypassed config, or a prompt a PreToolUse hook forced with ask,
+// reaches the editor; a session switched to bypass under an ask config is
+// approved without it.
+func TestServerRefHonoursTheModeThePromptWasAskedUnder(t *testing.T) {
+	var srv *acp.Server // no client attached: a forwarded prompt is denied
+	asked := func(mode string) acp.PermissionRequestParams {
+		return acp.PermissionRequestParams{
+			SessionID:             "sess_acp",
+			ToolCall:              acp.PermissionToolCall{ToolCallID: "c1", Status: "pending"},
+			SessionPermissionMode: mode,
+		}
+	}
+
+	bypassCfg := &config.Config{}
+	bypassCfg.Tools.PermissionMode = config.PermModeBypass
+	ref := &serverRef{p: &srv, cfg: bypassCfg}
+	if got, _ := ref.RequestPermission(context.Background(), asked(config.PermModeAsk)); got.OptionID != "reject" || got.Automatic {
+		t.Fatalf("a prompt asked under ask with a bypass config = %#v, want it forwarded to the editor", got)
+	}
+	if got, _ := ref.RequestPermission(context.Background(), asked(config.PermModeBypass)); got.OptionID != "allow" || !got.Automatic {
+		t.Fatalf("a prompt asked under bypass = %#v, want an automatic allow", got)
+	}
+
+	askCfg := &config.Config{}
+	askCfg.Tools.PermissionMode = config.PermModeAsk
+	ref = &serverRef{p: &srv, cfg: askCfg}
+	if got, _ := ref.RequestPermission(context.Background(), asked(config.PermModeBypass)); got.OptionID != "allow" || !got.Automatic {
+		t.Fatalf("a session switched to bypass under an ask config = %#v, want an automatic allow", got)
+	}
+	if got, _ := ref.RequestPermission(context.Background(), asked(config.PermModeAsk)); got.OptionID != "reject" {
+		t.Fatalf("a prompt asked under ask = %#v, want it forwarded to the editor", got)
+	}
+}
+
 // The ACP server sender decides its global-bypass short-circuit from the
 // stamped effective mode of a subagent's request: a child narrowed to ask is
 // forwarded (or denied when no client is attached), never auto-allowed on
