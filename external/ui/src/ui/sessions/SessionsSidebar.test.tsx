@@ -1168,3 +1168,29 @@ test("a row carries the error of the change it refused, and only that row", () =
   expect(screen.queryByTestId("session-row-error-a")).toBeNull();
   expect(screen.queryByTestId("sessions-error")).toBeNull();
 });
+
+// Issue #435: a chat whose name describe is still working out shows a
+// placeholder for its title and its tags, never the first message it would
+// otherwise be listed under (a "/rpa-init" token).
+test("a row being named shows a placeholder for its title and tags", () => {
+  renderDrawer({
+    sessions: [
+      { id: "naming", title: "/rpa-init", tags: ["old"] },
+      row("named", "Refactor the memory API"),
+    ],
+    namingSessionIds: new Set(["naming"]),
+  });
+  const pending = screen.getByTestId("session-title-pending-naming");
+  expect(pending).toHaveAttribute("aria-busy", "true");
+  expect(pending).toHaveTextContent("Naming the chat");
+  expect(screen.queryByText("/rpa-init")).toBeNull();
+  expect(screen.queryByText("old")).toBeNull();
+  expect(
+    screen
+      .getByTestId("session-tags-pending-naming")
+      .querySelectorAll(".session-tag-skeleton"),
+  ).toHaveLength(2);
+  // The other rows are untouched.
+  expect(screen.getByText("Refactor the memory API")).toBeInTheDocument();
+  expect(screen.queryByTestId("session-title-pending-named")).toBeNull();
+});

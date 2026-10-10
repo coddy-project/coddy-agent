@@ -14,6 +14,26 @@ export const messagesRu: Record<string, string> = {
   "appearance.theme.monokai": "Monokai",
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
+  "appearance.notificationsLabel": "Уведомления",
+  "appearance.notifications.toggle": "Системные уведомления",
+  "appearance.notifications.hint":
+    "Пока Coddy в фоне, браузер сообщает, что агент закончил ход, просит разрешение или задал вопрос в чате, который вы открыли или куда писали в этой вкладке. Нажатие на уведомление открывает чат. Настройка хранится в этом браузере.",
+  "appearance.notifications.denied":
+    "Браузер запретил уведомления для этого сайта. Разрешите их в настройках сайта в браузере и включите переключатель.",
+  "appearance.notifications.insecure":
+    "Уведомлениям нужно защищённое соединение. Откройте Coddy по https или на localhost.",
+  "appearance.notifications.unsupported":
+    "Этот браузер не показывает уведомления веб-страниц.",
+
+  "notify.untitled": "Coddy",
+  "notify.turnFinished": "Агент закончил ход.",
+  "notify.turnFailed": "Ход завершился ошибкой: {error}",
+  "notify.permission": "Нужно разрешение: {tool}",
+  "notify.toolUnnamed": "инструмент",
+  "notify.question": "Агент задал вам вопрос.",
+  "notify.questionWithText": "Агент спрашивает: {question}",
+  "notify.subagentPermission": "{agent} просит разрешение: {tool}",
+  "notify.subagentUnnamed": "Субагент",
 
   "auth.signIn.logoAlt": "Coddy агент",
   "auth.signIn.title": "Вход",
@@ -1165,6 +1185,9 @@ export const messagesRu: Record<string, string> = {
   "app.stopFailed": "Не удалось остановить генерацию. Попробуйте ещё раз.",
   "app.undoEditFailed": "Не удалось отменить правку: {error}",
   "app.emptyResponseBody": "Пустое тело ответа",
+  "app.workspacePrepareFailed":
+    "Не удалось подготовить рабочую папку: {reason}. Сообщение не отправлено.",
+  "app.workspacePrepareFailedUnknown": "ошибка сети",
 
   "nav.ariaLabel": "Навигация",
   "nav.brandTitle": "Coddy",
@@ -1205,6 +1228,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.stateFinished": "Завершена",
   "sessions.stateError": "Последний ход завершился ошибкой",
   "sessions.newChatFallback": "Новый чат",
+  "sessions.naming": "Придумываю название чата…",
   "sessions.deleteConversation": "Удалить диалог",
   "sessions.delete": "Удалить",
   "sessions.loadingMore": "Загрузка…",
@@ -1251,6 +1275,9 @@ export const messagesRu: Record<string, string> = {
   "sessions.manage.archive.only": "Архив",
   "sessions.manage.archive.all": "Всё",
   "sessions.manage.archivedBadge": "в архиве",
+  "sessions.manage.printBadge": "запуск CLI",
+  "sessions.manage.origin.label": "Источник",
+  "sessions.manage.origin.all": "Все источники",
   "sessions.manage.archivedOn": "В архиве с {date}",
   "sessions.manage.deleteArchived": "Удалить все архивные диалоги",
   "sessions.manage.confirm.archived.title": "Очистить архив?",
@@ -1273,6 +1300,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.filter.env.all": "Все",
   "sessions.filter.env.local": "Локальные",
   "sessions.filter.env.gateway": "Мессенджеры",
+  "sessions.filter.env.print": "Запуски CLI",
 
   "sessions.sort.updated": "Последней активности",
   "sessions.sort.created": "Дате создания",
@@ -1316,6 +1344,7 @@ export const messagesRu: Record<string, string> = {
   "sessions.tagFilterClear": "Сбросить фильтр по тегам",
 
   "chat.newChat": "Новый чат",
+  "chat.namingChat": "Придумываю название чата…",
   "chat.chatTitleAriaLabel": "Заголовок чата",
   "chat.views.label": "Панели этого чата",
   "chat.views.filesTitle": "Файлы рабочей папки ({key})",
@@ -1780,10 +1809,19 @@ export const messagesRu: Record<string, string> = {
   "files.pdfDownload":
     "Скачайте PDF, чтобы открыть его в программе для просмотра.",
   "files.wrap": "Перенос строк",
+  "files.preview": "Просмотр",
+  "files.htmlTooLarge":
+    'Страница слишком большая для просмотра. Выключите "Просмотр", чтобы читать её исходник.',
   "files.imageUnavailable":
     "Превью изображения недоступно или превышает 20 МБ. Скачайте оригинал.",
   "files.actualSize": "Исходный размер",
   "files.fit": "Вписать изображение",
+  "image.menu": "Изображение",
+  "image.copy": "Копировать изображение",
+  "image.save": "Сохранить изображение",
+  "image.copied": "Изображение скопировано",
+  "image.copyFailed": "Не удалось скопировать изображение",
+  "image.saveFailed": "Не удалось сохранить изображение",
   "changes.binary": "бинарный",
   "changes.binaryBody": "Бинарный файл: построчного диффа нет.",
   "changes.truncated": "сокращён",
@@ -1825,6 +1863,8 @@ export const messagesRu: Record<string, string> = {
   "tasks.estimate": "оценка {value}",
   "tasks.exitCode": "код {code}",
   "tasks.overdue": "просрочена",
+  "tasks.startedTitle": "Запущена {time}",
+  "tasks.finishedTitle": "Завершена {time}",
   "tasks.status.queued": "В очереди",
   "tasks.status.running": "Выполняется",
   "tasks.status.succeeded": "Успешно",
@@ -2334,6 +2374,7 @@ export const messagesRu: Record<string, string> = {
   "status.awaitingPermission": "Жду разрешения",
   "status.awaitingAnswer": "Жду ответа",
   "status.writing": "Пишу ответ",
+  "status.preparingSession": "Готовлю сессию…",
   "status.waitingModel": "Жду ответ модели",
   "status.waitingSlow": "Модель отвечает дольше обычного",
   "status.waitingStuck": "Ответа от сервера всё ещё нет",

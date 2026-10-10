@@ -149,13 +149,42 @@ test("wide rail keeps active counts over the History and Scheduler icons", () =>
     />,
   );
 
-  const historyCount = screen.getByTestId("nav-history-active-count");
-  expect(historyCount).not.toHaveClass("rail-active-count--inline");
-  expect(screen.getByTestId("nav-history").children[1]).toBe(historyCount);
+  // The count rides on the icon, not on the row: the label beside it never
+  // pushes it away (railActiveCountCss.test.ts holds the placement).
+  for (const id of ["nav-history", "nav-scheduler"]) {
+    const count = screen.getByTestId(`${id}-active-count`);
+    const icon = count.parentElement!;
+    expect(icon).toHaveClass("rail-nav-icon");
+    expect(icon.querySelector("svg")).toBeTruthy();
+    expect(icon.parentElement).toBe(screen.getByTestId(id));
+    expect(
+      screen.getByTestId(id).querySelector(".rail-nav-label"),
+    ).toBeTruthy();
+  }
+});
 
-  const schedulerCount = screen.getByTestId("nav-scheduler-active-count");
-  expect(schedulerCount).not.toHaveClass("rail-active-count--inline");
-  expect(screen.getByTestId("nav-scheduler").children[1]).toBe(schedulerCount);
+test("narrow rail keeps active counts on the icons too", () => {
+  render(
+    <NavRail
+      onNewChat={() => {}}
+      onOpenHistory={() => {}}
+      historyOpen={false}
+      historyActiveCount={2}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
+      schedulerActiveCount={3}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
+      canWidenRail
+      railLabelsWide={false}
+      onToggleRailLabels={() => {}}
+    />,
+  );
+  for (const id of ["nav-history", "nav-scheduler"]) {
+    expect(screen.getByTestId(`${id}-active-count`).parentElement).toHaveClass(
+      "rail-nav-icon",
+    );
+  }
 });
 
 test("the rail no longer carries a Tasks entry", () => {
@@ -446,9 +475,11 @@ describe("NavRail on a phone: the More menu", () => {
       <NavRail {...base} schedulerActiveCount={2} onOpenDocs={() => {}} />,
     );
     fireEvent.click(screen.getByTestId("nav-more"));
-    expect(
-      screen.getByTestId("nav-more-scheduler-active-count"),
-    ).toHaveTextContent("2");
+    const count = screen.getByTestId("nav-more-scheduler-active-count");
+    expect(count).toHaveTextContent("2");
+    // On the row's icon, like on the rail, never after the label.
+    expect(count).toHaveClass("rail-active-count");
+    expect(count.parentElement).toHaveClass("rail-nav-icon");
     expect(screen.getByTestId("nav-more-scheduler")).toHaveAccessibleName(
       "Scheduler jobs, 2 active runs",
     );

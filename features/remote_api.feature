@@ -63,6 +63,7 @@ Feature: Remote API parity
     Given the client presents the token
     And a workspace folder "work"
     And a session rooted at folder "work"
+    And the session already has a user message
     When I list sessions
     Then the request succeeds
     And the session list includes the session

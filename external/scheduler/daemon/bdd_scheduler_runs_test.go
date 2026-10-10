@@ -354,6 +354,28 @@ func (s *schedulerRunsState) runRunsAtReasoning(jobID, level string) error {
 	return nil
 }
 
+// runTaskNamesReasoning reads the run's task record: the card of a run says
+// the model and the reasoning level the run is on, both as resolved at launch.
+func (s *schedulerRunsState) runTaskNamesReasoning(jobID, level string) error {
+	run, err := s.lastRun(jobID)
+	if err != nil {
+		return err
+	}
+	for _, rec := range bgtask.LoadPersisted(s.store.SessionPath(run.JobSessionID)) {
+		if rec.ID != run.TaskID {
+			continue
+		}
+		if rec.Agent == nil || rec.Agent.Model == "" {
+			return fmt.Errorf("task record names no model: %+v", rec.Agent)
+		}
+		if rec.Agent.Reasoning != level {
+			return fmt.Errorf("task record reasoning = %q, want %q", rec.Agent.Reasoning, level)
+		}
+		return nil
+	}
+	return fmt.Errorf("task %s not recorded under the job session bundle", run.TaskID)
+}
+
 // projectDefinition writes a definition inside the job's workspace, where the
 // project trust policy holds it until the operator approves it.
 func (s *schedulerRunsState) projectDefinition(name string) error {
@@ -861,6 +883,7 @@ func initializeSchedulerRunsSteps(sc *godog.ScenarioContext) *schedulerRunsState
 	sc.Step(`^the configured model offers the reasoning levels "([^"]*)"$`, s.modelOffersLevels)
 	sc.Step(`^a user-scope subagent definition "([^"]*)" that asks for reasoning "([^"]*)"$`, s.reasoningDefinition)
 	sc.Step(`^the run session of "([^"]*)" runs at reasoning "([^"]*)"$`, s.runRunsAtReasoning)
+	sc.Step(`^the run's task of "([^"]*)" names the model and the reasoning "([^"]*)"$`, s.runTaskNamesReasoning)
 	sc.Step(`^the job "([^"]*)" is run by hand and the model answers "([^"]*)"$`, s.runByHand)
 	sc.Step(`^the job "([^"]*)" was run by hand and the model answered "([^"]*)"$`, s.runByHand)
 	sc.Step(`^the job "([^"]*)" is run by hand (\d+) times and the model answers "([^"]*)"$`, s.runByHandTimes)

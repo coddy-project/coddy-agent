@@ -695,3 +695,44 @@ test("the prompt being edited is marked and Undo sits on the prompt of an undoab
   fireEvent.click(undo[0]!);
   expect(onUndoEdit).toHaveBeenCalledTimes(1);
 });
+
+// Issue #357: under a message just sent, before the turn has said anything or
+// while it says it is preparing (its MCP servers, its model's context window),
+// the live line says the session is being prepared, not that the model is.
+test("the live line says the session is being prepared until the turn talks to its model", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+  ];
+  const { rerender } = render(<MessageList items={items} generating />);
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
+    "Preparing the session…",
+  );
+
+  const startedAtMs = Date.now();
+  rerender(
+    <MessageList
+      items={items}
+      generating
+      turnProgress={{
+        startedAtMs,
+        outputTokens: 0,
+        estimated: false,
+        phase: "preparing",
+      }}
+    />,
+  );
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
+    "Preparing the session…",
+  );
+
+  rerender(
+    <MessageList
+      items={items}
+      generating
+      turnProgress={{ startedAtMs, outputTokens: 0, estimated: false }}
+    />,
+  );
+  expect(screen.getByTestId("typing-dots-status")).toHaveTextContent(
+    "Waiting for the model",
+  );
+});

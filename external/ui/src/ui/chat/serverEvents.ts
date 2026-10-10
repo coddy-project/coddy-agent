@@ -9,7 +9,9 @@ import { sessionGoalEventOf, type SessionGoalUpdate } from "./goal";
 /** What a caller does with the events of `GET /coddy/events`. */
 export type ServerEventHandlers = {
   onTurnStarted: (sessionId: string) => void;
-  onTurnEnded: (sessionId: string) => void;
+  /** `at` is when the server released the turn (RFC 3339), the same in every
+   *  tab that hears the event, or "" from a server that does not say. */
+  onTurnEnded: (sessionId: string, at: string) => void;
   /** A fresh account-usage snapshot the server built outside a request
    *  (a finished turn, a deferred refresh); sessionId names the turn, the
    *  snapshot is account-wide. */
@@ -39,7 +41,10 @@ export type ServerEventHandlers = {
    *  permission answer, or stopped waiting (answered anywhere, withdrawn, its
    *  run ended). The prompt itself waits on the subagent's task row, so the
    *  chat of that session re-reads its tasks. */
-  onSubagentPermission?: (parentSessionId: string) => void;
+  onSubagentPermission?: (
+    parentSessionId: string,
+    prompt: SubagentPermissionEvent,
+  ) => void;
   /** The session's history was truncated in place - a message edit rewound it.
    *  Whoever holds that session - this tab or another - drops the shadow
    *  transcript and stale prompts and reloads the kept prefix. */
@@ -67,17 +72,34 @@ export type ServerEventsHandlers = ServerEventHandlers & {
  */
 export type ServerEvent =
   | { type: "turn_started"; sessionId: string }
-  | { type: "turn_ended"; sessionId: string }
+  | { type: "turn_ended"; sessionId: string; at: string }
   | { type: "provider_usage"; sessionId: string; usage: ProviderUsage }
   | { type: "message_queue"; sessionId: string; queue: QueuedMessageEvent }
   | { type: "session_changes"; sessionId: string }
   | { type: "session_settings"; event: SessionSettingsEvent }
   | { type: "session_goal"; update: SessionGoalUpdate }
   | { type: "config_reloaded" }
-  | { type: "subagent_permission"; parentSessionId: string }
+  | {
+      type: "subagent_permission";
+      parentSessionId: string;
+      prompt: SubagentPermissionEvent;
+    }
   | { type: "session_question_pending"; sessionId: string }
   | { type: "session_rewound"; sessionId: string }
   | { type: "ready" };
+
+/**
+ * One edge of a background subagent's permission prompt: "asked" carries who
+ * asks and for which tool, "settled" only names the prompt.
+ */
+export type SubagentPermissionEvent = {
+  phase: "asked" | "settled";
+  childSessionId: string;
+  toolCallId: string;
+  agentName: string;
+  /** The tool call's title from the request, "" when it names none. */
+  toolTitle: string;
+};
 
 /** One session's message queue as the server event carries it. */
 export type QueuedMessageEvent = {
@@ -148,14 +170,48 @@ function sessionIdOf(data: string): string {
   }
 }
 
-function parentSessionIdOf(data: string): string {
+function turnEndedOf(data: string): { sessionId: string; at: string } | null {
   try {
-    const parsed = JSON.parse(data) as { parentSessionId?: unknown };
-    return typeof parsed.parentSessionId === "string"
-      ? parsed.parentSessionId.trim()
-      : "";
+    const parsed = JSON.parse(data) as { sessionId?: unknown; at?: unknown };
+    const sid =
+      typeof parsed.sessionId === "string" ? parsed.sessionId.trim() : "";
+    if (!sid) return null;
+    return {
+      sessionId: sid,
+      at: typeof parsed.at === "string" ? parsed.at.trim() : "",
+    };
   } catch {
-    return "";
+    return null;
+  }
+}
+
+function subagentPermissionOf(
+  data: string,
+): { parentSessionId: string; prompt: SubagentPermissionEvent } | null {
+  try {
+    const parsed = JSON.parse(data) as {
+      phase?: unknown;
+      parentSessionId?: unknown;
+      childSessionId?: unknown;
+      toolCallId?: unknown;
+      agentName?: unknown;
+      request?: { toolCall?: { title?: unknown } | null } | null;
+    };
+    const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    const parent = str(parsed.parentSessionId);
+    if (!parent) return null;
+    return {
+      parentSessionId: parent,
+      prompt: {
+        phase: parsed.phase === "asked" ? "asked" : "settled",
+        childSessionId: str(parsed.childSessionId),
+        toolCallId: str(parsed.toolCallId),
+        agentName: str(parsed.agentName),
+        toolTitle: str(parsed.request?.toolCall?.title),
+      },
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -188,17 +244,18 @@ export function parseServerEvent(ev: {
       return { type: "config_reloaded" };
     case "subagent_permission": {
       // A frame naming no parent belongs to no chat.
-      const parent = parentSessionIdOf(ev.data);
-      return parent
-        ? { type: "subagent_permission", parentSessionId: parent }
-        : null;
+      const parsed = subagentPermissionOf(ev.data);
+      return parsed ? { type: "subagent_permission", ...parsed } : null;
     }
     case "session_question_pending": {
       const sid = sessionIdOf(ev.data);
       return sid ? { type: "session_question_pending", sessionId: sid } : null;
     }
+    case "turn_ended": {
+      const parsed = turnEndedOf(ev.data);
+      return parsed ? { type: "turn_ended", ...parsed } : null;
+    }
     case "turn_started":
-    case "turn_ended":
     case "session_changes":
     case "session_rewound": {
       const sid = sessionIdOf(ev.data);
@@ -234,7 +291,7 @@ export function dispatchServerEvent(
       h.onConfigReloaded?.();
       return;
     case "subagent_permission":
-      h.onSubagentPermission?.(event.parentSessionId);
+      h.onSubagentPermission?.(event.parentSessionId, event.prompt);
       return;
     case "session_question_pending":
       h.onQuestionPending?.(event.sessionId);
@@ -249,7 +306,7 @@ export function dispatchServerEvent(
       h.onTurnStarted(event.sessionId);
       return;
     case "turn_ended":
-      h.onTurnEnded(event.sessionId);
+      h.onTurnEnded(event.sessionId, event.at);
       return;
   }
 }

@@ -444,3 +444,52 @@ test("a context read during the refresh does not hide the fetched branches", asy
   fetchMock.mockImplementation(passthrough);
   delete document.body.dataset.refresh;
 });
+
+// The branch list stays pickable while its fetch runs. A branch picked then is
+// the newer choice: the context the fetch read may be from before the
+// checkout, and must not put the old branch back on the plate when it lands.
+test("a branch picked while the remotes are fetched stays the choice", async () => {
+  mountApp();
+  await waitFor(() =>
+    expect(state().textContent).toBe(`sess_active:${ACTIVE_WORKSPACE}`),
+  );
+  let releaseFetch: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    releaseFetch = resolve;
+  });
+  const passthrough = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path.startsWith("/coddy/workspace/fetch")) {
+      // Read before the checkout, answered after it.
+      const answer = await passthrough(input, init);
+      await held;
+      return answer;
+    }
+    if (path === "/coddy/sessions/sess_active/workspace") {
+      headBranch = "feat/fresh";
+      return json({
+        path: ACTIVE_WORKSPACE,
+        name: "active",
+        is_git_repo: true,
+        is_worktree: false,
+        branch: "feat/fresh",
+      });
+    }
+    return passthrough(input, init);
+  });
+
+  fireEvent.click(screen.getByTestId("refresh-branches"));
+  await waitFor(() => expect(fetchCalls()).toHaveLength(1));
+  fireEvent.click(screen.getByTestId("pick-remote-branch"));
+  await waitFor(() =>
+    expect(state().getAttribute("data-branch")).toBe("feat/fresh"),
+  );
+  await act(async () => {
+    releaseFetch();
+  });
+  await waitFor(() => expect(document.body.dataset.refresh).toBeTruthy());
+  expect(state().getAttribute("data-branch")).toBe("feat/fresh");
+  fetchMock.mockImplementation(passthrough);
+  delete document.body.dataset.refresh;
+});

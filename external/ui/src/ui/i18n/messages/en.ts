@@ -16,6 +16,26 @@ export const messagesEn: Record<string, string> = {
   "appearance.theme.monokai": "Monokai",
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
+  "appearance.notificationsLabel": "Notifications",
+  "appearance.notifications.toggle": "System notifications",
+  "appearance.notifications.hint":
+    "While Coddy is in the background, the browser tells you when the agent finishes a turn, asks for permission or asks you a question in a chat you opened or wrote to in this tab. A click on the notification opens the chat. The choice is kept in this browser.",
+  "appearance.notifications.denied":
+    "The browser blocks notifications for this site. Allow them in the browser's site settings, then turn the switch on.",
+  "appearance.notifications.insecure":
+    "Notifications need a secure connection. Open Coddy over https or on localhost.",
+  "appearance.notifications.unsupported":
+    "This browser shows no notifications from web pages.",
+
+  "notify.untitled": "Coddy",
+  "notify.turnFinished": "The agent finished its turn.",
+  "notify.turnFailed": "The turn ended with an error: {error}",
+  "notify.permission": "Permission needed: {tool}",
+  "notify.toolUnnamed": "a tool",
+  "notify.question": "The agent asked you a question.",
+  "notify.questionWithText": "The agent asks: {question}",
+  "notify.subagentPermission": "{agent} needs permission: {tool}",
+  "notify.subagentUnnamed": "A subagent",
 
   // The wordmark says "Coddy agent" in the image; this is what a screen
   // reader says in its place.
@@ -1137,6 +1157,9 @@ export const messagesEn: Record<string, string> = {
   "app.stopFailed": "Could not stop generation. Try again.",
   "app.undoEditFailed": "Could not undo the edit: {error}",
   "app.emptyResponseBody": "Empty response body",
+  "app.workspacePrepareFailed":
+    "The workspace could not be prepared: {reason}. The message was not sent.",
+  "app.workspacePrepareFailedUnknown": "network error",
 
   "nav.ariaLabel": "Nav",
   "nav.brandTitle": "Coddy",
@@ -1172,6 +1195,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.stateFinished": "Finished",
   "sessions.stateError": "Last turn ended with an error",
   "sessions.newChatFallback": "New chat",
+  "sessions.naming": "Naming the chat…",
   "sessions.deleteConversation": "Delete conversation",
   "sessions.delete": "Delete",
   "sessions.loadingMore": "Loading...",
@@ -1214,6 +1238,9 @@ export const messagesEn: Record<string, string> = {
   "sessions.manage.archive.only": "Archive",
   "sessions.manage.archive.all": "Everything",
   "sessions.manage.archivedBadge": "archived",
+  "sessions.manage.printBadge": "CLI run",
+  "sessions.manage.origin.label": "Source",
+  "sessions.manage.origin.all": "All sources",
   "sessions.manage.archivedOn": "Archived on {date}",
   "sessions.manage.deleteArchived": "Delete every archived conversation",
   "sessions.manage.confirm.archived.title": "Empty the archive?",
@@ -1236,6 +1263,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.filter.env.all": "All",
   "sessions.filter.env.local": "Local",
   "sessions.filter.env.gateway": "Gateway",
+  "sessions.filter.env.print": "CLI runs",
 
   "sessions.sort.updated": "Last activity",
   "sessions.sort.created": "Date created",
@@ -1280,6 +1308,7 @@ export const messagesEn: Record<string, string> = {
   "sessions.tagFilterClear": "Clear the tag filter",
 
   "chat.newChat": "New chat",
+  "chat.namingChat": "Naming the chat…",
   "chat.chatTitleAriaLabel": "Chat title",
   "chat.views.label": "Views of this chat",
   "chat.views.filesTitle": "Workspace files ({key})",
@@ -1732,10 +1761,19 @@ export const messagesEn: Record<string, string> = {
   "files.binary": "Preview is unavailable. You can download this file.",
   "files.pdfDownload": "Download this PDF to open it in your PDF viewer.",
   "files.wrap": "Wrap lines",
+  "files.preview": "Preview",
+  "files.htmlTooLarge":
+    "This page is too large to preview. Turn Preview off to read its source.",
   "files.imageUnavailable":
     "Image preview is unavailable or exceeds 20 MB. Download it to view the original.",
   "files.actualSize": "Actual size",
   "files.fit": "Fit image",
+  "image.menu": "Picture",
+  "image.copy": "Copy image",
+  "image.save": "Save image",
+  "image.copied": "Image copied",
+  "image.copyFailed": "Could not copy the image",
+  "image.saveFailed": "Could not save the image",
   "changes.binary": "binary",
   "changes.binaryBody": "Binary file: no line diff to show.",
   "changes.truncated": "shortened",
@@ -1779,6 +1817,8 @@ export const messagesEn: Record<string, string> = {
   "tasks.estimate": "est. {value}",
   "tasks.exitCode": "exit {code}",
   "tasks.overdue": "overdue",
+  "tasks.startedTitle": "Started {time}",
+  "tasks.finishedTitle": "Finished {time}",
   "tasks.status.queued": "Queued",
   "tasks.status.running": "Running",
   "tasks.status.succeeded": "Succeeded",
@@ -2254,6 +2294,7 @@ export const messagesEn: Record<string, string> = {
   "status.awaitingPermission": "Waiting for your approval",
   "status.awaitingAnswer": "Waiting for your answer",
   "status.writing": "Writing the answer",
+  "status.preparingSession": "Preparing the session…",
   "status.waitingModel": "Waiting for the model",
   "status.waitingSlow": "The model is taking longer than usual",
   "status.waitingStuck": "Still no response from the server",

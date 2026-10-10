@@ -34,9 +34,10 @@ type Props = {
   onPickBranch: (branch: string, worktree: boolean) => void;
   onWorktreeToggle: () => void;
   /**
-   * Fetches the workspace's remotes before the branch list shows: it resolves
-   * once the context handed in is the one read after the fetch, with the
-   * outcome to report. Without it the list shows the context as it is.
+   * Fetches the workspace's remotes while the branch list shows the branches
+   * the context already holds: it resolves once the context handed in is the
+   * one read after the fetch, with the outcome to report. Without it the list
+   * shows the context as it is.
    */
   onRefreshBranches?: () => Promise<WorkspaceBranchFetch | null>;
   // Anchored dropdown direction; the docked composer opens the menu upward.
@@ -91,8 +92,11 @@ export function WorkspaceChips(props: Props) {
     return null;
   }
 
-  // The branch list waits for the remotes to be fetched, so a branch pushed
-  // since the last fetch is in it; a failed fetch keeps the list it had.
+  // The branch list opens with what the context already holds - the local
+  // branches and the remote ones as the last fetch left them - while the
+  // remotes are fetched in the background, so a branch pushed since the last
+  // fetch joins the list when the fetch answers; a failed fetch keeps the
+  // list it had and the menu says so.
   const startBranchRefresh = () => {
     const refresh = props.onRefreshBranches;
     if (!refresh) {
@@ -316,15 +320,32 @@ export function WorkspaceChips(props: Props) {
                 ) : null}
                 {menuOpen === "branch" ? (
                   <>
-                    <input
-                      className="mode-menu-filter"
-                      data-testid="workspace-branch-filter"
-                      value={menuFilter}
-                      placeholder={t("workspace.filterBranches")}
-                      aria-label={t("workspace.filterBranches")}
-                      autoFocus
-                      onChange={(event) => setMenuFilter(event.target.value)}
-                    />
+                    <div className="workspace-branch-filter">
+                      <input
+                        className="mode-menu-filter"
+                        data-testid="workspace-branch-filter"
+                        value={menuFilter}
+                        placeholder={t("workspace.filterBranches")}
+                        aria-label={t("workspace.filterBranches")}
+                        autoFocus
+                        onChange={(event) => setMenuFilter(event.target.value)}
+                      />
+                      {refreshing ? (
+                        <span
+                          className="workspace-branch-refreshing"
+                          data-testid="workspace-branch-refreshing"
+                          role="status"
+                        >
+                          <span
+                            className="workspace-branch-spinner"
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">
+                            {t("workspace.fetchingBranches")}
+                          </span>
+                        </span>
+                      ) : null}
+                    </div>
                     {refreshFailure ? (
                       <div
                         className="workspace-branch-warning"
@@ -341,65 +362,60 @@ export function WorkspaceChips(props: Props) {
                       </div>
                     ) : null}
                     <div className="mode-menu-scroll">
-                      {refreshing ? (
-                        <div
-                          className="mode-menu-empty workspace-branch-refreshing"
-                          data-testid="workspace-branch-refreshing"
-                          role="status"
+                      {filteredBranches.map(({ name, remoteOnly }) => (
+                        <button
+                          key={name}
+                          type="button"
+                          role="menuitem"
+                          title={
+                            remoteOnly
+                              ? `${name}\n${t("workspace.remoteOnlyHint")}`
+                              : name
+                          }
+                          className={`mode-item workspace-branch-item${name === ctx.branch ? " is-selected" : ""}`}
+                          data-testid={`workspace-branch-row-${name}`}
+                          onClick={() => {
+                            if (name !== ctx.branch) {
+                              props.onPickBranch(name, props.worktreePref);
+                            }
+                            closeMenu();
+                          }}
                         >
-                          {t("workspace.fetchingBranches")}
-                        </div>
-                      ) : (
-                        <>
-                          {filteredBranches.map(({ name, remoteOnly }) => (
-                            <button
-                              key={name}
-                              type="button"
-                              role="menuitem"
-                              title={
-                                remoteOnly
-                                  ? `${name}\n${t("workspace.remoteOnlyHint")}`
-                                  : name
-                              }
-                              className={`mode-item workspace-branch-item${name === ctx.branch ? " is-selected" : ""}`}
-                              data-testid={`workspace-branch-row-${name}`}
-                              onClick={() => {
-                                if (name !== ctx.branch) {
-                                  props.onPickBranch(name, props.worktreePref);
-                                }
-                                closeMenu();
-                              }}
-                            >
-                              {markSlot ? (
-                                <span className="workspace-branch-mark">
-                                  {remoteOnly ? (
-                                    <RemoteBranchIcon
-                                      label={t("workspace.remoteOnly")}
-                                    />
-                                  ) : null}
-                                </span>
+                          {markSlot ? (
+                            <span className="workspace-branch-mark">
+                              {remoteOnly ? (
+                                <RemoteBranchIcon
+                                  label={t("workspace.remoteOnly")}
+                                />
                               ) : null}
-                              <span className="workspace-branch-name">
-                                {name}
-                              </span>
-                            </button>
-                          ))}
-                          {branches.length === 0 ? (
-                            <div className="mode-menu-empty">
-                              {t("workspace.noBranches")}
-                            </div>
+                            </span>
                           ) : null}
-                          {branches.length > 0 &&
-                          filteredBranches.length === 0 ? (
-                            <div
-                              className="mode-menu-empty"
-                              data-testid="workspace-branch-empty"
-                            >
-                              {t("workspace.noBranchesMatch")}
-                            </div>
-                          ) : null}
-                        </>
-                      )}
+                          <span className="workspace-branch-name">{name}</span>
+                        </button>
+                      ))}
+                      {branches.length === 0 ? (
+                        refreshing ? (
+                          <div
+                            className="mode-menu-empty"
+                            data-testid="workspace-branch-refreshing-empty"
+                            role="status"
+                          >
+                            {t("workspace.fetchingBranches")}
+                          </div>
+                        ) : (
+                          <div className="mode-menu-empty">
+                            {t("workspace.noBranches")}
+                          </div>
+                        )
+                      ) : null}
+                      {branches.length > 0 && filteredBranches.length === 0 ? (
+                        <div
+                          className="mode-menu-empty"
+                          data-testid="workspace-branch-empty"
+                        >
+                          {t("workspace.noBranchesMatch")}
+                        </div>
+                      ) : null}
                     </div>
                   </>
                 ) : null}

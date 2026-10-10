@@ -270,6 +270,9 @@ type State struct {
 	// resumed run takes its live entry over: from then on the copy's persist
 	// hook writes nothing, since the run's state owns the bundle.
 	superseded atomic.Bool
+	// bundleDeferred says the session's bundle waits for its first prompt
+	// (Manager.SetDeferNewSessionBundle): SessionDir is empty until then.
+	bundleDeferred atomic.Bool
 
 	// sessionMCPDecls are the ACP client-supplied MCP declarations this session
 	// dialed, kept so a child session can redial them: they exist nowhere in
@@ -385,6 +388,12 @@ func (s *State) setSessionDir(dir string) {
 	s.mu.Lock()
 	s.SessionDir = dir
 	s.mu.Unlock()
+}
+
+// BundleDeferred reports whether the session's bundle still waits for its
+// first prompt (Manager.SetDeferNewSessionBundle): nothing of it is on disk.
+func (s *State) BundleDeferred() bool {
+	return s.bundleDeferred.Load()
 }
 
 // GetPersistedSessionDir returns the filesystem bundle dir if persistence is enabled.
@@ -1089,6 +1098,30 @@ func ResolveModelID(cfg *config.Config, selected string) string {
 		return normalizeModelID(cfg, sel)
 	}
 	return normalizeModelID(cfg, strings.TrimSpace(cfg.Agent.Model))
+}
+
+// ResolveReasoningLevel is the reasoning level a session running modelID at the
+// selected level calls its model with: the selection when the model offers it,
+// the model's default level otherwise, "" when the model offers none. Like
+// ResolveModelID it is for a caller that names a run's level before the run's
+// session exists (the row of a subagent or a scheduled run), so the row says
+// what EffectiveReasoning then picks.
+func ResolveReasoningLevel(cfg *config.Config, modelID, selected string) string {
+	if cfg == nil {
+		return ""
+	}
+	ent := cfg.FindModelEntry(ResolveModelID(cfg, modelID))
+	if ent == nil {
+		return ""
+	}
+	choices := cfg.ReasoningChoicesFor(ent)
+	if len(choices) == 0 {
+		return ""
+	}
+	if sel := strings.TrimSpace(selected); containsLevel(choices, sel) {
+		return sel
+	}
+	return cfg.DefaultReasoningLevelFor(ent)
 }
 
 func normalizeModelID(cfg *config.Config, id string) string {

@@ -32,6 +32,6 @@ Feature: ACP session integrations
 
   Scenario: A workspace's sessions are listed whatever spelling of its path the client sends
     Given Coddy ACP keeps its sessions on disk
-    And a session was created for the workspace through a symlinked path
+    And a session with a first prompt was created for the workspace through a symlinked path
     When an ACP client lists the sessions of that workspace through its real path
     Then the session list includes the created session

@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import {
+  TREE_GAP,
+  TREE_GLYPH,
+  TREE_ROW_INSET,
+  nameInset,
+  rowInset,
+} from "./treeGeometry";
 
 const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
 
@@ -68,4 +75,33 @@ test("a tab and the line under it are as tall as the filter", () => {
   const line = /border-bottom:\s*1px/.test(rule(".files-tabs-bar")) ? 1 : 0;
   expect(line).toBe(1);
   expect(px(tab, "height") + line).toBe(px(input, "height"));
+});
+
+/** A pixel length a rule declares, by a pattern whose first group is it. */
+function declared(block: string, pattern: RegExp): number {
+  const m = pattern.exec(block);
+  expect(m, String(pattern)).not.toBeNull();
+  return parseFloat(m![1]!);
+}
+
+// A name in the tree starts where the filter's text does, and a row's glyph
+// where the magnifier is: the column reads as one edge from the filter down,
+// in the Files window and the edits window alike. Measured from the sidebar's
+// left edge; nested rows step in by the indent from there.
+test("a name in the tree starts where the filter's text does, its glyph where the magnifier is", () => {
+  const filterLeft = padding(rule(".files-filter"))[3]!;
+  const input = rule(".files-filter input");
+  const textStart =
+    filterLeft + declared(input, /border:\s*([\d.]+)px/) + padding(input)[3]!;
+  const magnifier = declared(rule(".files-filter-icon"), /left:\s*([\d.]+)px/);
+  const treeLeft = padding(rule(".files-tree"))[3]!;
+  const row = rule(".files-tree-row,\n.files-tree-more");
+  // A filter hit has no inline indent: the rule's own padding places it.
+  expect(padding(row)[3]).toBe(TREE_ROW_INSET);
+  expect(declared(row, /gap:\s*([\d.]+)px/)).toBe(TREE_GAP);
+  expect(declared(rule(".files-tree-glyph"), /flex:\s*0 0 ([\d.]+)px/)).toBe(
+    TREE_GLYPH,
+  );
+  expect(treeLeft + rowInset(0)).toBe(magnifier);
+  expect(treeLeft + nameInset(0)).toBe(textStart);
 });

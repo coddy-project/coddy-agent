@@ -124,6 +124,11 @@ func TestManagerSessionNewUsesDefaultCWWhenClientEmpty(t *testing.T) {
 
 func TestReloadConfigForSessionRefreshesSkillsAndManagerConfig(t *testing.T) {
 	dir := t.TempDir()
+	// config.Load resolves Paths.Home from $CODDY_HOME (or ~/.coddy) even for
+	// an explicit config path, and the manager dials <home>/mcp.json at
+	// creation and again at reload: an empty home of the test's own keeps the
+	// operator's servers out of it (issue #458).
+	t.Setenv("CODDY_HOME", t.TempDir())
 	configPath := filepath.Join(dir, "config.yaml")
 	initialSkills := filepath.Join(dir, "initial-skills")
 	if err := os.MkdirAll(initialSkills, 0o755); err != nil {

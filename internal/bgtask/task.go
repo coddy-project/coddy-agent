@@ -77,6 +77,10 @@ type AgentInfo struct {
 	// Model is the model the child runs on, as the runtime resolved it at the
 	// launch: the definition's, the job's or the parent's.
 	Model string `json:"model,omitempty"`
+	// Reasoning is the reasoning level the child calls its model with, as the
+	// runtime resolved it at the launch (the selection the model offers, else
+	// its default level); empty for a model that offers none.
+	Reasoning string `json:"reasoning,omitempty"`
 	// InputTokens and OutputTokens are what the child's model calls have spent so
 	// far: the input every call sent, summed, and the output generated, the call in
 	// flight estimated until the provider reports it. The run reports them as it
