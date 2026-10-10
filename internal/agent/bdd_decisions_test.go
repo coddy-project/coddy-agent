@@ -81,6 +81,12 @@ type bddDecisionsState struct {
 	standHits atomic.Int32
 	oldBase   string
 	hadBase   bool
+	// The scenarios clear NEURALDEEP_API_KEY so the stand's row is the only
+	// credential; close puts the operator's value back for the tests after
+	// the suite (the live probes read it).
+	oldKey   string
+	hadKey   bool
+	keySaved bool
 
 	stop   string
 	runErr error
@@ -113,6 +119,14 @@ func (s *bddDecisionsState) close() {
 		_ = os.Unsetenv(llm.EnvNeuralDeepBaseURL)
 	}
 	s.hadBase = false
+	if s.keySaved {
+		if s.hadKey {
+			_ = os.Setenv("NEURALDEEP_API_KEY", s.oldKey)
+		} else {
+			_ = os.Unsetenv("NEURALDEEP_API_KEY")
+		}
+		s.keySaved = false
+	}
 }
 
 func (s *bddDecisionsState) tempDir() (string, error) {
@@ -160,6 +174,10 @@ func (s *bddDecisionsState) sessionUnderPermissions(mode string) error {
 		Agent:     config.Agent{Model: "fake/model", MaxTurns: 6},
 		Tools:     config.Tools{PermissionMode: permMode},
 		Decisions: config.DecisionsConfig{Enabled: true},
+	}
+	if !s.keySaved {
+		s.oldKey, s.hadKey = os.LookupEnv("NEURALDEEP_API_KEY")
+		s.keySaved = true
 	}
 	_ = os.Unsetenv("NEURALDEEP_API_KEY")
 	return nil

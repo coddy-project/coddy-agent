@@ -202,14 +202,18 @@ func FetchNeuralDeepDecision(ctx context.Context, apiBase, key, model, command, 
 }
 
 // neuralDeepDecodeDecision reads the safety answer out of a decisions
-// response. The published examples render as images, so the decoder accepts
-// the shapes the hub's own libraries produce: an answers map keyed by
-// question id whose value is either a plain option name or an object with
-// the chosen option under choice/decision/label and probabilities beside it.
-// When no option is named, the most probable one stands in for it, and a
-// named option the probabilities leave out counts as certain. The usage
-// block's state_truncated flag (or the same flag at the top level) says the
-// model read only the head of the state.
+// response. The decoder accepts the shapes the hub's own libraries produce:
+// an answers map keyed by question id whose value is either a plain option
+// name or an object with the chosen option under choice/decision/label and
+// probabilities beside it. Option names are compared trimmed and in lower
+// case. The unsafe probability is the answer's own, else the complement of
+// the safe one, else certainty from the chosen option; when no option is
+// named, the more probable one stands in for it. An answer the question
+// cannot have produced - an option it does not offer, a probability outside
+// 0..1, probabilities of neither option - is an error, never a verdict, so a
+// missing number is not read as "safe". The usage block's state_truncated
+// flag (or the same flag at the top level) says the model read only the head
+// of the state.
 func neuralDeepDecodeDecision(body []byte) (*NeuralDeepDecision, error) {
 	var top struct {
 		Answers        map[string]json.RawMessage `json:"answers"`
@@ -240,37 +244,61 @@ func neuralDeepDecodeDecision(body []byte) (*NeuralDeepDecision, error) {
 			return nil, errors.New("undecodable answer")
 		}
 	}
-	choice := strings.TrimSpace(answer.Choice)
-	if choice == "" {
-		choice = strings.TrimSpace(answer.Decision)
-	}
-	if choice == "" {
-		choice = strings.TrimSpace(answer.Label)
-	}
-	if choice == "" && len(answer.Probabilities) > 0 {
-		best, at := "", 0.0
-		for option, p := range answer.Probabilities {
-			if p > at {
-				best, at = option, p
-			}
-		}
-		choice = best
-	}
-	if choice == "" {
-		return nil, errors.New("answer without a chosen option")
-	}
-	probabilities := make(map[string]float64, len(answer.Probabilities)+1)
+	given := make(map[string]float64, len(answer.Probabilities))
 	for option, p := range answer.Probabilities {
-		probabilities[option] = p
+		if p < 0 || p > 1 {
+			return nil, fmt.Errorf("probability %v of option %q is outside 0..1", p, option)
+		}
+		given[neuralDeepDecisionOption(option)] = p
 	}
-	if _, ok := probabilities[choice]; !ok {
-		probabilities[choice] = 1
+	choice := neuralDeepDecisionOption(answer.Choice)
+	if choice == "" {
+		choice = neuralDeepDecisionOption(answer.Decision)
+	}
+	if choice == "" {
+		choice = neuralDeepDecisionOption(answer.Label)
+	}
+	if choice != "" && choice != NeuralDeepDecisionSafe && choice != NeuralDeepDecisionUnsafe {
+		return nil, fmt.Errorf("answer names the option %q the safety question does not offer", choice)
+	}
+	pSafe, hasSafe := given[NeuralDeepDecisionSafe]
+	pUnsafe, hasUnsafe := given[NeuralDeepDecisionUnsafe]
+	switch {
+	case hasUnsafe && !hasSafe:
+		pSafe = 1 - pUnsafe
+	case hasSafe && !hasUnsafe:
+		pUnsafe = 1 - pSafe
+	case !hasSafe && !hasUnsafe:
+		if len(given) > 0 {
+			return nil, errors.New("answer without a probability of either option")
+		}
+		if choice == "" {
+			return nil, errors.New("answer without a chosen option")
+		}
+		// A bare answer is certain of the option it names.
+		pUnsafe = 0
+		if choice == NeuralDeepDecisionUnsafe {
+			pUnsafe = 1
+		}
+		pSafe = 1 - pUnsafe
+	}
+	if choice == "" {
+		choice = NeuralDeepDecisionSafe
+		if pUnsafe >= pSafe {
+			choice = NeuralDeepDecisionUnsafe
+		}
 	}
 	return &NeuralDeepDecision{
 		Choice:         choice,
-		Probabilities:  probabilities,
+		Probabilities:  map[string]float64{NeuralDeepDecisionSafe: pSafe, NeuralDeepDecisionUnsafe: pUnsafe},
 		StateTruncated: top.StateTruncated || top.Usage.StateTruncated,
 	}, nil
+}
+
+// neuralDeepDecisionOption spells an option name the way the safety question
+// does.
+func neuralDeepDecisionOption(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
 }
 
 // neuralDeepDecisionDetail extracts a short, redacted description from an

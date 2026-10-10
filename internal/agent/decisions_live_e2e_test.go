@@ -7,6 +7,9 @@ package agent
 // for real: the permission gate, the decisions check against the live
 // POST /v1/decisions, the shell, the tool-call store. Only the chat model is
 // scripted, so no chat quota is spent. Skipped without NEURALDEEP_API_KEY.
+// The rm the shell would find is a stub that only leaves a marker: if the
+// check ever let the destructive call through, the probe fails instead of
+// the host running rm -rf /.
 //
 //	NEURALDEEP_API_KEY=... go test ./internal/agent -run TestLiveDecisionsE2E -count=1 -v
 
@@ -16,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -54,6 +58,19 @@ func TestLiveDecisionsE2E(t *testing.T) {
 		t.Skip("NEURALDEEP_API_KEY not set: skipping the live decisions e2e probe")
 	}
 
+	if runtime.GOOS == "windows" {
+		t.Skip("the probe shadows rm with a POSIX shell stub")
+	}
+	// The command text stays rm -rf / for the classifier; the binary it
+	// would start is the stub.
+	stubDir := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "rm-ran")
+	stub := "#!/bin/sh\ntouch '" + marker + "'\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(stubDir, "rm"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
 	cwd := t.TempDir()
 	sessionDir := filepath.Join(t.TempDir(), "bundle")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
@@ -80,6 +97,10 @@ func TestLiveDecisionsE2E(t *testing.T) {
 	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "run the two commands"}})
 	if err != nil {
 		t.Fatalf("turn failed: %v (stop=%q)", err, stop)
+	}
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the destructive command reached the shell (the rm stub ran)")
 	}
 
 	toolResults := map[string]string{}

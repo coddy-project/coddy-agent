@@ -140,6 +140,8 @@ func TestFetchNeuralDeepDecisionAnswerShapes(t *testing.T) {
 		{"label naming", `{"answers":{"safety":{"label":"unsafe"}}}`, "unsafe", 0},
 		{"probabilities only", `{"answers":{"safety":{"probabilities":{"safe":0.9,"unsafe":0.1}}}}`, "safe", 0.9},
 		{"chosen option without its probability", `{"answers":{"safety":{"choice":"unsafe","probabilities":{"safe":0.3}}}}`, "unsafe", 0.3},
+		{"option names in another case", `{"answers":{"safety":{"choice":" Unsafe ","probabilities":{"Safe":0.2,"UNSAFE":0.8}}}}`, "unsafe", 0.2},
+		{"bare option name in another case", `{"answers":{"safety":"Unsafe"}}`, "unsafe", 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -158,6 +160,60 @@ func TestFetchNeuralDeepDecisionAnswerShapes(t *testing.T) {
 			// leaves out counts as certainty, never as zero.
 			if p := dec.Probability(dec.Choice); p <= 0 {
 				t.Fatalf("p(%s) = %v, want the chosen option to carry a probability", dec.Choice, p)
+			}
+		})
+	}
+}
+
+// The unsafe probability follows from what the answer gives: its own value,
+// else the complement of the safe one, else certainty from the choice.
+func TestFetchNeuralDeepDecisionDerivesTheUnsafeProbability(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want float64
+	}{
+		{"given", `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":0.6,"unsafe":0.4}}}}`, 0.4},
+		{"complement of safe", `{"answers":{"safety":{"choice":"unsafe","probabilities":{"safe":0.2}}}}`, 0.8},
+		{"complement without a choice", `{"answers":{"safety":{"probabilities":{"safe":0.1}}}}`, 0.9},
+		{"bare unsafe", `{"answers":{"safety":"unsafe"}}`, 1},
+		{"bare safe", `{"answers":{"safety":"safe"}}`, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDecisionStand(t, "", http.StatusOK, tc.body, nil)
+			dec, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions", "ls", "", d.srv.Client())
+			if err != nil {
+				t.Fatalf("fetch: %v", err)
+			}
+			if p := dec.Probability(NeuralDeepDecisionUnsafe); p < tc.want-1e-9 || p > tc.want+1e-9 {
+				t.Fatalf("p(unsafe) = %v, want %v", p, tc.want)
+			}
+		})
+	}
+}
+
+// An answer the safety question cannot have produced is not a verdict: the
+// caller must not read a missing unsafe probability as zero and run the
+// command.
+func TestFetchNeuralDeepDecisionRejectsAnswersOutsideTheQuestion(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"option the question does not offer", `{"answers":{"safety":{"choice":"dangerous"}}}`},
+		{"bare option the question does not offer", `{"answers":{"safety":"maybe"}}`},
+		{"probability above one", `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":1.5,"unsafe":0.1}}}}`},
+		{"negative probability", `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":0.9,"unsafe":-0.1}}}}`},
+		{"probabilities of other options only", `{"answers":{"safety":{"choice":"safe","probabilities":{"yes":0.9,"no":0.1}}}}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDecisionStand(t, "", http.StatusOK, tc.body, nil)
+			_, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions", "ls", "", d.srv.Client())
+			var de *NeuralDeepDecisionError
+			if !errors.As(err, &de) || de.Kind != NeuralDeepDecisionInvalid {
+				t.Fatalf("err = %v, want an invalid answer", err)
 			}
 		})
 	}

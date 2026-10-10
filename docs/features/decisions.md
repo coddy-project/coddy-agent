@@ -19,6 +19,8 @@ Exactly the calls no human is about to confirm:
 - a command the `tools.command_allowlist` or a session grant auto-approves in `ask` / `accept_edits` mode;
 - a call a `PreToolUse` hook allowed past the prompt.
 
+Only `run_command` is checked. `ssh_run_command`, MCP tools and the file tools are not, even in bypass mode.
+
 A command the operator approved in a permission prompt is **not** checked again - the human in the loop is the stronger verdict, on the fresh call and on the resume of an answered prompt alike. Foreground and background commands (`background: true`) are both checked before the process starts, and subagent children run under the same gate with their inherited configuration.
 
 ## The question and the verdict

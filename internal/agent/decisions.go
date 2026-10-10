@@ -95,8 +95,6 @@ func (a *Agent) gateCommandSafety(ctx context.Context, argsJSON string, env *too
 			if p < threshold {
 				if decision.Choice == llm.NeuralDeepDecisionUnsafe {
 					a.log.Warn("decisions check chose unsafe below the configured threshold; running the command", "p_unsafe", p, "threshold", threshold)
-				} else if decision.Choice != llm.NeuralDeepDecisionSafe {
-					a.log.Warn("decisions check answered an option the safety question does not offer", "option", decision.Choice)
 				}
 				return ""
 			}
@@ -112,8 +110,10 @@ func (a *Agent) gateCommandSafety(ctx context.Context, argsJSON string, env *too
 		// endpoint.
 		switch de.Kind {
 		case llm.NeuralDeepDecisionUnauthorized, llm.NeuralDeepDecisionForbidden:
-			return fmt.Sprintf("%sthe decisions safety check is not available: %s. Provide a NeuralDeep credential (a neuraldeep provider row, NEURALDEEP_API_KEY, or a stored hub sign-in) or switch decisions.enable off",
-				commandNotExecutedPrefix, de.Error())
+			// The row's own variable and sign-in: a row named hub reads
+			// HUB_API_KEY, never NEURALDEEP_API_KEY.
+			return fmt.Sprintf("%sthe decisions safety check is not available: %s. Provide a NeuralDeep credential (api_key on the provider row %s, the %s environment variable, or coddy providers login %s) or switch decisions.enable off",
+				commandNotExecutedPrefix, de.Error(), provider.Name, config.ProviderAPIKeyEnvVarName(provider.Name), provider.Name)
 		case llm.NeuralDeepDecisionRefused, llm.NeuralDeepDecisionInvalid:
 			return fmt.Sprintf("%sthe decisions safety check is not available: %s. Check decisions.model and the NeuralDeep account behind the key (its balance included) or switch decisions.enable off",
 				commandNotExecutedPrefix, de.Error())

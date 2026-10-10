@@ -419,3 +419,40 @@ func TestDecisionsGateRejectsAnUnsafeHeadOfATruncatedCommand(t *testing.T) {
 		t.Fatalf("result = %q, want the unsafe rejection", res)
 	}
 }
+
+func TestDecisionsGateNamesTheCredentialOfItsRow(t *testing.T) {
+	// A neuraldeep row named hub reads HUB_API_KEY, so the refusal must not
+	// send the operator to NEURALDEEP_API_KEY.
+	stand := newDecisionsStand(t)
+	ag, st, dir := newDecisionsAgent(t, true)
+	ag.cfg.Providers = []config.ProviderConfig{{Name: "hub", Type: "neuraldeep"}}
+	t.Setenv("HUB_API_KEY", "")
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+	if !strings.HasPrefix(res, commandNotExecutedPrefix) {
+		t.Fatalf("result = %q, want the not-executed refusal", res)
+	}
+	if !strings.Contains(res, "HUB_API_KEY") || !strings.Contains(res, "coddy providers login hub") {
+		t.Fatalf("result = %q, want the row's variable and sign-in command", res)
+	}
+	if strings.Contains(res, "NEURALDEEP_API_KEY") {
+		t.Fatalf("result = %q, want no variable the row does not read", res)
+	}
+	if stand.calls.Load() != 0 {
+		t.Fatalf("calls = %d, want no request without a credential", stand.calls.Load())
+	}
+}
+
+func TestDecisionsGateStopsOnAnAnswerOutsideTheQuestion(t *testing.T) {
+	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: `{"answers":{"safety":{"choice":"dangerous"}}}`})
+	ag, st, dir := newDecisionsAgent(t, true)
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+	if !strings.HasPrefix(res, commandNotExecutedPrefix) {
+		t.Fatalf("result = %q, want the not-executed refusal", res)
+	}
+	if strings.Contains(res, "coddy-shell-ok") {
+		t.Fatalf("the command ran anyway: %q", res)
+	}
+	if stand.calls.Load() != 1 {
+		t.Fatalf("calls = %d, want one request and no retries", stand.calls.Load())
+	}
+}

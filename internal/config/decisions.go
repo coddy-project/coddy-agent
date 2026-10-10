@@ -74,7 +74,7 @@ func (d *DecisionsConfig) EffectiveModel() string {
 }
 
 // Validate rejects a model the decisions endpoint does not serve and a
-// threshold outside (0, 1].
+// threshold outside 0..1 (0 uses the default).
 func (d *DecisionsConfig) Validate() error {
 	if d.Model != "" && !IsDecisionsModel(d.Model) {
 		return fmt.Errorf("model %q is not a decisions model (one of %s)", d.Model, strings.Join(DecisionsModels, ", "))
