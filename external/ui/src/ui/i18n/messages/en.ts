@@ -1817,6 +1817,8 @@ export const messagesEn: Record<string, string> = {
   "tasks.estimate": "est. {value}",
   "tasks.exitCode": "exit {code}",
   "tasks.overdue": "overdue",
+  "tasks.startedTitle": "Started {time}",
+  "tasks.finishedTitle": "Finished {time}",
   "tasks.status.queued": "Queued",
   "tasks.status.running": "Running",
   "tasks.status.succeeded": "Succeeded",

@@ -71,6 +71,7 @@ Feature: Scheduled jobs run as background subagent tasks
     And a scheduler with a job "review" running the agent "deep"
     When the job "review" is run by hand and the model answers "reviewed"
     Then the run session of "review" runs at reasoning "high"
+    And the run's task of "review" names the model and the reasoning "high"
 
   Scenario: Clearing the history removes finished runs and their transcripts
     Given a scheduler with a job "nightly" whose instruction says "Report the marker"

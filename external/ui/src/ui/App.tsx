@@ -562,6 +562,10 @@ export function App() {
   // applies, so a slow preview of a folder picked earlier never paints over
   // the folder picked after it.
   const workspaceCtxGenRef = useRef(0);
+  // Counts the folder and branch picks. The branch list stays pickable while
+  // its fetch runs, and a pick made meanwhile is newer than the context the
+  // fetch read (refreshWorkspaceBranches).
+  const workspacePickRef = useRef(0);
   const chatWorkspace = chatWorkspacePath(
     sessionId,
     pendingWorkspacePath,
@@ -2007,7 +2011,8 @@ export function App() {
    * Fetches the remotes of the folder the branch list is about - the session's,
    * or before a session exists the folder the new chat picked - and takes the
    * context the server read after the fetch, so a branch pushed since the last
-   * fetch is listed. A branch picked on the start screen stays the choice. The
+   * fetch is listed. A branch picked on the start screen stays the choice, and
+   * a folder or a branch picked while the fetch runs drops its answer. The
    * outcome goes back to the list, which warns when the refresh failed: the
    * context it shows then is the one from before.
    */
@@ -2023,6 +2028,7 @@ export function App() {
       const sid = sessionId.trim();
       const path = sid ? "" : (pendingWorkspaceRef.current?.path ?? "");
       const gen = ++workspaceCtxGenRef.current;
+      const pick = workspacePickRef.current;
       try {
         const res = await fetch(
           "/coddy/workspace/fetch" +
@@ -2041,6 +2047,12 @@ export function App() {
           viewedSessionRef.current.trim() === sid &&
           (sid || (pendingWorkspaceRef.current?.path ?? "") === path);
         if (!stillHere) {
+          return null;
+        }
+        // A folder or a branch picked while the fetch ran is the newer choice:
+        // the context the fetch read may be from before it, and the list it
+        // was for has closed. The next opening fetches again.
+        if (pick !== workspacePickRef.current) {
           return null;
         }
         // A read of the same folder that started while the fetch ran (the
@@ -2126,6 +2138,7 @@ export function App() {
     branch?: string;
     worktree?: boolean;
   }) {
+    workspacePickRef.current += 1;
     const sid = sessionId.trim();
     if (!sid) {
       // No session yet: remember the choice and preview the target context.
@@ -2333,9 +2346,13 @@ export function App() {
     );
   }, [sessionId, chatWorkspace]);
 
+  const schedulerJobsSeqRef = useRef(0);
   const refreshSchedulerJobs = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = !!opts?.silent;
+      // Reads overlap (a run's start and end are a moment apart): only the
+      // latest one sets the list and the rail count.
+      const seq = ++schedulerJobsSeqRef.current;
       if (!silent) {
         setSchedulerListLoading(true);
         setSchedulerListError(null);
@@ -2346,6 +2363,9 @@ export function App() {
       );
       if (!silent) {
         setSchedulerListLoading(false);
+      }
+      if (seq !== schedulerJobsSeqRef.current) {
+        return;
       }
       if (!res.ok) {
         let msg = res.message;
@@ -2763,6 +2783,16 @@ export function App() {
     }
     void refreshSchedulerJobs();
   }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
+
+  // The rail counts the scheduler's running jobs from the start, not from the
+  // first time the Scheduler is opened; the turn events keep the count.
+  const refreshSchedulerJobsRef = useRef(refreshSchedulerJobs);
+  refreshSchedulerJobsRef.current = refreshSchedulerJobs;
+  useEffect(() => {
+    if (schedulerHttpLinked === true) {
+      void refreshSchedulerJobsRef.current({ silent: true });
+    }
+  }, [schedulerHttpLinked]);
 
   useEffect(() => {
     if (!schedulerOpen || schedulerHttpLinked !== true) {
@@ -3311,6 +3341,15 @@ export function App() {
     serverEventsConnected,
   ]);
 
+  // The Scheduler's rail count is the scheduler's runs_active, read with the
+  // job list. A run is a turn like any other, so every turn edge reads it
+  // again, whether or not the Scheduler is open.
+  const noteSchedulerTurn = () => {
+    if (schedulerHttpLinked === true) {
+      void refreshSchedulerJobs({ silent: true });
+    }
+  };
+
   // Handlers are read through a ref so the subscription below can mount once: it must
   // survive re-renders, and the callbacks it needs are redefined on every one of them.
   serverEventHandlersRef.current = {
@@ -3321,6 +3360,7 @@ export function App() {
     sessionGoal: (update: SessionGoalUpdate) => applySessionGoal(update),
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
+      noteSchedulerTurn();
       const key = sid.trim();
       attention.turnStarted(key);
       if (
@@ -3336,6 +3376,7 @@ export function App() {
     },
     turnEnded: (sid: string, at: string) => {
       void loadSessionsList(true);
+      noteSchedulerTurn();
       const key = sid.trim();
       if (!key) return;
       attention.turnEnded(key, at);
@@ -6300,19 +6341,6 @@ export function App() {
     setSchedulerRunsFocus(null);
   }, [schedulerRunsJobId]);
 
-  const stopSchedulerRun = useCallback(
-    async (taskId: string) => {
-      const sid = schedulerRunsSessionId;
-      if (!sid) {
-        return;
-      }
-      await stopBackgroundTask(sid, taskId);
-      await refreshSchedulerRuns({ silent: true });
-      void refreshSchedulerJobs({ silent: true });
-    },
-    [schedulerRunsSessionId, refreshSchedulerRuns, refreshSchedulerJobs],
-  );
-
   const clearSchedulerRuns = useCallback(async () => {
     if (!schedulerRunsJobId) {
       return;
@@ -7505,7 +7533,6 @@ export function App() {
                 loading={schedulerRunsLoading}
                 nowMs={backgroundNowMs}
                 onClose={closeSchedulerRuns}
-                onStopTask={stopSchedulerRun}
                 onClearFinished={() => {
                   void clearSchedulerRuns();
                 }}

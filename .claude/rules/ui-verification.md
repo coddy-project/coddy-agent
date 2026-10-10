@@ -8,9 +8,9 @@ paths:
 
 Before you tell the user that a UI change is complete or merge-ready:
 
-1. Choose one free port (for example **`PORT=5201`**) and start **`npx vite --host localhost --port "$PORT"`** in **`external/ui`**.
-2. Use **Playwright MCP** (or the repo browser tools) to open **`http://localhost:$PORT/layout-scroll-check.html`** and **`http://localhost:$PORT/`** with at least two viewports: **narrow** (for example **390px**) and **wide** (for example **1280px**).
-3. Run **`browser_evaluate`** to compare **`getBoundingClientRect()`** edges for **`.chat-header`**, **`.messages-inner`** first child, and **`.composer-card`** (left and right should match within about **1px** after shared column padding).
+1. Choose one free port (for example **`PORT=5201`**) and start **`CODDY_UI_BACKEND=http://127.0.0.1:<serve port> npx vite --host localhost --port "$PORT"`** in **`external/ui`**, against a **`coddy serve`** that has a session with messages (a session bundle written into a throwaway **`CODDY_HOME`** is enough; no model is called).
+2. Use **Playwright MCP** (or the repo browser tools) to open **`http://localhost:$PORT/`** and that conversation, **`http://localhost:$PORT/#/s/<session id>`** (the edges below exist only on the chat screen), with at least two viewports: **narrow** (for example **390px**) and **wide** (for example **1280px**).
+3. Run **`browser_evaluate`** to compare **`getBoundingClientRect()`** edges for **`.chat-header`**, **`.messages-inner`** first child, and **`.composer-card`** (left and right should match within about **1px** after shared column padding; a user message keeps to the right, so a first row that is one is compared by its right edge).
 4. If anything is off, fix CSS and re-check before reporting done.
 
 This is required for changes to **`external/ui/src/styles.css`**, **`ChatScreen`**, **`Composer`**, or nav layout.

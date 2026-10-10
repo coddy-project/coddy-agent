@@ -16,6 +16,7 @@ import {
   groupTasks,
   sortTasksByStart,
   taskErrorText,
+  taskCardHeading,
   taskMetaLine,
   taskTag,
   taskTitle,
@@ -476,8 +477,14 @@ describe("what a card says about its task", () => {
 
   test("the meta line counts while the task runs and sums it up afterwards", () => {
     const nowMs = Date.parse("2026-09-18T10:01:05Z");
+    const clock = (iso: string) =>
+      new Date(iso).toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    // When it started, then how long it has run against its estimate.
     expect(taskMetaLine(base({ expected_seconds: 300 }), nowMs)).toBe(
-      "1m 5s · est. 5m",
+      `${clock("2026-09-18T10:00:00Z")} · 1m 5s · est. 5m`,
     );
     const done = base({
       running: false,
@@ -488,14 +495,42 @@ describe("what a card says about its task", () => {
     });
     // How it ended is the dot's to say on a folded card, and the foot's on an open
     // one; the exit code is the foot's alone.
-    expect(taskMetaLine(done, nowMs)).toMatch(/^1m 30s · \d{1,2}:\d{2}/);
+    // A finished one when it started, how long it ran and when it ended.
+    expect(taskMetaLine(done, nowMs)).toBe(
+      `${clock("2026-09-18T10:00:00Z")} · 1m 30s · ${clock("2026-09-18T10:01:30Z")}`,
+    );
     expect(taskMetaLine(done, nowMs)).not.toMatch(/Failed|exit/i);
     expect(
       taskMetaLine(
-        base({ running: false, status: "orphaned", elapsed_seconds: 5 }),
+        base({
+          running: false,
+          status: "orphaned",
+          elapsed_seconds: 5,
+          started_at: "",
+        }),
         nowMs,
       ),
     ).toBe("5s");
+  });
+
+  test("a run of another day names its date", () => {
+    const nowMs = Date.parse("2026-09-20T09:00:00Z");
+    const line = taskMetaLine(
+      base({
+        running: false,
+        status: "succeeded",
+        elapsed_seconds: 180,
+        started_at: "2026-09-18T10:00:00Z",
+        finished_at: "2026-09-18T10:03:00Z",
+      }),
+      nowMs,
+    );
+    const day = new Date("2026-09-18T10:00:00Z").toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+    });
+    expect(line.startsWith(day)).toBe(true);
+    expect(line).toContain(" · 3m · ");
   });
 });
 
@@ -544,6 +579,7 @@ describe("agentUsage", () => {
     ).toEqual({
       model: "qwen3.8-27b",
       modelId: "neuraldeep/qwen3.8-27b",
+      reasoning: "",
       tokens: 212_345,
       inputTokens: 198_000,
       outputTokens: 14_345,
@@ -554,14 +590,65 @@ describe("agentUsage", () => {
     expect(agentUsage(agent({ model: "rpa/qwen3.6-35b-a3b" }))).toEqual({
       model: "qwen3.6-35b-a3b",
       modelId: "rpa/qwen3.6-35b-a3b",
+      reasoning: "",
       tokens: 0,
       inputTokens: 0,
       outputTokens: 0,
     });
   });
 
+  test("names the reasoning level the run calls its model with", () => {
+    expect(
+      agentUsage(agent({ model: "neuraldeep/qwen3.8-27b", reasoning: "high" })),
+    ).toMatchObject({ model: "qwen3.8-27b", reasoning: "high" });
+  });
+
   test("a command, and an agent row from a server that reports neither, say nothing", () => {
     expect(agentUsage(task())).toBeNull();
     expect(agentUsage(agent())).toBeNull();
+  });
+});
+
+describe("taskCardHeading", () => {
+  const agentRun = (name: string, label: string) =>
+    task({ kind: "agent", label, agent: { name, session_id: "sess_1" } });
+
+  test("a scheduled run is headed by its job alone; how and when it started is the detail", () => {
+    // The scheduler labels a run "<job> · <trigger> <when>"; the job is the
+    // run's agent name too.
+    const run = agentRun(
+      "weekday-digest",
+      "weekday-digest · cron 2026-10-10 07:09 UTC",
+    );
+    expect(taskCardHeading(run)).toEqual({
+      tag: null,
+      title: "weekday-digest",
+      detail: "cron 2026-10-10 07:09 UTC",
+    });
+    expect(
+      taskCardHeading(agentRun("weekday-digest", "weekday-digest")),
+    ).toEqual({ tag: null, title: "weekday-digest", detail: "" });
+  });
+
+  test("a tag that says something the title does not stays", () => {
+    expect(
+      taskCardHeading(agentRun("explore", "agent explore: map the repository")),
+    ).toEqual({ tag: "explore", title: "map the repository", detail: "" });
+    // A title that only starts with the same word is another text.
+    expect(
+      taskCardHeading(agentRun("explore", "agent explore: explore the docs"))
+        .tag,
+    ).toBe("explore");
+    expect(taskCardHeading(task()).tag).toBe("shell");
+  });
+
+  test('an agent run that names no agent carries no tag: a bare "agent" says nothing', () => {
+    const nameless = task({ kind: "agent", label: "survey the repo" });
+    expect(taskTag(nameless)).toBe("agent");
+    expect(taskCardHeading(nameless)).toEqual({
+      tag: null,
+      title: "survey the repo",
+      detail: "",
+    });
   });
 });

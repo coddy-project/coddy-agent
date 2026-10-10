@@ -1059,6 +1059,7 @@ func cloneAgentInfo(in *AgentInfo) *AgentInfo {
 	out.Name = strings.TrimSpace(out.Name)
 	out.SessionID = strings.TrimSpace(out.SessionID)
 	out.Model = strings.TrimSpace(out.Model)
+	out.Reasoning = strings.TrimSpace(out.Reasoning)
 	return &out
 }
 
