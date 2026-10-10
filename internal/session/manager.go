@@ -1573,7 +1573,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		if opts != nil && opts.SettingsTaken {
 			turnSettings = opts.TurnSettings
 		} else {
-			taken, err := m.TakeSettingsCommands(ctx, params.SessionID, params.Prompt, "command")
+			// A messenger user who is not the bot's admin changes the
+			// settings of the chat's session only.
+			restricted := opts != nil && opts.Restriction != nil
+			taken, err := m.takeSettingsCommands(ctx, params.SessionID, params.Prompt, "command", restricted)
 			if err != nil {
 				return nil, err
 			}

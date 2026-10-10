@@ -1735,6 +1735,43 @@ func TestNewSessionsStartInTheModeChosenLast(t *testing.T) {
 	}
 }
 
+// A messenger user who is not the bot's admin switches the mode of the chat's
+// own session, as before, and nothing else: the mode new sessions start in is
+// the operator's last choice, not that user's.
+func TestARestrictedTurnSwitchesOnlyItsSession(t *testing.T) {
+	cfg := settingsTestConfig()
+	root := t.TempDir()
+	cfg.Paths.Home = filepath.Join(root, "home")
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", store)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restricted := &session.PromptRunOpts{Restriction: &session.TurnRestriction{AskAlways: true}}
+	if _, err := m.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: res.SessionID, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "/agent /permissions bypass"}},
+	}, noopSender{}, restricted); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := m.SessionSettings(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.PermissionMode != "bypass" {
+		t.Fatalf("the chat's session mode = %q, want bypass", snap.PermissionMode)
+	}
+	if got := config.ReadDefaultPermissionMode(cfg.Paths.Home); got != "" {
+		t.Fatalf("a restricted turn moved the default to %q", got)
+	}
+	if got := m.DefaultPermissionMode(); got != "ask" {
+		t.Fatalf("new sessions start in %q, want ask", got)
+	}
+}
+
 // A session saved before sessions kept their mode (no sessionPermissionMode)
 // takes the default when it is opened again, and keeps it from then on.
 func TestASessionWithoutAStoredModeTakesTheDefault(t *testing.T) {
