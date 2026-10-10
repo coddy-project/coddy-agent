@@ -341,6 +341,105 @@ func TestPruneListingNotStaleAfterWriteOutsideItsRoot(t *testing.T) {
 	}
 }
 
+// asstPatch is an apply_patch call: one file and the patch applied to it.
+func asstPatch(id, path, patch string) llm.Message {
+	b, _ := json.Marshal(map[string]interface{}{"path": path, "patch": patch})
+	return llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "apply_patch", InputJSON: string(b)}}}
+}
+
+const (
+	v4aUpdatePatch = "*** Begin Patch\n*** Update File: pkg/a.go\n@@\n-old line\n+new line\n*** End Patch"
+	v4aBarePatch   = "@@ func main\n-old line\n+new line"
+	unifiedUpdate  = "--- a/pkg/a.go\n+++ b/pkg/a.go\n@@ -1,2 +1,2 @@\n context\n-old line\n+new line\n"
+	v4aAddPatch    = "*** Begin Patch\n*** Add File: pkg/new.go\n+package pkg\n*** End Patch"
+	v4aDeletePatch = "*** Begin Patch\n*** Delete File: pkg/old.go\n*** End Patch"
+	v4aMovePatch   = "*** Begin Patch\n*** Update File: pkg/a.go\n*** Move to: pkg/b.go\n@@\n-old line\n+new line\n*** End Patch"
+	unifiedNewFile = "--- /dev/null\n+++ b/pkg/new.go\n@@ -0,0 +1 @@\n+package pkg\n"
+	unifiedRemoval = "--- a/pkg/old.go\n+++ /dev/null\n@@ -1 +0,0 @@\n-package pkg\n"
+)
+
+// A print_tree result is names only, sorted by name, so a write that leaves every
+// name where it was cannot make it wrong: an edit, or an apply_patch that updates
+// a file. A write that can create, remove or move an entry still does. A glob
+// result is sorted by modification time, so any write under its root changes it.
+func TestPruneListingPrintTreeStalenessByKindOfWrite(t *testing.T) {
+	inPkg := filepath.Join("pkg", "a.go")
+	rawPatch := func(input string) llm.Message {
+		return llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "w", Name: "apply_patch", InputJSON: input}}}
+	}
+	cases := []struct {
+		name      string
+		write     llm.Message
+		treeStale bool
+	}{
+		{"edit of a file below the root", asstWrite("w", "edit", inPkg), false},
+		{"edit of a file at the root's top", asstWrite("w", "edit", filepath.Join("pkg", "top.go")), false},
+		{"apply_patch updating a file (Codex format)", asstPatch("w", inPkg, v4aUpdatePatch), false},
+		{"apply_patch updating a file (hunk without headers)", asstPatch("w", inPkg, v4aBarePatch), false},
+		{"apply_patch updating a file (unified diff)", asstPatch("w", inPkg, unifiedUpdate), false},
+		{"apply_patch with the legacy diff key", rawPatch(`{"path":"pkg/a.go","diff":"@@\n-old line\n+new line"}`), false},
+		{"write", asstWrite("w", "write", inPkg), true},
+		{"mkdir", asstWrite("w", "mkdir", filepath.Join("pkg", "sub")), true},
+		{"rmdir", asstWrite("w", "rmdir", filepath.Join("pkg", "sub")), true},
+		{"touch", asstWrite("w", "touch", filepath.Join("pkg", "new.go")), true},
+		{"rm", asstWrite("w", "rm", inPkg), true},
+		{"mv out of the root", asstMove("w", inPkg, "elsewhere.go"), true},
+		{"mv into the root", asstMove("w", "elsewhere.go", filepath.Join("pkg", "in.go")), true},
+		{"apply_patch adding a file", asstPatch("w", filepath.Join("pkg", "new.go"), v4aAddPatch), true},
+		{"apply_patch deleting a file", asstPatch("w", filepath.Join("pkg", "old.go"), v4aDeletePatch), true},
+		{"apply_patch moving a file", asstPatch("w", inPkg, v4aMovePatch), true},
+		{"apply_patch with a unified diff from /dev/null", asstPatch("w", filepath.Join("pkg", "new.go"), unifiedNewFile), true},
+		{"apply_patch with a unified diff to /dev/null", asstPatch("w", filepath.Join("pkg", "old.go"), unifiedRemoval), true},
+		{"apply_patch whose patch is missing", rawPatch(`{"path":"pkg/a.go"}`), true},
+		{"apply_patch whose patch cannot be read", rawPatch(`{"path":"pkg/a.go","patch":123}`), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := historyOf(
+				[]llm.Message{asstStep(tcTree("t", "pkg", 3)), toolResult("t", linesBody("TREE", 40))},
+				[]llm.Message{asstStep(tcGlob("g", "*.go", "pkg")), toolResult("g", linesBody("GLOB", 40))},
+				[]llm.Message{tc.write, toolResult("w", "written")},
+			)
+			// Both listings are inside the window: only the write can evict them.
+			out := pruneToolResults(in, listingOpts(3))
+			if got := evicted(contentByID(out, "t")); got != tc.treeStale {
+				t.Fatalf("print_tree stale = %v, want %v: %q", got, tc.treeStale, contentByID(out, "t"))
+			}
+			if !strings.Contains(contentByID(out, "g"), "is stale after") {
+				t.Fatalf("a glob result is sorted by modification time and any write under its root makes it stale: %q", contentByID(out, "g"))
+			}
+		})
+	}
+}
+
+// The fields a stale listing is judged by are recorded on the write itself.
+func TestWriteStructuralKinds(t *testing.T) {
+	cases := []struct {
+		tool, input string
+		structural  bool
+	}{
+		{"write", `{"path":"a.go"}`, true},
+		{"edit", `{"path":"a.go"}`, false},
+		{"mkdir", `{"path":"d"}`, true},
+		{"rmdir", `{"path":"d"}`, true},
+		{"touch", `{"path":"a.go"}`, true},
+		{"rm", `{"path":"a.go"}`, true},
+		{"mv", `{"src":"a.go","dst":"b.go"}`, true},
+		{"apply_patch", `{"path":"a.go","patch":"@@\n-a\n+b"}`, false},
+		{"apply_patch", `{"path":"a.go","patch":"*** Begin Patch\r\n*** Add File: b.go\r\n+x\r\n*** End Patch"}`, true},
+		{"apply_patch", `{"path":"a.go","patch":"  *** Delete File: b.go"}`, true},
+		{"apply_patch", `{"path":"a.go","patch":"--- a/a.go\t2026-01-01\n+++ /dev/null\t2026-01-01\n@@ -1 +0,0 @@\n-a"}`, true},
+		{"apply_patch", `{"path":"a.go","patch":"   ","diff":""}`, true},
+		{"apply_patch", `{"path":"a.go","patch":["x"]}`, true},
+		{"apply_patch", `{"path":"a.go"}`, true},
+	}
+	for _, tc := range cases {
+		if got := writeStructural(tc.tool, tc.input); got != tc.structural {
+			t.Errorf("writeStructural(%s, %s) = %v, want %v", tc.tool, tc.input, got, tc.structural)
+		}
+	}
+}
+
 // A write that came before the listing cannot have made it stale.
 func TestPruneListingNotStaleAfterEarlierWrite(t *testing.T) {
 	in := historyOf(
