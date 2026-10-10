@@ -651,7 +651,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API about a shell command before it runs without a permission prompt, and reject the ones it classifies as unsafe.",
 			map[string]interface{}{
-				"enable": boolProp("Enabled", "Check every run_command call no prompt covers (bypass mode, the command allowlist, a session grant, a hook's allow) against the decisions endpoint and reject the commands it classifies as unsafe. Commands you approved in a prompt are not checked again."),
+				"enable": boolProp("Enabled", "Check every run_command call no prompt covers (bypass mode, the command allowlist, a session grant, a hook's allow), and every ssh_run_command in bypass mode or allowed by a hook, against the decisions endpoint and reject the commands it classifies as unsafe. Commands you approved in a prompt are not checked again."),
 				"model": map[string]interface{}{
 					"type":        "string",
 					"title":       "Decisions model",

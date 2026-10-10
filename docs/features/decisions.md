@@ -1,6 +1,6 @@
 # Command safety (decisions)
 
-Bypass mode, the command allowlist, a session's "always allow" grant and a hook's `allow` all let a shell command run with no one looking at it. The decisions check puts a second opinion in front of exactly those calls: before the command runs, Coddy asks the NeuralDeep decisions endpoint - the same `sk-` key as the rest of the hub, a separate `POST /v1/decisions` quota - whether the command is safe to run unattended, and a command whose probability of being unsafe reaches the configured threshold is not executed. The refusal comes back as the `run_command` result - `command rejected as unsafe: the decisions model frida-decisions put the unsafe option at 0.99, at or above the threshold 0.50; ask the operator or use a safer alternative` - so the session transcript records it, the tool call card in the web UI shows it with a cancelled status, and the model reads it and can choose another path.
+Bypass mode, the command allowlist, a session's "always allow" grant and a hook's `allow` all let a shell command run with no one looking at it. The decisions check puts a second opinion in front of exactly those calls: before the command runs, Coddy asks the NeuralDeep decisions endpoint - the same `sk-` key as the rest of the hub, a separate `POST /v1/decisions` quota - whether the command is safe to run unattended, and a command whose probability of being unsafe reaches the configured threshold is not executed. The refusal comes back as the result of the call - `command rejected as unsafe: the decisions model frida-decisions put the unsafe option at 0.99, at or above the threshold 0.50; ask the operator or use a safer alternative` - so the session transcript records it, the tool call card in the web UI shows it with a cancelled status, and the model reads it and can choose another path.
 
 The check is off by default. Turn it on in Settings → **Command safety (decisions)** or in `config.yaml`:
 
@@ -17,15 +17,16 @@ Exactly the calls no human is about to confirm:
 
 - `run_command` under **bypass** permissions;
 - a command the `tools.command_allowlist` or a session grant auto-approves in `ask` / `accept_edits` mode;
-- a call a `PreToolUse` hook allowed past the prompt.
+- `ssh_run_command` under **bypass** permissions: its permission prompt is still raised, but every surface answers it by itself in that mode, so nobody sees the remote command;
+- a `run_command` or `ssh_run_command` call a `PreToolUse` hook allowed past the prompt.
 
-Only `run_command` is checked. `ssh_run_command`, MCP tools and the file tools are not, even in bypass mode.
+These two tools are the ones checked. MCP tools and the file tools are not, even in bypass mode.
 
 A command the operator approved in a permission prompt is **not** checked again - the human in the loop is the stronger verdict, on the fresh call and on the resume of an answered prompt alike. Foreground and background commands (`background: true`) are both checked before the process starts, and subagent children run under the same gate with their inherited configuration.
 
 ## The question and the verdict
 
-The state sent to the endpoint is the command text plus the working directory it would run in; the question is a single `choice` with two described options - `safe` (a routine development command: reads, builds, tests, installs, changes only rebuildable project files) and `unsafe` (broad or forced deletion, disk wipes, database drops, force-push, piping a download into a shell, anything irreversible beyond the project). The endpoint answers with the chosen option and the probability of each; Coddy rejects the command when the probability of `unsafe` reaches `decisions.threshold` (default 0.5, the point where the two options swap) and runs it below that - the threshold is the operator's dial, not the endpoint's own pick, so an answer that chose unsafe at 0.7 still runs under a threshold of 0.9, and a borderline 0.6 is rejected under the default. A bare answer without probabilities counts as certainty. `rm -rf /` scores around p(unsafe)=0.99 on both models; a plain `echo` or `go test ./...` is classified safe.
+The state sent to the endpoint is the command text plus where it would run - the working directory of a `run_command`, the `user@host` (and a port other than 22) of an `ssh_run_command`; the question is a single `choice` with two described options - `safe` (a routine development command: reads, builds, tests, installs, changes only rebuildable project files) and `unsafe` (broad or forced deletion, disk wipes, database drops, force-push, piping a download into a shell, anything irreversible beyond the project). The endpoint answers with the chosen option and the probability of each; Coddy rejects the command when the probability of `unsafe` reaches `decisions.threshold` (default 0.5, the point where the two options swap) and runs it below that - the threshold is the operator's dial, not the endpoint's own pick, so an answer that chose unsafe at 0.7 still runs under a threshold of 0.9, and a borderline 0.6 is rejected under the default. A bare answer without probabilities counts as certainty. `rm -rf /` scores around p(unsafe)=0.99 on both models; a plain `echo` or `go test ./...` is classified safe.
 
 ## The model
 
@@ -49,7 +50,7 @@ The check resolves its credential exactly like chat requests through the neurald
 A safety net that is on must not fail silently open:
 
 - **no credential, a rejected key (401/403)** - the command is not executed, with the reason and the fix in the result: provide a credential or switch `decisions.enable` off;
-- **a request the hub refuses (an empty wallet, 402; a model it does not serve, 404; any other 4xx) or an undecodable answer** - the command is not executed at once, with the hub's own reason in the result; no retry can change that answer, so none is made;
+- **a request the hub refuses (an empty wallet, 402; a model it does not serve, 404; any other 4xx but 408 and 429) or an answer that is not a verdict** - the command is not executed at once, with the hub's own reason in the result; no retry can change that answer, so none is made;
 - **a command too long for the model to read whole** - the command is not executed (see [The model](#the-model));
 - **rate limit (429) and transient failures (network, a timeout including 408, 5xx)** - the call is retried inside a two-minute window, honouring the endpoint's `Retry-After`; a window that runs out also stops the command, with the last error in the result.
 

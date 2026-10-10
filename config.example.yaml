@@ -552,12 +552,14 @@ tools:
 #   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
 
 # Command safety decisions: before a shell command runs without asking you (bypass
-# mode, the command allowlist, a session grant or a hook's allow), ask the NeuralDeep
-# decisions API whether it is safe, and reject the ones it classifies as unsafe - the
-# rejection comes back as the run_command result, so the session records it. Commands
-# you approved in a permission prompt are not checked again. Needs a NeuralDeep
-# credential (providers[].api_key of type neuraldeep, api_key_command,
-# NEURALDEEP_API_KEY, or a stored hub sign-in). Every checked command draws on
+# mode, the command allowlist, a session grant or a hook's allow; ssh_run_command in
+# bypass mode or allowed by a hook), ask the NeuralDeep decisions API whether it is
+# safe, and reject the ones it classifies as unsafe - the rejection comes back as the
+# result of the call, so the session records it. Commands you approved in a
+# permission prompt are not checked again. Needs a NeuralDeep credential on the first
+# provider row of type neuraldeep: its api_key or api_key_command, its NAME_API_KEY
+# variable (NEURALDEEP_API_KEY for a row named neuraldeep or without a row), or its
+# stored hub sign-in. Every checked command draws on
 # the decisions quota - 1 unit on frida-decisions, 4 on clef-flash - and adds
 # ~20 ms (frida-decisions) or ~150 ms (clef-flash); an endpoint that stays
 # unreachable or rate-limited past the retry window also stops the command, and

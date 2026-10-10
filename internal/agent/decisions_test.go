@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -31,6 +33,8 @@ type decisionsStand struct {
 	calls atomic.Int32
 	mu    sync.Mutex
 	queue []decisionResponse
+	// lastState is the state of the last question asked.
+	lastState atomic.Value
 }
 
 func newDecisionsStand(t *testing.T, responses ...decisionResponse) *decisionsStand {
@@ -41,6 +45,12 @@ func newDecisionsStand(t *testing.T, responses ...decisionResponse) *decisionsSt
 		if r.URL.Path != "/decisions" {
 			http.NotFound(w, r)
 			return
+		}
+		var asked struct {
+			State string `json:"state"`
+		}
+		if json.NewDecoder(r.Body).Decode(&asked) == nil {
+			d.lastState.Store(asked.State)
 		}
 		d.mu.Lock()
 		resp := decisionResponse{status: http.StatusOK, body: `{"answers":{"safety":{"choice":"safe"}}}`}
@@ -442,6 +452,36 @@ func TestDecisionsGateNamesTheCredentialOfItsRow(t *testing.T) {
 	}
 }
 
+func TestDecisionsGateRefusalsNameTheirOwnRemedy(t *testing.T) {
+	// An answer that is not a verdict is not an account problem.
+	newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: `<html>proxy error</html>`})
+	ag, st, dir := newDecisionsAgent(t, true)
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+	if !strings.HasPrefix(res, commandNotExecutedPrefix) || strings.Contains(res, "balance") {
+		t.Fatalf("result = %q, want the not-executed refusal without the account remedy", res)
+	}
+
+	// clef-flash is offered for a long command only when it is not the model
+	// that already failed to read it.
+	newDecisionsStand(t, decisionResponse{status: http.StatusOK,
+		body: `{"answers":{"safety":{"choice":"safe"}},"usage":{"state_truncated":true}}`})
+	ag2, st2, dir2 := newDecisionsAgent(t, true)
+	ag2.cfg.Decisions.Model = config.DecisionsModelClef
+	res2 := runCommandToolCall(t, ag2, st2, dir2, "echo coddy-shell-ok", false)
+	if !strings.Contains(res2, "too long") || strings.Contains(res2, "set decisions.model") {
+		t.Fatalf("result = %q, want the length reason without pointing at the model in use", res2)
+	}
+
+	// The credential hint names every source the row reads.
+	newDecisionsStand(t)
+	ag3, st3, dir3 := newDecisionsAgent(t, true)
+	ag3.cfg.Providers = nil
+	res3 := runCommandToolCall(t, ag3, st3, dir3, "echo coddy-shell-ok", false)
+	if !strings.Contains(res3, "api_key_command") {
+		t.Fatalf("result = %q, want api_key_command among the credential sources", res3)
+	}
+}
+
 func TestDecisionsGateStopsOnAnAnswerOutsideTheQuestion(t *testing.T) {
 	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: `{"answers":{"safety":{"choice":"dangerous"}}}`})
 	ag, st, dir := newDecisionsAgent(t, true)
@@ -454,5 +494,109 @@ func TestDecisionsGateStopsOnAnAnswerOutsideTheQuestion(t *testing.T) {
 	}
 	if stand.calls.Load() != 1 {
 		t.Fatalf("calls = %d, want one request and no retries", stand.calls.Load())
+	}
+}
+
+// decisionsPromptSender records the permission prompts a call raises and
+// refuses them, so a remote command that gets past the check never dials out.
+type decisionsPromptSender struct {
+	todoSnapshotSender
+	prompts []acp.PermissionRequestParams
+}
+
+func (s *decisionsPromptSender) RequestPermission(_ context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	s.prompts = append(s.prompts, p)
+	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+}
+
+func sshToolCall(t *testing.T, ag *Agent, st *session.State, dir, host, command string, skipPermission bool) string {
+	t.Helper()
+	args, _ := json.Marshal(map[string]any{"host": host, "command": command, "port": 1})
+	res, err := ag.executeToolCall(
+		context.Background(),
+		llm.ToolCall{ID: "call_decisions_ssh", Name: "ssh_run_command", InputJSON: string(args)},
+		ag.buildToolEnv(string(session.ModeAgent), dir),
+		string(session.ModeAgent),
+		st.ID,
+		skipPermission,
+	)
+	if err != nil {
+		// A call that got past the check and its prompt dials port 1 and
+		// fails there; the error is the result as far as the check goes.
+		return "error: " + err.Error()
+	}
+	return res
+}
+
+func newDecisionsSSHAgent(t *testing.T, mode string) (*Agent, *session.State, string, *decisionsPromptSender) {
+	t.Helper()
+	ag, st, dir := newDecisionsAgent(t, true)
+	sender := &decisionsPromptSender{}
+	ag = NewAgent(ag.cfg, st, sender, nil)
+	ag.cfg.Tools.PermissionMode = mode
+	return ag, st, dir, sender
+}
+
+func TestDecisionsGateRejectsAnUnsafeRemoteCommandInBypassMode(t *testing.T) {
+	// In bypass mode a surface answers the ssh_run_command prompt by itself,
+	// so nobody would look at the command: the check stands in for them.
+	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+	ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeBypass)
+	res := sshToolCall(t, ag, st, dir, "deploy@203.0.113.7", "rm -rf /var/lib/postgresql", false)
+	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
+		t.Fatalf("result = %q, want the unsafe rejection", res)
+	}
+	if stand.calls.Load() != 1 {
+		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
+	}
+	state, _ := stand.lastState.Load().(string)
+	if !strings.Contains(state, "rm -rf /var/lib/postgresql") || !strings.Contains(state, "deploy@203.0.113.7") {
+		t.Fatalf("state = %q, want the remote command and its host", state)
+	}
+	if len(sender.prompts) != 0 {
+		t.Fatalf("prompts = %d, want the rejection before any prompt", len(sender.prompts))
+	}
+	meta, err := session.ReadToolCallMeta(dir, "call_decisions_ssh")
+	if err != nil || meta.Status != "cancelled" {
+		t.Fatalf("meta = %+v err = %v, want status cancelled", meta, err)
+	}
+}
+
+func TestDecisionsGateLetsASafeRemoteCommandOnToItsPrompt(t *testing.T) {
+	stand := newDecisionsStand(t)
+	ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeBypass)
+	res := sshToolCall(t, ag, st, dir, "deploy@203.0.113.7", "uptime", false)
+	if strings.HasPrefix(res, commandRejectedAsUnsafePrefix) || strings.HasPrefix(res, commandNotExecutedPrefix) {
+		t.Fatalf("result = %q, want the safe command past the check", res)
+	}
+	if stand.calls.Load() != 1 {
+		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
+	}
+	if len(sender.prompts) != 1 {
+		t.Fatalf("prompts = %d, want the call to go on to its prompt", len(sender.prompts))
+	}
+}
+
+func TestDecisionsGateLeavesARemoteCommandToTheHumanInAskMode(t *testing.T) {
+	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+	ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeAsk)
+	sshToolCall(t, ag, st, dir, "deploy@203.0.113.7", "rm -rf /var/lib/postgresql", false)
+	if stand.calls.Load() != 0 {
+		t.Fatalf("calls = %d, want no decision request when a human is asked", stand.calls.Load())
+	}
+	if len(sender.prompts) != 1 {
+		t.Fatalf("prompts = %d, want the human prompt", len(sender.prompts))
+	}
+}
+
+func TestDecisionsGateSkipsARemoteCommandTheOperatorApproved(t *testing.T) {
+	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+	ag, st, dir, _ := newDecisionsSSHAgent(t, config.PermModeBypass)
+	res := sshToolCall(t, ag, st, dir, "deploy@127.0.0.1", "uptime", true)
+	if strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
+		t.Fatalf("result = %q, want no check on an approved call", res)
+	}
+	if stand.calls.Load() != 0 {
+		t.Fatalf("calls = %d, want no decision request after a human approval", stand.calls.Load())
 	}
 }

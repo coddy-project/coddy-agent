@@ -12,12 +12,14 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
-// The decisions safety check: a run_command call that no permission prompt
-// covers (bypass mode, the command allowlist, a session grant or a hook's
-// allow) is asked about on the NeuralDeep decisions endpoint before it runs,
-// and a command the endpoint classifies as unsafe is rejected - the refusal
-// travels as the call's tool result, so both the model and the session
-// transcript see why the command did not run. The transport lives in
+// The decisions safety check: a shell command no human is about to confirm -
+// a run_command that bypass mode, the command allowlist, a session grant or a
+// hook's allow lets through without a prompt, an ssh_run_command whose prompt
+// a surface answers by itself in bypass mode or that a hook allowed past it -
+// is asked about on the NeuralDeep decisions endpoint before it runs, and a
+// command the endpoint classifies as unsafe is rejected - the refusal travels
+// as the call's tool result, so both the model and the session transcript see
+// why the command did not run. The transport lives in
 // internal/llm/decisions.go.
 
 const (
@@ -62,16 +64,11 @@ func (a *Agent) effectiveDecisionsRetryBackoff() time.Duration {
 	return decisionsRetryBackoffDefault
 }
 
-// gateCommandSafety asks the decisions endpoint about a run_command call that
-// is about to run with no human in the loop. It returns "" when the command
-// may run, and the refusal text (already fit for the tool result and the
+// gateCommandSafety asks the decisions endpoint about a shell command that is
+// about to run with no human in the loop. It returns "" when the command may
+// run, and the refusal text (already fit for the tool result and the
 // transcript) when it must not.
-func (a *Agent) gateCommandSafety(ctx context.Context, argsJSON string, env *tooling.Env) string {
-	command, cwd := runCommandAndCWD(argsJSON, env)
-	if command == "" {
-		// Nothing to judge; the tool itself will reject the broken call.
-		return ""
-	}
+func (a *Agent) gateCommandSafety(ctx context.Context, subject llm.NeuralDeepDecisionSubject) string {
 	provider := decisionsProvider(a.cfg)
 	model := a.cfg.Decisions.EffectiveModel()
 	threshold := a.cfg.Decisions.EffectiveThreshold()
@@ -79,7 +76,7 @@ func (a *Agent) gateCommandSafety(ctx context.Context, argsJSON string, env *too
 	deadline := time.Now().Add(a.effectiveDecisionsRetryWindow())
 	backoff := a.effectiveDecisionsRetryBackoff()
 	for {
-		decision, err := llm.NeuralDeepDecisionForProvider(ctx, provider, authPath, model, command, cwd)
+		decision, err := llm.NeuralDeepDecisionForProvider(ctx, provider, authPath, model, subject)
 		if err == nil {
 			// The verdict is the probability of the unsafe option, not the
 			// endpoint's own pick: the threshold is the operator's dial, so a
@@ -89,8 +86,12 @@ func (a *Agent) gateCommandSafety(ctx context.Context, argsJSON string, env *too
 				// The hub cut the state: the verdict covers the head of the
 				// command, and the part the model never read may be the one
 				// that does the damage. An unsafe head is still rejected below.
-				return fmt.Sprintf("%sthe command is too long for the decisions model %s to read whole, so its verdict would not cover all of it. Split it into shorter commands, write files with the file tools instead of a heredoc, or set decisions.model to %s, which reads longer commands",
-					commandNotExecutedPrefix, model, config.DecisionsModelClef)
+				longer := ""
+				if model != config.DecisionsModelClef {
+					longer = fmt.Sprintf(", or set decisions.model to %s, which reads longer commands", config.DecisionsModelClef)
+				}
+				return fmt.Sprintf("%sthe command is too long for the decisions model %s to read whole, so its verdict would not cover all of it. Split it into shorter commands or write files with the file tools instead of a heredoc%s",
+					commandNotExecutedPrefix, model, longer)
 			}
 			if p < threshold {
 				if decision.Choice == llm.NeuralDeepDecisionUnsafe {
@@ -112,10 +113,13 @@ func (a *Agent) gateCommandSafety(ctx context.Context, argsJSON string, env *too
 		case llm.NeuralDeepDecisionUnauthorized, llm.NeuralDeepDecisionForbidden:
 			// The row's own variable and sign-in: a row named hub reads
 			// HUB_API_KEY, never NEURALDEEP_API_KEY.
-			return fmt.Sprintf("%sthe decisions safety check is not available: %s. Provide a NeuralDeep credential (api_key on the provider row %s, the %s environment variable, or coddy providers login %s) or switch decisions.enable off",
+			return fmt.Sprintf("%sthe decisions safety check is not available: %s. Provide a NeuralDeep credential (api_key or api_key_command on the provider row %s, the %s environment variable, or coddy providers login %s) or switch decisions.enable off",
 				commandNotExecutedPrefix, de.Error(), provider.Name, config.ProviderAPIKeyEnvVarName(provider.Name), provider.Name)
-		case llm.NeuralDeepDecisionRefused, llm.NeuralDeepDecisionInvalid:
+		case llm.NeuralDeepDecisionRefused:
 			return fmt.Sprintf("%sthe decisions safety check is not available: %s. Check decisions.model and the NeuralDeep account behind the key (its balance included) or switch decisions.enable off",
+				commandNotExecutedPrefix, de.Error())
+		case llm.NeuralDeepDecisionInvalid:
+			return fmt.Sprintf("%sthe decisions endpoint returned no usable safety verdict: %s. Check what answers on the provider row's api_base and proxy, try again later, or switch decisions.enable off",
 				commandNotExecutedPrefix, de.Error())
 		}
 		wait := de.RetryAfter
@@ -145,6 +149,40 @@ func decisionsProvider(cfg *config.Config) config.ProviderConfig {
 		}
 	}
 	return config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"}
+}
+
+// commandSafetySubject is what the check asks about for one tool call: the
+// command and the working directory of a run_command, the command and the
+// host of an ssh_run_command. Any other tool, or a call whose command cannot
+// be read (the tool itself rejects that one), has nothing to judge.
+func commandSafetySubject(toolName, argsJSON string, env *tooling.Env) (llm.NeuralDeepDecisionSubject, bool) {
+	switch toolName {
+	case "run_command":
+		command, cwd := runCommandAndCWD(argsJSON, env)
+		return llm.NeuralDeepDecisionSubject{Command: command, CWD: cwd}, command != ""
+	case "ssh_run_command":
+		command, host := sshCommandAndHost(argsJSON)
+		return llm.NeuralDeepDecisionSubject{Command: command, Host: host}, command != ""
+	}
+	return llm.NeuralDeepDecisionSubject{}, false
+}
+
+// sshCommandAndHost reads the command an ssh_run_command call runs and the
+// host it reaches, the port named when it is not the default 22.
+func sshCommandAndHost(argsJSON string) (string, string) {
+	var args struct {
+		Host    string `json:"host"`
+		Command string `json:"command"`
+		Port    int    `json:"port"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", ""
+	}
+	host := strings.TrimSpace(args.Host)
+	if host != "" && args.Port > 0 && args.Port != 22 {
+		host = fmt.Sprintf("%s:%d", host, args.Port)
+	}
+	return strings.TrimSpace(args.Command), host
 }
 
 // runCommandAndCWD reads the command and the working directory a run_command

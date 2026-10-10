@@ -86,7 +86,7 @@ const decisionAnswerFixture = `{
 func TestFetchNeuralDeepDecisionSendsTheSafetyQuestion(t *testing.T) {
 	d := newDecisionStand(t, "sk-test-key-0123456789abcdef", http.StatusOK, decisionAnswerFixture, nil)
 	dec, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-test-key-0123456789abcdef",
-		"clef-flash", "rm -rf /", "/home/user/project", d.srv.Client())
+		"clef-flash", NeuralDeepDecisionSubject{Command: "rm -rf /", CWD: "/home/user/project"}, d.srv.Client())
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -127,6 +127,23 @@ func TestFetchNeuralDeepDecisionSendsTheSafetyQuestion(t *testing.T) {
 	}
 }
 
+// A remote command is framed with the host it would reach, not a local cwd.
+func TestFetchNeuralDeepDecisionFramesARemoteCommand(t *testing.T) {
+	d := newDecisionStand(t, "", http.StatusOK, decisionAnswerFixture, nil)
+	_, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions",
+		NeuralDeepDecisionSubject{Command: "systemctl stop postgresql", Host: "deploy@db1:2222"}, d.srv.Client())
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	state, _ := d.bodyMap(t)["state"].(string)
+	if !strings.Contains(state, "command: systemctl stop postgresql") || !strings.Contains(state, "remote host (over SSH): deploy@db1:2222") {
+		t.Fatalf("state = %q, want the command and the remote host", state)
+	}
+	if strings.Contains(state, "cwd:") {
+		t.Fatalf("state = %q, want no local cwd for a remote command", state)
+	}
+}
+
 func TestFetchNeuralDeepDecisionAnswerShapes(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -146,7 +163,7 @@ func TestFetchNeuralDeepDecisionAnswerShapes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d := newDecisionStand(t, "", http.StatusOK, tc.body, nil)
-			dec, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions", "ls", "", d.srv.Client())
+			dec, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions", NeuralDeepDecisionSubject{Command: "ls"}, d.srv.Client())
 			if err != nil {
 				t.Fatalf("fetch: %v", err)
 			}
@@ -157,7 +174,8 @@ func TestFetchNeuralDeepDecisionAnswerShapes(t *testing.T) {
 				t.Fatalf("p(safe) = %v, want %v", p, tc.wantSafeP)
 			}
 			// The chosen option always carries a probability: one the answer
-			// leaves out counts as certainty, never as zero.
+			// leaves out is the complement of the other option, else certain,
+			// never zero.
 			if p := dec.Probability(dec.Choice); p <= 0 {
 				t.Fatalf("p(%s) = %v, want the chosen option to carry a probability", dec.Choice, p)
 			}
@@ -178,11 +196,14 @@ func TestFetchNeuralDeepDecisionDerivesTheUnsafeProbability(t *testing.T) {
 		{"complement without a choice", `{"answers":{"safety":{"probabilities":{"safe":0.1}}}}`, 0.9},
 		{"bare unsafe", `{"answers":{"safety":"unsafe"}}`, 1},
 		{"bare safe", `{"answers":{"safety":"safe"}}`, 0},
+		// Mass the answer leaves to neither option counts against the command.
+		{"neither option probable", `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":0,"unsafe":0}}}}`, 1},
+		{"short of one", `{"answers":{"safety":{"choice":"unsafe","probabilities":{"safe":0.3,"unsafe":0.6}}}}`, 0.7},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d := newDecisionStand(t, "", http.StatusOK, tc.body, nil)
-			dec, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions", "ls", "", d.srv.Client())
+			dec, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions", NeuralDeepDecisionSubject{Command: "ls"}, d.srv.Client())
 			if err != nil {
 				t.Fatalf("fetch: %v", err)
 			}
@@ -206,11 +227,12 @@ func TestFetchNeuralDeepDecisionRejectsAnswersOutsideTheQuestion(t *testing.T) {
 		{"probability above one", `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":1.5,"unsafe":0.1}}}}`},
 		{"negative probability", `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":0.9,"unsafe":-0.1}}}}`},
 		{"probabilities of other options only", `{"answers":{"safety":{"choice":"safe","probabilities":{"yes":0.9,"no":0.1}}}}`},
+		{"one option spelled twice", `{"answers":{"safety":{"choice":"safe","probabilities":{"unsafe":0.99," Unsafe ":0.01,"safe":0.5}}}}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d := newDecisionStand(t, "", http.StatusOK, tc.body, nil)
-			_, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions", "ls", "", d.srv.Client())
+			_, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions", NeuralDeepDecisionSubject{Command: "ls"}, d.srv.Client())
 			var de *NeuralDeepDecisionError
 			if !errors.As(err, &de) || de.Kind != NeuralDeepDecisionInvalid {
 				t.Fatalf("err = %v, want an invalid answer", err)
@@ -236,7 +258,7 @@ func TestFetchNeuralDeepDecisionReportsATruncatedState(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d := newDecisionStand(t, "", http.StatusOK, tc.body, nil)
-			dec, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions", "ls", "", d.srv.Client())
+			dec, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-x", "frida-decisions", NeuralDeepDecisionSubject{Command: "ls"}, d.srv.Client())
 			if err != nil {
 				t.Fatalf("fetch: %v", err)
 			}
@@ -275,7 +297,7 @@ func TestFetchNeuralDeepDecisionErrorKinds(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d := newDecisionStand(t, "", tc.status, tc.body, tc.headers)
-			_, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-secret-value-abcdef0123456789", "frida-decisions", "ls", "", d.srv.Client())
+			_, err := FetchNeuralDeepDecision(context.Background(), d.srv.URL, "sk-secret-value-abcdef0123456789", "frida-decisions", NeuralDeepDecisionSubject{Command: "ls"}, d.srv.Client())
 			var de *NeuralDeepDecisionError
 			if !errors.As(err, &de) {
 				t.Fatalf("err = %v, want *NeuralDeepDecisionError", err)
@@ -297,7 +319,7 @@ func TestFetchNeuralDeepDecisionNetworkFailureIsUnavailable(t *testing.T) {
 	d := newDecisionStand(t, "", http.StatusOK, decisionAnswerFixture, nil)
 	url := d.srv.URL
 	d.srv.Close()
-	_, err := FetchNeuralDeepDecision(context.Background(), url, "sk-x", "frida-decisions", "ls", "", &http.Client{})
+	_, err := FetchNeuralDeepDecision(context.Background(), url, "sk-x", "frida-decisions", NeuralDeepDecisionSubject{Command: "ls"}, &http.Client{})
 	var de *NeuralDeepDecisionError
 	if !errors.As(err, &de) || de.Kind != NeuralDeepDecisionUnavailable {
 		t.Fatalf("err = %v, want unavailable", err)
@@ -317,7 +339,7 @@ func TestNeuralDeepDecisionForProviderResolvesKeyAndBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	prov := config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"}
-	dec, err := NeuralDeepDecisionForProvider(context.Background(), prov, authPath, "frida-decisions", "rm -rf /", "")
+	dec, err := NeuralDeepDecisionForProvider(context.Background(), prov, authPath, "frida-decisions", NeuralDeepDecisionSubject{Command: "rm -rf /"})
 	if err != nil {
 		t.Fatalf("decision: %v", err)
 	}
@@ -327,7 +349,7 @@ func TestNeuralDeepDecisionForProviderResolvesKeyAndBase(t *testing.T) {
 
 	// An explicit api_key wins over the stored login, as it does for requests.
 	explicit := config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep", APIKey: "sk-explicit-key-0123456789abcd"}
-	if _, err := NeuralDeepDecisionForProvider(context.Background(), explicit, authPath, "frida-decisions", "ls", ""); err != nil {
+	if _, err := NeuralDeepDecisionForProvider(context.Background(), explicit, authPath, "frida-decisions", NeuralDeepDecisionSubject{Command: "ls"}); err != nil {
 		t.Fatalf("explicit key: %v", err)
 	}
 	if d.lastAuth.Load() != "Bearer sk-explicit-key-0123456789abcd" {
@@ -340,7 +362,7 @@ func TestNeuralDeepDecisionForProviderWithoutCredential(t *testing.T) {
 	t.Setenv(EnvNeuralDeepBaseURL, d.srv.URL)
 	t.Setenv("NEURALDEEP_API_KEY", "")
 	prov := config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"}
-	_, err := NeuralDeepDecisionForProvider(context.Background(), prov, config.NeuralDeepAuthPath(t.TempDir(), "neuraldeep"), "frida-decisions", "ls", "")
+	_, err := NeuralDeepDecisionForProvider(context.Background(), prov, config.NeuralDeepAuthPath(t.TempDir(), "neuraldeep"), "frida-decisions", NeuralDeepDecisionSubject{Command: "ls"})
 	var de *NeuralDeepDecisionError
 	if !errors.As(err, &de) || de.Kind != NeuralDeepDecisionUnauthorized {
 		t.Fatalf("err = %v, want unauthorized without a request", err)

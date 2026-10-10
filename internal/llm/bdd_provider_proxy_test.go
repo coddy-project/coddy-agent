@@ -466,7 +466,7 @@ func (s *providerProxyState) askNeuralDeepEverything(name string) error {
 		Type:   row.typ,
 		APIKey: "k",
 		Proxy:  row.setting,
-	}, "", "frida-decisions", "go test ./...", "")
+	}, "", "frida-decisions", NeuralDeepDecisionSubject{Command: "go test ./..."})
 	switch {
 	case err != nil:
 		s.fail(fmt.Errorf("%s: command safety decision: %w", name, err))

@@ -124,13 +124,25 @@ func neuralDeepDecisionSafetyQuestion() neuralDeepDecisionQuestionSpec {
 	}
 }
 
+// NeuralDeepDecisionSubject is what the safety question is asked about: a
+// shell command and where it would run - the local working directory of a
+// run_command, or the remote host of an ssh_run_command.
+type NeuralDeepDecisionSubject struct {
+	Command string
+	CWD     string
+	Host    string
+}
+
 // neuralDeepDecisionState frames the command the endpoint judges: the command
 // itself plus where it would run. Nothing here bounds it: the hub cuts a
 // state longer than the model reads and reports the cut, which the decision
 // carries as StateTruncated.
-func neuralDeepDecisionState(command, cwd string) string {
-	state := "command: " + strings.TrimSpace(command)
-	if dir := strings.TrimSpace(cwd); dir != "" {
+func neuralDeepDecisionState(subject NeuralDeepDecisionSubject) string {
+	state := "command: " + strings.TrimSpace(subject.Command)
+	if host := strings.TrimSpace(subject.Host); host != "" {
+		state += "\nruns on the remote host (over SSH): " + host
+	}
+	if dir := strings.TrimSpace(subject.CWD); dir != "" {
 		state += "\ncwd: " + dir
 	}
 	return state
@@ -140,14 +152,14 @@ func neuralDeepDecisionState(command, cwd string) string {
 // safe to run unattended. The HTTP read is bounded by the request timeout on
 // top of ctx. The error is always a *NeuralDeepDecisionError, with the key
 // redacted from any upstream text.
-func FetchNeuralDeepDecision(ctx context.Context, apiBase, key, model, command, cwd string, proxyOrClient any) (*NeuralDeepDecision, error) {
+func FetchNeuralDeepDecision(ctx context.Context, apiBase, key, model string, subject NeuralDeepDecisionSubject, proxyOrClient any) (*NeuralDeepDecision, error) {
 	hc, err := providerHTTPClientArg(proxyOrClient)
 	if err != nil {
 		return nil, &NeuralDeepDecisionError{Kind: NeuralDeepDecisionUnavailable, Detail: redactNeuralDeepSecrets(err.Error())}
 	}
 	payload, err := json.Marshal(neuralDeepDecisionRequest{
 		Model:     strings.TrimSpace(model),
-		State:     neuralDeepDecisionState(command, cwd),
+		State:     neuralDeepDecisionState(subject),
 		Questions: map[string]neuralDeepDecisionQuestionSpec{neuralDeepDecisionQuestionID: neuralDeepDecisionSafetyQuestion()},
 	})
 	if err != nil {
@@ -206,12 +218,14 @@ func FetchNeuralDeepDecision(ctx context.Context, apiBase, key, model, command, 
 // an answers map keyed by question id whose value is either a plain option
 // name or an object with the chosen option under choice/decision/label and
 // probabilities beside it. Option names are compared trimmed and in lower
-// case. The unsafe probability is the answer's own, else the complement of
-// the safe one, else certainty from the chosen option; when no option is
-// named, the more probable one stands in for it. An answer the question
-// cannot have produced - an option it does not offer, a probability outside
-// 0..1, probabilities of neither option - is an error, never a verdict, so a
-// missing number is not read as "safe". The usage block's state_truncated
+// case. The unsafe probability is the larger of the answer's own and the
+// complement of the safe one, so mass the answer leaves to neither option
+// counts against the command; with one of the two missing the other's
+// complement stands in, and a bare answer is certain of the option it names.
+// When no option is named, the more probable one stands in for it. An answer
+// the question cannot have produced - an option it does not offer, one option
+// spelled twice, a probability outside 0..1, probabilities of neither option -
+// is an error, never a verdict, so a missing number is not read as "safe". The usage block's state_truncated
 // flag (or the same flag at the top level) says the model read only the head
 // of the state.
 func neuralDeepDecodeDecision(body []byte) (*NeuralDeepDecision, error) {
@@ -249,7 +263,12 @@ func neuralDeepDecodeDecision(body []byte) (*NeuralDeepDecision, error) {
 		if p < 0 || p > 1 {
 			return nil, fmt.Errorf("probability %v of option %q is outside 0..1", p, option)
 		}
-		given[neuralDeepDecisionOption(option)] = p
+		name := neuralDeepDecisionOption(option)
+		if _, dup := given[name]; dup {
+			// Which spelling wins would depend on map order.
+			return nil, fmt.Errorf("answer gives the option %q twice", name)
+		}
+		given[name] = p
 	}
 	choice := neuralDeepDecisionOption(answer.Choice)
 	if choice == "" {
@@ -264,6 +283,8 @@ func neuralDeepDecodeDecision(body []byte) (*NeuralDeepDecision, error) {
 	pSafe, hasSafe := given[NeuralDeepDecisionSafe]
 	pUnsafe, hasUnsafe := given[NeuralDeepDecisionUnsafe]
 	switch {
+	case hasUnsafe && hasSafe:
+		pUnsafe = max(pUnsafe, 1-pSafe)
 	case hasUnsafe && !hasSafe:
 		pSafe = 1 - pUnsafe
 	case hasSafe && !hasUnsafe:
@@ -326,7 +347,7 @@ func neuralDeepDecisionDetail(body []byte) string {
 // command, or env) wins, the stored hub login fills in, the api_base selects
 // the deployment, providers[].proxy applies. Without any credential it
 // returns an unauthorized error without a request.
-func NeuralDeepDecisionForProvider(ctx context.Context, provider config.ProviderConfig, authPath, model, command, cwd string) (*NeuralDeepDecision, error) {
+func NeuralDeepDecisionForProvider(ctx context.Context, provider config.ProviderConfig, authPath, model string, subject NeuralDeepDecisionSubject) (*NeuralDeepDecision, error) {
 	explicit, helperErr := provider.EffectiveAPIKeyContextErr(ctx)
 	key := neuralDeepEffectiveKey(explicit, authPath)
 	if strings.TrimSpace(key) == "" {
@@ -339,7 +360,7 @@ func NeuralDeepDecisionForProvider(ctx context.Context, provider config.Provider
 	if err != nil {
 		return nil, &NeuralDeepDecisionError{Kind: NeuralDeepDecisionUnavailable, Detail: redactNeuralDeepSecrets(err.Error())}
 	}
-	return FetchNeuralDeepDecision(ctx, neuralDeepAPIBase(provider.APIBase), key, model, command, cwd, hc)
+	return FetchNeuralDeepDecision(ctx, neuralDeepAPIBase(provider.APIBase), key, model, subject, hc)
 }
 
 // IsNeuralDeepDecisionError reports the failure kind of err when it is a

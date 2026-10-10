@@ -38,7 +38,7 @@ func TestLiveNeuralDeepDecisionsClassifiesCommands(t *testing.T) {
 	for _, model := range config.DecisionsModels {
 		t.Run(model, func(t *testing.T) {
 			for _, tc := range cases {
-				decision, err := NeuralDeepDecisionForProvider(context.Background(), provider, "", model, tc.command, "/tmp/project")
+				decision, err := NeuralDeepDecisionForProvider(context.Background(), provider, "", model, NeuralDeepDecisionSubject{Command: tc.command, CWD: "/tmp/project"})
 				if err != nil {
 					t.Fatalf("[%s] %q: %v", model, tc.command, err)
 				}

@@ -640,7 +640,7 @@ export const messagesEn: Record<string, string> = {
     "Model the memory subagent runs on; empty uses the session's model.",
   "settings.schema.decisions.enable.label": "Enabled",
   "settings.schema.decisions.enable.desc":
-    "Ask the NeuralDeep decisions API about every shell command that would run without a permission prompt (bypass mode, the command allowlist, a session grant, a hook's allow) and reject the ones it classifies as unsafe; the rejection lands in the chat as the command's result. Commands you approved in a prompt are not checked again.",
+    "Ask the NeuralDeep decisions API about every shell command, local or over SSH, that would run without a permission prompt (bypass mode, the command allowlist, a session grant, a hook's allow) and reject the ones it classifies as unsafe; the rejection lands in the chat as the command's result. Commands you approved in a prompt are not checked again.",
   "settings.schema.decisions.model.label": "Decisions model",
   "settings.schema.decisions.model.desc":
     "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request, 1 quota unit. clef-flash: up to 8192 tokens, ~150 ms, 4 quota units.",

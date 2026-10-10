@@ -1979,15 +1979,27 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		requiresPerm = true
 	}
 
-	// The decisions safety check guards exactly the calls no human is about
-	// to confirm: a run_command that the mode, the allowlist, a session grant
-	// or a hook let through without a prompt. A call the operator already
-	// approved (skipPermission, the resume of a prompt) is not checked again -
-	// the human in the loop is the stronger verdict.
-	if tc.Name == "run_command" && !requiresPerm && !skipPermission && a.cfg.Decisions.Enabled {
-		if rejection := a.gateCommandSafety(ctx, tc.InputJSON, env); rejection != "" {
-			a.finishToolCall(sessionDir, sessionID, tc, rejection, nil, "cancelled")
-			return rejection, nil
+	// The mode a prompt for this call is asked under: the session's, or ask
+	// when a hook forced the prompt - a sender must not wave that one through.
+	askedUnder := env.PermissionMode
+	if hookRes.ask {
+		askedUnder = config.PermModeAsk
+	}
+
+	// The decisions safety check guards exactly the shell commands no human
+	// is about to confirm: a call with no prompt ahead of it (run_command let
+	// through by the mode, the allowlist, a session grant or a hook), and one
+	// whose prompt is asked under bypass, which every surface answers by
+	// itself (permission.AutoApproves) - an ssh_run_command in bypass mode. A
+	// call the operator already approved (skipPermission, the resume of a
+	// prompt) is not checked again - the human in the loop is the stronger
+	// verdict.
+	if a.cfg.Decisions.Enabled && !skipPermission && (!requiresPerm || askedUnder == config.PermModeBypass) {
+		if subject, ok := commandSafetySubject(tc.Name, tc.InputJSON, env); ok {
+			if rejection := a.gateCommandSafety(ctx, subject); rejection != "" {
+				a.finishToolCall(sessionDir, sessionID, tc, rejection, nil, "cancelled")
+				return rejection, nil
+			}
 		}
 	}
 
@@ -2018,12 +2030,6 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		// Notification hooks learn that a prompt is about to wait for the
 		// operator (a chat ping, a desktop notification); they cannot answer it.
 		a.runNotificationHooks(ctx, mode, hookNotificationPermissionPrompt, tc, promptBody)
-		// The mode this prompt is asked under: the session's, or ask when a
-		// hook forced the prompt - a sender must not wave that one through.
-		askedUnder := env.PermissionMode
-		if hookRes.ask {
-			askedUnder = config.PermModeAsk
-		}
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{

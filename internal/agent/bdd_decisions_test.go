@@ -26,15 +26,20 @@ import (
 )
 
 const (
-	bddDecisionsMarker = "coddy-decisions-ran"
-	bddDecisionsCallID = "call_decisions_bdd"
-	bddDecisionsAnswer = "The command was handled."
+	bddDecisionsSSHHost    = "deploy@203.0.113.7"
+	bddDecisionsSSHCommand = "systemctl stop postgresql"
+	bddDecisionsMarker     = "coddy-decisions-ran"
+	bddDecisionsCallID     = "call_decisions_bdd"
+	bddDecisionsAnswer     = "The command was handled."
 )
 
 // bddDecisionsProvider requests one run_command call on its first turn and
 // answers on the next.
 type bddDecisionsProvider struct {
 	seen [][]llm.Message
+	// remote makes the one tool call an ssh_run_command instead of a
+	// local run_command.
+	remote bool
 }
 
 func (p *bddDecisionsProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
@@ -46,6 +51,10 @@ func (p *bddDecisionsProvider) Stream(_ context.Context, messages []llm.Message,
 	if len(p.seen) == 1 {
 		args, _ := json.Marshal(map[string]string{"command": "echo " + bddDecisionsMarker})
 		tc := llm.ToolCall{ID: bddDecisionsCallID, Name: "run_command", InputJSON: string(args)}
+		if p.remote {
+			args, _ = json.Marshal(map[string]string{"host": bddDecisionsSSHHost, "command": bddDecisionsSSHCommand})
+			tc = llm.ToolCall{ID: bddDecisionsCallID, Name: "ssh_run_command", InputJSON: string(args)}
+		}
 		onChunk(llm.StreamChunk{ToolCall: &tc})
 		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
 	}
@@ -77,10 +86,11 @@ type bddDecisionsState struct {
 	provider *bddDecisionsProvider
 	sender   *bddDecisionsSender
 
-	stand     *httptest.Server
-	standHits atomic.Int32
-	oldBase   string
-	hadBase   bool
+	stand      *httptest.Server
+	standHits  atomic.Int32
+	standState atomic.Value
+	oldBase    string
+	hadBase    bool
 	// The scenarios clear NEURALDEEP_API_KEY so the stand's row is the only
 	// credential; close puts the operator's value back for the tests after
 	// the suite (the live probes read it).
@@ -201,6 +211,12 @@ func (s *bddDecisionsState) endpointClassifies(choice string) error {
 			http.NotFound(w, r)
 			return
 		}
+		var asked struct {
+			State string `json:"state"`
+		}
+		if json.NewDecoder(r.Body).Decode(&asked) == nil {
+			s.standState.Store(asked.State)
+		}
 		_, _ = w.Write([]byte(body))
 	}))
 	s.oldBase, s.hadBase = os.LookupEnv(llm.EnvNeuralDeepBaseURL)
@@ -218,6 +234,25 @@ func (s *bddDecisionsState) endpointWithoutCredential() error {
 		}
 	}
 	s.cfg.Providers = kept
+	return nil
+}
+
+func (s *bddDecisionsState) modelRunsARemoteCommandThenAnswers() error {
+	if err := s.modelRunsTheCommandThenAnswers(); err != nil {
+		return err
+	}
+	s.provider.remote = true
+	return nil
+}
+
+func (s *bddDecisionsState) endpointWasAskedAboutTheRemoteCommand() error {
+	state, _ := s.standState.Load().(string)
+	if !strings.Contains(state, bddDecisionsSSHCommand) || !strings.Contains(state, bddDecisionsSSHHost) {
+		return fmt.Errorf("the decisions endpoint was asked %q, want the remote command and its host", state)
+	}
+	if s.sender.permissions != 0 {
+		return fmt.Errorf("the call reached %d permission prompt(s) after an unsafe verdict", s.sender.permissions)
+	}
 	return nil
 }
 
@@ -349,6 +384,8 @@ func initializeDecisionsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a decisions endpoint that classifies every command as (safe|unsafe)$`, s.endpointClassifies)
 	sc.Step(`^a decisions endpoint without a credential$`, s.endpointWithoutCredential)
 	sc.Step(`^a model that runs the shell command once, then answers$`, s.modelRunsTheCommandThenAnswers)
+	sc.Step(`^a model that runs a remote command over SSH once, then answers$`, s.modelRunsARemoteCommandThenAnswers)
+	sc.Step(`^the decisions endpoint was asked about the command on its remote host$`, s.endpointWasAskedAboutTheRemoteCommand)
 	sc.Step(`^the user asks a question$`, s.userAsksQuestion)
 	sc.Step(`^the tool call is answered with the unsafe rejection$`, s.toolCallAnsweredWithTheUnsafeRejection)
 	sc.Step(`^the tool call is answered with the not-executed refusal$`, s.toolCallAnsweredWithTheNotExecutedRefusal)
