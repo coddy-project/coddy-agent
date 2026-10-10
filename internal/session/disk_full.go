@@ -21,6 +21,10 @@ const diskFullHint = "free space on the volume that holds the sessions folder (<
 // operator has no other sign of it.
 func (m *Manager) logDiskFull(op string, err error, args ...any) {
 	m.log.Error(op+": no space left on device", append(args, "error", err, "hint", diskFullHint)...)
+	// Clients hear of it too (GET /coddy/info, the events stream): the log is
+	// the operator's, a banner is the user's, and the failed save cannot carry
+	// a notice of its own into the transcript it was trying to save.
+	m.NoteStorageFailure()
 }
 
 // logStoreFailure reports a failed write to the session store: a full disk

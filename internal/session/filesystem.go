@@ -64,9 +64,10 @@ type FileStore struct {
 	childScanMu  sync.Mutex
 
 	// testFault stands in for the filesystem in a test (export_test.go): when
-	// it holds a function, EnsureLayout (once the bundle folder exists) and
-	// Save (before it writes) ask it with the operation they are about to
-	// run ("layout" or "save"), and fail with the error it returns. It is how
+	// it holds a function, EnsureLayout and EnsureChildLayout (once the bundle
+	// folder exists) and Save (before it writes) ask it with the operation
+	// they are about to run ("layout" or "save"), and fail with the error it
+	// returns. It is how
 	// a test makes the disk "full" without filling one. Empty everywhere
 	// else, and atomic because a save from a session's own goroutine can
 	// overlap the test that sets it.

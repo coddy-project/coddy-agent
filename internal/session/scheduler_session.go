@@ -113,7 +113,7 @@ func (m *Manager) EnsureSchedulerJobSession(ctx context.Context, spec SchedulerJ
 	}
 	sessionDir, err := m.store.EnsureLayout(id)
 	if err != nil {
-		return nil, fmt.Errorf("scheduler job session layout: %w", err)
+		return nil, fmt.Errorf("scheduler job session layout: %w", m.logIfDiskFull("create scheduler job session", err, "id", id, "job", jobID))
 	}
 	state := &State{
 		ID:             id,
@@ -145,8 +145,9 @@ func (m *Manager) EnsureSchedulerJobSession(ctx context.Context, spec SchedulerJ
 
 	if err := m.store.Save(state); err != nil {
 		m.ForgetLiveSession(id)
-		return nil, fmt.Errorf("initial scheduler job session save: %w", err)
+		return nil, fmt.Errorf("initial scheduler job session save: %w", m.logIfDiskFull("save scheduler job session", err, "id", id, "job", jobID))
 	}
+	m.noteStoreWrite()
 	m.log.Info("scheduler job session created", "id", id, "job", jobID, "cwd", cwd)
 	return state, nil
 }

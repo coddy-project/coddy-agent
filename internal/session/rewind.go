@@ -91,8 +91,9 @@ func (m *Manager) RewindSession(sessionID string, userMessageIndex int) (uint64,
 	// tool-call detail while messages.json still listed the calls would lose
 	// it for turns that survived on disk.
 	if err := m.store.Save(st); err != nil {
-		return 0, fmt.Errorf("persist rewound history: %w", err)
+		return 0, fmt.Errorf("persist rewound history: %w", m.logIfDiskFull("persist rewound history", err, "id", sessionID))
 	}
+	m.noteStoreWrite()
 	// The cut tail is kept as an undo snapshot until a second prompt after
 	// the edited turn (or a rewrite of the kept prefix) retires it; a
 	// snapshot that cannot be written only means the undo is not offered,
