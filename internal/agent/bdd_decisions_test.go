@@ -22,7 +22,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -65,11 +64,9 @@ func (p *bddDecisionsProvider) Stream(_ context.Context, messages []llm.Message,
 
 type bddDecisionsSender struct {
 	resumePermissionSender
-	updates     []interface{}
-	permissions int
-	// alone approves every prompt by itself, the way a messenger bot answers
-	// its chat agent in any mode.
-	alone bool
+	updates []interface{}
+	// prompts are the permission prompts the turn raised.
+	prompts []acp.PermissionRequestParams
 }
 
 func (s *bddDecisionsSender) SendSessionUpdate(_ string, update interface{}) error {
@@ -80,10 +77,7 @@ func (s *bddDecisionsSender) SendSessionUpdate(_ string, update interface{}) err
 // RequestPermission answers the way every surface does: by itself under
 // bypass, and otherwise as the operator approving the prompt.
 func (s *bddDecisionsSender) RequestPermission(ctx context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	s.permissions++
-	if s.alone || permission.AutoApproves(p, "") {
-		return permission.AutoAllow(), nil
-	}
+	s.prompts = append(s.prompts, p)
 	return s.resumePermissionSender.RequestPermission(ctx, p)
 }
 
@@ -233,21 +227,30 @@ func (s *bddDecisionsState) endpointClassifies(choice string) error {
 	return nil
 }
 
-func (s *bddDecisionsState) endpointWithoutCredential() error {
-	// No stand and no neuraldeep row: the client refuses before any request,
-	// which is the no-credential path a machine without a sign-in takes.
-	kept := s.cfg.Providers[:0]
-	for _, p := range s.cfg.Providers {
-		if p.Type != "neuraldeep" {
-			kept = append(kept, p)
-		}
-	}
-	s.cfg.Providers = kept
+
+func (s *bddDecisionsState) commandOnTheAllowlist() error {
+	s.cfg.Tools.CommandAllowlist = []string{"echo"}
 	return nil
 }
 
-func (s *bddDecisionsState) surfaceApprovesByItself() error {
-	s.sender.alone = true
+func (s *bddDecisionsState) nobodyWasAsked() error {
+	if n := len(s.sender.prompts); n != 0 {
+		return fmt.Errorf("%d permission prompt(s) raised, want none", n)
+	}
+	return nil
+}
+
+func (s *bddDecisionsState) operatorAskedAboutADangerousCommand() error {
+	if n := len(s.sender.prompts); n != 1 {
+		return fmt.Errorf("%d permission prompt(s) raised, want one", n)
+	}
+	var body strings.Builder
+	for _, item := range s.sender.prompts[0].ToolCall.Content {
+		body.WriteString(item.Content.Text)
+	}
+	if !strings.Contains(body.String(), "classified the command as dangerous") {
+		return fmt.Errorf("the prompt does not carry the verdict: %q", body.String())
+	}
 	return nil
 }
 
@@ -331,16 +334,6 @@ func (s *bddDecisionsState) toolCallAnsweredWithTheUnsafeRejection() error {
 	return nil
 }
 
-func (s *bddDecisionsState) toolCallAnsweredWithTheNotExecutedRefusal() error {
-	res, err := s.toolResult()
-	if err != nil {
-		return err
-	}
-	if !strings.HasPrefix(res, commandNotExecutedPrefix) {
-		return fmt.Errorf("tool result is not the not-executed refusal: %q", res)
-	}
-	return nil
-}
 
 func (s *bddDecisionsState) commandOutputInSession() error {
 	res, err := s.toolResult()
@@ -393,14 +386,14 @@ func initializeDecisionsScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a coddy session in agent mode under (bypass|ask) permissions with the decisions check enabled$`, s.sessionUnderPermissions)
 	sc.Step(`^a decisions endpoint that classifies every command as (safe|unsafe)$`, s.endpointClassifies)
-	sc.Step(`^a decisions endpoint without a credential$`, s.endpointWithoutCredential)
 	sc.Step(`^a model that runs the shell command once, then answers$`, s.modelRunsTheCommandThenAnswers)
 	sc.Step(`^a model that runs a remote command over SSH once, then answers$`, s.modelRunsARemoteCommandThenAnswers)
-	sc.Step(`^a surface that approves every prompt of the session by itself$`, s.surfaceApprovesByItself)
+	sc.Step(`^the command is on the command allowlist$`, s.commandOnTheAllowlist)
+	sc.Step(`^nobody was asked to approve the command$`, s.nobodyWasAsked)
+	sc.Step(`^the operator was asked to approve the command as one classified dangerous$`, s.operatorAskedAboutADangerousCommand)
 	sc.Step(`^the decisions endpoint was asked about the command on its remote host$`, s.endpointWasAskedAboutTheRemoteCommand)
 	sc.Step(`^the user asks a question$`, s.userAsksQuestion)
 	sc.Step(`^the tool call is answered with the unsafe rejection$`, s.toolCallAnsweredWithTheUnsafeRejection)
-	sc.Step(`^the tool call is answered with the not-executed refusal$`, s.toolCallAnsweredWithTheNotExecutedRefusal)
 	sc.Step(`^the command output is in the session$`, s.commandOutputInSession)
 	sc.Step(`^the command output is not in the session$`, s.commandOutputNotInSession)
 	sc.Step(`^the decisions endpoint was not asked$`, s.decisionsEndpointWasNotAsked)

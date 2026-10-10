@@ -881,12 +881,6 @@ type PermissionResult struct {
 	// reached nobody, say. It is local to this process (the wire shape is
 	// fixed by the protocol) and only ever widens what the model is told.
 	Reason string `json:"-"`
-	// Automatic marks an approval a surface gave by itself, with nobody
-	// looking at the prompt: bypass mode, a messenger bot approving its chat
-	// agent, a plan run. Local to this process like Reason; the decisions
-	// check reads it, since such an approval puts no human in front of a
-	// shell command.
-	Automatic bool `json:"-"`
 }
 
 // UnmarshalJSON accepts both response shapes seen from ACP clients.

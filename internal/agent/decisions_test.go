@@ -11,7 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -87,8 +86,8 @@ func decisionBody(option string, safe, unsafe float64) string {
 	return fmt.Sprintf(`{"answers":{"safety":{"choice":%q,"probabilities":{"safe":%v,"unsafe":%v}}}}`, option, safe, unsafe)
 }
 
-// newDecisionsAgent builds an agent whose run_command calls run in bypass
-// mode against the stand, the way an unattended turn does.
+// newDecisionsAgent builds an agent whose shell commands run in bypass mode
+// against the stand.
 func newDecisionsAgent(t *testing.T, enabled bool) (*Agent, *session.State, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -144,18 +143,15 @@ func quoteJSON(s string) string {
 	return b.String()
 }
 
-func TestDecisionsGateBlocksUnsafeCommandWithoutAPrompt(t *testing.T) {
+func TestDecisionsGateRejectsAnUnsafeCommandInBypassMode(t *testing.T) {
 	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
 	ag, st, dir := newDecisionsAgent(t, true)
 	res := runCommandToolCall(t, ag, st, dir, "rm -rf /", false)
 	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
 		t.Fatalf("result = %q, want the unsafe rejection", res)
 	}
-	if strings.Contains(res, "coddy-shell-ok") {
-		t.Fatalf("the command ran anyway: %q", res)
-	}
-	if !strings.Contains(res, "unsafe option at 0.99") || !strings.Contains(res, "threshold 0.50") {
-		t.Fatalf("result = %q, want the probability and the threshold", res)
+	if !strings.Contains(res, "classified the command as dangerous") || !strings.Contains(res, "unsafe at 0.99") || !strings.Contains(res, "threshold 0.50") {
+		t.Fatalf("result = %q, want the classification, the probability and the threshold", res)
 	}
 	if stand.calls.Load() != 1 {
 		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
@@ -213,17 +209,93 @@ func TestDecisionsGateSkippedWhenTheOperatorApprovedThePrompt(t *testing.T) {
 	}
 }
 
-func TestDecisionsGateChecksAllowlistedCommandInAskMode(t *testing.T) {
-	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
-	ag, st, dir := newDecisionsAgent(t, true)
-	ag.cfg.Tools.PermissionMode = config.PermModeAsk
-	ag.cfg.Tools.CommandAllowlist = []string{"echo"}
-	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
-	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
-		t.Fatalf("result = %q, want the unsafe rejection", res)
+// In ask and accept_edits the check stands in for the prompt: a safe command
+// runs without one.
+func TestDecisionsGateRunsASafeCommandWithoutAPrompt(t *testing.T) {
+	for _, mode := range []string{config.PermModeAsk, config.PermModeAcceptEdits} {
+		t.Run(mode, func(t *testing.T) {
+			stand := newDecisionsStand(t)
+			ag, st, dir, sender := newDecisionsPromptAgent(t, mode)
+			res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+			if !strings.Contains(res, "coddy-shell-ok") {
+				t.Fatalf("result = %q, want the command output", res)
+			}
+			if stand.calls.Load() != 1 || len(sender.prompts) != 0 {
+				t.Fatalf("calls = %d prompts = %d, want one decision request and no prompt", stand.calls.Load(), len(sender.prompts))
+			}
+		})
 	}
-	if stand.calls.Load() != 1 {
-		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
+}
+
+// In ask and accept_edits an unsafe command is asked about, the verdict in
+// the prompt, and runs when the person approves it.
+func TestDecisionsGateAsksAboutAnUnsafeCommand(t *testing.T) {
+	for _, mode := range []string{config.PermModeAsk, config.PermModeAcceptEdits} {
+		t.Run(mode, func(t *testing.T) {
+			stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+			ag, st, dir, sender := newDecisionsPromptAgent(t, mode)
+			sender.human = true
+			res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+			if !strings.Contains(res, "coddy-shell-ok") {
+				t.Fatalf("result = %q, want the command the person approved to run", res)
+			}
+			if stand.calls.Load() != 1 || len(sender.prompts) != 1 {
+				t.Fatalf("calls = %d prompts = %d, want one of each", stand.calls.Load(), len(sender.prompts))
+			}
+			if body := promptText(sender.prompts[0]); !strings.Contains(body, "Safety check:") || !strings.Contains(body, "classified the command as dangerous") {
+				t.Fatalf("prompt = %q, want the verdict in it", body)
+			}
+		})
+	}
+}
+
+// A command the check could not judge is asked about in ask mode, and does
+// not run when the person refuses it.
+func TestDecisionsGateAsksWhenTheCheckGivesNoVerdict(t *testing.T) {
+	stand := newDecisionsStand(t, decisionResponse{status: http.StatusInternalServerError, body: `{"detail":"upstream down"}`})
+	ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeAsk)
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+	if strings.Contains(res, "coddy-shell-ok") {
+		t.Fatalf("the command ran without an approval: %q", res)
+	}
+	if stand.calls.Load() != 1 || len(sender.prompts) != 1 {
+		t.Fatalf("calls = %d prompts = %d, want one of each", stand.calls.Load(), len(sender.prompts))
+	}
+	if body := promptText(sender.prompts[0]); !strings.Contains(body, "gave no verdict") {
+		t.Fatalf("prompt = %q, want the reason in it", body)
+	}
+}
+
+// A command the operator allowed explicitly is trusted: no check, no prompt.
+func TestDecisionsGateTrustsAnAllowlistedCommand(t *testing.T) {
+	for _, mode := range []string{config.PermModeAsk, config.PermModeBypass} {
+		t.Run(mode, func(t *testing.T) {
+			stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+			ag, st, dir, sender := newDecisionsPromptAgent(t, mode)
+			ag.cfg.Tools.CommandAllowlist = []string{"echo"}
+			res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+			if !strings.Contains(res, "coddy-shell-ok") {
+				t.Fatalf("result = %q, want the command output", res)
+			}
+			if stand.calls.Load() != 0 || len(sender.prompts) != 0 {
+				t.Fatalf("calls = %d prompts = %d, want neither", stand.calls.Load(), len(sender.prompts))
+			}
+		})
+	}
+}
+
+// A messenger user who is not the bot's admin runs under a restriction that
+// keeps every prompt: the check must not take one away.
+func TestDecisionsGateKeepsEveryPromptOfARestrictedTurn(t *testing.T) {
+	stand := newDecisionsStand(t)
+	ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeBypass)
+	st.SetTurnRestriction(&session.TurnRestriction{AskAlways: true})
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+	if strings.Contains(res, "coddy-shell-ok") {
+		t.Fatalf("the command ran without an approval: %q", res)
+	}
+	if stand.calls.Load() != 0 || len(sender.prompts) != 1 {
+		t.Fatalf("calls = %d prompts = %d, want the prompt and no decision request", stand.calls.Load(), len(sender.prompts))
 	}
 }
 
@@ -251,35 +323,18 @@ func TestDecisionsGateThresholdRejectsBorderlineCommands(t *testing.T) {
 	}
 }
 
-func TestDecisionsGateRunsAChosenUnsafeBelowTheThreshold(t *testing.T) {
-	// The endpoint picked unsafe, but at p=0.7 a threshold of 0.9 lets it run.
-	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionBody("unsafe", 0.3, 0.7)})
-	ag, st, dir := newDecisionsAgent(t, true)
-	ag.cfg.Decisions.Threshold = 0.9
-	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
-	if strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
-		t.Fatalf("result = %q, want the command to run below the threshold", res)
-	}
-	if !strings.Contains(res, "coddy-shell-ok") {
-		t.Fatalf("result = %q, want the command output", res)
-	}
-	if stand.calls.Load() != 1 {
-		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
-	}
-}
-
 func TestDecisionsGateBlocksWhenNoCredential(t *testing.T) {
 	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
 	ag, st, dir := newDecisionsAgent(t, true)
-	// No provider row, no env key, no stored login: the check is on, so the
-	// command waits for a credential instead of running unchecked.
+	// No provider row, no env key, no stored login: the check is on, so in
+	// bypass the command does not run unchecked.
 	ag.cfg.Providers = nil
 	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
 	if !strings.HasPrefix(res, commandNotExecutedPrefix) {
 		t.Fatalf("result = %q, want the not-executed refusal", res)
 	}
-	if !strings.Contains(res, "decisions safety check is not available") {
-		t.Fatalf("result = %q, want the credential hint", res)
+	if !strings.Contains(res, "gave no verdict") || !strings.Contains(res, "coddy providers login neuraldeep") {
+		t.Fatalf("result = %q, want the reason with the sign-in command", res)
 	}
 	if strings.Contains(res, "coddy-shell-ok") {
 		t.Fatalf("the command ran anyway: %q", res)
@@ -289,43 +344,31 @@ func TestDecisionsGateBlocksWhenNoCredential(t *testing.T) {
 	}
 }
 
-func TestDecisionsGateRetriesThenBlocksWhenTheWindowRunsOut(t *testing.T) {
-	stand := newDecisionsStand(t, decisionResponse{status: http.StatusTooManyRequests, body: `{"detail":"quota exhausted"}`})
-	ag, st, dir := newDecisionsAgent(t, true)
-	ag.decisionsRetryWindow = 150 * time.Millisecond
-	ag.decisionsRetryBackoff = 20 * time.Millisecond
-	start := time.Now()
-	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
-	if !strings.HasPrefix(res, commandNotExecutedPrefix) {
-		t.Fatalf("result = %q, want the not-executed refusal", res)
+// The endpoint is asked once: whatever it fails with, bypass does not run
+// the command and says why.
+func TestDecisionsGateAsksTheEndpointOnce(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		detail string
+	}{
+		{"empty wallet", http.StatusPaymentRequired, "wallet is empty, top up the balance"},
+		{"unknown model", http.StatusNotFound, "model 'nosuch' not found, use frida-decisions or clef-flash"},
+		{"rate limited", http.StatusTooManyRequests, "quota exhausted"},
+		{"server error", http.StatusInternalServerError, "upstream down"},
 	}
-	if !strings.Contains(res, "retry window") || !strings.Contains(res, "rate_limited") {
-		t.Fatalf("result = %q, want the window and the last error", res)
-	}
-	if strings.Contains(res, "coddy-shell-ok") {
-		t.Fatalf("the command ran anyway: %q", res)
-	}
-	if stand.calls.Load() < 2 {
-		t.Fatalf("calls = %d, want retries inside the window", stand.calls.Load())
-	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Fatalf("gate took %s, want it bounded by the retry window", elapsed)
-	}
-}
-
-func TestDecisionsGateRunsTheCommandAfterARateLimitClears(t *testing.T) {
-	stand := newDecisionsStand(t,
-		decisionResponse{status: http.StatusTooManyRequests, body: `{"detail":"slow down"}`},
-		decisionResponse{status: http.StatusOK, body: `{"answers":{"safety":{"choice":"safe"}}}`},
-	)
-	ag, st, dir := newDecisionsAgent(t, true)
-	ag.decisionsRetryBackoff = 10 * time.Millisecond
-	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
-	if !strings.Contains(res, "coddy-shell-ok") {
-		t.Fatalf("result = %q, want the command output after the retry", res)
-	}
-	if stand.calls.Load() != 2 {
-		t.Fatalf("calls = %d, want one refused attempt and one answered", stand.calls.Load())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stand := newDecisionsStand(t, decisionResponse{status: tc.status, body: `{"detail":` + quoteJSON(tc.detail) + `}`})
+			ag, st, dir := newDecisionsAgent(t, true)
+			res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+			if !strings.HasPrefix(res, commandNotExecutedPrefix) || !strings.Contains(res, tc.detail) {
+				t.Fatalf("result = %q, want the not-executed refusal with the hub's reason", res)
+			}
+			if n := stand.calls.Load(); n != 1 {
+				t.Fatalf("calls = %d, want one request and no retries", n)
+			}
+		})
 	}
 }
 
@@ -358,46 +401,6 @@ func TestRunCommandAndCWD(t *testing.T) {
 	}
 }
 
-func TestDecisionsGateStopsAtOnceWhenTheHubRefuses(t *testing.T) {
-	cases := []struct {
-		name   string
-		status int
-		detail string
-	}{
-		{"empty wallet", http.StatusPaymentRequired, "wallet is empty, top up the balance"},
-		{"unknown model", http.StatusNotFound, "model 'nosuch' not found, use frida-decisions or clef-flash"},
-		{"bad request", http.StatusBadRequest, "questions: field required"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			stand := newDecisionsStand(t, decisionResponse{status: tc.status, body: `{"detail":` + quoteJSON(tc.detail) + `}`})
-			ag, st, dir := newDecisionsAgent(t, true)
-			// The default window (two minutes) stays: a refusal no retry can
-			// change must not spend it.
-			start := time.Now()
-			res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
-			if !strings.HasPrefix(res, commandNotExecutedPrefix) {
-				t.Fatalf("result = %q, want the not-executed refusal", res)
-			}
-			if !strings.Contains(res, tc.detail) {
-				t.Fatalf("result = %q, want the hub's reason", res)
-			}
-			if strings.Contains(res, "Provide a NeuralDeep credential") {
-				t.Fatalf("result = %q, want no credential hint for a key the hub accepted", res)
-			}
-			if strings.Contains(res, "coddy-shell-ok") {
-				t.Fatalf("the command ran anyway: %q", res)
-			}
-			if n := stand.calls.Load(); n != 1 {
-				t.Fatalf("calls = %d, want one request and no retries", n)
-			}
-			if elapsed := time.Since(start); elapsed > 10*time.Second {
-				t.Fatalf("gate took %s, want an immediate refusal", elapsed)
-			}
-		})
-	}
-}
-
 func TestDecisionsGateStopsACommandTheModelReadOnlyInPart(t *testing.T) {
 	// The hub cut the state: the safe verdict covers only the head of the
 	// command, and what the model never read may be the dangerous part.
@@ -417,9 +420,15 @@ func TestDecisionsGateStopsACommandTheModelReadOnlyInPart(t *testing.T) {
 	if stand.calls.Load() != 1 {
 		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
 	}
-	meta, err := session.ReadToolCallMeta(dir, "call_decisions_1")
-	if err != nil || meta.Status != "cancelled" {
-		t.Fatalf("meta = %+v err = %v, want status cancelled", meta, err)
+
+	// clef-flash is offered only when it is not the model that failed.
+	newDecisionsStand(t, decisionResponse{status: http.StatusOK,
+		body: `{"answers":{"safety":{"choice":"safe"}},"usage":{"state_truncated":true}}`})
+	ag2, st2, dir2 := newDecisionsAgent(t, true)
+	ag2.cfg.Decisions.Model = config.DecisionsModelClef
+	res2 := runCommandToolCall(t, ag2, st2, dir2, "echo coddy-shell-ok", false)
+	if !strings.Contains(res2, "too long") || strings.Contains(res2, "set decisions.model") {
+		t.Fatalf("result = %q, want the length reason without pointing at the model in use", res2)
 	}
 }
 
@@ -431,58 +440,6 @@ func TestDecisionsGateRejectsAnUnsafeHeadOfATruncatedCommand(t *testing.T) {
 	res := runCommandToolCall(t, ag, st, dir, "rm -rf /", false)
 	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
 		t.Fatalf("result = %q, want the unsafe rejection", res)
-	}
-}
-
-func TestDecisionsGateNamesTheCredentialOfItsRow(t *testing.T) {
-	// A neuraldeep row named hub reads HUB_API_KEY, so the refusal must not
-	// send the operator to NEURALDEEP_API_KEY.
-	stand := newDecisionsStand(t)
-	ag, st, dir := newDecisionsAgent(t, true)
-	ag.cfg.Providers = []config.ProviderConfig{{Name: "hub", Type: "neuraldeep"}}
-	t.Setenv("HUB_API_KEY", "")
-	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
-	if !strings.HasPrefix(res, commandNotExecutedPrefix) {
-		t.Fatalf("result = %q, want the not-executed refusal", res)
-	}
-	if !strings.Contains(res, "HUB_API_KEY") || !strings.Contains(res, "coddy providers login hub") {
-		t.Fatalf("result = %q, want the row's variable and sign-in command", res)
-	}
-	if strings.Contains(res, "NEURALDEEP_API_KEY") {
-		t.Fatalf("result = %q, want no variable the row does not read", res)
-	}
-	if stand.calls.Load() != 0 {
-		t.Fatalf("calls = %d, want no request without a credential", stand.calls.Load())
-	}
-}
-
-func TestDecisionsGateRefusalsNameTheirOwnRemedy(t *testing.T) {
-	// An answer that is not a verdict is not an account problem.
-	newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: `<html>proxy error</html>`})
-	ag, st, dir := newDecisionsAgent(t, true)
-	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
-	if !strings.HasPrefix(res, commandNotExecutedPrefix) || strings.Contains(res, "balance") {
-		t.Fatalf("result = %q, want the not-executed refusal without the account remedy", res)
-	}
-
-	// clef-flash is offered for a long command only when it is not the model
-	// that already failed to read it.
-	newDecisionsStand(t, decisionResponse{status: http.StatusOK,
-		body: `{"answers":{"safety":{"choice":"safe"}},"usage":{"state_truncated":true}}`})
-	ag2, st2, dir2 := newDecisionsAgent(t, true)
-	ag2.cfg.Decisions.Model = config.DecisionsModelClef
-	res2 := runCommandToolCall(t, ag2, st2, dir2, "echo coddy-shell-ok", false)
-	if !strings.Contains(res2, "too long") || strings.Contains(res2, "set decisions.model") {
-		t.Fatalf("result = %q, want the length reason without pointing at the model in use", res2)
-	}
-
-	// The credential hint names every source the row reads.
-	newDecisionsStand(t)
-	ag3, st3, dir3 := newDecisionsAgent(t, true)
-	ag3.cfg.Providers = nil
-	res3 := runCommandToolCall(t, ag3, st3, dir3, "echo coddy-shell-ok", false)
-	if !strings.Contains(res3, "api_key_command") {
-		t.Fatalf("result = %q, want api_key_command among the credential sources", res3)
 	}
 }
 
@@ -502,25 +459,29 @@ func TestDecisionsGateStopsOnAnAnswerOutsideTheQuestion(t *testing.T) {
 }
 
 // decisionsPromptSender records the permission prompts a call raises and
-// answers them the way a surface does: by itself under bypass, like every
-// surface (or always, with alone, like a messenger bot for its chat agent),
-// and otherwise as the human would - approving with human, refusing without.
+// answers them the way a surface does: by itself under bypass, and otherwise
+// as the person would - approving with human, refusing without.
 type decisionsPromptSender struct {
 	todoSnapshotSender
 	prompts []acp.PermissionRequestParams
-	alone   bool
 	human   bool
 }
 
 func (s *decisionsPromptSender) RequestPermission(_ context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	s.prompts = append(s.prompts, p)
-	if s.alone || permission.AutoApproves(p, "") {
-		return permission.AutoAllow(), nil
-	}
-	if s.human {
+	if s.human || permission.AutoApproves(p, "") {
 		return &acp.PermissionResult{Outcome: "selected", OptionID: permission.OptionAllow}, nil
 	}
 	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+}
+
+// promptText is the body a permission prompt shows.
+func promptText(p acp.PermissionRequestParams) string {
+	var b strings.Builder
+	for _, item := range p.ToolCall.Content {
+		b.WriteString(item.Content.Text)
+	}
+	return b.String()
 }
 
 func sshToolCall(t *testing.T, ag *Agent, st *session.State, dir, host, command string, skipPermission bool) string {
@@ -542,7 +503,9 @@ func sshToolCall(t *testing.T, ag *Agent, st *session.State, dir, host, command 
 	return res
 }
 
-func newDecisionsSSHAgent(t *testing.T, mode string) (*Agent, *session.State, string, *decisionsPromptSender) {
+// newDecisionsPromptAgent is newDecisionsAgent under mode with a sender that
+// records the prompts.
+func newDecisionsPromptAgent(t *testing.T, mode string) (*Agent, *session.State, string, *decisionsPromptSender) {
 	t.Helper()
 	ag, st, dir := newDecisionsAgent(t, true)
 	sender := &decisionsPromptSender{}
@@ -552,23 +515,18 @@ func newDecisionsSSHAgent(t *testing.T, mode string) (*Agent, *session.State, st
 }
 
 func TestDecisionsGateRejectsAnUnsafeRemoteCommandInBypassMode(t *testing.T) {
-	// In bypass mode a surface answers the ssh_run_command prompt by itself,
-	// so nobody would look at the command: the check stands in for them.
 	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
-	ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeBypass)
+	ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeBypass)
 	res := sshToolCall(t, ag, st, dir, "deploy@203.0.113.7", "rm -rf /var/lib/postgresql", false)
 	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
 		t.Fatalf("result = %q, want the unsafe rejection", res)
 	}
-	if stand.calls.Load() != 1 {
-		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
+	if stand.calls.Load() != 1 || len(sender.prompts) != 0 {
+		t.Fatalf("calls = %d prompts = %d, want one decision request and no prompt", stand.calls.Load(), len(sender.prompts))
 	}
 	state, _ := stand.lastState.Load().(string)
 	if !strings.Contains(state, "rm -rf /var/lib/postgresql") || !strings.Contains(state, "deploy@203.0.113.7") {
 		t.Fatalf("state = %q, want the remote command and its host", state)
-	}
-	if len(sender.prompts) != 1 {
-		t.Fatalf("prompts = %d, want the one prompt the surface answered by itself", len(sender.prompts))
 	}
 	meta, err := session.ReadToolCallMeta(dir, "call_decisions_ssh")
 	if err != nil || meta.Status != "cancelled" {
@@ -576,38 +534,36 @@ func TestDecisionsGateRejectsAnUnsafeRemoteCommandInBypassMode(t *testing.T) {
 	}
 }
 
-func TestDecisionsGateLetsASafeRemoteCommandRun(t *testing.T) {
-	stand := newDecisionsStand(t)
-	ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeBypass)
-	// Port 1 on the loopback refuses at once: the call gets as far as the
-	// dial, which is what running means here.
-	res := sshToolCall(t, ag, st, dir, "deploy@127.0.0.1", "uptime", false)
-	if strings.HasPrefix(res, commandRejectedAsUnsafePrefix) || strings.HasPrefix(res, commandNotExecutedPrefix) {
-		t.Fatalf("result = %q, want the safe command past the check", res)
-	}
-	if stand.calls.Load() != 1 {
-		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
-	}
-	if len(sender.prompts) != 1 {
-		t.Fatalf("prompts = %d, want the one prompt the surface answered by itself", len(sender.prompts))
+func TestDecisionsGateLetsASafeRemoteCommandRunWithoutAPrompt(t *testing.T) {
+	for _, mode := range []string{config.PermModeBypass, config.PermModeAsk} {
+		t.Run(mode, func(t *testing.T) {
+			stand := newDecisionsStand(t)
+			ag, st, dir, sender := newDecisionsPromptAgent(t, mode)
+			// Port 1 on the loopback refuses at once: the call gets as far as
+			// the dial, which is what running means here.
+			res := sshToolCall(t, ag, st, dir, "deploy@127.0.0.1", "uptime", false)
+			if strings.HasPrefix(res, commandRejectedAsUnsafePrefix) || strings.HasPrefix(res, commandNotExecutedPrefix) {
+				t.Fatalf("result = %q, want the safe command past the check", res)
+			}
+			if stand.calls.Load() != 1 || len(sender.prompts) != 0 {
+				t.Fatalf("calls = %d prompts = %d, want one decision request and no prompt", stand.calls.Load(), len(sender.prompts))
+			}
+		})
 	}
 }
 
-func TestDecisionsGateLeavesARemoteCommandToTheHumanInAskMode(t *testing.T) {
+func TestDecisionsGateAsksAboutAnUnsafeRemoteCommandInAskMode(t *testing.T) {
 	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
-	ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeAsk)
+	ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeAsk)
 	sshToolCall(t, ag, st, dir, "deploy@203.0.113.7", "rm -rf /var/lib/postgresql", false)
-	if stand.calls.Load() != 0 {
-		t.Fatalf("calls = %d, want no decision request when a human is asked", stand.calls.Load())
-	}
-	if len(sender.prompts) != 1 {
-		t.Fatalf("prompts = %d, want the human prompt", len(sender.prompts))
+	if stand.calls.Load() != 1 || len(sender.prompts) != 1 {
+		t.Fatalf("calls = %d prompts = %d, want one of each", stand.calls.Load(), len(sender.prompts))
 	}
 }
 
 func TestDecisionsGateSkipsARemoteCommandTheOperatorApproved(t *testing.T) {
 	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
-	ag, st, dir, _ := newDecisionsSSHAgent(t, config.PermModeBypass)
+	ag, st, dir, _ := newDecisionsPromptAgent(t, config.PermModeBypass)
 	res := sshToolCall(t, ag, st, dir, "deploy@127.0.0.1", "uptime", true)
 	if strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
 		t.Fatalf("result = %q, want no check on an approved call", res)
@@ -617,62 +573,33 @@ func TestDecisionsGateSkipsARemoteCommandTheOperatorApproved(t *testing.T) {
 	}
 }
 
-func TestDecisionsGateChecksWhatASurfaceApprovesByItself(t *testing.T) {
-	// A messenger bot approves its chat agent's prompts in any mode: under
-	// ask the prompt is raised, but nobody sees it, so the check runs.
-	for _, tc := range []struct{ name, tool string }{{"local", "run_command"}, {"remote", "ssh_run_command"}} {
-		t.Run(tc.name, func(t *testing.T) {
+// A PreToolUse hook's answer is the operator's policy: allow is trusted and
+// not checked, ask keeps its prompt without a check.
+func TestDecisionsGateLeavesAHookDecisionAlone(t *testing.T) {
+	for _, tc := range []struct {
+		decision    string
+		wantPrompts int
+	}{{"allow", 0}, {"ask", 1}} {
+		t.Run(tc.decision, func(t *testing.T) {
 			stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
-			ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeAsk)
-			sender.alone = true
-			var res string
-			if tc.tool == "run_command" {
-				res = runCommandToolCall(t, ag, st, dir, "rm -rf build", false)
-			} else {
-				res = sshToolCall(t, ag, st, dir, "deploy@127.0.0.1", "rm -rf /srv/app", false)
+			ag, st, dir, sender := newDecisionsPromptAgent(t, config.PermModeAsk)
+			if err := hooktest.Write(filepath.Join(ag.cfg.Paths.Home, "hooks.json"), hooktest.Entry{
+				Event:    hooks.EventPreToolUse,
+				Matcher:  "ssh_run_command",
+				Handlers: []hooks.Handler{hooktest.Handler(tc.decision)},
+			}); err != nil {
+				t.Fatal(err)
 			}
-			if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
-				t.Fatalf("result = %q, want the unsafe rejection", res)
+			ag.cfg.Paths.CWD = st.CWD
+			ag.cfg.Hooks.ApplyDefaults(ag.cfg.Paths)
+			res := sshToolCall(t, ag, st, dir, "deploy@127.0.0.1", "rm -rf /srv/app", false)
+			if strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
+				t.Fatalf("result = %q, want no check after the hook's %s", res, tc.decision)
 			}
-			if stand.calls.Load() != 1 || len(sender.prompts) != 1 {
-				t.Fatalf("calls = %d prompts = %d, want one of each", stand.calls.Load(), len(sender.prompts))
+			if stand.calls.Load() != 0 || len(sender.prompts) != tc.wantPrompts {
+				t.Fatalf("calls = %d prompts = %d, want no decision request and %d prompts", stand.calls.Load(), len(sender.prompts), tc.wantPrompts)
 			}
 		})
-	}
-}
-
-func TestDecisionsGateLeavesAHumanApprovalAlone(t *testing.T) {
-	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
-	ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeAsk)
-	sender.human = true
-	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
-	if !strings.Contains(res, "coddy-shell-ok") {
-		t.Fatalf("result = %q, want the command the human approved to run", res)
-	}
-	if stand.calls.Load() != 0 {
-		t.Fatalf("calls = %d, want no decision request after a human approval", stand.calls.Load())
-	}
-}
-
-func TestDecisionsGateChecksARemoteCommandAHookAllowed(t *testing.T) {
-	// A PreToolUse hook's allow takes the call past its prompt in ask mode.
-	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
-	ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeAsk)
-	if err := hooktest.Write(filepath.Join(ag.cfg.Paths.Home, "hooks.json"), hooktest.Entry{
-		Event:    hooks.EventPreToolUse,
-		Matcher:  "ssh_run_command",
-		Handlers: []hooks.Handler{hooktest.Handler("allow")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	ag.cfg.Paths.CWD = st.CWD
-	ag.cfg.Hooks.ApplyDefaults(ag.cfg.Paths)
-	res := sshToolCall(t, ag, st, dir, "deploy@127.0.0.1", "rm -rf /srv/app", false)
-	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
-		t.Fatalf("result = %q, want the unsafe rejection", res)
-	}
-	if stand.calls.Load() != 1 || len(sender.prompts) != 0 {
-		t.Fatalf("calls = %d prompts = %d, want one decision request and no prompt", stand.calls.Load(), len(sender.prompts))
 	}
 }
 

@@ -64,7 +64,7 @@ What the agent can do and how each capability is configured.
 - [Preview server](features/preview-server.md) - Serving a project directory on a free localhost port so you can open HTML, JS and CSS work in a browser; the server as a background task, what it refuses to serve, the bind host.
 - [Context compaction](features/compaction.md) - /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.
 - [Long-term memory](features/memory.md) - The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost.
-- [Command safety (decisions)](features/decisions.md) - The NeuralDeep decisions check that screens shell commands running without a permission prompt and rejects the ones it classifies as unsafe.
+- [Command safety (decisions)](features/decisions.md) - The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode.
 - [Session export](features/session-export.md) - /export and coddy sessions export, formats, path rules, trimming options, the JSON document.
 
 ## Reference

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -272,7 +271,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	}
 	stamped := strings.TrimSpace(params.EffectivePermissionMode)
 	if stamped == "" || stamped == "bypass" {
-		return permission.AutoAllow(), nil
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	res, err := s.b.permissions().ask(ctx, s.b, s.c, s.target, params.SessionID, params)
 	if err != nil {

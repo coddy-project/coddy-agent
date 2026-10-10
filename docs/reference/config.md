@@ -410,13 +410,13 @@ Messenger bot adapters (used only by binaries built with -tags gateway, or -tags
 
 ### `decisions`
 
-Ask the NeuralDeep decisions API whether a shell command that would run without asking the operator is safe, and reject the ones it classifies as unsafe. See https://coddy.dev/docs/features/decisions.
+Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode. See https://coddy.dev/docs/features/decisions.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `decisions.enable` | boolean | false | Check every run_command call no permission prompt covers (bypass mode, the command allowlist, a session grant or a hook's allow), and every run_command or ssh_run_command whose prompt a surface answers by itself (bypass mode, a messenger bot for its chat agent, a plan run) or a hook allowed, against the decisions endpoint and reject the commands it classifies as unsafe; the rejection is returned as the tool result, so the session records it. Commands the operator approved in a prompt are not checked again. Needs a NeuralDeep credential on the first provider row of type neuraldeep: its api_key or api_key_command, its NAME_API_KEY environment variable (NEURALDEEP_API_KEY for a row named neuraldeep or when there is no row) or its stored hub sign-in. When the endpoint refuses the request, stays unreachable or rate-limited past the retry window, or cannot read the whole command, the command is not executed either. |
+| `decisions.enable` | boolean | false | Check run_command and ssh_run_command calls the operator did not allow explicitly against the decisions endpoint before the permission gate decides. A safe command runs without a prompt; an unsafe one, or one the check gave no verdict on, is asked about in ask and accept_edits with the verdict in the prompt, and rejected in bypass mode, the rejection returned as the tool result so the session records it. Commands the allowlist, a session grant or a hook's allow approves are not checked, and neither are commands the operator approved in a prompt. Needs a NeuralDeep credential on the first provider row of type neuraldeep: its api_key or api_key_command, its NAME_API_KEY environment variable (NEURALDEEP_API_KEY for a row named neuraldeep or when there is no row) or its stored hub sign-in. |
 | `decisions.model` | string, one of `frida-decisions`, `clef-flash` | frida-decisions | Decisions model to ask: frida-decisions (encoder pass, up to 512 tokens of command text, ~20 ms per request) or clef-flash (up to 8192 tokens, ~150 ms). |
-| `decisions.threshold` | number | 0.5 | Probability of the unsafe option at or above which the command is rejected. 0 uses the default (0.5); lower rejects more aggressively, higher lets borderline commands through. A bare unsafe answer counts as 1. |
+| `decisions.threshold` | number | 0.5 | Probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through. A bare unsafe answer counts as 1. |
 
 ### `supervisor`
 

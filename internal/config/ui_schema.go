@@ -643,9 +643,9 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enable", "model", "dir", "fallback_models", "additional_prompt", "additional_prompt_max_chars", "wait_seconds", "timeout_seconds", "keep_runs", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits", "max_note_chars"},
 			nil),
-		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API about a shell command before it runs with nobody confirming it, and reject the ones it classifies as unsafe.",
+		"decisions": objectSchema("Command safety (decisions)", "Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode.",
 			map[string]interface{}{
-				"enable": boolProp("Enabled", "Check every run_command call no prompt covers (bypass mode, the command allowlist, a session grant, a hook's allow), and every run_command or ssh_run_command whose prompt a surface answers by itself (bypass mode, a messenger bot, a plan run) or a hook allowed, against the decisions endpoint and reject the commands it classifies as unsafe. Commands you approved in a prompt are not checked again."),
+				"enable": boolProp("Enabled", "Check run_command and ssh_run_command calls you did not allow explicitly before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about in ask and accept_edits and rejected in bypass. The allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked."),
 				"model": map[string]interface{}{
 					"type":        "string",
 					"title":       "Decisions model",
@@ -653,7 +653,7 @@ func UISchemaMap() map[string]interface{} {
 					"enum":        []string{DecisionsModelFRIDA, DecisionsModelClef},
 				},
 				"threshold": withNumberBounds(numProp("Unsafe threshold",
-					"The probability of the unsafe option at or above which a command is rejected. 0 uses the default (0.5); lower rejects more aggressively, higher lets borderline commands through."), 0, 1),
+					"The probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through."), 0, 1),
 			},
 			[]string{"enable", "model", "threshold"},
 			nil),

@@ -23,7 +23,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 )
 
 type chatPrompt struct {
@@ -184,7 +183,7 @@ func (b *Bot) answerPermissionClick(_ context.Context, _ *Client, p buttonPayloa
 // asked about in that chat.
 func (b *Bot) RequestDetachedPermission(ctx context.Context, req agent.DetachedPermissionRequest) (*acp.PermissionResult, error) {
 	if strings.TrimSpace(req.Params.EffectivePermissionMode) == config.PermModeBypass {
-		return permission.AutoAllow(), nil
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	c := b.connectedClient()
 	if c == nil {

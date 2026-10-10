@@ -55,10 +55,10 @@ func TestSenderRequestPermissionNeverWavesThroughANarrowedSubagent(t *testing.T)
 			EffectivePermissionMode: mode,
 		}
 	}
-	if got, _ := s.RequestPermission(context.Background(), params("")); got.OptionID != "allow" || !got.Automatic {
+	if got, _ := s.RequestPermission(context.Background(), params("")); got.OptionID != "allow" {
 		t.Fatalf("unstamped request = %#v, want allow", got)
 	}
-	if got, _ := s.RequestPermission(context.Background(), params("bypass")); got.OptionID != "allow" || !got.Automatic {
+	if got, _ := s.RequestPermission(context.Background(), params("bypass")); got.OptionID != "allow" {
 		t.Fatalf("stamped bypass = %#v, want allow", got)
 	}
 	for _, mode := range []string{"ask", "accept_edits"} {

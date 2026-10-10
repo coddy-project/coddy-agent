@@ -399,7 +399,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 		cfgMode = s.cfg.Tools.ResolvedPermMode()
 	}
 	if permission.AutoApproves(params, cfgMode) {
-		return permission.AutoAllow(), nil
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	if (!s.interactive && !s.asksPermission) || s.w == nil {
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil

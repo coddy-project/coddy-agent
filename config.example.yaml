@@ -550,27 +550,26 @@ tools:
 #                                  # notes; never answer the task itself"; the main agent never sees them
 #   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
 
-# Command safety decisions: before a shell command runs without asking you (bypass
-# mode, the command allowlist, a session grant or a hook's allow; a run_command or
-# ssh_run_command whose prompt a surface answers by itself: bypass mode, a messenger
-# bot for its chat agent, a plan run), ask the NeuralDeep decisions API whether it is
-# safe, and reject the ones it classifies as unsafe - the rejection comes back as the
-# result of the call, so the session records it. Commands you approved in a
-# permission prompt are not checked again. Needs a NeuralDeep credential on the first
-# provider row of type neuraldeep: its api_key or api_key_command, its NAME_API_KEY
-# variable (NEURALDEEP_API_KEY for a row named neuraldeep or without a row), or its
-# stored hub sign-in. Every checked command draws on
-# the decisions quota - 1 unit on frida-decisions, 4 on clef-flash - and adds
-# ~20 ms (frida-decisions) or ~150 ms (clef-flash); an endpoint that stays
-# unreachable or rate-limited past the retry window also stops the command, and
-# so does a refusal from the hub (an empty wallet, an unknown model). A command
-# longer than the model reads (512 tokens on frida-decisions) is not run either:
-# set clef-flash when your agents run long commands.
+# Command safety decisions: before the permission gate decides on a shell command
+# (run_command, or the remote command of ssh_run_command) you did not allow
+# explicitly, ask the NeuralDeep decisions API whether it is safe. A safe command
+# runs without a prompt; an unsafe one is asked about in ask and accept_edits, the
+# verdict in the prompt, and rejected in bypass - the rejection comes back as the
+# result of the call, so the session records it. The command allowlist, session
+# grants, a hook's allow and commands you approved in a prompt are not checked.
+# When the endpoint gives no verdict (no credential, a refusal from the hub, a
+# network error, a command longer than the model reads - 512 tokens on
+# frida-decisions) the command counts as unsafe. Needs a NeuralDeep credential on
+# the first provider row of type neuraldeep: its api_key or api_key_command, its
+# NAME_API_KEY variable (NEURALDEEP_API_KEY for a row named neuraldeep or without a
+# row), or its stored hub sign-in. Every checked command draws on the decisions
+# quota - 1 unit on frida-decisions, 4 on clef-flash - and adds ~20 ms
+# (frida-decisions) or ~150 ms (clef-flash).
 # See docs/features/decisions.md.
 # decisions:
 #   enable: false
 #   model: frida-decisions  # frida-decisions (512 tokens of command text, ~20 ms) or clef-flash (8192 tokens, ~150 ms)
-#   threshold: 0.5          # reject once p(unsafe) reaches this; 0 = default 0.5, lower is stricter, higher is looser
+#   threshold: 0.5          # unsafe once p(unsafe) reaches this; 0 = default 0.5, lower is stricter, higher is looser
 
 # Messenger gateways (external/gateway/; build with: go build -tags gateway, or
 # -tags gateway.telegram / -tags gateway.pachca for one adapter).

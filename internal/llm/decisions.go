@@ -16,15 +16,13 @@ import (
 
 // NeuralDeep decisions endpoint: POST {apiBase}/decisions asks the same
 // sk- key as the rest of the hub whether a shell command is safe to run
-// without a human looking at it. This file carries the transport only —
-// the retry window and the rejection of unsafe commands live in
-// internal/agent/decisions.go.
+// without a human looking at it. This file carries the transport only -
+// what the agent does with the verdict lives in internal/agent/decisions.go.
 
-// Failure kinds of a decision fetch. The rate-limited and unavailable kinds
-// are worth retrying; unauthorized, forbidden, refused and invalid are not.
-// Refused is every other 4xx: the hub read the request and turned it down
-// for a reason a retry cannot change - an empty wallet (402), a model it does
-// not serve (404), a request it cannot take (400, 413, 422).
+// Failure kinds of a decision fetch. Refused is every 4xx but 401, 403, 408
+// and 429: the hub read the request and turned it down - an empty wallet
+// (402), a model it does not serve (404), a request it cannot take (400, 413,
+// 422).
 const (
 	NeuralDeepDecisionUnauthorized = "unauthorized"
 	NeuralDeepDecisionForbidden    = "forbidden"

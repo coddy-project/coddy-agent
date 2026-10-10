@@ -154,8 +154,8 @@ func TestACPLocalSenderAppliesTheBypassRule(t *testing.T) {
 	asked := func(mode string) acp.PermissionRequestParams {
 		return acp.PermissionRequestParams{SessionID: "sess_acp", ToolCall: acp.PermissionToolCall{ToolCallID: "c1"}, SessionPermissionMode: mode}
 	}
-	if got, _ := sender.RequestPermission(context.Background(), asked(config.PermModeBypass)); got == nil || got.OptionID != "allow" || !got.Automatic {
-		t.Fatalf("a prompt asked under bypass = %#v, want an automatic allow", got)
+	if got, _ := sender.RequestPermission(context.Background(), asked(config.PermModeBypass)); got == nil || got.OptionID != "allow" {
+		t.Fatalf("a prompt asked under bypass = %#v, want an allow", got)
 	}
 	if got, _ := sender.RequestPermission(context.Background(), asked(config.PermModeAsk)); got == nil || got.OptionID != "reject" {
 		t.Fatalf("a prompt asked under ask = %#v, want it forwarded to the editor", got)

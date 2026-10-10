@@ -149,7 +149,7 @@ func (p *printSender) RequestPermission(_ context.Context, params acp.Permission
 		cfgMode = p.cfg.Tools.ResolvedPermMode()
 	}
 	if permission.AutoApproves(params, cfgMode) {
-		return permission.AutoAllow(), nil
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	if p.errOut != nil {
 		_, _ = fmt.Fprintf(p.errOut, "permission rejected (non-interactive print mode): %s\n", params.ToolCall.Title)

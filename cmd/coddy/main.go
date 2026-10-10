@@ -66,7 +66,7 @@ func (r *serverRef) RequestPermission(ctx context.Context, params acp.Permission
 		cfgMode = cfg.Tools.ResolvedPermMode()
 	}
 	if permission.AutoApproves(params, cfgMode) {
-		return permission.AutoAllow(), nil
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	s := *r.p
 	if s == nil {

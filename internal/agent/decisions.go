@@ -5,21 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
-// The decisions safety check: a shell command no human is about to confirm -
-// a run_command that bypass mode, the command allowlist, a session grant or a
-// hook's allow lets through without a prompt, a run_command or ssh_run_command
-// whose prompt a surface answers by itself (acp.PermissionResult.Automatic),
-// an ssh_run_command a hook allowed past its prompt - is asked about on the NeuralDeep decisions endpoint before it runs, and a
-// command the endpoint classifies as unsafe is rejected - the refusal travels
-// as the call's tool result, so both the model and the session transcript see
-// why the command did not run. The transport lives in
+// The decisions safety check (#502) stands in for the permission prompt of a
+// shell command - run_command or ssh_run_command - that nobody allowed
+// explicitly: the NeuralDeep decisions endpoint is asked whether the command
+// is safe before the gate decides. A safe command runs without a prompt; an
+// unsafe one, or one the check could not judge, is asked about in the ask and
+// accept_edits modes and rejected in bypass, where nobody would be asked - the
+// refusal travels as the call's tool result, so both the model and the session
+// transcript see why the command did not run. The transport lives in
 // internal/llm/decisions.go.
 
 const (
@@ -30,122 +30,82 @@ const (
 	// history the model keeps reasoning on.
 	commandRejectedAsUnsafePrefix = "command rejected as unsafe: "
 
-	// commandNotExecutedPrefix opens the tool result of a command stopped
-	// because the check itself could not answer for it: no credential, a
-	// request the hub refused, a payload that is not an answer, a command
-	// too long for the model to read whole, or an endpoint that stayed
-	// unreachable or rate-limited past the retry window. A safety net that is
-	// on must not fail silently open.
+	// commandNotExecutedPrefix opens the tool result of a command stopped in
+	// bypass mode because the check could not judge it: no credential, a
+	// request the hub refused, an answer the question cannot have, a command
+	// too long for the model to read whole, or an endpoint that did not
+	// answer. A safety net that is on must not fail silently open.
 	commandNotExecutedPrefix = "command not executed: "
 )
 
-const (
-	// decisionsRetryWindowDefault bounds how long one command waits for the
-	// decisions endpoint: rate limits and transient failures are retried
-	// inside it (honouring Retry-After), and a window that runs out stops
-	// the command without running it.
-	decisionsRetryWindowDefault = 2 * time.Minute
-	// decisionsRetryBackoffDefault is the pause between attempts when the
-	// endpoint asked for none.
-	decisionsRetryBackoffDefault = 2 * time.Second
-)
-
-func (a *Agent) effectiveDecisionsRetryWindow() time.Duration {
-	if a.decisionsRetryWindow > 0 {
-		return a.decisionsRetryWindow
-	}
-	return decisionsRetryWindowDefault
+// commandVerdict is what the check says about one command.
+type commandVerdict struct {
+	// safe is true only when the endpoint answered and put the unsafe option
+	// below decisions.threshold.
+	safe bool
+	// unsafe is true when the endpoint classified the command as dangerous;
+	// false with safe false means the check could not judge it.
+	unsafe bool
+	// reason says why the command is not safe, for the prompt and the refusal.
+	reason string
 }
 
-func (a *Agent) effectiveDecisionsRetryBackoff() time.Duration {
-	if a.decisionsRetryBackoff > 0 {
-		return a.decisionsRetryBackoff
+// refusal is the tool result of a command bypass mode does not run.
+func (v commandVerdict) refusal() string {
+	if v.unsafe {
+		return commandRejectedAsUnsafePrefix + v.reason + "; ask the operator or use a safer alternative"
 	}
-	return decisionsRetryBackoffDefault
+	return commandNotExecutedPrefix + v.reason
 }
 
-// checkCommandSafety runs the check for one tool call: "" when the call is
-// not a shell command (nothing to judge) or may run, the refusal otherwise.
-func (a *Agent) checkCommandSafety(ctx context.Context, tc llm.ToolCall, env *tooling.Env) string {
-	subject, ok := commandSafetySubject(tc.Name, tc.InputJSON, env)
-	if !ok {
-		return ""
-	}
-	return a.gateCommandSafety(ctx, subject)
-}
-
-// gateCommandSafety asks the decisions endpoint about a shell command that is
-// about to run with no human in the loop. It returns "" when the command may
-// run, and the refusal text (already fit for the tool result and the
-// transcript) when it must not.
-func (a *Agent) gateCommandSafety(ctx context.Context, subject llm.NeuralDeepDecisionSubject) string {
+// classifyCommand asks the decisions endpoint once about a shell command.
+func (a *Agent) classifyCommand(ctx context.Context, subject llm.NeuralDeepDecisionSubject) commandVerdict {
 	provider := decisionsProvider(a.cfg)
 	model := a.cfg.Decisions.EffectiveModel()
 	threshold := a.cfg.Decisions.EffectiveThreshold()
 	authPath := config.NeuralDeepAuthPath(a.cfg.Paths.Home, provider.Name)
-	deadline := time.Now().Add(a.effectiveDecisionsRetryWindow())
-	backoff := a.effectiveDecisionsRetryBackoff()
-	for {
-		decision, err := llm.NeuralDeepDecisionForProvider(ctx, provider, authPath, model, subject)
-		if err == nil {
-			// The verdict is the probability of the unsafe option, not the
-			// endpoint's own pick: the threshold is the operator's dial, so a
-			// model that chose unsafe below it still runs the command.
-			p := decision.Probability(llm.NeuralDeepDecisionUnsafe)
-			if p < threshold && decision.StateTruncated {
-				// The hub cut the state: the verdict covers the head of the
-				// command, and the part the model never read may be the one
-				// that does the damage. An unsafe head is still rejected below.
-				longer := ""
-				if model != config.DecisionsModelClef {
-					longer = fmt.Sprintf(", or set decisions.model to %s, which reads longer commands", config.DecisionsModelClef)
-				}
-				return fmt.Sprintf("%sthe command is too long for the decisions model %s to read whole, so its verdict would not cover all of it. Split it into shorter commands or write files with the file tools instead of a heredoc%s",
-					commandNotExecutedPrefix, model, longer)
-			}
-			if p < threshold {
-				if decision.Choice == llm.NeuralDeepDecisionUnsafe {
-					a.log.Warn("decisions check chose unsafe below the configured threshold; running the command", "p_unsafe", p, "threshold", threshold)
-				}
-				return ""
-			}
-			return fmt.Sprintf("%sthe decisions model %s put the unsafe option at %.2f, at or above the threshold %.2f; ask the operator or use a safer alternative",
-				commandRejectedAsUnsafePrefix, model, p, threshold)
-		}
-		de, ok := llm.IsNeuralDeepDecisionError(err)
-		if !ok {
-			de = &llm.NeuralDeepDecisionError{Kind: llm.NeuralDeepDecisionUnavailable, Detail: err.Error()}
-		}
-		// Retrying cannot change these answers: the check is on, so the
-		// command waits for the operator to fix the cause, not for the
-		// endpoint.
-		switch de.Kind {
-		case llm.NeuralDeepDecisionUnauthorized, llm.NeuralDeepDecisionForbidden:
-			// The row's own variable and sign-in: a row named hub reads
-			// HUB_API_KEY, never NEURALDEEP_API_KEY.
-			return fmt.Sprintf("%sthe decisions safety check is not available: %s. Provide a NeuralDeep credential (api_key or api_key_command on the provider row %s, the %s environment variable, or coddy providers login %s) or switch decisions.enable off",
-				commandNotExecutedPrefix, de.Error(), provider.Name, config.ProviderAPIKeyEnvVarName(provider.Name), provider.Name)
-		case llm.NeuralDeepDecisionRefused:
-			return fmt.Sprintf("%sthe decisions safety check is not available: %s. Check decisions.model and the NeuralDeep account behind the key (its balance included) or switch decisions.enable off",
-				commandNotExecutedPrefix, de.Error())
-		case llm.NeuralDeepDecisionInvalid:
-			return fmt.Sprintf("%sthe decisions endpoint returned no usable safety verdict: %s. Check what answers on the provider row's api_base and proxy, try again later, or switch decisions.enable off",
-				commandNotExecutedPrefix, de.Error())
-		}
-		wait := de.RetryAfter
-		if wait <= 0 {
-			wait = backoff
-		}
-		if time.Now().Add(wait).After(deadline) {
-			return fmt.Sprintf("%sthe decisions safety check did not answer within its retry window (last error: %s); the command was not run. Try again later or switch decisions.enable off",
-				commandNotExecutedPrefix, de.Error())
-		}
-		select {
-		case <-ctx.Done():
-			return commandNotExecutedPrefix + "the turn ended while waiting for the decisions safety check"
-		case <-time.After(wait):
-		}
+	decision, err := llm.NeuralDeepDecisionForProvider(ctx, provider, authPath, model, subject)
+	if err != nil {
+		a.log.Warn("decisions check gave no verdict", "model", model, "error", err)
+		return commandVerdict{reason: fmt.Sprintf("the decisions safety check gave no verdict (%s); switch decisions.enable off to run commands without it", err)}
 	}
+	// The verdict is the probability of the unsafe option, not the endpoint's
+	// own pick: the threshold is the operator's dial.
+	p := decision.Probability(llm.NeuralDeepDecisionUnsafe)
+	if p >= threshold {
+		return commandVerdict{unsafe: true, reason: fmt.Sprintf("the decisions model %s classified the command as dangerous (unsafe at %.2f, threshold %.2f)", model, p, threshold)}
+	}
+	if decision.StateTruncated {
+		// The hub cut the state: the verdict covers the head of the command
+		// only, and the part the model never read may do the damage.
+		longer := ""
+		if model != config.DecisionsModelClef {
+			longer = fmt.Sprintf(", or set decisions.model to %s, which reads longer commands", config.DecisionsModelClef)
+		}
+		return commandVerdict{reason: fmt.Sprintf("the command is too long for the decisions model %s to read whole; split it into shorter commands or write files with the file tools%s", model, longer)}
+	}
+	return commandVerdict{safe: true}
+}
+
+// commandAllowlisted reports whether the operator allowed a run_command call
+// explicitly: tools.command_allowlist or a session's always-allow grant.
+func commandAllowlisted(tc llm.ToolCall, env *tooling.Env, sessionGrants []string) bool {
+	if tc.Name != "run_command" {
+		return false
+	}
+	return permission.CommandAllowedWithSession(env, sessionGrants, permission.ExtractRunCommand(tc.InputJSON))
+}
+
+// askAlwaysTurn reports whether the running turn keeps every prompt for its
+// surface (session.TurnRestriction.AskAlways: a messenger user who is not the
+// bot's admin), which the check must not take away.
+func askAlwaysTurn(state SessionState) bool {
+	st := sessionStatePtr(state)
+	if st == nil {
+		return false
+	}
+	r := st.GetTurnRestriction()
+	return r != nil && r.AskAlways
 }
 
 // decisionsProvider picks the provider row the decisions endpoint is asked

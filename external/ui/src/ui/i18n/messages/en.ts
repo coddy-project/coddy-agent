@@ -283,7 +283,7 @@ export const messagesEn: Record<string, string> = {
   "settings.group.memory.instructions": "Instructions",
   "settings.group.decisions.verdict": "Model and threshold",
   "settings.group.decisions.verdictDesc":
-    "The decisions model is asked about every shell command, local or over SSH, that would run with nobody confirming it, and the command is rejected once the probability of the unsafe option reaches the threshold. A command longer than the model reads is not run: frida-decisions reads 512 tokens, clef-flash 8192. The check needs a NeuralDeep credential on the neuraldeep provider row.",
+    "The decisions model is asked about every shell command, local or over SSH, that you did not allow explicitly, and the command counts as unsafe once the probability of the unsafe option reaches the threshold. A command longer than the model reads counts as unsafe too: frida-decisions reads 512 tokens, clef-flash 8192. The check needs a NeuralDeep credential on the neuraldeep provider row.",
   "settings.group.scheduler.jobs": "Jobs",
   "settings.group.logger.main": "Logger settings",
   "settings.group.sessions.storage": "Storage",
@@ -639,13 +639,13 @@ export const messagesEn: Record<string, string> = {
     "Model the memory subagent runs on; empty uses the session's model.",
   "settings.schema.decisions.enable.label": "Enabled",
   "settings.schema.decisions.enable.desc":
-    "Ask the NeuralDeep decisions API about every shell command, local or over SSH, that would run with nobody confirming it (bypass mode, the command allowlist, a session grant, a hook's allow, a messenger bot approving its chat agent) and reject the ones it classifies as unsafe; the rejection lands in the chat as the command's result. Commands you approved in a prompt are not checked again.",
+    "Ask the NeuralDeep decisions API whether a shell command, local or over SSH, is safe before the permission gate decides. A safe command runs without a prompt; an unsafe one is asked about in ask and accept_edits and rejected in bypass, the rejection landing in the chat as the command's result. The command allowlist, session grants, a hook's allow and commands you approved in a prompt are not checked.",
   "settings.schema.decisions.model.label": "Decisions model",
   "settings.schema.decisions.model.desc":
     "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request, 1 quota unit. clef-flash: up to 8192 tokens, ~150 ms, 4 quota units.",
   "settings.schema.decisions.threshold.label": "Unsafe threshold",
   "settings.schema.decisions.threshold.desc":
-    "The probability of the unsafe option at or above which a command is rejected. 0 uses the default (0.5); lower rejects more aggressively, higher lets borderline commands through.",
+    "The probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through.",
   "settings.schema.memory.fallback_models.label": "Fallback memory models",
   "settings.schema.memory.fallback_models.desc":
     "Tried in order when the model before them fails before answering; the session's own model is the last resort.",

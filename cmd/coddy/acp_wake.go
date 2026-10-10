@@ -35,9 +35,8 @@ func acpWakeRunner(mgr acpPromptRunner, sender acp.UpdateSender) agent.RunTurnFu
 // acpLocalSender is what the manager and the waker of a local coddy acp send
 // through: the wake notice over serverRef, never over the bare acp.Server,
 // whose RequestPermission asks the editor whatever the mode. Through
-// serverRef a request asked under bypass is approved without the editor (and
-// marked automatic, so the decisions check stands in), as on every other
-// surface. The remote mode keeps the bare server: there the request comes
+// serverRef a request asked under bypass is approved without the editor, as
+// on every other surface. The remote mode keeps the bare server: there the request comes
 // from a server whose own policy already wants a person to answer.
 func acpLocalSender(ref *serverRef) acp.UpdateSender {
 	return acpWakeNotice{ref}

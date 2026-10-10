@@ -146,18 +146,18 @@ func TestServerRefHonoursTheModeThePromptWasAskedUnder(t *testing.T) {
 	bypassCfg := &config.Config{}
 	bypassCfg.Tools.PermissionMode = config.PermModeBypass
 	ref := &serverRef{p: &srv, cfg: bypassCfg}
-	if got, _ := ref.RequestPermission(context.Background(), asked(config.PermModeAsk)); got.OptionID != "reject" || got.Automatic {
+	if got, _ := ref.RequestPermission(context.Background(), asked(config.PermModeAsk)); got.OptionID != "reject" {
 		t.Fatalf("a prompt asked under ask with a bypass config = %#v, want it forwarded to the editor", got)
 	}
-	if got, _ := ref.RequestPermission(context.Background(), asked(config.PermModeBypass)); got.OptionID != "allow" || !got.Automatic {
-		t.Fatalf("a prompt asked under bypass = %#v, want an automatic allow", got)
+	if got, _ := ref.RequestPermission(context.Background(), asked(config.PermModeBypass)); got.OptionID != "allow" {
+		t.Fatalf("a prompt asked under bypass = %#v, want an allow", got)
 	}
 
 	askCfg := &config.Config{}
 	askCfg.Tools.PermissionMode = config.PermModeAsk
 	ref = &serverRef{p: &srv, cfg: askCfg}
-	if got, _ := ref.RequestPermission(context.Background(), asked(config.PermModeBypass)); got.OptionID != "allow" || !got.Automatic {
-		t.Fatalf("a session switched to bypass under an ask config = %#v, want an automatic allow", got)
+	if got, _ := ref.RequestPermission(context.Background(), asked(config.PermModeBypass)); got.OptionID != "allow" {
+		t.Fatalf("a session switched to bypass under an ask config = %#v, want an allow", got)
 	}
 	if got, _ := ref.RequestPermission(context.Background(), asked(config.PermModeAsk)); got.OptionID != "reject" {
 		t.Fatalf("a prompt asked under ask = %#v, want it forwarded to the editor", got)
@@ -180,10 +180,10 @@ func TestServerRefHonoursTheStampedEffectiveMode(t *testing.T) {
 			EffectivePermissionMode: mode,
 		}
 	}
-	if got, _ := ref.RequestPermission(context.Background(), params("")); got.OptionID != "allow" || !got.Automatic {
+	if got, _ := ref.RequestPermission(context.Background(), params("")); got.OptionID != "allow" {
 		t.Fatalf("unstamped request under global bypass = %#v, want allow", got)
 	}
-	if got, _ := ref.RequestPermission(context.Background(), params(config.PermModeBypass)); got.OptionID != "allow" || !got.Automatic {
+	if got, _ := ref.RequestPermission(context.Background(), params(config.PermModeBypass)); got.OptionID != "allow" {
 		t.Fatalf("stamped bypass = %#v, want allow", got)
 	}
 	if got, _ := ref.RequestPermission(context.Background(), params(config.PermModeAsk)); got.OptionID != "reject" {
