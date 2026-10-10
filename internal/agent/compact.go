@@ -202,7 +202,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// The first of the chain sets the size; a fallback below it reads the same
 	// pass, which is why the share is a share rather than the whole window.
 	window, _ := a.contextWindowFor(chain[0].modelID)
-	budget := compactionInputBudget(window, session.EstimateTokens(instructions))
+	budget := compactionInputBudget(window, session.EstimateContextTokens(instructions))
 
 	row := a.newCompactionRow()
 	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, head, instructions, budget, row.step)

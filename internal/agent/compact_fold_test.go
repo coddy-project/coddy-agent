@@ -4,8 +4,12 @@ package agent
 // paths are in features/context_compaction.feature.
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
+	"math"
 	"strings"
 	"testing"
 
@@ -42,13 +46,31 @@ func TestNextCompactionChunkStopsAtTheBudget(t *testing.T) {
 	for i := range msgs {
 		msgs[i] = llm.Message{Role: llm.RoleUser, Content: strings.Repeat("x", 4000)}
 	}
-	// Room for roughly two of them (a message renders to ~1000 tokens).
-	chunk := nextCompactionChunk(msgs, 2200)
+	// Room for roughly two of them (a message renders to ~1340 tokens by the
+	// estimate the fold budgets with: three ASCII characters to the token).
+	chunk := nextCompactionChunk(msgs, 2800)
 	if chunk.count != 2 {
 		t.Fatalf("chunk covered %d messages, want 2", chunk.count)
 	}
-	if session.EstimateTokens(chunk.body) > 2400 {
-		t.Fatalf("chunk body is %d tokens, want it near the 2200 room", session.EstimateTokens(chunk.body))
+	if session.EstimateContextTokens(chunk.body) > 2800 {
+		t.Fatalf("chunk body is %d tokens, want it within the 2800 room", session.EstimateContextTokens(chunk.body))
+	}
+}
+
+// Cyrillic, code and paths cost close to a token a character, which the
+// four-characters-per-token estimate this fold used to size its passes with
+// reads as a quarter of the cost; a pass built on it is refused whole.
+func TestNextCompactionChunkMeasuresDenseTextByTheDenseEstimate(t *testing.T) {
+	msgs := make([]llm.Message, 4)
+	for i := range msgs {
+		msgs[i] = llm.Message{Role: llm.RoleUser, Content: strings.Repeat("п", 2000)}
+	}
+	chunk := nextCompactionChunk(msgs, 2500)
+	if chunk.count != 1 {
+		t.Fatalf("chunk covered %d messages, want the one that fits (2000 characters are ~2000 tokens)", chunk.count)
+	}
+	if got := session.EstimateContextTokens(chunk.body); got > 2500 {
+		t.Fatalf("chunk body is %d tokens, want it within the 2500 room", got)
 	}
 }
 
@@ -65,7 +87,7 @@ func TestNextCompactionChunkElidesOneMessageThatCannotFit(t *testing.T) {
 	if !strings.Contains(chunk.body, "HEAD") || !strings.Contains(chunk.body, "TAIL") {
 		t.Fatal("elision dropped the head or the tail of the message")
 	}
-	if got := session.EstimateTokens(chunk.body); got > compactionMinChunkTokens*2 {
+	if got := session.EstimateContextTokens(chunk.body); got > compactionMinChunkTokens*5/4 {
 		t.Fatalf("elided body is %d tokens, want it near the %d room", got, compactionMinChunkTokens)
 	}
 }
@@ -360,5 +382,283 @@ func TestCompactionChainIsOrderedAndDeduplicated(t *testing.T) {
 	}
 	if len(ids) != 2 || ids[0] != "fake/second" || ids[1] != "fake/model" {
 		t.Fatalf("chain = %v, want [fake/second fake/model]", ids)
+	}
+}
+
+// compactSizeRefusingProvider refuses a request whose transcript (the last
+// message) is longer than limit characters, the way a backend with a small
+// window does, and words the refusal as refusal(sentTokens) so a test chooses
+// what the provider reports.
+type compactSizeRefusingProvider struct {
+	limit    int
+	refusal  func(sentTokens int) error
+	summary  string
+	requests [][]llm.Message
+	refused  int
+}
+
+func (p *compactSizeRefusingProvider) Complete(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
+	p.requests = append(p.requests, append([]llm.Message(nil), messages...))
+	// The transcript is the last message; the system prompt before it is the
+	// same on every call and no part of what a test varies.
+	if len(messages[len(messages)-1].Content) > p.limit {
+		p.refused++
+		return nil, p.refusal(session.EstimateContextTokens(transcriptText(messages)))
+	}
+	return &llm.Response{Content: p.summary, StopReason: "end_turn"}, nil
+}
+
+func (p *compactSizeRefusingProvider) Stream(context.Context, []llm.Message, []llm.ToolDefinition, func(llm.StreamChunk)) (*llm.Response, error) {
+	return nil, fmt.Errorf("Stream must not be called by CompactSession")
+}
+
+func longHead(n, chars int) []llm.Message {
+	head := make([]llm.Message, n)
+	for i := range head {
+		head[i] = llm.Message{Role: llm.RoleUser, Content: strings.Repeat("x", chars)}
+	}
+	return head
+}
+
+// A refusal that is not about size fails the same way at half the size, so the
+// pass goes to the next model at once instead of spending three calls on
+// halving (issue #490).
+func TestFoldFailsOverAtOnceOnARefusalThatIsNotAboutSize(t *testing.T) {
+	st := seededCompactState(t, 2)
+	keep := 1
+	broken := &compactCannedProvider{t: t, err: fmt.Errorf("400 Bad Request: Invalid schema for response_format")}
+	working := &compactCannedProvider{t: t, summary: "SUMMARY"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, working)
+
+	chain := []compactionCandidate{
+		{provider: broken, modelID: "fake/broken"},
+		{provider: working, modelID: "fake/model"},
+	}
+	summary, used, _, err := ag.foldCompactionHead(context.Background(), chain, longHead(4, 2000), "", 100000, nil)
+	if err != nil {
+		t.Fatalf("fold: %v", err)
+	}
+	if summary != "SUMMARY" || used != "fake/model" {
+		t.Fatalf("summary %q by %q, want the fallback's", summary, used)
+	}
+	if len(broken.requests) != 1 {
+		t.Fatalf("the broken summarizer was asked %d times, want once", len(broken.requests))
+	}
+	if len(working.requests) != 1 {
+		t.Fatalf("the fallback was asked %d times, want once", len(working.requests))
+	}
+}
+
+func TestFoldShrinksAPassTheProviderFoundTooLarge(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// refusal words the provider's answer from the tokens it was sent.
+		refusal      func(sent int) error
+		wantRefusals int
+		wantCovered  int
+	}{
+		{
+			name:         "no figures in the refusal: halving",
+			refusal:      func(int) error { return fmt.Errorf("400 Bad Request: this model's maximum context length is exceeded") },
+			wantRefusals: 2, // 8 messages, then 3 (half the tokens), then the one that fits
+			wantCovered:  1,
+		},
+		{
+			name: "figures in the refusal: straight under the limit",
+			refusal: func(sent int) error {
+				return fmt.Errorf("400 Bad Request: This model's maximum context length is %d tokens. However, your messages resulted in %d tokens.", sent/16, sent)
+			},
+			wantRefusals: 1,
+			wantCovered:  1,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := seededCompactState(t, 2)
+			keep := 1
+			provider := &compactSizeRefusingProvider{limit: 4500, refusal: tc.refusal, summary: "SUMMARY"}
+			ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+
+			rest := longHead(8, 3000)
+			chunk := nextCompactionChunk(rest, 100000)
+			if chunk.count != len(rest) {
+				t.Fatalf("setup: the first pass covers %d of %d messages", chunk.count, len(rest))
+			}
+			chain := []compactionCandidate{{provider: provider, modelID: "fake/model"}}
+			out, _, covered, err := ag.foldOnePass(context.Background(), chain, "", rest, chunk, "")
+			if err != nil {
+				t.Fatalf("pass: %v", err)
+			}
+			if out != "SUMMARY" {
+				t.Fatalf("summary = %q", out)
+			}
+			if provider.refused != tc.wantRefusals {
+				t.Errorf("the provider refused %d times, want %d", provider.refused, tc.wantRefusals)
+			}
+			if covered != tc.wantCovered {
+				t.Errorf("the pass covered %d messages, want %d", covered, tc.wantCovered)
+			}
+		})
+	}
+}
+
+func TestShrunkenPassTokens(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		body   int
+		detail llm.OverflowDetail
+		want   int
+	}{
+		{"no figures: half", 8000, llm.OverflowDetail{}, 4000},
+		{"a limit alone: half", 8000, llm.OverflowDetail{Limit: 8000}, 4000},
+		{"over by a little: never less than halving", 8000, llm.OverflowDetail{Prompt: 9000, Limit: 8000}, 4000},
+		{"far over: aim under the limit", 8000, llm.OverflowDetail{Prompt: 80000, Limit: 8000}, 640},
+		{"a prompt under its own limit says nothing about the overflow", 8000, llm.OverflowDetail{Prompt: 1000, Limit: 8000}, 4000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shrunkenPassTokens(tc.body, tc.detail); got != tc.want {
+				t.Fatalf("shrunkenPassTokens(%d, %+v) = %d, want %d", tc.body, tc.detail, got, tc.want)
+			}
+		})
+	}
+}
+
+// The next report of a refused pass has to be conclusive: both sizes in the log.
+func TestFoldLogsTheEstimatedAndTheRefusedSize(t *testing.T) {
+	st := seededCompactState(t, 2)
+	keep := 1
+	provider := &compactSizeRefusingProvider{
+		limit: 4500, summary: "SUMMARY",
+		refusal: func(sent int) error {
+			return fmt.Errorf("404 Not Found: Context limit is 1000 tokens; prompt=%d leaves 0 output tokens", sent)
+		},
+	}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+	var logs bytes.Buffer
+	ag.log = slog.New(slog.NewTextHandler(&logs, nil))
+
+	chain := []compactionCandidate{{provider: provider, modelID: "fake/model"}}
+	if _, _, _, err := ag.foldCompactionHead(context.Background(), chain, longHead(4, 3000), "", 100000, nil); err != nil {
+		t.Fatalf("fold: %v", err)
+	}
+	if provider.refused == 0 {
+		t.Fatal("the provider never refused")
+	}
+	for _, want := range []string{"compaction pass refused as too large", "estimatedTokens=", "providerTokens=", "providerLimit=1000", "retryTokens="} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("log lacks %q:\n%s", want, logs.String())
+		}
+	}
+}
+
+// The old fold shrank on any refusal; an answer in the wording of a backend
+// the classifier has never seen must not leave a session that only /compact
+// could save with no way out. A 400 or a 413 that no phrase recognises is cut
+// once.
+func TestFoldShrinksOnceOnARefusalItCannotRecognise(t *testing.T) {
+	for _, status := range []int{400, 413} {
+		t.Run(fmt.Sprintf("status %d", status), func(t *testing.T) {
+			st := seededCompactState(t, 2)
+			keep := 1
+			provider := &compactSizeRefusingProvider{
+				limit: 4500, summary: "SUMMARY",
+				refusal: func(int) error { return apiRefusal(t, status, "") },
+			}
+			ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+
+			rest := longHead(2, 3000)
+			chunk := nextCompactionChunk(rest, 100000)
+			chain := []compactionCandidate{{provider: provider, modelID: "fake/model"}}
+			out, _, covered, err := ag.foldOnePass(context.Background(), chain, "", rest, chunk, "")
+			if err != nil {
+				t.Fatalf("a single-model chain did not recover after one cut: %v", err)
+			}
+			if out != "SUMMARY" || covered != 1 {
+				t.Fatalf("summary %q covering %d messages, want SUMMARY covering the 1 that fits", out, covered)
+			}
+			if provider.refused != 1 {
+				t.Fatalf("the provider refused %d times, want once", provider.refused)
+			}
+		})
+	}
+}
+
+func TestFoldFailsOverAfterOneCutWhenAnUnrecognisedBadRequestPersists(t *testing.T) {
+	st := seededCompactState(t, 2)
+	keep := 1
+	broken := &compactCannedProvider{t: t, err: apiRefusal(t, 400, "")}
+	working := &compactCannedProvider{t: t, summary: "SUMMARY"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, working)
+
+	rest := longHead(4, 2000)
+	chunk := nextCompactionChunk(rest, 100000)
+	chain := []compactionCandidate{
+		{provider: broken, modelID: "fake/broken"},
+		{provider: working, modelID: "fake/model"},
+	}
+	out, used, _, err := ag.foldOnePass(context.Background(), chain, "", rest, chunk, "")
+	if err != nil || out != "SUMMARY" || used != "fake/model" {
+		t.Fatalf("pass = %q by %q, %v; want the fallback's summary", out, used, err)
+	}
+	if len(broken.requests) != 2 {
+		t.Fatalf("the refusing summarizer was asked %d times, want the pass and one cut of it", len(broken.requests))
+	}
+	if len(working.requests) != 1 {
+		t.Fatalf("the fallback was asked %d times, want once", len(working.requests))
+	}
+}
+
+func TestFoldDoesNotCutForAStatusThatIsNotAboutSize(t *testing.T) {
+	for _, status := range []int{401, 403, 404, 429, 500, 502} {
+		t.Run(fmt.Sprintf("status %d", status), func(t *testing.T) {
+			st := seededCompactState(t, 2)
+			keep := 1
+			broken := &compactCannedProvider{t: t, err: apiRefusal(t, status, "")}
+			working := &compactCannedProvider{t: t, summary: "SUMMARY"}
+			ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, working)
+
+			rest := longHead(4, 2000)
+			chunk := nextCompactionChunk(rest, 100000)
+			chain := []compactionCandidate{
+				{provider: broken, modelID: "fake/broken"},
+				{provider: working, modelID: "fake/model"},
+			}
+			if _, _, _, err := ag.foldOnePass(context.Background(), chain, "", rest, chunk, ""); err != nil {
+				t.Fatal(err)
+			}
+			if len(broken.requests) != 1 {
+				t.Fatalf("a %d was asked %d times, want once", status, len(broken.requests))
+			}
+		})
+	}
+}
+
+// A refusal can say anything. Figures no window has must not reach arithmetic
+// that wraps (2^62 * 100 is 0 in 64 bits).
+func TestShrunkenPassTokensSurvivesAbsurdFigures(t *testing.T) {
+	text := errors.New("400: prompt is too long: 4611686018427387904 tokens > 1 maximum")
+	if got := shrunkenPassTokens(8000, llm.OverflowDetailOf(text)); got != 4000 {
+		t.Fatalf("shrunkenPassTokens on the figures of %q = %d, want halving", text, got)
+	}
+	for _, d := range []llm.OverflowDetail{
+		{Prompt: 4611686018427387904, Limit: 1},
+		{Prompt: math.MaxInt, Limit: math.MaxInt - 1},
+		{Prompt: math.MaxInt, Limit: 1},
+	} {
+		if got := shrunkenPassTokens(8000, d); got < 0 || got > 4000 {
+			t.Errorf("shrunkenPassTokens(8000, %+v) = %d, want a figure between 0 and the half", d, got)
+		}
+	}
+}
+
+func TestElideToTokensCutsEvenWhenTheCorrectionRoundsToNothing(t *testing.T) {
+	long := strings.Repeat("abcdefghij", 1000)
+	for _, tokens := range []int{1, 2, 5} {
+		out := elideToTokens(long, tokens)
+		if len(out) >= len(long) {
+			t.Errorf("elideToTokens(%d chars, %d) returned %d chars: the entry went through uncut", len(long), tokens, len(out))
+		}
+		if !strings.Contains(out, "characters omitted") {
+			t.Errorf("elideToTokens(%d) does not say what it cut: %q", tokens, out)
+		}
 	}
 }

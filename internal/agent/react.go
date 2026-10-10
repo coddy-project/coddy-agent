@@ -1301,6 +1301,13 @@ func (a *Agent) runReActLoop(
 				// at once.
 				return string(acp.StopReasonRefused), fmt.Errorf("generation was interrupted before producing a response (the model had been silent for %s)", humanDuration(time.Since(callStart)))
 			}
+			// The provider refused the request as larger than the model's window.
+			// Nothing in the loop makes a request smaller in the middle of a
+			// turn, so the turn ends here; the error says what happened and what
+			// to do instead of passing the provider's refusal on as a bare error.
+			if llm.IsContextOverflow(streamErr) {
+				return string(acp.StopReasonRefused), a.contextOverflowError(streamErr, estimateAtSend)
+			}
 			if ctx.Err() != nil {
 				// Context cancelled for non-context-Canceled stream error: still propagate the real error.
 				return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)

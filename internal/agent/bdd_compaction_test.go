@@ -29,15 +29,29 @@ type bddCompactionProvider struct {
 	// toolCall, when set, is what the first Stream answers with; the second
 	// answers with plain text, so a turn that calls a tool still ends.
 	toolCall *llm.ToolCall
+	// streamErr, when set, is what every Stream refuses with.
+	streamErr error
+	// completeLimit, when positive, is the length of a summarization request
+	// (its transcript message) the provider still accepts; a longer one is
+	// refused as too large for the model's window, and counted.
+	completeLimit   int
+	completeRefused int
 }
 
 func (p *bddCompactionProvider) Complete(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
 	p.completeSeen = append(p.completeSeen, append([]llm.Message(nil), messages...))
+	if p.completeLimit > 0 && len(messages[len(messages)-1].Content) > p.completeLimit {
+		p.completeRefused++
+		return nil, fmt.Errorf("400 Bad Request: This model's maximum context length is 8192 tokens. However, your messages resulted in 12000 tokens. Please reduce the length of the messages.")
+	}
 	return &llm.Response{Content: "CANNED-SUMMARY of the earlier exchanges", StopReason: "end_turn"}, nil
 }
 
 func (p *bddCompactionProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.streamSeen = append(p.streamSeen, append([]llm.Message(nil), messages...))
+	if p.streamErr != nil {
+		return nil, p.streamErr
+	}
 	if p.toolCall != nil {
 		tc := *p.toolCall
 		p.toolCall = nil
@@ -69,6 +83,9 @@ type compactionFeatureState struct {
 	// filler pads every answer, so a scenario can build a history no single
 	// summarization request can hold.
 	filler string
+	// stop and runErr are how the turn of a scenario meant to fail ended.
+	stop   string
+	runErr error
 }
 
 func (s *compactionFeatureState) reset() error {
@@ -78,6 +95,7 @@ func (s *compactionFeatureState) reset() error {
 	s.exchanges = 0
 	s.beforeUsed = 0
 	s.filler = ""
+	s.stop, s.runErr = "", nil
 	return nil
 }
 
@@ -248,6 +266,71 @@ func (s *compactionFeatureState) nextRequestOmitsOlderExchanges() error {
 func (s *compactionFeatureState) userSendsNewPrompt() error {
 	_, err := s.ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "probe prompt"}})
 	return err
+}
+
+// contextWindowIs sets the window the model entry declares, which is what the
+// trigger measures against and what an overflow error reports.
+func (s *compactionFeatureState) contextWindowIs(tokens int) error {
+	if s.ag == nil {
+		return fmt.Errorf("no session prepared")
+	}
+	s.ag.cfg.Models[0].MaxContextTokens = tokens
+	return nil
+}
+
+// providerRefusesNextRequest makes every model call fail the way a backend
+// answers a request that does not fit: a 404 whose body names the limit.
+func (s *compactionFeatureState) providerRefusesNextRequest(body string) error {
+	s.provider.streamErr = fmt.Errorf("provider %q (http://127.0.0.1:8080/v1): openai stream: POST %q: 404 Not Found %q",
+		"local", "http://127.0.0.1:8080/v1/chat/completions", body)
+	return nil
+}
+
+func (s *compactionFeatureState) userSendsPromptAndTheTurnFails() error {
+	s.stop, s.runErr = s.ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "resume"}})
+	if s.runErr == nil {
+		return fmt.Errorf("the turn ended with stop reason %q and no error", s.stop)
+	}
+	return nil
+}
+
+func (s *compactionFeatureState) turnWasRefusedWithAnExplanation() error {
+	if s.stop != string(acp.StopReasonRefused) {
+		return fmt.Errorf("stop reason = %q, want %q", s.stop, acp.StopReasonRefused)
+	}
+	if !strings.HasPrefix(s.runErr.Error(), "context window exceeded") {
+		return fmt.Errorf("the error does not start by saying the context window was exceeded: %v", s.runErr)
+	}
+	return nil
+}
+
+func (s *compactionFeatureState) errorSays(want string) error {
+	if !strings.Contains(s.runErr.Error(), want) {
+		return fmt.Errorf("the error does not say %q: %v", want, s.runErr)
+	}
+	return nil
+}
+
+func (s *compactionFeatureState) providerWasAskedOnce() error {
+	if got := len(s.provider.streamSeen); got != 1 {
+		return fmt.Errorf("the provider was asked %d times, want once", got)
+	}
+	return nil
+}
+
+// summarizerRefusesLargeRequests gives the summarizer a window of its own that
+// is smaller than the pass the fold sizes for it: the situation of a backend
+// whose real window is below the one it was configured with.
+func (s *compactionFeatureState) summarizerRefusesLargeRequests() error {
+	s.provider.completeLimit = 1500
+	return nil
+}
+
+func (s *compactionFeatureState) summarizerRefusedARequestAsTooLarge() error {
+	if s.provider.completeRefused == 0 {
+		return fmt.Errorf("the summarizer never refused a request, so nothing was asked again with less")
+	}
+	return nil
 }
 
 func (s *compactionFeatureState) agentRepliesSuccessfully() error {
@@ -544,6 +627,14 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the next LLM request contains the last (\d+) exchanges verbatim$`, s.nextRequestContainsLastExchanges)
 	sc.Step(`^the next LLM request does not contain the older exchanges$`, s.nextRequestOmitsOlderExchanges)
 	sc.Step(`^the user sends a new prompt$`, s.userSendsNewPrompt)
+	sc.Step(`^the model's context window is (\d+) tokens$`, s.contextWindowIs)
+	sc.Step(`^the provider refuses the next request: "([^"]+)"$`, s.providerRefusesNextRequest)
+	sc.Step(`^the user sends a new prompt and the turn fails$`, s.userSendsPromptAndTheTurnFails)
+	sc.Step(`^the turn is refused with an explanation that the context window was exceeded$`, s.turnWasRefusedWithAnExplanation)
+	sc.Step(`^the error says "([^"]+)"$`, s.errorSays)
+	sc.Step(`^the provider was asked only once$`, s.providerWasAskedOnce)
+	sc.Step(`^the summarizer refuses requests larger than its window$`, s.summarizerRefusesLargeRequests)
+	sc.Step(`^the summarizer refused a request as too large$`, s.summarizerRefusedARequestAsTooLarge)
 	sc.Step(`^the agent replies successfully$`, s.agentRepliesSuccessfully)
 	sc.Step(`^the LLM request for that reply starts from the summary$`, s.nextRequestStartsFromSummary)
 	sc.Step(`^the ACP client has observed the context usage before compaction$`, s.clientObservedContextUsageBeforeCompaction)
