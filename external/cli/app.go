@@ -406,8 +406,10 @@ func (a *App) ApplyStartupOptions(ctx context.Context, model, mode, permMode str
 		a.modeID = mode
 	}
 	if permMode != "" {
-		if _, err := a.mgr.HandleSessionSetConfigOption(ctx, acp.SessionSetConfigOptionParams{
-			SessionID: a.sessionID, ConfigID: "permission_mode", Value: permMode,
+		// A launch flag sets the session the console opens; the mode new
+		// sessions start in follows only a choice made inside a session.
+		if _, err := a.mgr.ApplySessionSettings(ctx, a.sessionID, session.SettingsChange{
+			PermissionMode: &permMode, Source: "console", SessionOnly: true,
 		}); err != nil {
 			return fmt.Errorf("--permission-mode: %w", err)
 		}

@@ -125,6 +125,14 @@ func TestCheckWarnsAboutAKeyThatMovedOut(t *testing.T) {
 		t.Fatalf("want one warning at skills.sources naming marketplaces.json, got %+v", sources.Findings)
 	}
 
+	perm := checkYAML(t, withModeline("tools:\n  permission_mode: bypass\n"))
+	if errs := errorsOf(perm); len(errs) != 0 {
+		t.Fatalf("tools.permission_mode must not be an error: %+v", errs)
+	}
+	if w := warningsOf(perm); len(w) != 1 || w[0].Path != "tools.permission_mode" || !strings.Contains(w[0].Fix, "permission-mode.json") {
+		t.Fatalf("want one warning at tools.permission_mode naming permission-mode.json, got %+v", perm.Findings)
+	}
+
 	sched := checkYAML(t, withModeline("scheduler:\n  dir: /srv/jobs\n"))
 	if errs := errorsOf(sched); len(errs) != 0 {
 		t.Fatalf("scheduler.dir must not be an error: %+v", errs)
@@ -199,9 +207,9 @@ func TestCheckTelegramProxyWordPointsAtTheKey(t *testing.T) {
 }
 
 func TestCheckEnumSuggestsTheClosestValue(t *testing.T) {
-	rep := checkYAML(t, withModeline("tools:\n  permission_mode: bypas\n"))
+	rep := checkYAML(t, withModeline("hooks:\n  project_trust: alow\n"))
 	f := onlyError(t, rep)
-	if !strings.Contains(f.Fix, `did you mean "bypass"`) {
+	if !strings.Contains(f.Fix, `did you mean "allow"`) {
 		t.Errorf("fix %q", f.Fix)
 	}
 }

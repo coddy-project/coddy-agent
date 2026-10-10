@@ -2,7 +2,8 @@ Feature: The start screen's permission mode in the web UI
   Before a chat has a session there is no settings snapshot to read, and the
   start screen used to show "Ask first" whatever the configuration said; a
   mode picked there never reached the first turn. The chip now names the mode
-  the server is configured with, and a pick rides in with the first message.
+  a new session starts in (the one chosen last on any surface), and a pick
+  rides in with the first message.
 
   Scenario: The start screen shows the configured mode and keeps a pick
     Then the start screen's chip names the permission mode the server is configured with

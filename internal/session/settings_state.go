@@ -79,10 +79,11 @@ type turnSettings struct {
 	last turnValues
 }
 
-// processSettings are the settings of a session that live in the process's
-// memory and nowhere else: its permission mode (a restart returns to
-// tools.permission_mode, #292), the overrides armed for its next turns, and
-// what its last operator turn held, which a permission resume takes back.
+// processSettings are the settings of a session a surface let go of that the
+// process keeps for it: its permission mode (also in its session.json since
+// #512, the copy here being the latest), the overrides armed for its next
+// turns, and what its last operator turn held, which a permission resume
+// takes back - the last two live in the process's memory and nowhere else.
 type processSettings struct {
 	permissionMode string
 	armed          map[string]armedOverride

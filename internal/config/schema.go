@@ -346,6 +346,13 @@ var movedKeys = map[string]struct{ message, fix, doc string }{
 			"and removes it from config.yaml, keeping the old file as config.yaml.bak-<time>",
 		doc: "https://coddy.dev/docs/features/skills#marketplaces-and-sources",
 	},
+	"tools.permission_mode": {
+		message: "tools.permission_mode is no longer read from config.yaml",
+		fix: "a new session starts in the permission mode chosen last on any surface (ask until one is chosen), kept in ${CODDY_HOME}/permission-mode.json, " +
+			"and keeps its own mode in its session.json; the next start seeds that file with this value when nothing was chosen yet " +
+			"and removes the key from config.yaml, keeping the old file as config.yaml.bak-<time>",
+		doc: "https://coddy.dev/docs/operate/security#permission-modes-and-prompts",
+	},
 	"scheduler.dir": {
 		message: "scheduler.dir is no longer read from config.yaml",
 		fix: "user jobs live in ${CODDY_HOME}/scheduler and project jobs in <workspace>/.coddy/scheduler; " +

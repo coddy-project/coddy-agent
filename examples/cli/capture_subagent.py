@@ -151,9 +151,9 @@ models:
     max_context_tokens: 131072
 agent:
   model: {MODEL}
-tools:
-  permission_mode: bypass
 """)
+# The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+(home / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}))
 # The skill the first turn loads has to exist in the catalog for the call to
 # succeed; ${{CWD}}/.coddy/skills is one of the default roots.
 skill = work / ".coddy" / "skills" / "code-review"

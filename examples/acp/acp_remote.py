@@ -57,6 +57,8 @@ def prepare_home(name: str) -> Path:
         f'memory:\n  enable: true\n  model: "{DEFAULT_MODEL}"',
     )
     (home / "config.yaml").write_text(resolved)
+    # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+    (home / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}))
     (home / "sessions").mkdir(exist_ok=True)
     (home / "skills_fixture").mkdir(exist_ok=True)
     if os.environ.get("NEURALDEEP_API_KEY"):

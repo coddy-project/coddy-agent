@@ -18,19 +18,34 @@ import (
 func (s *cliTUIState) footerPermission() string {
 	for _, line := range strings.Split(s.screenText(), "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, s.cwd) {
+		folder, mode := line, ""
+		if i := strings.LastIndex(line, " • "); i >= 0 {
+			folder, mode = strings.TrimSpace(line[:i]), strings.TrimSpace(line[i+len(" • "):])
+		}
+		if !footerNamesFolder(folder, s.cwd) {
 			continue
 		}
-		if i := strings.LastIndex(line, " • "); i >= 0 {
-			return strings.TrimSpace(line[i+len(" • "):])
-		}
-		return ""
+		return mode
 	}
 	return ""
 }
 
+// footerNamesFolder reports whether the footer's folder segment names cwd:
+// the whole path, or its head cut with "..." when the line is too narrow for it (a
+// long temporary folder, as on macOS, next to a long mode name).
+func footerNamesFolder(folder, cwd string) bool {
+	if strings.HasPrefix(folder, cwd) {
+		return true
+	}
+	head, cut := strings.CutSuffix(folder, "...")
+	return cut && len(head) > len("/tmp/") && strings.HasPrefix(cwd, head)
+}
+
 func (s *cliTUIState) waitFooterPermission(want string) error {
 	deadline := time.Now().Add(3 * time.Second)
+	// The footer spells a mode for people ("accept edits"); a step names it
+	// the way the command takes it ("accept_edits").
+	want = strings.ReplaceAll(want, "_", " ")
 	for {
 		got := s.footerPermission()
 		if got == want {
