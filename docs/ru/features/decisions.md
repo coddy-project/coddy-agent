@@ -66,6 +66,6 @@ NEURALDEEP_API_KEY=... go test ./internal/agent -run TestLiveDecisionsE2E -count
 
 ![Вкладка Command safety (decisions) в настройках](../../assets/decisions/decisions-settings-dark-1280.png)
 
-*Настройки → Безопасность команд (decisions) - переключатель включения, выбор модели и порог небезопасности*
+*Настройки → Безопасность команд (decisions) - переключатель включения, по умолчанию выключенный, над группой "Модель и порог", чья (i) объясняет оба поля*
 
-<!-- docsgen:source sha256=7eace3cc3c06a518 -->
+<!-- docsgen:source sha256=c571975158d52bf8 -->

@@ -284,6 +284,9 @@ export const messagesRu: Record<string, string> = {
   "settings.group.memory.runs": "Запуски",
   "settings.group.memory.limits": "Ограничения",
   "settings.group.memory.instructions": "Инструкции",
+  "settings.group.decisions.verdict": "Модель и порог",
+  "settings.group.decisions.verdictDesc":
+    "Модель decisions получает каждую команду оболочки, локальную или через SSH, которая выполнилась бы без запроса разрешения, и команда отклоняется, когда вероятность небезопасного варианта достигает порога. Команда длиннее того, что читает модель, не выполняется, frida-decisions читает 512 токенов, clef-flash 8192. Для проверки нужны учётные данные NeuralDeep в строке провайдера neuraldeep.",
   "settings.group.scheduler.jobs": "Задания",
   "settings.group.logger.main": "Настройки логирования",
   "settings.group.sessions.storage": "Хранилище",

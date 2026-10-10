@@ -818,6 +818,18 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
       },
     ];
   }
+  if (key === "decisions") {
+    // The switch opens the tab on its own; the two knobs of the verdict sit
+    // together, what they mean behind the (i).
+    return [
+      {
+        id: "verdict",
+        legend: translate("settings.group.decisions.verdict"),
+        description: translate("settings.group.decisions.verdictDesc"),
+        paths: ["model", "threshold"],
+      },
+    ];
+  }
   if (key === "scheduler") {
     return [{ id: "jobs", legend: translate("settings.group.scheduler.jobs") }];
   }

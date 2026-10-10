@@ -282,6 +282,9 @@ export const messagesEn: Record<string, string> = {
   "settings.group.memory.runs": "Runs",
   "settings.group.memory.limits": "Limits",
   "settings.group.memory.instructions": "Instructions",
+  "settings.group.decisions.verdict": "Model and threshold",
+  "settings.group.decisions.verdictDesc":
+    "The decisions model is asked about every shell command, local or over SSH, that would run without a permission prompt, and the command is rejected once the probability of the unsafe option reaches the threshold. A command longer than the model reads is not run: frida-decisions reads 512 tokens, clef-flash 8192. The check needs a NeuralDeep credential on the neuraldeep provider row.",
   "settings.group.scheduler.jobs": "Jobs",
   "settings.group.logger.main": "Logger settings",
   "settings.group.sessions.storage": "Storage",

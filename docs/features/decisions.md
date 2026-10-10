@@ -66,4 +66,4 @@ NEURALDEEP_API_KEY=... go test ./internal/agent -run TestLiveDecisionsE2E -count
 
 ![The Command safety (decisions) tab of the Settings drawer](../assets/decisions/decisions-settings-dark-1280.png)
 
-*Settings → Command safety (decisions): the enable switch, the model picker and the unsafe threshold*
+*Settings → Command safety (decisions): the enable switch, off by default, above the Model and threshold fieldset, whose (i) explains the two fields*
