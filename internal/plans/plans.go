@@ -13,14 +13,14 @@ import (
 )
 
 const (
-	DirName          = "plans"
-	FileSuffix       = ".plan.md"
-	MetaPlanSlug     = "coddy.dev/planSlug"
-	MetaPlanKind     = "coddy.dev/planKind"
-	MetaRunPlanSlug  = "coddy.dev/runPlanSlug"
-	PlanKindDesign   = "design"
-	defaultPlanName  = "Plan"
-	maxSlugLen       = 64
+	DirName         = "plans"
+	FileSuffix      = ".plan.md"
+	MetaPlanSlug    = "coddy.dev/planSlug"
+	MetaPlanKind    = "coddy.dev/planKind"
+	MetaRunPlanSlug = "coddy.dev/runPlanSlug"
+	PlanKindDesign  = "design"
+	defaultPlanName = "Plan"
+	maxSlugLen      = 64
 )
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
@@ -50,12 +50,12 @@ type Frontmatter struct {
 
 // Document is a parsed design plan file.
 type Document struct {
-	Slug     string
-	Name     string
-	Overview string
-	Todos    []TodoItem
-	Body     string
-	Content  string // full file bytes as written
+	Slug      string
+	Name      string
+	Overview  string
+	Todos     []TodoItem
+	Body      string
+	Content   string // full file bytes as written
 	UpdatedAt time.Time
 }
 

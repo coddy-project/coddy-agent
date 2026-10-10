@@ -1,0 +1,17 @@
+# golangci-lint v2 configuration. CI pins v2.12.2 (.github/workflows/tests-on-pr.yaml);
+# `make lint` and `make lint-windows` run it three times each (Makefile, "Lint").
+version: "2"
+
+# Until this file existed the linters were golangci-lint's defaults. Naming the
+# set keeps it that way: a new golangci-lint release that widens the default
+# cannot fail the build unannounced, and widening it here is a deliberate edit.
+linters:
+  default: standard
+
+# Formatters run inside `golangci-lint run` and report a file whose bytes differ
+# from what the formatter writes. `gofmt` is also set to simplify, so it holds
+# the tree to `gofmt -s`. Fix a report with `gofmt -w <file>` (or
+# `golangci-lint fmt`, which applies every formatter named here).
+formatters:
+  enable:
+    - gofmt
