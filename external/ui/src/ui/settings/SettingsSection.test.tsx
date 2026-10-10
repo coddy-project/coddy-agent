@@ -6,15 +6,18 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { SettingsSection } from "./SettingsSection";
 import type { JsonSchema } from "./SchemaForm";
 import type { SectionDescriptor } from "./settingsSections";
+import { initLocale, setLocale } from "../i18n/i18n";
 import { messagesEn } from "../i18n/messages/en";
 import { messagesRu } from "../i18n/messages/ru";
 
 afterEach(() => {
   cleanup();
+  initLocale("en");
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -1555,9 +1558,9 @@ test("the provider form groups its fields: provider settings, folded advanced se
   ]);
 });
 
-// A logical model's form reads in three blocks: which model it is and what it
-// takes in, how it answers, and how hard it thinks.
-test("the logical model form groups its fields: model, generation, reasoning", async () => {
+// A logical model's form reads in four blocks: which model it is and what it
+// takes in, how it answers, how hard it thinks, and which tools it is offered.
+test("the logical model form groups its fields: model, generation, reasoning, tools", async () => {
   stubModelsAndLevels([]);
   const schema: JsonSchema = {
     type: "object",
@@ -1591,6 +1594,16 @@ test("the logical model form groups its fields: model, generation, reasoning", a
               title: "Allow disabling reasoning",
               default: false,
             },
+            tools: {
+              type: "array",
+              title: "Allowed tools",
+              items: { type: "string" },
+            },
+            disallowed_tools: {
+              type: "array",
+              title: "Disallowed tools",
+              items: { type: "string" },
+            },
           },
           "x-coddy-property-order": [
             "model",
@@ -1602,6 +1615,8 @@ test("the logical model form groups its fields: model, generation, reasoning", a
             "reasoning_levels",
             "reasoning_default",
             "allow_reasoning_off",
+            "tools",
+            "disallowed_tools",
           ],
         },
       },
@@ -1620,7 +1635,7 @@ test("the logical model form groups its fields: model, generation, reasoning", a
   const legends = [
     ...document.querySelectorAll(".settings-schema-root > fieldset > legend"),
   ].map((l) => l.textContent);
-  expect(legends).toEqual(["Model", "Generation", "Reasoning"]);
+  expect(legends).toEqual(["Model", "Generation", "Reasoning", "Tools"]);
   const model = screen.getByTestId("settings-group-model");
   expect(model.textContent).toContain("Model id");
   expect(model.textContent).toContain("Context window (tokens)");
@@ -1633,6 +1648,207 @@ test("the logical model form groups its fields: model, generation, reasoning", a
   expect(reasoning.textContent).toContain("Reasoning levels");
   expect(reasoning.textContent).toContain("Default reasoning level");
   expect(reasoning.textContent).toContain("Allow disabling reasoning");
+  const tools = screen.getByTestId("settings-group-tools");
+  // Both lists stand inside it, the allowlist first, each in the frame a list
+  // has.
+  expect(
+    [
+      ...tools.querySelectorAll(
+        ":scope > .settings-form-group-body > fieldset > legend",
+      ),
+    ].map((l) => l.textContent),
+  ).toEqual(["Allowed tools", "Disallowed tools"]);
+});
+
+// models[].tools and models[].disallowed_tools are lists of names, so they
+// keep the frame a list has, inside the Tools block, the allowlist first. The
+// block explains how an entry is written and how the two lists combine; each
+// list says what it does on its own.
+const toolListsSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    models: {
+      type: "array",
+      title: "Logical models",
+      items: {
+        type: "object",
+        properties: {
+          model: { type: "string", title: "Model id" },
+          tools: {
+            type: "array",
+            title: "Allowed tools",
+            items: { type: "string" },
+          },
+          disallowed_tools: {
+            type: "array",
+            title: "Disallowed tools",
+            items: { type: "string" },
+          },
+        },
+        "x-coddy-property-order": ["model", "tools", "disallowed_tools"],
+      },
+    },
+  },
+};
+
+function ToolListsHarness(props: { model?: Record<string, unknown> }) {
+  const [doc, setDoc] = React.useState<Record<string, unknown>>({
+    providers: [{ name: "demo", type: "openai" }],
+    models: [props.model ?? { model: "demo/small" }],
+  });
+  return (
+    <>
+      <output data-testid="settings-doc">{JSON.stringify(doc)}</output>
+      <SettingsSection
+        section={modelsSection}
+        schema={toolListsSchema}
+        doc={doc}
+        setDoc={setDoc}
+      />
+    </>
+  );
+}
+
+/** The first model row of the document the harness holds. */
+function firstModel(): Record<string, unknown> {
+  return (savedModels() as Record<string, unknown>[])[0]!;
+}
+
+/** The list a row form draws under that name, as a fieldset. */
+function toolList(name: string): HTMLElement {
+  const legend = screen.getByText(name, { selector: ".settings-legend-line" });
+  return legend.closest("fieldset") as HTMLElement;
+}
+
+test("the tool lists of a model row are edited in place and saved on the row", () => {
+  render(
+    <ToolListsHarness
+      model={{
+        model: "demo/small",
+        tools: ["read", "grep"],
+        disallowed_tools: ["http_request"],
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const allowed = screen.getByLabelText("Allowed tools 1") as HTMLInputElement;
+  expect(allowed.value).toBe("read");
+  expect(
+    (screen.getByLabelText("Allowed tools 2") as HTMLInputElement).value,
+  ).toBe("grep");
+  expect(
+    (screen.getByLabelText("Disallowed tools 1") as HTMLInputElement).value,
+  ).toBe("http_request");
+
+  // A name is retyped, an MCP pattern is added, a name is taken out.
+  fireEvent.change(allowed, { target: { value: "glob" } });
+  fireEvent.click(within(toolList("Allowed tools")).getByText("Add"));
+  fireEvent.change(screen.getByLabelText("Allowed tools 3"), {
+    target: { value: "context7__*" },
+  });
+  fireEvent.click(
+    within(toolList("Allowed tools")).getAllByRole("button", {
+      name: "Remove",
+    })[1]!,
+  );
+  expect(firstModel().tools).toEqual(["glob", "context7__*"]);
+  expect(firstModel().disallowed_tools).toEqual(["http_request"]);
+
+  // The denylist is its own key.
+  fireEvent.click(within(toolList("Disallowed tools")).getByText("Add"));
+  fireEvent.change(screen.getByLabelText("Disallowed tools 2"), {
+    target: { value: "ssh_*" },
+  });
+  expect(firstModel().tools).toEqual(["glob", "context7__*"]);
+  expect(firstModel().disallowed_tools).toEqual(["http_request", "ssh_*"]);
+});
+
+test("a model row without tool lists shows two empty lists and writes nothing until one is added to", () => {
+  render(<ToolListsHarness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  expect(screen.queryByLabelText("Allowed tools 1")).toBeNull();
+  expect(screen.queryByLabelText("Disallowed tools 1")).toBeNull();
+  expect(firstModel()).toEqual({ model: "demo/small" });
+
+  fireEvent.click(within(toolList("Allowed tools")).getByText("Add"));
+  expect(firstModel()).toEqual({ model: "demo/small", tools: [""] });
+});
+
+// Empty lists mean no restriction, so a row the form adds starts with both.
+test("a model added in Settings starts with both tool lists empty", () => {
+  render(<ToolListsHarness />);
+  fireEvent.click(screen.getByTestId("settings-master-add"));
+
+  const models = savedModels() as Record<string, unknown>[];
+  expect(models).toHaveLength(2);
+  expect(models[1]).toEqual({ model: "", tools: [], disallowed_tools: [] });
+});
+
+test("the Tools block says how an entry is written and how the lists combine", () => {
+  render(<ToolListsHarness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const tools = screen.getByTestId("settings-group-tools");
+  const hint = tools.querySelector(
+    ":scope > legend .field-hint",
+  ) as HTMLElement;
+  fireEvent.mouseEnter(hint);
+  const tip = screen.getByRole("tooltip").textContent ?? "";
+  fireEvent.mouseLeave(hint);
+  // The three ways to name tools, the MCP form and the two orders.
+  expect(tip).toContain("exact tool name, * or a prefix*");
+  expect(tip).toContain("server__tool");
+  expect(tip).toContain("context7__*");
+  expect(tip).toContain("a tool in both is out");
+  expect(tip).toContain("every tool the mode would");
+
+  // Each list has its own description behind its own (i).
+  for (const [name, text] of [
+    ["Allowed tools", "a call to an unlisted tool is refused"],
+    ["Disallowed tools", "applied after the allowed tools"],
+  ] as const) {
+    const own = toolList(name).querySelector(
+      ":scope > legend .field-hint",
+    ) as HTMLElement;
+    fireEvent.mouseEnter(own);
+    expect(screen.getByRole("tooltip").textContent).toContain(text);
+    fireEvent.mouseLeave(own);
+  }
+});
+
+test("the tool lists and their block are named in Russian, with no English left over", () => {
+  setLocale("ru");
+  render(
+    <ToolListsHarness
+      model={{
+        model: "demo/small",
+        tools: ["read"],
+        disallowed_tools: ["http_request"],
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const tools = screen.getByTestId("settings-group-tools");
+  expect(
+    tools.querySelector(":scope > legend .settings-legend-line")?.textContent,
+  ).toBe("Инструменты");
+  expect(
+    [
+      ...tools.querySelectorAll(
+        ":scope > .settings-form-group-body > fieldset > legend",
+      ),
+    ].map((l) => l.textContent),
+  ).toEqual(["Разрешённые инструменты", "Запрещённые инструменты"]);
+  expect(screen.getByLabelText("Разрешённые инструменты 1")).toBeTruthy();
+  expect(screen.getByLabelText("Запрещённые инструменты 1")).toBeTruthy();
+  expect(tools.textContent).not.toMatch(/Allowed|Disallowed/);
+  // Both lists keep the buttons of every list, translated.
+  expect(
+    within(toolList("Разрешённые инструменты")).getByText("Добавить"),
+  ).toBeTruthy();
 });
 
 // The queue mode answers what Enter does with a message written during a
