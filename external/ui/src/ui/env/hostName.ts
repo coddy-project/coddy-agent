@@ -1,6 +1,6 @@
 /**
  * The short name of a machine: the first label of its host name, the way a
- * person calls it ("pasha-lt" for "pasha-lt.rgs.ru"). An IP address has no
+ * person calls it ("devbox" for "devbox.example.org"). An IP address has no
  * such label and is kept whole. Empty for an empty name.
  */
 export function shortHostName(host: string): string {

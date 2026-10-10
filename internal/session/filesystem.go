@@ -923,8 +923,9 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 // appendBundleRow reads one bundle's metadata and adds its row when opts admit
 // it. It deliberately does not open messages.json: default History needs no
 // transcript fields, and archive filters must exclude a row before a large or
-// damaged transcript can affect the scan. descend is false for a print run the
-// options leave out, whose children stay out with it.
+// damaged transcript can affect the scan. descend is false for a print run or
+// a scheduler job session the options leave out, whose children stay out with
+// it.
 func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter string, opts ListOptions) (_ []SessionListEntry, descend bool) {
 	meta, err := f.readListMetaAt(dir, id)
 	if err != nil {
@@ -936,8 +937,11 @@ func (f *FileStore) appendBundleRow(out []SessionListEntry, dir, id, cwdFilter s
 	if recovered, ok := RecoverManagedWorktreeCWD(meta.CWD); ok {
 		meta.CWD = recovered
 	}
+	// The runs of a scheduler job are child sessions inside its bundle: they
+	// are the scheduler's work and stay out with the job session, so a
+	// listing that admits subagents does not reach them either.
 	if !opts.IncludeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
-		return out, true
+		return out, false
 	}
 	if !opts.IncludeSubagents && meta.IsSubagentRun() {
 		return out, true
