@@ -1612,11 +1612,11 @@ export const messagesEn: Record<string, string> = {
   "storage.banner.low.sessions":
     "Low disk space: {free} left on the disk that stores Coddy sessions. When it runs out, new chats cannot start and new turns are not saved.",
   "storage.banner.low.home":
-    "Low disk space: {free} left on the disk that holds the Coddy home folder. When it runs out, settings and sessions cannot be saved.",
+    "Low disk space: {free} left on the disk that holds the Coddy home folder. When it runs out, Coddy cannot save its settings, logs and other state.",
   "storage.banner.full.sessions":
     "The disk that stores Coddy sessions is full. New chats cannot start and the latest turns are not saved. Free some space, then send a message again.",
   "storage.banner.full.home":
-    "The disk that holds the Coddy home folder is full. Settings and sessions cannot be saved. Free some space, then send a message again.",
+    "The disk that holds the Coddy home folder is full. Coddy cannot save its settings, logs and other state. Free some space, then try again.",
   "storage.banner.dismiss": "Dismiss",
 
   "prompts.questions": "Questions",

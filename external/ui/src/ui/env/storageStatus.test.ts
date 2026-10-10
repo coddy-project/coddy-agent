@@ -209,18 +209,109 @@ test("a low-space warning is dismissed for the tab, a full disk never is", async
   expect(snapshot().dismissedLow).toBe(false);
 });
 
-test("a dismissal is remembered by the tab and forgotten when the disk recovers", async () => {
+// A disk whose free space hovers around the threshold flips between ok and low
+// as files come and go. A person who dismissed the warning must not be shown it
+// again every time it dips: the dismissal is forgotten when the disk went
+// through full, or has read ok for DISMISSAL_FORGOTTEN_AFTER_OK_MS (three
+// minutes, three reads of the minute timer) without a low read in between.
+// Only the clock is faked, so the reads themselves run as they do.
+test("a dismissed warning stays dismissed while free space hovers around the threshold", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-10T10:00:00Z"));
+  const at = async (secondsLater: number, storage: unknown) => {
+    vi.setSystemTime(
+      new Date(Date.parse("2026-10-10T10:00:00Z") + secondsLater * 1000),
+    );
+    answers.push(() => info(storage));
+    await refreshStorageStatus();
+  };
+
+  // dismissedLow only has a meaning while the disk reads low (an ok disk shows no
+  // banner anyway), so what is held across an ok read is the mark of the tab.
+  const marked = () =>
+    window.sessionStorage.getItem("coddy_storage_banner_dismissed");
+
+  await at(0, low);
+  dismissStorageLow();
+  expect(snapshot().dismissedLow).toBe(true);
+
+  // It dips back above the line and under it again, over and over.
+  await at(60, ok);
+  expect(snapshot().status?.state).toBe("ok");
+  expect(marked()).toBe("sessions");
+  await at(120, low);
+  expect(snapshot().dismissedLow).toBe(true);
+  await at(180, ok);
+  await at(240, ok);
+  await at(299, ok);
+  expect(marked()).toBe("sessions");
+  await at(300, low);
+  expect(snapshot().dismissedLow).toBe(true);
+
+  // Three minutes of ok without a low read in between: really recovered.
+  await at(360, ok);
+  await at(450, ok);
+  await at(539, ok);
+  expect(marked()).toBe("sessions");
+  await at(540, ok);
+  expect(marked()).toBeNull();
+  // Low again afterwards: the warning speaks again.
+  await at(600, low);
+  expect(snapshot().dismissedLow).toBe(false);
+  expect(snapshot().status?.state).toBe("low");
+});
+
+test("a burst of reads does not count as a recovery", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-10T10:00:00Z"));
+  answers.push(() => info(low));
+  await refreshStorageStatus();
+  dismissStorageLow();
+  // A focus, a visibility change and the timer within the same second all read ok.
+  for (let i = 0; i < 5; i++) {
+    answers.push(() => info(ok));
+    await refreshStorageStatus();
+  }
+  answers.push(() => info(low));
+  await refreshStorageStatus();
+  expect(snapshot().dismissedLow).toBe(true);
+});
+
+test("a server that stops reporting a disk leaves the dismissal alone", async () => {
+  answers.push(() => info(low));
+  await refreshStorageStatus();
+  dismissStorageLow();
+  answers.push(
+    () =>
+      new Response(JSON.stringify({ object: "coddy.info" }), { status: 200 }),
+  );
+  await refreshStorageStatus();
+  expect(snapshot().status).toBeNull();
+  answers.push(() => info(low));
+  await refreshStorageStatus();
+  expect(snapshot().dismissedLow).toBe(true);
+});
+
+test("a dismissal is remembered by the tab and forgotten once the disk has recovered", async () => {
   window.sessionStorage.setItem("coddy_storage_banner_dismissed", "sessions");
   // A page that loads with the mark already there (a reload of the tab): a
   // fresh copy of the module reads it at start, with the React it renders with.
   vi.resetModules();
   const fresh = await import("./storageStatus");
   const rtl = await import("@testing-library/react");
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-10T10:00:00Z"));
   answers.push(() => info(low));
   await fresh.refreshStorageStatus();
   const { result } = rtl.renderHook(() => fresh.useStorageStatus());
   expect(result.current.dismissedLow).toBe(true);
 
+  answers.push(() => info(ok));
+  await fresh.refreshStorageStatus();
+  expect(window.sessionStorage.getItem("coddy_storage_banner_dismissed")).toBe(
+    "sessions",
+  );
+  vi.setSystemTime(new Date("2026-10-10T10:03:00Z"));
   answers.push(() => info(ok));
   await fresh.refreshStorageStatus();
   expect(window.sessionStorage.getItem("coddy_storage_banner_dismissed")).toBe(

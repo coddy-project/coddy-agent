@@ -39,6 +39,16 @@ const POLL_INTERVAL_MS = 60_000;
  */
 const POLL_FULL_INTERVAL_MS = 15_000;
 const DISMISSED_KEY = "coddy_storage_banner_dismissed";
+/**
+ * How long the disk must read ok, with no low read in between, before a dismissed low-space
+ * warning is forgotten and may speak again. Free space that hovers around the threshold flips
+ * between ok and low as files come and go; without this the person who dismissed the warning
+ * would be shown it again at every dip. Three minutes is three reads of the minute timer: it
+ * rides out a flap, and still re-warns after a real recovery that is followed, hours later,
+ * by the disk filling up again. It is measured by the clock, not by counting reads, because a
+ * focus, a visibility change and the timer can read three times in a second.
+ */
+const DISMISSAL_FORGOTTEN_AFTER_OK_MS = 180_000;
 
 function count(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
@@ -93,6 +103,8 @@ let status: StorageStatus | null = null;
 let dismissedVolume = typeof window === "undefined" ? "" : readDismissed();
 let snapshot: StorageSnapshot = compute();
 let started = false;
+/** When the run of ok reads that ends now began (ms); 0 while the last read was not ok. */
+let okSince = 0;
 /** Reads are numbered, and only the newest answer is kept. */
 let asked = 0;
 const listeners = new Set<() => void>();
@@ -132,12 +144,30 @@ function sameStatus(a: StorageStatus | null, b: StorageStatus | null): boolean {
   );
 }
 
+function forgetDismissal(): void {
+  if (!dismissedVolume) return;
+  dismissedVolume = "";
+  writeDismissed("");
+}
+
 function setStatus(next: StorageStatus | null): void {
   if (!sameStatus(status, next)) status = next;
-  // A warning that is no longer one is forgotten, so the next time the disk runs low it speaks again.
-  if (status?.state !== "low" && dismissedVolume) {
-    dismissedVolume = "";
-    writeDismissed("");
+  // A dismissed warning speaks again once the disk went through full, or has read ok for
+  // DISMISSAL_FORGOTTEN_AFTER_OK_MS. A low read stands for the same warning, and a server
+  // that reports no disk at all says nothing about it.
+  switch (next?.state) {
+    case "full":
+      okSince = 0;
+      forgetDismissal();
+      break;
+    case "low":
+      okSince = 0;
+      break;
+    case "ok":
+      if (okSince === 0) okSince = Date.now();
+      else if (Date.now() - okSince >= DISMISSAL_FORGOTTEN_AFTER_OK_MS)
+        forgetDismissal();
+      break;
   }
   publish();
 }
@@ -185,7 +215,7 @@ export function noteStorageWriteFailing(failing: boolean): void {
   void refreshStorageStatus();
 }
 
-/** dismissStorageLow hides the low-space warning for this tab until the disk stops being low. */
+/** dismissStorageLow hides the low-space warning for this tab until the disk has recovered (see DISMISSAL_FORGOTTEN_AFTER_OK_MS) or fills up. */
 export function dismissStorageLow(): void {
   if (status?.state !== "low") return;
   dismissedVolume = status.volume || "sessions";
@@ -197,6 +227,7 @@ export function dismissStorageLow(): void {
 export function resetStorageStatus(): void {
   asked += 1;
   status = null;
+  okSince = 0;
   dismissedVolume = "";
   writeDismissed("");
   publish();
