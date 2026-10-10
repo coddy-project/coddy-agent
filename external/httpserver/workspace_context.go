@@ -45,7 +45,7 @@ func workspaceContextPayload(cwd string) map[string]interface{} {
 		payload["branch"] = info.Branch
 		payload["branches"] = info.Branches
 		// As the last fetch left them: POST /coddy/workspace/fetch refreshes
-		// them before the branch list opens.
+		// them when the branch list opens.
 		payload["remote_branches"] = gitws.RemoteBranches(info.Path)
 		wts := make([]map[string]interface{}, 0, len(info.Worktrees))
 		for _, wt := range info.Worktrees {

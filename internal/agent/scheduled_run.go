@@ -209,7 +209,12 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 		TimeoutSeconds: spec.TimeoutSeconds,
 		NotifyOnFinish: false,
 		// An empty model follows the config; the row names the one that runs.
-		Agent: &bgtask.AgentInfo{Name: name, SessionID: runID, Model: session.ResolveModelID(cfg, model)},
+		Agent: &bgtask.AgentInfo{
+			Name:      name,
+			SessionID: runID,
+			Model:     session.ResolveModelID(cfg, model),
+			Reasoning: session.ResolveReasoningLevel(cfg, model, reasoning),
+		},
 	}
 	snap, err := pool.Launch(taskSpec, func(taskID string, out io.Writer) (bgtask.Handle, error) {
 		run.taskID = taskID

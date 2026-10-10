@@ -16,6 +16,8 @@ import { AuthGate } from "./ui/auth/AuthGate";
 import { EnvScope } from "./ui/env/EnvScope";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 import { initTelegramMiniApp } from "./ui/telegram/miniApp";
+import { registerServiceWorker } from "./ui/pwa/serviceWorker";
+import { followThemeColor } from "./ui/pwa/themeColor";
 
 // Route API calls to the selected remote environment (no-op in local mode). Must run before the
 // app issues any fetch so remote sessions/config/streaming all target the chosen backend.
@@ -27,6 +29,8 @@ bootstrapUiThemeFromCookie();
 // picks one. Outside Telegram this does nothing.
 initTelegramMiniApp();
 initLocale(bootstrapUiLocaleFromUrlOrCookie());
+// The installed app's title bar takes the theme's colour (ui/pwa/themeColor.ts).
+followThemeColor();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -42,3 +46,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </I18nProvider>
   </React.StrictMode>,
 );
+
+// Installable app and notifications (ui/pwa/): the service worker caches
+// nothing, so it is registered once the page is up and never stands between
+// the page and the server.
+registerServiceWorker();

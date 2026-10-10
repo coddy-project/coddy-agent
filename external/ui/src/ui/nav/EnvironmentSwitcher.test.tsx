@@ -480,14 +480,14 @@ describe("EnvironmentSwitcher local name", () => {
       <EnvironmentSwitcher
         className="rail-hit"
         wide={true}
-        localHost="pasha-lt.rgs.ru"
+        localHost="devbox.example.org"
       />,
     );
     const btn = screen.getByTestId("nav-environment");
-    expect(btn).toHaveAttribute("aria-label", "Environment: pasha-lt");
-    const label = within(btn).getByText("pasha-lt");
+    expect(btn).toHaveAttribute("aria-label", "Environment: devbox");
+    const label = within(btn).getByText("devbox");
     expect(label).toHaveClass("rail-env-label");
-    expect(label).toHaveAttribute("title", "pasha-lt.rgs.ru");
+    expect(label).toHaveAttribute("title", "devbox.example.org");
   });
 
   it("says Local while the host name is unknown", () => {

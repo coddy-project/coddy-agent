@@ -166,6 +166,95 @@ export function taskTitle(task: BackgroundTask): string {
   return label;
 }
 
+/**
+ * What the first line of a card says: the tag, or null when it would say nothing the
+ * card does not, and the title, with the detail the line leaves to the hover text. A
+ * scheduled run is labelled "<job> · <trigger> <when>" and its agent name is the job:
+ * its line is the job alone, and how and when it started is the detail. An agent run
+ * that names no agent would be tagged with the bare word "agent", which every agent
+ * card is.
+ */
+export type TaskCardHeading = {
+  tag: string | null;
+  title: string;
+  detail: string;
+};
+
+export function taskCardHeading(task: BackgroundTask): TaskCardHeading {
+  const title = taskTitle(task);
+  if (isAgentTask(task) && !task.agent?.system && !agentTaskName(task)) {
+    return { tag: null, title, detail: "" };
+  }
+  const tag = taskTag(task);
+  const name = tag.trim().toLowerCase();
+  const lower = title.trim().toLowerCase();
+  if (name && lower === name) {
+    return { tag: null, title: title.trim(), detail: "" };
+  }
+  if (name && lower.startsWith(`${name} · `)) {
+    const head = title.trim();
+    return {
+      tag: null,
+      title: head.slice(0, name.length),
+      detail: head.slice(name.length + 3).trim(),
+    };
+  }
+  return { tag, title, detail: "" };
+}
+
+function parseTime(iso: string | undefined): Date | null {
+  const at = iso ? new Date(iso) : null;
+  return at && !Number.isNaN(at.getTime()) ? at : null;
+}
+
+function sameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function clockOf(at: Date): string {
+  return at.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function dayOf(at: Date): string {
+  return at.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/** HH:MM, with the date in front for a day other than today. */
+function wallClock(at: Date, nowMs: number): string {
+  return sameDay(at, new Date(nowMs))
+    ? clockOf(at)
+    : `${dayOf(at)}, ${clockOf(at)}`;
+}
+
+/**
+ * The full start and end of a task for the hover text of its card: the date, the
+ * time to the second, in the reader's locale; the end only once it has ended.
+ */
+export function taskTimesTitle(task: BackgroundTask): string[] {
+  const full = (at: Date) =>
+    at.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  const started = parseTime(task.started_at);
+  const ended = task.running ? null : parseTime(task.finished_at);
+  return [
+    started ? t("tasks.startedTitle", { time: full(started) }) : "",
+    ended ? t("tasks.finishedTitle", { time: full(ended) }) : "",
+  ].filter(Boolean);
+}
+
 /** Wall clock of a finished task, HH:MM in the reader's locale; "" while it runs. */
 export function taskFinishedClock(task: BackgroundTask): string {
   const ended = task.finished_at ? new Date(task.finished_at) : null;
@@ -193,6 +282,8 @@ export function taskFinishedClock(task: BackgroundTask): string {
 export type AgentUsage = {
   model: string;
   modelId: string;
+  /** The reasoning level the run calls its model with; "" when the model offers none. */
+  reasoning: string;
   tokens: number;
   inputTokens: number;
   outputTokens: number;
@@ -219,6 +310,7 @@ export function agentUsage(task: BackgroundTask): AgentUsage | null {
         ? modelId.slice(slash + 1)
         : modelId,
     modelId,
+    reasoning: (agent.reasoning || "").trim(),
     tokens: inputTokens + outputTokens,
     inputTokens,
     outputTokens,
@@ -226,19 +318,29 @@ export function agentUsage(task: BackgroundTask): AgentUsage | null {
 }
 
 /**
- * The meta line of a folded card. A running task says how long it has run and against
- * what estimate; a finished one how long it ran and when it ended. How it ended is not
+ * The meta line of a folded card: when the task started, then how long it has run
+ * against what estimate, or how long it ran and when it ended; a day other than today
+ * puts the date in front. The seconds and the full dates are the card's hover text
+ * (taskTimesTitle). How it ended is not
  * written here: the dot in front of the title says it in colour, and an open card
  * names it first in its foot, next to the exit code and the duration.
  */
 export function taskMetaLine(task: BackgroundTask, nowMs: number): string {
+  const started = parseTime(task.started_at);
+  const parts = started ? [wallClock(started, nowMs)] : [];
   if (task.running) {
-    return taskTimingLine(task, nowMs);
+    parts.push(taskTimingLine(task, nowMs));
+    return parts.join(" · ");
   }
-  const parts = [formatDuration(displayElapsedSeconds(task, nowMs))];
-  const clock = taskFinishedClock(task);
-  if (clock) {
-    parts.push(clock);
+  parts.push(formatDuration(displayElapsedSeconds(task, nowMs)));
+  const ended = parseTime(task.finished_at);
+  if (ended) {
+    // The end is dated only when it fell on another day than the start.
+    parts.push(
+      started && sameDay(started, ended)
+        ? clockOf(ended)
+        : wallClock(ended, nowMs),
+    );
   }
   return parts.join(" · ");
 }

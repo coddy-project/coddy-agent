@@ -147,6 +147,7 @@ func TestEmbeddedUIPublicAssetsCacheControl(t *testing.T) {
 	for _, path := range []string{
 		"/", "/index.html", "/app.js", "/events-worker.js", "/styles.css",
 		"/coddy-favicon.svg", "/favicon-32.png", "/favicon.ico", "/apple-touch-icon.png",
+		"/manifest.webmanifest", "/sw.js", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png",
 	} {
 		t.Run(path, func(t *testing.T) {
 			res, err := http.Get(ts.URL + path)
@@ -223,5 +224,33 @@ func TestEmbeddedUIServesEventsWorker(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "/coddy/events") {
 		t.Fatal("events-worker.js does not read /coddy/events")
+	}
+}
+
+// The browser fetches the web app manifest without credentials and registers
+// the service worker before anyone signs in, so both stay public behind a
+// token, like the rest of the shell (issue #508).
+func TestEmbeddedUIInstallableAppIsPublic(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	for _, tc := range []struct{ path, contentType string }{
+		{"/manifest.webmanifest", "application/manifest+json"},
+		{"/sw.js", "javascript"},
+		{"/icon-192.png", "image/png"},
+		{"/icon-512.png", "image/png"},
+		{"/icon-maskable-512.png", "image/png"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			res, err := http.Get(ts.URL + tc.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = res.Body.Close() }()
+			if res.StatusCode != http.StatusOK {
+				t.Fatalf("status %d, want 200 without a token", res.StatusCode)
+			}
+			if ct := res.Header.Get("Content-Type"); !strings.Contains(ct, tc.contentType) {
+				t.Fatalf("Content-Type %q, want %s", ct, tc.contentType)
+			}
+		})
 	}
 }

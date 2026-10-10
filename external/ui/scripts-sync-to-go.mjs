@@ -23,6 +23,20 @@ await cp(
   path.join(uiRoot, "events-worker.js"),
 );
 
+// What makes the web UI an installable app (src/ui/pwa/): the manifest, its
+// icons and the service worker. They come from public/, which vite copies into
+// dist as they are; the service worker is a script of its own at the root, so
+// its scope is the whole page.
+for (const name of [
+  "manifest.webmanifest",
+  "sw.js",
+  "icon-192.png",
+  "icon-512.png",
+  "icon-maskable-512.png",
+]) {
+  await cp(path.join(dist, name), path.join(uiRoot, name));
+}
+
 // The chunks loaded on demand (Mermaid, KaTeX and its fonts). Their names carry
 // a content hash, so the folder is replaced whole: a stale chunk from an older
 // build must not end up embedded next to the new ones. Source maps stay behind.

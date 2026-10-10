@@ -166,7 +166,7 @@ describe("WorkspaceChips", () => {
     expect(screen.getByTestId("workspace-branch-row-main")).toBeTruthy();
   });
 
-  it("fetches the remotes before it lists the branches", async () => {
+  it("lists the branches it already has while the remotes refresh", async () => {
     let finish: (value: WorkspaceBranchFetch) => void = () => {};
     const onRefreshBranches = vi.fn(
       () =>
@@ -174,22 +174,39 @@ describe("WorkspaceChips", () => {
           finish = resolve;
         }),
     );
-    const { rerender, props } = renderChips({ onRefreshBranches });
+    const { rerender, props } = renderChips({
+      onRefreshBranches,
+      context: { ...gitCtx, remote_branches: ["feature/cached"] },
+    });
     fireEvent.click(screen.getByTestId("composer-branch-chip"));
 
     expect(onRefreshBranches).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId("workspace-branch-refreshing")).toHaveTextContent(
-      "Fetching branches from the remotes…",
-    );
+    // The list stays on screen during the fetch: the local branches and the
+    // remote-only ones the last fetch cached, with a spinner inside the filter
+    // field, which takes no row of the list.
     expect(
-      screen.queryByTestId("workspace-branch-row-feature/login"),
+      screen
+        .getByTestId("workspace-branch-refreshing")
+        .closest(".workspace-branch-filter"),
+    ).toBeTruthy();
+    expect(
+      screen.queryByTestId("workspace-branch-refreshing-empty"),
     ).toBeNull();
+    expect(
+      screen.getByTestId("workspace-branch-row-feature/login"),
+    ).toBeTruthy();
+    expect(
+      screen.getByTestId("workspace-branch-row-feature/cached"),
+    ).toBeTruthy();
 
     // The refresh answers with the context read after the fetch.
     rerender(
       <WorkspaceChips
         {...props}
-        context={{ ...gitCtx, remote_branches: ["feature/fresh"] }}
+        context={{
+          ...gitCtx,
+          remote_branches: ["feature/cached", "feature/fresh"],
+        }}
       />,
     );
     await act(async () => {
@@ -204,6 +221,49 @@ describe("WorkspaceChips", () => {
     expect(
       screen.getByTestId("workspace-branch-row-feature/fresh"),
     ).toBeTruthy();
+  });
+
+  it("picks a branch while the remotes refresh", async () => {
+    let finish: (value: WorkspaceBranchFetch) => void = () => {};
+    const { props } = renderChips({
+      worktreePref: true,
+      context: { ...gitCtx, remote_branches: ["feature/cached"] },
+      onRefreshBranches: () =>
+        new Promise<WorkspaceBranchFetch>((resolve) => {
+          finish = resolve;
+        }),
+    });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    expect(screen.getByTestId("workspace-branch-refreshing")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("workspace-branch-row-feature/cached"));
+    expect(props.onPickBranch).toHaveBeenCalledWith("feature/cached", true);
+    expect(screen.queryByTestId("workspace-branch-menu")).toBeNull();
+    await act(async () => {
+      finish({ status: "ok", remotes: ["origin"] });
+    });
+    expect(screen.queryByTestId("workspace-branch-menu")).toBeNull();
+  });
+
+  it("says the list is being fetched only while there is nothing to show yet", async () => {
+    let finish: (value: WorkspaceBranchFetch) => void = () => {};
+    renderChips({
+      context: { ...gitCtx, branch: "", branches: [], remote_branches: [] },
+      onRefreshBranches: () =>
+        new Promise<WorkspaceBranchFetch>((resolve) => {
+          finish = resolve;
+        }),
+    });
+    fireEvent.click(screen.getByTestId("composer-branch-chip"));
+    expect(
+      screen.getByTestId("workspace-branch-refreshing-empty"),
+    ).toHaveTextContent("Fetching branches from the remotes…");
+    await act(async () => {
+      finish({ status: "ok", remotes: ["origin"] });
+    });
+    expect(
+      screen.queryByTestId("workspace-branch-refreshing-empty"),
+    ).toBeNull();
   });
 
   it("lists remote-only branches among the local ones, marked with a cloud", () => {

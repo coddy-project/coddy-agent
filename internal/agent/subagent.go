@@ -1160,7 +1160,13 @@ func (a *Agent) launchChildRun(ctx context.Context, rt SubagentRuntime, l childL
 		})
 	}
 
-	agentInfo := &bgtask.AgentInfo{Name: l.spec.Name, SessionID: childID, System: l.system, Model: l.spec.SelectedModelID}
+	agentInfo := &bgtask.AgentInfo{
+		Name:      l.spec.Name,
+		SessionID: childID,
+		System:    l.system,
+		Model:     l.spec.SelectedModelID,
+		Reasoning: session.ResolveReasoningLevel(a.cfg, l.spec.SelectedModelID, l.spec.SelectedReasoning),
+	}
 	spec := bgtask.Spec{
 		SessionID:       parentID,
 		Kind:            bgtask.KindAgent,

@@ -1,5 +1,8 @@
 import { expect, test, vi } from "vitest";
-import { subscribeServerEvents } from "./serverEvents";
+import {
+  subscribeServerEvents,
+  type SubagentPermissionEvent,
+} from "./serverEvents";
 
 function streamOf(text: string): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -48,6 +51,33 @@ test("turn events are reported per session", async () => {
 
   expect(started).toEqual(["sess_a"]);
   expect(ended).toEqual(["sess_a"]);
+});
+
+// Every tab hears the same end at the same time, which is what lets the tabs of
+// one browser give its notification one tag (issue #508).
+test("the end of a turn carries the server's time of it", async () => {
+  const ended: [string, string][] = [];
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () => {
+    ctl.abort();
+    return responseOf(
+      turnEvent("turn_ended", "sess_a") +
+        `event: turn_ended\ndata: {"sessionId":"sess_b"}\n\n`,
+    );
+  });
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: (sid, at) => ended.push([sid, at]),
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(ended).toEqual([
+    ["sess_a", "2026-08-10T12:00:00Z"],
+    ["sess_b", ""],
+  ]);
 });
 
 test("ready requests reconciliation while keepalive frames remain ignored", async () => {
@@ -412,10 +442,14 @@ data: ${JSON.stringify({
     );
   });
 
+  const prompts: SubagentPermissionEvent[] = [];
   await subscribeServerEvents({
     onTurnStarted: () => {},
     onTurnEnded: () => {},
-    onSubagentPermission: (sid) => parents.push(sid),
+    onSubagentPermission: (sid, prompt) => {
+      parents.push(sid);
+      prompts.push(prompt);
+    },
     signal: ctl.signal,
     fetchImpl: fetchImpl as unknown as typeof fetch,
     sleep: async () => {},
@@ -424,4 +458,53 @@ data: ${JSON.stringify({
   // Asked and settled both change what the chat shows; a frame naming no parent
   // belongs to no chat.
   expect(parents).toEqual(["sess_parent", "sess_parent"]);
+  expect(prompts.map((p) => p.phase)).toEqual(["asked", "settled"]);
+  expect(prompts[0]).toMatchObject({
+    childSessionId: "sess_child",
+    toolCallId: "call_1",
+  });
+});
+
+// What a notification needs to say who asks for what.
+test("an asked subagent prompt names the agent and the tool", async () => {
+  const prompts: SubagentPermissionEvent[] = [];
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () => {
+    ctl.abort();
+    return responseOf(
+      `event: subagent_permission
+data: ${JSON.stringify({
+        object: "coddy.subagent_permission",
+        phase: "asked",
+        parentSessionId: "sess_parent",
+        childSessionId: "sess_child",
+        toolCallId: "call_1",
+        agentName: "explore",
+        request: {
+          toolCall: { toolCallId: "call_1", title: "write README.md" },
+        },
+      })}
+
+`,
+    );
+  });
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onSubagentPermission: (_sid, prompt) => prompts.push(prompt),
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(prompts).toEqual([
+    {
+      phase: "asked",
+      childSessionId: "sess_child",
+      toolCallId: "call_1",
+      agentName: "explore",
+      toolTitle: "write README.md",
+    },
+  ]);
 });
