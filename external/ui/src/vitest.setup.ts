@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, vi } from "vitest";
 import { resetPageMemoryForTests } from "./ui/env/pageMemory";
+import { resetStorageMonitorForTest } from "./ui/env/storageStatus";
 import { forgetWorkingCopies } from "./ui/changes/workingCopy";
 import {
   CODDY_WORKSPACE_DIR_COOKIE,
@@ -12,6 +13,8 @@ import {
 // folder picked in one test must not open the next one's start screen).
 beforeEach(() => {
   resetPageMemoryForTests();
+  // What the page knows of the server's disk starts unknown for every test.
+  resetStorageMonitorForTest();
   forgetWorkingCopies();
   for (const name of [CODDY_WORKSPACE_DIR_COOKIE, CODDY_WORKTREE_COOKIE]) {
     document.cookie = `${name}=; Path=/; Max-Age=0`;

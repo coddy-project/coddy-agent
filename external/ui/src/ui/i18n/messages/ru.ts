@@ -788,6 +788,10 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.sessions.dir.desc":
     "Переопределение корня сессий; пусто — внутри CODDY_HOME.",
   "settings.schema.sessions.dir.ph": "${CODDY_HOME}/sessions",
+  "settings.schema.sessions.min_free_mb.label":
+    "Предупреждение о месте на диске (МБ)",
+  "settings.schema.sessions.min_free_mb.desc":
+    "Свободное место, ниже которого диск с сессиями (и с домашним каталогом, если он другой) считается заканчивающимся: веб-интерфейс показывает баннер, а --dry-run предупреждает. По умолчанию 512; 0 отключает предупреждение.",
   "settings.schema.gateways.label": "Шлюзы мессенджеров",
   "settings.schema.gateways.telegram.label": "Telegram",
   "settings.schema.gateways.telegram.desc": "Настройки адаптера Telegram-бота.",
@@ -1637,6 +1641,16 @@ export const messagesRu: Record<string, string> = {
   "env.banner.corsEitherLoopback":
     "{name} отвечает, но браузер не отдаёт ответ этой странице. Добавьте {origin} в {relayCors}, если это релей, или в {agentCors}, если это coddy serve, — либо включите {relayLoopback} / {agentLoopback}: эта страница открыта с loopback-адреса, и так она будет допущена с любого порта.",
   "env.banner.switchLocal": "Переключиться на локальное",
+
+  "storage.banner.low.sessions":
+    "Заканчивается место на диске: на диске с сессиями Coddy осталось {free}. Когда оно кончится, новые чаты не запустятся, а новые ходы не сохранятся.",
+  "storage.banner.low.home":
+    "Заканчивается место на диске: на диске с домашним каталогом Coddy осталось {free}. Когда оно кончится, настройки и сессии не сохранятся.",
+  "storage.banner.full.sessions":
+    "Диск с сессиями Coddy заполнен. Новые чаты не запускаются, последние ходы не сохраняются. Освободите место и отправьте сообщение ещё раз.",
+  "storage.banner.full.home":
+    "Диск с домашним каталогом Coddy заполнен. Настройки и сессии не сохраняются. Освободите место и отправьте сообщение ещё раз.",
+  "storage.banner.dismiss": "Скрыть",
 
   "prompts.questions": "Вопросы",
   "prompts.questionsCount": "Вопросов: {count}",

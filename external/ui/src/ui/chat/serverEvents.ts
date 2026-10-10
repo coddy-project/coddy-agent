@@ -20,6 +20,10 @@ export type ServerEventHandlers = {
    *  a skill install). The event carries nothing but the fact, so a caller re-reads
    *  whatever config-derived list it renders - the model picker, the slash commands. */
   onConfigReloaded?: () => void;
+  /** A save failed on a full disk (writeFailing), or the failure ended: the room the server's
+   *  disk has moved in a way worth showing at once. The event names no figures; a caller reads
+   *  GET /coddy/info for them. */
+  onStorageStatus?: (writeFailing: boolean) => void;
   /** The message queue of a session changed - anywhere, by anyone. A session is
    *  shared, so this is how a second browser learns that someone else queued a
    *  follow-up onto the turn it is watching. Carries the whole queue and its
@@ -79,6 +83,7 @@ export type ServerEvent =
   | { type: "session_settings"; event: SessionSettingsEvent }
   | { type: "session_goal"; update: SessionGoalUpdate }
   | { type: "config_reloaded" }
+  | { type: "storage_status"; writeFailing: boolean }
   | {
       type: "subagent_permission";
       parentSessionId: string;
@@ -156,6 +161,17 @@ function providerUsageOf(
       sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId : "",
       usage: parsed.usage,
     };
+  } catch {
+    return null;
+  }
+}
+
+function storageStatusOf(data: string): boolean | null {
+  try {
+    const parsed = JSON.parse(data) as { writeFailing?: unknown };
+    return typeof parsed.writeFailing === "boolean"
+      ? parsed.writeFailing
+      : null;
   } catch {
     return null;
   }
@@ -242,6 +258,13 @@ export function parseServerEvent(ev: {
     case "config_reloaded":
       // Nothing to parse: the payload is the announcement itself.
       return { type: "config_reloaded" };
+    case "storage_status": {
+      // A frame that does not say which way it moved says nothing.
+      const writeFailing = storageStatusOf(ev.data);
+      return writeFailing === null
+        ? null
+        : { type: "storage_status", writeFailing };
+    }
     case "subagent_permission": {
       // A frame naming no parent belongs to no chat.
       const parsed = subagentPermissionOf(ev.data);
@@ -289,6 +312,9 @@ export function dispatchServerEvent(
       return;
     case "config_reloaded":
       h.onConfigReloaded?.();
+      return;
+    case "storage_status":
+      h.onStorageStatus?.(event.writeFailing);
       return;
     case "subagent_permission":
       h.onSubagentPermission?.(event.parentSessionId, event.prompt);

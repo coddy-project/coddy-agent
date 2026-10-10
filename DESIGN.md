@@ -968,6 +968,51 @@ something needs the user.
   `blockedModels` the same way: a model the account may not call right now
   reads as blocked even while the account itself is healthy.
 
+### Storage banner
+
+The disk that stores the server's sessions (issue #465) has its own notice above the composer,
+the usage banner's sibling: a session is rewritten whole on every save, so a disk that fills
+up costs the transcript, and the person has no other sign of it.
+
+- **Placement** (`chat/StorageBanner.tsx`, **`.storage-banner`**, **`data-testid="storage-banner"`**)
+  stands where the usage banner stands - in **`.hero-composer`** and in **`.chat-bottom-inner`**,
+  over the composer card - and is absent from a subagent's read-only transcript. Both banners
+  may stand together, the storage one first. **`.chat-bottom-inner:has(> :is(.usage-banner,
+  .storage-banner))`** keeps the expand control and the jump to the newest message 10px over
+  the block's top for either; the transcript reserve follows the block's height as it does
+  for the usage banner.
+- **The plate is the usage banner's**, declaration for declaration (**`storageBannerCss.test.ts`**
+  holds the two equal): an opaque tint mixed into **`var(--bg)`** (**`#f59e0b`** 10% for the
+  **warn** tone, **`#ef4444`** 10% for **error**), a 12px radius, 13px text in **`var(--text)`**,
+  no token a theme does not define. Nothing about it changes with the theme but what
+  **`--bg`** and **`--text`** change.
+- **Low** is the warn tone and **`role="status"`**: *Low disk space: 16 MB left on the disk that
+  stores Coddy sessions. When it runs out, new chats cannot start and new turns are not saved.*
+  Its **×** (the usage banner's 32px control, a 44px hit area below 1200px) hides it for the
+  tab (**`sessionStorage`** **`coddy_storage_banner_dismissed`**, guarded) until the disk stops
+  being low; a disk that falls to full shows it again.
+- **Full** is the error tone and **`role="alert"`**, with no **×**: it is the reason a message
+  may not be kept. It appears the moment a save fails - **`event: storage_status`** on the events
+  stream, or a **507** answer to a send or to the workspace pick of a new chat - before any read
+  of **`GET /coddy/info`** comes back.
+- **The size** is written by the platform's number formatting (**`Intl.NumberFormat`**, unit
+  style): whole megabytes below a gigabyte, gigabytes with one decimal above (*300 MB*, *1.5 GB*;
+  *300 МБ*, *1,5 ГБ*), so no language carries a unit string of its own. The copy is one
+  sentence per state and disk (**`storage.banner.low.sessions`**, **`.low.home`**,
+  **`.full.sessions`**, **`.full.home`**), so each language keeps its own grammar; the home
+  variants stand when the disk holding **`CODDY_HOME`** is another disk with less room.
+- **Data flow** (**`env/storageStatus.ts`**, one store per page): **`GET /coddy/info`** (**`storage`**)
+  through the environment, read when the page opens, every minute while the tab is visible,
+  every 15 seconds while the disk is full (the person is freeing space, and the server tries
+  a write at most every ten seconds), on the window's focus and visibility, after every
+  **`config_reloaded`** (the threshold may have moved) and every reconnect of the events stream.
+  A read that fails keeps what is held; a server that sends no **`storage`** leaves nothing to
+  show; a switch to another environment forgets it. The newest read decides, never the one that
+  answers last.
+- Contract: **`StorageBanner.test.tsx`**, **`storageStatus.test.ts`**, **`storageBannerCss.test.ts`**,
+  **`serverEvents.test.ts`**, **`features/disk_space.feature`**, **`features/disk_space_http.feature`**;
+  functional checklist **`docs/surfaces/web-ui.md`** (**Disk space notice**).
+
 ### Transcript scroll-to-bottom button
 
 - **Placement** - `button.chat-scroll-bottom` (`data-testid="chat-scroll-bottom"`) is a child of **`.chat-bottom-inner`**, positioned **`absolute`** with **`right: 0`** and **`bottom: 100%`** plus a **`10px`** margin. It is anchored to the composer's column, **not** to the viewport, so one rule carries it through the absolute desktop dock, the **`position: fixed`** composer below **`1200px`** and the **`padding-right`** the background tasks panel adds. Its right edge is flush with **`.composer-card`** where there is no composer (a read-only transcript); under a composer it stands one slot over the expand control and on the same line (**Composer field height and expand**). Do **not** re-anchor it to `.chat-stack`, `.chat-scroll` or the viewport.
