@@ -131,25 +131,6 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 	if cfg.Subagents.EffectiveMaxDepth() <= 0 {
 		exclusions = append(exclusions, tools.ToolSpawnAgent)
 	}
-	registryNames := registryToolNamesForMode(cfg, mode)
-	resolve := func(mcpTools []string) []string {
-		all := append(append([]string(nil), registryNames...), mcpTools...)
-		if def != nil {
-			return subagents.EffectiveTools(all, ToolSetForMode(mode), def, exclusions)
-		}
-		return subagents.EffectiveTools(all, ToolSetForMode(mode), nil, exclusions)
-	}
-	connectMCP := mode != string(session.ModeAsk)
-	if connectMCP && def != nil {
-		connectMCP = false
-		for _, server := range spec.MCPServerNames {
-			if def.Allows(strings.TrimSpace(server) + "__probe") {
-				connectMCP = true
-				break
-			}
-		}
-	}
-
 	model := strings.TrimSpace(spec.Model)
 	unknownModel := ""
 	if model == "" && def != nil && def.Model != "" {
@@ -171,6 +152,36 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 		} else {
 			log.Warn("scheduled run: the definition names a reasoning level its model does not offer; the default is used", "job_id", jobID, "agent", def.Name, "reasoning", def.Reasoning, "model", runModel)
 		}
+	}
+
+	// The run's tool set, decided once the MCP names are known. The lists of
+	// the model it runs on (models[].tools, disallowed_tools) apply while it
+	// runs, like a spawned child's (model_tools.go); a model that leaves the run
+	// nothing is refused here, as a definition that does is.
+	registryNames := registryToolNamesForMode(cfg, mode)
+	runEntry := cfg.FindModelEntry(session.ResolveModelID(cfg, model))
+	// MCP is dialed when some configured server could contribute a tool: the
+	// definition has to admit one of its tools, and so does the model's lists,
+	// which are looked at last because the model is only known now. A run under
+	// either that admits nothing of any server never starts an MCP process.
+	connectMCP := mode != string(session.ModeAsk)
+	if connectMCP && (def != nil || hasToolLists(runEntry)) {
+		connectMCP = false
+		for _, server := range spec.MCPServerNames {
+			server = strings.TrimSpace(server)
+			if (def == nil || def.Allows(server+"__probe")) && modelMayAdmitServer(runEntry, server) {
+				connectMCP = true
+				break
+			}
+		}
+	}
+	resolve := func(mcpTools []string) []string {
+		all := append(append([]string(nil), registryNames...), mcpTools...)
+		effective := subagents.EffectiveTools(all, ToolSetForMode(mode), def, exclusions)
+		if len(narrowToolNamesForModel(effective, runEntry)) == 0 {
+			return nil
+		}
+		return effective
 	}
 
 	label := strings.TrimSpace(spec.Label)

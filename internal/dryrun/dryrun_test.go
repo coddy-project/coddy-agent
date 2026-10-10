@@ -831,6 +831,32 @@ func TestCodexMaxTokensIsAWarningOnItsLine(t *testing.T) {
 	}
 }
 
+// A name in models[].tools or models[].disallowed_tools that matches no tool is
+// a warning on the list's own line, with the fix; known names, patterns and MCP
+// tools stay quiet.
+func TestModelToolListNamesNoToolIsAWarningOnItsLine(t *testing.T) {
+	config.RegisterToolCatalog(func() []string { return []string{"read", "write", "grep"} })
+	t.Cleanup(func() { config.RegisterToolCatalog(nil) })
+	body := "providers:\n  - name: local\n    type: openai\n    api_base: http://127.0.0.1:9/v1\n" +
+		"models:\n  - model: local/qwen\n    tools: [read, gerp, \"ctx__*\", \"wr*\"]\n    disallowed_tools: [write]\n" +
+		"agent:\n  model: local/qwen\n"
+	rep := run(t, body, nil)
+	c := find(t, rep, "models[local/qwen].tools")
+	// Line 8: the fixture's line 7 below the modeline prepare writes first.
+	if c.Status != StatusWarning || !strings.Contains(c.Message, `"gerp"`) || c.Line != 8 || !strings.Contains(c.Fix, "gerp") {
+		t.Errorf("unknown tool check %+v", c)
+	}
+	n := 0
+	for _, c := range rep.Checks {
+		if strings.Contains(c.Path, ".tools") || strings.Contains(c.Path, ".disallowed_tools") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("want exactly one tool-list warning, got %d in %+v", n, rep.Checks)
+	}
+}
+
 // TestCodexRowOffTheCLILoginIsNamed: the Codex CLI login serves one codex row.
 // Another row without a login of its own is reported as not signed in, naming
 // the row the CLI login serves, before any request goes out.

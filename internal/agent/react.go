@@ -127,6 +127,14 @@ type Agent struct {
 	// callImages are the pictures the running tool call handed the model
 	// (Env.AttachImage, tool_images.go); they ride on that call's result.
 	callImages []llm.ImagePart
+	// offerModel is the models[].model the tools of the request being worked
+	// on were offered for (model_tools.go): the model of the turn's transport,
+	// moved only when the loop builds a transport for another model, so a call
+	// is checked against the offer that produced it and not against whatever
+	// the session switched to meanwhile. Empty outside a turn, where the
+	// session's current model stands in.
+	offerMu    sync.RWMutex
+	offerModel string
 
 	// hooks is the operator hook runner of the current turn, built on first
 	// use from the definition files (hooks.go). hookStopReason carries a
@@ -337,13 +345,17 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Load skills applicable to this context.
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 
-	toolDefs := a.currentToolDefinitions(mode)
-
 	// Get or create LLM provider.
 	transport, err := a.getProvider(mode)
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
+	// The tools of every request of this turn are offered for the model of the
+	// transport built here, until the loop builds one for another model: a call
+	// is checked against that offer (model_tools.go).
+	a.setOfferModel(transport.model)
+	defer a.setOfferModel("")
+	toolDefs := a.currentToolDefinitions(mode)
 
 	// Restore existing plan via session/update if one was set by coddy todo tools in a previous turn.
 	if existing := a.state.GetPlan(); len(existing) > 0 {
@@ -810,7 +822,27 @@ func (a *Agent) runReActLoop(
 				a.log.Warn("settings changed mid-turn but the new model is unavailable; keeping the current one", "error", err)
 			} else {
 				a.log.Info("model settings changed mid-turn", "from", transport.key, "to", next.key)
+				previous := a.cfg.FindModelEntry(transport.model)
 				transport, switched = next, true
+				// The requests from here on are offered their tools for the
+				// new model (models[].tools, disallowed_tools). A call is
+				// checked against the offer of the request that produced it,
+				// so the batch that asked for the switch was judged by the old
+				// offer and the next response is judged by this one. When
+				// either model carries lists the tool set is built again, and
+				// if it moved the request below carries it and the system
+				// message that lists it is rendered again. The switch itself
+				// changes neither between two models that carry no lists.
+				a.setOfferModel(transport.model)
+				if hasToolLists(previous) || hasToolLists(a.cfg.FindModelEntry(transport.model)) {
+					if defs := a.currentToolDefinitions(mode); !sameToolNames(defs, toolDefs) {
+						toolDefs = defs
+						sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+						if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+							messages[0].Content = sys.Content
+						}
+					}
+				}
 				// The request below measures its context against the new
 				// model's window, which its provider's listing may be the
 				// only one to know: read it now, bounded, rather than check
@@ -1846,8 +1878,10 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	// A restricted mode filters tool definitions before the LLM sees them, but a
 	// call replayed from history can still name a hidden tool; refuse it here so
-	// the mode boundary holds at execution time too.
-	if refusal, refused := toolCallRefusedByMode(mode, tc.Name); refused {
+	// the mode boundary holds at execution time too. The lists of the session's
+	// model (models[].tools, disallowed_tools) are checked right after the
+	// mode's, before any hook or permission prompt.
+	if refusal, refused := a.toolCallRefused(mode, tc.Name); refused {
 		a.finishToolCall(sessionDir, sessionID, tc, refusal, nil, "cancelled")
 		return refusal, nil
 	}
@@ -2268,7 +2302,21 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 	return "", fmt.Errorf("MCP server not found: %s", serverName)
 }
 
+// currentToolDefinitions is the tool set a request carries: what the session
+// could call in the mode (sessionToolDefinitions), narrowed by the lists of the
+// models[] row the session runs on (model_tools.go). The row is read on every
+// call, so a switch of the model changes the set from the next request.
 func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
+	return filterToolDefsForModel(a.sessionToolDefinitions(mode), a.modelToolEntry())
+}
+
+// sessionToolDefinitions is the tool set of the session in a mode before the
+// model's lists apply: the mode's allowlist, the registry as the
+// configuration leaves it, MCP tools and, in a child, its effective set. It is
+// also what a spawned child is intersected with (parentToolNames): the lists of
+// the parent's model bound what the parent is shown, not what a child on
+// another model is.
+func (a *Agent) sessionToolDefinitions(mode string) []llm.ToolDefinition {
 	toolSet := ToolSetForMode(mode)
 	available := a.registry.AllToolDefinitions()
 	if a.configReloader == nil {

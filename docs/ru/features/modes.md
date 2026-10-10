@@ -29,7 +29,7 @@
 
 ### Что у них общего
 
-Списки инструментов зафиксированы в `internal/agent.ToolSetForMode`, режим "Агент" ничем не ограничен. `load_skill` существует, только пока включён `skills.auto_discovery`, а `spawn_agent` - только пока включён `subagents.enable`. Собственный `mode` из определения субагента действует, только если родитель работает в режиме "Агент". Каждый режим строит свой системный промпт из встроенного `agent.md`, `plan.md` или `ask.md`, и их можно заменить через `prompts.dir` вместе с `prompts.agent_prompt`, `plan_prompt` и `ask_prompt` ([справочник по конфигурации](../reference/config.md#prompts)). Выбранный режим хранится вместе с сессией в `session.json`.
+Списки инструментов зафиксированы в `internal/agent.ToolSetForMode`, режим "Агент" ничем не ограничен. `load_skill` существует, только пока включён `skills.auto_discovery`, а `spawn_agent` - только пока включён `subagents.enable`. Собственный `mode` из определения субагента действует, только если родитель работает в режиме "Агент". Каждый режим строит свой системный промпт из встроенного `agent.md`, `plan.md` или `ask.md`, и их можно заменить через `prompts.dir` вместе с `prompts.agent_prompt`, `plan_prompt` и `ask_prompt` ([справочник по конфигурации](../reference/config.md#prompts)). Строка `models[]` может дополнительно сузить набор своей модели ключами `tools` и `disallowed_tools` ([Сужение набора инструментов модели](../getting-started/configuration.md#сужение-набора-инструментов-модели)): список режима применяется всегда первым, и строка никогда не добавляет в него инструмент. Выбранный режим хранится вместе с сессией в `session.json`.
 
 ![Меню режимов в поле ввода веб-интерфейса](../../assets/modes-menu-dark-1280.png)
 
@@ -83,4 +83,4 @@
 
 Разовый запуск выбирает режим так же. `coddy --mode ask -p "..."` отвечает, не трогая рабочую папку. Руководства по интерфейсам - [Консоль (TUI)](../surfaces/console.md), [Веб-интерфейс](../surfaces/web-ui.md), [Протокол ACP](../reference/acp-protocol.md), [HTTP API](../reference/http-api.md), [Telegram-шлюз](../surfaces/gateway.md), [Планировщик](../operate/scheduler.md).
 
-<!-- docsgen:source sha256=8ecd599e5f95eb13 -->
+<!-- docsgen:source sha256=7a83ab7f16f477c9 -->

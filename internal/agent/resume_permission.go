@@ -122,7 +122,10 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	// A call the current mode refuses (a pending agent-mode write approved
 	// after switching to ask) must not leave an "allow always" grant behind:
 	// the grant would outlive the refusal and apply once the mode changes back.
-	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name)
+	// The same holds for a tool the session's model is no longer offered (a
+	// pending approval answered after a switch to a model whose tools lists
+	// leave it out).
+	_, refusedByMode := a.toolCallRefused(mode, tc.Name)
 	if st := sessionStatePtr(a.state); st != nil && !refusedByMode && !askAgain {
 		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
 	}
@@ -450,11 +453,14 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	userText := lastUserText(a.state.GetMessages())
 	contextFiles := extractContextFiles(nil)
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
-	toolDefs := a.currentToolDefinitions(mode)
 	transport, err := a.getProvider(mode)
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
+	// Offered for the model of the transport built here, like a turn's.
+	a.setOfferModel(transport.model)
+	defer a.setOfferModel("")
+	toolDefs := a.currentToolDefinitions(mode)
 	sys := a.buildSystemPromptParts(mode, activeSkills, toolDefs)
 	messages := a.buildMessages(sys.Content)
 	// The continuation is the last part of the turn that ran the plan, unless

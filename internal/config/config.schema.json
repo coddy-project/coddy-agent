@@ -128,6 +128,20 @@
             ],
             "description": "Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only.",
             "default": true
+          },
+          "tools": {
+            "type": "array",
+            "description": "Allowlist of the tools a session offers while it runs on this model: tool names, a bare *, or a prefix* (context7__* admits every tool of that MCP server). Absent or empty offers every tool the mode would. It only narrows - a tool the mode, a subagent definition or a switch already hides stays hidden - and a call to an unlisted tool is refused without a permission prompt. Use it to spare a small-context local model the schemas of tools it never calls. coddy -t warns about an entry that matches no tool.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disallowed_tools": {
+            "type": "array",
+            "description": "Tools removed from what a session offers while it runs on this model, applied after tools, with the same names and patterns; a name in both lists is removed. A call to a removed tool is refused without a permission prompt. coddy -t warns about an entry that matches no tool.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }

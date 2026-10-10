@@ -133,6 +133,7 @@ func Run(ctx context.Context, req Request) *Report {
 	r.miniApp()
 	r.listeners()
 	r.unsentModelSettings()
+	r.unknownModelTools()
 	r.gatewayAdmins()
 
 	var probes []probe

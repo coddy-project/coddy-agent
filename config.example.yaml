@@ -134,6 +134,21 @@ models:
   #   max_tokens: 8192
   #   stream: false
 
+  # A small-window local model is not sent the schemas of tools it never calls.
+  # tools is an allowlist of tool names, * or a prefix* (context7__* is every tool
+  # of that MCP server); empty or absent offers every tool the mode would. This
+  # one list takes the request's tool definitions from about 11,700 tokens to
+  # about 3,800. disallowed_tools removes names after it, with the same syntax.
+  # Both only narrow: a tool the mode or a subagent definition hides stays hidden,
+  # and a call to a tool the model was not offered is refused. Other models keep
+  # every tool. coddy -t warns about a name that matches no tool.
+  # - model: "local/qwen3.6-35b"
+  #   max_tokens: 4096
+  #   max_context_tokens: 49152
+  #   tools: [read, write, edit, apply_patch, glob, grep, print_tree, keep_result, run_command,
+  #           background_output, background_wait, background_stop, compact_context]
+  #   # disallowed_tools: [ssh_run_command, http_request]  # everything except these, when tools is absent
+
 agent:
   model: "openai/gpt-5.6-terra"
   max_turns: 165           # ReAct steps per prompt; set 0 to disable the limit

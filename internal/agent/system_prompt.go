@@ -25,6 +25,9 @@ func joinNonEmptyPromptBlocks(parts ...string) string {
 	return strings.Join(b, "\n\n")
 }
 
+// loadSkillToolName is the tool the hint below sends the model to.
+const loadSkillToolName = "load_skill"
+
 // loadSkillHint tells the model it may pull a catalogued skill's full instructions
 // into the turn on its own via the load_skill tool (model-driven auto-discovery).
 const loadSkillHint = "When the user's request matches one of the slash commands above, call the `load_skill` tool with that command's name to load its full instructions before acting."
@@ -145,7 +148,10 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	if mode == "plan" {
 		discardedPlans = discardedPlansPromptBlock(a.state.DiscardedPlanSlugs())
 	}
-	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, a.cfg.Skills.AutoDiscoveryEnabled())
+	// The hint to call load_skill is printed only to a model that is offered
+	// the tool (models[].tools, disallowed_tools).
+	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills,
+		a.cfg.Skills.AutoDiscoveryEnabled() && !a.modelHidesTool(loadSkillToolName))
 	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
 	standing := a.standingParts()
 	rulesMD := joinNonEmptyPromptBlocks(standing.Docs, standing.Rules)

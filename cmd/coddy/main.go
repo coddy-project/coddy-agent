@@ -357,6 +357,7 @@ func runACP(args []string) error {
 	llm.LogCodexAuthNotices(log, cfg)
 	llm.LogDevinAuthNotices(log, cfg)
 	cfg.LogUnsentModelSettings(log)
+	cfg.LogUnknownModelTools(log)
 	llm.LogNeuralDeepAuthNotices(log, cfg)
 
 	store, err := openSessionStore(*sessionsRoot, cfg)
