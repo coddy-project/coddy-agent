@@ -35,8 +35,14 @@ type overflowAnswer struct {
 // returns both errors.
 func refusals(t *testing.T, status int, body string, newProvider func(url string) Provider) map[string]error {
 	t.Helper()
+	return refusalsAs(t, status, "application/json", body, newProvider)
+}
+
+// refusalsAs is refusals for a server that labels its answer contentType.
+func refusalsAs(t *testing.T, status int, contentType, body string, newProvider func(url string) Provider) map[string]error {
+	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", contentType)
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(body))
 	}))
@@ -373,6 +379,61 @@ func TestOverflowDetailOfIgnoresAbsurdFigures(t *testing.T) {
 	huge := errors.New("400: input length and `max_tokens` exceed context limit: 4611686018427387904 + 4611686018427387904 > 200000")
 	if got := OverflowDetailOf(huge); got.Prompt != 0 {
 		t.Fatalf("OverflowDetailOf = %+v, want no prompt size from figures no window has", got)
+	}
+}
+
+// The refusal an OpenAI-compatible MLX swap proxy gave in a real session: a
+// 404 whose message says the prompt was 30 tokens past the window. Servers of
+// this kind word the error object, flatten it or send it as text, and the
+// client keeps a different part of the answer for each; all of them are
+// recognised on both paths and give the same two figures.
+func TestIsContextOverflowOnAnMLXSwapProxyRefusal(t *testing.T) {
+	const msg = "Context limit is 49152 tokens; prompt=49182 leaves 0 output tokens, below the minimum 16"
+	want := OverflowDetail{Prompt: 49182, Limit: 49152}
+	for _, tc := range []struct {
+		name        string
+		contentType string
+		body        string
+	}{
+		{"error object", "application/json", `{"error":{"message":"` + msg + `","type":"invalid_request_error","code":404}}`},
+		{"error object, no code", "application/json", `{"error":{"message":"` + msg + `"}}`},
+		{"error as a string", "application/json", `{"error":"` + msg + `"}`},
+		{"flat message", "application/json", `{"message":"` + msg + `"}`},
+		{"flat detail", "application/json", `{"detail":"` + msg + `"}`},
+		{"plain text", "text/plain; charset=utf-8", msg},
+		{"plain text with a newline", "text/plain", msg + "\n"},
+		{"plain text labelled json", "application/json", msg},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for path, err := range refusalsAs(t, 404, tc.contentType, tc.body, openAIClient) {
+				if err == nil {
+					t.Fatalf("%s: the stub answered 404 and the call succeeded", path)
+				}
+				if !IsContextOverflow(err) {
+					t.Errorf("%s: not classified as an overflow: %v", path, err)
+				}
+				if got := OverflowDetailOf(err); got != want {
+					t.Errorf("%s: OverflowDetailOf = %+v, want %+v", path, got, want)
+				}
+				if isRetryableLLMError(err) || IsTransientProviderError(err) {
+					t.Errorf("%s: the refusal would be sent again", path)
+				}
+			}
+		})
+	}
+
+	// A 404 of the same proxy that is about something else stays an ordinary
+	// failure, and so does its answer for an unknown model.
+	for _, body := range []string{
+		`{"error":{"message":"Model not found: qwen-9b-4bit"}}`,
+		`{"detail":"Not Found"}`,
+		`404 page not found`,
+	} {
+		for path, err := range refusalsAs(t, 404, "application/json", body, openAIClient) {
+			if IsContextOverflow(err) {
+				t.Errorf("%s: %q is no overflow", path, body)
+			}
+		}
 	}
 }
 

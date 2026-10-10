@@ -78,6 +78,45 @@ func TestContextOverflowMessage(t *testing.T) {
 	}
 }
 
+// The refusal of an MLX swap proxy, as coddy logged it: the prompt was 30 tokens
+// past a window the config named correctly, so the message is the one that
+// shows the figures side by side and does not tell anyone to change the window.
+func TestContextOverflowMessageOfAnMLXSwapProxyReadsAsAnExplanation(t *testing.T) {
+	got := contextOverflowMessage(47500, 49152, session.ContextWindowFromConfig, llm.OverflowDetail{Prompt: 49182, Limit: 49152})
+	want := "context window exceeded: the provider refused the request because it does not fit the model's context window " +
+		"(Coddy estimated about 47500 tokens; the window is 49152 tokens; the provider counted 49182 tokens against a limit of 49152); " +
+		"run /compact, start a new session or split the task into smaller steps"
+	if got != want {
+		t.Fatalf("message =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestRunExplainsTheContextLimitRefusalOfAnMLXSwapProxy(t *testing.T) {
+	cause := errors.New(`provider "mlx" (http://192.0.2.10:8080/v1): openai stream: POST "http://192.0.2.10:8080/v1/chat/completions": 404 Not Found "Context limit is 49152 tokens; prompt=49182 leaves 0 output tokens, below the minimum 16"`)
+	provider := &failingStreamProvider{err: cause}
+	ag := overflowRunAgent(t, provider, 49152)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "resume"}})
+	if err == nil || stop != string(acp.StopReasonRefused) {
+		t.Fatalf("stop=%q err=%v, want the turn refused with an explanation", stop, err)
+	}
+	for _, want := range []string{
+		"context window exceeded", "the window is 49152 tokens",
+		"the provider counted 49182 tokens against a limit of 49152", "run /compact",
+		"Context limit is 49152 tokens", // the provider's own words stay
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "max_context_tokens") {
+		t.Errorf("the window already matches the provider's limit, yet the error advises changing it: %v", err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("provider asked %d times, want once", provider.calls)
+	}
+}
+
 // failingStreamProvider refuses every request with err.
 type failingStreamProvider struct {
 	err   error
