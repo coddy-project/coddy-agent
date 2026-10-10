@@ -1420,6 +1420,54 @@ token of the environment selector and is never gated here.
   Settings, rendered only while a form is configured and this browser has passed it. Narrow rail:
   icon plus a tooltip naming the account (**`Sign out (pasha)`**); wide rail: icon plus label.
 
+### Installable app and notifications
+
+The web UI installs as an app and shows system notifications while it is in the background (issue
+#508). Everything of it lives in **`ui/pwa/`** and **`public/`**; the functional checklist is
+**`docs/surfaces/web-ui.md`** (*Installing the web UI as an app*, *Notifications*), the scenarios
+**`features/web_ui_installable_app.feature`**.
+
+- **What the server serves.** **`public/manifest.webmanifest`** (id, start URL and scope **`/`**,
+  **`display: standalone`**, the dark canvas **`#0f0f10`** as theme and background colour), the
+  icons **`icon-192.png`** and **`icon-512.png`** (the flat mark on its rounded plate, transparent
+  corners, purpose **`any`**) and **`icon-maskable-512.png`** (the full-bleed plate of
+  **`coddy-logo-mark-icon.svg`**, the mark inside the safe zone, purpose **`maskable`**), and
+  **`public/sw.js`**. Vite copies them into **`dist`**, **`scripts-sync-to-go.mjs`** next to
+  **`embed.go`**, the **`Dockerfile`** stages them, and **`ui.Handler()`** serves them
+  **`no-cache`**, the manifest as **`application/manifest+json`**. Rename them everywhere or
+  nowhere.
+- **The service worker caches nothing.** It has no **`fetch`** handler and no cache: every request
+  still reaches the server, so a new build is never hidden behind an old copy and an offline page is
+  the error a tab shows. Do not add caching to it without a design for invalidating it. It shows the
+  notices tabs send it (**`coddy-notify`**) and opens a chat on a click (**`coddy-open`**).
+  **`serviceWorker.ts`** registers it from **`main.tsx`** in a secure context only.
+- **The title bar follows the theme.** **`themeColor.ts`** keeps **`<meta name="theme-color">`** on
+  **`--coddy-canvas-gradient-top`** of the applied theme, so an installed window is not dark over a
+  light theme.
+- **The switch.** **Settings → Appearance**, under the language picker
+  (**`NotificationsSetting`**, **`.appearance-notify-block`**): the section label, then one
+  **`SwitchField`** (**`appearance-notifications-switch`**) whose description stays behind the
+  **(i)**, then a status line (**`.appearance-notify-status`**, the **`settings-field-desc`** type)
+  only when the switch cannot be turned on here - blocked by the browser, an insecure page, a browser
+  without notifications - in which case the switch is disabled. Turning it on asks the browser for
+  the permission inside that click; the choice is the cookie **`coddy_ui_notify`**, client-side like
+  the theme. Not rendered inside the Telegram Mini App.
+- **When a notice is shown.** Only while the page does not have the person's attention (hidden, or
+  its window not focused) and, through the service worker, only while no window of the app has the
+  focus. A tab announces only the chats it follows - the one on screen and the ones it sent a prompt
+  to (**`AttentionTracker`**): the end of a turn (from **`turn_ended`**, worded from the turn
+  stream's error when it failed), a permission request, a question, a background subagent's prompt
+  that arrives live (never one the stream replays on connect).
+- **One notice per occurrence.** The tag is **`coddy:<environment>:<session>:<kind>:<key>`**,
+  where the key is what every tab hears alike: the server's time of the turn's end, the tool call's
+  or the request's id. The service worker shows a tag once within 30 seconds.
+- **What a notice says.** Title: the chat's title, else **Coddy**. Body: one line of at most 140
+  characters in the page's language (**`notify.*`**), naming what happened; it never quotes the
+  answer, since a notification lands on a lock screen. Icon: **`/icon-192.png`**.
+- **A click** focuses the tab that asked (else any tab of the app, else a new window on
+  **`/#/s/<id>`**) and opens the chat through the same path as a History pick, only when the notice
+  belongs to the environment the tab shows.
+
 ## States
 
 - Idle composer: bordered textarea.

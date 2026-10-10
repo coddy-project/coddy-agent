@@ -13809,6 +13809,16 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin-top: 22px;
 }
 
+/* System notifications (ui/pwa/NotificationsSetting.tsx): the switch under
+   the language picker, then a line saying why it cannot be turned on here. */
+.appearance-notify-block {
+  margin-top: 22px;
+}
+
+.appearance-notify-status {
+  margin: 8px 0 0;
+}
+
 .appearance-language-select-wrap {
   position: relative;
 }

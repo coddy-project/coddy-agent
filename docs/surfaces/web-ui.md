@@ -28,6 +28,7 @@ https://github.com/user-attachments/assets/34752734-2715-4aa3-936b-acfb5c7233bf
 - **Theme cookie:** **`coddy_ui_theme`** with the seven theme ids (**`dark`**, **`light`**, **`midnight`**, **`solarized-dark`**, **`monokai`**, **`nord`**, **`rose-pine`**; path **`/`**, **`SameSite=Lax`**, 1-year `Max-Age`).
 - **Theme picker:** **Settings** (**`#/settings`**) → **Appearance** → theme swatch grid (**`data-testid="theme-swatch-<id>"`** inside **`appearance-theme-picker`**). Selection applies immediately and is client-side only (no config save).
 - **Language picker:** one native select **directly under the theme grid** (**`data-testid="appearance-language-select"`**) with **Auto** (resolves from **`navigator.language`**, stores no cookie) followed by every locale registered in **`locales.ts`**. The current registry renders **English** and **Русский**; changing the select applies the locale immediately.
+- **Notifications switch:** under the language picker (**`data-testid="appearance-notifications-switch"`**): system notifications while Coddy is in the background, kept in the cookie **`coddy_ui_notify`** ([Notifications](#notifications)).
 - **Language cookie:** **`coddy_ui_lang`** stores a registered locale id (currently **`en`** or **`ru`**), with the same flags as the theme cookie. Choosing **Auto** clears it. Resolution order on load: **`?lang=<registered-id>`** in the URL (also persisted to the cookie) > cookie > **`navigator.language`**. Switching sets **`document.documentElement.lang`** and re-renders without a reload. The documentation follows it: the reader asks for its pages in that language (**`lang=`** on **`/coddy/docs*`**) and every turn names it (**`metadata.lang`**), so the agent reads and attaches Coddy's documentation in it too ([Built-in documentation](../features/built-in-docs.md#languages)). Nothing is written to the config.
 - **i18n engine:** **`external/ui/src/ui/i18n/`** (**`translate`/`t`**, locale store, **`I18nProvider`** + **`useT()`**). **`locales.ts`** is the single registry for supported ids, picker labels, and dictionaries; picker generation, locale validation, bootstrap, and parity tests derive from it. **`main.tsx`** wraps the app plus shared confirmation provider in **`I18nProvider`**. **`useT()` falls back to `translate` outside a provider**, so components render in tests without wrapping; default-English values match the former hardcoded literals exactly.
 - **Locale maintenance:** adding a locale requires its dictionary plus one **`locales.ts`** entry. Every registered dictionary must add or change the same key and interpolation tokens in one patch; **`messagesParity.test.ts`** enforces both.
@@ -191,6 +192,46 @@ Off unless the server has an account, and a server without one renders exactly a
 - **Remote environments are not gated here.** A remote is reached cross-origin with the bearer token from the environment selector, and a cookie of this origin would not travel with those calls; **`AuthGate`** passes straight through in remote mode.
 
 Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api.md#web-ui-sign-in-optional). Visual contract: [DESIGN.md](../../DESIGN.md).
+
+## Installing the web UI as an app
+
+The web UI is a web app a browser can install (issue [#508](https://github.com/coddy-project/coddy-agent/issues/508)). It carries a web app manifest (`/manifest.webmanifest`), icons for a home screen, a dock and a taskbar, and a service worker (`/sw.js`). An installed Coddy opens in a window of its own, with its own icon, and its title bar takes the colour of the theme picked in **Settings → Appearance**.
+
+- **Chrome and Edge on a desktop** - the install icon at the right end of the address bar, or the install item of the browser's menu.
+- **Chrome on Android** - **Add to Home screen** or **Install app** in the browser's menu.
+- **Safari on macOS** - **File → Add to Dock**.
+- **Safari on iPhone and iPad** - **Share → Add to Home Screen**.
+
+A browser offers the install only on a secure page: `https://`, or `http://localhost` and `http://127.0.0.1` on the machine that runs `coddy serve`. A server reached by its network address over plain http (`http://192.168.1.10:12345`) stays an ordinary page; publish it behind a TLS proxy, as for the [Telegram Mini App](gateway.md#mini-app).
+
+The installed app is the same page. It talks to the server that served it, keeps the sign-in of the browser it was installed from (a home-screen app on iPhone and iPad keeps a sign-in of its own, so you sign in there once more), and every environment, remote and relay works in it as in a tab. The service worker caches nothing: every request still goes to the server, a new build reaches the app on its next load, and with the server down the app shows the error a tab would.
+
+## Notifications
+
+![Settings, Appearance tab: the switch of system notifications under the language picker](../assets/web-ui/notifications-setting-dark-1280.png)
+
+*The switch of system notifications in Settings → Appearance, under the language picker.*
+
+While Coddy is in the background - another tab, another window, the app minimized - the browser can tell you that the agent needs you. Turn it on in **Settings → Appearance → Notifications**. The switch asks the browser for the permission, and the choice is kept in this browser only (cookie `coddy_ui_notify`), like the theme.
+
+A tab notifies about the chats it follows, the chat on screen and every chat you sent a prompt to from that tab, when:
+
+- a turn ends: **The agent finished its turn.**, or the error a failed turn ended with;
+- the agent asks for permission to run a tool: **Permission needed:** and the tool;
+- the agent asks you a question: its first line;
+- a background subagent of the chat asks for permission after the chat's turn ended.
+
+The notification carries the chat's title, and a click on it brings the tab forward and opens the chat. Nothing is shown while you look at Coddy: not while its tab is visible in a focused window, and not while another window of the app has the focus. Several tabs of one browser that follow the same chat show one notification. The turns of a Telegram conversation, a scheduler run or a subagent's own session are not announced unless the tab shows their chat.
+
+Limits:
+
+- Notifications need a secure page, like the install; on plain http the switch is off and says why.
+- The browser's permission decides. While the browser blocks notifications for the site the switch stays off and says where to allow them (the site settings of the browser). Turning the switch off stops the notifications and leaves the permission as it is.
+- A tab of Coddy has to be open, in the background or minimized. With every tab closed nothing is announced: notifications that reach a closed browser (Web Push) are not planned for now, and the design a contribution can follow is [docs/plans/pwa-push-notifications.md](../plans/pwa-push-notifications.md).
+- Safari on iPhone and iPad shows notifications only to Coddy added to the home screen and opened from it.
+- Inside the [Telegram Mini App](gateway.md#mini-app) there is no switch: Telegram shows a Mini App's page no notifications.
+
+The code is `external/ui/src/ui/pwa/` (`notifications.ts` shows a notice, `attentionTracker.ts` decides which events are worth one, `serviceWorker.ts` registers the worker) and `external/ui/public/sw.js`; the scenarios are `features/web_ui_installable_app.feature`.
 
 ## Environment (local / remote server)
 

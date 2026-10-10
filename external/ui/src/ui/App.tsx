@@ -316,6 +316,9 @@ import { Settings } from "./settings/Settings";
 import { noteSettingsConfigReloaded } from "./settings/settingsConfigStore";
 import { MCP_SECTION_ID } from "./settings/settingsSections";
 import { wideRailMinWidthMediaQuery } from "./shellBreakpoint";
+import { AttentionTracker } from "./pwa/attentionTracker";
+import { onNotificationOpen } from "./pwa/notifications";
+import type { SubagentPermissionEvent } from "./chat/serverEvents";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -754,15 +757,29 @@ export function App() {
   );
   /** True while GET /coddy/events is connected; gates the fallback sessions poll. */
   const [serverEventsConnected, setServerEventsConnected] = useState(false);
+  /** The titles a notification names a chat by, refreshed on every render. */
+  const noticeTitleRef = useRef<(sid: string) => string>(() => "");
+  /** What this tab tells the system about while it is in the background (issue #508). */
+  const attentionRef = useRef<AttentionTracker | null>(null);
+  if (attentionRef.current === null) {
+    attentionRef.current = new AttentionTracker({
+      viewedSessionId: () => viewedSessionIdRef.current,
+      sessionTitle: (sid) => noticeTitleRef.current(sid),
+    });
+  }
+  const attention = attentionRef.current;
   const serverEventHandlersRef = useRef<{
     turnStarted: (sid: string) => void;
-    turnEnded: (sid: string) => void;
+    turnEnded: (sid: string, at: string) => void;
     providerUsage: (usage: ProviderUsage) => void;
     configReloaded: () => void;
     messageQueue: (sid: string, queue: QueuedMessageEvent) => void;
     sessionSettings: (event: SessionSettingsEvent) => void;
     sessionGoal: (update: SessionGoalUpdate) => void;
-    subagentPermission: (parentSid: string) => void;
+    subagentPermission: (
+      parentSid: string,
+      prompt: SubagentPermissionEvent,
+    ) => void;
     questionPending: (sid: string) => void;
     sessionRewound: (sid: string) => void;
     ready: () => void;
@@ -1599,6 +1616,7 @@ export function App() {
       if (!p) return;
       const key = p.sessionId.trim();
       if (!key) return;
+      attention.question(p);
       setQuestionPendingSids((prev) => {
         const next = new Set(prev);
         next.add(key);
@@ -1647,6 +1665,7 @@ export function App() {
       if (!p) return;
       const key = p.sessionId.trim();
       if (!key) return;
+      attention.permission(p);
       const tcid = p.toolCall.toolCallId.trim();
       setPermissionPendingSids((prev) => {
         const next = new Set(prev);
@@ -1809,6 +1828,12 @@ export function App() {
     }
     return t("chat.newChat");
   }, [sessionId, sessions, describePreview, t, subagentTranscript]);
+
+  noticeTitleRef.current = (sid: string) => {
+    const key = sid.trim();
+    if (key && key === sessionId.trim()) return currentTitle;
+    return (sessions.find((s) => s.id === key)?.title || "").trim();
+  };
 
   const currentSessionCwd = useMemo(() => {
     const sid = sessionId.trim();
@@ -3297,6 +3322,7 @@ export function App() {
     turnStarted: (sid: string) => {
       void loadSessionsList(true);
       const key = sid.trim();
+      attention.turnStarted(key);
       if (
         key !== viewedSessionIdRef.current.trim() &&
         turnActivity.get(key) === undefined
@@ -3308,10 +3334,11 @@ export function App() {
       turnActivity.observe(key, true);
       void attachViewedComposer(key);
     },
-    turnEnded: (sid: string) => {
+    turnEnded: (sid: string, at: string) => {
       void loadSessionsList(true);
       const key = sid.trim();
       if (!key) return;
+      attention.turnEnded(key, at);
       if (
         key !== viewedSessionIdRef.current.trim() &&
         turnActivity.get(key) === undefined
@@ -3335,7 +3362,11 @@ export function App() {
       applyQueue(sid, queue.messages, queue.version),
     // A background subagent of the chat on screen started or stopped waiting
     // for an answer; its prompt lives on the task row the chat renders.
-    subagentPermission: (parentSid: string) => {
+    subagentPermission: (
+      parentSid: string,
+      prompt: SubagentPermissionEvent,
+    ) => {
+      attention.subagentPermission(parentSid, prompt);
       if (parentSid.trim() === viewedSessionIdRef.current.trim()) {
         void refreshBackgroundTasks({ silent: true });
       }
@@ -3379,6 +3410,7 @@ export function App() {
       for (const request of stopPendingBySidRef.current.values())
         request.superseded = true;
       turnActivity.ready();
+      attention.setLive(true);
     },
   };
 
@@ -3396,10 +3428,10 @@ export function App() {
           notifyLocalApiUnauthorized();
       },
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
-      onTurnEnded: (sid) => {
+      onTurnEnded: (sid, at) => {
         // Whatever surface ran it, the turn may have edited the folder.
         emitChangesSettled(sid);
-        serverEventHandlersRef.current.turnEnded(sid);
+        serverEventHandlersRef.current.turnEnded(sid, at);
       },
       onProviderUsage: (_sid, usage) =>
         serverEventHandlersRef.current.providerUsage(usage),
@@ -3411,13 +3443,17 @@ export function App() {
         serverEventHandlersRef.current.sessionSettings(event),
       onSessionGoal: (update) =>
         serverEventHandlersRef.current.sessionGoal(update),
-      onSubagentPermission: (parentSid) =>
-        serverEventHandlersRef.current.subagentPermission(parentSid),
+      onSubagentPermission: (parentSid, prompt) =>
+        serverEventHandlersRef.current.subagentPermission(parentSid, prompt),
       onQuestionPending: (sid) =>
         serverEventHandlersRef.current.questionPending(sid),
       onSessionRewound: (sid) =>
         serverEventHandlersRef.current.sessionRewound(sid),
-      onConnectedChange: setServerEventsConnected,
+      onConnectedChange: (connected) => {
+        // Until `ready` the stream replays what was already there.
+        if (!connected) attentionRef.current?.setLive(false);
+        setServerEventsConnected(connected);
+      },
       onReady: () => serverEventHandlersRef.current.ready(),
       signal: ctl.signal,
     });
@@ -4997,6 +5033,7 @@ export function App() {
         flushToolQueue();
         finishThinking();
         const errText = streamErrorMessage;
+        attention.noteStreamError(key, errText);
         applyStreamItems((prev) => {
           const withoutEmptyAssistant = retireRelayedPermissionPrompts(
             prev,
@@ -5173,6 +5210,7 @@ export function App() {
       sidEffective = sid;
       let latestPreviewSid = sid;
       postSessionKey = sid.trim();
+      attention.noteSent(postSessionKey);
       restoreKey = postSessionKey;
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
       pendingPostBySidRef.current.set(postSessionKey, abortCtl);
@@ -5530,6 +5568,7 @@ export function App() {
         migrateWorkspaceAtRecents(sid, sidHdr);
         sidEffective = sidHdr;
         postSessionKey = sidHdr.trim();
+        attention.noteSent(postSessionKey);
         streamKey = postSessionKey;
         restoreKey = postSessionKey;
         queueEpoch = queueOrderRef.current.capture(streamKey).epoch;
@@ -5714,6 +5753,7 @@ export function App() {
         flushToolQueue();
         finishThinking();
         const errText = streamErrorMessage;
+        attention.noteStreamError(postSessionKey, errText);
         applyStreamItems((prev) => {
           const withoutEmptyAssistant = prev.filter(
             (it) =>
@@ -6445,6 +6485,14 @@ export function App() {
       pickSession(id);
     }
   };
+
+  // A click on one of this environment's notifications opens its chat here.
+  const openSessionInPlaceRef = useRef(openSessionInPlace);
+  openSessionInPlaceRef.current = openSessionInPlace;
+  useEffect(
+    () => onNotificationOpen((sid) => openSessionInPlaceRef.current(sid)),
+    [],
+  );
 
   useEffect(() => {
     const env = getEnv();

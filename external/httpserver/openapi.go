@@ -34,7 +34,7 @@ func openAPISpec() map[string]interface{} {
 		"servers": []interface{}{
 			map[string]interface{}{
 				"url":         "/",
-				"description": "Server root (same host/port as the API coddy serve exposes). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/events-worker.js`** (the SharedWorker that holds **`GET /coddy/events`** for every tab of one environment), **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**. The renderers the page loads on demand live under **`/chunks/`** with content-hashed names and **`Cache-Control: public, max-age=31536000, immutable`**.",
+				"description": "Server root (same host/port as the API coddy serve exposes). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/events-worker.js`** (the SharedWorker that holds **`GET /coddy/events`** for every tab of one environment), **`/styles.css`**, favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**), and what makes the web UI an installable app - the web app manifest **`/manifest.webmanifest`** (**`application/manifest+json`**), its icons **`/icon-192.png`**, **`/icon-512.png`**, **`/icon-maskable-512.png`** and the service worker **`/sw.js`**, which caches nothing and shows the notifications - set **`Cache-Control: no-cache`**. The renderers the page loads on demand live under **`/chunks/`** with content-hashed names and **`Cache-Control: public, max-age=31536000, immutable`**.",
 			},
 		},
 		// Optional auth: an empty requirement plus the two schemes means requests may be
