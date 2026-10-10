@@ -227,6 +227,8 @@ func TestFetchNeuralDeepDecisionRejectsAnswersOutsideTheQuestion(t *testing.T) {
 		{"probability above one", `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":1.5,"unsafe":0.1}}}}`},
 		{"negative probability", `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":0.9,"unsafe":-0.1}}}}`},
 		{"probabilities of other options only", `{"answers":{"safety":{"choice":"safe","probabilities":{"yes":0.9,"no":0.1}}}}`},
+		{"probabilities of an option the question does not offer", `{"answers":{"safety":{"probabilities":{"unsafe":0.01,"bogus":0.99}}}}`},
+		{"a stray option beside both", `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":0.9,"unsafe":0.1,"bogus":0.9}}}}`},
 		{"one option spelled twice", `{"answers":{"safety":{"choice":"safe","probabilities":{"unsafe":0.99," Unsafe ":0.01,"safe":0.5}}}}`},
 	}
 	for _, tc := range cases {

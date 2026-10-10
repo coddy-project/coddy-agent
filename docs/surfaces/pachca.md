@@ -114,7 +114,7 @@ A short rate limit (`429` with a pause up to a minute) is waited out. The daily 
 
 ## Permissions and woken turns
 
-An admin's own agent is allowed what it asks, like in Telegram: the operator configured the bot deliberately; for anybody else nothing is approved (above). A subagent whose definition narrows what it may do asks in the chat with **Allow** and **Reject** buttons, and only one of the bot's admins whose session in that chat is the one that asked can answer: in a group whose isolation is `shared` the session is everybody's, so a member who is not an admin cannot answer it. A background subagent asks the same way after the turn ended. A background task the agent started with `notify_on_finish` wakes the conversation when it ends, and the woken turn runs in the chat it belongs to: a note says what woke the agent, then the answer follows.
+An admin's own agent is allowed what it asks, like in Telegram: the operator configured the bot deliberately; for anybody else nothing is approved (above). With the [command safety check](../features/decisions.md) on, every shell command approved this way is asked about first. A subagent whose definition narrows what it may do asks in the chat with **Allow** and **Reject** buttons, and only one of the bot's admins whose session in that chat is the one that asked can answer: in a group whose isolation is `shared` the session is everybody's, so a member who is not an admin cannot answer it. A background subagent asks the same way after the turn ended. A background task the agent started with `notify_on_finish` wakes the conversation when it ends, and the woken turn runs in the chat it belongs to: a note says what woke the agent, then the answer follows.
 
 ## What is not supported
 

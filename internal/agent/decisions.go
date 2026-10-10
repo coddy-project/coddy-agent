@@ -14,9 +14,9 @@ import (
 
 // The decisions safety check: a shell command no human is about to confirm -
 // a run_command that bypass mode, the command allowlist, a session grant or a
-// hook's allow lets through without a prompt, an ssh_run_command whose prompt
-// a surface answers by itself in bypass mode or that a hook allowed past it -
-// is asked about on the NeuralDeep decisions endpoint before it runs, and a
+// hook's allow lets through without a prompt, a run_command or ssh_run_command
+// whose prompt a surface answers by itself (acp.PermissionResult.Automatic),
+// an ssh_run_command a hook allowed past its prompt - is asked about on the NeuralDeep decisions endpoint before it runs, and a
 // command the endpoint classifies as unsafe is rejected - the refusal travels
 // as the call's tool result, so both the model and the session transcript see
 // why the command did not run. The transport lives in
@@ -62,6 +62,16 @@ func (a *Agent) effectiveDecisionsRetryBackoff() time.Duration {
 		return a.decisionsRetryBackoff
 	}
 	return decisionsRetryBackoffDefault
+}
+
+// checkCommandSafety runs the check for one tool call: "" when the call is
+// not a shell command (nothing to judge) or may run, the refusal otherwise.
+func (a *Agent) checkCommandSafety(ctx context.Context, tc llm.ToolCall, env *tooling.Env) string {
+	subject, ok := commandSafetySubject(tc.Name, tc.InputJSON, env)
+	if !ok {
+		return ""
+	}
+	return a.gateCommandSafety(ctx, subject)
 }
 
 // gateCommandSafety asks the decisions endpoint about a shell command that is

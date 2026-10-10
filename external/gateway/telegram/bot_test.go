@@ -229,6 +229,11 @@ func TestNonAdminTurnIsRestricted(t *testing.T) {
 		t.Fatalf("restricted turns: %v, want [true false] for a user and an admin", runner.restricted)
 	}
 	s := b.chatSender(f.api, 5, 0, richConfig{})
+	// An admin's own agent is approved by the bot itself, and the approval
+	// says so: nobody saw the prompt, so the decisions check stands in.
+	if res, err := s.RequestPermission(context.Background(), acp.PermissionRequestParams{SessionID: "x"}); err != nil || res == nil || res.OptionID != "allow" || !res.Automatic {
+		t.Fatalf("an admin's own agent: %+v %v, want an automatic allow", res, err)
+	}
 	s.refuseApprovals = true
 	res, err := s.RequestPermission(context.Background(), acp.PermissionRequestParams{SessionID: "x"})
 	if err != nil || res == nil || res.OptionID != "reject" {

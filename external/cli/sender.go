@@ -79,7 +79,7 @@ func (s *sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 		}
 	}
 	if permission.AutoApproves(params, cfgMode) {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+		return permission.AutoAllow(), nil
 	}
 	req := permRequest{ctx: ctx, params: params, reply: make(chan *acp.PermissionResult, 1)}
 	select {

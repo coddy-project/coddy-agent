@@ -264,6 +264,9 @@ func neuralDeepDecodeDecision(body []byte) (*NeuralDeepDecision, error) {
 			return nil, fmt.Errorf("probability %v of option %q is outside 0..1", p, option)
 		}
 		name := neuralDeepDecisionOption(option)
+		if name != NeuralDeepDecisionSafe && name != NeuralDeepDecisionUnsafe {
+			return nil, fmt.Errorf("answer gives a probability of the option %q the safety question does not offer", name)
+		}
 		if _, dup := given[name]; dup {
 			// Which spelling wins would depend on map order.
 			return nil, fmt.Errorf("answer gives the option %q twice", name)
@@ -290,9 +293,6 @@ func neuralDeepDecodeDecision(body []byte) (*NeuralDeepDecision, error) {
 	case hasSafe && !hasUnsafe:
 		pUnsafe = 1 - pSafe
 	case !hasSafe && !hasUnsafe:
-		if len(given) > 0 {
-			return nil, errors.New("answer without a probability of either option")
-		}
 		if choice == "" {
 			return nil, errors.New("answer without a chosen option")
 		}

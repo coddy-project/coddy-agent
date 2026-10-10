@@ -27,6 +27,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -235,7 +236,7 @@ func (b *Bot) SetPromptSurfaces(p PromptSurfaces) {
 // asked about in that chat. Any other session is not the bot's to show.
 func (b *Bot) RequestDetachedPermission(ctx context.Context, req agent.DetachedPermissionRequest) (*acp.PermissionResult, error) {
 	if strings.TrimSpace(req.Params.EffectivePermissionMode) == config.PermModeBypass {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+		return permission.AutoAllow(), nil
 	}
 	api := b.connectedAPI()
 	if api == nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,7 +15,10 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks/hooktest"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
@@ -498,14 +502,24 @@ func TestDecisionsGateStopsOnAnAnswerOutsideTheQuestion(t *testing.T) {
 }
 
 // decisionsPromptSender records the permission prompts a call raises and
-// refuses them, so a remote command that gets past the check never dials out.
+// answers them the way a surface does: by itself under bypass, like every
+// surface (or always, with alone, like a messenger bot for its chat agent),
+// and otherwise as the human would - approving with human, refusing without.
 type decisionsPromptSender struct {
 	todoSnapshotSender
 	prompts []acp.PermissionRequestParams
+	alone   bool
+	human   bool
 }
 
 func (s *decisionsPromptSender) RequestPermission(_ context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	s.prompts = append(s.prompts, p)
+	if s.alone || permission.AutoApproves(p, "") {
+		return permission.AutoAllow(), nil
+	}
+	if s.human {
+		return &acp.PermissionResult{Outcome: "selected", OptionID: permission.OptionAllow}, nil
+	}
 	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 }
 
@@ -553,8 +567,8 @@ func TestDecisionsGateRejectsAnUnsafeRemoteCommandInBypassMode(t *testing.T) {
 	if !strings.Contains(state, "rm -rf /var/lib/postgresql") || !strings.Contains(state, "deploy@203.0.113.7") {
 		t.Fatalf("state = %q, want the remote command and its host", state)
 	}
-	if len(sender.prompts) != 0 {
-		t.Fatalf("prompts = %d, want the rejection before any prompt", len(sender.prompts))
+	if len(sender.prompts) != 1 {
+		t.Fatalf("prompts = %d, want the one prompt the surface answered by itself", len(sender.prompts))
 	}
 	meta, err := session.ReadToolCallMeta(dir, "call_decisions_ssh")
 	if err != nil || meta.Status != "cancelled" {
@@ -562,10 +576,12 @@ func TestDecisionsGateRejectsAnUnsafeRemoteCommandInBypassMode(t *testing.T) {
 	}
 }
 
-func TestDecisionsGateLetsASafeRemoteCommandOnToItsPrompt(t *testing.T) {
+func TestDecisionsGateLetsASafeRemoteCommandRun(t *testing.T) {
 	stand := newDecisionsStand(t)
 	ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeBypass)
-	res := sshToolCall(t, ag, st, dir, "deploy@203.0.113.7", "uptime", false)
+	// Port 1 on the loopback refuses at once: the call gets as far as the
+	// dial, which is what running means here.
+	res := sshToolCall(t, ag, st, dir, "deploy@127.0.0.1", "uptime", false)
 	if strings.HasPrefix(res, commandRejectedAsUnsafePrefix) || strings.HasPrefix(res, commandNotExecutedPrefix) {
 		t.Fatalf("result = %q, want the safe command past the check", res)
 	}
@@ -573,7 +589,7 @@ func TestDecisionsGateLetsASafeRemoteCommandOnToItsPrompt(t *testing.T) {
 		t.Fatalf("calls = %d, want one decision request", stand.calls.Load())
 	}
 	if len(sender.prompts) != 1 {
-		t.Fatalf("prompts = %d, want the call to go on to its prompt", len(sender.prompts))
+		t.Fatalf("prompts = %d, want the one prompt the surface answered by itself", len(sender.prompts))
 	}
 }
 
@@ -598,5 +614,64 @@ func TestDecisionsGateSkipsARemoteCommandTheOperatorApproved(t *testing.T) {
 	}
 	if stand.calls.Load() != 0 {
 		t.Fatalf("calls = %d, want no decision request after a human approval", stand.calls.Load())
+	}
+}
+
+func TestDecisionsGateChecksWhatASurfaceApprovesByItself(t *testing.T) {
+	// A messenger bot approves its chat agent's prompts in any mode: under
+	// ask the prompt is raised, but nobody sees it, so the check runs.
+	for _, tc := range []struct{ name, tool string }{{"local", "run_command"}, {"remote", "ssh_run_command"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+			ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeAsk)
+			sender.alone = true
+			var res string
+			if tc.tool == "run_command" {
+				res = runCommandToolCall(t, ag, st, dir, "rm -rf build", false)
+			} else {
+				res = sshToolCall(t, ag, st, dir, "deploy@127.0.0.1", "rm -rf /srv/app", false)
+			}
+			if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
+				t.Fatalf("result = %q, want the unsafe rejection", res)
+			}
+			if stand.calls.Load() != 1 || len(sender.prompts) != 1 {
+				t.Fatalf("calls = %d prompts = %d, want one of each", stand.calls.Load(), len(sender.prompts))
+			}
+		})
+	}
+}
+
+func TestDecisionsGateLeavesAHumanApprovalAlone(t *testing.T) {
+	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+	ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeAsk)
+	sender.human = true
+	res := runCommandToolCall(t, ag, st, dir, "echo coddy-shell-ok", false)
+	if !strings.Contains(res, "coddy-shell-ok") {
+		t.Fatalf("result = %q, want the command the human approved to run", res)
+	}
+	if stand.calls.Load() != 0 {
+		t.Fatalf("calls = %d, want no decision request after a human approval", stand.calls.Load())
+	}
+}
+
+func TestDecisionsGateChecksARemoteCommandAHookAllowed(t *testing.T) {
+	// A PreToolUse hook's allow takes the call past its prompt in ask mode.
+	stand := newDecisionsStand(t, decisionResponse{status: http.StatusOK, body: decisionUnsafeBody()})
+	ag, st, dir, sender := newDecisionsSSHAgent(t, config.PermModeAsk)
+	if err := hooktest.Write(filepath.Join(ag.cfg.Paths.Home, "hooks.json"), hooktest.Entry{
+		Event:    hooks.EventPreToolUse,
+		Matcher:  "ssh_run_command",
+		Handlers: []hooks.Handler{hooktest.Handler("allow")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ag.cfg.Paths.CWD = st.CWD
+	ag.cfg.Hooks.ApplyDefaults(ag.cfg.Paths)
+	res := sshToolCall(t, ag, st, dir, "deploy@127.0.0.1", "rm -rf /srv/app", false)
+	if !strings.HasPrefix(res, commandRejectedAsUnsafePrefix) {
+		t.Fatalf("result = %q, want the unsafe rejection", res)
+	}
+	if stand.calls.Load() != 1 || len(sender.prompts) != 0 {
+		t.Fatalf("calls = %d prompts = %d, want one decision request and no prompt", stand.calls.Load(), len(sender.prompts))
 	}
 }

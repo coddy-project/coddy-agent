@@ -552,8 +552,9 @@ tools:
 #   additional_prompt_max_chars: 0 # cut additional_prompt at this many characters (a warning is logged); 0 = no cap
 
 # Command safety decisions: before a shell command runs without asking you (bypass
-# mode, the command allowlist, a session grant or a hook's allow; ssh_run_command in
-# bypass mode or allowed by a hook), ask the NeuralDeep decisions API whether it is
+# mode, the command allowlist, a session grant or a hook's allow; a run_command or
+# ssh_run_command whose prompt a surface answers by itself: bypass mode, a messenger
+# bot for its chat agent, a plan run), ask the NeuralDeep decisions API whether it is
 # safe, and reject the ones it classifies as unsafe - the rejection comes back as the
 # result of the call, so the session records it. Commands you approved in a
 # permission prompt are not checked again. Needs a NeuralDeep credential on the first

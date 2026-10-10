@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -294,7 +295,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	}
 	stamped := strings.TrimSpace(params.EffectivePermissionMode)
 	if stamped == "" || stamped == "bypass" {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+		return permission.AutoAllow(), nil
 	}
 	if s.asks == nil || s.bot == nil {
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil

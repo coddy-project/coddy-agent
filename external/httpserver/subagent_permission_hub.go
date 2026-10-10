@@ -30,6 +30,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 )
 
 // detachedPermissionDTO is the JSON a client renders. The embedded params are
@@ -163,7 +164,7 @@ func (s *Server) RequestDetachedPermission(ctx context.Context, req agent.Detach
 	// The child's own effective mode decides the short-circuit, exactly as it
 	// does on the live path: a child narrowed to bypass is not asked at all.
 	if strings.TrimSpace(req.Params.EffectivePermissionMode) == config.PermModeBypass {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+		return permission.AutoAllow(), nil
 	}
 
 	// Registered before the prompt is published, so an answer that arrives the

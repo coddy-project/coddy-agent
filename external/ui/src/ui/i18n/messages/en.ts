@@ -284,7 +284,7 @@ export const messagesEn: Record<string, string> = {
   "settings.group.memory.instructions": "Instructions",
   "settings.group.decisions.verdict": "Model and threshold",
   "settings.group.decisions.verdictDesc":
-    "The decisions model is asked about every shell command, local or over SSH, that would run without a permission prompt, and the command is rejected once the probability of the unsafe option reaches the threshold. A command longer than the model reads is not run: frida-decisions reads 512 tokens, clef-flash 8192. The check needs a NeuralDeep credential on the neuraldeep provider row.",
+    "The decisions model is asked about every shell command, local or over SSH, that would run with nobody confirming it, and the command is rejected once the probability of the unsafe option reaches the threshold. A command longer than the model reads is not run: frida-decisions reads 512 tokens, clef-flash 8192. The check needs a NeuralDeep credential on the neuraldeep provider row.",
   "settings.group.scheduler.jobs": "Jobs",
   "settings.group.logger.main": "Logger settings",
   "settings.group.sessions.storage": "Storage",
@@ -643,7 +643,7 @@ export const messagesEn: Record<string, string> = {
     "Model the memory subagent runs on; empty uses the session's model.",
   "settings.schema.decisions.enable.label": "Enabled",
   "settings.schema.decisions.enable.desc":
-    "Ask the NeuralDeep decisions API about every shell command, local or over SSH, that would run without a permission prompt (bypass mode, the command allowlist, a session grant, a hook's allow) and reject the ones it classifies as unsafe; the rejection lands in the chat as the command's result. Commands you approved in a prompt are not checked again.",
+    "Ask the NeuralDeep decisions API about every shell command, local or over SSH, that would run with nobody confirming it (bypass mode, the command allowlist, a session grant, a hook's allow, a messenger bot approving its chat agent) and reject the ones it classifies as unsafe; the rejection lands in the chat as the command's result. Commands you approved in a prompt are not checked again.",
   "settings.schema.decisions.model.label": "Decisions model",
   "settings.schema.decisions.model.desc":
     "frida-decisions: encoder pass, up to 512 tokens of command text, ~20 ms per request, 1 quota unit. clef-flash: up to 8192 tokens, ~150 ms, 4 quota units.",

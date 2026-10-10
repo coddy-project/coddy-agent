@@ -63,6 +63,13 @@ func AutoApproves(params acp.PermissionRequestParams, configMode string) bool {
 	return configMode == config.PermModeBypass
 }
 
+// AutoAllow is the answer of a surface that approves a permission request by
+// itself - AutoApproves held, or the surface approves every request of its
+// own agent - marked so the agent knows no human saw the prompt.
+func AutoAllow() *acp.PermissionResult {
+	return &acp.PermissionResult{Outcome: "allow", OptionID: OptionAllow, Automatic: true}
+}
+
 // shellMetacharacters are the characters that let one command line run more than
 // one command, redirect it, or substitute another. A grant is only ever offered
 // for a command free of all of them: approving "curl https://example.com" must

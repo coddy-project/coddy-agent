@@ -298,7 +298,7 @@ func (d *defaultSender) RequestPermission(_ context.Context, params acp.Permissi
 		cfgMode = cfg.Tools.ResolvedPermMode()
 	}
 	if permission.AutoApproves(params, cfgMode) {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+		return permission.AutoAllow(), nil
 	}
 	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 }

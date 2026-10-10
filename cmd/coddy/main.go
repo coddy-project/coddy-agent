@@ -18,6 +18,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
@@ -58,11 +59,11 @@ func (r *serverRef) RequestPermission(ctx context.Context, params acp.Permission
 	// globally bypassed parent.
 	stamped := strings.TrimSpace(params.EffectivePermissionMode)
 	if stamped == config.PermModeBypass {
-		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+		return permission.AutoAllow(), nil
 	}
 	if stamped == "" {
 		if cfg := r.liveCfg(); cfg != nil && cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
-			return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+			return permission.AutoAllow(), nil
 		}
 	}
 	s := *r.p

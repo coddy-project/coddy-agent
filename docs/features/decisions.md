@@ -17,7 +17,7 @@ Exactly the calls no human is about to confirm:
 
 - `run_command` under **bypass** permissions;
 - a command the `tools.command_allowlist` or a session grant auto-approves in `ask` / `accept_edits` mode;
-- `ssh_run_command` under **bypass** permissions: its permission prompt is still raised, but every surface answers it by itself in that mode, so nobody sees the remote command;
+- a `run_command` or `ssh_run_command` whose permission prompt a surface answers by itself: every surface in **bypass** mode (where `ssh_run_command` still raises its prompt), the [Telegram](../surfaces/gateway.md) and [Pachca](../surfaces/pachca.md) bots for their chat's own agent in any mode, a plan run started over HTTP;
 - a `run_command` or `ssh_run_command` call a `PreToolUse` hook allowed past the prompt.
 
 These two tools are the ones checked. MCP tools and the file tools are not, even in bypass mode.
