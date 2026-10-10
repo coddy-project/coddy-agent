@@ -45,6 +45,10 @@ type inTurnProvider struct {
 	summaries int
 	// afterRefusal is the first accepted request that followed a refusal.
 	afterRefusal []llm.Message
+	// onStep, when set, runs as the model starts the step with that number (0
+	// based), before the step's calls are returned: the place a scenario's user
+	// types a follow-up while the model works.
+	onStep func(step int)
 }
 
 type inTurnRefusal struct {
@@ -94,6 +98,9 @@ func (p *inTurnProvider) Stream(_ context.Context, messages []llm.Message, defs 
 		p.afterRefusal = req
 	}
 	p.accepted = append(p.accepted, req)
+	if p.onStep != nil {
+		p.onStep(p.answered)
+	}
 	if p.answered >= p.steps {
 		const answer = "all modules audited"
 		onChunk(llm.StreamChunk{TextDelta: answer})
@@ -118,6 +125,9 @@ type inTurnFeatureState struct {
 	steps    int
 	fanOut   int
 	refuseAt int
+	// followUp is a message the user types while the model is at step followUpAt.
+	followUp   string
+	followUpAt int
 
 	provider *inTurnProvider
 	st       *session.State
@@ -129,6 +139,7 @@ type inTurnFeatureState struct {
 func (s *inTurnFeatureState) reset() error {
 	s.close()
 	s.window, s.served, s.evictOff, s.steps, s.fanOut, s.refuseAt = 0, 0, false, 0, 0, 0
+	s.followUp, s.followUpAt = "", 0
 	s.provider, s.st, s.ag, s.stop, s.runErr = nil, nil, nil, "", nil
 	return nil
 }
@@ -169,6 +180,11 @@ func (s *inTurnFeatureState) modelReads(fanOut, steps int) error {
 	return nil
 }
 
+func (s *inTurnFeatureState) userTypesFollowUpAtStep(text string, step int) error {
+	s.followUp, s.followUpAt = text, step
+	return nil
+}
+
 func (s *inTurnFeatureState) providerRefusesAboveWindow() error {
 	s.refuseAt = s.window
 	return nil
@@ -188,6 +204,10 @@ type inTurnLongTurn struct {
 	fanOut   int
 	refuseAt int
 	evictOff bool
+	// followUp, when set, is queued as the model starts step followUpAt, the way
+	// a user types into a running turn.
+	followUp   string
+	followUpAt int
 }
 
 // inTurnWorld is a long turn that has been set up and run.
@@ -251,12 +271,23 @@ func (d inTurnLongTurn) run(tempDir func() (string, error)) (*inTurnWorld, error
 	w.st = &session.State{ID: "sess_bdd_in_turn", CWD: cwd, Mode: session.ModeAgent, SessionDir: sessionDir}
 	w.ag = NewAgent(cfg, w.st, resumePermissionSender{}, nil)
 	w.ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return w.provider, nil }
+	if d.followUp != "" {
+		w.st.OpenMessageQueue()
+		w.provider.onStep = func(step int) {
+			if step == d.followUpAt {
+				_, _ = w.st.EnqueueMessage(d.followUp)
+			}
+		}
+	}
 	w.stop, w.runErr = w.ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: inTurnPrompt}})
 	return w, nil
 }
 
 func (s *inTurnFeatureState) userSendsOnePrompt() error {
-	w, err := inTurnLongTurn{window: s.window, steps: s.steps, fanOut: s.fanOut, refuseAt: s.refuseAt, evictOff: s.evictOff}.run(s.tempDir)
+	w, err := inTurnLongTurn{
+		window: s.window, steps: s.steps, fanOut: s.fanOut, refuseAt: s.refuseAt, evictOff: s.evictOff,
+		followUp: s.followUp, followUpAt: s.followUpAt,
+	}.run(s.tempDir)
 	if err != nil {
 		return err
 	}
@@ -338,6 +369,28 @@ func (s *inTurnFeatureState) everyRequestCarriedThePrompt() error {
 	for i, req := range s.provider.accepted {
 		if err := carriesPrompt(req); err != nil {
 			return fmt.Errorf("request %d: %w", i+1, err)
+		}
+	}
+	return nil
+}
+
+// everyRequestCarriedTheFollowUp checks the follow-up the user typed is in every
+// request from the first that read it on, once: as a message of its own while it
+// is recent, inside the summary row that folded it after.
+func (s *inTurnFeatureState) everyRequestCarriedTheFollowUp() error {
+	first := -1
+	for i, req := range s.provider.accepted {
+		if strings.Contains(transcriptText(req), s.followUp) {
+			first = i
+			break
+		}
+	}
+	if first < 0 {
+		return fmt.Errorf("no request carried the follow-up %q", s.followUp)
+	}
+	for i := first; i < len(s.provider.accepted); i++ {
+		if n := strings.Count(transcriptText(s.provider.accepted[i]), s.followUp); n != 1 {
+			return fmt.Errorf("request %d carries the follow-up %d times, want once", i+1, n)
 		}
 	}
 	return nil
@@ -430,6 +483,7 @@ func initializeInTurnScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a model window of (\d+) tokens that the provider serves only up to (\d+)$`, s.modelWindowServedUpTo)
 	sc.Step(`^result eviction is off, so only compaction can keep the turn inside the window$`, s.evictionOff)
 	sc.Step(`^a model that reads (\d+) files in parallel at each of (\d+) steps and then answers$`, s.modelReads)
+	sc.Step(`^the user types the follow-up "([^"]+)" while the model is at step (\d+)$`, s.userTypesFollowUpAtStep)
 	sc.Step(`^the provider refuses any request larger than the window$`, s.providerRefusesAboveWindow)
 	sc.Step(`^the provider refuses any request larger than what it serves$`, s.providerRefusesAboveWhatItServes)
 	sc.Step(`^the user sends one prompt$`, s.userSendsOnePrompt)
@@ -437,6 +491,7 @@ func initializeInTurnScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the turn ended with the model's answer$`, s.turnEndedWithAnswer)
 	sc.Step(`^the turn was folded more than once$`, s.turnFoldedMoreThanOnce)
 	sc.Step(`^every request carried the prompt verbatim$`, s.everyRequestCarriedThePrompt)
+	sc.Step(`^every request from the first that read the follow-up carried it once$`, s.everyRequestCarriedTheFollowUp)
 	sc.Step(`^every tool result in each request answers a call that request carries$`, s.everyToolResultAnswersACall)
 	sc.Step(`^the transcript still holds every original message$`, s.transcriptHoldsEveryOriginalMessage)
 	sc.Step(`^the provider refused one request as larger than its window$`, s.providerRefusedOneRequest)

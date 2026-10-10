@@ -16,7 +16,8 @@ package agent
 // The prompt cannot be summarized away - a model that is not told what it was
 // asked answers nothing - so the summary row, which becomes the first message
 // of the replay window, begins with the prompt itself, verbatim, capped to a
-// share of the window, and only then carries the summary.
+// share of the window, and only then carries the summary. The follow-ups the
+// user queued while the turn was being worked on go with it (inTurnPromptPrefix).
 //
 // How many steps stay is decided by a budget, not only by compaction.in_turn.
 // keep_recent_steps: the fold aims the next request at half of the share of the
@@ -25,6 +26,8 @@ package agent
 // step.
 
 import (
+	"strings"
+
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -49,12 +52,19 @@ const (
 // whole at the start of the summary row. The full text stays in the transcript.
 const inTurnPromptCutMarker = "\n[... %d characters omitted from the middle of this request by Coddy to keep it within its share of the context window ...]\n"
 
+// inTurnFollowUpIntro introduces each follow-up the user sent during the turn in
+// the prefix of the summary row.
+const inTurnFollowUpIntro = "Follow-up the user sent while this request was being worked on:"
+
 // inTurnSplitRequest is everything the choice of an in-turn boundary reads.
 type inTurnSplitRequest struct {
 	// msgs is the whole transcript; visibleStart is where the replay window
 	// begins in it. Every index is absolute.
 	msgs         []llm.Message
 	visibleStart int
+	// anchor is the record of the message the turn opened with; the zero value
+	// is none (session.OpeningPromptIndex says what then).
+	anchor session.TurnAnchor
 	// projected is the window as the fold summarizes it and as the next request
 	// replays it (result eviction applied), index-aligned with
 	// msgs[visibleStart:]. The kept tail is measured on it.
@@ -102,11 +112,17 @@ func chooseInTurnSplit(r inTurnSplitRequest) (inTurnSplit, error) {
 	tail := func(idx int) int {
 		return conversationTokens(r.projected[idx-r.visibleStart:], r.readsImages)
 	}
-	steps := session.TurnStepCount(r.msgs)
+	steps := session.TurnStepCount(r.msgs, r.anchor)
 	hasSteps := steps > 0
 
 	if r.recovery {
-		if idx, ok := session.CompactionSplitIndex(r.msgs, 1); ok && idx >= r.visibleStart {
+		// The regular candidate cuts at user turns only, and a follow-up the
+		// user sent during this turn is not one: it would fold the opening prompt.
+		last := len(r.msgs) - 1
+		if open, ok := session.OpeningPromptIndex(r.msgs, r.anchor); ok {
+			last = open
+		}
+		if idx, ok := session.CompactionSplitIndexUpTo(r.msgs, 1, last); ok && idx >= r.visibleStart {
 			if !hasSteps || tail(idx) <= r.regularBudget {
 				return inTurnSplit{idx: idx, regular: true}, nil
 			}
@@ -126,7 +142,7 @@ func chooseInTurnSplit(r inTurnSplitRequest) (inTurnSplit, error) {
 	// all in a recovery), whatever the cap says: a cap of a million is no reason
 	// to walk a million boundaries.
 	for k := min(r.keepSteps, steps-1); k >= floor; k-- {
-		idx, ok := session.TurnStepSplitIndex(r.msgs, k)
+		idx, ok := session.TurnStepSplitIndex(r.msgs, k, r.anchor)
 		if !ok {
 			continue
 		}
@@ -153,15 +169,64 @@ func inTurnTargetTokens(limit, thresholdPercent int) int {
 	return limit * thresholdPercent * inTurnAimPercent / 10000
 }
 
-// inTurnPromptPrefix is the prompt as it goes in front of the summary: verbatim
-// when it fits its share of the limit, else cut in the middle with a marker of
-// its own that says so.
-func inTurnPromptPrefix(prompt string, limit int) string {
-	maxTokens := max(inTurnPromptMinTokens, limit*inTurnPromptSharePercent/100)
-	if session.EstimateContextTokens(prompt) <= maxTokens {
-		return prompt
+// inTurnPromptPrefix is what goes in front of the summary: the opening prompt
+// and then each follow-up the user sent during the turn that the fold takes
+// away, every one introduced by a line of its own (inTurnFollowUpIntro). It is
+// verbatim when it fits its share of the limit, else cut in the middle with a
+// marker of its own that says so; the share is the same one for the whole, so a
+// long prompt and a long run of follow-ups together never take more than a tenth
+// of the window, and the cut keeps both ends of it - the head of the prompt and
+// the latest follow-up.
+//
+// A follow-up is the user's own words correcting or extending the request, and
+// usually short. A summarizer that paraphrases it can drop the correction, so it
+// is carried like the request is. A Stop-hook follow-up is hook output, not the
+// user's text, and is summarized with the rest of the head; session.TurnFollowUps
+// leaves it out.
+func inTurnPromptPrefix(prompt string, followUps []string, limit int) string {
+	text := prompt
+	if len(followUps) > 0 {
+		var b strings.Builder
+		b.WriteString(prompt)
+		for _, f := range followUps {
+			b.WriteString("\n\n" + inTurnFollowUpIntro + "\n")
+			b.WriteString(f)
+		}
+		text = b.String()
 	}
-	return elideToTokensMarked(prompt, maxTokens, inTurnPromptCutMarker)
+	maxTokens := max(inTurnPromptMinTokens, limit*inTurnPromptSharePercent/100)
+	if session.EstimateContextTokens(text) <= maxTokens {
+		return text
+	}
+	return elideToTokensMarked(text, maxTokens, inTurnPromptCutMarker)
+}
+
+// promptShareLimit is the limit the share of the prefix is taken of: the limit
+// the next request has to fit under, else the session's window.
+func (a *Agent) promptShareLimit(limitTokens int) int {
+	limit := limitTokens
+	if limit <= 0 {
+		limit, _ = a.contextWindow()
+	}
+	if limit <= 0 {
+		// A session with no model entry has no window to go by.
+		limit = config.DefaultContextWindowTokens
+	}
+	return limit
+}
+
+// inTurnPrefix is the prefix of the summary row of a compaction that cuts at
+// split while a turn is in progress, and ok says whether the row has one: it has
+// when the turn's opening prompt lies before the split (in the head, or hidden
+// behind the summary row an earlier fold wrote) and carries text. The follow-ups
+// are the ones the user queued between the prompt and the split; those in the kept
+// tail stay where they are, so nothing is written twice.
+func (a *Agent) inTurnPrefix(msgs []llm.Message, split, limit int) (string, bool) {
+	open, ok := session.OpeningPromptIndex(msgs, a.turnOpening)
+	if !ok || open >= split || strings.TrimSpace(msgs[open].Content) == "" {
+		return "", false
+	}
+	return inTurnPromptPrefix(msgs[open].Content, session.TurnFollowUps(msgs, open, split), limit), true
 }
 
 // withInTurnSummaryInstructions tells the summarizer the transcript it reads
@@ -203,22 +268,15 @@ type inTurnPlan struct {
 // fit under; unset, it is the session's window.
 func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, visibleStart int, projected []llm.Message) (*inTurnPlan, error) {
 	comp := &a.cfg.Compaction
-	limit := opts.LimitTokens
-	if limit <= 0 {
-		limit, _ = a.contextWindow()
-	}
-	if limit <= 0 {
-		// A session with no model entry has no window to go by.
-		limit = config.DefaultContextWindowTokens
-	}
+	limit := a.promptShareLimit(opts.LimitTokens)
 	target := inTurnTargetTokens(limit, comp.EffectiveThresholdPercent())
 	overhead := a.requestOverhead()
 
-	prompt, hasPrompt := session.TurnPrompt(msgs)
-	prefix := ""
+	// The budget is measured with the largest prefix the fold can write, every
+	// follow-up of the turn included: the prefix of the boundary chosen below holds
+	// no more of them, so a fold never keeps more than the budget it was given.
 	prefixTokens := 0
-	if hasPrompt {
-		prefix = inTurnPromptPrefix(prompt, limit)
+	if prefix, ok := a.inTurnPrefix(msgs, len(msgs), limit); ok {
 		prefixTokens = session.EstimateContextTokens(session.NewInTurnCompactionSummaryMessage(prefix, "", "").Content)
 	}
 	regularPreamble := session.EstimateContextTokens(session.NewCompactionSummaryMessage("", "").Content)
@@ -226,6 +284,7 @@ func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, visibleStart
 	choice, err := chooseInTurnSplit(inTurnSplitRequest{
 		msgs:          msgs,
 		visibleStart:  visibleStart,
+		anchor:        a.turnOpening,
 		projected:     projected,
 		keepSteps:     comp.InTurn.EffectiveKeepRecentSteps(),
 		recovery:      opts.Recovery,
@@ -238,7 +297,7 @@ func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, visibleStart
 	}
 	plan := &inTurnPlan{inTurnSplit: choice}
 	if !choice.regular {
-		plan.prompt = prefix
+		plan.prompt, _ = a.inTurnPrefix(msgs, choice.idx, limit)
 	}
 	return plan, nil
 }

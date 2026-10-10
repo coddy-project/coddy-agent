@@ -33,8 +33,65 @@ func MessagesForLLM(msgs []llm.Message) []llm.Message {
 // row an in-turn fold writes. It says what the text above it is: the row is the
 // first message of the replay window, and without this line the request would
 // read as a message of its own that the summary below it has nothing to do with.
-const inTurnSummaryPreamble = "The text above is the user's request, verbatim. Coddy compacted the conversation before this point, " +
-	"including the earlier steps of the work on this request. Summary of the compacted part:\n\n"
+// The text above is the request and, when the user sent any while it was being
+// worked on, the follow-ups, which the line names so that one wording serves a
+// row with follow-ups and one without. It is the one string the row is split on
+// (SplitInTurnSummary), so every reader of a row finds the same boundary.
+const inTurnSummaryPreamble = "The text above is the user's request, verbatim, followed by any follow-up messages the user sent while it was being worked on. " +
+	"Coddy compacted the conversation before this point, including the earlier steps of the work on this request. Summary of the compacted part:\n\n"
+
+// StopHookPrefix marks the follow-up a Stop hook submits as the next user
+// message, so the transcript says where it came from. The text after it is hook
+// output, not something the user typed.
+const StopHookPrefix = "[Stop hook] "
+
+// TurnAnchor names the user message a turn opened with: the message the agent
+// appended when the turn started. It is known by what it says and when it was
+// written, not by its place in the transcript, because a compaction inserts rows
+// before it. The zero value is "no record" (a turn resumed after a permission
+// answer, a test that calls the compaction directly), and the functions below
+// then fall back to the last user message that is not a Stop-hook follow-up.
+type TurnAnchor struct {
+	content   string
+	createdAt string
+	set       bool
+}
+
+// AnchorOf records m, the message a turn opens with.
+func AnchorOf(m llm.Message) TurnAnchor {
+	return TurnAnchor{content: m.Content, createdAt: m.CreatedAt, set: true}
+}
+
+// isRealUser reports a user-role message that is not a compaction summary row.
+func isRealUser(m llm.Message) bool {
+	return m.Role == llm.RoleUser && !m.CompactionSummary
+}
+
+// OpeningPromptIndex returns the absolute index in msgs of the message the turn
+// in progress opened with, found by scanning back for the real user message the
+// anchor describes - a woken turn's or a goal turn's first message counts, it is
+// that turn's request. Without a record (or when nothing matches it) the opening
+// prompt is the last real user message that is not a Stop-hook follow-up; a
+// follow-up the user queued is indistinguishable from the prompt then, which is
+// the one case the record exists for. ok is false when there is no such message.
+//
+// The user messages after the opening prompt are follow-ups: they belong to the
+// turn and never start a turn of their own.
+func OpeningPromptIndex(msgs []llm.Message, anchor TurnAnchor) (int, bool) {
+	if anchor.set {
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if isRealUser(msgs[i]) && msgs[i].Content == anchor.content && msgs[i].CreatedAt == anchor.createdAt {
+				return i, true
+			}
+		}
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if isRealUser(msgs[i]) && !strings.HasPrefix(msgs[i].Content, StopHookPrefix) {
+			return i, true
+		}
+	}
+	return 0, false
+}
 
 // CompactionSplitIndex returns the absolute index in msgs where the kept tail
 // begins when compacting with keepRecentTurns: the boundary sits at the
@@ -50,6 +107,16 @@ const inTurnSummaryPreamble = "The text above is the user's request, verbatim. C
 // older turn is once a new prompt arrives; a summary followed by a user message
 // is a regular compaction and stays out of the count.
 func CompactionSplitIndex(msgs []llm.Message, keepRecentTurns int) (idx int, ok bool) {
+	return CompactionSplitIndexUpTo(msgs, keepRecentTurns, len(msgs)-1)
+}
+
+// CompactionSplitIndexUpTo is CompactionSplitIndex for a turn in progress: only
+// the user messages up to and including the one at index lastTurnStart (the
+// turn's opening prompt, OpeningPromptIndex) are turn boundaries. The user
+// messages after it are follow-ups to the same turn, and a split at one of them
+// would fold the opening prompt into a plain summary, which is what the automatic
+// compaction exists never to do.
+func CompactionSplitIndexUpTo(msgs []llm.Message, keepRecentTurns, lastTurnStart int) (idx int, ok bool) {
 	if keepRecentTurns < 0 {
 		keepRecentTurns = 0
 	}
@@ -58,8 +125,8 @@ func CompactionSplitIndex(msgs []llm.Message, keepRecentTurns int) (idx int, ok 
 	if start+1 < len(msgs) && msgs[start].CompactionSummary && msgs[start+1].Role == llm.RoleAssistant {
 		userIdx = append(userIdx, start)
 	}
-	for i := start; i < len(msgs); i++ {
-		if msgs[i].Role == llm.RoleUser && !msgs[i].CompactionSummary {
+	for i := start; i < len(msgs) && i <= lastTurnStart; i++ {
+		if isRealUser(msgs[i]) {
 			userIdx = append(userIdx, i)
 		}
 	}
@@ -79,19 +146,20 @@ func CompactionSplitIndex(msgs []llm.Message, keepRecentTurns int) (idx int, ok 
 // parallel calls is never cut between its call and its results, and the head
 // ends on a complete batch.
 //
-// The turn starts after its anchor, the last real user message of the
-// LLM-visible window; when the window holds none and opens with a summary row,
-// that row is the anchor (an earlier in-turn fold or a compact_context call
-// took the prompt away and left the rest of the turn behind it). The steps are
-// the assistant messages after the anchor; steps of earlier turns are not
-// counted. keepSteps below zero counts as zero, and zero keeps nothing: the
-// result is len(msgs). ok is false when the turn has no more steps than
-// keepSteps, or when there is no turn.
-func TurnStepSplitIndex(msgs []llm.Message, keepSteps int) (idx int, ok bool) {
+// The turn starts after its opening prompt (OpeningPromptIndex): the follow-ups
+// the user sent during the turn belong to it, so the steps before a follow-up
+// are steps of this turn as well. When a fold hid the opening prompt behind a
+// summary row, that row at the start of the window is the anchor (an earlier
+// in-turn fold or a compact_context call took the prompt away and left the rest
+// of the turn behind it). The steps are the assistant messages after the anchor;
+// steps of earlier turns are not counted. keepSteps below zero counts as zero,
+// and zero keeps nothing: the result is len(msgs). ok is false when the turn
+// has no more steps than keepSteps, or when there is no turn.
+func TurnStepSplitIndex(msgs []llm.Message, keepSteps int, anchor TurnAnchor) (idx int, ok bool) {
 	if keepSteps < 0 {
 		keepSteps = 0
 	}
-	steps := turnSteps(msgs)
+	steps := turnSteps(msgs, anchor)
 	if len(steps) <= keepSteps {
 		return 0, false
 	}
@@ -103,30 +171,27 @@ func TurnStepSplitIndex(msgs []llm.Message, keepSteps int) (idx int, ok bool) {
 
 // TurnStepCount is how many steps the turn being answered has: the length of
 // the run TurnStepSplitIndex counts back from. 0 when there is no turn.
-func TurnStepCount(msgs []llm.Message) int {
-	return len(turnSteps(msgs))
+func TurnStepCount(msgs []llm.Message, anchor TurnAnchor) int {
+	return len(turnSteps(msgs, anchor))
 }
 
 // turnSteps returns the absolute indexes of the assistant messages that open
 // the steps of the turn being answered, in order (see TurnStepSplitIndex for
 // what the turn is).
-func turnSteps(msgs []llm.Message) []int {
+func turnSteps(msgs []llm.Message, anchor TurnAnchor) []int {
 	start := llmWindowStart(msgs)
-	anchor := -1
-	for i := len(msgs) - 1; i >= start; i-- {
-		if msgs[i].Role == llm.RoleUser && !msgs[i].CompactionSummary {
-			anchor = i
-			break
-		}
+	from := -1
+	if p, ok := OpeningPromptIndex(msgs, anchor); ok && p >= start {
+		from = p
 	}
-	if anchor < 0 && start < len(msgs) && msgs[start].CompactionSummary {
-		anchor = start
+	if from < 0 && start < len(msgs) && msgs[start].CompactionSummary {
+		from = start
 	}
-	if anchor < 0 {
+	if from < 0 {
 		return nil
 	}
 	var steps []int
-	for i := anchor + 1; i < len(msgs); i++ {
+	for i := from + 1; i < len(msgs); i++ {
 		if msgs[i].Role == llm.RoleAssistant && !isUIOnlyRow(msgs[i]) {
 			steps = append(steps, i)
 		}
@@ -142,21 +207,38 @@ func isUIOnlyRow(m llm.Message) bool {
 	return m.PlanDocument != nil && strings.TrimSpace(m.Content) == "" && len(m.ToolCalls) == 0 && strings.TrimSpace(m.Reasoning) == ""
 }
 
-// TurnPrompt returns the text of the last real user message of the whole
-// transcript: the prompt being answered, found even when a summary row hides it
-// from the replay window. ok is false when there is none or it carries no text
-// - an older prompt never stands in for a blank latest one.
-func TurnPrompt(msgs []llm.Message) (string, bool) {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role != llm.RoleUser || msgs[i].CompactionSummary {
+// TurnPrompt returns the text of the message the turn in progress opened with
+// (OpeningPromptIndex): the prompt being answered, found even when a summary row
+// hides it from the replay window and even when follow-ups came after it. ok is
+// false when there is none or it carries no text - an older prompt never stands
+// in for a blank one.
+func TurnPrompt(msgs []llm.Message, anchor TurnAnchor) (string, bool) {
+	i, ok := OpeningPromptIndex(msgs, anchor)
+	if !ok || strings.TrimSpace(msgs[i].Content) == "" {
+		return "", false
+	}
+	return msgs[i].Content, true
+}
+
+// TurnFollowUps returns the follow-ups the user sent while the turn that opened
+// at msgs[open] was being worked on and that lie before index end, verbatim and
+// in order: the user messages after the opening prompt, however long ago a fold
+// hid them from the replay window. A follow-up the user queued is the user's own
+// text. A Stop-hook follow-up (StopHookPrefix) is hook output and a summary row
+// is the harness's, so neither is one; nor is a blank message.
+func TurnFollowUps(msgs []llm.Message, open, end int) []string {
+	var out []string
+	for i := open + 1; i < end && i < len(msgs); i++ {
+		m := msgs[i]
+		if !isRealUser(m) || m.BackgroundWake != nil || m.GoalTurn != nil {
 			continue
 		}
-		if strings.TrimSpace(msgs[i].Content) == "" {
-			return "", false
+		if strings.HasPrefix(m.Content, StopHookPrefix) || strings.TrimSpace(m.Content) == "" {
+			continue
 		}
-		return msgs[i].Content, true
+		out = append(out, m.Content)
 	}
-	return "", false
+	return out
 }
 
 // NewInTurnCompactionSummaryMessage builds the summary row of a fold that

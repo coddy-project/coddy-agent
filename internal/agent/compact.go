@@ -58,7 +58,9 @@ type CompactOptions struct {
 	// no turn verbatim. The automatic trigger passes false.
 	Force bool
 	// FromTool marks a compaction the model asked for in the middle of its own
-	// turn: the assistant message carrying that tool call is never folded.
+	// turn: the assistant message carrying that tool call is never folded, and
+	// when the fold takes the turn's opening prompt with it, the summary row
+	// begins with that prompt like the row of an in-turn fold does.
 	FromTool bool
 	// InTurn folds the earlier steps of the turn being answered instead of
 	// earlier turns: the cut is a step boundary, the latest steps stay verbatim
@@ -94,10 +96,12 @@ type CompactionResult struct {
 	// InTurn is true when the fold cut inside the turn being answered: the
 	// summary row begins with the prompt and the steps after the cut stay. A
 	// compaction asked for as InTurn that found earlier turns to fold instead
-	// (a recovery) reports false.
+	// (a recovery) reports false; a compact_context call that folded the turn's
+	// prompt reports true.
 	InTurn bool
 	// KeptSteps is how many steps of the turn stayed verbatim after an in-turn
-	// cut.
+	// cut. It is 0 for a compact_context call, whose cut is not a step boundary
+	// of its own.
 	KeptSteps int
 }
 
@@ -193,9 +197,20 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 		if keep < minKeep {
 			keep = minKeep
 		}
-		idx, ok := session.CompactionSplitIndex(msgs, keep)
+		// The automatic split cuts at user turns, and the follow-ups the user sent
+		// during the turn in progress are not turns of their own: a cut at one
+		// would fold the opening prompt into a plain summary. Only the user
+		// messages up to the opening prompt are boundaries. A manual compaction
+		// keeps every user message as a boundary - it folds the prompt on purpose.
+		last := len(msgs) - 1
+		if !force {
+			if open, found := session.OpeningPromptIndex(msgs, a.turnOpening); found {
+				last = open
+			}
+		}
+		idx, ok := session.CompactionSplitIndexUpTo(msgs, keep, last)
 		for k := keep - 1; !ok && k >= minKeep; k-- {
-			idx, ok = session.CompactionSplitIndex(msgs, k)
+			idx, ok = session.CompactionSplitIndexUpTo(msgs, k, last)
 		}
 		if !ok {
 			return nil, ErrNothingToCompact
@@ -220,6 +235,20 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	if splitIdx < visibleStart || splitIdx > len(msgs) {
 		return nil, fmt.Errorf("invalid compaction boundary %d for visible window %d..%d", splitIdx, visibleStart, len(msgs))
 	}
+	// What goes in front of the summary when the fold takes the turn's opening
+	// prompt out of the window. An in-turn fold decided that with its boundary;
+	// a compact_context call is a compaction made while a turn is in progress too,
+	// so when its head holds the opening prompt - or the row an earlier fold of
+	// this turn wrote, which carries it - the row it writes begins with the prompt
+	// the same way. A manual /compact between turns is no such call: no turn is
+	// being answered, and the previous turn's prompt in front of its summary would
+	// ask the model to answer it again.
+	prefix := ""
+	if plan != nil {
+		prefix = plan.prompt
+	} else if opts.FromTool {
+		prefix, _ = a.inTurnPrefix(msgs, splitIdx, a.promptShareLimit(0))
+	}
 
 	// PreCompact hooks see the trigger and may veto: the manual command
 	// reports the veto, an automatic compaction is skipped for this check. An
@@ -239,7 +268,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	instructions = withGoalSummaryInstructions(a.state, instructions)
 	// A cut inside the turn tells the summarizer the work is still going on and
 	// that the request stays in front of its summary.
-	if plan != nil && plan.prompt != "" {
+	if prefix != "" {
 		instructions = withInTurnSummaryInstructions(instructions)
 	}
 
@@ -277,8 +306,8 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// so the row that replaces them begins with it (the prompt's pictures stay
 	// in the transcript; they are not copied onto the row).
 	summaryRow := session.NewCompactionSummaryMessage(summary, modelID)
-	if plan != nil && plan.prompt != "" {
-		summaryRow = session.NewInTurnCompactionSummaryMessage(plan.prompt, summary, modelID)
+	if prefix != "" {
+		summaryRow = session.NewInTurnCompactionSummaryMessage(prefix, summary, modelID)
 	}
 	a.state.InsertCompactionSummary(splitIdx, summaryRow)
 	// The history the provider had cached is rewritten from here on, which
@@ -300,6 +329,8 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	}
 	if plan != nil && !plan.regular {
 		res.InTurn, res.KeptSteps = true, plan.keptSteps
+	} else if prefix != "" {
+		res.InTurn = true
 	}
 	row.done(compactionOutcomeText(res))
 	return res, nil

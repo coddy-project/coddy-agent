@@ -149,8 +149,9 @@ refused as too large opens the gate for the rest of that turn
 (**`Agent.evictionForced`**): the cache the gate protects is moot once the
 provider has refused to read the prefix. The fold inside a turn
 (**`compaction.in_turn`**) is the same trade: it rewrites the history only at the
-compaction threshold, and the summary row it writes starts with the prompt so the
-rewritten prefix still opens with what the model was asked. See
+compaction threshold, and the summary row it writes (like the one a `compact_context`
+call writes in the middle of a turn) starts with the prompt and the follow-ups the user
+queued, so the rewritten prefix still opens with what the model was asked. See
 [compaction.md](../features/compaction.md).
 
 ### Reading the cache hit

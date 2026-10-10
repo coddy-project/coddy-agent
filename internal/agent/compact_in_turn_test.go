@@ -64,7 +64,7 @@ func TestChooseInTurnSplit(t *testing.T) {
 	// A prompt and eight steps of two parallel results of 3000 characters.
 	turn := fixtureTurn("do the audit", 8, 2, 3000)
 	at := func(keep int) int {
-		idx, ok := session.TurnStepSplitIndex(turn, keep)
+		idx, ok := session.TurnStepSplitIndex(turn, keep, session.TurnAnchor{})
 		if !ok {
 			t.Fatalf("fixture has no split keeping %d steps", keep)
 		}
@@ -221,7 +221,7 @@ func TestChooseInTurnSplit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, _ := session.TurnStepSplitIndex(msgs, 2)
+		want, _ := session.TurnStepSplitIndex(msgs, 2, session.TurnAnchor{})
 		if got.keptSteps != 2 || got.idx != want || got.idx < visibleStart {
 			t.Fatalf("got %+v, want two steps at the absolute index %d", got, want)
 		}
@@ -314,7 +314,7 @@ func TestInTurnTarget(t *testing.T) {
 func TestInTurnPromptPrefix(t *testing.T) {
 	t.Run("a prompt within its share is kept verbatim", func(t *testing.T) {
 		prompt := "Fix the failing build.\n\nThen explain why it broke."
-		if got := inTurnPromptPrefix(prompt, 49152); got != prompt {
+		if got := inTurnPromptPrefix(prompt, nil, 49152); got != prompt {
 			t.Fatalf("prefix = %q, want the prompt verbatim", got)
 		}
 	})
@@ -322,7 +322,7 @@ func TestInTurnPromptPrefix(t *testing.T) {
 	t.Run("a huge prompt is cut in the middle with its own marker", func(t *testing.T) {
 		prompt := "START OF THE REQUEST " + strings.Repeat("a long pasted log line. ", 4000) + " END OF THE REQUEST"
 		const limit = 20000
-		got := inTurnPromptPrefix(prompt, limit)
+		got := inTurnPromptPrefix(prompt, nil, limit)
 		if !strings.HasPrefix(got, "START OF THE REQUEST") || !strings.HasSuffix(got, "END OF THE REQUEST") {
 			t.Fatalf("the ends of the request were lost: %q ... %q", got[:40], got[len(got)-40:])
 		}
@@ -339,7 +339,7 @@ func TestInTurnPromptPrefix(t *testing.T) {
 
 	t.Run("the share never drops below a few hundred tokens", func(t *testing.T) {
 		prompt := strings.Repeat("word ", 600) // about 1000 tokens
-		got := inTurnPromptPrefix(prompt, 1000)
+		got := inTurnPromptPrefix(prompt, nil, 1000)
 		if tokens := session.EstimateContextTokens(got); tokens < inTurnPromptMinTokens-50 || tokens > inTurnPromptMinTokens+20 {
 			t.Fatalf("prefix = %d tokens, want about the floor of %d", tokens, inTurnPromptMinTokens)
 		}

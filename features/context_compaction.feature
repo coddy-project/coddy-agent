@@ -56,6 +56,7 @@ Feature: Context compaction
     Given a session with 0 completed exchanges
     When the model calls the compact_context tool
     Then the compaction summary is inserted into the transcript
+    And the summary row begins with the prompt being answered
     And the LLM request after the tool call starts from the summary
     And every tool result in that request answers a call the request carries
 

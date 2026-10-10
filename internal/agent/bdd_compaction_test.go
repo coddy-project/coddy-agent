@@ -177,6 +177,26 @@ func (s *compactionFeatureState) summaryInsertedIntoTranscript() error {
 	return fmt.Errorf("no compaction summary row in transcript")
 }
 
+// summaryRowBeginsWithThePrompt checks the row a compact_context call wrote in
+// the first turn of a session: the head it folded held the prompt being answered,
+// so the row starts with it, verbatim, and the model keeps knowing what it was
+// asked (issue #490).
+func (s *compactionFeatureState) summaryRowBeginsWithThePrompt() error {
+	for _, m := range s.st.GetMessages() {
+		if !m.CompactionSummary {
+			continue
+		}
+		if !strings.HasPrefix(m.Content, "probe prompt\n\n") {
+			return fmt.Errorf("the summary row does not begin with the prompt: %q", firstChars(m.Content, 120))
+		}
+		if n := strings.Count(m.Content, "probe prompt"); n != 1 {
+			return fmt.Errorf("the summary row holds the prompt %d times, want once", n)
+		}
+		return nil
+	}
+	return fmt.Errorf("no compaction summary row in transcript")
+}
+
 func (s *compactionFeatureState) transcriptContainsAllExchanges() error {
 	joined := transcriptText(s.st.GetMessages())
 	for i := 1; i <= s.exchanges; i++ {
@@ -644,6 +664,7 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a session with (\d+) completed exchanges$`, s.sessionWithExchanges)
 	sc.Step(`^the session is compacted keeping the last 2 user turns$`, s.compactSession)
 	sc.Step(`^the compaction summary is inserted into the transcript$`, s.summaryInsertedIntoTranscript)
+	sc.Step(`^the summary row begins with the prompt being answered$`, s.summaryRowBeginsWithThePrompt)
 	sc.Step(`^the transcript still contains all (\d+) original exchanges$`, func(int) error { return s.transcriptContainsAllExchanges() })
 	sc.Step(`^the next LLM request starts from the summary$`, s.nextRequestStartsFromSummary)
 	sc.Step(`^the next LLM request contains the last (\d+) exchanges verbatim$`, s.nextRequestContainsLastExchanges)

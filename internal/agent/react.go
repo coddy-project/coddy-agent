@@ -141,6 +141,13 @@ type Agent struct {
 	// autoCompactSkipLogged records that this turn already logged an
 	// automatic compaction with nothing to fold (compact.go).
 	autoCompactSkipLogged bool
+	// turnOpening records the user message Run appended when this turn started:
+	// the request being answered, which a compaction must keep. Follow-ups the
+	// user queues during the turn are user messages too, and only this record
+	// tells them from the prompt (session.OpeningPromptIndex). It is set before
+	// the loop starts and read by the compactions the loop runs; a turn resumed
+	// after a permission answer has none.
+	turnOpening session.TurnAnchor
 	// evictionForced is set once the provider refused a request of this turn as
 	// larger than its window: from then on result eviction projects the history
 	// whatever start_percent says. The gate exists to keep the provider's prompt
@@ -320,14 +327,16 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: messageContent},
 		})
 	}
-	a.state.AddMessage(llm.Message{
+	opening := llm.Message{
 		Role:           llm.RoleUser,
 		Content:        messageContent,
 		ImageParts:     imageParts,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 		BackgroundWake: wake,
 		GoalTurn:       goalTurn,
-	})
+	}
+	a.state.AddMessage(opening)
+	a.turnOpening = session.AnchorOf(opening)
 	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()))
 	// The turn's clock is announced before anything slow happens - the memory
 	// run below, the first model call - so a surface counts from the start.
