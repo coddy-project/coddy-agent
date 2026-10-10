@@ -502,16 +502,18 @@ export function NavRail(props: {
                 data-testid="nav-history"
                 onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenHistory)}
               >
-                <IconBook className="rail-svg rail-nav-hit-svg" />
-                {historyActiveCount > 0 ? (
-                  <span
-                    className="rail-active-count"
-                    data-testid="nav-history-active-count"
-                    aria-hidden
-                  >
-                    {historyActiveCount}
-                  </span>
-                ) : null}
+                <span className="rail-nav-icon">
+                  <IconBook className="rail-svg rail-nav-hit-svg" />
+                  {historyActiveCount > 0 ? (
+                    <span
+                      className="rail-active-count"
+                      data-testid="nav-history-active-count"
+                      aria-hidden
+                    >
+                      {historyActiveCount}
+                    </span>
+                  ) : null}
+                </span>
                 {pillWide ? (
                   <span className="rail-nav-label">{t("nav.history")}</span>
                 ) : null}
@@ -536,16 +538,18 @@ export function NavRail(props: {
                   sameTabInAppNavClick(ev, props.onOpenScheduler)
                 }
               >
-                <IconScheduler className="rail-svg rail-nav-hit-svg" />
-                {schedulerActiveCount > 0 ? (
-                  <span
-                    className="rail-active-count"
-                    data-testid="nav-scheduler-active-count"
-                    aria-hidden
-                  >
-                    {schedulerActiveCount}
-                  </span>
-                ) : null}
+                <span className="rail-nav-icon">
+                  <IconScheduler className="rail-svg rail-nav-hit-svg" />
+                  {schedulerActiveCount > 0 ? (
+                    <span
+                      className="rail-active-count"
+                      data-testid="nav-scheduler-active-count"
+                      aria-hidden
+                    >
+                      {schedulerActiveCount}
+                    </span>
+                  ) : null}
+                </span>
                 {pillWide ? (
                   <span className="rail-nav-label">{t("nav.scheduler")}</span>
                 ) : null}
@@ -728,17 +732,19 @@ export function NavRail(props: {
                             sameTabInAppNavClick(ev, props.onOpenScheduler);
                           }}
                         >
-                          <IconScheduler className="rail-svg" />
+                          <span className="rail-nav-icon">
+                            <IconScheduler className="rail-svg" />
+                            {schedulerActiveCount > 0 ? (
+                              <span
+                                className="rail-active-count"
+                                data-testid="nav-more-scheduler-active-count"
+                                aria-hidden
+                              >
+                                {schedulerActiveCount}
+                              </span>
+                            ) : null}
+                          </span>
                           <span>{t("nav.scheduler")}</span>
-                          {schedulerActiveCount > 0 ? (
-                            <span
-                              className="rail-more-active-count"
-                              data-testid="nav-more-scheduler-active-count"
-                              aria-hidden
-                            >
-                              {schedulerActiveCount}
-                            </span>
-                          ) : null}
                         </a>
                       );
                     }

@@ -528,7 +528,7 @@ export function Composer(props: {
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
-  /** Fetches the remotes before the branch list shows; resolves with the outcome. */
+  /** Fetches the remotes while the branch list shows; resolves with the outcome. */
   onWorkspaceRefreshBranches?:
     | (() => Promise<WorkspaceBranchFetch | null>)
     | undefined;

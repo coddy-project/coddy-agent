@@ -19,7 +19,7 @@ export type WorkspacePick = {
   onPickFolder: (path: string) => void;
   onPickBranch: (branch: string, worktree: boolean) => void;
   onWorktreeToggle: () => void;
-  /** Fetches the remotes before the branch list shows (see WorkspaceChips). */
+  /** Fetches the remotes while the branch list shows (see WorkspaceChips). */
   onRefreshBranches?: (() => Promise<WorkspaceBranchFetch | null>) | undefined;
   /** The menus open upward from a docked composer, downward on the start screen. */
   opensUp: boolean;
