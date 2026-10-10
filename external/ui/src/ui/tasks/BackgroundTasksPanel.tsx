@@ -17,7 +17,8 @@ import {
   taskErrorText,
   taskMetaLine,
   taskStatusLabel,
-  taskTag,
+  taskCardHeading,
+  taskTimesTitle,
   taskTitle,
   taskTone,
 } from "./taskStatus";
@@ -58,15 +59,22 @@ function TaskCard(props: {
   /** Output of the open card; ignored while the card is folded. */
   output: string;
   onToggle: (taskId: string) => void;
-  onStop: (taskId: string) => void;
+  /** Absent when the panel's tasks are stopped elsewhere: the card has no Stop. */
+  onStop?: ((taskId: string) => void) | undefined;
   onOpenSession: (sessionId: string) => void;
 }) {
   const { t, tp, locale } = useT();
   const task = props.task;
   const progress = estimateProgress(task, props.nowMs);
   const overdue = isOverdue(task, props.nowMs);
-  const title = taskTitle(task);
+  const heading = taskCardHeading(task);
+  const title = heading.title;
+  const tag = heading.tag;
   const usage = agentUsage(task);
+  // The level the way the composer's chip writes it.
+  const reasoning = usage?.reasoning
+    ? usage.reasoning.slice(0, 1).toUpperCase() + usage.reasoning.slice(1)
+    : "";
   // Where the task leads, read off the card the operator already sees: a
   // subagent run is the conversation it holds, a preview server is the page it
   // answers with. A shell command is neither, so both come back empty for it.
@@ -88,8 +96,9 @@ function TaskCard(props: {
   const number = new Intl.NumberFormat(locale);
   const hover = [
     task.command || task.label,
+    ...taskTimesTitle(task),
     serverUrl,
-    usage?.modelId || "",
+    [usage?.modelId || "", reasoning].filter(Boolean).join(" · "),
     usage && usage.tokens > 0
       ? t("tasks.agentTokensTitle", {
           input: number.format(usage.inputTokens),
@@ -128,13 +137,15 @@ function TaskCard(props: {
               data-part="dot"
               aria-hidden="true"
             />
-            <span
-              className="bgtask-tag"
-              data-part="tag"
-              data-testid={`bgtask-tag-${task.id}`}
-            >
-              {taskTag(task)}
-            </span>
+            {tag ? (
+              <span
+                className="bgtask-tag"
+                data-part="tag"
+                data-testid={`bgtask-tag-${task.id}`}
+              >
+                {tag}
+              </span>
+            ) : null}
             <span
               className="bgtask-card-label"
               data-part="title"
@@ -154,14 +165,14 @@ function TaskCard(props: {
               </span>
             ) : null}
           </button>
-          {task.running ? (
+          {task.running && props.onStop ? (
             <button
               type="button"
               className="composer-icon composer-run-icon composer-send-stop composer-run-icon--stop bgtask-stop-icon"
               aria-label={t("tasks.stopAriaLabel", { label: title })}
               title={t("tasks.stopTitle")}
               data-testid={`bgtask-stop-${task.id}`}
-              onClick={() => props.onStop(task.id)}
+              onClick={() => props.onStop?.(task.id)}
             >
               <IconStop />
             </button>
@@ -187,6 +198,20 @@ function TaskCard(props: {
                 >
                   {usage.model}
                 </span>
+              ) : null}
+              {usage.model && reasoning ? (
+                <>
+                  <span className="bgtask-card-usage-sep" aria-hidden="true">
+                    {" · "}
+                  </span>
+                  <span
+                    className="bgtask-card-reasoning"
+                    data-testid={`bgtask-reasoning-${task.id}`}
+                    aria-label={`${t("composer.reasoningLevel")} ${reasoning}`}
+                  >
+                    {reasoning}
+                  </span>
+                </>
               ) : null}
               {usage.model && usage.tokens > 0 ? (
                 <span className="bgtask-card-usage-sep" aria-hidden="true">
@@ -414,7 +439,11 @@ export function BackgroundTasksPanel(props: {
   /** Reads the captured output of one task; null when it cannot be read right now. */
   loadOutput: (taskId: string) => Promise<string | null>;
   onClose: () => void;
-  onStopTask: (taskId: string) => void | Promise<void>;
+  /**
+   * Stops a running task. Absent when the tasks are stopped elsewhere (the runs
+   * of a scheduler job, from the job's row): the cards then carry no Stop.
+   */
+  onStopTask?: ((taskId: string) => void | Promise<void>) | undefined;
   onClearFinished: () => void;
   /** Routes to another session: the child transcript behind an agent task. */
   onOpenSession: (sessionId: string) => void;
@@ -588,13 +617,16 @@ export function BackgroundTasksPanel(props: {
   const shown = finished.filter(
     (task, i) => i < FINISHED_RENDER_CAP || openIds.includes(task.id),
   );
-  const stop = (taskId: string) => {
-    void Promise.resolve(props.onStopTask(taskId)).then(() => {
-      if (openIds.includes(taskId)) {
-        void readOutput(taskId);
+  const onStopTask = props.onStopTask;
+  const stop = onStopTask
+    ? (taskId: string) => {
+        void Promise.resolve(onStopTask(taskId)).then(() => {
+          if (openIds.includes(taskId)) {
+            void readOutput(taskId);
+          }
+        });
       }
-    });
-  };
+    : undefined;
   const card = (task: BackgroundTask) => (
     <TaskCard
       key={task.id}

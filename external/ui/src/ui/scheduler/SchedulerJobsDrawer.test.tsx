@@ -136,12 +136,29 @@ test("job row shows the last run's status and clock, and nothing before the firs
     },
   ]);
   expect(screen.queryByTestId("scheduler-last-run-quiet")).toBeNull();
+  expect(screen.queryByTestId("scheduler-last-run-dot-quiet")).toBeNull();
   const mark = screen.getByTestId("scheduler-last-run-nightly");
   expect(mark.textContent).toContain("Failed");
-  expect(mark.querySelector(".bgtask-dot--danger")).toBeTruthy();
+  // The dot stands on the name's line, in the marks column a History row
+  // has; the status and the clock stay under the description.
+  const dot = screen.getByTestId("scheduler-last-run-dot-nightly");
+  expect(dot).toHaveClass("bgtask-dot--danger");
+  expect(dot.closest(".scheduler-job-row-mark")).toBeTruthy();
+  expect(mark.querySelector(".bgtask-dot")).toBeNull();
 });
 
-test("a running last run reads as running", () => {
+test("a job row is laid out like a History row: marks column, title, lines under it", () => {
+  renderDrawer(null, [{ ...baseJob("nightly") }]);
+  const block = screen
+    .getByTestId("scheduler-job-row-nightly")
+    .querySelector(".scheduler-job-row-text-block")!;
+  const children = [...block.children].map((el) => el.className);
+  expect(children[0]).toContain("scheduler-job-row-mark");
+  expect(children[1]).toContain("scheduler-job-row-title-line");
+  expect(children[2]).toContain("scheduler-job-row-desc");
+});
+
+test("a running job shows its pulsing dot alone: no status line under the description", () => {
   renderDrawer(null, [
     {
       ...baseJob("busy"),
@@ -157,7 +174,10 @@ test("a running last run reads as running", () => {
       },
     },
   ]);
-  const mark = screen.getByTestId("scheduler-last-run-busy");
-  expect(mark.textContent).toContain("Running");
-  expect(mark.querySelector(".bgtask-dot--running")).toBeTruthy();
+  // The dot pulses and the row's button is Stop: a "Running · 10:00" line
+  // would only say it a third time.
+  expect(screen.queryByTestId("scheduler-last-run-busy")).toBeNull();
+  const dot = screen.getByTestId("scheduler-last-run-dot-busy");
+  expect(dot).toHaveClass("bgtask-dot--running");
+  expect(dot).toHaveAccessibleName(/Running/);
 });

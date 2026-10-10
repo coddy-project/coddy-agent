@@ -26,14 +26,9 @@ export function formatRunClock(iso: string | undefined): string {
   });
 }
 
-/**
- * The row's last-run mark: the status dot the Tasks panel uses, with the
- * status and the clock of the run beside it, so a glance at the list says how
- * every job went last time without opening its runs.
- */
-function LastRunMark(props: { jobId: string; run: SchedulerRunEntry }) {
+/** The status word and the clock of a job's last run. */
+function useLastRunText(run: SchedulerRunEntry): string {
   const { t } = useT();
-  const run = props.run;
   const status = (run.status || "") as BackgroundTaskStatus;
   const clock = formatRunClock(
     run.running ? run.started_at : run.ended_at || run.started_at,
@@ -41,20 +36,38 @@ function LastRunMark(props: { jobId: string; run: SchedulerRunEntry }) {
   const label = run.running
     ? t("scheduler.lastRun.running")
     : t(`tasks.status.${statusKey(status)}`);
+  return `${label}${clock ? ` · ${clock}` : ""}`;
+}
+
+/**
+ * The row's last-run dot: the status dot the Tasks panel uses, on the name's
+ * line in the marks column a History row has, so a glance at the list says how
+ * every job went last time without opening its runs.
+ */
+function LastRunDot(props: { jobId: string; run: SchedulerRunEntry }) {
+  const text = useLastRunText(props.run);
+  const status = (props.run.status || "") as BackgroundTaskStatus;
+  return (
+    <span
+      className={`bgtask-dot bgtask-dot--${taskTone(status)}`}
+      role="img"
+      aria-label={text}
+      title={text}
+      data-testid={`scheduler-last-run-dot-${props.jobId}`}
+    />
+  );
+}
+
+/** How the last run ended and when, under the description; none while it runs. */
+function LastRunMark(props: { jobId: string; run: SchedulerRunEntry }) {
+  const text = useLastRunText(props.run);
   return (
     <span
       className="scheduler-job-row-last-run"
       data-testid={`scheduler-last-run-${props.jobId}`}
-      title={`${label}${clock ? ` · ${clock}` : ""}`}
+      title={text}
     >
-      <span
-        className={`bgtask-dot bgtask-dot--${taskTone(status)}`}
-        aria-hidden="true"
-      />
-      <span className="scheduler-job-row-last-run-text">
-        {label}
-        {clock ? ` · ${clock}` : ""}
-      </span>
+      <span className="scheduler-job-row-last-run-text">{text}</span>
     </span>
   );
 }
@@ -316,6 +329,11 @@ export function SchedulerJobsDrawer(props: {
                       }
                     >
                       <div className="scheduler-job-row-text-block">
+                        <span className="scheduler-job-row-mark">
+                          {j.last_run ? (
+                            <LastRunDot jobId={j.job_id} run={j.last_run} />
+                          ) : null}
+                        </span>
                         <div className="scheduler-job-row-title-line">
                           <div
                             className="scheduler-job-row-id"
@@ -359,7 +377,10 @@ export function SchedulerJobsDrawer(props: {
                           {(j.description || "").trim() ||
                             t("scheduler.noDescription")}
                         </div>
-                        {j.last_run ? (
+                        {/* A running job says so with its pulsing dot and
+                        the Stop button; the line is for how the last run
+                        ended. */}
+                        {j.last_run && !j.last_run.running ? (
                           <LastRunMark jobId={j.job_id} run={j.last_run} />
                         ) : null}
                       </div>

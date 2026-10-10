@@ -1843,6 +1843,8 @@ export const messagesRu: Record<string, string> = {
   "tasks.estimate": "оценка {value}",
   "tasks.exitCode": "код {code}",
   "tasks.overdue": "просрочена",
+  "tasks.startedTitle": "Запущена {time}",
+  "tasks.finishedTitle": "Завершена {time}",
   "tasks.status.queued": "В очереди",
   "tasks.status.running": "Выполняется",
   "tasks.status.succeeded": "Успешно",

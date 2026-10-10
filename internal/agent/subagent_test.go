@@ -3354,3 +3354,27 @@ func TestScheduledRunReportOffersNoResume(t *testing.T) {
 		t.Fatalf("scheduled run report offers spawn_agent resume or is missing:\n%s", log)
 	}
 }
+
+// The task row of a subagent names the reasoning level the child calls its
+// model with: the one the call asks for, else the model's default level.
+func TestSpawnSubagentTaskNamesItsReasoningLevel(t *testing.T) {
+	levels := []string{"low", "medium", "high"}
+	rig := newSubagentRig(t, func(cfg *config.Config) {
+		cfg.Models[0].ReasoningLevels = &levels
+		cfg.Models[0].ReasoningDefault = "medium"
+	})
+	rig.approvedDefinition("worker", "")
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return scripted(answerStep("REPORT: first"), answerStep("REPORT: second"))
+	})
+	mustSpawn(t, rig.parentAgent(), spawnReq("worker"))
+	if got := rig.lastAgentTask().Agent.Reasoning; got != "medium" {
+		t.Fatalf("reasoning of a run that names none = %q, want the model's default medium", got)
+	}
+	req := spawnReq("worker")
+	req.Reasoning = "high"
+	mustSpawn(t, rig.parentAgent(), req)
+	if got := rig.lastAgentTask().Agent.Reasoning; got != "high" {
+		t.Fatalf("reasoning of a run that asks for high = %q", got)
+	}
+}
