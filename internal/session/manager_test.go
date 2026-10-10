@@ -1686,6 +1686,10 @@ func TestPersistedPermissionModeIsReadOnlyWhereItIsTheSessionsChoice(t *testing.
 	}{
 		{"older key", map[string]any{"permissionMode": "bypass"}},
 		{"unknown value", map[string]any{"sessionPermissionMode": "yolo"}},
+		// A child's bundle: its mode is a record of what it ran under, and
+		// even a session key planted beside it is not read.
+		{"subagent child", map[string]any{"subagentRun": true, "parentSessionId": "sess_parent", "subagentName": "worker",
+			"permissionMode": "bypass", "sessionPermissionMode": "bypass"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

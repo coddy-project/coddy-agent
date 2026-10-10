@@ -149,7 +149,7 @@ Trust decisions are the server's too. A project MCP server, hooks file or subage
 
 - One bearer token per server, no users or roles: whoever holds it has the whole API, including the config editor and the workspace files.
 - No TLS inside `coddy serve`; encryption comes from a proxy or a tunnel.
-- A permission mode a remote client switches (`/permissions`, `--permission-mode`, the dialog's session switch) applies to the server's session for every client of it, and lives in the server's memory: a restart of `coddy serve` returns the session to `tools.permission_mode`.
+- A permission mode a remote client switches (`/permissions`, `--permission-mode`, the dialog's session switch) applies to the server's session for every client of it, and is kept with that session on the server, across a restart of `coddy serve` too.
 - A dropped connection leaves the server turn, its children and any open prompt running; `/resume` shows the outcome once the turn ends, and an answer to a prompt the server has already withdrawn is ignored. Quitting the console mid-turn waits briefly for the cancel to reach the server.
 - A session is one turn at a time: a second client prompting the same session gets `409` while the first turn holds the lock.
 - The web UI reaches a remote only when that server admits the UI's origin through its `cors` (`swarm.cors` on a relay): the exact origin in `allowed_origins`, or `allow_loopback` for a page served from the laptop's own `coddy serve`; the menu says so on the remote's line when that is what stands in the way.

@@ -1412,8 +1412,8 @@ export function App() {
   const [railLabelsWide, setRailLabelsWide] = useState(false);
   const [mode, setMode] = useState<string>("agent");
   /**
-   * The viewed session's permission mode and the one a restart would give it
-   * back, the settings changed for the next turns, and the version of the
+   * The viewed session's permission mode and the configuration's one, which
+   * it follows until it is switched, the settings changed for the next turns, and the version of the
    * snapshot they came from (chat/sessionSettings.ts). The server is the
    * source of truth: every surface's change arrives as a versioned snapshot.
    */

@@ -306,7 +306,7 @@ The optional `cwd` narrows the list to one workspace. It names a folder, not a s
 
 When the process is started with a writable sessions root (default **`$CODDY_HOME/sessions`**), each bundle is `<root>/<sessionId>/` with:
 
-- `session.json` - id, cwd, mode, model override, reasoning level, the permission mode a subagent's child session ran under (`permissionMode`; an ordinary session's override is never written), agent memory, derived or pinned title (`titlePinned`), timestamps, optional **`activitySeq`** / **`readActivitySeq`** / **`lastErrorSeq`** for composer activity and error-state sync across HTTP surfaces (the last is the activity generation of the latest real turn failure, or zero when clear)
+- `session.json` - id, cwd, mode, model override, reasoning level, the permission mode an ordinary session was switched to (`sessionPermissionMode`) or a subagent's child session ran under (`permissionMode`, a record never read back), agent memory, derived or pinned title (`titlePinned`), timestamps, optional **`activitySeq`** / **`readActivitySeq`** / **`lastErrorSeq`** for composer activity and error-state sync across HTTP surfaces (the last is the activity generation of the latest real turn failure, or zero when clear)
 - `messages.json` - LLM message history (roles user, assistant, tool)
 - `assets/` - reserved for future session-scoped files
 - `todos/active.md` - current todo checklist synced from plan tools
