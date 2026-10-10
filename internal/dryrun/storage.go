@@ -24,7 +24,8 @@ const storageKey = "sessions.min_free_mb"
 // answer, which is not a problem of the file. A disk with no free byte is an
 // error, since nothing can be saved on it; one under the threshold is a
 // warning; with the warning off (sessions.min_free_mb: 0) the figures are
-// printed and nothing is judged.
+// printed and nothing is judged, except that a disk with no free byte is an
+// error whatever the threshold says.
 func (r *runner) storage() {
 	cfg := r.req.Cfg
 	minFree := cfg.Sessions.MinFreeBytes()

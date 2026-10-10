@@ -1210,7 +1210,7 @@ func openAPISpec() map[string]interface{} {
 													"volume": map[string]interface{}{
 														"type":        "string",
 														"enum":        []string{"sessions", "home"},
-														"description": "The disk the figures belong to: the one holding the sessions folder, or the one holding the home folder when that is another disk and has less room. Absent when no disk could be read.",
+														"description": "The disk the figures belong to: the one holding the sessions folder, or the one holding the home folder when that is another disk and has less room; while a failed save is on record it is always the sessions folder, which every save goes to. Absent when that disk could not be read.",
 													},
 													"freeBytes": map[string]interface{}{
 														"type":        "integer",

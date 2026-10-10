@@ -69,8 +69,9 @@ func (s *Server) readStorageStatus() (session.StorageStatus, bool) {
 
 // storageInfo is the storage object of GET /coddy/info. The figures are the
 // disk that decides the state - the one in the worst state, the one with the
-// least room among equals - and are left out when no disk could be read and
-// the state comes from a failed write alone.
+// least room among equals, and the sessions disk whenever a failed save is on
+// record, since every such save went there - and are left out when that disk
+// could not be read and the state comes from a failed write alone.
 func storageInfo(st session.StorageStatus) map[string]any {
 	out := map[string]any{
 		"state":        string(st.State),

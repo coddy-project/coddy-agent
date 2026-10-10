@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -67,8 +68,8 @@ func TestProbeStorageReportsAVolumeItCannotRead(t *testing.T) {
 }
 
 // What a volume's numbers say against the threshold. A disk with no byte free
-// is full, whatever the threshold; with the warning off (0) the numbers say
-// nothing at all.
+// is full, whatever the threshold, the warning being off included; with the
+// warning off (0) a disk that has any room left says nothing at all.
 func TestStorageVolumeState(t *testing.T) {
 	const min = 512 * mib
 	cases := []struct {
@@ -83,7 +84,7 @@ func TestStorageVolumeState(t *testing.T) {
 		{"almost nothing", session.StorageVolume{Space: space("a", 4096, 4096*mib)}, min, session.StorageLow},
 		{"nothing", session.StorageVolume{Space: space("a", 0, 4096*mib)}, min, session.StorageFull},
 		{"warning off, little left", session.StorageVolume{Space: space("a", 4096, 4096*mib)}, 0, ""},
-		{"warning off, nothing left", session.StorageVolume{Space: space("a", 0, 4096*mib)}, 0, ""},
+		{"warning off, nothing left", session.StorageVolume{Space: space("a", 0, 4096*mib)}, 0, session.StorageFull},
 		{"unreadable", session.StorageVolume{Err: errors.New("no")}, min, ""},
 	}
 	for _, tc := range cases {
@@ -133,6 +134,13 @@ func TestAssessStorage(t *testing.T) {
 			t.Fatalf("got %+v ok=%v, want ok with the figures and no threshold", st, ok)
 		}
 	})
+	t.Run("warning off, a disk with no free byte is still full", func(t *testing.T) {
+		empty := session.StorageVolume{Role: session.StorageVolumeSessions, Space: space("a", 0, 4096*mib)}
+		st, ok := session.AssessStorage([]session.StorageVolume{empty}, 0, false)
+		if !ok || st.State != session.StorageFull || st.MinFreeBytes != 0 || st.FreeBytes != 0 {
+			t.Fatalf("got %+v ok=%v, want full with the figures and no threshold", st, ok)
+		}
+	})
 	t.Run("a failed write is full whatever the numbers say", func(t *testing.T) {
 		st, ok := session.AssessStorage([]session.StorageVolume{sessions}, min, true)
 		if !ok || st.State != session.StorageFull || st.FreeBytes != 2048*mib {
@@ -141,6 +149,31 @@ func TestAssessStorage(t *testing.T) {
 		off, _ := session.AssessStorage([]session.StorageVolume{sessions}, 0, true)
 		if off.State != session.StorageFull {
 			t.Fatalf("the warning being off must not hide a failed write: %+v", off)
+		}
+	})
+	// Every failure on record is a write into the sessions folder, so the state
+	// it sets belongs to that disk, not to whichever disk the numbers rank worst:
+	// the notice must not tell a person their home folder's disk is full when
+	// the sessions disk is the one that refused a write.
+	t.Run("a failed write belongs to the sessions disk, not to the worst-ranked one", func(t *testing.T) {
+		st, ok := session.AssessStorage([]session.StorageVolume{sessions, home}, min, true)
+		if !ok || st.State != session.StorageFull || st.Volume != session.StorageVolumeSessions {
+			t.Fatalf("got %+v ok=%v, want full on the sessions volume", st, ok)
+		}
+		if !st.Measured || st.FreeBytes != 2048*mib || st.TotalBytes != 4096*mib {
+			t.Fatalf("figures are not the sessions disk's: %+v", st)
+		}
+		emptyHome := session.StorageVolume{Role: session.StorageVolumeHome, Space: space("b", 0, 200*mib)}
+		st, _ = session.AssessStorage([]session.StorageVolume{sessions, emptyHome}, min, true)
+		if st.Volume != session.StorageVolumeSessions || st.FreeBytes != 2048*mib {
+			t.Fatalf("a home disk with nothing free took the failed write over: %+v", st)
+		}
+	})
+	t.Run("a failed write with the sessions disk unreadable names no disk", func(t *testing.T) {
+		unreadableSessions := session.StorageVolume{Role: session.StorageVolumeSessions, Err: errors.New("no")}
+		st, ok := session.AssessStorage([]session.StorageVolume{unreadableSessions, home}, min, true)
+		if !ok || st.State != session.StorageFull || st.Measured || st.Volume != "" {
+			t.Fatalf("got %+v ok=%v, want full without figures: the home disk did not refuse the write", st, ok)
 		}
 	})
 	t.Run("a failed write with nothing readable", func(t *testing.T) {
@@ -397,6 +430,98 @@ func TestStatusRetriesAWriteOnceRoomIsBack(t *testing.T) {
 	}
 	if got := events.all(); len(got) != 2 || got[1].WriteFailing {
 		t.Fatalf("observers heard %+v, want the failure and then its end", got)
+	}
+}
+
+// A process that died between creating a probe file and removing it leaves the
+// file in the sessions folder. The next manager sweeps those, and only those:
+// the exact prefix the probe writes under, regular files, older than a minute (a
+// live probe of another process lasts milliseconds).
+func TestManagerStartRemovesLeftoverSpaceProbes(t *testing.T) {
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name string) string {
+		p := filepath.Join(store.Root, name)
+		if err := os.WriteFile(p, make([]byte, 4096), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	old := write(".coddy-space-probe-1234")
+	oldToo := write(".coddy-space-probe-abcd.tmp")
+	fresh := write(".coddy-space-probe-5678")
+	lookalike := write(".coddy-space-probe")
+	other := write(".coddy-something-else-1234")
+	plain := write("notes.txt")
+	dir := filepath.Join(store.Root, ".coddy-space-probe-dir")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	session1 := filepath.Join(store.Root, "sess_0123456789abcdef01234567")
+	if err := os.Mkdir(session1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	longAgo := time.Now().Add(-10 * time.Minute)
+	for _, p := range []string{old, oldToo, lookalike, other, plain, dir} {
+		if err := os.Chtimes(p, longAgo, longAgo); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	session.NewManager(testConfig(), noopSender{}, noopRunner, slog.New(slog.DiscardHandler), root, store)
+
+	for _, gone := range []string{old, oldToo} {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Errorf("%s was left behind (stat error %v)", filepath.Base(gone), err)
+		}
+	}
+	for _, kept := range []string{fresh, lookalike, other, plain, dir, session1} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Errorf("%s was removed: %v", filepath.Base(kept), err)
+		}
+	}
+}
+
+// A store that is not there yet, or no store at all, is no error for a manager.
+func TestManagerStartSweepsNothingWhereThereIsNoStore(t *testing.T) {
+	session.NewManager(testConfig(), noopSender{}, noopRunner, slog.New(slog.DiscardHandler), t.TempDir(), nil)
+	missing := &session.FileStore{Root: filepath.Join(t.TempDir(), "not", "made", "yet")}
+	session.NewManager(testConfig(), noopSender{}, noopRunner, slog.New(slog.DiscardHandler), t.TempDir(), missing)
+}
+
+// The end of a failure is told to the operator too, once, at info level on the
+// session component: the error lines said saves had stopped, this one says they
+// work again, and for how long they did not.
+func TestTheEndOfAFailureIsLoggedOnce(t *testing.T) {
+	m, _, logs := newStoreManager(t)
+	vols := fakeVolumes{}
+	for _, p := range []string{m.FileStore().Root, m.Cfg().Paths.Home} {
+		if p != "" {
+			vols[p] = space("dev:one", 4096*mib, 100*1024*mib)
+		}
+	}
+	m.SetStorageProbeForTest(vols.probe)
+
+	m.NoteStoreWriteForTest()
+	if recs := logs.at(slog.LevelInfo, "going through again"); len(recs) != 0 {
+		t.Fatalf("a save with no failure on record was announced: %+v", recs)
+	}
+
+	m.NoteStorageFailure()
+	m.NoteStoreWriteForTest()
+	m.NoteStoreWriteForTest()
+	recs := logs.at(slog.LevelInfo, "storage: saves are going through again")
+	if len(recs) != 1 {
+		t.Fatalf("info records for the end of the failure = %d, want 1; log: %+v", len(recs), logs.all())
+	}
+	if recs[0].attrs["component"] != "session" || recs[0].attrs["failed_for"] == "" {
+		t.Fatalf("the record lacks its component or the time the failure lasted: %+v", recs[0])
+	}
+	if warns := logs.at(slog.LevelWarn, "going through again"); len(warns) != 0 {
+		t.Fatalf("the end of a failure was logged as a warning: %+v", warns)
 	}
 }
 

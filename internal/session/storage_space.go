@@ -56,16 +56,18 @@ type StorageVolume struct {
 }
 
 // State classifies the volume against the threshold minFree, in bytes. A
-// volume that could not be read has no state (""), and neither has any when
-// minFree is 0: the warning is off and the numbers are only reported. A disk
-// with no byte free is full, whatever the threshold says.
+// volume that could not be read has no state (""). A disk with no byte free is
+// full, whatever the threshold says, the warning being off included: that is no
+// matter of taste, nothing can be saved on it. With the warning off (0) a disk
+// that has any room left has no state either, and the numbers are only reported.
 func (v StorageVolume) State(minFree uint64) StorageState {
-	if v.Err != nil || minFree == 0 {
-		return ""
-	}
 	switch {
+	case v.Err != nil:
+		return ""
 	case v.Space.FreeBytes == 0:
 		return StorageFull
+	case minFree == 0:
+		return ""
 	case v.Space.FreeBytes < minFree:
 		return StorageLow
 	}
@@ -104,10 +106,12 @@ type StorageStatus struct {
 	// write has failed on a full disk.
 	State StorageState
 	// Measured says the figures below were read from a disk. It is false when
-	// no volume could be read and State came from a failed write alone.
+	// the volume they belong to could not be read and State came from a failed
+	// write alone.
 	Measured bool
-	// Volume names the volume the figures belong to: the one in the worst
-	// state, the one with the least free space among equals.
+	// Volume names the volume the figures belong to: while a failed write is on
+	// record, the sessions volume, which every such write went to; otherwise the
+	// one in the worst state, the one with the least free space among equals.
 	Volume string
 	// FreeBytes and TotalBytes are that volume's.
 	FreeBytes  uint64
@@ -120,17 +124,24 @@ type StorageStatus struct {
 // AssessStorage folds the volumes read into one status. writeFailed says a
 // write has failed on a full disk and none has succeeded since, which makes
 // the state full whatever the numbers say (a quota is no free-space figure).
-// It returns false when there is nothing to report: no volume could be read
-// and no write has failed.
+// Every failure on record is a write into the sessions folder, so it is
+// attributed to the sessions volume - its figures, or none when it could not be
+// read - and not to whichever volume the numbers rank worst. It returns false
+// when there is nothing to report: no volume could be read and no write has
+// failed.
 func AssessStorage(volumes []StorageVolume, minFree uint64, writeFailed bool) (StorageStatus, bool) {
 	var (
-		best  *StorageVolume
-		state StorageState
+		best     *StorageVolume
+		state    StorageState
+		sessions *StorageVolume
 	)
 	for i := range volumes {
 		v := &volumes[i]
 		if v.Err != nil {
 			continue
+		}
+		if v.Role == StorageVolumeSessions && sessions == nil {
+			sessions = v
 		}
 		s := v.State(minFree)
 		if s == "" {
@@ -140,18 +151,26 @@ func AssessStorage(volumes []StorageVolume, minFree uint64, writeFailed bool) (S
 			best, state = v, s
 		}
 	}
-	if best == nil && !writeFailed {
+	if writeFailed {
+		out := StorageStatus{State: StorageFull, MinFreeBytes: minFree}
+		out.fill(sessions)
+		return out, true
+	}
+	if best == nil {
 		return StorageStatus{}, false
 	}
 	out := StorageStatus{State: state, MinFreeBytes: minFree}
-	if best != nil {
-		out.Measured = true
-		out.Volume = best.Role
-		out.FreeBytes = best.Space.FreeBytes
-		out.TotalBytes = best.Space.TotalBytes
-	}
-	if writeFailed {
-		out.State = StorageFull
-	}
+	out.fill(best)
 	return out, true
+}
+
+// fill takes the volume's figures; nil leaves the status without any.
+func (s *StorageStatus) fill(v *StorageVolume) {
+	if v == nil {
+		return
+	}
+	s.Measured = true
+	s.Volume = v.Role
+	s.FreeBytes = v.Space.FreeBytes
+	s.TotalBytes = v.Space.TotalBytes
 }

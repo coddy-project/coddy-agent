@@ -104,6 +104,19 @@ func TestSessionsDiskWithNothingFreeIsAnError(t *testing.T) {
 	}
 }
 
+// A disk with no free byte is an error even when the warning is off: that is
+// no matter of taste, nothing can be saved on it.
+func TestSessionsDiskWithNothingFreeIsAnErrorEvenWithTheWarningOff(t *testing.T) {
+	rep := runWithDisks(t, "sessions:\n  min_free_mb: 0\n", 0, 8*1024*mib, true)
+	c := storageChecks(rep)[0]
+	if c.Status != StatusError || !strings.Contains(c.Message, "no free space") {
+		t.Fatalf("got %+v, want an error that names the lack of space", c)
+	}
+	if rep.Errors() == 0 {
+		t.Fatal("the dry run did not fail")
+	}
+}
+
 // 0 is the user's choice to hear nothing: skipped, with the figures kept.
 func TestSessionsDiskWarningOffIsSkipped(t *testing.T) {
 	rep := runWithDisks(t, "sessions:\n  min_free_mb: 0\n", 10*mib, 8*1024*mib, true)

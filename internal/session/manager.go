@@ -199,6 +199,11 @@ func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner,
 		store:      store,
 		sessions:   make(map[string]*State),
 	}
+	if store != nil {
+		// A probe file a dead process left in the sessions folder is not
+		// anybody's session; see storage_watch.go.
+		removeStaleSpaceProbes(store.Root)
+	}
 	m.mcpPool = mcp.NewPool(m.log)
 	m.mcpPool.SetDialTimeout(defaultMCPConnectTimeout)
 	m.mcpPool.SetStopDelay(cfg.MCP.EffectiveIdleTimeout())

@@ -2,6 +2,7 @@ package session
 
 import (
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +29,13 @@ const (
 	// writeProbeBytes is the size of the file a write probe stores: a few
 	// blocks, enough for the filesystem to hand out a real extent.
 	writeProbeBytes = 16 << 10
+	// spaceProbePrefix starts the name of every file a write probe stores in
+	// the sessions folder, and is all the sweep at manager start looks for.
+	spaceProbePrefix = ".coddy-space-probe-"
+	// staleProbeAge is how old a probe file must be before the sweep takes it
+	// for a leftover of a process that died, not the live probe of another
+	// process over the same folder, which lasts milliseconds.
+	staleProbeAge = time.Minute
 	// regainedFloor is the least free space a disk must report before a
 	// failure on record is cleared: room for the biggest transcript a save is
 	// likely to rewrite beside its own copy. It does not follow
@@ -123,10 +131,16 @@ func (m *Manager) NoteStorageFailure() {
 	}
 }
 
-// clearStorageFailure ends the failure on record and says so.
+// clearStorageFailure ends the failure on record and says so: to the operator
+// in the log, once, and to the clients through the observers. The error lines
+// of the failure said saves had stopped; this one says they work again and for
+// how long they did not.
 func (m *Manager) clearStorageFailure() {
 	w := &m.storage
 	if at := w.failedAt.Load(); at != 0 && w.failedAt.CompareAndSwap(at, 0) {
+		if m.log != nil {
+			m.log.Info("storage: saves are going through again", "failed_for", time.Since(time.Unix(0, at)).Round(time.Second))
+		}
 		w.publish(StorageEvent{WriteFailing: false, At: time.Now()})
 	}
 }
@@ -216,7 +230,7 @@ func (m *Manager) retryFailedWrite() {
 // that reports free space it will not hand out. The flush matters: a
 // filesystem that allocates lazily accepts the write and fails at the sync.
 func probeWrite(dir string) (err error) {
-	f, err := os.CreateTemp(dir, ".coddy-space-probe-*")
+	f, err := os.CreateTemp(dir, spaceProbePrefix+"*")
 	if err != nil {
 		return err
 	}
@@ -235,6 +249,29 @@ func probeWrite(dir string) (err error) {
 		return serr
 	}
 	return f.Close()
+}
+
+// removeStaleSpaceProbes deletes the probe files a process that died mid-probe
+// left in the sessions folder: regular files whose name starts with
+// spaceProbePrefix and older than staleProbeAge, nothing else. It is best
+// effort: a folder that is not there, a file that cannot be removed, a name that
+// does not match are all passed over, since the sweep is housekeeping and must
+// never keep a manager from starting.
+func removeStaleSpaceProbes(root string) {
+	if root == "" {
+		return
+	}
+	matches, err := filepath.Glob(filepath.Join(root, spaceProbePrefix+"*"))
+	if err != nil {
+		return
+	}
+	for _, name := range matches {
+		info, err := os.Lstat(name)
+		if err != nil || !info.Mode().IsRegular() || time.Since(info.ModTime()) < staleProbeAge {
+			continue
+		}
+		_ = os.Remove(name)
+	}
 }
 
 // logIfDiskFull logs err the way a failed save is logged when it is a full
