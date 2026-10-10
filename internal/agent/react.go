@@ -811,6 +811,18 @@ func (a *Agent) runReActLoop(
 			} else {
 				a.log.Info("model settings changed mid-turn", "from", transport.key, "to", next.key)
 				transport, switched = next, true
+				// The new model may be offered another set of tools
+				// (models[].tools, disallowed_tools): the request below
+				// carries that set, and the system message that lists it is
+				// rendered again. A model without lists of its own on either
+				// side leaves both exactly as they were.
+				if defs := a.currentToolDefinitions(mode); !sameToolNames(defs, toolDefs) {
+					toolDefs = defs
+					sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+					if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+						messages[0].Content = sys.Content
+					}
+				}
 				// The request below measures its context against the new
 				// model's window, which its provider's listing may be the
 				// only one to know: read it now, bounded, rather than check
@@ -1846,8 +1858,10 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	// A restricted mode filters tool definitions before the LLM sees them, but a
 	// call replayed from history can still name a hidden tool; refuse it here so
-	// the mode boundary holds at execution time too.
-	if refusal, refused := toolCallRefusedByMode(mode, tc.Name); refused {
+	// the mode boundary holds at execution time too. The lists of the session's
+	// model (models[].tools, disallowed_tools) are checked right after the
+	// mode's, before any hook or permission prompt.
+	if refusal, refused := a.toolCallRefused(mode, tc.Name); refused {
 		a.finishToolCall(sessionDir, sessionID, tc, refusal, nil, "cancelled")
 		return refusal, nil
 	}
@@ -2240,7 +2254,21 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 	return "", fmt.Errorf("MCP server not found: %s", serverName)
 }
 
+// currentToolDefinitions is the tool set a request carries: what the session
+// could call in the mode (sessionToolDefinitions), narrowed by the lists of the
+// models[] row the session runs on (model_tools.go). The row is read on every
+// call, so a switch of the model changes the set from the next request.
 func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
+	return filterToolDefsForModel(a.sessionToolDefinitions(mode), a.modelToolEntry())
+}
+
+// sessionToolDefinitions is the tool set of the session in a mode before the
+// model's lists apply: the mode's allowlist, the registry as the
+// configuration leaves it, MCP tools and, in a child, its effective set. It is
+// also what a spawned child is intersected with (parentToolNames): the lists of
+// the parent's model bound what the parent is shown, not what a child on
+// another model is.
+func (a *Agent) sessionToolDefinitions(mode string) []llm.ToolDefinition {
 	toolSet := ToolSetForMode(mode)
 	available := a.registry.AllToolDefinitions()
 	if a.configReloader == nil {

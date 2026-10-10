@@ -309,15 +309,26 @@ func (d *Definition) Allows(tool string) bool {
 	if d == nil {
 		return true
 	}
-	for _, p := range d.DisallowedTools {
+	return AllowsTool(d.Tools, d.DisallowedTools, tool)
+}
+
+// AllowsTool is the one rule every tool allowlist and denylist in Coddy
+// follows: a name matching any denylist pattern is out; otherwise an empty
+// allowlist admits everything and a non-empty one admits only what it
+// matches. Patterns are the MatchTool syntax - an exact name, a bare *, or a
+// prefix ending in * (context7__*). A subagent definition's tools and
+// disallowed_tools and a models[] row's tools and disallowed_tools both read
+// through it, so the two cannot drift apart.
+func AllowsTool(allow, deny []string, tool string) bool {
+	for _, p := range deny {
 		if MatchTool(p, tool) {
 			return false
 		}
 	}
-	if len(d.Tools) == 0 {
+	if len(allow) == 0 {
 		return true
 	}
-	for _, p := range d.Tools {
+	for _, p := range allow {
 		if MatchTool(p, tool) {
 			return true
 		}

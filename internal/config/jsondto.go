@@ -127,6 +127,11 @@ type ModelJSON struct {
 	// Stream keeps the unset/explicit distinction of ModelEntry.Stream: a settings
 	// round trip must not turn an omitted key into an explicit false.
 	Stream *bool `json:"stream,omitempty"`
+	// Tools and DisallowedTools narrow the tool set offered on this model.
+	// Empty and absent mean the same (no restriction), so a plain slice with
+	// omitempty round-trips them losslessly.
+	Tools           []string `json:"tools,omitempty"`
+	DisallowedTools []string `json:"disallowed_tools,omitempty"`
 }
 
 // AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit

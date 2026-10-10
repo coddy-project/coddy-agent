@@ -75,6 +75,8 @@ Named model entries the agent and UI can select.
 | `models[].reasoning_default` | string |  | Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored. |
 | `models[].allow_reasoning_off` | boolean | false | Expose Off in the reasoning selector for this model. Enable it only when this provider/model deployment honours Coddy's provider-specific request that disables reasoning; Coddy cannot verify that capability automatically. |
 | `models[].stream` | boolean or null | true | Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only. |
+| `models[].tools` | list of strings |  | Allowlist of the tools a session offers while it runs on this model: tool names, a bare *, or a prefix* (context7__* admits every tool of that MCP server). Absent or empty offers every tool the mode would. It only narrows - a tool the mode, a subagent definition or a switch already hides stays hidden - and a call to an unlisted tool is refused without a permission prompt. Use it to spare a small-context local model the schemas of tools it never calls. coddy -t warns about an entry that matches no tool. |
+| `models[].disallowed_tools` | list of strings |  | Tools removed from what a session offers while it runs on this model, applied after tools, with the same names and patterns; a name in both lists is removed. A call to a removed tool is refused without a permission prompt. coddy -t warns about an entry that matches no tool. |
 
 ### `agent`
 

@@ -8,6 +8,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -137,6 +138,49 @@ func BenchmarkContextOfThisRepositoryRules(b *testing.B) {
 	b.ReportMetric(float64(systemTokens), "system-tokens")
 	b.ReportMetric(float64(requestTokens), "request-tokens")
 	b.ReportMetric(float64(duplicates), "duplicate-rules")
+}
+
+// BenchmarkToolOfferOfAModelAllowlist measures what models[].tools spares a
+// small-context local model: the tools a request offers, what the context
+// meter counts for them (the list the system message prints plus the schemas)
+// the size of the tools array as an OpenAI-compatible request carries it and
+// of the tool list the system message prints, for a model with no lists and for the dozen tools a coding session on a local
+// model ever calls. The timing is the building of both sets and matters less
+// than the metrics.
+func BenchmarkToolOfferOfAModelAllowlist(b *testing.B) {
+	allow := []string{"read", "write", "edit", "apply_patch", "glob", "grep", "print_tree", "keep_result",
+		"run_command", "background_output", "background_wait", "background_stop", "compact_context"}
+	var tools, meterTokens, jsonTokens, promptTokens [2]int
+	for i := 0; i < b.N; i++ {
+		ag, st, _ := modelToolsAgent(b, session.ModeAgent, "fake/full",
+			config.ModelEntry{Model: "fake/full"}, config.ModelEntry{Model: "fake/small", Tools: allow})
+		for k, model := range []string{"fake/full", "fake/small"} {
+			st.SetSelectedModelID(model)
+			defs := ag.currentToolDefinitions("agent")
+			sys := ag.buildSystemPromptParts("agent", nil, defs)
+			tools[k] = len(defs)
+			promptTokens[k] = session.EstimateContextTokens(sys.ToolsMD)
+			meterTokens[k] = computeContextBreakdown(sys.Content, sys.SkillsMD, sys.ToolsMD, sys.RulesMD, nil, false, defs).ToolDefinitions
+			wire := make([]map[string]interface{}, 0, len(defs))
+			for _, d := range defs {
+				wire = append(wire, map[string]interface{}{"type": "function", "function": map[string]interface{}{
+					"name": d.Name, "description": d.Description, "parameters": d.InputSchema}})
+			}
+			raw, err := json.Marshal(wire)
+			if err != nil {
+				b.Fatal(err)
+			}
+			jsonTokens[k] = session.EstimateContextTokens(string(raw))
+		}
+	}
+	b.ReportMetric(float64(tools[0]), "tools-full")
+	b.ReportMetric(float64(tools[1]), "tools-allowlist")
+	b.ReportMetric(float64(meterTokens[0]), "tool-context-tokens-full")
+	b.ReportMetric(float64(meterTokens[1]), "tool-context-tokens-allowlist")
+	b.ReportMetric(float64(jsonTokens[0]), "tools-json-tokens-full")
+	b.ReportMetric(float64(jsonTokens[1]), "tools-json-tokens-allowlist")
+	b.ReportMetric(float64(promptTokens[0]), "tools-prompt-tokens-full")
+	b.ReportMetric(float64(promptTokens[1]), "tools-prompt-tokens-allowlist")
 }
 
 // mirroredRuleRepeats counts the rules of the Claude Code mirror whose body

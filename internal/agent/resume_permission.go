@@ -122,7 +122,10 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	// A call the current mode refuses (a pending agent-mode write approved
 	// after switching to ask) must not leave an "allow always" grant behind:
 	// the grant would outlive the refusal and apply once the mode changes back.
-	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name)
+	// The same holds for a tool the session's model is no longer offered (a
+	// pending approval answered after a switch to a model whose tools lists
+	// leave it out).
+	_, refusedByMode := a.toolCallRefused(mode, tc.Name)
 	if st := sessionStatePtr(a.state); st != nil && !refusedByMode && !askAgain {
 		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
 	}

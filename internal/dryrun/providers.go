@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -18,6 +19,16 @@ import (
 func (r *runner) unsentModelSettings() {
 	for _, u := range r.req.Cfg.UnsentModelSettings() {
 		r.rep.add(r.check(StatusWarning, u.Path(), u.Path(), u.Message, "remove "+u.Key+" from this model"))
+	}
+}
+
+// unknownModelTools warns about an entry of models[].tools or
+// models[].disallowed_tools that matches no tool (config.UnknownModelTools),
+// on its own line: such an entry changes nothing, which is rarely the intent.
+func (r *runner) unknownModelTools() {
+	for _, u := range r.req.Cfg.UnknownModelTools() {
+		r.rep.add(r.check(StatusWarning, u.Path(), u.Path(), u.Message(),
+			"correct the spelling of "+strconv.Quote(u.Name)+", or remove it from this model"))
 	}
 }
 

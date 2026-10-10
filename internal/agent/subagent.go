@@ -695,6 +695,11 @@ func (a *Agent) subagentCatalogBlock() string {
 	if !a.canSpawn() {
 		return ""
 	}
+	// A model that is not offered spawn_agent (models[].tools,
+	// disallowed_tools) is not shown the roster it would delegate to.
+	if a.modelHidesTool(tools.ToolSpawnAgent) {
+		return ""
+	}
 	cwd := a.state.GetCWD()
 	defs := a.subagentDefinitions()
 	if allow := a.spawnAllowlist(); len(allow) > 0 {
@@ -756,7 +761,9 @@ func (a *Agent) subagentAllows(name string) bool {
 // parentToolNames lists every tool name this session could call right now,
 // MCP tools included: the set a child's effective set is intersected with.
 func (a *Agent) parentToolNames(mode string) []string {
-	defs := a.currentToolDefinitions(mode)
+	// Before the parent's model lists: those bound what the parent is shown,
+	// and the child is narrowed by the lists of the model it runs on instead.
+	defs := a.sessionToolDefinitions(mode)
 	names := make([]string, 0, len(defs))
 	for _, d := range defs {
 		names = append(names, d.Name)
@@ -862,13 +869,6 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		return "", fmt.Errorf("subagent %q would have no tools at all: its allowlist %v leaves nothing of this session's tool set (after the denylist and the mandatory exclusions); fix the definition or pick another subagent",
 			def.Name, def.Tools)
 	}
-	connectMCP := false
-	for _, n := range effective {
-		if strings.Contains(n, "__") {
-			connectMCP = true
-			break
-		}
-	}
 
 	// The child inherits the parent's effective model; a definition may name
 	// a configured one instead. An unknown id falls back to the parent's and
@@ -912,6 +912,24 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			reasoning = def.Reasoning
 		} else {
 			a.log.Warn("subagent definition names a reasoning level its model does not offer; the default is used", "agent", def.Name, "reasoning", def.Reasoning, "model", model)
+		}
+	}
+
+	// The lists of the model the child runs on (models[].tools,
+	// disallowed_tools) narrow the set further, whichever model that is: the
+	// parent's own, the definition's, the call's. They apply while the child
+	// runs (currentToolDefinitions, toolCallRefused), so what is decided here is
+	// whether anything is left, and whether an MCP server is worth dialing.
+	offered := narrowToolNamesForModel(effective, cfg.FindModelEntry(model))
+	if len(offered) == 0 {
+		return "", fmt.Errorf("subagent %q would have no tools at all on model %s: the model's tools and disallowed_tools lists leave nothing of its effective set %v; adjust models[].tools or choose another model",
+			def.Name, model, effective)
+	}
+	connectMCP := false
+	for _, n := range offered {
+		if strings.Contains(n, "__") {
+			connectMCP = true
+			break
 		}
 	}
 
