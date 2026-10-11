@@ -32,7 +32,6 @@ type tlsBDD struct {
 	out    bytes.Buffer
 	server *httptest.Server
 	issued [3]string // certificate, key, CA of the last `issue client`
-	keys   map[string]string
 }
 
 func (s *tlsBDD) home(name string) string {

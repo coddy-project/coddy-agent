@@ -87,7 +87,7 @@ func (r *runner) paths() {
 		r.rep.add(r.creatableDir("memory.dir", cfg.Memory.Dir))
 	}
 
-	if hf := cfg.HTTPListenerFiles(); cfg.HTTPServer.IsEnabled() && cfg.HTTPServer.TLS.Enabled() && !(r.builtinPending && cfg.HTTPServer.TLS.Auto) {
+	if hf := cfg.HTTPListenerFiles(); cfg.HTTPServer.IsEnabled() && cfg.HTTPServer.TLS.Enabled() && (!r.builtinPending || !cfg.HTTPServer.TLS.Auto) {
 		for _, c := range r.serverPairChecks("httpserver.tls", hf.Cert, hf.Key) {
 			r.rep.add(c)
 		}
@@ -100,7 +100,7 @@ func (r *runner) paths() {
 		}
 	}
 
-	if cfg.Swarm.Enabled && !cfg.Swarm.NodeTLS.IsZero() && !(r.builtinPending && cfg.Swarm.NodeTLS.Auto) {
+	if cfg.Swarm.Enabled && !cfg.Swarm.NodeTLS.IsZero() && (!r.builtinPending || !cfg.Swarm.NodeTLS.Auto) {
 		nt := cfg.NodeDialFiles()
 		for _, c := range r.clientPairChecks("swarm.node_tls.cert_file", nt.CertFile, nt.KeyFile) {
 			r.rep.add(c)
@@ -110,7 +110,7 @@ func (r *runner) paths() {
 		}
 	}
 
-	if sf := cfg.SwarmListenerFiles(); cfg.Swarm.Enabled && cfg.Swarm.TLS.Enabled() && !(r.builtinPending && cfg.Swarm.TLS.Auto) {
+	if sf := cfg.SwarmListenerFiles(); cfg.Swarm.Enabled && cfg.Swarm.TLS.Enabled() && (!r.builtinPending || !cfg.Swarm.TLS.Auto) {
 		for _, c := range r.serverPairChecks("swarm.tls", sf.Cert, sf.Key) {
 			r.rep.add(c)
 		}
