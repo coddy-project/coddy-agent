@@ -248,7 +248,7 @@ func UISchemaMap() map[string]interface{} {
 		"max_context_tokens": intProp("Context window (tokens)",
 			"The model's context window: what the composer context ring and automatic compaction measure against. 0 reads it from the provider's model listing when it reports one, else 128000."),
 		"multimodal": boolProp("Multimodal",
-			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file. Absent means false, except for a model of a coddy provider, where the remote's listing decides; a written value, false included, wins over the listing."),
+			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file. Absent means false for every provider type, including coddy; a written value, false included, is the local setting."),
 		"reasoning_levels": map[string]interface{}{
 			"type":        "array",
 			"title":       "Reasoning levels",

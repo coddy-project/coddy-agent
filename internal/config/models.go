@@ -28,10 +28,9 @@ type ModelEntry struct {
 	// Multimodal declares that this model accepts image/file inputs in addition to text.
 	// When true the UI may offer file attachment for messages sent with this model,
 	// and read hands it the picture in an image file instead of refusing it.
-	// The key has three states: absent (nil) is inherited - false for every
-	// provider type, and for a model of a provider of type coddy the remote's
-	// listing decides - and a written value, false included, is an explicit
-	// answer that wins. Read it only through Config.ModelMultimodal.
+	// The key has three states: absent (nil) is false, and a written value,
+	// false included, is an explicit answer. Read it only through
+	// Config.ModelMultimodal.
 	Multimodal *bool `yaml:"multimodal,omitempty"`
 	// ReasoningLevels optionally overrides the reasoning levels offered for this model.
 	// A nil pointer (key omitted) auto-detects the levels from the API model id (see

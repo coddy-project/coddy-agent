@@ -149,20 +149,20 @@ warning that sharing a login hands its quota to every holder of a shared-model t
 vendor's terms; while the switch is off the warning takes the error tone. A provider of type `coddy`
 shows `api_base` with its own placeholder, and `busy_wait_ms` under Advanced settings; the global
 `agent.shared_busy_wait_ms` sits in its own **Shared models** block. The model picker never copies the
-listing's context window into `max_context_tokens` of a `coddy` row, nor its capabilities into
-`multimodal`, `allow_reasoning_off` or `reasoning_levels`: the remote listing is the source and a copied
-value would pin the row (see **Three-state fields** below). Shared-model tokens are not in the form (the
+listing's context window into `max_context_tokens` of a `coddy` row, nor its reasoning capabilities into
+`allow_reasoning_off` or `reasoning_levels`: the remote listing is the source and a copied value would pin
+the row (see **Three-state fields** below). `multimodal` remains a local binary setting. Shared-model tokens are not in the form (the
 `httpserver` block is hidden); they are edited in the file. The provider's **Usage limits panel** switch
 renders for a `coddy` row too (its account usage is the remote's, read per model).
 
 #### Three-state fields
 
-`multimodal` and `allow_reasoning_off` of a model whose provider is of type `coddy` (a model another Coddy
-shares) have three states, so the generic switch cannot draw them: **absent** (the remote's listing
-decides), **true** and **false** (written, and they win over the listing, `false` included). They are drawn
-by `TriStateField.tsx`, chosen in the `models` `fieldOverride` of `SettingsSection.tsx` when
-`providerTypeFor(model)` is `coddy`; every other row keeps the Switch, where a written `false` is only
-`false`.
+`allow_reasoning_off` of a model whose provider is of type `coddy` (a model another Coddy shares) has
+three states, so the generic switch cannot draw it: **absent** (the remote's listing decides), **true** and
+**false** (written, and they win over the listing, `false` included). It is drawn by `TriStateField.tsx`,
+chosen in the `models` `fieldOverride` of `SettingsSection.tsx` when `providerTypeFor(model)` is `coddy`.
+`multimodal` keeps the binary `SwitchField` for every provider type: absent means false, including for a
+`coddy` row.
 
 - **Control.** One `role="radiogroup"` of three native radios labelled **Remote**, **Yes**, **No**
   (`settings.tristate.*`), drawn as a segmented control (`.tristate-options`: a 1px

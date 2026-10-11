@@ -474,6 +474,13 @@ func (s *remoteModelState) localAddsModel(ref string) error {
 	return nil
 }
 
+func (s *remoteModelState) localAddsMultimodalModel(ref string) error {
+	s.mutateLocal(func(c *config.Config) {
+		c.Models = append(c.Models, config.ModelEntry{Model: ref, MaxTokens: 4096, Multimodal: config.BoolPtr(true)})
+	})
+	return nil
+}
+
 // ---- the remote operator ----
 
 func (s *remoteModelState) operatorPointsAt() error {

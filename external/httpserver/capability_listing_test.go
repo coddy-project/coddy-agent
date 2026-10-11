@@ -78,10 +78,10 @@ func newCapFixture(t *testing.T) *capFixture {
 			{Name: "openai", Type: "openai"},
 		},
 		Models: []config.ModelEntry{
-			// Nothing written: the listing decides everything.
+			// Nothing written: the listing decides reasoning capabilities only.
 			{Model: "far/coder", MaxTokens: 100},
 			// Every key written locally: the listing is ignored for it.
-			{Model: "far/pinned", MaxTokens: 100, ReasoningLevels: &levels, Multimodal: config.BoolPtr(false),
+			{Model: "far/pinned", MaxTokens: 100, ReasoningLevels: &levels, Multimodal: config.BoolPtr(true),
 				AllowReasoningOff: config.BoolPtr(false)},
 			// Not in the listing at all.
 			{Model: "far/plain", MaxTokens: 100},
@@ -146,8 +146,8 @@ func (fx *capFixture) models(t *testing.T) map[string]modelsRow {
 	return out
 }
 
-// GET /v1/models: a coddy row's capabilities come from the remote's listing,
-// key by key under the row's own keys, and follow a refresh of the listing.
+// GET /v1/models: a coddy row inherits its reasoning capabilities from the
+// remote's listing, while multimodal stays the row's local setting.
 func TestModelsRowsOfACoddyProviderAnswerFromTheListing(t *testing.T) {
 	fx := newCapFixture(t)
 
@@ -155,12 +155,12 @@ func TestModelsRowsOfACoddyProviderAnswerFromTheListing(t *testing.T) {
 	// that never answered), so no priming is needed.
 	rows := fx.models(t)
 	coder := rows["far/coder"]
-	if !coder.Multimodal || !reflect.DeepEqual(coder.ReasoningLevels, []string{"low", "high", "off"}) || coder.ReasoningDefault != "high" {
-		t.Fatalf("far/coder = %+v, want what the listing says", coder)
+	if coder.Multimodal || !reflect.DeepEqual(coder.ReasoningLevels, []string{"low", "high", "off"}) || coder.ReasoningDefault != "high" {
+		t.Fatalf("far/coder = %+v, want local images disabled and the listing's reasoning", coder)
 	}
 	pinned := rows["far/pinned"]
-	if pinned.Multimodal || !reflect.DeepEqual(pinned.ReasoningLevels, []string{"low"}) || pinned.ReasoningDefault != "" {
-		t.Fatalf("far/pinned = %+v, want its own keys: levels [low], no images, no off, no default", pinned)
+	if !pinned.Multimodal || !reflect.DeepEqual(pinned.ReasoningLevels, []string{"low"}) || pinned.ReasoningDefault != "" {
+		t.Fatalf("far/pinned = %+v, want its own keys: levels [low], images, no off, no default", pinned)
 	}
 	plain := rows["far/plain"]
 	if plain.Multimodal || len(plain.ReasoningLevels) != 0 || plain.ReasoningDefault != "" {
@@ -201,8 +201,8 @@ func TestModelsRowsOfACoddyProviderAnswerFromTheListing(t *testing.T) {
 }
 
 // POST /v1/chat/completions on a coddy row: a picture reaches the model only
-// when the listing marks the model multimodal and the row does not say no.
-func TestChatCompletionsKeepsAnImageForAListedMultimodalRow(t *testing.T) {
+// when the local row explicitly enables multimodal input.
+func TestChatCompletionsUsesTheLocalMultimodalSetting(t *testing.T) {
 	fx := newCapFixture(t)
 	post := func(model string) []llm.ImagePart {
 		t.Helper()
@@ -221,23 +221,26 @@ func TestChatCompletionsKeepsAnImageForAListedMultimodalRow(t *testing.T) {
 	}
 
 	fx.listingRead(t)
-	if got := post("far/coder"); len(got) != 1 {
-		t.Fatalf("far/coder: %d image parts, the listing marks the model multimodal", len(got))
+	if got := post("far/coder"); len(got) != 0 {
+		t.Fatalf("far/coder: %d image parts, its local row omits multimodal", len(got))
 	}
-	if got := post("far/pinned"); len(got) != 0 {
-		t.Fatalf("far/pinned: %d image parts, the row writes multimodal: false", len(got))
+	if got := post("far/pinned"); len(got) != 1 {
+		t.Fatalf("far/pinned: %d image parts, the row writes multimodal: true", len(got))
 	}
 	if got := post("far/plain"); len(got) != 0 {
 		t.Fatalf("far/plain: %d image parts, the listing does not carry the model", len(got))
 	}
 
-	// The remote stops accepting images for the model: the next request drops them.
+	// The remote stops advertising images: neither local decision changes.
 	fx.listing.put(llm.ModelEntry{ID: "coder", Revision: "r2", ReasoningLevels: []string{"low"}})
 	if _, err := fx.mgr.RefreshProviderModelEntry(context.Background(), fx.cfg, "far", "coder", "r1", 5*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	if got := post("far/coder"); len(got) != 0 {
-		t.Fatalf("far/coder after the listing dropped images: %d image parts", len(got))
+		t.Fatalf("far/coder after the listing changed: %d image parts", len(got))
+	}
+	if got := post("far/pinned"); len(got) != 1 {
+		t.Fatalf("far/pinned after the listing changed: %d image parts", len(got))
 	}
 }
 

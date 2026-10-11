@@ -138,22 +138,20 @@ func (c *Config) isCoddyRow(ent *ModelEntry) bool {
 	return prov != nil && isCoddyProviderType(prov.Type)
 }
 
-// coddyCapabilities is what the five capability readers answer for one row of a
-// provider of type coddy, resolved from the row's own keys and one record of the
-// remote's listing.
+// coddyCapabilities is what the reasoning capability readers answer for one
+// row of a provider of type coddy, resolved from the row's own keys and one
+// record of the remote's listing.
 type coddyCapabilities struct {
-	levels     []string
-	off        bool
-	def        string
-	multimodal bool
+	levels []string
+	off    bool
+	def    string
 }
 
 // resolveCoddy resolves a coddy row key by key. A key written on the row wins,
 // the listing answers an absent one, and with no listing (no source, no answer
 // yet, a model the listing does not carry) an absent key is "not known": no
-// levels, no off, no default, no images. The levels are never detected from the
-// alias. One call reads the listing once, so the four facts of a call come from
-// one record.
+// levels, no off, no default. The levels are never detected from the alias. One
+// call reads the listing once, so the three facts of a call come from one record.
 //
 //	levels   reasoning_levels as written (an explicit [] hides the selector),
 //	         else the listing's levels (the remote already applied its own
@@ -163,7 +161,6 @@ type coddyCapabilities struct {
 //	         do not offer resolves to none, the listing's does not step in)
 //	off      allow_reasoning_off as written, else the listing's; a model without
 //	         levels has nothing to switch
-//	images   multimodal as written, else the listing's
 func (c *Config) resolveCoddy(ent *ModelEntry) coddyCapabilities {
 	lm, known := c.listedFor(ent)
 	var r coddyCapabilities
@@ -198,11 +195,5 @@ func (c *Config) resolveCoddy(ent *ModelEntry) coddyCapabilities {
 		}
 	}
 
-	switch {
-	case ent.Multimodal != nil:
-		r.multimodal = *ent.Multimodal
-	case known:
-		r.multimodal = lm.Multimodal
-	}
 	return r
 }

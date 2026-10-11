@@ -74,9 +74,10 @@ var listedHigh = config.ListedModel{
 }
 
 // The resolution table of the plan (3.3), per key, for a row of a provider of
-// type coddy: a key written locally wins, key by key; an absent key asks the
-// remote's listing; no listing means "not known" - never a detection from the
-// alias, never a guess.
+// type coddy: a reasoning key written locally wins, key by key; an absent
+// reasoning key asks the remote's listing. Multimodal remains local, so an
+// absent key is false. No listing means "not known" - never a detection from
+// the alias, never a guess.
 func TestCoddyResolutionTable(t *testing.T) {
 	type want struct {
 		levels     []string
@@ -103,9 +104,9 @@ func TestCoddyResolutionTable(t *testing.T) {
 			want: want{},
 		},
 		{
-			name: "nothing written, listing knows the model: the listing decides every key",
+			name: "nothing written, listing knows the model: the listing decides every reasoning key",
 			row:  config.ModelEntry{Model: "far/coder"}, listing: &listedHigh,
-			want: want{levels: []string{"low", "high"}, choices: []string{"low", "high", "off"}, off: true, defaultLvl: "high", multimodal: true},
+			want: want{levels: []string{"low", "high"}, choices: []string{"low", "high", "off"}, off: true, defaultLvl: "high"},
 		},
 		{
 			name: "listing without off",
@@ -115,14 +116,14 @@ func TestCoddyResolutionTable(t *testing.T) {
 			want: want{levels: []string{"low", "high"}, choices: []string{"low", "high"}, defaultLvl: "low"},
 		},
 		{
-			name: "levels written narrower: they win; the listing's default is not one of them; off and images still come from the listing",
+			name: "levels written narrower: they win; the listing's default is not one of them and off still comes from the listing",
 			row:  config.ModelEntry{Model: "far/coder", ReasoningLevels: strs("low")}, listing: &listedHigh,
-			want: want{levels: []string{"low"}, choices: []string{"low", "off"}, off: true, defaultLvl: "", multimodal: true},
+			want: want{levels: []string{"low"}, choices: []string{"low", "off"}, off: true, defaultLvl: ""},
 		},
 		{
-			name: "levels written empty: the explicit opt-out hides the selector, off has nothing to switch, images still come from the listing",
+			name: "levels written empty: the explicit opt-out hides the selector and off has nothing to switch",
 			row:  config.ModelEntry{Model: "far/coder", ReasoningLevels: strs()}, listing: &listedHigh,
-			want: want{multimodal: true},
+			want: want{},
 		},
 		{
 			name:    "levels written wider than the listing: the written list stands as written",
@@ -143,7 +144,7 @@ func TestCoddyResolutionTable(t *testing.T) {
 		{
 			name: "off written false beats a listing that offers it",
 			row:  config.ModelEntry{Model: "far/coder", AllowReasoningOff: config.BoolPtr(false)}, listing: &listedHigh,
-			want: want{levels: []string{"low", "high"}, choices: []string{"low", "high"}, off: false, defaultLvl: "high", multimodal: true},
+			want: want{levels: []string{"low", "high"}, choices: []string{"low", "high"}, off: false, defaultLvl: "high"},
 		},
 		{
 			name:    "off written true beats a listing that does not offer it",
@@ -170,12 +171,12 @@ func TestCoddyResolutionTable(t *testing.T) {
 		{
 			name: "default written and offered: the local default wins over the listing's",
 			row:  config.ModelEntry{Model: "far/coder", ReasoningDefault: "low"}, listing: &listedHigh,
-			want: want{levels: []string{"low", "high"}, choices: []string{"low", "high", "off"}, off: true, defaultLvl: "low", multimodal: true},
+			want: want{levels: []string{"low", "high"}, choices: []string{"low", "high", "off"}, off: true, defaultLvl: "low"},
 		},
 		{
 			name: "default written but not offered: the key wins and resolves to none, the listing's default does not step in",
 			row:  config.ModelEntry{Model: "far/coder", ReasoningDefault: "medium"}, listing: &listedHigh,
-			want: want{levels: []string{"low", "high"}, choices: []string{"low", "high", "off"}, off: true, defaultLvl: "", multimodal: true},
+			want: want{levels: []string{"low", "high"}, choices: []string{"low", "high", "off"}, off: true, defaultLvl: ""},
 		},
 		{
 			name:    "the listing's default must be one of the levels it resolves to",
@@ -184,9 +185,9 @@ func TestCoddyResolutionTable(t *testing.T) {
 			want:    want{levels: []string{"low"}, choices: []string{"low"}},
 		},
 		{
-			name: "a listed model without reasoning: no levels, no off, images as listed",
+			name: "a listed model without reasoning: no levels, no off, and no local image setting",
 			row:  config.ModelEntry{Model: "far/plain"}, listing: &config.ListedModel{Multimodal: true, AllowReasoningOff: true},
-			want: want{multimodal: true},
+			want: want{},
 		},
 	}
 	for _, tc := range cases {
@@ -259,26 +260,29 @@ func TestResolverReadsLiveAndKeepsNothing(t *testing.T) {
 	cfg := withSource(coddyConfig(config.ModelEntry{Model: "far/coder"}), src)
 	ent := &cfg.Models[0]
 
-	read := func() (levels []string, off, mm bool) {
-		return cfg.ReasoningLevelsFor(ent), cfg.ReasoningOffOffered(ent), cfg.ModelMultimodal(ent)
+	read := func() (levels []string, off bool) {
+		return cfg.ReasoningLevelsFor(ent), cfg.ReasoningOffOffered(ent)
 	}
-	if l, off, mm := read(); l != nil || off || mm {
-		t.Fatalf("before any listing: %v %v %v", l, off, mm)
+	if l, off := read(); l != nil || off {
+		t.Fatalf("before any listing: %v %v", l, off)
 	}
 	src.set("far", "coder", listedHigh)
-	if l, off, mm := read(); !reflect.DeepEqual(l, []string{"low", "high"}) || !off || !mm {
-		t.Fatalf("after the listing landed: %v %v %v", l, off, mm)
+	if l, off := read(); !reflect.DeepEqual(l, []string{"low", "high"}) || !off {
+		t.Fatalf("after the listing landed: %v %v", l, off)
+	}
+	if cfg.ModelMultimodal(ent) {
+		t.Fatal("a listing must not enable image inputs for an absent local key")
 	}
 	src.set("far", "coder", config.ListedModel{ReasoningLevels: []string{"low"}})
-	if l, off, mm := read(); !reflect.DeepEqual(l, []string{"low"}) || off || mm {
-		t.Fatalf("after the listing narrowed: %v %v %v", l, off, mm)
+	if l, off := read(); !reflect.DeepEqual(l, []string{"low"}) || off {
+		t.Fatalf("after the listing narrowed: %v %v", l, off)
 	}
 	if got := cfg.DefaultReasoningLevelFor(ent); got != "" {
 		t.Fatalf("default after the narrowing = %q", got)
 	}
 	src.drop("far", "coder")
-	if l, off, mm := read(); l != nil || off || mm {
-		t.Fatalf("after the alias was withdrawn: %v %v %v", l, off, mm)
+	if l, off := read(); l != nil || off {
+		t.Fatalf("after the alias was withdrawn: %v %v", l, off)
 	}
 	if got := cfg.ReasoningChoicesFor(ent); got != nil {
 		t.Fatalf("choices after the withdrawal = %v", got)
@@ -432,13 +436,13 @@ func lineageFile(t *testing.T) string {
 	return path
 }
 
-func multimodalOf(t *testing.T, cfg *config.Config) bool {
+func reasoningLevelsOf(t *testing.T, cfg *config.Config) []string {
 	t.Helper()
 	ent := cfg.FindModelEntry("far/coder")
 	if ent == nil {
 		t.Fatal("row far/coder is missing")
 	}
-	return cfg.ModelMultimodal(ent)
+	return cfg.ReasoningLevelsFor(ent)
 }
 
 // Every loader allocates the cell, so a configuration the loader made can be
@@ -455,7 +459,7 @@ func TestLoadersAllocateTheCell(t *testing.T) {
 	if !cfg.Paths.AttachListingIfEmpty(src) {
 		t.Fatal("a loaded configuration has no cell to attach to")
 	}
-	if !multimodalOf(t, cfg) {
+	if got := reasoningLevelsOf(t, cfg); !reflect.DeepEqual(got, []string{"low", "high"}) {
 		t.Fatal("a bound configuration did not answer from the listing")
 	}
 	if cfg.Paths.AttachListingIfEmpty(newFakeListing()) {
@@ -484,7 +488,10 @@ func TestLoadersAllocateTheCell(t *testing.T) {
 	a, _ := config.Load(path)
 	b, _ := config.Load(path)
 	a.Paths.AttachListing(src)
-	if !multimodalOf(t, a) || multimodalOf(t, b) {
+	if got := reasoningLevelsOf(t, a); !reflect.DeepEqual(got, []string{"low", "high"}) {
+		t.Fatal("a bound configuration did not answer from the listing")
+	}
+	if got := reasoningLevelsOf(t, b); got != nil {
 		t.Fatal("two independent loads share a cell")
 	}
 }
@@ -508,17 +515,17 @@ func TestConfigsLoadedFromPathsShareTheCell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reloaded == c || !multimodalOf(t, reloaded) {
+	if reloaded == c || !reflect.DeepEqual(reasoningLevelsOf(t, reloaded), []string{"low", "high"}) {
 		t.Fatal("LoadWithPaths(c.Paths) is not bound to the lineage of c")
 	}
 	twice, err := config.LoadWithPaths(reloaded.Paths)
-	if err != nil || !multimodalOf(t, twice) {
+	if err != nil || !reflect.DeepEqual(reasoningLevelsOf(t, twice), []string{"low", "high"}) {
 		t.Fatalf("a reload of a reload is not bound: %v", err)
 	}
 
 	dto := config.ConfigToJSONDTO(c)
 	fromDTO := config.JSONDTOToConfig(dto, c.Paths)
-	if !multimodalOf(t, fromDTO) {
+	if !reflect.DeepEqual(reasoningLevelsOf(t, fromDTO), []string{"low", "high"}) {
 		t.Fatal("JSONDTOToConfig(j, c.Paths) is not bound to the lineage of c")
 	}
 	raw, err := json.Marshal(dto)
@@ -529,7 +536,7 @@ func TestConfigsLoadedFromPathsShareTheCell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !multimodalOf(t, parsed) {
+	if !reflect.DeepEqual(reasoningLevelsOf(t, parsed), []string{"low", "high"}) {
 		t.Fatal("ParseConfigJSONPreservingSecrets(raw, c.Paths, c) is not bound to the lineage of c")
 	}
 
@@ -538,7 +545,7 @@ func TestConfigsLoadedFromPathsShareTheCell(t *testing.T) {
 	other := newFakeListing()
 	other.set("far", "coder", config.ListedModel{})
 	c.Paths.AttachListing(other)
-	if multimodalOf(t, reloaded) || multimodalOf(t, fromDTO) || multimodalOf(t, c) {
+	if reasoningLevelsOf(t, reloaded) != nil || reasoningLevelsOf(t, fromDTO) != nil || reasoningLevelsOf(t, c) != nil {
 		t.Fatal("the last attach did not win for the whole lineage")
 	}
 }
@@ -587,17 +594,17 @@ func TestWithListingAndAttachSemantics(t *testing.T) {
 	}
 	cfg := coddyConfig(config.ModelEntry{Model: "far/coder"})
 	cfg.Paths = copyOfQ
-	if !cfg.ModelMultimodal(&cfg.Models[0]) {
+	if got := cfg.ReasoningLevelsFor(&cfg.Models[0]); !reflect.DeepEqual(got, []string{"low", "high"}) {
 		t.Fatal("a copy of Paths does not share the cell")
 	}
 	// Last attach wins; a nil source clears.
 	second.set("far", "coder", config.ListedModel{})
 	copyOfQ.AttachListing(second)
-	if cfg.ModelMultimodal(&cfg.Models[0]) {
+	if got := cfg.ReasoningLevelsFor(&cfg.Models[0]); got != nil {
 		t.Fatal("the last attach did not win")
 	}
 	q.AttachListing(nil)
-	if cfg.ModelMultimodal(&cfg.Models[0]) {
+	if got := cfg.ReasoningLevelsFor(&cfg.Models[0]); got != nil {
 		t.Fatal("a nil attach left a source behind")
 	}
 	if !q.AttachListingIfEmpty(first) {

@@ -32,10 +32,10 @@ Feature: A model shared by a remote Coddy serves another Coddy's harness
     When the local coddy adds the model "remote/coder" without reasoning levels
     Then GET /v1/models of the local coddy reports "remote/coder" with the reasoning levels "low, high"
 
-  Scenario: The local coddy offers images when the remote lists the model as multimodal
+  Scenario: The local coddy offers images when its model row declares it multimodal
     Given a remote coddy sharing "stub/qwen3-secret" as "coder" that is multimodal
     And a local coddy with a provider "remote" of type coddy pointing at the remote
-    When the local coddy adds the model "remote/coder" without declaring it multimodal
+    When the local coddy adds the model "remote/coder" declaring it multimodal
     Then GET /v1/models of the local coddy reports "remote/coder" as multimodal
     And the local coddy lets a user attach an image to a message sent to "remote/coder"
 

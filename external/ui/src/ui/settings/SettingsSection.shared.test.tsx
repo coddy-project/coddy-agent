@@ -406,8 +406,9 @@ test("a model picked from a coddy listing is written without the window: the lis
   // A copied window would pin the row to what the remote said that day.
   // (0 is the seed of every row: "read it from the listing".)
   expect(row.max_context_tokens ?? 0).toBe(0);
-  // Nor does it copy the other capabilities: a written false is not "unset".
-  expect(row).not.toHaveProperty("multimodal");
+  // Multimodal is a local switch, so a newly seeded remote row writes false.
+  // The inherited reasoning capability must not be pinned.
+  expect(row.multimodal).toBe(false);
   expect(row).not.toHaveProperty("allow_reasoning_off");
   expect(row).not.toHaveProperty("reasoning_levels");
   // What has a meaning of its own stays seeded.
@@ -614,19 +615,20 @@ function savedRow(): Record<string, unknown> {
     .models[0] as Record<string, unknown>;
 }
 
-test("a coddy row draws multimodal and allow_reasoning_off as Remote / Yes / No, not as switches", () => {
+test("a coddy row draws multimodal as a switch and allow_reasoning_off as Remote / Yes / No", () => {
   renderLabModel({});
-  for (const key of ["multimodal", "allow_reasoning_off"]) {
-    const field = screen.getByTestId(`tristate-${key}`);
-    expect(within(field).getByText("Remote")).toBeTruthy();
-    expect(within(field).getByText("Yes")).toBeTruthy();
-    expect(within(field).getByText("No")).toBeTruthy();
-    expect(
-      (screen.getByTestId(`tristate-${key}-remote`) as HTMLInputElement)
-        .checked,
-    ).toBe(true);
-  }
-  expect(screen.queryByRole("switch", { name: /multimodal/i })).toBeNull();
+  const field = screen.getByTestId("tristate-allow_reasoning_off");
+  expect(within(field).getByText("Remote")).toBeTruthy();
+  expect(within(field).getByText("Yes")).toBeTruthy();
+  expect(within(field).getByText("No")).toBeTruthy();
+  expect(
+    (
+      screen.getByTestId(
+        "tristate-allow_reasoning_off-remote",
+      ) as HTMLInputElement
+    ).checked,
+  ).toBe(true);
+  expect(screen.getByRole("switch", { name: /multimodal/i })).toBeTruthy();
   expect(
     screen.queryByRole("switch", { name: /allow disabling reasoning/i }),
   ).toBeNull();
@@ -639,9 +641,9 @@ test("a coddy row draws multimodal and allow_reasoning_off as Remote / Yes / No,
 test("the control stays in the block of the key it replaces", () => {
   renderLabModel({});
   expect(
-    within(screen.getByTestId("settings-group-model")).getByTestId(
-      "tristate-multimodal",
-    ),
+    within(screen.getByTestId("settings-group-model")).getByRole("switch", {
+      name: /multimodal/i,
+    }),
   ).toBeTruthy();
   expect(
     within(screen.getByTestId("settings-group-reasoning")).getByTestId(
@@ -650,16 +652,15 @@ test("the control stays in the block of the key it replaces", () => {
   ).toBeTruthy();
 });
 
-test("choosing Yes or No writes the key, choosing Remote takes it out of the row", () => {
+test("the multimodal switch writes the local key and allow_reasoning_off keeps its tri-state", () => {
   renderLabModel({});
-  fireEvent.click(screen.getByTestId("tristate-multimodal-yes"));
+  const multimodal = screen.getByRole("switch", { name: /multimodal/i });
+  fireEvent.click(multimodal);
   expect(savedRow().multimodal).toBe(true);
-  fireEvent.click(screen.getByTestId("tristate-multimodal-no"));
+  fireEvent.click(multimodal);
   expect(savedRow().multimodal).toBe(false);
   expect(savedRow()).toHaveProperty("multimodal");
-  fireEvent.click(screen.getByTestId("tristate-multimodal-remote"));
-  expect(savedRow()).not.toHaveProperty("multimodal");
-  // The sibling key is not touched by any of it.
+  // The sibling key is not touched by either local toggle.
   expect(savedRow()).not.toHaveProperty("allow_reasoning_off");
   fireEvent.click(screen.getByTestId("tristate-allow_reasoning_off-yes"));
   expect(savedRow().allow_reasoning_off).toBe(true);
@@ -667,16 +668,20 @@ test("choosing Yes or No writes the key, choosing Remote takes it out of the row
   expect(savedRow()).not.toHaveProperty("allow_reasoning_off");
 });
 
-test("a row phase 1 saved with both keys false shows No, with the way back in the hint", () => {
+test("a row phase 1 saved with both keys false keeps multimodal off and shows No for allow_reasoning_off", () => {
   renderLabModel({ multimodal: false, allow_reasoning_off: false });
-  for (const key of ["multimodal", "allow_reasoning_off"]) {
-    expect(
-      (screen.getByTestId(`tristate-${key}-no`) as HTMLInputElement).checked,
-    ).toBe(true);
-    expect(screen.getByTestId(`tristate-${key}-hint`).textContent).toContain(
-      "Choose Remote",
-    );
-  }
+  expect(
+    screen
+      .getByRole("switch", { name: /multimodal/i })
+      .getAttribute("aria-checked"),
+  ).toBe("false");
+  expect(
+    (screen.getByTestId("tristate-allow_reasoning_off-no") as HTMLInputElement)
+      .checked,
+  ).toBe(true);
+  expect(
+    screen.getByTestId("tristate-allow_reasoning_off-hint").textContent,
+  ).toContain("Choose Remote");
 });
 
 test("a row of another provider type keeps the switch, and a written false stays false", () => {
@@ -709,13 +714,13 @@ test("the provider decides, read from the form as it stands: a model of a row no
 test("the control reads in Russian", () => {
   setLocale("ru");
   renderLabModel({});
-  const field = screen.getByTestId("tristate-multimodal");
+  const field = screen.getByTestId("tristate-allow_reasoning_off");
   expect(within(field).getByText("Как у удалённого")).toBeTruthy();
   expect(within(field).getByText("Да")).toBeTruthy();
   expect(within(field).getByText("Нет")).toBeTruthy();
 });
 
-test("the picker never writes the tri-state keys for a new coddy row, nor the levels", async () => {
+test("the picker writes multimodal locally but leaves remote reasoning keys unset for a new coddy row", async () => {
   const row = await addFromPicker(
     { name: "lab", type: "coddy", api_base: "https://lab.example:12345" },
     [
@@ -730,7 +735,7 @@ test("the picker never writes the tri-state keys for a new coddy row, nor the le
     "terra",
   );
   const written = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
-  expect(written).not.toHaveProperty("multimodal");
+  expect(written.multimodal).toBe(false);
   expect(written).not.toHaveProperty("allow_reasoning_off");
   expect(written).not.toHaveProperty("reasoning_levels");
   // The seed's empty default is "not written", as for every row.
@@ -771,7 +776,7 @@ function addRowWithId(provider: string, id: string) {
   });
 }
 
-test("Add seeds an empty row without the tri-state keys: its provider is not chosen yet", () => {
+test("Add seeds an empty row with a local multimodal setting: its provider is not chosen yet", () => {
   stubFetch();
   render(
     <Harness
@@ -781,29 +786,30 @@ test("Add seeds an empty row without the tri-state keys: its provider is not cho
   );
   fireEvent.click(screen.getByTestId("settings-master-add"));
   const row = savedRow();
-  expect(row).not.toHaveProperty("multimodal");
+  expect(row.multimodal).toBe(false);
   expect(row).not.toHaveProperty("allow_reasoning_off");
   // What has a meaning of its own stays seeded, as for every row.
   expect(row.stream).toBe(true);
 });
 
-test("a row added with Add and given a coddy provider follows the remote: both keys Remote, none written", () => {
+test("a row added with Add and given a coddy provider keeps multimodal local and allow_reasoning_off remote", () => {
   addRowWithId("lab", "terra");
   expect(savedRow().model).toBe("lab/terra");
   const row = savedRow();
-  expect(row).not.toHaveProperty("multimodal");
+  expect(row.multimodal).toBe(false);
   expect(row).not.toHaveProperty("allow_reasoning_off");
-  for (const key of ["multimodal", "allow_reasoning_off"]) {
-    expect(
-      (screen.getByTestId(`tristate-${key}-remote`) as HTMLInputElement)
-        .checked,
-      key,
-    ).toBe(true);
-    expect(
-      (screen.getByTestId(`tristate-${key}-no`) as HTMLInputElement).checked,
-      key,
-    ).toBe(false);
-  }
+  expect(
+    screen
+      .getByRole("switch", { name: /multimodal/i })
+      .getAttribute("aria-checked"),
+  ).toBe("false");
+  expect(
+    (
+      screen.getByTestId(
+        "tristate-allow_reasoning_off-remote",
+      ) as HTMLInputElement
+    ).checked,
+  ).toBe(true);
 });
 
 test("a row added with Add and given another provider keeps the switches, off until the operator turns one on", () => {

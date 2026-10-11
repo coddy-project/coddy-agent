@@ -93,10 +93,10 @@ const USAGE_PANEL_PROVIDER_TYPES = new Set([
   "coddy",
 ]);
 
-// The two keys of a model row that a remote Coddy's listing can answer for: on
-// a coddy row each has three states (absent follows the remote), so it is drawn
+// The one key of a model row that a remote Coddy's listing can answer for: on
+// a coddy row it has three states (absent follows the remote), so it is drawn
 // by TriStateField instead of the switch every other row keeps.
-const TRI_STATE_MODEL_KEYS = new Set(["multimodal", "allow_reasoning_off"]);
+const TRI_STATE_MODEL_KEYS = new Set(["allow_reasoning_off"]);
 
 /**
  * seedLogicalModel builds a models[] row from the item schema's defaults,
@@ -131,11 +131,10 @@ function seedLogicalModel(
   }
   // A row whose id is still empty (the Add button of Logical models) has no
   // provider yet, and the operator may well pick a coddy one next: a written
-  // false would then pin the row to "No", over the remote's listing. For any
-  // other provider the keys are not needed: an absent key reads as false, and
-  // the switch draws it off.
+  // false for allow_reasoning_off would then pin the row to "No", over the
+  // remote's listing. For every provider, multimodal is local and an absent
+  // key reads as false, so its switch draws it off.
   if (providerType?.trim() === CODDY_PROVIDER_TYPE || id.trim() === "") {
-    delete row.multimodal;
     delete row.allow_reasoning_off;
   }
   return row;
@@ -575,8 +574,9 @@ export function SettingsSection(props: {
                 />
               );
             }
-            // A model of a remote Coddy: absent follows the remote's listing,
-            // a written true or false wins, so the switch cannot say it.
+            // The capability a model of a remote Coddy inherits from the
+            // remote's listing: absent follows it, while a written true or
+            // false wins, so the ordinary switch cannot say it.
             if (TRI_STATE_MODEL_KEYS.has(ctx.path)) {
               const modelId =
                 ctx.parentObj?.["model"] === undefined ||

@@ -102,10 +102,10 @@ export function contextWindowToPin(
 }
 
 /**
- * The three states of models[].multimodal and models[].allow_reasoning_off on a
- * row of a provider of type coddy: the key absent (the remote's listing
- * decides), true, or false (both win over the listing). Every other provider
- * type has two states and keeps its switch.
+ * The three states of models[].allow_reasoning_off on a row of a provider of
+ * type coddy: the key absent (the remote's listing decides), true, or false
+ * (both win over the listing). Every other provider type has two states and
+ * keeps its switch.
  */
 export type TriState = "remote" | "yes" | "no";
 

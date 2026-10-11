@@ -490,7 +490,11 @@ func TestUISchemaCapabilityKeysStayBooleanAndSayWhatAbsenceMeans(t *testing.T) {
 			t.Errorf("%s: UI schema type %v, want boolean (the form draws a switch)", key, node["type"])
 		}
 		desc, _ := node["description"].(string)
-		if !strings.Contains(desc, "coddy") || !strings.Contains(desc, "listing") {
+		if key == "multimodal" {
+			if !strings.Contains(desc, "including coddy") || strings.Contains(desc, "listing") {
+				t.Errorf("%s: the description must say that absence is locally false for coddy too: %q", key, desc)
+			}
+		} else if !strings.Contains(desc, "coddy") || !strings.Contains(desc, "listing") {
 			t.Errorf("%s: the description must say that for a coddy provider an absent key follows the remote's listing: %q", key, desc)
 		}
 	}
@@ -517,7 +521,11 @@ func TestSchemaFileCapabilityKeysAreNullable(t *testing.T) {
 			t.Errorf("%s: schema default %v, want false", key, node["default"])
 		}
 		desc, _ := node["description"].(string)
-		if !strings.Contains(desc, "coddy") || !strings.Contains(desc, "listing") {
+		if key == "multimodal" {
+			if !strings.Contains(desc, "including coddy") || strings.Contains(desc, "listing") {
+				t.Errorf("%s: the description must say that absence is locally false for coddy too: %q", key, desc)
+			}
+		} else if !strings.Contains(desc, "coddy") || !strings.Contains(desc, "listing") {
 			t.Errorf("%s: the description must say what absence means for a coddy provider: %q", key, desc)
 		}
 	}

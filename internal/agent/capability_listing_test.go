@@ -59,7 +59,7 @@ providers:
 models:
   - model: far/coder
   - model: far/pinned
-    multimodal: false
+    multimodal: true
   - model: far/gone
 agent:
   model: far/coder
@@ -123,41 +123,40 @@ func (fx *agentListingFixture) agent(model string) *Agent {
 	return NewAgent(fx.cfg, st, resumePermissionSender{}, nil)
 }
 
-// A coddy model reads images when the remote's listing says it does, unless the
-// row writes the key; a model the listing does not know fails closed, and the
-// refusal the `read` tool is given names the key an operator can set.
-func TestModelReadsImagesOfACoddyRowFollowsTheListing(t *testing.T) {
+// A coddy model reads images only when its local row says it does. The remote
+// listing does not change that decision, and the refusal the `read` tool is
+// given names the key an operator can set.
+func TestModelReadsImagesOfACoddyRowUsesItsLocalSetting(t *testing.T) {
 	fx := newAgentListingFixture(t)
 
 	listed := fx.agent("far/coder")
-	if !listed.modelReadsImages() {
-		t.Fatal("a model the listing marks multimodal does not read images")
+	if listed.modelReadsImages() {
+		t.Fatal("a remote listing enabled images without a local multimodal key")
 	}
-	if err := listed.toolImageRefusal(); err != nil {
-		t.Fatalf("refused: %v", err)
+	if err := listed.toolImageRefusal(); err == nil || !strings.Contains(err.Error(), "models[].multimodal") {
+		t.Fatalf("refusal = %v, want one that names models[].multimodal", err)
 	}
 	env := listed.buildToolEnv(string(session.ModeAgent), "")
-	if env.ImageRefusal == nil || env.ImageRefusal() != nil {
-		t.Fatal("the tool environment refuses a picture for a listed multimodal model")
+	if env.ImageRefusal == nil || env.ImageRefusal() == nil {
+		t.Fatal("the tool environment accepts a picture for an unconfigured model")
 	}
 
 	pinned := fx.agent("far/pinned")
-	if pinned.modelReadsImages() {
-		t.Fatal("multimodal: false on the row must win over the listing")
+	if !pinned.modelReadsImages() {
+		t.Fatal("multimodal: true on the row must enable images")
 	}
-	if err := pinned.toolImageRefusal(); err == nil || !strings.Contains(err.Error(), "models[].multimodal") {
-		t.Fatalf("refusal = %v, want one that names models[].multimodal", err)
+	if err := pinned.toolImageRefusal(); err != nil {
+		t.Fatalf("refused: %v", err)
 	}
 
-	// The remote stops accepting images: the same agent, the same configuration,
-	// the next read says no (nothing was cached in the agent).
+	// The remote stops advertising images. Both local decisions remain unchanged.
 	fx.listing.put(llm.ModelEntry{ID: "coder", Revision: "r2", Multimodal: false, ReasoningLevels: []string{"low"}})
 	fx.refresh(t, "r1")
-	if listed.modelReadsImages() {
-		t.Fatal("the agent kept an answer the listing no longer gives")
+	if listed.modelReadsImages() || !pinned.modelReadsImages() {
+		t.Fatal("the remote listing changed a local image setting")
 	}
 	if err := listed.buildToolEnv(string(session.ModeAgent), "").ImageRefusal(); err == nil {
-		t.Fatal("the tool environment still lets a picture through")
+		t.Fatal("the tool environment still lets a picture through without a local key")
 	}
 
 	// A model the config lists but the remote does not carry fails closed.
@@ -196,8 +195,8 @@ func TestPrivateReloadAfterConfigCommitAnswersFromTheListing(t *testing.T) {
 	if got := ag.cfg.DefaultReasoningLevelFor(ent(ag.cfg)); got != "high" {
 		t.Fatalf("default = %q", got)
 	}
-	if !ag.cfg.ModelMultimodal(ent(ag.cfg)) || !ag.cfg.ReasoningOffOffered(ent(ag.cfg)) {
-		t.Fatal("images or off lost across the private reload")
+	if ag.cfg.ModelMultimodal(ent(ag.cfg)) || !ag.cfg.ReasoningOffOffered(ent(ag.cfg)) {
+		t.Fatal("the private reload did not keep the local image setting and inherited off capability separate")
 	}
 	// The registry built for it too: switch_model lists the model with the
 	// levels the listing gave.
@@ -237,8 +236,8 @@ func TestPrivateReloadOfAResumedCallAnswersFromTheListing(t *testing.T) {
 	if got, want := ag.cfg.ReasoningChoicesFor(ent), []string{"low", "high", "off"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("the resumed call's configuration answered %v, want %v", got, want)
 	}
-	if !ag.modelReadsImages() {
-		t.Fatal("the agent reads images through the reloaded configuration no more")
+	if ag.modelReadsImages() {
+		t.Fatal("the agent reads images through the reloaded configuration without a local key")
 	}
 	// A listing that moves after the reload is seen by the reloaded config too.
 	fx.listing.put(llm.ModelEntry{ID: "coder", Revision: "r2", ReasoningLevels: []string{"low"}})
@@ -247,6 +246,6 @@ func TestPrivateReloadOfAResumedCallAnswersFromTheListing(t *testing.T) {
 		t.Fatalf("after the listing narrowed: %v, want %v", got, want)
 	}
 	if ag.modelReadsImages() {
-		t.Fatal("images still read after the listing dropped them")
+		t.Fatal("the remote listing enabled images after the reload")
 	}
 }

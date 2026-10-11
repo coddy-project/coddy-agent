@@ -129,7 +129,7 @@
               "boolean",
               "null"
             ],
-            "description": "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary. Absent (or null) is false, except for a model of a provider of type coddy, where the remote's listing decides; a written value, false included, wins over the listing.",
+            "description": "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model, and read shows it the picture in a PNG, JPEG, GIF or WebP file instead of refusing it as binary. Absent (or null) is false for every provider type, including coddy; a written value, false included, is the local setting.",
             "default": false
           },
           "reasoning_levels": {

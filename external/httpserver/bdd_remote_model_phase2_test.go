@@ -198,7 +198,7 @@ func (s *remoteModelState) modelsReportMultimodal(ref string) error {
 // userAttachesImage sends the local coddy an OpenAI-style message with an image
 // part for ref. The intake keeps image parts only for a model the local
 // configuration says is multimodal, so the picture reaching the remote's model
-// is the proof that the local coddy took it from the listing.
+// proves that the local setting admitted it.
 func (s *remoteModelState) userAttachesImage(ref string) error {
 	if err := s.ensureLocal(); err != nil {
 		return err
@@ -523,6 +523,7 @@ func (s *remoteModelState) documentNeverMentions() error {
 
 func registerRemoteModelPhase2Steps(sc *godog.ScenarioContext, s *remoteModelState) {
 	sc.Step(`^the local coddy adds the model "([^"]*)" without (?:reasoning levels|declaring it multimodal)$`, s.localAddsModel)
+	sc.Step(`^the local coddy adds the model "([^"]*)" declaring it multimodal$`, s.localAddsMultimodalModel)
 	sc.Step(`^GET /v1/models of the local coddy reports "([^"]*)" with the reasoning levels "([^"]*)"$`, s.modelsReportLevels)
 	sc.Step(`^GET /v1/models of the local coddy reports "([^"]*)" as multimodal$`, s.modelsReportMultimodal)
 	sc.Step(`^the local coddy lets a user attach an image to a message sent to "([^"]*)"$`, s.userAttachesImage)

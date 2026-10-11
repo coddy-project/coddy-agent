@@ -126,12 +126,13 @@ func readCapabilities(cfg *config.Config, model string) capabilityRead {
 }
 
 var coderCapabilities = capabilityRead{
-	levels: []string{"low", "high"}, choices: []string{"low", "high", "off"}, off: true, def: "high", multimodal: true,
+	levels: []string{"low", "high"}, choices: []string{"low", "high", "off"}, off: true, def: "high", multimodal: false,
 }
 
 // The manager is the listing source of its configuration: until the listing of
-// the row has answered a coddy model is not known (no levels, no images), and
-// once it has, the five reads answer from the record.
+// the row has answered a coddy model has no inherited reasoning capabilities,
+// and once it has, the reasoning reads answer from the record. Multimodal is
+// always local and remains false while the key is absent.
 func TestManagerIsTheListingSourceOfItsConfig(t *testing.T) {
 	cfg := coddyTestConfig(t.TempDir())
 	listing := newCoddyListing(coderRecord)

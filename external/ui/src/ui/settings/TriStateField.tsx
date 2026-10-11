@@ -9,9 +9,8 @@ const POSITIONS: TriState[] = ["remote", "yes", "no"];
 /**
  * TriStateField draws a key of a coddy row that has three states: absent
  * (Remote: the remote's listing decides), true (Yes) and false (No). It is
- * models[].multimodal and models[].allow_reasoning_off of a model that a remote
- * Coddy shares; every other row keeps the ordinary switch, where a written
- * false is just false.
+ * models[].allow_reasoning_off of a model that a remote Coddy shares; every
+ * other row keeps the ordinary switch, where a written false is just false.
  *
  * Remote removes the key (onChange(undefined) drops it from the saved JSON, the
  * way ReasoningLevelsField restores auto-detection), Yes and No write a value
