@@ -197,6 +197,7 @@ Feature: A model shared by a remote Coddy serves another Coddy's harness
   Scenario: A window of calls per minute is spent and the remote says when to come back
     Given a remote coddy sharing "stub/qwen3-secret" as "coder" whose model answers "Done."
     And the remote admits 60 shared-model calls a minute with a burst of 2
+    And the remote freezes its rate-window clock
     When 2 streams are requested from "coder"
     And a further stream is requested from "coder"
     Then the remote answers 429 with the kind "busy", the code "rate_window" and a Retry-After of 1 second

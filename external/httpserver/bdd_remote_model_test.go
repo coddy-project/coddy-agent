@@ -97,16 +97,17 @@ type remoteModelState struct {
 	// localUsage is the local coddy's answer to the read of a usage.
 	localUsage httpResult
 
-	last     *streamOutcome
-	prev     *streamOutcome
-	offered  []llm.ToolDefinition
-	sent     []llm.Message
-	image    []byte
-	turn     string
-	busy     *busyTrace
-	held     []*http.Response
-	sixth    *http.Response
-	cleanups []func()
+	last        *streamOutcome
+	prev        *streamOutcome
+	offered     []llm.ToolDefinition
+	sent        []llm.Message
+	image       []byte
+	turn        string
+	busy        *busyTrace
+	held        []*http.Response
+	sixth       *http.Response
+	windowClock *fakeSharedClock
+	cleanups    []func()
 }
 
 func (s *remoteModelState) reset() {
@@ -146,6 +147,9 @@ func (s *remoteModelState) ensureRemote() error {
 	r, err := newRemoteStand(s.spec, s.remoteMuts, true)
 	if err != nil {
 		return err
+	}
+	if s.windowClock != nil {
+		r.srv.sharedClk = s.windowClock
 	}
 	s.remote = r
 	return nil
@@ -332,6 +336,16 @@ func (s *remoteModelState) remoteAdmits(perMinute, burst int) error {
 	return nil
 }
 
+// freezeRemoteWindowClock keeps the rate-window boundary deterministic while
+// this scenario opens several streams in sequence.
+func (s *remoteModelState) freezeRemoteWindowClock() error {
+	if s.remote != nil {
+		return fmt.Errorf("the remote must freeze its rate-window clock before it starts")
+	}
+	s.windowClock = newFakeSharedClock()
+	return nil
+}
+
 // answersWindow checks the refusal of a call past the window: 429, kind busy,
 // the code that names the window, and the wait to the next token in the header.
 func (s *remoteModelState) answersWindow(kind, code string, seconds int) error {
@@ -356,7 +370,13 @@ func (s *remoteModelState) answersWindow(kind, code string, seconds int) error {
 }
 
 func (s *remoteModelState) providerNotCalledForTheFurther() error {
-	if n := s.remote.stub.callCount(); n != len(s.held) {
+	want := len(s.held)
+	if err := remoteModelWaitUntil(fmt.Sprintf("%d admitted streams to reach the provider", want), func() bool {
+		return s.remote.stub.callCount() >= want
+	}); err != nil {
+		return err
+	}
+	if n := s.remote.stub.callCount(); n != want {
 		return fmt.Errorf("the provider was called %d times, want %d (none for the refused call)", n, len(s.held))
 	}
 	return nil
@@ -1416,6 +1436,7 @@ func registerRemoteModelSteps(sc *godog.ScenarioContext, s *remoteModelState) {
 	sc.Step(`^the remote also has a model "([^"]*)" that it does not share$`, s.remoteAlsoHas)
 	sc.Step(`^the remote allows (\d+) shared-model streams at once$`, s.remoteAllows)
 	sc.Step(`^the remote allows (\d+) shared-model stream at once and one stream is held open$`, s.remoteAllowsAndHolds)
+	sc.Step(`^the remote freezes its rate-window clock$`, func() error { return s.freezeRemoteWindowClock() })
 	sc.Step(`^the remote operator points "([^"]*)" at another model$`, func(string) error { return s.operatorPointsAt() })
 	sc.Step(`^the remote operator changes the context window of "([^"]*)" to (\d+) tokens$`, s.operatorChangesContext)
 
