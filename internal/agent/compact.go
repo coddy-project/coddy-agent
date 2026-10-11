@@ -204,7 +204,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 		// keeps every user message as a boundary - it folds the prompt on purpose.
 		last := len(msgs) - 1
 		if !force {
-			if open, found := session.OpeningPromptIndex(msgs, a.turnOpening); found {
+			if open, found := session.OpeningPromptIndex(msgs, a.state.TurnAnchor()); found {
 				last = open
 			}
 		}

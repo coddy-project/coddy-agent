@@ -168,6 +168,11 @@ type State struct {
 	// a turn runs on (rules_load.go).
 	rulesGeneration uint64
 	rulesPrompt     *RulesPrompt
+	// turnOpeningAt is the index in Messages of the message the turn in progress
+	// opened with, when turnOpeningSet (AddTurnOpening, TurnAnchor). Not persisted:
+	// it describes a turn of this process.
+	turnOpeningAt  int
+	turnOpeningSet bool
 	// LastContextBreakdown is the latest per-category token estimate for the UI.
 	LastContextBreakdown *ContextBreakdown
 	// contextWindows reads the provider-reported context windows cached by
@@ -1141,12 +1146,51 @@ func normalizeModelID(cfg *config.Config, id string) string {
 
 // AddMessage appends a message to the conversation history.
 func (s *State) AddMessage(msg llm.Message) {
+	s.addMessage(msg, false)
+}
+
+// AddTurnOpening appends the message a turn opens with, the prompt being
+// answered, and records its index as the one the turn opened at (TurnAnchor).
+// The record is set under the same lock as the append, so no other message can
+// take the index in between.
+func (s *State) AddTurnOpening(msg llm.Message) {
+	s.addMessage(msg, true)
+}
+
+func (s *State) addMessage(msg llm.Message, opening bool) {
 	s.mu.Lock()
 	placePendingArtifacts(s.Messages, &msg)
 	s.Messages = append(s.Messages, msg)
+	if opening {
+		s.turnOpeningAt, s.turnOpeningSet = len(s.Messages)-1, true
+	}
 	s.markMessagesAppended()
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// TurnAnchor is the record of the message the turn in progress opened with: the
+// last AddTurnOpening, with its index kept in step with the summary rows
+// inserted in front of it (InsertCompactionSummary). The zero value, when no turn
+// has opened on this State in this process, makes the functions that take it fall
+// back to the last user message that is not a Stop-hook follow-up. A turn resumed
+// after a permission answer runs on the State its first part ran on, so it finds
+// the record too, unless the process restarted in between. The record is not
+// persisted.
+func (s *State) TurnAnchor() TurnAnchor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.turnOpeningSet {
+		return TurnAnchor{}
+	}
+	return AnchorAt(s.turnOpeningAt)
+}
+
+// forgetTurnOpening drops the record of the turn's opening message; callers hold
+// s.mu. A history that is cut, put back or replaced is not the one the index
+// described.
+func (s *State) forgetTurnOpening() {
+	s.turnOpeningAt, s.turnOpeningSet = 0, false
 }
 
 // markMessagesAppended records that messages were added at the end and nothing
@@ -1861,6 +1905,7 @@ func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
 	}
 	s.mu.Lock()
 	s.Messages = owned
+	s.forgetTurnOpening()
 	s.markMessagesEdited()
 	s.mu.Unlock()
 }

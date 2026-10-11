@@ -48,10 +48,25 @@ func compactContextCall() llm.Message {
 
 func stateOf(t *testing.T, msgs ...[]llm.Message) *session.State {
 	t.Helper()
+	return stateOpenedAt(t, -1, msgs...)
+}
+
+// stateOpenedAt is stateOf for a turn that opened at the message with index open
+// across the parts (none for a negative one): the session records it the way Run
+// does when it appends the prompt, so the compactions find it and the rows they
+// insert in front of it move the record along.
+func stateOpenedAt(t *testing.T, open int, msgs ...[]llm.Message) *session.State {
+	t.Helper()
 	st := &session.State{ID: "sess_follow_up_unit", CWD: t.TempDir(), Mode: session.ModeAgent}
+	i := 0
 	for _, part := range msgs {
 		for _, m := range part {
-			st.AddMessage(m)
+			if i == open {
+				st.AddTurnOpening(m)
+			} else {
+				st.AddMessage(m)
+			}
+			i++
 		}
 	}
 	return st
@@ -118,10 +133,9 @@ func TestCompactContextAfterAnInTurnFoldKeepsOneCopyOfThePrompt(t *testing.T) {
 
 // With no earlier fold the head holds the prompt itself.
 func TestCompactContextInTheFirstTurnWritesTheInTurnRow(t *testing.T) {
-	st := stateOf(t, []llm.Message{stamped(followUpPrompt, openedAt)}, steps("s", 3), []llm.Message{compactContextCall()})
+	st := stateOpenedAt(t, 0, []llm.Message{stamped(followUpPrompt, openedAt)}, steps("s", 3), []llm.Message{compactContextCall()})
 	provider := &compactCannedProvider{t: t, summary: "the first three reads"}
 	ag := inTurnAgent(t, st, config.Compaction{}, provider)
-	ag.turnOpening = session.AnchorOf(st.GetMessages()[0])
 
 	res, err := ag.CompactSession(context.Background(), CompactOptions{Force: true, FromTool: true})
 	if err != nil {
@@ -172,13 +186,10 @@ func TestManualCompactBetweenTurnsStillWritesAPlainRow(t *testing.T) {
 // When the opening prompt is in the kept tail it stays an ordinary message and
 // the row has nothing in front of it.
 func TestCompactContextKeepingThePromptWritesAPlainRow(t *testing.T) {
-	st := seededCompactState(t, 3)
-	for _, m := range concatMsgs([]llm.Message{stamped(followUpPrompt, openedAt)}, steps("s", 2), []llm.Message{compactContextCall()}) {
-		st.AddMessage(m)
-	}
+	earlier := seededCompactState(t, 3).GetMessages()
+	st := stateOpenedAt(t, len(earlier), earlier, []llm.Message{stamped(followUpPrompt, openedAt)}, steps("s", 2), []llm.Message{compactContextCall()})
 	provider := &compactCannedProvider{t: t, summary: "the earlier exchanges"}
 	ag := inTurnAgent(t, st, config.Compaction{}, provider)
-	ag.turnOpening = session.AnchorOf(stamped(followUpPrompt, openedAt))
 
 	res, err := ag.CompactSession(context.Background(), CompactOptions{Force: true, FromTool: true})
 	if err != nil {
@@ -223,11 +234,10 @@ func followUpTurn() []llm.Message {
 
 func TestInTurnFoldCarriesTheQueuedFollowUpsVerbatim(t *testing.T) {
 	msgs := followUpTurn()
-	st := stateOf(t, msgs)
+	st := stateOpenedAt(t, 0, msgs)
 	two := 2
 	provider := &compactCannedProvider{t: t, summary: "audited the first modules"}
 	ag := inTurnAgent(t, st, config.Compaction{InTurn: config.InTurn{KeepRecentSteps: &two}}, provider)
-	ag.turnOpening = session.AnchorOf(msgs[0])
 
 	res, err := ag.CompactSession(context.Background(), CompactOptions{InTurn: true})
 	if err != nil {
@@ -290,11 +300,10 @@ func TestInTurnPromptPrefixCapsThePromptAndItsFollowUpsTogether(t *testing.T) {
 func TestAutomaticSplitDoesNotCutAtAFollowUpOfTheTurnInProgress(t *testing.T) {
 	earlier := seededCompactState(t, 2).GetMessages()
 	turn := concatMsgs([]llm.Message{stamped(followUpPrompt, openedAt)}, steps("a", 2), []llm.Message{stamped("Also keep the tests green.", queuedAt)}, steps("b", 2))
-	st := stateOf(t, earlier, turn)
+	st := stateOpenedAt(t, len(earlier), earlier, turn)
 	keep := 1
 	provider := &compactCannedProvider{t: t, summary: "the two earlier exchanges"}
 	ag := inTurnAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
-	ag.turnOpening = session.AnchorOf(turn[0])
 
 	res, err := ag.CompactSession(context.Background(), CompactOptions{})
 	if err != nil {
@@ -313,10 +322,9 @@ func TestAutomaticSplitDoesNotCutAtAFollowUpOfTheTurnInProgress(t *testing.T) {
 // split may fold: the follow-up is not a turn that ended before the prompt.
 func TestAutomaticSplitOfAOneTurnSessionWithAFollowUpHasNothingToFold(t *testing.T) {
 	turn := concatMsgs([]llm.Message{stamped(followUpPrompt, openedAt)}, steps("a", 2), []llm.Message{stamped("Also keep the tests green.", queuedAt)}, steps("b", 2))
-	st := stateOf(t, turn)
+	st := stateOpenedAt(t, 0, turn)
 	provider := &compactCannedProvider{t: t, summary: "must not be asked"}
 	ag := inTurnAgent(t, st, config.Compaction{}, provider)
-	ag.turnOpening = session.AnchorOf(turn[0])
 
 	_, err := ag.CompactSession(context.Background(), CompactOptions{})
 	if !errors.Is(err, ErrNothingToCompact) {
@@ -327,18 +335,17 @@ func TestAutomaticSplitOfAOneTurnSessionWithAFollowUpHasNothingToFold(t *testing
 	}
 }
 
-// The record is a message identity, not a position: a regular compaction of the
-// turns before the prompt inserts a row in front of it, and the next fold of the
-// turn still finds the prompt, not the follow-up.
+// The session keeps the record in step with the rows a compaction inserts: a
+// regular compaction of the turns before the prompt puts a row in front of it,
+// and the next fold of the turn still finds the prompt, not the follow-up.
 func TestRecordedPromptSurvivesARegularCompactionBeforeIt(t *testing.T) {
 	earlier := seededCompactState(t, 2).GetMessages()
 	turn := concatMsgs([]llm.Message{stamped(followUpPrompt, openedAt)}, steps("a", 3), []llm.Message{stamped("Also keep the tests green.", queuedAt)}, steps("b", 3))
-	st := stateOf(t, earlier, turn)
+	st := stateOpenedAt(t, len(earlier), earlier, turn)
 	keep := 1
 	two := 2
 	provider := &compactCannedProvider{t: t, summary: "summary"}
 	ag := inTurnAgent(t, st, config.Compaction{KeepRecentTurns: &keep, InTurn: config.InTurn{KeepRecentSteps: &two}}, provider)
-	ag.turnOpening = session.AnchorOf(turn[0])
 
 	if _, err := ag.CompactSession(context.Background(), CompactOptions{}); err != nil {
 		t.Fatal(err)
@@ -386,11 +393,10 @@ func TestCompactContextCarriesTheQueuedFollowUpsOfItsHead(t *testing.T) {
 		[]llm.Message{stamped("And leave the docs alone.", laterQueuedAt)}, steps("c", 1),
 		[]llm.Message{compactContextCall()},
 	)
-	st := stateOf(t, msgs)
+	st := stateOpenedAt(t, 0, msgs)
 	one := 1
 	provider := &compactCannedProvider{t: t, summary: "summary"}
 	ag := inTurnAgent(t, st, config.Compaction{KeepRecentTurns: &one}, provider)
-	ag.turnOpening = session.AnchorOf(msgs[0])
 
 	if _, err := ag.CompactSession(context.Background(), CompactOptions{Force: true, FromTool: true}); err != nil {
 		t.Fatal(err)

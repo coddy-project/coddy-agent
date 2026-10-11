@@ -101,7 +101,7 @@ func TestGainCheckCountsTheSummaryTheWindowOpensWith(t *testing.T) {
 	build := func(t *testing.T, summary string) *session.State {
 		t.Helper()
 		row := session.NewInTurnCompactionSummaryMessage(session.TurnSourceUser, prompt, summary, "m")
-		return stateOf(t, []llm.Message{stamped(prompt, openedAt)}, steps("a", 4), []llm.Message{row}, steps("b", 3))
+		return stateOpenedAt(t, 0, []llm.Message{stamped(prompt, openedAt)}, steps("a", 4), []llm.Message{row}, steps("b", 3))
 	}
 	// 9500 of overhead; the fold's request is the overhead, the prefix, the summary
 	// and the latest step. A 12000-character summary is about 4000 tokens.
@@ -111,7 +111,6 @@ func TestGainCheckCountsTheSummaryTheWindowOpensWith(t *testing.T) {
 		st := build(t, longSummary)
 		provider := &compactCannedProvider{t: t, summary: "must not be asked"}
 		ag, logs := windowAgent(t, st, config.Compaction{}, provider, 16000, 9500, 4500)
-		ag.turnOpening = session.AnchorOf(st.GetMessages()[0])
 
 		if ag.maybeAutoCompact(context.Background()) {
 			t.Fatal("the fold ran although the next summary alone would fill the window")
@@ -125,7 +124,6 @@ func TestGainCheckCountsTheSummaryTheWindowOpensWith(t *testing.T) {
 		st := build(t, "short")
 		provider := &compactCannedProvider{t: t, summary: "audited"}
 		ag, logs := windowAgent(t, st, config.Compaction{}, provider, 16000, 9500, 4500)
-		ag.turnOpening = session.AnchorOf(st.GetMessages()[0])
 
 		if !ag.maybeAutoCompact(context.Background()) {
 			t.Fatalf("the fold was skipped:\n%s", logs)

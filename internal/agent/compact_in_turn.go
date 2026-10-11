@@ -225,7 +225,7 @@ func (a *Agent) promptShareLimit(limitTokens int) int {
 // opening message - the user, the goal supervisor or a finished background task -
 // which the row says in front of its summary (session.TurnSourceOf).
 func (a *Agent) inTurnPrefix(msgs []llm.Message, split, limit int) (prefix string, source session.TurnSource, ok bool) {
-	open, found := session.OpeningPromptIndex(msgs, a.turnOpening)
+	open, found := session.OpeningPromptIndex(msgs, a.state.TurnAnchor())
 	if !found || open >= split || strings.TrimSpace(msgs[open].Content) == "" {
 		return "", session.TurnSourceUser, false
 	}
@@ -302,7 +302,7 @@ func (e *foldFutileError) Unwrap() error { return ErrNothingToCompact }
 // the trigger is futile, so that is what is refused. The recovery from a refused
 // request does not come here: it runs once and aims at the refusal's limit.
 func (a *Agent) checkFoldGain(msgs []llm.Message, visibleStart int, projected []llm.Message, limit int) error {
-	floor, ok := session.TurnStepSplitIndex(msgs, 1, a.turnOpening)
+	floor, ok := session.TurnStepSplitIndex(msgs, 1, a.state.TurnAnchor())
 	if !ok {
 		return nil
 	}
@@ -360,7 +360,7 @@ func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, visibleStart
 	choice, err := chooseInTurnSplit(inTurnSplitRequest{
 		msgs:          msgs,
 		visibleStart:  visibleStart,
-		anchor:        a.turnOpening,
+		anchor:        a.state.TurnAnchor(),
 		projected:     projected,
 		keepSteps:     comp.InTurn.EffectiveKeepRecentSteps(),
 		recovery:      opts.Recovery,

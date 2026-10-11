@@ -103,20 +103,25 @@ func (t TurnSource) inTurnPreamble() string {
 const StopHookPrefix = "[Stop hook] "
 
 // TurnAnchor names the user message a turn opened with: the message the agent
-// appended when the turn started. It is known by what it says and when it was
-// written, not by its place in the transcript, because a compaction inserts rows
-// before it. The zero value is "no record" (a turn resumed after a permission
-// answer, a test that calls the compaction directly), and the functions below
-// then fall back to the last user message that is not a Stop-hook follow-up.
+// appended when the turn started. It is known by its index in the transcript,
+// which the State keeps in step with the rows a compaction inserts in front of
+// it (State.TurnAnchor, InsertCompactionSummary). An earlier version knew it by
+// its text and the second it was written in, which a follow-up queued within that
+// second with the same words could not be told apart from. The zero value is "no
+// record" (the process restarted since the turn began, a test that calls the
+// compaction directly), and the functions below then fall back to the last user
+// message that is not a Stop-hook follow-up.
 type TurnAnchor struct {
-	content   string
-	createdAt string
-	set       bool
+	idx int
+	set bool
 }
 
-// AnchorOf records m, the message a turn opens with.
-func AnchorOf(m llm.Message) TurnAnchor {
-	return TurnAnchor{content: m.Content, createdAt: m.CreatedAt, set: true}
+// AnchorAt records i, the index in the transcript of the message a turn opens
+// with. The functions that take an anchor check that the message there is still a
+// real user message, so an index that has gone stale falls back instead of
+// naming something else.
+func AnchorAt(i int) TurnAnchor {
+	return TurnAnchor{idx: i, set: true}
 }
 
 // isRealUser reports a user-role message that is not a compaction summary row.
@@ -125,9 +130,9 @@ func isRealUser(m llm.Message) bool {
 }
 
 // OpeningPromptIndex returns the absolute index in msgs of the message the turn
-// in progress opened with, found by scanning back for the real user message the
-// anchor describes - a woken turn's or a goal turn's first message counts, it is
-// that turn's request. Without a record (or when nothing matches it) the opening
+// in progress opened with: the one the anchor names when it names a real user
+// message - a woken turn's or a goal turn's first message counts, it is that
+// turn's request. Without a record (or when it names anything else) the opening
 // prompt is the last real user message that is not a Stop-hook follow-up; a
 // follow-up the user queued is indistinguishable from the prompt then, which is
 // the one case the record exists for. ok is false when there is no such message.
@@ -135,12 +140,8 @@ func isRealUser(m llm.Message) bool {
 // The user messages after the opening prompt are follow-ups: they belong to the
 // turn and never start a turn of their own.
 func OpeningPromptIndex(msgs []llm.Message, anchor TurnAnchor) (int, bool) {
-	if anchor.set {
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if isRealUser(msgs[i]) && msgs[i].Content == anchor.content && msgs[i].CreatedAt == anchor.createdAt {
-				return i, true
-			}
-		}
+	if anchor.set && anchor.idx >= 0 && anchor.idx < len(msgs) && isRealUser(msgs[anchor.idx]) {
+		return anchor.idx, true
 	}
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if isRealUser(msgs[i]) && !strings.HasPrefix(msgs[i].Content, StopHookPrefix) {
@@ -428,6 +429,11 @@ func (s *State) InsertCompactionSummary(idx int, msg llm.Message) {
 		idx = len(s.Messages)
 	}
 	s.restampUILog(idx)
+	// A row in front of the message the turn opened with, or in its place, moves
+	// that message down by one; a row after it leaves it where it is.
+	if s.turnOpeningSet && idx <= s.turnOpeningAt {
+		s.turnOpeningAt++
+	}
 	s.Messages = append(s.Messages[:idx], append([]llm.Message{msg}, s.Messages[idx:]...)...)
 	// An insert is an append only when it lands at the end; anywhere else it
 	// rewrites the tail, and persistence must encode the history afresh.

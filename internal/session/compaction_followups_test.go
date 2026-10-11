@@ -39,7 +39,7 @@ func followUpTurn() []llm.Message {
 
 func TestOpeningPromptIndex(t *testing.T) {
 	turn := followUpTurn()
-	opening := AnchorOf(turn[2])
+	opening := AnchorAt(2)
 
 	t.Run("the recorded prompt is found after queued and Stop-hook follow-ups", func(t *testing.T) {
 		if idx, ok := OpeningPromptIndex(turn, opening); !ok || idx != 2 {
@@ -47,16 +47,9 @@ func TestOpeningPromptIndex(t *testing.T) {
 		}
 	})
 
-	t.Run("the record survives a compaction inserting rows before the prompt", func(t *testing.T) {
-		msgs := concatMessages(turn[:2], []llm.Message{NewCompactionSummaryMessage("everything before", "m")}, turn[2:])
-		if idx, ok := OpeningPromptIndex(msgs, opening); !ok || idx != 3 {
-			t.Fatalf("idx = %d ok = %v, want 3: the prompt moved down by the inserted row", idx, ok)
-		}
-	})
-
 	t.Run("without a record it is the last user message that is not a Stop-hook follow-up", func(t *testing.T) {
 		// The queued follow-up cannot be told from the prompt: this is the
-		// fallback's known limit, and the reason the agent keeps a record.
+		// fallback's known limit, and the reason the session keeps a record.
 		if idx, ok := OpeningPromptIndex(turn, TurnAnchor{}); !ok || idx != 5 {
 			t.Fatalf("idx = %d ok = %v, want 5 (the queued follow-up)", idx, ok)
 		}
@@ -67,22 +60,38 @@ func TestOpeningPromptIndex(t *testing.T) {
 		}
 	})
 
-	t.Run("a record that matches nothing falls back", func(t *testing.T) {
-		ghost := AnchorOf(at(userMsg("not in this transcript"), openedAt))
-		if idx, ok := OpeningPromptIndex(turn, ghost); !ok || idx != 5 {
-			t.Fatalf("idx = %d ok = %v, want the fallback 5", idx, ok)
+	t.Run("a record that names no real user message falls back", func(t *testing.T) {
+		withRow := concatMessages(turn[:2], []llm.Message{NewCompactionSummaryMessage("everything before", "m")}, turn[2:])
+		for _, tc := range []struct {
+			name   string
+			msgs   []llm.Message
+			anchor TurnAnchor
+			want   int
+		}{
+			{"an assistant message", turn, AnchorAt(3), 5},
+			{"a summary row", withRow, AnchorAt(2), 6},
+			{"past the history", turn, AnchorAt(len(turn)), 5},
+			{"before the history", turn, AnchorAt(-1), 5},
+		} {
+			if idx, ok := OpeningPromptIndex(tc.msgs, tc.anchor); !ok || idx != tc.want {
+				t.Errorf("%s: idx = %d ok = %v, want the fallback %d", tc.name, idx, ok, tc.want)
+			}
 		}
 	})
 
-	t.Run("the same words at another time are another turn", func(t *testing.T) {
+	t.Run("the same words in the same second are told apart by their place", func(t *testing.T) {
+		// A follow-up that repeats the prompt word for word, queued within the
+		// second the prompt was written in, cannot be told from it by text and time.
 		msgs := concatMessages(
-			[]llm.Message{at(userMsg("continue"), "2026-10-11T09:00:00Z"), assistantMsg("a")},
-			[]llm.Message{at(userMsg("continue"), "2026-10-11T09:30:00Z"), assistantMsg("b")},
+			[]llm.Message{userMsg("older"), assistantMsg("a")},
 			[]llm.Message{at(userMsg("continue"), openedAt)}, stepOf("c1"),
-			[]llm.Message{at(userMsg("continue"), queuedAt)}, stepOf("c2"),
+			[]llm.Message{at(userMsg("continue"), openedAt)}, stepOf("c2"),
 		)
-		if idx, ok := OpeningPromptIndex(msgs, AnchorOf(msgs[4])); !ok || idx != 4 {
-			t.Fatalf("idx = %d ok = %v, want 4", idx, ok)
+		if idx, ok := OpeningPromptIndex(msgs, AnchorAt(2)); !ok || idx != 2 {
+			t.Fatalf("idx = %d ok = %v, want 2: the prompt, not the follow-up with the same text and time", idx, ok)
+		}
+		if idx, ok := OpeningPromptIndex(msgs, TurnAnchor{}); !ok || idx != 5 {
+			t.Fatalf("fixture: without a record the fallback should land on the follow-up, got %d ok = %v", idx, ok)
 		}
 	})
 
@@ -90,7 +99,7 @@ func TestOpeningPromptIndex(t *testing.T) {
 		wake := at(userMsg("background task finished"), openedAt)
 		wake.BackgroundWake = &llm.BackgroundWake{}
 		msgs := concatMessages([]llm.Message{userMsg("old"), assistantMsg("a"), wake}, stepOf("c1"))
-		if idx, ok := OpeningPromptIndex(msgs, AnchorOf(wake)); !ok || idx != 2 {
+		if idx, ok := OpeningPromptIndex(msgs, AnchorAt(2)); !ok || idx != 2 {
 			t.Fatalf("idx = %d ok = %v, want 2", idx, ok)
 		}
 	})
@@ -100,12 +109,15 @@ func TestOpeningPromptIndex(t *testing.T) {
 		if idx, ok := OpeningPromptIndex(msgs, TurnAnchor{}); ok {
 			t.Fatalf("idx = %d for a history with no user message", idx)
 		}
+		if idx, ok := OpeningPromptIndex(msgs, AnchorAt(0)); ok {
+			t.Fatalf("idx = %d for a record naming a summary row", idx)
+		}
 	})
 }
 
 func TestTurnPromptIgnoresFollowUps(t *testing.T) {
 	turn := followUpTurn()
-	got, ok := TurnPrompt(turn, AnchorOf(turn[2]))
+	got, ok := TurnPrompt(turn, AnchorAt(2))
 	if !ok || got != "fix the build" {
 		t.Fatalf("got %q ok = %v, want the opening prompt, not a follow-up", got, ok)
 	}
@@ -220,7 +232,7 @@ func TestCompactionSplitIndexUpToIgnoresFollowUps(t *testing.T) {
 // middle of the turn does not make the steps before it vanish from the count.
 func TestTurnStepsCountFromTheOpeningPrompt(t *testing.T) {
 	turn := followUpTurn()
-	opening := AnchorOf(turn[2])
+	opening := AnchorAt(2)
 
 	if got := TurnStepCount(turn, opening); got != 3 {
 		t.Fatalf("steps = %d from the recorded prompt, want 3", got)
