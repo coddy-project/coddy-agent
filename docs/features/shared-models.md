@@ -25,11 +25,30 @@ The remote can be reached directly (`https://host:12345`) or through a [swarm re
 
 ## Quick start
 
-On the remote, share a model and give borrowers a token of their own. The token goes into the environment, not the file:
+Follow these steps in order when one Coddy should use a model from another host. The example shares `openai/gpt-5.6-terra` from `workstation.example` under the public alias `terra`. Replace the host name, provider and model id with your own values.
+
+### 1. Prepare the remote host
+
+The remote needs a Coddy binary built with the `http` tag and an upstream provider that can already answer a local request. Give every borrower a distinct high-entropy shared-model token. Keep those values in the service environment or a secrets manager, not in `config.yaml`:
+
+```bash
+export CODDY_SHARED_MODELS_TOKEN='replace-with-a-new-secret'
+export CODDY_ADMIN_TOKEN='replace-with-a-separate-admin-secret'
+export OPENAI_API_KEY='replace-with-the-upstream-provider-key'
+```
+
+`CODDY_SHARED_MODELS_TOKEN` is for borrowers only. Do not reuse it as `CODDY_ADMIN_TOKEN`, an HTTP main token, or a swarm token.
+
+### 2. Share an alias on the remote
+
+Add a shared-model token and an alias to the remote configuration. `shared_as` is the only model name that reaches the borrower: do not give it the upstream `provider/model` selector.
 
 ```yaml
 httpserver:
   host: 0.0.0.0
+  auth_token: "${CODDY_ADMIN_TOKEN}"
+  tls:
+    auto: true
   shared_models:
     tokens:
       - "${CODDY_SHARED_MODELS_TOKEN}"
@@ -44,7 +63,28 @@ models:
     shared_as: terra
 ```
 
-Bind the remote to an address the borrowers can reach, put TLS on the port (a reverse proxy in front, or [`httpserver.tls`](#tls-on-the-listener) on the listener itself; without either `coddy serve` speaks plain HTTP), start `coddy serve`, and check what it offers:
+`httpserver.auth_token` is optional for model sharing, but it keeps the remote web UI and the rest of its protected API available to its operator. A host with only shared-model tokens deliberately closes every protected route except the shared-model routes.
+
+For a `codex`, `devin`, or subscription-backed `neuraldeep` row, also set `shared_subscription_ack: true` beside `shared_as` only after you have confirmed that the provider terms allow this use.
+
+![The Sharing block of a model row in Settings, with the acknowledgement that a subscription login asks for](../assets/shared-models/settings-sharing-dark-1280.png)
+
+*On the remote, the Sharing block assigns the alias. A subscription-backed row additionally requires an explicit acknowledgement.*
+
+### 3. Put the remote behind TLS and start it
+
+Expose an `https://` address that borrowers can reach. The `tls.auto: true` example above makes `coddy serve` use Coddy's built-in certificates; borrowers must trust that authority as described in [TLS on the listener](#tls-on-the-listener). A reverse proxy or a certificate from your own authority is equally valid. Do not expose a shared-model token over plain HTTP outside loopback.
+
+Validate the remote configuration before starting the service, then start it:
+
+```bash
+coddy serve -t
+coddy serve
+```
+
+### 4. Verify the remote listing
+
+From a machine that can reach the remote, ask for the shared listing with the shared-model token:
 
 ```bash
 curl -s -H "Authorization: Bearer $CODDY_SHARED_MODELS_TOKEN" https://workstation.example:12345/coddy/llm/models
@@ -54,7 +94,11 @@ curl -s -H "Authorization: Bearer $CODDY_SHARED_MODELS_TOKEN" https://workstatio
 {"protocol":1,"data":[{"id":"terra","revision":"k3...","max_context_tokens":128000,"multimodal":false,"allow_reasoning_off":false}]}
 ```
 
-On the local Coddy, add a provider of type `coddy` and a model named `<provider>/<alias>`:
+The `id` is the alias that the local configuration must use. A `401` means the token is missing or wrong; an empty `data` list means that no model has `shared_as`.
+
+### 5. Add the remote as a provider on the local Coddy
+
+On the borrowing machine, put a copy of the shared-model token in its environment. Add a provider of type `coddy`; `api_base` is the remote origin, without `/coddy/llm/...`:
 
 ```yaml
 providers:
@@ -62,13 +106,37 @@ providers:
     type: coddy
     api_base: "https://workstation.example:12345"
     api_key: "${WORKSTATION_SHARED_TOKEN}"
+    tls_auto: true # only when the remote uses httpserver.tls.auto
 
 models:
   - model: workstation/terra
-    max_tokens: 8192
 ```
 
-`coddy --dry-run` should now report `providers[workstation]` as a coddy remote that shares the model and `models[workstation/terra]` as shared by that provider. Pick the model with `/model workstation/terra` (or `agent.model`) and use Coddy as usual. The models of a `coddy` provider can also be picked from the remote's listing in Settings.
+In the web UI, open **Settings → LLM providers**, add a provider, choose type `coddy`, then fill in its name, **API base** and **API key**. When the remote uses `httpserver.tls.auto`, enable the provider's built-in TLS option; otherwise configure its `ca_file` for your private authority or rely on the system roots for a public certificate. Save all. Do not use the remote's main token: a shared-model token limits this provider to the model-sharing routes.
+
+### 6. Add the local logical model
+
+Open **Settings → Logical models**, add a model, choose the provider from the preceding step and enter the remote alias (`terra`) as **Model id**. The resulting local model name is `workstation/terra`. It is not `openai/gpt-5.6-terra`: that upstream selector stays private to the remote.
+
+Leave `max_context_tokens`, `reasoning_levels`, `reasoning_default` and `allow_reasoning_off` unset unless you intentionally want a local override. The remote listing supplies the context window and reasoning capabilities. `multimodal` is different: it is a local switch. Turn it on only when the local Coddy may send images to this remote.
+
+![The model row of a coddy provider: the remote alias and local image-input switch](../assets/shared-models/settings-tristate-dark-1280.png)
+
+*On the local Coddy, `lab` is the provider name and `terra` is the remote alias. `Multimodal` is a local choice; reasoning settings may follow the remote listing.*
+
+### 7. Verify the local connection
+
+Run the active probe from the borrowing machine:
+
+```bash
+coddy --dry-run
+```
+
+It must report that `providers[workstation]` is a Coddy remote and that `models[workstation/terra]` is shared by it. The probe checks the address, TLS path, token and alias in one request. Resolve every error before selecting the model; [Checking the setup](#checking-the-setup) and [Troubleshooting](#troubleshooting) describe each finding.
+
+### 8. Select the model
+
+Choose `workstation/terra` in the web UI's model menu, set `agent.model: workstation/terra` for the default, or run `/model workstation/terra` in the console. The local Coddy still owns the session, system prompt, tools, rules, files and agent loop. Only model requests travel to the remote host, so treat that host as able to read everything the local Coddy sends to the model.
 
 ## Sharing a model (the remote)
 

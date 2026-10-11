@@ -25,11 +25,30 @@ The remote can be reached directly ( `https://host:12345` ) or through a [swarm 
 
 ## Быстрый старт
 
-On the remote, share a model and give borrowers a token of their own. The token goes into the environment, not the file:
+Выполните эти шаги по порядку, если один Coddy должен использовать модель другого хоста. В примере узел `workstation.example` отдаёт `openai/gpt-5.6-terra` под открытым псевдонимом `terra`. Замените имя хоста, провайдер и идентификатор модели своими значениями.
+
+### 1. Подготовьте удалённый хост
+
+На удалённом хосте нужен бинарник Coddy с тегом сборки `http` и уже работающий провайдер, который отвечает на локальный запрос. Создайте отдельный криптографически стойкий токен общей модели для каждого использующего её узла. Храните значения в окружении сервиса или менеджере секретов, а не в `config.yaml`:
+
+```bash
+export CODDY_SHARED_MODELS_TOKEN='replace-with-a-new-secret'
+export CODDY_ADMIN_TOKEN='replace-with-a-separate-admin-secret'
+export OPENAI_API_KEY='replace-with-the-upstream-provider-key'
+```
+
+`CODDY_SHARED_MODELS_TOKEN` предназначен только для использующих модель узлов. Не используйте его как `CODDY_ADMIN_TOKEN`, основной HTTP-токен или swarm-токен.
+
+### 2. Откройте псевдоним на удалённом узле
+
+Добавьте токен общей модели и псевдоним в конфигурацию удалённого узла. `shared_as` - единственное имя модели, которое увидит использующий её Coddy. Не указывайте здесь селектор вышестоящей модели в виде `provider/model`.
 
 ```yaml
 httpserver:
   host: 0.0.0.0
+  auth_token: "${CODDY_ADMIN_TOKEN}"
+  tls:
+    auto: true
   shared_models:
     tokens:
       - "${CODDY_SHARED_MODELS_TOKEN}"
@@ -44,7 +63,28 @@ models:
     shared_as: terra
 ```
 
-Bind the remote to an address the borrowers can reach, put TLS on the port (a reverse proxy in front, or [ `httpserver.tls`  ](#tls-на-слушателе)  on the listener itself; without either  `coddy serve`  speaks plain HTTP), start  `coddy serve` , and check what it offers:
+`httpserver.auth_token` не обязателен для общей модели, но оставляет оператору доступ к веб-интерфейсу удалённого узла и остальному защищённому API. Хост только с токенами общих моделей намеренно закрывает все защищённые маршруты, кроме маршрутов общей модели.
+
+Для строк `codex`, `devin` или `neuraldeep` с подписочной учётной записью добавьте рядом с `shared_as` также `shared_subscription_ack: true`, но только после проверки, что условия провайдера допускают такое использование.
+
+![Блок Sharing строки модели в Settings с обязательным подтверждением для входа по подписке](../../assets/shared-models/settings-sharing-dark-1280.png)
+
+*На удалённом узле блок Sharing задаёт псевдоним. Для строки с подписочной учётной записью нужно явное подтверждение.*
+
+### 3. Защитите удалённый узел TLS и запустите его
+
+Опубликуйте адрес `https://`, доступный использующим модель узлам. В примере выше `tls.auto: true` включает встроенные сертификаты Coddy; использующий модель хост должен доверять этому центру сертификации, как описано в разделе [TLS на слушателе](#tls-на-слушателе). Можно вместо этого поставить reverse proxy или сертификат собственного центра сертификации. Не передавайте токен общей модели по обычному HTTP за пределами loopback.
+
+Проверьте конфигурацию до запуска сервиса, затем запустите его:
+
+```bash
+coddy serve -t
+coddy serve
+```
+
+### 4. Проверьте список на удалённом узле
+
+С машины, которая видит удалённый узел, запросите список общих моделей, передав токен общей модели:
 
 ```bash
 curl -s -H "Authorization: Bearer $CODDY_SHARED_MODELS_TOKEN" https://workstation.example:12345/coddy/llm/models
@@ -54,7 +94,11 @@ curl -s -H "Authorization: Bearer $CODDY_SHARED_MODELS_TOKEN" https://workstatio
 {"protocol":1,"data":[{"id":"terra","revision":"k3...","max_context_tokens":128000,"multimodal":false,"allow_reasoning_off":false}]}
 ```
 
-On the local Coddy, add a provider of type  `coddy`  and a model named  `<provider>/<alias>` :
+Поле `id` содержит псевдоним, который должен использовать локальный конфиг. `401` означает, что токен отсутствует или неверен; пустой список `data` означает, что ни у одной модели нет `shared_as`.
+
+### 5. Добавьте удалённый узел как провайдера локального Coddy
+
+На машине, использующей модель, положите копию токена общей модели в окружение. Добавьте провайдера типа `coddy`; `api_base` содержит корневой адрес удалённого узла без `/coddy/llm/...`:
 
 ```yaml
 providers:
@@ -62,13 +106,37 @@ providers:
     type: coddy
     api_base: "https://workstation.example:12345"
     api_key: "${WORKSTATION_SHARED_TOKEN}"
+    tls_auto: true # only when the remote uses httpserver.tls.auto
 
 models:
   - model: workstation/terra
-    max_tokens: 8192
 ```
 
- `coddy --dry-run`  should now report  `providers[workstation]`  as a coddy remote that shares the model and  `models[workstation/terra]`  as shared by that provider. Pick the model with  `/model workstation/terra`  (or  `agent.model` ) and use Coddy as usual. The models of a  `coddy`  provider can also be picked from the remote's listing in Settings.
+В веб-интерфейсе откройте **Settings → LLM providers**, добавьте провайдера, выберите тип `coddy` и заполните его имя, **API base** и **API key**. Если удалённый узел использует `httpserver.tls.auto`, включите у провайдера встроенный TLS; в остальных случаях укажите его `ca_file` для частного центра сертификации или положитесь на системные корни для публичного сертификата. Сохраните все изменения. Не используйте основной токен удалённого узла: токен общей модели ограничивает этого провайдера маршрутами общей модели.
+
+### 6. Добавьте локальную логическую модель
+
+Откройте **Settings → Logical models**, добавьте модель, выберите провайдера из предыдущего шага и введите удалённый псевдоним (`terra`) в поле **Model id**. В результате локальная модель будет называться `workstation/terra`. Это не `openai/gpt-5.6-terra`: селектор вышестоящей модели остаётся закрытой деталью удалённого узла.
+
+Не задавайте `max_context_tokens`, `reasoning_levels`, `reasoning_default` и `allow_reasoning_off`, если сознательно не хотите локальное переопределение. Окно контекста и возможности рассуждений приходят из удалённого списка. `multimodal` устроен иначе: это локальный переключатель. Включайте его только тогда, когда локальный Coddy вправе отправлять изображения на этот удалённый узел.
+
+![Строка модели провайдера coddy с удалённым псевдонимом и локальным переключателем изображений](../../assets/shared-models/settings-tristate-dark-1280.png)
+
+*На локальном Coddy `lab` - имя провайдера, а `terra` - удалённый псевдоним. `Multimodal` выбирается локально, а параметры рассуждений могут следовать списку удалённой стороны.*
+
+### 7. Проверьте локальное подключение
+
+Запустите активную проверку на машине, использующей модель:
+
+```bash
+coddy --dry-run
+```
+
+Команда должна сообщить, что `providers[workstation]` - удалённый провайдер Coddy, а `models[workstation/terra]` - его общая модель. Проверка одним запросом тестирует адрес, TLS-путь, токен и псевдоним. Исправьте каждую ошибку до выбора модели; подробности есть в разделах [Проверка настройки](#проверка-настройки) и [Устранение неполадок](#устранение-неполадок).
+
+### 8. Выберите модель
+
+Выберите `workstation/terra` в меню моделей веб-интерфейса, укажите `agent.model: workstation/terra` как значение по умолчанию или выполните `/model workstation/terra` в консоли. Локальный Coddy по-прежнему хранит сессию, системный промпт, инструменты, правила, файлы и агентный цикл. На удалённый узел уходят только запросы к модели, поэтому считайте, что он может прочитать всё, что локальный Coddy передаёт модели.
 
 ## Как открыть доступ к модели (удалённый Coddy)
 
@@ -456,4 +524,4 @@ CODDY_TEST_NETNS=1 go test -tags=http ./external/httpserver -run VanishedPeer -v
 CODDY_TEST_NETNS=1 go test -tags=http,swarm ./external/swarm -run KernelVanishedClient -v
 ```
 
-<!-- docsgen:source sha256=29fd65d415e3fe04 -->
+<!-- docsgen:source sha256=80e59c67607dc0e4 -->
