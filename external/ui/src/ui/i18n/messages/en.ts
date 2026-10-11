@@ -692,6 +692,16 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.compaction.model.label": "Summarizer model",
   "settings.schema.compaction.model.desc":
     "Optional models[].model for the summarization call; empty uses the session model.",
+  "settings.schema.compaction.in_turn.label": "In-turn compaction",
+  "settings.schema.compaction.in_turn.desc":
+    "Fold the earlier steps of the turn being answered when the context reaches the compaction threshold and there is no earlier turn to fold, and compact and ask again once when the provider refuses a request as larger than its context window. The prompt being answered stays verbatim at the start of the summary row. Does nothing while automatic compaction (auto_enable) is off.",
+  "settings.schema.compaction.in_turn.enable.label": "Enabled",
+  "settings.schema.compaction.in_turn.enable.desc":
+    "Master switch for the in-turn fold and the recovery from a refused request. Defaults to true; false restores the behavior before they existed. Has no effect while automatic compaction (auto_enable) is off: both need the automatic trigger.",
+  "settings.schema.compaction.in_turn.keep_recent_steps.label":
+    "Keep recent steps",
+  "settings.schema.compaction.in_turn.keep_recent_steps.desc":
+    "The largest number of the turn's latest steps the fold leaves verbatim (default 4, at least 1; a step is one assistant message with all its parallel tool results). The fold keeps fewer when the kept steps would not leave the next request room under the threshold.",
   "settings.schema.compaction.result_eviction.label": "Tool result eviction",
   "settings.schema.compaction.result_eviction.desc":
     "Collapse superseded tool results (read pages, grep dumps, and the listings of glob, print_tree, websearch and webfetch) to placeholders when building the LLM request; the persisted transcript is untouched. Read and grep results survive when marked (keep_result / keep:true) or among the most recent; listings survive within the latest steps.",

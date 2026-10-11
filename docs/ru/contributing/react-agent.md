@@ -145,7 +145,13 @@ Already on disk:
 откладывает проекцию, пока оценка контекста не достигнет этой доли **`max_context_tokens`** модели;
 ниже порога история уходит ровно в том виде, в каком она уже есть у провайдера. Решение принимается
 по **необрезанным** сообщениям, поэтому обрезка не может вернуть оценку ниже отметки и заставить
-проекцию метаться между двумя формами. См.
+проекцию метаться между двумя формами. Запрос, который провайдер отклонил как слишком большой,
+открывает этот порог до конца хода (**`Agent.evictionForced`**): кэш, который порог защищает,
+теряет смысл, когда провайдер отказался читать префикс. Сворачивание внутри хода
+(**`compaction.in_turn`**) устроено по тому же компромиссу: оно переписывает историю только на
+пороге сжатия, а строка сводки, которую оно пишет (как и строка, которую вызов `compact_context`
+пишет посреди хода), начинается с промпта и уточнений, которые пользователь поставил в очередь,
+поэтому переписанный префикс по-прежнему открывается тем, о чём модель спросили. См.
 [compaction.md](../features/compaction.md).
 
 ### Как прочитать попадание в кэш
@@ -301,8 +307,22 @@ messages: [
      fresh allowance, with an LLM-facing nudge to continue when text was kept.
      At most **`maxProviderRecoveries`** (2) in a row; a successful call resets
      the count. Uses a normal **`max_turns`** iteration.
+   - **Overflow recovery.** A call the provider refused as larger than the
+     model's window (**`llm.IsContextOverflow`**) with nothing streamed yet
+     compacts the turn and runs the step again, once per step
+     (**`maxOverflowRecoveries`**; a successful call resets it): earlier turns
+     when a regular split fits the limit the refusal revealed, otherwise the
+     steps of the turn itself, behind the prompt (**`internal/agent/compact_in_turn.go`**).
+     It forces result eviction past its **`start_percent`** gate for the rest
+     of the turn (**`Agent.evictionForced`**), writes a **`notice`** row, and
+     uses a normal **`max_turns`** iteration. A second refusal of the same
+     step, a fold that fails or has nothing to fold, and
+     **`compaction.in_turn.enable: false`** (or no automatic compaction) end
+     the turn with **`contextOverflowError`**.
 
-   An explicit **`llm_retry_max: 0`** disables all of the above. The
+   An explicit **`llm_retry_max: 0`** disables all of the above except the
+   overflow recovery, which is a compaction and not a retry of the same
+   request. The
    `loop_guard`, Stop hooks, fallback models, and `wait_for_limit_reset` are
    independent policies, each governed by their own settings.
 
@@ -310,7 +330,8 @@ messages: [
    `msg="llm call finished"` with `provider_attempts` (total inner adapter
    calls including transport-layer retries), `transport_retries`, `call_reason`
    (one of `step`, `empty_reissue`, `empty_nudge`, `first_token_retry`,
-   `loop_guard`, `quota_reset_wait`, `stop_hook`, `queued_followup`), and
+   `loop_guard`, `quota_reset_wait`, `stop_hook`, `queued_followup`,
+   `context_overflow_recovery`), and
    `retries_remaining` (budget slots left after this call).
 
    Two guards bound a streamed call that stops answering. The first-token guard
@@ -475,4 +496,4 @@ messages: [
 - Слишком длинный контекст - старые сообщения сжимаются в сводку, работа продолжается со сводкой;
 - Отмена - все операции прерываются, возвращается причина остановки `cancelled`.
 
-<!-- docsgen:source sha256=379515b8976ef7c9 -->
+<!-- docsgen:source sha256=bd6862f6c27071fd -->

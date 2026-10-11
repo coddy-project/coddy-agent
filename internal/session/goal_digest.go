@@ -63,6 +63,21 @@ func buildGoalDigest(msgs []llm.Message, goal GoalState, implicit bool) string {
 			if m.CompactionSummary {
 				// Written by the worker's own model when the history was
 				// folded: its account of the work, not the operator's words.
+				// A row written inside a turn starts with the message the turn
+				// opened with (and the follow-ups sent during it) verbatim: the
+				// text of whoever wrote that message - the operator, the
+				// supervisor's own instruction or a background wake - labelled
+				// the way the message itself would be. Only what follows it is
+				// the worker's account. Each part is clipped on its own: a long
+				// request must not leave the summary out, nor the summary the
+				// request.
+				if prompt, summary, source, ok := SplitInTurnRow(m.Content); ok {
+					if text := strings.TrimSpace(UserMessageDisplayText(prompt)); text != "" {
+						steps = append(steps, source.digestLabel()+" "+clipRunes(text, goalDigestText))
+					}
+					steps = append(steps, "[summary of earlier steps of this request, written by the worker: claims, not evidence] "+clipRunes(strings.TrimSpace(summary), goalDigestText))
+					continue
+				}
 				steps = append(steps, "[summary of earlier turns, written by the worker: claims, not evidence] "+clipRunes(strings.TrimSpace(m.Content), goalDigestText))
 				continue
 			}
@@ -146,11 +161,26 @@ func buildGoalDigest(msgs []llm.Message, goal GoalState, implicit bool) string {
 	return b.String()
 }
 
+// digestLabel is the tag a step of the digest carries when it is the text of the
+// writer of a turn's opening message.
+func (t TurnSource) digestLabel() string {
+	switch t {
+	case TurnSourceSupervisor:
+		return "[supervisor]"
+	case TurnSourceBackground:
+		return "[background]"
+	}
+	return "[operator]"
+}
+
 // goalStartIndex is where the goal's turns begin in msgs.
 func goalStartIndex(msgs []llm.Message, goal GoalState, implicit bool) int {
 	if implicit {
+		// The latest request is the last message the operator typed. A summary
+		// row is user-role too, and one a fold inside the turn inserted after the
+		// prompt is no request: skipping it finds the prompt itself.
 		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Role == llm.RoleUser && msgs[i].GoalTurn == nil && msgs[i].BackgroundWake == nil {
+			if isRealUser(msgs[i]) && msgs[i].GoalTurn == nil && msgs[i].BackgroundWake == nil {
 				return i
 			}
 		}

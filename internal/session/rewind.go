@@ -140,6 +140,7 @@ func (s *State) TruncateMessagesBeforeUserN(n int, turnActive func() bool) (cutM
 	}
 	cutMsgs = append([]llm.Message(nil), s.Messages[idx:]...)
 	s.Messages = s.Messages[:idx]
+	s.forgetTurnOpening()
 	// UILog entries are stamped with CountUserTurns, which counts every
 	// user-role row including compaction summaries; the keep bound is the
 	// same count over the surviving prefix, not n.

@@ -927,6 +927,31 @@
           },
           "description": "Summarizer models tried in order when the one before them fails (models[].model ids). The session's own model is the last resort whether or not it is listed, so a compaction is not blocked by one unreachable summarizer."
         },
+        "in_turn": {
+          "type": "object",
+          "title": "In-turn compaction",
+          "description": "Folds the earlier steps of the turn being answered into a summary when the context reaches the compaction threshold and the window holds no earlier turn to fold, and, when the provider refuses a request as larger than its context window, compacts the turn once and asks again. The summary row starts with the prompt itself, verbatim; the latest steps stay as they were. enable: false restores the behavior before this section existed: such a turn is not folded and a refused request ends the turn. The section does nothing when compaction.auto_enable is false: the fold and the recovery both need the automatic trigger.",
+          "additionalProperties": false,
+          "properties": {
+            "enable": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "Master switch for the in-turn fold and for the recovery from a refused request. Defaults to true. Has no effect when compaction.auto_enable is false: the fold and the recovery both need the automatic trigger.",
+              "default": true
+            },
+            "keep_recent_steps": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "The largest number of the turn's latest steps the fold leaves verbatim. A step is one assistant message with every tool result that follows it, so ten parallel calls are one step. At least 1: the latest step always stays. A cap, not a promise: the fold aims the next request at half of the context share that triggers compaction (threshold_percent), and keeps fewer steps when the kept ones would not fit.",
+              "default": 4,
+              "minimum": 1
+            }
+          }
+        },
         "result_eviction": {
           "type": "object",
           "title": "Tool result eviction",

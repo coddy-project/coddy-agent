@@ -751,6 +751,14 @@ func UISchemaMap() map[string]interface{} {
 					"title":       "Fallback summarizer models",
 					"description": "Summarizer models tried in order when the one before them fails. The session's own model is the last resort whether or not it is listed here.",
 				},
+				"in_turn": objectSchema("In-turn compaction",
+					"Fold the earlier steps of the turn being answered when the context reaches the compaction threshold and there is no earlier turn to fold, and compact and ask again once when the provider refuses a request as larger than its context window. The prompt being answered stays verbatim at the start of the summary row. Does nothing while automatic compaction (auto_enable) is off.",
+					map[string]interface{}{
+						"enable":            boolProp("Enabled", "Master switch for the in-turn fold and the recovery from a refused request. Defaults to true; false restores the behavior before they existed. Has no effect while automatic compaction (auto_enable) is off: both need the automatic trigger."),
+						"keep_recent_steps": intProp("Keep recent steps", "The largest number of the turn's latest steps the fold leaves verbatim (default 4, at least 1; a step is one assistant message with all its parallel tool results). The fold keeps fewer when the kept steps would not leave the next request room under the threshold."),
+					},
+					[]string{"enable", "keep_recent_steps"},
+					nil),
 				// compaction.result_eviction.tools is left out of the form on purpose:
 				// an absent list (all four listing tools) and an empty one (none)
 				// would both be drawn as an empty list, so a person adding one name
@@ -770,7 +778,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"enable", "keep_recent", "keep_recent_steps", "min_result_bytes", "start_percent"},
 					nil),
 			},
-			[]string{"enable", "auto_enable", "threshold_percent", "keep_recent_turns", "model", "result_eviction"},
+			[]string{"enable", "auto_enable", "threshold_percent", "keep_recent_turns", "model", "in_turn", "result_eviction"},
 			nil),
 		"gateways": objectSchema("Messenger gateways", "Telegram and Pachca bots (require the gateway build tag, or gateway.telegram / gateway.pachca for one of them).",
 			map[string]interface{}{

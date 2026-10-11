@@ -268,6 +268,7 @@ func (s *State) restoreRewoundTail(baseLen int, tail []llm.Message, tailLog []UI
 	// used), and the rows the edited turn earned go away with it.
 	uilogBound := CountUserTurns(s.Messages[:baseLen])
 	s.Messages = append(append([]llm.Message(nil), s.Messages[:baseLen]...), tail...)
+	s.forgetTurnOpening()
 	kept := s.UILog[:0]
 	for _, e := range s.UILog {
 		if e.UserTurnIndex <= uilogBound {

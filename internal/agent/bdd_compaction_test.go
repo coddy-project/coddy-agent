@@ -177,6 +177,26 @@ func (s *compactionFeatureState) summaryInsertedIntoTranscript() error {
 	return fmt.Errorf("no compaction summary row in transcript")
 }
 
+// summaryRowBeginsWithThePrompt checks the row a compact_context call wrote in
+// the first turn of a session: the head it folded held the prompt being answered,
+// so the row starts with it, verbatim, and the model keeps knowing what it was
+// asked (issue #490).
+func (s *compactionFeatureState) summaryRowBeginsWithThePrompt() error {
+	for _, m := range s.st.GetMessages() {
+		if !m.CompactionSummary {
+			continue
+		}
+		if !strings.HasPrefix(m.Content, "probe prompt\n\n") {
+			return fmt.Errorf("the summary row does not begin with the prompt: %q", firstChars(m.Content, 120))
+		}
+		if n := strings.Count(m.Content, "probe prompt"); n != 1 {
+			return fmt.Errorf("the summary row holds the prompt %d times, want once", n)
+		}
+		return nil
+	}
+	return fmt.Errorf("no compaction summary row in transcript")
+}
+
 func (s *compactionFeatureState) transcriptContainsAllExchanges() error {
 	joined := transcriptText(s.st.GetMessages())
 	for i := 1; i <= s.exchanges; i++ {
@@ -278,9 +298,10 @@ func (s *compactionFeatureState) contextWindowIs(tokens int) error {
 	return nil
 }
 
-// providerRefusesNextRequest makes every model call fail the way a backend
-// answers a request that does not fit: a 404 whose body names the limit.
-func (s *compactionFeatureState) providerRefusesNextRequest(body string) error {
+// providerRefusesEveryTurnRequest makes every model call of the turn fail the
+// way a backend answers a request that does not fit: a 404 whose body names the
+// limit. The summarizer's calls (Complete) are not the turn's and are answered.
+func (s *compactionFeatureState) providerRefusesEveryTurnRequest(body string) error {
 	s.provider.streamErr = fmt.Errorf("provider %q (http://127.0.0.1:8080/v1): openai stream: POST %q: 404 Not Found %q",
 		"local", "http://127.0.0.1:8080/v1/chat/completions", body)
 	return nil
@@ -311,9 +332,30 @@ func (s *compactionFeatureState) errorSays(want string) error {
 	return nil
 }
 
-func (s *compactionFeatureState) providerWasAskedOnce() error {
-	if got := len(s.provider.streamSeen); got != 1 {
-		return fmt.Errorf("the provider was asked %d times, want once", got)
+// turnRequestSentTwice holds the story of a turn whose request was refused as
+// too large: the loop compacted the turn once (a summary row folds the earlier
+// exchanges, the prompt stays), asked the same step again, was refused again
+// and stopped - it neither gave up at the first refusal nor went on asking.
+func (s *compactionFeatureState) turnRequestSentTwice() error {
+	if got := len(s.provider.streamSeen); got != 2 {
+		return fmt.Errorf("the turn's request was sent %d times, want twice", got)
+	}
+	if len(s.provider.completeSeen) != 1 {
+		return fmt.Errorf("the summarizer was called %d times, want once", len(s.provider.completeSeen))
+	}
+	// The exchanges here are a few words each, so the summary row is no smaller
+	// than what it replaced; that the second request is smaller is held by
+	// features/context_in_turn_compaction.feature, over a history with some bulk.
+	second := s.provider.streamSeen[1]
+	if !strings.Contains(transcriptText(second), "resume") {
+		return fmt.Errorf("the request sent after the compaction lost the prompt")
+	}
+	folded := false
+	for _, m := range second {
+		folded = folded || (m.CompactionSummary && strings.Contains(m.Content, "CANNED-SUMMARY"))
+	}
+	if !folded {
+		return fmt.Errorf("the request sent after the compaction does not start from the summary: %s", transcriptText(second))
 	}
 	return nil
 }
@@ -622,17 +664,18 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a session with (\d+) completed exchanges$`, s.sessionWithExchanges)
 	sc.Step(`^the session is compacted keeping the last 2 user turns$`, s.compactSession)
 	sc.Step(`^the compaction summary is inserted into the transcript$`, s.summaryInsertedIntoTranscript)
+	sc.Step(`^the summary row begins with the prompt being answered$`, s.summaryRowBeginsWithThePrompt)
 	sc.Step(`^the transcript still contains all (\d+) original exchanges$`, func(int) error { return s.transcriptContainsAllExchanges() })
 	sc.Step(`^the next LLM request starts from the summary$`, s.nextRequestStartsFromSummary)
 	sc.Step(`^the next LLM request contains the last (\d+) exchanges verbatim$`, s.nextRequestContainsLastExchanges)
 	sc.Step(`^the next LLM request does not contain the older exchanges$`, s.nextRequestOmitsOlderExchanges)
 	sc.Step(`^the user sends a new prompt$`, s.userSendsNewPrompt)
 	sc.Step(`^the model's context window is (\d+) tokens$`, s.contextWindowIs)
-	sc.Step(`^the provider refuses the next request: "([^"]+)"$`, s.providerRefusesNextRequest)
+	sc.Step(`^the provider refuses every request of the turn: "([^"]+)"$`, s.providerRefusesEveryTurnRequest)
 	sc.Step(`^the user sends a new prompt and the turn fails$`, s.userSendsPromptAndTheTurnFails)
 	sc.Step(`^the turn is refused with an explanation that the context window was exceeded$`, s.turnWasRefusedWithAnExplanation)
 	sc.Step(`^the error says "([^"]+)"$`, s.errorSays)
-	sc.Step(`^the provider was asked only once$`, s.providerWasAskedOnce)
+	sc.Step(`^the turn's request was sent twice, before and after the compaction$`, s.turnRequestSentTwice)
 	sc.Step(`^the summarizer refuses requests larger than its window$`, s.summarizerRefusesLargeRequests)
 	sc.Step(`^the summarizer refused a request as too large$`, s.summarizerRefusedARequestAsTooLarge)
 	sc.Step(`^the agent replies successfully$`, s.agentRepliesSuccessfully)

@@ -39,11 +39,18 @@ func (p *retryCompactionProvider) Stream(_ context.Context, msgs []llm.Message, 
 func TestReActRetryBudgetRecoverySurvivesCompaction(t *testing.T) {
 	for _, after := range []int{1, 2} {
 		t.Run(map[int]string{1: "reissue", 2: "nudge"}[after], func(t *testing.T) {
-			two, keep, enabled := 2, 1, false
+			two, keep, enabled, inTurn := 2, 1, false, false
 			f := newRetryBudgetFixture(t, &two, 10, "answer")
 			f.st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "Earlier question."})
 			f.st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "Earlier answer."})
-			f.ag.cfg.Compaction = config.Compaction{Enabled: &enabled, ThresholdPercent: 1, KeepRecentTurns: &keep}
+			// The threshold of 1% puts every step over it. With the in-turn fold on,
+			// the steps of the turn itself would be folded after the earlier turn
+			// was; this test is about the retry state surviving the one compaction
+			// of the earlier turn, so the fold of the turn's own steps is off.
+			f.ag.cfg.Compaction = config.Compaction{
+				Enabled: &enabled, ThresholdPercent: 1, KeepRecentTurns: &keep,
+				InTurn: config.InTurn{Enabled: &inTurn},
+			}
 			f.ag.cfg.Models[0].MaxContextTokens = 10000
 			p := &retryCompactionProvider{compactEnabled: &enabled, compactAfter: after}
 			f.ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
