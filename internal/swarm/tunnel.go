@@ -184,6 +184,7 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 		// The context carries the connection the way a listener's ConnContext
 		// does, so a handler asking httpx.OncePerConn counts per tunnel and not
 		// per request.
+		//nolint:staticcheck // ServeConn is the raw HTTP/2 endpoint of the reverse tunnel.
 		newTunnelServer(opts).ServeConn(served, &http2.ServeConnOpts{
 			Context: httpx.ConnContext(context.Background(), served),
 			Handler: opts.Handler,
@@ -201,6 +202,7 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 }
 
 // newTunnelServer builds the HTTP/2 server a node runs on a tunnel.
+//nolint:staticcheck // http2.Server is the only server that accepts an existing raw tunnel connection.
 func newTunnelServer(opts TunnelOptions) *http2.Server {
 	pingAfter, pingTimeout := opts.PingAfter, opts.PingTimeout
 	if pingAfter <= 0 {

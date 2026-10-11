@@ -73,6 +73,12 @@ Usage:
         documentation built into this binary; F1 in the console, Docs in the
         web UI; without --lang it speaks the terminal's language: CODDY_LANG,
         then LC_ALL, LC_MESSAGES, LANG)
+  coddy tls ensure [--quiet] [--force-ca] [--if-used] [--name HOST]... [--home DIR] (make or renew the
+        built-in certificates under ~/.coddy/tls: a CA, a server pair, a client pair;
+        nothing to do when they are right; --if-used is what update runs: only where
+        they are in use)
+  coddy tls status [--json] | renew | export (the CA certificate on stdout)
+  coddy tls trust <file|-> (trust another machine's CA) | issue client <name> [-o DIR]
   coddy update [flags]
 ```
 

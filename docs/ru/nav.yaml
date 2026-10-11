@@ -148,6 +148,12 @@ pages:
     en:
       title: "Swarm"
       summary: "Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel."
+  operate/certificates.md:
+    title: "Сертификаты и TLS"
+    summary: "Практическое руководство по сертификатам и TLS на узле и релейе."
+    en:
+      title: "Certificates and TLS"
+      summary: "A field guide to mutual TLS on a node and a relay - self-signed, private authority, wildcard, personal, purchased, Microsoft CA and ACME certificates, passphrases, where to install them, the errors, and the rules for an agent doing the setup."
   operate/scheduler.md:
     title: "Планировщик"
     summary: "Файлы cron-заданий, правила срабатывания в UTC, запуски как фоновые агентные задачи в сессии задания, панель запусков, инструменты планировщика и REST."
@@ -226,6 +232,12 @@ pages:
     en:
       title: "Devin"
       summary: "Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from."
+  features/shared-models.md:
+    title: "Общие модели"
+    summary: "Удалённый coddy serve, который предоставляет модели другим Coddy как провайдер типа coddy."
+    en:
+      title: "Shared models"
+      summary: "A remote coddy serve lending models to other Coddys as a provider of type coddy - the harness stays local, shared_as aliases, LLM-only tokens, the limit of five calls and the wait for a free slot, direct or through a swarm relay, capabilities and account usage read from the remote, timers, a peer that vanishes, privacy and what is not covered."
   features/web-search.md:
     title: "Веб-поиск"
     summary: "Какие поисковые системы опрашивает websearch, как заблокированный бэкенд попадает в отчёт, а не считается пустой выдачей, порог релевантности и подключение собственного SearXNG."

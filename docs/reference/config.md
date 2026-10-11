@@ -158,7 +158,6 @@ Filesystem and shell policy for built-in tools.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `tools.permission_mode` | string, one of `ask`, `accept_edits`, `bypass` | ask | When the agent asks for user approval: "ask" prompts for commands and file writes; "accept_edits" auto-approves writes but prompts for commands; "bypass" never asks (trusted environments only). A session may switch its own mode until the process restarts (/permissions, the composer chip, the permission dialog); the switch is never written here. |
 | `tools.command_allowlist` | list of strings |  | Commands that never require permission. Exact or prefix match (prefix + space + any args). "*" allows all commands. |
 | `tools.ssh_connect_timeout` | integer | 30 | TCP dial timeout for SSH connections (ssh_run_command tool), in seconds. |
 | `tools.output_limits` | object |  | Maximum lines each tool result or error may return into the LLM context. Every enabled limit also applies a 64 KiB per-call byte safety ceiling so a huge single line cannot bypass it. 0 disables both limits for that tool. Unset fields fall back to the built-in defaults. |
@@ -190,7 +189,7 @@ Filesystem and shell policy for built-in tools.
 | `tools.websearch.cache_ttl_seconds` | integer | 300 | Seconds one engine answer is reused before the engine is asked again, so a repeated search does not repeat the request. 0 uses the default; a negative value turns caching off. |
 | `tools.websearch.searxng_url` | string | "" | Base address of your own SearXNG instance, asked over its JSON API (enable the json format in its settings.yml). A self-hosted aggregator is the durable answer to a scraped engine being turned away; localhost and LAN addresses are allowed on purpose. |
 | `tools.websearch.brave_api_key` | string | "" | Brave Search API subscription token. With it the brave engine uses the official JSON API instead of reading the public result page, which has no parser to break when Brave redeploys. Empty reads the BRAVE_API_KEY environment variable (also from ${CODDY_HOME}/.env), so the key need not be stored here. |
-| `tools.http_request` | object |  | Policy of the http_request tool, the agent's curl: the destinations it reaches without asking and the headers every request sends. Under permission_mode ask or accept_edits a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://coddy.dev/docs/features/http-requests. |
+| `tools.http_request` | object |  | Policy of the http_request tool, the agent's curl: the destinations it reaches without asking and the headers every request sends. Under the ask and accept_edits permission modes a request asks the operator unless its destination is allowed here or was approved in the session; bypass never asks. See https://coddy.dev/docs/features/http-requests. |
 | `tools.http_request.allowlist` | list of strings | [] | Destinations a request reaches without asking: a host (api.github.com), a subdomain wildcard (*.example.com), either with an optional :port, an origin (http://localhost:8080) or an address prefix (https://api.example.com/v1/). "*" allows every destination. An entry also covers the files a request uploads and an unchecked certificate; a proxy needs an entry of its own, and a file the response is saved to follows the write policy. |
 | `tools.http_request.default_headers` | map of strings | {} | Headers every http_request call sends unless the call names the header itself: a browser User-Agent for a site that turns tools away, an Accept an internal service expects. They take the place of the tool's own defaults (its coddy-agent User-Agent), a call's headers take the place of them - an empty value in the call removes one - and an empty value here leaves the header out of every call that does not set it. A name is letters, digits, - and _, starting with a letter. Host, Content-Type, Content-Length and Transfer-Encoding describe a single request and are refused, and so are the hop-by-hop headers (Connection, Keep-Alive, Proxy-Connection, TE, Trailer, Upgrade) and Proxy-Authorization, which an https request would carry through the proxy's tunnel to every origin. The headers go to every destination the tool reaches, so a credential here reaches all of them; the permission prompt names them and shows the value only of one that describes the client (User-Agent, Accept...), config_get keeps their values from the model, and webfetch, URL mentions and the model providers never send them. See https://coddy.dev/docs/features/http-requests#default-headers. |
 
@@ -450,6 +449,31 @@ Messenger bot adapters (used only by binaries built with -tags gateway, or -tags
 | `gateways.pachca.chats[].chat_id` | integer |  | Pachca chat id. |
 | `gateways.pachca.chats[].isolation` | string, one of `individual`, `shared`, `admin` |  | Per-chat session isolation override. |
 | `gateways.pachca.chats[].access` | string |  | Per-chat access override: "all", "admins", or "group:<name>". |
+
+### `decisions`
+
+Ask the NeuralDeep decisions API whether a shell command is safe before the permission gate decides: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode. See https://coddy.dev/docs/features/decisions.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `decisions.enable` | boolean | false | Check run_command and ssh_run_command calls the operator did not allow explicitly against the decisions endpoint before the permission gate decides. A safe command runs without a prompt; an unsafe one, or one the check gave no verdict on, is asked about in ask and accept_edits with the verdict in the prompt, and rejected in bypass mode, the rejection returned as the tool result so the session records it. Commands the allowlist, a session grant or a hook's allow approves are not checked, and neither are commands the operator approved in a prompt. Needs a NeuralDeep credential on the first provider row of type neuraldeep: its api_key or api_key_command, its NAME_API_KEY environment variable (NEURALDEEP_API_KEY for a row named neuraldeep or when there is no row) or its stored hub sign-in. |
+| `decisions.model` | string, one of `frida-decisions`, `clef-flash` | frida-decisions | Decisions model to ask: frida-decisions (encoder pass, up to 512 tokens of command text, ~20 ms per request) or clef-flash (up to 8192 tokens, ~150 ms). |
+| `decisions.threshold` | number | 0.5 | Probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through. A bare unsafe answer counts as 1. |
+
+### `supervisor`
+
+Checks a session goal (/goal) after every turn with a second model, continues unfinished work within bounds, and watches for stalled or looping turns; see https://coddy.dev/docs/features/session-supervisor.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `supervisor.enable` | boolean | false | Check ordinary turns against the latest request even without a /goal. A session goal is checked whatever this switch says. |
+| `supervisor.model` | string | "" | Configured models[].model that checks the work. Empty uses the session's own model, which then grades its own work; a model of another family is the better judge. |
+| `supervisor.verify` | boolean or null | true | Confirm a met verdict before the goal is closed: the goal-verifier subagent reads the workspace with read-only tools and checks every requirement. Unset means true. |
+| `supervisor.stall_seconds` | integer or null | 300 | Seconds a goal turn may go without any update before the watchdog cuts it and starts a recovery turn. Permission prompts, running tools and running background tasks pause the timer. 0 disables it. |
+| `supervisor.max_nudges` | integer or null | 2 | Recovery turns after a stall, a tool loop or a failed turn, per run of the supervisor. |
+| `supervisor.max_continuations` | integer or null | 10 | Automatic continuation turns one goal may use; when they run out the goal gets one wrap-up turn and stops as limited. |
+| `supervisor.loop_repeat` | integer or null | 3 | How many times a repeating cycle of identical tool operations (same call, same result) may come round before the watchdog cuts the turn. 0 disables loop detection. |
+| `supervisor.token_budget` | integer or null | 0 | Uncached input plus output tokens one goal's turns may spend; 0 means no cap. |
 
 ### `tls`
 

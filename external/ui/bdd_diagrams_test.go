@@ -20,9 +20,10 @@ import (
 // call the renderers. Raise it deliberately, never to make room for a renderer.
 // 1_850_000 held the build before shared-model settings (the alias and
 // acknowledgement fields, busy-wait banner and their en/ru strings), session
-// goals and per-session composer settings. Those application features together
-// require this higher, deliberate ceiling.
-const appJSBudget = 1_950_000
+// goals, per-session composer settings, and the TLS/shared-model controls.
+// The current entry is 1_966_679 bytes; 1_980_000 leaves a small deliberate
+// allowance for one application field group, not a renderer.
+const appJSBudget = 1_980_000
 
 // Strings only the renderers' own code carries: their error messages.
 var rendererMarkers = map[string]string{

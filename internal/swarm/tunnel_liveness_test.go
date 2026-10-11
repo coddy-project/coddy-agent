@@ -35,6 +35,7 @@ func TestTunnelPingBudgetIsTheLivenessBound(t *testing.T) {
 
 // With no override the node's HTTP/2 server carries the decided timers; an
 // override replaces them for a scaled test and nothing else.
+//nolint:staticcheck // The test asserts raw http2.Server tunnel settings.
 func TestTunnelServerCarriesTheDecidedPing(t *testing.T) {
 	srv := newTunnelServer(TunnelOptions{})
 	if srv.ReadIdleTimeout != TunnelPingAfter || srv.PingTimeout != TunnelPingTimeout {
@@ -123,6 +124,7 @@ func (g *gateConn) setMuted(v bool) {
 type tunnelStand struct {
 	t    *testing.T
 	gate *gateConn
+	//nolint:staticcheck // The stand drives the relay side of a raw HTTP/2 tunnel.
 	cc   *http2.ClientConn
 	done chan error // the node's DialTunnel result
 	// held is closed when the node's handler for /hold has started.
@@ -159,6 +161,7 @@ func startTunnelStand(t *testing.T, ping TunnelOptions) *tunnelStand {
 			return
 		}
 		s.gate = newGateConn(SpliceBuffered(conn, br))
+		//nolint:staticcheck // The stand needs a client over its already accepted raw connection.
 		cc, cerr := (&http2.Transport{AllowHTTP: true}).NewClientConn(s.gate)
 		if cerr != nil {
 			_ = conn.Close()

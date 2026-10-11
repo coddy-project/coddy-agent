@@ -251,7 +251,7 @@ func judgeSessionGoal(ctx context.Context, cfg *config.Config, st *State, req Go
 	// the row's proxy, its transport choice and the retries of agent.*.
 	base := llm.ProviderInput{
 		Name: rm.ProviderName, Type: rm.ProviderType, Model: rm.Model,
-		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
+		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL, ClientTLS: rm.ClientTLS,
 		AuthPath: rm.AuthPath, NoCLILogin: rm.NoCLILogin,
 		MaxTokens: goalJudgeMaxTokens(rm.MaxTokens), Temperature: rm.Temperature,
 		ReasoningEffort: GoalCheckReasoning(cfg, st),
