@@ -1,8 +1,10 @@
-Feature: Context overflow protection for read and grep results
-  Paging a large file or running wide searches would otherwise pin every result
-  in the LLM context forever. Unmarked read/grep results are collapsed to short
-  placeholders when building the request, while the model keeps the ones it marks
-  as useful. Tool output is also capped by a per-tool line limit. The persisted
+Feature: Context overflow protection for read, grep and listing results
+  Paging a large file, running wide searches or listing folders would otherwise
+  pin every result in the LLM context forever. Unmarked read/grep results are
+  collapsed to short placeholders when building the request, while the model keeps
+  the ones it marks as useful. The listings of glob, print_tree, websearch and
+  webfetch go by whole steps: the latest steps keep theirs, older steps are
+  collapsed. Tool output is also capped by a per-tool line limit. The persisted
   transcript always keeps every result in full.
 
   It holds off until the conversation actually needs the room: a placeholder that
@@ -29,6 +31,15 @@ Feature: Context overflow protection for read and grep results
     Then the next LLM request keeps the "alphaMATCH" results verbatim
     And the next LLM request replaces the "betaMATCH" results with a placeholder
     And the persisted transcript still contains both grep results in full
+
+  Scenario: Old directory listings collapse, the latest steps survive
+    Given a workspace with 3 folders of 40 files each
+    And listing results are evicted outside the last 2 steps
+    When the model lists each folder in its own step, with a glob and a tree each, then answers
+    Then the next LLM request replaces the listings of the first step with placeholders
+    And the next LLM request keeps the listings of the last 2 steps verbatim
+    And the next LLM request has one tool result per tool call
+    And the persisted transcript still contains every listing in full
 
   Scenario: A wide grep result is capped by the tool output limit
     Given a workspace file "dups.txt" with 300 lines matching "dup"

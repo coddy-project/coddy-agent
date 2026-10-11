@@ -54,7 +54,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 					SessionUpdate: acp.UpdateTypeToolCall,
 					ToolCallID:    tc.ID,
 					Title:         tc.Name,
-					Kind:          replayToolKind(tc.Name),
+					Kind:          ToolKind(tc.Name),
 					Status:        "pending",
 				})
 			}
@@ -109,19 +109,6 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 	}
 
 	return nil
-}
-
-func replayToolKind(name string) string {
-	switch name {
-	case "read", "glob", "grep":
-		return "read"
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
-		return "write"
-	case "run_command":
-		return "run_command"
-	default:
-		return "other"
-	}
 }
 
 // UserMessageDisplayText is what a surface shows for the content of a user

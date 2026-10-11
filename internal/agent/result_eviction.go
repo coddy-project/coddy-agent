@@ -1,12 +1,27 @@
 package agent
 
-// Context overflow protection: prune superseded read/grep tool results from the
-// LLM projection. This is a projection over the message slice sent to the model —
-// the persisted session transcript is never rewritten. A read page or grep result
-// survives only while it is "fresh" (inside the recent working window), was marked
-// useful (keep:true on the call, or a keep_result pin), and has not been made stale
-// by a later write to a file it covered. Everything else collapses to a short
-// placeholder that keeps the tool_call/tool_result pairing valid for the provider.
+// Context overflow protection: prune superseded tool results from the LLM
+// projection. This is a projection over the message slice sent to the model -
+// the persisted session transcript is never rewritten. Two families go through
+// it:
+//
+//   - read pages and grep results survive only while they are "fresh" (inside the
+//     recent working window of results), were marked useful (keep:true on the
+//     call, or a keep_result pin), and have not been made stale by a later write
+//     to a file they covered;
+//   - the listings of glob, print_tree, websearch and webfetch (the tools named
+//     by compaction.result_eviction.tools) survive only inside the last
+//     keep_recent_steps steps that hold one (never fewer than the latest) - a
+//     step is the assistant message that issued a batch of calls with every
+//     result of that batch, so a fan-out of ten parallel calls is one step -
+//     and, for glob and print_tree, until a write lands under the folder they
+//     listed (any write for glob, which is sorted by modification time; only
+//     one that can create, remove or move an entry for print_tree, which shows
+//     names). They have no pins.
+//
+// Everything else collapses to a short placeholder that keeps the
+// tool_call/tool_result pairing valid for the provider: role, tool call id and
+// position of every message stay as they were, only the text of the result moves.
 
 import (
 	"encoding/json"
@@ -14,6 +29,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -23,24 +39,41 @@ import (
 // resultEvictionOptions configures pruneToolResults.
 type resultEvictionOptions struct {
 	Enabled        bool
-	KeepRecent     int // most recent evictable results left intact (working window)
+	KeepRecent     int // most recent evictable read/grep results left intact (working window)
 	MinResultBytes int // results at or below this size are never candidates
 	CWD            string
+	// ListingTools names the read-only listing tools evicted besides read and
+	// grep (glob, print_tree, websearch, webfetch). Empty evicts read and grep only.
+	ListingTools map[string]bool
+	// KeepRecentSteps is how many of the latest steps that hold a listing
+	// result keep all of those results intact. A value below 1 behaves as 1: the
+	// latest such step always keeps its results, so a listing the model has just
+	// asked for reaches it instead of being collapsed in the next request and
+	// asked for again (the configuration refuses 0; this is the same floor for
+	// options built in code).
+	KeepRecentSteps int
 }
 
 // evictionOptions reads the effective result-eviction settings for this agent.
 func (a *Agent) evictionOptions() resultEvictionOptions {
 	re := &a.cfg.Compaction.ResultEviction
+	listing := make(map[string]bool)
+	for _, name := range re.EffectiveTools() {
+		listing[name] = true
+	}
 	return resultEvictionOptions{
-		Enabled:        re.IsEnabled(),
-		KeepRecent:     re.EffectiveKeepRecent(),
-		MinResultBytes: re.EffectiveMinResultBytes(),
-		CWD:            a.state.GetCWD(),
+		Enabled:         re.IsEnabled(),
+		KeepRecent:      re.EffectiveKeepRecent(),
+		MinResultBytes:  re.EffectiveMinResultBytes(),
+		CWD:             a.state.GetCWD(),
+		ListingTools:    listing,
+		KeepRecentSteps: re.EffectiveKeepRecentSteps(),
 	}
 }
 
-// prunedForLLM applies read/grep result eviction to an LLM-visible message window,
-// but only once the conversation is big enough to need it.
+// prunedForLLM applies tool result eviction (read, grep and the listing tools)
+// to an LLM-visible message window, but only once the conversation is big enough
+// to need it.
 //
 // Every placeholder this writes lands in the middle of the replayed history, and
 // a provider caches a request by its prefix: one rewritten result throws away
@@ -99,6 +132,31 @@ type evReadResult struct {
 	keep   bool
 }
 
+// evListing is a glob, print_tree, websearch or webfetch result eligible for
+// eviction.
+type evListing struct {
+	msgIdx int
+	step   int    // position of the assistant message that issued the call
+	tool   string // the tool's name
+	// root is the absolute folder a glob or print_tree listed; a write at or
+	// around it makes the listing stale. Empty for the web tools: what a search
+	// or a page said does not change with the workspace.
+	root  string
+	label string // glob pattern, search query or URL, for the placeholder
+	lines int    // lines in the original result
+}
+
+// pendingCall is a tool call whose result has not been read yet, with the
+// position of the assistant message that issued it: that message is its step.
+type pendingCall struct {
+	call llm.ToolCall
+	step int
+}
+
+// listingLabelMax caps the pattern, query or URL a placeholder repeats, so
+// replacing a result never costs a result of its own.
+const listingLabelMax = 80
+
 // evGrepResult is a grep tool result eligible for eviction.
 type evGrepResult struct {
 	msgIdx     int
@@ -125,15 +183,19 @@ type evGrepPin struct {
 type evWrite struct {
 	msgIdx int
 	path   string // absolute
+	tool   string // the write tool's name
+	// structural is true when the write can create, remove or move a directory
+	// entry (writeStructural). Only that changes what a name listing shows.
+	structural bool
 }
 
 // grepLineRe captures the leading "path:line:" of a grep record. The non-greedy
 // path group tolerates Windows drive letters ("C:\x:12:content").
 var grepLineRe = regexp.MustCompile(`(?m)^(.+?):(\d+):`)
 
-// pruneToolResults returns history with superseded read/grep results collapsed to
-// placeholders. It never mutates the input slice (copy-on-write) and returns it
-// unchanged when eviction is disabled or nothing qualifies.
+// pruneToolResults returns history with superseded read, grep and listing results
+// collapsed to placeholders. It never mutates the input slice (copy-on-write) and
+// returns it unchanged when eviction is disabled or nothing qualifies.
 func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Message {
 	if !opt.Enabled || len(history) == 0 {
 		return history
@@ -141,10 +203,11 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 
 	var reads []evReadResult
 	var greps []evGrepResult
+	var listings []evListing
 	var readPins []evReadPin
 	var grepPins []evGrepPin
 	var writes []evWrite
-	pendingCalls := make(map[string]llm.ToolCall)
+	pendingCalls := make(map[string]pendingCall)
 
 	for i := range history {
 		m := history[i]
@@ -152,7 +215,7 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 		// cannot relabel an earlier result during projection.
 		for _, tc := range m.ToolCalls {
 			if id := strings.TrimSpace(tc.ID); id != "" {
-				pendingCalls[id] = tc
+				pendingCalls[id] = pendingCall{call: tc, step: i}
 			}
 			if tc.Name == "keep_result" {
 				addKeepResultPin(i, tc.InputJSON, opt.CWD, &readPins, &grepPins)
@@ -161,16 +224,18 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 		if m.Role != llm.RoleTool {
 			continue
 		}
-		call, ok := pendingCalls[m.ToolCallID]
+		pending, ok := pendingCalls[m.ToolCallID]
 		if !ok {
 			continue
 		}
+		call := pending.call
 		delete(pendingCalls, m.ToolCallID)
 		// Only completed mutations make prior observations stale. Permission
 		// denials, tool errors, and loop-guard placeholders leave files untouched.
 		if filesystemWriteTool(call.Name) && writeResultSucceeded(m.Content) {
+			structural := writeStructural(call.Name, call.InputJSON)
 			for _, p := range writeTargets(call.Name, call.InputJSON, opt.CWD) {
-				writes = append(writes, evWrite{msgIdx: i, path: p})
+				writes = append(writes, evWrite{msgIdx: i, path: p, tool: call.Name, structural: structural})
 			}
 		}
 		// Skip tiny results: not worth a placeholder, and they do not consume the
@@ -184,17 +249,23 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 			reads = append(reads, parseReadResult(i, call.InputJSON, opt.CWD))
 		case "grep":
 			greps = append(greps, parseGrepResult(i, call.InputJSON, m.Content, opt.CWD))
+		default:
+			if opt.ListingTools[call.Name] {
+				listings = append(listings, parseListingResult(i, pending.step, call, m.Content, opt.CWD))
+			}
 		}
 	}
 
-	if len(reads) == 0 && len(greps) == 0 {
+	if len(reads) == 0 && len(greps) == 0 && len(listings) == 0 {
 		return history
 	}
 
 	// Working window: the most recent KeepRecent candidates (across both kinds) by
 	// message position stay intact so the model is never forced to mark a result it
-	// is still reasoning about.
+	// is still reasoning about. Listings are not part of it: they are judged by the
+	// step window below.
 	windowIdx := recentCandidateWindow(reads, greps, opt.KeepRecent)
+	stepWindow := listingStepWindow(listings, max(opt.KeepRecentSteps, 1))
 
 	out := history
 	cloned := false
@@ -233,6 +304,16 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 			continue
 		}
 		evict(g.msgIdx, grepEvictedPlaceholder(g, opt.CWD))
+	}
+	for _, l := range listings {
+		if w, stale := staleListingWrite(l, writes); stale {
+			evict(l.msgIdx, listingStalePlaceholder(l, w, opt.CWD))
+			continue
+		}
+		if _, ok := stepWindow[l.step]; ok {
+			continue
+		}
+		evict(l.msgIdx, listingEvictedPlaceholder(l, opt.CWD))
 	}
 
 	return out
@@ -306,6 +387,81 @@ func parseGrepResult(msgIdx int, argsJSON, content, cwd string) evGrepResult {
 		keep:       a.Keep,
 		outPaths:   grepOutputPaths(content, searchPath),
 	}
+}
+
+// parseListingResult reads what a placeholder and the staleness check need off a
+// listing call. Arguments that do not parse leave the fields empty: the result
+// is still evicted, only its label is thinner.
+func parseListingResult(msgIdx, step int, call llm.ToolCall, content, cwd string) evListing {
+	l := evListing{msgIdx: msgIdx, step: step, tool: call.Name, lines: countLines(content)}
+	switch call.Name {
+	case "glob":
+		var a struct {
+			Pattern string `json:"pattern"`
+			Path    string `json:"path"`
+		}
+		_ = json.Unmarshal([]byte(call.InputJSON), &a)
+		l.label = a.Pattern
+		l.root = absPath(a.Path, cwd)
+	case "print_tree":
+		var a struct {
+			Path string `json:"path"`
+		}
+		_ = json.Unmarshal([]byte(call.InputJSON), &a)
+		l.root = absPath(a.Path, cwd)
+	case "websearch":
+		var a struct {
+			Query string `json:"query"`
+		}
+		_ = json.Unmarshal([]byte(call.InputJSON), &a)
+		l.label = strings.TrimSpace(a.Query)
+	case "webfetch":
+		var a struct {
+			URL string `json:"url"`
+		}
+		_ = json.Unmarshal([]byte(call.InputJSON), &a)
+		l.label = strings.Join(strings.Fields(a.URL), " ")
+	}
+	return l
+}
+
+// countLines is the number of lines in a tool result, not counting the newline
+// that ends the last one.
+func countLines(s string) int {
+	s = strings.TrimSuffix(s, "\n")
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, "\n") + 1
+}
+
+// listingStepWindow returns the steps whose listings stay intact: the last
+// keepSteps distinct steps that hold a listing candidate. A step is the
+// assistant message that issued the call, so a batch of parallel calls takes one
+// place however many results it brings.
+func listingStepWindow(listings []evListing, keepSteps int) map[int]struct{} {
+	window := make(map[int]struct{})
+	if keepSteps <= 0 || len(listings) == 0 {
+		return window
+	}
+	seen := make(map[int]struct{}, len(listings))
+	steps := make([]int, 0, len(listings))
+	for _, l := range listings {
+		if _, ok := seen[l.step]; ok {
+			continue
+		}
+		seen[l.step] = struct{}{}
+		steps = append(steps, l.step)
+	}
+	sort.Ints(steps)
+	start := len(steps) - keepSteps
+	if start < 0 {
+		start = 0
+	}
+	for _, step := range steps[start:] {
+		window[step] = struct{}{}
+	}
+	return window
 }
 
 // grepOutputPaths extracts the absolute file paths appearing as the path:line:
@@ -489,6 +645,29 @@ func staleGrepWrite(g evGrepResult, writes []evWrite) (evWrite, bool) {
 	return evWrite{}, false
 }
 
+// staleListingWrite reports the first successful write after the listing that
+// touched its folder, or a folder around it. What counts depends on what the
+// listing shows. glob is sorted by modification time, so any write under its
+// root can reorder it. print_tree shows names only, sorted by name: only a write
+// that can create, remove or move an entry changes it, and an edit of a file
+// that was there leaves it as it was. The web tools have no root and are never
+// stale.
+func staleListingWrite(l evListing, writes []evWrite) (evWrite, bool) {
+	if l.root == "" {
+		return evWrite{}, false
+	}
+	for _, w := range writes {
+		if w.msgIdx <= l.msgIdx || !pathsRelated(w.path, l.root) {
+			continue
+		}
+		if l.tool == "print_tree" && !w.structural {
+			continue
+		}
+		return w, true
+	}
+	return evWrite{}, false
+}
+
 func pathsEqual(a, b string) bool {
 	a = filepath.Clean(a)
 	b = filepath.Clean(b)
@@ -570,4 +749,108 @@ func grepEvictedPlaceholder(g evGrepResult, cwd string) string {
 func grepStalePlaceholder(g evGrepResult, w evWrite, cwd string) string {
 	return fmt.Sprintf("[evicted: grep %q results are stale after %s was modified; re-run the search]",
 		g.pattern, relForDisplay(w.path, cwd))
+}
+
+// listingCall names a listing call in a placeholder: the tool, then the pattern,
+// query or URL it was given, capped and quoted when quote is set. A call that
+// came without one (arguments that did not parse, an empty or blank field) leaves
+// that slot out, so a placeholder never prints empty quotes or a double space;
+// bare is what the call is then called.
+func listingCall(tool, label, bare string, quote bool) string {
+	label = capRunes(strings.TrimSpace(label), listingLabelMax)
+	switch {
+	case label == "":
+		return bare
+	case quote:
+		return fmt.Sprintf("%s %q", tool, label)
+	default:
+		return tool + " " + label
+	}
+}
+
+func listingEvictedPlaceholder(l evListing, cwd string) string {
+	switch l.tool {
+	case "glob":
+		return fmt.Sprintf("[evicted: %s in %s (%d lines); re-run if needed]",
+			listingCall("glob", l.label, "glob", true), relForDisplay(l.root, cwd), l.lines)
+	case "print_tree":
+		return fmt.Sprintf("[evicted: print_tree of %s (%d lines); re-run if needed]",
+			relForDisplay(l.root, cwd), l.lines)
+	case "websearch":
+		return fmt.Sprintf("[evicted: %s (%d lines); re-run if needed]",
+			listingCall("websearch", l.label, "websearch result", true), l.lines)
+	case "webfetch":
+		return fmt.Sprintf("[evicted: %s (%d lines); re-fetch if needed]",
+			listingCall("webfetch", l.label, "webfetch result", false), l.lines)
+	default:
+		return fmt.Sprintf("[evicted: %s result (%d lines); re-run if needed]", l.tool, l.lines)
+	}
+}
+
+// listingStalePlaceholder is for the two tools that have a root: only a folder
+// listing can go stale.
+func listingStalePlaceholder(l evListing, w evWrite, cwd string) string {
+	if l.tool == "glob" {
+		return fmt.Sprintf("[evicted: %s in %s is stale after %s was modified; re-run if needed]",
+			listingCall("glob", l.label, "glob", true), relForDisplay(l.root, cwd), relForDisplay(w.path, cwd))
+	}
+	return fmt.Sprintf("[evicted: %s of %s is stale after %s was modified; re-run if needed]",
+		l.tool, relForDisplay(l.root, cwd), relForDisplay(w.path, cwd))
+}
+
+// writeStructural reports whether a successful call of a filesystem write tool
+// can create, remove or move a directory entry, which is what a listing of names
+// (print_tree) shows. write may create its file, and mkdir, rmdir, touch, rm and
+// mv exist to change entries. edit and apply_patch read their file first and fail
+// when it is missing, so they only rewrite an entry that was already there and
+// every name stays where it was. A patch that names a file to add, delete or move
+// counts as structural, and so does one whose input cannot be read: the tool
+// today applies the hunks to its path alone and skips those headers, but a
+// listing dropped for nothing costs one repeated call and a listing trusted
+// wrongly costs a wrong picture of the tree.
+func writeStructural(tool, argsJSON string) bool {
+	switch tool {
+	case "edit":
+		return false
+	case "apply_patch":
+		return patchChangesEntries(argsJSON)
+	default:
+		return true
+	}
+}
+
+// patchChangesEntries reads an apply_patch input the way the tool does (patch,
+// else the legacy diff) and reports whether the patch adds, deletes or moves a
+// file, in the Codex format ("*** Add File:", "*** Delete File:", "*** Move to:")
+// or as a unified diff from or to /dev/null. An input it cannot read, or a
+// missing patch, reports true.
+func patchChangesEntries(argsJSON string) bool {
+	var a struct {
+		Patch string `json:"patch"`
+		Diff  string `json:"diff"`
+	}
+	if json.Unmarshal([]byte(argsJSON), &a) != nil {
+		return true
+	}
+	body := a.Patch
+	if strings.TrimSpace(body) == "" {
+		body = a.Diff
+	}
+	if strings.TrimSpace(body) == "" {
+		return true
+	}
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "*** Add File:"),
+			strings.HasPrefix(trimmed, "*** Delete File:"),
+			strings.HasPrefix(trimmed, "*** Move to:"):
+			return true
+		case strings.HasPrefix(line, "--- "), strings.HasPrefix(line, "+++ "):
+			if name := strings.Fields(line[4:]); len(name) > 0 && name[0] == "/dev/null" {
+				return true
+			}
+		}
+	}
+	return false
 }

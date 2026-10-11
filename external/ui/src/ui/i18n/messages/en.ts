@@ -692,17 +692,20 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.compaction.model.label": "Summarizer model",
   "settings.schema.compaction.model.desc":
     "Optional models[].model for the summarization call; empty uses the session model.",
-  "settings.schema.compaction.result_eviction.label":
-    "Read/grep result eviction",
+  "settings.schema.compaction.result_eviction.label": "Tool result eviction",
   "settings.schema.compaction.result_eviction.desc":
-    "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript is untouched. Only marked (keep_result / keep:true) or most-recent results survive.",
+    "Collapse superseded tool results (read pages, grep dumps, and the listings of glob, print_tree, websearch and webfetch) to placeholders when building the LLM request; the persisted transcript is untouched. Read and grep results survive when marked (keep_result / keep:true) or among the most recent; listings survive within the latest steps.",
   "settings.schema.compaction.result_eviction.enable.label": "Enabled",
   "settings.schema.compaction.result_eviction.enable.desc":
-    "Master switch for read/grep result eviction. Defaults to true.",
+    "Master switch for tool result eviction. Defaults to true.",
   "settings.schema.compaction.result_eviction.keep_recent.label":
     "Keep recent results",
   "settings.schema.compaction.result_eviction.keep_recent.desc":
-    "How many most recent evictable results stay intact as a working window (default 2 — enough to hold a read and a grep at once; 0 keeps none).",
+    "How many most recent read and grep results stay intact as a working window (default 2 - enough to hold a read and a grep at once; 0 keeps none).",
+  "settings.schema.compaction.result_eviction.keep_recent_steps.label":
+    "Keep recent steps",
+  "settings.schema.compaction.result_eviction.keep_recent_steps.desc":
+    "How many of the most recent steps holding a listing result keep all of their listing results (default 3, at least 1: the latest step that holds a listing always keeps its results). A step is one assistant message with all its parallel tool results.",
   "settings.schema.compaction.result_eviction.min_result_bytes.label":
     "Min result bytes",
   "settings.schema.compaction.result_eviction.min_result_bytes.desc":

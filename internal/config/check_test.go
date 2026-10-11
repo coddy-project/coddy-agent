@@ -309,6 +309,35 @@ func TestCheckMinimumAndMaximum(t *testing.T) {
 	}
 }
 
+// A window of no listing steps would collapse the listing the model has just
+// asked for in the very next request, so -t refuses it at the value, with the
+// description of the key, and the loader's own rule agrees.
+func TestCheckRefusesAResultEvictionWindowOfNoSteps(t *testing.T) {
+	f := onlyError(t, checkYAML(t, withModeline("compaction:\n  result_eviction:\n    keep_recent_steps: 0\n")))
+	if f.Path != "compaction.result_eviction.keep_recent_steps" || f.Line != 4 {
+		t.Errorf("finding %+v", f)
+	}
+	if !strings.Contains(f.Message, "at least 1") {
+		t.Errorf("message %q", f.Message)
+	}
+	if !strings.Contains(f.Doc, "A step is one assistant message") {
+		t.Errorf("doc %q should describe the key", f.Doc)
+	}
+}
+
+// The schema lists the names of result_eviction.tools once (uniqueItems), and
+// the loader's rule says the same, so -t reports a name written twice where the
+// list is, in the loader's words.
+func TestCheckRefusesAResultEvictionToolNamedTwice(t *testing.T) {
+	f := onlyError(t, checkYAML(t, withModeline("compaction:\n  result_eviction:\n    tools: [glob, print_tree, glob]\n")))
+	if f.Line != 4 {
+		t.Errorf("line %d, want 4 (the tools list)", f.Line)
+	}
+	if !strings.Contains(f.Message, "compaction.result_eviction.tools") || !strings.Contains(f.Message, "duplicate") || !strings.Contains(f.Message, `"glob"`) {
+		t.Errorf("message %q should name the key and the repeated tool", f.Message)
+	}
+}
+
 func TestCheckDuplicateKeyIsReported(t *testing.T) {
 	rep := checkYAML(t, withModeline("httpserver:\n  port: 1\n  host: x\n  port: 2\n"))
 	f := onlyError(t, rep)

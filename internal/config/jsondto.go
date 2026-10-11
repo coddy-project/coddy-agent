@@ -291,12 +291,17 @@ type CompactionJSON struct {
 }
 
 // ResultEvictionJSON mirrors ResultEviction. Pointer fields keep the
-// unset/explicit distinction (enabled defaults to true, keep_recent to 1).
+// unset/explicit distinction (enabled defaults to true, keep_recent to 2,
+// keep_recent_steps to 3). Tools is a pointer to a slice for the same reason as
+// ModelEntry.ReasoningLevels: an absent key means the default listing tools and
+// an explicit [] means none, and a plain slice would merge the two.
 type ResultEvictionJSON struct {
-	Enabled        *bool `json:"enable,omitempty"`
-	KeepRecent     *int  `json:"keep_recent,omitempty"`
-	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
-	StartPercent   *int  `json:"start_percent,omitempty"`
+	Enabled         *bool     `json:"enable,omitempty"`
+	KeepRecent      *int      `json:"keep_recent,omitempty"`
+	Tools           *[]string `json:"tools,omitempty"`
+	KeepRecentSteps *int      `json:"keep_recent_steps,omitempty"`
+	MinResultBytes  *int      `json:"min_result_bytes,omitempty"`
+	StartPercent    *int      `json:"start_percent,omitempty"`
 }
 
 // MemoryJSON mirrors MemoryConfig.
@@ -560,10 +565,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Model:            c.Compaction.Model,
 		FallbackModels:   append([]string(nil), c.Compaction.FallbackModels...),
 		ResultEviction: ResultEvictionJSON{
-			Enabled:        cloneBoolPtr(c.Compaction.ResultEviction.Enabled),
-			KeepRecent:     cloneIntPtr(c.Compaction.ResultEviction.KeepRecent),
-			MinResultBytes: cloneIntPtr(c.Compaction.ResultEviction.MinResultBytes),
-			StartPercent:   cloneIntPtr(c.Compaction.ResultEviction.StartPercent),
+			Enabled:         cloneBoolPtr(c.Compaction.ResultEviction.Enabled),
+			KeepRecent:      cloneIntPtr(c.Compaction.ResultEviction.KeepRecent),
+			Tools:           cloneStringsPtr(c.Compaction.ResultEviction.Tools),
+			KeepRecentSteps: cloneIntPtr(c.Compaction.ResultEviction.KeepRecentSteps),
+			MinResultBytes:  cloneIntPtr(c.Compaction.ResultEviction.MinResultBytes),
+			StartPercent:    cloneIntPtr(c.Compaction.ResultEviction.StartPercent),
 		},
 	}
 	out.Memory = MemoryJSON{
@@ -795,10 +802,12 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Model:            j.Compaction.Model,
 		FallbackModels:   append([]string(nil), j.Compaction.FallbackModels...),
 		ResultEviction: ResultEviction{
-			Enabled:        cloneBoolPtr(j.Compaction.ResultEviction.Enabled),
-			KeepRecent:     cloneIntPtr(j.Compaction.ResultEviction.KeepRecent),
-			MinResultBytes: cloneIntPtr(j.Compaction.ResultEviction.MinResultBytes),
-			StartPercent:   cloneIntPtr(j.Compaction.ResultEviction.StartPercent),
+			Enabled:         cloneBoolPtr(j.Compaction.ResultEviction.Enabled),
+			KeepRecent:      cloneIntPtr(j.Compaction.ResultEviction.KeepRecent),
+			Tools:           cloneStringsPtr(j.Compaction.ResultEviction.Tools),
+			KeepRecentSteps: cloneIntPtr(j.Compaction.ResultEviction.KeepRecentSteps),
+			MinResultBytes:  cloneIntPtr(j.Compaction.ResultEviction.MinResultBytes),
+			StartPercent:    cloneIntPtr(j.Compaction.ResultEviction.StartPercent),
 		},
 	}
 	cfg.Memory = MemoryConfig{

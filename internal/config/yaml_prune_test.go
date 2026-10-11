@@ -125,6 +125,31 @@ func TestMarshalConfigYAMLKeepsAnExplicitEmptyList(t *testing.T) {
 	}
 }
 
+// compaction.result_eviction.tools follows the same rule: `tools: []` (read and
+// grep only) is a value the save keeps, and a file that never named the key does
+// not come back with one.
+func TestMarshalConfigYAMLKeepsAnExplicitEmptyEvictionToolList(t *testing.T) {
+	const withEmptyTools = sparseConfig + `compaction:
+  result_eviction:
+    tools: []
+`
+	cfg := loadForRewrite(t, withEmptyTools)
+	cfg.Agent.MaxTurns = 42
+	saved := rewrite(t, cfg, withEmptyTools)
+	if !strings.Contains(saved, "tools: []") {
+		t.Errorf("saved config dropped the explicit empty eviction tool list:\n%s", saved)
+	}
+
+	cfg = loadForRewrite(t, sparseConfig)
+	cfg.Agent.MaxTurns = 42
+	saved = rewrite(t, cfg, sparseConfig)
+	for _, absent := range []string{"result_eviction", "keep_recent_steps", "tools:"} {
+		if strings.Contains(saved, absent) {
+			t.Errorf("saved config materializes %q the file never had:\n%s", absent, saved)
+		}
+	}
+}
+
 // A fresh write (no previous file) carries the same rule: no nulls for unset
 // fields, and no default sections either - a first `coddy mcp add` or a save
 // after the file was deleted must not materialize the whole default dump, or

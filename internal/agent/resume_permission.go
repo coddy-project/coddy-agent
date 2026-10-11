@@ -92,7 +92,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 		a.state.AddMessage(toolResultMsg)
 		if sd != "" {
 			_ = session.WriteToolCallResult(sd, tc.ID, toolResultMsg.Content)
-			_ = session.MarkToolCallFinished(sd, tc.ID, tc.Name, toolKind(tc.Name), "cancelled")
+			_ = session.MarkToolCallFinished(sd, tc.ID, tc.Name, session.ToolKind(tc.Name), "cancelled")
 		}
 		a.closeUnexecutedPermissionBatch(toolCallID)
 		return a.continueReAct(ctx, mode, toolEnv)
@@ -317,7 +317,7 @@ func settleStalePermission(sessionDir, toolCallID string, call llm.ToolCall) (bo
 	}
 	kind := ""
 	if name != "" {
-		kind = toolKind(name)
+		kind = session.ToolKind(name)
 	}
 	if err := session.MarkToolCallFinished(sessionDir, toolCallID, name, kind, "cancelled"); err != nil {
 		return false, fmt.Errorf("record stale permission %s: %w", toolCallID, err)

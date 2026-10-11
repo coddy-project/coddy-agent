@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -16,8 +17,8 @@ const (
 
 // Defaults for the compaction.result_eviction subsection.
 const (
-	// ResultEvictionDefaultKeepRecent is how many most recent evictable tool
-	// results (read pages, grep dumps) stay intact as a working window.
+	// ResultEvictionDefaultKeepRecent is how many most recent evictable read and
+	// grep results (read pages, grep dumps) stay intact as a working window.
 	// 2, not 1: a window of 1 cannot hold a read plus a grep at the same time, so
 	// a model comparing the two keeps re-fetching whichever the other just evicted
 	// (the loop guard does not catch it, because alternating calls are not
@@ -26,6 +27,14 @@ const (
 	// ResultEvictionDefaultMinResultBytes is the size at or below which a tool
 	// result is never evicted (too small to be worth a placeholder).
 	ResultEvictionDefaultMinResultBytes = 2000
+	// ResultEvictionDefaultKeepRecentSteps is how many of the most recent steps
+	// that hold a listing result (glob, print_tree, websearch, webfetch) keep
+	// all of those results intact. A step is one assistant message with every
+	// result of its tool calls, so ten parallel calls are one step: counting
+	// single results would let one fan-out fill the whole window by itself.
+	// The smallest accepted value is 1: with none, the listing the model has
+	// just asked for would be collapsed in the very next request.
+	ResultEvictionDefaultKeepRecentSteps = 3
 	// ResultEvictionDefaultStartPercent is the share of the model's context
 	// window the conversation must reach before eviction starts rewriting it.
 	// Below it the history is sent untouched, because every placeholder that
@@ -35,6 +44,15 @@ const (
 	// short of yet.
 	ResultEvictionDefaultStartPercent = 50
 )
+
+// ResultEvictionListingTools is the closed set of read-only listing tools that
+// compaction.result_eviction.tools may name, in the order the default list
+// carries them. Their result can be asked for again by repeating the call and
+// says nothing the call does not. run_command and MCP tools are deliberately
+// not here: a shell command or a remote server may not give the same answer
+// twice, or may have changed something by running, so a placeholder would
+// withhold what cannot be fetched again. Callers must not modify the slice.
+var ResultEvictionListingTools = []string{"glob", "print_tree", "websearch", "webfetch"}
 
 // Compaction is the YAML compaction section (key compaction): summarizing older
 // conversation history so long sessions keep fitting the model context window.
@@ -65,20 +83,38 @@ type Compaction struct {
 	// it; the session's own model is always the last resort, whether or not it
 	// is listed here (issue #247).
 	FallbackModels []string `yaml:"fallback_models"`
-	// ResultEviction controls pruning of superseded read/grep tool results from
-	// the LLM projection (the persisted transcript is never rewritten).
+	// ResultEviction controls pruning of superseded tool results (read pages,
+	// grep dumps, and the listings of glob, print_tree, websearch and webfetch)
+	// from the LLM projection (the persisted transcript is never rewritten).
 	ResultEviction ResultEviction `yaml:"result_eviction"`
 }
 
 // ResultEviction is the YAML compaction.result_eviction section: collapsing
-// unmarked read/grep results to short placeholders when building the LLM request,
-// so paging a large file or a wide search cannot pin dead lines in every later turn.
+// superseded tool results to short placeholders when building the LLM request,
+// so paging a large file, a wide search or a fan-out of directory listings cannot
+// pin dead lines in every later turn. Unmarked read and grep results go by a
+// window of results (KeepRecent); the listing tools in Tools go by a window of
+// whole steps (KeepRecentSteps).
 type ResultEviction struct {
 	// Enabled toggles the projection. A nil pointer means the default (true).
 	Enabled *bool `yaml:"enable"`
-	// KeepRecent is how many most recent evictable results stay intact as a
-	// working window. A nil pointer means the default (1); 0 keeps none.
+	// KeepRecent is how many most recent evictable read and grep results stay
+	// intact as a working window. A nil pointer means the default (2); 0 keeps
+	// none. Listing results do not count toward it.
 	KeepRecent *int `yaml:"keep_recent"`
+	// Tools names the read-only listing tools whose results are evicted besides
+	// read and grep; the allowed names are ResultEvictionListingTools. A nil
+	// pointer (key omitted) means all of them; a pointer to an empty list (an
+	// explicit []) means none, so only read and grep are evicted. The pointer
+	// keeps those two apart through a settings round trip, as
+	// ModelEntry.ReasoningLevels does: a plain slice would write an empty list
+	// for every default configuration, or lose the opt-out.
+	Tools *[]string `yaml:"tools,omitempty"`
+	// KeepRecentSteps is how many of the most recent steps holding a listing
+	// result keep all of their listing results intact. A nil pointer means the
+	// default (3); the minimum is 1, so the latest step that holds a listing
+	// always keeps its results.
+	KeepRecentSteps *int `yaml:"keep_recent_steps"`
 	// MinResultBytes is the size at or below which a result is never evicted.
 	// A nil pointer means the default (2000); 0 makes every result a candidate.
 	MinResultBytes *int `yaml:"min_result_bytes"`
@@ -119,6 +155,24 @@ func (r *ResultEviction) EffectiveStartPercent() int {
 	return *r.StartPercent
 }
 
+// EffectiveTools returns the listing tools to evict with the default applied.
+// The slice is a copy: callers may sort or trim it without touching the default
+// or the configured list.
+func (r *ResultEviction) EffectiveTools() []string {
+	if r.Tools == nil {
+		return append([]string(nil), ResultEvictionListingTools...)
+	}
+	return append([]string(nil), (*r.Tools)...)
+}
+
+// EffectiveKeepRecentSteps returns keep_recent_steps with the default applied.
+func (r *ResultEviction) EffectiveKeepRecentSteps() int {
+	if r.KeepRecentSteps == nil {
+		return ResultEvictionDefaultKeepRecentSteps
+	}
+	return *r.KeepRecentSteps
+}
+
 // Validate checks bounds on explicitly set fields.
 func (r *ResultEviction) Validate() error {
 	if r.KeepRecent != nil && *r.KeepRecent < 0 {
@@ -129,6 +183,23 @@ func (r *ResultEviction) Validate() error {
 	}
 	if r.StartPercent != nil && (*r.StartPercent < 0 || *r.StartPercent > 100) {
 		return fmt.Errorf("compaction.result_eviction.start_percent: must be between 0 and 100")
+	}
+	if r.KeepRecentSteps != nil && *r.KeepRecentSteps < 1 {
+		return fmt.Errorf("compaction.result_eviction.keep_recent_steps: must be >= 1")
+	}
+	if r.Tools != nil {
+		seen := make(map[string]bool, len(*r.Tools))
+		for _, name := range *r.Tools {
+			if !slices.Contains(ResultEvictionListingTools, name) {
+				return fmt.Errorf("compaction.result_eviction.tools: unknown tool %q (allowed: %s)",
+					name, strings.Join(ResultEvictionListingTools, ", "))
+			}
+			// The schema says uniqueItems; the loader holds the same line.
+			if seen[name] {
+				return fmt.Errorf("compaction.result_eviction.tools: duplicate tool %q (name each tool once)", name)
+			}
+			seen[name] = true
+		}
 	}
 	return nil
 }
