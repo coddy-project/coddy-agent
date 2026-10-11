@@ -273,7 +273,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// A cut inside the turn tells the summarizer the work is still going on and
 	// that the request stays in front of its summary.
 	if prefix != "" {
-		instructions = withInTurnSummaryInstructions(instructions)
+		instructions = withInTurnSummaryInstructions(instructions, prefixSource)
 	}
 
 	head := project()[:splitIdx-visibleStart]

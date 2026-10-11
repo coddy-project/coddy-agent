@@ -236,9 +236,18 @@ func (a *Agent) inTurnPrefix(msgs []llm.Message, split, limit int) (prefix strin
 // withInTurnSummaryInstructions tells the summarizer the transcript it reads
 // stops in the middle of the work, and that the request it serves is kept
 // verbatim in front of its summary.
-func withInTurnSummaryInstructions(instructions string) string {
-	note := "The transcript ends in the middle of the agent's work on the user's latest request. " +
-		"That request stays verbatim in front of your summary, so do not repeat it. " +
+func withInTurnSummaryInstructions(instructions string, source session.TurnSource) string {
+	// The message the turn answers is named for who wrote it, as the row's
+	// preamble names it: in a goal turn or a woken turn it is not the user's.
+	what := "the user's latest request"
+	switch source {
+	case session.TurnSourceSupervisor:
+		what = "the instruction the session's goal supervisor started this turn with"
+	case session.TurnSourceBackground:
+		what = "the notice that woke this turn when a background task finished"
+	}
+	note := "The transcript ends in the middle of the agent's work on " + what + ". " +
+		"That message stays verbatim in front of your summary, so do not repeat it. " +
 		"Summarize what was done for it so far, what it found, the files touched, and what remains to be done."
 	if instructions == "" {
 		return note
