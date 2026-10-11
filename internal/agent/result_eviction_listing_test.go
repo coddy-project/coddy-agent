@@ -8,7 +8,8 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	// Seeded generators make reproducible test histories; nothing here is secret.
+	"math/rand" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used
 	"path/filepath"
 	"reflect"
 	"strings"
