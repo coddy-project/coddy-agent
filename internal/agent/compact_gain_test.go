@@ -100,7 +100,7 @@ func TestGainCheckCountsTheSummaryTheWindowOpensWith(t *testing.T) {
 	const prompt = "Audit every module and report."
 	build := func(t *testing.T, summary string) *session.State {
 		t.Helper()
-		row := session.NewInTurnCompactionSummaryMessage(prompt, summary, "m")
+		row := session.NewInTurnCompactionSummaryMessage(session.TurnSourceUser, prompt, summary, "m")
 		return stateOf(t, []llm.Message{stamped(prompt, openedAt)}, steps("a", 4), []llm.Message{row}, steps("b", 3))
 	}
 	// 9500 of overhead; the fold's request is the overhead, the prefix, the summary

@@ -26,7 +26,7 @@ func TestDeliveredRulesCountsTheRulesInFrontOfAnInTurnSummary(t *testing.T) {
 
 	t.Run("the rules of the prompt a row carries are delivered", func(t *testing.T) {
 		msgs := []llm.Message{
-			session.NewInTurnCompactionSummaryMessage(prompt, "the worker read two files", "m"),
+			session.NewInTurnCompactionSummaryMessage(session.TurnSourceUser, prompt, "the worker read two files", "m"),
 			{Role: llm.RoleAssistant, Content: "ok"},
 		}
 		if got := deliveredRules(msgs); got[ruleBlockPath] != body {
@@ -35,7 +35,7 @@ func TestDeliveredRulesCountsTheRulesInFrontOfAnInTurnSummary(t *testing.T) {
 	})
 
 	t.Run("a rule in the summary part is not the rule", func(t *testing.T) {
-		msgs := []llm.Message{session.NewInTurnCompactionSummaryMessage("Fix the build.", "the worker met\n\n"+ruleBlock(ruleBlockPath, body), "m")}
+		msgs := []llm.Message{session.NewInTurnCompactionSummaryMessage(session.TurnSourceUser, "Fix the build.", "the worker met\n\n"+ruleBlock(ruleBlockPath, body), "m")}
 		if got := deliveredRules(msgs); len(got) != 0 {
 			t.Fatalf("delivered = %v: whatever a summary retells is not the rule", got)
 		}
@@ -48,11 +48,20 @@ func TestDeliveredRulesCountsTheRulesInFrontOfAnInTurnSummary(t *testing.T) {
 		}
 	})
 
+	t.Run("a row of a turn another writer opened counts its rules the same way", func(t *testing.T) {
+		for _, source := range []session.TurnSource{session.TurnSourceSupervisor, session.TurnSourceBackground} {
+			msgs := []llm.Message{session.NewInTurnCompactionSummaryMessage(source, prompt, "the worker read two files", "m")}
+			if got := deliveredRules(msgs); got[ruleBlockPath] != body {
+				t.Fatalf("source %v: delivered = %v, want the rule the opening message carried", source, got)
+			}
+		}
+	})
+
 	t.Run("the rules of the follow-ups in the prefix are delivered too", func(t *testing.T) {
 		const second = "Write a test first."
 		const secondPath = "/work/.cursor/rules/tests.mdc"
 		prefix := inTurnPromptPrefix("Fix the build.", []string{"Also this.\n\n" + ruleBlock(secondPath, second)}, 128000)
-		msgs := []llm.Message{session.NewInTurnCompactionSummaryMessage(prefix, "s", "m")}
+		msgs := []llm.Message{session.NewInTurnCompactionSummaryMessage(session.TurnSourceUser, prefix, "s", "m")}
 		if got := deliveredRules(msgs); got[secondPath] != second {
 			t.Fatalf("delivered = %v, want the follow-up's rule", got)
 		}
@@ -77,7 +86,7 @@ func TestDeliveredRulesDoesNotCountABlockTheCapCutThrough(t *testing.T) {
 			if !strings.Contains(prefix, "omitted") {
 				t.Fatal("fixture: the prefix was not cut")
 			}
-			msgs := []llm.Message{session.NewInTurnCompactionSummaryMessage(prefix, "s", "m")}
+			msgs := []llm.Message{session.NewInTurnCompactionSummaryMessage(session.TurnSourceUser, prefix, "s", "m")}
 			if got := deliveredRules(msgs); got[ruleBlockPath] == body {
 				t.Fatal("a block the cap cut through was counted as the rule")
 			}
@@ -88,7 +97,7 @@ func TestDeliveredRulesDoesNotCountABlockTheCapCutThrough(t *testing.T) {
 		const small = "Use gofmt."
 		prompt := "Fix the build.\n\n" + ruleBlock(ruleBlockPath, small) + "\n\n" + strings.Repeat("pasted log line. ", 5000)
 		prefix := inTurnPromptPrefix(prompt, nil, limit)
-		msgs := []llm.Message{session.NewInTurnCompactionSummaryMessage(prefix, "s", "m")}
+		msgs := []llm.Message{session.NewInTurnCompactionSummaryMessage(session.TurnSourceUser, prefix, "s", "m")}
 		if got := deliveredRules(msgs); got[ruleBlockPath] != small {
 			t.Fatalf("delivered = %v: the block was whole and in the kept head", got)
 		}

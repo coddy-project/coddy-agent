@@ -243,11 +243,11 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// the same way. A manual /compact between turns is no such call: no turn is
 	// being answered, and the previous turn's prompt in front of its summary would
 	// ask the model to answer it again.
-	prefix := ""
+	prefix, prefixSource := "", session.TurnSourceUser
 	if plan != nil {
-		prefix = plan.prompt
+		prefix, prefixSource = plan.prompt, plan.source
 	} else if opts.FromTool {
-		prefix, _ = a.inTurnPrefix(msgs, splitIdx, a.promptShareLimit(0))
+		prefix, prefixSource, _ = a.inTurnPrefix(msgs, splitIdx, a.promptShareLimit(0))
 	}
 
 	// PreCompact hooks see the trigger and may veto: the manual command
@@ -307,7 +307,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// in the transcript; they are not copied onto the row).
 	summaryRow := session.NewCompactionSummaryMessage(summary, modelID)
 	if prefix != "" {
-		summaryRow = session.NewInTurnCompactionSummaryMessage(prefix, summary, modelID)
+		summaryRow = session.NewInTurnCompactionSummaryMessage(prefixSource, prefix, summary, modelID)
 	}
 	a.state.InsertCompactionSummary(splitIdx, summaryRow)
 	// The history the provider had cached is rewritten from here on, which

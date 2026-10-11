@@ -149,7 +149,7 @@ func TestTurnStepSplitIndex(t *testing.T) {
 // leaves a summary row at the start of the window, followed by the steps that
 // were kept. That row stands for the turn's prompt.
 func TestTurnStepSplitIndexAnchorsAtTheSummaryWhenThePromptIsHidden(t *testing.T) {
-	prefixed := NewInTurnCompactionSummaryMessage("do it", "what was done", "m")
+	prefixed := NewInTurnCompactionSummaryMessage(TurnSourceUser, "do it", "what was done", "m")
 	msgs := concatMessages(
 		[]llm.Message{userMsg("do it")}, stepOf("old1"), stepOf("old2"),
 		[]llm.Message{prefixed},
@@ -188,7 +188,7 @@ func TestTurnStepCount(t *testing.T) {
 		{name: "earlier turns are not the turn", msgs: concatMessages([]llm.Message{userMsg("p")}, stepOf("a"), stepOf("b"), []llm.Message{userMsg("q")}, stepOf("c")), want: 1},
 		{name: "a plan row is no step", msgs: concatMessages([]llm.Message{userMsg("p")}, stepOf("a"), []llm.Message{plan}), want: 1},
 		{name: "no prompt and no summary", msgs: stepOf("a"), want: 0},
-		{name: "the summary row stands for the prompt", msgs: concatMessages([]llm.Message{NewInTurnCompactionSummaryMessage("p", "s", "m")}, stepOf("a"), stepOf("b")), want: 2},
+		{name: "the summary row stands for the prompt", msgs: concatMessages([]llm.Message{NewInTurnCompactionSummaryMessage(TurnSourceUser, "p", "s", "m")}, stepOf("a"), stepOf("b")), want: 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -220,7 +220,7 @@ func TestTurnPrompt(t *testing.T) {
 	t.Run("a prompt hidden behind a summary row is still found", func(t *testing.T) {
 		msgs := concatMessages(
 			[]llm.Message{userMsg(prompt)}, stepOf("c1"),
-			[]llm.Message{NewInTurnCompactionSummaryMessage(prompt, "s", "m")}, stepOf("c2"),
+			[]llm.Message{NewInTurnCompactionSummaryMessage(TurnSourceUser, prompt, "s", "m")}, stepOf("c2"),
 		)
 		got, ok := TurnPrompt(msgs, TurnAnchor{})
 		if !ok || got != prompt {
@@ -246,7 +246,7 @@ func TestTurnPrompt(t *testing.T) {
 }
 
 func TestNewInTurnCompactionSummaryMessage(t *testing.T) {
-	m := NewInTurnCompactionSummaryMessage("fix the build", "  steps one to four  ", "prov/model")
+	m := NewInTurnCompactionSummaryMessage(TurnSourceUser, "fix the build", "  steps one to four  ", "prov/model")
 	if m.Role != llm.RoleUser || !m.CompactionSummary || m.Model != "prov/model" || m.CreatedAt == "" {
 		t.Fatalf("not shaped like a summary row: %+v", m)
 	}
@@ -268,7 +268,7 @@ func TestNewInTurnCompactionSummaryMessage(t *testing.T) {
 // would find "one user turn" in the window and the old row and its steps could
 // never be folded.
 func TestCompactionSplitIndexTreatsAnInTurnSummaryAsATurn(t *testing.T) {
-	inTurn := NewInTurnCompactionSummaryMessage("do it", "earlier steps", "m")
+	inTurn := NewInTurnCompactionSummaryMessage(TurnSourceUser, "do it", "earlier steps", "m")
 	remainder := concatMessages([]llm.Message{inTurn}, stepOf("c1"), stepOf("c2"), []llm.Message{assistantMsg("done")})
 
 	t.Run("a new prompt splits at itself and folds the row with its steps", func(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 
 func TestSplitInTurnSummary(t *testing.T) {
 	t.Run("an in-turn row splits into the request and the summary", func(t *testing.T) {
-		row := NewInTurnCompactionSummaryMessage("fix the build\n\nthen explain why", "  steps one to four  ", "m")
+		row := NewInTurnCompactionSummaryMessage(TurnSourceUser, "fix the build\n\nthen explain why", "  steps one to four  ", "m")
 		prompt, summary, ok := SplitInTurnSummary(row.Content)
 		if !ok || prompt != "fix the build\n\nthen explain why" || summary != "steps one to four" {
 			t.Fatalf("got %q / %q ok = %v", prompt, summary, ok)
@@ -23,7 +23,7 @@ func TestSplitInTurnSummary(t *testing.T) {
 
 	t.Run("the follow-ups are part of what is in front of the summary", func(t *testing.T) {
 		prefix := "fix the build\n\nFollow-up the user sent while this request was being worked on:\nkeep the tests green"
-		prompt, summary, ok := SplitInTurnSummary(NewInTurnCompactionSummaryMessage(prefix, "s", "m").Content)
+		prompt, summary, ok := SplitInTurnSummary(NewInTurnCompactionSummaryMessage(TurnSourceUser, prefix, "s", "m").Content)
 		if !ok || prompt != prefix || summary != "s" {
 			t.Fatalf("got %q / %q ok = %v", prompt, summary, ok)
 		}
@@ -48,14 +48,14 @@ func TestSplitInTurnSummary(t *testing.T) {
 
 	t.Run("the first occurrence of the preamble is the boundary", func(t *testing.T) {
 		// A summary that quotes the preamble keeps the quote.
-		row := NewInTurnCompactionSummaryMessage("the request", "it said:\n\n"+inTurnSummaryPreamble+"tail", "m")
+		row := NewInTurnCompactionSummaryMessage(TurnSourceUser, "the request", "it said:\n\n"+inTurnSummaryPreamble+"tail", "m")
 		prompt, summary, ok := SplitInTurnSummary(row.Content)
 		if !ok || prompt != "the request" || !strings.Contains(summary, "it said:") || !strings.HasSuffix(summary, "tail") {
 			t.Fatalf("got %q / %q ok = %v", prompt, summary, ok)
 		}
 		// A request that quotes it is the one input that is misread: what follows
 		// the quote is taken for the summary.
-		quoting := NewInTurnCompactionSummaryMessage("see:\n\n"+inTurnSummaryPreamble+"and then fix it", "s", "m")
+		quoting := NewInTurnCompactionSummaryMessage(TurnSourceUser, "see:\n\n"+inTurnSummaryPreamble+"and then fix it", "s", "m")
 		prompt, _, ok = SplitInTurnSummary(quoting.Content)
 		if !ok || prompt != "see:" {
 			t.Fatalf("got %q ok = %v: the documented misreading changed", prompt, ok)
@@ -68,7 +68,7 @@ func TestSummaryReplayText(t *testing.T) {
 	if got := SummaryReplayText(plain); got != plain {
 		t.Fatalf("a plain row must be replayed as stored, got %q", got)
 	}
-	row := NewInTurnCompactionSummaryMessage("fix the build", "steps one to four", "m")
+	row := NewInTurnCompactionSummaryMessage(TurnSourceUser, "fix the build", "steps one to four", "m")
 	got := SummaryReplayText(row.Content)
 	if got != inTurnSummaryPreamble+"steps one to four" || strings.Contains(got, "fix the build") {
 		t.Fatalf("an in-turn row must be replayed from its preamble on, got %q", got)
@@ -84,7 +84,7 @@ func digestOf(msgs ...llm.Message) string {
 }
 
 func TestGoalDigestSplitsAnInTurnRowIntoTheOperatorAndTheWorker(t *testing.T) {
-	row := NewInTurnCompactionSummaryMessage("Fix the parser and keep the API.", "the worker read parse.go and changed two functions", "m")
+	row := NewInTurnCompactionSummaryMessage(TurnSourceUser, "Fix the parser and keep the API.", "the worker read parse.go and changed two functions", "m")
 	d := digestOf(row)
 	for _, want := range []string{
 		"[operator] Fix the parser and keep the API.",
@@ -108,13 +108,13 @@ func TestGoalDigestSplitsAnInTurnRowIntoTheOperatorAndTheWorker(t *testing.T) {
 
 func TestGoalDigestClipsTheRequestAndTheSummaryOnTheirOwn(t *testing.T) {
 	t.Run("a long summary leaves the request whole", func(t *testing.T) {
-		d := digestOf(NewInTurnCompactionSummaryMessage("SHORT-REQUEST-MARKER", strings.Repeat("claim. ", 1000), "m"))
+		d := digestOf(NewInTurnCompactionSummaryMessage(TurnSourceUser, "SHORT-REQUEST-MARKER", strings.Repeat("claim. ", 1000), "m"))
 		if !strings.Contains(d, "[operator] SHORT-REQUEST-MARKER\n") {
 			t.Errorf("the request did not survive a long summary:\n%s", firstOf(d, 600))
 		}
 	})
 	t.Run("a long request leaves the summary whole", func(t *testing.T) {
-		d := digestOf(NewInTurnCompactionSummaryMessage(strings.Repeat("pasted log line. ", 400), "SHORT-SUMMARY-MARKER", "m"))
+		d := digestOf(NewInTurnCompactionSummaryMessage(TurnSourceUser, strings.Repeat("pasted log line. ", 400), "SHORT-SUMMARY-MARKER", "m"))
 		if !strings.Contains(d, "claims, not evidence] SHORT-SUMMARY-MARKER\n") {
 			t.Errorf("the summary was clipped away with a long request:\n%s", firstOf(d, 600))
 		}
@@ -159,7 +159,7 @@ func TestReplayShowsAnInTurnRowFromItsPreambleOn(t *testing.T) {
 	const prompt = "Fix the parser and keep the API."
 	msgs := concatMessages(
 		[]llm.Message{userMsg(prompt)}, stepOf("c1"),
-		[]llm.Message{NewInTurnCompactionSummaryMessage(prompt, "the worker changed two functions", "m")}, stepOf("c2"),
+		[]llm.Message{NewInTurnCompactionSummaryMessage(TurnSourceUser, prompt, "the worker changed two functions", "m")}, stepOf("c2"),
 		[]llm.Message{userMsg("and the docs"), NewCompactionSummaryMessage("a plain row", "m")},
 	)
 	rec := &chunkRecorder{}

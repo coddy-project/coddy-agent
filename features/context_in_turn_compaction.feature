@@ -35,6 +35,19 @@ Feature: Compaction inside a long turn
     And every request from the first that read the follow-up carried it once
     And every tool result in each request answers a call that request carries
 
+  Scenario: A goal turn the supervisor started is not called the user's request
+    Given a model window of 36000 tokens
+    And result eviction is off, so only compaction can keep the turn inside the window
+    And a model that reads 4 files in parallel at each of 14 steps and then answers
+    And the provider refuses any request larger than the window
+    And the prompt is a goal continuation the supervisor started
+    When the user sends one prompt
+    Then no request was refused
+    And the turn ended with the model's answer
+    And the turn was folded more than once
+    And every request carried the prompt verbatim
+    And every summary row says the supervisor wrote the prompt
+
   Scenario: A refused oversized request is asked again after compaction
     Given a model window of 128000 tokens that the provider serves only up to 30000
     And result eviction is off, so only compaction can keep the turn inside the window

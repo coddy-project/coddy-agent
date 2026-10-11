@@ -128,6 +128,8 @@ type inTurnFeatureState struct {
 	// followUp is a message the user types while the model is at step followUpAt.
 	followUp   string
 	followUpAt int
+	// goalTurn, when set, marks the prompt as a goal turn the supervisor started.
+	goalTurn *llm.GoalTurn
 
 	provider *inTurnProvider
 	st       *session.State
@@ -139,7 +141,7 @@ type inTurnFeatureState struct {
 func (s *inTurnFeatureState) reset() error {
 	s.close()
 	s.window, s.served, s.evictOff, s.steps, s.fanOut, s.refuseAt = 0, 0, false, 0, 0, 0
-	s.followUp, s.followUpAt = "", 0
+	s.followUp, s.followUpAt, s.goalTurn = "", 0, nil
 	s.provider, s.st, s.ag, s.stop, s.runErr = nil, nil, nil, "", nil
 	return nil
 }
@@ -208,6 +210,9 @@ type inTurnLongTurn struct {
 	// a user types into a running turn.
 	followUp   string
 	followUpAt int
+	// goalTurn, when set, is the marker of a goal turn the supervisor started: the
+	// prompt is its first message.
+	goalTurn *llm.GoalTurn
 }
 
 // inTurnWorld is a long turn that has been set up and run.
@@ -279,14 +284,22 @@ func (d inTurnLongTurn) run(tempDir func() (string, error)) (*inTurnWorld, error
 			}
 		}
 	}
+	if d.goalTurn != nil {
+		w.st.SetTurnGoal(d.goalTurn)
+	}
 	w.stop, w.runErr = w.ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: inTurnPrompt}})
 	return w, nil
+}
+
+func (s *inTurnFeatureState) promptIsAGoalContinuation() error {
+	s.goalTurn = &llm.GoalTurn{Kind: acp.GoalTurnContinue, Index: 2, Limit: 10, Objective: "audit every module"}
+	return nil
 }
 
 func (s *inTurnFeatureState) userSendsOnePrompt() error {
 	w, err := inTurnLongTurn{
 		window: s.window, steps: s.steps, fanOut: s.fanOut, refuseAt: s.refuseAt, evictOff: s.evictOff,
-		followUp: s.followUp, followUpAt: s.followUpAt,
+		followUp: s.followUp, followUpAt: s.followUpAt, goalTurn: s.goalTurn,
 	}.run(s.tempDir)
 	if err != nil {
 		return err
@@ -469,6 +482,28 @@ func (s *inTurnFeatureState) transcriptHoldsSummaryStartingWithPrompt() error {
 	return fmt.Errorf("no summary row begins with the prompt: %v", s.summaryRows())
 }
 
+// everySummaryRowNamesTheSupervisor checks that the rows a fold wrote start with
+// the prompt and say the goal supervisor wrote it, not the user.
+func (s *inTurnFeatureState) everySummaryRowNamesTheSupervisor() error {
+	rows := s.summaryRows()
+	if len(rows) == 0 {
+		return fmt.Errorf("the transcript holds no summary row")
+	}
+	for i, m := range rows {
+		prompt, _, source, ok := session.SplitInTurnRow(m.Content)
+		if !ok || prompt != inTurnPrompt {
+			return fmt.Errorf("summary row %d does not begin with the prompt: %q", i+1, firstChars(m.Content, 120))
+		}
+		if source != session.TurnSourceSupervisor {
+			return fmt.Errorf("summary row %d says source %v wrote the prompt, want the supervisor: %q", i+1, source, firstChars(m.Content[len(prompt):], 200))
+		}
+		if strings.Contains(m.Content, "The text above is the user's request") {
+			return fmt.Errorf("summary row %d calls the supervisor's instruction the user's request", i+1)
+		}
+	}
+	return nil
+}
+
 func initializeInTurnScenario(sc *godog.ScenarioContext) {
 	s := &inTurnFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -486,7 +521,9 @@ func initializeInTurnScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the user types the follow-up "([^"]+)" while the model is at step (\d+)$`, s.userTypesFollowUpAtStep)
 	sc.Step(`^the provider refuses any request larger than the window$`, s.providerRefusesAboveWindow)
 	sc.Step(`^the provider refuses any request larger than what it serves$`, s.providerRefusesAboveWhatItServes)
+	sc.Step(`^the prompt is a goal continuation the supervisor started$`, s.promptIsAGoalContinuation)
 	sc.Step(`^the user sends one prompt$`, s.userSendsOnePrompt)
+	sc.Step(`^every summary row says the supervisor wrote the prompt$`, s.everySummaryRowNamesTheSupervisor)
 	sc.Step(`^no request was refused$`, s.noRequestWasRefused)
 	sc.Step(`^the turn ended with the model's answer$`, s.turnEndedWithAnswer)
 	sc.Step(`^the turn was folded more than once$`, s.turnFoldedMoreThanOnce)

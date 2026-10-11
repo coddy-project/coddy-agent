@@ -86,7 +86,7 @@ func TestInsertCompactionSummaryInsideATurnKeepsItsNoticesAtItsEnd(t *testing.T)
 	}
 
 	// An in-turn fold: the row goes in front of the second step.
-	st.InsertCompactionSummary(5, NewInTurnCompactionSummaryMessage("second", "the first step", "m"))
+	st.InsertCompactionSummary(5, NewInTurnCompactionSummaryMessage(TurnSourceUser, "second", "the first step", "m"))
 	st.AddMessage(assistantMsg("done"))
 	st.AddMessage(userMsg("third"))
 	st.AddMessage(assistantMsg("answer"))

@@ -140,7 +140,7 @@ func TestTurnFollowUps(t *testing.T) {
 	})
 
 	t.Run("follow-ups a fold hid behind a summary row are still found", func(t *testing.T) {
-		msgs := concatMessages(turn[:8], []llm.Message{NewInTurnCompactionSummaryMessage("fix the build", "s", "m")}, turn[8:])
+		msgs := concatMessages(turn[:8], []llm.Message{NewInTurnCompactionSummaryMessage(TurnSourceUser, "fix the build", "s", "m")}, turn[8:])
 		got := TurnFollowUps(msgs, 2, len(msgs))
 		if len(got) != 1 || got[0] != "also keep the tests green" {
 			t.Fatalf("follow-ups = %q, want the queued one from before the row", got)
@@ -203,7 +203,7 @@ func TestCompactionSplitIndexUpToIgnoresFollowUps(t *testing.T) {
 		// user queued after it: the prompt lies before the window, so no user
 		// message of the window is a boundary and the row with its steps is the
 		// turn in progress.
-		row := NewInTurnCompactionSummaryMessage("fix the build", "s", "m")
+		row := NewInTurnCompactionSummaryMessage(TurnSourceUser, "fix the build", "s", "m")
 		msgs := concatMessages(turn[:8], []llm.Message{row}, stepOf("c3"), []llm.Message{at(userMsg("and the docs"), stopHookAt)}, stepOf("c4"))
 		if idx, ok := CompactionSplitIndexUpTo(msgs, 1, open); ok {
 			t.Fatalf("ok at %d: the follow-up was taken for a turn boundary", idx)
@@ -236,7 +236,7 @@ func TestTurnStepsCountFromTheOpeningPrompt(t *testing.T) {
 	}
 
 	t.Run("a prompt hidden behind a row anchors at the row, follow-ups after it included", func(t *testing.T) {
-		row := NewInTurnCompactionSummaryMessage("fix the build", "s", "m")
+		row := NewInTurnCompactionSummaryMessage(TurnSourceUser, "fix the build", "s", "m")
 		msgs := concatMessages(turn[:5], []llm.Message{row}, stepOf("c2"), []llm.Message{at(userMsg("and the docs"), queuedAt)}, stepOf("c3"))
 		// Window: row(5) c2(6-7) follow-up(8) c3(9-10): two steps, one on each
 		// side of the follow-up.

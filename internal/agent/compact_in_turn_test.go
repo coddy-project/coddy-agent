@@ -209,7 +209,7 @@ func TestChooseInTurnSplit(t *testing.T) {
 		// An earlier fold left a summary row: indexes are absolute, the
 		// projection starts at the window.
 		old := []llm.Message{{Role: llm.RoleUser, Content: "p"}, {Role: llm.RoleAssistant, Content: "early"}}
-		row := session.NewInTurnCompactionSummaryMessage("p", "earlier steps", "m")
+		row := session.NewInTurnCompactionSummaryMessage(session.TurnSourceUser, "p", "earlier steps", "m")
 		rest := fixtureTurn("ignored", 4, 1, 500)[1:]
 		msgs := append(append(append([]llm.Message{}, old...), row), rest...)
 		visibleStart := len(old)

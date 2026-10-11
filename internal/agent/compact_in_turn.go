@@ -221,13 +221,15 @@ func (a *Agent) promptShareLimit(limitTokens int) int {
 // when the turn's opening prompt lies before the split (in the head, or hidden
 // behind the summary row an earlier fold wrote) and carries text. The follow-ups
 // are the ones the user queued between the prompt and the split; those in the kept
-// tail stay where they are, so nothing is written twice.
-func (a *Agent) inTurnPrefix(msgs []llm.Message, split, limit int) (string, bool) {
-	open, ok := session.OpeningPromptIndex(msgs, a.turnOpening)
-	if !ok || open >= split || strings.TrimSpace(msgs[open].Content) == "" {
-		return "", false
+// tail stay where they are, so nothing is written twice. source is who wrote the
+// opening message - the user, the goal supervisor or a finished background task -
+// which the row says in front of its summary (session.TurnSourceOf).
+func (a *Agent) inTurnPrefix(msgs []llm.Message, split, limit int) (prefix string, source session.TurnSource, ok bool) {
+	open, found := session.OpeningPromptIndex(msgs, a.turnOpening)
+	if !found || open >= split || strings.TrimSpace(msgs[open].Content) == "" {
+		return "", session.TurnSourceUser, false
 	}
-	return inTurnPromptPrefix(msgs[open].Content, session.TurnFollowUps(msgs, open, split), limit), true
+	return inTurnPromptPrefix(msgs[open].Content, session.TurnFollowUps(msgs, open, split), limit), session.TurnSourceOf(msgs[open]), true
 }
 
 // withInTurnSummaryInstructions tells the summarizer the transcript it reads
@@ -310,8 +312,8 @@ func (a *Agent) checkFoldGain(msgs []llm.Message, visibleStart int, projected []
 		threshold: limit * pct / 100,
 		tail:      conversationTokens(projected[floor-visibleStart:], a.modelReadsImages()),
 	}
-	if prefix, ok := a.inTurnPrefix(msgs, floor, limit); ok {
-		e.row = session.EstimateContextTokens(session.NewInTurnCompactionSummaryMessage(prefix, "", "").Content)
+	if prefix, source, ok := a.inTurnPrefix(msgs, floor, limit); ok {
+		e.row = session.EstimateContextTokens(session.NewInTurnCompactionSummaryMessage(source, prefix, "", "").Content)
 	} else {
 		e.row = session.EstimateContextTokens(session.NewCompactionSummaryMessage("", "").Content)
 	}
@@ -332,6 +334,9 @@ type inTurnPlan struct {
 	// prompt is the text that begins the summary row of a step boundary, already
 	// capped; empty for a regular boundary and for a history with no prompt.
 	prompt string
+	// source is who wrote the message the prompt starts with (session.TurnSource);
+	// the row's preamble says so.
+	source session.TurnSource
 }
 
 // planInTurn decides where an in-turn compaction cuts, and the prompt that goes
@@ -347,8 +352,8 @@ func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, visibleStart
 	// follow-up of the turn included: the prefix of the boundary chosen below holds
 	// no more of them, so a fold never keeps more than the budget it was given.
 	prefixTokens := 0
-	if prefix, ok := a.inTurnPrefix(msgs, len(msgs), limit); ok {
-		prefixTokens = session.EstimateContextTokens(session.NewInTurnCompactionSummaryMessage(prefix, "", "").Content)
+	if prefix, source, ok := a.inTurnPrefix(msgs, len(msgs), limit); ok {
+		prefixTokens = session.EstimateContextTokens(session.NewInTurnCompactionSummaryMessage(source, prefix, "", "").Content)
 	}
 	regularPreamble := session.EstimateContextTokens(session.NewCompactionSummaryMessage("", "").Content)
 
@@ -373,7 +378,7 @@ func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, visibleStart
 	}
 	plan := &inTurnPlan{inTurnSplit: choice}
 	if !choice.regular {
-		plan.prompt, _ = a.inTurnPrefix(msgs, choice.idx, limit)
+		plan.prompt, plan.source, _ = a.inTurnPrefix(msgs, choice.idx, limit)
 	}
 	return plan, nil
 }

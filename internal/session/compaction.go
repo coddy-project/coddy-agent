@@ -29,16 +29,73 @@ func MessagesForLLM(msgs []llm.Message) []llm.Message {
 	return msgs[llmWindowStart(msgs):]
 }
 
-// inTurnSummaryPreamble follows the user's request at the start of the summary
-// row an in-turn fold writes. It says what the text above it is: the row is the
-// first message of the replay window, and without this line the request would
-// read as a message of its own that the summary below it has nothing to do with.
-// The text above is the request and, when the user sent any while it was being
-// worked on, the follow-ups, which the line names so that one wording serves a
-// row with follow-ups and one without. It is the one string the row is split on
-// (SplitInTurnSummary), so every reader of a row finds the same boundary.
-const inTurnSummaryPreamble = "The text above is the user's request, verbatim, followed by any follow-up messages the user sent while it was being worked on. " +
-	"Coddy compacted the conversation before this point, including the earlier steps of the work on this request. Summary of the compacted part:\n\n"
+// TurnSource says who wrote the message a turn opened with. The user typed a
+// prompt; a goal turn opens with the instruction the session's goal supervisor
+// started it with, and a woken turn with the notice that a background task
+// finished. The summary row of an in-turn fold repeats that message in front of
+// its summary and has to say whose text it is, or the model reads a supervisor's
+// instruction as something the user asked.
+type TurnSource int
+
+const (
+	// TurnSourceUser is a message the user sent: the zero value, and the source of
+	// every message without a marker.
+	TurnSourceUser TurnSource = iota
+	// TurnSourceSupervisor is a goal turn's first message (llm.Message.GoalTurn).
+	TurnSourceSupervisor
+	// TurnSourceBackground is the first message of a turn woken by a finished
+	// background task (llm.Message.BackgroundWake).
+	TurnSourceBackground
+)
+
+// TurnSourceOf reads the source of a turn's opening message off its markers.
+func TurnSourceOf(m llm.Message) TurnSource {
+	switch {
+	case m.GoalTurn != nil:
+		return TurnSourceSupervisor
+	case m.BackgroundWake != nil:
+		return TurnSourceBackground
+	}
+	return TurnSourceUser
+}
+
+// inTurnSummaryFollowUps and inTurnSummaryTail are the two ends every preamble of
+// an in-turn row shares. The first says the text above may go on with follow-ups
+// of the user, whichever source opened the turn, so one wording serves a row with
+// follow-ups and one without. The tail ends in the words the web UI cuts a summary
+// row at, so the UI renders the same body for every source.
+const (
+	inTurnSummaryFollowUps = ", followed by any follow-up messages the user sent while it was being worked on. "
+	inTurnSummaryTail      = "Coddy compacted the conversation before this point, including the earlier steps of the work on this request. Summary of the compacted part:\n\n"
+)
+
+// The preamble follows the opening message at the start of the summary row an
+// in-turn fold writes. It says what the text above it is: the row is the first
+// message of the replay window, and without this line the request would read as a
+// message of its own that the summary below it has nothing to do with. There is
+// one variant per source (TurnSource). The text above is the opening message and,
+// when the user sent any while it was being worked on, the follow-ups, which the
+// line names. The preambles are the strings the row is split on (SplitInTurnRow),
+// so every reader of a row finds the same boundary.
+const (
+	inTurnSummaryPreamble    = "The text above is the user's request, verbatim" + inTurnSummaryFollowUps + inTurnSummaryTail
+	inTurnSupervisorPreamble = "The text above is the instruction the session's goal supervisor started this turn with, verbatim" + inTurnSummaryFollowUps + inTurnSummaryTail
+	inTurnBackgroundPreamble = "The text above is the notice that woke this turn when a background task finished, verbatim" + inTurnSummaryFollowUps + inTurnSummaryTail
+)
+
+// allTurnSources lists the sources in the order SplitInTurnRow tries them.
+var allTurnSources = [...]TurnSource{TurnSourceUser, TurnSourceSupervisor, TurnSourceBackground}
+
+// inTurnPreamble is the line a row written for a turn opened by t carries.
+func (t TurnSource) inTurnPreamble() string {
+	switch t {
+	case TurnSourceSupervisor:
+		return inTurnSupervisorPreamble
+	case TurnSourceBackground:
+		return inTurnBackgroundPreamble
+	}
+	return inTurnSummaryPreamble
+}
 
 // StopHookPrefix marks the follow-up a Stop hook submits as the next user
 // message, so the transcript says where it came from. The text after it is hook
@@ -245,11 +302,12 @@ func TurnFollowUps(msgs []llm.Message, open, end int) []string {
 // stayed inside the turn being answered. The row becomes the start of the
 // replay window and the prompt it replaced must not vanish with the steps, so
 // the row begins with the prompt itself, verbatim (prompt is already capped by
-// the caller), then says what the text above it is, then carries the summary.
+// the caller), then says what the text above it is - the preamble of source, the
+// writer of the turn's opening message (TurnSourceOf) - then carries the summary.
 // The prompt's pictures are not copied onto the row.
-func NewInTurnCompactionSummaryMessage(prompt, summary, model string) llm.Message {
+func NewInTurnCompactionSummaryMessage(source TurnSource, prompt, summary, model string) llm.Message {
 	m := NewCompactionSummaryMessage(summary, model)
-	m.Content = prompt + "\n\n" + inTurnSummaryPreamble + strings.TrimSpace(summary)
+	m.Content = prompt + "\n\n" + source.inTurnPreamble() + strings.TrimSpace(summary)
 	return m
 }
 
@@ -287,35 +345,52 @@ func (s *State) restampUILog(idx int) {
 
 // SplitInTurnSummary splits the content of an in-turn summary row, as
 // NewInTurnCompactionSummaryMessage wrote it, into what is in front of the
-// summary - the user's request and the follow-ups it carries, verbatim - and the
-// summary the worker's model wrote. ok is false for any other content, a plain
-// summary row included.
-//
-// The split is at the first occurrence of the preamble line that separates the
-// two, so every reader of a row (the supervisor's digest, the replay for ACP
-// clients, the rule bookkeeping) finds the same boundary. A request that itself
-// quotes the preamble line is the one input it can misread: the part of the
-// request after the quote is taken for the summary. A plain row is recognised by
-// its own leading preamble and is never split, whatever its summary quotes.
+// summary - the opening message of the turn and the follow-ups it carries,
+// verbatim - and the summary the worker's model wrote. ok is false for any other
+// content, a plain summary row included. It is SplitInTurnRow for a reader that
+// does not care who opened the turn.
 func SplitInTurnSummary(content string) (prompt, summary string, ok bool) {
+	prompt, summary, _, ok = SplitInTurnRow(content)
+	return prompt, summary, ok
+}
+
+// SplitInTurnRow is SplitInTurnSummary that also says who wrote the opening
+// message in front of the summary (TurnSource), read off the preamble the row
+// carries.
+//
+// The split is at the first occurrence of a preamble line that separates the
+// two, whichever source's it is, so every reader of a row (the supervisor's
+// digest, the replay for ACP clients, the rule bookkeeping) finds the same
+// boundary. A request that itself quotes a preamble line is the one input it can
+// misread: the part of the request after the quote is taken for the summary. A
+// plain row is recognised by its own leading preamble and is never split,
+// whatever its summary quotes.
+func SplitInTurnRow(content string) (prompt, summary string, source TurnSource, ok bool) {
 	if strings.HasPrefix(content, compactionSummaryPreamble) {
-		return "", "", false
+		return "", "", TurnSourceUser, false
 	}
 	const sep = "\n\n"
-	i := strings.Index(content, sep+inTurnSummaryPreamble)
-	if i < 0 {
-		return "", "", false
+	at := -1
+	var preamble string
+	for _, src := range allTurnSources {
+		p := src.inTurnPreamble()
+		if i := strings.Index(content, sep+p); i >= 0 && (at < 0 || i < at) {
+			at, preamble, source = i, p, src
+		}
 	}
-	return content[:i], content[i+len(sep)+len(inTurnSummaryPreamble):], true
+	if at < 0 {
+		return "", "", TurnSourceUser, false
+	}
+	return content[:at], content[at+len(sep)+len(preamble):], source, true
 }
 
 // SummaryReplayText is the text of a summary row as a client that replays the
 // transcript is shown it. A plain row is shown as stored. An in-turn row starts
-// with the request, which the replay has already shown at its own place, so it is
-// shown from its preamble on.
+// with the opening message, which the replay has already shown at its own place,
+// so it is shown from its preamble on.
 func SummaryReplayText(content string) string {
-	if _, summary, ok := SplitInTurnSummary(content); ok {
-		return inTurnSummaryPreamble + summary
+	if _, summary, source, ok := SplitInTurnRow(content); ok {
+		return source.inTurnPreamble() + summary
 	}
 	return content
 }
