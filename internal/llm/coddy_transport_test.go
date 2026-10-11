@@ -82,6 +82,7 @@ func newH2OfferingRemote(t *testing.T) (*httptest.Server, *protoLog) {
 	}))
 	srv.EnableHTTP2 = true
 	srv.TLS = &tls.Config{
+		MinVersion: tls.VersionTLS13,
 		NextProtos: []string{"h2", "http/1.1"},
 		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 			log.mu.Lock()
