@@ -12,8 +12,8 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
-// The principal of a request at the relay (docs/plans/remote-model-provider-phase3.md, 3.2 and 4.2; D2 closed by
-// docs/plans/remote-model-provider-models/p3-d2-mtls-identity.md): who the gate lets through, resolved once per request.
+// The principal of a request at the relay, resolved once per request. Scoped principals are bearer-token entries;
+// TLS only admits a peer at the handshake (docs/plans/remote-model-provider-tls-builtin.md).
 
 type principalClass int
 

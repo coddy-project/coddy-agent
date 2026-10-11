@@ -434,7 +434,7 @@ Sharing a subscription login is the borrowers' convenience and the vendor's conc
 
 ## Ограничения
 
-Three of the four steps of [the plan ](../../plans/remote-model-provider.md#5-phases)  are done: the wire, the client and the access rules; the capabilities from the listing, the usage through the hop and the liveness of a vanished peer ([Not covered ](#что-не-покрыто)  lists what the last does not reach); and the hardening (scoped relay clients, client certificates, rate limits, counters, the node label, the application probe). What is not there yet:
+Реализованная работа включает wire, клиент и правила доступа, возможности из списка, расход через переход и обнаружение пропавшего узла. Раздел [Что не покрыто](#что-не-покрыто) описывает границы последнего механизма. Также готовы scoped relay clients, допуск клиентских сертификатов только на транспортном уровне, лимиты, счётчики, метка узла и проверка приложения. Учётными данными для авторизации остаются токены. Пока нет следующего:
 
 - **A node behind a mount still cannot tell the relay's clients apart**: it sees the relay as one caller, and the relay is where each client is held to its own limits ([Scoped clients ](../operate/swarm.md#справка) ).
 - **Discovery and failover.** One provider row per remote or relay mount; the models are picked from its listing. A relay does not enumerate the shared models of its nodes and does not fail over between nodes that share one. A later step.
@@ -456,4 +456,4 @@ CODDY_TEST_NETNS=1 go test -tags=http ./external/httpserver -run VanishedPeer -v
 CODDY_TEST_NETNS=1 go test -tags=http,swarm ./external/swarm -run KernelVanishedClient -v
 ```
 
-<!-- docsgen:source sha256=a1d0f65237490b30 -->
+<!-- docsgen:source sha256=9920b2263a7e8a8a -->

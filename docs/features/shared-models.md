@@ -434,7 +434,7 @@ Sharing a subscription login is the borrowers' convenience and the vendor's conc
 
 ## Limitations
 
-Three of the four steps of [the plan](../plans/remote-model-provider.md#5-phases) are done: the wire, the client and the access rules; the capabilities from the listing, the usage through the hop and the liveness of a vanished peer ([Not covered](#not-covered) lists what the last does not reach); and the hardening (scoped relay clients, client certificates, rate limits, counters, the node label, the application probe). What is not there yet:
+The implemented work covers the wire, client and access rules; capabilities from the listing; usage through the hop; liveness of a vanished peer ([Not covered](#not-covered) lists what it does not reach); and hardening with scoped relay clients, transport-only client-certificate admission, rate limits, counters, the node label and the application probe. Tokens remain the authorization credential. What is not there yet:
 
 - **A node behind a mount still cannot tell the relay's clients apart**: it sees the relay as one caller, and the relay is where each client is held to its own limits ([Scoped clients](../operate/swarm.md#scoped-clients)).
 - **Discovery and failover.** One provider row per remote or relay mount; the models are picked from its listing. A relay does not enumerate the shared models of its nodes and does not fail over between nodes that share one. A later step.

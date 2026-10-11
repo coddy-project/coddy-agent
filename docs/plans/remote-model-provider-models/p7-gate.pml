@@ -1,5 +1,5 @@
 /* p7-gate.pml - the node's gate after phase 4b: the credentials that remain, against every route, with TLS reduced to a handshake. It
-   supersedes p5-gate.pml (and p3-d2-mtls-identity.pml), whose certificate class (`cert_names`, the class `mtls`, `client_auth`) was
+   supersedes the removed certificate-identity models, whose certificate class (`cert_names`, the class `mtls`, `client_auth`) was
    removed: TLS is the transport's business, and Coddy reads no identity out of a certificate (docs/plans/remote-model-provider-tls-builtin.md).
 
    Code     external/httpserver/auth.go (authGate: not gateOn or not a protected route passes through; the main bearer; the shared bearer

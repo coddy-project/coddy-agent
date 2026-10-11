@@ -1,7 +1,6 @@
 # Plan: TLS at the network and HTTP level only, with a built-in PKI (phase 4b of the remote model provider)
 
-**Status: decided and in progress (2026-10-09).** It replaces the first proposal of phase 4b, [`remote-model-provider-cert-policy.md`](remote-model-provider-cert-policy.md), which added *more* certificate identity to the
-application (`swarm.tls.full_cert_names`) and so went the wrong way. That record stays as written; it is withdrawn here.
+**Status: implemented (2026-10-11).** This record replaced the first proposal of phase 4b, which added certificate identity to the application through `swarm.tls.full_cert_names`. That proposal was rejected and removed. The implemented design keeps TLS at the transport layer and token-based authorization at the application layer.
 
 ## 1. The requirement
 
@@ -113,8 +112,8 @@ The documentation gives a minimal proxy example for the shared-model route and t
 | T3 | `coddy tls`: commands, usage, man page, completions, `usage_test.go` | code (done, 42fa651b) |
 | T4 | `auto` on the four blocks and the provider, `ensure` at the start of a run, `coddy -t` and `--dry-run`; schema, UI schema, skill, `config.example.yaml`, `make docs` | code + docs (done) |
 | T5 | Installation and update: `coddy serve install`, `coddy update`, the package message, `--if-used` | code + docs (done) |
-| T6 | The models `p7-pki-plan` and `p7-gate`, each cross-reviewed twice, on `relay-huron` | docs |
-| T7 | Documentation: `certificates.md` rewritten around `coddy tls`, the split of section 4 with proxy examples, `security.md`, `swarm.md`, `shared-models.md`, `AGENTS.md`, the e2e without `openssl` | docs + examples |
+| T6 | The models `p7-pki-plan` and `p7-gate`, each cross-reviewed twice, on `relay-huron` | docs (done) |
+| T7 | Documentation: `certificates.md` rewritten around `coddy tls`, the split of section 4 with proxy examples, `security.md`, `swarm.md`, `shared-models.md`, `AGENTS.md`, the e2e without `openssl` | docs + examples (done) |
 
 ## 7. Risks
 

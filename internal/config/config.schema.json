@@ -66,7 +66,7 @@
           },
           "ca_file": {
             "type": "string",
-            "description": "Provider of type coddy only: PEM bundle of the certificate authority that signed the remote's (or the relay's) certificate, besides the system roots. Another provider type refuses the key.",
+            "description": "Provider of type coddy only: PEM bundle of the certificate authority that signed the remote's (or the relay's) certificate. When set, it replaces the system roots for this provider leg; when absent, the system roots are used. Another provider type refuses the key.",
             "default": ""
           },
           "client_cert_file": {
