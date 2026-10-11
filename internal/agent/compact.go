@@ -615,6 +615,7 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 					"thresholdPercent", comp.EffectiveThresholdPercent(),
 					"thresholdTokens", futile.threshold,
 					"smallestRequestTokens", futile.estimate,
+					"providerScale", futile.scale,
 					"overheadTokens", futile.overhead,
 					"rowTokens", futile.row,
 					"summaryTokens", futile.summary,

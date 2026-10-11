@@ -27,6 +27,7 @@ package agent
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -262,8 +263,9 @@ func (a *Agent) requestOverhead() int {
 // step would trigger it again. It unwraps to ErrNothingToCompact, the answer the
 // loop already continues on, and carries the numbers the skip is logged with.
 type foldFutileError struct {
-	// estimate is the smallest request the fold can produce, in estimate tokens:
-	// the sum of the four parts below.
+	// estimate is the smallest request the fold can produce, in the units the
+	// threshold is measured in: the sum of the four parts below, in estimate
+	// tokens, times scale.
 	estimate int
 	// threshold is compaction.threshold_percent of the window, the trigger.
 	threshold int
@@ -276,12 +278,19 @@ type foldFutileError struct {
 	summary int
 	// tail is the kept tail at the floor of one step.
 	tail int
+	// scale is how many tokens the provider counted for each token Coddy estimated
+	// for the last request (providerScale), 1 when it reported none.
+	scale float64
 }
 
 func (e *foldFutileError) Error() string {
+	units := ""
+	if e.scale != 1 {
+		units = fmt.Sprintf(", estimate tokens, times %.2f as the provider counts", e.scale)
+	}
 	return fmt.Sprintf("folding the earlier steps of the turn cannot bring the request under the threshold: "+
-		"the smallest request is about %d tokens (%d overhead + %d prefix and preamble + %d summary + %d latest step) against %d",
-		e.estimate, e.overhead, e.row, e.summary, e.tail, e.threshold)
+		"the smallest request is about %d tokens (%d overhead + %d prefix and preamble + %d summary + %d latest step%s) against %d",
+		e.estimate, e.overhead, e.row, e.summary, e.tail, units, e.threshold)
 }
 
 func (e *foldFutileError) Unwrap() error { return ErrNothingToCompact }
@@ -301,6 +310,14 @@ func (e *foldFutileError) Unwrap() error { return ErrNothingToCompact }
 // still buys several steps before the next one; only a fold that cannot get under
 // the trigger is futile, so that is what is refused. The recovery from a refused
 // request does not come here: it runs once and aims at the refusal's limit.
+//
+// The trigger measures the context by the provider's own count of the last
+// request (maybeAutoCompact), so the smallest request is scaled the same way
+// before it meets the threshold: by how many tokens the provider counted for each
+// one Coddy estimated (providerScale). Compared as a bare estimate, a provider
+// that counts denser would see a fold pass that lands over the real threshold and
+// folds again at the next step, and one that counts lighter would see a fold
+// refused that fits.
 func (a *Agent) checkFoldGain(msgs []llm.Message, visibleStart int, projected []llm.Message, limit int) error {
 	floor, ok := session.TurnStepSplitIndex(msgs, 1, a.state.TurnAnchor())
 	if !ok {
@@ -311,6 +328,7 @@ func (a *Agent) checkFoldGain(msgs []llm.Message, visibleStart int, projected []
 		overhead:  a.requestOverhead(),
 		threshold: limit * pct / 100,
 		tail:      conversationTokens(projected[floor-visibleStart:], a.modelReadsImages()),
+		scale:     a.providerScale(),
 	}
 	if prefix, source, ok := a.inTurnPrefix(msgs, floor, limit); ok {
 		e.row = session.EstimateContextTokens(session.NewInTurnCompactionSummaryMessage(source, prefix, "", "").Content)
@@ -320,11 +338,29 @@ func (a *Agent) checkFoldGain(msgs []llm.Message, visibleStart int, projected []
 	if visibleStart < len(msgs) && msgs[visibleStart].CompactionSummary {
 		e.summary = session.EstimateContextTokens(session.SummaryBody(msgs[visibleStart].Content))
 	}
-	e.estimate = e.overhead + e.row + e.summary + e.tail
+	e.estimate = int(math.Round(float64(e.overhead+e.row+e.summary+e.tail) * e.scale))
 	if e.estimate*100 < limit*pct {
 		return nil
 	}
 	return e
+}
+
+// providerScale is how many tokens the provider counted for each token Coddy
+// estimated, read off the last request that came back with a count: the
+// provider's input tokens over the estimate of that same prompt (the context
+// breakdown's ProviderInputTokens and ProviderEstimateTokens). It is 1 when
+// there is no such pair, which is the case before the first response and after a
+// compaction, and when either number is not positive.
+func (a *Agent) providerScale() float64 {
+	rs, ok := a.state.(rulesState)
+	if !ok {
+		return 1
+	}
+	b := rs.GetLastContextBreakdown()
+	if b == nil || b.ProviderInputTokens <= 0 || b.ProviderEstimateTokens <= 0 {
+		return 1
+	}
+	return float64(b.ProviderInputTokens) / float64(b.ProviderEstimateTokens)
 }
 
 // inTurnPlan is the boundary of an in-turn compaction and what goes in front of

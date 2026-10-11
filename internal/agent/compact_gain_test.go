@@ -52,6 +52,108 @@ func TestAutomaticInTurnFoldIsSkippedWhenTheOverheadAloneReachesTheThreshold(t *
 	}
 }
 
+// The trigger measures the context by the provider's own count of the last
+// request, corrected by what was added since (maybeAutoCompact). The check weighs
+// the smallest request against the same threshold, so it speaks the provider's
+// units too: scaled by how much more, or less, the provider counted than Coddy
+// estimated for that request.
+func TestGainCheckScalesTheSmallestRequestByTheProvidersCount(t *testing.T) {
+	// A window of 16000 tokens at 80% triggers at 12800.
+	setProviderCount := func(st *session.State, counted, estimatedAtSend int) {
+		b := st.GetLastContextBreakdown()
+		b.ProviderInputTokens, b.ProviderEstimateTokens = counted, estimatedAtSend
+		st.SetLastContextBreakdown(b)
+	}
+
+	t.Run("a provider that counts denser makes a fold that fits by estimate a skip", func(t *testing.T) {
+		// 10000 of overhead and 3000 of conversation reach the trigger; the smallest
+		// request is the overhead and a few hundred tokens: about 10300 by estimate,
+		// under 12800, and about 15500 at the provider's 1.5 tokens for each one.
+		st := inTurnSession(t, "Audit every module and report.", 6)
+		provider := &compactCannedProvider{t: t, summary: "must not be asked"}
+		ag, logs := windowAgent(t, st, config.Compaction{}, provider, 16000, 10000, 3000)
+		setProviderCount(st, 19500, 13000)
+
+		if ag.maybeAutoCompact(context.Background()) {
+			t.Fatalf("the fold ran although the provider counts the smallest request over the threshold:\n%s", logs)
+		}
+		if len(provider.requests) != 0 {
+			t.Fatalf("the summarizer was asked %d times", len(provider.requests))
+		}
+		for _, want := range []string{gainSkipLog, "thresholdTokens=12800", "providerScale=1.5"} {
+			if !strings.Contains(logs.String(), want) {
+				t.Fatalf("the skip does not say %q:\n%s", want, logs)
+			}
+		}
+	})
+
+	t.Run("the same window without the provider's count folds", func(t *testing.T) {
+		st := inTurnSession(t, "Audit every module and report.", 6)
+		provider := &compactCannedProvider{t: t, summary: "the first modules were audited"}
+		ag, logs := windowAgent(t, st, config.Compaction{}, provider, 16000, 10000, 3000)
+
+		if !ag.maybeAutoCompact(context.Background()) {
+			t.Fatalf("the fold was skipped by the estimate alone:\n%s", logs)
+		}
+	})
+
+	t.Run("a provider that counts lighter makes a skip by estimate a fold", func(t *testing.T) {
+		// 13000 of overhead is over the threshold by estimate, and the fold would be
+		// refused; the provider counted 14000 estimated tokens as 8400, so the
+		// smallest request is about 8000 of its tokens.
+		st := inTurnSession(t, "Audit every module and report.", 6)
+		provider := &compactCannedProvider{t: t, summary: "the first modules were audited"}
+		ag, logs := windowAgent(t, st, config.Compaction{}, provider, 16000, 13000, 1000)
+		setProviderCount(st, 8400, 14000)
+
+		if !ag.maybeAutoCompact(context.Background()) {
+			t.Fatalf("the fold was skipped although the provider counts the smallest request under the threshold:\n%s", logs)
+		}
+		if strings.Contains(logs.String(), gainSkipLog) {
+			t.Fatalf("the skip was logged although the fold ran:\n%s", logs)
+		}
+	})
+
+	t.Run("the same window without the provider's count is skipped", func(t *testing.T) {
+		st := inTurnSession(t, "Audit every module and report.", 6)
+		provider := &compactCannedProvider{t: t, summary: "must not be asked"}
+		ag, logs := windowAgent(t, st, config.Compaction{}, provider, 16000, 13000, 1000)
+
+		if ag.maybeAutoCompact(context.Background()) {
+			t.Fatalf("the fold ran:\n%s", logs)
+		}
+		if !strings.Contains(logs.String(), gainSkipLog) || !strings.Contains(logs.String(), "providerScale=1") {
+			t.Fatalf("the skip is not logged with a scale of 1:\n%s", logs)
+		}
+	})
+
+	t.Run("a count without its estimate, or a zero one, is no scale", func(t *testing.T) {
+		for name, counted := range map[string][2]int{"no estimate at send": {19500, 0}, "no count": {0, 13000}} {
+			st := inTurnSession(t, "Audit every module and report.", 6)
+			provider := &compactCannedProvider{t: t, summary: "the first modules were audited"}
+			ag, logs := windowAgent(t, st, config.Compaction{}, provider, 16000, 10000, 3000)
+			setProviderCount(st, counted[0], counted[1])
+			if got := ag.providerScale(); got != 1 {
+				t.Fatalf("%s: scale = %v, want 1", name, got)
+			}
+			if !ag.maybeAutoCompact(context.Background()) {
+				t.Fatalf("%s: the fold was skipped:\n%s", name, logs)
+			}
+		}
+	})
+
+	t.Run("the recovery from a refused request is not scaled or gated", func(t *testing.T) {
+		st := inTurnSession(t, "Audit every module and report.", 6)
+		provider := &compactCannedProvider{t: t, summary: "the first modules were audited"}
+		ag, _ := windowAgent(t, st, config.Compaction{}, provider, 16000, 10000, 3000)
+		setProviderCount(st, 19500, 13000)
+
+		if _, err := ag.CompactSession(context.Background(), CompactOptions{InTurn: true, Recovery: true, LimitTokens: 16000}); err != nil {
+			t.Fatalf("the recovery was refused: %v", err)
+		}
+	})
+}
+
 // The check runs before the hooks, like the choice of the boundary: a PreCompact
 // hook is not woken for a fold that will not happen.
 func TestFutileInTurnFoldReturnsNothingToCompactBeforeTheHooks(t *testing.T) {
