@@ -63,7 +63,7 @@ type coddyProvider struct {
 	// answerBound bounds the read of an answer that is not the stream.
 	answerBound time.Duration
 	clock       coddyClock
-	jitter      func() float64
+	jitter      func() (float64, error)
 
 	mu sync.Mutex
 	// view is the row as the remote last described it to this provider, set
@@ -351,7 +351,11 @@ func (p *coddyProvider) admit(ctx context.Context, st *busyWaitState, body []byt
 			return nil, &coddyBusyError{waited: spent, budget: p.busyWait, requests: requests, code: api.code}
 		}
 		waited = true
-		sleep := min(busySleep(index, api.retryAfter, p.jitter()), remaining)
+		jitter, err := p.jitter()
+		if err != nil {
+			return nil, fmt.Errorf("coddy busy wait: jitter: %w", err)
+		}
+		sleep := min(busySleep(index, api.retryAfter, jitter), remaining)
 		if sleep <= 0 {
 			// Not reachable while busySleep keeps its floor; a sleep that is
 			// not a pause would spin on the remote until the budget ran out.

@@ -2,7 +2,8 @@ package llm
 
 import (
 	"context"
-	"math/rand/v2"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"sync"
 	"time"
 )
@@ -216,7 +217,13 @@ func busySleep(busyIndex int, retryAfter time.Duration, jitter float64) time.Dur
 	return base + time.Duration(float64(base)*busyJitter*jitter)
 }
 
-func randomJitter() float64 { return rand.Float64() }
+func randomJitter() (float64, error) {
+	var raw [8]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return 0, err
+	}
+	return float64(binary.LittleEndian.Uint64(raw[:])>>11) / (1 << 53), nil
+}
 
 // coddyScope is the outermost layer of a coddy provider. It starts the wait of
 // one Stream (or Complete) call and carries it in the context through every

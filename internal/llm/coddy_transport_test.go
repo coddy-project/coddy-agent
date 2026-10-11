@@ -113,7 +113,7 @@ func trustTestServer(t *testing.T, srv *httptest.Server, providerType, setting s
 	pool := x509.NewCertPool()
 	pool.AddCert(srv.Certificate())
 	prev := tr.TLSClientConfig
-	cfg := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool}
 	if prev != nil {
 		cfg = prev.Clone()
 		cfg.RootCAs = pool

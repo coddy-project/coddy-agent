@@ -557,7 +557,7 @@ func TestSharedCallOverTLSWithHTTP11SetsTheOptionOnTheUnderlyingSocket(t *testin
 		return &llm.Response{Content: "ok"}, nil
 	}
 	client := &http.Client{Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // the test server's own certificate
+		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true}, // the test server's own certificate
 		TLSNextProto:    map[string]func(string, *tls.Conn) http.RoundTripper{},
 	}}
 	t.Cleanup(client.CloseIdleConnections)

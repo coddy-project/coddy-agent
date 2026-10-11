@@ -194,7 +194,7 @@ func TestSharedOpenNodeLimitIgnoresWhatTheClientSent(t *testing.T) {
 		var resp *http.Response
 		if i%2 == 0 {
 			req := fx.request(http.MethodPost, llm.CoddyCompletionsPath, "", strings.NewReader(mustJSON(t, wireReq(sharedTestAlias))))
-			req.AddCookie(&http.Cookie{Name: sessionCookieBaseName, Value: fmt.Sprintf("forged-%d", i)})
+			req.Header.Set("Cookie", sessionCookieBaseName+"=forged-"+fmt.Sprint(i))
 			var err error
 			if resp, err = sharedTestClient.Do(req); err != nil {
 				t.Fatal(err)
@@ -216,7 +216,7 @@ func TestSharedOpenNodeLimitIgnoresWhatTheClientSent(t *testing.T) {
 		}
 	}
 	req := fx.request(http.MethodPost, llm.CoddyCompletionsPath, "", strings.NewReader(mustJSON(t, wireReq(sharedTestAlias))))
-	req.AddCookie(&http.Cookie{Name: sessionCookieBaseName, Value: "another-forged-cookie"})
+	req.Header.Set("Cookie", sessionCookieBaseName+"=another-forged-cookie")
 	resp, err := sharedTestClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -283,16 +283,12 @@ func TestSharedCallerKeyFollowsTheCredentialThatPassedTheGate(t *testing.T) {
 	if live != sharedKeyFor("cookie:"+c.Value) || live == sharedAnonymousKey {
 		t.Fatalf("a signed-in browser: %q", live)
 	}
-	forged := func(r *http.Request) {
-		r.AddCookie(&http.Cookie{Name: sessionCookieName(r), Value: "forged-session"})
-	}
+	forged := func(r *http.Request) { r.Header.Set("Cookie", sessionCookieName(r)+"=forged-session") }
 	if got := call(forged); got != sharedAnonymousKey {
 		t.Fatalf("a forged session cookie chose its own key: %q", got)
 	}
 	// A cookie under another name is not the session cookie of this origin.
-	other := func(r *http.Request) {
-		r.AddCookie(&http.Cookie{Name: sessionCookieBaseName + "_other", Value: c.Value})
-	}
+	other := func(r *http.Request) { r.Header.Set("Cookie", sessionCookieBaseName+"_other="+c.Value) }
 	if got := call(other); got != sharedAnonymousKey {
 		t.Fatalf("a cookie of another origin was taken for the session: %q", got)
 	}

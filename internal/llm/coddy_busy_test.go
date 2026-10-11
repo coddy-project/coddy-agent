@@ -109,7 +109,7 @@ func busyChain(t *testing.T, remote *fakeRemote, fc *fakeBusyClock, budget time.
 		t.Fatal(err)
 	}
 	cp.clock = fc.clock()
-	cp.jitter = func() float64 { return jitter }
+	cp.jitter = func() (float64, error) { return jitter, nil }
 	return newCoddyScope(wrapResilient(cp, ResilientOptions{RetryMax: retryMax, RetryBase: time.Millisecond}))
 }
 
@@ -456,7 +456,7 @@ func TestCoddyBusyWaitWithoutAScopeStillWaitsOncePerStreamCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	cp.clock = fc.clock()
-	cp.jitter = func() float64 { return 0 }
+	cp.jitter = func() (float64, error) { return 0, nil }
 	resp, err := cp.Stream(context.Background(), userMsg("Hi"), nil, nil)
 	if err != nil || resp.Content != "done after the wait" {
 		t.Fatalf("resp %+v err %v", resp, err)
@@ -481,7 +481,7 @@ func TestCoddyBusyWaitSleepCanBeReplacedThroughTheContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cp.jitter = func() float64 { return 0 }
+	cp.jitter = func() (float64, error) { return 0, nil }
 
 	var slept []time.Duration
 	ctx := WithBusyWaitSleep(context.Background(), func(ctx context.Context, d time.Duration) error {
