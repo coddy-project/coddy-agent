@@ -202,8 +202,12 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 		// would fold the opening prompt into a plain summary. Only the user
 		// messages up to the opening prompt are boundaries. A manual compaction
 		// keeps every user message as a boundary - it folds the prompt on purpose.
+		// So does the automatic one when compaction.in_turn.enable is false, which
+		// restores the behaviour before the section existed: a long turn with queued
+		// follow-ups can fold at the latest one, as session.CompactionSplitIndex
+		// counts them.
 		last := len(msgs) - 1
-		if !force {
+		if !force && a.cfg.Compaction.InTurn.IsEnabled() {
 			if open, found := session.OpeningPromptIndex(msgs, a.state.TurnAnchor()); found {
 				last = open
 			}
