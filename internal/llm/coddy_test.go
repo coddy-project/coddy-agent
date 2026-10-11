@@ -697,9 +697,13 @@ func TestCoddyFrameLimit(t *testing.T) {
 		remote := newFakeRemote(t, func(w http.ResponseWriter, _ *http.Request, _ int, _ WireRequest) {
 			fw := startStream(w)
 			line := "data: " + bigText(1000) + "\n"
-			for i := 0; i < (CoddyMaxFrameBytes/len(line))+50; i++ {
-				fw.raw(line)
+			lines := (CoddyMaxFrameBytes / len(line)) + 50
+			var frame strings.Builder
+			frame.Grow(lines * len(line))
+			for i := 0; i < lines; i++ {
+				frame.WriteString(line)
 			}
+			fw.raw(frame.String())
 		})
 		got := streamOnce(newTestCoddy(t, coddyInput(remote)), userMsg("Hi"), nil)
 		if CoddyErrorKind(got.err) != CoddyKindProtocol {
