@@ -28,6 +28,11 @@ type SettingsChange struct {
 	// itself SettingsSourceModel or SettingsSourceSkill followed by the
 	// skill's name.
 	Source string
+	// SessionOnly keeps a permission mode change to its session: the mode new
+	// sessions start in stays the operator's last choice. Set for a turn a
+	// messenger user who is not the bot's admin started, and for the
+	// console's --permission-mode launch flag.
+	SessionOnly bool
 }
 
 // The sources of a change the agent made itself: the model's switch_model
@@ -116,8 +121,9 @@ func (m *Manager) settingsSnapshot(sessionID string, st *State) acp.SessionSetti
 	if out.Mode == "" {
 		out.Mode = string(ModeAgent)
 	}
+	// What a new session would start in: the mode chosen last (#512).
+	out.ConfiguredPermissionMode = m.DefaultPermissionMode()
 	if cfg != nil {
-		out.ConfiguredPermissionMode = cfg.Tools.ResolvedPermMode()
 		out.Reasoning = st.SessionReasoning(cfg)
 		out.ReasoningChoices = cfg.ReasoningChoicesFor(cfg.FindModelEntry(out.Model))
 	}
@@ -344,6 +350,11 @@ func (m *Manager) writeSettings(sessionID string, st *State, ch SettingsChange, 
 			st.SetMode(v)
 		case SettingPermissionMode:
 			st.SetPermissionMode(v)
+			// A session the operator switched is their latest choice: the
+			// sessions created after it start in it (#512).
+			if !ch.SessionOnly {
+				m.rememberPermissionMode(v)
+			}
 		}
 		st.ClearTurnOverride(name)
 	}
@@ -477,6 +488,12 @@ type TakenSettings struct {
 // attachments a mention resolved and the bodies of skills come later, so a
 // file or a page that starts with /model switches nothing.
 func (m *Manager) TakeSettingsCommands(ctx context.Context, sessionID string, prompt []acp.ContentBlock, source string) (TakenSettings, error) {
+	return m.takeSettingsCommands(ctx, sessionID, prompt, source, false)
+}
+
+// takeSettingsCommands is TakeSettingsCommands; sessionOnly marks every change
+// it takes SettingsChange.SessionOnly.
+func (m *Manager) takeSettingsCommands(ctx context.Context, sessionID string, prompt []acp.ContentBlock, source string, sessionOnly bool) (TakenSettings, error) {
 	out := TakenSettings{Prompt: prompt}
 	idx := -1
 	for i, b := range prompt {
@@ -514,6 +531,7 @@ func (m *Manager) TakeSettingsCommands(ctx context.Context, sessionID string, pr
 	if !line.Session.Empty() {
 		ch := line.Session
 		ch.Source = source
+		ch.SessionOnly = sessionOnly
 		_, notice, err := m.applySessionSettings(ctx, sessionID, ch)
 		if err != nil {
 			return out, err
@@ -531,6 +549,7 @@ func (m *Manager) TakeSettingsCommands(ctx context.Context, sessionID string, pr
 	if rest == "" && !others {
 		for _, ch := range line.Turns {
 			ch.Source = source
+			ch.SessionOnly = sessionOnly
 			_, notice, err := m.applySessionSettings(ctx, sessionID, ch)
 			if err != nil {
 				return out, err
@@ -544,6 +563,7 @@ func (m *Manager) TakeSettingsCommands(ctx context.Context, sessionID string, pr
 	}
 	for _, ch := range line.Turns {
 		ch.Source = source
+		ch.SessionOnly = sessionOnly
 		out.TurnChanges = append(out.TurnChanges, ch)
 	}
 	rewritten := make([]acp.ContentBlock, 0, len(prompt))

@@ -156,3 +156,51 @@ func TestRemoteControlsShutdownCancelsPendingQueueHTTP(t *testing.T) {
 		t.Fatal("console shutdown left the queue worker blocked on HTTP")
 	}
 }
+
+// The question asked on the first message during a turn is a prompt, not a
+// transcript row: once the operator answers it, it leaves the screen, and a
+// second message typed while it is open does not ask it twice.
+func TestRemoteControlsQueueModeQuestionLeavesOnceAnswered(t *testing.T) {
+	const question = "Choose the default queue mode once"
+	f := newRemoteControlStand(t)
+	f.app.queuePreference = ""
+	f.mu.Lock()
+	f.active = true
+	f.mu.Unlock()
+	f.turnEvent(t, sharedControlSession, true)
+	f.app.editor.SetText("check Windows too")
+	f.app.dispatchInput([]byte("\r"))
+	f.app.editor.SetText("and macOS")
+	f.app.dispatchInput([]byte("\r"))
+	if got := strings.Count(transcriptText(f.app), question); got != 1 {
+		t.Fatalf("question shown %d times, want once; transcript:\n%s", got, transcriptText(f.app))
+	}
+	if !f.app.handleGlobalKey([]byte("1")) {
+		t.Fatal("the answer key was not taken by the question")
+	}
+	if got := f.request(t, "queue"); got.text != "check Windows too\nand macOS" {
+		t.Fatalf("queued text = %q", got.text)
+	}
+	pumpControls(t, f.app, func(updateMsg) bool { return len(f.app.queue.Rows()) == 1 })
+	if strings.Contains(transcriptText(f.app), question) {
+		t.Fatalf("answered question is still on screen; transcript:\n%s", transcriptText(f.app))
+	}
+}
+
+// Escape takes the question back together with the draft it held.
+func TestQueueModeQuestionLeavesOnEscape(t *testing.T) {
+	a := newTestApp(t)
+	a.submitQueueChoice("draft", false)
+	if !strings.Contains(transcriptText(a), "Choose the default queue mode once") {
+		t.Fatal("the question was not asked")
+	}
+	if !a.handleGlobalKey([]byte("\x1b")) {
+		t.Fatal("Escape was not taken by the question")
+	}
+	if strings.Contains(transcriptText(a), "Choose the default queue mode once") {
+		t.Fatalf("dismissed question is still on screen; transcript:\n%s", transcriptText(a))
+	}
+	if got := a.editor.PendingText(); got != "draft" {
+		t.Fatalf("editor = %q, want the draft back", got)
+	}
+}

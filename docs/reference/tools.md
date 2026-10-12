@@ -4,7 +4,7 @@ The built-in tools the model can call, their arguments, permissions and the mode
 
 ## Permissions
 
-The Permission column uses the classes the gate in `internal/agent/react.go` applies under `tools.permission_mode` (`ask` by default, `accept_edits`, `bypass`; see [Security and trust](../operate/security.md#permission-modes-and-prompts)):
+The Permission column uses the classes the gate in `internal/agent/react.go` applies under the session's permission mode (`ask` until another is chosen, `accept_edits`, `bypass`; see [Security and trust](../operate/security.md#permission-modes-and-prompts)):
 
 - `none`: never prompts;
 - `write`: the file-write class - prompts under `ask` unless the path was granted in this session, auto-approved under `accept_edits` and `bypass`;

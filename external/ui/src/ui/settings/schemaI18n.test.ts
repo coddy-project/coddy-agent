@@ -12,11 +12,11 @@ test("schemaFieldLabel translates a mapped domain and path", () => {
   expect(
     schemaFieldLabel(
       "tools",
-      "permission_mode",
-      "Permission mode",
-      "permission_mode",
+      "command_allowlist",
+      "Command allowlist",
+      "command_allowlist",
     ),
-  ).toBe("Режим разрешений");
+  ).toBe("Белый список команд");
 });
 
 test("schemaFieldLabel resolves nested paths like output_limits.read", () => {

@@ -108,8 +108,6 @@ models:
     max_context_tokens: 131072
 agent:
   model: stub/coddy-demo
-tools:
-  permission_mode: bypass
 httpserver:
   enable: false
 gateways:
@@ -126,6 +124,8 @@ logger:
     - component: gateway.telegram
       level: debug
 EOF
+# The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+printf '{"permissionMode": "bypass"}\n' >"$HOME_DIR/permission-mode.json"
 
 export CODDY_TELEGRAM_API_BASE="$ORIGIN"
 "$BIN" serve --config "$(hostpath "$CFG")" --home "$(hostpath "$HOME_DIR")" --cwd "$(hostpath "$WORK_DIR")" --gateway --http=false &

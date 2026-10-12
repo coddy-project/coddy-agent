@@ -2,13 +2,13 @@
 
 Two recordings show an editor driving Coddy over ACP.
 
-https://github.com/user-attachments/assets/753944db-3b53-4889-8972-1f2dde2480cb
+https://github.com/user-attachments/assets/4fb167a1-ddd8-4a82-8f63-4ea0d156998f
 
-*Zed, three minutes. The file is in the repository as [zed-acp.mp4](../assets/video/zed-acp.mp4).*
+*Zed on 1.3.0, two minutes: the selectors Coddy publishes, a picture read by the model, a `/goal` worked on in a fresh worktree, a shell command the safety check lets through without a prompt, and `/commit`. The file is in the repository as [zed-acp.mp4](../assets/video/zed-acp.mp4).*
 
-https://github.com/user-attachments/assets/7bdba217-2adb-4863-8a8a-d697a157cea1
+https://github.com/user-attachments/assets/6335b103-d6fb-40c3-975f-9db24b89fa94
 
-*VS Code with an ACP client extension, four minutes. The file is in the repository as [vscode-acp.mp4](../assets/video/vscode-acp.mp4).*
+*VS Code with an ACP client extension on 1.3.0, two minutes: the selectors, the command safety check in accept-edits mode, a `/goal` with its edit and shell cards, `/commit`, a session restored from the tree and a worktree. The file is in the repository as [vscode-acp.mp4](../assets/video/vscode-acp.mp4).*
 
 Coddy is an ACP server. `coddy acp` speaks the [Agent Client Protocol](https://agentclientprotocol.com/) over its own stdin and stdout, so an editor, a plugin or a script that implements the client side of ACP starts the binary and gets the same agent as the console and the web UI: the same modes and models, the same permission policy, the same skills, and the same session bundles under `$CODDY_HOME`. Nothing in Coddy is editor-specific - Zed, VS Code and a Python harness connect the same way.
 
@@ -92,9 +92,9 @@ Everything an editor renders about Coddy comes out of the protocol, so every cli
 | Mode selector (`agent`, `plan`, `ask`) | the `mode` config option of `session/new` and `session/load` (plus the legacy `modes` field); changed with `session/set_config_option` or `session/set_mode` |
 | Model selector | the `model` config option, one row per `models[].model` in `config.yaml`, default `agent.model`; absent when the list is empty |
 | Reasoning or thinking control | the `reasoning` config option in the `thought_level` category, with the levels the session's model offers (`off` last only when its logical model sets `allow_reasoning_off: true`); absent for a model without levels |
-| Permission policy (`ask`, `accept_edits`, `bypass`) | the `permission_mode` config option in the `_permission_mode` category, which a client without special handling shows as a plain selector; an override is session-scoped and wins over `tools.permission_mode`, but lives in the agent's memory only, so a restart of the agent returns to the configured mode |
+| Permission policy (`ask`, `accept_edits`, `bypass`) | the `permission_mode` config option in the `_permission_mode` category, which a client without special handling shows as a plain selector; the mode is the session's own and is persisted in its `session.json`, so it survives a restart of the agent; a new session starts in the mode chosen last on any surface, this option included (`ask` until anything was chosen) |
 | Slash commands | `available_commands_update` after `session/new` and `session/load`: the settings commands (`model`, `reasoning`, `think`, `nothink`, `agent`, `plan`, `ask`, `permissions`, with their argument hint in `input.hint`), then `compact`, `export` and `plugin`, then every skill from `skills.dirs`. The settings commands run from the prompt text, with `--once` or `--count=N` for the next turns only ([Session settings](../features/session-settings.md)) |
-| Permission prompts | `session/request_permission` with the options Allow, Allow always and Reject (and the program-wide `allow_always_<program>` for a plain shell command, and under `ask` the session switches `allow_session_bypass` and, for a file write, `allow_session_accept_edits`); sent only under `ask` (commands and writes) or `accept_edits` (commands); `bypass` never asks |
+| Permission prompts | `session/request_permission` with the options Allow, Allow always and Reject (and the program-wide `allow_always_<program>` for a plain shell command, and under `ask` the session switches `allow_session_bypass` and, for a file write, `allow_session_accept_edits`); sent only under `ask` (commands and writes) or `accept_edits` (commands); `bypass` never asks. The mode that decides is the session's, and a prompt a `PreToolUse` hook forces with `ask` reaches the client even under `bypass`. With the [command safety check](../features/decisions.md) on, a shell command approved under `bypass` goes to that check before it runs, and no prompt reaches the client |
 | Questions | `session/request_question` from the `question` tool; the client answers with one array of choices per question |
 | Tool calls, plan checklist, token and account usage, the turn's clock and generated tokens | `tool_call` / `tool_call_update`, `plan`, `token_usage`, `provider_usage`, `turn_progress` updates |
 | A turn nobody typed: a background task the agent started ended and woke it (`notify_on_finish`, on by default) | the `background_wake` update, then the same wake as a quoted agent text line (`> Woken by a finished background task: bg_3 make test, failed, exit 2, 1m 30s`) at the head of the answer, outside any `session/prompt`; a gated tool inside it asks with `session/request_permission` ([Background tasks](../features/background-tasks.md#waking-the-agent-when-a-task-finishes)) |

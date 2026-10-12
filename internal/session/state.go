@@ -240,7 +240,9 @@ type State struct {
 	// job of the same id from finding each other's session.
 	SchedulerJobWorkspace string
 
-	// PermissionMode is the session-level override for tools.permission_mode.
+	// PermissionMode is the session's permission mode: the default of new
+	// sessions when it was created (Manager.DefaultPermissionMode), then
+	// whatever it was switched to; kept in its session.json (#512).
 	// Empty means use the config default. Values: "ask", "accept_edits", "bypass".
 	// It lives in process memory only: a restart returns to the configuration.
 	PermissionMode string
@@ -968,6 +970,22 @@ func (s *State) SetPermissionMode(mode string) {
 	s.mu.Unlock()
 	s.bumpSettingsRevision()
 	s.touchPersist()
+}
+
+// RestorePermissionModeWithoutPersist puts back the permission mode a
+// session.json recorded for the session, ignoring a value that is not a
+// permission mode, so a damaged file falls back to the default of new
+// sessions.
+func (s *State) RestorePermissionModeWithoutPersist(mode string) {
+	switch mode = strings.ToLower(strings.TrimSpace(mode)); mode {
+	case config.PermModeAsk, config.PermModeAcceptEdits, config.PermModeBypass:
+	default:
+		mode = ""
+	}
+	s.mu.Lock()
+	s.PermissionMode = mode
+	s.mu.Unlock()
+	s.bumpSettingsRevision()
 }
 
 // GetPermissionMode returns the session-level permission mode override (empty = use config default).

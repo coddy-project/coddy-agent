@@ -137,7 +137,7 @@ func describePickPhraseFromLLM(llmRaw string, userWords []string) string {
 	var cands []scored
 	for _, line := range strings.Split(trimmed, "\n") {
 		part := describeStripLineNoise(line)
-		if part == "" {
+		if part == "" || describeIsAnswerLine(part) {
 			continue
 		}
 		fw := strings.Fields(part)
@@ -184,6 +184,32 @@ func describePickPhraseFromLLM(llmRaw string, userWords []string) string {
 		return describeFallbackTitle(userWords)
 	}
 	return describeClampWords(bestText, 12)
+}
+
+// describeAnswerOpeners are how a model's answer to a message begins, as
+// opposed to a title for it: a refusal, an apology, a complaint that an image
+// or a file did not come, a request for more. A title is a phrase about the
+// request and does not start in the first person or with a plea.
+var describeAnswerOpeners = []string{
+	"i'm ", "i am ", "i can", "i don't", "i do not", "i'd ", "i would ", "i need ",
+	"sorry", "unfortunately", "as an ai",
+	"no image", "no picture", "no file", "no attachment", "there is no ", "there's no ", "there are no ",
+	"please provide", "please upload", "please attach", "please share", "please send",
+	"it seems", "it looks like",
+	"я не ", "к сожалению", "извините", "простите", "пожалуйста, ", "не вижу", "нет изображения",
+}
+
+// describeIsAnswerLine reports whether a line of a model reply answers the
+// message instead of naming it. Such a line is never a title: the chat falls
+// back to the user's own words rather than read "No image has been provided".
+func describeIsAnswerLine(line string) bool {
+	l := strings.ToLower(strings.ReplaceAll(line, "’", "'"))
+	for _, opener := range describeAnswerOpeners {
+		if strings.HasPrefix(l, opener) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) registerCoddyRoutes() {

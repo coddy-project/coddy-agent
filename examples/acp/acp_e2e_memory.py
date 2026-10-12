@@ -214,6 +214,8 @@ def main() -> None:
     session_id = os.environ.get("SESSION_ID", "acp-memory-copilot-e2e")
 
     coddy_home = tempfile.mkdtemp(prefix="coddy-home-mem-e2e-")
+    # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+    (Path(coddy_home) / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}), encoding="utf-8")
 
     if args.work_dir:
         work = os.path.abspath(args.work_dir)

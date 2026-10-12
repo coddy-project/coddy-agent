@@ -15,11 +15,11 @@ import (
 
 // hostKeyCallback returns an ssh.HostKeyCallback for the given mode and known_hosts file path.
 //
-//   - "insecure"   – no host key verification (tools.permission_mode = bypass).
+//   - "insecure"   – no host key verification (the session runs under bypass).
 //   - anything else – new hosts are added; changed keys are replaced (TOFU, default).
 func hostKeyCallback(mode, knownHostsPath string) (gossh.HostKeyCallback, error) {
 	if mode == "insecure" {
-		// The operator's explicit choice (tools.permission_mode bypass); every
+		// The operator's explicit choice (a session under bypass); every
 		// other mode verifies through known_hosts below.
 		return gossh.InsecureIgnoreHostKey(), nil //nolint:gosec // nosemgrep: go.lang.security.audit.crypto.insecure_ssh.avoid-ssh-insecure-ignore-host-key
 	}

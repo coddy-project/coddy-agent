@@ -189,8 +189,8 @@ func (a *App) applySettingsSnapshot(snap acp.SessionSettings) {
 }
 
 // openPermissionSelector is the /permissions picker: when tools ask for
-// approval in this session (#292). The session's choice lasts as long as
-// the process; a restart returns to tools.permission_mode.
+// approval in this session (#292). The session's choice is part of its
+// metadata and survives a restart (#512).
 func (a *App) openPermissionSelector() {
 	if a.busyWithLocalShell() {
 		return

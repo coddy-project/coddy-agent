@@ -28,6 +28,7 @@ def main() -> int:
         work.mkdir(parents=True, exist_ok=True)
         home = Path(tmp) / "coddy_home"
         home.mkdir(parents=True, exist_ok=True)
+        sce.seed_permission_mode(home)
         cfg_path = Path(tmp) / "config.yaml"
         cfg_path.write_text(sce.load_e2e_config(work), encoding="utf-8")
         glo = work / "coddy-e2e-global.log"

@@ -143,13 +143,32 @@ func (a *App) submitQueueChoice(text string, alternate bool) {
 			text, alternate = a.pendingQueueText+"\n"+text, a.pendingQueueAlternate
 		}
 		a.pendingQueueText, a.pendingQueueAlternate = text, alternate
-		a.appendStatus(roleDim, "Choose the default queue mode once: 1 Steer next step · 2 After this turn (Esc restores draft)")
+		if a.queueChoiceLine == nil {
+			a.queueChoiceLine = newStatusLine(a.theme, roleDim, "Choose the default queue mode once: 1 Steer next step · 2 After this turn (Esc restores draft)")
+			a.chat.AddChild(a.queueChoiceLine)
+		}
 		return
 	}
 	if alternate {
 		mode = oppositeQueueMode(mode)
 	}
 	a.enqueuePromptWithMode(text, mode, false)
+}
+
+// dismissQueueChoice takes the queue-mode question off the transcript once it
+// is answered or dismissed. It was an ordinary status row that nothing removed:
+// a turn this console runs pushes it up with its own output, while under
+// --remote, watching another client's turn, it stayed on screen as if still
+// waiting for an answer.
+func (a *App) dismissQueueChoice() {
+	if a.queueChoiceLine == nil {
+		return
+	}
+	a.chat.RemoveChild(a.queueChoiceLine)
+	a.queueChoiceLine = nil
+	if a.screen != nil {
+		a.screen.RequestRender()
+	}
 }
 
 func (a *App) enqueuePromptWithMode(text string, mode session.QueueMode, savePreference bool) {

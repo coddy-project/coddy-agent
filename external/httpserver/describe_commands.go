@@ -38,7 +38,16 @@ const describeBasePrompt = "You generate short descriptions for chat titles and 
 	"Match the user's language when possible. " +
 	"No quotes, no preamble, no headings, no numbering. " +
 	"Then, on a second line, write " + describeTagsPrefix + " followed by 1 to 3 comma separated topic labels " +
-	"for filing the conversation - one or two words each, lower case, in English. Output nothing else."
+	"for filing the conversation - one or two words each, lower case, in English. Output nothing else.\n\n" +
+	describeRequestGuidance
+
+// describeRequestGuidance tells the title model what it does not see: a first
+// message may come with images or files, and only its words reach this call.
+// A model left to guess answers a question like "What is in this picture?" -
+// or complains that no picture came - instead of naming it.
+const describeRequestGuidance = "You see only the words of the message: images, files and other attachments sent with it are not shown to you. " +
+	"Do not answer, refuse or comment on the message, and never say that something is missing - " +
+	"name the request from its words, for example \"What is in this picture?\" becomes \"What the picture shows\"."
 
 // describeCommandsGuidance precedes the list of invoked commands.
 const describeCommandsGuidance = "The text invokes slash commands: a word written as /name runs that command and is not the topic. " +

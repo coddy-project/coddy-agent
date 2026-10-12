@@ -5,14 +5,15 @@ Feature: Each provider reaches its server the way its own proxy setting says
   row's requests through that proxy instead. Leaving the key out, or writing
   "inherit", keeps the behaviour Coddy always had. The setting covers every
   request the row makes - completions, model lists, account usage, sign-ins,
-  token refreshes and sign-outs - and belongs to its row alone, so a provider
+  token refreshes and sign-outs, and for a neuraldeep row the command safety
+  check's decisions - and belongs to its row alone, so a provider
   that needs a proxy and one that must go direct live side by side in one
   config.
 
   Scenario Outline: Every request of a neuraldeep provider follows the provider's setting
     Given the environment names a proxy for every request
     And a "neuraldeep" provider "hub" <setting>
-    When "hub" is asked for a completion, its model list, its account usage and its auth flow
+    When "hub" is asked for a completion, its model list, its account usage, a command safety decision and its auth flow
     Then every answer comes back
     And the environment's proxy carried <through the environment> requests
     And the own proxy of "hub" carried <through its own proxy> requests
@@ -20,10 +21,10 @@ Feature: Each provider reaches its server the way its own proxy setting says
 
     Examples:
       | setting                 | through the environment | through its own proxy | directly |
-      | without a proxy setting | 10                      | 0                     | 0        |
-      | with proxy "inherit"    | 10                      | 0                     | 0        |
-      | with proxy "none"       | 0                       | 0                     | 10       |
-      | with a proxy of its own | 0                       | 10                     | 0        |
+      | without a proxy setting | 11                      | 0                     | 0        |
+      | with proxy "inherit"    | 11                      | 0                     | 0        |
+      | with proxy "none"       | 0                       | 0                     | 11       |
+      | with a proxy of its own | 0                       | 11                    | 0        |
 
   Scenario Outline: Every request of a codex provider follows the provider's setting
     Given the environment names a proxy for every request

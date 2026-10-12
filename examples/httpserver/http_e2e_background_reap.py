@@ -70,9 +70,6 @@ agent:
 sessions:
   dir: ""
 
-tools:
-  permission_mode: bypass
-
 logger:
   level: "info"
   outputs: ["stderr"]
@@ -243,6 +240,8 @@ def main() -> int:
             print(f"{key_var} is not set and CODDY_CONFIG is unset; this harness needs a real model", file=sys.stderr)
             return 1
         (home / "config.yaml").write_text(CONFIG_TEMPLATE.replace("__MODEL__", model), encoding="utf-8")
+    # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+    (home / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}), encoding="utf-8")
 
     leftover_pid = 0
     first = second = None

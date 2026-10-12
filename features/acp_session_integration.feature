@@ -14,6 +14,29 @@ Feature: ACP session integrations
     Then the session/new response is sent before its session updates
     And the replayed transcript includes "previous answer"
 
+  Scenario: Replayed tool calls carry tool kinds the ACP schema knows
+    Given Coddy ACP reopens a persisted session whose assistant called tools
+      | tool            | kind    |
+      | write           | edit    |
+      | edit            | edit    |
+      | apply_patch     | edit    |
+      | rm              | delete  |
+      | mv              | move    |
+      | run_command     | execute |
+      | ssh_run_command | execute |
+      | grep            | search  |
+      | webfetch        | fetch   |
+      | read            | read    |
+      | probe__lookup   | other   |
+    When an ACP client creates a session
+    Then every replayed tool call has the kind its tool maps to
+
+  Scenario: A streamed tool call is announced once and then updated
+    Given an ACP client has an active session whose model names a tool call before completing it
+    When the client sends a prompt
+    Then the tool call is announced with exactly one "tool_call"
+    And every later change of the tool call arrives as "tool_call_update"
+
   Scenario: Current mode updates use the ACP wire schema
     Given an ACP client has an active session
     When the client switches the mode to "plan"

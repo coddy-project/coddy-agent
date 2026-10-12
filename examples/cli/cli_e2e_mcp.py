@@ -136,9 +136,9 @@ models:
     max_context_tokens: 8192
 agent:
   model: stub/demo
-tools:
-  permission_mode: bypass
 """)
+    # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+    (home / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}))
     env = dict(os.environ, CODDY_HOME=str(home), TERM="xterm-256color", COLORTERM="truecolor")
     # The console starts in its own workspace, so a relative binary path is
     # resolved here, against the directory the script was started from.

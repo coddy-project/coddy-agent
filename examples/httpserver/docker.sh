@@ -29,10 +29,16 @@ cleanup() {
 trap cleanup EXIT
 
 CODDY_CWD="${CODDY_CWD:-$TMP_DIR/workspace}"
+CODDY_HOME_GIVEN="${CODDY_HOME:+1}"
 CODDY_HOME="${CODDY_HOME:-$TMP_DIR/coddy_home}"
 CODDY_CONFIG="${CODDY_CONFIG:-$TMP_DIR/config.yaml}"
 
 mkdir -p "$CODDY_CWD" "$CODDY_HOME"
+# The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+# Only the temporary home made here is seeded; a home passed in keeps its own choice.
+if [[ -z "$CODDY_HOME_GIVEN" ]]; then
+  printf '{"permissionMode": "bypass"}\n' >"$CODDY_HOME/permission-mode.json"
+fi
 
 python3 - "$ROOT/examples/config.demo.yaml" "$CODDY_CONFIG" "$PORT" <<'PY'
 from __future__ import annotations

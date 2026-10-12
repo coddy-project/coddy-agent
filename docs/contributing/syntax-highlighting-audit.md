@@ -105,7 +105,7 @@ The production JS bundle increased from approximately 308.64 kB to 419.16 kB gzi
 
 ## Captures
 
-Captured from the running Vite build with the real ChatScreen and Markdown components and a deterministic JavaScript, CSS, HTML and JSON transcript, at 1280 x 900, after the change; no live provider or user conversation is used. All seven themes were also checked at 390 x 900: header, transcript column and composer edges align at both widths and the page does not overflow horizontally.
+Captured on release 1.3.0 from the built `coddy serve` with the embedded web UI, at 1280 x 900: one chat turn answered by a scripted model with a fixed JavaScript, CSS, HTML and JSON reply, so no live provider or user conversation is used. All seven themes were also checked at 390 x 900: header, transcript column and composer edges align at both widths and the page does not overflow horizontally.
 
 | Theme | After |
 | --- | --- |

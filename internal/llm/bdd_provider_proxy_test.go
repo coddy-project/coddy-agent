@@ -100,6 +100,10 @@ func answerProviderRequest(w http.ResponseWriter, r *http.Request) bool {
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/models"):
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"data":[{"id":"m"}]}`)
+	case r.Method == http.MethodPost && strings.HasSuffix(path, "/decisions"):
+		// The NeuralDeep decisions endpoint behind the command safety check.
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"answers":{"safety":{"choice":"safe","probabilities":{"safe":0.98,"unsafe":0.02}}}}`)
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/limits"):
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, neuralDeepUsageFixture)
@@ -457,6 +461,19 @@ func (s *providerProxyState) askNeuralDeepEverything(name string) error {
 		s.fail(fmt.Errorf("%s: account usage tier = %q, want pro", name, usage.Tier))
 	}
 
+	decision, err := NeuralDeepDecisionForProvider(ctx, config.ProviderConfig{
+		Name:   name,
+		Type:   row.typ,
+		APIKey: "k",
+		Proxy:  row.setting,
+	}, "", "frida-decisions", NeuralDeepDecisionSubject{Command: "go test ./..."})
+	switch {
+	case err != nil:
+		s.fail(fmt.Errorf("%s: command safety decision: %w", name, err))
+	case decision.Choice != NeuralDeepDecisionSafe:
+		s.fail(fmt.Errorf("%s: command safety decision = %q, want safe", name, decision.Choice))
+	}
+
 	hub := s.model.srv.URL
 	authPath := filepath.Join(s.home, "neuraldeep-auth.json")
 	key, err := NeuralDeepDeviceSignIn(ctx, hub, row.setting, authPath, "bdd", nil)
@@ -743,7 +760,7 @@ func initializeProviderProxyScenario(t *testing.T) func(*godog.ScenarioContext) 
 		sc.Step(`^an? "([^"]*)" provider "([^"]*)" with a proxy of its own$`, s.aProviderWithAProxyOfItsOwn)
 		sc.Step(`^"([^"]*)" is asked for a completion$`, s.askCompletion)
 		sc.Step(`^"([^"]*)" is asked for a completion and its model list$`, s.askCompletionAndModels)
-		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage and its auth flow$`, s.askNeuralDeepEverything)
+		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a command safety decision and its auth flow$`, s.askNeuralDeepEverything)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a token refresh, a device sign-in and a config apply$`, s.askCodexEverything)
 		sc.Step(`^"([^"]*)" is asked for a credential check, its model list, a chat answer, its account usage and a sign-in$`, s.askDevinEverything)
 		sc.Step(`^every answer comes back$`, s.everyAnswerComesBack)

@@ -1,11 +1,9 @@
 <p align="center">
-  <a href="https://go.dev/doc/go1.26"><img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go 1.26+" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/EvilFreelancer/coddy-agent" alt="MIT License" /></a>
-  <a href="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
-  <a href="https://github.com/coddy-project/coddy-agent/releases"><img src="https://img.shields.io/github/v/release/coddy-project/coddy-agent" alt="Latest release" /></a>
-  <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="ACP harness" /></a>
-  <img src="https://img.shields.io/badge/distroless%20ready-252525" alt="distroless-ready" />
-  <img src="https://img.shields.io/badge/single%20binary-252525" alt="single binary" />
+  <a href="https://github.com/coddy-project/coddy-agent/releases/latest"><img src="https://img.shields.io/github/v/release/coddy-project/coddy-agent?sort=semver&display_name=tag" alt="Latest release" /></a>
+  <a href="https://github.com/coddy-project/coddy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/coddy-project/coddy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
+  <a href="https://github.com/coddy-project/coddy-agent/actions/workflows/security.yaml?query=branch%3Amain"><img src="https://github.com/coddy-project/coddy-agent/actions/workflows/security.yaml/badge.svg?branch=main" alt="Security scan" /></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/coddy-project/coddy-agent?label=go&logo=go&logoColor=white" alt="Go version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/coddy-project/coddy-agent" alt="MIT License" /></a>
 </p>
 
 <p align="center">

@@ -43,11 +43,10 @@ VS Code Copilot takes any OpenAI-compatible endpoint as a chat model through `ch
 
    Bearer auth is off by default, and any `apiKey` string satisfies VS Code's form; with `httpserver.auth_token` set, the `apiKey` is that token. Copilot sends the whole conversation with every request, so each request is a session of its own on the server unless a `requestHeaders` entry on the model sets `X-Coddy-Session-ID` to a fixed `sess_<hex>` id, which keeps the turns in one transcript.
 
-3. **Mind the agent's permission gate.** The `agent` model runs tools under `tools.permission_mode`, and a permission prompt cannot be answered from Copilot: the turn waits for an answer that never comes. Give the serving config `bypass` when the workspace is one you trust the agent with, or keep `ask` and answer the prompt in the web UI, where the turn is live under its session.
+3. **Mind the agent's permission gate.** The `agent` model runs tools under the permission mode of its session, and a permission prompt cannot be answered from Copilot: the turn waits for an answer that never comes. A new session starts in the mode chosen last on the server, so when the workspace is one you trust the agent with, choose `bypass` once there - `/permissions bypass` in any session of that server, from the web UI or the console - or write the file into the server's `CODDY_HOME` (`~/.coddy` by default) before it starts. Otherwise keep `ask` and answer the prompt in the web UI, where the turn is live under its session.
 
-   ```yaml
-   tools:
-     permission_mode: bypass
+   ```bash
+   echo '{"permissionMode": "bypass"}' > ~/.coddy/permission-mode.json
    ```
 
 4. **Check that it worked.** Pick "Coddy · Qwen 3.8 27B" in Copilot Chat and ask anything: the answer streams in, and with a reasoning model the thinking shows in Copilot's own foldout, because `reasoning_content` is a field it reads. The same request from a terminal shows the stream Copilot consumed, one choice finished with `stop` before `[DONE]`:

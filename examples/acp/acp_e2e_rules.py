@@ -198,6 +198,8 @@ def main() -> int:
     raw = raw.replace("__E2E_LOG_PATH__", str(log_f.resolve()))
     cfg_path = Path(home) / "config.resolved.yaml"
     cfg_path.write_text(raw, encoding="utf-8")
+    # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+    (Path(home) / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}), encoding="utf-8")
 
     os.makedirs(session_root, exist_ok=True)
     sdir = os.path.join(session_root, session_id)

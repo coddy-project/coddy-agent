@@ -766,6 +766,34 @@ func (m *Manager) newSession(ctx context.Context, params acp.SessionNewParams, p
 	}, nil
 }
 
+// DefaultPermissionMode is the permission mode a new session starts in: the
+// one the operator chose last on any surface (config.ReadDefaultPermissionMode,
+// <home>/permission-mode.json), else the fallback of a Config built in code,
+// else ask. A session copies it when it is created and keeps its own (#512).
+func (m *Manager) DefaultPermissionMode() string {
+	cfg := m.activeCfg()
+	if cfg == nil {
+		return config.PermModeAsk
+	}
+	if mode := config.ReadDefaultPermissionMode(cfg.Paths.Home); mode != "" {
+		return mode
+	}
+	return cfg.Tools.ResolvedPermMode()
+}
+
+// rememberPermissionMode records a session switched to mode as the operator's
+// latest choice, the default of the sessions created after it. Without an
+// agent home (a manager over a Config built in code) nothing is written.
+func (m *Manager) rememberPermissionMode(mode string) {
+	cfg := m.activeCfg()
+	if cfg == nil || strings.TrimSpace(cfg.Paths.Home) == "" {
+		return
+	}
+	if err := config.WriteDefaultPermissionMode(cfg.Paths.Home, mode); err != nil {
+		m.log.Warn("could not record the permission mode new sessions start in", "mode", mode, "error", err)
+	}
+}
+
 func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir string, mcpServers []acp.MCPServer) (*State, error) {
 	active := m.activeCfg()
 	loadedSkills, err := m.loadSkills(cwd, active)
@@ -774,9 +802,12 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 	}
 
 	state := &State{
-		ID:             id,
-		CWD:            cwd,
-		Mode:           ModeAgent,
+		ID:   id,
+		CWD:  cwd,
+		Mode: ModeAgent,
+		// The session starts in the mode chosen last and keeps it in its
+		// own metadata until it is switched (#512).
+		PermissionMode: m.DefaultPermissionMode(),
 		Skills:         loadedSkills,
 		SessionDir:     sessionDir,
 		contextWindows: m,
@@ -892,6 +923,16 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		// A surface let go of this session earlier in this process: its
 		// permission mode and its armed overrides come back with it.
 		st.restoreProcessSettings(kept)
+	} else {
+		// A session opened in a new process: its permission mode is in its
+		// metadata (#512); one saved before sessions kept it takes the
+		// default now and keeps it from its next save. What was armed for
+		// its next turns was not written and starts over.
+		mode := snap.Meta.SessionPermissionMode
+		if !config.IsPermissionMode(strings.ToLower(strings.TrimSpace(mode))) {
+			mode = m.DefaultPermissionMode()
+		}
+		st.RestorePermissionModeWithoutPersist(mode)
 	}
 	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
 	st.SetTagsWithoutPersist(snap.Meta.Tags)
@@ -1532,7 +1573,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		if opts != nil && opts.SettingsTaken {
 			turnSettings = opts.TurnSettings
 		} else {
-			taken, err := m.TakeSettingsCommands(ctx, params.SessionID, params.Prompt, "command")
+			// A messenger user who is not the bot's admin changes the
+			// settings of the chat's session only.
+			restricted := opts != nil && opts.Restriction != nil
+			taken, err := m.takeSettingsCommands(ctx, params.SessionID, params.Prompt, "command", restricted)
 			if err != nil {
 				return nil, err
 			}

@@ -32,6 +32,31 @@ func acpWakeRunner(mgr acpPromptRunner, sender acp.UpdateSender) agent.RunTurnFu
 	}
 }
 
+// acpLocalSender is what the manager and the waker of a local coddy acp send
+// through: the wake notice over serverRef, never over the bare acp.Server,
+// whose RequestPermission asks the editor whatever the mode. Through
+// serverRef a request asked under bypass is approved without the editor, as
+// on every other surface. The remote mode keeps the bare server: there the request comes
+// from a server whose own policy already wants a person to answer.
+func acpLocalSender(ref *serverRef) acp.UpdateSender {
+	return acpWakeNotice{ref}
+}
+
+// acpServerSetter is the part of the session manager runACP wires.
+type acpServerSetter interface {
+	SetServer(acp.UpdateSender)
+}
+
+// wireLocalACP installs the sender of a local coddy acp on the manager and
+// returns it for the background waker: acpLocalSender, never the bare
+// acp.Server, which asked the editor about every permission request whatever
+// the mode.
+func wireLocalACP(mgr acpServerSetter, ref *serverRef) acp.UpdateSender {
+	sender := acpLocalSender(ref)
+	mgr.SetServer(sender)
+	return sender
+}
+
 // acpWakeNotice is the ACP server as the manager and the waker see it: every
 // update passes through, and a background_wake update is followed by the same
 // wake as agent text. An editor that renders none of Coddy's own updates - most

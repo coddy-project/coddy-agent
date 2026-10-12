@@ -286,6 +286,12 @@ pages:
     en:
       title: "Long-term memory"
       summary: "The memory subagent that runs per turn in the task pool, what it recalls and saves, how the report reaches the turn, the storage layout, configuration and cost."
+  features/decisions.md:
+    title: "Безопасность команд (decisions)"
+    summary: "Проверка NeuralDeep decisions, которая спрашивает, безопасна ли shell-команда, до шлюза разрешений: безопасная выполняется без запроса, о небезопасной спрашивают, а в режиме bypass её отклоняют."
+    en:
+      title: "Command safety (decisions)"
+      summary: "The NeuralDeep decisions check that asks whether a shell command is safe before the permission gate: a safe command runs without a prompt, an unsafe one is asked about, or rejected in bypass mode."
   features/session-export.md:
     title: "Экспорт сессии"
     summary: "/export и coddy sessions export, форматы, правила путей, параметры обрезки, JSON-документ."

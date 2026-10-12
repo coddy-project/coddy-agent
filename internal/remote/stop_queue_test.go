@@ -182,6 +182,23 @@ func TestRemoteReconnectReadyReconcilesAMissedEnd(t *testing.T) {
 	awaitControl(t, s, func(u controlUpdate) bool { v, ok := activityValue(u.body); return ok && !v })
 }
 
+// The server answers a queued message with 201 Created (coddyQueuePost); the
+// console must take it as success instead of putting the draft back.
+func TestRemoteEnqueueAcceptsCreated(t *testing.T) {
+	h, _ := controlHandler(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"message":{"id":"q_7","text":"follow-up"},"messages":[{"id":"q_7","text":"follow-up"}],"version":3}`)
+	}))
+	msg, queue, err := h.EnqueueTurnMessage("sess_shared", "follow-up")
+	if err != nil {
+		t.Fatalf("201 Created was reported as a failure: %v", err)
+	}
+	if msg.ID != "q_7" || len(queue) != 1 {
+		t.Fatalf("queued message = %+v, queue = %+v", msg, queue)
+	}
+}
+
 func TestRemoteQueueRESTRepliesPublishTheirVersions(t *testing.T) {
 	for _, op := range []string{"enqueue", "list", "drop", "clear"} {
 		t.Run(op, func(t *testing.T) {

@@ -116,6 +116,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.mcp_servers.label": "MCP-серверы",
   "settings.section.skills.label": "Навыки",
   "settings.section.memory.label": "Память",
+  "settings.section.decisions.label": "Безопасность команд (decisions)",
   "settings.section.system.label": "Промпты",
   "settings.section.compaction.label": "Сжатие контекста",
   "settings.section.subagents.label": "Субагенты",
@@ -130,6 +131,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.mcp_servers.desc": "Внешние MCP-инструменты",
   "settings.section.skills.desc": "Установленные скилы (slash)",
   "settings.section.memory.desc": "Параметры субагента памяти",
+  "settings.section.decisions.desc": "Проверка небезопасных команд",
   "settings.section.system.desc": "Шаблоны и файлы инструкций",
   "settings.section.compaction.desc": "Сжатие истории диалога",
   "settings.section.subagents.desc": "Пул делегирования и доверие",
@@ -277,11 +279,13 @@ export const messagesRu: Record<string, string> = {
   "settings.group.compaction.summary": "Суммаризация",
   "settings.group.supervisor.checks": "Проверки цели",
   "settings.group.supervisor.watchdog": "Сторож",
-  "settings.group.tools.permissions": "Разрешения",
   "settings.group.memory.model": "Модель и хранилище",
   "settings.group.memory.runs": "Запуски",
   "settings.group.memory.limits": "Ограничения",
   "settings.group.memory.instructions": "Инструкции",
+  "settings.group.decisions.verdict": "Модель и порог",
+  "settings.group.decisions.verdictDesc":
+    "Модель decisions получает каждую команду оболочки, локальную или через SSH, которую вы не разрешили явно, и команда считается небезопасной, когда вероятность небезопасного варианта достигает порога. Команда длиннее того, что читает модель, тоже считается небезопасной, frida-decisions читает 512 токенов, clef-flash 8192. Для проверки нужны учётные данные NeuralDeep в строке провайдера neuraldeep.",
   "settings.group.scheduler.jobs": "Задания",
   "settings.group.logger.main": "Настройки логирования",
   "settings.group.sessions.storage": "Хранилище",
@@ -507,9 +511,6 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.agent.loop_nudge_max.desc":
     "Сколько раз за один шаг модель можно вернуть на путь, прежде чем защита от зацикливания остановит его.",
 
-  "settings.schema.tools.permission_mode.label": "Режим разрешений",
-  "settings.schema.tools.permission_mode.desc":
-    "Определяет, когда агент запрашивает одобрение перед запуском инструментов. «ask» — подтверждать команды и запись файлов. «accept_edits» — автоматически принимать правки, подтверждать команды. «bypass» — не спрашивать вовсе. Сессия может сменить свой режим до перезапуска процесса (/permissions, чип в композере, диалог разрешений), сюда эта смена не записывается.",
   "settings.schema.tools.command_allowlist.label": "Белый список команд",
   "settings.schema.tools.command_allowlist.desc":
     "Если не пуст, без дополнительной политики могут запускаться только команды с этими префиксами.",
@@ -646,6 +647,15 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.model.label": "Модель памяти",
   "settings.schema.memory.model.desc":
     "Модель, на которой работает субагент памяти; пусто - модель сессии.",
+  "settings.schema.decisions.enable.label": "Включено",
+  "settings.schema.decisions.enable.desc":
+    "Спрашивать NeuralDeep decisions API, безопасна ли команда оболочки, локальная или через SSH, до того как решает шлюз разрешений. Безопасная команда выполняется без запроса. О небезопасной в режимах ask и accept_edits спрашивают, а в режиме bypass её отклоняют, и отказ попадает в чат как результат команды. Список разрешённых команд, гранты сессии, allow-хук и команды, одобренные в запросе разрешения, не проверяются.",
+  "settings.schema.decisions.model.label": "Модель decisions",
+  "settings.schema.decisions.model.desc":
+    "frida-decisions: проход энкодера, до 512 токенов текста команды, ~20 мс на запрос, 1 единица квоты. clef-flash: до 8192 токенов, ~150 мс, 4 единицы квоты.",
+  "settings.schema.decisions.threshold.label": "Порог небезопасности",
+  "settings.schema.decisions.threshold.desc":
+    'Вероятность опции "небезопасно", начиная с которой команда считается небезопасной. 0 - значение по умолчанию (0,5); ниже - строже, выше - допускает пограничные команды.',
   "settings.schema.memory.fallback_models.label": "Резервные модели памяти",
   "settings.schema.memory.fallback_models.desc":
     "Пробуются по порядку, когда предыдущая модель отказала до ответа; модель сессии остаётся последним вариантом.",
@@ -1468,7 +1478,7 @@ export const messagesRu: Record<string, string> = {
   "composer.modePlan": "План",
   "composer.permission": "Разрешения",
   "composer.permissionTitle":
-    "Когда инструменты спрашивают одобрение в этой сессии (режим конфигурации: {configured})",
+    "Когда инструменты спрашивают одобрение в этой сессии (режим новых сессий: {configured})",
   "composer.permissionAsk": "Спрашивать",
   "composer.permissionAcceptEdits": "Правки без вопросов",
   "composer.permissionBypass": "Без вопросов",

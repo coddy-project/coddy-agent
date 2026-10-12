@@ -212,7 +212,7 @@ The keys are ordinary `config.yaml` keys, so the Settings page and the bundled `
 
 A hooks file inside the workspace arrived with the checkout. Under the default policy `ask` it is parsed and listed, but none of its hooks runs until you approve that exact file for that workspace on the machine running Coddy. The receipt is bound to a digest of the file, so editing an approved file withdraws the approval and asks again. Your own file (user scope) never needs approval.
 
-The first turn that finds a held file records a notice in the session (the SPA shows it as a system row after the turn, once per session and file, without a retry control; the agent log carries the same line), so you learn that hooks exist and are held:
+The first turn that finds a held file records a notice in the session (the SPA shows it as a system row inside the turn, where the held file was found, once per session and file, without a retry control; the agent log carries the same line), so you learn that hooks exist and are held:
 
 | Dark | Light |
 |---|---|

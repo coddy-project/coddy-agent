@@ -93,9 +93,12 @@ type App struct {
 	queuePreference       session.QueueMode
 	pendingQueueText      string
 	pendingQueueAlternate bool
-	editorWrap            *tui.Container
-	editor                *tui.Editor
-	foot                  *footer
+	// queueChoiceLine is the open question about the queue mode, removed from
+	// the transcript once the operator answers or dismisses it.
+	queueChoiceLine *statusLine
+	editorWrap      *tui.Container
+	editor          *tui.Editor
+	foot            *footer
 
 	spinner     *tui.Loader
 	stepStatus  liveStatus
@@ -406,8 +409,10 @@ func (a *App) ApplyStartupOptions(ctx context.Context, model, mode, permMode str
 		a.modeID = mode
 	}
 	if permMode != "" {
-		if _, err := a.mgr.HandleSessionSetConfigOption(ctx, acp.SessionSetConfigOptionParams{
-			SessionID: a.sessionID, ConfigID: "permission_mode", Value: permMode,
+		// A launch flag sets the session the console opens; the mode new
+		// sessions start in follows only a choice made inside a session.
+		if _, err := a.mgr.ApplySessionSettings(ctx, a.sessionID, session.SettingsChange{
+			PermissionMode: &permMode, Source: "console", SessionOnly: true,
 		}); err != nil {
 			return fmt.Errorf("--permission-mode: %w", err)
 		}
@@ -732,6 +737,7 @@ func (a *App) handleGlobalKey(data []byte) bool {
 			}
 			text, alternate := a.pendingQueueText, a.pendingQueueAlternate
 			a.pendingQueueText = ""
+			a.dismissQueueChoice()
 			a.queuePreference = mode
 			if alternate {
 				mode = oppositeQueueMode(mode)
@@ -741,6 +747,7 @@ func (a *App) handleGlobalKey(data []byte) bool {
 		case "escape":
 			a.editor.SetText(a.pendingQueueText)
 			a.pendingQueueText = ""
+			a.dismissQueueChoice()
 			return true
 		}
 	}
@@ -1402,6 +1409,7 @@ func (a *App) resetTranscript() {
 	a.remoteTurnActive, a.remoteActivityRevision = false, 0
 	a.queue.Reset()
 	a.chat.Clear()
+	a.queueChoiceLine = nil
 	a.mcpReported = nil
 	a.plan.SetEntries(nil)
 	a.toolBoxes = map[string]*toolBox{}

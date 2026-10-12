@@ -35,7 +35,7 @@ pty (see the CLI section below):
 
 | Path | Role |
 |------|------|
-| **`config.demo.yaml`** | Shared YAML for demos (models, scheduler, skills dirs, logger placeholder **`__E2E_LOG_PATH__`** where scripts rewrite it). |
+| **`config.demo.yaml`** | Shared YAML for demos (models, scheduler, skills dirs, logger placeholder **`__E2E_LOG_PATH__`** where scripts rewrite it). It names no permission mode, which is not configuration: a script that renders it into a temporary home writes **`{"permissionMode": "bypass"}`** into **`<home>/permission-mode.json`** before Coddy starts. |
 | **`build_coddy.sh`** | **`make build TAGS="http scheduler memory cli gateway"`** then **`./build/coddy -v`**. |
 | **`httpserver/`** | HTTP Python harnesses, **`test_httpserver.sh`**, **`docker.sh`**. |
 | **`acp/`** | ACP Python harnesses and **`test_acp.sh`**. |
@@ -85,6 +85,8 @@ Docker-only smoke:
 Order: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_web`**, **`acp_e2e_todo`**, **`acp_e2e_skills_slash`**, **`acp_e2e_rules`**, **`acp_e2e_mentions`** (typed `@file:3-4` and a `#L5-5` resource fragment hydrate only those lines), **`acp_e2e_config`** (staged config edit into a temp config copy, Russian confirm-commit, rollback), **`acp_e2e_memory`**, **`acp_e2e_background`**, **`acp_e2e_subagents`** (`coddy agents trust` before the spawn, persisted `agent` task plus the child bundle nested in the parent's, linked back to it), **`acp_e2e_hooks`** (user-scope recorder hooks around a real `run_command`, a held project hook approved with `coddy hooks trust` mid-session), **`acp_e2e_toolcalls_persist`**, **`acp_e2e_compact`**, **`acp_e2e_scheduler_agent`**, **`acp_e2e_plan_files`** (plan file on disk plus run via **`_meta.coddy.dev/runPlanSlug`**), **`acp_e2e_ask_mode`** (**`session/set_mode`** **`ask`**: read-only tool calls and no artifact, then **`agent`** writes it), **`acp_remote`** (the ACP client against a remote `coddy serve`), **`acp_e2e_remote_subagents`** (a project definition approved on the server through `POST /coddy/subagents/{name}/trust`, then a `spawn_agent` run whose call streams back to the remote ACP client and whose child session is persisted server-side only).
 
 Environment overrides: **`CODDY_BIN`**, **`CODDY_CONFIG`**, **`SESSION_ROOT`**, **`SESSION_ID`**, **`BASE_URL`**, **`MODEL`**, etc. (see each script docstring).
+
+The scripts that run **`coddy acp`** with the operator's own home (no **`--home`**, no **`CODDY_HOME`**: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_web`**, **`acp_e2e_todo`**, **`acp_e2e_mentions`**, **`acp_e2e_config`**, **`acp_e2e_background`**, **`acp_e2e_toolcalls_persist`**, **`acp_e2e_compact`**, **`acp_e2e_plan_files`**, **`acp_e2e_ask_mode`**) leave its **`permission-mode.json`** alone, so their sessions start in the mode the operator chose last (**`ask`** without the file) and the scripts allow every **`session/request_permission`** themselves. The others make a temporary home and start it in **`bypass`**, except **`acp_e2e_background_wake`**, whose stand starts it in **`ask`**.
 
 ## Single demos
 

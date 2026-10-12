@@ -2,9 +2,9 @@
 
 This page captures the original UI requirements and the intended end state. It is a functional spec and a design contract, with a screenshot of each surface next to the section that specifies it. The visual tokens and component contracts are in [DESIGN.md](../../DESIGN.md).
 
-https://github.com/user-attachments/assets/34752734-2715-4aa3-936b-acfb5c7233bf
+https://github.com/user-attachments/assets/604d01bb-b730-4ca5-9955-a7a593891054
 
-*A three-minute recording of the web UI on 1.2.31: the model picker, tool calls as rows that name their action, the permission card with the diff of an edit, a `/commit` skill from the slash menu, and History grouped by folder, from which the session is continued. The file is in the repository as [web-ui.mp4](../assets/video/web-ui.mp4).*
+*A two-minute recording of the web UI on 1.3.0: the model picker, a picture read by the model, a `/goal` that moves the work into a git worktree and that a supervisor confirms, the edits window with the patch of each file, the Files window, and a `/commit` skill from the slash menu. The file is in the repository as [web-ui.mp4](../assets/video/web-ui.mp4).*
 
 ## Constraints
 
@@ -111,7 +111,7 @@ Clear the field to use the session model for summarization.
 
 ## Settings: tabs and form layout
 
-- The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**); the loop that runs them (**ReAct loop**, **Context compaction**, **Memory**); what the agent can do (**Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.
+- The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**); the loop that runs them (**ReAct loop**, **Session goal**, **Context compaction**, **Memory**); what the agent can do (**Command safety (decisions)**, **Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.
 - **Sessions** edits where the session bundles are stored (**Storage**, `sessions.dir`) above the table of stored sessions; the table itself acts at once, the storage path saves with **Save all**.
 - A tab's own **Enabled** switch opens the form, above every block (Subagents, Hooks, Memory, Context compaction, Scheduler). The other fields sit in fieldsets by meaning, for example **Model and turns**, **Retries**, **Stream timeouts**, **Loop guard** and **Usage limits** on **ReAct loop**; a list (definition directories, fallback models, component levels) is a block of its own beside them. Inside a nested block a list keeps its frame (the Telegram admins, user groups and per-chat overrides).
 - A list of values is its inputs, each with a trash button, and **Add** under them: no per-row label and no rule between rows. An entry of a list of objects is a frame of its own, without a numbered title.
@@ -402,14 +402,14 @@ Session title
 
 ### Session settings: permission chip, turn overrides, live mirror
 
-![The composer after a bypass from the dialog: the selectors end with a red Bypass chip, followed by "stub/qwen3.8-27b, 2 turns left"](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
+![The composer after a bypass from the dialog: the selectors end with a red Bypass chip, followed by "neuraldeep/qwen3.6-35b-a3b, 2 turns left"](../assets/session-settings/session-settings-composer-bypass-dark-1280.png)
 
 *The composer after the session was switched to bypass from a permission prompt and the model changed for two turns.*
 
 - The composer mirrors the session's settings snapshot ([Session settings](../features/session-settings.md)): **`settings`** on **`GET /coddy/sessions/{id}/messages`** and on the **`PATCH /coddy/sessions/{id}`** answer, and **`event: session_settings`** on the turn stream and on **`GET /coddy/events`**. **`chat/sessionSettings.ts`** parses it; **`App.tsx`** keeps the highest **`version`** per session (**`isNewerSettings`**), so the same change arriving down both connections, or an answer arriving after the event of a later change, is applied once and never rolled back.
 - **Mode**, **Model** and **Reasoning** follow a change made anywhere - a typed command, the permission dialog, the model's **`switch_model`**, a console or an editor on the same session. Every **`POST /v1/responses`** carries **`metadata.settingsVersion`**, the version the tab last applied; the server ignores the tab's **`model`** / **`reasoning`** / mode when a newer snapshot has been published since, so a stale tab cannot undo a change it has not seen.
 - **Mode**, **Model** and **Reasoning** belong to the session on screen. Opening a session shows the mode of its snapshot (**`settings.mode`**); a new chat - **New chat**, the Back button to **`#/`**, a draft in History, a session id the server answers **404** to - starts in **Agent** with a new chat's default model and level, never in the mode of the chat just left, and a mode picked on the start screen creates the chat in it. While the opened session is loading, the selectors still show the session left, and a prompt would carry their mode, **`metadata.model`** and **`metadata.reasoning`** with no **`settingsVersion`** of the opened session, so the server would keep them: **Send** and **Enter** wait until the session's own snapshot is applied, and the draft stays in the field. A read that fails is tried again after 1, 3 and 9 seconds and then every 30 seconds while the chat stays open, and only the server's **404** opens the address as a new chat: History holds one page, so a session missing from it may well exist. A message for a running turn still joins the queue, which carries none of them. Contract: **`App.settingsPerSession.test.tsx`**, **`Composer.sessionLoading.test.tsx`**, **`features/web_ui_session_settings.feature`**.
-- The **permission chip** (**`data-testid="composer-permission"`**) is the last selector of the row, after **Model** and **Reasoning**: **Ask first**, **Accept edits** or **Bypass**, the last in red with a glow, its tooltip naming the configuration's mode the session returns to after a restart. Its menu calls **`PATCH`** **`permissionMode`**. On a new chat - the start screen or a draft, before a session exists - the chip names the mode the server is configured with: **`permissionMode`** of **`GET /coddy/info`** (**`tools.permission_mode`**), read through the active environment (the local server, a remote, a node behind a relay's mount) and read again on every **`config_reloaded`** and every reconnect of **`GET /coddy/events`**. A pick there is held and sent as a **`/permissions <mode>`** line ahead of the first message unless it is that configured mode; while the configured mode is not known (no answer yet, a server that does not say) the pick is always sent, so an explicit **Ask first** under a **`bypass`** configuration is never dropped, and with no pick the mode the chip shows is sent, so the first turn never runs under a mode the page could not name. A first message the server never took keeps the pick for the next try into the same session. Contract: **`App.permissionDefault.test.tsx`**.
+- The **permission chip** (**`data-testid="composer-permission"`**) is the last selector of the row, after **Model** and **Reasoning**: **Ask first**, **Accept edits** or **Bypass**, the last in red with a glow, its tooltip naming the mode new sessions start in (*new sessions start in: bypass*). Its menu calls **`PATCH`** **`permissionMode`**, and the session's new mode also becomes the mode new sessions start in. On a new chat - the start screen or a draft, before a session exists - the chip names the mode a new session starts in, the one chosen last on any surface: **`permissionMode`** of **`GET /coddy/info`**, read through the active environment (the local server, a remote, a node behind a relay's mount) and read again on every **`config_reloaded`** and every reconnect of **`GET /coddy/events`**, and moved by **`configuredPermissionMode`** of every newer **`event: session_settings`**, whichever session it is about. A pick there is held and sent as a **`/permissions <mode>`** line ahead of the first message unless it is that mode; while that mode is not known (no answer yet, a server that does not say) the pick is always sent, so an explicit **Ask first** while new sessions start in **`bypass`** is never dropped, and with no pick the mode the chip shows is sent, so the first turn never runs under a mode the page could not name. A first message the server never took keeps the pick for the next try into the same session. Contract: **`App.permissionDefault.test.tsx`**.
 - The **overrides line** (**`data-testid="composer-overrides"`**) lists what is changed for the next turns (**`stub/qwen3.8-demo, 2 turns left`**, **`plan this turn`**), with the full list in its tooltip; it shrinks with an ellipsis on narrow shells rather than pushing the send button off the bar.
 - A prompt of settings commands only runs no turn: the stream ends with **`coddy_meta.settings_only`**, the tab drops its optimistic user and assistant rows and re-reads the transcript. The change shows on the selectors and the overrides line, and the transcript gets no row for it.
 - A **SYSTEM** notice row is left only by a change the agent made itself: its **`switch_model`** call, a skill's frontmatter (`Model: stub/qwen3.8-27b for this session`). What the user picks - a selector, a command, the permission dialog, the model and the mode a console or **`coddy -p`** started the session with - is on the selectors already; the rows a session saved by an earlier version holds for such changes are not shown.
@@ -479,7 +479,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 
 ![History grouped by folder, with a plus on the heading](../assets/sessions-history-grouping-dark-1280.png)
 
-*Grouped by folder: the heading is the folder name with its row count, and hovering it offers a new chat in that workspace. The first row is pinned*
+*Grouped by folder: the heading is the folder name, and the plus beside it starts a new chat in that workspace. The pinned row sits on top under Pinned*
 
 ![The pinned group, mid-drag by the row itself](../assets/sessions-history-pinned-dark-1280.png)
 
@@ -915,7 +915,7 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
 
 For the whole of a running turn, streaming text included, the typing dots carry a live status line (`TypingDotsMessage.tsx`, pure derivation in `chat/liveStatus.ts`, visual contract in `DESIGN.md`):
 
-![A running turn: 1m 54s, 2.6k tokens, 1 running task, Writing the answer](../assets/turn-progress-live-line-dark-1280.png)
+![A running turn: 18s, 99 tokens, 1 running task, Writing the answer](../assets/turn-progress-live-line-dark-1280.png)
 
 *The live line of a running turn: the turn clock, the generated tokens, the running background task and what the agent is doing*
 
@@ -1110,7 +1110,7 @@ Multiple requests keep the transcript's 10px spacing. A new request scrolls into
 
 ![Two background permission cards with the standard transcript spacing](../assets/subagents/chat-permissions-spaced-dark-1280.png)
 
-*The real ChatScreen rendered with two deterministic pending task rows, Dark theme, 1280px wide.*
+*Two background subagents of one turn asking for permission at the end of the parent chat, Dark theme, 1280px wide.*
 
 ![A background subagent asking for permission in its parent chat](../assets/subagents/chat-subagent-permission-dark-1280.png)
 
@@ -1730,7 +1730,7 @@ Automated checks:
 
 ![The swarm screen with relays, nodes and rings](../assets/swarm/map-dark-1280.png)
 
-*The swarm screen with relays, nodes and rings*
+*The swarm screen: this machine, the attached relay and the nodes one and two hops away*
 
 Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
 

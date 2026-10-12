@@ -71,6 +71,9 @@ class ControlledStream {
   text(content: string) {
     this.frame("", { choices: [{ delta: { content } }] });
   }
+  raw(bytes: string) {
+    if (!this.closed) this.controller.enqueue(new TextEncoder().encode(bytes));
+  }
   end() {
     if (this.closed) return;
     this.closed = true;
@@ -126,6 +129,13 @@ class Backend {
   /** The model every session's transcript read names as its own. */
   sessionModel = "";
   abortPostReads = true;
+  /** Model the composer relay as the server runs it: every frame of the turn's
+   *  POST stream is recorded and numbered, and a subscriber is replayed the
+   *  frames after its Last-Event-ID (all of them without one), each with its
+   *  `id:`, before the live ones. Off by default: most tests feed the relay
+   *  by hand. */
+  replayTurn = false;
+  turnFrames = new Map<string, string[]>();
   override?: (request: Request) => Response | Promise<Response> | undefined;
   /** Connections the browser keeps open to this host, shared by every tab of
    *  the profile: six over HTTP/1.1. A stream holds one until it closes or is
@@ -207,6 +217,7 @@ class Backend {
         init.signal,
       );
       this.posts.push({ sid, stream });
+      this.turnFrames.set(sid, []);
       return stream.response;
     }
     if (path.startsWith("/coddy/sessions?"))
@@ -250,9 +261,19 @@ class Backend {
           init.signal,
         );
         this.relays.push({ sid, stream });
+        if (this.replayTurn) {
+          const after = Number(
+            new Headers(init.headers).get("Last-Event-ID") ?? "0",
+          );
+          const frames = this.turnFrames.get(sid) ?? [];
+          frames.forEach((frame, i) => {
+            if (i + 1 > after) stream.raw(`id: ${i + 1}\n${frame}`);
+          });
+        }
         return stream.response;
       }
       if (suffix === "/cancel") return json({});
+      if (suffix === "/permission") return json({});
       if (suffix?.startsWith("/queue/") && request.method === "DELETE") {
         const queue = this.queues.get(sid) ?? { messages: [], version: 1 };
         const id = decodeURIComponent(suffix.slice("/queue/".length));
@@ -309,6 +330,23 @@ class Backend {
     this.events
       .at(-1)!
       .frame(active ? "turn_started" : "turn_ended", { sessionId: sid });
+  }
+  /** One frame of the running turn, as the server sends it: on the POST
+   *  stream that started the turn while the tab still reads it, recorded for
+   *  the relay, and live to every attached relay subscriber with its id. */
+  emit(sid: string, event: string, data: unknown) {
+    const frame = `${event ? `event: ${event}\n` : ""}data: ${JSON.stringify(data)}\n\n`;
+    const frames = this.turnFrames.get(sid) ?? [];
+    frames.push(frame);
+    this.turnFrames.set(sid, frames);
+    const post = this.posts.filter((p) => p.sid === sid).at(-1);
+    if (post && !post.stream.signal?.aborted) post.stream.raw(frame);
+    for (const r of this.relays)
+      if (r.sid === sid && !r.stream.signal?.aborted)
+        r.stream.raw(`id: ${frames.length}\n${frame}`);
+  }
+  emitText(sid: string, content: string) {
+    this.emit(sid, "", { choices: [{ delta: { content } }] });
   }
   queue(sid: string, queue: Queue) {
     this.queues.set(sid, queue);
@@ -650,6 +688,234 @@ test("a failed cancel rejoins the running turn and offers a visible retryable St
   );
   expect(backend.relays[0]!.stream.signal!.aborted).toBe(true);
   expect(screen.getByText("Partial answer A")).toBeInTheDocument();
+});
+
+// The relay replays a turn from its first frame to a subscriber that names
+// none. The tab that ran the turn on its own POST stream already shows those
+// frames, so after a failed Stop it resumes after the last one it read: the
+// answer goes on in the row it was being written into, once.
+test("a failed Stop rejoins the turn after what the tab read, in the same row", async () => {
+  backend.replayTurn = true;
+  backend.override = (r) =>
+    r.path.endsWith("/cancel")
+      ? json({ error: { message: "Unavailable" } }, 500)
+      : undefined;
+  await mount();
+  await send("Own A turn");
+  await act(async () => {
+    backend.emitText(A, "Partial answer A");
+  });
+  fireEvent.click(stop());
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    /stop.*try again/i,
+  );
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  await act(async () => {
+    backend.emitText(A, " goes on");
+  });
+  await waitFor(() =>
+    expect(screen.getByText("Partial answer A goes on")).toBeInTheDocument(),
+  );
+  expect(screen.queryAllByText(/Partial answer A/)).toHaveLength(1);
+  // The row the answer was written into stays above the error.
+  const answer = screen.getByText("Partial answer A goes on");
+  const alert = screen.getByRole("alert");
+  expect(
+    answer.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
+test("a failed Stop of a watched turn resumes the relay after the frame it showed", async () => {
+  backend.replayTurn = true;
+  backend.activity.set(A, true);
+  backend.override = (r) =>
+    r.path.endsWith("/cancel")
+      ? json({ error: { message: "Unavailable" } }, 500)
+      : undefined;
+  await mount();
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  await act(async () => {
+    backend.emitText(A, "Watched answer");
+  });
+  await screen.findByText("Watched answer");
+  fireEvent.click(stop());
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    /stop.*try again/i,
+  );
+  await waitFor(() => expect(backend.relays).toHaveLength(2));
+  const rejoin = backend.requests
+    .filter((r) => r.path.startsWith(`/coddy/sessions/${A}/composer-stream`))
+    .at(-1)!;
+  expect(new Headers(rejoin.init.headers).get("Last-Event-ID")).toBe("1");
+  await act(async () => {
+    backend.emitText(A, " continues");
+  });
+  await screen.findByText("Watched answer continues");
+  expect(screen.queryAllByText(/Watched answer/)).toHaveLength(1);
+});
+
+// The relay numbers every turn's frames from 1. A cursor kept from an earlier
+// turn would ask the next turn's relay to skip its own opening frames.
+test("a second turn watched through the relay shows its opening frames", async () => {
+  backend.replayTurn = true;
+  backend.activity.set(A, true);
+  await mount();
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  await act(async () => {
+    backend.emitText(A, "First");
+    backend.emitText(A, " turn");
+    backend.emitText(A, " answer");
+  });
+  await screen.findByText("First turn answer");
+  backend.messages
+    .get(A)!
+    .push({ role: "assistant", content: "First turn answer" });
+  await act(async () => {
+    backend.relays[0]!.stream.raw("data: [DONE]\n\n");
+    backend.relays[0]!.stream.end();
+    backend.turn(A, false);
+  });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument(),
+  );
+  // Another surface starts the next turn; its opening is out before this tab
+  // attaches.
+  backend.turnFrames.set(A, []);
+  backend.emitText(A, "Second opening");
+  await act(async () => {
+    backend.turn(A, true);
+  });
+  await waitFor(() => expect(backend.relays).toHaveLength(2));
+  expect(await screen.findByText("Second opening")).toBeInTheDocument();
+});
+
+test("a failed Stop does not bring an answered permission prompt back", async () => {
+  backend.replayTurn = true;
+  backend.override = (r) =>
+    r.path.endsWith("/cancel")
+      ? json({ error: { message: "Unavailable" } }, 500)
+      : undefined;
+  await mount();
+  await send("Own A turn");
+  await act(async () => {
+    backend.emit(A, "tool_call", {
+      toolCallId: "call_1",
+      title: "run_command: make test",
+      kind: "execute",
+      status: "pending",
+    });
+    backend.emit(A, "permission", {
+      sessionId: A,
+      toolCall: {
+        toolCallId: "call_1",
+        title: "run_command: make test",
+        kind: "execute",
+      },
+      options: [
+        { optionId: "allow", name: "Allow", kind: "allow_once" },
+        { optionId: "reject", name: "Deny", kind: "reject_once" },
+      ],
+    });
+  });
+  fireEvent.click(await screen.findByRole("button", { name: /^Allow/ }));
+  await waitFor(() =>
+    expect(backend.count(`/coddy/sessions/${A}/permission`, "POST")).toBe(1),
+  );
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: /^Allow/ })).toBeNull(),
+  );
+  await act(async () => {
+    backend.emitText(A, "Tool output read");
+  });
+  fireEvent.click(stop());
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    /stop.*try again/i,
+  );
+  await waitFor(() => expect(backend.relays).toHaveLength(1));
+  await act(async () => {
+    backend.emitText(A, ", still going");
+  });
+  await waitFor(() =>
+    expect(
+      screen.getByText("Tool output read, still going"),
+    ).toBeInTheDocument(),
+  );
+  expect(screen.queryByRole("button", { name: /^Allow/ })).toBeNull();
+  expect(screen.queryByText("Waiting for your approval")).toBeNull();
+  expect(screen.queryAllByText(/Tool output read/)).toHaveLength(1);
+});
+
+// A turn stopped while its permission prompt was open answered nothing: the
+// server records the call as refused and waits for nobody. The card does not
+// come back on the next read, and History does not mark the chat as waiting.
+test("a turn stopped at its permission prompt leaves nothing waiting for the reader", async () => {
+  await mount();
+  await send("Own A turn");
+  await act(async () => {
+    backend.emit(A, "tool_call", {
+      toolCallId: "call_1",
+      title: "run_command: make test",
+      kind: "execute",
+      status: "pending",
+    });
+    backend.emit(A, "permission", {
+      sessionId: A,
+      toolCall: {
+        toolCallId: "call_1",
+        title: "run_command: make test",
+        kind: "execute",
+      },
+      options: [
+        { optionId: "allow", name: "Allow", kind: "allow_once" },
+        { optionId: "reject", name: "Deny", kind: "reject_once" },
+      ],
+    });
+  });
+  await screen.findByRole("button", { name: /^Allow/ });
+  fireEvent.click(stop());
+  await waitFor(() =>
+    expect(backend.count(`/coddy/sessions/${A}/cancel`, "POST")).toBe(1),
+  );
+  backend.messages.get(A)!.push(
+    {
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        {
+          id: "call_1",
+          type: "function",
+          function: {
+            name: "run_command",
+            arguments: JSON.stringify({ command: "make test" }),
+          },
+        },
+      ],
+    } as never,
+    {
+      role: "tool",
+      content: "permission denied by user",
+      tool_call_id: "call_1",
+    } as never,
+  );
+  await act(async () => {
+    backend.turn(A, false);
+  });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument(),
+  );
+  await waitFor(() =>
+    expect(backend.count(`/coddy/sessions/${A}/messages`)).toBeGreaterThan(2),
+  );
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+  expect(screen.queryByRole("button", { name: /^Allow/ })).toBeNull();
+  await act(async () => {
+    history.replaceState(null, "", "/#/history");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  await screen.findByTestId(`session-idle-${B}`);
+  expect(screen.queryByTestId(`session-permission-${A}`)).toBeNull();
 });
 
 test("Stop releases its own stream at once, targets its original session and preserves partial text", async () => {

@@ -221,8 +221,6 @@ agent:
 compaction:
   enable: true
   threshold_percent: 1
-tools:
-  permission_mode: bypass
 memory:
   enable: false
 logger:
@@ -233,6 +231,8 @@ logger:
 """,
         encoding="utf-8",
     )
+    # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+    (home / "permission-mode.json").write_text(json.dumps({"permissionMode": "bypass"}), encoding="utf-8")
     env = dict(os.environ)
     if key_source == "dotenv":
         (home / ".env").write_text(f"{var}={key}\n", encoding="utf-8")

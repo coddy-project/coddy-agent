@@ -102,7 +102,8 @@ def rules(fixes: bool) -> list[dict]:
 def config_yaml(model_port: int, *, http: bool, log_file: Path) -> str:
     """A config pointing coddy at the scripted model.
 
-    Commands are asked about - `ask` - except `echo`, the one the first turn
+    Commands are asked about - `ask`, which `WakeStand` writes into
+    <home>/permission-mode.json - except `echo`, the one the first turn
     starts, so the only prompt a harness meets is the woken turn's own.
     """
     return f"""providers:
@@ -116,7 +117,6 @@ models:
 agent:
   model: stub/coddy-demo
 tools:
-  permission_mode: ask
   command_allowlist: ["echo"]
 httpserver:
   enable: {"true" if http else "false"}
@@ -142,6 +142,8 @@ class WakeStand:
         self.log_file = self.home / "coddy.log"
         self.config = self.home / "config.yaml"
         self.config.write_text(config_yaml(self.model_port, http=http, log_file=self.log_file), encoding="utf-8")
+        # The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+        (self.home / "permission-mode.json").write_text(json.dumps({"permissionMode": "ask"}), encoding="utf-8")
         script = self.tmp / "rules.json"
         script.write_text(json.dumps(rules(fixes)), encoding="utf-8")
         tgfake = tgfake_binary(self.tmp)

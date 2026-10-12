@@ -13,11 +13,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -32,7 +34,11 @@ const (
 	testHomeEnv         = "CODDY_TEST_HOME"
 	testSessionsRootEnv = "CODDY_TEST_SESSIONS_ROOT"
 	testPreferredIDEnv  = "CODDY_TEST_PREFERRED_SESSION_ID"
+	testToolTurnEnv     = "CODDY_TEST_STREAMED_TOOL_TURN"
 )
+
+// streamedToolCallID is the call the streamed tool turn's model makes.
+const streamedToolCallID = "call_read_notes"
 
 type acpSessionFeatureState struct {
 	root        string
@@ -56,6 +62,12 @@ type acpSessionFeatureState struct {
 	// under through a symlink; listWire holds the session/list response.
 	realProjectDir string
 	listWire       []map[string]interface{}
+	// toolKinds maps a replayed tool call id to the ACP kind its tool must carry.
+	toolKinds map[string]string
+	// toolTurn makes the helper run turns on a model that names a tool call
+	// before completing it; promptWire holds what one session/prompt produced.
+	toolTurn   bool
+	promptWire []map[string]interface{}
 }
 
 func (s *acpSessionFeatureState) reset() error {
@@ -72,6 +84,9 @@ func (s *acpSessionFeatureState) reset() error {
 	s.preferredID = ""
 	s.realProjectDir = ""
 	s.listWire = nil
+	s.toolKinds = nil
+	s.toolTurn = false
+	s.promptWire = nil
 	s.stderr.Reset()
 	return nil
 }
@@ -142,6 +157,66 @@ func (s *acpSessionFeatureState) coddyACPReopensPersistedSession() error {
 	return s.startACP("")
 }
 
+// coddyACPReopensSessionWithToolCalls seeds a session whose assistant turn
+// called every tool of the table, so session/new replays one tool_call per row.
+func (s *acpSessionFeatureState) coddyACPReopensSessionWithToolCalls(table *godog.Table) error {
+	s.sessionsRoot = filepath.Join(s.root, "sessions")
+	if err := os.MkdirAll(s.sessionsRoot, 0o755); err != nil {
+		return err
+	}
+	store := &session.FileStore{Root: s.sessionsRoot}
+	s.preferredID = "sess_reopened_tools"
+	dir, err := store.EnsureLayout(s.preferredID)
+	if err != nil {
+		return err
+	}
+	s.toolKinds = map[string]string{}
+	var calls []llm.ToolCall
+	for i, row := range table.Rows {
+		if i == 0 {
+			continue
+		}
+		id := fmt.Sprintf("call_%d", i)
+		calls = append(calls, llm.ToolCall{ID: id, Name: row.Cells[0].Value, InputJSON: "{}"})
+		s.toolKinds[id] = row.Cells[1].Value
+	}
+	seeded := &session.State{ID: s.preferredID, CWD: s.root, Mode: session.ModeAgent, SessionDir: dir}
+	seeded.ReplaceMessagesWithoutPersist([]llm.Message{
+		{Role: llm.RoleUser, Content: "touch the workspace"},
+		{Role: llm.RoleAssistant, ToolCalls: calls},
+	})
+	if err := store.Save(seeded); err != nil {
+		return err
+	}
+	// Response, the user chunk, one tool_call per row, then the slash command catalog.
+	s.newWireCount = 3 + len(calls)
+	return s.startACP("")
+}
+
+func (s *acpSessionFeatureState) replayedToolCallsCarryTheirKinds() error {
+	seen := 0
+	for _, msg := range s.newWire {
+		params, _ := msg["params"].(map[string]interface{})
+		update, _ := params["update"].(map[string]interface{})
+		if update["sessionUpdate"] != acp.UpdateTypeToolCall {
+			continue
+		}
+		id, _ := update["toolCallId"].(string)
+		kind, _ := update["kind"].(string)
+		if want := s.toolKinds[id]; kind != want {
+			return fmt.Errorf("tool call %s (%v) replayed with kind %q, want %q", id, update["title"], kind, want)
+		}
+		if !acp.IsToolKind(kind) {
+			return fmt.Errorf("tool call %s replayed with kind %q outside the ACP enum", id, kind)
+		}
+		seen++
+	}
+	if seen != len(s.toolKinds) {
+		return fmt.Errorf("replayed %d tool calls, want %d: %#v", seen, len(s.toolKinds), s.newWire)
+	}
+	return nil
+}
+
 func (s *acpSessionFeatureState) replayedTranscriptIncludes(text string) error {
 	for _, msg := range s.newWire {
 		params, _ := msg["params"].(map[string]interface{})
@@ -174,6 +249,9 @@ func (s *acpSessionFeatureState) startACP(skillsDir string) error {
 		testSessionsRootEnv+"="+s.sessionsRoot,
 		testPreferredIDEnv+"="+s.preferredID,
 	)
+	if s.toolTurn {
+		cmd.Env = append(cmd.Env, testToolTurnEnv+"=1")
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -493,11 +571,17 @@ func initializeACPSessionScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^Coddy ACP has loaded skill "([^"]+)"$`, s.coddyACPHasLoadedSkill)
 	sc.Step(`^Coddy ACP reopens a persisted session holding an earlier exchange$`, s.coddyACPReopensPersistedSession)
+	sc.Step(`^Coddy ACP reopens a persisted session whose assistant called tools$`, s.coddyACPReopensSessionWithToolCalls)
+	sc.Step(`^every replayed tool call has the kind its tool maps to$`, s.replayedToolCallsCarryTheirKinds)
 	sc.Step(`^the replayed transcript includes "([^"]+)"$`, s.replayedTranscriptIncludes)
 	sc.Step(`^an ACP client creates a session$`, s.anACPClientCreatesASession)
 	sc.Step(`^the session/new response is sent before its session updates$`, s.sessionNewResponsePrecedesUpdates)
 	sc.Step(`^the available slash commands include "([^"]+)"$`, s.availableSlashCommandsInclude)
 	sc.Step(`^an ACP client has an active session$`, s.anACPClientHasAnActiveSession)
+	sc.Step(`^an ACP client has an active session whose model names a tool call before completing it$`, s.activeSessionWithStreamedToolCall)
+	sc.Step(`^the client sends a prompt$`, s.clientSendsAPrompt)
+	sc.Step(`^the tool call is announced with exactly one "([^"]+)"$`, s.toolCallAnnouncedOnce)
+	sc.Step(`^every later change of the tool call arrives as "([^"]+)"$`, s.toolCallChangesArriveAs)
 	sc.Step(`^the client switches the mode to "([^"]+)"$`, s.clientSwitchesMode)
 	sc.Step(`^the current mode update identifies "([^"]+)" with "([^"]+)"$`, func(mode, field string) error {
 		return s.currentModeUpdateUses(field, mode)
@@ -637,7 +721,18 @@ func TestACPFeatureHelperProcess(t *testing.T) {
 	if root := os.Getenv(testSessionsRootEnv); root != "" {
 		store = &session.FileStore{Root: root}
 	}
-	mgr := session.NewManager(cfg, nil, noopRunner, log, os.Getenv(testWorkspaceEnv), store)
+	runner := session.AgentRunner(noopRunner)
+	var mgr *session.Manager
+	if os.Getenv(testToolTurnEnv) == "1" {
+		runner = func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, sender acp.UpdateSender) (string, error) {
+			loop := agent.NewAgent(mgr.Cfg(), st, sender, nil)
+			loop.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) {
+				return &namedToolCallModel{path: filepath.Join(st.CWD, "notes.txt")}, nil
+			})
+			return loop.Run(ctx, prompt)
+		}
+	}
+	mgr = session.NewManager(cfg, nil, runner, log, os.Getenv(testWorkspaceEnv), store)
 	if pid := os.Getenv(testPreferredIDEnv); pid != "" {
 		mgr.SetPreferredSessionID(pid)
 	}
@@ -691,4 +786,131 @@ func TestMCPSettingsHelperProcess(t *testing.T) {
 		}
 	}
 	os.Exit(0)
+}
+
+// namedToolCallModel streams the way providers with early names do: the call's
+// name first, the complete call later, then a closing answer on the next step.
+type namedToolCallModel struct {
+	path string
+	mu   sync.Mutex
+	done bool
+}
+
+func (m *namedToolCallModel) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, fmt.Errorf("stream required")
+}
+
+func (m *namedToolCallModel) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, emit func(llm.StreamChunk)) (*llm.Response, error) {
+	m.mu.Lock()
+	done := m.done
+	m.done = true
+	m.mu.Unlock()
+	if done {
+		emit(llm.StreamChunk{TextDelta: "read it"})
+		return &llm.Response{Content: "read it", StopReason: "end_turn"}, nil
+	}
+	path, _ := json.Marshal(m.path)
+	emit(llm.StreamChunk{ToolCallNamed: &llm.ToolCall{ID: streamedToolCallID, Name: "read"}})
+	call := llm.ToolCall{ID: streamedToolCallID, Name: "read", InputJSON: `{"path":` + string(path) + `}`}
+	emit(llm.StreamChunk{ToolCall: &call})
+	return &llm.Response{ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}, nil
+}
+
+func (s *acpSessionFeatureState) activeSessionWithStreamedToolCall() error {
+	if err := os.WriteFile(filepath.Join(s.root, "notes.txt"), []byte("hello\n"), 0o644); err != nil {
+		return err
+	}
+	s.toolTurn = true
+	return s.anACPClientHasAnActiveSession()
+}
+
+// clientSendsAPrompt sends session/prompt and collects every message up to its
+// response, approving any permission the turn asks for.
+func (s *acpSessionFeatureState) clientSendsAPrompt() error {
+	const promptID = 3
+	if err := writeJSONLine(s.stdin, map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      promptID,
+		"method":  "session/prompt",
+		"params": map[string]interface{}{
+			"sessionId": s.sessionID,
+			"prompt":    []interface{}{map[string]interface{}{"type": "text", "text": "read the notes"}},
+		},
+	}); err != nil {
+		return err
+	}
+	s.promptWire = nil
+	for {
+		msgs, err := s.readMessages(1)
+		if err != nil {
+			return fmt.Errorf("%w; got so far: %#v", err, s.promptWire)
+		}
+		msg := msgs[0]
+		s.promptWire = append(s.promptWire, msg)
+		if method, _ := msg["method"].(string); method == "session/request_permission" {
+			if err := writeJSONLine(s.stdin, map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      msg["id"],
+				"result":  map[string]interface{}{"outcome": map[string]interface{}{"outcome": "selected", "optionId": "allow"}},
+			}); err != nil {
+				return err
+			}
+			continue
+		}
+		if id, ok := msg["id"].(float64); ok && int(id) == promptID {
+			if _, failed := msg["error"]; failed {
+				return fmt.Errorf("session/prompt failed: %#v", msg)
+			}
+			return nil
+		}
+	}
+}
+
+// streamedToolCallUpdates returns the session updates about the model's call.
+func (s *acpSessionFeatureState) streamedToolCallUpdates() []map[string]interface{} {
+	var out []map[string]interface{}
+	for _, msg := range s.promptWire {
+		params, _ := msg["params"].(map[string]interface{})
+		update, _ := params["update"].(map[string]interface{})
+		if id, _ := update["toolCallId"].(string); id == streamedToolCallID {
+			out = append(out, update)
+		}
+	}
+	return out
+}
+
+func (s *acpSessionFeatureState) toolCallAnnouncedOnce(kind string) error {
+	updates := s.streamedToolCallUpdates()
+	if len(updates) == 0 {
+		return fmt.Errorf("no updates for %s: %#v", streamedToolCallID, s.promptWire)
+	}
+	announced := 0
+	for _, u := range updates {
+		if u["sessionUpdate"] == kind {
+			announced++
+		}
+	}
+	if announced != 1 {
+		return fmt.Errorf("%s sent %d %q updates, want one: %#v", streamedToolCallID, announced, kind, updates)
+	}
+	if first := updates[0]; first["sessionUpdate"] != kind || first["title"] != "read" || first["status"] != "pending" {
+		return fmt.Errorf("first update of %s = %#v, want a pending %q titled read", streamedToolCallID, first, kind)
+	}
+	return nil
+}
+
+func (s *acpSessionFeatureState) toolCallChangesArriveAs(kind string) error {
+	updates := s.streamedToolCallUpdates()
+	if len(updates) < 2 {
+		return fmt.Errorf("no changes after the announcement of %s: %#v", streamedToolCallID, updates)
+	}
+	for _, u := range updates[1:] {
+		if u["sessionUpdate"] != kind {
+			return fmt.Errorf("a later change of %s arrived as %v, want %q: %#v", streamedToolCallID, u["sessionUpdate"], kind, updates)
+		}
+	}
+	if last := updates[len(updates)-1]; last["status"] != "completed" {
+		return fmt.Errorf("last change of %s = %#v, want completed", streamedToolCallID, last)
+	}
+	return nil
 }

@@ -40,7 +40,7 @@
          url: "https://box.example:12345"
    ```
 
-   With the entry above, `coddy --remote box` is enough. The turn runs on the server in its workspace: tool boxes, thinking and token counts stream back, permission and question modals answer through the server, `/resume`, `-c` and `--session-id` pick from the server's session list, and the banner reads `remote: <url>`. Two things are refused remotely on purpose: `--permission-mode` (the server's configuration governs it) and the `!!` local shell (the workspace is not on this machine).
+   With the entry above, `coddy --remote box` is enough. The turn runs on the server in its workspace: tool boxes, thinking and token counts stream back, permission and question modals answer through the server, `/resume`, `-c` and `--session-id` pick from the server's session list, and the banner reads `remote: <url>`. `--permission-mode` and `/permissions` switch the server's session, and new sessions on the server start in that mode from then on. One thing is refused remotely on purpose: the `!!` local shell (the workspace is not on this machine).
 
 3. **Drive it from an editor.** `coddy acp` takes the same two flags, so an ACP client such as Zed points its agent command at the remote server; put `CODDY_REMOTE_TOKEN` in the editor's environment or pass `--remote-token`.
 

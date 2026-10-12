@@ -578,7 +578,7 @@ type ToolCallUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "tool_call"
 	ToolCallID    string `json:"toolCallId"`
 	Title         string `json:"title,omitempty"`
-	Kind          string `json:"kind,omitempty"` // "read", "write", "run_command", "other", "switch_mode"
+	Kind          string `json:"kind,omitempty"` // the agent's kind ("read", "write", "run_command", "other"); the ACP server sends WireToolKind of it
 	Status        string `json:"status"`         // "pending"
 }
 

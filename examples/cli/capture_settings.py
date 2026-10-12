@@ -70,9 +70,9 @@ models:
     reasoning_levels: [low, medium, high]
 agent:
   model: stub/coddy-demo
-tools:
-  permission_mode: ask
 """)
+# The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+(home / "permission-mode.json").write_text(json.dumps({"permissionMode": "ask"}))
 
 
 class Shot:

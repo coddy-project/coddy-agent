@@ -222,6 +222,16 @@ func relayedPermissionTitle(agentName, title string) string {
 	return fmt.Sprintf("[subagent %s] %s", agentName, title)
 }
 
+// forwardedPermissionMode is the mode a forwarded prompt is stamped with: the
+// strictest of this child's own mode, the stamp a grandchild's prompt already
+// carries, and the mode the child asked it under. The last one is ask when a
+// PreToolUse hook forced the prompt, which a bypass child must not widen, or
+// the parent's sender would wave the call through with nobody looking.
+func (r *permissionRelay) forwardedPermissionMode(params acp.PermissionRequestParams) string {
+	mode := subagents.NarrowPermissionMode(r.childPermissionMode, params.EffectivePermissionMode)
+	return subagents.NarrowPermissionMode(mode, params.SessionPermissionMode)
+}
+
 // Request forwards one permission prompt. While the parent turn is alive it
 // goes to the parent's client; once that turn is over - a detached run's
 // normal state - it goes to the broker, and a prompt still unanswered on the
@@ -273,7 +283,7 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 	// The stamp is the stricter of what arrived and this child's own mode: a
 	// grandchild's prompt crosses two relays, and the intermediate child must
 	// not re-widen a narrower stamp on its way to the parent-facing sender.
-	params.EffectivePermissionMode = subagents.NarrowPermissionMode(r.childPermissionMode, params.EffectivePermissionMode)
+	params.EffectivePermissionMode = r.forwardedPermissionMode(params)
 	// A child runs one turn and is retired, so an "always" answer could only
 	// ever cover that one run; the parent-facing modal offers the honest
 	// choices, allow once or reject.
@@ -347,7 +357,7 @@ func (r *permissionRelay) requestDetached(ctx context.Context, params acp.Permis
 		return deniedPermission(permissionReasonNoApprover), nil
 	}
 	params.SessionID = r.childSessionID
-	params.EffectivePermissionMode = subagents.NarrowPermissionMode(r.childPermissionMode, params.EffectivePermissionMode)
+	params.EffectivePermissionMode = r.forwardedPermissionMode(params)
 	params.Options = relayedPermissionOptions(params.Options)
 	params.ToolCall.Title = relayedPermissionTitle(r.agentName, params.ToolCall.Title)
 
@@ -452,9 +462,8 @@ func (s *subagentSender) render(update interface{}) {
 		s.line.WriteString(u.Content.Text)
 		s.flushLines(false)
 	case acp.ToolCallUpdate:
-		// A provider that streams the call's name before its arguments
-		// announces the same call twice (the pending row, then the complete
-		// call); the log names it once.
+		// The loop announces a call once, but a replay or another sender
+		// may repeat a tool_call for an id the log has named; it is named once.
 		if _, seen := s.toolName[u.ToolCallID]; seen && u.ToolCallID != "" {
 			s.toolName[u.ToolCallID] = u.Title
 			return

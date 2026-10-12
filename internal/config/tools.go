@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Permission mode constants for tools.permission_mode.
+// Permission mode constants: the modes a session runs under.
 const (
 	// PermModeAsk asks for user approval before each shell command and each file write.
 	PermModeAsk = "ask"
@@ -20,9 +20,13 @@ const (
 
 // Tools is the YAML tools section (key tools).
 type Tools struct {
-	// PermissionMode controls when the agent asks for user approval before running tools.
-	// Values: "ask" (default), "accept_edits", "bypass".
-	PermissionMode   string   `yaml:"permission_mode"`
+	// PermissionMode is not read from config.yaml any more: a new session
+	// starts in the mode the operator chose last (<home>/permission-mode.json,
+	// permission_default.go) and keeps its own in its session.json. The field
+	// is the fallback for a Config built in code (an embedder, a test): the
+	// mode a session manager over it gives new sessions while nothing was
+	// chosen. Values: "ask" (default), "accept_edits", "bypass".
+	PermissionMode   string   `yaml:"-"`
 	CommandAllowlist []string `yaml:"command_allowlist"`
 
 	// SSHConnectTimeout is the TCP dial timeout for SSH connections in seconds (default: 30).

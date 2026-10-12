@@ -1,8 +1,8 @@
 # Interactive console TUI (`coddy` / `coddy cli`)
 
-https://github.com/user-attachments/assets/0fc63d52-94ca-4927-9c88-29dec02a8767
+https://github.com/user-attachments/assets/446b3966-1d45-4e5d-99cf-b5b02db3e860
 
-*A three-minute recording of a console session on 1.2.31: the header with the project's `AGENTS.md` and the skills, the footer with the account usage, the model picker, file work with permission prompts, a `/commit` skill, the built-in documentation on F1 and `coddy -c`. The file is in the repository as [console.mp4](../assets/video/console.mp4).*
+*A two-minute recording of a console session on 1.3.0: the header with the project's `AGENTS.md` and the skills, the footer with the account usage, the model picker, a picture read by the model, a git worktree for the feature, a `/goal` that a supervisor checks and the goal menu, a follow-up queued as a steer while the turn runs, a `/commit` skill, the built-in documentation on F1 and `coddy -c`. The file is in the repository as [console.mp4](../assets/video/console.mp4).*
 
 The console surface is a terminal UI over the same machinery every other
 surface uses: `session.Manager`, the agent runner, and ACP session updates.
@@ -573,8 +573,11 @@ until you choose, print runs left out of it too (mutually exclusive with
 selects). `--model`, `--mode agent|plan|ask`, and
 `--permission-mode ask|accept_edits|bypass` apply through the validated
 manager config-option API before the UI starts, in every launch mode
-(interactive, `--continue`, `--resume`, and `--prompt`); the permission mode
-is never written to the session, so it lasts as long as the process. `--theme
+(interactive, `--continue`, `--resume`, and `--prompt`), and they are written
+to the session like a switch made in it, the permission mode included, so the
+session keeps them when it is opened again, after a restart too; the permission
+mode stays with that session and does not become the mode new sessions start
+in, since a run from the command line is a task of its own. `--theme
 dark|light|auto` (auto falls back COLORFGBG → dark). `--plain` disables
 terminal queries, modifyOtherKeys, titles, and OSC 8 for deterministic
 automation. Logging is forced away from the terminal into

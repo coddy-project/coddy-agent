@@ -90,9 +90,9 @@ The workspace index comes from `git ls-files` inside a git checkout (so `.gitign
 
 Typing `@` opens the list under the editor. It narrows as you type, **tab** or **enter** takes the highlighted row, **escape** closes it. A folder or a scheme row keeps the list open on what it holds; a file ends the mention with a space. A path with a space is inserted quoted; for a folder the closing quote goes in ahead of the cursor, so the text names the folder even if no file follows. When the search matched more than the list holds, the scroll line says so: `(3/50 of 1204, type to narrow)`. **tab** on a word without `@` completes it as a path.
 
-![The console mention list for "@ment": a folder and four files from across the tree, each with its kind, and the scroll line counting 221 matches](../assets/cli-tui/18-mention-list.png)
+![The console mention list for "@ment": a folder and four files from across the tree, each with its kind, and the scroll line counting 311 matches](../assets/cli-tui/18-mention-list.png)
 
-*`@ment` in this repository: the folder whose name matches first, then the files, each row naming its kind; the scroll line says the list holds 50 of 221 matches*
+*`@ment` in this repository: the folder whose name matches first, then the files, each row naming its kind; the scroll line says the list holds 50 of 311 matches*
 
 In remote mode (`coddy --remote`) the list comes from the server, where the session runs and where its mentions will be read, not from the folder the console was started in.
 
@@ -100,7 +100,7 @@ In remote mode (`coddy --remote`) the list comes from the server, where the sess
 
 The composer's picker shows each candidate with its kind - file, folder, session, rule, subagent, plan; an empty `@` shows the session's recent picks first. The arrow keys move the highlight, **enter** or **tab** takes it, and it works while a turn runs, so a follow-up can mention a file too. A cut list says how many matched, on the title row. Typing `:` after a file opens the [line-range picker](../surfaces/web-ui.md#line-ranges-pathn-m).
 
-![The web composer's mention picker for "@ment": a folder and files from across the tree, each with its kind, and "50 of 221, type to narrow" on the title row](../assets/mentions/mentions-picker-dark-1280.png)
+![The web composer's mention picker for "@ment": folders and files from across the tree, each with its kind, and "50 of 311, type to narrow" on the title row](../assets/mentions/mentions-picker-dark-1280.png)
 
 *`@ment`: the workspace ranked against the fragment, the kind on every row, the cut on the title row*
 

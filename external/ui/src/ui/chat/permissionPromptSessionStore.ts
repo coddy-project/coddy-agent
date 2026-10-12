@@ -189,8 +189,43 @@ export function mergePermissionPromptsIntoTranscript(
   policy: ToolsPermissionPolicy | null,
 ): TranscriptItem[] {
   const withStored = mergeStoredPermissionPromptsIntoTranscript(
-    merged,
+    dropSettledPermissionPrompts(merged, sessionId),
     sessionId,
   );
   return restorePermissionPromptsForPendingTools(withStored, sessionId, policy);
+}
+
+/**
+ * Drops the unanswered prompts whose call already has a result, with their
+ * stored records. Such a prompt was settled without this tab - the turn was
+ * stopped while it was open (the call is recorded as refused), or another
+ * surface answered it - and nobody waits on it any more: kept, it stayed on
+ * screen with live buttons and marked the chat as waiting in History.
+ */
+export function dropSettledPermissionPrompts(
+  items: TranscriptItem[],
+  sessionId: string,
+): TranscriptItem[] {
+  const settled = new Set<string>();
+  for (const it of items) {
+    if (it.type === "tool_call" && (it.resultText || "").trim() !== "") {
+      settled.add(it.toolCallId.trim());
+    }
+  }
+  if (settled.size === 0) return items;
+  for (const rec of loadPermissionPromptRecords(sessionId)) {
+    const tcid = rec.toolCallId.trim();
+    if (!rec.resolved && settled.has(tcid)) {
+      removePermissionPromptRecord(sessionId, tcid);
+    }
+  }
+  const out = items.filter(
+    (it) =>
+      !(
+        it.type === "permission_prompt" &&
+        !it.resolved &&
+        settled.has(it.payload.toolCall.toolCallId.trim())
+      ),
+  );
+  return out.length === items.length ? items : out;
 }

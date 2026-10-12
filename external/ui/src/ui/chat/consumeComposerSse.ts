@@ -97,11 +97,37 @@ function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
 
+/**
+ * Where a reader of a turn's stream got to, kept up to date frame by frame so
+ * it survives a reader that is aborted half way.
+ *
+ * The composer relay records the same bytes the POST stream carries, one frame
+ * per write, and numbers them from 1; the primary POST stream carries no ids,
+ * so its reader counts the frames instead. A tab that released its POST stream
+ * (a Stop the server did not take) resumes the relay after `frames` and goes
+ * on writing into the segment it was writing into, rather than being replayed
+ * the whole turn on top of what it already shows.
+ */
+export type ComposerStreamCursor = {
+  /** Frames consumed: the relay sequence of the last one. */
+  frames: number;
+  /** The open assistant text segment. */
+  assistantId: string;
+  /** A tool call or reasoning row closed that segment: text opens a new one. */
+  segmentDirty: boolean;
+  segmentHasText: boolean;
+  /** Lands rows the reader still holds back (the batched tool rows). */
+  flush?: () => void;
+};
+
 export type ConsumeComposerSseParams = {
   reader: ReadableStreamDefaultReader<Uint8Array>;
   dec: TextDecoder;
   carry: { buf: string };
   assistantId: string;
+  /** Kept up to date while the stream is read. With `frames` above zero the
+   *  reader resumes in that cursor's segment instead of `assistantId`. */
+  cursor?: ComposerStreamCursor;
   applyStreamItems: (fn: (prev: TranscriptItem[]) => TranscriptItem[]) => void;
   setTokenUsage: (u: TokenUsage | null) => void;
   setContextUsage: (u: ContextUsageUpdate) => void;
@@ -189,6 +215,7 @@ export async function consumeComposerSseReader(
     onSessionGoal,
     onTurnProgress,
     onSettingsOnly,
+    cursor,
   } = p;
 
   // Streaming assistant segmentation. Text before any tool/thinking stays in
@@ -197,8 +224,9 @@ export async function consumeComposerSseReader(
   // (matching the chronological order loadMessages later applies from the
   // server). `currentAssistantId` points at the open text segment;
   // `assistantSegmentDirty` means the next text delta must start a fresh one.
-  let currentAssistantId = assistantId;
-  let assistantSegmentDirty = false;
+  const resuming = !!cursor && cursor.frames > 0;
+  let currentAssistantId = resuming ? cursor.assistantId : assistantId;
+  let assistantSegmentDirty = resuming ? cursor.segmentDirty : false;
 
   const toolQueue: Array<
     Partial<Extract<TranscriptItem, { type: "tool_call" }>> & {
@@ -405,7 +433,21 @@ export async function consumeComposerSseReader(
   // between the calls, and opening a segment for that alone left an empty,
   // zero-height row between the tool rows that still took the column's gap.
   let pendingWhitespace = "";
-  let currentSegmentHasText = false;
+  let currentSegmentHasText = resuming ? cursor.segmentHasText : false;
+  // A relay frame names its sequence; a POST frame is counted.
+  const countFrame = (id: string) => {
+    if (!cursor) return;
+    const seq = id ? Number(id) : NaN;
+    cursor.frames = Number.isInteger(seq) && seq > 0 ? seq : cursor.frames + 1;
+  };
+  // Run after every batch of frames, before the next read: an abort lands only
+  // on a read, so the cursor then holds the state after the last counted frame.
+  const syncCursor = () => {
+    if (!cursor) return;
+    cursor.assistantId = currentAssistantId;
+    cursor.segmentDirty = assistantSegmentDirty;
+    cursor.segmentHasText = currentSegmentHasText;
+  };
   const appendText = (c: string) => {
     // Land any queued tool rows first, then open a new assistant
     // segment if a tool/thinking closed the previous one, so text
@@ -458,6 +500,11 @@ export async function consumeComposerSseReader(
   let lastEventId = "";
   let desynced = false;
   let streamHalted = false;
+  if (cursor)
+    cursor.flush = () => {
+      flushToolQueue();
+      syncCursor();
+    };
   while (true) {
     const step = await reader.read();
     if (step.done) {
@@ -468,6 +515,7 @@ export async function consumeComposerSseReader(
       carry,
     );
     for (const ev of events) {
+      countFrame(ev.id);
       frameAt = typeof ev.ageMs === "number" ? Date.now() - ev.ageMs : null;
       if (ev.id) {
         lastEventId = ev.id;
@@ -844,6 +892,7 @@ export async function consumeComposerSseReader(
         continue;
       }
     }
+    syncCursor();
     if (streamHalted) {
       break;
     }

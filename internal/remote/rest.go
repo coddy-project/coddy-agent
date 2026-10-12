@@ -106,7 +106,8 @@ func (h *Handler) getJSON(ctx context.Context, path string, out interface{}) err
 	return json.Unmarshal(body, out)
 }
 
-// postJSON performs POST path with the given body; out may be nil (204/200).
+// postJSON performs POST path with the given body; out may be nil. Any 2xx is
+// success: the queue answers a new message with 201 Created.
 func (h *Handler) postJSON(ctx context.Context, path string, in interface{}, out interface{}) error {
 	ctx, cancel := context.WithTimeout(ctx, restTimeout)
 	defer cancel()
@@ -128,7 +129,7 @@ func (h *Handler) postJSON(ctx context.Context, path string, in interface{}, out
 	}
 	defer func() { _ = res.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
-	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNoContent {
+	if res.StatusCode < 200 || res.StatusCode > 299 {
 		return h.remoteError(res, body)
 	}
 	if out == nil || len(body) == 0 {

@@ -40,6 +40,8 @@ CFG="$HOME_DIR/config.resolved.yaml"
 sed "s|__E2E_LOG_PATH__|$LOG_F|g" "$CODDY_CFG_SRC" >"$CFG"
 export CODDY_CONFIG="$CFG"
 : >"$LOG_F"
+# The permission mode is not configuration: new sessions start in the one in <home>/permission-mode.json.
+printf '{"permissionMode": "bypass"}\n' >"$HOME_DIR/permission-mode.json"
 
 # The demo config declares two providers, and the model harness switches to a
 # row of the second one. Seed its key into the temp home the way the console

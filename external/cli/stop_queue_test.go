@@ -185,6 +185,8 @@ func (f *remoteControlStand) serveQueue(w http.ResponseWriter, r *http.Request) 
 			_, _ = fmt.Fprintf(w, `{"error":{"code":%q,"message":%q}}`, code, code)
 			return
 		}
+		// The real server answers a queued message with 201 Created.
+		w.WriteHeader(http.StatusCreated)
 	}
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"messages": rows, "version": version, "message": added})
 }

@@ -54,7 +54,7 @@ func (m *Manager) runSessionStartHooks(ctx context.Context, st *State, source st
 	}
 	permMode := strings.TrimSpace(st.GetPermissionMode())
 	if permMode == "" {
-		permMode = cfg.Tools.PermissionMode
+		permMode = m.DefaultPermissionMode()
 	}
 	transcript := ""
 	if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" {
