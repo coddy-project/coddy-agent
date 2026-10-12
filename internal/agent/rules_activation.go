@@ -257,8 +257,7 @@ func (a *Agent) rulesRendered(mode string) bool {
 	if a.subagent != nil && strings.TrimSpace(a.subagent.PromptTemplate) != "" {
 		return false
 	}
-	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
-	return prompts.RendersRules(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile())
+	return prompts.RendersRules(mode, a.promptTemplates())
 }
 
 // rereadRules discovers the session's rules afresh, which starts a new rules

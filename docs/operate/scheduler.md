@@ -99,7 +99,7 @@ Frontmatter fields:
 
 Body - markdown used as the one-shot user instruction for that scheduler run.
 
-The run's system prompt says it is a scheduled job started unattended (with the job id and the cron slot or "by hand"), that nobody answers questions, and that its final message is kept as the run's record; the definition's role follows when the job names one. Skills, rules and the environment block are present as in any session, and configured MCP servers are dialed for the job's cwd through the workspace trust gate, unless the job's definition admits no tool of any of them.
+The run's system prompt says it is a scheduled job started unattended (with the job id and the cron slot or "by hand"), that nobody answers questions, and that its final message is kept as the run's record; the definition's role follows when the job names one. Skills, rules and the environment block are present as in any session, and configured MCP servers are dialed for the job's cwd through the workspace trust gate, unless the job runs in ask mode, which offers no MCP tools, or its definition admits no tool of any of them. A definition that names one tool of a server (`srv__lookup`) or a pattern reaching into it admits that server.
 
 ## Runs
 

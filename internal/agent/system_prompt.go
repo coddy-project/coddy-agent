@@ -124,7 +124,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 // the whole conversation each time. The rules and instructions blocks do not
 // move between turns either (standingParts).
 func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) *systemPromptBuild {
-	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
+	tpl := a.promptTemplates()
 	clock := a.now().UTC()
 	if a.subagent != nil && strings.TrimSpace(a.subagent.PromptTemplate) != "" {
 		return a.buildTemplatedChildPrompt(mode, toolDefs, clock)
@@ -149,7 +149,7 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
 	standing := a.standingParts()
 	rulesMD := joinNonEmptyPromptBlocks(standing.Docs, standing.Rules)
-	full := a.renderWithDocuments(mode, promptsDir, standing, prompts.TemplateData{
+	full := a.renderWithDocuments(mode, tpl, standing, prompts.TemplateData{
 		CWD:            a.state.GetCWD(),
 		Skills:         skillsMD,
 		Rules:          rulesMD,
@@ -196,11 +196,25 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 		RulesMD:  joinNonEmptyPromptBlocks(rulesMD, standing.User),
 		ToolDefs: toolDefs,
 		Clock:    clock,
-		Volatile: prompts.RendersVolatile(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()),
+		Volatile: prompts.RendersVolatile(mode, tpl),
 	}
 	a.setDocumentKeys(standing.Keys)
 	a.refreshContextBreakdown(build, "")
 	return build
+}
+
+// promptTemplates says where the session's mode templates are read from:
+// prompts.dir resolved against the session's workspace (empty for the
+// built-in templates) and the files prompts.agent_prompt, plan_prompt and
+// ask_prompt name in it.
+func (a *Agent) promptTemplates() prompts.Templates {
+	p := &a.cfg.Prompts
+	return prompts.Templates{
+		Dir:   p.ResolvedDir(a.state.GetCWD()),
+		Agent: p.AgentFile(),
+		Plan:  p.PlanFile(),
+		Ask:   p.AskFile(),
+	}
 }
 
 // renderWithDocuments renders the template of mode and makes sure the
@@ -216,9 +230,9 @@ func (a *Agent) buildSystemPromptParts(mode string, activeSkills []*skills.Skill
 // and the documents, the always-on rules and the user's files all follow it.
 // Every decision depends on the template and the generation's files only, so
 // the system message is the same on every turn of a generation.
-func (a *Agent) renderWithDocuments(mode, promptsDir string, standing *session.RulesPrompt, data prompts.TemplateData) string {
+func (a *Agent) renderWithDocuments(mode string, tpl prompts.Templates, standing *session.RulesPrompt, data prompts.TemplateData) string {
 	render := func(d prompts.TemplateData) (string, bool) {
-		return prompts.RenderChecked(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile(), d)
+		return prompts.RenderChecked(mode, tpl, d)
 	}
 	full, ok := render(data)
 	if !ok {

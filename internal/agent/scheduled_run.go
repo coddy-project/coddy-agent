@@ -135,20 +135,11 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 	resolve := func(mcpTools []string) []string {
 		all := append(append([]string(nil), registryNames...), mcpTools...)
 		if def != nil {
-			return subagents.EffectiveTools(all, ToolSetForMode(mode), def, exclusions)
+			return subagents.EffectiveTools(all, modeToolNames(mode, all), def, exclusions)
 		}
-		return subagents.EffectiveTools(all, ToolSetForMode(mode), nil, exclusions)
+		return subagents.EffectiveTools(all, modeToolNames(mode, all), nil, exclusions)
 	}
-	connectMCP := mode != string(session.ModeAsk)
-	if connectMCP && def != nil {
-		connectMCP = false
-		for _, server := range spec.MCPServerNames {
-			if def.Allows(strings.TrimSpace(server) + "__probe") {
-				connectMCP = true
-				break
-			}
-		}
-	}
+	connectMCP := scheduledRunDialsMCP(mode, def, spec.MCPServerNames)
 
 	model := strings.TrimSpace(spec.Model)
 	unknownModel := ""
@@ -258,6 +249,26 @@ func RunScheduledJob(ctx context.Context, cfg *config.Config, rt SubagentRuntime
 		return bgtask.Snapshot{}, err
 	}
 	return snap, nil
+}
+
+// scheduledRunDialsMCP reports whether a scheduled run dials the configured
+// MCP servers at all: only in a mode that offers MCP tools, and under a
+// definition only when it can admit a tool of one of them. The tool names are
+// not known before a server is dialed, so the definition is asked about the
+// server (MayAdmitServer), and the run's tool set then narrows by name.
+func scheduledRunDialsMCP(mode string, def *subagents.Definition, servers []string) bool {
+	if !modeOffersMCP(mode) {
+		return false
+	}
+	if def == nil {
+		return true
+	}
+	for _, server := range servers {
+		if def.MayAdmitServer(server) {
+			return true
+		}
+	}
+	return false
 }
 
 // registryToolNamesForMode lists the built-in tools a session of the mode may

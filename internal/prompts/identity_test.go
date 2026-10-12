@@ -83,7 +83,7 @@ func TestIdentityConstantCarriesTheMarker(t *testing.T) {
 // one sentence instead of a stacked identity line plus a generic opener.
 func TestBuiltInTemplatesIdentifyCoddy(t *testing.T) {
 	for _, mode := range []string{"agent", "plan", "ask"} {
-		rendered, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
+		rendered, err := prompts.Render(mode, prompts.Templates{}, prompts.TemplateData{
 			CWD:    "/home/user/project",
 			UTCNow: fixtureUTC,
 		})
@@ -103,7 +103,7 @@ func TestBuiltInTemplatesIdentifyCoddy(t *testing.T) {
 func TestBuiltInTemplatesIdentifyCoddyWithLongCWD(t *testing.T) {
 	long := "/home/user/" + strings.Repeat("nested-directory/", 12) + "project"
 	for _, mode := range []string{"agent", "plan", "ask"} {
-		rendered, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
+		rendered, err := prompts.Render(mode, prompts.Templates{}, prompts.TemplateData{
 			CWD:    long,
 			UTCNow: fixtureUTC,
 		})
@@ -117,8 +117,8 @@ func TestBuiltInTemplatesIdentifyCoddyWithLongCWD(t *testing.T) {
 // RenderChecked returns a generic stub when a custom template is broken;
 // that stub has no name of its own and depends on WithIdentity.
 func TestFallbackPromptIsIdentifiedByWithIdentity(t *testing.T) {
-	fallback, rendered := prompts.RenderChecked("agent", "/nonexistent-prompts-dir",
-		defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/tmp", UTCNow: fixtureUTC})
+	fallback, rendered := prompts.RenderChecked("agent", prompts.Templates{Dir: "/nonexistent-prompts-dir"},
+		prompts.TemplateData{CWD: "/tmp", UTCNow: fixtureUTC})
 	if rendered {
 		t.Fatal("a missing template reported as rendered")
 	}

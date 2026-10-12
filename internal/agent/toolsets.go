@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
@@ -11,7 +12,7 @@ import (
 type ToolSet []string
 
 // planToolNames is the fixed allowlist for plan mode (read-only registry builtins plus shell).
-// MCP server tools are appended separately in react.go (same as agent mode).
+// The tools of the connected MCP servers join it (modePolicies), as in agent mode.
 var planToolNames = []string{
 	"read",
 	"keep_result",
@@ -59,7 +60,7 @@ var planToolNames = []string{
 
 // askToolNames is the fixed allowlist for ask mode: repository reads and web
 // research only. No shell, no plan tools, no config tools, and no MCP tools
-// (react.go never appends MCP definitions in this mode).
+// (modePolicies offers none in this mode).
 var askToolNames = []string{
 	"read",
 	"keep_result",
@@ -80,39 +81,109 @@ var askToolNames = []string{
 	"coddy_docs_read",
 }
 
-// ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.
+// modePolicy is what a restricted operating mode lets the model use, kept in
+// one place: the built-in tools it offers, whether the tools of the connected
+// MCP servers join them, and the notice a call outside them is refused with
+// when it runs. Whatever offers, checks or narrows tools by mode reads it -
+// the definitions of a turn (currentToolDefinitions), the execution-time check
+// (toolCallRefusedByMode), the tool set of a child or a scheduled run and
+// whether that run dials MCP servers (modeToolNames, modeOffersMCP) - so the
+// four cannot disagree about a mode. Agent mode has no policy: it is
+// unrestricted.
+type modePolicy struct {
+	tools ToolSet
+	mcp   bool
+	// refusal is a format taking the tool name (%q).
+	refusal string
+}
+
+var modePolicies = map[string]modePolicy{
+	"plan": {
+		tools:   planToolNames,
+		mcp:     true,
+		refusal: "error: tool %q is not available in Plan mode because it is outside the plan tool set; the user can switch to Agent mode to use it",
+	},
+	"ask": {
+		tools:   askToolNames,
+		refusal: "error: tool %q is not available in Ask mode because it is not read-only",
+	},
+}
+
+// ToolSetForMode returns the built-in tool allowlist for the session mode.
+// Agent mode is unrestricted. MCP tools are not in it: whether a mode offers
+// them is modeOffersMCP.
 func ToolSetForMode(mode string) ToolSet {
-	var names []string
-	switch mode {
-	case "plan":
-		names = planToolNames
-	case "ask":
-		names = askToolNames
-	default:
+	p, ok := modePolicies[mode]
+	if !ok {
 		return nil
 	}
-	out := make(ToolSet, len(names))
-	copy(out, names)
+	out := make(ToolSet, len(p.tools))
+	copy(out, p.tools)
 	return out
 }
 
-// askToolSet is the ask allowlist as a ToolSet, built once for the per-call check.
-var askToolSet = ToolSet(askToolNames)
+// modeOffersMCP reports whether the tools of the connected MCP servers are
+// offered in mode: in agent and plan mode, not in ask mode.
+func modeOffersMCP(mode string) bool {
+	p, ok := modePolicies[mode]
+	return !ok || p.mcp
+}
+
+// isMCPToolName reports whether name is namespaced like the tool of an MCP
+// server (server__tool). executeToolCall routes every such name to callMCPTool
+// and never to the registry, and no built-in tool is named that way (a test
+// pins it). callMCPTool decides about such a name and fails closed for one
+// that is not a connected server's tool: the per-tool filter first, then the
+// lookup of the server ("MCP server not found"), then the server itself.
+func isMCPToolName(name string) bool {
+	return strings.Contains(name, "__")
+}
+
+// modeAdmits reports whether mode lets a call to name run: a built-in of its
+// allowlist, or any MCP name where the mode offers MCP tools.
+func modeAdmits(mode, name string) bool {
+	p, ok := modePolicies[mode]
+	if !ok {
+		return true
+	}
+	return p.tools.Allows(name) || (p.mcp && isMCPToolName(name))
+}
+
+// modeToolNames is the mode's set for a child or a scheduled run to be
+// narrowed by (subagents.EffectiveTools): the names of names that mode admits,
+// MCP tools included where it offers them, or nil when the mode is
+// unrestricted. Narrowing by the bare allowlist would drop every MCP tool of a
+// plan-mode run.
+func modeToolNames(mode string, names []string) []string {
+	if _, ok := modePolicies[mode]; !ok {
+		return nil
+	}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if modeAdmits(mode, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
 
 // toolCallRefusedByMode reports whether a tool call must be refused at execution
 // time in the given mode, with the refusal text returned as the tool result.
 // Definition filtering already hides restricted tools from the LLM, but a model
-// can still replay a call from earlier history (recorded in another mode), so
-// ask mode re-checks its allowlist here. MCP tool names (server__tool) are not
-// in the allowlist and are refused the same way.
+// can still replay a call from earlier history (recorded in another mode) or a
+// provider can ignore the offered list, so ask and plan mode re-check their
+// allowlists here. The same check guards the permission-resume path.
+//
+// Ask offers no MCP tools, so MCP tool names (server__tool) are refused there.
+// Plan offers the tools of the connected MCP servers next to its allowlist, so
+// an MCP name passes the mode check and callMCPTool decides about it as in
+// agent mode: it rejects a server that is not connected and a tool the
+// per-tool switches disabled. Agent mode is unrestricted.
 func toolCallRefusedByMode(mode, name string) (string, bool) {
-	if mode != "ask" {
+	if modeAdmits(mode, name) {
 		return "", false
 	}
-	if askToolSet.Allows(name) {
-		return "", false
-	}
-	return fmt.Sprintf("error: tool %q is not available in Ask mode because it is not read-only", name), true
+	return fmt.Sprintf(modePolicies[mode].refusal, name), true
 }
 
 // Unrestricted reports whether the set imposes no name filter.

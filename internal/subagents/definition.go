@@ -325,6 +325,45 @@ func (d *Definition) Allows(tool string) bool {
 	return false
 }
 
+// MayAdmitServer reports whether the definition can admit some tool of the
+// MCP server named server, whose tools are named server__tool, before the
+// server is dialed and its tool names are known: an allowlist entry naming
+// one of its tools, a pattern reaching into it or covering it, and no
+// denylist pattern covering the whole server. Allows still decides about
+// every name the server then reports, so the answer only says whether the
+// server is worth starting.
+func (d *Definition) MayAdmitServer(server string) bool {
+	if d == nil {
+		return true
+	}
+	prefix := strings.TrimSpace(server) + "__"
+	for _, p := range d.DisallowedTools {
+		p = strings.TrimSpace(p)
+		if p == "*" || (strings.HasSuffix(p, "*") && strings.HasPrefix(prefix, strings.TrimSuffix(p, "*"))) {
+			return false
+		}
+	}
+	if len(d.Tools) == 0 {
+		return true
+	}
+	for _, p := range d.Tools {
+		p = strings.TrimSpace(p)
+		if p == "*" {
+			return true
+		}
+		if stem, ok := strings.CutSuffix(p, "*"); ok {
+			if strings.HasPrefix(prefix, stem) || strings.HasPrefix(stem, prefix) {
+				return true
+			}
+			continue
+		}
+		if len(p) > len(prefix) && strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // EffectiveSpawns is the spawn allowlist the runtime honours: a definition
 // may narrow what it delegates to at any scope, but only builtin and user
 // scope widen the depth guard - a project file must not defeat

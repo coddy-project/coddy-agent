@@ -920,3 +920,40 @@ func TestSubagentDirPlaceholders(t *testing.T) {
 		}
 	}
 }
+
+// Whether a run dials an MCP server is decided before the server's tool
+// names are known, so it asks whether the definition can admit any tool of
+// that server: an exact name, a pattern reaching into it or one covering it,
+// unless the denylist covers the whole server.
+func TestDefinitionMayAdmitServer(t *testing.T) {
+	cases := []struct {
+		name          string
+		tools, denied []string
+		want          bool
+	}{
+		{"no allowlist", nil, nil, true},
+		{"everything", []string{"*"}, nil, true},
+		{"an exact tool of the server", []string{"read", "srv__lookup"}, nil, true},
+		{"a pattern into the server", []string{"srv__look*"}, nil, true},
+		{"the server's pattern", []string{"srv__*"}, nil, true},
+		{"a pattern covering the server", []string{"sr*"}, nil, true},
+		{"built-ins only", []string{"read", "grep"}, nil, false},
+		{"another server", []string{"other__*", "srvx__lookup"}, nil, false},
+		{"a longer server name", []string{"srv2__*"}, nil, false},
+		{"the whole server denied", nil, []string{"srv__*"}, false},
+		{"everything denied", []string{"srv__lookup"}, []string{"*"}, false},
+		{"one tool denied", []string{"srv__*"}, []string{"srv__drop"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			def := &Definition{Name: "d", Tools: tc.tools, DisallowedTools: tc.denied}
+			if got := def.MayAdmitServer("srv"); got != tc.want {
+				t.Errorf("MayAdmitServer(srv) with tools %v, denied %v = %v, want %v", tc.tools, tc.denied, got, tc.want)
+			}
+		})
+	}
+	var none *Definition
+	if !none.MayAdmitServer("srv") {
+		t.Error("no definition admits every server")
+	}
+}

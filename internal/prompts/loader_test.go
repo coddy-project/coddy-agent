@@ -19,7 +19,7 @@ const (
 )
 
 func TestRenderAgentPrompt(t *testing.T) {
-	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", prompts.Templates{}, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
 	})
@@ -48,7 +48,7 @@ func TestRenderAgentPrompt(t *testing.T) {
 func TestModePromptsExplainRequestedModelSwitchAndBackgroundWake(t *testing.T) {
 	for _, mode := range []string{"agent", "plan", "ask"} {
 		t.Run(mode, func(t *testing.T) {
-			result, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace", ModelSwitch: true, BackgroundWake: true})
+			result, err := prompts.Render(mode, prompts.Templates{}, prompts.TemplateData{CWD: "/workspace", ModelSwitch: true, BackgroundWake: true})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -67,7 +67,7 @@ func TestModePromptsExplainRequestedModelSwitchAndBackgroundWake(t *testing.T) {
 func TestModePromptsNameSwitchModelOnlyWhereItIsOffered(t *testing.T) {
 	for _, mode := range []string{"agent", "plan", "ask"} {
 		t.Run(mode, func(t *testing.T) {
-			result, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace"})
+			result, err := prompts.Render(mode, prompts.Templates{}, prompts.TemplateData{CWD: "/workspace"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -85,7 +85,7 @@ func TestModePromptsPromiseAWakeOnlyWhereOneCanHappen(t *testing.T) {
 	for _, mode := range []string{"agent", "plan"} {
 		t.Run(mode, func(t *testing.T) {
 			for _, wake := range []bool{true, false} {
-				result, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace", BackgroundWake: wake})
+				result, err := prompts.Render(mode, prompts.Templates{}, prompts.TemplateData{CWD: "/workspace", BackgroundWake: wake})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -102,7 +102,7 @@ func TestModePromptsPromiseAWakeOnlyWhereOneCanHappen(t *testing.T) {
 // Ask mode allows the user's model or reasoning change and nothing else: a
 // user asking for an edit is still told to continue in Agent mode.
 func TestAskPromptKeepsRefusingRequestedChanges(t *testing.T) {
-	result, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/workspace", ModelSwitch: true})
+	result, err := prompts.Render("ask", prompts.Templates{}, prompts.TemplateData{CWD: "/workspace", ModelSwitch: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestAskPromptKeepsRefusingRequestedChanges(t *testing.T) {
 // The agent uses the worktree tool instead of constructing git commands and
 // guessing where the new checkout belongs.
 func TestAgentPromptUsesWorktreeTool(t *testing.T) {
-	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", prompts.Templates{}, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
 	})
@@ -140,7 +140,7 @@ func TestAgentPromptUsesWorktreeTool(t *testing.T) {
 }
 
 func TestRenderPlanPrompt(t *testing.T) {
-	result, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
+	result, err := prompts.Render("plan", prompts.Templates{}, prompts.TemplateData{
 		CWD:    "/tmp/workspace",
 		UTCNow: fixtureUTC,
 	})
@@ -176,7 +176,7 @@ func TestRenderPlanPrompt(t *testing.T) {
 }
 
 func TestRenderAskPrompt(t *testing.T) {
-	result, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
+	result, err := prompts.Render("ask", prompts.Templates{}, prompts.TemplateData{
 		CWD:    "/tmp/workspace",
 		UTCNow: fixtureUTC,
 	})
@@ -209,7 +209,7 @@ func TestRenderAskPrompt(t *testing.T) {
 }
 
 func TestRenderWithSkillsToolsMemory(t *testing.T) {
-	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", prompts.Templates{}, prompts.TemplateData{
 		CWD:    "/project",
 		Skills: "## Active Skills\n\nstub",
 		Tools:  "- `read`: read",
@@ -227,7 +227,7 @@ func TestRenderWithSkillsToolsMemory(t *testing.T) {
 }
 
 func TestRenderEmptyOptionalSections(t *testing.T) {
-	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", prompts.Templates{}, prompts.TemplateData{
 		CWD:    "/project",
 		UTCNow: fixtureUTC,
 	})
@@ -254,7 +254,7 @@ func TestRenderEmptyOptionalSections(t *testing.T) {
 func TestBuiltinTemplatesKeepTheTodoListOutOfTheSystemPrompt(t *testing.T) {
 	todoMd := "- [ ] alpha\n- [x] beta"
 	for _, mode := range []string{"agent", "plan", "ask"} {
-		out, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
+		out, err := prompts.Render(mode, prompts.Templates{}, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
 		if err != nil {
 			t.Fatalf("Render %s: %v", mode, err)
 		}
@@ -272,7 +272,7 @@ func TestCustomTemplateStillRendersClockAndTodoList(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "custom.tpl"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := prompts.Render("agent", tmp, "custom.tpl", defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: "- [ ] alpha", UTCNow: fixtureUTC})
+	out, err := prompts.Render("agent", prompts.Templates{Dir: tmp, Agent: "custom.tpl", Plan: defaultPlanTplFile, Ask: defaultAskTplFile}, prompts.TemplateData{CWD: "/p", TodoList: "- [ ] alpha", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render agent: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestRenderUsesCustomTemplateFilenames(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, customAgent), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := prompts.Render("agent", tmp, customAgent, "ignored-plan.tpl", "ignored-ask.tpl", prompts.TemplateData{CWD: "/x"})
+	got, err := prompts.Render("agent", prompts.Templates{Dir: tmp, Agent: customAgent, Plan: "ignored-plan.tpl", Ask: "ignored-ask.tpl"}, prompts.TemplateData{CWD: "/x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestRenderCustomPromptDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", prompts.Templates{Dir: tmp, Agent: defaultAgentTplFile, Plan: defaultPlanTplFile, Ask: defaultAskTplFile}, prompts.TemplateData{
 		CWD:    "/my/project",
 		Skills: "S1",
 	})
@@ -319,7 +319,7 @@ func TestRenderCustomPromptDir(t *testing.T) {
 
 func TestRenderCustomDirMissingAgentFile(t *testing.T) {
 	tmp := t.TempDir()
-	_, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
+	_, err := prompts.Render("agent", prompts.Templates{Dir: tmp, Agent: defaultAgentTplFile, Plan: defaultPlanTplFile, Ask: defaultAskTplFile}, prompts.TemplateData{
 		CWD: "/project",
 	})
 	if err == nil {
@@ -328,8 +328,8 @@ func TestRenderCustomDirMissingAgentFile(t *testing.T) {
 }
 
 func TestRenderUnknownModeFallsBackToAgent(t *testing.T) {
-	agent, _ := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
-	unknown, err := prompts.Render("unknown_mode", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	agent, _ := prompts.Render("agent", prompts.Templates{}, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	unknown, err := prompts.Render("unknown_mode", prompts.Templates{}, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render unknown mode: %v", err)
 	}
@@ -376,11 +376,11 @@ func TestDefaultSource(t *testing.T) {
 }
 
 func TestRenderCheckedFallsBackAndSaysSo(t *testing.T) {
-	result, rendered := prompts.RenderChecked("agent", "/nonexistent/prompt-dir", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
+	result, rendered := prompts.RenderChecked("agent", prompts.Templates{Dir: "/nonexistent/prompt-dir", Agent: defaultAgentTplFile, Plan: defaultPlanTplFile, Ask: defaultAskTplFile}, prompts.TemplateData{CWD: "/p"})
 	if result == "" || rendered {
 		t.Errorf("RenderChecked = %q, %v; want the fallback prompt, reported as not rendered", result, rendered)
 	}
-	if _, rendered := prompts.RenderChecked("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"}); !rendered {
+	if _, rendered := prompts.RenderChecked("agent", prompts.Templates{}, prompts.TemplateData{CWD: "/p"}); !rendered {
 		t.Error("the built-in template reported as not rendered")
 	}
 }
@@ -389,14 +389,14 @@ func TestRenderCheckedFallsBackAndSaysSo(t *testing.T) {
 // a child never loses its preamble because of the mode it runs in.
 func TestEveryModeTemplateRendersTheSubagentRole(t *testing.T) {
 	for _, mode := range []string{"agent", "plan", "ask"} {
-		out, err := prompts.Render(mode, "", "agent.md", "plan.md", "ask.md", prompts.TemplateData{CWD: "/w", SubagentRole: "You are the unit subagent."})
+		out, err := prompts.Render(mode, prompts.Templates{}, prompts.TemplateData{CWD: "/w", SubagentRole: "You are the unit subagent."})
 		if err != nil {
 			t.Fatalf("%s: %v", mode, err)
 		}
 		if !strings.Contains(out, "## Your role as a subagent") || !strings.Contains(out, "You are the unit subagent.") {
 			t.Fatalf("%s template drops the subagent role block:\n%s", mode, out[:min(len(out), 400)])
 		}
-		plain, err := prompts.Render(mode, "", "agent.md", "plan.md", "ask.md", prompts.TemplateData{CWD: "/w"})
+		plain, err := prompts.Render(mode, prompts.Templates{}, prompts.TemplateData{CWD: "/w"})
 		if err != nil {
 			t.Fatalf("%s: %v", mode, err)
 		}
@@ -418,5 +418,30 @@ func TestRenderSource(t *testing.T) {
 	}
 	if _, err := prompts.RenderSource("bad", "{{.CWD", prompts.TemplateData{}); err == nil {
 		t.Fatal("a template that does not parse must be an error")
+	}
+}
+
+// A Templates value names one file per mode; a name left empty is that mode's
+// default file, and an unknown mode reads the agent template.
+func TestTemplatesReadTheFileOfTheMode(t *testing.T) {
+	tmp := t.TempDir()
+	for name, body := range map[string]string{
+		"a.tpl":   "AGENT {{.CWD}}",
+		"plan.md": "PLAN {{.CWD}}",
+		"q.tpl":   "ASK {{.CWD}}",
+	} {
+		if err := os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tpl := prompts.Templates{Dir: tmp, Agent: "a.tpl", Ask: " q.tpl "}
+	for mode, want := range map[string]string{"agent": "AGENT /w", "plan": "PLAN /w", "ask": "ASK /w", "unknown": "AGENT /w"} {
+		got, err := prompts.Render(mode, tpl, prompts.TemplateData{CWD: "/w"})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if got != want {
+			t.Errorf("%s mode rendered %q, want %q", mode, got, want)
+		}
 	}
 }
