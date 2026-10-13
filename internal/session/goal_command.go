@@ -33,16 +33,19 @@ type GoalCommand struct {
 	// the model and the reasoning level that check this goal.
 	Model     string
 	Reasoning string
+	// ThenFile is the --then-file option: the follow-up file of a goal chain.
+	ThenFile string
 	// Err is what was wrong with the options; the command is answered with
 	// it and the usage.
 	Err string
 }
 
 // GoalUsage closes the answer to a /goal command that could not run as typed.
-const GoalUsage = "Usage: /goal [-m|--model <id>] [-r|--reasoning <level>] <objective> sets a goal and starts working on it; " +
+const GoalUsage = "Usage: /goal [-m|--model <id>] [-r|--reasoning <level>] [--then-file <path>] <objective> sets a goal and starts working on it; " +
 	"/goal shows it; /goal pause, /goal resume [-m <id>] [-r <level>], /goal clear. --model and --reasoning " +
 	"name the model and the reasoning level that check this goal: a configured models[].model (or a part of one that " +
-	"matches exactly one model) and a level that model offers."
+	"matches exactly one model) and a level that model offers. --then-file names the file whose text becomes the goal " +
+	"of a new session once this one is met (coddy serve only)."
 
 // goalClearWords are the arguments that remove the goal, the same set Claude
 // Code accepts, so muscle memory carries over.
@@ -50,9 +53,9 @@ var goalClearWords = map[string]bool{"clear": true, "stop": true, "off": true, "
 
 // ParseGoalCommand reads a /goal command from typed text. Anything else is
 // GoalCommandNone. Options come first, like /compact's: --model <id>,
-// --reasoning <level> (or --model=<id>, --reasoning=<level>); the first word
-// that is not an option starts the objective or names the subcommand, so an
-// objective may mention an option without being read as one.
+// --reasoning <level>, --then-file <path> (or --model=<id>, ...); the first
+// word that is not an option starts the objective or names the subcommand, so
+// an objective may mention an option without being read as one.
 func ParseGoalCommand(text string) GoalCommand {
 	text = strings.TrimSpace(text)
 	if !strings.HasPrefix(text, "/goal") {
@@ -71,7 +74,7 @@ func ParseGoalCommand(text string) GoalCommand {
 		word, arg = cutGoalWord(arg)
 		name, value, inline := strings.Cut(word, "=")
 		name = goalOptionName(name)
-		if name != "--model" && name != "--reasoning" {
+		if name != "--model" && name != "--reasoning" && name != "--then-file" {
 			// Like /compact's: an unknown option takes no value.
 			cmd.Err = fmt.Sprintf("unknown option %s", name)
 			continue
@@ -83,10 +86,18 @@ func ParseGoalCommand(text string) GoalCommand {
 			}
 			value, arg = cutGoalWord(arg)
 		}
-		if name == "--model" {
+		switch name {
+		case "--model":
 			cmd.Model = value
-		} else {
+		case "--reasoning":
 			cmd.Reasoning = value
+		default:
+			cmd.ThenFile = value
+			if strings.HasPrefix(value, `"`) || strings.HasPrefix(value, "'") {
+				// The value is one word: a quoted path with spaces would
+				// leave half of it in the objective.
+				cmd.Err = "--then-file takes a path without quotes or spaces"
+			}
 		}
 		if strings.TrimSpace(value) == "" {
 			cmd.Err = fmt.Sprintf("%s needs a value", name)
@@ -107,7 +118,11 @@ func ParseGoalCommand(text string) GoalCommand {
 	default:
 		cmd.Kind, cmd.Objective = GoalCommandSet, arg
 	}
-	if optioned && cmd.Err == "" && (cmd.Kind == GoalCommandClear || cmd.Kind == GoalCommandPause) {
+	if cmd.ThenFile != "" && cmd.Err == "" && cmd.Kind != GoalCommandSet {
+		// A resumed goal keeps the follow-up file it was set with.
+		cmd.Err = "--then-file goes with a new goal"
+	}
+	if (cmd.Model != "" || cmd.Reasoning != "") && cmd.Err == "" && (cmd.Kind == GoalCommandClear || cmd.Kind == GoalCommandPause) {
 		cmd.Err = "--model and --reasoning go with a new goal or /goal resume"
 	}
 	return cmd
@@ -206,6 +221,15 @@ func GoalStatusText(g GoalState, checker GoalChecker, maxContinuations, tokenBud
 	}
 	if checker.Reasoning != "" {
 		fmt.Fprintf(&b, "\nReasoning: %s", checker.Reasoning)
+	}
+	if g.ThenFile != "" {
+		fmt.Fprintf(&b, "\nThen: %s", g.ThenFile)
+	}
+	if g.ContinuedFrom != "" {
+		fmt.Fprintf(&b, "\nContinued from: %s", g.ContinuedFrom)
+	}
+	if g.ContinuedIn != "" {
+		fmt.Fprintf(&b, "\nContinued in: %s", g.ContinuedIn)
 	}
 	fmt.Fprintf(&b, "\nContinuations: %d of %d · checks: %d", g.Continuations, maxContinuations, g.Checks)
 	// What counts against the budget: since the last resume, like every

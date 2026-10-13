@@ -55,6 +55,12 @@ Feature: Tags and the archive over the stored sessions
     Then the description is "Check the repository state"
     And the description proposes tags "git, status"
 
+  Scenario: A question about an attached picture is titled by its words, not the model's refusal
+    Given the title model answers "No image has been provided in your message, so I'm unable to describe it" with tags "images"
+    When I ask for a description of "What is in this picture?"
+    Then the description is "What is in this picture?"
+    And the description proposes tags "images"
+
   Scenario: Telling the messenger chats apart from the ones started here
     Given 3 stored sessions
     And session 2 was started by the telegram gateway

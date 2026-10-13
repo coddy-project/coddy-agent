@@ -1,8 +1,8 @@
 # Android phones as swarm nodes
 
-https://github.com/user-attachments/assets/c1e1d306-d5d3-40db-a84b-77e3cd5ddd46
+https://github.com/user-attachments/assets/e7786835-0676-47be-8b42-477630dfa998
 
-*A two-minute recording: Coddy in Termux on an Android phone joins a relay, shows up on the relay's map, runs `getprop` and writes a file on the phone for a browser on the laptop. The file is in the repository as [android-swarm.mp4](../assets/video/android-swarm.mp4).*
+*A two-minute recording on 1.3.0: Coddy in Termux on an Android phone joins a relay, the laptop connects to the relay from its environment menu, the phone shows up on the map canvas, runs `getprop` and writes a note, and the Files window opens the phone's workspace through the relay. The file is in the repository as [android-swarm.mp4](../assets/video/android-swarm.mp4).*
 
 **Goal.** A phone that runs Coddy in Termux joins a relay you run on a laptop or a server, and you drive it from the relay's web UI or from the console like any other node: prompts, tools that run on the phone, permission prompts, the phone's own sessions. The phone opens the connection itself, so it needs no public address, no open port and no VPN; a phone on a mobile network behind the carrier's NAT joins the same way as one on your Wi-Fi.
 

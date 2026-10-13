@@ -60,6 +60,21 @@ type CompactOptions struct {
 	// FromTool marks a compaction the model asked for in the middle of its own
 	// turn: the assistant message carrying that tool call is never folded.
 	FromTool bool
+	// InTurn folds the earlier steps of the turn being answered instead of
+	// earlier turns: the cut is a step boundary, the latest steps stay verbatim
+	// (inTurnKeepRecentSteps at most, fewer when they would not
+	// fit the budget), and the summary row begins with the prompt. It is the
+	// automatic trigger's fallback when the window holds no earlier turn, and
+	// the recovery from a request the provider refused as too large
+	// (compact_in_turn.go). Hooks see it as an automatic compaction.
+	InTurn bool
+	// Recovery marks an InTurn compaction made after the provider refused a
+	// request: it goes down to keeping no step, and prefers the regular split
+	// while the turn in progress fits.
+	Recovery bool
+	// LimitTokens is the size, in Coddy's estimate units, the next request has to
+	// fit under. Unset, it is the session's context window. Only InTurn reads it.
+	LimitTokens int
 }
 
 // CompactionResult reports what a successful compaction did.
@@ -76,6 +91,14 @@ type CompactionResult struct {
 	// history fits a single request, more when it had to be folded in passes
 	// (compact_fold.go).
 	Steps int
+	// InTurn is true when the fold cut inside the turn being answered: the
+	// summary row begins with the prompt and the steps after the cut stay. A
+	// compaction asked for as InTurn that found earlier turns to fold instead
+	// (a recovery) reports false.
+	InTurn bool
+	// KeptSteps is how many steps of the turn stayed verbatim after an in-turn
+	// cut.
+	KeptSteps int
 }
 
 // compactionSystemPrompt instructs the summarizer model.
@@ -100,6 +123,10 @@ Output plain markdown, no preamble and no closing remarks. Do not invent facts t
 // verbatim, and with a single user turn there is nothing to fold. A session of
 // a few long agent turns is what that fallback is for: without it, a window of
 // keep_recent_turns turns would grow past the threshold and never compact.
+//
+// opts.InTurn cuts inside the turn being answered instead (compact_in_turn.go).
+// Either way the cut is decided before the PreCompact hooks run, so a call with
+// nothing to fold answers ErrNothingToCompact without waking them.
 func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*CompactionResult, error) {
 	if !a.cfg.Compaction.IsEnabled() {
 		return nil, ErrCompactionDisabled
@@ -120,45 +147,69 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrCompactionModel, err)
 	}
-	// PreCompact hooks see the trigger and may veto: the manual command
-	// reports the veto, an automatic compaction is skipped for this check.
-	trigger := compactTriggerAuto
-	if force {
-		trigger = compactTriggerManual
-	}
-	mode := a.state.EffectiveMode()
-	if reason, vetoed := a.runPreCompactHooks(ctx, mode, trigger, instructions); vetoed {
-		return nil, fmt.Errorf("%w: %s", ErrCompactionBlocked, reason)
-	}
-	// An active session goal is what the turns after this one work toward:
-	// the summary keeps the progress on it in the goal's own terms, so the
-	// supervisor's next continuation and the model read the same story. Added
-	// after the hooks, which see the operator's own words only.
-	instructions = withGoalSummaryInstructions(a.state, instructions)
-
+	// What is folded is decided before anything runs, hooks included: a
+	// compaction with nothing to fold must not tell a PreCompact hook one is
+	// about to start (an over-threshold step with nothing earlier to fold used
+	// to run them every time, only to find that out afterwards).
 	msgs := a.state.GetMessages()
-	keep := a.cfg.Compaction.EffectiveKeepRecentTurns()
-	// The floor holds for the configured value too, not only for the retries
-	// below it: keep_recent_turns: 0 means "summarize everything", which is a
-	// thing to ask of /compact and never of the automatic trigger - folding
-	// the prompt being answered would send the model a turn with no prompt in
-	// it.
-	minKeep := 1
-	if force {
-		minKeep = 0
-	}
-	if keep < minKeep {
-		keep = minKeep
-	}
-	splitIdx, ok := session.CompactionSplitIndex(msgs, keep)
-	for k := keep - 1; !ok && k >= minKeep; k-- {
-		splitIdx, ok = session.CompactionSplitIndex(msgs, k)
-	}
-	if !ok {
-		return nil, ErrNothingToCompact
-	}
 	visible := session.MessagesForLLM(msgs)
 	visibleStart := len(msgs) - len(visible)
+	var splitIdx int
+	var plan *inTurnPlan
+	// The projection the fold summarizes, built once and only when something
+	// needs it: an in-turn cut measures the kept tail on it, and the fold reads
+	// the head off it.
+	var projected []llm.Message
+	project := func() []llm.Message {
+		if projected == nil {
+			// Analyze the full visible window before selecting the compacted
+			// head: pins and writes in the kept tail can change whether an older
+			// result is useful or stale, even though the tail itself is not sent
+			// to the summarizer.
+			projected = a.prunedForLLM(visible)
+		}
+		return projected
+	}
+	if opts.InTurn {
+		var planErr error
+		if plan, planErr = a.planInTurn(opts, msgs, visibleStart, project()); planErr != nil {
+			return nil, planErr
+		}
+		splitIdx = plan.idx
+	} else {
+		keep := a.cfg.Compaction.EffectiveKeepRecentTurns()
+		// The floor holds for the configured value too, not only for the
+		// retries below it: keep_recent_turns: 0 means "summarize everything",
+		// which is a thing to ask of /compact and never of the automatic
+		// trigger - folding the prompt being answered would send the model a
+		// turn with no prompt in it.
+		minKeep := 1
+		if force {
+			minKeep = 0
+		}
+		if keep < minKeep {
+			keep = minKeep
+		}
+		// The automatic split cuts at user turns, and the follow-ups the user sent
+		// during the turn in progress are not turns of their own: a cut at one
+		// would fold the opening prompt into a plain summary. Only the user
+		// messages up to the opening prompt are boundaries. A manual compaction
+		// keeps every user message as a boundary - it folds the prompt on purpose.
+		last := len(msgs) - 1
+		if !force {
+			if open, found := session.OpeningPromptIndex(msgs); found {
+				last = open
+			}
+		}
+		idx, ok := session.CompactionSplitIndexUpTo(msgs, keep, last)
+		for k := keep - 1; !ok && k >= minKeep; k-- {
+			idx, ok = session.CompactionSplitIndexUpTo(msgs, k, last)
+		}
+		if !ok {
+			return nil, ErrNothingToCompact
+		}
+		splitIdx = idx
+	}
 	if opts.FromTool {
 		// The call being executed sits in the last assistant message, and its
 		// result is appended after this returns. Folding that message would
@@ -177,11 +228,36 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	if splitIdx < visibleStart || splitIdx > len(msgs) {
 		return nil, fmt.Errorf("invalid compaction boundary %d for visible window %d..%d", splitIdx, visibleStart, len(msgs))
 	}
-	// Analyze the full visible window before selecting the compacted head: pins
-	// and writes in the kept tail can change whether an older result is useful or
-	// stale, even though the tail itself is not sent to the summarizer.
-	projected := a.prunedForLLM(visible)
-	head := projected[:splitIdx-visibleStart]
+	// What goes in front of the summary when an in-turn fold takes the turn's
+	// opening prompt out of the window.
+	prefix := ""
+	if plan != nil {
+		prefix = plan.prompt
+	}
+
+	// PreCompact hooks see the trigger and may veto: the manual command
+	// reports the veto, an automatic compaction is skipped for this check. An
+	// in-turn fold and the recovery from a refused request are automatic.
+	trigger := compactTriggerAuto
+	if force {
+		trigger = compactTriggerManual
+	}
+	mode := a.state.EffectiveMode()
+	if reason, vetoed := a.runPreCompactHooks(ctx, mode, trigger, instructions); vetoed {
+		return nil, fmt.Errorf("%w: %s", ErrCompactionBlocked, reason)
+	}
+	// An active session goal is what the turns after this one work toward:
+	// the summary keeps the progress on it in the goal's own terms, so the
+	// supervisor's next continuation and the model read the same story. Added
+	// after the hooks, which see the operator's own words only.
+	instructions = withGoalSummaryInstructions(a.state, instructions)
+	// A cut inside the turn tells the summarizer the work is still going on and
+	// that the request stays in front of its summary.
+	if prefix != "" {
+		instructions = withInTurnSummaryInstructions(instructions)
+	}
+
+	head := project()[:splitIdx-visibleStart]
 
 	chain, err := a.compactionChain(override, reasoning)
 	if err != nil {
@@ -202,7 +278,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// The first of the chain sets the size; a fallback below it reads the same
 	// pass, which is why the share is a share rather than the whole window.
 	window, _ := a.contextWindowFor(chain[0].modelID)
-	budget := compactionInputBudget(window, session.EstimateTokens(instructions))
+	budget := compactionInputBudget(window, session.EstimateContextTokens(instructions))
 
 	row := a.newCompactionRow()
 	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, head, instructions, budget, row.step)
@@ -211,7 +287,14 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 		return nil, err
 	}
 
-	a.state.InsertCompactionSummary(splitIdx, session.NewCompactionSummaryMessage(summary, modelID))
+	// A cut inside the turn takes the prompt out of the window with the steps,
+	// so the row that replaces them begins with it (the prompt's pictures stay
+	// in the transcript; they are not copied onto the row).
+	summaryRow := session.NewCompactionSummaryMessage(summary, modelID)
+	if prefix != "" {
+		summaryRow = session.NewInTurnCompactionSummaryMessage(prefix, summary, modelID)
+	}
+	a.state.InsertCompactionSummary(splitIdx, summaryRow)
 	// The history the provider had cached is rewritten from here on, which
 	// makes this the moment to read the standing rules again: an AGENTS.md or
 	// a rule file edited since the session started reaches the next system
@@ -229,6 +312,9 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 		Model:             modelID,
 		Steps:             steps,
 	}
+	if plan != nil && !plan.regular {
+		res.InTurn, res.KeptSteps = true, plan.keptSteps
+	}
 	row.done(compactionOutcomeText(res))
 	return res, nil
 }
@@ -242,6 +328,10 @@ func compactionOutcomeText(res *CompactionResult) string {
 	}
 	text := fmt.Sprintf("Context compacted: %d message(s) summarized, %d kept verbatim.",
 		res.CompactedMessages, res.KeptMessages)
+	if res.InTurn {
+		text = fmt.Sprintf("Context compacted inside the current turn: %d message(s) summarized, %d kept verbatim. The request being answered starts the summary.",
+			res.CompactedMessages, res.KeptMessages)
+	}
 	if res.Model != "" {
 		text += fmt.Sprintf(" Summarizer: %s.", res.Model)
 	}
@@ -488,14 +578,21 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 		return false
 	}
 	res, err := a.CompactSession(ctx, CompactOptions{})
+	scale := a.providerScale()
+	if errors.Is(err, ErrNothingToCompact) && !a.inTurnFoldSpent {
+		// No earlier turn to fold: the window holds the turn being answered and
+		// nothing else, so the turn's own earlier steps are what there is.
+		res, err = a.CompactSession(ctx, CompactOptions{InTurn: true})
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNothingToCompact):
-			// Over the threshold with only the prompt being answered in the
-			// window: said once per turn, not before every step of it.
+			// Over the threshold with only the prompt being answered and its
+			// latest step in the window: said once per turn, not before every
+			// step of it.
 			if !a.autoCompactSkipLogged {
 				a.autoCompactSkipLogged = true
-				a.log.Info("auto-compaction skipped: no earlier turn to fold, the prompt being answered stays verbatim",
+				a.log.Info("auto-compaction skipped: no earlier turn and no earlier step of this turn to fold, the prompt being answered and its latest step stay verbatim",
 					"contextTokens", used,
 					"contextWindow", window,
 					"contextWindowSource", source,
@@ -507,6 +604,31 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 			a.log.Warn("auto-compaction failed; continuing uncompacted", "error", err)
 		}
 		return false
+	}
+	if res.InTurn {
+		after := a.inTurnRequestTokens(scale)
+		a.log.Info("auto-compacted the turn in progress",
+			"contextTokens", used,
+			"contextWindow", window,
+			"contextWindowSource", source,
+			"thresholdPercent", comp.EffectiveThresholdPercent(),
+			"keptSteps", res.KeptSteps,
+			"compactedMessages", res.CompactedMessages,
+			"keptMessages", res.KeptMessages,
+			"requestTokensAfter", after)
+		if after*100 >= comp.EffectiveThresholdPercent()*window {
+			// The fold could not bring the request under the threshold (what
+			// every request carries besides the conversation, or the latest
+			// step, is too large for the window): the next step would fold
+			// again, a summarizer call per step. The rest of the turn is left
+			// to the recovery from a refused request.
+			a.inTurnFoldSpent = true
+			a.log.Info("in-turn compaction left the request over the threshold; no more automatic folds this turn",
+				"requestTokensAfter", after,
+				"thresholdPercent", comp.EffectiveThresholdPercent(),
+				"contextWindow", window)
+		}
+		return true
 	}
 	a.log.Info("auto-compacted session context",
 		"contextTokens", used,

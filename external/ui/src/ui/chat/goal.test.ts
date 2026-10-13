@@ -282,3 +282,24 @@ test("a goal set again carries the checker it was set with", () => {
   expect(g?.model).toBe("p/m");
   expect(g?.reasoning).toBe("high");
 });
+
+test("a goal of a chain names its follow-up file and the sessions on either side", () => {
+  const g = parseSessionGoal({
+    objective: "x",
+    thenFile: ".coddy/next-task.md",
+    chainIndex: 2,
+    continuedFrom: "sess_a",
+    continuedIn: "sess_c",
+  });
+  expect(g?.thenFile).toBe(".coddy/next-task.md");
+  expect(g?.chainIndex).toBe(2);
+  expect(g?.continuedFrom).toBe("sess_a");
+  expect(g?.continuedIn).toBe("sess_c");
+  expect(
+    goalSetPrompt("ship it", {
+      model: "p/m",
+      reasoning: "",
+      thenFile: ".coddy/next-task.md",
+    }),
+  ).toBe("/goal --model p/m --then-file .coddy/next-task.md ship it");
+});

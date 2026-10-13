@@ -58,3 +58,29 @@ Feature: Context compaction
     Then the compaction summary is inserted into the transcript
     And the LLM request after the tool call starts from the summary
     And every tool result in that request answers a call the request carries
+
+  # coddy-project/coddy-agent#490: a request that outgrew the window used to end
+  # the turn on the provider's bare error. The turn is now compacted once and
+  # asked again (features/context_in_turn_compaction.feature); this is how a turn
+  # ends when the provider refuses the smaller request as well.
+  Scenario: A request the provider keeps refusing as larger than the context window ends the turn with an explanation
+    Given a session with 4 completed exchanges
+    And the model's context window is 49152 tokens
+    And the provider refuses every request of the turn: "Context limit is 49152 tokens; prompt=51402 leaves 0 output tokens, below the minimum 16"
+    When the user sends a new prompt and the turn fails
+    Then the turn is refused with an explanation that the context window was exceeded
+    And the error says "the window is 49152 tokens"
+    And the error says "the provider counted 51402 tokens against a limit of 49152"
+    And the error says "Coddy compacted this turn and asked again"
+    And the error says "run /compact"
+    And the error says "Context limit is 49152 tokens"
+    And the turn's request was sent twice, before and after the compaction
+
+  Scenario: A summarization request the provider finds too large is asked again with less
+    Given a session with 4 completed exchanges
+    And the summarizer model has room for only part of the history per request
+    And the summarizer refuses requests larger than its window
+    When the session is compacted keeping the last 2 user turns
+    Then the summarizer refused a request as too large
+    And the compaction summary is inserted into the transcript
+    And the transcript still contains all 4 original exchanges

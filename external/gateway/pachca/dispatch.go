@@ -20,6 +20,10 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
+// noTextNote answers a message with nothing written in it, a file sent on
+// its own: the bot passes text to the session and nothing else.
+const noTextNote = "I can only read text here: a file without a message is not passed on. Write your question as text."
+
 // messagePayload is a message event (MessageWebhookPayload).
 type messagePayload struct {
 	Type            string `json:"type"`
@@ -136,7 +140,16 @@ func (b *Bot) handleMessage(ctx, turnCtx context.Context, c *Client, p messagePa
 		b.log.Debug("pachca: update ignored", "reason", "not addressed to the bot", "user", p.UserID, "chat", p.ChatID)
 		return true
 	}
+	if strings.TrimSpace(p.Content) == "" {
+		// Nothing written at all: what Pachca delivers for a file sent on its
+		// own. The bot reads text only, so it says so rather than stay silent.
+		b.log.Debug("pachca: update refused", "reason", "no text", "user", p.UserID, "chat", p.ChatID)
+		b.seen.add(seenKey)
+		b.reply(ctx, c, b.answerTarget(in), b.replyParent(in), noTextNote)
+		return true
+	}
 	if in.text == "" && p.ParentMessageID == nil {
+		b.log.Debug("pachca: update ignored", "reason", "empty message", "user", p.UserID, "chat", p.ChatID)
 		return true
 	}
 
@@ -398,6 +411,7 @@ func (b *Bot) processMessage(ctx context.Context, in inbound, key string) {
 
 	text := in.text
 	if text == "" && in.msg.ParentMessageID == nil {
+		b.log.Debug("pachca: update ignored", "reason", "empty message", "user", userID, "chat", in.msg.ChatID)
 		return
 	}
 	// A typed "/model <id>" is a session-scoped pick on this surface even

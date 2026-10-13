@@ -92,7 +92,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 		a.state.AddMessage(toolResultMsg)
 		if sd != "" {
 			_ = session.WriteToolCallResult(sd, tc.ID, toolResultMsg.Content)
-			_ = session.MarkToolCallFinished(sd, tc.ID, tc.Name, toolKind(tc.Name), "cancelled")
+			_ = session.MarkToolCallFinished(sd, tc.ID, tc.Name, session.ToolKind(tc.Name), "cancelled")
 		}
 		a.closeUnexecutedPermissionBatch(toolCallID)
 		return a.continueReAct(ctx, mode, toolEnv)
@@ -120,7 +120,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	// the call goes through the gate again and asks with the one it would send.
 	askAgain := tc.Name == toolweb.ToolHTTPRequest && httpPromptMoved(sd, tc, toolEnv)
 	// A call the current mode refuses (a pending agent-mode write approved
-	// after switching to ask) must not leave an "allow always" grant behind:
+	// after switching to ask or plan) must not leave an "allow always" grant behind:
 	// the grant would outlive the refusal and apply once the mode changes back.
 	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name)
 	if st := sessionStatePtr(a.state); st != nil && !refusedByMode && !askAgain {
@@ -317,7 +317,7 @@ func settleStalePermission(sessionDir, toolCallID string, call llm.ToolCall) (bo
 	}
 	kind := ""
 	if name != "" {
-		kind = toolKind(name)
+		kind = session.ToolKind(name)
 	}
 	if err := session.MarkToolCallFinished(sessionDir, toolCallID, name, kind, "cancelled"); err != nil {
 		return false, fmt.Errorf("record stale permission %s: %w", toolCallID, err)

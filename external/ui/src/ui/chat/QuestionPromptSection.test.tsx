@@ -22,7 +22,6 @@ const payload: CoddyQuestionPayload = {
     {
       question: "Which scheduler did you mean?",
       options: [{ label: "Todo plan" }, { label: "Background tasks" }],
-      custom: true,
     },
   ],
 };
@@ -39,6 +38,95 @@ function renderPrompt(onResolved: (r: unknown) => void) {
   );
   return fetchMock;
 }
+
+// Issue #257: the options a model puts up often miss what the reader means, so a
+// question offers an answer of their own unless it turned custom off, single and
+// multiple choice alike. A payload without the flag (a node of an older version
+// sends none for a question that never mentioned it) offers it too.
+test("every question offers an answer of the reader's own, single and multiple", async () => {
+  const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+  vi.stubGlobal("fetch", fetchMock);
+  const resolved = vi.fn();
+  render(
+    <QuestionPromptSection
+      itemId="qp_own"
+      payload={{
+        sessionId: "sess_x",
+        requestId: "q_own",
+        questions: [
+          {
+            question: "Which database?",
+            options: [{ label: "postgres" }, { label: "sqlite" }],
+          },
+          {
+            question: "Which checks?",
+            options: [{ label: "lint" }, { label: "tests" }],
+            multiple: true,
+          },
+        ],
+      }}
+      onResolved={resolved}
+    />,
+  );
+
+  const single = screen.getByTestId("question-other-0");
+  fireEvent.focus(single);
+  fireEvent.change(single, { target: { value: "the staging one" } });
+  const multi = screen.getByTestId("question-other-multi-1");
+  fireEvent.focus(multi);
+  fireEvent.change(multi, { target: { value: "a smoke run" } });
+  fireEvent.click(screen.getByText("lint"));
+  fireEvent.keyDown(document.body, { key: "Enter" });
+
+  await waitFor(() => expect(resolved).toHaveBeenCalledTimes(1));
+  const init = (fetchMock.mock.calls[0] as unknown[] | undefined)?.[1] as
+    | RequestInit
+    | undefined;
+  expect(JSON.parse(String(init?.body))).toEqual({
+    requestId: "q_own",
+    answers: [["the staging one"], ["lint", "a smoke run"]],
+  });
+});
+
+// A model that needs one of its options exactly turns custom off: that question
+// lists the options alone, while the next one keeps the reader's own answer.
+test("a question that turned custom off offers only its options", () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("{}", { status: 200 })),
+  );
+  render(
+    <QuestionPromptSection
+      itemId="qp_off"
+      payload={{
+        sessionId: "sess_x",
+        requestId: "q_off",
+        questions: [
+          {
+            question: "Delete the branch?",
+            options: [{ label: "yes" }, { label: "no" }],
+            custom: false,
+          },
+          {
+            question: "Which checks?",
+            options: [{ label: "lint" }],
+            multiple: true,
+            custom: false,
+          },
+          {
+            question: "Anything else?",
+            options: [{ label: "no" }],
+          },
+        ],
+      }}
+      onResolved={() => {}}
+    />,
+  );
+
+  expect(screen.queryByTestId("question-other-0")).toBeNull();
+  expect(screen.queryByTestId("question-other-multi-1")).toBeNull();
+  expect(screen.getByTestId("question-other-2")).toBeInTheDocument();
+});
 
 // The Continue button advertises the Return key, so typing a custom answer and
 // pressing Return has to submit it. It used to swallow the key and do nothing.

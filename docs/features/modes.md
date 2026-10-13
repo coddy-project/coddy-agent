@@ -1,6 +1,6 @@
 # Operating modes
 
-A session runs in one of three modes, `agent`, `plan` or `ask`. The mode decides which tools the model is offered on a turn and, for `ask`, which calls may run at all. This page lists what each mode allows, how plan mode hands its document over to implementation, how ask mode is enforced when a call executes, and how to switch on every surface. The mode is separate from the permission mode (`ask`, `accept_edits`, `bypass`), which decides when the agent prompts before a command or a file write; the two combine.
+A session runs in one of three modes, `agent`, `plan` or `ask`. The mode decides which tools the model is offered on a turn and, for `plan` and `ask`, which calls may run at all. This page lists what each mode allows, how plan mode hands its document over to implementation, how plan and ask mode are enforced when a call executes, and how to switch on every surface. The mode is separate from the permission mode (`ask`, `accept_edits`, `bypass`), which decides when the agent prompts before a command or a file write; the two combine.
 
 ## The three modes
 
@@ -21,11 +21,11 @@ Made for design documents, specs and the investigation that precedes a change. T
 - `coddy_docs_search` and `coddy_docs_read` for Coddy's own documentation ([Built-in documentation](built-in-docs.md));
 - the tools of connected MCP servers.
 
-No built-in file writes and no todo tools: once the plan is ready, implementation happens in agent mode.
+No built-in file writes and no todo tools: once the plan is ready, implementation happens in agent mode. The same list is enforced again when a call runs (see [Plan and ask mode at execution time](#plan-and-ask-mode-at-execution-time)).
 
 ### `ask`
 
-Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question`, `load_skill`, `coddy_docs_search` and `coddy_docs_read`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. The same list is enforced again when a call runs, which is what separates ask from plan (see [Ask mode at execution time](#ask-mode-at-execution-time)).
+Made for questions about the codebase, review, diagnosis and web research. The model is offered `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`, `webfetch`, `question`, `load_skill`, `coddy_docs_search` and `coddy_docs_read`, and nothing else: no shell, no plan, todo or config tools, no `spawn_agent`, no MCP tools. The same list is enforced again when a call runs, and an MCP tool name is refused there (see [Plan and ask mode at execution time](#plan-and-ask-mode-at-execution-time)).
 
 ### What they share
 
@@ -44,7 +44,7 @@ The web UI renders that row as the plan document card in the chat column:
 - **Collapsed**: the title (`name`, else the slug, with the file path as tooltip), a one-line description, and **Discard** and **Run plan** in the footer.
 - **Expanded**: the rendered markdown by default; the eye toggle switches to the markdown line editor, which holds the body without the frontmatter and autosaves through `PUT /coddy/sessions/{id}/plans/{slug}` about 600 ms after the last keystroke. The pane grows with the document instead of scrolling inside itself.
 - **Discard** (`DELETE` on the same route) marks the plan discarded: the card stays in the transcript, muted, with its controls disabled, and the plan leaves the plan-mode system prompt.
-- **Run plan** sends the next prompt with `metadata.runPlanSlug` (`_meta` `coddy.dev/runPlanSlug` over ACP): Coddy switches the session to agent mode, injects the plan body into the system prompt and runs the turn. The session todo list is not filled from the plan. The plan body stays with that turn for as long as it can still be continued - a turn stopped on a permission prompt renders its system prompt again when the answer arrives, so the text is held in the bundle (`pending_plan_context.json`) and released once the turn is over.
+- **Run plan** sends the next prompt with `metadata.runPlanSlug` (`_meta` `coddy.dev/runPlanSlug` over ACP): Coddy switches the session to agent mode, injects the plan body into the system prompt and runs the turn. The switch is the session's like `/agent`: a mode override armed with `--once` or `--count=N`, `/plan` or `/ask`, ends with it, so the plan is carried out in agent mode and never under the plan or ask tool set ([Session settings](session-settings.md)). A session in ask mode refuses to run a plan (below). The session todo list is not filled from the plan. The plan body stays with that turn for as long as it can still be continued - a turn stopped on a permission prompt renders its system prompt again when the answer arrives, so the text is held in the bundle (`pending_plan_context.json`) and released once the turn is over.
 - In the read-only transcript of a subagent child the card has no footer and its editor is read-only.
 
 The portable route, for a client without that hook, is to switch to agent mode and mention `@plans/<slug>.plan.md` in the prompt. Details: [Web UI](../surfaces/web-ui.md#plan-document-card-plan-mode-transcript), [ACP protocol](../reference/acp-protocol.md#design-plans-plan-mode).
@@ -53,16 +53,17 @@ The portable route, for a client without that hook, is to switch to agent mode a
 
 *The card `plan_write` leaves in a plan-mode chat: the plan's name and summary with Discard and Run plan; the model's answer below repeats the plan.*
 
-## Ask mode at execution time
+## Plan and ask mode at execution time
 
-Plan mode restricts what the model is offered; ask mode also restricts what may run. Every tool call is checked against the ask allowlist again when it is about to execute, because a model can replay a call from earlier history recorded in another mode, or name a tool it was never shown. A call outside the set is not executed:
+Both restricted modes limit what the model is offered, and both check every tool call against their list again when it is about to execute. A model can replay a call from earlier history recorded in another mode, or name a tool it was never shown, and a provider can ignore the list it was given. A call outside the set is not executed:
 
-- the tool result is `error: tool "write" is not available in Ask mode because it is not read-only`, and the model is re-prompted with that refusal;
+- the tool result is `error: tool "write" is not available in Ask mode because it is not read-only` in ask mode, and `error: tool "write" is not available in Plan mode because it is outside the plan tool set; the user can switch to Agent mode to use it` in plan mode. The model is re-prompted with that refusal;
 - over HTTP the stream carries the call as cancelled with the same text;
-- MCP tool names are refused the same way, since they are never in the list;
-- approving such a pending call with *allow always* records no grant.
+- approving such a pending call with *allow always* records no grant, and the same check runs when a permission answer resumes the call, so a write approved after the session moved to plan or ask mode is refused too.
 
-The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/responses` with `model` `ask` is answered with `409` before the turn starts, the same hook over ACP is refused with an error, and a `@plans/<slug>.plan.md` mention is inlined as reading material rather than run. The memory subagent recalls but never saves. `spawn_agent` is not offered, so an ask turn cannot delegate. The deterministic operator commands typed as the prompt (`/compact`, `/plugin`) are outside this boundary. The happy paths are `features/ask_mode.feature` and `features/ask_mode_http.feature`.
+The two modes differ in MCP tools. Ask offers none, so it refuses every `server__tool` name. Plan offers the tools of the connected servers, so an MCP name passes the mode check and the MCP layer decides as in agent mode: a call to a server that is not connected, or to a tool that its disable switches turned off, is rejected there ([MCP servers](mcp.md#permission-model)).
+
+The rest of the ask boundary follows from its read-only tool set. A `metadata.runPlanSlug` on `POST /v1/responses` with `model` `ask` is answered with `409` before the turn starts, and the same hook over ACP is refused with an error. A `@plans/<slug>.plan.md` mention is inlined as reading material rather than run, also in a turn that `/ask --once` or `--count=N` puts in ask mode and in a turn that `/agent --once` lends an ask session. The memory subagent recalls but never saves. `spawn_agent` is not offered, so an ask turn cannot delegate. The deterministic operator commands typed as the prompt (`/compact`, `/plugin`) are outside this boundary. The happy paths are `features/plan_mode.feature`, `features/ask_mode.feature` and `features/ask_mode_http.feature`.
 
 ![The composer in ask mode](../assets/modes-pill-hero-dark-1280.png)
 

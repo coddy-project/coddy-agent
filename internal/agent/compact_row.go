@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
 
@@ -60,7 +61,7 @@ func (a *Agent) newCompactionRow() *compactionRow {
 		SessionUpdate: acp.UpdateTypeToolCall,
 		ToolCallID:    row.id,
 		Title:         tools.ToolCompactContext,
-		Kind:          toolKind(tools.ToolCompactContext),
+		Kind:          session.ToolKind(tools.ToolCompactContext),
 		Status:        "pending",
 	})
 	return row

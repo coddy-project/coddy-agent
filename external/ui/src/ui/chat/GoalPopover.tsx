@@ -387,7 +387,13 @@ export function GoalPopover(props: {
     props.actions.sendPrompt(
       goalSetPrompt(
         draft,
-        goal ? { model: goal.model, reasoning: goal.reasoning } : undefined,
+        goal
+          ? {
+              model: goal.model,
+              reasoning: goal.reasoning,
+              thenFile: goal.thenFile,
+            }
+          : undefined,
       ),
     );
     setEditing(false);

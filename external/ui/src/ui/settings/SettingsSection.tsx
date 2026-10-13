@@ -937,11 +937,19 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
     ];
   }
   if (key === "compaction") {
+    // The section's own switch turns compaction off altogether; the automatic
+    // one only the trigger, so it stands in a group with the threshold it
+    // fires at, under the master switch rather than beside it.
     return [
+      {
+        id: "auto",
+        legend: translate("settings.group.compaction.auto"),
+        paths: ["auto_enable", "threshold_percent"],
+      },
       {
         id: "summary",
         legend: translate("settings.group.compaction.summary"),
-        paths: ["threshold_percent", "keep_recent_turns", "model"],
+        paths: ["keep_recent_turns", "model"],
       },
     ];
   }
@@ -950,7 +958,13 @@ function objectSectionGroups(key: string): SchemaFormGroup[] | undefined {
       {
         id: "checks",
         legend: translate("settings.group.supervisor.checks"),
-        paths: ["model", "verify", "max_continuations", "token_budget"],
+        paths: [
+          "model",
+          "verify",
+          "max_continuations",
+          "token_budget",
+          "max_chain_sessions",
+        ],
       },
       {
         id: "watchdog",

@@ -2079,6 +2079,41 @@ func TestSpawnSubagentPlanParentForcesPlanMode(t *testing.T) {
 	}
 }
 
+// Plan mode offers the tools of the connected MCP servers, so a child that
+// runs in plan mode keeps the ones its parent has and its definition admits:
+// the plan tool set does not list MCP names, and intersecting with it alone
+// dropped every one of them. Ask mode offers none, and its child gets none.
+func TestSpawnSubagentPlanModeChildKeepsTheParentsMCPTools(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("planner", "mode: plan\n")
+	rig.setChildProvider(func(*session.State) llm.Provider { return scripted(answerStep("REPORT: mode")) })
+	rig.parent.AddSessionMCPClient(mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "tool"}}))
+
+	for _, parentMode := range []session.Mode{session.ModePlan, session.ModeAgent} {
+		rig.parent.SetMode(string(parentMode))
+		if _, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("planner")); err != nil {
+			t.Fatal(err)
+		}
+		children := rig.childStates()
+		child := children[len(children)-1]
+		if got := child.GetMode(); got != string(session.ModePlan) {
+			t.Fatalf("%s parent: child runs in %q, want plan", parentMode, got)
+		}
+		names := child.Subagent().Tools
+		if !containsString(names, "srv__tool") {
+			t.Errorf("%s parent: the plan-mode child lost the MCP tool its parent has: %v", parentMode, names)
+		}
+		for _, n := range names {
+			if _, refused := toolCallRefusedByMode(string(session.ModePlan), n); refused {
+				t.Errorf("%s parent: the plan-mode child carries %s, which plan mode refuses", parentMode, n)
+			}
+		}
+		if containsString(names, "write") {
+			t.Errorf("%s parent: the plan-mode child carries write: %v", parentMode, names)
+		}
+	}
+}
+
 func TestSpawnSubagentForegroundChildFollowsParentCancellation(t *testing.T) {
 	rig := newSubagentRig(t, nil)
 	rig.approvedDefinition("reviewer", "")

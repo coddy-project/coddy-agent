@@ -136,6 +136,14 @@ func TestToolCallGetCannotReachAnotherSessionsBundle(t *testing.T) {
 // end of every turn.
 func pagedSession(t *testing.T, turns int) (*Server, string) {
 	t.Helper()
+	return pagedSessionOf(t, turns, nil)
+}
+
+// pagedSessionOf is pagedSession with the turns custom chooses to write
+// itself: it adds the messages of turn i and reports true, or reports false and
+// leaves the turn as pagedSession writes it (a prompt, a tool step, an answer).
+func pagedSessionOf(t *testing.T, turns int, custom func(st *session.State, i int) bool) (*Server, string) {
+	t.Helper()
 	cfg := &config.Config{}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 		return string(acp.StopReasonEndTurn), nil
@@ -153,11 +161,13 @@ func pagedSession(t *testing.T, turns int) (*Server, string) {
 		t.Fatal("session missing")
 	}
 	for i := 1; i <= turns; i++ {
-		id := fmt.Sprintf("call_%d", i)
-		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("prompt %d", i)})
-		st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "read_file", InputJSON: `{"path":"a.go"}`}}})
-		st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: id, Content: fmt.Sprintf("result %d", i)})
-		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i)})
+		if custom == nil || !custom(st, i) {
+			id := fmt.Sprintf("call_%d", i)
+			st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("prompt %d", i)})
+			st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "read_file", InputJSON: `{"path":"a.go"}`}}})
+			st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: id, Content: fmt.Sprintf("result %d", i)})
+			st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i)})
+		}
 		st.AppendUILogNotice(i, fmt.Sprintf("notice %d", i))
 	}
 	return srv, created.SessionID

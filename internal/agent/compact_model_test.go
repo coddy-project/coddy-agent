@@ -224,14 +224,16 @@ func TestCompactFromToolKeepsTheCallInFlight(t *testing.T) {
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
 
 	out, err := ag.compactFromTool(context.Background(), tooling.CompactRequest{})
-	if err != nil || !strings.Contains(out, "Context compacted:") {
+	// A compaction the model asked for writes the plain row: the prompt the head
+	// holds is summarized with the rest.
+	if err != nil || !strings.Contains(out, "Context compacted: 3 message(s) summarized, 1 kept verbatim.") {
 		t.Fatalf("out = %q, err = %v", out, err)
 	}
 	// What the loop does next: the result of the call lands in the transcript.
 	st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "call_compact", Content: out})
 
 	visible := session.MessagesForLLM(st.GetMessages())
-	if len(visible) != 3 || !visible[0].CompactionSummary {
+	if len(visible) != 3 || !visible[0].CompactionSummary || !strings.HasPrefix(visible[0].Content, "The earlier conversation was compacted.") {
 		t.Fatalf("visible window = %+v", visible)
 	}
 	if len(visible[1].ToolCalls) != 1 || visible[1].ToolCalls[0].ID != "call_compact" || visible[2].ToolCallID != "call_compact" {

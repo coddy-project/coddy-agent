@@ -467,3 +467,26 @@ test("Edit keeps the model and the level that check the goal", () => {
     "/goal --model hub/qwen3-coder --reasoning high Ship the lexer too",
   );
 });
+
+test("Edit keeps the follow-up file of a goal chain", () => {
+  const actions = actionsMock();
+  render(
+    <Harness
+      goal={goalOf({
+        thenFile: ".coddy/next-task.md",
+        chainIndex: 2,
+        continuedFrom: "sess_0",
+      })}
+      actions={actions}
+    />,
+  );
+  fireEvent.click(mark());
+  fireEvent.click(within(popover()).getByTestId("goal-edit"));
+  fireEvent.change(within(popover()).getByTestId("goal-objective-input"), {
+    target: { value: "Ship the lexer too" },
+  });
+  fireEvent.click(within(popover()).getByTestId("goal-submit"));
+  expect(actions.sendPrompt).toHaveBeenCalledWith(
+    "/goal --then-file .coddy/next-task.md Ship the lexer too",
+  );
+});

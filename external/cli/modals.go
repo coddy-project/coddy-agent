@@ -70,7 +70,8 @@ func permissionBody(params acp.PermissionRequestParams) string {
 func (m *permissionModal) HandleInput(data []byte) { m.list.HandleInput(data) }
 
 // questionModal renders the question tool: one prompt at a time with options,
-// multi-select via space, and an optional custom free-text answer.
+// multi-select via space, and a free-text answer of the operator's own unless
+// the question turned custom off (it is on by default, issue #257).
 type questionModal struct {
 	tui.Container
 
@@ -159,7 +160,21 @@ func (m *questionModal) buildCustom() {
 	m.custom = tui.NewEditor(nil, tui.EditorTheme{BorderColor: th.FgFn(roleBorderAccent)}, 0)
 	m.custom.SetFocused(true)
 	m.custom.OnSubmit = func(text string) {
-		m.finishQuestion([]string{text})
+		// The typed text joins the options toggled with space, as on the web
+		// card; left empty, it adds nothing rather than an empty answer. The
+		// row starts empty, not nil: the model reads [] where nil would be null.
+		answers := []string{}
+		if q != nil && q.Multiple {
+			for i, opt := range q.Options {
+				if m.selected[i] {
+					answers = append(answers, opt.Label)
+				}
+			}
+		}
+		if own := strings.TrimSpace(text); own != "" {
+			answers = append(answers, own)
+		}
+		m.finishQuestion(answers)
 	}
 	m.AddChild(tui.NewSpacer(1))
 	m.AddChild(tui.NewDynamicBorder(th.FgFn(roleBorderAccent)))

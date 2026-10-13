@@ -1,4 +1,4 @@
-.PHONY: test-tls-e2e build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: test-tls-e2e build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -451,14 +451,17 @@ clean:
 
 # ---- Lint ----
 #
-# Three golangci-lint passes reach every Go file of the host platform: the
-# untagged tree (every stub), every tag but ui (the files that exist only
-# without the SPA: http && !ui, swarm && !ui, and every single-tag surface),
-# and the shipped set (the embedded SPA and the http && ui handlers, which is
-# why the assets are built first). The TypeScript pass closes the gate over
-# the SPA sources. The CI lint job reads the two tag lists through
-# print-full-tags and print-lint-tags-no-ui, so FULL_TAGS is the only place
-# they are written down.
+# Three golangci-lint passes reach every Go file of the host platform but the
+# http && !<tag> stubs of external/httpserver: the untagged tree (every other
+# stub), every tag but ui (the files that exist only without the SPA:
+# http && !ui, swarm && !ui, and every single-tag surface), and the shipped
+# set (the embedded SPA and the http && ui handlers, which is why the assets
+# are built first). fmt-check runs first and holds every tracked Go file to
+# gofmt -s, those stubs and the other platforms' files included, since the
+# gofmt formatter of .golangci.yml sees only what a pass compiles. The
+# TypeScript pass closes the gate over the SPA sources. The CI lint job reads
+# the two tag lists through print-full-tags and print-lint-tags-no-ui, so
+# FULL_TAGS is the only place they are written down.
 LINT_TAGS_NO_UI := $(filter-out ui,$(FULL_TAGS))
 LINT_TAGS_NO_UI_CSV := $(subst $(space),$(comma),$(strip $(LINT_TAGS_NO_UI)))
 
@@ -468,7 +471,26 @@ print-full-tags:
 print-lint-tags-no-ui:
 	@printf '%s\n' "$(LINT_TAGS_NO_UI_CSV)"
 
-lint: ui-build
+# gofmt -s over every Go file git tracks, whatever its build constraints: no
+# build, no tags, a few seconds. CI's Lint job runs it as a step of its own.
+# A tracked file deleted from the working tree is skipped, as the linter
+# skips it. The paths travel NUL-separated (any name, unquoted) and reach
+# gofmt 200 at a time: the whole list is longer than a Windows command line
+# takes, and Git Bash starts gofmt.exe through one.
+fmt-check:
+	@if ! git ls-files -- '*.go' | grep -q .; then \
+		echo "fmt-check: git ls-files lists no Go file" >&2; \
+		exit 1; \
+	fi; \
+	out=$$(git ls-files -z -- '*.go' | xargs -0 -n 200 sh -c \
+		'for f do shift; [ ! -f "$$f" ] || set -- "$$@" "$$f"; done; [ $$# -eq 0 ] || exec gofmt -s -l -- "$$@"' sh) || exit 1; \
+	if [ -n "$$out" ]; then \
+		echo "gofmt -s would reformat these files (fix: gofmt -s -w <file>):" >&2; \
+		echo "$$out" >&2; \
+		exit 1; \
+	fi
+
+lint: fmt-check ui-build
 	golangci-lint run ./...
 	golangci-lint run --build-tags $(LINT_TAGS_NO_UI_CSV) ./...
 	golangci-lint run --build-tags $(FULL_TAGS_CSV) ./...

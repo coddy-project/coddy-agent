@@ -58,9 +58,19 @@ type Message struct {
 	ReasoningSignature string `json:"reasoning_signature,omitempty"`
 	// ReasoningDurationMs wall clock between first streamed reasoning delta and UI-equivalent finish
 	// (first non-whitespace text delta or first tool-call chunk); omitted when unset or zero.
-	ReasoningDurationMs int64      `json:"reasoning_duration_ms,omitempty"`
-	ToolCalls           []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID          string     `json:"tool_call_id,omitempty"` // for RoleTool messages
+	ReasoningDurationMs int64 `json:"reasoning_duration_ms,omitempty"`
+	// Truncated marks an assistant message that stops partway through its text:
+	// the model's output limit cut it off, and the assistant message after it,
+	// when there is one, goes on from its last character, the model having been
+	// asked to. The two are stored exactly as they were streamed at the join,
+	// with the whitespace there left alone, and a history built from them, like
+	// a reloaded transcript, joins them with nothing between. An answer of its
+	// own a provider failure cut off is not marked, since the step run again
+	// may start it over; a part of a continued answer a provider failure cut
+	// off is, the step run again being asked to go on from it.
+	Truncated  bool       `json:"truncated,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"` // for RoleTool messages
 	// Rules, on a RoleTool message, are the project rules the call brought
 	// into play for the first time, rendered as the model reads them after
 	// Content. They are kept apart from the output, which every surface shows
@@ -88,6 +98,11 @@ type Message struct {
 	// or failed turn. Surfaces show a one-line row instead of the text, which
 	// the model reads like any other user message.
 	GoalTurn *GoalTurn `json:"goal_turn,omitempty"`
+	// FollowUp marks a user-role message the user queued while a turn ran: it
+	// belongs to that turn and does not open one of its own, so a compaction
+	// never takes it for the prompt being answered (session.OpeningPromptIndex).
+	// Persisted with the transcript, so the distinction survives a restart.
+	FollowUp bool `json:"follow_up,omitempty"`
 }
 
 type Artifact struct {

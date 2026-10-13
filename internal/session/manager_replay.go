@@ -34,7 +34,14 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 			// The attachments a message was sent with ride in its content;
 			// a client shows the mentions that brought them, not their bodies
 			// (mention.ForDisplay, the web UI's stripCoddyAttachments twin).
-			content := UserMessageDisplayText(msg.Content)
+			content := msg.Content
+			if msg.CompactionSummary {
+				// A summary row written inside a turn starts with the request,
+				// which this replay showed at its own place: it is replayed
+				// from its preamble on, not as a second copy of the prompt.
+				content = SummaryReplayText(content)
+			}
+			content = UserMessageDisplayText(content)
 			if content != "" {
 				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: "user_message_chunk",
@@ -54,7 +61,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 					SessionUpdate: acp.UpdateTypeToolCall,
 					ToolCallID:    tc.ID,
 					Title:         tc.Name,
-					Kind:          replayToolKind(tc.Name),
+					Kind:          ToolKind(tc.Name),
 					Status:        "pending",
 				})
 			}
@@ -109,19 +116,6 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 	}
 
 	return nil
-}
-
-func replayToolKind(name string) string {
-	switch name {
-	case "read", "glob", "grep":
-		return "read"
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
-		return "write"
-	case "run_command":
-		return "run_command"
-	default:
-		return "other"
-	}
 }
 
 // UserMessageDisplayText is what a surface shows for the content of a user

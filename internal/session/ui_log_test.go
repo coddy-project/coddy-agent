@@ -23,7 +23,8 @@ func TestCountUserTurns(t *testing.T) {
 
 // pageHistory builds a history from one letter per message: U a typed user
 // message, W the user message a background wake opened a turn with, C a
-// compaction summary, A an assistant answer, S an assistant message issuing
+// compaction summary, A an assistant answer, X an answer the output limit cut
+// off (Truncated), E a step that came back empty, S an assistant message issuing
 // one tool call, T that call's result.
 func pageHistory(t *testing.T, spec string) []llm.Message {
 	t.Helper()
@@ -41,6 +42,10 @@ func pageHistory(t *testing.T, spec string) []llm.Message {
 			out = append(out, llm.Message{Role: llm.RoleUser, Content: "summary", CompactionSummary: true})
 		case 'A':
 			out = append(out, llm.Message{Role: llm.RoleAssistant, Content: "answer"})
+		case 'X':
+			out = append(out, llm.Message{Role: llm.RoleAssistant, Content: "the first half and ", Truncated: true})
+		case 'E':
+			out = append(out, llm.Message{Role: llm.RoleAssistant, Reasoning: "thinking"})
 		case 'S':
 			call++
 			out = append(out, llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "c" + string(rune('0'+call%10)), Name: "read_file"}}})
@@ -141,6 +146,36 @@ func TestPageMessages(t *testing.T) {
 			want:  MessagePage{Offset: 6, End: 8, Total: 8, TurnsBefore: 2, UserRowsBefore: 3},
 		},
 		{
+			name:  "a continued answer never opens a page in its middle",
+			spec:  "U A U X X A",
+			query: MessagePageQuery{From: -1, Before: -1, Limit: 1},
+			want:  MessagePage{Offset: 3, End: 6, Total: 6, TurnsBefore: 2, UserRowsBefore: 2},
+		},
+		{
+			name:  "an empty step between a cut text and its continuation stays with them",
+			spec:  "U X E A",
+			query: MessagePageQuery{From: -1, Before: -1, Limit: 1},
+			want:  MessagePage{Offset: 1, End: 4, Total: 4, TurnsBefore: 1, UserRowsBefore: 1},
+		},
+		{
+			name:  "an end inside a continued answer moves back to where it begins",
+			spec:  "U X A U A",
+			query: MessagePageQuery{From: -1, Before: 2, Limit: 10},
+			want:  MessagePage{Offset: 0, End: 1, Total: 5},
+		},
+		{
+			name:  "a continuation that issues a call keeps the text it goes on from",
+			spec:  "U X S T A",
+			query: MessagePageQuery{From: 3, Before: -1},
+			want:  MessagePage{Offset: 1, End: 5, Total: 5, TurnsBefore: 1, UserRowsBefore: 1},
+		},
+		{
+			name:  "an answer after a cut text and a prompt is not a continuation",
+			spec:  "U X U A",
+			query: MessagePageQuery{From: 3, Before: -1},
+			want:  MessagePage{Offset: 3, End: 4, Total: 4, TurnsBefore: 2, UserRowsBefore: 2},
+		},
+		{
 			name:  "a compaction summary does not count as a prompt to start a page at",
 			spec:  "U S T S T C S T A",
 			query: MessagePageQuery{From: -1, Before: -1, Limit: 4},
@@ -160,7 +195,7 @@ func TestPageMessages(t *testing.T) {
 // Walking a long history page by page from its end covers every message once:
 // each older page ends exactly where the window it joins starts.
 func TestPageMessagesJoinWithoutGapOrOverlap(t *testing.T) {
-	msgs := pageHistory(t, "U S T S T A U A U S T T S T T S T A W S T A U S T S T S T S T S T S T A C A U A")
+	msgs := pageHistory(t, "U S T S T A U A U S T T S T T S T A W S T A U X X A U S T S T X E S T S T S T S T X A C A U A")
 	for _, limit := range []int{1, 2, 3, 5, 8, 13} {
 		page := PageMessages(msgs, MessagePageQuery{From: -1, Before: -1, Limit: limit})
 		if page.End != len(msgs) {
@@ -172,6 +207,9 @@ func TestPageMessagesJoinWithoutGapOrOverlap(t *testing.T) {
 			}
 			if msgs[page.Offset].Role == llm.RoleTool {
 				t.Fatalf("limit %d: page at %d opens with a tool result", limit, page.Offset)
+			}
+			if continuesTruncated(msgs, page.Offset) {
+				t.Fatalf("limit %d: page at %d opens in the middle of a continued answer", limit, page.Offset)
 			}
 			older := PageMessages(msgs, MessagePageQuery{From: -1, Before: page.Offset, Limit: limit})
 			if older.End != page.Offset || older.Offset >= older.End {

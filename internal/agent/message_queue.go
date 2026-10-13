@@ -48,6 +48,7 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 			Content:    content,
 			ImageParts: images,
 			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+			FollowUp:   true,
 		}
 		*messages = append(*messages, msg)
 		// The frame goes out before the message is persisted, like every other

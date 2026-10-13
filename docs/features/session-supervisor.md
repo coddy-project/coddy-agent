@@ -8,7 +8,7 @@ The supervisor is a second model rather than the worker grading itself. It judge
 
 | Command | What it does |
 |---|---|
-| `/goal [-m\|--model <id>] [-r\|--reasoning <level>] <objective>` | Sets the goal, replacing any earlier one, and starts a turn on it right away. The objective is limited to 4000 characters; put longer specifications in a file and name it. `--model` and `--reasoning` choose the model and the reasoning level that check this goal, like `/compact --model`: a configured `models[].model` (or a part of one that matches exactly one model) and a level that model offers (`default` for its own). `-m` and `-r` are the short spellings. |
+| `/goal [-m\|--model <id>] [-r\|--reasoning <level>] [--then-file <path>] <objective>` | Sets the goal, replacing any earlier one, and starts a turn on it right away. The objective is limited to 4000 characters; put longer specifications in a file and name it. `--model` and `--reasoning` choose the model and the reasoning level that check this goal, like `/compact --model`: a configured `models[].model` (or a part of one that matches exactly one model) and a level that model offers (`default` for its own). `-m` and `-r` are the short spellings. `--then-file` names a file whose text becomes the goal of a new session once this goal is met (see [Goal chains](#goal-chains)). |
 | `/goal` | Shows the goal: its status and why, continuations used, the last check's verdict, and what is still open. The web UI and the console open their goal menu instead. |
 | `/goal pause` | Stops the automatic continuations and keeps the goal. A turn working on it finishes the step it is in. |
 | `/goal resume [-m\|--model <id>] [-r\|--reasoning <level>]` | Makes a paused, blocked or limited goal active again with a fresh continuation and token budget, and starts a turn. The goal keeps the checker it was set with unless the options name another. |
@@ -42,6 +42,37 @@ Turns the supervisor starts are not messages you typed. Every surface shows each
 | `complete` | Checked as met, and confirmed by the verifier when it could answer; a goal the verifier could not confirm says "not verified" and why in its notice and its last check. | the supervisor |
 | `limited` | The continuation or token budget is used up. | the supervisor |
 
+## Goal chains
+
+Long work often splits into packages that each deserve a fresh session: the context stays small, which matters on a model with a 32k window, and each package starts from a clean handoff. `--then-file` chains them:
+
+```text
+/goal --then-file .coddy/next-task.md Implement the sub-plan named under current in state.md.
+```
+
+The path is one word, without quotes or spaces. The worker of a chained goal is told that the next task goes into that file and that it creates the file only when work remains. When the supervisor finds the goal met and the verifier confirms it, Coddy:
+
+1. reads the file, relative to the workspace (an absolute path and a leading `~/` work too);
+2. renames it to `next-task.started-<UTC time>.md` next to it, so it never runs twice;
+3. opens a new session in the same workspace, on the same model, reasoning level and permission mode, with the text of the file as its goal, the same checker and the same follow-up file;
+4. starts working on that goal at once.
+
+Both transcripts get a row that names the other session: **Goal chain: continued in session ...** in the finished one, **Goal chain: continued from session ... (link 2 of 10)** in the new one. The goal carries the links too: `thenFile`, `chainIndex`, `continuedFrom` and `continuedIn` in `GET /coddy/sessions/{id}/goal` and in the `session_goal` events, so a script that follows `GET /coddy/events` sees the chain move on. A session a chain opens is named after its goal.
+
+The chain stops, with a row that says why, when:
+
+- the follow-up file does not exist or is empty, which is how a chain ends once the work is done;
+- the goal ends in any status but `complete`, or is paused or cleared; a goal is checked only in agent mode, so a plan or ask turn never moves a chain;
+- the verifier could not confirm a met verdict (with `supervisor.verify: false` the check alone is enough);
+- the chain has already opened `supervisor.max_chain_sessions` sessions (10 by default; `0` turns goal chains off, and `--then-file` is then refused);
+- the file is longer than an objective may be or is not a regular file; it stays where it is.
+
+The new session runs with nobody watching it: a permission prompt gets the answer the permission mode gives, and whatever the mode would ask about is refused. An unattended chain needs the permission mode `bypass`, which the new session inherits and keeps across a restart of the server. The file is read whoever wrote it, so name a file you and the agent control: a checkout that already holds it starts its text as the next goal.
+
+Goal chains run under `coddy serve`: set the goal from the web UI, a messenger bot, or a console or an editor attached with `--remote`. A local console and a local `coddy acp` refuse `--then-file`, since nothing there can run a session nobody opened. In Telegram and Pachca the chat gets the row that names the new session and nothing more, because the new session is not bound to the chat; Telegram's `/resume <id>` follows it.
+
+`/goal resume` keeps the follow-up file, and **Edit** in the goal menu sends it along. `/goal <objective>` and `PATCH /coddy/sessions/{id}/goal` with an objective replace the goal and drop the follow-up file and the place in the chain with it.
+
 ## Watchdog
 
 While a goal turn runs, the watchdog sees every update the turn sends.
@@ -69,6 +100,7 @@ supervisor:
   verify: true               # confirm a met verdict against the workspace
   max_continuations: 10      # automatic turns per goal, then a wrap-up turn
   token_budget: 0            # uncached input + output tokens per goal; 0 = no cap
+  max_chain_sessions: 10     # sessions a goal chain (--then-file) opens; 0 = chains off
   stall_seconds: 300         # 0 turns the stall timer off
   max_nudges: 2              # recovery turns after a stall, a loop or a failed turn
   loop_repeat: 3             # 0 turns loop detection off

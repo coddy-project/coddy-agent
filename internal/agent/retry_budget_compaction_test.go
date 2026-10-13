@@ -8,6 +8,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 type retryCompactionProvider struct {
@@ -50,8 +51,29 @@ func TestReActRetryBudgetRecoverySurvivesCompaction(t *testing.T) {
 				return llm.WrapResilient(p, llm.ResilientOptions{RetryMax: two}), nil
 			}
 			f.run()
-			if p.summaries != 1 || p.calls != 3 || f.err != nil || f.stop != string(acp.StopReasonEndTurn) {
+			if p.calls != 3 || f.err != nil || f.stop != string(acp.StopReasonEndTurn) {
 				t.Fatalf("summaries=%d calls=%d stop=%s err=%v", p.summaries, p.calls, f.stop, f.err)
+			}
+			// The threshold of 1% puts every step over it: the earlier turn is
+			// folded once, and the turn's own earlier steps may then be folded
+			// behind its prompt, once - that fold cannot get under 1%, so the
+			// turn makes no further one (inTurnFoldSpent).
+			var rows []llm.Message
+			for _, msg := range f.st.GetMessages() {
+				if msg.CompactionSummary {
+					rows = append(rows, msg)
+				}
+			}
+			if len(rows) != p.summaries || len(rows) < 1 || len(rows) > 2 {
+				t.Fatalf("summaries=%d rows=%d: want the earlier turn folded once and at most one fold of the turn itself", p.summaries, len(rows))
+			}
+			if _, _, inTurn := session.SplitInTurnSummary(rows[0].Content); inTurn {
+				t.Fatalf("the first compaction must fold the earlier turn, not the turn in progress: %q", rows[0].Content)
+			}
+			if len(rows) == 2 {
+				if _, _, inTurn := session.SplitInTurnSummary(rows[1].Content); !inTurn {
+					t.Fatalf("a second compaction must be the fold of the turn in progress: %q", rows[1].Content)
+				}
 			}
 			for call, msgs := range p.seen {
 				var nudges int

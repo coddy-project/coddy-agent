@@ -12,7 +12,7 @@ import type {
   CoddyQuestionPayload,
   QuestionResolvedState,
 } from "./questionTypes";
-import { letterForOptionIndex } from "./questionTypes";
+import { letterForOptionIndex, offersOwnAnswer } from "./questionTypes";
 import { useT } from "../i18n/I18nProvider";
 import { t as translate } from "../i18n/i18n";
 
@@ -182,7 +182,8 @@ function keyBelongsToCard(
 
 function rowLettersForQuestion(q: CoddyQuestionItem): readonly string[] {
   const opts = Math.max(q.options?.length ?? 0, 0);
-  const total = opts + (q.custom ? 1 : 0);
+  // The options, then the reader's own answer unless the question turned it off.
+  const total = opts + (offersOwnAnswer(q) ? 1 : 0);
   const list: string[] = [];
   for (let i = 0; i < Math.min(total, 26); i++)
     list.push(letterForOptionIndex(i));
@@ -208,7 +209,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
       qq: q.question,
       oo: q.options.map((o) => o.label),
       m: q.multiple === true,
-      c: q.custom === true,
+      c: offersOwnAnswer(q),
     })),
   );
 
@@ -490,7 +491,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                     );
                   })}
 
-                  {!q.multiple && q.custom ? (
+                  {!q.multiple && offersOwnAnswer(q) ? (
                     <li className="question-prompt-li">
                       <label
                         className={
@@ -562,7 +563,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                     </li>
                   ) : null}
 
-                  {q.multiple && q.custom ? (
+                  {q.multiple && offersOwnAnswer(q) ? (
                     <li className="question-prompt-li">
                       <label
                         className={

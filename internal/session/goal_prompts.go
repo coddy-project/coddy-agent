@@ -71,6 +71,19 @@ func goalRemainingBlock(remaining []string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// goalChainBlock tells the worker of a chained goal where the next task goes
+// (goal_chain.go): the chain goes on only through what it writes there.
+func goalChainBlock(g GoalState) string {
+	path := strings.TrimSpace(g.ThenFile)
+	if path == "" {
+		return ""
+	}
+	return "This goal is one link of a chain. When the supervisor finds it met, a new session starts with the text of `" + path +
+		"` (relative to the workspace) as its goal, and the file is renamed so that it runs once. If work remains after this goal, " +
+		"write the next task there before you finish: self-contained, as the objective of a session that has none of this conversation. " +
+		"If nothing remains, do not create the file."
+}
+
 func joinBlocks(blocks ...string) string {
 	out := make([]string, 0, len(blocks))
 	for _, b := range blocks {
@@ -87,6 +100,7 @@ func goalKickoffText(g GoalState, cfg *config.Config) string {
 		"[Goal set] Start working toward this goal now. Do not stop to ask what to do: the objective is the directive.",
 		goalObjectiveBlock(g.Objective),
 		goalWorkRules,
+		goalChainBlock(g),
 		goalBudgetLine(g, cfg),
 	)
 }
@@ -98,6 +112,7 @@ func goalResumeText(g GoalState, cfg *config.Config) string {
 		goalObjectiveBlock(g.Objective),
 		goalChecklistBlock(g.Checklist),
 		goalWorkRules,
+		goalChainBlock(g),
 		goalBudgetLine(g, cfg),
 	)
 }
@@ -114,6 +129,7 @@ func goalContinuationText(g GoalState, result GoalCheckResult, index int, cfg *c
 		goalChecklistBlock(firstChecklist(result.Checklist, g.Checklist)),
 		goalObjectiveBlock(g.Objective),
 		goalWorkRules,
+		goalChainBlock(g),
 		goalBudgetLine(g, cfg),
 	)
 }
@@ -127,6 +143,7 @@ func goalRecoveryText(g GoalState, reason string, remaining []string, cfg *confi
 		goalRemainingBlock(remaining),
 		goalObjectiveBlock(g.Objective),
 		goalChecklistBlock(g.Checklist),
+		goalChainBlock(g),
 		goalBudgetLine(g, cfg),
 	)
 }

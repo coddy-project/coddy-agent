@@ -77,13 +77,10 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 							Detail: "auto",
 						}))
 					} else {
-						// Non-image data URL: decode and inject as labelled text block.
-						decoded := decodeDataURL(ip.DataURL)
-						label := ip.Name
-						if label == "" {
-							label = "file"
-						}
-						parts = append(parts, openai.TextContentPart(fmt.Sprintf("[File: %s]\n%s", label, decoded)))
+						// Any other file: its text as a labelled block, or a
+						// line naming a file that is not text.
+						mime, _, _ := parseDataURL(ip.DataURL)
+						parts = append(parts, openai.TextContentPart(fileText(ip, mime)))
 					}
 				}
 				oaiMessages = append(oaiMessages, openai.UserMessage(parts))

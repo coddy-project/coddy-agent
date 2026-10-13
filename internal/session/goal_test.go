@@ -74,6 +74,12 @@ func TestParseGoalCommand(t *testing.T) {
 		"/goal - fix the flaky test":                   {Kind: GoalCommandSet, Objective: "- fix the flaky test"},
 		"/goal -x stays text":                          {Kind: GoalCommandSet, Objective: "-x stays text"},
 		"/goal --model mini clear":                     {Kind: GoalCommandClear, Model: "mini", Err: "--model and --reasoning go with a new goal or /goal resume"},
+		"/goal --then-file .coddy/next.md ship it":     {Kind: GoalCommandSet, Objective: "ship it", ThenFile: ".coddy/next.md"},
+		"/goal --then-file=a.md -m mini ship it":       {Kind: GoalCommandSet, Objective: "ship it", Model: "mini", ThenFile: "a.md"},
+		"/goal --then-file":                            {Kind: GoalCommandSet, Err: "--then-file needs a value"},
+		"/goal --then-file a.md resume":                {Kind: GoalCommandResume, ThenFile: "a.md", Err: "--then-file goes with a new goal"},
+		"/goal --then-file a.md clear":                 {Kind: GoalCommandClear, ThenFile: "a.md", Err: "--then-file goes with a new goal"},
+		`/goal --then-file "my next.md" ship it`:       {Kind: GoalCommandSet, Objective: `next.md" ship it`, ThenFile: `"my`, Err: "--then-file takes a path without quotes or spaces"},
 		"/goals":                                       {},
 		"/goal-x":                                      {},
 		"set a goal":                                   {},
@@ -142,5 +148,22 @@ func TestGoalSnapshotCarriesBudgetsAndTheLastCheck(t *testing.T) {
 	}
 	if GoalSnapshot(GoalState{}, nil) != nil {
 		t.Fatal("no goal must snapshot to nil")
+	}
+}
+
+// A chained goal says where the next task comes from and which sessions it
+// links, on every surface: the snapshot and the text of a bare /goal.
+func TestGoalSnapshotAndStatusNameTheChain(t *testing.T) {
+	g, _ := NewGoal("ship it")
+	g.ThenFile, g.ChainIndex, g.ContinuedFrom, g.ContinuedIn = ".coddy/next.md", 2, "sess_a", "sess_c"
+	snap := GoalSnapshot(g, nil)
+	if snap.ThenFile != ".coddy/next.md" || snap.ChainIndex != 2 || snap.ContinuedFrom != "sess_a" || snap.ContinuedIn != "sess_c" {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+	text := GoalStatusText(g, GoalChecker{}, 10, 0)
+	for _, want := range []string{"Then: .coddy/next.md", "Continued from: sess_a", "Continued in: sess_c"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("status lacks %q:\n%s", want, text)
+		}
 	}
 }

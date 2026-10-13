@@ -117,9 +117,17 @@ export function transcriptItemsFromMessages(p: {
     partialTurn
       ? partialTurnAssistantItemId(userTurnIdx, abs)
       : stableAssistantItemId(userTurnIdx, assistantInTurn++);
+  // The row of the last message when that message stops partway (`truncated`
+  // on the server's row: the model's output limit cut it off)
+  // and nothing was drawn after it; the assistant message right behind it goes
+  // on from its last character, which is how the stream drew it, into the same
+  // bubble. -1 when there is none.
+  let continuableRow = -1;
   p.messages.forEach((m: RawSessionMessage, i: number) => {
     const abs = p.window.offset + i;
     const role = (m?.role || "").trim();
+    const joinAt = continuableRow;
+    continuableRow = -1;
     if (role === "user") {
       next.push(...notices.beforeUserRow());
       // A compaction summary row is a user-role message flagged by the server;
@@ -192,7 +200,17 @@ export function transcriptItemsFromMessages(p: {
           readMessageCreatedAtUTC(m as Record<string, unknown>),
         ),
       );
+      // It joins the bubble only when nothing was drawn since (a notice the turn
+      // went on after is drawn between them, and says why they are two) and it
+      // starts with no thinking of its own, which the stream draws as a row of
+      // its own and a new bubble after it.
       const pdRaw = (m as Record<string, unknown>).plan_document;
+      const joinsRow =
+        joinAt >= 0 &&
+        joinAt === next.length - 1 &&
+        next[joinAt]?.type === "assistant_message" &&
+        !pdRaw &&
+        !(m.reasoning || "").trim();
       if (pdRaw && typeof pdRaw === "object" && !Array.isArray(pdRaw)) {
         const pd = pdRaw as Record<string, unknown>;
         const slug = String(pd.slug ?? "").trim();
@@ -244,7 +262,15 @@ export function transcriptItemsFromMessages(p: {
         });
       }
       const content = m.content || "";
-      if (content.trim()) {
+      let textRow = -1;
+      if (joinsRow && content.trim() !== "") {
+        const row = next[joinAt] as Extract<
+          TranscriptItem,
+          { type: "assistant_message" }
+        >;
+        next[joinAt] = { ...row, content: row.content + content };
+        textRow = joinAt;
+      } else if (content.trim()) {
         const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         next.push({
           id: assistantId(abs),
@@ -252,6 +278,7 @@ export function transcriptItemsFromMessages(p: {
           content,
           ...(acat ? { createdAtUtc: acat } : {}),
         });
+        textRow = next.length - 1;
       }
       const tcs = Array.isArray(m.tool_calls) ? m.tool_calls : [];
       for (const tc of tcs) {
@@ -271,6 +298,15 @@ export function transcriptItemsFromMessages(p: {
         if (args) it.argsText = args;
         toolIdx.set(id, next.length);
         next.push(it);
+      }
+      if (m.truncated === true && textRow >= 0 && textRow === next.length - 1) {
+        continuableRow = textRow;
+      } else if (!content.trim() && tcs.length === 0) {
+        // A step that came back with no text and no tool call is not in the
+        // way, as on the server (session.FollowsTruncated): the answer after
+        // it still goes on from the cut text. Thinking it drew stands between
+        // them and keeps them apart, as the stream did.
+        continuableRow = joinAt;
       }
       return;
     }

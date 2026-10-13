@@ -16,7 +16,10 @@ export type QuestionToolArgItem = {
   options: QuestionToolOption[];
   /** Whether the reader could pick more than one of them. */
   multiple: boolean;
-  /** Whether an answer of their own was offered beside the options. */
+  /**
+   * Whether an answer of their own was offered beside the options: unless the
+   * model set `custom` to false, which is the server's default too (issue #257).
+   */
   custom: boolean;
 };
 
@@ -60,7 +63,7 @@ export function parseQuestionToolQuestionsFromArgs(
         question: q,
         options: parseOptions(row.options),
         multiple: row.multiple === true,
-        custom: row.custom === true,
+        custom: row.custom !== false,
       });
     }
     return out;

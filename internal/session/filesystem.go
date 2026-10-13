@@ -1415,6 +1415,13 @@ func deriveSessionTitle(s *State) string {
 // its first line.
 func titleFromMessages(msgs []llm.Message) string {
 	for _, msg := range msgs {
+		if msg.Role == llm.RoleUser && msg.GoalTurn != nil && msg.GoalTurn.Kind == acp.GoalTurnKickoff {
+			// The supervisor's kickoff text is nobody's words: the objective
+			// it carries is what the session is about.
+			if objective := strings.TrimSpace(msg.GoalTurn.Objective); objective != "" {
+				return truncateRunes(objective, 120)
+			}
+		}
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
 			text := stripCoddySessionAssetsXML(strings.TrimSpace(msg.Content))
 			// A hydrated @mention turn also carries <coddy_attachment> file bodies;

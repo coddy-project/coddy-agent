@@ -55,8 +55,9 @@ import { ToolArtifactCards } from "./ToolArtifactCards";
 
 /**
  * What the `question` tool put up, as it put it up: every question with the
- * options behind their own letters, the free-answer slot when one was offered,
- * and the letters the reader took marked among them.
+ * options behind their own letters, the free-answer slot unless the question
+ * turned it off (it is on by default, issue #257), and the letters the reader
+ * took marked among them.
  *
  * The card in the transcript keeps only the question and the answer, so this row
  * is the one place the offer survives - which of the four the reader was choosing

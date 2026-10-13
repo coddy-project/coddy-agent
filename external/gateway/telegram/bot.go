@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,7 +44,10 @@ type SessionRunner interface {
 type workerJob struct {
 	bot *tgbotapi.BotAPI
 	msg *tgbotapi.Message
-	key string // pre-computed session key
+	// album is every item of an album, msg among them, for the one turn the
+	// album makes; nil for a message of its own.
+	album []*tgbotapi.Message
+	key   string // pre-computed session key
 }
 
 // Bot is the Telegram gateway adapter.
@@ -64,6 +66,7 @@ type Bot struct {
 
 	mu      sync.Mutex
 	workers map[string]chan workerJob // session key → sequential job queue
+	albums  map[string]*pendingAlbum  // chat id/media group id → items still arriving (media.go)
 
 	draftSeq atomic.Int64 // monotonic source of non-zero rich-message draft IDs
 
@@ -92,6 +95,10 @@ type Bot struct {
 	// webUIGate decides whether the bot may hand out the web UI's address
 	// (miniapp.go); nil allows it.
 	webUIGate func() (allowed bool, note string)
+
+	// albumWait is how long an album waits for its next item; zero is
+	// defaultAlbumWait. Tests shorten it.
+	albumWait time.Duration
 }
 
 // New creates a Bot. cwd is the default working directory for agent sessions.
@@ -108,6 +115,7 @@ func New(cfg *config.TelegramGatewayConfig, runner SessionRunner, cwd string, lo
 		log:     log,
 		store:   store,
 		workers: make(map[string]chan workerJob),
+		albums:  make(map[string]*pendingAlbum),
 		mirror:  mirror,
 		asks:    newChatPermissions(),
 	}
@@ -128,15 +136,11 @@ func (b *Bot) Start(ctx context.Context) error {
 	if token == "" {
 		return fmt.Errorf("telegram: no bot token; set gateways.telegram.token or the %s environment variable", config.TelegramBotTokenEnvVar)
 	}
-	base := b.apiBase
-	if base == "" {
-		base = os.Getenv(config.TelegramAPIBaseEnv)
-	}
-	endpoint := telegramAPIEndpoint(base)
+	endpoint := telegramAPIEndpoint(b.apiOrigin())
 	if endpoint != tgbotapi.APIEndpoint {
 		b.log.Info("telegram: api base override", "base", strings.TrimSuffix(endpoint, apiEndpointSuffix))
 	}
-	bot, err := tgbotapi.NewBotAPIWithClient(token, endpoint, httpClient)
+	bot, err := tgbotapi.NewBotAPIWithClient(token, endpoint, redactingClient{inner: httpClient, token: token})
 	if err != nil {
 		return fmt.Errorf("telegram: connect: %w", err)
 	}
@@ -287,22 +291,28 @@ func (b *Bot) drain() {
 
 // dispatch runs fast pre-checks in the polling goroutine, then routes the message
 // to the per-session worker that processes turns sequentially for that session key.
+// The items of an album are collected first (collectAlbum), and routed as one.
 func (b *Bot) dispatch(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message) {
 	if msg.From == nil {
+		b.log.Debug("telegram: update ignored", "reason", "no sender", "chat", msg.Chat.ID)
 		return
 	}
+	msg = withCaptionAsText(msg)
 
 	userID := msg.From.ID
 	chatID := msg.Chat.ID
-	isGroup := msg.Chat.IsGroup() || msg.Chat.IsSuperGroup() || msg.Chat.IsChannel()
+	isGroup := isGroupChat(msg.Chat)
 
+	// text_len counts what the person wrote, the caption of a photo or a
+	// file included, and media names what came with it.
 	b.log.Debug("telegram: update",
 		"kind", "message",
 		"user", userID,
 		"chat", chatID,
 		"is_group", isGroup,
 		"command", strings.ToLower(msg.Command()),
-		"text_len", len(msg.Text),
+		"text_len", len(messageText(msg)),
+		"media", mediaKind(msg),
 	)
 
 	level := access.EffectiveAccess(chatID, b.cfg)
@@ -317,12 +327,33 @@ func (b *Bot) dispatch(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.
 		return
 	}
 
-	text := strings.TrimSpace(msg.Text)
-	if isGroup && !b.shouldRespond(msg, text) {
+	// What the person sent before this message goes first: an album still
+	// collecting its items would otherwise reach the worker after it.
+	b.flushAlbumsBefore(ctx, bot, msg)
+	if msg.MediaGroupID != "" {
+		b.collectAlbum(ctx, bot, msg)
+		return
+	}
+	b.route(ctx, bot, msg, nil, false)
+}
+
+// route hands a message - or an album, headed by msg - to the worker of its
+// session key. In a group it goes only when addressed to the bot, an album
+// when any item is. counted says the message already counts as in flight
+// (an album, from its first item); otherwise route counts it.
+func (b *Bot) route(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, album []*tgbotapi.Message, counted bool) {
+	userID := msg.From.ID
+	chatID := msg.Chat.ID
+	isGroup := isGroupChat(msg.Chat)
+	if isGroup && !b.addressed(msg, album) {
+		if counted {
+			b.inFlight.Done()
+		}
 		b.log.Debug("telegram: update ignored", "reason", "not addressed to the bot", "user", userID, "chat", chatID)
 		return
 	}
 
+	isolation := access.EffectiveIsolation(chatID, b.cfg)
 	key := sessionstore.SessionKey(adapterName, chatID, userID, isolation, isGroup)
 
 	b.mu.Lock()
@@ -336,16 +367,33 @@ func (b *Bot) dispatch(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.
 
 	// A queued message counts as in flight from here, so a stop waits for it
 	// as well as for the turn running ahead of it: Telegram already
-	// confirmed its update. Only this goroutine dispatches, and it is the one
-	// that waits at a stop, so the count never grows during that wait.
-	b.inFlight.Add(1)
+	// confirmed its update. Only the polling goroutine counts a message, and
+	// it is the one that waits at a stop, so the count never grows during
+	// that wait; an album was counted there at its first item.
+	if !counted {
+		b.inFlight.Add(1)
+	}
 	select {
-	case ch <- workerJob{bot: bot, msg: msg, key: key}:
+	case ch <- workerJob{bot: bot, msg: msg, album: album, key: key}:
 	default:
 		b.inFlight.Done()
 		b.log.Debug("telegram: update rejected", "reason", "worker queue full", "key", key, "cap", workerQueueCap)
 		b.reply(bot, chatID, msg.MessageID, "⏳ Still processing your previous message, please wait.")
 	}
+}
+
+// addressed reports whether a group message, or any item of an album, is
+// for the bot.
+func (b *Bot) addressed(msg *tgbotapi.Message, album []*tgbotapi.Message) bool {
+	if len(album) == 0 {
+		return b.shouldRespond(msg, messageText(msg))
+	}
+	for _, m := range album {
+		if b.shouldRespond(m, messageText(m)) {
+			return true
+		}
+	}
+	return false
 }
 
 // sessionWorker processes jobs for one session key sequentially.
@@ -357,7 +405,7 @@ func (b *Bot) sessionWorker(ctx context.Context, ch chan workerJob) {
 			if !ok {
 				return
 			}
-			b.processMessage(ctx, job.bot, job.msg, job.key)
+			b.processTurn(ctx, job.bot, job.msg, job.album, job.key)
 			b.inFlight.Done()
 		case <-ctx.Done():
 			// The stop waited as long as it could: what is still queued is
@@ -374,11 +422,25 @@ func (b *Bot) sessionWorker(ctx context.Context, ch chan workerJob) {
 	}
 }
 
+// processMessage runs the turn of one message.
 func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, key string) {
-	msg = commandAfterMention(msg, b.botName)
+	b.processTurn(ctx, bot, msg, nil, key)
+}
+
+// processTurn runs the turn of a message, or of an album headed by msg: a
+// command, or a prompt made of what the person wrote and the files the
+// message or the album carries.
+func (b *Bot) processTurn(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, album []*tgbotapi.Message, key string) {
+	msg = commandAfterMention(withCaptionAsText(msg), b.botName)
 	userID := msg.From.ID
 	chatID := msg.Chat.ID
-	text := strings.TrimSpace(msg.Text)
+	text := messageText(msg)
+	items := album
+	if len(items) == 0 {
+		items = []*tgbotapi.Message{msg}
+	} else {
+		text = albumText(items)
+	}
 
 	// --- Built-in commands ---
 	// Peek, not Get: a log line must not mint a session mapping for a chat that
@@ -442,14 +504,36 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		return
 	}
 
-	// --- Skip other commands and empty messages ---
+	// --- Skip other commands, and what carries nothing to pass on ---
 	// A settings command (/model x, /think, /plan --once ...) goes to the
 	// session like a message: the manager takes it off the start of the text
 	// and answers with a notice, or applies it to the turn the rest starts.
 	// /permissions is not one of them here: the bot approves its chat agent
 	// itself, and the mode would only change what other surfaces ask.
-	if text == "" || (msg.IsCommand() && !isSettingsCommand(msg) && !isCommand(msg, "goal")) {
+	if msg.IsCommand() && !isSettingsCommand(msg) && !isCommand(msg, "goal") {
+		b.log.Debug("telegram: update ignored", "reason", "unknown command", "command", strings.ToLower(msg.Command()), "user", userID, "chat", chatID)
 		return
+	}
+	// Media the bot cannot pass on is answered, caption or not: a turn on the
+	// caption alone would answer as if the video or the voice were not there.
+	for _, m := range items {
+		if kind := mediaKind(m); kind != "" && !takesMedia(kind) {
+			b.log.Debug("telegram: update refused", "reason", "unsupported media", "media", kind, "user", userID, "chat", chatID)
+			b.reply(bot, chatID, msg.MessageID, unsupportedMediaNote(kind))
+			return
+		}
+	}
+	files := inboundFiles(items)
+	if text == "" && len(files) == 0 {
+		b.log.Debug("telegram: update ignored", "reason", "empty message", "user", userID, "chat", chatID)
+		return
+	}
+	for _, f := range files {
+		if f.size > maxInboundFileBytes {
+			b.log.Debug("telegram: update refused", "reason", "file too large", "file", f.name, "size", f.size, "user", userID, "chat", chatID)
+			b.reply(bot, chatID, msg.MessageID, fmt.Sprintf("%s is larger than the 20 MB a bot can download from Telegram, so I can't take it.", f.name))
+			return
+		}
 	}
 
 	// Strip @mention prefix if present.
@@ -459,7 +543,8 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	// under a reply asks about the quoted message. A settings command and
 	// /goal are not quoted - the manager reads them off the start of the text.
 	author, quoted := replyContext(msg.ReplyToMessage)
-	if text == "" && quoted == "" {
+	if text == "" && quoted == "" && len(files) == 0 {
+		b.log.Debug("telegram: update ignored", "reason", "empty message", "user", userID, "chat", chatID)
 		return
 	}
 	if !isSettingsCommand(msg) && !isCommand(msg, "goal") {
@@ -491,9 +576,28 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	}
 	b.applyInitialModel(ctx2, st)
 
+	// Files go to a model that reads images, the rule the web UI's
+	// attachments follow, and nothing is downloaded for one that does not.
+	if len(files) > 0 {
+		cfg := b.runner.Cfg()
+		model := st.EffectiveModelID(cfg)
+		if entry := cfg.FindModelEntry(model); !cfg.ModelMultimodal(entry) {
+			b.log.Debug("telegram: update refused", "reason", "model does not read images", "model", model, "session", st.GetID(), "user", userID, "chat", chatID)
+			b.reply(bot, chatID, msg.MessageID, multimodalNote(model))
+			return
+		}
+	}
+
 	// Show "typing…" in the chat header while the agent prepares its first response.
 	if _, err := bot.Request(tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)); err != nil {
 		b.log.Debug("telegram: typing action", "err", err)
+	}
+
+	parts, failed, err := b.downloadFiles(ctx2, bot, files)
+	if err != nil {
+		b.log.Warn("telegram: file download failed", "file", failed, "err", err, "session", st.GetID(), "chat", chatID)
+		b.reply(bot, chatID, msg.MessageID, "❌ Could not download "+failed+" from Telegram; send it again.")
+		return
 	}
 
 	isGroup := msg.Chat.IsGroup() || msg.Chat.IsSuperGroup() || msg.Chat.IsChannel()
@@ -511,6 +615,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		"chat", chatID,
 		"rich", rich,
 		"prompt_len", len(text),
+		"files", len(parts),
 	)
 
 	// Rich Messages: stream an ephemeral draft preview in private chats (drafts are
@@ -544,8 +649,9 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		lang = msg.From.LanguageCode
 	}
 	result, err := b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
-		SessionID: st.GetID(),
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
+		SessionID:  st.GetID(),
+		Prompt:     []acp.ContentBlock{{Type: "text", Text: text}},
+		ImageParts: parts,
 	}, mirrored, &session.PromptRunOpts{
 		SkipUsagePublish:    true,
 		SurfaceSystemPrompt: surfaceSystemPrompt(rich),

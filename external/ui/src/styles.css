@@ -12929,13 +12929,15 @@ html:not([data-theme="light"]) .permission-prompt-btn--session-bypass {
   }
 }
 
+/* Flush with the transcript column on both sides, like .message-row-permission:
+   on a phone the card's edges meet the composer's. A padding-left of its own set
+   the card in from the left edge only (questionPromptRowCss.test.ts). */
 .message-row-question {
-  /*margin: 10px 0 14px;*/
   align-self: stretch;
   width: 100%;
   max-width: 720px;
+  min-width: 0;
   box-sizing: border-box;
-  padding-left: 12px;
 }
 
 .question-prompt-frame {

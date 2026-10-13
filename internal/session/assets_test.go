@@ -151,3 +151,26 @@ func TestSavePartsToAssets_CreatesPersistedImageThumbnail(t *testing.T) {
 		t.Fatalf("thumbnail height = %d, want 40", got)
 	}
 }
+
+// A name a client chose - a messenger's document name, a browser's file
+// name - never lands outside the assets folder: "..", "." and a path are
+// reduced to a plain name inside it.
+func TestSavePartsToAssets_NamesStayInsideTheFolder(t *testing.T) {
+	dir := t.TempDir()
+	parts := []llm.ImagePart{
+		{DataURL: makeDataURL("text/plain", "one"), Name: ".."},
+		{DataURL: makeDataURL("text/plain", "two"), Name: "."},
+		{DataURL: makeDataURL("text/plain", "three"), Name: "../../escape.txt"},
+	}
+	if err := SavePartsToAssets(parts, dir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for i, p := range parts {
+		if filepath.Dir(p.FilePath) != AssetsPath(dir) {
+			t.Fatalf("part %d (%q) saved at %q, outside %q", i, p.Name, p.FilePath, AssetsPath(dir))
+		}
+	}
+	if filepath.Base(parts[2].FilePath) != "escape.txt" {
+		t.Fatalf("a path kept more than its last element: %q", parts[2].FilePath)
+	}
+}

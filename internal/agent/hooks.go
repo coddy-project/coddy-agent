@@ -270,7 +270,7 @@ const hookNotificationPermissionPrompt = "permission_prompt"
 
 // stopHookPrefix marks the follow-up a Stop hook submits as the next user
 // message, so the transcript says where it came from.
-const stopHookPrefix = "[Stop hook] "
+const stopHookPrefix = session.StopHookPrefix
 
 // runUserPromptHooks fires UserPromptSubmit before the prompt becomes a
 // message. A rejected prompt is reported with its reason; context the hooks

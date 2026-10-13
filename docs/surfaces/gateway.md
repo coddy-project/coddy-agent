@@ -31,6 +31,7 @@ This page is about the Telegram bot and the gateway's common parts. The Pachca (
 - [The same session in the chat and in the browser](#the-same-session-in-the-chat-and-in-the-browser)
 - [Mini App](#mini-app)
 - [Woken turns land in the chat](#woken-turns-land-in-the-chat)
+- [Photos and files the person sends](#photos-and-files-the-person-sends)
 - [Pictures the agent looked at](#pictures-the-agent-looked-at)
 - [Session lifecycle](#session-lifecycle)
 - [Security notes](#security-notes)
@@ -360,7 +361,7 @@ isolation.
 
 ## Debugging a chat
 
-A command that appears to do nothing - a `/model` tap that leaves the model unchanged, a message the bot never answers - leaves no trace at `info`. That level carries what succeeded (connecting, sessions loaded and cleared, a model or mode applied) and what failed loudly enough to warn; an update that was quietly dropped, or a tap that never arrived, is in neither list. `gateway.telegram` at `debug` records the whole path instead: every update as it arrives, why one was dropped (access denied, an admin-only chat, a group message not addressed to the bot, a full worker queue), each recognised command, each menu the bot builds with the session it belongs to, and each callback with the model or mode it resolved to and whether it applied.
+A command that appears to do nothing - a `/model` tap that leaves the model unchanged, a message the bot never answers - leaves no trace at `info`. That level carries what succeeded (connecting, sessions loaded and cleared, a model or mode applied) and what failed loudly enough to warn; an update that was quietly dropped, or a tap that never arrived, is in neither list. `gateway.telegram` at `debug` records the whole path instead: every update as it arrives (`text_len` counts what the person wrote, the caption of a photo or a file included, and `media` names what came with it), why one was dropped (access denied, an admin-only chat, a group message not addressed to the bot, a full worker queue, an unknown command, a message with nothing in it) or refused with an answer in the chat (media the bot does not take, a file over the download limit, a model that does not read images), each recognised command, each menu the bot builds with the session it belongs to, and each callback with the model or mode it resolved to and whether it applied.
 
 Raise that one component and leave the rest of the process alone:
 
@@ -384,7 +385,7 @@ Every record keeps its `component` attribute, so a file that mixes subsystems st
 grep '"component":"gateway.telegram"' /var/log/coddy/coddy.log
 ```
 
-A switch that lands is reported at `info`, so the confirmation is in the log without raising anything: `telegram: model applied` and `telegram: mode applied` name the session and the new value, `telegram: session resumed` names the session the chat left and the one it moved to. A tap that reaches the bot and fails logs why at `warn`, equally visible: `telegram: callback session` when the session cannot be loaded, `telegram: callback model unknown` when the button names a model that is no longer configured, `telegram: callback session unknown` when a resume button names a session deleted since the keyboard was sent, `telegram: resume session` when the chosen bundle cannot be loaded, and `telegram: set model` when the manager refuses the change. At `debug`, `telegram: resume menu` records each page of the picker with the chat's current session and `telegram: resume query` records the words after `/resume` with how many sessions they matched. Silence at `warn` and nothing at `debug` means the update never arrived - check the bot token, the ACL, and whether another process is polling the same bot, since Telegram delivers each update to one long poll only.
+A switch that lands is reported at `info`, so the confirmation is in the log without raising anything: `telegram: model applied` and `telegram: mode applied` name the session and the new value, `telegram: session resumed` names the session the chat left and the one it moved to. A tap that reaches the bot and fails logs why at `warn`, equally visible: `telegram: callback session` when the session cannot be loaded, `telegram: callback model unknown` when the button names a model that is no longer configured, `telegram: callback session unknown` when a resume button names a session deleted since the keyboard was sent, `telegram: resume session` when the chosen bundle cannot be loaded, `telegram: set model` when the manager refuses the change, and `telegram: file download failed` when a photo or a file the person sent cannot be fetched from Telegram (the record names the file, never its address, which carries the bot's token). At `debug`, `telegram: resume menu` records each page of the picker with the chat's current session and `telegram: resume query` records the words after `/resume` with how many sessions they matched. Silence at `warn` and nothing at `debug` means the update never arrived - check the bot token, the ACL, and whether another process is polling the same bot, since Telegram delivers each update to one long poll only.
 
 ### Debugging against a fake Bot API
 
@@ -888,6 +889,21 @@ bot's: it runs in the web UI's relay, or with no surface at all through the
 manager, and the chat hears nothing of it. The bot takes a woken turn only
 while it is connected; a woken turn that finds the chat's own turn still
 running waits for it, as it does on every surface.
+
+## Photos and files the person sends
+
+A person can send the bot a photo or a document, with a caption or without, in a private chat or, addressed to the bot, in a group. When the session's model reads images (`models[].multimodal: true`), the bot downloads the file from Telegram and hands it to the session the way the web UI hands an attachment: the file is kept with the session's assets (read-only), the prompt names where it is, a picture is shown to the model with the turn, and the caption is what the person asks ([Images](../features/images.md)). A photo arrives in its largest size, and a picture sent as a file is still a picture. A text file is written out for the model, up to its first 64 KB; a file that is not text, a PDF or an archive, is named instead, and the agent opens it from the assets with its tools. A caption works the way a text does: a command in it is the command (a photo captioned `/plan --once` runs that turn in plan mode, one captioned `/clear` starts a new session), a mention of the bot addresses a group, and a photo or a file sent as a reply quotes the replied-to message in front of the caption.
+
+An album is one turn. The bot waits a second after the latest item for the next one, then sends every picture of the album together, in the order they were sent, with the captions of its items in the same order; in a group a mention in any of them addresses the whole album. A message sent right after an album does not overtake it: the album goes first, then the message.
+
+What the bot does not take, it says in the chat rather than drop in silence:
+
+- a video, a voice or video message, an audio file, an animation, a sticker, a location, a contact or a poll is answered with a note, with a caption or without; a video or a sound sent as a file goes through as a file;
+- a file over 20 MB, the most a bot downloads from Telegram, is refused before anything is downloaded;
+- a session whose model does not read images is told to pick one that does with `/model`, and nothing is downloaded;
+- a download that fails is reported in the chat, so the person can send the file again.
+
+The download goes through `gateways.telegram.proxy`, like every request of the bot, from the file address of the Bot API origin; a self-hosted Bot API server started with `--local` answers with a path on its own disk instead, so files sent through it are reported as not downloaded. Somebody who is not an admin may send files too; the agent of such a turn reads nothing outside the working directory, so it sees the pictures and the text files it is shown, and cannot open a PDF from the assets.
 
 ## Pictures the agent looked at
 

@@ -1,0 +1,4 @@
+# Go sources stay LF in every checkout, Windows included. gofmt writes LF, so a
+# CRLF working copy (Git for Windows defaults to core.autocrlf=true) would fail
+# `make fmt-check` and the gofmt formatter of golangci-lint on every file.
+*.go text eol=lf

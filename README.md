@@ -45,12 +45,12 @@ providers:
     api_key: "${OPENAI_API_KEY}"
 
 models:
-  - model: "openai/gpt-5.6-terra"
-    max_tokens: 8192
-    reasoning_default: medium
+  - model: "openai/gpt-6.1-sol"
+    max_tokens: 1050000
+    reasoning_default: high
 
 agent:
-  model: "openai/gpt-5.6-terra"
+  model: "openai/gpt-6.1-sol"
 ```
 
 `coddy -t` checks the file and `coddy --dry-run` probes what it points at. Anthropic, NeuralDeep, ChatGPT sign-in through the Codex backend, a Devin account signed in through the browser ([Devin](docs/features/devin.md)), Ollama, llama.cpp and any other OpenAI-compatible server are covered in [Configuration](docs/getting-started/configuration.md). The first five minutes on every surface are in [Quickstart](docs/getting-started/quickstart.md); upgrades are `coddy update -y`, which ends with the release notes of every version it skipped over ([Update](docs/getting-started/update.md)).

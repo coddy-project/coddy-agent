@@ -84,6 +84,16 @@ export type SessionGoal = {
    * that does not send them. */
   checkModel: string;
   checkReasoning: string;
+  /** The follow-up file of a goal chain (`/goal --then-file`): once the goal
+   * is met, its text becomes the goal of a new session. `chainIndex` is its
+   * place in the chain: 0 for a goal the operator set, N in the N-th session
+   * the chain opened; `continuedFrom` and
+   * `continuedIn` are the sessions on either side. Empty and 0 outside a
+   * chain. */
+  thenFile: string;
+  chainIndex: number;
+  continuedFrom: string;
+  continuedIn: string;
 };
 
 /** The envelope every surface of the server delivers a goal in. */
@@ -172,6 +182,10 @@ export function parseSessionGoal(raw: unknown): SessionGoal | null {
     reasoning: str(o.reasoning),
     checkModel: str(o.checkModel),
     checkReasoning: str(o.checkReasoning),
+    thenFile: str(o.thenFile),
+    chainIndex: num(o.chainIndex),
+    continuedFrom: str(o.continuedFrom),
+    continuedIn: str(o.continuedIn),
   };
 }
 
@@ -303,16 +317,18 @@ export function isBareGoalCommand(text: string): boolean {
 
 /**
  * The prompt that sets (or replaces) a goal and starts working on it. The
- * checker a goal was set with goes with it, so an edited objective is checked
- * by the same model at the same level.
+ * checker and the follow-up file a goal was set with go with it, so an edited
+ * objective is checked by the same model at the same level and still hands
+ * over to the next session of its chain.
  */
 export function goalSetPrompt(
   objective: string,
-  checker?: { model?: string; reasoning?: string },
+  checker?: { model?: string; reasoning?: string; thenFile?: string },
 ): string {
   const options = [
     checker?.model ? `--model ${checker.model}` : "",
     checker?.reasoning ? `--reasoning ${checker.reasoning}` : "",
+    checker?.thenFile ? `--then-file ${checker.thenFile}` : "",
   ].filter(Boolean);
   return ["/goal", ...options, objective.trim()].join(" ");
 }

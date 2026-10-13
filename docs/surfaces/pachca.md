@@ -118,7 +118,7 @@ An admin's own agent is allowed what it asks, like in Telegram: the operator con
 
 ## What is not supported
 
-The webhook intake (the bot only reads the events history), `/resume` and `/mcp`, pictures and files in either direction, reactions and forms. A person editing or deleting a message does not start a turn.
+The webhook intake (the bot only reads the events history), `/resume` and `/mcp`, pictures and files in either direction, reactions and forms. A person editing or deleting a message does not start a turn. A message with a file and no text is answered with a note that the bot reads text only; a file sent with text goes to the session as the text alone.
 
 ## Troubleshooting
 

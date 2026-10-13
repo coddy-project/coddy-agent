@@ -277,6 +277,7 @@ export const messagesRu: Record<string, string> = {
   "settings.group.hooks.main": "Настройки хуков",
   "settings.group.hooks.mainDesc":
     "Как выполняются хуки, то есть можно ли запускать файлы, пришедшие с чекаутом, сколько может длиться один процесс хука без своего таймаута, сколько раз хук Stop может вернуть агента к работе и сколько текста может передать один хук.",
+  "settings.group.compaction.auto": "Автоматическое сжатие",
   "settings.group.compaction.summary": "Суммаризация",
   "settings.group.supervisor.checks": "Проверки цели",
   "settings.group.supervisor.watchdog": "Сторож",
@@ -515,6 +516,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.supervisor.token_budget.label": "Бюджет токенов",
   "settings.schema.supervisor.token_budget.desc":
     "Некэшированные входные и выходные токены на одну цель. 0 снимает ограничение.",
+  "settings.schema.supervisor.max_chain_sessions.label": "Сессий в цепочке",
+  "settings.schema.supervisor.max_chain_sessions.desc":
+    "Сколько сессий одна цепочка целей (/goal --then-file) может открыть одну за другой. 0 отключает цепочки.",
   "settings.schema.supervisor.stall_seconds.label": "Простой, с",
   "settings.schema.supervisor.stall_seconds.desc":
     "Тишина, после которой ход цели прерывается; ожидание разрешения, работающий инструмент и фоновые задачи не учитываются. 0 отключает сторож простоя.",
@@ -534,7 +538,7 @@ export const messagesRu: Record<string, string> = {
     "Предел итераций ReAct, включая вызовы LLM и раунды инструментов, на один запрос пользователя. По умолчанию 165, а 0 явно снимает предел.",
   "settings.schema.agent.llm_retry_max.label": "Максимум повторов LLM",
   "settings.schema.agent.llm_retry_max.desc":
-    "Общий лимит повторов после ошибок соединения, пустых ответов и тайм-аута первого токена. Сбрасывается после вызова инструмента или нового сообщения. 0 отключает эти повторы. Защита от циклов, Stop-хуки, резервные модели и ожидание квоты имеют отдельные лимиты.",
+    "Общий лимит повторов после ошибок соединения, пустых ответов, тайм-аута первого токена и упора в предел вывода (шаг оборвался по max_tokens). Сбрасывается после вызова инструмента или нового сообщения. 0 отключает эти повторы. Защита от циклов, Stop-хуки, резервные модели и ожидание квоты имеют отдельные лимиты.",
   "settings.schema.agent.llm_retry_base_ms.label": "База повтора LLM, мс",
   "settings.schema.agent.llm_retry_base_ms.desc":
     "Начальная пауза между повторами LLM в миллисекундах; серверная пауза (Retry-After) имеет приоритет.",
@@ -760,10 +764,10 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.compaction.enable.label": "Включено",
   "settings.schema.compaction.enable.desc":
     "Главный выключатель сжатия (ручная команда и автоматический триггер). По умолчанию включено.",
-  "settings.schema.compaction.auto_enable.label": "Автоматическое сжатие",
+  "settings.schema.compaction.auto_enable.label": "Включено",
   "settings.schema.compaction.auto_enable.desc":
-    "Включает сжатие по порогу. При выключении ручное сжатие остаётся доступным. По умолчанию включено.",
-  "settings.schema.compaction.threshold_percent.label": "Порог авто-сжатия (%)",
+    "Сжимать самостоятельно: сворачивать старые ходы на пороге, а если их нет, более ранние шаги длинного хода, и один раз сжать и повторить запрос, который провайдер отклонил как слишком большой для окна контекста. При выключении ручное сжатие остаётся доступным. По умолчанию включено.",
+  "settings.schema.compaction.threshold_percent.label": "Порог (%)",
   "settings.schema.compaction.threshold_percent.desc":
     "Авто-сжатие, когда оценка контекста достигает этой доли от окна контекста модели (1..100, по умолчанию 80): её max_context_tokens, иначе окно, которое сообщает провайдер, иначе 128000.",
   "settings.schema.compaction.keep_recent_turns.label":
@@ -774,20 +778,28 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.compaction.model.desc":
     "Необязательный models[].model для вызова суммаризации; пусто — модель сессии.",
   "settings.schema.compaction.result_eviction.label":
-    "Вытеснение результатов read/grep",
+    "Вытеснение результатов инструментов",
   "settings.schema.compaction.result_eviction.desc":
-    "Свёртывает устаревшие результаты read/grep в плейсхолдеры при сборке запроса LLM; сохранённый транскрипт не меняется. Выживают только помеченные (keep_result / keep:true) или самые свежие результаты.",
+    "Свёртывает устаревшие результаты инструментов (страницы read, выдачи grep и просмотры glob, print_tree, websearch и webfetch) в плейсхолдеры при сборке запроса LLM; сохранённый транскрипт не меняется. Результаты read и grep выживают, если помечены (keep_result / keep:true) или входят в число самых свежих; просмотры выживают в трёх последних шагах.",
   "settings.schema.compaction.result_eviction.enable.label": "Включено",
   "settings.schema.compaction.result_eviction.enable.desc":
-    "Главный выключатель вытеснения результатов read/grep. По умолчанию включено.",
+    "Главный выключатель вытеснения результатов инструментов. По умолчанию включено.",
   "settings.schema.compaction.result_eviction.keep_recent.label":
     "Сохранять последние результаты",
   "settings.schema.compaction.result_eviction.keep_recent.desc":
-    "Сколько самых свежих вытесняемых результатов остаются целыми как рабочее окно (по умолчанию 2 — достаточно для одновременных read и grep; 0 — не сохранять ничего).",
+    "Сколько самых свежих результатов read и grep остаются целыми как рабочее окно (по умолчанию 2 - достаточно для одновременных read и grep; 0 - не сохранять ничего).",
   "settings.schema.compaction.result_eviction.min_result_bytes.label":
     "Мин. размер результата, байт",
   "settings.schema.compaction.result_eviction.min_result_bytes.desc":
     "Результаты этого размера и меньше никогда не вытесняются (по умолчанию 2000; 0 — кандидат любой результат).",
+  "settings.schema.compaction.fallback_models.label":
+    "Резервные модели суммаризации",
+  "settings.schema.compaction.fallback_models.desc":
+    "Модели суммаризации, которые пробуются по порядку, если предыдущая не сработала. Собственная модель сессии - последний вариант, указана она здесь или нет.",
+  "settings.schema.compaction.result_eviction.start_percent.label":
+    "Начинать с (%)",
+  "settings.schema.compaction.result_eviction.start_percent.desc":
+    "Вытеснять, только когда оценка контекста достигла этого процента окна контекста модели (по умолчанию 50; 0 - с первого результата). Ниже порога история отправляется без изменений, и кэш промптов провайдера сохраняется. Результаты read и grep модели без max_context_tokens вытесняются с первого результата.",
 
   "settings.schema.scheduler.label": "Планировщик",
   "settings.schema.scheduler.enable.label": "Включено",

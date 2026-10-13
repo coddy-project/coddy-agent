@@ -22,7 +22,7 @@ ZCode загружает свой файл инструкций (`AGENTS.md`) о
 
 Конфигурация лежит в `.zcode/config.json`, в разделе `hooks.events`. Хуки из файлов конфигурации по умолчанию выключены, поэтому конфигурация задаёт `hooks.enabled: true`. Оба обработчика запускают один и тот же скрипт, а он выбирает ветку по полю `hook_event_name` из полезной нагрузки хука. Псевдоним `ApplyPatch` включён в матчер `PreToolUse`, потому что у ZCode есть псевдонимы `Write`/`Edit` ← `ApplyPatch`.
 
-В этом репозитории при старте сессии приходит `russian-wording`. Тематические правила по Go, HTTP, шлюзу и UI привязаны к путям и подключаются по требованию. Правка, затрагивающая `external/httpserver/server.go`, подтягивает `api-layer`, `architecture`, `code-style`, `implementation-order`, `testing` и `workflow`; правка в `external/ui/src/` добавляет к ним `ui-spa` и `ui-verification`.
+В этом репозитории при старте сессии приходят `russian-wording` и `merged-branch-cleanup`. Тематические правила по Go, HTTP, шлюзу и UI привязаны к путям и подключаются по требованию. Правка, затрагивающая `external/httpserver/server.go`, подтягивает `api-layer`, `architecture`, `code-style`, `implementation-order`, `testing` и `workflow`; правка в `external/ui/src/` добавляет к ним `ui-spa` и `ui-verification`.
 
 ## Как это работает
 
@@ -85,4 +85,4 @@ rm -rf "${TMPDIR:-/tmp}"/zcode-attach-rules-*
 
 По документации ZCode, хуки и конфигурация лежат в `~/.zcode/cli/config.json` (пользовательская область) и `<repo>/.zcode/config.json` (область рабочей папки); поддерживаются события `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PostToolUseFailure` и `Stop`.
 
-<!-- docsgen:source sha256=24e162fe4d7cfee1 -->
+<!-- docsgen:source sha256=9172be100b98e68f -->

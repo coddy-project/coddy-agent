@@ -3,9 +3,11 @@ package llm
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // A user message with a picture and a text file, the shape prompt attachments
@@ -162,5 +164,74 @@ func TestTheBase64FlagOfADataURLIsReadExactly(t *testing.T) {
 	}
 	if raw, _ := json.Marshal(conv); strings.Contains(string(raw), `"type":"image"`) || !strings.Contains(string(raw), "odd.png") {
 		t.Errorf("Anthropic sends a data URL with no base64 flag as %s", raw)
+	}
+}
+
+// A file that is not text - a PDF a person sent from a messenger, an archive
+// picked in the web UI - is named in the message and never written out: its
+// bytes as text are noise that fills the context window (issue #509). The
+// session keeps the file with its assets, and the prompt says where.
+func TestABinaryFileIsNamedNotWrittenOut(t *testing.T) {
+	pdf := ImagePart{Name: "report.pdf", DataURL: "data:application/pdf;base64," + base64.StdEncoding.EncodeToString([]byte("%PDF-1.4\n%\xe2\xe3\xcf\xd3\x00\n1 0 obj"))}
+	notes := ImagePart{Name: "notes.txt", DataURL: "data:text/plain;base64," + base64.StdEncoding.EncodeToString([]byte("file body"))}
+	msg := Message{Role: RoleUser, Content: "summarize", ImageParts: []ImagePart{pdf, notes}}
+
+	anthropic := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "")
+	_, conv, err := anthropic.splitMessages([]Message{msg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex := newCodexProvider("gpt-5.6", filepath.Join(t.TempDir(), "auth.json"), true, "", nil, 0, "")
+	openai := newOpenAIProvider("gpt-4o", "key", "", nil, 0, 0, "")
+	_, prompts := devinPrompts([]Message{msg}, "m")
+	for name, v := range map[string]any{
+		"anthropic": conv,
+		"codex":     codex.buildParams([]Message{msg}, nil).Input,
+		"openai":    openai.buildParams([]Message{msg}, nil, false).Messages,
+		"devin":     prompts[0].text,
+	} {
+		raw, _ := json.Marshal(v)
+		s := string(raw)
+		if strings.Contains(s, "PDF-1.4") || strings.Contains(s, "1 0 obj") {
+			t.Errorf("%s writes the PDF out as text: %s", name, s)
+		}
+		for _, want := range []string{`[File: report.pdf (application/pdf), not text`, `[File: notes.txt]\nfile body`} {
+			if !strings.Contains(s, want) {
+				t.Errorf("%s lacks %s: %s", name, want, s)
+			}
+		}
+	}
+}
+
+// A text file longer than maxInlinedFileBytes is written out up to there,
+// labelled with what was cut: one message larger than the context window
+// would stay in the history and fail every request after it. A PDF is never
+// written out, even one whose bytes happen to be ASCII.
+func TestALongTextFileIsCutAndAPDFNeverWrittenOut(t *testing.T) {
+	long := strings.Repeat("log line\n", maxInlinedFileBytes/9+100) + "LAST LINE"
+	asciiPDF := "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << >>\n%%EOF\n"
+	for name, tc := range map[string]struct {
+		part      ImagePart
+		want, not string
+	}{
+		"long log": {
+			part: ImagePart{Name: "app.log", DataURL: "data:text/plain;base64," + base64.StdEncoding.EncodeToString([]byte(long))},
+			want: fmt.Sprintf("[File: app.log, the first %d of its %d bytes]", maxInlinedFileBytes, len(long)), not: "LAST LINE",
+		},
+		"ascii pdf": {
+			part: ImagePart{Name: "plain.pdf", DataURL: "data:application/pdf;base64," + base64.StdEncoding.EncodeToString([]byte(asciiPDF))},
+			want: "[File: plain.pdf (application/pdf), not text", not: "/Catalog",
+		},
+	} {
+		mime, _, _ := parseDataURL(tc.part.DataURL)
+		got := fileText(tc.part, mime)
+		if !strings.Contains(got, tc.want) || strings.Contains(got, tc.not) {
+			t.Errorf("%s: %.200q, want %q and no %q", name, got, tc.want, tc.not)
+		}
+	}
+	// A cut never splits a character.
+	multi := strings.Repeat("я", maxInlinedFileBytes) // two bytes each
+	if got := fileText(ImagePart{Name: "ru.txt", DataURL: "data:text/plain;base64," + base64.StdEncoding.EncodeToString([]byte(multi))}, "text/plain"); !utf8.ValidString(got) {
+		t.Error("the cut split a character")
 	}
 }

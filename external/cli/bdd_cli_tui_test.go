@@ -964,10 +964,13 @@ func (s *cliTUIState) stubStreamsText(text string) error {
 		// by the dedicated step.
 		return s.waitTurnEnd(2 * time.Second)
 	}
-	if err := s.waitScreen(text, 3*time.Second); err != nil {
+	// The deadlines are generous: the first turn of a console that has just
+	// started can take seconds to reach the stub on a loaded Windows runner,
+	// and a wait that succeeds returns as soon as the text is drawn.
+	if err := s.waitScreen(text, 15*time.Second); err != nil {
 		return err
 	}
-	return s.waitTurnEnd(2 * time.Second)
+	return s.waitTurnEnd(5 * time.Second)
 }
 
 // screenShowsQueuedMessage asserts the queue widget above the input is showing

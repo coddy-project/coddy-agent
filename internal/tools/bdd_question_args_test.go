@@ -1,14 +1,16 @@
 package tools_test
 
-// Godog harness for features/question_lenient_args.feature: the question tool
-// executes against the real registry with a stub sender (no LLM, no session);
-// scenarios feed the argument encodings models actually produce and assert
-// the user is asked and the answer round-trips.
+// Godog harness for features/question_lenient_args.feature and
+// features/question_own_answer.feature: the question tool executes against the
+// real registry with a stub sender (no LLM, no session); scenarios feed the
+// argument encodings models actually produce and assert the user is asked,
+// offered an answer of their own, and the answer round-trips.
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -89,6 +91,70 @@ func (s *questionArgsState) theToolReturnsTheAnswer(answer string) error {
 	return nil
 }
 
+func (s *questionArgsState) everyQuestionOffersAnOwnAnswer() error {
+	if s.sender == nil || s.sender.asked == nil {
+		return fmt.Errorf("the sender was never asked")
+	}
+	for i, q := range s.sender.asked.Questions {
+		if !q.Custom {
+			return fmt.Errorf("question %d %q reached the user without an answer of their own", i, q.Question)
+		}
+	}
+	return nil
+}
+
+func (s *questionArgsState) theQuestionOffersOnlyItsOptions(question string) error {
+	if s.sender == nil || s.sender.asked == nil {
+		return fmt.Errorf("the sender was never asked")
+	}
+	for _, q := range s.sender.asked.Questions {
+		if q.Question != question {
+			continue
+		}
+		if q.Custom {
+			return fmt.Errorf("question %q turned custom off and still reached the user with an answer of their own", question)
+		}
+		return nil
+	}
+	return fmt.Errorf("no question %q was asked", question)
+}
+
+func theQuestionToolCustomFlagIsOnByDefault() error {
+	schema := apptools.QuestionTool().Definition.InputSchema
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return err
+	}
+	var doc struct {
+		Properties struct {
+			Questions struct {
+				Items struct {
+					Properties map[string]map[string]interface{} `json:"properties"`
+				} `json:"items"`
+			} `json:"questions"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return err
+	}
+	custom, ok := doc.Properties.Questions.Items.Properties["custom"]
+	if !ok {
+		return fmt.Errorf("the input schema offers the model no custom flag: %s", raw)
+	}
+	if custom["default"] != true {
+		return fmt.Errorf("the custom flag is not on by default: %v", custom)
+	}
+	return nil
+}
+
+func theQuestionToolDescriptionSaysTheUserCanType() error {
+	desc := apptools.QuestionTool().Definition.Description
+	if !strings.Contains(desc, "can type an answer of their own") {
+		return fmt.Errorf("description does not tell the model about the free answer: %q", desc)
+	}
+	return nil
+}
+
 func initializeQuestionArgsScenario(sc *godog.ScenarioContext) {
 	s := &questionArgsState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -99,6 +165,10 @@ func initializeQuestionArgsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the question tool runs with arguments:$`, s.theQuestionToolRunsWithArguments)
 	sc.Step(`^the user was asked "([^"]*)"$`, s.theUserWasAsked)
 	sc.Step(`^the tool returns the answer "([^"]*)"$`, s.theToolReturnsTheAnswer)
+	sc.Step(`^every question the user was asked offers an answer of their own$`, s.everyQuestionOffersAnOwnAnswer)
+	sc.Step(`^the question "([^"]*)" offers only its options$`, s.theQuestionOffersOnlyItsOptions)
+	sc.Step(`^the question tool's custom flag is on by default$`, theQuestionToolCustomFlagIsOnByDefault)
+	sc.Step(`^the question tool's description says the user can type an answer of their own$`, theQuestionToolDescriptionSaysTheUserCanType)
 }
 
 func TestQuestionLenientArgsFeature(t *testing.T) {
@@ -114,5 +184,21 @@ func TestQuestionLenientArgsFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("question lenient args feature suite failed")
+	}
+}
+
+func TestQuestionOwnAnswerFeature(t *testing.T) {
+	suite := godog.TestSuite{
+		Name:                "question-own-answer",
+		ScenarioInitializer: initializeQuestionArgsScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/question_own_answer.feature"},
+			TestingT: t,
+			Strict:   true,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("question own answer feature suite failed")
 	}
 }

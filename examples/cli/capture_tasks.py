@@ -224,7 +224,7 @@ try:
     tui.wait_for("1 running task", timeout=60)
     tui.wait_for(" tokens", timeout=30)
     tui.pump(0.5)
-    for row in (" tokens · 1 running task · ", "run_command"):
+    for row in (" tokens · 1 running task · ", "$ make test"):
         if row not in tui.text():
             raise AssertionError(f"{row!r} is not on the captured screen:\n{tui.text()}")
     capture.snapshot(tui, OUT, NAMES[0])

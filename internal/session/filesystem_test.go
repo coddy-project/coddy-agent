@@ -537,6 +537,21 @@ func TestDeriveSessionTitleStripsAttachmentBlocks(t *testing.T) {
 	}
 }
 
+// A session started by /goal opens with the supervisor's kickoff text, which
+// nobody typed: the title is the objective it carries. A goal chain opens such
+// a session on the server, where no client names it (#512).
+func TestDeriveSessionTitleOfAGoalKickoffIsTheObjective(t *testing.T) {
+	st := &State{ID: "sess_title_goal", CWD: "/tmp", Mode: ModeAgent}
+	st.AddMessage(llm.Message{
+		Role:     llm.RoleUser,
+		Content:  "[Goal set] Start working toward this goal now.\n\n<goal_objective>\nwrite the release notes\n</goal_objective>",
+		GoalTurn: &llm.GoalTurn{Kind: acp.GoalTurnKickoff, Objective: "write the release notes"},
+	})
+	if got := deriveSessionTitle(st); got != "write the release notes" {
+		t.Fatalf("got %q, want the goal objective", got)
+	}
+}
+
 func TestFileStoreResolveSessionID(t *testing.T) {
 	root := t.TempDir()
 	store := &FileStore{Root: root}

@@ -561,6 +561,62 @@ test("the question row records the whole offer, with the taken letters marked", 
   expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
 });
 
+// Issue #257: a question offers the reader an answer of their own unless the
+// model turned custom off, so the record keeps that slot for arguments that do
+// not name the flag, with the words typed there in it, and leaves it out of a
+// question that turned it off.
+test("the record keeps the free slot unless the question turned it off", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-own-default"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [
+          {
+            question: "Which database?",
+            options: [{ label: "postgres" }, { label: "sqlite" }],
+          },
+          {
+            question: "Which checks?",
+            options: [{ label: "lint" }, { label: "tests" }],
+            multiple: true,
+          },
+          {
+            question: "Delete the branch?",
+            options: [{ label: "yes" }, { label: "no" }],
+            custom: false,
+          },
+        ],
+      })}
+      resultText={JSON.stringify({
+        answers: [["the staging one"], ["lint", "a smoke run"], ["yes"]],
+      })}
+    />,
+  );
+  openToolDetails();
+
+  const offers = [...container.querySelectorAll(".question-tool-offer")];
+  expect(offers).toHaveLength(3);
+  const first = [...offers[0]!.querySelectorAll(".question-tool-offer-row")];
+  expect(
+    first.map((r) => r.querySelector(".question-prompt-bubble")?.textContent),
+  ).toEqual(["A", "B", "C"]);
+  expect(first[2]?.classList.contains("question-tool-offer-row--taken")).toBe(
+    true,
+  );
+  expect(first[2]?.textContent).toContain("the staging one");
+  const second = [...offers[1]!.querySelectorAll(".question-tool-offer-row")];
+  expect(
+    second.map((r) => r.classList.contains("question-tool-offer-row--taken")),
+  ).toEqual([true, false, true]);
+  expect(second[2]?.textContent).toContain("a smoke run");
+  const third = [...offers[2]!.querySelectorAll(".question-tool-offer-row")];
+  expect(third.map((r) => r.textContent)).toEqual(["Ayes", "Bno"]);
+  // Every answer sits in a slot of the offer, so no line repeats one below it.
+  expect(container.querySelector(".question-prompt-resolved-a")).toBeNull();
+});
+
 // An answer the reader wrote belongs in the slot they wrote it in: the free row
 // carries their words, not the name of the row.
 test("the free slot carries what the reader typed into it", () => {
@@ -2110,7 +2166,8 @@ test("each answer claims one option, even when two carry the same label", () => 
   openToolDetails();
 
   const rows = [...container.querySelectorAll(".question-tool-offer-row")];
-  expect(rows).toHaveLength(2);
+  // The two options and the free slot a question offers by default.
+  expect(rows).toHaveLength(3);
   expect(
     rows.filter((r) => r.classList.contains("question-tool-offer-row--taken")),
   ).toHaveLength(1);

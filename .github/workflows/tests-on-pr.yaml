@@ -200,7 +200,7 @@ jobs:
 
       - name: Install tgfake
         id: tgfake
-        uses: EvilFreelancer/tgfake@v1.0.0
+        uses: EvilFreelancer/tgfake@v1.1.0
         with:
           version: ${{ steps.pin.outputs.version }}
 
@@ -538,12 +538,13 @@ jobs:
       - name: Check the generated pages, the links and the assets
         run: make docs-check
 
-  # The passes of `make lint` and `make lint-windows`: the untagged tree, every
-  # tag but ui, and the shipped set, each for the host and for the Windows
-  # build, then the TypeScript and the Prettier checks of the web UI. The two tag lists come from
-  # the Makefile (print-full-tags, print-lint-tags-no-ui), so they cannot drift
-  # from what `make lint` compiles; the shipped set embeds the SPA, so the
-  # assets are built first.
+  # The passes of `make lint` and `make lint-windows`: `make fmt-check` (gofmt -s
+  # over every tracked Go file, the ones no pass compiles included), then the
+  # untagged tree, every tag but ui, and the shipped set, each for the host and
+  # for the Windows build, then the TypeScript and the Prettier checks of the
+  # web UI. The two tag lists come from the Makefile (print-full-tags,
+  # print-lint-tags-no-ui), so they cannot drift from what `make lint`
+  # compiles; the shipped set embeds the SPA, so the assets are built first.
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -557,6 +558,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Check Go formatting in every build
+        run: make fmt-check
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

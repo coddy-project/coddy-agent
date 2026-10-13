@@ -80,3 +80,55 @@ test("compaction offers a model added to the settings document before it is save
     JSON.parse(screen.getByTestId("doc").textContent!).compaction.model,
   ).toBe("hub/qwen3-coder");
 });
+
+// The section's own switch turns compaction off altogether, the automatic one
+// only the trigger: it stands with its threshold in a group of its own, never
+// beside the master switch, so the form shows which one depends on which.
+test("compaction groups the automatic switch with its threshold under the master switch", () => {
+  const { container } = render(
+    <SettingsSection
+      section={{
+        id: "compaction",
+        label: "Context compaction",
+        kind: "object",
+        schemaKey: "compaction",
+      }}
+      schema={{
+        type: "object",
+        properties: {
+          compaction: {
+            type: "object",
+            properties: {
+              enable: { type: "boolean" },
+              auto_enable: { type: "boolean" },
+              threshold_percent: { type: "integer" },
+              keep_recent_turns: { type: "integer" },
+              model: { type: "string" },
+            },
+          },
+        },
+      }}
+      doc={{ compaction: { enable: true, auto_enable: true } }}
+      setDoc={() => {}}
+    />,
+  );
+  const fieldsets = Array.from(container.querySelectorAll("fieldset"));
+  const byLegend = (name: string) =>
+    fieldsets.find((f) =>
+      f.querySelector("legend")?.textContent?.includes(name),
+    );
+  const auto = byLegend("Automatic compaction");
+  expect(auto).toBeDefined();
+  expect(auto!.textContent).toContain("Enabled");
+  expect(auto!.textContent).toContain("Threshold (%)");
+  expect(auto!.textContent).not.toContain("Keep recent turns");
+  const summary = byLegend("Summarization");
+  expect(summary!.textContent).toContain("Keep recent turns");
+  expect(summary!.textContent).not.toContain("Threshold (%)");
+  // The master switch opens the form outside every fieldset.
+  const switches = Array.from(
+    container.querySelectorAll('input[type="checkbox"], [role="switch"]'),
+  );
+  expect(switches.filter((s) => !s.closest("fieldset"))).toHaveLength(1);
+  expect(switches.filter((s) => auto!.contains(s))).toHaveLength(1);
+});

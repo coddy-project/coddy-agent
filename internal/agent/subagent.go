@@ -462,9 +462,8 @@ func (s *subagentSender) render(update interface{}) {
 		s.line.WriteString(u.Content.Text)
 		s.flushLines(false)
 	case acp.ToolCallUpdate:
-		// A provider that streams the call's name before its arguments
-		// announces the same call twice (the pending row, then the complete
-		// call); the log names it once.
+		// The loop announces a call once, but a replay or another sender
+		// may repeat a tool_call for an id the log has named; it is named once.
 		if _, seen := s.toolName[u.ToolCallID]; seen && u.ToolCallID != "" {
 			s.toolName[u.ToolCallID] = u.Title
 			return
@@ -850,7 +849,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	// child; only an agent-mode parent lets the definition pick.
 	parentMode := mode
 	childMode := parentMode
-	if def.Mode != "" && parentMode != "plan" && parentMode != "ask" {
+	if _, restricted := modePolicies[parentMode]; def.Mode != "" && !restricted {
 		childMode = def.Mode
 	}
 	childPerm := subagents.NarrowPermissionMode(effectivePermMode(a.state, cfg), def.PermissionMode)
@@ -867,7 +866,8 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	if childDepth > maxDepth || (childDepth == maxDepth && len(childSpawns) == 0) {
 		exclusions = append(exclusions, tools.ToolSpawnAgent)
 	}
-	effective := subagents.EffectiveTools(a.parentToolNames(parentMode), ToolSetForMode(childMode), def, exclusions)
+	parentNames := a.parentToolNames(parentMode)
+	effective := subagents.EffectiveTools(parentNames, modeToolNames(childMode, parentNames), def, exclusions)
 	if len(effective) == 0 {
 		return "", fmt.Errorf("subagent %q would have no tools at all: its allowlist %v leaves nothing of this session's tool set (after the denylist and the mandatory exclusions); fix the definition or pick another subagent",
 			def.Name, def.Tools)

@@ -446,9 +446,22 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 		// /coddy/sessions/{id}/permission on a connection of its own, and a
 		// watcher can pick the prompt up there.
 	}
+	// A wait that ends without an answer still ends the prompt: the turn
+	// records the call as refused (a Stop, a cancelled turn), so a record left
+	// behind would only keep the session "permission pending" in History.
+	// Only this call's record goes; a crash, which runs none of this, keeps it.
+	clearOwnRecord := func() {
+		if sd == "" || relayed {
+			return
+		}
+		if rec, err := session.ReadPendingPermission(sd); err == nil && strings.TrimSpace(rec.ToolCall.ToolCallID) == tcid {
+			_ = session.ClearPendingPermission(sd)
+		}
+	}
 	select {
 	case res := <-ch:
 		if res == nil {
+			clearOwnRecord()
 			return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 		}
 		if sd != "" && !relayed {
@@ -456,6 +469,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 		}
 		return res, nil
 	case <-ctx.Done():
+		clearOwnRecord()
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
 }

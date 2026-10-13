@@ -569,8 +569,8 @@ type stdioTransport struct {
 	// transport does not lean on that). Close does not take it: closing the
 	// pipe is what wakes a write stuck on a server that stopped reading.
 	writeMu sync.Mutex
-	msgs  chan []byte
-	done  chan struct{}
+	msgs    chan []byte
+	done    chan struct{}
 	// exited is closed once the server process has been waited for, stopped
 	// once Close has finished with its process group.
 	exited    chan struct{}

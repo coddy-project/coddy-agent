@@ -81,6 +81,17 @@ type GoalState struct {
 	// supervisor.model, then the session's model, and to its default level.
 	Model     string `json:"model,omitempty"`
 	Reasoning string `json:"reasoning,omitempty"`
+	// ThenFile is the follow-up file of a goal chain (/goal --then-file), as
+	// typed: once the goal is met, its text becomes the goal of a new session
+	// in the same workspace (goal_chain.go).
+	ThenFile string `json:"thenFile,omitempty"`
+	// ChainIndex is the goal's place in its chain: 0 for a goal the operator
+	// set, N in the N-th session the chain opened.
+	ChainIndex int `json:"chainIndex,omitempty"`
+	// ContinuedFrom is the session whose met goal opened this one;
+	// ContinuedIn the session this goal's chain continued in.
+	ContinuedFrom string `json:"continuedFrom,omitempty"`
+	ContinuedIn   string `json:"continuedIn,omitempty"`
 }
 
 // Set reports whether the state holds a goal.
@@ -231,6 +242,10 @@ func GoalSnapshot(g GoalState, cfg *config.Config) *acp.SessionGoal {
 		TokenBudget:      sup.EffectiveTokenBudget(),
 		Model:            g.Model,
 		Reasoning:        g.Reasoning,
+		ThenFile:         g.ThenFile,
+		ChainIndex:       g.ChainIndex,
+		ContinuedFrom:    g.ContinuedFrom,
+		ContinuedIn:      g.ContinuedIn,
 	}
 	if c := g.LastCheck; c != nil {
 		out.LastCheck = &acp.GoalCheck{

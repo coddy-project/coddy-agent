@@ -362,16 +362,19 @@ func (s *Server) SendNotification(method string, params interface{}) error {
 	return s.writeJSON(msg)
 }
 
-// SendSessionUpdate sends a session/update notification.
+// SendSessionUpdate sends a session/update notification. A tool call's kind is
+// translated to the ACP ToolKind enum here (WireToolKind): the agent's own
+// kinds ("write", "run_command") stay what every other surface reads.
 func (s *Server) SendSessionUpdate(sessionID string, update interface{}) error {
 	return s.SendNotification("session/update", map[string]interface{}{
 		"sessionId": sessionID,
-		"update":    update,
+		"update":    wireSessionUpdate(update),
 	})
 }
 
 // RequestPermission sends a session/request_permission request and waits for the response.
 func (s *Server) RequestPermission(ctx context.Context, params PermissionRequestParams) (*PermissionResult, error) {
+	params.ToolCall.Kind = WireToolKind(params.ToolCall.Kind, params.ToolCall.Title)
 	id := s.nextID.Add(1)
 	ch := make(chan *PermissionResult, 1)
 

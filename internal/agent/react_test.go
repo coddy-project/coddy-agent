@@ -203,28 +203,6 @@ func TestExtractContextFiles_fileURI(t *testing.T) {
 	}
 }
 
-func TestToolKind(t *testing.T) {
-	cases := []struct {
-		name, want string
-	}{
-		{"read", "read"},
-		{"glob", "read"},
-		{"grep", "read"},
-		{"coddy_docs_search", "read"},
-		{"coddy_docs_read", "read"},
-		{"write", "write"},
-		{"apply_patch", "write"},
-		{"run_command", "run_command"},
-		{"mkdir", "write"},
-		{"mcp_server__tool", "other"},
-	}
-	for _, tc := range cases {
-		if g := toolKind(tc.name); g != tc.want {
-			t.Errorf("toolKind(%q) = %q, want %q", tc.name, g, tc.want)
-		}
-	}
-}
-
 func TestTodoItemUpdateSavesAndPublishesFinalPlanSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	st := &session.State{
@@ -1604,7 +1582,7 @@ func TestAskToolSetFiltersToReadAndWeb(t *testing.T) {
 	}
 }
 
-func TestToolCallRefusedByModeEnforcesAskOnly(t *testing.T) {
+func TestToolCallRefusedByModeEnforcesAsk(t *testing.T) {
 	if msg, refused := toolCallRefusedByMode("ask", "write"); !refused || !strings.Contains(msg, "Ask mode") {
 		t.Errorf("ask mode must refuse write at execution time, got refused=%v msg=%q", refused, msg)
 	}
@@ -1614,10 +1592,8 @@ func TestToolCallRefusedByModeEnforcesAskOnly(t *testing.T) {
 	if _, refused := toolCallRefusedByMode("ask", "read"); refused {
 		t.Error("ask mode must allow read")
 	}
-	for _, mode := range []string{"agent", "plan"} {
-		if _, refused := toolCallRefusedByMode(mode, "write"); refused {
-			t.Errorf("%s mode must not enforce the execution-time refusal", mode)
-		}
+	if _, refused := toolCallRefusedByMode("agent", "write"); refused {
+		t.Error("agent mode must not enforce the execution-time refusal")
 	}
 }
 

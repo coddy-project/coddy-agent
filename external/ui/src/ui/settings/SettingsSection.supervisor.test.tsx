@@ -1,6 +1,12 @@
 import React from "react";
 import { afterEach, expect, test } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { SettingsSection } from "./SettingsSection";
 
 afterEach(cleanup);
@@ -27,6 +33,7 @@ function Harness() {
               properties: {
                 model: { type: "string" },
                 max_continuations: { type: "integer" },
+                max_chain_sessions: { type: "integer" },
                 stall_seconds: { type: "integer" },
               },
             },
@@ -55,4 +62,12 @@ test("the goal checks and the watchdog are fieldsets of their own", () => {
     .getAllByRole("group")
     .map((g) => g.querySelector("legend")?.textContent);
   expect(legends).toEqual(expect.arrayContaining(["Goal checks", "Watchdog"]));
+});
+
+test("the bound of a goal chain stands with the goal checks", () => {
+  render(<Harness />);
+  const checks = screen
+    .getAllByRole("group")
+    .find((g) => g.querySelector("legend")?.textContent === "Goal checks")!;
+  expect(within(checks).getByText("Max chain sessions")).toBeInTheDocument();
 });

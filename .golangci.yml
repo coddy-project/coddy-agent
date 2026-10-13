@@ -1,0 +1,28 @@
+# golangci-lint v2 configuration. CI pins v2.12.2 (.github/workflows/tests-on-pr.yaml);
+# `make lint` and `make lint-windows` run it three times each (Makefile, "Lint").
+version: "2"
+
+# Until this file existed the linters were golangci-lint's `standard` default:
+# these five. They are listed by name, so a golangci-lint release that widens
+# `standard` cannot fail the build unannounced; adding one is an edit here.
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+# Formatters run inside `golangci-lint run` and report a file whose bytes differ
+# from what the formatter writes; `simplify` holds the tree to `gofmt -s`. Fix a
+# report with `gofmt -s -w <file>` (or `golangci-lint fmt`, which applies every
+# formatter named here). A pass sees only the files it compiles, so a file no
+# pass selects (the http && !<tag> stubs, another platform's files) is held to
+# the same `gofmt -s` by `make fmt-check`.
+formatters:
+  enable:
+    - gofmt
+  settings:
+    gofmt:
+      simplify: true

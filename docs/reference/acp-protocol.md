@@ -518,6 +518,8 @@ After **`session/new`** and **`session/load`**, Coddy lists its slash commands. 
 
 Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancelled`
 
+Tool call kinds are values of the ACP `ToolKind` enum, and Coddy sends no other: `edit` for `write`, `edit`, `apply_patch`, `mkdir`, `touch`, `config_commit` and `config_rollback`; `delete` for `rm` and `rmdir`; `move` for `mv`; `execute` for `run_command` and `ssh_run_command`; `search` for `glob`, `grep` and `coddy_docs_search`; `fetch` for `webfetch`, `websearch` and `http_request`; `read` for the other reading tools; `other` for everything else, MCP tools included. The same kind goes into the `toolCall` of `session/request_permission`.
+
 ### Coddy-specific session updates: `token_usage`, `usage_update`, `provider_usage`
 
 Coddy sends three `session/update` kinds the ACP specification does not
@@ -742,7 +744,7 @@ Under `ask`, a request that belongs to the session itself carries two more optio
     "toolCall": {
       "toolCallId": "call_002",
       "title": "Run: go build ./...",
-      "kind": "run_command",
+      "kind": "execute",
       "status": "pending",
       "content": [
         { "type": "text", "text": "Execute: go build ./..." }

@@ -80,6 +80,7 @@ import { useProviderUsage } from "./chat/useProviderUsage";
 import { parseSSEBlocks } from "./chat/sse";
 import {
   consumeComposerSseReader,
+  type ComposerStreamCursor,
   type ContextUsageUpdate,
 } from "./chat/consumeComposerSse";
 import {
@@ -105,6 +106,7 @@ import {
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
 import { ShadowTranscriptCache } from "./chat/sessionTranscriptCache";
 import {
+  dropSettledPermissionPrompts,
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
   upsertPermissionPromptRecord,
@@ -749,8 +751,22 @@ export function App() {
     new Map<string, { superseded: boolean }>(),
   );
   const stoppedTurnBySidRef = useRef(new Map<string, number>());
-  /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
-  const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
+  /** Last composer relay frame id seen per session, so a re-attach can resume from it,
+   *  with the activity generation of the turn it belongs to: every turn's relay numbers
+   *  its frames from 1, so a cursor kept from an earlier turn would skip the opening
+   *  frames of the next one. */
+  const relayLastEventIdBySidRef = useRef(
+    new Map<string, { id: string; generation: number }>(),
+  );
+  /** Where this tab's reader of each session's running turn (its POST or a
+   *  relay) got to, kept up to date while it reads. */
+  const streamCursorBySidRef = useRef(new Map<string, ComposerStreamCursor>());
+  /** The cursor of a reader a Stop released, for the turn it was reading (by
+   *  activity generation): when the Stop does not take that turn, the relay
+   *  picks it up after the last frame shown instead of from its start. */
+  const releasedCursorBySidRef = useRef(
+    new Map<string, { generation: number; cursor: ComposerStreamCursor }>(),
+  );
   const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
   /** Session ids with an active client-side composer POST or GET relay. */
   const activeComposerSidRef = useRef<Set<string>>(new Set());
@@ -3918,11 +3934,15 @@ export function App() {
     }
 
     if (!sameStream()) return null;
-    // Frames may have arrived while the messages request was in flight.
+    // Frames may have arrived while the messages request was in flight. They
+    // bring back no prompt the read has shown settled.
     const finalItems = localAligned
-      ? mergeTranscriptPreferLocalSuffix(
-          applied,
-          streamShadowBySidRef.current.get(sid),
+      ? dropSettledPermissionPrompts(
+          mergeTranscriptPreferLocalSuffix(
+            applied,
+            streamShadowBySidRef.current.get(sid),
+          ),
+          sid,
         )
       : applied;
     if (finalItems === applied) noteSnapshotRev(finalItems);
@@ -4888,6 +4908,15 @@ export function App() {
     });
   }
 
+  /** The frame cursor kept for the turn now running in `sid`, if it is that turn's. */
+  function relayCursorFor(sid: string): string {
+    const kept = relayLastEventIdBySidRef.current.get(sid);
+    if (!kept) return "";
+    if (kept.generation === turnActivity.generation(sid)) return kept.id;
+    relayLastEventIdBySidRef.current.delete(sid);
+    return "";
+  }
+
   async function rejoinComposerLiveStream(
     sid: string,
     baseline: TranscriptItem[],
@@ -4910,10 +4939,39 @@ export function App() {
 
     addActiveComposer(key);
     const assistantId = newId("a");
-    streamingAssistantBySidRef.current.set(key, assistantId);
+    // A reader of this turn that a Stop released: resume after its last frame,
+    // writing on in its segment, rather than replaying the turn on top of it.
+    const released = releasedCursorBySidRef.current.get(key);
+    releasedCursorBySidRef.current.delete(key);
+    const resume =
+      released &&
+      released.generation === turnActivity.generation(key) &&
+      released.cursor.frames > 0
+        ? released.cursor
+        : undefined;
+    const cursor: ComposerStreamCursor = resume
+      ? { ...resume }
+      : {
+          frames: 0,
+          assistantId,
+          segmentDirty: false,
+          segmentHasText: false,
+        };
+    streamCursorBySidRef.current.set(key, cursor);
+    streamingAssistantBySidRef.current.set(key, cursor.assistantId);
     streamShadowBySidRef.current.set(key, [...baseline]);
     if (viewedSessionIdRef.current.trim() === key) {
       setItems([...baseline]);
+    }
+    if (resume && !resume.segmentDirty) {
+      // The released reader closed the row it was writing; it is open again.
+      applyStreamItemsForSession(key, (prev) =>
+        prev.map((it) =>
+          it.type === "assistant_message" && it.id === resume.assistantId
+            ? { ...it, streaming: true }
+            : it,
+        ),
+      );
     }
 
     const applyStreamItems = (
@@ -4940,7 +4998,7 @@ export function App() {
     try {
       // Resume after the last frame this tab consumed, so a dropped connection costs
       // a gap rather than a replay of the whole turn.
-      const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
+      const resumeFrom = resume ? String(resume.frames) : relayCursorFor(key);
       const headers: Record<string, string> = { [HDR]: key };
       if (resumeFrom) {
         headers["Last-Event-ID"] = resumeFrom;
@@ -4976,6 +5034,7 @@ export function App() {
         dec,
         carry,
         assistantId,
+        cursor,
         applyStreamItems,
         setTokenUsage: branchTokenUsage,
         setContextUsage: branchContextUsage,
@@ -5046,7 +5105,10 @@ export function App() {
       };
 
       if (lastEventId) {
-        relayLastEventIdBySidRef.current.set(key, lastEventId);
+        relayLastEventIdBySidRef.current.set(key, {
+          id: lastEventId,
+          generation: turnActivity.generation(key),
+        });
       }
       // The relay had already dropped frames this tab never saw, so the transcript on
       // screen has a hole in it. The persisted messages are the source of truth.
@@ -5138,6 +5200,8 @@ export function App() {
     } catch {
       // AbortError when relay superseded or fetch aborted
     } finally {
+      if (streamCursorBySidRef.current.get(key) === cursor)
+        streamCursorBySidRef.current.delete(key);
       if (!ownsRelay()) return;
       relayAbortBySidRef.current.delete(key);
       streamingAssistantBySidRef.current.delete(key);
@@ -5180,6 +5244,7 @@ export function App() {
     let postSessionKey = "";
     let completedNormally = false;
     let assistantStreamId = "";
+    let postCursor: ComposerStreamCursor | undefined;
     const isNewChatFirstSend = !sessionId.trim();
     setStartNotice("");
     let releaseSessionId: ((id: string) => void) | undefined;
@@ -5693,6 +5758,14 @@ export function App() {
       const reader = res.body.getReader();
       const dec = new TextDecoder();
       const carry = { buf: "" };
+      const cursor: ComposerStreamCursor = {
+        frames: 0,
+        assistantId,
+        segmentDirty: false,
+        segmentHasText: false,
+      };
+      postCursor = cursor;
+      streamCursorBySidRef.current.set(streamKey, cursor);
 
       const {
         streamErrorMessage,
@@ -5705,6 +5778,7 @@ export function App() {
         dec,
         carry,
         assistantId,
+        cursor,
         applyStreamItems,
         setTokenUsage: branchTokenUsage,
         setContextUsage: branchContextUsage,
@@ -5917,6 +5991,8 @@ export function App() {
       if (pendingPostBySidRef.current.get(postSessionKey) === abortCtl) {
         pendingPostBySidRef.current.delete(postSessionKey);
       }
+      for (const [k, c] of streamCursorBySidRef.current)
+        if (c === postCursor) streamCursorBySidRef.current.delete(k);
       if (!ownsPost()) return;
       postAbortBySidRef.current.delete(postSessionKey);
       noteUsageTurnEnded(postSessionKey);
@@ -5992,7 +6068,13 @@ export function App() {
       // tabs, and a few open tabs of Coddy hold every one of them with event and
       // turn streams: the cancel request then waits for a connection that only
       // this abort frees. The turn does not depend on the stream, and a failed
-      // Stop rejoins it through the relay.
+      // Stop rejoins it through the relay, after the last frame this one read.
+      const cursor = streamCursorBySidRef.current.get(sid);
+      if ((post || relay) && cursor) {
+        cursor.flush?.();
+        const { flush: _flush, ...at } = cursor;
+        releasedCursorBySidRef.current.set(sid, { generation, cursor: at });
+      }
       post?.abort();
       relay?.abort();
       const res = await cancelled;

@@ -50,7 +50,8 @@ type Agent struct {
 	// stays private so callers keep using the integer MaxTurns API.
 	maxTurnsSet bool `yaml:"-"`
 	// LLMRetryMax caps extra attempts shared by transport retries and consecutive
-	// no-answer recoveries. Tool progress or a new follow-up starts a fresh budget.
+	// no-answer, first-token and output-limit (max_tokens) recoveries. Tool
+	// progress or a new follow-up starts a fresh budget.
 	// Nil means 3; explicit 0 disables these retries. Loop guards, Stop hooks,
 	// model fallbacks and opt-in quota waits retain their independent limits.
 	LLMRetryMax *int `yaml:"llm_retry_max"`

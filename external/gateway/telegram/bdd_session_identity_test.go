@@ -50,6 +50,8 @@ type scriptedRunner struct {
 	restricted []bool
 	// langs records the language each turn carried.
 	langs []string
+	// images are the files each turn handed the session (ImageParts).
+	images [][]acp.ImagePartRef
 }
 
 func newScriptedRunner() *scriptedRunner {
@@ -92,6 +94,7 @@ func (r *scriptedRunner) HandleSessionPromptWithSender(_ context.Context, params
 		lang = opts.Lang
 	}
 	r.langs = append(r.langs, lang)
+	r.images = append(r.images, params.ImageParts)
 	answer := r.answer
 	r.mu.Unlock()
 

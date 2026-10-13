@@ -13,6 +13,10 @@ const (
 	SupervisorDefaultMaxNudges        = 2
 	SupervisorDefaultMaxContinuations = 10
 	SupervisorDefaultLoopRepeat       = 3
+	// SupervisorDefaultMaxChainSessions bounds a goal chain (/goal
+	// --then-file): what ends a chain is a follow-up file nobody wrote, and
+	// this is the backstop when the worker keeps writing one.
+	SupervisorDefaultMaxChainSessions = 10
 )
 
 // Supervisor configures the session supervisor: the /goal checks, the
@@ -37,6 +41,9 @@ type Supervisor struct {
 	// TokenBudget caps the uncached input plus output tokens one goal's turns
 	// may spend; 0 or unset is no cap.
 	TokenBudget *int `yaml:"token_budget" json:"token_budget,omitempty"`
+	// MaxChainSessions is how many sessions one goal chain may open one
+	// after another; 0 turns goal chains off.
+	MaxChainSessions *int `yaml:"max_chain_sessions" json:"max_chain_sessions,omitempty"`
 }
 
 // clone copies the pointers, so two configurations never share a bound.
@@ -47,6 +54,7 @@ func (s Supervisor) clone() Supervisor {
 	s.MaxContinuations = cloneIntPtr(s.MaxContinuations)
 	s.LoopRepeat = cloneIntPtr(s.LoopRepeat)
 	s.TokenBudget = cloneIntPtr(s.TokenBudget)
+	s.MaxChainSessions = cloneIntPtr(s.MaxChainSessions)
 	return s
 }
 
@@ -85,6 +93,12 @@ func (s Supervisor) VerifyEnabled() bool {
 	return s.Verify == nil || *s.Verify
 }
 
+// ChainSessionLimit is how many sessions one goal chain may open; zero
+// turns goal chains off.
+func (s Supervisor) ChainSessionLimit() int {
+	return effectiveSupervisorInt(s.MaxChainSessions, SupervisorDefaultMaxChainSessions)
+}
+
 // EffectiveTokenBudget is the token cap of one goal, 0 for none.
 func (s Supervisor) EffectiveTokenBudget() int {
 	return max(effectiveSupervisorInt(s.TokenBudget, 0), 0)
@@ -93,11 +107,12 @@ func (s Supervisor) EffectiveTokenBudget() int {
 // Validate checks the bounds and that the model is configured.
 func (s Supervisor) Validate(cfg *Config) error {
 	for name, value := range map[string]*int{
-		"stall_seconds":     s.StallSeconds,
-		"max_nudges":        s.MaxNudges,
-		"max_continuations": s.MaxContinuations,
-		"loop_repeat":       s.LoopRepeat,
-		"token_budget":      s.TokenBudget,
+		"stall_seconds":      s.StallSeconds,
+		"max_nudges":         s.MaxNudges,
+		"max_continuations":  s.MaxContinuations,
+		"loop_repeat":        s.LoopRepeat,
+		"token_budget":       s.TokenBudget,
+		"max_chain_sessions": s.MaxChainSessions,
 	} {
 		if value != nil && *value < 0 {
 			return fmt.Errorf("supervisor.%s must be non-negative", name)

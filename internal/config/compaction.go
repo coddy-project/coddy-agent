@@ -16,8 +16,8 @@ const (
 
 // Defaults for the compaction.result_eviction subsection.
 const (
-	// ResultEvictionDefaultKeepRecent is how many most recent evictable tool
-	// results (read pages, grep dumps) stay intact as a working window.
+	// ResultEvictionDefaultKeepRecent is how many most recent evictable read and
+	// grep results (read pages, grep dumps) stay intact as a working window.
 	// 2, not 1: a window of 1 cannot hold a read plus a grep at the same time, so
 	// a model comparing the two keeps re-fetching whichever the other just evicted
 	// (the loop guard does not catch it, because alternating calls are not
@@ -65,28 +65,34 @@ type Compaction struct {
 	// it; the session's own model is always the last resort, whether or not it
 	// is listed here (issue #247).
 	FallbackModels []string `yaml:"fallback_models"`
-	// ResultEviction controls pruning of superseded read/grep tool results from
-	// the LLM projection (the persisted transcript is never rewritten).
+	// ResultEviction controls pruning of superseded tool results (read pages,
+	// grep dumps, and the listings of glob, print_tree, websearch and webfetch)
+	// from the LLM projection (the persisted transcript is never rewritten).
 	ResultEviction ResultEviction `yaml:"result_eviction"`
 }
 
 // ResultEviction is the YAML compaction.result_eviction section: collapsing
-// unmarked read/grep results to short placeholders when building the LLM request,
-// so paging a large file or a wide search cannot pin dead lines in every later turn.
+// superseded tool results to short placeholders when building the LLM request,
+// so paging a large file, a wide search or a fan-out of directory listings cannot
+// pin dead lines in every later turn. Unmarked read and grep results go by a
+// window of results (KeepRecent); the listings of glob, print_tree, websearch and
+// webfetch go by a fixed window of whole steps (internal/agent).
 type ResultEviction struct {
 	// Enabled toggles the projection. A nil pointer means the default (true).
 	Enabled *bool `yaml:"enable"`
-	// KeepRecent is how many most recent evictable results stay intact as a
-	// working window. A nil pointer means the default (1); 0 keeps none.
+	// KeepRecent is how many most recent evictable read and grep results stay
+	// intact as a working window. A nil pointer means the default (2); 0 keeps
+	// none. Listing results do not count toward it.
 	KeepRecent *int `yaml:"keep_recent"`
 	// MinResultBytes is the size at or below which a result is never evicted.
 	// A nil pointer means the default (2000); 0 makes every result a candidate.
 	MinResultBytes *int `yaml:"min_result_bytes"`
-	// StartPercent is the share of the effective model's max_context_tokens the
-	// estimated context must reach before eviction starts (default 50, valid
-	// 0..100). 0 evicts from the first result, which is what the projection did
-	// before prompt caching was accounted for. A model without
-	// max_context_tokens cannot be measured and evicts from the start.
+	// StartPercent is the share of the model's context window the estimated
+	// context must reach before eviction starts (default 50, valid 0..100). 0
+	// evicts from the first result, which is what the projection did before
+	// prompt caching was accounted for. Read and grep results of a model without
+	// max_context_tokens are evicted from the start; listing results measure
+	// against the window its provider reports, else the default.
 	StartPercent *int `yaml:"start_percent"`
 }
 

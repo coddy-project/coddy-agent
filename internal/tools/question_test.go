@@ -114,3 +114,37 @@ func TestQuestionToolRejectsGarbageQuestionsPayloads(t *testing.T) {
 		}
 	}
 }
+
+// The custom flag is on unless a question turns it off (issue #257), in every
+// encoding the tool accepts: an array, a single object, either one wrapped in
+// a string.
+func TestQuestionToolCustomIsOnUnlessTheQuestionTurnsItOff(t *testing.T) {
+	r := apptools.NewRegistry()
+	for _, tc := range []struct {
+		name string
+		args string
+		want []bool
+	}{
+		{"array", `{"questions":[` +
+			`{"question":"Off","options":[{"label":"A"}],"custom":false},` +
+			`{"question":"Left out","options":[{"label":"A"}],"multiple":true},` +
+			`{"question":"On","options":[{"label":"A"}],"custom":true}]}`,
+			[]bool{false, true, true}},
+		{"single object", `{"questions":{"question":"Left out","options":[{"label":"A"}]}}`, []bool{true}},
+		{"string-encoded array", `{"questions":"[{\"question\":\"Off\",\"options\":[{\"label\":\"A\"}],\"custom\":false},{\"question\":\"Left out\",\"options\":[{\"label\":\"A\"}]}]"}`, []bool{false, true}},
+	} {
+		s := &fakeSender{}
+		env := &apptools.Env{SessionID: "sess-q", Sender: s}
+		if _, err := r.Execute(context.Background(), "question", tc.args, env); err != nil {
+			t.Fatalf("%s: execute: %v", tc.name, err)
+		}
+		if s.got == nil || len(s.got.Questions) != len(tc.want) {
+			t.Fatalf("%s: asked %#v", tc.name, s.got)
+		}
+		for i, q := range s.got.Questions {
+			if q.Custom != tc.want[i] {
+				t.Fatalf("%s: question %q reached the surface with custom=%v, want %v", tc.name, q.Question, q.Custom, tc.want[i])
+			}
+		}
+	}
+}

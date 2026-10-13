@@ -35,6 +35,7 @@ func TestTunnelPingBudgetIsTheLivenessBound(t *testing.T) {
 
 // With no override the node's HTTP/2 server carries the decided timers; an
 // override replaces them for a scaled test and nothing else.
+//
 //nolint:staticcheck // The test asserts raw http2.Server tunnel settings.
 func TestTunnelServerCarriesTheDecidedPing(t *testing.T) {
 	srv := newTunnelServer(TunnelOptions{})

@@ -265,6 +265,9 @@ func (r *Runtime) Init(opts Options) error {
 	mgr.SetNewSessionsBackgroundMCP(true)
 	// A met goal is confirmed against the workspace by the goal verifier.
 	mgr.SetGoalVerifier(agent.NewGoalVerifier(mgr, log))
+	// A met goal with a follow-up file hands the next task to a new session,
+	// whose first turn this process runs (goal_chain.go).
+	mgr.SetGoalChainStarter(r.runGoalChainTurn)
 	if pid := strings.TrimSpace(opts.PreferredSessionID); pid != "" {
 		if err := session.ValidateFolderSessionID(pid); err != nil {
 			return fmt.Errorf("--session-id: %w", err)

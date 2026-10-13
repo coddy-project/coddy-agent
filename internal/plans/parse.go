@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	frontmatterDelim  = "---"
-	frontmatterClose  = "\n" + frontmatterDelim
+	frontmatterDelim = "---"
+	frontmatterClose = "\n" + frontmatterDelim
 )
 
 // Parse reads a .plan.md file into a Document.

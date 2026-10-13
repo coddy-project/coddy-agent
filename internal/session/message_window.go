@@ -44,7 +44,10 @@ type MessagePage struct {
 // A page never splits a tool step: a start or an end that falls on a tool
 // result moves back to the assistant message that issued the call, so a
 // result always arrives with its call and a page joins the one after it
-// without a gap or an overlap. With Limit, the start moves back to the
+// without a gap or an overlap. Nor does it split an answer the output limit
+// cut off and the model continued: a start or an end that falls on a message
+// that goes on from a truncated one moves back to where that text begins, so
+// a client draws the answer as one text. With Limit, the start moves back to the
 // nearest prompt when one lies within half a page, so a page usually opens
 // with the message that started its turn; a very long turn is still cut, at
 // the step the cut falls in. A page is never empty while messages remain
@@ -90,12 +93,21 @@ func pageStart(msgs []llm.Message, end, limit int) int {
 }
 
 // stepStart moves i back over tool results to the message that issued the
-// calls, so i never names the middle of a tool step.
+// calls, so i never names the middle of a tool step, and over the messages that
+// go on from a truncated one to the start of that text, so a continued answer
+// is never cut in two: a client joins its parts within one page only.
 func stepStart(msgs []llm.Message, i int) int {
-	for i > 0 && i < len(msgs) && msgs[i].Role == llm.RoleTool {
+	for i > 0 && i < len(msgs) && (msgs[i].Role == llm.RoleTool || continuesTruncated(msgs, i)) {
 		i--
 	}
 	return i
+}
+
+// continuesTruncated says whether msgs[i] is an assistant message that goes on
+// from a truncated one (FollowsTruncated), the empty steps between them
+// included.
+func continuesTruncated(msgs []llm.Message, i int) bool {
+	return msgs[i].Role == llm.RoleAssistant && FollowsTruncated(msgs[:i])
 }
 
 // opensTurn reports whether m is the message a turn starts with: a user-role

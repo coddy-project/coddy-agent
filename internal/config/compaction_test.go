@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -158,5 +159,72 @@ func TestResultEvictionValidate(t *testing.T) {
 	}
 	if err := (&Compaction{ResultEviction: ResultEviction{KeepRecent: &neg}}).Validate(); err == nil {
 		t.Fatal("Compaction.Validate must surface result_eviction errors")
+	}
+}
+
+// descendant walks the properties of a JSON-schema-shaped document by name.
+func descendant(t *testing.T, node map[string]interface{}, path ...string) map[string]interface{} {
+	t.Helper()
+	for _, name := range path {
+		props, ok := node["properties"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("no properties before %q", name)
+		}
+		next, ok := props[name].(map[string]interface{})
+		if !ok {
+			t.Fatalf("no property %q", name)
+		}
+		node = next
+	}
+	return node
+}
+
+// describedSchemas returns the two documents a person reads a key by: the
+// published config.schema.json and the Settings form's UISchemaMap.
+func describedSchemas(t *testing.T) map[string]map[string]interface{} {
+	t.Helper()
+	var schema map[string]interface{}
+	if err := json.Unmarshal(ConfigSchemaJSON(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	return map[string]map[string]interface{}{"config.schema.json": schema, "UISchemaMap": UISchemaMap()}
+}
+
+// result_eviction also collapses the listings of a fixed set of tools, so the
+// section no longer calls itself read/grep only and names each listing tool it
+// takes.
+func TestResultEvictionDescriptionsNameTheListingTools(t *testing.T) {
+	for name, root := range describedSchemas(t) {
+		section := descendant(t, root, "compaction", "result_eviction")
+		title, _ := section["title"].(string)
+		desc, _ := section["description"].(string)
+		if strings.Contains(strings.ToLower(title), "read/grep") {
+			t.Errorf("%s: the section still calls itself read/grep only: %q", name, title)
+		}
+		for _, tool := range []string{"glob", "print_tree", "websearch", "webfetch"} {
+			if !strings.Contains(desc, tool) {
+				t.Errorf("%s: the description of compaction.result_eviction does not name %s: %q", name, tool, desc)
+			}
+		}
+	}
+}
+
+// The fold of a long turn's earlier steps and the recovery from a request the
+// provider refused as too large are part of automatic compaction, with no
+// switch of their own: compaction has no in_turn section, and the description
+// of auto_enable, in both documents a person reads the key by, names both.
+func TestAutoEnableDescriptionsNameTheInTurnFoldAndTheRecovery(t *testing.T) {
+	for name, root := range describedSchemas(t) {
+		section := descendant(t, root, "compaction")
+		props, _ := section["properties"].(map[string]interface{})
+		if _, ok := props["in_turn"]; ok {
+			t.Errorf("%s: compaction still has an in_turn section", name)
+		}
+		desc, _ := descendant(t, section, "auto_enable")["description"].(string)
+		for _, want := range []string{"earlier steps", "refuses"} {
+			if !strings.Contains(desc, want) {
+				t.Errorf("%s: the description of compaction.auto_enable does not mention %q: %q", name, want, desc)
+			}
+		}
 	}
 }

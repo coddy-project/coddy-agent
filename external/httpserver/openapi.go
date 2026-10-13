@@ -1367,7 +1367,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/goal": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "The session goal",
-					"description": "Answers **{object: \"coddy.session_goal\", sessionId, goal, version}**: **goal** is null without one, else **id**, **objective**, **status** (**active**, **paused**, **blocked**, **complete**, **limited**), **statusReason**, **setAt**, **updatedAt**, **continuations** of **maxContinuations**, **checks**, **activeMs**, **tokensUsed** and **tokenBudget** (0 for none), **lastCheck** (**verdict** met / not_met / needs_user / impossible, **reason**, **remaining**, **verified**, **at**, **model**) and **checklist** (**text**, **status** met / not_met / unverified, **evidence**), and **model** / **reasoning**, the checker **/goal --model** and **--reasoning** chose (absent when the goal follows the configuration), and **checkModel** / **checkReasoning**, what the next check runs on: **model**, else **supervisor.model**, else the session's model, at **reasoning**, else that model's **reasoning_default** (**default** when the model offers levels but configures none, absent when it offers none). **version** orders it against the **session_goal** frames of **GET /coddy/events** and of a turn's stream. Setting a goal and starting work on it is a prompt, **/goal <objective>**, sent through **POST /v1/responses**; so is **/goal resume**.",
+					"description": "Answers **{object: \"coddy.session_goal\", sessionId, goal, version}**: **goal** is null without one, else **id**, **objective**, **status** (**active**, **paused**, **blocked**, **complete**, **limited**), **statusReason**, **setAt**, **updatedAt**, **continuations** of **maxContinuations**, **checks**, **activeMs**, **tokensUsed** and **tokenBudget** (0 for none), **lastCheck** (**verdict** met / not_met / needs_user / impossible, **reason**, **remaining**, **verified**, **at**, **model**) and **checklist** (**text**, **status** met / not_met / unverified, **evidence**), and **model** / **reasoning**, the checker **/goal --model** and **--reasoning** chose (absent when the goal follows the configuration), and **checkModel** / **checkReasoning**, what the next check runs on: **model**, else **supervisor.model**, else the session's model, at **reasoning**, else that model's **reasoning_default** (**default** when the model offers levels but configures none, absent when it offers none). A goal of a chain also carries **thenFile**, the follow-up file **/goal --then-file** named (once the goal is met, its text becomes the goal of a new session in the same workspace), **chainIndex**, its place in the chain (0 for the goal the operator set, N in the N-th session the chain opened), and **continuedFrom** / **continuedIn**, the sessions on either side. **version** orders it against the **session_goal** frames of **GET /coddy/events** and of a turn's stream. Setting a goal and starting work on it is a prompt, **/goal <objective>**, sent through **POST /v1/responses**; so is **/goal resume**.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."},
 					},
@@ -1379,7 +1379,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"patch": map[string]interface{}{
 					"summary":     "Pause the goal or set its objective",
-					"description": "Send exactly one of **status** or **objective**. **status: \"paused\"** stops the automatic continuations and keeps the goal (a turn working on it finishes its step); no goal answers **409** with code **no_goal**, any other status **400** with **invalid_request**. **objective** replaces the goal with a fresh active one without starting a turn: the next prompt works under it; an empty one or one over 4000 characters is a **400**. Answers like **GET**.",
+					"description": "Send exactly one of **status** or **objective**. **status: \"paused\"** stops the automatic continuations and keeps the goal (a turn working on it finishes its step); no goal answers **409** with code **no_goal**, any other status **400** with **invalid_request**. **objective** replaces the goal with a fresh active one without starting a turn, its follow-up file and its place in a chain dropped with the rest: the next prompt works under it; an empty one or one over 4000 characters is a **400**. Answers like **GET**.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}, "description": "Session id."},
 					},
@@ -3894,6 +3894,10 @@ func openAPISpec() map[string]interface{} {
 						"compaction_summary": map[string]interface{}{
 							"type":        "boolean",
 							"description": "Coddy transcript extension: this row is a generated summary of earlier history (context compaction). Rows before the last summary are excluded from LLM prompts but stay in the transcript.",
+						},
+						"truncated": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Coddy transcript extension: this assistant row's text stops partway because the model's output limit cut it off (or a provider failure cut off a part of an answer the model was continuing), and the assistant row after it, when there is one, goes on from its last character. Draw the two as one text, joined with nothing between; `content` is stored as streamed, whitespace at the join included.",
 						},
 						"background_wake": map[string]interface{}{
 							"type":                 "object",

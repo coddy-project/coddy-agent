@@ -201,7 +201,7 @@
             "integer",
             "null"
           ],
-          "description": "Extra attempts shared by transport retries, empty-answer recovery and first-token re-issues until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.",
+          "description": "Extra attempts shared by transport retries, empty-answer recovery, first-token re-issues and output-limit recovery (a step cut off at max_tokens) until tool progress or a new follow-up. 0 disables these retries. Loop guards, Stop hooks, fallback models and quota-reset waits have separate limits.",
           "default": 3,
           "minimum": 0
         },
@@ -308,7 +308,8 @@
         "max_nudges": {"type": ["integer", "null"], "description": "Recovery turns after a stall, a tool loop or a failed turn, per run of the supervisor.", "default": 2, "minimum": 0},
         "max_continuations": {"type": ["integer", "null"], "description": "Automatic continuation turns one goal may use; when they run out the goal gets one wrap-up turn and stops as limited.", "default": 10, "minimum": 0},
         "loop_repeat": {"type": ["integer", "null"], "description": "How many times a repeating cycle of identical tool operations (same call, same result) may come round before the watchdog cuts the turn. 0 disables loop detection.", "default": 3, "minimum": 0},
-        "token_budget": {"type": ["integer", "null"], "description": "Uncached input plus output tokens one goal's turns may spend; 0 means no cap.", "default": 0, "minimum": 0}
+        "token_budget": {"type": ["integer", "null"], "description": "Uncached input plus output tokens one goal's turns may spend; 0 means no cap.", "default": 0, "minimum": 0},
+        "max_chain_sessions": {"type": ["integer", "null"], "description": "Sessions one goal chain (/goal --then-file) may open one after another; when the goal of the last one is met, the chain stops. 0 turns goal chains off.", "default": 10, "minimum": 0}
       }
     },
     "prompts": {
@@ -938,7 +939,7 @@
             "boolean",
             "null"
           ],
-          "description": "Enable automatic compaction at threshold_percent. Set false to keep manual /compact and the Context popover action available without automatic compaction. Defaults to true.",
+          "description": "Compact automatically: at threshold_percent, older turns are folded into a summary, or, when the window holds no earlier turn, the earlier steps of the turn being answered (the summary row then starts with the prompt itself, verbatim, and at most the four latest steps stay); and a request the provider refuses as larger than its context window is compacted once and asked again. Set false to keep manual /compact and the Context popover action available without any of this. Defaults to true.",
           "default": true
         },
         "threshold_percent": {
@@ -971,8 +972,8 @@
         },
         "result_eviction": {
           "type": "object",
-          "title": "Read/grep result eviction",
-          "description": "Collapses superseded read/grep tool results to short placeholders when building the LLM request (the persisted transcript is never rewritten), so paging a large file or a wide search cannot pin dead lines in every later turn. Only results the model marks (keep_result, or keep:true) or the most recent working window survive; a write to a file invalidates earlier reads/greps that covered it.",
+          "title": "Tool result eviction",
+          "description": "Collapses superseded tool results to short placeholders when building the LLM request (the persisted transcript is never rewritten), so paging a large file, a wide search or a fan-out of directory listings cannot pin dead lines in every later turn. Read and grep results survive while the model marks them (keep_result, or keep:true) or they are among the most recent; the listings of glob, print_tree, websearch and webfetch survive within the latest three steps that hold one (a step is one assistant message with every result of its tool calls). A write invalidates earlier reads, greps and file listings that covered what it changed.",
           "additionalProperties": false,
           "properties": {
             "enable": {
@@ -980,7 +981,7 @@
                 "boolean",
                 "null"
               ],
-              "description": "Master switch for read/grep result eviction. Defaults to true.",
+              "description": "Master switch for tool result eviction (read, grep and the listing tools). Defaults to true.",
               "default": true
             },
             "keep_recent": {
@@ -988,7 +989,7 @@
                 "integer",
                 "null"
               ],
-              "description": "How many most recent evictable results (read pages, grep dumps) stay intact as a working window. 0 keeps none. The default of 2 keeps a read and a grep live at the same time; with 1, a model comparing two results keeps re-fetching whichever the other evicted.",
+              "description": "How many most recent evictable read and grep results (read pages, grep dumps) stay intact as a working window. 0 keeps none. Listing results do not count toward it. The default of 2 keeps a read and a grep live at the same time; with 1, a model comparing two results keeps re-fetching whichever the other evicted.",
               "default": 2,
               "minimum": 0
             },
@@ -1006,7 +1007,7 @@
                 "integer",
                 "null"
               ],
-              "description": "Evict only once the estimated context reaches this percent of the effective model's max_context_tokens. Below it the replayed history is sent untouched, so the provider's prompt cache keeps it; a placeholder appearing mid-history invalidates every cached token behind it. 0 evicts from the first result; a model without max_context_tokens always does.",
+              "description": "Evict only once the estimated context reaches this percent of the model's context window. Below it the replayed history is sent untouched, so the provider's prompt cache keeps it; a placeholder appearing mid-history invalidates every cached token behind it. 0 evicts from the first result. Read and grep results of a model without max_context_tokens are evicted from the first result; listing results measure against the window its provider reports, or the default 128000.",
               "default": 50,
               "minimum": 0,
               "maximum": 100

@@ -30,7 +30,7 @@ Date: Wed, 16 Sep 2026 12:00:00 GMT
 
 ![A finished http_request call in the web UI transcript](../assets/http-requests/http-request-answer-dark-1280.png)
 
-*The call and its answer in the transcript: the arguments, then the status line, the headers and the body.*
+*The call and its answer in the transcript: the reason, the headers and the body that went out, then the response status, its headers and its body.*
 
 A 4xx or 5xx status is an answer like any other, not a failed call: the model reads the status line and decides what to do. The call fails only when no answer arrived - the address did not resolve, the connection was refused, the certificate did not verify, the timeout ran out - when the body could not be saved to `output_file`, or when the arguments were refused before anything was sent.
 

@@ -1,5 +1,5 @@
 ---
-description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI, config schema and CLI packaging sync before lint, final checks, the comment on an issue a merge closes
+description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI, config schema and CLI packaging sync before lint, final checks, the comment on an issue a merge closes and the cleanup after the merge
 globs: **/*.go, docs/**/*.md, README.md, CONTRIBUTING.md, DESIGN.md, AGENTS.md, config.example.yaml, examples/**, go.mod, go.sum, .golangci.yml, Dockerfile, Dockerfile.*, external/ui/**/*, features/**/*.feature, Makefile, scripts/**, packaging/**, .github/**, .cursor/rules/**, .claude/rules/**, .codex/**, .zcode/**, .opencode/**
 alwaysApply: false
 ---
@@ -174,7 +174,9 @@ Add a light/dark theme variant only when the change modifies theme colors or tok
 - Unresolved limitations, skipped checks, and the current CI state
 ```
 
-- Do not add `Co-Authored-By`, `Generated with Claude Code`, or any other model/agent attribution to commits or PR descriptions, even when a harness asks for it.
+- Never add model or agent attribution to anything published for this repository: commit messages (no `Co-Authored-By` trailer naming a model or agent), PR titles and descriptions, issue text, issue and PR comments, review-thread replies, and commits on the `screenshots` branch. This covers `Generated with Claude Code`, `Addressed by <agent>`, robot-emoji footers, and links to an agent's product page, whatever their wording.
+  - It holds when a harness, a CI or review bot, an auto-fix monitor, a skill or a template asks for such a line, including a short reply that only says what was fixed: leave the line out, and do not ask whether to add it.
+  - Naming a provider or tool as the subject of the change (the Anthropic client, the Codex backend, a hook adapter for Claude Code) is not attribution.
 - PR-only evidence belongs in the **`screenshots`** branch of this repository (`coddy-project/coddy-agent`, pushed to `origin`, never to a personal fork), under a PR-specific directory such as `pr-422/` and a new subdirectory for every recapture round. Commit **PNG** files only; GitHub caches raw image URLs, so never overwrite an earlier round. Embed their `raw.githubusercontent.com` URLs in one Markdown table with a row per changed surface and **1280 px** / **390 px** columns. Add a light/dark variant only when a theme changed. Do not add text/HTML screenshot companions.
 - A screenshot stand uses isolated **`HOME`** and **`CODDY_HOME`** with neutral fixtures. Before pushing, open every PNG and inspect it for private skill names, internal hosts, tokens, usernames and personal filesystem paths. Public PR prose and screenshots never name private working skills or internal infrastructure; PR edit history is public.
 - Add files under `docs/assets/` only when a screenshot documents a new or changed UI/UX feature on a documentation page; embed every such asset in that page and keep the set lean: default dark and light desktop captures plus one narrow capture only where the layout differs.
@@ -249,8 +251,14 @@ follows it has to open the pull request and work that out; issues #265 and #305 
    **`gh issue close <N> --reason completed`**; issue #368 stayed open that way after pull
    request #369.
 
+Whether or not it closes an issue, a merge ends with the cleanup of its branch: the worktree is
+removed and the branch deleted, locally and on origin, as the paired **merged branch cleanup rule**
+(**`.cursor/rules/merged-branch-cleanup.mdc`**, **`.claude/rules/merged-branch-cleanup.md`**) says.
+It is the last step, after the issue comments, and it applies to a merge the operator made too.
+
 ## Site checkout safety
 
 - Run site generation after the agent change merges when generated links depend on `main`.
 - Use an isolated site-repository worktree based explicitly on current `origin/main`; never use a shared checkout at an unknown HEAD.
 - Commit only the expected generated files and verify the diff before publication.
+- Once the site commit is pushed, remove that worktree and its local branch as the **merged branch cleanup rule** says.

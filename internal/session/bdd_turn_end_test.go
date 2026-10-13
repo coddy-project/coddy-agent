@@ -101,6 +101,9 @@ type turnEndState struct {
 	state  *session.State
 	stop   acp.StopReason
 	runErr error
+	// mgr and sessionID are the session the scenario's prompts go to.
+	mgr       *session.Manager
+	sessionID string
 	// partial is the text the scripted model streamed before breaking off.
 	partial string
 }
@@ -175,6 +178,71 @@ func (s *turnEndState) modelBreaksOffOnce(code int, partial string) error {
 	return nil
 }
 
+// modelCutOffWhileReasoning scripts a first step that spends its whole output
+// budget on thinking: reasoning streams in, then the server reports
+// finish_reason "length" with no answer text and no tool call. The next step
+// answers.
+func (s *turnEndState) modelCutOffWhileReasoning() error {
+	s.serve(func(n int, w io.Writer) {
+		if n == 1 {
+			sseChunk(w, map[string]any{"role": "assistant", "reasoning_content": "Let me work out how to lay the whole file out first"}, nil)
+			sseChunk(w, map[string]any{}, "length")
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+			return
+		}
+		sseAnswer(w, turnEndAnswer)
+	})
+	return nil
+}
+
+// modelCutOffAfter scripts a first reply that stops at the output limit in the
+// middle of its text: the text streams in, then the server reports
+// finish_reason "length". The next step writes the rest of the sentence.
+func (s *turnEndState) modelCutOffAfter(partial string) error {
+	s.partial = partial
+	s.serve(func(n int, w io.Writer) {
+		if n == 1 {
+			sseChunk(w, map[string]any{"role": "assistant", "content": partial}, nil)
+			sseChunk(w, map[string]any{}, "length")
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+			return
+		}
+		if n == 2 {
+			sseAnswer(w, strings.TrimPrefix(turnEndAnswer, partial))
+			return
+		}
+		sseAnswer(w, "Noted.")
+	})
+	return nil
+}
+
+// cutOffWritePath is the file the scripted write call was aimed at.
+const cutOffWritePath = "module.go"
+
+// modelWriteCutOff scripts a first step that runs out of output budget in the
+// middle of a write call: the arguments stream in and stop inside the content
+// string, then the server reports finish_reason "length". The server hands the
+// call over as it stands, so its arguments are not valid JSON. The next step
+// answers.
+func (s *turnEndState) modelWriteCutOff() error {
+	s.serve(func(n int, w io.Writer) {
+		if n == 1 {
+			sseChunk(w, map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"index": 0, "id": "call_write", "type": "function",
+				"function": map[string]any{"name": "write", "arguments": `{"path":"` + cutOffWritePath + `","content":"package module`},
+			}}}, nil)
+			sseChunk(w, map[string]any{"tool_calls": []any{map[string]any{
+				"index": 0, "function": map[string]any{"arguments": `\n\nfunc Run() {\n`},
+			}}}, nil)
+			sseChunk(w, map[string]any{}, "length")
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+			return
+		}
+		sseAnswer(w, turnEndAnswer)
+	})
+	return nil
+}
+
 func (s *turnEndState) agentWithMaxTurns(maxTurns int) error {
 	s.cfg = &config.Config{
 		Paths:     config.Paths{Home: s.home, CWD: s.cwd},
@@ -201,15 +269,29 @@ func (s *turnEndState) userSendsPrompt() error {
 	if err != nil {
 		return fmt.Errorf("session/new: %w", err)
 	}
-	res, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
-		SessionID: newRes.SessionID,
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: "read the notes and sum them up"}},
+	s.mgr, s.sessionID = mgr, newRes.SessionID
+	return s.prompt(ctx, "read the notes and sum them up")
+}
+
+// prompt sends one prompt to the session the scenario opened and keeps how the
+// turn ended.
+func (s *turnEndState) prompt(ctx context.Context, text string) error {
+	res, err := s.mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: s.sessionID,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
 	})
 	s.runErr = err
 	if res != nil {
 		s.stop = res.StopReason
 	}
 	return nil
+}
+
+// userSendsAnotherPrompt is the next turn of the same session.
+func (s *turnEndState) userSendsAnotherPrompt() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return s.prompt(ctx, "now run the tests")
 }
 
 func (s *turnEndState) lastAssistantText() string {
@@ -317,6 +399,235 @@ func (s *turnEndState) nextRequestContinued() error {
 	return fmt.Errorf("the second request does not ask the model to continue after the partial answer: %s", calls[1])
 }
 
+// secondRequestAskedForShortReasoning: the request after the cut-off step ends
+// with the corrective message, after the user's prompt, and does not replay the
+// step that was cut off. The cut-off step is the only thing the model has said
+// so far, so any assistant message in the request is that step (sent with an
+// empty content: the reasoning of a message without tool calls is never sent),
+// and its reasoning text appears nowhere in the body.
+func (s *turnEndState) secondRequestAskedForShortReasoning() error {
+	calls := s.stub.calls()
+	if len(calls) < 2 {
+		return fmt.Errorf("the model was called %d time(s), want a second request", len(calls))
+	}
+	var req struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content any    `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(calls[1], &req); err != nil {
+		return err
+	}
+	promptAt, nudgeAt := -1, -1
+	for i, m := range req.Messages {
+		text := strings.ToLower(fmt.Sprint(m.Content))
+		switch {
+		case m.Role == "user" && strings.Contains(text, "read the notes and sum them up"):
+			promptAt = i
+		case m.Role == "user" && strings.Contains(text, "output limit") && strings.Contains(text, "keep your reasoning short") && strings.Contains(text, "split"):
+			nudgeAt = i
+		case m.Role == "assistant":
+			return fmt.Errorf("the second request replays the step that was cut off: %s", calls[1])
+		}
+	}
+	if strings.Contains(string(calls[1]), "lay the whole file out") {
+		return fmt.Errorf("the second request carries the reasoning of the step that was cut off: %s", calls[1])
+	}
+	if promptAt < 0 || nudgeAt < promptAt {
+		return fmt.Errorf("the second request does not carry the corrective message after the prompt (prompt at %d, message at %d): %s", promptAt, nudgeAt, calls[1])
+	}
+	return nil
+}
+
+// requestMessage is a message of a chat completions request as the stand
+// receives it.
+type requestMessage struct {
+	Role      string          `json:"role"`
+	Content   any             `json:"content"`
+	ToolCalls json.RawMessage `json:"tool_calls"`
+}
+
+// secondRequest decodes the messages of the request that followed the first step.
+func (s *turnEndState) secondRequest() ([]requestMessage, []byte, error) {
+	calls := s.stub.calls()
+	if len(calls) < 2 {
+		return nil, nil, fmt.Errorf("the model was called %d time(s), want a second request", len(calls))
+	}
+	var req struct {
+		Messages []requestMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(calls[1], &req); err != nil {
+		return nil, nil, err
+	}
+	return req.Messages, calls[1], nil
+}
+
+// turnEndsWithRestOfSentence: the turn ended normally, and the assistant
+// messages of the transcript are the two halves of the sentence the model was
+// cut off in, stored as they streamed - the first marked as cut off, the second
+// with the space it starts with - so that joined they are the sentence.
+func (s *turnEndState) turnEndsWithRestOfSentence() error {
+	if s.runErr != nil {
+		return fmt.Errorf("the turn failed: %v", s.runErr)
+	}
+	if s.stop != acp.StopReasonEndTurn {
+		return fmt.Errorf("stop reason = %q, want end_turn", s.stop)
+	}
+	var said []llm.Message
+	for _, m := range s.state.GetMessages() {
+		if m.Role == llm.RoleAssistant {
+			said = append(said, m)
+		}
+	}
+	rest := strings.TrimPrefix(turnEndAnswer, s.partial)
+	if len(said) != 2 || said[0].Content != s.partial || !said[0].Truncated || said[1].Content != rest || said[0].Content+said[1].Content != turnEndAnswer {
+		return fmt.Errorf("the assistant said %+v, want %q (cut off) and then %q", said, s.partial, rest)
+	}
+	return nil
+}
+
+// turnHandsOverTheWholeSentence: the last assistant message of the transcript is
+// the second half of the sentence, and the answer the turn hands over - what a
+// subagent's report, a non-streaming reply and a Stop hook read - is the whole
+// sentence, the first half stored as it streamed joined in front of it.
+func (s *turnEndState) turnHandsOverTheWholeSentence() error {
+	if s.runErr != nil {
+		return fmt.Errorf("the turn failed: %v", s.runErr)
+	}
+	msgs := s.state.GetMessages()
+	last := -1
+	for i := len(msgs) - 1; i >= 0 && last < 0; i-- {
+		if msgs[i].Role == llm.RoleAssistant {
+			last = i
+		}
+	}
+	if last < 0 {
+		return fmt.Errorf("the transcript holds no assistant message")
+	}
+	if msgs[last].Content == turnEndAnswer {
+		return fmt.Errorf("the sentence is one message %q; nothing was continued", msgs[last].Content)
+	}
+	if got := session.ContinuedAnswer(msgs, last); got != turnEndAnswer {
+		return fmt.Errorf("the answer handed over is %q, want the whole sentence %q", got, turnEndAnswer)
+	}
+	return nil
+}
+
+// secondRequestContinuedTheText: the partial text is replayed as an assistant
+// message and the corrective message after it asks the model to go on exactly
+// where it stopped.
+func (s *turnEndState) secondRequestContinuedTheText() error {
+	msgs, body, err := s.secondRequest()
+	if err != nil {
+		return err
+	}
+	partialAt := -1
+	for i, m := range msgs {
+		text := strings.ToLower(fmt.Sprint(m.Content))
+		switch {
+		case m.Role == "assistant" && strings.Contains(text, strings.ToLower(s.partial)):
+			partialAt = i
+		case partialAt >= 0 && m.Role == "user" && strings.Contains(text, "output limit") && strings.Contains(text, "exactly where it stopped"):
+			return nil
+		}
+	}
+	if partialAt < 0 {
+		return fmt.Errorf("the second request does not replay the partial text: %s", body)
+	}
+	return fmt.Errorf("the second request does not ask the model to go on exactly where it stopped after the partial text: %s", body)
+}
+
+// nextTurnCarriesTheSentenceAsOneMessage: the request of the turn that came
+// after the continued answer holds that answer as one assistant message, the
+// sentence whole, and never two assistant messages in a row, which chat templates
+// that insist on alternation refuse every turn after.
+func (s *turnEndState) nextTurnCarriesTheSentenceAsOneMessage() error {
+	calls := s.stub.calls()
+	if len(calls) < 3 {
+		return fmt.Errorf("the model was called %d time(s), want a request for the second turn", len(calls))
+	}
+	var req struct {
+		Messages []requestMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(calls[2], &req); err != nil {
+		return err
+	}
+	var said []string
+	for i, m := range req.Messages {
+		if m.Role != "assistant" {
+			continue
+		}
+		if i > 0 && req.Messages[i-1].Role == "assistant" {
+			return fmt.Errorf("two assistant messages in a row at %d: %s", i, calls[2])
+		}
+		said = append(said, fmt.Sprint(m.Content))
+	}
+	if len(said) != 1 || said[0] != turnEndAnswer {
+		return fmt.Errorf("the second turn carries the assistant messages %q, want the one sentence %q", said, turnEndAnswer)
+	}
+	return nil
+}
+
+func (s *turnEndState) cutOffFileDoesNotExist() error {
+	if _, err := os.Stat(filepath.Join(s.cwd, cutOffWritePath)); err == nil {
+		return fmt.Errorf("%s was written by a call that was cut off", cutOffWritePath)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// secondRequestAskedForSmallerPieces: after the prompt, a corrective message
+// names the output limit, says the call was not run and asks for smaller calls.
+func (s *turnEndState) secondRequestAskedForSmallerPieces() error {
+	msgs, body, err := s.secondRequest()
+	if err != nil {
+		return err
+	}
+	promptAt := -1
+	for i, m := range msgs {
+		text := strings.ToLower(fmt.Sprint(m.Content))
+		switch {
+		case m.Role == "user" && strings.Contains(text, "read the notes and sum them up"):
+			promptAt = i
+		case promptAt >= 0 && m.Role == "user" && strings.Contains(text, "output limit") &&
+			strings.Contains(text, "was not run") && strings.Contains(text, "smaller tool calls"):
+			return nil
+		}
+	}
+	return fmt.Errorf("the second request does not carry the corrective message after the prompt: %s", body)
+}
+
+// secondRequestHoldsNoCall: the call that was cut off is nowhere in the next
+// request - no assistant tool call, no tool result, none of its content - so a
+// provider that parses the arguments of the history is never handed half a
+// JSON document.
+func (s *turnEndState) secondRequestHoldsNoCall() error {
+	msgs, body, err := s.secondRequest()
+	if err != nil {
+		return err
+	}
+	for i, m := range msgs {
+		if m.Role == "tool" || len(m.ToolCalls) > 0 {
+			return fmt.Errorf("message %d of the second request is part of the cut-off call: %s", i, body)
+		}
+	}
+	if strings.Contains(string(body), "package module") || strings.Contains(string(body), "call_write") {
+		return fmt.Errorf("the second request carries the cut-off call: %s", body)
+	}
+	return nil
+}
+
+func (s *turnEndState) noNoticeAboutOutputLimit() error {
+	for _, e := range s.state.GetUILog() {
+		if strings.Contains(e.Message, "max_tokens") || strings.Contains(e.Message, "output limit") {
+			return fmt.Errorf("the session's log carries %s: %q", e.Level, e.Message)
+		}
+	}
+	return nil
+}
+
 func (s *turnEndState) noticeProviderRecovered() error {
 	return s.noticeContaining(session.UILogLevelNotice, "server error 500")
 }
@@ -332,6 +643,7 @@ func initializeTurnEndScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^a model that reads a file (\d+) times before it answers$`, s.modelReadsBeforeAnswering)
 	sc.Step(`^a model whose first answer breaks off with "server error (\d+)" after "([^"]+)"$`, s.modelBreaksOffOnce)
+	sc.Step(`^a model whose first step is cut off at the output limit while it was still reasoning$`, s.modelCutOffWhileReasoning)
 	sc.Step(`^an agent with no step limit configured$`, s.agentWithoutLimit)
 	sc.Step(`^an agent whose agent\.max_turns is (\d+)$`, s.agentWithMaxTurns)
 	sc.Step(`^the user sends a prompt$`, s.userSendsPrompt)
@@ -342,6 +654,18 @@ func initializeTurnEndScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript keeps "([^"]+)" that the user already saw$`, s.transcriptKeepsPartial)
 	sc.Step(`^the next request carried that part and asked the model to continue$`, s.nextRequestContinued)
 	sc.Step(`^the session's log carries a notice that the provider failed and the turn went on$`, s.noticeProviderRecovered)
+	sc.Step(`^the second request asked the model to keep its reasoning short and split large writes$`, s.secondRequestAskedForShortReasoning)
+	sc.Step(`^the session's log carries no notice about the output limit$`, s.noNoticeAboutOutputLimit)
+	sc.Step(`^a model whose first reply is cut off at the output limit after "([^"]+)"$`, s.modelCutOffAfter)
+	sc.Step(`^a model whose first step is a write call cut off at the output limit$`, s.modelWriteCutOff)
+	sc.Step(`^the turn ends with the rest of the sentence$`, s.turnEndsWithRestOfSentence)
+	sc.Step(`^the answer the turn hands over is the whole sentence$`, s.turnHandsOverTheWholeSentence)
+	sc.Step(`^the second request carried that part and asked the model to continue exactly where it stopped$`, s.secondRequestContinuedTheText)
+	sc.Step(`^the user sends another prompt$`, s.userSendsAnotherPrompt)
+	sc.Step(`^the request of the second turn carries the sentence as one assistant message$`, s.nextTurnCarriesTheSentenceAsOneMessage)
+	sc.Step(`^the file the cut-off call was writing does not exist$`, s.cutOffFileDoesNotExist)
+	sc.Step(`^the second request asked the model to make the call again in smaller pieces$`, s.secondRequestAskedForSmallerPieces)
+	sc.Step(`^the second request carries no half-written call$`, s.secondRequestHoldsNoCall)
 }
 
 func TestTurnEndReasonsFeature(t *testing.T) {
@@ -530,5 +854,63 @@ func TestProviderRecoveryPauseCutByADeadline(t *testing.T) {
 	stop, err := agent.NewAgent(s.cfg, st, noopSender{}, slog.Default()).Run(ctx, []acp.ContentBlock{{Type: "text", Text: "go"}})
 	if stop == string(acp.StopReasonCancelled) || err == nil || !strings.Contains(err.Error(), "server error 500") {
 		t.Fatalf("Run = %q, %v; want the provider's failure", stop, err)
+	}
+}
+
+// TestProviderRecoveryKeptAnswerIsNotTruncatedAndJoinsTheNextTurnWithABlankLine:
+// the answer a provider failure cut off is stored as any other assistant message
+// - trimmed, not marked truncated, since the step run again may start it over
+// instead of going on from its last character - and the history of the next turn
+// sends it and that step as one assistant message with a blank line between,
+// where the text the output limit cut off is joined with nothing between.
+func TestProviderRecoveryKeptAnswerIsNotTruncatedAndJoinsTheNextTurnWithABlankLine(t *testing.T) {
+	s := runTurnEnd(t, func(n int, w io.Writer) {
+		switch n {
+		case 1:
+			sseFailMidAnswer(w, "The project holds ", 502)
+		case 2:
+			sseAnswer(w, " "+turnEndAnswer)
+		default:
+			sseAnswer(w, "Noted.")
+		}
+	}, nil)
+	if err := s.turnEndsWithAnswer(); err != nil {
+		t.Fatal(err)
+	}
+	var said []llm.Message
+	for _, m := range s.state.GetMessages() {
+		if m.Role == llm.RoleAssistant && strings.TrimSpace(m.Content) != "" {
+			said = append(said, m)
+		}
+	}
+	if len(said) != 2 || said[0].Truncated || said[0].Content != "The project holds" || said[1].Truncated || said[1].Content != turnEndAnswer {
+		t.Fatalf("the transcript holds %+v, want the kept answer and the step run again, neither truncated, both trimmed", said)
+	}
+
+	if err := s.userSendsAnotherPrompt(); err != nil {
+		t.Fatal(err)
+	}
+	calls := s.stub.calls()
+	if len(calls) < 3 {
+		t.Fatalf("the model was called %d time(s), want a request for the second turn", len(calls))
+	}
+	var req struct {
+		Messages []requestMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(calls[2], &req); err != nil {
+		t.Fatal(err)
+	}
+	var sent []string
+	for i, m := range req.Messages {
+		if m.Role != "assistant" {
+			continue
+		}
+		if i > 0 && req.Messages[i-1].Role == "assistant" {
+			t.Fatalf("two assistant messages in a row at %d: %s", i, calls[2])
+		}
+		sent = append(sent, fmt.Sprint(m.Content))
+	}
+	if want := "The project holds\n\n" + turnEndAnswer; len(sent) != 1 || sent[0] != want {
+		t.Fatalf("the second turn carries the assistant messages %q, want one holding %q", sent, want)
 	}
 }

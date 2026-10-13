@@ -17,6 +17,9 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 type messagesPagingState struct {
@@ -25,18 +28,101 @@ type messagesPagingState struct {
 	sid   string
 	turns int
 	pages []pagedMessagesBody
+	// custom writes the turns a scenario changes, see pagedSessionOf.
+	custom func(st *session.State, i int) bool
 }
 
 func (s *messagesPagingState) serverRunning() error { return nil }
 
+// storedSession names the session of the scenario; it is written when a step
+// first reads it, so that a scenario can still change one of its turns.
 func (s *messagesPagingState) storedSession(turns int) error {
-	s.srv, s.sid = pagedSession(s.t, turns)
+	s.srv, s.sid, s.custom = nil, "", nil
 	s.turns = turns
 	s.pages = nil
 	return nil
 }
 
+func (s *messagesPagingState) store() {
+	if s.srv == nil {
+		s.srv, s.sid = pagedSessionOf(s.t, s.turns, s.custom)
+	}
+}
+
+// The two parts of an answer the output limit cut off and the model went on
+// from: the first stops in the middle of a sentence, the second picks it up.
+const (
+	continuedHead = "The notes hold the first half of it and then "
+	continuedRest = "the second half."
+)
+
+// answerCutOffAndContinued rewrites the turn of prompt n into a long one, the
+// way an agent turn that hit the output limit is stored: two tool steps, the
+// answer cut off (truncated), the step that went on from it - which called a
+// tool of its own - and the final answer. Pages of ten messages from the end
+// of this history would have their boundary between the two parts, were a page
+// free to start or end on the message that goes on from a truncated one.
+func (s *messagesPagingState) answerCutOffAndContinued(prompt int) error {
+	if s.srv != nil {
+		return fmt.Errorf("the session was written already; change its turns before reading it")
+	}
+	s.custom = func(st *session.State, i int) bool {
+		if i != prompt {
+			return false
+		}
+		call := func(id string) {
+			st.AddMessage(llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "read_file", InputJSON: `{"path":"a.go"}`}}})
+			st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: id, Content: "result " + id})
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("prompt %d", i)})
+		call(fmt.Sprintf("long_%d_1", i))
+		call(fmt.Sprintf("long_%d_2", i))
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: continuedHead, Truncated: true})
+		contID := fmt.Sprintf("long_%d_cont", i)
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: continuedRest, ToolCalls: []llm.ToolCall{{ID: contID, Name: "read_file", InputJSON: `{"path":"b.go"}`}}})
+		st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: contID, Content: "result " + contID})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i)})
+		return true
+	}
+	s.pages = nil
+	return nil
+}
+
+// noPageSplitsTheContinuedAnswer: every page that holds the first part holds the
+// second right behind it, and the other way round, so a client draws the answer
+// as the one text it is without another page to wait for.
+func (s *messagesPagingState) noPageSplitsTheContinuedAnswer() error {
+	holding := 0
+	for _, page := range s.pages {
+		head, rest := -1, -1
+		for i, m := range page.Messages {
+			switch m.Content {
+			case continuedHead:
+				head = i
+			case continuedRest:
+				rest = i
+			}
+		}
+		switch {
+		case head < 0 && rest < 0:
+		case head >= 0 && rest == head+1:
+			holding++
+		case head >= 0 && rest < 0:
+			return fmt.Errorf("the page at %d ends with the cut-off part, the part that goes on from it is on the next", page.Window.Offset)
+		case head < 0:
+			return fmt.Errorf("the page at %d starts with the part that goes on from a cut-off text", page.Window.Offset)
+		default:
+			return fmt.Errorf("the page at %d holds the two parts out of order (%d, %d)", page.Window.Offset, head, rest)
+		}
+	}
+	if holding != 1 {
+		return fmt.Errorf("%d pages hold the continued answer, want exactly one", holding)
+	}
+	return nil
+}
+
 func (s *messagesPagingState) read(query string) (pagedMessagesBody, error) {
+	s.store()
 	rec, body := getPaged(s.t, s.srv, "/coddy/sessions/"+s.sid+"/messages"+query)
 	if rec.Code != http.StatusOK {
 		return body, fmt.Errorf("GET messages%s: status %d: %s", query, rec.Code, rec.Body.String())
@@ -126,6 +212,7 @@ func (s *messagesPagingState) everyMessageOnce() error {
 }
 
 func (s *messagesPagingState) toolCallsPerPage() error {
+	s.store()
 	for _, page := range s.pages {
 		from := page.Window.Offset
 		to := from + len(page.Messages)
@@ -162,6 +249,7 @@ func (s *messagesPagingState) toolCallsPerPage() error {
 }
 
 func (s *messagesPagingState) rewindAtFirstPrompt() error {
+	s.store()
 	page := s.pages[0]
 	// The first prompt of the page is the page's prompt number 0.
 	body, _ := json.Marshal(map[string]int{"userMessageIndex": page.Window.TurnsBefore})
@@ -208,6 +296,8 @@ func TestSessionMessagesPagingFeature(t *testing.T) {
 			sc.Step(`^the window counts the prompts before the page$`, s.windowCountsPrompts)
 			sc.Step(`^every message of the history was read exactly once$`, s.everyMessageOnce)
 			sc.Step(`^every page of tool calls lists the calls of its own messages only$`, s.toolCallsPerPage)
+			sc.Step(`^the answer to prompt (\d+) was cut off at the output limit after two tool steps and the model went on$`, s.answerCutOffAndContinued)
+			sc.Step(`^no page starts or ends between the two parts of the continued answer$`, s.noPageSplitsTheContinuedAnswer)
 			sc.Step(`^I rewind the session at the first prompt of that page$`, s.rewindAtFirstPrompt)
 			sc.Step(`^the history ends right before that prompt$`, s.historyEndsBeforePrompt)
 		},

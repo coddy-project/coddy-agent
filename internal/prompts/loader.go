@@ -115,13 +115,37 @@ var defaultPlanPrompt string
 //go:embed ask.md
 var defaultAskPrompt string
 
-// Render renders the prompt template for the given mode with the provided data.
-// promptsDir must be empty to use built-in templates; otherwise it is a directory that
-// contains the files named agentFile, planFile, and askFile (for example agent.md,
-// plan.md, and ask.md). mode must be "agent", "plan", or "ask". Unknown modes use the
-// agent template file.
-func Render(mode, promptsDir, agentFile, planFile, askFile string, data TemplateData) (string, error) {
-	src, err := loadSource(mode, promptsDir, agentFile, planFile, askFile)
+// Templates says where the template of each mode is read from: the built-in
+// ones when Dir is empty, else the file named for the mode under Dir. A name
+// left empty is the mode's default file (agent.md, plan.md, ask.md).
+type Templates struct {
+	Dir   string
+	Agent string
+	Plan  string
+	Ask   string
+}
+
+// file is the template file name for mode; an unknown mode reads the agent
+// template.
+func (t Templates) file(mode string) string {
+	fn := t.Agent
+	switch mode {
+	case "plan":
+		fn = t.Plan
+	case "ask":
+		fn = t.Ask
+	}
+	if fn = strings.TrimSpace(fn); fn != "" {
+		return fn
+	}
+	return fileNameForMode(mode)
+}
+
+// Render renders the prompt template for the given mode with the provided data,
+// read from tpl. mode must be "agent", "plan", or "ask". Unknown modes use the
+// agent template.
+func Render(mode string, tpl Templates, data TemplateData) (string, error) {
+	src, err := loadSource(mode, tpl)
 	if err != nil {
 		return "", err
 	}
@@ -159,8 +183,8 @@ func RenderSource(name, src string, data TemplateData) (string, error) {
 // execute), and reports which one it was: true for the template. The fallback
 // carries none of the blocks of data, so a caller that must deliver one of
 // them (the AGENTS.md documents) appends it.
-func RenderChecked(mode, promptsDir, agentFile, planFile, askFile string, data TemplateData) (string, bool) {
-	s, err := Render(mode, promptsDir, agentFile, planFile, askFile, data)
+func RenderChecked(mode string, tpl Templates, data TemplateData) (string, bool) {
+	s, err := Render(mode, tpl, data)
 	if err != nil {
 		return fallbackPrompt(mode, data.CWD), false
 	}
@@ -191,25 +215,15 @@ func fileNameForMode(mode string) string {
 	}
 }
 
-// loadSource returns the template source: files from promptsDir when set, built-in otherwise.
-func loadSource(mode, promptsDir, agentFile, planFile, askFile string) (string, error) {
-	dir := strings.TrimSpace(promptsDir)
+// loadSource returns the template source: the mode's file under tpl.Dir when
+// set, built-in otherwise.
+func loadSource(mode string, tpl Templates) (string, error) {
+	dir := strings.TrimSpace(tpl.Dir)
 	if dir == "" {
 		return DefaultSource(mode), nil
 	}
 
-	fn := strings.TrimSpace(agentFile)
-	switch mode {
-	case "plan":
-		fn = strings.TrimSpace(planFile)
-	case "ask":
-		fn = strings.TrimSpace(askFile)
-	}
-	if fn == "" {
-		fn = fileNameForMode(mode)
-	}
-
-	path := filepath.Join(dir, fn)
+	path := filepath.Join(dir, tpl.file(mode))
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read prompt file %q: %w", path, err)
@@ -225,8 +239,8 @@ func loadSource(mode, promptsDir, agentFile, planFile, askFile string) (string, 
 // be read counts as printing the block: its fallback gets the always-on rules
 // appended. The field is looked for by name, so {{if .Rules}} and
 // {{ .Rules }} count too.
-func RendersRules(mode, promptsDir, agentFile, planFile, askFile string) bool {
-	src, err := loadSource(mode, promptsDir, agentFile, planFile, askFile)
+func RendersRules(mode string, tpl Templates) bool {
+	src, err := loadSource(mode, tpl)
 	if err != nil {
 		return true
 	}
@@ -244,8 +258,8 @@ func RendersRules(mode, promptsDir, agentFile, planFile, askFile string) bool {
 //
 // A source that cannot be read counts as volatile: the render fallback
 // (fallbackPrompt) carries a clock of its own.
-func RendersVolatile(mode, promptsDir, agentFile, planFile, askFile string) bool {
-	src, err := loadSource(mode, promptsDir, agentFile, planFile, askFile)
+func RendersVolatile(mode string, tpl Templates) bool {
+	src, err := loadSource(mode, tpl)
 	if err != nil {
 		return true
 	}

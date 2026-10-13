@@ -202,6 +202,7 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 }
 
 // newTunnelServer builds the HTTP/2 server a node runs on a tunnel.
+//
 //nolint:staticcheck // http2.Server is the only server that accepts an existing raw tunnel connection.
 func newTunnelServer(opts TunnelOptions) *http2.Server {
 	pingAfter, pingTimeout := opts.PingAfter, opts.PingTimeout

@@ -26,7 +26,7 @@ var wireCoverage = []struct {
 		wire: []string{"Role", "Content", "ImageParts", "Reasoning", "ReasoningSignature", "ToolCalls", "ToolCallID"},
 		// Artifacts and the absolute paths are the local host's; the rest is
 		// transcript bookkeeping no provider is sent.
-		local:  []string{"Artifacts", "ReasoningDurationMs", "Model", "CreatedAt", "PlanDocument", "CompactionSummary", "BackgroundWake", "GoalTurn"},
+		local:  []string{"Artifacts", "ReasoningDurationMs", "Truncated", "Model", "CreatedAt", "PlanDocument", "CompactionSummary", "BackgroundWake", "GoalTurn", "FollowUp"},
 		folded: []string{"Rules"},
 	},
 	{
@@ -328,7 +328,7 @@ func TestWireListingShape(t *testing.T) {
 	}
 	want := WireModelRow{ID: "coder", Revision: "rev1", MaxContextTokens: 200000, Multimodal: true,
 		ReasoningLevels: []string{"low", "high"}, ReasoningDefault: "low", AllowReasoningOff: true}
-	if back.Protocol != 1 || len(back.Data) != 1 || !reflect.DeepEqual(back.Data[0], want) {
+	if back.Protocol != CoddyProtocol || len(back.Data) != 1 || !reflect.DeepEqual(back.Data[0], want) {
 		t.Fatalf("listing round trip: %+v", back)
 	}
 	for _, key := range []string{`"id"`, `"revision"`, `"max_context_tokens"`, `"multimodal"`, `"reasoning_levels"`, `"reasoning_default"`, `"allow_reasoning_off"`} {

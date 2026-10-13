@@ -2205,7 +2205,7 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	if items[0]["hint"] != "<model id> [--once|--count=N]" {
 		t.Fatalf("model hint = %v", items[0]["hint"])
 	}
-	if items[9]["name"] != "goal" || items[9]["hint"] != "[-m|--model <id>] [-r|--reasoning <level>] [<objective>|pause|resume|clear]" {
+	if items[9]["name"] != "goal" || items[9]["hint"] != "[-m|--model <id>] [-r|--reasoning <level>] [--then-file <path>] [<objective>|pause|resume|clear]" {
 		t.Fatalf("goal command = %v", items[9])
 	}
 	for _, it := range items {

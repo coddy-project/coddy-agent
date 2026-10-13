@@ -13,6 +13,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // followSender is collectSender that also takes the backend-local control
@@ -203,6 +204,47 @@ func TestReplayShowsAWakeInsteadOfAUserMessage(t *testing.T) {
 	}
 	if len(wakes) != 1 || wakes[0].Tasks[0].ID != "bg_3" || *wakes[0].Tasks[0].ExitCode != 2 || wakes[0].Tasks[0].DurationMs != 90_000 {
 		t.Fatalf("wakes = %+v", wakes)
+	}
+}
+
+// A session loaded over REST replays a summary row written inside a turn from
+// its preamble on: the message the turn started with is already on screen at
+// its own place, and a second copy would show it twice. A plain row replays as
+// stored.
+func TestReplayShowsAnInTurnSummaryFromItsPreambleOn(t *testing.T) {
+	h, err := NewHandler(Options{BaseURL: "http://127.0.0.1:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &collectSender{}
+	h.SetServer(sender)
+	const prompt = "Fix the parser and keep the API."
+	h.replayMessages("sess_1", []messageRow{
+		{Role: "user", Content: prompt},
+		{Role: "assistant", Content: "reading"},
+		{Role: "user", CompactionSummary: true, Content: session.NewInTurnCompactionSummaryMessage(prompt, "the worker read two files", "m").Content},
+		{Role: "assistant", Content: "continuing"},
+		{Role: "user", CompactionSummary: true, Content: session.NewCompactionSummaryMessage("an older turn", "m").Content},
+	})
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	var users []string
+	for _, u := range sender.updates {
+		if v, ok := u.(acp.MessageChunkUpdate); ok && v.SessionUpdate == acp.UpdateTypeUserMessageChunk {
+			users = append(users, v.Content.Text)
+		}
+	}
+	if len(users) != 3 || users[0] != prompt {
+		t.Fatalf("user rows = %q, want the prompt, the in-turn row and the plain row", users)
+	}
+	if !strings.HasPrefix(users[1], "The text above is the message this turn started with") || !strings.HasSuffix(users[1], "the worker read two files") {
+		t.Fatalf("the in-turn row replays as %q, want it from the preamble on", users[1])
+	}
+	if got := strings.Count(strings.Join(users, "\n"), prompt); got != 1 {
+		t.Fatalf("the prompt is replayed %d times, want once: %q", got, users)
+	}
+	if want := session.NewCompactionSummaryMessage("an older turn", "m").Content; users[2] != want {
+		t.Fatalf("a plain row must replay as stored, got %q, want %q", users[2], want)
 	}
 }
 

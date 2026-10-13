@@ -5,6 +5,10 @@ Feature: A long session is read page by page
   the window the client holds starts, with the counts that keep row numbers
   and rewind indices what a full read would give.
 
+  A page never splits a text the model's output limit cut off and the step that
+  went on from it: the web UI draws the two as one text, so they arrive in the
+  same page, whatever size the page is asked to be.
+
   Background:
     Given a running coddy HTTP server
     And a stored session of 30 turns, each a prompt, a tool step and an answer
@@ -20,6 +24,13 @@ Feature: A long session is read page by page
     And I read older pages of 10 messages until the first message
     Then every message of the history was read exactly once
     And every page of tool calls lists the calls of its own messages only
+
+  Scenario: An answer cut off at the output limit and continued stays on one page
+    Given the answer to prompt 10 was cut off at the output limit after two tool steps and the model went on
+    When I read the newest 10 messages of the session
+    And I read older pages of 10 messages until the first message
+    Then every message of the history was read exactly once
+    And no page starts or ends between the two parts of the continued answer
 
   Scenario: A prompt inside a page is rewound by the index the window gives it
     When I read the newest 10 messages of the session

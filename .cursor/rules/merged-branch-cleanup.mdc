@@ -1,0 +1,61 @@
+---
+description: After a pull request merges, remove its worktree and delete its branch, locally and on origin
+alwaysApply: true
+---
+
+# Cleanup after a merge
+
+A branch whose pull request has merged is finished, and its worktree and the branch itself are
+removed in the same session, as the last step of the merge rather than later. A worktree left
+behind keeps a checkout, a `node_modules` and a build cache on the disk; a branch left behind is
+where the next agent commits a follow-up that no pull request will ever pick up.
+
+## When it applies
+
+As soon as you know that the pull request of a branch you worked on has merged: you merged it
+(*Merging the pull request* in the **workflow rule**), the operator says so, or
+`gh pr view <PR> --json state` reports `MERGED`. It covers a worktree a host made for the session
+(`.claude/worktrees/`, `.coddy/worktrees/` and the like) as much as one made by hand, and the
+isolated site-repository worktree once its commit is pushed.
+
+A branch that reached `main` by a direct push, with no pull request, is finished the same way once
+the push is confirmed. Step 1 then checks it against `main` instead of a pull request
+(`git -C <main checkout> fetch origin`, then
+`git -C <main checkout> merge-base --is-ancestor <branch> origin/main`), and step 4 has nothing to
+delete unless the branch itself was pushed.
+
+A merged branch is never reused: a follow-up starts a new branch from current `origin/main`.
+
+## Steps
+
+Run them from the main checkout (the first line of `git worktree list`) with `git -C`: the worktree
+being removed may be the session's own working directory, which is gone after step 2.
+
+1. Make sure nothing is lost:
+   - `git -C <worktree> status --porcelain` prints nothing. Uncommitted or untracked files stop the
+     cleanup: show them to the operator and wait, and never run `git worktree remove --force`
+     without the operator's word. Ignored files (build output, `node_modules`) go with the worktree;
+   - every commit of the branch reached the pull request:
+     `git -C <main checkout> fetch origin pull/<PR>/head`, then
+     `git -C <main checkout> merge-base --is-ancestor <branch> FETCH_HEAD` succeeds (`FETCH_HEAD`
+     belongs to the worktree that fetched, so both run in the same one). A commit made after the
+     merge stops the cleanup the same way: it goes to a new branch and a new pull request first.
+2. Remove the worktree: `git -C <main checkout> worktree remove <worktree>`, then
+   `git -C <main checkout> worktree prune`.
+3. Delete the local branch: `git -C <main checkout> branch -D <branch>`. It is `-D` and not `-d`
+   because a squash or rebase merge leaves the branch's own commits out of `main`, and `-d` refuses
+   such a branch; the ancestry check of step 1 is what makes `-D` safe.
+4. Delete the branch on origin. GitHub deletes the head branch of a merged pull request by itself
+   (`delete_branch_on_merge` is on for this repository), so this step is usually a check that
+   `git ls-remote --exit-code --heads origin <branch>` finds nothing. When it finds the branch (the
+   setting was off, or the merge was a local push), run `git push origin --delete <branch>`. A pull
+   request from a fork has no branch on origin, and the fork's branch belongs to its author: leave it.
+5. Drop the stale remote-tracking ref: `git -C <main checkout> fetch --prune origin`.
+
+Never delete `main`, the orphan `screenshots` branch or a tag, whatever the cleanup lists.
+
+## Report
+
+The final answer names what was removed: the worktree path, the local branch, and the branch on
+origin (deleted by you, or already gone). When a step stopped the cleanup, it names what stopped it
+and what is left on the disk, so the operator decides.

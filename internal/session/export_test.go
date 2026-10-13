@@ -58,3 +58,9 @@ func (m *Manager) SetMCPConnectTimeoutForTest(d time.Duration) {
 // SetMCPStopDelayForTest sets how long a shared MCP server nothing holds runs
 // on before the pool stops it.
 func (m *Manager) SetMCPStopDelayForTest(d time.Duration) { m.mcpPool.SetStopDelay(d) }
+
+// SetGoalChainRetryForTest compresses the schedule on which a chained
+// session's first turn is tried again while its turn lock is held.
+func (m *Manager) SetGoalChainRetryForTest(first, most, giveUp time.Duration) {
+	m.goalChainRetry = goalChainRetry{first: first, most: most, giveUp: giveUp}
+}

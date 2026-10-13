@@ -449,6 +449,80 @@ func TestRequestPermissionDoesNotPersistARelayedPrompt(t *testing.T) {
 	<-done
 }
 
+// A turn cancelled while its prompt waits (Stop in the web UI) records the call
+// as refused, so nothing is waiting any more: the persisted gate goes with the
+// wait, or the session stays "permission pending" in every History listing.
+func TestRequestPermissionClearsItsRecordWhenTheTurnIsCancelled(t *testing.T) {
+	dir := t.TempDir()
+	out := &syncBuffer{}
+	sender := NewSender(&config.Config{}, out, true, "agent-model")
+	sender.SetSessionDir(dir)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		r, _ := sender.RequestPermission(ctx, acp.PermissionRequestParams{
+			SessionID: "s1",
+			ToolCall:  acp.PermissionToolCall{ToolCallID: "stopped-1", Title: "Run: run_command", Status: "pending"},
+			Options:   []acp.PermissionOption{{OptionID: "allow", Name: "Allow", Kind: "allow_once"}},
+		})
+		done <- r
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !session.PendingPermissionHeld(dir) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !session.PendingPermissionHeld(dir) {
+		t.Fatal("the prompt was never recorded")
+	}
+	cancel()
+	if got := <-done; got == nil || got.Outcome != "cancelled" {
+		t.Fatalf("answer = %#v", got)
+	}
+	if session.PendingPermissionHeld(dir) {
+		t.Fatal("a cancelled wait left pending_permission.json behind")
+	}
+}
+
+// Only the wait's own record goes: one another call wrote meanwhile stays.
+func TestRequestPermissionLeavesAnotherCallsRecordOnCancel(t *testing.T) {
+	dir := t.TempDir()
+	out := &syncBuffer{}
+	sender := NewSender(&config.Config{}, out, true, "agent-model")
+	sender.SetSessionDir(dir)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		_, _ = sender.RequestPermission(ctx, acp.PermissionRequestParams{
+			SessionID: "s1",
+			ToolCall:  acp.PermissionToolCall{ToolCallID: "first-1", Title: "Run: run_command", Status: "pending"},
+			Options:   []acp.PermissionOption{{OptionID: "allow", Name: "Allow", Kind: "allow_once"}},
+		})
+		close(done)
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !session.PendingPermissionHeld(dir) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	other := acp.PermissionRequestParams{
+		SessionID: "s1",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "other-2", Title: "Run: run_command", Status: "pending"},
+	}
+	if err := session.WritePendingPermission(dir, other, "run_command", ""); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	<-done
+	rec, err := session.ReadPendingPermission(dir)
+	if err != nil {
+		t.Fatalf("the other call's record is gone: %v", err)
+	}
+	if rec.ToolCall.ToolCallID != "other-2" {
+		t.Fatalf("record names %q", rec.ToolCall.ToolCallID)
+	}
+}
+
 // The strict OpenAI view on POST /v1/chat/completions (openai_stream.go). The
 // happy path is features/openai_stream_compat.feature; these are the boundaries a
 // third-party parser meets: split writes, an empty turn, an error frame, a turn

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -115,7 +116,9 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	var thinkingBuf strings.Builder
 	var thinkingSig string
 
-	// Accumulate tool use blocks by index.
+	// Accumulate tool use blocks by index. The index is the block's position in
+	// the whole answer, text and thinking blocks included, so the keys of this
+	// map are not 0..n-1: a tool_use behind a text block sits at index 1.
 	type toolUseAccum struct {
 		id    string
 		name  string
@@ -123,13 +126,17 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	}
 	toolUseMap := make(map[int64]*toolUseAccum)
 
+	// finalizeAnthropicToolUses returns every tool_use block started so far, in
+	// the order the model wrote them.
 	finalizeAnthropicToolUses := func() []ToolCall {
+		indexes := make([]int64, 0, len(toolUseMap))
+		for i := range toolUseMap {
+			indexes = append(indexes, i)
+		}
+		sort.Slice(indexes, func(a, b int) bool { return indexes[a] < indexes[b] })
 		var out []ToolCall
-		for i := int64(0); i < int64(len(toolUseMap)); i++ {
-			acc, ok := toolUseMap[i]
-			if !ok {
-				continue
-			}
+		for _, i := range indexes {
+			acc := toolUseMap[i]
 			out = append(out, ToolCall{ID: acc.id, Name: acc.name, InputJSON: acc.input})
 		}
 		return out

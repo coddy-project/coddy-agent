@@ -227,7 +227,6 @@ func (s *bddDecisionsState) endpointClassifies(choice string) error {
 	return nil
 }
 
-
 func (s *bddDecisionsState) commandOnTheAllowlist() error {
 	s.cfg.Tools.CommandAllowlist = []string{"echo"}
 	return nil
@@ -333,7 +332,6 @@ func (s *bddDecisionsState) toolCallAnsweredWithTheUnsafeRejection() error {
 	}
 	return nil
 }
-
 
 func (s *bddDecisionsState) commandOutputInSession() error {
 	res, err := s.toolResult()

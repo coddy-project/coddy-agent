@@ -36,8 +36,10 @@ type GoalCheckResult struct {
 	Checklist []GoalItem
 	// Model is the model that answered.
 	Model string
-	// unverified is why the verifier could not confirm a met verdict.
+	// unverified is why the verifier could not confirm a met verdict;
+	// verifyRan says this check asked the verifier at all.
 	unverified string
+	verifyRan  bool
 }
 
 // GoalJudge checks a finished goal turn against the objective, without tools.
@@ -148,7 +150,16 @@ func (m *Manager) runSupervisedTurn(ctx context.Context, st *State, prompt []acp
 	topLevel := st.Subagent() == nil && (opts == nil || !opts.subagentTurn)
 	var first *llm.GoalTurn
 	if topLevel {
-		if cmd := goalCommandOf(prompt); cmd.Kind != GoalCommandNone {
+		if kickoff := opts.takeGoalKickoff(); kickoff != nil {
+			// The first turn of a session a goal chain opened, decided again
+			// here under the turn lock: what happened while it waited for a
+			// retry - the goal replaced, a person's turn that ran there first
+			// - drops it.
+			if !m.chainKickoffPending(st, kickoff.goalID) || st.GetMode() != string(ModeAgent) {
+				return string(acp.StopReasonEndTurn), nil
+			}
+			first = kickoff.marker
+		} else if cmd := goalCommandOf(prompt); cmd.Kind != GoalCommandNone {
 			var notice string
 			var err error
 			prompt, first, notice, err = m.applyGoalCommand(st, cmd, opts)
@@ -231,6 +242,15 @@ func (m *Manager) applyGoalCommand(st *State, cmd GoalCommand, opts *PromptRunOp
 		if err != nil {
 			return nil, nil, "", err
 		}
+		if goal.ThenFile = strings.TrimSpace(cmd.ThenFile); goal.ThenFile != "" {
+			switch {
+			case cfg.Supervisor.ChainSessionLimit() == 0:
+				return nil, nil, "", fmt.Errorf("--then-file is refused: goal chains are off (supervisor.max_chain_sessions: 0)")
+			case m.goalChainStart == nil:
+				return nil, nil, "", fmt.Errorf("--then-file needs coddy serve: the next session of the chain starts on the server " +
+					"(the web UI, a messenger bot, or a console or an editor attached with --remote)")
+			}
+		}
 		if goal.Model, goal.Reasoning, err = resolveGoalChecker(cfg, st, cmd, GoalState{}); err != nil {
 			return nil, nil, "", fmt.Errorf("%v. %s", err, GoalUsage)
 		}
@@ -298,7 +318,7 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 				if checkErr == nil {
 					switch result.Verdict {
 					case GoalVerdictMet:
-						r.finish(GoalComplete, "", r.completeNotice(goal, result))
+						r.complete(goal, result)
 						return string(acp.StopReasonEndTurn), nil
 					case GoalVerdictNeedsUser, GoalVerdictImpossible:
 						question := firstNonEmpty(result.Reason, reason)
@@ -345,7 +365,7 @@ func (r *goalRun) loop(ctx context.Context, prompt []acp.ContentBlock, marker *l
 		}
 		switch result.Verdict {
 		case GoalVerdictMet:
-			r.finish(GoalComplete, "", r.completeNotice(goal, result))
+			r.complete(goal, result)
 			return stop, nil
 		case GoalVerdictNeedsUser, GoalVerdictImpossible:
 			reason := firstNonEmpty(result.Reason, "the supervisor needs your decision")
@@ -521,8 +541,9 @@ func (r *goalRun) check(ctx context.Context) (GoalCheckResult, error) {
 		return GoalCheckResult{}, err
 	}
 	result.Verdict = normalizeVerdict(result.Verdict)
-	verified := false
+	verified, verifyRan := false, false
 	if result.Verdict == GoalVerdictMet && r.persist && r.cfg.Supervisor.VerifyEnabled() && r.m.goalVerifier != nil {
+		verifyRan = true
 		vreq := req
 		vreq.Checklist = firstChecklist(result.Checklist, req.Checklist)
 		r.publishNotice("Goal verification: a read-only subagent is checking the workspace")
@@ -552,6 +573,7 @@ func (r *goalRun) check(ctx context.Context) (GoalCheckResult, error) {
 			}
 		}
 	}
+	result.verifyRan = verifyRan
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	r.update("", func(g *GoalState) bool {
 		g.Checks++
@@ -565,25 +587,41 @@ func (r *goalRun) check(ctx context.Context) (GoalCheckResult, error) {
 	return result, nil
 }
 
-// finish sets the goal's final status for this run. The implicit goal of
-// supervisor.enable has no status to keep: a blocked one tells the operator
-// through the turn's stop notice.
-func (r *goalRun) finish(status GoalStatus, reason, notice string) {
+// finish sets the goal's final status for this run and reports whether it
+// did: a goal the operator paused, cleared or replaced meanwhile is left as
+// they left it. The implicit goal of supervisor.enable has no status to keep:
+// a blocked one tells the operator through the turn's stop notice.
+func (r *goalRun) finish(status GoalStatus, reason, notice string) bool {
 	if !r.persist {
 		if status == GoalBlocked || status == GoalPaused {
 			r.st.SetTurnStopNotice("Supervisor stopped: " + reason)
 		}
-		return
+		return false
 	}
 	if !r.update(notice, func(g *GoalState) bool {
 		g.Status, g.StatusReason = status, strings.TrimSpace(reason)
 		return true
 	}) {
-		return
+		return false
 	}
 	if notice != "" {
 		r.st.AppendUILogNotice(CountUserTurns(r.st.GetMessages()), notice)
 	}
+	return true
+}
+
+// complete closes the goal as met and, for a goal with a follow-up file,
+// hands the next task to a new session (goal_chain.go). The goal is read again
+// after it closed: the snapshot the check started from may be stale.
+func (r *goalRun) complete(goal GoalState, result GoalCheckResult) {
+	if !r.finish(GoalComplete, "", r.completeNotice(goal, result)) {
+		return
+	}
+	done := r.st.GetGoal()
+	if done.ID != r.goalID || done.Status != GoalComplete || strings.TrimSpace(done.ThenFile) == "" {
+		return
+	}
+	r.m.continueGoalChain(r.st, done, result.verifyRan, result.unverified)
 }
 
 // completeNotice says the goal is done, and when the verifier could not

@@ -92,6 +92,31 @@ func retryBudgetSSE(reply string, index int) string {
 		event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","te`)
 		return out.String()
 	}
+	switch reply {
+	case "text-max":
+		// Visible text that stops partway: the step ran out of output budget
+		// while it was answering.
+		event("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
+		event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Partial answer"}}`)
+		event("message_delta", `{"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":1}}`)
+		event("message_stop", `{"type":"message_stop"}`)
+		return out.String()
+	case "cut-tool", "tool-cut":
+		// A tool call whose arguments stop partway when the output budget runs
+		// out: the block never gets its stop event. "tool-cut" has a whole call
+		// in front of it.
+		block := 0
+		if reply == "tool-cut" {
+			event("content_block_start", fmt.Sprintf(`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call_%d","name":"coddy_todo_plan_read","input":{}}}`, index))
+			event("content_block_stop", `{"type":"content_block_stop","index":0}`)
+			block = 1
+		}
+		event("content_block_start", fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":{"type":"tool_use","id":"call_%d_cut","name":"write","input":{}}}`, block, index))
+		event("content_block_delta", fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"module.go\",\"content\":\"package mod"}}`, block))
+		event("message_delta", `{"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":1}}`)
+		event("message_stop", `{"type":"message_stop"}`)
+		return out.String()
+	}
 	stop := "end_turn"
 	switch reply {
 	case "reasoning", "max_tokens":
@@ -173,7 +198,43 @@ func TestReActRetryBudget(t *testing.T) {
 		{"zero single turn silence", 0, 1, 1, []string{"silent"}, acp.StopReasonRefused, true},
 		{"single turn silence", 3, 1, 1, []string{"silent", "answer"}, acp.StopReasonMaxTurns, false},
 		{"single turn empty", 3, 1, 1, []string{"empty", "answer"}, acp.StopReasonMaxTurns, false},
-		{"token limit is terminal", 3, 10, 1, []string{"max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		{"token limit recovers", 3, 10, 2, []string{"max_tokens", "answer"}, acp.StopReasonEndTurn, false},
+		{"token limit with retries off ends the turn", 0, 10, 1, []string{"max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		{"token limit recoveries are bounded", 10, 10, 1 + maxOutputLimitRecoveries, []string{"max_tokens"}, acp.StopReasonMaxTokens, false},
+		{"token limit takes one slot per recovery", 1, 10, 2, []string{"max_tokens"}, acp.StopReasonMaxTokens, false},
+		{"transport then token limit share allowance", 1, 10, 2, []string{"error", "max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		{"token limit then transport share allowance", 1, 10, 2, []string{"max_tokens", "error", "answer"}, acp.StopReasonRefused, true},
+		{"token limit at the step cap", 3, 1, 1, []string{"max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		{"tool progress resets the token limit budget", 1, 10, 4, []string{"max_tokens", "tool", "max_tokens", "answer"}, acp.StopReasonEndTurn, false},
+		// Two recoveries are the bound. The third cut-off is only recovered
+		// because the tool call in between started the count over, and the
+		// allowance is large enough that it is the count, not the slots, that
+		// ends the turn without that call.
+		{"tool progress resets the token limit count", 10, 20, 5, []string{"max_tokens", "max_tokens", "tool", "max_tokens", "answer"}, acp.StopReasonEndTurn, false},
+		{"the token limit count ends without progress", 10, 20, 3, []string{"max_tokens", "max_tokens", "max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		// A text the limit stopped partway is continued inside the same bound,
+		// budget and step cap as an empty step.
+		{"cut text recovers", 3, 10, 2, []string{"text-max", "answer"}, acp.StopReasonEndTurn, false},
+		{"cut text with retries off ends the turn", 0, 10, 1, []string{"text-max", "answer"}, acp.StopReasonMaxTokens, false},
+		{"cut text recoveries are bounded", 10, 10, 1 + maxOutputLimitRecoveries, []string{"text-max"}, acp.StopReasonMaxTokens, false},
+		{"cut text takes one slot per recovery", 1, 10, 2, []string{"text-max"}, acp.StopReasonMaxTokens, false},
+		{"cut text at the step cap", 3, 1, 1, []string{"text-max", "answer"}, acp.StopReasonMaxTokens, false},
+		{"cut text then transport share allowance", 1, 10, 2, []string{"text-max", "error", "answer"}, acp.StopReasonRefused, true},
+		{"cut text then empty step share the count", 10, 20, 3, []string{"text-max", "max_tokens", "max_tokens", "answer"}, acp.StopReasonMaxTokens, false},
+		{"tool progress resets the cut text count", 10, 20, 5, []string{"text-max", "text-max", "tool", "text-max", "answer"}, acp.StopReasonEndTurn, false},
+		// A tool call the limit cut off is not run; it is asked for again
+		// inside the same bound, budget and step cap.
+		{"cut tool call recovers", 3, 10, 2, []string{"cut-tool", "answer"}, acp.StopReasonEndTurn, false},
+		{"cut tool call with retries off ends the turn", 0, 10, 1, []string{"cut-tool", "answer"}, acp.StopReasonMaxTokens, false},
+		{"cut tool call recoveries are bounded", 10, 10, 1 + maxOutputLimitRecoveries, []string{"cut-tool"}, acp.StopReasonMaxTokens, false},
+		{"cut tool call takes one slot per recovery", 1, 10, 2, []string{"cut-tool"}, acp.StopReasonMaxTokens, false},
+		{"cut tool call at the step cap", 3, 1, 1, []string{"cut-tool", "answer"}, acp.StopReasonMaxTokens, false},
+		{"cut tool call then transport share allowance", 1, 10, 2, []string{"cut-tool", "error", "answer"}, acp.StopReasonRefused, true},
+		{"cut tool call after a whole one recovers", 3, 10, 2, []string{"tool-cut", "answer"}, acp.StopReasonEndTurn, false},
+		// The whole call before the cut one is progress for the allowance but the
+		// step was cut off all the same, so it is the count that ends the turn.
+		{"cut tool call after a whole one is bounded by the count", 10, 20, 1 + maxOutputLimitRecoveries, []string{"tool-cut"}, acp.StopReasonMaxTokens, false},
+		{"tool progress resets the cut tool call count", 10, 20, 5, []string{"cut-tool", "cut-tool", "tool", "cut-tool", "answer"}, acp.StopReasonEndTurn, false},
 		{"one recovery", 1, 10, 2, []string{"reasoning"}, acp.StopReasonRefused, true},
 		{"transport then empty share allowance", 1, 10, 2, []string{"error", "reasoning", "answer"}, acp.StopReasonRefused, true},
 		{"empty then transport share allowance", 1, 10, 2, []string{"reasoning", "error", "answer"}, acp.StopReasonRefused, true},

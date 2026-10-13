@@ -47,6 +47,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			LoopRepeat:       intPtr(SupervisorDefaultLoopRepeat),
 			TokenBudget:      intPtr(0),
 			Verify:           boolPtr(true),
+			MaxChainSessions: intPtr(SupervisorDefaultMaxChainSessions),
 		},
 		Prompts: PromptsJSON{
 			Dir:         "",

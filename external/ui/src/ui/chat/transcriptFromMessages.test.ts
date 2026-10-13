@@ -1,5 +1,10 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 
+import {
+  artifactMarkersForAssistant,
+  groupAssistantArtifactTokens,
+  tokenizeAssistantArtifacts,
+} from "./inlineArtifacts";
 import {
   applyToolCallRows,
   transcriptItemsFromMessages,
@@ -494,4 +499,230 @@ test("a notice later than every message of its turn still ends the turn", () => 
     "user:again",
     "answer:done",
   ]);
+});
+
+// A text the output limit cut off carries `truncated: true`, and the assistant
+// message after it goes on from its last character. The live stream draws them
+// as one bubble unless something else (thinking, a tool row) came between; a
+// reload draws what the stream drew. An answer a provider failure cut off is not
+// marked: the step run again may start it over, so it keeps its own row.
+describe("an answer cut off and continued", () => {
+  const prompt = { role: "user", content: "write it" };
+  const cut = (content: string) => ({
+    role: "assistant",
+    content,
+    truncated: true,
+  });
+
+  test("the two messages are one row, joined with nothing between", () => {
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      cut("Here is the module:\n```go\nfunc Run() {"),
+      { role: "assistant", content: "\n}\n```\nThat is all." },
+    ];
+    const items = mapPage(msgs, 0, msgs.length);
+    expect(shape(items)).toEqual([
+      "user:write it",
+      "answer:Here is the module:\n```go\nfunc Run() {\n}\n```\nThat is all.",
+    ]);
+  });
+
+  test("whitespace at the join stays, so words do not run together", () => {
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      cut("and then "),
+      { role: "assistant", content: "the second half." },
+    ];
+    expect(shape(mapPage(msgs, 0, msgs.length))).toEqual([
+      "user:write it",
+      "answer:and then the second half.",
+    ]);
+  });
+
+  test("a step that came back empty between the two does not part them", () => {
+    // The empty-answer recovery stores a step with no text and no tool call;
+    // the server's join passes over it (session.FollowsTruncated), and so
+    // does the reload.
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      cut("and then "),
+      { role: "assistant", content: "" },
+      { role: "assistant", content: "   " },
+      { role: "assistant", content: "the second half." },
+    ];
+    expect(shape(mapPage(msgs, 0, msgs.length))).toEqual([
+      "user:write it",
+      "answer:and then the second half.",
+    ]);
+  });
+
+  test("an empty step that thought is drawn and parts them, as the stream did", () => {
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      cut("and then "),
+      { role: "assistant", content: "", reasoning: "Hmm." },
+      { role: "assistant", content: "the second half." },
+    ];
+    expect(shape(mapPage(msgs, 0, msgs.length))).toEqual([
+      "user:write it",
+      "answer:and then ",
+      "thinking:Hmm.",
+      "answer:the second half.",
+    ]);
+  });
+
+  test("a chain of continuations is one row", () => {
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      cut("a "),
+      cut("b "),
+      { role: "assistant", content: "c" },
+    ];
+    expect(shape(mapPage(msgs, 0, msgs.length))).toEqual([
+      "user:write it",
+      "answer:a b c",
+    ]);
+  });
+
+  test("the continuation keeps its own row when it thought first, as the stream drew it", () => {
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      cut("and then "),
+      { role: "assistant", content: "the rest.", reasoning: "hmm" },
+    ];
+    expect(shape(mapPage(msgs, 0, msgs.length))).toEqual([
+      "user:write it",
+      "answer:and then ",
+      "thinking:hmm",
+      "answer:the rest.",
+    ]);
+  });
+
+  test("a continuation that issues a tool call joins the text before its call", () => {
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      cut("I will read "),
+      {
+        role: "assistant",
+        content: "the file.",
+        tool_calls: [
+          { id: "c1", function: { name: "read_file", arguments: "{}" } },
+        ],
+      },
+      { role: "tool", content: "ok", tool_call_id: "c1" },
+    ];
+    expect(shape(mapPage(msgs, 0, msgs.length))).toEqual([
+      "user:write it",
+      "answer:I will read the file.",
+      "tool:c1:completed",
+    ]);
+  });
+
+  test("a notice between the two keeps them apart, since it says why they are", () => {
+    const msgs: RawSessionMessage[] = [
+      {
+        role: "user",
+        content: "write it",
+        created_at: "2026-10-05T11:00:00Z",
+      },
+      { ...cut("and then "), created_at: "2026-10-05T11:00:05Z" },
+      {
+        role: "assistant",
+        content: "the rest.",
+        created_at: "2026-10-05T11:00:30Z",
+      },
+    ];
+    const items = mapPage(msgs, 0, msgs.length, [
+      {
+        id: "e1",
+        level: "notice",
+        message: "The provider failed mid-turn",
+        userTurnIndex: 1,
+        createdAt: "2026-10-05T11:00:20Z",
+      },
+    ]);
+    expect(shape(items)).toEqual([
+      "user:write it",
+      "answer:and then ",
+      "notice:The provider failed mid-turn",
+      "answer:the rest.",
+    ]);
+  });
+
+  test("a cut text that carries a shared file's marker in front is still one text", () => {
+    // The server puts the markers of the files shared before a cut text in
+    // front of it (never after, where they would stand in the middle of a word
+    // once the continuation is joined on), so the bubble is the shared files,
+    // then one text with no break inside "button".
+    const shared = {
+      id: "artifact-1",
+      name: "chart.png",
+      sha256: "a".repeat(64),
+      size: 2048,
+      url: "/coddy/sessions/s1/artifacts/artifact-1",
+    };
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          { id: "share", function: { name: "share_file", arguments: "{}" } },
+        ],
+      },
+      {
+        role: "tool",
+        content: "{}",
+        tool_call_id: "share",
+        artifacts: [shared],
+      },
+      cut('<coddy_file id="artifact-1"/>\n\nThe chart is the butt'),
+      { role: "assistant", content: "on labelled Save." },
+    ];
+    const items = mapPage(msgs, 0, msgs.length);
+    expect(shape(items)).toEqual([
+      "user:write it",
+      "tool:share:completed",
+      'answer:<coddy_file id="artifact-1"/>\n\nThe chart is the button labelled Save.',
+    ]);
+
+    const at = items.length - 1;
+    const answer = items[at]!;
+    if (answer.type !== "assistant_message")
+      throw new Error("expected assistant answer");
+    const tokens = groupAssistantArtifactTokens(
+      tokenizeAssistantArtifacts(
+        answer.content,
+        artifactMarkersForAssistant(items, at),
+      ),
+    );
+    expect(tokens).toEqual([
+      { type: "artifacts", artifacts: [shared] },
+      { type: "markdown", text: "\n\nThe chart is the button labelled Save." },
+    ]);
+  });
+
+  test("an assistant message that does not follow a cut one stays its own row", () => {
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      { role: "assistant", content: "first" },
+      { role: "assistant", content: "second" },
+    ];
+    expect(shape(mapPage(msgs, 0, msgs.length))).toEqual([
+      "user:write it",
+      "answer:first",
+      "answer:second",
+    ]);
+  });
+
+  test("a continuation on a page of its own has no text to join and is its own row", () => {
+    // The server never starts a page there (session.PageMessages keeps a
+    // continued answer on one page); the mapping still copes with one that does.
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      cut("and then "),
+      { role: "assistant", content: "the rest." },
+    ];
+    expect(shape(mapPage(msgs, 2, msgs.length))).toEqual(["answer:the rest."]);
+  });
 });

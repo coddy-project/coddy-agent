@@ -10,7 +10,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import pexpect, pyte
 import capture
-from cli_tui_driver import COLS, ROWS, CR
+from cli_tui_driver import ROWS, CR
+# Wide enough that the card's progress line is not cut at 1280 px.
+COLS = 148
+capture.COLS = COLS
 
 REPO = Path(__file__).resolve().parents[2]
 OUT = Path(sys.argv[1]) if len(sys.argv)>1 else REPO / "docs/assets/cli-tui"
@@ -143,7 +146,7 @@ chrome=os.environ.get("CHROME") or shutil.which("chromium") or shutil.which("goo
 if chrome:
     for html in OUT.glob("tool-progress-*.html"):
         # Adjacent grid rows must not gain extra text-node newlines inside <pre>.
-        html.write_text(html.read_text().replace("</div>\n<div>", "</div><div>"))
+        html.write_text(html.read_text().replace("</div>\n<div>", "</div><div>").replace("</style>", "pre div > span { display:inline-block; height:1.35em; vertical-align:top; padding:0 !important; }</style>"))
         subprocess.run([chrome,"--headless=new","--disable-gpu","--hide-scrollbars","--no-sandbox",
           "--window-size=1280,700", "--screenshot="+str(html.with_suffix(".png").resolve()),
           html.resolve().as_uri()],check=True,capture_output=True,timeout=30)

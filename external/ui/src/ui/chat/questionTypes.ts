@@ -11,8 +11,18 @@ export type CoddyQuestionItem = {
   question: string;
   options: CoddyQuestionOption[];
   multiple?: boolean;
+  /**
+   * Whether the reader may type an answer of their own. On unless it is
+   * `false` (issue #257): a node of an older version leaves the key out for a
+   * question that never mentioned it, and that question offers the answer too.
+   */
   custom?: boolean;
 };
+
+/** Whether a question offers the reader an answer of their own. */
+export function offersOwnAnswer(q: { custom?: boolean | undefined }): boolean {
+  return q.custom !== false;
+}
 
 export type CoddyQuestionPayload = {
   sessionId: string;
@@ -65,7 +75,7 @@ function normQuestions(raw: unknown): CoddyQuestionItem[] {
       question,
       options,
       multiple: o.multiple === true,
-      custom: o.custom === true,
+      custom: o.custom !== false,
     });
   }
   return out;

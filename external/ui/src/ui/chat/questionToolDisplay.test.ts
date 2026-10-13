@@ -15,7 +15,7 @@ test("parses nested questions text from question tool arguments", () => {
       question: "Ok?",
       options: [{ label: "Yes", description: "" }],
       multiple: false,
-      custom: false,
+      custom: true,
     },
   ]);
 });
@@ -42,7 +42,9 @@ test("summary label joins question and answer when terminal", () => {
 
 // The row that records a question is the only place the offer survives: the card
 // the reader answered keeps just the question and their answer. So the arguments
-// have to carry the options the model put up, in the order it put them up.
+// have to carry the options the model put up, in the order it put them up, and
+// whether the reader's own answer was offered: on unless the model turned it off
+// (issue #257).
 test("the parsed question carries the options the model offered", () => {
   const items = parseQuestionToolQuestionsFromArgs(
     JSON.stringify({
@@ -59,6 +61,11 @@ test("the parsed question carries the options the model offered", () => {
           question: "Pick any that apply",
           options: [{ label: "One" }],
           multiple: true,
+        },
+        {
+          question: "Delete the branch?",
+          options: [{ label: "yes" }, { label: "no" }],
+          custom: false,
         },
       ],
     }),
@@ -78,6 +85,15 @@ test("the parsed question carries the options the model offered", () => {
       question: "Pick any that apply",
       options: [{ label: "One", description: "" }],
       multiple: true,
+      custom: true,
+    },
+    {
+      question: "Delete the branch?",
+      options: [
+        { label: "yes", description: "" },
+        { label: "no", description: "" },
+      ],
+      multiple: false,
       custom: false,
     },
   ]);
@@ -90,7 +106,5 @@ test("a question with no options still parses, and junk entries are dropped", ()
         questions: [{ question: "Bare", options: [{ label: "" }, 7, null] }],
       }),
     ),
-  ).toEqual([
-    { question: "Bare", options: [], multiple: false, custom: false },
-  ]);
+  ).toEqual([{ question: "Bare", options: [], multiple: false, custom: true }]);
 });

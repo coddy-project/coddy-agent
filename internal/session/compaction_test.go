@@ -65,8 +65,18 @@ func TestCompactionSplitIndex(t *testing.T) {
 		},
 		{
 			name: "summary marker itself is not a user turn",
-			msgs: []llm.Message{summary, assistantMsg("a")},
+			msgs: []llm.Message{summary},
 			keep: 0, wantOK: false,
+		},
+		{
+			name: "a summary followed by a user message is still not a user turn",
+			msgs: []llm.Message{summary, userMsg("q"), assistantMsg("a")},
+			keep: 1, wantOK: false,
+		},
+		{
+			name: "a summary followed by a user message keeps its old split",
+			msgs: append([]llm.Message{summary}, exchangeMessages(3)...),
+			keep: 2, wantIdx: 3, wantOK: true,
 		},
 	}
 

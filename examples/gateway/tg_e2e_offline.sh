@@ -66,12 +66,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The scripted model echoes what it is told, except for the background wake
-# step at the end: "start the tests" makes it run a failing command in the
-# background with notify_on_finish, and the turn that wakes it gets an answer.
+# The scripted model echoes what it is told, except for a document the person
+# sends, which it answers by rule, and the background wake step at the end:
+# "start the tests" makes it run a failing command in the background with
+# notify_on_finish, and the turn that wakes it gets an answer.
 RULES="$TMP/rules.json"
 cat >"$RULES" <<'EOF_RULES'
 [
+  {"match": "sum up the notes", "answer": "The notes hold two lines."},
   {"match": "start the tests",
    "tool": {"name": "run_command", "arguments": {"command": "echo 'tests failed' >&2; exit 2", "background": true, "notify_on_finish": true, "expected_seconds": 1}},
    "answer": "Started the tests in the background."},
@@ -106,6 +108,7 @@ providers:
 models:
   - model: stub/coddy-demo
     max_context_tokens: 131072
+    multimodal: true               # the chat may send photos and files
 agent:
   model: stub/coddy-demo
 httpserver:
@@ -190,6 +193,15 @@ say "back again"
 wait_chat "bot: You said: back again"
 grep -qF "back again" "$HOME_DIR/sessions/$first/messages.json" \
   || { echo "the message after /resume did not land in $first" >&2; exit 1; }
+
+# A document the person sends: the bot downloads it with getFile, the session
+# keeps it with its assets, and the caption is what the model is asked.
+curl -sf -X POST -H 'Content-Type: application/json' \
+  -d "{\"chat_id\":4242,\"user_id\":4242,\"username\":\"alice\",\"type\":\"document\",\"file_name\":\"notes.txt\",\"caption\":\"sum up the notes\",\"data\":\"$(printf 'one\ntwo\n' | base64)\"}" \
+  "$ORIGIN/sim/media" >/dev/null
+wait_chat "bot: The notes hold two lines."
+[[ "$(cat "$HOME_DIR/sessions/$first/assets/notes.txt" 2>/dev/null)" == "$(printf 'one\ntwo')" ]] \
+  || { echo "the document is not in the session's assets" >&2; ls -la "$HOME_DIR/sessions/$first/assets" >&2 || true; exit 1; }
 
 # A background wake: the chat's agent starts a failing command in the
 # background and ends its turn; when the command ends, the woken turn comes

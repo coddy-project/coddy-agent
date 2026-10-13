@@ -311,7 +311,7 @@ type CompactionJSON struct {
 }
 
 // ResultEvictionJSON mirrors ResultEviction. Pointer fields keep the
-// unset/explicit distinction (enabled defaults to true, keep_recent to 1).
+// unset/explicit distinction (enabled defaults to true, keep_recent to 2).
 type ResultEvictionJSON struct {
 	Enabled        *bool `json:"enable,omitempty"`
 	KeepRecent     *int  `json:"keep_recent,omitempty"`

@@ -22,7 +22,7 @@ Codex собирает цепочку инструкций **один раз з�
 
 Конфигурация лежит в `.codex/hooks.json`. Оба обработчика запускают один и тот же скрипт, а он выбирает ветку по `hook_event_name` из данных хука.
 
-В этом репозитории при старте сессии приходит `russian-wording`. Тематические правила для Go, HTTP, шлюза и UI привязаны к путям и подключаются по необходимости. Правка `external/httpserver/server.go` подтягивает `api-layer`, `architecture`, `code-style`, `implementation-order`, `testing` и `workflow`, а правка в `external/ui/src/` подтягивает ещё `ui-spa` и `ui-verification`.
+В этом репозитории при старте сессии приходят `russian-wording` и `merged-branch-cleanup`. Тематические правила для Go, HTTP, шлюза и UI привязаны к путям и подключаются по необходимости. Правка `external/httpserver/server.go` подтягивает `api-layer`, `architecture`, `code-style`, `implementation-order`, `testing` и `workflow`, а правка в `external/ui/src/` подтягивает ещё `ui-spa` и `ui-verification`.
 
 ## Как это работает
 
@@ -107,4 +107,4 @@ codex execpolicy check --pretty --rules ~/.codex/rules/default.rules -- go test 
 
 Документация Codex - [Hooks](https://developers.openai.com/codex/hooks) и [Custom instructions with AGENTS.md](https://developers.openai.com/codex/guides/agents-md).
 
-<!-- docsgen:source sha256=f6e8c5f4eae0e0e4 -->
+<!-- docsgen:source sha256=0978ba409a7d580e -->

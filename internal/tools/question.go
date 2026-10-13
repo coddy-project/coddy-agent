@@ -18,7 +18,7 @@ func QuestionTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "question",
-			Description: "Ask the user one or more multiple-choice questions and wait for answers. Each question needs a prompt and at least one option label.",
+			Description: "Ask the user one or more multiple-choice questions and wait for answers. Each question needs a prompt and at least one option label. The user can type an answer of their own instead of picking an option unless the question sets custom to false, so do not add an option such as \"Other\" for it; an answer that matches no option label is the text the user typed.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -53,7 +53,8 @@ func QuestionTool() *tooling.Tool {
 								},
 								"custom": map[string]interface{}{
 									"type":        "boolean",
-									"description": "When true, allow free-text / custom input in addition to options",
+									"default":     true,
+									"description": "Whether the user may type an answer of their own besides the options. Defaults to true; set false only when the answer must be one of the options",
 								},
 							},
 							"required": []interface{}{"question", "options"},
@@ -72,7 +73,11 @@ type questionArgs struct {
 	Questions json.RawMessage `json:"questions"`
 }
 
-// decodeQuestionPrompts tolerates the encodings models actually produce for
+// decodeQuestionPrompts decodes through acp.QuestionPrompt, which reads a
+// missing custom key as true: a question offers the user's own answer unless
+// the model turned it off (issue #257).
+//
+// It tolerates the encodings models actually produce for
 // the questions argument: the canonical JSON array, a single question object,
 // and either of those double-encoded inside a JSON string.
 func decodeQuestionPrompts(raw json.RawMessage, depth int) ([]acp.QuestionPrompt, error) {

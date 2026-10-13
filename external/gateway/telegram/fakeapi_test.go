@@ -29,6 +29,8 @@ type fakeAPI struct {
 	fake *tgfake.Server
 	srv  *httptest.Server
 	api  *tgbotapi.BotAPI
+
+	offset int // the next update userMedia reads
 }
 
 // openFakeAPI starts the fake for a harness that has no *testing.T (the godog
@@ -86,6 +88,34 @@ func (f *fakeAPI) userMessage(chatID, userID int64, text string) *tgbotapi.Messa
 		msg.Entities = []tgbotapi.MessageEntity{{Type: "bot_command", Offset: 0, Length: len(command)}}
 	}
 	return msg
+}
+
+// userMedia puts a photo or a document the person sends into the fake's chat
+// and returns it the way the bot's library reads it off getUpdates: photo
+// sizes, caption entities and the media group as Telegram delivers them. The
+// updates it reads are confirmed, those userMessage left pending included.
+func (f *fakeAPI) userMedia(in tgfake.IncomingMedia) (*tgbotapi.Message, error) {
+	_, id, err := f.fake.InjectMedia(in)
+	if err != nil {
+		return nil, err
+	}
+	updates, err := f.api.GetUpdates(tgbotapi.UpdateConfig{Offset: f.offset})
+	if err != nil {
+		return nil, err
+	}
+	var found *tgbotapi.Message
+	for _, u := range updates {
+		if u.UpdateID >= f.offset {
+			f.offset = u.UpdateID + 1
+		}
+		if m := u.Message; m != nil && m.MessageID == id && (in.ChatID == 0 || m.Chat.ID == in.ChatID) {
+			found = m
+		}
+	}
+	if found == nil {
+		return nil, fmt.Errorf("getUpdates did not deliver message %d: %+v", id, updates)
+	}
+	return found, nil
 }
 
 // message returns a message of the chat by id, as the chat shows it now.

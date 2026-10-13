@@ -11,9 +11,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"os"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -611,7 +611,9 @@ func TestPoolLetsGoOfAnUnkeptServerAtOnce(t *testing.T) {
 	pool.SetStopDelay(time.Hour)
 	srv := globalServer(poolStub("kept", record))
 	pool.Keep([]ManagedServer{srv})
-	if !eventually(t, 10*time.Second, func() bool { return recorded(record, "started") == 1 && len(pool.Running()) == 1 && pool.Running()[0].Connected }) {
+	if !eventually(t, 10*time.Second, func() bool {
+		return recorded(record, "started") == 1 && len(pool.Running()) == 1 && pool.Running()[0].Connected
+	}) {
 		t.Fatal("the kept server did not start")
 	}
 	pool.Keep(nil)

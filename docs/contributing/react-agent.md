@@ -59,7 +59,10 @@ The environment block is appended outside the configurable template so OS and sh
 
 The system message is rendered **once per turn**, by **`buildSystemPromptParts`**
 (**`internal/agent/system_prompt.go`**), and every step of the ReAct loop then sends that same
-message back byte for byte. Nothing rewrites **`messages[0]`** between the steps.
+message back byte for byte. Nothing rewrites **`messages[0]`** between the steps, except a template under
+**`prompts.dir`** that prints the clock or the checklist itself (see the end of the next section). A
+turn that stopped on a permission prompt renders it again when the answer resumes the turn
+(**`ResumeAfterPermission`**).
 
 The reason is the provider's prompt cache. A provider caches a request by its **prefix** - the tool
 definitions, then the messages from the start - and the first byte that differs from the previous
@@ -109,7 +112,7 @@ Already on disk:
   and the section is not written with **`tools.background.enable`** false.
 
 The block is never persisted: it is appended at the **`provider.Stream`** send boundary, next to the
-read/grep eviction projection, and the working message slice the loop keeps appending to never sees
+result eviction projection, and the working message slice the loop keeps appending to never sees
 it. Only the last few hundred tokens of a request are therefore uncached; the conversation behind
 them is a cache hit.
 
@@ -133,17 +136,24 @@ render them - at the cost of that cache, on every request. Such a template gets 
 checklist after the history; its block carries the two sections no template prints, the memory
 report and the running background tasks, and is left out when there is neither.
 
-### The other half: read/grep eviction
+### The other half: result eviction
 
-Freezing the system message is only half of a stable prefix. Read/grep result
-eviction (**`internal/agent/result_eviction.go`**) writes placeholders **into the middle** of the
+Freezing the system message is only half of a stable prefix. Result eviction of reads, greps and
+the listings of `glob`, `print_tree`, `websearch` and `webfetch`
+(**`internal/agent/result_eviction.go`**) writes placeholders **into the middle** of the
 replayed history, which invalidates the cache from that point on just as surely. With the default
 sliding working window that used to happen on nearly every step, so the conversation was reprocessed
 each time even with the prompt frozen. **`compaction.result_eviction.start_percent`** (default 50)
 holds the projection off until the estimated context reaches that share of the model's
 **`max_context_tokens`**; below it the history goes out exactly as the provider already has it. The
 decision is measured on the **unpruned** messages, so pruning cannot push the estimate back under the
-mark and make the projection flap between two shapes. See
+mark and make the projection flap between two shapes. A request the provider
+refused as too large opens the gate for the rest of that turn
+(**`Agent.evictionForced`**): the cache the gate protects is moot once the
+provider has refused to read the prefix. The fold inside a turn
+(**`compact_in_turn.go`**) is the same trade: it rewrites the history only at the
+compaction threshold, and the summary row it writes starts with the prompt, so the
+rewritten prefix still opens with what the model was asked. See
 [compaction.md](../features/compaction.md).
 
 ### Reading the cache hit
@@ -204,9 +214,9 @@ This approach is more reliable than text parsing and supported by all major prov
 messages: [
   { role: "system",    content: <system_prompt> },
   { role: "user",      content: <user_prompt> },
-  { role: "assistant", content: "", tool_calls: [{ id: "call_1", name: "read_file", args: {...} }] },
+  { role: "assistant", content: "", tool_calls: [{ id: "call_1", name: "read", args: {...} }] },
   { role: "tool",      tool_call_id: "call_1", content: <file_contents> },
-  { role: "assistant", content: "", tool_calls: [{ id: "call_2", name: "write_file", args: {...} }] },
+  { role: "assistant", content: "", tool_calls: [{ id: "call_2", name: "write", args: {...} }] },
   { role: "tool",      tool_call_id: "call_2", content: "OK" },
   { role: "assistant", content: <final_answer> }
 ]
@@ -217,7 +227,7 @@ messages: [
 ```
 1. BUILD_MESSAGES
    - Load applicable skills and project rules for current context (separate prompt sections)
-   - Build system prompt (template + TemplateData incl. TodoList snapshot)
+   - Build system prompt once for the turn (`buildSystemPromptParts`: template + TemplateData; the built-in templates print neither the clock nor the todo checklist, the turn context block carries them)
    - Skill bodies are already in the history: on Run entry, before the user turn is persisted, Run appends the body of each skill the typed text invokes as `/name` to that message as a `<coddy_attachment kind="skill">` element (`invokedSkillBlocks`), so later requests replay the same bytes and the prefix cache holds. Surfaces leave the element out of the transcript (`mention.ForDisplay`, `stripCoddyAttachments.ts`); queued follow-ups get their skill bodies the same way.
    - Prepend system to session history (user turn already persisted on Run entry)
 
@@ -237,8 +247,11 @@ messages: [
      d. Send session/update(tool_call_update, status=completed|failed, content=result)
      e. Append tool result to conversation history
 
-5. REFRESH_SYSTEM
-   - Next loop iteration repeats from step 2 after rewriting messages[0] with a fresh **`Render`** (same session state, potentially new Plan rows)
+5. REFRESH_TURN_CONTEXT
+   - messages[0] is not rewritten: the system message stays as the turn rendered it, and what moved since (wall clock, todo checklist, memory report, running background tasks) is rebuilt by `buildTurnContext` and appended after the history at the send boundary
+   - A template under `prompts.dir` that prints `{{.UTCNow}}` or `{{.TodoList}}` is the exception: it is re-rendered before every call, and its block carries no clock or checklist
+   - An automatic compaction or a workspace switch re-renders the system message for the new history or workspace, and a turn resumed after a permission prompt renders it again on entry; no other step of the turn does
+   - Next loop iteration repeats from step 2
 
 6. CHECK_COMPLETION
    - If no tool calls in last response -> DONE (stopReason: end_turn)
@@ -275,18 +288,99 @@ messages: [
    - **Empty-assistant re-issue.** A step that returns neither answer text nor
      a tool call is replayed once as the identical request; the empty assistant
      turn is removed from the LLM-facing message slice (the transcript keeps
-     it, with signed thinking preserved). A reply stopped at `max_tokens` with
-     only whitespace content is terminal — recovery is not attempted. Consumes
-     one slot.
+     it, with signed thinking preserved). A reply stopped at `max_tokens` is
+     not replayed: the same request would hit the same cap, and the
+     output-limit recovery below handles it. Consumes one slot.
    - **Wording nudges.** If the re-issue also comes back empty, up to
      two nudges (**`maxEmptyAssistantContinuations`**) are sent, each consuming
      one slot and a normal **`max_turns`** iteration. The plain replay uses
      a normal iteration too; transport retries stay inside that iteration.
      The nudge projection also removes the empty assistant message from the
-     LLM-facing history. If auto-compaction rebuilds that history between
-     attempts, the pending recovery projection and its nudges are restored;
-     signed reasoning stays in the transcript. After the budget or nudge limit is exhausted the turn
+     LLM-facing history. If an auto-compaction rebuilds that history between
+     attempts, the pending recovery projection and the nudges that still stand
+     at its end are restored; a provider recovery rebuilds nothing, it runs the
+     request that failed again. Signed reasoning stays in the transcript. After the budget or nudge limit is exhausted the turn
      ends with **`StopReasonRefused`**.
+   - **Output-limit recovery.** A step that stops at `max_tokens`
+     (`finish_reason: "length"`) does not end the turn and is never replayed,
+     because the same request would hit the same cap. It is answered with a
+     message appended at the end of the history, local to the request and
+     never persisted, chosen by what the step left behind (output_limit.go):
+     - Nothing to act on (no visible text, no tool call - only thinking, or
+       nothing): **`outputLimitNudge`** - keep the reasoning short, split a
+       large file write or edit into several smaller tool calls. The empty step
+       stays in the transcript and is left out of every request of the turn.
+     - Visible text that stops partway: **`outputLimitContinueNudge`** -
+       continue exactly where it stopped without repeating, keep the step
+       short. The text stays in the transcript and in the history, because the
+       user read it. The continuation is the next assistant message, and the
+       cut one is stored marked `truncated` (`llm.Message.Truncated`), both
+       exactly as streamed, the whitespace at the join included
+       (`session.StripAssistantContent`); a truncated text takes no placement
+       markers of shared files, and the message that completes the answer
+       closes with them.
+       No event marks the seam: a live surface appends the chunks to the
+       message it is drawing. These readers of the transcript join the two
+       with nothing between, passing over a step that came back empty between
+       them (`session.FollowsTruncated`): every history built from the
+       transcript - the next turn's, and a rebuild within the turn after a
+       compaction (`foldSplitAnswers` in `buildMessages`); a reloaded
+       transcript in the
+       web UI (`transcriptFromMessages.ts`), which keeps them apart only where
+       the stream drew them apart - the continuation began with thinking of its
+       own, or a notice stands between them; and the answer a turn hands over - a subagent's report,
+       the reply of a non-streaming request, the Stop hook's
+       `last_assistant_message` (`session.ContinuedAnswer`, without the
+       placement markers). A paged read of the history never starts or ends a
+       page between them (`session.PageMessages`). A replay to the console, an
+       ACP client or a `--remote` console and an export show the parts as the
+       messages they are stored as. Telegram and Pachca read
+       nothing back: they stream the whole answer into one message. The goal
+       supervisor's digest of a turn (`goal_digest.go`) does not join them: it
+       reads each assistant message on its own, so the parts before the last
+       are steps of the turn and the last part alone is its closing claim.
+       Assistant messages that follow each other without that mark (the text
+       before a cut-off tool call and the step after it, an answer a provider
+       failure cut off and the step run again after it) are joined in the
+       history with a blank line, so a later turn never sends two assistant
+       messages in a row, which chat templates that insist on alternation
+       refuse; a step with signed reasoning keeps its message. An answer of its
+       own a provider failure cut off is not marked `truncated`: the stream
+       ended wherever the failure hit it, and the step run again starts the
+       answer over as often as it goes on from the last character. A part of a
+       continued answer a provider failure cut off is marked: the step run
+       again is asked to go on from it, so it stays one text with the rest.
+       The requests of the turn itself are not touched: the local message
+       stands between the two there.
+     - A last tool call the output limit cut off (**`cutOffToolCall`**): its
+       arguments are there and are not a whole JSON document. Empty arguments
+       are a call that takes none and runs. **`cutOffToolCallNudge`** names the tool (a
+       plain identifier only), says the call was cut off and not run, and asks
+       for several smaller calls. Only the last call can be cut; an earlier
+       call that does not parse is a model error and runs, and fails, as
+       before. The cut call never runs - no permission prompt, no hooks - and
+       is left out of the stored assistant message, so the tool-call pairing
+       stays whole and no provider is sent half a JSON document. Its pending
+       row closes as `failed` and its record in the tool-call store says why.
+       The calls before it were written whole and run in order; their results
+       come first, then the message.
+
+     The history only grows at its end, so the cached prefix is untouched. The
+     loop keeps one ordered list of the messages that stand at the end of the
+     working history (**`standing`**): every recovery appends the message it
+     sent, in the words it was sent in, and a step that leaves text or a tool
+     call in the history clears it, since what came before was answered. A
+     history rebuilt from the transcript between the attempts (an
+     auto-compaction, or the compaction after a refused request) puts that list
+     back (**`restoreRecoveries`**) and leaves the empty steps out again. At most
+     **`maxOutputLimitRecoveries`** (2) cut-off steps in a row. Each consumes
+     one slot and a normal **`max_turns`** iteration (on the last iteration the
+     turn ends on the output limit, not on the step limit), so
+     `llm_retry_max: 0` turns it off. A follow-up and a step that is not cut
+     off reset the count; a cut-off step that also ran whole calls does not,
+     though those calls restart the allowance. Subagents and scheduled runs
+     take the same path. When the retries are spent the turn ends with
+     **`StopReasonMaxTokens`** and a notice (**`outputLimitNotice`**).
    - **Provider recovery.** A call that failed because of the provider's lane
      (**`llm.IsTransientProviderError`**: 5xx, a cut or silent stream - an event
      cut inside its JSON included, a stream frame that is not JSON at all not -
@@ -296,19 +390,41 @@ messages: [
      calls, a **`notice`** row goes to the UI log, and after a pause
      (**`providerRecoveryDelay`**: 5x then 20x **`llm_retry_base_ms`**, or a
      longer **`Retry-After`**, capped at 2 minutes) the step runs again on a
-     fresh allowance, with an LLM-facing nudge to continue when text was kept.
-     At most **`maxProviderRecoveries`** (2) in a row; a successful call resets
+     fresh allowance as the request that failed, byte for byte, so the
+     provider's cached prefix holds (issue #520): the working history is not
+     rebuilt from the transcript, which would bring back the steps that came
+     back empty and drop the messages the recoveries sent. When text was kept,
+     the kept answer and an LLM-facing nudge to continue are appended to it.
+     The nudge stands at the end of the history like the messages of the other
+     recoveries (and like the loop guard's nudge), so a compaction before the
+     step runs again puts it back after the kept answer instead of ending the
+     request on that answer. At most **`maxProviderRecoveries`** (2) in a row; a successful call resets
      the count. Uses a normal **`max_turns`** iteration.
+   - **Overflow recovery.** A call the provider refused as larger than the
+     model's window (**`llm.IsContextOverflow`**) with nothing streamed yet
+     compacts the turn and runs the step again, once per step
+     (**`maxOverflowRecoveries`**; a successful call resets it): earlier turns
+     when a regular split fits the limit the refusal revealed, otherwise the
+     steps of the turn itself, behind the prompt (**`internal/agent/compact_in_turn.go`**).
+     It forces result eviction past its **`start_percent`** gate for the rest
+     of the turn (**`Agent.evictionForced`**), writes a **`notice`** row, and
+     uses a normal **`max_turns`** iteration. A second refusal of the same
+     step, a fold that fails or has nothing to fold, and
+     **`compaction.auto_enable: false`** end the turn with
+     **`contextOverflowError`**.
 
-   An explicit **`llm_retry_max: 0`** disables all of the above. The
+   An explicit **`llm_retry_max: 0`** disables all of the above except the
+   overflow recovery, which is a compaction and not a retry of the same
+   request. The
    `loop_guard`, Stop hooks, fallback models, and `wait_for_limit_reset` are
    independent policies, each governed by their own settings.
 
    At `logger.level: debug`, each LLM call completion logs
    `msg="llm call finished"` with `provider_attempts` (total inner adapter
    calls including transport-layer retries), `transport_retries`, `call_reason`
-   (one of `step`, `empty_reissue`, `empty_nudge`, `first_token_retry`,
-   `loop_guard`, `quota_reset_wait`, `stop_hook`, `queued_followup`), and
+   (one of `step`, `empty_reissue`, `empty_nudge`, `output_limit_nudge`,
+   `first_token_retry`, `provider_recovery`, `loop_guard`, `quota_reset_wait`,
+   `stop_hook`, `queued_followup`, `context_overflow_recovery`), and
    `retries_remaining` (budget slots left after this call).
 
    Two guards bound a streamed call that stops answering. The first-token guard
@@ -334,9 +450,9 @@ Embedded **`agent.md`** describes agent behavior (quality, shells, todos, git wo
 
 Representative builtins (excluding MCP-namespaced tools):
 
-- `read_file`, `write_file`, `write_text_file`, `list_dir`, `search_files`
+- `read`, `keep_result`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `print_tree`
 - `websearch`, `webfetch`, `http_request`
-- `run_command`, `apply_diff`
+- `run_command` and the background tools (`background_list`, `background_output`, `background_wait`, `background_stop`, `background_reap`)
 - Filesystem mutations: **`mkdir`**, **`rm`**, **`rmdir`**, **`touch`**, **`mv`** (subset may require permission paths)
 - Session checklist: **`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**, **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**, **`coddy_todo_item_update`**, **`coddy_todo_item_move`**
 - All MCP server tools (names **`serverName__toolName`**)
@@ -347,98 +463,22 @@ Embedded **`plan.md`** keeps the default **registry** surface read-oriented (no 
 
 Representative builtins exposed to the LLM (registry allowlist):
 
-- `read_file`, `list_dir`, `search_files`
+- `read`, `keep_result`, `glob`, `grep`, `print_tree`
 - `websearch`, `webfetch`
-- `run_command`
+- `run_command` with `background_list`, `background_output`, `background_wait`, `background_stop`
+- `plan_write`, `plan_list`, `plan_read`
 
-Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation work, prompts instruct switching the client to **`agent`** mode.
+The whole list is **`internal/agent.ToolSetForMode("plan")`** ([Operating modes](../features/modes.md#plan)).
+
+Plus MCP tools (**`serverName__toolName`**). The allowlist is also enforced at execution time, so a call replayed from history that names a tool outside it is refused with a plan-mode notice instead of being executed. When ready to ship implementation work, prompts instruct switching the client to **`agent`** mode.
 
 ### Ask Mode
 
-Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`**, **`coddy_docs_search`** and **`coddy_docs_read`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory subagent runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
+Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`**, **`coddy_docs_search`** and **`coddy_docs_read`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. As in plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice; ask refuses MCP tool names there, while plan lets them through to the MCP layer. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory subagent runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
 
 ## Built-in Tools Specification
 
-### `read_file`
-```json
-{
-  "name": "read_file",
-  "description": "Read the contents of a file",
-  "parameters": {
-    "path": { "type": "string", "description": "Absolute or relative (to cwd) path" },
-    "start_line": { "type": "integer", "description": "First line to read (1-based, optional)" },
-    "end_line": { "type": "integer", "description": "Last line to read (1-based, optional)" }
-  },
-  "required": ["path"]
-}
-```
-
-### `write_file`
-```json
-{
-  "name": "write_file",
-  "description": "Write or create a file with the given content",
-  "parameters": {
-    "path": { "type": "string", "description": "Absolute or relative (to cwd) path" },
-    "content": { "type": "string", "description": "Full file content to write" }
-  },
-  "required": ["path", "content"]
-}
-```
-
-### `list_dir`
-```json
-{
-  "name": "list_dir",
-  "description": "List files and directories at the given path",
-  "parameters": {
-    "path": { "type": "string", "description": "Directory path (default: cwd)" },
-    "recursive": { "type": "boolean", "description": "Include subdirectories" }
-  }
-}
-```
-
-### `grep`
-```json
-{
-  "name": "grep",
-  "description": "Search file contents recursively (system ripgrep with a built-in fallback)",
-  "parameters": {
-    "pattern": { "type": "string", "description": "Regex or literal search pattern" },
-    "path": { "type": "string", "description": "Directory to search in (default: cwd)" },
-    "glob": { "type": "string", "description": "File glob filter (e.g. '**/*.go')" },
-    "case_sensitive": { "type": "boolean", "default": false },
-    "max_results": { "type": "integer", "default": 100 }
-  },
-  "required": ["pattern"]
-}
-```
-
-### `run_command`
-```json
-{
-  "name": "run_command",
-  "description": "Execute a shell command in the working directory",
-  "parameters": {
-    "command": { "type": "string", "description": "Shell command to execute" },
-    "timeout_seconds": { "type": "integer", "default": 30 }
-  },
-  "required": ["command"]
-}
-```
-
-### `apply_diff`
-```json
-{
-  "name": "apply_diff",
-  "description": "Apply a unified diff to a file",
-  "parameters": {
-    "path": { "type": "string", "description": "File to patch" },
-    "diff": { "type": "string", "description": "Unified diff content" }
-  },
-  "required": ["path", "diff"]
-}
-```
+The built-in tools, their arguments, the permission each one needs and the modes that offer it are listed in [Tools](../reference/tools.md). The schema the model is given is the **`InputSchema`** of each tool's constructor under **`internal/tools`** and the optional packages; **`internal/tools.NewRegistryFor`** builds the registry from them.
 
 ## Plan Update Format
 
@@ -465,7 +505,7 @@ Plan entries are updated as the agent progresses:
 
 ## Error Handling in ReAct Loop
 
-- LLM API error: draw from the `agent.llm_retry_max` shared per-step budget (default 3; explicit 0 disables); transport retries, first-token re-issues, and no-answer recoveries share the same pool; the budget resets on tool progress and is not a per-turn lifetime cap on all LLM calls
+- LLM API error: draw from the `agent.llm_retry_max` shared per-step budget (default 3; explicit 0 disables); transport retries, first-token re-issues, no-answer recoveries, and the output-limit recovery share the same pool; the budget resets on tool progress and is not a per-turn lifetime cap on all LLM calls
 - LLM stream stalled (no bytes after the first ones for `llm_stream_idle_timeout_ms`): persist the partial answer, fail turn with the stall named; retried within the remaining shared budget only when nothing was delivered
 - Tool execution error: return error as observation, let LLM decide next step
 - Permission denied: return "permission denied" observation

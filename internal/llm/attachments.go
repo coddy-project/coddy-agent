@@ -3,6 +3,7 @@ package llm
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // pictureTypes are the picture types the Anthropic Messages API and the
@@ -97,5 +98,46 @@ func attachmentText(ip ImagePart, kind int, mime string) string {
 		}
 		return fmt.Sprintf("\n\n[File: %s: a %s this provider cannot be sent as a picture]", label, mime)
 	}
-	return fmt.Sprintf("\n\n[File: %s]\n%s", label, decodeDataURL(ip.DataURL))
+	return "\n\n" + fileText(ip, mime)
+}
+
+// maxInlinedFileBytes is how much of an attached text file a message writes
+// out: about 16K tokens. A longer file - a log a person sent the Telegram
+// bot, a dump - is cut there, since one message larger than the context
+// window would stay in the history and fail every request after it; the
+// session keeps the whole file with its assets, and the prompt says where.
+const maxInlinedFileBytes = 64 << 10
+
+// fileText is how an attached file that is not a picture reads in a message:
+// its text under a label, its beginning when it is longer than
+// maxInlinedFileBytes, or, for a file that is not text - a PDF, an archive -
+// a line naming it. Bytes that are not text written out as text are noise
+// that fills the context window. A PDF counts as one whatever its bytes,
+// since one written in ASCII is still no text a model reads.
+func fileText(ip ImagePart, mime string) string {
+	label := ip.Name
+	if label == "" {
+		label = "file"
+	}
+	body := decodeDataURL(ip.DataURL)
+	if mime == "application/pdf" || !looksLikeText(body) {
+		if mime == "" {
+			mime = "binary"
+		}
+		return fmt.Sprintf("[File: %s (%s), not text, so it is not written out here]", label, mime)
+	}
+	if len(body) > maxInlinedFileBytes {
+		cut := body[:maxInlinedFileBytes]
+		for !utf8.ValidString(cut) {
+			cut = cut[:len(cut)-1]
+		}
+		return fmt.Sprintf("[File: %s, the first %d of its %d bytes]\n%s\n[The rest of %s is not written out here.]", label, len(cut), len(body), cut, label)
+	}
+	return fmt.Sprintf("[File: %s]\n%s", label, body)
+}
+
+// looksLikeText reports whether a file's bytes read as text: valid UTF-8
+// with no NUL byte.
+func looksLikeText(body string) bool {
+	return utf8.ValidString(body) && !strings.ContainsRune(body, 0)
 }

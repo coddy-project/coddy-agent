@@ -22,7 +22,7 @@ This repository keeps a native Cursor representation under `.cursor/rules/*.mdc`
 
 Configuration lives in `.codex/hooks.json`. Both handlers run the same script; it branches on `hook_event_name` from the hook payload.
 
-For this repository, `russian-wording` arrives at session start. The Go, HTTP, gateway and UI topic rules are path-scoped and attach on demand. An edit touching `external/httpserver/server.go` pulls in `api-layer`, `architecture`, `code-style`, `implementation-order`, `testing` and `workflow`; one touching `external/ui/src/` also pulls in `ui-spa` and `ui-verification`.
+For this repository, `russian-wording` and `merged-branch-cleanup` arrive at session start. The Go, HTTP, gateway and UI topic rules are path-scoped and attach on demand. An edit touching `external/httpserver/server.go` pulls in `api-layer`, `architecture`, `code-style`, `implementation-order`, `testing` and `workflow`; one touching `external/ui/src/` also pulls in `ui-spa` and `ui-verification`.
 
 ## How it works
 

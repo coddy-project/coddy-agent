@@ -45,6 +45,16 @@ func signInTestServer(t *testing.T, home string, provider config.ProviderConfig,
 	if issuer != "" {
 		srv.codexAuthIssuer = issuer
 	}
+	// A device sign-in the test starts goes on in the background and writes
+	// the credential into home. It is cancelled and waited for before the
+	// test's temporary folders are removed, or the removal races that write
+	// ("directory not empty"). Drain would do it too, but it also stops the
+	// process-wide task pool the rest of the package shares.
+	t.Cleanup(func() {
+		srv.cancelCodexAuthLogins()
+		srv.cancelNeuralDeepAuthLogins()
+		srv.bgWG.Wait()
+	})
 	return srv
 }
 
