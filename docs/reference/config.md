@@ -82,6 +82,7 @@ Named model entries the agent and UI can select.
 | `models[].stream` | boolean or null | true | Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only. |
 | `models[].shared_as` | string |  | Offers this model to other Coddys that reach this server, under this alias: the only name that leaves the host, in the listing, in requests and in errors, never the provider/model selector. Empty or absent keeps the model private. 1 to 64 letters, digits, dots, underscores or hyphens, starting with a letter or a digit; unique across models; not allowed on a model of a provider of type coddy. The shared routes need a credential: httpserver.shared_models.tokens (opens only the LLM routes) or httpserver.auth_token; coddy -t reports shared_as without one as an error. The alias is a name, not an access boundary: the main token still reaches every model by its selector on the rest of the API. |
 | `models[].shared_subscription_ack` | boolean | false | Required next to shared_as on a model whose credential is a subscription login: providers of type codex and devin, and a neuraldeep provider with no api_key, api_key_command or NAME_API_KEY (the stored hub login fills in). Sharing a login hands its quota to every holder of a shared-model token and may breach the vendor's terms; without this key the configuration is refused at load. It has no effect without shared_as. |
+| `models[].toolset` | string |  | Name of the toolsets[] preset a session on this model is offered its tools by, unless the session picks another with /toolset <name>. Absent or empty offers every tool the mode would. Use it to spare a small-context local model the schemas of tools it never calls. |
 
 ### `agent`
 
@@ -483,6 +484,17 @@ What the built-in certificate authority (coddy tls, files under $CODDY_HOME/tls)
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `tls.names` | list of strings |  | Extra DNS names and IP addresses for the server certificate, for a host reached by a name Coddy cannot see: a proxy's name, a DNS alias, a public address behind NAT. A new name makes coddy tls ensure issue the server certificate again. |
+
+### `toolsets`
+
+Named presets of tool lists. A models[] row names one with toolset, and a session can pick one with /toolset <name>, on its own or after /model on the same line. A preset only narrows: a tool the mode, a subagent definition or a switch already hides stays hidden, and a call to a tool outside the set is refused without a permission prompt. It is a context optimization, not a security boundary.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `toolsets` | list of objects |  | Named presets of tool lists. A models[] row names one with toolset, and a session can pick one with /toolset <name>, on its own or after /model on the same line. A preset only narrows: a tool the mode, a subagent definition or a switch already hides stays hidden, and a call to a tool outside the set is refused without a permission prompt. It is a context optimization, not a security boundary. |
+| `toolsets[].name` | string |  | Name of the preset: letters, digits, '.', '_' and '-'. default is reserved: a session picks it to be offered every tool the mode offers. |
+| `toolsets[].tools` | list of strings |  | Allowlist: tool names, a bare *, or a prefix* (context7__* admits every tool of that MCP server). Absent or empty admits every tool the mode would. coddy -t warns about an entry that matches no tool. |
+| `toolsets[].disallowed_tools` | list of strings |  | Denylist applied after tools, with the same names and patterns; a name in both lists is removed. coddy -t warns about an entry that matches no tool. |
 <!-- docsgen:config:end -->
 
 ## Notes

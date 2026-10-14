@@ -1,6 +1,6 @@
 # Session settings
 
-A session runs on four settings: the model, its reasoning level, the [operating mode](modes.md) and the permission mode. Each of them can be changed from the conversation itself, with a slash command typed in any surface, for the rest of the session or only for the next few turns. The permission dialog can switch the session out of `ask`, and the agent changes the model or the reasoning level itself when the user asks it to, never on its own. Every change goes through one setter in the session manager (`Manager.ApplySessionSettings`, `internal/session/settings.go`), and every surface watching the session - the browser tab, a console, an editor - shows the new values.
+A session runs on four settings: the model, its reasoning level, the [operating mode](modes.md) and the permission mode, and on a fifth, the toolset, while the configuration has a toolset preset. Each of them can be changed from the conversation itself, with a slash command typed in any surface, for the rest of the session or only for the next few turns. The permission dialog can switch the session out of `ask`, and the agent changes the model or the reasoning level itself when the user asks it to, never on its own. Every change goes through one setter in the session manager (`Manager.ApplySessionSettings`, `internal/session/settings.go`), and every surface watching the session - the browser tab, a console, an editor - shows the new values.
 
 ## The commands
 
@@ -12,6 +12,7 @@ A session runs on four settings: the model, its reasoning level, the [operating 
 | `/nothink` (alias `/no_think`) | turns thinking off | none |
 | `/agent`, `/plan`, `/ask` | the operating mode | none |
 | `/permissions <ask\|accept_edits\|bypass>` | the permission mode: when tools ask for approval | the mode; the console opens a picker without one |
+| `/toolset <name\|default>` | the toolset the session is offered its tools by | a `toolsets[]` preset; `default` for every tool of the mode; the console opens a picker without one |
 
 `/mode` no longer exists, on any surface: next to `/model` in a menu it was one keystroke from the wrong command, and each mode now has a command of its own.
 
@@ -51,6 +52,12 @@ A model switched to has its context window read at once, the window its provider
 - another provider/model deployment uses its existing `off` mapping.
 
 Without the opt-in, the command is refused with the levels the model does offer. An explicit empty `reasoning_levels: []` hides the selector and `off` even when the opt-in is set. When you switch to a model that does not offer the stored level, the session runs at that model's default, and the selectors and the snapshot show the level actually used.
+
+## The toolset
+
+A `toolsets[]` preset narrows the tools a session is offered, for a small-window local model that should not carry the schemas of tools it never calls ([Toolsets](../getting-started/configuration.md#toolsets)). A model names the toolset its sessions run with, and `/toolset <name>` picks another one for this session; `/toolset default` picks none, so the session is offered every tool of its mode whatever its model names. The pick is kept in the session's `session.json` and survives a restart and a switch of the model; a new session starts with the toolset of its model. `/model <id> /toolset <name>` switches both on one line.
+
+The toolset is offered only while the configuration has a preset: the snapshot of the session's settings then carries `toolset` and `toolsetChoices`, the web composer shows a **Toolset** chip after the permission chip, the console's `/toolset` opens a picker and its footer names the preset, and an editor sees a **Toolset** option. Without a preset none of them is there, and a preset added to the configuration brings them without a restart: the server publishes the settings of every live session again.
 
 ## Switching from the permission dialog
 

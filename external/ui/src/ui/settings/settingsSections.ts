@@ -39,6 +39,7 @@ const SECTION_LABEL_KEYS = {
   sessions_manager: "settings.section.sessions_manager.label",
   providers: "settings.section.providers.label",
   models: "settings.section.models.label",
+  toolsets: "settings.section.toolsets.label",
   agent: "settings.section.agent.label",
   supervisor: "settings.section.supervisor.label",
   tools: "settings.section.tools.label",
@@ -68,6 +69,7 @@ const SECTION_DESC_KEYS = {
   sessions_manager: "settings.section.sessions_manager.desc",
   providers: "settings.section.providers.desc",
   models: "settings.section.models.desc",
+  toolsets: "settings.section.toolsets.desc",
   agent: "settings.section.agent.desc",
   supervisor: "settings.section.supervisor.desc",
   tools: "settings.section.tools.desc",
@@ -118,6 +120,7 @@ export const SESSIONS_CONFIG_KEY = "sessions";
 export const ARRAY_LABEL_FIELDS: Record<string, string> = {
   providers: "name",
   models: "model",
+  toolsets: "name",
 };
 
 /**

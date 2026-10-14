@@ -10,6 +10,7 @@ import (
 type ConfigJSON struct {
 	Providers    []ProviderJSON   `json:"providers,omitempty"`
 	Models       []ModelJSON      `json:"models,omitempty"`
+	Toolsets     []ToolsetJSON    `json:"toolsets,omitempty"`
 	Agent        AgentJSON        `json:"agent,omitempty"`
 	Supervisor   Supervisor       `json:"supervisor,omitempty"`
 	Prompts      PromptsJSON      `json:"prompts,omitempty"`
@@ -145,6 +146,15 @@ type ModelJSON struct {
 	// subscription login needs next to it.
 	SharedAs              string `json:"shared_as,omitempty"`
 	SharedSubscriptionAck bool   `json:"shared_subscription_ack,omitempty"`
+	Toolset               string `json:"toolset,omitempty"`
+}
+
+// ToolsetJSON mirrors Toolset. Empty and absent lists mean the same (no
+// restriction), so plain slices with omitempty round-trip them losslessly.
+type ToolsetJSON struct {
+	Name            string   `json:"name"`
+	Tools           []string `json:"tools,omitempty"`
+	DisallowedTools []string `json:"disallowed_tools,omitempty"`
 }
 
 // AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit
@@ -560,6 +570,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		mj.Stream = cloneBoolPtr(m.Stream)
 		out.Models = append(out.Models, mj)
 	}
+	for _, ts := range c.Toolsets {
+		out.Toolsets = append(out.Toolsets, ToolsetJSON{Name: ts.Name,
+			Tools:           append([]string(nil), ts.Tools...),
+			DisallowedTools: append([]string(nil), ts.DisallowedTools...)})
+	}
 	out.Agent = AgentJSON{
 		QueueMode:              c.Agent.QueueMode,
 		Model:                  c.Agent.Model,
@@ -813,6 +828,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		me.AllowReasoningOff = cloneBoolPtr(m.AllowReasoningOff)
 		me.Stream = cloneBoolPtr(m.Stream)
 		cfg.Models = append(cfg.Models, me)
+	}
+	for _, ts := range j.Toolsets {
+		cfg.Toolsets = append(cfg.Toolsets, Toolset{Name: ts.Name,
+			Tools:           append([]string(nil), ts.Tools...),
+			DisallowedTools: append([]string(nil), ts.DisallowedTools...)})
 	}
 	cfg.Agent = Agent{
 		QueueMode:              j.Agent.QueueMode,

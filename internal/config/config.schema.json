@@ -171,6 +171,39 @@
             "type": "boolean",
             "description": "Required next to shared_as on a model whose credential is a subscription login: providers of type codex and devin, and a neuraldeep provider with no api_key, api_key_command or NAME_API_KEY (the stored hub login fills in). Sharing a login hands its quota to every holder of a shared-model token and may breach the vendor's terms; without this key the configuration is refused at load. It has no effect without shared_as.",
             "default": false
+          },
+          "toolset": {
+            "type": "string",
+            "description": "Name of the toolsets[] preset a session on this model is offered its tools by, unless the session picks another with /toolset <name>. Absent or empty offers every tool the mode would. Use it to spare a small-context local model the schemas of tools it never calls."
+          }
+        }
+      }
+    },
+    "toolsets": {
+      "type": "array",
+      "description": "Named presets of tool lists. A models[] row names one with toolset, and a session can pick one with /toolset <name>, on its own or after /model on the same line. A preset only narrows: a tool the mode, a subagent definition or a switch already hides stays hidden, and a call to a tool outside the set is refused without a permission prompt. It is a context optimization, not a security boundary.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the preset: letters, digits, '.', '_' and '-'. default is reserved: a session picks it to be offered every tool the mode offers."
+          },
+          "tools": {
+            "type": "array",
+            "description": "Allowlist: tool names, a bare *, or a prefix* (context7__* admits every tool of that MCP server). Absent or empty admits every tool the mode would. coddy -t warns about an entry that matches no tool.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disallowed_tools": {
+            "type": "array",
+            "description": "Denylist applied after tools, with the same names and patterns; a name in both lists is removed. coddy -t warns about an entry that matches no tool.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }

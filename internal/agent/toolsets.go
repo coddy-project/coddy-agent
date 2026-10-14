@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
 )
 
 // ToolSet is an allowlist of tool names passed to the LLM. Empty or nil means unrestricted
@@ -216,4 +218,168 @@ func FilterToolDefinitions(defs []llm.ToolDefinition, set ToolSet) []llm.ToolDef
 		}
 	}
 	return out
+}
+
+// Toolsets: the toolsets[] presets of the configuration (config.Toolset).
+//
+// The session is offered the tools of one preset at most: the one it picked
+// (/toolset, kept in the session), else the one its
+// model names (models[].toolset); "default" picks none. The point is context,
+// not permission: a local model with a 49k window that the work only ever asks
+// for a dozen tools should not be sent the schemas of the other forty (about
+// 12k tokens), while a Codex or GPT model on the same configuration keeps
+// every tool.
+//
+// A preset only narrows. It is applied last, to what the mode, the session's
+// switches and a subagent's definition already offer, with the rule a subagent
+// definition's own lists follow (subagents.AllowsTool), and it is resolved for
+// the model a request is built for (toolOffer), so a switch of the model or of
+// the toolset, a config_commit or a model chosen for a spawned child changes
+// the set the next request carries. Nothing is forced in: the loop works
+// without any tool, so a preset that leaves nothing simply offers none.
+//
+// The same check runs when a call is about to execute (toolCallRefused), like
+// the mode's, so a call replayed from history or invented by the model for a
+// tool it was not offered is refused with a clear result before any permission
+// prompt.
+
+// toolOffer is what the requests of a running turn are offered their tools
+// for: the model of the turn's transport and a copy of the preset that applied
+// when the offer was made. A call is judged by the offer of the request that
+// produced it, so neither a switch nor a config_commit earlier in the same
+// batch changes how the rest of the batch is judged; both take effect from the
+// next request.
+type toolOffer struct {
+	model string
+	// toolset is a copy of the preset, nil when nothing restricts the set.
+	toolset *config.Toolset
+}
+
+// activeToolset is the preset whose lists apply to this agent right now: the
+// offer of the request being worked on while a turn runs, else the session's
+// own; nil when nothing restricts the set. A system child (the memory
+// subagent) is out of reach of it: its tool set is fixed by the runtime that
+// launched it, and a preset written for the main loop would strip it.
+func (a *Agent) activeToolset() *config.Toolset {
+	if a == nil || a.cfg == nil || a.state == nil {
+		return nil
+	}
+	if a.subagent != nil && a.subagent.Kind != "" {
+		return nil
+	}
+	a.offerMu.RLock()
+	offer := a.offer
+	a.offerMu.RUnlock()
+	if offer != nil {
+		return offer.toolset
+	}
+	return a.cfg.ResolveToolset(a.state.EffectiveModelID(a.cfg), a.state.EffectiveToolset())
+}
+
+// setOfferModel makes the offer the next requests of the turn are built and
+// judged by: the preset the session's choice and model id resolve to in the
+// configuration now. "" ends the offer and hands the decision back to the
+// session's current settings.
+func (a *Agent) setOfferModel(id string) {
+	var offer *toolOffer
+	if id != "" {
+		offer = &toolOffer{model: id}
+		if ts := a.cfg.ResolveToolset(id, a.state.EffectiveToolset()); ts != nil {
+			offer.toolset = &config.Toolset{
+				Name:            ts.Name,
+				Tools:           append([]string(nil), ts.Tools...),
+				DisallowedTools: append([]string(nil), ts.DisallowedTools...),
+			}
+		}
+	}
+	a.offerMu.Lock()
+	a.offer = offer
+	a.offerMu.Unlock()
+}
+
+// toolsetAllows reports whether a preset offers a tool. A nil preset offers
+// everything.
+func toolsetAllows(ts *config.Toolset, name string) bool {
+	if ts == nil {
+		return true
+	}
+	return subagents.AllowsTool(ts.Tools, ts.DisallowedTools, name)
+}
+
+// filterToolDefsByToolset keeps the definitions a preset offers. Without one
+// it returns defs itself, so a configuration that sets none sends the bytes it
+// always did.
+func filterToolDefsByToolset(defs []llm.ToolDefinition, ts *config.Toolset) []llm.ToolDefinition {
+	if ts == nil {
+		return defs
+	}
+	out := make([]llm.ToolDefinition, 0, len(defs))
+	for _, d := range defs {
+		if toolsetAllows(ts, d.Name) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// sameToolNames reports whether two tool sets name the same tools in the same
+// order, the test for whether a switch moved the set a request carries.
+func sameToolNames(a, b []llm.ToolDefinition) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name {
+			return false
+		}
+	}
+	return true
+}
+
+// narrowToolNamesByToolset is filterToolDefsByToolset for a list of names: the
+// effective set of a spawned child, narrowed by the preset of the model it
+// will run on.
+func narrowToolNamesByToolset(names []string, ts *config.Toolset) []string {
+	if ts == nil {
+		return names
+	}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if toolsetAllows(ts, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// toolsetHidesTool reports whether the active preset leaves a tool out, for
+// the parts of the system prompt that describe one.
+func (a *Agent) toolsetHidesTool(name string) bool {
+	return !toolsetAllows(a.activeToolset(), name)
+}
+
+// toolCallRefusedByToolset reports whether a call must be refused at
+// execution time because the active preset leaves the tool out, with the
+// refusal text returned as the tool result. Definition filtering already hides
+// the tool from the model, but a call can still name it (replayed from history
+// recorded under another toolset, or made up), so the preset is checked again
+// where the mode is.
+func (a *Agent) toolCallRefusedByToolset(name string) (string, bool) {
+	ts := a.activeToolset()
+	if toolsetAllows(ts, name) {
+		return "", false
+	}
+	return fmt.Sprintf("error: tool %q is not offered: this session runs with the toolset %q. Use one of the tools you were given.",
+		name, ts.Name), true
+}
+
+// toolCallRefused is the execution-time gate every call passes before a
+// permission prompt: the mode's allowlist first, then the active toolset.
+// Both the first run of a call and its resume after a permission answer go
+// through it.
+func (a *Agent) toolCallRefused(mode, name string) (string, bool) {
+	if refusal, refused := toolCallRefusedByMode(mode, name); refused {
+		return refusal, true
+	}
+	return a.toolCallRefusedByToolset(name)
 }

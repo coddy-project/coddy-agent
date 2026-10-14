@@ -50,7 +50,7 @@ import {
   commandReasoningChoices,
   type CommandArgDraft,
 } from "../skills/draftCommandArg";
-import type { TurnOverride } from "./sessionSettings";
+import type { ToolsetControl, TurnOverride } from "./sessionSettings";
 import { GoalPopover, type GoalActions } from "./GoalPopover";
 import {
   goalStatusKey,
@@ -484,6 +484,10 @@ export function Composer(props: {
   permissionMode?: string;
   configuredPermissionMode?: string;
   onPermissionModeChange?: (mode: string) => void;
+  /** The session's toolset: the chip after the permission chip and its menu.
+   *  Absent while the configuration has no toolsets[] preset, and so is the
+   *  chip. */
+  toolsetControl?: ToolsetControl | undefined;
   /** Settings changed for the running and the next turns (--once, --count=N). */
   settingsOverrides?: TurnOverride[];
   /**
@@ -558,8 +562,9 @@ export function Composer(props: {
   const llmChipRef = useRef<HTMLButtonElement | null>(null);
   const reasoningChipRef = useRef<HTMLButtonElement | null>(null);
   const permissionChipRef = useRef<HTMLButtonElement | null>(null);
+  const toolsetChipRef = useRef<HTMLButtonElement | null>(null);
   const [menuOpen, setMenuOpen] = useState<
-    "mode" | "llm" | "reasoning" | "permission" | null
+    "mode" | "llm" | "reasoning" | "permission" | "toolset" | null
   >(null);
   /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
@@ -1217,6 +1222,20 @@ export function Composer(props: {
   useEffect(() => {
     void fetchCommandsOnce();
   }, [fetchCommandsOnce]);
+
+  // /toolset is a command only while the configuration has a preset: a
+  // reload that brings the first one, or takes the last away, reads the
+  // commands again.
+  const hasToolsets = props.toolsetControl !== undefined;
+  const toolsetsSeenRef = useRef(hasToolsets);
+  useEffect(() => {
+    if (toolsetsSeenRef.current === hasToolsets) {
+      return;
+    }
+    toolsetsSeenRef.current = hasToolsets;
+    commandsFetchedRef.current = false;
+    void fetchCommandsOnce();
+  }, [hasToolsets, fetchCommandsOnce]);
 
   const fetchMentions = useCallback(
     async (query: string, refresh: boolean) => {
@@ -1892,6 +1911,10 @@ export function Composer(props: {
           ? () =>
               toggleMenu("permission", permissionChipRef.current as HTMLElement)
           : null;
+      case "toolset":
+        return props.toolsetControl && toolsetChipRef.current
+          ? () => toggleMenu("toolset", toolsetChipRef.current as HTMLElement)
+          : null;
       case "agent":
       case "plan":
       case "ask":
@@ -2181,6 +2204,10 @@ export function Composer(props: {
     return t("composer.permissionAskHint");
   }
   // One line per override: the value and the turns it lasts.
+  // "default" is no preset: every tool the mode offers.
+  function displayToolset(name: string): string {
+    return name === "default" ? t("composer.toolsetDefault") : name;
+  }
   const overrideLines = (props.settingsOverrides ?? []).map((o) => {
     if (o.active) {
       return o.turnsLeft > 0
@@ -2271,7 +2298,7 @@ export function Composer(props: {
   useEscapeCloses(pickerOpen, dismissSlashAtPickers);
 
   function toggleMenu(
-    type: "mode" | "llm" | "reasoning" | "permission",
+    type: "mode" | "llm" | "reasoning" | "permission" | "toolset",
     trigger: HTMLElement,
   ) {
     if (menuOpen === type) {
@@ -3626,6 +3653,24 @@ export function Composer(props: {
                 </div>
               ) : null}
 
+              {props.toolsetControl ? (
+                <div className="mode">
+                  <button
+                    type="button"
+                    ref={toolsetChipRef}
+                    className="composer-tab mode-btn mode-toolset"
+                    aria-label={t("composer.toolset")}
+                    title={t("composer.toolsetTitle")}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === "toolset"}
+                    data-testid="composer-toolset"
+                    onClick={(e) => toggleMenu("toolset", e.currentTarget)}
+                  >
+                    {displayToolset(props.toolsetControl.value)}
+                  </button>
+                </div>
+              ) : null}
+
               {overrideLines.length > 0 ? (
                 <span
                   className="composer-overrides"
@@ -3837,6 +3882,27 @@ export function Composer(props: {
                         }}
                       >
                         {displayMode(m)}
+                      </button>
+                    ))
+                  : null}
+                {menuOpen === "toolset" && props.toolsetControl
+                  ? props.toolsetControl.choices.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        role="menuitem"
+                        title={
+                          name === "default"
+                            ? t("composer.toolsetDefaultHint")
+                            : undefined
+                        }
+                        className={`mode-item ${name === props.toolsetControl?.value ? "is-selected" : ""}`}
+                        onClick={() => {
+                          props.toolsetControl?.onChange(name);
+                          closeMenu();
+                        }}
+                      >
+                        {displayToolset(name)}
                       </button>
                     ))
                   : null}

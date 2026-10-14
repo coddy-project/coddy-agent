@@ -29,7 +29,7 @@ Made for questions about the codebase, review, diagnosis and web research. The m
 
 ### What they share
 
-The allowlists are fixed in `internal/agent.ToolSetForMode`; agent mode is unrestricted. `load_skill` exists only while `skills.auto_discovery` is on, and `spawn_agent` only while `subagents.enable` is; a subagent definition's own `mode` applies only under an agent-mode parent. Each mode renders its own system prompt from the embedded `agent.md`, `plan.md` or `ask.md`, replaceable through `prompts.dir` with `prompts.agent_prompt`, `plan_prompt` and `ask_prompt` ([config reference](../reference/config.md#prompts)). The choice is stored with the session in `session.json`.
+The allowlists are fixed in `internal/agent.ToolSetForMode`; agent mode is unrestricted. `load_skill` exists only while `skills.auto_discovery` is on, and `spawn_agent` only while `subagents.enable` is; a subagent definition's own `mode` applies only under an agent-mode parent. Each mode renders its own system prompt from the embedded `agent.md`, `plan.md` or `ask.md`, replaceable through `prompts.dir` with `prompts.agent_prompt`, `plan_prompt` and `ask_prompt` ([config reference](../reference/config.md#prompts)). A toolset - the one the session picked with `/toolset` or the one its model names - can narrow the offer further ([Toolsets](../getting-started/configuration.md#toolsets)); the mode's list always applies first and a toolset never adds a tool to it. The choice is stored with the session in `session.json`.
 
 ![The mode menu in the web UI composer](../assets/modes-menu-dark-1280.png)
 

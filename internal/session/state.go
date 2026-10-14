@@ -59,6 +59,10 @@ type State struct {
 	// when non-empty. Empty means use config defaults for the current mode.
 	SelectedModelID string
 
+	// SelectedToolset is the toolset the operator picked for this session
+	// (/toolset): a toolsets[] preset by name, or "default" for none. Empty
+	// follows the toolset the session's model names.
+	SelectedToolset string
 	// SelectedReasoning overrides the reasoning level for LLM calls when non-empty.
 	// Resolved against the effective model's levels by EffectiveReasoning.
 	SelectedReasoning string
@@ -1049,6 +1053,33 @@ func (s *State) SetSelectedReasoning(level string) {
 	s.touchPersist()
 }
 
+// GetSelectedToolset returns the toolset the session picked, or empty.
+func (s *State) GetSelectedToolset() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SelectedToolset
+}
+
+// SetSelectedToolset stores the session's pick of a toolset: a preset by
+// name, "default" for none, "" to follow the session's model again.
+func (s *State) SetSelectedToolset(name string) {
+	s.mu.Lock()
+	s.SelectedToolset = name
+	s.mu.Unlock()
+	s.bumpSettingsRevision()
+	s.touchPersist()
+}
+
+// EffectiveToolset is the toolset choice the session's next request is built
+// with: the running turn's own (--once, --count=N), else the session's pick;
+// "" when neither picked one, which follows the model (config.ResolveToolset).
+func (s *State) EffectiveToolset() string {
+	if turn := s.TurnSetting(SettingToolset); turn != "" {
+		return turn
+	}
+	return s.GetSelectedToolset()
+}
+
 // EffectiveReasoning returns the reasoning level for LLM calls for this session.
 // Returns empty when the effective model has no reasoning support. The running
 // turn's own level wins, then the session's selection when the model offers it
@@ -1892,6 +1923,14 @@ func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, selectedRe
 	s.SelectedModelID = selectedModelID
 	s.SelectedReasoning = selectedReasoning
 	s.AgentMemory = agentMemory
+	s.mu.Unlock()
+}
+
+// RestoreToolsetWithoutPersist restores the session's pick of a toolset from
+// disk (no persistence callback).
+func (s *State) RestoreToolsetWithoutPersist(name string) {
+	s.mu.Lock()
+	s.SelectedToolset = name
 	s.mu.Unlock()
 }
 

@@ -270,6 +270,23 @@ func UISchemaMap() map[string]interface{} {
 		"shared_subscription_ack": boolPropDefault("I accept sharing a subscription login",
 			"Required to share a model whose credential is a subscription login: a codex or devin provider, or a neuraldeep provider with no API key of its own. Sharing a login hands its quota to every holder of a shared-model token and may breach the vendor's terms; without this the configuration is refused. Does nothing while the model is not shared.",
 			false),
+		"toolset": strProp("Toolset",
+			"The toolset a session on this model is offered its tools by, unless the session picks another. Empty offers every tool the mode would. Spares a small-context local model the schemas of tools it never calls."),
+	}
+	toolsetProps := map[string]interface{}{
+		"name": strProp("Name", "What models and the /toolset command call it: letters, digits, '.', '_' and '-'. default is reserved: it means every tool the mode offers."),
+		"tools": map[string]interface{}{
+			"type":        "array",
+			"title":       "Allowed tools",
+			"description": "Tools offered with this toolset: tool names, * or a prefix* (context7__* is every tool of that MCP server). Empty offers every tool the mode would. It only narrows, and a call to an unlisted tool is refused.",
+			"items":       map[string]interface{}{"type": "string"},
+		},
+		"disallowed_tools": map[string]interface{}{
+			"type":        "array",
+			"title":       "Disallowed tools",
+			"description": "Tools removed from this toolset, applied after the allowed tools, with the same names and patterns. A call to a removed tool is refused.",
+			"items":       map[string]interface{}{"type": "string"},
+		},
 	}
 	isolationEnum := []string{string(IsolationIndividual), string(IsolationShared), string(IsolationAdmin)}
 	telegramUserGroupProps := map[string]interface{}{
@@ -406,8 +423,16 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "shared_as", "shared_subscription_ack"},
+				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "shared_as", "shared_subscription_ack", "toolset"},
 				[]string{"model"}),
+		},
+		"toolsets": map[string]interface{}{
+			"type":        "array",
+			"title":       "Toolsets",
+			"description": "Named presets of the tools a session is offered. A model names one as its own; a session picks one with /toolset.",
+			"items": objectSchema("", "", toolsetProps,
+				[]string{"name", "tools", "disallowed_tools"},
+				[]string{"name"}),
 		},
 		"supervisor": objectSchema("Session supervisor", "Checks goals with a second model and watches for stalled or looping turns.",
 			map[string]interface{}{
@@ -821,7 +846,7 @@ func UISchemaMap() map[string]interface{} {
 	// process (the logger, then prompts and instructions, which the web UI
 	// folds into one System tab). The sessions key belongs to the Sessions tab.
 	rootOrder := []string{
-		"providers", "models",
+		"providers", "models", "toolsets",
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",

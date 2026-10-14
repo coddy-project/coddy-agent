@@ -433,6 +433,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		// Default marks the row a session that selected no model runs on,
 		// so a client (the remote console) shows the model that will run.
 		Default bool `json:"default,omitempty"`
+		// Toolset is the toolsets[] preset the model names (models[].toolset):
+		// what a new chat on it is offered until it picks another.
+		Toolset string `json:"toolset,omitempty"`
 	}
 	out := struct {
 		Object string     `json:"object"`
@@ -489,6 +492,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				ReasoningLevels:  cfg.ReasoningChoicesFor(ent),
 				ReasoningDefault: cfg.DefaultReasoningLevelFor(ent),
 				Default:          defaultModel != "" && mid == defaultModel,
+				Toolset:          ent.Toolset,
 			})
 		}
 	}

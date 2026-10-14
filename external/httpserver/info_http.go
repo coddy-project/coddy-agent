@@ -34,11 +34,18 @@ func (s *Server) coddyInfoGet(w http.ResponseWriter, _ *http.Request) {
 	} else if cfg := s.activeCfg(); cfg != nil {
 		permissionMode = cfg.Tools.ResolvedPermMode()
 	}
+	// The toolsets[] presets by name: a start screen, which has no session
+	// snapshot yet, offers a toolset selector only while there is one.
+	toolsets := []string{}
+	if cfg := s.activeCfg(); cfg != nil {
+		toolsets = append(toolsets, cfg.ToolsetNames()...)
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object":         "coddy.info",
 		"version":        version.Get(),
 		"hostname":       host,
 		"permissionMode": permissionMode,
+		"toolsets":       toolsets,
 	})
 }

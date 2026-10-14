@@ -396,6 +396,7 @@ type SessionMeta struct {
 	Mode              string `json:"mode"`
 	SelectedModelID   string `json:"selectedModelId,omitempty"`
 	SelectedReasoning string `json:"selectedReasoning,omitempty"`
+	SelectedToolset   string `json:"selectedToolset,omitempty"`
 	AgentMemory       string `json:"agentMemory,omitempty"`
 	// HookContext is what SessionStart hooks handed to the session.
 	HookContext string     `json:"hookContext,omitempty"`
@@ -1242,6 +1243,7 @@ func (f *FileStore) Save(state *State) error {
 		Mode:              state.GetMode(),
 		SelectedModelID:   state.GetSelectedModelID(),
 		SelectedReasoning: state.GetSelectedReasoning(),
+		SelectedToolset:   state.GetSelectedToolset(),
 		HookContext:       state.GetHookContext(),
 		AgentMemory:       state.GetAgentMemory(),
 		Title:             title,

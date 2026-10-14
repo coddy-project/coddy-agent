@@ -20,6 +20,8 @@ type SettingsChange struct {
 	Reasoning      *string
 	Mode           *string
 	PermissionMode *string
+	// Toolset is a toolsets[] preset by name, or "default" for none.
+	Toolset *string
 	// Turns > 0 changes the named settings for that many operator turns
 	// instead of for the session (--once is 1, --count=N is N).
 	Turns int
@@ -44,7 +46,7 @@ const (
 
 // Empty reports whether the change names no setting at all.
 func (c SettingsChange) Empty() bool {
-	return c.Model == nil && c.Reasoning == nil && c.Mode == nil && c.PermissionMode == nil
+	return c.Model == nil && c.Reasoning == nil && c.Toolset == nil && c.Mode == nil && c.PermissionMode == nil
 }
 
 // ByAgent reports whether the agent made the change itself rather than the
@@ -126,6 +128,11 @@ func (m *Manager) settingsSnapshot(sessionID string, st *State) acp.SessionSetti
 	if cfg != nil {
 		out.Reasoning = st.SessionReasoning(cfg)
 		out.ReasoningChoices = cfg.ReasoningChoicesFor(cfg.FindModelEntry(out.Model))
+		// No presets, no choice: a surface then shows no toolset selector.
+		if names := cfg.ToolsetNames(); len(names) > 0 {
+			out.Toolset = st.SessionToolset(cfg)
+			out.ToolsetChoices = append(names, config.ToolsetDefault)
+		}
 	}
 	if out.PermissionMode == "" {
 		out.PermissionMode = out.ConfiguredPermissionMode
@@ -296,6 +303,20 @@ func (m *Manager) validateSettingsChange(st *State, ch SettingsChange) (map[stri
 		}
 		out[SettingReasoning] = v
 	}
+	if ch.Toolset != nil {
+		v := strings.TrimSpace(*ch.Toolset)
+		if v == "" {
+			v = config.ToolsetDefault
+		}
+		if !cfg.ValidToolsetChoice(v) {
+			configured := "none"
+			if names := cfg.ToolsetNames(); len(names) > 0 {
+				configured = strings.Join(names, ", ")
+			}
+			return nil, fmt.Errorf("unknown toolset %q (configured: %s; default offers every tool)", v, configured)
+		}
+		out[SettingToolset] = v
+	}
 	if ch.Mode != nil {
 		v := strings.ToLower(strings.TrimSpace(*ch.Mode))
 		if !IsValidMode(v) {
@@ -345,6 +366,8 @@ func (m *Manager) writeSettings(sessionID string, st *State, ch SettingsChange, 
 				v = ""
 			}
 			st.SetSelectedReasoning(v)
+		case SettingToolset:
+			st.SetSelectedToolset(v)
 		case SettingMode:
 			modeChanged = st.GetMode() != v
 			st.SetMode(v)
@@ -390,6 +413,8 @@ func settingsNotice(values map[string]string, names []string, scope string) stri
 			label = "Model"
 		case SettingReasoning:
 			label = "Reasoning"
+		case SettingToolset:
+			label = "Toolset"
 		case SettingMode:
 			label = "Mode"
 		case SettingPermissionMode:
@@ -459,6 +484,21 @@ func (s *State) SessionReasoning(cfg *config.Config) string {
 		return sel
 	}
 	return cfg.DefaultReasoningLevelFor(ent)
+}
+
+// SessionToolset is the toolset the session's own settings put it on, ignoring
+// what the running turn holds: what a toolset selector shows. A pick of a
+// preset this configuration no longer has follows the model again, as
+// config.ResolveToolset does; "default" stands for no preset.
+func (s *State) SessionToolset(cfg *config.Config) string {
+	sel := strings.TrimSpace(s.GetSelectedToolset())
+	if sel == config.ToolsetDefault || (sel != "" && cfg.FindToolset(sel) != nil) {
+		return sel
+	}
+	if ts := cfg.ResolveToolset(s.SessionModelID(cfg), ""); ts != nil {
+		return ts.Name
+	}
+	return config.ToolsetDefault
 }
 
 // TakenSettings is what TakeSettingsCommands did with the start of a prompt.

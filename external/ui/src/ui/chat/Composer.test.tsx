@@ -2536,6 +2536,94 @@ test("the selector chips run attach, mode, model, reasoning, permission", () => 
   ]);
 });
 
+// The toolset chip stands right after the permission chip, names the
+// session's toolset ("All tools" for none) and switches it; without a preset
+// in the configuration there is no chip at all.
+test("the toolset chip follows the permission chip and switches the toolset", () => {
+  const picked: string[] = [];
+  const { rerender } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "ask"]}
+      permissionMode="ask"
+      configuredPermissionMode="ask"
+      onPermissionModeChange={() => {}}
+      toolsetControl={{
+        value: "coding",
+        choices: ["coding", "no-net", "default"],
+        onChange: (name) => picked.push(name),
+      }}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const order = Array.from(
+    document.querySelectorAll(".composer-tabs button.composer-tab"),
+  ).map((b) => b.getAttribute("aria-label"));
+  expect(order.slice(-2)).toEqual(["Permissions", "Toolset"]);
+  const chip = screen.getByTestId("composer-toolset");
+  expect(chip.textContent).toBe("coding");
+  fireEvent.click(chip);
+  expect(
+    screen.getAllByRole("menuitem").map((item) => item.textContent),
+  ).toEqual(["coding", "no-net", "All tools"]);
+  fireEvent.click(screen.getByRole("menuitem", { name: "All tools" }));
+  expect(picked).toEqual(["default"]);
+
+  rerender(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "ask"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("composer-toolset")).toBeNull();
+});
+
+// The composer reads the commands once, but whether /toolset is one of them
+// follows the presets: the first preset a reload brings reads them again.
+test("the commands are read again when the first toolset appears", async () => {
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({ object: "coddy.commands", items: [] }),
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  const base = {
+    value: "",
+    isEmpty: false,
+    mode: "agent",
+    modes: ["agent"],
+    onModeChange: () => {},
+    onChange: () => {},
+    onSend: () => {},
+  };
+  const commandReads = () =>
+    fetchMock.mock.calls.filter((c) =>
+      String((c as unknown[])[0]).startsWith("/coddy/commands"),
+    ).length;
+  const { rerender } = render(<Composer {...base} />);
+  await waitFor(() => expect(commandReads()).toBe(1));
+  rerender(
+    <Composer
+      {...base}
+      toolsetControl={{
+        value: "default",
+        choices: ["coding", "default"],
+        onChange: () => {},
+      }}
+    />,
+  );
+  await waitFor(() => expect(commandReads()).toBe(2));
+  vi.unstubAllGlobals();
+});
+
 test("the permission chip is not shown without a handler", () => {
   renderComposer({ isEmpty: false });
   expect(screen.queryByTestId("composer-permission")).toBeNull();

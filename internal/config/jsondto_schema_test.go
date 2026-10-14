@@ -59,11 +59,11 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 	if agent < 0 || supervisor != agent+1 || compaction != supervisor+1 {
 		t.Fatalf("supervisor and compaction must follow agent: order=%v", ord)
 	}
-	// The tabs read in groups of meaning: the models, the loop that runs them,
-	// what the agent can do, what runs it unattended, and the operation of
-	// the process last.
+	// The tabs read in groups of meaning: the models and the toolsets they
+	// name, the loop that runs them, what the agent can do, what runs it
+	// unattended, and the operation of the process last.
 	want := []interface{}{
-		"providers", "models",
+		"providers", "models", "toolsets",
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",

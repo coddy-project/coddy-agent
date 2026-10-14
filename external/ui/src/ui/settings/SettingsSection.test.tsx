@@ -6,15 +6,18 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { SettingsSection } from "./SettingsSection";
 import type { JsonSchema } from "./SchemaForm";
 import type { SectionDescriptor } from "./settingsSections";
+import { initLocale, setLocale } from "../i18n/i18n";
 import { messagesEn } from "../i18n/messages/en";
 import { messagesRu } from "../i18n/messages/ru";
 
 afterEach(() => {
   cleanup();
+  initLocale("en");
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -1555,9 +1558,10 @@ test("the provider form groups its fields: provider settings, folded advanced se
   ]);
 });
 
-// A logical model's form reads in three blocks: which model it is and what it
-// takes in, how it answers, and how hard it thinks.
-test("the logical model form groups its fields: model, generation, reasoning", async () => {
+// A logical model's form reads in four blocks: which model it is and what it
+// takes in, how it answers, how hard it thinks, and which toolset it is
+// offered its tools by.
+test("the logical model form groups its fields: model, generation, reasoning, tools", async () => {
   stubModelsAndLevels([]);
   const schema: JsonSchema = {
     type: "object",
@@ -1591,6 +1595,7 @@ test("the logical model form groups its fields: model, generation, reasoning", a
               title: "Allow disabling reasoning",
               default: false,
             },
+            toolset: { type: "string", title: "Toolset" },
           },
           "x-coddy-property-order": [
             "model",
@@ -1602,6 +1607,7 @@ test("the logical model form groups its fields: model, generation, reasoning", a
             "reasoning_levels",
             "reasoning_default",
             "allow_reasoning_off",
+            "toolset",
           ],
         },
       },
@@ -1620,7 +1626,7 @@ test("the logical model form groups its fields: model, generation, reasoning", a
   const legends = [
     ...document.querySelectorAll(".settings-schema-root > fieldset > legend"),
   ].map((l) => l.textContent);
-  expect(legends).toEqual(["Model", "Generation", "Reasoning"]);
+  expect(legends).toEqual(["Model", "Generation", "Reasoning", "Tools"]);
   const model = screen.getByTestId("settings-group-model");
   expect(model.textContent).toContain("Model id");
   expect(model.textContent).toContain("Context window (tokens)");
@@ -1633,6 +1639,202 @@ test("the logical model form groups its fields: model, generation, reasoning", a
   expect(reasoning.textContent).toContain("Reasoning levels");
   expect(reasoning.textContent).toContain("Default reasoning level");
   expect(reasoning.textContent).toContain("Allow disabling reasoning");
+  const tools = screen.getByTestId("settings-group-tools");
+  expect(within(tools).getByLabelText("Toolset")).toBeTruthy();
+});
+
+// A model names one of the presets of the Toolsets tab, or none: the form
+// offers exactly those, and a toolset the presets no longer have stays on
+// offer rather than being changed behind the operator's back.
+const toolsetsSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    models: {
+      type: "array",
+      title: "Logical models",
+      items: {
+        type: "object",
+        properties: {
+          model: { type: "string", title: "Model id" },
+          toolset: { type: "string", title: "Toolset" },
+        },
+        "x-coddy-property-order": ["model", "toolset"],
+      },
+    },
+    toolsets: {
+      type: "array",
+      title: "Toolsets",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string", title: "Name" },
+          tools: {
+            type: "array",
+            title: "Allowed tools",
+            items: { type: "string" },
+          },
+          disallowed_tools: {
+            type: "array",
+            title: "Disallowed tools",
+            items: { type: "string" },
+          },
+        },
+        "x-coddy-property-order": ["name", "tools", "disallowed_tools"],
+      },
+    },
+  },
+};
+
+const toolsetsSection: SectionDescriptor = {
+  id: "toolsets",
+  label: "Toolsets",
+  kind: "array",
+  schemaKey: "toolsets",
+  labelField: "name",
+};
+
+function ToolsetsHarness(props: {
+  section: SectionDescriptor;
+  model?: Record<string, unknown>;
+  toolsets?: Record<string, unknown>[];
+}) {
+  const [doc, setDoc] = React.useState<Record<string, unknown>>({
+    providers: [{ name: "demo", type: "openai" }],
+    models: [props.model ?? { model: "demo/small" }],
+    toolsets: props.toolsets ?? [
+      { name: "coding", tools: ["read", "grep"] },
+      { name: "no-net", disallowed_tools: ["webfetch"] },
+    ],
+  });
+  return (
+    <>
+      <output data-testid="settings-doc">{JSON.stringify(doc)}</output>
+      <SettingsSection
+        section={props.section}
+        schema={toolsetsSchema}
+        doc={doc}
+        setDoc={setDoc}
+      />
+    </>
+  );
+}
+
+/** The document the harness holds. */
+function savedDoc(): Record<string, unknown> {
+  return JSON.parse(screen.getByTestId("settings-doc").textContent || "{}");
+}
+
+/** The first model row of the document the harness holds. */
+function firstModel(): Record<string, unknown> {
+  return (savedModels() as Record<string, unknown>[])[0]!;
+}
+
+/** The list a row form draws under that name, as a fieldset. */
+function toolList(name: string): HTMLElement {
+  const legend = screen.getByText(name, { selector: ".settings-legend-line" });
+  return legend.closest("fieldset") as HTMLElement;
+}
+
+test("a model row picks its toolset from the presets, or none", () => {
+  render(<ToolsetsHarness section={modelsSection} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const select = screen.getByTestId("model-toolset") as HTMLSelectElement;
+  expect([...select.options].map((o) => o.textContent)).toEqual([
+    "None: every tool",
+    "coding",
+    "no-net",
+  ]);
+  expect(select.value).toBe("");
+  fireEvent.change(select, { target: { value: "coding" } });
+  expect(firstModel()).toEqual({ model: "demo/small", toolset: "coding" });
+  fireEvent.change(select, { target: { value: "" } });
+  expect(firstModel()).toEqual({ model: "demo/small" });
+});
+
+test("a model naming a toolset the presets no longer have keeps it on offer", () => {
+  render(
+    <ToolsetsHarness
+      section={modelsSection}
+      model={{ model: "demo/small", toolset: "gone" }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  const select = screen.getByTestId("model-toolset") as HTMLSelectElement;
+  expect(select.value).toBe("gone");
+  expect([...select.options].map((o) => o.value)).toContain("gone");
+});
+
+test("the Toolsets tab edits the lists of a preset in place", () => {
+  render(<ToolsetsHarness section={toolsetsSection} />);
+  expect(screen.getByTestId("settings-master-item-0").textContent).toContain(
+    "coding",
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  const allowed = screen.getByLabelText("Allowed tools 1") as HTMLInputElement;
+  expect(allowed.value).toBe("read");
+  fireEvent.change(allowed, { target: { value: "glob" } });
+  fireEvent.click(within(toolList("Allowed tools")).getByText("Add"));
+  fireEvent.change(screen.getByLabelText("Allowed tools 3"), {
+    target: { value: "context7__*" },
+  });
+  fireEvent.click(within(toolList("Disallowed tools")).getByText("Add"));
+  fireEvent.change(screen.getByLabelText("Disallowed tools 1"), {
+    target: { value: "ssh_*" },
+  });
+  const presets = savedDoc().toolsets as Record<string, unknown>[];
+  expect(presets[0]).toEqual({
+    name: "coding",
+    tools: ["glob", "grep", "context7__*"],
+    disallowed_tools: ["ssh_*"],
+  });
+});
+
+test("renaming a preset renames it on the models that name it", () => {
+  render(
+    <ToolsetsHarness
+      section={toolsetsSection}
+      model={{ model: "demo/small", toolset: "coding" }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.change(screen.getByLabelText("Name"), {
+    target: { value: "lean" },
+  });
+  expect(firstModel()).toEqual({ model: "demo/small", toolset: "lean" });
+});
+
+test("a toolset added in Settings starts with both lists empty", () => {
+  render(<ToolsetsHarness section={toolsetsSection} />);
+  fireEvent.click(screen.getByTestId("settings-master-add"));
+  const presets = savedDoc().toolsets as Record<string, unknown>[];
+  expect(presets).toHaveLength(3);
+  expect(presets[2]).toEqual({ name: "", tools: [], disallowed_tools: [] });
+});
+
+test("the toolset of a model and the lists of a preset are named in Russian", () => {
+  setLocale("ru");
+  render(
+    <ToolsetsHarness
+      section={modelsSection}
+      model={{ model: "demo/small", toolset: "coding" }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  expect(screen.getByLabelText("Набор инструментов")).toBeTruthy();
+  expect(
+    (screen.getByTestId("model-toolset") as HTMLSelectElement).options[0]!
+      .textContent,
+  ).toBe("Нет: все инструменты");
+  cleanup();
+
+  render(<ToolsetsHarness section={toolsetsSection} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  expect(screen.getByLabelText("Разрешённые инструменты 1")).toBeTruthy();
+  expect(
+    within(toolList("Запрещённые инструменты")).getByText("Добавить"),
+  ).toBeTruthy();
 });
 
 // The queue mode answers what Enter does with a message written during a

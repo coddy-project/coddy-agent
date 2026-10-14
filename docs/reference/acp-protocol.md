@@ -420,7 +420,7 @@ When the mode changes, the agent also sends a `session/update` with `config_opti
 
 ### `session/set_config_option`
 
-Change a session configuration option (ACP Session Config Options). Supported options: **`mode`**, **`model`**, **`reasoning`** (offered when the session's model has levels), **`permission_mode`**. Every change goes through the same setter as the settings commands and the other surfaces, so a browser or a console watching the session sees it ([Session settings](../features/session-settings.md)).
+Change a session configuration option (ACP Session Config Options). Supported options: **`mode`**, **`model`**, **`reasoning`** (offered when the session's model has levels), **`toolset`** (offered while the configuration has a `toolsets[]` preset: the presets and `default`, [Toolsets](../getting-started/configuration.md#toolsets)), **`permission_mode`**. Every change goes through the same setter as the settings commands and the other surfaces, so a browser or a console watching the session sees it ([Session settings](../features/session-settings.md)).
 
 **Request params:**
 ```json
@@ -431,7 +431,7 @@ Change a session configuration option (ACP Session Config Options). Supported op
 }
 ```
 
-Valid `permission_mode` values: `ask` | `accept_edits` | `bypass`. The mode is the session's own and is persisted in its `session.json`, so a restart of the agent keeps it. A new session starts in the mode chosen last on any surface, this option included, and in `ask` until anything was chosen: Coddy keeps that choice in `${CODDY_HOME}/permission-mode.json`, and `config.yaml` has no key for it ([Security and trust](../operate/security.md#permission-modes-and-prompts)). The option is advertised in the `_permission_mode` category, the reasoning level in `thought_level`.
+Valid `permission_mode` values: `ask` | `accept_edits` | `bypass`. The mode is the session's own and is persisted in its `session.json`, so a restart of the agent keeps it. A new session starts in the mode chosen last on any surface, this option included, and in `ask` until anything was chosen: Coddy keeps that choice in `${CODDY_HOME}/permission-mode.json`, and `config.yaml` has no key for it ([Security and trust](../operate/security.md#permission-modes-and-prompts)). The option is advertised in the `_permission_mode` category, the reasoning level in `thought_level`, the toolset in `_toolset`.
 
 A change for the next turns only has no config option: send the settings command as the start of the prompt text (`/model <id> --once review this`, `/nothink --count=3`), and the agent takes it off before the turn starts.
 
@@ -464,7 +464,7 @@ All sent via `session/update` method with a `sessionUpdate` discriminator field.
 
 ### `available_commands_update` - Slash commands
 
-After **`session/new`** and **`session/load`**, Coddy lists its slash commands. The built-in commands lead the list, the same rows as **`GET /coddy/commands`**: the settings commands (**`model`**, **`reasoning`**, **`think`**, **`nothink`**, **`agent`**, **`plan`**, **`ask`**, **`permissions`**), then **`compact`** while compaction is enabled, **`export`** and **`plugin`**. The skills follow, from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**, without one named like a built-in or its alias. The response that registers the session is written before this notification, so clients do not discard the catalog as an update for an unknown session. Rows use ACP **`name`**, **`description`** and, for a settings command, **`input.hint`** with its argument and flags ([slash commands](https://agentclientprotocol.com/protocol/slash-commands)). The agent may repeat this notification whenever the catalog changes.
+After **`session/new`** and **`session/load`**, Coddy lists its slash commands. The built-in commands lead the list, the same rows as **`GET /coddy/commands`**: the settings commands (**`model`**, **`reasoning`**, **`think`**, **`nothink`**, **`toolset`** while the configuration has a toolset preset, **`agent`**, **`plan`**, **`ask`**, **`permissions`**), then **`compact`** while compaction is enabled, **`export`** and **`plugin`**. The skills follow, from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**, without one named like a built-in or its alias. The response that registers the session is written before this notification, so clients do not discard the catalog as an update for an unknown session. Rows use ACP **`name`**, **`description`** and, for a settings command, **`input.hint`** with its argument and flags ([slash commands](https://agentclientprotocol.com/protocol/slash-commands)). The agent may repeat this notification whenever the catalog changes.
 
 ```json
 {

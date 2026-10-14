@@ -45,6 +45,9 @@ type SessionState interface {
 	SetMode(mode string)
 	EffectiveModelID(cfg *config.Config) string
 	EffectiveReasoning(cfg *config.Config) string
+	// EffectiveToolset is the session's toolset choice for the next request:
+	// a preset by name, "default", or "" to follow the model.
+	EffectiveToolset() string
 	AddMessage(msg llm.Message)
 	GetMessages() []llm.Message
 	InsertCompactionSummary(idx int, msg llm.Message)
@@ -127,6 +130,14 @@ type Agent struct {
 	// callImages are the pictures the running tool call handed the model
 	// (Env.AttachImage, tool_images.go); they ride on that call's result.
 	callImages []llm.ImagePart
+	// offer is what the tools of the request being worked on were offered
+	// for (toolsets.go): the model of the turn's transport and its row's
+	// lists, made again only when the loop builds a transport for another
+	// model or reloads the configuration, so a call is checked against the
+	// offer that produced it and not against whatever the session switched to
+	// meanwhile. Nil outside a turn, where the session's current model stands in.
+	offerMu sync.RWMutex
+	offer   *toolOffer
 
 	// hooks is the operator hook runner of the current turn, built on first
 	// use from the definition files (hooks.go). hookStopReason carries a
@@ -348,13 +359,17 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Load skills applicable to this context.
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 
-	toolDefs := a.currentToolDefinitions(mode)
-
 	// Get or create LLM provider.
 	transport, err := a.getProvider(mode)
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
+	// The tools of every request of this turn are offered for the model of the
+	// transport built here, until the loop builds one for another model: a call
+	// is checked against that offer (toolsets.go).
+	a.setOfferModel(transport.model)
+	defer a.setOfferModel("")
+	toolDefs := a.currentToolDefinitions(mode)
 
 	// Restore existing plan via session/update if one was set by coddy todo tools in a previous turn.
 	if existing := a.state.GetPlan(); len(existing) > 0 {
@@ -919,6 +934,7 @@ func (a *Agent) runReActLoop(
 		// step compares too: a change can land between the build and it.
 		switched := false
 		if rev := a.state.SettingsRevision(); rev != transport.rev {
+			hadToolset := a.activeToolset() != nil
 			if key := a.transportKey(); key == transport.key {
 				transport.rev = rev
 			} else if next, err := a.getProvider(mode); err != nil {
@@ -932,6 +948,25 @@ func (a *Agent) runReActLoop(
 				// only one to know: read it now, bounded, rather than check
 				// the compaction threshold against the default (#362).
 				a.awaitContextWindow(ctx, transport.model)
+			}
+			// The requests from here on are offered their tools by the toolset
+			// the session's settings now resolve to for the transport's model:
+			// a switch of the model or of the toolset. A call is checked
+			// against the offer of the request that produced it, so the batch
+			// that asked for the switch was judged by the old offer and the
+			// next response is judged by this one. When either side has a
+			// toolset the tool set is built again, and if it moved the request
+			// below carries it and the system message that lists it is
+			// rendered again; without a toolset on either side nothing moves.
+			a.setOfferModel(transport.model)
+			if hadToolset || a.activeToolset() != nil {
+				if defs := a.currentToolDefinitions(mode); !sameToolNames(defs, toolDefs) {
+					toolDefs = defs
+					sys = a.buildSystemPromptParts(mode, activeSkills, toolDefs)
+					if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+						messages[0].Content = sys.Content
+					}
+				}
 			}
 		}
 
@@ -1830,7 +1865,19 @@ func (a *Agent) runReActLoop(
 		}
 		if toolEnv.ConfigReloaded {
 			activeSkills = FilterSkillsForContext(a.state.GetSkills(), contextFiles)
-			toolDefs = a.currentToolDefinitions(mode)
+			// The batch that committed was judged by the lists it was offered;
+			// the next request is offered, and judged, by the lists the model
+			// carries now. When the reload moved the set, the system message
+			// that lists it is rendered again, as a model switch does.
+			a.setOfferModel(transport.model)
+			defs := a.currentToolDefinitions(mode)
+			if !sameToolNames(defs, toolDefs) {
+				sys = a.buildSystemPromptParts(mode, activeSkills, defs)
+				if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+					messages[0].Content = sys.Content
+				}
+			}
+			toolDefs = defs
 			toolEnv.PermissionMode = effectivePermMode(a.state, a.cfg)
 			toolEnv.CommandAllowlist = append([]string(nil), a.cfg.Tools.CommandAllowlist...)
 			httpRequestEnv(toolEnv, a.cfg)
@@ -2125,8 +2172,9 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	// A restricted mode filters tool definitions before the LLM sees them, but a
 	// call replayed from history can still name a hidden tool; refuse it here so
-	// the mode boundary holds at execution time too.
-	if refusal, refused := toolCallRefusedByMode(mode, tc.Name); refused {
+	// the mode boundary holds at execution time too. The session's toolset is
+	// checked right after the mode, before any hook or permission prompt.
+	if refusal, refused := a.toolCallRefused(mode, tc.Name); refused {
 		a.finishToolCall(sessionDir, sessionID, tc, refusal, nil, "cancelled")
 		return refusal, nil
 	}
@@ -2547,7 +2595,21 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 	return "", fmt.Errorf("MCP server not found: %s", serverName)
 }
 
+// currentToolDefinitions is the tool set a request carries: what the session
+// could call in the mode (sessionToolDefinitions), narrowed by the toolset the
+// session runs with (toolsets.go). It is resolved on every call, so a switch of
+// the model or of the toolset changes the set from the next request.
 func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
+	return filterToolDefsByToolset(a.sessionToolDefinitions(mode), a.activeToolset())
+}
+
+// sessionToolDefinitions is the tool set of the session in a mode before the
+// model's lists apply: the mode's allowlist, the registry as the
+// configuration leaves it, MCP tools and, in a child, its effective set. It is
+// also what a spawned child is intersected with (parentToolNames): the lists of
+// the parent's model bound what the parent is shown, not what a child on
+// another model is.
+func (a *Agent) sessionToolDefinitions(mode string) []llm.ToolDefinition {
 	toolSet := ToolSetForMode(mode)
 	available := a.registry.AllToolDefinitions()
 	if a.configReloader == nil {

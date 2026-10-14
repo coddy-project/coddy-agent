@@ -97,6 +97,9 @@ func (h *Handler) ApplySessionSettings(ctx context.Context, sessionID string, ch
 	if ch.Reasoning != nil {
 		body["selectedReasoning"] = *ch.Reasoning
 	}
+	if ch.Toolset != nil {
+		body["selectedToolset"] = *ch.Toolset
+	}
 	if ch.Mode != nil {
 		body["mode"] = *ch.Mode
 	}
@@ -120,6 +123,9 @@ func (h *Handler) ApplySessionSettings(ctx context.Context, sessionID string, ch
 			}
 			if ch.Reasoning != nil {
 				st.reasoning = *ch.Reasoning
+			}
+			if ch.Toolset != nil {
+				st.toolset = *ch.Toolset
 			}
 			if ch.Mode != nil {
 				st.mode = *ch.Mode
@@ -207,6 +213,9 @@ func (h *Handler) mirrorSettings(sessionID string, snap acp.SessionSettings) {
 	// empty list clears what an older one offered.
 	st.reasoningChoices = append([]string(nil), snap.ReasoningChoices...)
 	st.choicesModel = snap.Model
+	// No choices means the server has no preset: no toolset selector.
+	st.toolset = snap.Toolset
+	st.toolsetChoices = append([]string(nil), snap.ToolsetChoices...)
 	st.overrides = append([]acp.TurnOverride(nil), snap.Overrides...)
 }
 
@@ -249,6 +258,7 @@ func (h *Handler) localSettingsLocked(sessionID string, st *sessionState) acp.Se
 		Mode:           st.mode,
 		PermissionMode: st.permissionMode,
 	}
+	snap.Toolset, snap.ToolsetChoices = h.toolsetLocked(st)
 	for _, m := range h.models {
 		if m.ID == model {
 			snap.ReasoningChoices = append([]string(nil), m.ReasoningLevels...)
@@ -259,7 +269,7 @@ func (h *Handler) localSettingsLocked(sessionID string, st *sessionState) acp.Se
 			continue
 		}
 		for setting, value := range map[string]*string{
-			session.SettingModel: ch.Model, session.SettingReasoning: ch.Reasoning,
+			session.SettingModel: ch.Model, session.SettingReasoning: ch.Reasoning, session.SettingToolset: ch.Toolset,
 			session.SettingMode: ch.Mode, session.SettingPermissionMode: ch.PermissionMode,
 		} {
 			if value != nil {

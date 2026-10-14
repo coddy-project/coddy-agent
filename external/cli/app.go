@@ -450,7 +450,11 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 	}
 	a.configOpts = opts
 	permission := ""
+	toolset := ""
 	for _, opt := range opts {
+		if opt.ID == "toolset" {
+			toolset = opt.CurrentValue
+		}
 		if opt.ID == "model" {
 			a.modelID = opt.CurrentValue
 		}
@@ -478,6 +482,7 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 		// same way the web composer does - the first configured row.
 		a.modelID = a.config().FirstModelID()
 	}
+	a.foot.SetToolset(toolset)
 	a.refreshFooterModel()
 	a.foot.SetSession("", a.modeID)
 }
@@ -1170,6 +1175,58 @@ func (a *App) currentReasoning() string {
 	return a.reasoning
 }
 
+// toolsetOption is the session's toolset option: read from the manager while
+// the session is in this process, so a preset added to the configuration is
+// there at once, else the one adopted from the server. Nil while there is no
+// preset to pick.
+func (a *App) toolsetOption() *acp.ConfigOption {
+	if st := a.mgr.SessionByID(a.sessionID); st != nil {
+		if opt, ok := session.ToolsetOption(a.config(), st); ok {
+			return &opt
+		}
+		return nil
+	}
+	for i := range a.configOpts {
+		if a.configOpts[i].ID == "toolset" {
+			return &a.configOpts[i]
+		}
+	}
+	return nil
+}
+
+// openToolsetSelector is the /toolset picker: the presets of the
+// configuration and default, which offers every tool of the mode.
+func (a *App) openToolsetSelector() {
+	if a.busyWithLocalShell() {
+		return
+	}
+	opt := a.toolsetOption()
+	if opt == nil {
+		a.appendStatus(roleDim, "No toolsets are configured: add one under toolsets in config.yaml")
+		return
+	}
+	items := make([]tui.SelectItem, 0, len(opt.Options))
+	selected := 0
+	for i, o := range opt.Options {
+		items = append(items, tui.SelectItem{Value: o.Value, Label: tui.SanitizeText(o.Name), Description: o.Description})
+		if o.Value == opt.CurrentValue {
+			selected = i
+		}
+	}
+	sel := newSelectorModal(a.theme, "Select toolset", items, 10, a.screen.RequestRender)
+	sel.list.SetSelectedIndex(selected)
+	sel.OnDone = func(item *tui.SelectItem) {
+		a.closeModal()
+		if item == nil {
+			a.screen.RequestRender()
+			return
+		}
+		value := item.Value
+		a.applySettings(session.SettingsChange{Toolset: &value})
+	}
+	a.openModal(sel)
+}
+
 func (a *App) openReasoningSelector() {
 	if a.busyWithLocalShell() {
 		return
@@ -1514,6 +1571,10 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 		seen[it.Value] = true
 	}
 	for _, c := range session.SettingsCommands() {
+		// /toolset only while there is a preset to pick.
+		if c.Setting == session.SettingToolset && a.toolsetOption() == nil {
+			continue
+		}
 		if len(a.slashServer) == 0 && !seen[c.Name] {
 			items = append(items, tui.AutocompleteItem{Value: c.Name, Label: c.Name, Description: c.Description})
 			seen[c.Name] = true

@@ -191,6 +191,29 @@ models:
   #   shared_as: "sol"
   #   shared_subscription_ack: true
 
+  # A small-window local model is not sent the schemas of tools it never calls:
+  # it names a toolset (below), and a session can pick another with /toolset.
+  # - model: "local/qwen3.6-35b"
+  #   max_tokens: 4096
+  #   max_context_tokens: 49152
+  #   toolset: coding
+
+# Named presets of the tools a session is offered. tools is an allowlist of tool
+# names, * or a prefix* (context7__* is every tool of that MCP server); empty or
+# absent offers every tool the mode would. This one list takes the request's tool
+# definitions from about 11,700 tokens to about 3,800. disallowed_tools removes
+# names after it, with the same syntax. Both only narrow: a tool the mode or a
+# subagent definition hides stays hidden, and a call to a tool the session was
+# not offered is refused. A model without a toolset keeps every tool, and
+# /toolset default does the same for one session. coddy -t warns about a name
+# that matches no tool.
+# toolsets:
+#   - name: coding
+#     tools: [read, write, edit, apply_patch, glob, grep, print_tree, keep_result, run_command,
+#             background_output, background_wait, background_stop, compact_context]
+#   - name: no-remote
+#     disallowed_tools: [ssh_run_command, http_request]  # everything except these
+
 agent:
   model: "openai/gpt-5.6-terra"
   max_turns: 165           # ReAct steps per prompt; set 0 to disable the limit

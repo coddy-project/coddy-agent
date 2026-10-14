@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyModelsChange } from "./applyModelsChange";
+import { applyModelsChange, applyToolsetsChange } from "./applyModelsChange";
 
 function baseDoc(
   models: Array<Record<string, unknown>>,
@@ -127,5 +127,37 @@ describe("applyModelsChange", () => {
     const next = applyModelsChange(doc, [{ model: "neuraldeep/qwen-3.6" }]);
     expect(next.models).toEqual([{ model: "neuraldeep/qwen-3.6" }]);
     expect(next.agent).toBeUndefined();
+  });
+});
+
+describe("applyToolsetsChange", () => {
+  it("renames the toolset of every model that named a preset renamed in place", () => {
+    const doc = baseDoc(
+      [
+        { model: "local/qwen", toolset: "coding" },
+        { model: "local/plain" },
+        { model: "local/other", toolset: "no-net" },
+      ],
+      { toolsets: [{ name: "coding" }, { name: "no-net" }] },
+    );
+    const next = applyToolsetsChange(doc, [
+      { name: "lean" },
+      { name: "no-net" },
+    ]);
+    expect(next.toolsets).toEqual([{ name: "lean" }, { name: "no-net" }]);
+    expect(next.models).toEqual([
+      { model: "local/qwen", toolset: "lean" },
+      { model: "local/plain" },
+      { model: "local/other", toolset: "no-net" },
+    ]);
+  });
+
+  it("leaves the references alone when a preset is added or removed", () => {
+    const models = [{ model: "local/qwen", toolset: "coding" }];
+    const doc = baseDoc(models, { toolsets: [{ name: "coding" }] });
+    expect(applyToolsetsChange(doc, []).models).toBe(models);
+    expect(
+      applyToolsetsChange(doc, [{ name: "coding" }, { name: "x" }]).models,
+    ).toBe(models);
   });
 });

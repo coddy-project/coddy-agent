@@ -264,17 +264,22 @@ throttle with immediate renders after keystrokes.
 ## Commands and keys
 
 Slash commands: the settings commands `/model`, `/reasoning` (`/effort`),
-`/think`, `/nothink`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
+`/think`, `/nothink`, `/toolset`, `/agent`, `/plan`, `/ask` and `/permissions`, each with
 `--once` or `--count=N` for the next turns only
 ([Session settings](../features/session-settings.md)); client-side `/resume`,
 `/new`, `/theme`, `/hotkeys`, `/queue`, `/usage`, `/tasks`, `/mcp`, `/docs`, `/quit`, and a bare `/goal`, which opens
 the goal menu; server-driven `/compact`, `/goal <objective>` and its `pause`, `resume` and `clear` forms, `/export`,
 `/plugin`, and every loaded skill (from the ACP available-commands catalog).
-A bare `/model`, `/reasoning` or `/permissions` opens its picker; with a value
+A bare `/model`, `/reasoning`, `/toolset` or `/permissions` opens its picker; with a value
 the command is applied by the session manager and the footer shows the change,
 and commands followed by a message apply to the turn that message starts. The
 transcript gets a line only for a change the agent made itself, such as
 `Model: stub/coddy-mini for this session` after its `switch_model` call. `/mode` is gone: the modes have their own commands.
+`/toolset` is in the menu only while the configuration has a toolset preset, and
+its picker lists the presets and `default`; the footer names the preset the
+session runs with after the model and the level (`• tools coding`). A preset
+added to the configuration brings both without a restart
+([Toolsets](../getting-started/configuration.md#toolsets)).
 
 **Model memory** — the console is a surface of its own. A session-scoped pick
 (`/model`, the picker, or `/model <id>` ahead of a prompt) is remembered in

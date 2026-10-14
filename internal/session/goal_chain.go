@@ -131,6 +131,7 @@ func (m *Manager) continueGoalChain(st *State, done GoalState, verifyRan bool, u
 	// (rememberPermissionMode), and a session keeps it across a restart.
 	ns.SetSelectedModelID(st.GetSelectedModelID())
 	ns.SetSelectedReasoning(st.GetSelectedReasoning())
+	ns.SetSelectedToolset(st.GetSelectedToolset())
 	ns.SetPermissionMode(st.GetPermissionMode())
 	ns.SetGoal(next)
 	ns.AppendUILogNotice(0, fmt.Sprintf("Goal chain: continued from session %s (link %d of %d)", st.ID, next.ChainIndex, cfg.Supervisor.ChainSessionLimit()))
