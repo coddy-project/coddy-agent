@@ -333,6 +333,9 @@ Stateless relay that nodes register into and that chains into other relays. The 
 | `swarm.cors.enable` | boolean | false | Handle CORS preflight and emit Access-Control-* headers for allowed origins. |
 | `swarm.cors.allow_loopback` | boolean | false | Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. A laptop's web UI reaching this relay, whatever port its own coddy serve took. Narrower than "*"; the client token still applies. |
 | `swarm.cors.allowed_origins` | list of strings | [] | Exact origins permitted to call the API, e.g. "http://localhost:5173". A single "*" allows any origin. |
+| `swarm.tls` | object |  | Serve the relay over HTTPS with an existing certificate and private key. Set both paths or leave both empty for HTTP. No automatic certificates or client mTLS. |
+| `swarm.tls.cert_file` | string | "" | PEM certificate chain file for the relay's HTTPS listener. Set together with key_file. |
+| `swarm.tls.key_file` | string | "" | PEM private key file for the relay's HTTPS listener. Set together with cert_file. |
 | `swarm.lease_ttl_seconds` | integer | 0 | How long a registration survives without a heartbeat. 0 falls back to 90; nodes refresh at a third of it. |
 | `swarm.fanout_timeout_seconds` | integer | 0 | Per-node deadline for an aggregated call. A slower node degrades into a warning rather than stalling the answer. 0 falls back to 3. |
 | `swarm.upstreams` | list of objects | [] | Nodes configured by hand rather than registered, for an agent that cannot run the join loop. |

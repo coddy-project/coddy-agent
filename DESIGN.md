@@ -158,7 +158,9 @@ renders for a `coddy` row too (its account usage is the remote's, read per model
 
 #### Connection settings
 
-Settings exposes no built-in TLS, CA, certificate or private-key controls. Provider forms keep HTTPS endpoint URLs, API credentials, outbound proxies and request timeouts; the Advanced settings group has no certificate fields. The relay's Swarm tab has no TLS or Node TLS blocks, and each join or upstream's Dialling block contains only its outbound proxy. Incoming HTTPS and client-certificate enforcement belong to an external reverse proxy, not this form. Application authentication remains separate.
+Provider forms carry their connection details: the endpoint URL and API credentials in Provider settings, and the key command, outbound proxy and request timeout in the Advanced settings group. The relay's Swarm tab carries each join or upstream's Dialling block, and the block holds its outbound proxy.
+
+Incoming HTTPS and client-certificate checks run in the external reverse proxy in front of the listener, which serves plain HTTP and is restricted to loopback or an isolated network. The relay is the exception: its **Swarm** settings expose an **HTTPS listener** that serves the relay over HTTPS from an existing certificate and private key (`swarm.tls.cert_file` / `key_file`), while the node's listener stays plain HTTP. Application authentication is separate: it runs on the server's own credentials, not on a connection field.
 
 Coverage: **`SettingsSection.shared.test.tsx`** checks the forms against the server schema and preserves HTTPS, proxy and authentication controls in both locales. **`scripts/remove-tls-settings-check.mjs`** captures the real embedded provider and relay Settings at 1280px and 390px.
 

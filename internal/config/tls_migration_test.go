@@ -10,7 +10,10 @@ import (
 func TestRemovedTLSMigration(t *testing.T) {
 	cases := []struct{ body, path string }{
 		{"tls: null\n", "tls"}, {"httpserver: {tls: {}}\n", "httpserver.tls"},
-		{"swarm: {tls: false}\n", "swarm.tls"}, {"swarm: {node_tls: null}\n", "swarm.node_tls"},
+		{"swarm: {node_tls: null}\n", "swarm.node_tls"},
+		{"swarm: {tls: {auto: false}}\n", "swarm.tls.auto"},
+		{"swarm: {tls: {client_ca_file: ''}}\n", "swarm.tls.client_ca_file"},
+		{"swarm: {tls: {require_client_cert: false}}\n", "swarm.tls.require_client_cert"},
 		{"providers: [{name: remote, type: coddy, tls_auto: false}]\n", "providers[0].tls_auto"},
 		{"providers: [{ca_file: ''}]\n", "providers[0].ca_file"},
 		{"providers: [{client_cert_file: null}]\n", "providers[0].client_cert_file"},
@@ -89,6 +92,9 @@ func TestRemovedTLSJSON(t *testing.T) {
 		`{"providers":[{"name":"\ud800","TLS_AUTO":false}]}`,
 		`{"providers":[{"name":"\ud83d\ude00","tls_auto":false}],"providers":[]}`,
 		`{"HTTPServer":{"tls":{}}}`,
+		`{"Swarm":{"TLS":{"AUTO":false}}}`,
+		`{"swarm":{"tls":{"client_ca_file":""}}}`,
+		`{"swarm":{"tls":{"require_client_cert":false}}}`,
 		`{"providers":[{"TLS_AUTO":false}]}`,
 		`{"providers":[{"\u0074\u006c\u0073_\u0061\u0075\u0074\u006f":false}]}`,
 		`{"swarm":{"join":[{"dial":{"ca_file":""}}]}}`,

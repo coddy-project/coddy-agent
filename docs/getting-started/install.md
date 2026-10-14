@@ -46,9 +46,9 @@ source ~/.zshrc   # or open a new terminal
 coddy -v
 ```
 
-Coddy serves plain HTTP and creates no TLS certificates. Put an external reverse proxy in front
-of any listener exposed beyond loopback or an isolated network; see
-[TLS termination and migration](../operate/certificates.md).
+Coddy serves plain HTTP. Put an external reverse proxy in front of any listener exposed beyond
+loopback or an isolated network. The proxy handles HTTPS and certificate renewal; see
+[External HTTPS](../operate/certificates.md).
 
 The script installs no systemd unit. On Linux, to keep **`coddy serve`** running as a service of
 your account, run **`coddy serve install`** once the configuration has a provider key: it writes

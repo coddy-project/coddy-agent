@@ -314,7 +314,8 @@ A shared-model call needs no setting for the liveness of its peer: on Linux the 
 the slot of a client that vanished without a trace is freed at most 45 s after it, and a node on a
 relay tunnel pings the relay on its own. No other route of the server is touched, and a
 configuration reload changes nothing here. macOS, Windows, a peer behind a TLS terminator or an HTTP
-proxy, and a foreign HTTP/2 client of a TLS relay keep the longer bound their transport gives
+proxy, and a foreign HTTP/2 client reaching a relay through its own HTTPS listener or an external
+TLS terminator keep the longer bound their transport gives
 ([A peer that vanishes](../features/shared-models.md#a-peer-that-vanishes)). The same page says
 what a lender shows its borrowers of its account
 ([usage](../features/shared-models.md#the-account-usage-of-a-shared-model)); the lender's

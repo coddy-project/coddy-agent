@@ -39,11 +39,13 @@ func TestSwarmFingerprintMovesWithEverySettingButTheAddress(t *testing.T) {
 		},
 		// Alone, so the case proves the flag itself moves the fingerprint and
 		// not the two settings the "cors" case already flips.
-		"cors loopback": func(c *config.Config) { c.Swarm.CORS.AllowLoopback = true },
-		"client token":  func(c *config.Config) { c.Swarm.AuthToken = "rotated" },
-		"name":          func(c *config.Config) { c.Swarm.Name = "office-2" },
-		"pairing token": func(c *config.Config) { c.Swarm.PairingTokens = []string{"p"} },
-		"upstream":      func(c *config.Config) { c.Swarm.Upstreams = []config.SwarmUpstream{{Name: "nas", URL: "http://nas:1"}} },
+		"cors loopback":   func(c *config.Config) { c.Swarm.CORS.AllowLoopback = true },
+		"TLS certificate": func(c *config.Config) { c.Swarm.TLS.CertFile = "cert.pem" },
+		"TLS key":         func(c *config.Config) { c.Swarm.TLS.KeyFile = "key.pem" },
+		"client token":    func(c *config.Config) { c.Swarm.AuthToken = "rotated" },
+		"name":            func(c *config.Config) { c.Swarm.Name = "office-2" },
+		"pairing token":   func(c *config.Config) { c.Swarm.PairingTokens = []string{"p"} },
+		"upstream":        func(c *config.Config) { c.Swarm.Upstreams = []config.SwarmUpstream{{Name: "nas", URL: "http://nas:1"}} },
 	} {
 		c := base()
 		edit(c)

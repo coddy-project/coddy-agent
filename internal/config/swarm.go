@@ -61,6 +61,9 @@ type SwarmConfig struct {
 	// origin by construction, so this matters more here than on the agent.
 	CORS HTTPCORSConfig `yaml:"cors"`
 
+	// TLS serves the relay over HTTPS using an existing certificate and key.
+	TLS SwarmTLSConfig `yaml:"tls"`
+
 	// LeaseTTLSeconds overrides how long a registration survives without a
 	// heartbeat.
 	LeaseTTLSeconds int `yaml:"lease_ttl_seconds"`
@@ -79,6 +82,17 @@ type SwarmConfig struct {
 	// Clients are relay clients limited to the shared-model routes of the nodes
 	// they list. AuthToken stays the full class.
 	Clients []SwarmClient `yaml:"clients"`
+}
+
+// SwarmTLSConfig serves the relay over HTTPS. Both files or neither.
+type SwarmTLSConfig struct {
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+}
+
+// Enabled reports whether TLS is configured.
+func (t SwarmTLSConfig) Enabled() bool {
+	return strings.TrimSpace(t.CertFile) != "" && strings.TrimSpace(t.KeyFile) != ""
 }
 
 // SwarmDialConfig is how one leg of the swarm reaches the other side. Relays
@@ -188,6 +202,8 @@ func (s *SwarmConfig) Normalize() {
 		return
 	}
 	s.Host = strings.TrimSpace(s.Host)
+	s.TLS.CertFile = strings.TrimSpace(s.TLS.CertFile)
+	s.TLS.KeyFile = strings.TrimSpace(s.TLS.KeyFile)
 	s.Name = strings.TrimSpace(s.Name)
 	s.AuthToken = strings.TrimSpace(s.AuthToken)
 	for i := range s.PairingTokens {
@@ -218,6 +234,9 @@ func (s *SwarmConfig) Validate() error {
 	}
 	if s.Port < 0 || s.Port > 65535 {
 		return fmt.Errorf("swarm.port %d is out of range", s.Port)
+	}
+	if (strings.TrimSpace(s.TLS.CertFile) == "") != (strings.TrimSpace(s.TLS.KeyFile) == "") {
+		return fmt.Errorf("swarm.tls.cert_file and swarm.tls.key_file must be set together")
 	}
 	if s.LeaseTTLSeconds < 0 {
 		return fmt.Errorf("swarm.lease_ttl_seconds must not be negative")

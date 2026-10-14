@@ -108,6 +108,11 @@ func swarmUISchema() map[string]interface{} {
 			"name": strProp("Name", "The relay's name on the map and in /swarm/info; empty takes the host name it runs on."),
 			"host": strProp("Listen host", "Address to bind. 0.0.0.0 listens on every interface. Takes effect on a restart."),
 			"port": intProp("Listen port", "Port to bind. Takes effect on a restart."),
+			"tls": objectSchema("HTTPS listener", "Serve this relay over HTTPS with an existing PEM certificate and private key. Set both paths or leave both empty for HTTP. No automatic certificates or client mTLS.",
+				map[string]interface{}{
+					"cert_file": strProp("Certificate file", "PEM certificate chain file. Set together with the private key file."),
+					"key_file":  strProp("Private key file", "PEM private key file. Set together with the certificate file."),
+				}, []string{"cert_file", "key_file"}, nil),
 			"auth_token": secretProp("Client token", "Bearer token a client presents to use this relay, and every node behind it. Write-only: leave it empty to keep the one set. A new one signs out every client, this page included: enter it again with Connect to… in the environment menu.",
 				"auth_configured"),
 			"pairing_tokens": func() map[string]interface{} {
@@ -149,7 +154,7 @@ func swarmUISchema() map[string]interface{} {
 			},
 		},
 		[]string{
-			"name", "host", "port", "auth_token", "pairing_tokens", "cors",
+			"name", "host", "port", "tls", "auth_token", "pairing_tokens", "cors",
 			"lease_ttl_seconds", "fanout_timeout_seconds", "upstreams", "join", "clients",
 			"allow_private_upstreams", "allow_insecure", "insecure_open_registration",
 		},

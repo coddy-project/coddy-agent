@@ -429,6 +429,7 @@ type SwarmJSON struct {
 	InsecureOpenRegistration bool                `json:"insecure_open_registration,omitempty"`
 	AllowPrivateUpstreams    []string            `json:"allow_private_upstreams,omitempty"`
 	CORS                     HTTPCORSJSON        `json:"cors,omitempty"`
+	TLS                      SwarmTLSJSON        `json:"tls,omitempty"`
 	LeaseTTLSeconds          int                 `json:"lease_ttl_seconds,omitempty"`
 	FanoutTimeoutSeconds     int                 `json:"fanout_timeout_seconds,omitempty"`
 	Upstreams                []SwarmUpstreamJSON `json:"upstreams,omitempty"`
@@ -448,6 +449,12 @@ type SwarmClientJSON struct {
 	MaxStreams      int      `json:"max_streams,omitempty"`
 	RatePerMinute   int      `json:"rate_per_minute,omitempty"`
 	RateBurst       int      `json:"rate_burst,omitempty"`
+}
+
+// SwarmTLSJSON mirrors the relay's certificate and private key paths.
+type SwarmTLSJSON struct {
+	CertFile string `json:"cert_file,omitempty"`
+	KeyFile  string `json:"key_file,omitempty"`
 }
 
 // SwarmDialJSON mirrors SwarmDialConfig. The proxy URL can carry credentials,
@@ -686,6 +693,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			AllowLoopback:  c.Swarm.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), c.Swarm.CORS.AllowedOrigins...),
 		},
+		TLS:                  SwarmTLSJSON{CertFile: c.Swarm.TLS.CertFile, KeyFile: c.Swarm.TLS.KeyFile},
 		LeaseTTLSeconds:      c.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: c.Swarm.FanoutTimeoutSeconds,
 	}
@@ -938,6 +946,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			AllowLoopback:  j.Swarm.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), j.Swarm.CORS.AllowedOrigins...),
 		},
+		TLS:                  SwarmTLSConfig{CertFile: j.Swarm.TLS.CertFile, KeyFile: j.Swarm.TLS.KeyFile},
 		LeaseTTLSeconds:      j.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: j.Swarm.FanoutTimeoutSeconds,
 	}

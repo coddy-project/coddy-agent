@@ -167,10 +167,10 @@ model or provider is involved.
 
 ## External TLS stand
 
-Run `make test-external-tls` for the HTTPS migration contract, without a model or an external service.
+Run `make test-external-tls` to check external HTTPS transport, without a model or an external service.
 The provider tests exercise system trust, certificate-name verification, CONNECT routing and HTTP/1.1
 on completions, discovery and usage. The Swarm stand terminates TLS outside the HTTP backend and checks
 direct mounts, upstreams, reverse-role HTTP/2 tunnels, SSE, reconnect and cancellation. It also records
 why an ordinary HTTP reverse proxy cannot carry the existing tunnel.
 
-Deployment and migration: [External TLS and migration](../docs/operate/certificates.md).
+Deployment guide: [External HTTPS](../docs/operate/certificates.md).

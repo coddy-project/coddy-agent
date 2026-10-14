@@ -77,11 +77,15 @@ func Serve(ctx context.Context, opts Options) error {
 	defer joins.Stop()
 
 	log.Info("swarm relay listening", "addr", opts.ListenAddr, "uuid", srv.UUID(),
-		"nodes", srv.Registry().Len(), "parents", len(cfg.Swarm.Join))
+		"tls", cfg.Swarm.TLS.Enabled(), "nodes", srv.Registry().Len(), "parents", len(cfg.Swarm.Join))
 
 	server := httpx.NewServer(opts.ListenAddr, srv.Handler())
 	errs := make(chan error, 1)
 	go func() {
+		if cfg.Swarm.TLS.Enabled() {
+			errs <- server.ListenAndServeTLS(cfg.Swarm.TLS.CertFile, cfg.Swarm.TLS.KeyFile)
+			return
+		}
 		errs <- server.ListenAndServe()
 	}()
 

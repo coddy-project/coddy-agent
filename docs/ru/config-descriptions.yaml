@@ -542,6 +542,15 @@ swarm.allow_insecure:
 swarm.insecure_open_registration:
   en: "Let any caller register a node without a pairing token. Development only."
   ru: "Разрешить любому, кто обращается к релею, регистрировать узел без токена присоединения. Только для разработки."
+swarm.tls:
+  en: "Serve the relay over HTTPS with an existing certificate and private key. Set both paths or leave both empty for HTTP. No automatic certificates or client mTLS."
+  ru: "Обслуживать HTTPS на релее с существующими сертификатом и приватным ключом. Укажите оба пути или оставьте оба пустыми для HTTP. Автоматической выдачи сертификатов и клиентского mTLS нет."
+swarm.tls.cert_file:
+  en: "PEM certificate chain file for the relay's HTTPS listener. Set together with key_file."
+  ru: "Файл цепочки PEM-сертификатов для HTTPS-слушателя релея. Указывайте вместе с key_file."
+swarm.tls.key_file:
+  en: "PEM private key file for the relay's HTTPS listener. Set together with cert_file."
+  ru: "Файл приватного PEM-ключа для HTTPS-слушателя релея. Указывайте вместе с cert_file."
 swarm.allow_private_upstreams:
   en: "Hosts a node may advertise even though they resolve into loopback or private ranges, which are otherwise refused so a registration cannot turn the relay into a probe of its own network."
   ru: "Хосты, которые узел может объявлять, хотя они разрешаются в loopback или частные диапазоны; иначе такие адреса отклоняются, чтобы регистрация не превратила релей в зонд его собственной сети."

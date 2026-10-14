@@ -119,17 +119,17 @@ Clear the field to use the session model for summarization.
 
 ## Settings: connection settings
 
-- Provider forms keep the connection settings that Coddy uses: an HTTPS API endpoint, authentication, an outbound proxy and a request timeout. The **Advanced settings** block keeps the credential command, proxy and timeout together.
+- Provider forms have the connection fields: an HTTPS API endpoint, authentication, an outbound proxy and a request timeout. The **Advanced settings** block groups the credential command, the proxy and the timeout.
 
-![Provider Advanced settings with a proxy URL and request timeout; no built-in certificate controls](../assets/settings-provider-advanced-dark-1280.png)
+![Provider Advanced settings with the credential command, the proxy URL and the request timeout](../assets/settings-provider-advanced-dark-1280.png)
 
-*Provider connections retain endpoint, authentication, proxy and timeout settings.*
+*Provider connections: endpoint, authentication, outbound proxy and timeout.*
 
-- The relay's **Swarm** settings likewise keep its listener and outbound proxy settings. A join or upstream has its own outbound proxy. There are no built-in TLS, CA, certificate or private-key controls in provider or relay forms: incoming HTTPS and client-certificate enforcement belong to an external reverse proxy, while application authentication remains separate.
+- The relay's **Swarm** settings include listener and outbound proxy fields. The **TLS** group holds the existing certificate and private key (`cert_file` and `key_file`) for the relay's HTTPS listener. It does not issue certificates or enable client mTLS. A join or upstream has its own outbound proxy. The node's listener stays plain HTTP. An external reverse proxy handles incoming HTTPS and client-certificate verification for the node. Application authentication is separate.
 
-![Relay connection settings with listener and authentication fields; no built-in TLS controls](../assets/settings-relay-connection-dark-1280.png)
+![Relay connection settings with the listener and authentication fields](../assets/settings-relay-connection-dark-1280.png)
 
-*Relay connections retain listener and authentication settings; TLS is configured at the reverse proxy.*
+*Relay connections: the HTTPS listener with its certificate and key, the outbound proxy and authentication; the node keeps plain HTTP.*
 
 ## Settings: tabs and form layout
 

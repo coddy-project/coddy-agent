@@ -1,6 +1,7 @@
 package dryrun
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -84,7 +85,13 @@ func (r *runner) paths() {
 	if cfg.Memory.Enabled && strings.TrimSpace(cfg.Memory.Dir) != "" {
 		r.rep.add(r.creatableDir("memory.dir", cfg.Memory.Dir))
 	}
-
+	if cfg.Swarm.Enabled && cfg.Swarm.TLS.Enabled() {
+		if _, err := tls.LoadX509KeyPair(cfg.Swarm.TLS.CertFile, cfg.Swarm.TLS.KeyFile); err != nil {
+			r.rep.add(r.check(StatusError, "swarm.tls", "swarm.tls.cert_file", "the relay's certificate and key cannot be loaded: "+shortErr(err), "point swarm.tls.cert_file and swarm.tls.key_file at a matching PEM certificate and private key"))
+		} else {
+			r.rep.add(r.check(StatusOK, "swarm.tls", "swarm.tls.cert_file", "relay certificate and key load", ""))
+		}
+	}
 }
 
 func hasOutput(outputs []string, want string) bool {

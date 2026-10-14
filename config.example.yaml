@@ -771,6 +771,12 @@ logger:
 #     enable: true
 #     allow_loopback: true    # a laptop's web UI on any loopback port
 #     allowed_origins: ["https://ui.example"]
+#   # Serve the relay over HTTPS from these files instead of putting TLS in front.
+#   # Both files or neither; minimum TLS 1.2. Certificates are startup state, so
+#   # rotating them needs a restart. Tokens are the credentials either way.
+#   tls:
+#     cert_file: "/etc/coddy/relay.crt"
+#     key_file: "/etc/coddy/relay.key"
 #   # A borrower of shared models gets a credential of its own that opens only
 #   # GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage and
 #   # POST /coddy/llm/completions of the nodes it names, with limits the relay holds it to.

@@ -181,6 +181,13 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.swarm.cors.allowed_origins.label": "Allowed origins",
   "settings.schema.swarm.cors.allowed_origins.desc":
     "Exact origins, for example http://localhost:12345, or * for any.",
+  "settings.schema.swarm.tls.label": "TLS",
+  "settings.schema.swarm.tls.desc":
+    "Certificate and key the relay serves HTTPS with. Both or neither.",
+  "settings.schema.swarm.tls.cert_file.label": "Certificate file",
+  "settings.schema.swarm.tls.cert_file.desc": "PEM certificate chain.",
+  "settings.schema.swarm.tls.key_file.label": "Key file",
+  "settings.schema.swarm.tls.key_file.desc": "PEM private key.",
   "settings.schema.swarm.lease_ttl_seconds.label": "Lease TTL (seconds)",
   "settings.schema.swarm.lease_ttl_seconds.desc":
     "How long a registration lasts without a refresh; nodes refresh at a third of it.",

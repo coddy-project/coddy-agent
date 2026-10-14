@@ -74,7 +74,7 @@ groups:
         summary: Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel.
       - path: operate/certificates.md
         title: Certificates and TLS
-        summary: Built-in and file-based TLS for nodes and relays, mutual-TLS handshake admission, token-based authorization, certificate renewal and proxy handover.
+        summary: External HTTPS for nodes, optional relay HTTPS from certificate and key files, client-certificate checks at the external transport boundary, token-based authorization and deployment checks.
       - path: operate/scheduler.md
         title: Scheduler
         summary: Cron job files, UTC firing rules, runs as background agent tasks under a job session, the runs panel, the scheduler tools and REST.

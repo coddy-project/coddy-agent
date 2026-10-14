@@ -359,7 +359,7 @@ A peer that disappears without a FIN or a RST is invisible to a connection that 
 - **The tunnel, from the node.** The node is the HTTP/2 server on the tunnel. It pings the relay when no frame has arrived for 15 s and closes the connection when the ping is not answered within 30 s, so a relay that vanished while a call streams heartbeats is noticed at most 45 s after its last frame, whatever the heartbeat is, and every call on the tunnel ends with it (the slot is released, the node reconnects). Before this check nothing pinged in that direction, and the node's own 150 s watchdog counts the node's writes as activity, so a vanished relay looked alive until the kernel gave up on the socket. The split is 15 s and 30 s rather than the relay's own 30 s and 15 s: the sum is the same, but a ping written behind unacknowledged heartbeats is answered only when a retransmission gets through, and the longer timeout doubles the outage a live relay survives.
 - **The tunnel, from the relay.** The relay pings the node when no frame has arrived for 30 s and closes the connection when the ping is not answered within 15 s, as before.
 - **A client of the relay.** The relay answers everything its client sends, so a client that vanished is invisible to the node; the relay therefore sets a `TCP_USER_TIMEOUT` of 30 s on its own client connection for `POST /swarm/nodes/{node}/coddy/llm/completions` (and no other route), put back when the call ends. When the connection dies the relay cancels the upstream request - a reset stream on a tunnel, a closed connection on a direct dial - and the node frees the slot in the same round trip. A relay in front of a chain of relays does this for its own client.
-- **Only HTTP/1.1 clients are bounded.** An HTTP/2 connection carries many streams, so the option cannot be scoped to one call, and a TLS relay's listener negotiates HTTP/2 with any client that offers it. The local Coddy offers only HTTP/1.1 to a `coddy` remote, which keeps its calls bounded; a client that speaks HTTP/2 to a TLS relay is served unprobed, and the relay logs `shared call over HTTP/2: a vanished client is not detected before the call ends` once per connection at info level. A health check of the whole listener was rejected, because a ping per connection would cut a quiet browser stream through the relay on a silent link, and so was a listener that speaks HTTP/1.x only, which would take multiplexing from every browser stream.
+- **Only HTTP/1.1 clients are bounded.** An HTTP/2 connection carries many streams, so the option cannot be scoped to one call. The relay's native HTTPS listener and the external transport can each negotiate HTTP/2 with a client. The local Coddy offers only HTTP/1.1 to a `coddy` remote. The socket bound applies to the immediate peer, and the application probe covers a participating client beyond an intermediary. If the relay receives HTTP/2, it serves the call unprobed and logs `shared call over HTTP/2: a vanished client is not detected before the call ends` once per connection at info level.
 - **Platforms.** The option exists on Linux (Android included); on macOS, Windows and the BSDs the direct and the client legs keep the operating system's retransmission timeout, and only the tunnel's ping works everywhere.
 
 ## Where the settings live
@@ -367,7 +367,7 @@ A peer that disappears without a FIN or a RST is invisible to a connection that 
 | What | Where |
 |---|---|
 | Whether this process relays at all | `swarm.enable` in `config.yaml`, or `--swarm` / `--swarm=false` |
-| Relay's own deployment: bind address, client and pairing tokens, TLS, static upstreams | `swarm:` in `config.yaml`, or the `--swarm-*` flags |
+| Relay's own deployment: bind address, HTTPS certificate and private key, client and pairing tokens, static upstreams | `swarm:` in `config.yaml`, or the `--swarm-*` flags |
 | Which relays this process joins | `swarm.join` in `config.yaml` - honoured whether or not this process relays |
 | Relays offered in the UI environment menu | `httpserver.remotes` of the page's server: name, URL and, optionally, the client token (`token`, best as a `${ENV}` reference) |
 | Pages served elsewhere that may call the relay | `swarm.cors` (`enable`, `allow_loopback` for a laptop's web UI on any loopback port, `allowed_origins`) |
@@ -375,7 +375,8 @@ A peer that disappears without a FIN or a RST is invisible to a connection that 
 
 **The relay's own Settings.** Opened on the relay (its map is the page's home), the Settings
 drawer edits the relay's deployment and its log: the **Swarm relay** tab (name, listen address,
-client and pairing tokens, CORS, TLS, the certificates the relay presents to nodes, lease and fan-out timeouts, upstreams, joins, scoped clients, private-upstream hosts and the two lab switches) and **Logger**.
+HTTPS certificate and private key, client and pairing tokens, CORS, lease and fan-out timeouts,
+upstreams, joins, scoped clients, private-upstream hosts and the two lab switches) and **Logger**.
 There is no Sessions tab, because a relay holds no sessions. The routes are the agent's own -
 `GET /coddy/config/schema`, `GET /coddy/config`, `POST /coddy/config/validate`, `PUT
 /coddy/config` - served by the relay behind its client token, and they carry only those two
@@ -391,7 +392,8 @@ is set, an empty field keeps it, a value replaces it. Pairing tokens are a list 
 A save is written over the relay's `config.yaml` with its comments and spellings kept, and the
 relay is rebuilt on it: nodes register and open their tunnels again within seconds, and a stream
 in flight through the relay is cut and resumed by the client. A new listen address takes a
-restart, which a relay under the dispatcher or systemd gets by itself. So does turning on the
+restart, which a relay under the dispatcher or systemd gets by itself. Replacing the HTTPS
+certificate or private key also needs a restart. So does turning on the
 HTTP server, the gateway or the scheduler in the file of a process started as a relay alone: it
 opened no session store, and those surfaces run agent turns. A new client token signs
 out every client, the page you are saving from included: enter the new one in the environment menu.
@@ -511,29 +513,49 @@ swarm:
 
 ### Client certificates
 
-Coddy does not terminate TLS or evaluate client certificates. Put the relay behind an external transport when HTTPS or mutual TLS is required. That transport owns certificate issuance, renewal and client-certificate enforcement; the relay still authorizes requests with its tokens. A certificate is never a Swarm credential or scope.
+A certificate opens nothing here. There is no mutual TLS: the relay never asks for a client
+certificate, and a certificate is no credential and grants no scope. The relay authorizes requests
+with its tokens; an external transport in front of it may enforce client certificates of its own,
+but that is the transport's business, not Swarm's. The full token opens the relay, and an entry
+token opens only the shared-model routes of its listed nodes.
 
-For outbound HTTPS, Coddy verifies the certificate and hostname with the system trust store of the process. Install a private authority in that store. Do not replace verification with an insecure setting. If an outbound client certificate is required, make an external transport component present it.
+For outbound HTTPS, Coddy verifies the certificate and hostname with the system trust store of the
+process. Install a private authority in that store. Do not replace verification with an insecure
+setting; bearer credentials are what a node and the relay authenticate each other with.
 
-The full and scoped token classes are unchanged: the full token opens the relay, and an entry token opens only the shared-model routes of its listed nodes. See [Certificates and TLS](certificates.md).
+See [Certificates and TLS](certificates.md).
 
 ## Encryption and proxies
 
-HTTP APIs and the web UI may sit behind an ordinary HTTP-layer TLS reverse proxy. Keep the Coddy HTTP backend on loopback or an isolated network.
+Relays usually sit in different networks.
 
-The reverse Swarm tunnel has a stricter transport requirement. After accepting HTTP/1, it changes into a raw reverse-role HTTP/2 connection. Its TLS terminator must therefore be a **TCP byte forwarder** that accepts TLS with HTTP/1.1 ALPN and forwards the byte stream unchanged to the relay. An ordinary HTTP-layer reverse proxy cannot carry that protocol transition. Use a separate HTTPS endpoint for browser/API traffic when that endpoint needs normal HTTP middleware.
-
-A join or upstream can still use its supported `dial.proxy` value:
+The relay can own its HTTPS. `swarm.tls` gives the relay's listener a certificate and a key:
 
 ```yaml
 swarm:
+  tls:
+    cert_file: "/etc/coddy/relay.crt"
+    key_file: "/etc/coddy/relay.key"
   join:
     - url: "https://parent.example"
       dial:
         proxy: "socks5://127.0.0.1:1080"   # http, https, socks5, socks5h
 ```
 
-The process verifies `https://` peers through system trust. Install a private CA in that trust store. Do not send tokens or tunnels over non-loopback plain HTTP.
+Both files or neither; minimum TLS 1.2. Certificates are startup state, so rotating them needs a
+restart. A node's listener stays plain HTTP; a node that needs HTTPS of its own puts a reverse proxy
+in front. With no `swarm.tls`, the relay listens over plain HTTP, which is right on loopback,
+behind a proxy, or inside a tunnel.
+
+The reverse Swarm tunnel has a stricter transport requirement. After accepting HTTP/1, it changes
+into a raw reverse-role HTTP/2 connection. When the relay owns the TLS, the tunnel rides on top of
+it; when an external terminator stands in front, it must be a **TCP byte forwarder** that accepts
+TLS with HTTP/1.1 ALPN and forwards the byte stream unchanged to the relay, because an ordinary
+HTTP-layer reverse proxy cannot carry that protocol transition. Use a separate HTTPS endpoint for
+browser/API traffic when that endpoint needs normal HTTP middleware.
+
+Outbound HTTPS verifies the `https://` peer with the process's system trust store; install a private
+CA in that store. Tokens and tunnels never ride over non-loopback plain HTTP.
 
 ## What is deliberately absent
 
@@ -547,7 +569,7 @@ The process verifies `https://` peers through system trust. Install a private CA
   single HTTP/2 connection per node and are not worked around.
 - **One relay process per endpoint.** Two replicas behind a load balancer would split the
   registry and the tunnels.
-- **No relay-wide HTTP/2 health check.** The relay pings its tunnels and a node pings its relay, but the listener that serves browsers and clients is not pinged and is not HTTP/1.x only, so a quiet stream survives a silent link. The cost is that an HTTP/2 client of a TLS relay is not bounded for a shared call ([Liveness](#liveness-of-a-tunnel-and-of-a-shared-call)).
+- **No relay-wide HTTP/2 health check.** The relay pings its tunnels and a node pings its relay, but the listener that serves browsers and clients is not pinged and is not HTTP/1.x only, so a quiet stream survives a silent link. The cost is that an HTTP/2 client of the relay is not bounded for a shared call ([Liveness](#liveness-of-a-tunnel-and-of-a-shared-call)).
 - **No per-node authorisation for the full client token.** See the blast radius above; a scoped client has it ([Scoped clients](#scoped-clients)). It holds for shared models too: a client of the relay reaches every node's mount, and a node that shares models is protected only by the token it joined with ([Sharing models through a relay](#sharing-models-through-a-relay)).
 
 ## Reference

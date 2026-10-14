@@ -45,11 +45,9 @@ Nothing is created: a file that was never installed (**`--no-shell-setup`**, a b
 
 ## TLS certificates
 
-**`coddy update`** does not create or renew certificates. HTTPS and mTLS belong to the external
-reverse proxy or transport sidecar. Before upgrading a deployment that used Coddy's former TLS
-settings, follow [TLS termination and migration](../operate/certificates.md): configure the
-external transport, remove the obsolete keys, and restrict the plain-HTTP listener. Existing
-certificate files are left untouched.
+Certificate storage and renewal belong to the external reverse proxy or transport service.
+Updating Coddy leaves that service's configuration and certificate files untouched. See
+[External HTTPS](../operate/certificates.md) for the deployment boundary and connection checks.
 
 ## A server that is already running
 

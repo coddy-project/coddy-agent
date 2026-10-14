@@ -182,6 +182,13 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.swarm.cors.allowed_origins.label": "Разрешённые origin",
   "settings.schema.swarm.cors.allowed_origins.desc":
     "Точные origin, например http://localhost:12345, или * для любого.",
+  "settings.schema.swarm.tls.label": "TLS",
+  "settings.schema.swarm.tls.desc":
+    "Сертификат и ключ, с которыми релей отвечает по HTTPS. Нужны оба или ни одного.",
+  "settings.schema.swarm.tls.cert_file.label": "Файл сертификата",
+  "settings.schema.swarm.tls.cert_file.desc": "Цепочка сертификатов в PEM.",
+  "settings.schema.swarm.tls.key_file.label": "Файл ключа",
+  "settings.schema.swarm.tls.key_file.desc": "Закрытый ключ в PEM.",
   "settings.schema.swarm.lease_ttl_seconds.label": "Срок аренды (секунды)",
   "settings.schema.swarm.lease_ttl_seconds.desc":
     "Сколько живёт регистрация без обновления, узлы обновляют её на трети срока.",

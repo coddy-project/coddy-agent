@@ -774,7 +774,11 @@ func printServeBanner(cfg *config.Config, enabled []serve.Subsystem, httpAddr, s
 			fmt.Fprintf(os.Stderr, "  httpserver  http://%s  (%s)\n", httpAddr,
 				httpAuthSummary(cfg, extraAuth, extraLogin))
 		case serve.KindSwarm:
-			fmt.Fprintf(os.Stderr, "  swarm       http://%s  (relay)\n", swarmAddr)
+			scheme := "http"
+			if cfg.Swarm.TLS.Enabled() {
+				scheme = "https"
+			}
+			fmt.Fprintf(os.Stderr, "  swarm       %s://%s  (relay)\n", scheme, swarmAddr)
 		case serve.KindGateway:
 			fmt.Fprintf(os.Stderr, "  gateway     telegram\n")
 		case serve.KindGatewayPachca:

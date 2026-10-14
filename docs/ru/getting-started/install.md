@@ -47,9 +47,9 @@ source ~/.zshrc   # or open a new terminal
 coddy -v
 ```
 
-Coddy обслуживает обычный HTTP и не создаёт TLS-сертификаты. Перед слушателем, доступным за
-пределами loopback или изолированной сети, поставьте внешний обратный прокси; см.
-[TLS-терминацию и миграцию](../operate/certificates.md).
+Coddy обслуживает обычный HTTP. Перед слушателем, доступным за пределами loopback или
+изолированной сети, поставьте внешний обратный прокси. Прокси отвечает за HTTPS и продление
+сертификатов. См. [Внешний HTTPS](../operate/certificates.md).
 
 Скрипт не устанавливает юнит systemd. Чтобы в Linux **`coddy serve`** работал как сервис вашей
 учётной записи, выполните **`coddy serve install`**, когда в конфигурации появится ключ провайдера.
@@ -281,4 +281,4 @@ coddy update -y
 
 См. [build.md](../contributing/build.md) и раздел README **Other installation methods**.
 
-<!-- docsgen:source sha256=93aa6d24e4fd9642 -->
+<!-- docsgen:source sha256=96e1d4260a406612 -->

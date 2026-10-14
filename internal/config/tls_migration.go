@@ -99,8 +99,11 @@ func jsonMigrationNode(decoder *json.Decoder, data []byte) (*yaml.Node, error) {
 }
 
 func removedTLSPath(path string) bool {
-	if path == "tls" || path == "httpserver.tls" || path == "swarm.tls" || path == "swarm.node_tls" {
+	if path == "tls" || path == "httpserver.tls" || path == "swarm.node_tls" {
 		return true
+	}
+	if strings.HasPrefix(path, "swarm.tls.") {
+		return path != "swarm.tls.cert_file" && path != "swarm.tls.key_file"
 	}
 	prefix, key, ok := strings.Cut(path, "].")
 	if !ok {
@@ -174,6 +177,7 @@ func canonicalJSONTLSKey(key string) string {
 		"tls", "httpserver", "swarm", "node_tls", "providers", "join", "upstreams", "dial",
 		"ca_file", "client_cert_file", "client_key_file", "tls_auto",
 		"cert_file", "key_file", "auto", "insecure_skip_verify",
+		"client_ca_file", "require_client_cert",
 	} {
 		if strings.EqualFold(key, known) {
 			return known

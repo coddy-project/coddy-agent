@@ -150,10 +150,10 @@ pages:
       summary: "Relays and nodes, mounts, the aggregated session list, rings and routes, the reverse tunnel."
   operate/certificates.md:
     title: "Сертификаты и TLS"
-    summary: "Встроенный и файловый TLS для узлов и релеев, допуск на взаимном TLS-рукопожатии, авторизация токенами, продление сертификатов и передача задач прокси."
+    summary: "Внешний HTTPS для узлов, HTTPS релея с готовыми файлами сертификата и ключа, проверка клиентских сертификатов на границе внешнего транспорта, авторизация токенами и проверка развёртывания."
     en:
       title: "Certificates and TLS"
-      summary: "Built-in and file-based TLS for nodes and relays, mutual-TLS handshake admission, token-based authorization, certificate renewal and proxy handover."
+      summary: "External HTTPS for nodes, optional relay HTTPS from certificate and key files, client-certificate checks at the external transport boundary, token-based authorization and deployment checks."
   operate/scheduler.md:
     title: "Планировщик"
     summary: "Файлы cron-заданий, правила срабатывания в UTC, запуски как фоновые агентные задачи в сессии задания, панель запусков, инструменты планировщика и REST."

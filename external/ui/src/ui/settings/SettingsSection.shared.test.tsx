@@ -563,10 +563,18 @@ test.each(["en", "ru"] as const)(
 );
 
 test.each(["en", "ru"] as const)(
-  "the server-driven swarm keeps HTTPS, proxy and credentials without TLS blocks (%s)",
+  "the server-driven swarm exposes only the relay certificate pair and keeps proxy and credentials (%s)",
   (locale) => {
     setLocale(locale);
-    expectNoTLSFields(serverSchema.properties!.swarm!);
+    const { tls, ...otherProperties } =
+      serverSchema.properties!.swarm!.properties!;
+    expect(Object.keys(tls!.properties!).sort()).toEqual([
+      "cert_file",
+      "key_file",
+    ]);
+    expectNoTLSFields({ type: "object", properties: otherProperties });
+    for (const field of Object.values(tls!.properties!))
+      expectNoTLSFields(field);
     render(
       <SettingsSection
         section={{
@@ -579,6 +587,7 @@ test.each(["en", "ru"] as const)(
         doc={{
           swarm: {
             auth_token: "fixture-token",
+            tls: { cert_file: "relay-cert.pem", key_file: "relay-key.pem" },
             upstreams: [
               {
                 name: "demo",
@@ -611,15 +620,35 @@ test.each(["en", "ru"] as const)(
       "fixture-join",
       "https://proxy.example.com:8443",
       "socks5://127.0.0.1:1080",
+      "relay-cert.pem",
+      "relay-key.pem",
     ]) {
       expect(screen.getByDisplayValue(value)).toBeTruthy();
     }
+    fireEvent.change(screen.getByDisplayValue("relay-cert.pem"), {
+      target: { value: "renewed-cert.pem" },
+    });
+    expect((latest.swarm as Record<string, unknown>).tls).toEqual({
+      cert_file: "renewed-cert.pem",
+      key_file: "relay-key.pem",
+    });
+    fireEvent.change(screen.getByDisplayValue("relay-key.pem"), {
+      target: { value: "renewed-key.pem" },
+    });
+    expect((latest.swarm as Record<string, unknown>).tls).toEqual({
+      cert_file: "relay-cert.pem",
+      key_file: "renewed-key.pem",
+    });
     for (const label of [
       "CA file",
-      "Certificate file",
-      "Key file",
+      "Client certificate",
+      "Client key",
       "Skip certificate check",
       "Built-in certificates",
+      "Файл CA",
+      "Клиентский сертификат",
+      "Клиентский ключ",
+      "Встроенные сертификаты",
     ]) {
       expect(screen.queryByLabelText(label)).toBeNull();
     }

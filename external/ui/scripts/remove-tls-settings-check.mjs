@@ -168,7 +168,12 @@ try {
     assert.equal(Object.hasOwn(provider, key), before, key);
   assert.ok(provider.api_base && provider.proxy && provider.api_key);
   const swarm = relay.schema.properties.swarm.properties;
-  assert.equal(Object.hasOwn(swarm, "tls"), before);
+  assert.ok(swarm.tls);
+  if (!before)
+    assert.deepEqual(Object.keys(swarm.tls.properties).sort(), [
+      "cert_file",
+      "key_file",
+    ]);
   assert.equal(Object.hasOwn(swarm, "node_tls"), before);
   for (const entry of [swarm.join, swarm.upstreams]) {
     const dial = entry.items.properties.dial.properties;
@@ -185,6 +190,8 @@ try {
             dial: "Подключение",
             proxy: "Прокси",
             add: "Добавить",
+            cert: "Файл сертификата",
+            key: "Файл ключа",
           }
         : {
             ca: "CA file",
@@ -193,6 +200,8 @@ try {
             dial: "Dialling",
             proxy: "Proxy",
             add: "Add",
+            cert: "Certificate file",
+            key: "Key file",
           };
     for (const width of [1280, 390]) {
       const context = await browser.newContext({
@@ -244,10 +253,22 @@ try {
           await shot(page, "relay-node-tls", width, locale);
         }
       } else {
+        const tls = page
+          .locator("fieldset")
+          .filter({ has: page.locator("legend", { hasText: /^TLS$/ }) })
+          .first();
+        await tls.waitFor();
+        assert.equal(await tls.locator("input").count(), 2);
+        await tls
+          .getByLabel(labels.cert, { exact: true })
+          .fill("certs/relay.crt");
+        await tls
+          .getByLabel(labels.key, { exact: true })
+          .fill("certs/relay.key");
         assert.equal(
           await page
             .locator("legend")
-            .filter({ hasText: /TLS|сертификат/i })
+            .filter({ hasText: /Node.*TLS|Node tls|node_tls|PKI|mTLS/i })
             .count(),
           0,
         );
@@ -255,6 +276,8 @@ try {
           element.scrollTop = 0;
         });
         await shot(page, "relay-connection", width, locale);
+        await tls.scrollIntoViewIfNeeded();
+        await shot(page, "relay-tls", width, locale);
       }
       for (const [legend, name] of [
         [labels.joins, "relay-join-proxy"],
@@ -294,7 +317,7 @@ try {
     binarySHA256: createHash("sha256")
       .update(fs.readFileSync(binary))
       .digest("hex"),
-    assertions: `${before ? "TLS fields present" : "TLS fields absent"}; HTTPS endpoint, proxy and auth schema retained; no horizontal Settings overflow`,
+    assertions: `${before ? "Legacy TLS fields present" : "Relay certificate/key pair retained; PKI, mTLS and custom provider/dial TLS fields absent"}; HTTPS endpoint, proxy and auth schema retained; no horizontal Settings overflow`,
     captures,
   };
   fs.writeFileSync(
