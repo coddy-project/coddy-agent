@@ -529,7 +529,9 @@ define; a client that ignores unknown kinds keeps working.
   `outputTokens` of that call and `totalTokens` accumulated over the turn.
   `inputTokens` is the whole prompt of the call, the part served from the
   provider's prompt cache included; that part is `cachedInputTokens`, omitted
-  when the provider reported none.
+  when the provider reported none. `reasoningTokens` is the part of
+  `outputTokens` the call spent reasoning, omitted when the provider does not
+  break it out.
 - **`usage_update`** when the context window occupancy changes (a model call,
   manual or automatic compaction): `used` and `size` in tokens.
 - **`provider_usage`**: the account quota behind the session's model

@@ -726,3 +726,72 @@ describe("an answer cut off and continued", () => {
     expect(shape(mapPage(msgs, 2, msgs.length))).toEqual(["answer:the rest."]);
   });
 });
+
+// Issue #258: what a step's reasoning cost comes back with the history, and a
+// step whose provider kept the reasoning text to itself still has its row.
+describe("what reasoning cost", () => {
+  const prompt = { role: "user", content: "go" };
+  const thinkingRows = (items: TranscriptItem[]) =>
+    items.filter(
+      (it): it is Extract<TranscriptItem, { type: "thinking" }> =>
+        it.type === "thinking",
+    );
+
+  test("a reasoning row carries the tokens its step spent", () => {
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      {
+        role: "assistant",
+        content: "Done.",
+        reasoning: "Weighing it.",
+        reasoning_duration_ms: 1200,
+        reasoning_tokens: 42,
+      },
+    ];
+    const rows = thinkingRows(mapPage(msgs, 0, msgs.length));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      content: "Weighing it.",
+      durationMs: 1200,
+      reasoningTokens: 42,
+    });
+  });
+
+  test("reasoning the provider kept to itself is a row with its cost before the answer", () => {
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      { role: "assistant", content: "Done.", reasoning_tokens: 640 },
+    ];
+    const items = mapPage(msgs, 0, msgs.length);
+    expect(shape(items)).toEqual(["user:go", "thinking:", "answer:Done."]);
+    expect(thinkingRows(items)[0]).toMatchObject({
+      status: "completed",
+      reasoningTokens: 640,
+    });
+  });
+
+  test("a step that reports no reasoning tokens has no row of them", () => {
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      { role: "assistant", content: "Done.", reasoning_tokens: 0 },
+      { role: "assistant", content: "More.", reasoning: "Hmm." },
+    ];
+    const rows = thinkingRows(mapPage(msgs, 0, msgs.length));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.reasoningTokens).toBeUndefined();
+  });
+
+  test("a continuation that reasoned out of sight keeps its row and parts the answer", () => {
+    const msgs: RawSessionMessage[] = [
+      prompt,
+      { role: "assistant", content: "and then ", truncated: true },
+      { role: "assistant", content: "the rest.", reasoning_tokens: 12 },
+    ];
+    expect(shape(mapPage(msgs, 0, msgs.length))).toEqual([
+      "user:go",
+      "answer:and then ",
+      "thinking:",
+      "answer:the rest.",
+    ]);
+  });
+});

@@ -117,7 +117,7 @@
               "array",
               "null"
             ],
-            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button. For a model of a provider of type coddy there is no id to detect from: omitting the key means the remote's listing decides, and a written list, an empty one included, wins.",
+            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high), the vendor an aggregator puts in front of it left out (qwen/qwen3.8-flash reads as qwen3.8-flash). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button.",
             "items": {
               "type": "string"
             }

@@ -23,7 +23,7 @@ var wireCoverage = []struct {
 }{
 	{
 		typ:  reflect.TypeOf(Message{}),
-		wire: []string{"Role", "Content", "ImageParts", "Reasoning", "ReasoningSignature", "ToolCalls", "ToolCallID"},
+		wire: []string{"Role", "Content", "ImageParts", "Reasoning", "ReasoningSignature", "ReasoningTokens", "ToolCalls", "ToolCallID"},
 		// Artifacts and the absolute paths are the local host's; the rest is
 		// transcript bookkeeping no provider is sent.
 		local:  []string{"Artifacts", "ReasoningDurationMs", "Truncated", "Model", "CreatedAt", "PlanDocument", "CompactionSummary", "BackgroundWake", "GoalTurn", "FollowUp"},
@@ -50,7 +50,7 @@ var wireCoverage = []struct {
 	{
 		typ: reflect.TypeOf(Response{}),
 		wire: []string{"Content", "ToolCalls", "Reasoning", "ReasoningSignature", "StopReason",
-			"InputTokens", "OutputTokens", "CachedInputTokens"},
+			"InputTokens", "OutputTokens", "CachedInputTokens", "ReasoningTokens"},
 	},
 }
 

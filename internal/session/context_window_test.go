@@ -21,15 +21,17 @@ type windowListing struct {
 	calls   atomic.Int32
 	inputs  []llm.ProviderInput
 	windows map[string]int
-	err     error
-	gate    chan struct{}
+	// params is what the listing says each model takes (supported_parameters).
+	params map[string][]string
+	err    error
+	gate   chan struct{}
 }
 
 func (l *windowListing) list(ctx context.Context, in llm.ProviderInput) ([]llm.ModelEntry, error) {
 	l.calls.Add(1)
 	l.mu.Lock()
 	l.inputs = append(l.inputs, in)
-	gate, windows, err := l.gate, l.windows, l.err
+	gate, windows, params, err := l.gate, l.windows, l.params, l.err
 	l.mu.Unlock()
 	if gate != nil {
 		select {
@@ -43,7 +45,12 @@ func (l *windowListing) list(ctx context.Context, in llm.ProviderInput) ([]llm.M
 	}
 	var out []llm.ModelEntry
 	for id, n := range windows {
-		out = append(out, llm.ModelEntry{ID: id, ContextWindow: n})
+		out = append(out, llm.ModelEntry{ID: id, ContextWindow: n, SupportedParameters: params[id]})
+	}
+	for id, p := range params {
+		if _, listed := windows[id]; !listed {
+			out = append(out, llm.ModelEntry{ID: id, SupportedParameters: p})
+		}
 	}
 	return out, nil
 }

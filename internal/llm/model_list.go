@@ -34,6 +34,12 @@ type ModelEntry struct {
 	ReasoningLevels   []string `json:"reasoning_levels,omitempty"`
 	ReasoningDefault  string   `json:"reasoning_default,omitempty"`
 	AllowReasoningOff bool     `json:"allow_reasoning_off,omitempty"`
+	// SupportedParameters is the listing's supported_parameters for the model:
+	// the request parameters it takes, as OpenRouter-style aggregators publish
+	// them. nil when the listing says nothing (or says it in another shape), an
+	// empty slice when it lists none. Kept for the requests of a session, never
+	// served on the provider models route.
+	SupportedParameters []string `json:"-"`
 }
 
 // modelListTimeout bounds a single provider model-listing request.
@@ -163,6 +169,8 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 			MaxModelLen      json.RawMessage `json:"max_model_len"`
 			MaxContextLength json.RawMessage `json:"max_context_length"`
 			ContextWindow    json.RawMessage `json:"context_window"`
+			// Raw for the same reason as the windows.
+			SupportedParameters json.RawMessage `json:"supported_parameters"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
@@ -185,9 +193,10 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 			name = strings.TrimSpace(m.DisplayName)
 		}
 		out = append(out, ModelEntry{
-			ID:            id,
-			Name:          name,
-			ContextWindow: reportedContextWindow(m.Limit, m.ContextLength, m.MaxModelLen, m.MaxContextLength, m.ContextWindow),
+			ID:                  id,
+			Name:                name,
+			ContextWindow:       reportedContextWindow(m.Limit, m.ContextLength, m.MaxModelLen, m.MaxContextLength, m.ContextWindow),
+			SupportedParameters: listedParameters(m.SupportedParameters),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -214,6 +223,23 @@ func reportedContextWindow(limit json.RawMessage, fields ...json.RawMessage) int
 		}
 	}
 	return 0
+}
+
+// listedParameters reads a listing row's supported_parameters: a JSON array
+// of names, trimmed, blanks dropped. Anything else is unknown (nil), and an
+// empty array is a known empty list.
+func listedParameters(raw json.RawMessage) []string {
+	var names []string
+	if len(raw) == 0 || json.Unmarshal(raw, &names) != nil || names == nil {
+		return nil
+	}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // positiveTokenCount reads a token count written as a JSON number or a quoted

@@ -32,6 +32,17 @@ func TestResolvedReasoningLevelsAutoDetect(t *testing.T) {
 		{"together/qwen3-32b", []string{"low", "medium", "high"}},
 		{"neuraldeep/gpt-oss-120b", []string{"low", "medium", "high"}},
 		{"neuraldeep/gpt-oss-20b", []string{"low", "medium", "high"}},
+		// An aggregator (OpenRouter, RouterAI) and a vLLM server serving a Hugging
+		// Face id put the vendor in front of the model: the levels follow the
+		// model, not the vendor (issue #258).
+		{"routerai/qwen/qwen3.8-flash", []string{"low", "medium", "high"}},
+		{"vllm/Qwen/Qwen3-32B", []string{"low", "medium", "high"}},
+		{"openrouter/openai/o3-mini", []string{"low", "medium", "high"}},
+		{"openrouter/openai/gpt-5", []string{"minimal", "low", "medium", "high"}},
+		{"openrouter/anthropic/claude-sonnet-4-5", []string{"low", "medium", "high"}},
+		{"openrouter/openai/gpt-oss-120b", []string{"low", "medium", "high"}},
+		{"openrouter/qwen/qwen-2.5-72b-instruct", nil},
+		{"openrouter/openai/gpt-4o", nil},
 		// Non-reasoning models: no levels.
 		{"openai/gpt-4o", nil},
 		{"openai/gpt-4o-mini", nil},

@@ -937,17 +937,22 @@ func (a *Agent) runReActLoop(
 			hadToolset := a.activeToolset() != nil
 			if key := a.transportKey(); key == transport.key {
 				transport.rev = rev
-			} else if next, err := a.getProvider(mode); err != nil {
-				transport.rev = rev
-				a.log.Warn("settings changed mid-turn but the new model is unavailable; keeping the current one", "error", err)
 			} else {
-				a.log.Info("model settings changed mid-turn", "from", transport.key, "to", next.key)
-				transport, switched = next, true
 				// The request below measures its context against the new
 				// model's window, which its provider's listing may be the
-				// only one to know: read it now, bounded, rather than check
-				// the compaction threshold against the default (#362).
-				a.awaitContextWindow(ctx, transport.model)
+				// only one to know, and is built with the request parameters
+				// the same listing names: read it now, bounded, before the
+				// transport, rather than check the compaction threshold
+				// against the default (#362) or send the level in a form the
+				// model does not take (#258).
+				a.awaitContextWindow(ctx, a.state.EffectiveModelID(a.cfg))
+				if next, err := a.getProvider(mode); err != nil {
+					transport.rev = rev
+					a.log.Warn("settings changed mid-turn but the new model is unavailable; keeping the current one", "error", err)
+				} else {
+					a.log.Info("model settings changed mid-turn", "from", transport.key, "to", next.key)
+					transport, switched = next, true
+				}
 			}
 			// The requests from here on are offered their tools by the toolset
 			// the session's settings now resolve to for the transport's model:
@@ -1462,6 +1467,7 @@ func (a *Agent) runReActLoop(
 						ReasoningSignature:  reasonSig,
 						ToolCalls:           response.ToolCalls,
 						ReasoningDurationMs: reasoningMs,
+						ReasoningTokens:     response.ReasoningTokens,
 						Model:               transport.model,
 						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 					}
@@ -1559,6 +1565,7 @@ func (a *Agent) runReActLoop(
 			OutputTokens:      response.OutputTokens,
 			TotalTokens:       totalInputTokens + totalOutputTokens,
 			CachedInputTokens: response.CachedInputTokens,
+			ReasoningTokens:   response.ReasoningTokens,
 		})
 		a.progress.finishCall(response.OutputTokens)
 
@@ -1637,6 +1644,7 @@ func (a *Agent) runReActLoop(
 			ReasoningSignature:  reasonSig,
 			ToolCalls:           response.ToolCalls,
 			ReasoningDurationMs: reasoningMs,
+			ReasoningTokens:     response.ReasoningTokens,
 			Truncated:           stopsPartway(response, cutCall),
 			Model:               transport.model,
 			CreatedAt:           time.Now().UTC().Format(time.RFC3339),
@@ -3158,6 +3166,12 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
+	}
+	// What the provider's model listing says the model takes, read on the
+	// manager's cache: an OpenRouter-style aggregator gets the reasoning level
+	// in the form its listing names (issue #258).
+	if mp, ok := a.state.(modelParametersState); ok {
+		in.SupportedParameters = mp.ModelParameters(a.cfg, rm.ProviderName, rm.Model)
 	}
 	// The stall guard (agent.llm_stream_idle_timeout_ms) watches the gaps
 	// between the bytes of a streamed answer; a blocking answer arrives in

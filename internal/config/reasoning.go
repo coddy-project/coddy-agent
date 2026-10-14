@@ -206,8 +206,15 @@ func remapMinimalToNone(levels []string) []string {
 }
 
 // detectReasoningLevels infers reasoning levels from a provider API model id.
+// The vendor an aggregator or a Hugging Face id puts in front of the model
+// (qwen/qwen3.8-flash on OpenRouter or RouterAI, Qwen/Qwen3-32B on vLLM,
+// openai/o3-mini) is not part of the model's name, and the levels follow the
+// model behind it (issue #258).
 func detectReasoningLevels(apiModel string) []string {
 	id := strings.ToLower(strings.TrimSpace(apiModel))
+	if i := strings.LastIndex(id, "/"); i >= 0 {
+		id = id[i+1:]
+	}
 	switch {
 	case strings.HasPrefix(id, "gpt-5"), strings.HasPrefix(id, "gpt-6"):
 		return append([]string(nil), reasoningWithMinimal...)

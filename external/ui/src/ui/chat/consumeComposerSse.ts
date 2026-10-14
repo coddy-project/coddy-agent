@@ -363,11 +363,15 @@ export async function consumeComposerSseReader(
 
   let activeThinkingId: string | null = null;
   let activeThinkingStarted = 0;
+  // The reasoning row the model call in flight wrote, if any: the call's
+  // token_usage, which follows it, puts what its reasoning cost there.
+  let callThinkingId: string | null = null;
   const appendThinking = (delta: string) => {
     const freezeAt = eventNow();
     if (!activeThinkingId) {
       activeThinkingId = newId("r");
       activeThinkingStarted = freezeAt;
+      callThinkingId = activeThinkingId;
     }
     const id = activeThinkingId;
     // Queued tool rows came first in the stream; they land before a new
@@ -587,6 +591,10 @@ export async function consumeComposerSseReader(
       }
 
       if (ev.event === "token_usage") {
+        // Sent once a model call is over: what its reasoning cost belongs to
+        // the reasoning row that call wrote, and the next call starts afresh.
+        const thinkingId = callThinkingId;
+        callThinkingId = null;
         try {
           const u = JSON.parse(ev.data) as TokenUsage;
           const merged: TokenUsage = {
@@ -596,6 +604,20 @@ export async function consumeComposerSseReader(
             totalTokens: tokenBaselineRef.current.total + (u.totalTokens || 0),
           };
           setTokenUsage(merged);
+          const reasoningTokens = Number(u.reasoningTokens);
+          if (
+            thinkingId &&
+            Number.isFinite(reasoningTokens) &&
+            reasoningTokens > 0
+          ) {
+            applyStreamItems((prev) =>
+              prev.map((it) =>
+                it.type === "thinking" && it.id === thinkingId
+                  ? { ...it, reasoningTokens: Math.floor(reasoningTokens) }
+                  : it,
+              ),
+            );
+          }
         } catch {
           // ignore
         }

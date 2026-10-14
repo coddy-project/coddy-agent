@@ -254,8 +254,9 @@ func judgeSessionGoal(ctx context.Context, cfg *config.Config, st *State, req Go
 		APIKey: rm.APIKey, BaseURL: rm.BaseURL, ProxyURL: rm.ProxyURL,
 		AuthPath: rm.AuthPath, NoCLILogin: rm.NoCLILogin,
 		MaxTokens: goalJudgeMaxTokens(rm.MaxTokens), Temperature: rm.Temperature,
-		ReasoningEffort: GoalCheckReasoning(cfg, st),
-		DisableStream:   !rm.Stream, Timeout: time.Duration(rm.TimeoutMS) * time.Millisecond,
+		ReasoningEffort:     GoalCheckReasoning(cfg, st),
+		SupportedParameters: st.ModelParameters(cfg, rm.ProviderName, rm.Model),
+		DisableStream:       !rm.Stream, Timeout: time.Duration(rm.TimeoutMS) * time.Millisecond,
 	}
 	if rm.Stream {
 		base.StreamIdleTimeout = cfg.Agent.EffectiveLLMStreamIdleTimeout()

@@ -24,6 +24,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -59,10 +60,12 @@ const (
 
 // providerContextWindows reads the provider-reported windows a manager has
 // cached, and fetches the ones it lacks; the manager hands itself to every
-// state it registers.
+// state it registers. The same listing names the request parameters each model
+// takes (ModelParameters).
 type providerContextWindows interface {
 	reportedContextWindow(cfg *config.Config, ent *config.ModelEntry) (int, bool)
 	AwaitContextWindows(ctx context.Context, cfg *config.Config, modelRefs []string, maxWait time.Duration)
+	ModelParameters(cfg *config.Config, providerName, apiModel string) []string
 	ProviderModelEntry(cfg *config.Config, providerName, apiModel string) (llm.ModelEntry, bool)
 	RefreshProviderModelEntry(ctx context.Context, cfg *config.Config, providerName, apiModel, staleRevision string, maxWait time.Duration) (*llm.ModelEntry, error)
 }
@@ -78,9 +81,17 @@ type contextWindowEntry struct {
 	gen int
 	// cancel calls off the running read; nil while idle.
 	cancel context.CancelFunc
-	// models maps the API model id (the alias, for a coddy row) to its whole
-	// listing record; nil until the listing answered once.
-	models    map[string]llm.ModelEntry
+	// windows maps the API model id to its reported window; nil until the
+	// listing answered once.
+	windows map[string]int
+	// records maps the API model id to the whole listing record. A remote Coddy
+	// adds its revision and capabilities here; windows and params keep the
+	// compact caches their independent callers use.
+	records map[string]llm.ModelEntry
+	// params maps the API model id to the request parameters the listing says
+	// it takes (supported_parameters); a model the listing names none for is
+	// absent.
+	params    map[string][]string
 	fetchedAt time.Time
 	failedAt  time.Time
 	// lastErr is why the latest read failed; nil after a read that answered.
@@ -141,14 +152,6 @@ func providerListsContextWindows(p *config.ProviderConfig) bool {
 	}
 }
 
-// providerListingCarriesRevision reports whether a row's listing holds more
-// than a window, so that a model with a local max_context_tokens still needs
-// it read: a coddy row sends the revision of its listing record with every
-// request.
-func providerListingCarriesRevision(p *config.ProviderConfig) bool {
-	return p != nil && strings.TrimSpace(p.Type) == "coddy"
-}
-
 // contextWindowKey names the listing a provider row reads. The credential is
 // not part of it: a model's window does not depend on the account asking.
 func contextWindowKey(p *config.ProviderConfig) string {
@@ -172,6 +175,17 @@ func (s *State) ContextWindowFor(cfg *config.Config, modelRef string) (tokens in
 		return s.ContextWindow(cfg)
 	}
 	return resolveContextWindow(cfg, modelRef, s.contextWindows)
+}
+
+// ModelParameters is what the provider listing of this session's manager says
+// apiModel of the row providerName takes, nil when nothing is known (a state no
+// manager built, a listing not read yet). The request of a turn reads it
+// (llm.ProviderInput.SupportedParameters).
+func (s *State) ModelParameters(cfg *config.Config, providerName, apiModel string) []string {
+	if s == nil || s.contextWindows == nil {
+		return nil
+	}
+	return s.contextWindows.ModelParameters(cfg, providerName, apiModel)
 }
 
 // AwaitContextWindow makes sure the window of modelRef is read before a
@@ -229,16 +243,54 @@ func (m *Manager) reportedContextWindow(cfg *config.Config, ent *config.ModelEnt
 	if e == nil {
 		return 0, false
 	}
-	n := e.models[apiModel].ContextWindow
+	n := e.windows[apiModel]
 	return n, n > 0
+}
+
+// ModelParameters returns what the cached listing of the row providerName says
+// apiModel takes, nil when nothing is known: a row whose listing is not read
+// for windows, a listing not read yet, a model it names no parameters for. It
+// never fetches; AwaitContextWindows does.
+func (m *Manager) ModelParameters(cfg *config.Config, providerName, apiModel string) []string {
+	if cfg == nil {
+		return nil
+	}
+	prov := cfg.FindProvider(providerName)
+	if !providerListsContextWindows(prov) {
+		return nil
+	}
+	m.windows.mu.Lock()
+	defer m.windows.mu.Unlock()
+	e := m.windows.entries[contextWindowKey(prov)]
+	if e == nil {
+		return nil
+	}
+	// A copy: the cache outlives the request that reads it.
+	return slices.Clone(e.params[apiModel])
+}
+
+// listingWanted reports whether a model's provider listing has anything to
+// tell its sessions: the window, unless max_context_tokens names it, and the
+// request parameters, which only an OpenAI-compatible server behind an
+// explicit api_base publishes (an OpenRouter-style aggregator) and which
+// matter only to a model that has reasoning levels to send. A coddy listing
+// is always wanted because it carries the remote model revision.
+func listingWanted(cfg *config.Config, ent *config.ModelEntry, prov *config.ProviderConfig) bool {
+	if strings.TrimSpace(prov.Type) == "coddy" {
+		return true
+	}
+	if ent.MaxContextTokens <= 0 {
+		return true
+	}
+	return strings.TrimSpace(prov.Type) == "openai" && len(cfg.ReasoningLevelsFor(ent)) > 0
 }
 
 // AwaitContextWindows makes sure the listings behind modelRefs are cached or
 // being fetched, and waits up to maxWait (or until ctx ends) for the ones that
 // have never answered. It returns at once when every listing is cached, failed
-// recently, or does not apply (a model with max_context_tokens, a provider
-// that reports no windows); a listing past its TTL is refreshed in the
-// background while its windows keep serving.
+// recently, or does not apply (a model with max_context_tokens and nothing else
+// to learn from the listing, a provider that reports no windows); a listing
+// past its TTL is refreshed in the background while its windows keep serving.
 func (m *Manager) AwaitContextWindows(ctx context.Context, cfg *config.Config, modelRefs []string, maxWait time.Duration) {
 	if cfg == nil {
 		return
@@ -251,10 +303,7 @@ func (m *Manager) AwaitContextWindows(ctx context.Context, cfg *config.Config, m
 			continue
 		}
 		prov := cfg.FindProvider(ent.ProviderName())
-		if !providerListsContextWindows(prov) {
-			continue
-		}
-		if ent.MaxContextTokens > 0 && !providerListingCarriesRevision(prov) {
+		if !providerListsContextWindows(prov) || !listingWanted(cfg, ent, prov) {
 			continue
 		}
 		key := contextWindowKey(prov)
@@ -291,7 +340,7 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 	defer w.mu.Unlock()
 	e := w.entryLocked(prov, key)
 	if e.inflight != nil {
-		if e.models == nil {
+		if e.windows == nil {
 			return e.inflight
 		}
 		return nil
@@ -304,7 +353,7 @@ func (m *Manager) refreshContextWindows(cfg *config.Config, prov config.Provider
 		return nil
 	}
 	done := m.startListingLocked(cfg, prov, e)
-	if e.models == nil {
+	if e.windows == nil {
 		return done
 	}
 	return nil
@@ -369,11 +418,21 @@ func (m *Manager) startListingLocked(cfg *config.Config, prov config.ProviderCon
 				"provider", prov.Name, "error", err)
 			return
 		}
+		windows := make(map[string]int, len(models))
+		params := make(map[string][]string)
 		records := make(map[string]llm.ModelEntry, len(models))
 		for _, model := range models {
 			records[model.ID] = copyModelEntry(model)
+			if model.ContextWindow > 0 {
+				windows[model.ID] = model.ContextWindow
+			}
+			if model.SupportedParameters != nil {
+				params[model.ID] = slices.Clone(model.SupportedParameters)
+			}
 		}
-		e.models = records
+		e.windows = windows
+		e.params = params
+		e.records = records
 		e.fetchedAt = w.nowLocked()
 		e.failedAt = time.Time{}
 		e.lastErr = nil
@@ -386,6 +445,7 @@ func (m *Manager) startListingLocked(cfg *config.Config, prov config.ProviderCon
 // a caller and the one in the cache never share memory.
 func copyModelEntry(e llm.ModelEntry) llm.ModelEntry {
 	e.ReasoningLevels = append([]string(nil), e.ReasoningLevels...)
+	e.SupportedParameters = slices.Clone(e.SupportedParameters)
 	return e
 }
 
@@ -408,7 +468,7 @@ func (m *Manager) ProviderModelEntry(cfg *config.Config, providerName, apiModel 
 	if e == nil {
 		return llm.ModelEntry{}, false
 	}
-	rec, ok := e.models[apiModel]
+	rec, ok := e.records[apiModel]
 	if !ok {
 		return llm.ModelEntry{}, false
 	}
@@ -486,7 +546,7 @@ func (m *Manager) cachedPastRevision(key, apiModel, staleRevision string) (*llm.
 	if e == nil || e.inflight != nil {
 		return nil, false
 	}
-	rec, ok := e.models[apiModel]
+	rec, ok := e.records[apiModel]
 	if !ok || rec.Revision == staleRevision {
 		return nil, false
 	}
@@ -521,7 +581,7 @@ func (m *Manager) cachedAfterFetch(key, apiModel string) (rec llm.ModelEntry, li
 	if e.inflight == nil && e.lastErr != nil {
 		return llm.ModelEntry{}, false, e.lastErr
 	}
-	rec, listed = e.models[apiModel]
+	rec, listed = e.records[apiModel]
 	return copyModelEntry(rec), listed, nil
 }
 

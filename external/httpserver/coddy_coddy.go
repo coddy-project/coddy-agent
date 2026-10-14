@@ -1428,6 +1428,9 @@ func llmMsgsToCoddyOpenAIForSession(sessionID, assetsDir string, msgs []llm.Mess
 		if m.ReasoningDurationMs > 0 {
 			item["reasoning_duration_ms"] = m.ReasoningDurationMs
 		}
+		if m.ReasoningTokens > 0 {
+			item["reasoning_tokens"] = m.ReasoningTokens
+		}
 		if m.Role == llm.RoleTool && m.ToolCallID != "" {
 			item["tool_call_id"] = m.ToolCallID
 		}

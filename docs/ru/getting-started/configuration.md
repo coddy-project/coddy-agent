@@ -824,4 +824,20 @@ models:
 ### Локальные OpenAI-совместимые серверы (Ollama, llama.cpp, LM Studio)
 Используйте **`type: openai`** и задайте в **`api_base`** OpenAI-совместимый базовый URL, который уже включает **`/v1`**, например **`http://localhost:11434/v1`** для Ollama.
 
-<!-- docsgen:source sha256=4c7702ff3ae0cf33 -->
+### Агрегаторы по образцу OpenRouter (OpenRouter, RouterAI)
+Агрегатор, который повторяет API OpenRouter, подключается строкой **`type: openai`** со своим **`api_base`** (**`https://openrouter.ai/api/v1`** у OpenRouter, **`https://routerai.ru/api/v1`** у RouterAI). id моделей у него начинаются с автора модели.
+
+```yaml
+providers:
+  - name: "openrouter"
+    type: "openai"
+    api_base: "https://openrouter.ai/api/v1"
+    api_key: "${OPENROUTER_API_KEY}"
+models:
+  - model: "openrouter/qwen/qwen3.8-flash"
+    reasoning_default: "medium"
+```
+
+Уровни рассуждения для такого id Coddy определяет по модели после автора, поэтому **`openrouter/qwen/qwen3.8-flash`** предлагает уровни **`qwen3.8-flash`**. Список моделей агрегатора называет параметры запроса, которые принимает каждая модель (**`supported_parameters`**), и Coddy читает его вместе с окном контекста модели. Если список называет единый объект **`reasoning`**, а **`reasoning_effort`** не называет, выбранный уровень уходит как **`reasoning: {"effort": "<уровень>"}`**, а **`off`** как **`reasoning: {"enabled": false}`**. Переключатель Qwen3 **`chat_template_kwargs`** уходит только серверу, список которого его называет или не называет ничего. Рассуждение модели приходит в поле **`reasoning`** ответа и видно в чате, как любое другое, а рядом с его длительностью стоят токены, которые агрегатор за него насчитал (**`usage.completion_tokens_details.reasoning_tokens`**) ([Веб-интерфейс](../surfaces/web-ui.md#типы-сообщений-транскрипта)).
+
+<!-- docsgen:source sha256=a03e33272a6a8f82 -->

@@ -160,7 +160,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 	var toolCalls []ToolCall
 	streamingCalls := make(map[string]ToolCall)
 	var reasoningItems []json.RawMessage
-	var inputTokens, outputTokens, cachedInputTokens int
+	var inputTokens, outputTokens, cachedInputTokens, reasoningTokens int
 	stopReason := ""
 	// terminal is the event that ended the response: response.completed or
 	// response.incomplete. A stream that closes without one was cut, however
@@ -183,6 +183,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		inputTokens = int(u.InputTokens)
 		outputTokens = int(u.OutputTokens)
 		cachedInputTokens = int(u.InputTokensDetails.CachedTokens)
+		reasoningTokens = int(u.OutputTokensDetails.ReasoningTokens)
 	}
 
 	for stream.Next() {
@@ -290,6 +291,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 			InputTokens:        inputTokens,
 			OutputTokens:       outputTokens,
 			CachedInputTokens:  cachedInputTokens,
+			ReasoningTokens:    reasoningTokens,
 		}
 	}
 
@@ -305,6 +307,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 				InputTokens:        inputTokens,
 				OutputTokens:       outputTokens,
 				CachedInputTokens:  cachedInputTokens,
+				ReasoningTokens:    reasoningTokens,
 			}, fmt.Errorf("codex stream: %w", err)
 		}
 		// The SDK decodes every framed event with json.Unmarshal, so an event
@@ -356,6 +359,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		InputTokens:        inputTokens,
 		OutputTokens:       outputTokens,
 		CachedInputTokens:  cachedInputTokens,
+		ReasoningTokens:    reasoningTokens,
 	}, nil
 }
 

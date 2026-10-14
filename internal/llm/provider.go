@@ -57,6 +57,12 @@ type Message struct {
 	// ReasoningDurationMs wall clock between first streamed reasoning delta and UI-equivalent finish
 	// (first non-whitespace text delta or first tool-call chunk); omitted when unset or zero.
 	ReasoningDurationMs int64 `json:"reasoning_duration_ms,omitempty"`
+	// ReasoningTokens is what the reasoning of this step cost, as the provider
+	// reported it (OpenAI-compatible usage.completion_tokens_details.reasoning_tokens,
+	// the Codex backend's output_tokens_details.reasoning_tokens). It is there when
+	// the provider kept the reasoning text to itself too; zero when it reported
+	// nothing, which Anthropic and Devin never break out of the output.
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 	// Truncated marks an assistant message that stops partway through its text:
 	// the model's output limit cut it off, and the assistant message after it,
 	// when there is one, goes on from its last character, the model having been
@@ -160,6 +166,9 @@ type Response struct {
 	// cache_read_input_tokens). Zero when the provider reports nothing, which
 	// is not the same as a miss - most OpenAI-compatible servers omit it.
 	CachedInputTokens int
+	// ReasoningTokens is the part of OutputTokens the model spent reasoning, when
+	// the provider breaks it out (see Message.ReasoningTokens); zero otherwise.
+	ReasoningTokens int
 }
 
 // StreamChunk is a single chunk streamed from the LLM.
@@ -222,6 +231,13 @@ type ProviderInput struct {
 	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), "off" to turn thinking off, or empty.
 	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking token budget.
 	ReasoningEffort string
+	// SupportedParameters is what the provider's model listing says the model
+	// takes (supported_parameters, which OpenRouter-style aggregators publish),
+	// nil when nothing is known. An OpenAI-compatible request reads it to send
+	// the reasoning level the way the model takes it: the unified reasoning
+	// object where reasoning_effort is not listed, and the Qwen3 chat-template
+	// switch only where it is listed or nothing is known.
+	SupportedParameters []string
 	// RetryMax is the number of retries after the first failed attempt (default 3).
 	RetryMax int
 	// RetryDisabled turns retries off entirely (config llm_retry_max: 0). A zero
@@ -324,6 +340,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	case "openai":
 		op := newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 		op.tempSet = p.TemperatureSet
+		op.modelParams = p.SupportedParameters
 		inner = op
 	case "anthropic":
 		ap := newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
@@ -332,6 +349,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	case "neuraldeep":
 		op := newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 		op.tempSet = p.TemperatureSet
+		op.modelParams = p.SupportedParameters
 		inner = op
 	case "codex":
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are

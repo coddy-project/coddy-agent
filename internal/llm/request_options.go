@@ -22,6 +22,9 @@ type RequestOptions struct {
 	// reasoning_default); empty sends no reasoning parameter at all, which is
 	// not the same request as the level "none".
 	ReasoningEffort string
+	// SupportedParameters is what the provider's model listing says the model
+	// takes (ProviderInput.SupportedParameters); nil keeps nothing known.
+	SupportedParameters []string
 	// RetryBudget is the part of the caller's own budget that is left for waiting
 	// on a usage limit (a shared-model call carries it in options.retry_budget_ms):
 	// a pause longer than it fails at once as a quota error instead of being slept
@@ -87,6 +90,9 @@ func (o RequestOptions) Apply(in *ProviderInput) {
 	}
 	if o.ReasoningEffort != "" {
 		in.ReasoningEffort = o.ReasoningEffort
+	}
+	if o.SupportedParameters != nil {
+		in.SupportedParameters = o.SupportedParameters
 	}
 	if o.RetryBudget != nil {
 		in.RetryBudget, in.RetryBudgetSet = *o.RetryBudget, true

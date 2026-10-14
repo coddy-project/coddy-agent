@@ -4128,6 +4128,26 @@ a.rail-brand {
   font-variant-numeric: tabular-nums;
 }
 
+/* What the reasoning cost, after the duration and in the same type, apart
+   from it by the gap of .thinking-left alone: the count the live line and the
+   Tasks panel show, the exact number in its title. */
+.thinking-tokens {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  font-size: 12px;
+  line-height: 20px;
+  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reasoning the provider kept to itself: the body says so instead of a text. */
+.thinking-body--hidden {
+  font-size: 13px;
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+}
+
 .thinking-body {
   margin: 8px 0 0 12px;
   padding: 6px 12px;

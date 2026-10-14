@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/openai/openai-go"
@@ -22,6 +23,9 @@ type openAIProvider struct {
 	// tempSet sends temp even at zero: the caller asked for that value.
 	tempSet         bool
 	reasoningEffort string
+	// modelParams is what the provider's model listing says the model takes
+	// (ProviderInput.SupportedParameters); nil when nothing is known.
+	modelParams []string
 }
 
 func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *openAIProvider {
@@ -127,13 +131,38 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 		Messages: oaiMessages,
 	}
 
+	// An OpenRouter-style aggregator lists the unified reasoning object for a
+	// model that does not take OpenAI's reasoning_effort: the level goes there,
+	// and the request is otherwise an ordinary chat request (issue #258).
+	if p.reasoningEffort != "" && p.takesReasoningObjectOnly() {
+		reasoning := map[string]any{"effort": p.reasoningEffort}
+		if p.reasoningEffort == reasoningOff {
+			reasoning = map[string]any{"enabled": false}
+		}
+		extra := map[string]any{"reasoning": reasoning}
+		// Here the listing is known, so the Qwen3 switch goes only where it
+		// names it, and follows the level.
+		if p.sendsQwenTemplateSwitch() {
+			extra["chat_template_kwargs"] = map[string]any{"enable_thinking": p.reasoningEffort != reasoningOff}
+		}
+		params.SetExtraFields(extra)
+		if p.maxTokens > 0 {
+			params.MaxTokens = openai.Int(int64(p.maxTokens))
+		}
+		if p.temp > 0 || p.tempSet {
+			params.Temperature = openai.Float(p.temp)
+		}
+		return p.finishParams(params, tools, streaming)
+	}
+
 	// "off" is the pseudo level that turns thinking off. Qwen3 has a real
 	// switch in its chat template, and the request is then an ordinary chat
 	// request; any other model it is offered for takes the "none" tier.
+	qwenTemplate := p.sendsQwenTemplateSwitch()
 	effort := p.reasoningEffort
 	qwenOff := false
 	if effort == reasoningOff {
-		if isQwenChatTemplateModel(p.model) {
+		if qwenTemplate {
 			effort, qwenOff = "", true
 		} else {
 			effort = "none"
@@ -151,7 +180,7 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 		// Qwen3-family thinking is a chat-template switch (vLLM/SGLang convention for
 		// open-weight Qwen), not an effort tier: pin it on so the selected effort is
 		// honored even when the serving template defaults thinking off.
-		if isQwenChatTemplateModel(p.model) {
+		if qwenTemplate {
 			params.SetExtraFields(map[string]any{
 				"chat_template_kwargs": map[string]any{"enable_thinking": true},
 			})
@@ -176,6 +205,12 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 		}
 	}
 
+	return p.finishParams(params, tools, streaming)
+}
+
+// finishParams adds what every request carries whatever its reasoning: the
+// tools and, on a stream, the usage request.
+func (p *openAIProvider) finishParams(params openai.ChatCompletionNewParams, tools []ToolDefinition, streaming bool) openai.ChatCompletionNewParams {
 	if len(tools) > 0 {
 		oaiTools := make([]openai.ChatCompletionToolParam, len(tools))
 		for i, t := range tools {
@@ -212,9 +247,43 @@ const reasoningOff = "off"
 
 // isQwenChatTemplateModel matches Qwen3-family models whose thinking mode is
 // controlled by the chat template (chat_template_kwargs.enable_thinking) rather
-// than reasoning_effort alone. Qwen2.5 has no thinking mode.
+// than reasoning_effort alone. Qwen2.5 has no thinking mode. The vendor an
+// aggregator or a Hugging Face id puts in front (qwen/qwen3.8-flash,
+// Qwen/Qwen3-32B) is not part of the model's name.
 func isQwenChatTemplateModel(model string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "qwen3")
+	return strings.HasPrefix(modelIDTail(model), "qwen3")
+}
+
+// modelIDTail is a model id without the vendor path in front of it, lower case.
+func modelIDTail(model string) string {
+	id := strings.ToLower(strings.TrimSpace(model))
+	if i := strings.LastIndex(id, "/"); i >= 0 {
+		id = id[i+1:]
+	}
+	return id
+}
+
+// listsParam reports whether the model listing names param. Only meaningful
+// when the listing was read (modelParams != nil).
+func (p *openAIProvider) listsParam(param string) bool {
+	return slices.Contains(p.modelParams, param)
+}
+
+// takesReasoningObjectOnly reports whether the listing names the unified
+// reasoning object and not reasoning_effort, as OpenRouter and RouterAI do for
+// many models.
+func (p *openAIProvider) takesReasoningObjectOnly() bool {
+	return p.modelParams != nil && p.listsParam("reasoning") && !p.listsParam("reasoning_effort")
+}
+
+// sendsQwenTemplateSwitch reports whether a Qwen3 request carries the chat
+// template switch: always when nothing is known about the server (vLLM and
+// SGLang list nothing), and otherwise only where the listing names it.
+func (p *openAIProvider) sendsQwenTemplateSwitch() bool {
+	if !isQwenChatTemplateModel(p.model) {
+		return false
+	}
+	return p.modelParams == nil || p.listsParam("chat_template_kwargs")
 }
 
 func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response, error) {
@@ -226,11 +295,12 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 
 	r := &Response{
 		Content:           msg.Content,
-		Reasoning:         openAIMessageReasoning(msg.RawJSON()),
+		Reasoning:         openAIReasoningText(msg.RawJSON()),
 		StopReason:        mapOpenAIStopReason(string(choice.FinishReason)),
 		InputTokens:       int(resp.Usage.PromptTokens),
 		OutputTokens:      int(resp.Usage.CompletionTokens),
 		CachedInputTokens: int(resp.Usage.PromptTokensDetails.CachedTokens),
+		ReasoningTokens:   int(resp.Usage.CompletionTokensDetails.ReasoningTokens),
 	}
 
 	for _, tc := range msg.ToolCalls {
@@ -244,18 +314,24 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 	return r, nil
 }
 
-// openAIMessageReasoning pulls the thinking text out of a non-streamed assistant
-// message. Neither field is part of the OpenAI schema, so they are read off the
-// raw JSON: reasoning_content is what vLLM, SGLang, and llama.cpp emit, thinking
-// is the older spelling. Precedence matches the streaming path.
-func openAIMessageReasoning(raw string) string {
+// openAIReasoningText pulls the thinking text out of a non-streamed assistant
+// message or a streamed delta. None of the fields is part of the OpenAI
+// schema, so they are read off the raw JSON: reasoning_content is what vLLM,
+// SGLang and llama.cpp emit, reasoning is OpenRouter's and RouterAI's name (and
+// vLLM's newer one, sent next to reasoning_content while it moved, so the first
+// name that carries text is the only one read), thinking is the older spelling.
+func openAIReasoningText(raw string) string {
 	if raw == "" {
 		return ""
 	}
-	if r := gjson.Get(raw, "reasoning_content").String(); r != "" {
-		return r
+	for _, field := range []string{"reasoning_content", "reasoning", "thinking"} {
+		// Text only: an aggregator may echo the request's reasoning object,
+		// and its JSON is not reasoning.
+		if r := gjson.Get(raw, field); r.Type == gjson.String && r.Str != "" {
+			return r.Str
+		}
 	}
-	return gjson.Get(raw, "thinking").String()
+	return ""
 }
 
 func mapOpenAIStopReason(reason string) string {

@@ -25,7 +25,23 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 	if mk == nil {
 		mk = defaultMakeLLMFromYAML
 	}
-	provider, err := mk(s.activeCfg(), yamlSel, opts)
+	cfg := s.activeCfg()
+	// What the provider's model listing said the model takes, as far as the
+	// session's manager has read it: an OpenRouter-style aggregator gets the
+	// reasoning level in the form its listing names (issue #258).
+	// A direct completion may be the first request of an API client, with no
+	// turn and no GET /v1/models before it to read the listing, so one that
+	// sends a reasoning level reads it itself, waiting as briefly as a turn
+	// does; without a level the listed parameters change nothing.
+	if cfg != nil && opts.SupportedParameters == nil && opts.ReasoningEffort != "" {
+		if ent := cfg.FindModelEntry(yamlSel); ent != nil {
+			if s.mgr != nil {
+				s.mgr.AwaitContextWindows(ctx, cfg, []string{yamlSel}, session.ContextWindowWait)
+			}
+			opts.SupportedParameters = st.ModelParameters(cfg, ent.ProviderName(), ent.APIModel())
+		}
+	}
+	provider, err := mk(cfg, yamlSel, opts)
 	if err != nil {
 		return nil, err
 	}

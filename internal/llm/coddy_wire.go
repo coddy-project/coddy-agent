@@ -151,6 +151,7 @@ type WireMessage struct {
 	ImageParts         []WireImagePart `json:"image_parts,omitempty"`
 	Reasoning          string          `json:"reasoning,omitempty"`
 	ReasoningSignature string          `json:"reasoning_signature,omitempty"`
+	ReasoningTokens    int             `json:"reasoning_tokens,omitempty"`
 	ToolCalls          []WireToolCall  `json:"tool_calls,omitempty"`
 	ToolCallID         string          `json:"tool_call_id,omitempty"`
 }
@@ -204,6 +205,7 @@ type WireFinal struct {
 	InputTokens        int            `json:"input_tokens"`
 	OutputTokens       int            `json:"output_tokens"`
 	CachedInputTokens  int            `json:"cached_input_tokens"`
+	ReasoningTokens    int            `json:"reasoning_tokens,omitempty"`
 }
 
 // WireError is the flat error object: the body of a refused request, and with
@@ -323,6 +325,7 @@ func WireMessagesFromLLM(msgs []Message) []WireMessage {
 			Content:            m.Content,
 			Reasoning:          m.Reasoning,
 			ReasoningSignature: m.ReasoningSignature,
+			ReasoningTokens:    m.ReasoningTokens,
 			ToolCallID:         m.ToolCallID,
 			ToolCalls:          wireToolCalls(m.ToolCalls),
 		}
@@ -343,6 +346,7 @@ func WireMessagesToLLM(msgs []WireMessage) []Message {
 			Content:            w.Content,
 			Reasoning:          w.Reasoning,
 			ReasoningSignature: w.ReasoningSignature,
+			ReasoningTokens:    w.ReasoningTokens,
 			ToolCallID:         w.ToolCallID,
 			ToolCalls:          llmToolCalls(w.ToolCalls),
 		}
@@ -455,6 +459,7 @@ func WireFinalFromResponse(r *Response) WireFinal {
 		InputTokens:        r.InputTokens,
 		OutputTokens:       r.OutputTokens,
 		CachedInputTokens:  r.CachedInputTokens,
+		ReasoningTokens:    r.ReasoningTokens,
 	}
 }
 
@@ -469,6 +474,7 @@ func (f WireFinal) ToResponse() *Response {
 		InputTokens:        f.InputTokens,
 		OutputTokens:       f.OutputTokens,
 		CachedInputTokens:  f.CachedInputTokens,
+		ReasoningTokens:    f.ReasoningTokens,
 	}
 }
 

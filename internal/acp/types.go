@@ -630,6 +630,10 @@ type TokenUsageUpdate struct {
 	OutputTokens      int    `json:"outputTokens"`
 	TotalTokens       int    `json:"totalTokens"`
 	CachedInputTokens int    `json:"cachedInputTokens,omitempty"`
+	// ReasoningTokens is the part of OutputTokens the call spent reasoning, when
+	// the provider breaks it out; a client shows it on the reasoning row of the
+	// call that just finished.
+	ReasoningTokens int `json:"reasoningTokens,omitempty"`
 }
 
 // TurnProgressUpdate reports how far the running turn has come: when it was

@@ -827,3 +827,19 @@ The rows stay apart where they are shown too: the usage panel heading and the co
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.
+
+### OpenRouter-style aggregators (OpenRouter, RouterAI)
+An aggregator that copies OpenRouter's API is a **`type: openai`** row with its **`api_base`** (**`https://openrouter.ai/api/v1`** for OpenRouter, **`https://routerai.ru/api/v1`** for RouterAI). Its model ids carry the vendor in front:
+
+```yaml
+providers:
+  - name: "openrouter"
+    type: "openai"
+    api_base: "https://openrouter.ai/api/v1"
+    api_key: "${OPENROUTER_API_KEY}"
+models:
+  - model: "openrouter/qwen/qwen3.8-flash"
+    reasoning_default: "medium"
+```
+
+Coddy reads the reasoning levels of such an id from the model behind the vendor, so **`openrouter/qwen/qwen3.8-flash`** offers the levels of **`qwen3.8-flash`**. The aggregator's model listing names the request parameters each model takes (**`supported_parameters`**), and Coddy reads it together with the model's context window. When the listing names the unified **`reasoning`** object and not **`reasoning_effort`**, the chosen level goes out as **`reasoning: {"effort": "<level>"}`** and **`off`** as **`reasoning: {"enabled": false}`**; the Qwen3 **`chat_template_kwargs`** switch goes only to a server whose listing names it or lists nothing. The model's reasoning comes back in the **`reasoning`** field of the answer and shows in the chat like any other, with the tokens the aggregator reports for it (**`usage.completion_tokens_details.reasoning_tokens`**) next to its duration ([Web UI](../surfaces/web-ui.md#transcript-message-types)).
