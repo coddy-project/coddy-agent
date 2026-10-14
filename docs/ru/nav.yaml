@@ -226,6 +226,12 @@ pages:
     en:
       title: "Devin"
       summary: "Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from."
+  features/opencode.md:
+    title: "OpenCode"
+    summary: "Шлюзы OpenCode Go и Console с одним API-ключом - протокол обмена для каждой модели, обязательные заголовки клиента, откуда берётся ключ и как выбрать шлюз."
+    en:
+      title: "OpenCode"
+      summary: "Using the OpenCode Go and Console gateways with one API key - the per-model wire protocol, the required client headers, where the key comes from, and picking the gateway."
   features/web-search.md:
     title: "Веб-поиск"
     summary: "Какие поисковые системы опрашивает websearch, как заблокированный бэкенд попадает в отчёт, а не считается пустой выдачей, порог релевантности и подключение собственного SearXNG."

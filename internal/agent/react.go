@@ -3053,6 +3053,10 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
+		// The opencode gateway routes a conversation and reuses its prompt
+		// cache by a stable per-conversation id; every other provider ignores
+		// it. The session id is that stable value.
+		SessionID: a.state.GetID(),
 	}
 	// The stall guard (agent.llm_stream_idle_timeout_ms) watches the gaps
 	// between the bytes of a streamed answer; a blocking answer arrives in

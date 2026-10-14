@@ -938,6 +938,14 @@ export const messagesRu: Record<string, string> = {
   "neuralDeepApiBase.unknown":
     "Сохранённый api_base {value} не является эндпоинтом NeuralDeep, поэтому запросы пойдут на {fallback}. Выберите эндпоинт, чтобы заменить его.",
 
+  "openCodeApiBase.description":
+    "OpenCode обслуживает один API-ключ с двух шлюзов: подписки Go и Console с оплатой по мере использования. Выберите тот, для которого выпущен ключ; список моделей ниже запрашивается с настройками из этой формы, сохранять перед этим не нужно. Введите ключ в поле «API key» выше или выполните `coddy providers login opencode`.",
+  "openCodeApiBase.optionGo": "Go — подписка (inference/go/v1)",
+  "openCodeApiBase.optionConsole":
+    "Console — оплата по мере использования (inference/v1)",
+  "openCodeApiBase.unknown":
+    "Сохранённый api_base {value} не является шлюзом OpenCode, поэтому запросы пойдут на {fallback}. Выберите шлюз, чтобы заменить его.",
+
   "neuralDeepAuth.error.signInFailed": "Не удалось войти в NeuralDeep.",
   "neuralDeepAuth.error.incompleteResponse": "Хаб вернул неполный ответ входа.",
   "neuralDeepAuth.fieldLabel": "Аккаунт NeuralDeep",

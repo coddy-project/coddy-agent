@@ -115,6 +115,9 @@ groups:
       - path: features/devin.md
         title: Devin
         summary: Using the models of a Devin (Cognition) account - browser sign-in or the Devin CLI login, one model per family with reasoning levels mapped to its variants, where the session token comes from.
+      - path: features/opencode.md
+        title: OpenCode
+        summary: Using the OpenCode Go and Console gateways with one API key - the per-model wire protocol, the required client headers, where the key comes from, and picking the gateway.
       - path: features/web-search.md
         title: Web search
         summary: The engines websearch asks, how a blocked backend is reported instead of counted as nothing found, the relevance gate, and pointing it at your own SearXNG.

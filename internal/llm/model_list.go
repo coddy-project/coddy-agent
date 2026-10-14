@@ -56,6 +56,8 @@ func defaultModelListBaseURL(providerType string) string {
 		return "https://api.anthropic.com"
 	case "neuraldeep":
 		return neuralDeepBaseURL
+	case "opencode":
+		return opencodeGoBaseURL
 	default: // openai and openai-compatible
 		return "https://api.openai.com/v1"
 	}
@@ -83,7 +85,7 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 	}
 	var url string
 	switch in.Type {
-	case "openai", "anthropic", "neuraldeep":
+	case "openai", "anthropic", "neuraldeep", "opencode":
 		base := strings.TrimRight(providerBaseURL(in.Type, in.BaseURL), "/")
 		if base == "" {
 			base = defaultModelListBaseURL(in.Type)
@@ -97,6 +99,12 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 			// Same credential order as completions: explicit key wins, the
 			// stored hub login fills in when the key is absent.
 			in.APIKey = neuralDeepEffectiveKey(in.APIKey, in.AuthPath)
+		}
+		if in.Type == "opencode" {
+			// Same credential order as completions, and the gateway asks every
+			// client to name itself, so the model list carries Coddy's own
+			// User-Agent rather than a generic HTTP-library name.
+			in.APIKey = opencodeEffectiveKey(in.APIKey, in.AuthPath)
 		}
 	default:
 		return nil, &UnsupportedProviderError{Provider: in.Type}
@@ -122,6 +130,11 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		req.Header.Set("anthropic-version", "2023-06-01")
 	} else if in.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+in.APIKey)
+	}
+	if in.Type == "opencode" {
+		// The gateway asks every client to identify itself with its own name
+		// rather than a generic HTTP-library one.
+		req.Header.Set("User-Agent", opencodeUserAgent())
 	}
 
 	resp, err := hc.Do(req)

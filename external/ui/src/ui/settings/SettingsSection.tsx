@@ -45,6 +45,34 @@ const NEURALDEEP_API_BASE_OPTIONS = [
 ] as const;
 const NEURALDEEP_DEFAULT_API_BASE = NEURALDEEP_API_BASE_OPTIONS[0].value;
 
+// The gateways an opencode provider may point at, mirroring opencodeEndpoints
+// in internal/llm/opencode.go. The backend ignores anything else in api_base
+// and falls back to the first entry (Go).
+const OPENCODE_API_BASE_OPTIONS = [
+  {
+    value: "https://opencode.ai/inference/go/v1",
+    labelKey: "openCodeApiBase.optionGo",
+  },
+  {
+    value: "https://opencode.ai/inference/v1",
+    labelKey: "openCodeApiBase.optionConsole",
+  },
+] as const;
+const OPENCODE_DEFAULT_API_BASE = OPENCODE_API_BASE_OPTIONS[0].value;
+
+/** Canonical spelling of a stored api_base, or "" when it names no OpenCode gateway. */
+function matchOpenCodeAPIBase(value: unknown): string {
+  let want = String(value ?? "").trim();
+  while (want.endsWith("/")) {
+    want = want.slice(0, -1);
+  }
+  want = want.toLowerCase();
+  return (
+    OPENCODE_API_BASE_OPTIONS.find((o) => o.value.toLowerCase() === want)
+      ?.value ?? ""
+  );
+}
+
 /** Canonical spelling of a stored api_base, or "" when it names no NeuralDeep endpoint. */
 function matchNeuralDeepAPIBase(value: unknown): string {
   let want = String(value ?? "").trim();
@@ -198,6 +226,64 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
   );
 }
 
+function OpenCodeAPIBaseField(props: { ctx: FieldOverrideContext }) {
+  const { schema, value, onChange } = props.ctx;
+  const { t } = useT();
+  const label =
+    schemaFieldLabel("providers", "api_base", schema.title, "api_base") ||
+    t("settings.field.apiBaseFallback");
+  const stored = String(value ?? "").trim();
+  const matched = matchOpenCodeAPIBase(value);
+
+  // OpenCode serves one API key from two gateways: the Go subscription
+  // (.../inference/go/v1) and pay-as-you-go Console (.../inference/v1). Only
+  // those are offered; the backend ignores anything else and falls back to Go.
+  // Nothing is written until the user picks one, so a base entered for another
+  // provider type survives switching to opencode and back. The key itself goes
+  // in the api_key field above (or `coddy providers login opencode`); OpenCode
+  // has no browser sign-in for Coddy to drive.
+  return (
+    <div className="settings-row">
+      <FieldLabel
+        label={label}
+        description={t("openCodeApiBase.description")}
+      />
+      <select
+        className="settings-input"
+        value={matched || OPENCODE_DEFAULT_API_BASE}
+        aria-label={label}
+        data-testid="opencode-api-base"
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {OPENCODE_API_BASE_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {t(opt.labelKey)}
+          </option>
+        ))}
+      </select>
+      {stored !== "" && matched === "" ? (
+        <p className="settings-field-desc">
+          {t("openCodeApiBase.unknown", {
+            value: stored,
+            fallback: OPENCODE_DEFAULT_API_BASE,
+          })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function openCodeAPIBaseOverride(ctx: FieldOverrideContext) {
+  const providerType =
+    ctx.parentObj?.type === undefined || ctx.parentObj.type === null
+      ? ""
+      : String(ctx.parentObj.type);
+  if (ctx.path !== "api_base" || providerType !== "opencode") {
+    return null;
+  }
+  return <OpenCodeAPIBaseField ctx={ctx} />;
+}
+
 // Every provider type has the proxy switch and URL field, codex included: its
 // sign-in and its requests take the row's route like any other.
 function providerProxyOverride(ctx: FieldOverrideContext) {
@@ -271,6 +357,9 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
         />
       );
     }
+  }
+  if (providerType === "opencode") {
+    return openCodeAPIBaseOverride(ctx);
   }
   return neuralDeepAPIBaseOverride(ctx);
 }

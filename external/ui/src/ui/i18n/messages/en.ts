@@ -917,6 +917,13 @@ export const messagesEn: Record<string, string> = {
   "neuralDeepApiBase.unknown":
     "The saved api_base {value} is not a NeuralDeep endpoint, so requests go to {fallback}. Pick an endpoint to replace it.",
 
+  "openCodeApiBase.description":
+    "OpenCode serves one API key from two gateways: the Go subscription and pay-as-you-go Console. Pick the one your key is for; the model list below is fetched with the row as it stands in the form. Enter the key in the API key field above, or run `coddy providers login opencode`.",
+  "openCodeApiBase.optionGo": "Go — subscription (inference/go/v1)",
+  "openCodeApiBase.optionConsole": "Console — pay as you go (inference/v1)",
+  "openCodeApiBase.unknown":
+    "The saved api_base {value} is not an OpenCode gateway, so requests go to {fallback}. Pick a gateway to replace it.",
+
   "neuralDeepAuth.error.signInFailed": "NeuralDeep sign in failed.",
   "neuralDeepAuth.error.incompleteResponse":
     "The hub returned an incomplete sign-in response.",
