@@ -80,13 +80,6 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 		// those hosts, not for every private address a node might claim.
 		AllowHosts: cfg.Swarm.AllowPrivateUpstreams,
 	})
-	nf := cfg.NodeDialFiles()
-	nodeDial := netx.Options{CAFile: nf.CAFile, CertFile: nf.CertFile, KeyFile: nf.KeyFile}
-	// A CA that cannot be read stops the relay here, under the key that names it, instead of failing every registration later.
-	if _, err := nodeDial.TLSConfig(""); err != nil {
-		return nil, fmt.Errorf("swarm.node_tls: %w", err)
-	}
-	s.registry.SetNodeDial(nodeDial)
 	if err := s.seedUpstreams(); err != nil {
 		return nil, err
 	}
@@ -163,17 +156,7 @@ func (s *Server) seedUpstreams() error {
 			Token:        up.Token,
 			Version:      "configured",
 		}
-		if up.Dial.InsecureSkipVerify {
-			s.log.Warn("swarm upstream: certificate verification disabled", "node", up.Name)
-		}
-		df := s.cfg.DialFiles(up.Dial)
-		if _, err := s.registry.RegisterWithDial(req, netx.Options{
-			Proxy:              up.Dial.Proxy,
-			CAFile:             df.CAFile,
-			InsecureSkipVerify: up.Dial.InsecureSkipVerify,
-			CertFile:           df.CertFile,
-			KeyFile:            df.KeyFile,
-		}); err != nil {
+		if _, err := s.registry.RegisterWithDial(req, netx.Options{Proxy: up.Dial.Proxy}); err != nil {
 			return fmt.Errorf("swarm.upstreams %q: %w", up.Name, err)
 		}
 		s.registry.Pin(up.Name)

@@ -47,8 +47,6 @@ Add a shared-model token and an alias to the remote configuration. `shared_as` i
 httpserver:
   host: 0.0.0.0
   auth_token: "${CODDY_ADMIN_TOKEN}"
-  tls:
-    auto: true
   shared_models:
     tokens:
       - "${CODDY_SHARED_MODELS_TOKEN}"
@@ -73,7 +71,7 @@ For a `codex`, `devin`, or subscription-backed `neuraldeep` row, also set `share
 
 ### 3. Put the remote behind TLS and start it
 
-Expose an `https://` address that borrowers can reach. The `tls.auto: true` example above makes `coddy serve` use Coddy's built-in certificates; borrowers must trust that authority as described in [TLS on the listener](#tls-on-the-listener). A reverse proxy or a certificate from your own authority is equally valid. Do not expose a shared-model token over plain HTTP outside loopback.
+Expose an `https://` address that borrowers can reach. A reverse proxy or transport service in front of `coddy serve` terminates TLS and forwards requests to Coddy's plain HTTP listener. Borrowers verify the endpoint's certificate and host name through the system trust store: for a private authority, install it in the trust store the borrower's Coddy process uses. Do not expose a shared-model token over plain HTTP outside loopback.
 
 Validate the remote configuration before starting the service, then start it:
 
@@ -106,13 +104,12 @@ providers:
     type: coddy
     api_base: "https://workstation.example:12345"
     api_key: "${WORKSTATION_SHARED_TOKEN}"
-    tls_auto: true # only when the remote uses httpserver.tls.auto
 
 models:
   - model: workstation/terra
 ```
 
-In the web UI, open **Settings → LLM providers**, add a provider, choose type `coddy`, then fill in its name, **API base** and **API key**. When the remote uses `httpserver.tls.auto`, enable the provider's built-in TLS option; otherwise configure its `ca_file` for your private authority or rely on the system roots for a public certificate. Save all. Do not use the remote's main token: a shared-model token limits this provider to the model-sharing routes.
+In the web UI, open **Settings → LLM providers**, add a provider, choose type `coddy`, then fill in its name, **API base** and **API key**. The `https://` address verifies the endpoint's certificate and host name through the system trust store: for a private authority, install it in the trust store the Coddy process uses, and for a public one there is nothing to configure. Save all. Do not use the remote's main token: a shared-model token limits this provider to the model-sharing routes.
 
 ### 6. Add the local logical model
 
@@ -352,7 +349,7 @@ A client that disappears without a trace - a laptop that lost power, a cable pul
 
 | Leg | Mechanism | Bound |
 |---|---|---|
-| A direct listener (`https://host:12345`, or a node the relay dials) | `TCP_USER_TIMEOUT` of 30 s on the connection of the call, set after the request body is read and put back on every exit of the call: final frame, error frame, cancel, failed write | 15 s + 30 s |
+| Coddy's plain HTTP listener (direct, or a node the relay dials) | `TCP_USER_TIMEOUT` of 30 s on the connection of the call, set after the request body is read and put back on every exit of the call: final frame, error frame, cancel, failed write | 15 s + 30 s |
 | A node's reverse tunnel | the node pings the relay when no frame has arrived for 15 s and closes the connection when the ping is not answered within 30 s; the calls on it end with it | 15 s + 30 s, whatever the heartbeat is |
 | A client behind a relay | the relay sets the same option on its own client connection, for the completions route of a mount only | 15 s + 30 s, for a client that speaks HTTP/1.1 to the relay |
 
@@ -367,7 +364,7 @@ Only the shared completions call carries the option. A browser's event stream on
 The transport bound cannot see a client behind an intermediary that acknowledges bytes for it, on a platform with no `TCP_USER_TIMEOUT`, or through a CONNECT proxy: there the remote sees a healthy connection whatever happened to the client. So the **client says it is alive**, and the remote cuts a call whose client stops. The local Coddy does this by itself; nothing is configured.
 
 - **The handshake.** Every completions call of a `coddy` row carries `X-Coddy-Probe: 1`. A remote that supports the probe answers an admitted call with `X-Coddy-Probe: id=<32 hex>; every_ms=10000; grace_ms=35000` next to `X-Coddy-Request-ID`. An older remote ignores the header and never confirms; an older client never sends it. A call that did not ask is never cut by the probe.
-- **The ping.** The client posts `POST /coddy/llm/alive` with the call's credential and the id in `X-Coddy-Probe-Id`, **at once** and then every 10 s while the stream runs, one at a time, each under 5 s (a slower ping counts as lost), through the row's own HTTP client (so `providers[].proxy`, the private CA, the client certificate and the HTTP/1.1-only transport apply). The remote answers `204`, or `404` with `code: unknown_call` when the call has ended, was cut, or the id or credential is not the call's: only that ends the pings. Any other answer or a transport error is a failed ping, retried at the next tick, and never delays or ends the stream. A ping takes no slot and no window token and is not counted as a call.
+- **The ping.** The client posts `POST /coddy/llm/alive` with the call's credential and the id in `X-Coddy-Probe-Id`, **at once** and then every 10 s while the stream runs, one at a time, each under 5 s (a slower ping counts as lost), through the row's own HTTP client (so `providers[].proxy` and the HTTP/1.1-only transport apply). The remote answers `204`, or `404` with `code: unknown_call` when the call has ended, was cut, or the id or credential is not the call's: only that ends the pings. Any other answer or a transport error is a failed ping, retried at the next tick, and never delays or ends the stream. A ping takes no slot and no window token and is not counted as a call.
 - **The guard is fail-open.** It is **armed by the first ping the remote accepts**, not at the start of the call: a path that carries no ping at all (a relay that does not know the route, a proxy that filters it) leaves the call exactly as it is without the probe and cuts no live client. From the first ping on, **35 s plus a second of silence cancels the call**: the upstream call is cancelled, the slot is released, the log line reads `client_gone` with `cause=probe`, the counters count `gone`, and a live client that was wrongly cut is sent a terminal `error{kind: invalid, code: probe_lapsed}`, which is not retried (it would be cut again). The 35 s is `(L + 1) I + DMAX` for a client that pings every `I = 10 s`, with up to `L = 2` pings lost in a row, each delayed by at most `DMAX = 5 s`: the exact boundary at which a live client is never cut, from a model check ([the report](../plans/remote-model-provider-models/p4-probe.md)).
 - **What it bounds.** A client that vanished after a ping is freed at most `35 s + 5 s + 1 s` = 41 s after it vanished when every ping arrives within 5 s; behind an intermediary that holds a ping longer, the cut comes 36 s after the last ping the remote accepted. A client that vanishes before its first ping (a round trip) is bounded as before: by the transport bound where it applies, otherwise by the end of the provider call.
 - **The id is a capability.** 128 random bits, found only in the response of its call, bound to the credential the call was made with, and carried in a header so that no proxy or relay writes it into a path log. Through a relay every client shares the node's credential, so there the id alone proves a ping; a holder of the id can keep the call alive, which is what a capability means.
@@ -387,35 +384,22 @@ Directly, `api_base` is the remote's origin and the token is the remote's. Throu
 
 Two facts shape every relay setup. The relay replaces the caller's credential with the one the node joined with, so the node sees one caller and the limit (five by default) covers every client of that relay together: it protects the node and its provider, not clients from each other. And the relay client token a borrower puts into `api_key` opens the mounts of every node of that relay, each with the token that node joined with, so a shared-model token protects only the nodes that joined with one. (That is the full class; a [scoped client](../operate/swarm.md#scoped-clients) reaches only the nodes it lists.)
 
-### TLS on the listener
+### TLS at the external transport
 
-*How Coddy makes the certificates (`coddy tls`, built in) and how to use your own (a company authority, a purchased certificate, ACME) is in [Certificates and TLS](../operate/certificates.md).*
+*How to deploy the external transport, install a private authority into the trust store, and what the removed settings used to do is in [Certificates and TLS](../operate/certificates.md).*
 
-TLS is the transport's business and nothing else. `coddy serve` can terminate it itself:
+TLS is the transport's business and nothing else. `coddy serve` no longer terminates it: a reverse proxy or transport service in front of `coddy serve` owns the server certificate, mutual TLS, renewal and CA administration, and forwards to the HTTP listener.
 
-```yaml
-httpserver:
-  tls:
-    auto: true                  # the built-in certificates: coddy serve makes them at start (coddy tls ensure)
-    require_client_cert: true   # optional: the handshake then requires a certificate of the built-in bundle
-    # or your own files, which win over auto:
-    # cert_file: /etc/coddy/server.crt
-    # key_file: /etc/coddy/server.key
-    # client_ca_file: /etc/coddy/clients-ca.pem   # optional: the handshake then requires a certificate that chains to it
-```
-
-- **Built-in certificates.** With `auto: true` the listener serves the server pair of `$CODDY_HOME/tls` (a CA of this machine, a server certificate with this host's names, a client certificate: [Certificates and TLS](../operate/certificates.md#built-in-certificates-coddy-tls)), made with no external tool at install, at update, at start and on demand. A machine that borrows trusts the node by `coddy tls export` on the node and `coddy tls trust` on the borrower, and a `coddy` provider row with `tls_auto: true` presents its own client certificate and trusts the bundle. Private keys never move.
-
-- **What TLS does.** The listener presents its certificate. With `client_ca_file` the handshake **requires** a certificate that chains to that authority and refuses a peer without one. Nothing else: **Coddy reads no identity out of a certificate**, so a certificate is no credential, no class and no budget. The credential is a token (`httpserver.shared_models.tokens` for the shared routes, the main token for the whole API), and the budget is the token's.
+- **The listener is HTTP.** Bind `coddy serve` to loopback or an isolated network reachable only by the transport. Outgoing HTTPS still verifies the server certificate and host name through the system trust store.
+- **What a certificate does.** It authenticates the connection at the external transport. Nothing else: **Coddy reads no identity out of a certificate**, so a certificate is no credential, no class and no budget. The credential is a token (`httpserver.shared_models.tokens` for the shared routes, the main token for the whole API), and the budget is the token's.
 - **A certificate alone opens nothing.** A caller with a certificate and no token gets the same `401` as a caller with neither; a token over a certificate does what the token does.
-- **What a certificate holder may do** (which route, how often, from which address) is for a **reverse proxy** in front of the node and for the infrastructure: [where the other risks go](../operate/certificates.md#where-the-other-risks-go).
-- **HTTP/1.1 only.** The listener serves TLS without HTTP/2, so a shared call keeps a connection of its own and the [liveness bound](#a-peer-that-vanishes) applies to it. The CA and the server certificate are startup state: rotating them takes a restart.
-- **Not through an intermediary.** A TLS terminator in front, or the swarm tunnel, carries no client certificate to the node: the node sees the terminator or the relay. Where a certificate is required, require it there.
-- **Checks.** `coddy -t` refuses a half pair and a CA without a certificate pair; `--dry-run` loads the pair and the CA bundle.
+- **What a certificate holder may do** (which route, how often, from which address) is for the **reverse proxy** in front of the node and for the infrastructure: [External HTTPS for the HTTP API](../operate/certificates.md#external-https-for-the-http-api).
+- **A private authority or client certificate.** A borrower verifies the remote's private authority through the system trust store the Coddy process uses; a client certificate that the transport requires is presented by that external component. Coddy has no per-connection certificate settings.
+- **Not through an intermediary for the swarm tunnel.** A Swarm reverse tunnel is carried by a TLS-terminating TCP forwarder, not an ordinary HTTP proxy; see [Encryption and proxies](../operate/swarm.md#encryption-and-proxies).
 
-### A private authority and a client certificate
+### A private authority
 
-A `coddy` provider can trust a private certificate authority and present a client certificate to whatever terminates TLS in front of the remote (a reverse proxy that requires mutual TLS, for one):
+A `coddy` provider verifies the remote's server certificate and host name through the system trust store. For a public authority there is nothing to configure; for a private one, install the authority in the trust store the Coddy process uses and keep the provider's `https://` address as the external endpoint:
 
 ```yaml
 providers:
@@ -423,15 +407,11 @@ providers:
     type: coddy
     api_base: https://remote.example:12345
     api_key: ${WORKSTATION_TOKEN}
-    ca_file: /etc/coddy/private-ca.pem
-    client_cert_file: /etc/coddy/client.crt
-    client_key_file: /etc/coddy/client.key
 ```
 
-- The three keys are paths, never the key itself, and belong to a provider of type `coddy` only: another type that writes one is a load error naming the key, so nobody believes a certificate is presented where it is not. `client_cert_file` and `client_key_file` are set together.
-- They apply to every request of the row: the completion, the listing and the usage read. The row keeps its HTTP/1.1 transport and its `proxy`: behind a proxy the `CONNECT` is made first and the certificate is presented to the remote at the end of the tunnel (an `https://` proxy is offered the same identity for its own hop, if it asks for one).
-- The pair is read at each handshake (both files each time, parsed again only when their bytes changed, so a renewal is seen even when the new files have the old size and times), so a certificate rotated on disk is used by the next connection without a restart; a file that cannot be read fails that one handshake and the next one recovers when the file is back.
-- `coddy -t` reads the files: an unreadable or mismatched pair and an unreadable `ca_file` are errors, a `ca_file` that holds no certificate is a warning. `coddy --dry-run` loads the pair, reports an expiry within 14 days as a warning and a past `NotAfter` as an error, both at the key's line, and runs its listing probe with the identity.
+- The row keeps its `proxy` and its HTTP/1.1 transport. Behind a proxy the `CONNECT` is made first and TLS is terminated by the endpoint at the end of the tunnel.
+- An unknown authority means the Coddy process does not trust the endpoint's CA. Install the correct authority in its trust environment; do not disable certificate verification.
+- A host-name mismatch means the URL and the certificate's names disagree. Correct the endpoint or the certificate.
 
 A relay that is rebuilt on a configuration change cuts the streams in flight; to the local Coddy that is a transport failure, retried while nothing was shown. A client that vanishes behind a relay is invisible to the node, which sees only the relay, so the relay bounds its own client for the completions route ([A peer that vanishes](#a-peer-that-vanishes)).
 
@@ -452,9 +432,7 @@ A relay that is rebuilt on a configuration change cuts the streams in flight; to
 | warning | `busy_wait_ms` on a provider that is not of type `coddy`: it has no effect |
 | error | a negative `rate_per_minute` or `rate_burst` |
 | warning | `rate_burst` without `rate_per_minute`: it has no effect |
-| error | `ca_file`, `client_cert_file` or `client_key_file` on a provider that is not of type `coddy`, a certificate without its key or the reverse, a pair that cannot be read or whose key is not the certificate's, an unreadable `ca_file` |
-| warning | a `ca_file` that holds no PEM certificate |
-| warning (`--dry-run`) | a client certificate that expires within 14 days (an error once it has) |
+| error | a removed TLS configuration key. Remove it manually after moving TLS to the external transport. The configuration is not rewritten automatically |
 | warning (`--dry-run`) | a key a `coddy` row writes that differs from what the remote lists for its alias: `max_context_tokens`, `multimodal`, `allow_reasoning_off`, `reasoning_default`, `reasoning_levels` |
 
 `coddy --dry-run` also asks every `coddy` provider for its listing, which exercises the address, the proxy and the token in one request. It reports a remote that is unreachable, a credential it refused, a protocol the two Coddys do not share (`update the older of the two`), an address that does not offer shared models, a remote that shares nothing (a warning), and, for every local `models[]` row of the provider, an alias the remote does not list as an error, since the remote answers a request for it with `404`. For an alias it does list it also compares, key by key, what the row writes with the remote's record and gives one **warning** per key that differs: a `max_context_tokens` that is not the remote's window, a `multimodal` or `allow_reasoning_off` that disagrees, a `reasoning_default` that is not the remote's default, and a `reasoning_levels` list that differs (a level the remote does not offer is named as refused with `invalid_option`, a level it offers that the row omits as unused). A key left out inherits the listing and an equal one agrees with it, so neither is reported. Each warning names the key with both values and what follows from it, is located at the key's line in the file, and ends in the same fix, `remove <key> from this model to inherit the remote's listing`:
@@ -503,7 +481,7 @@ Sharing a subscription login is the borrowers' convenience and the vendor's conc
 
 ## Limitations
 
-The implemented work covers the wire, client and access rules; capabilities from the listing; usage through the hop; liveness of a vanished peer ([Not covered](#not-covered) lists what it does not reach); and hardening with scoped relay clients, transport-only client-certificate admission, rate limits, counters, the node label and the application probe. Tokens remain the authorization credential. What is not there yet:
+The implemented work covers the wire, client and access rules; capabilities from the listing; usage through the hop; liveness of a vanished peer ([Not covered](#not-covered) lists what it does not reach); and hardening with scoped relay clients, transport-level admission at the external transport, rate limits, counters, the node label and the application probe. Tokens remain the authorization credential. What is not there yet:
 
 - **A node behind a mount still cannot tell the relay's clients apart**: it sees the relay as one caller, and the relay is where each client is held to its own limits ([Scoped clients](../operate/swarm.md#scoped-clients)).
 - **Discovery and failover.** One provider row per remote or relay mount; the models are picked from its listing. A relay does not enumerate the shared models of its nodes and does not fail over between nodes that share one. A later step.
@@ -512,11 +490,11 @@ The implemented work covers the wire, client and access rules; capabilities from
 - **No blocking mode** on the wire: it is always a stream with a heartbeat.
 - **Loops are caught in one direction only.** A provider of type `coddy` cannot be shared, but a `type: openai` provider that points at another Coddy's `/v1` is not caught.
 - **Prompt-cache affinity of `codex` and `devin` through a stateless hop** has not been measured: the remote builds those providers per call, where a local run keeps one session id for the whole run. What is held by tests is the request body: for `openai`, `anthropic`, `neuraldeep` and `codex` the bytes the remote's provider sends upstream equal what a local provider of the same type sends.
-- **Little of the sharing is on a screen.** Settings has a Sharing block on each logical model (the alias, checked against the alias pattern, and the acknowledgement that a subscription login asks for), offers the `coddy` provider type with its `api_base`, its key and, among the advanced settings, `busy_wait_ms`, draws `multimodal` and `allow_reasoning_off` of a `coddy` row as the three-state control, and carries `agent.shared_busy_wait_ms` on the ReAct loop tab, and shows `ca_file`, `client_cert_file` and `client_key_file` of a `coddy` row among the advanced settings. The shared-model tokens are `config.yaml` keys only: Settings does not show the `httpserver` block. The console has no screen for sharing, only the status row and the usage line.
+- **Little of the sharing is on a screen.** Settings has a Sharing block on each logical model (the alias, checked against the alias pattern, and the acknowledgement that a subscription login asks for), offers the `coddy` provider type with its `api_base` and its key, and carries `agent.shared_busy_wait_ms` on the ReAct loop tab. The shared-model tokens are `config.yaml` keys only: Settings does not show the `httpserver` block. The console has no screen for sharing, only the status row and the usage line.
 
 ## Tests
 
-The specification is `features/remote_model_provider.feature` (direct), `features/remote_model_provider_relay.feature` (through a relay, tags `http,swarm`), `features/shared_models_tls.feature` (TLS on the listener: a certificate admits and gives no rights), `features/shared_models_probe.feature` (the application probe) and `features/swarm_client_scopes.feature` (scoped relay clients): the happy paths, the capabilities from the listing and the usage through the hop included. The unit tests sit next to the code: `internal/config/{capabilities,listing}*_test.go` (the three-state keys, the resolver, the lineage of a listing source, the guard that keeps every surface on the one reader), `internal/config/shared_models*_test.go` (aliases, acknowledgements, token classes, the credential rule, the check findings), `external/httpserver/shared_*_test.go` (the routes, the gate, the limiter, the timers, the usage projection and its key set, the liveness of a vanished peer, the error object, the OpenAPI document), `internal/llm/coddy*_test.go` (the client, the usage client, the HTTP/1.1-only transport, the busy wait, the error classification, the envelope, the listing), `internal/session/{capability_listing,provider_usage_coddy}_test.go` (the listing as a source of capabilities, the usage per alias), `internal/agent/coddy_provider_test.go`, `internal/dryrun/coddy_provider_test.go`, `internal/platform/usertimeout*_test.go`, `internal/httpx/*_test.go`, `internal/swarm/tunnel_liveness_test.go`, `external/swarm/{mount_liveness,liveness_stand}_test.go` and `cmd/coddy/serve_shared_models_test.go`.
+The specification is `features/remote_model_provider.feature` (direct), `features/remote_model_provider_relay.feature` (through a relay, tags `http,swarm`), `features/shared_models_probe.feature` (the application probe) and `features/swarm_client_scopes.feature` (scoped relay clients): the happy paths, the capabilities from the listing and the usage through the hop included. The unit tests sit next to the code: `internal/config/{capabilities,listing}*_test.go` (the three-state keys, the resolver, the lineage of a listing source, the guard that keeps every surface on the one reader), `internal/config/shared_models*_test.go` (aliases, acknowledgements, token classes, the credential rule, the check findings), `external/httpserver/shared_*_test.go` (the routes, the gate, the limiter, the timers, the usage projection and its key set, the liveness of a vanished peer, the error object, the OpenAPI document), `internal/llm/coddy*_test.go` (the client, the usage client, the HTTP/1.1-only transport, the busy wait, the error classification, the envelope, the listing), `internal/session/{capability_listing,provider_usage_coddy}_test.go` (the listing as a source of capabilities, the usage per alias), `internal/agent/coddy_provider_test.go`, `internal/dryrun/coddy_provider_test.go`, `internal/platform/usertimeout*_test.go`, `internal/httpx/*_test.go`, `internal/swarm/tunnel_liveness_test.go`, `external/swarm/{mount_liveness,liveness_stand}_test.go` and `cmd/coddy/serve_shared_models_test.go`.
 
 Two kernel tests exercise the mechanism of the 45-second promise against a real socket, at a scaled bound (the constants are shortened so the tests last half a minute). They need Linux with `unshare`, `ip` and `iptables` in a user namespace, so they are opt-in and stay out of `make test`:
 

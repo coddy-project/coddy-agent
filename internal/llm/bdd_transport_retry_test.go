@@ -6,11 +6,6 @@ package llm
 // empty body yields io.ErrUnexpectedEOF on the client), and whose second
 // response streams a normal completion. The resilient wrapper must classify
 // the status-less transport failure as retryable and repeat the request.
-//
-// The handshake scenario runs the same provider over TLS against a listener
-// that swallows the first connection: the ClientHello is never answered, the
-// transport's TLS handshake timer fires with "net/http: TLS handshake
-// timeout", and the request itself never reaches the server.
 
 import (
 	"context"
@@ -30,7 +25,6 @@ import (
 
 type transportRetryState struct {
 	server   *httptest.Server
-	listener *stallFirstConnListener
 	provider Provider
 	requests atomic.Int32
 	// dials counts client-side connections for the scenarios that own the
@@ -47,7 +41,6 @@ type transportRetryState struct {
 func (s *transportRetryState) reset() {
 	s.cleanup()
 	s.provider = nil
-	s.listener = nil
 	s.requests.Store(0)
 	s.dials.Store(0)
 	s.hole = nil
@@ -56,20 +49,15 @@ func (s *transportRetryState) reset() {
 	s.callErr = nil
 }
 
-// connections is how many upstream connections the scenario saw: the
-// listener's count when the scenario wraps the listener, the dialer's
-// otherwise.
+// connections is how many upstream connections the scenario's dialer saw.
 func (s *transportRetryState) connections() int {
-	if s.listener != nil {
-		return int(s.listener.accepted.Load())
-	}
 	return int(s.dials.Load())
 }
 
 // blackholeConn is a net.Conn that, once the hole opens, swallows every
 // write and blocks every read until it is closed: what a client sees when
 // the far side of a tunnel died without a FIN or a RST. Before that it is
-// the plain connection, so the TLS handshake and the request go through.
+// the plain connection, so connection setup and the request go through.
 type blackholeConn struct {
 	net.Conn
 	hole   <-chan struct{}
@@ -117,42 +105,6 @@ func (c *blackholeConn) Write(p []byte) (int, error) {
 func (c *blackholeConn) Close() error {
 	c.once.Do(func() { close(c.closed) })
 	return c.Conn.Close()
-}
-
-// stallFirstConnListener accepts every connection but keeps the first one
-// open and silent instead of handing it to the server, so a TLS client on it
-// waits for a ServerHello that never comes.
-type stallFirstConnListener struct {
-	net.Listener
-	accepted atomic.Int32
-	mu       sync.Mutex
-	held     []net.Conn
-}
-
-func (l *stallFirstConnListener) Accept() (net.Conn, error) {
-	for {
-		c, err := l.Listener.Accept()
-		if err != nil {
-			return nil, err
-		}
-		if l.accepted.Add(1) == 1 {
-			l.mu.Lock()
-			l.held = append(l.held, c)
-			l.mu.Unlock()
-			continue
-		}
-		return c, nil
-	}
-}
-
-func (l *stallFirstConnListener) Close() error {
-	l.mu.Lock()
-	for _, c := range l.held {
-		_ = c.Close()
-	}
-	l.held = nil
-	l.mu.Unlock()
-	return l.Listener.Close()
 }
 
 func (s *transportRetryState) cleanup() {
@@ -203,34 +155,6 @@ func (s *transportRetryState) streamCompletion(w http.ResponseWriter) {
 		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"content\":\"Hello after retry\"}}],\"id\":\"chatcmpl-r2\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n"+
 			"data: {\"choices\":[{\"finish_reason\":\"stop\",\"index\":0,\"delta\":{}}],\"id\":\"chatcmpl-r2\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n"+
 			"data: [DONE]\n\n")
-}
-
-func (s *transportRetryState) aProviderWhoseFirstTLSHandshakeStalls() error {
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		s.requests.Add(1)
-		s.streamCompletion(w)
-	}))
-	s.listener = &stallFirstConnListener{Listener: srv.Listener}
-	srv.Listener = s.listener
-	srv.StartTLS()
-	s.server = srv
-
-	client := srv.Client()
-	transport, ok := client.Transport.(*http.Transport)
-	if !ok {
-		return fmt.Errorf("test server client transport is %T, want *http.Transport", client.Transport)
-	}
-	// The default is 10s; a short timer keeps the scenario fast while the
-	// failure stays the very one a stalled network produces.
-	transport.TLSHandshakeTimeout = 200 * time.Millisecond
-
-	inner := newOpenAIProvider("test-model", "test-key", srv.URL, client, 0, 0, "")
-	s.provider = WrapResilient(inner, ResilientOptions{
-		RetryMax:      1,
-		RetryBase:     time.Millisecond,
-		RetryMaxDelay: time.Millisecond,
-	})
-	return nil
 }
 
 // aProviderWhoseUpstreamResetsFirstH2Stream runs the provider over HTTP/2
@@ -377,7 +301,6 @@ func initializeTransportRetryScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^an "openai" provider whose upstream cuts the connection once before any output and then streams a completion$`, s.aProviderWhoseUpstreamCutsOnce)
-	sc.Step(`^an "openai" provider whose upstream leaves the first TLS handshake unanswered and then streams a completion$`, s.aProviderWhoseFirstTLSHandshakeStalls)
 	sc.Step(`^an "openai" provider whose upstream resets the first HTTP/2 stream before any output and then streams a completion$`, s.aProviderWhoseUpstreamResetsFirstH2Stream)
 	sc.Step(`^an "openai" provider whose upstream goes silent on the first connection, pings included, and then streams a completion$`, s.aProviderWhoseUpstreamGoesSilentOnFirstConnection)
 	sc.Step(`^(\d+) requests? reached the upstream handler$`, s.requestsReachedTheHandler)

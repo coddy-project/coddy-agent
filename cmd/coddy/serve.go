@@ -325,11 +325,6 @@ func runServe(args []string) error {
 	// block the goroutine that replaced it, and a queued older document is
 	// already wrong by the time the supervisor would read it.
 	removeObserver := rt.AddConfigObserver(func(next *config.Config) {
-		// A reload that brought a block asking for the built-in certificates (a provider row with tls_auto, a join with auto) finds them
-		// made before anything dials; a failure is logged, and the dial that needed them then names the missing file.
-		if err := ensureBuiltinTLS(next, log); err != nil {
-			log.Warn("built-in TLS certificates", "err", err)
-		}
 		offerNewest(reloads, next)
 	})
 	defer removeObserver()
@@ -522,9 +517,6 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 				// OnServer is called with the live server and then with nil,
 				// both from this instance's goroutine.
 				withdrawPrompts := func() {}
-				if err := ensureBuiltinTLS(cfg, rt.Log); err != nil {
-					return err
-				}
 				return httpserver.Serve(ctx, httpserver.Options{
 					Cfg: cfg, Mgr: rt.Mgr, Log: rt.Log,
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
@@ -597,9 +589,6 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			// register and open their tunnels again within seconds.
 			Fingerprint: swarmFingerprint,
 			Run: func(ctx context.Context, cfg *config.Config) error {
-				if err := ensureBuiltinTLS(cfg, rt.Log); err != nil {
-					return err
-				}
 				return swarm.Serve(ctx, swarm.Options{
 					Cfg: cfg, Log: rt.Log, Home: deps.home,
 					ListenAddr: deps.swarmListenAddr(cfg), ExtraAuthTokens: deps.swarmAuthTokens,
@@ -785,11 +774,7 @@ func printServeBanner(cfg *config.Config, enabled []serve.Subsystem, httpAddr, s
 			fmt.Fprintf(os.Stderr, "  httpserver  http://%s  (%s)\n", httpAddr,
 				httpAuthSummary(cfg, extraAuth, extraLogin))
 		case serve.KindSwarm:
-			scheme := "http"
-			if cfg.Swarm.TLS.Enabled() {
-				scheme = "https"
-			}
-			fmt.Fprintf(os.Stderr, "  swarm       %s://%s  (relay)\n", scheme, swarmAddr)
+			fmt.Fprintf(os.Stderr, "  swarm       http://%s  (relay)\n", swarmAddr)
 		case serve.KindGateway:
 			fmt.Fprintf(os.Stderr, "  gateway     telegram\n")
 		case serve.KindGatewayPachca:

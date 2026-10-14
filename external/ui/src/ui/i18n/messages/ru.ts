@@ -182,13 +182,6 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.swarm.cors.allowed_origins.label": "Разрешённые origin",
   "settings.schema.swarm.cors.allowed_origins.desc":
     "Точные origin, например http://localhost:12345, или * для любого.",
-  "settings.schema.swarm.tls.label": "TLS",
-  "settings.schema.swarm.tls.desc":
-    "Сертификат и ключ, с которыми релей отвечает по HTTPS. Нужны оба или ни одного.",
-  "settings.schema.swarm.tls.cert_file.label": "Файл сертификата",
-  "settings.schema.swarm.tls.cert_file.desc": "Цепочка сертификатов в PEM.",
-  "settings.schema.swarm.tls.key_file.label": "Файл ключа",
-  "settings.schema.swarm.tls.key_file.desc": "Закрытый ключ в PEM.",
   "settings.schema.swarm.lease_ttl_seconds.label": "Срок аренды (секунды)",
   "settings.schema.swarm.lease_ttl_seconds.desc":
     "Сколько живёт регистрация без обновления, узлы обновляют её на трети срока.",
@@ -213,17 +206,10 @@ export const messagesRu: Record<string, string> = {
     "Собственный bearer-токен узла, который релей предъявляет, проксируя запросы.",
   "settings.schema.swarm.upstreams.dial.label": "Подключение",
   "settings.schema.swarm.upstreams.dial.desc":
-    "Как релей добирается до узла, исходящий прокси и проверка сертификата.",
+    "Исходящий прокси для подключения релея к узлу.",
   "settings.schema.swarm.upstreams.dial.proxy.label": "Прокси",
   "settings.schema.swarm.upstreams.dial.proxy.desc":
     "URL прокси http, https, socks5 или socks5h. В нём может быть пароль, поэтому он не показывается.",
-  "settings.schema.swarm.upstreams.dial.ca_file.label": "Файл CA",
-  "settings.schema.swarm.upstreams.dial.ca_file.desc":
-    "Набор сертификатов в PEM, которому доверяют для сертификата узла вдобавок к системным.",
-  "settings.schema.swarm.upstreams.dial.insecure_skip_verify.label":
-    "Не проверять сертификат",
-  "settings.schema.swarm.upstreams.dial.insecure_skip_verify.desc":
-    "Только для стенда, каждое такое соединение пишется в журнал как небезопасное.",
   "settings.schema.swarm.join.label": "Родительские релеи",
   "settings.schema.swarm.join.desc":
     "Релеи, в которых регистрируется этот релей. Так релеи выстраиваются в цепочку.",
@@ -244,17 +230,10 @@ export const messagesRu: Record<string, string> = {
     "Собственный клиентский токен этого релея, который предъявляет родитель, проксируя запросы.",
   "settings.schema.swarm.join.dial.label": "Подключение",
   "settings.schema.swarm.join.dial.desc":
-    "Как этот релей добирается до родителя, исходящий прокси и проверка сертификата.",
+    "Исходящий прокси для подключения этого релея к родителю.",
   "settings.schema.swarm.join.dial.proxy.label": "Прокси",
   "settings.schema.swarm.join.dial.proxy.desc":
     "URL прокси http, https, socks5 или socks5h. В нём может быть пароль, поэтому он не показывается.",
-  "settings.schema.swarm.join.dial.ca_file.label": "Файл CA",
-  "settings.schema.swarm.join.dial.ca_file.desc":
-    "Набор сертификатов в PEM, которому доверяют для сертификата родителя вдобавок к системным.",
-  "settings.schema.swarm.join.dial.insecure_skip_verify.label":
-    "Не проверять сертификат",
-  "settings.schema.swarm.join.dial.insecure_skip_verify.desc":
-    "Только для стенда, каждое такое соединение пишется в журнал как небезопасное.",
   "settings.schema.swarm.allow_private_upstreams.label": "Частные адреса узлов",
   "settings.schema.swarm.allow_private_upstreams.desc":
     "Имена хостов, которым можно указывать на частные диапазоны адресов, когда узел сообщает свой URL.",
@@ -451,18 +430,6 @@ export const messagesRu: Record<string, string> = {
     "Ожидание свободного слота, мс",
   "settings.schema.providers.busy_wait_ms.desc":
     "Только для провайдеров coddy: сколько один вызов ждёт свободный слот удалённого Coddy, когда тот отвечает «занято». Значение больше нуля главнее; 0 следует общему ожиданию агента (30000, если не задано).",
-  "settings.schema.providers.ca_file.label": "Файл CA",
-  "settings.schema.providers.ca_file.desc":
-    "Только для провайдеров coddy: PEM-набор удостоверяющего центра, подписавшего сертификат удалённого Coddy или релея, в дополнение к системным корням.",
-  "settings.schema.providers.client_cert_file.label": "Клиентский сертификат",
-  "settings.schema.providers.client_cert_file.desc":
-    "Только для провайдеров coddy: PEM-сертификат, который предъявляется, когда удалённый Coddy или релей его запрашивает (взаимный TLS). Задаётся вместе с клиентским ключом; файл читается при каждом рукопожатии, поэтому обновлённый сертификат не требует перезапуска.",
-  "settings.schema.providers.client_key_file.label": "Клиентский ключ",
-  "settings.schema.providers.client_key_file.desc":
-    "Только для провайдеров coddy: закрытый ключ клиентского сертификата в PEM. Путь: сам ключ в конфигурацию не попадает.",
-  "settings.schema.providers.tls_auto.label": "Встроенные сертификаты",
-  "settings.schema.providers.tls_auto.desc":
-    "Только для провайдеров coddy: использовать встроенные сертификаты (coddy tls): файл CA по умолчанию — набор bundle (CA этой машины и доверенные), клиентский сертификат и ключ — клиентская пара. Файл, указанный здесь, имеет приоритет.",
   "settings.schema.providers.usage_limits_panel.label": "Панель лимитов",
   "settings.schema.providers.usage_limits_panel.desc":
     "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex, Devin или coddy здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Для провайдера coddy это аккаунт удалённого Coddy, прочитанный через него. Выключено скрывает панель и прекращает эти запросы для данной строки.",

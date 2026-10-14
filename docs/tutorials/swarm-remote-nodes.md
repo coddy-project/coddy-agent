@@ -62,7 +62,7 @@ Trust is decided on the node. A project MCP server, a hooks file or a subagent d
 
 One credential opens the fleet: whoever holds the relay's client token controls every node the relay reaches, transitively through every hop. There are no per-node client permissions in this version, so a client token is a fleet-wide door and is handled as one: minted per relay, rotated by restarting the relay with a new value, and never sent over plain HTTP outside a private network.
 
-The relay speaks TLS when `swarm.tls` names a certificate and a key ([Encryption and proxies](../operate/swarm.md#encryption-and-proxies)); a node never needs TLS of its own, because it is reached only through its tunnel to the relay. Without TLS, reach the relay through an SSH tunnel and keep the address on loopback:
+Put the relay behind external TLS transport ([Encryption and proxies](../operate/swarm.md#encryption-and-proxies)); a node never needs TLS of its own, because it is reached only through its tunnel to the relay. The tunnel path needs a TCP byte forwarder with HTTP/1.1 ALPN. Without TLS, reach the relay through an SSH tunnel and keep the address on loopback:
 
 ```bash
 ssh -N -L 12346:127.0.0.1:12346 relay-host      # in one terminal

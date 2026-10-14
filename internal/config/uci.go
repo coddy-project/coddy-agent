@@ -262,6 +262,9 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 	if err := refuseRedactedSelector(tokens); err != nil {
 		return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
 	}
+	if cmd.Op != UCIOpDelete && removedTLSPath(cmd.Path) {
+		return &tlsMigrationError{findings: []Finding{{Path: cmd.Path}}}
+	}
 	switch cmd.Op {
 	case UCIOpSet:
 		target, err := configSchemaType(tokens)
@@ -280,7 +283,7 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 		}
 		return nil
 	case UCIOpDelete:
-		if _, err := configSchemaType(tokens); err != nil {
+		if _, err := configSchemaType(tokens); err != nil && !removedTLSPath(cmd.Path) {
 			return err
 		}
 		mutated, err := mutateConfigNode(root, tokens, nil, true)
@@ -511,6 +514,12 @@ func (r *ConfigCommitResult) Rollback() error {
 // failure paths, where taking the non-reentrant mutex again would deadlock.
 func (r *ConfigCommitResult) rollbackLocked() error {
 	var restoreErr error
+	if err := ValidateRemovedTLSKeys(r.previous); err != nil {
+		return err
+	}
+	if err := ValidateRemovedTLSKeys(r.prevSnapshot); err != nil {
+		return err
+	}
 	if r.existed {
 		restoreErr = errors.Join(restoreErr, AtomicWriteConfigYAML(r.paths.ConfigPath, r.previous))
 	} else if err := os.Remove(r.paths.ConfigPath); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -587,7 +596,7 @@ func commitUCICommandsLocked(paths Paths, cmds []UCICommand) (*ConfigCommitResul
 	if err := os.MkdirAll(filepath.Dir(paths.ConfigPath), 0o755); err != nil {
 		return nil, fmt.Errorf("create config directory: %w", err)
 	}
-	if existed {
+	if existed && ValidateRemovedTLSKeys(previous) == nil {
 		if err := WriteBackup(paths.ConfigPath, previous); err != nil {
 			return nil, fmt.Errorf("backup config: %w", err)
 		}
@@ -595,6 +604,8 @@ func commitUCICommandsLocked(paths Paths, cmds []UCICommand) (*ConfigCommitResul
 	// The snapshot is written even for the first commit into a missing file
 	// (as an empty document), so config_rollback can always return to the
 	// pre-commit state.
+	// Preserve the previous document for an operator reverting with an older
+	// binary. This binary validates the snapshot before any rollback write.
 	if err := atomicWriteFile(PrevConfigPath(paths.ConfigPath), previous, 0o600); err != nil {
 		return nil, fmt.Errorf("snapshot config: %w", err)
 	}
@@ -658,6 +669,9 @@ func (r *ConfigRollbackResult) Rollback() error {
 // rollbackLocked undoes the swap while the caller already holds configPathWriteMu.
 func (r *ConfigRollbackResult) rollbackLocked() error {
 	var restoreErr error
+	if err := ValidateRemovedTLSKeys(r.replaced); err != nil {
+		return err
+	}
 	restoreErr = errors.Join(restoreErr, AtomicWriteConfigYAML(r.paths.ConfigPath, r.replaced))
 	restoreErr = errors.Join(restoreErr, atomicWriteFile(r.SnapshotPath, r.restored, 0o600))
 	return restoreErr

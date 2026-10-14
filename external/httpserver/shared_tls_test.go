@@ -2,9 +2,7 @@
 
 package httpserver
 
-// TLS on the direct listener (docs/plans/remote-model-provider-tls-builtin.md): with httpserver.tls.client_ca_file the handshake requires a
-// certificate that chains to the CA and refuses a peer without one. That is all TLS does here: the application reads no identity out of
-// the certificate, so a certificate is no credential, no class and no budget. The credential is a token.
+// An external reverse proxy terminates mTLS; application rights belong to tokens.
 
 import (
 	"bytes"
@@ -20,12 +18,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
@@ -90,21 +89,26 @@ func (ca *mtlsCA) client(cert *tls.Certificate) *http.Client {
 	return &http.Client{Transport: &http.Transport{TLSClientConfig: cfg}, Timeout: 10 * time.Second}
 }
 
-// mtlsFixture is the shared fixture with the handler served over TLS that requires a client certificate, the way listenerTLS builds it.
+// mtlsFixture puts the ordinary HTTP handler behind an independent mTLS edge.
 func mtlsFixture(t *testing.T, opts ...sharedFixtureOption) (*sharedFixture, *mtlsCA, string) {
 	t.Helper()
 	ca := newMTLSCA(t)
-	all := append([]sharedFixtureOption{withSharedConfig(func(c *config.Config) {
-		c.HTTPServer.TLS = config.HTTPTLSConfig{ClientCAFile: ca.file}
-	})}, opts...)
-	fx := newSharedFixture(t, all...)
-	tlsCfg, err := listenerTLS(fx.cfg.HTTPListenerFiles().ClientCA)
-	if err != nil || tlsCfg == nil {
-		t.Fatalf("listenerTLS: %v %v", tlsCfg, err)
+	fx := newSharedFixture(t, opts...)
+	backend := httptest.NewServer(fx.srv.Handler())
+	t.Cleanup(backend.Close)
+	target, err := url.Parse(backend.URL)
+	if err != nil {
+		t.Fatal(err)
 	}
-	tlsCfg.Certificates = []tls.Certificate{ca.leaf(t, true)}
-	ts := httptest.NewUnstartedServer(fx.srv.Handler())
-	ts.TLS = tlsCfg
+	pool := x509.NewCertPool()
+	pool.AddCert(ca.cert)
+	ts := httptest.NewUnstartedServer(httputil.NewSingleHostReverseProxy(target))
+	ts.TLS = &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{ca.leaf(t, true)},
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    pool,
+	}
 	ts.StartTLS()
 	t.Cleanup(ts.Close)
 	return fx, ca, ts.URL
@@ -196,13 +200,6 @@ func TestTheHandshakeAdmitsByTheChainOnly(t *testing.T) {
 			_ = resp.Body.Close()
 			t.Errorf("%s: a peer that does not chain to the client CA was served: %d", name, resp.StatusCode)
 		}
-	}
-}
-
-func TestListenerTLSIsNilWithoutAClientCA(t *testing.T) {
-	cfg, err := listenerTLS("")
-	if err != nil || cfg != nil {
-		t.Fatalf("%v %v", cfg, err)
 	}
 }
 

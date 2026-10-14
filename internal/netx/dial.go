@@ -6,7 +6,6 @@ package netx
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
@@ -24,16 +23,6 @@ type Options struct {
 	// Proxy routes the connection through http, https, socks5 or socks5h.
 	// Empty falls back to the standard environment variables.
 	Proxy string
-	// CAFile verifies a peer whose certificate is signed privately.
-	CAFile string
-	// CertFile and KeyFile are the certificate this end presents when the peer
-	// asks for one. Both or neither; the pair is read at each handshake and
-	// cached by size and modification time.
-	CertFile string
-	KeyFile  string
-	// InsecureSkipVerify accepts any certificate. Never a default, and every
-	// caller that sets it is expected to say so out loud in its log.
-	InsecureSkipVerify bool
 	// DialTimeout bounds establishing the connection, not using it.
 	DialTimeout time.Duration
 	// Scheme is what the caller is about to speak, http or https. It decides
@@ -50,29 +39,7 @@ func (o Options) dialTimeout() time.Duration {
 
 // TLSConfig builds the client configuration for reaching serverName.
 func (o Options) TLSConfig(serverName string) (*tls.Config, error) {
-	cfg := &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		ServerName:         serverName,
-		InsecureSkipVerify: o.InsecureSkipVerify, //nolint:gosec // opt-in, and the caller logs it
-	}
-	certFile, keyFile := strings.TrimSpace(o.CertFile), strings.TrimSpace(o.KeyFile)
-	if (certFile == "") != (keyFile == "") {
-		return nil, fmt.Errorf("cert_file and key_file must be set together")
-	}
-	if certFile != "" {
-		cfg.GetClientCertificate = (&certLoader{certFile: certFile, keyFile: keyFile}).get
-	}
-	if path := strings.TrimSpace(o.CAFile); path != "" {
-		pem, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("read ca_file: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("ca_file %q contains no certificate", path)
-		}
-		cfg.RootCAs = pool
-	}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: serverName}
 	return cfg, nil
 }
 

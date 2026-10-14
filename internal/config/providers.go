@@ -58,16 +58,6 @@ type ProviderConfig struct {
 	// slot of the remote when the remote answers busy. A value above zero wins;
 	// 0 or absent falls back to agent.shared_busy_wait_ms (BusyWaitBudget).
 	BusyWaitMS int `yaml:"busy_wait_ms,omitempty"`
-	// CAFile, ClientCertFile and ClientKeyFile are the TLS identity of a
-	// provider of type coddy: the authority it trusts for the remote (or the
-	// relay) and the client certificate it presents. Paths, never the key
-	// itself; the pair is both or neither; any other type refuses them.
-	CAFile         string `yaml:"ca_file,omitempty"`
-	ClientCertFile string `yaml:"client_cert_file,omitempty"`
-	ClientKeyFile  string `yaml:"client_key_file,omitempty"`
-	// TLSAuto uses the built-in certificates (coddy tls) for a provider of type coddy: ca_file defaults to the bundle (this machine's
-	// CA and the trusted ones), client_cert_file and client_key_file to the client pair. A file named here wins.
-	TLSAuto bool `yaml:"tls_auto,omitempty"`
 	// UsageLimitsPanel switches the account usage panel of this row: the
 	// console footer line and /usage, the web UI's usage section and banner,
 	// and the reads behind them (GET /v1/limits for a neuraldeep row). A nil
@@ -215,33 +205,7 @@ func (p *ProviderConfig) Validate() error {
 		return fmt.Errorf("providers[%s].busy_wait_ms: must be >= 0", p.Name)
 	}
 	if p.Type == "coddy" {
-		if err := p.validateClientIdentity(); err != nil {
-			return err
-		}
 		return p.validateCoddyBase()
-	}
-	if p.TLSAuto {
-		return fmt.Errorf("providers[%s].tls_auto: only a provider of type coddy takes a TLS identity, and this one is of type %s: nothing would present it", p.Name, p.Type)
-	}
-	for _, kv := range []struct{ key, value string }{
-		{"ca_file", p.CAFile}, {"client_cert_file", p.ClientCertFile}, {"client_key_file", p.ClientKeyFile},
-	} {
-		if strings.TrimSpace(kv.value) != "" {
-			return fmt.Errorf("providers[%s].%s: only a provider of type coddy takes a TLS identity, and this one is of type %s: nothing would present it", p.Name, kv.key, p.Type)
-		}
-	}
-	return nil
-}
-
-// validateClientIdentity refuses a client certificate without its key, or the
-// reverse.
-func (p *ProviderConfig) validateClientIdentity() error {
-	cert, key := strings.TrimSpace(p.ClientCertFile), strings.TrimSpace(p.ClientKeyFile)
-	switch {
-	case cert != "" && key == "":
-		return fmt.Errorf("providers[%s].client_cert_file: client_cert_file and client_key_file must be set together", p.Name)
-	case cert == "" && key != "":
-		return fmt.Errorf("providers[%s].client_key_file: client_cert_file and client_key_file must be set together", p.Name)
 	}
 	return nil
 }

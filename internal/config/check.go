@@ -251,6 +251,12 @@ func checkConfigBytesWith(data []byte, paths Paths, extra ExtraTokens) []Finding
 	// the modeline behind a mark is still found (see source.go).
 	data = normalizeConfigSource(data)
 	var findings []Finding
+	if err := ValidateRemovedTLSKeys(data); err != nil {
+		var migration *tlsMigrationError
+		if errors.As(err, &migration) {
+			findings = append(findings, migration.findings...)
+		}
+	}
 	if !hasSchemaModeline(data) {
 		findings = append(findings, Finding{
 			Severity: SeverityWarning, Line: 1, Column: 1,

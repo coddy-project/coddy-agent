@@ -42,6 +42,9 @@ func WriteBackup(configPath string, data []byte) error {
 	if strings.TrimSpace(configPath) == "" {
 		return fmt.Errorf("config path is empty")
 	}
+	if err := ValidateRemovedTLSKeys(data); err != nil {
+		return err
+	}
 	return atomicWriteFile(BackupPath(configPath), data, credentialFileMode)
 }
 
@@ -65,6 +68,9 @@ func BackupCurrent(configPath string) error {
 	}
 	data, err := os.ReadFile(src)
 	if err != nil {
+		return err
+	}
+	if err := ValidateRemovedTLSKeys(data); err != nil {
 		return err
 	}
 	return atomicWriteFile(BackupPath(src), data, credentialFileMode)
@@ -116,6 +122,9 @@ func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {
 
 // parseValidateYAMLBytes parses expanded YAML and validates (includes applyDefaults).
 func parseValidateYAMLBytes(expanded string, paths Paths) (*Config, error) {
+	if err := ValidateRemovedTLSKeys([]byte(expanded)); err != nil {
+		return nil, err
+	}
 	var cfg Config
 	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		return nil, relocateSyntaxError(err, expanded)

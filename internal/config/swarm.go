@@ -61,17 +61,6 @@ type SwarmConfig struct {
 	// origin by construction, so this matters more here than on the agent.
 	CORS HTTPCORSConfig `yaml:"cors"`
 
-	// TLS serves the relay over HTTPS. Relays usually sit in different networks
-	// and carry every node's credential, so the link between them is the last
-	// place to leave in the clear.
-	TLS SwarmTLSConfig `yaml:"tls"`
-	// NodeTLS is how this relay reaches the nodes that registered themselves
-	// over a direct address: the authority their certificates are verified
-	// against and the client certificate the relay presents when a node asks
-	// for one. A node cannot ask for either itself, since that would be a
-	// claim about whom the relay should trust.
-	NodeTLS SwarmNodeTLSConfig `yaml:"node_tls"`
-
 	// LeaseTTLSeconds overrides how long a registration survives without a
 	// heartbeat.
 	LeaseTTLSeconds int `yaml:"lease_ttl_seconds"`
@@ -92,88 +81,12 @@ type SwarmConfig struct {
 	Clients []SwarmClient `yaml:"clients"`
 }
 
-// SwarmTLSConfig serves a listener over HTTPS. Both files or neither. TLS is the transport's business: the listener presents its
-// certificate and, with a client CA, admits a peer at the handshake by its chain. Coddy reads no identity out of a certificate; what a
-// certificate holder may do is for the reverse proxy and the infrastructure (docs/plans/remote-model-provider-tls-builtin.md).
-type SwarmTLSConfig struct {
-	CertFile string `yaml:"cert_file"`
-	KeyFile  string `yaml:"key_file"`
-	// ClientCAFile is the PEM bundle that client certificates are verified
-	// against. With it the handshake requires a certificate that chains to
-	// it, and refuses a peer without one.
-	ClientCAFile string `yaml:"client_ca_file"`
-	// Auto serves with the built-in certificates (coddy tls, $CODDY_HOME/tls): cert_file and key_file default to the server pair.
-	// A file named here wins.
-	Auto bool `yaml:"auto"`
-	// RequireClientCert, with Auto, makes the handshake require a client certificate that chains to a CA of the built-in bundle (this
-	// machine's and the ones it trusts); client_ca_file does the same for a bundle of your own.
-	RequireClientCert bool `yaml:"require_client_cert"`
-}
-
-// validate holds the rules of a TLS block named at (swarm.tls, httpserver.tls).
-func (t SwarmTLSConfig) validate(at string) error {
-	certSet := strings.TrimSpace(t.CertFile) != ""
-	keySet := strings.TrimSpace(t.KeyFile) != ""
-	if certSet != keySet {
-		return fmt.Errorf("%s: cert_file and key_file must be set together", at)
-	}
-	if strings.TrimSpace(t.ClientCAFile) != "" && !t.Enabled() {
-		return fmt.Errorf("%s.client_ca_file: needs %s.cert_file and key_file (or %s.auto): client certificates are asked for over TLS", at, at, at)
-	}
-	if t.RequireClientCert && !t.Auto && strings.TrimSpace(t.ClientCAFile) == "" {
-		return fmt.Errorf("%s.require_client_cert: needs %s.auto (the built-in bundle) or %s.client_ca_file (your own)", at, at, at)
-	}
-	return nil
-}
-
-// Enabled reports whether TLS is configured: a pair of files, or the built-in certificates.
-func (t SwarmTLSConfig) Enabled() bool {
-	return t.Auto || (strings.TrimSpace(t.CertFile) != "" && strings.TrimSpace(t.KeyFile) != "")
-}
-
-// SwarmNodeTLSConfig is the TLS identity of the relay's own leg to a node that
-// registered itself over a direct address (the tunnel carries no TLS of its
-// own). A node with settings of its own, a hand-written swarm.upstreams entry
-// with a dial block, keeps them.
-type SwarmNodeTLSConfig struct {
-	// CAFile verifies the node's certificate when it is signed privately.
-	CAFile string `yaml:"ca_file"`
-	// CertFile and KeyFile are the client certificate the relay presents when
-	// a node asks for one (httpserver.tls.client_ca_file on the node). Both or
-	// neither; the pair is read at each handshake, so a renewed one is used
-	// without a restart.
-	CertFile string `yaml:"cert_file"`
-	KeyFile  string `yaml:"key_file"`
-	// Auto uses the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones) and
-	// cert_file and key_file to the client pair. A file named here wins.
-	Auto bool `yaml:"auto"`
-}
-
-// IsZero reports whether no key of the block is set.
-func (n SwarmNodeTLSConfig) IsZero() bool {
-	return !n.Auto && strings.TrimSpace(n.CAFile) == "" && strings.TrimSpace(n.CertFile) == "" && strings.TrimSpace(n.KeyFile) == ""
-}
-
 // SwarmDialConfig is how one leg of the swarm reaches the other side. Relays
-// are expected to live in different networks, so a proxy hop and a private
-// certificate authority are ordinary, not exotic.
+// are expected to live in different networks, so a proxy hop is ordinary, not exotic.
 type SwarmDialConfig struct {
 	// Proxy routes the connection through http, https, socks5 or socks5h.
 	// Empty falls back to the standard environment variables.
 	Proxy string `yaml:"proxy"`
-	// CAFile verifies a peer whose certificate is signed privately.
-	CAFile string `yaml:"ca_file"`
-	// InsecureSkipVerify accepts any certificate. It exists for a lab and is
-	// logged loudly every time it is used.
-	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
-	// CertFile and KeyFile are the client certificate this end presents to the
-	// other when it asks for one (a node joining a relay that requires client
-	// certificates, a relay dialling a pinned node). Both or neither.
-	CertFile string `yaml:"cert_file"`
-	KeyFile  string `yaml:"key_file"`
-	// Auto uses the built-in certificates (coddy tls): ca_file defaults to the bundle and cert_file and key_file to the client pair.
-	// A file named here wins.
-	Auto bool `yaml:"auto"`
 }
 
 // SwarmUpstream is a node the relay knows about without being told by the node.
@@ -184,7 +97,7 @@ type SwarmUpstream struct {
 	Kind string `yaml:"kind"`
 	// Token is the bearer credential the relay presents to this node.
 	Token string `yaml:"token"`
-	// Dial carries the proxy and TLS settings for reaching this node.
+	// Dial carries the proxy settings for reaching this node.
 	Dial SwarmDialConfig `yaml:"dial"`
 }
 
@@ -207,7 +120,7 @@ type SwarmJoin struct {
 	Token string `yaml:"token"`
 	// Labels are free-form tags shown in topology views.
 	Labels map[string]string `yaml:"labels"`
-	// Dial carries the proxy and TLS settings for reaching the parent relay,
+	// Dial carries the proxy settings for reaching the parent relay,
 	// which matters most for the tunnel transport: that connection is the only
 	// way in, so it is the one most likely to cross a proxy.
 	Dial SwarmDialConfig `yaml:"dial"`
@@ -312,12 +225,6 @@ func (s *SwarmConfig) Validate() error {
 	if s.FanoutTimeoutSeconds < 0 {
 		return fmt.Errorf("swarm.fanout_timeout_seconds must not be negative")
 	}
-	if err := s.TLS.validate("swarm.tls"); err != nil {
-		return err
-	}
-	if (strings.TrimSpace(s.NodeTLS.CertFile) == "") != (strings.TrimSpace(s.NodeTLS.KeyFile) == "") {
-		return fmt.Errorf("swarm.node_tls: cert_file and key_file must be set together")
-	}
 	seen := map[string]bool{}
 	for _, up := range s.Upstreams {
 		if up.Name == "" {
@@ -330,9 +237,6 @@ func (s *SwarmConfig) Validate() error {
 		if up.URL == "" {
 			return fmt.Errorf("swarm.upstreams %q: url is required", up.Name)
 		}
-		if err := up.Dial.validatePair(fmt.Sprintf("swarm.upstreams[%s].dial", up.Name)); err != nil {
-			return err
-		}
 		switch up.Kind {
 		case "", "agent", "relay":
 		default:
@@ -342,9 +246,6 @@ func (s *SwarmConfig) Validate() error {
 	for i, j := range s.Join {
 		if j.URL == "" {
 			return fmt.Errorf("swarm.join[%d]: url is required", i)
-		}
-		if err := j.Dial.validatePair(fmt.Sprintf("swarm.join[%d].dial", i)); err != nil {
-			return err
 		}
 	}
 	return s.validateClients()
@@ -363,12 +264,4 @@ func (s *SwarmConfig) EffectiveClientTokens(extra ExtraTokens) []string {
 		}
 	}
 	return out
-}
-
-// validatePair refuses a certificate without its key, or the reverse.
-func (d SwarmDialConfig) validatePair(path string) error {
-	if (strings.TrimSpace(d.CertFile) == "") != (strings.TrimSpace(d.KeyFile) == "") {
-		return fmt.Errorf("%s: cert_file and key_file must be set together", path)
-	}
-	return nil
 }

@@ -1,4 +1,6 @@
 import React from "react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   cleanup,
@@ -45,10 +47,6 @@ const schema: JsonSchema = {
           proxy: { type: "string", title: "Proxy URL" },
           timeout_ms: { type: "integer", title: "Request timeout ms" },
           busy_wait_ms: { type: "integer", title: "Wait for a free slot ms" },
-          ca_file: { type: "string", title: "CA file" },
-          client_cert_file: { type: "string", title: "Client certificate" },
-          client_key_file: { type: "string", title: "Client key" },
-          tls_auto: { type: "boolean", title: "Built-in certificates" },
           usage_limits_panel: {
             type: "boolean",
             title: "Usage limits panel",
@@ -64,10 +62,6 @@ const schema: JsonSchema = {
           "proxy",
           "timeout_ms",
           "busy_wait_ms",
-          "ca_file",
-          "client_cert_file",
-          "client_key_file",
-          "tls_auto",
           "usage_limits_panel",
         ],
       },
@@ -475,67 +469,162 @@ test("the busy wait is a field of the coddy provider only, among the advanced se
   expect(screen.queryByLabelText("Wait for a free slot ms")).toBeNull();
 });
 
-test("the TLS identity is three fields of the coddy provider only, among the advanced settings", () => {
-  stubFetch();
-  const coddy = render(
-    <Harness
-      section={providersSection}
-      doc={{ providers: [{ name: "lab", type: "coddy" }], models: [] }}
-    />,
-  );
-  openFirstRow();
-  const advanced = screen.getByTestId("settings-group-advanced");
-  fireEvent.change(within(advanced).getByLabelText("CA file"), {
-    target: { value: "/etc/ca.pem" },
-  });
-  fireEvent.change(within(advanced).getByLabelText("Client certificate"), {
-    target: { value: "/etc/c.pem" },
-  });
-  fireEvent.change(within(advanced).getByLabelText("Client key"), {
-    target: { value: "/etc/k.pem" },
-  });
-  fireEvent.click(within(advanced).getByLabelText("Built-in certificates"));
-  const row = (latest.providers as Record<string, unknown>[])[0];
-  expect(row?.tls_auto).toBe(true);
-  expect(row?.ca_file).toBe("/etc/ca.pem");
-  expect(row?.client_cert_file).toBe("/etc/c.pem");
-  expect(row?.client_key_file).toBe("/etc/k.pem");
-  coddy.unmount();
+const serverSchema = JSON.parse(
+  readFileSync(
+    join(__dirname, "../../../../../internal/config/config.schema.json"),
+    "utf8",
+  ),
+) as JsonSchema;
 
-  render(
-    <Harness
-      section={providersSection}
-      doc={{ providers: [{ name: "demo", type: "openai" }], models: [] }}
-    />,
-  );
-  openFirstRow();
-  for (const label of [
-    "CA file",
-    "Client certificate",
-    "Client key",
-    "Built-in certificates",
-  ]) {
-    expect(screen.queryByLabelText(label)).toBeNull();
+const removedTLSKeys = [
+  "tls",
+  "node_tls",
+  "ca_file",
+  "client_ca_file",
+  "client_cert_file",
+  "client_key_file",
+  "tls_auto",
+  "cert_file",
+  "key_file",
+  "auto",
+  "require_client_cert",
+  "insecure_skip_verify",
+];
+
+function expectNoTLSFields(schema: JsonSchema) {
+  for (const [key, value] of Object.entries(schema.properties ?? {})) {
+    expect(removedTLSKeys, key).not.toContain(key);
+    expectNoTLSFields(value);
   }
+  if (schema.items && !Array.isArray(schema.items))
+    expectNoTLSFields(schema.items);
+}
+
+test("Settings has no custom built-in TLS field wiring", () => {
+  const source = readFileSync(join(__dirname, "SettingsSection.tsx"), "utf8");
+  expect(source).not.toContain("CODDY_IDENTITY_PATHS");
+  for (const key of removedTLSKeys.filter((key) => key !== "auto"))
+    expect(source).not.toContain(`"${key}"`);
 });
 
-test("the TLS identity of the coddy provider reads in Russian", async () => {
-  setLocale("ru");
-  stubFetch();
-  render(
-    <Harness
-      section={providersSection}
-      doc={{ providers: [{ name: "lab", type: "coddy" }], models: [] }}
-    />,
-  );
-  openFirstRow();
-  await waitFor(() => {
-    expect(screen.getByLabelText("Файл CA")).toBeTruthy();
-    expect(screen.getByLabelText("Клиентский сертификат")).toBeTruthy();
-    expect(screen.getByLabelText("Клиентский ключ")).toBeTruthy();
-    expect(screen.getByLabelText("Встроенные сертификаты")).toBeTruthy();
-  });
-});
+test.each(["en", "ru"] as const)(
+  "the server-driven provider keeps HTTPS, proxy and auth without TLS fields (%s)",
+  (locale) => {
+    setLocale(locale);
+    stubFetch();
+    expectNoTLSFields(serverSchema.properties!.providers!);
+    render(
+      <SettingsSection
+        section={providersSection}
+        schema={serverSchema}
+        doc={{
+          providers: [
+            {
+              name: "demo",
+              type: "coddy",
+              api_base: "https://models.example.com",
+              api_key: "fixture-key",
+              proxy: "https://proxy.example.com:8443",
+            },
+          ],
+        }}
+        setDoc={(next) => {
+          latest = next;
+        }}
+      />,
+    );
+    openFirstRow();
+    fireEvent.click(
+      within(screen.getByTestId("settings-group-advanced")).getByRole("button"),
+    );
+    expect(screen.getByDisplayValue("https://models.example.com")).toBeTruthy();
+    expect(screen.getByDisplayValue("fixture-key")).toBeTruthy();
+    const proxy = screen.getByTestId("proxy-setting-url");
+    expect((proxy as HTMLInputElement).value).toBe(
+      "https://proxy.example.com:8443",
+    );
+    fireEvent.change(proxy, { target: { value: "socks5://127.0.0.1:1080" } });
+    expect((latest.providers as Record<string, unknown>[])[0]?.proxy).toBe(
+      "socks5://127.0.0.1:1080",
+    );
+    for (const label of [
+      "CA file",
+      "Client certificate",
+      "Client key",
+      "Built-in certificates",
+      "Файл CA",
+      "Клиентский сертификат",
+      "Клиентский ключ",
+      "Встроенные сертификаты",
+    ]) {
+      expect(screen.queryByLabelText(label)).toBeNull();
+    }
+  },
+);
+
+test.each(["en", "ru"] as const)(
+  "the server-driven swarm keeps HTTPS, proxy and credentials without TLS blocks (%s)",
+  (locale) => {
+    setLocale(locale);
+    expectNoTLSFields(serverSchema.properties!.swarm!);
+    render(
+      <SettingsSection
+        section={{
+          id: "swarm",
+          label: "Swarm relay",
+          kind: "object",
+          schemaKey: "swarm",
+        }}
+        schema={serverSchema}
+        doc={{
+          swarm: {
+            auth_token: "fixture-token",
+            upstreams: [
+              {
+                name: "demo",
+                url: "https://node.example.com",
+                token: "fixture-upstream",
+                dial: { proxy: "https://proxy.example.com:8443" },
+              },
+            ],
+            join: [
+              {
+                url: "https://relay.example.com",
+                pairing_token: "fixture-pairing",
+                token: "fixture-join",
+                dial: { proxy: "socks5://127.0.0.1:1080" },
+              },
+            ],
+          },
+        }}
+        setDoc={(next) => {
+          latest = next;
+        }}
+      />,
+    );
+    for (const value of [
+      "https://node.example.com",
+      "https://relay.example.com",
+      "fixture-token",
+      "fixture-upstream",
+      "fixture-pairing",
+      "fixture-join",
+      "https://proxy.example.com:8443",
+      "socks5://127.0.0.1:1080",
+    ]) {
+      expect(screen.getByDisplayValue(value)).toBeTruthy();
+    }
+    for (const label of [
+      "CA file",
+      "Certificate file",
+      "Key file",
+      "Skip certificate check",
+      "Built-in certificates",
+    ]) {
+      expect(screen.queryByLabelText(label)).toBeNull();
+    }
+  },
+);
 
 test("the usage panel switch is on the coddy provider form: the remote's account usage is read for it", () => {
   stubFetch();

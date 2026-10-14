@@ -557,15 +557,6 @@ swarm.cors.allow_loopback:
 swarm.cors.allowed_origins:
   en: "Exact origins permitted to call the API, e.g. \"http://localhost:5173\". A single \"*\" allows any origin."
   ru: "Точные origin, которым разрешено вызывать API, например \"http://localhost:5173\". Единственный \"*\" разрешает любой origin."
-swarm.tls:
-  en: "Serve the relay over HTTPS. Set both files or neither. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart."
-  ru: "Отдавать релей по HTTPS. Задайте оба файла или ни одного. Минимум TLS 1.2; сертификаты читаются при запуске, поэтому для их смены нужен перезапуск."
-swarm.tls.cert_file:
-  en: "PEM certificate chain."
-  ru: "Цепочка сертификатов в PEM."
-swarm.tls.key_file:
-  en: "PEM private key."
-  ru: "Закрытый ключ в PEM."
 swarm.lease_ttl_seconds:
   en: "How long a registration survives without a heartbeat. 0 falls back to 90; nodes refresh at a third of it."
   ru: "Сколько регистрация живёт без сигнала heartbeat. 0 сводится к 90; узлы обновляют регистрацию через треть этого срока."
@@ -588,17 +579,11 @@ swarm.upstreams[].token:
   en: "Bearer credential the relay presents to this node. Never echoed back."
   ru: "Bearer-токен, который релей предъявляет этому узлу. Никогда не отдаётся обратно."
 swarm.upstreams[].dial:
-  en: "How this leg reaches the other side. Relays are expected to live in different networks, so a proxy hop and a private certificate authority are ordinary here."
-  ru: "Как это звено добирается до другой стороны. Релеи, как правило, живут в разных сетях, поэтому прокси на пути и частный удостоверяющий центр здесь обычное дело."
+  en: "Proxy settings for reaching the other side. Relays can use a proxy to connect across networks."
+  ru: "Настройки прокси для подключения к другой стороне. Релеи могут подключаться через прокси к узлам в других сетях."
 swarm.upstreams[].dial.proxy:
   en: "Route the connection through a proxy: http, https, socks5 or socks5h. Empty falls back to the standard environment variables. Never echoed back."
   ru: "Направить соединение через прокси - http, https, socks5 или socks5h. Пусто - используются стандартные переменные окружения. Никогда не отдаётся обратно."
-swarm.upstreams[].dial.ca_file:
-  en: "Certificate authority used to verify a peer whose certificate is signed privately."
-  ru: "Удостоверяющий центр, которым проверяется другая сторона с сертификатом, подписанным частным образом."
-swarm.upstreams[].dial.insecure_skip_verify:
-  en: "Accept any certificate. For a lab only; every use is logged."
-  ru: "Принимать любой сертификат. Только для стенда; каждое использование пишется в журнал."
 swarm.join:
   en: "Parent relays this process registers into on startup. Honoured whether or not this process runs a relay of its own, which is what lets relays chain."
   ru: "Родительские релеи, в которых этот процесс регистрируется при запуске. Учитывается независимо от того, запускает ли процесс собственный релей, поэтому релеи и выстраиваются в цепочку."
@@ -621,17 +606,11 @@ swarm.join[].labels:
   en: "Free-form tags shown in topology views."
   ru: "Произвольные метки, которые показываются на карте топологии."
 swarm.join[].dial:
-  en: "How this leg reaches the other side. Relays are expected to live in different networks, so a proxy hop and a private certificate authority are ordinary here."
-  ru: "Как это звено добирается до другой стороны. Релеи, как правило, живут в разных сетях, поэтому прокси на пути и частный удостоверяющий центр здесь обычное дело."
+  en: "Proxy settings for reaching the other side. Relays can use a proxy to connect across networks."
+  ru: "Настройки прокси для подключения к другой стороне. Релеи могут подключаться через прокси к узлам в других сетях."
 swarm.join[].dial.proxy:
   en: "Route the connection through a proxy: http, https, socks5 or socks5h. Empty falls back to the standard environment variables. Never echoed back."
   ru: "Направить соединение через прокси - http, https, socks5 или socks5h. Пусто - используются стандартные переменные окружения. Никогда не отдаётся обратно."
-swarm.join[].dial.ca_file:
-  en: "Certificate authority used to verify a peer whose certificate is signed privately."
-  ru: "Удостоверяющий центр, которым проверяется другая сторона с сертификатом, подписанным частным образом."
-swarm.join[].dial.insecure_skip_verify:
-  en: "Accept any certificate. For a lab only; every use is logged."
-  ru: "Принимать любой сертификат. Только для стенда; каждое использование пишется в журнал."
 ui:
   en: "Controls the bundled single-page UI (only meaningful in binaries built with -tags http,ui)."
   ru: "Управляет встроенным одностраничным интерфейсом (имеет смысл только в бинарниках, собранных с -tags http,ui)."
@@ -793,18 +772,6 @@ supervisor.max_chain_sessions:
 providers[].busy_wait_ms:
   en: "How long, in milliseconds, one call to a provider of type coddy waits for a free slot of the remote when the remote answers busy (it runs at most httpserver.shared_models.max_streams calls per credential at once). A value above zero wins; 0 or absent falls back to agent.shared_busy_wait_ms, which is 30000 unless set. Other provider types ignore it."
   ru: "Сколько миллисекунд один вызов провайдера типа coddy ждёт свободный слот удалённого сервера, когда тот отвечает busy (он выполняет не более httpserver.shared_models.max_streams вызовов на одни учётные данные). Значение больше нуля имеет приоритет; 0 или отсутствие ключа использует agent.shared_busy_wait_ms, то есть 30000, если он не задан. Другие типы провайдеров ключ игнорируют."
-providers[].ca_file:
-  en: "Provider of type coddy only: PEM bundle of the certificate authority that signed the remote's (or the relay's) certificate. When set, it replaces the system roots for this provider leg; when absent, the system roots are used. Another provider type refuses the key."
-  ru: "Только для провайдера типа coddy: PEM-набор сертификатов центра сертификации, который подписал сертификат удалённого сервера или релея. Если ключ задан, набор заменяет системные корни для этого соединения провайдера. Если ключа нет, используются системные корни. Другой тип провайдера отвергает этот ключ."
-providers[].client_cert_file:
-  en: "Provider of type coddy only: PEM client certificate presented to the remote or the relay when it asks for one (mutual TLS). Set together with client_key_file. Read at each handshake, so a rotated certificate is used by the next connection. Another provider type refuses the key."
-  ru: "Только для провайдера типа coddy: PEM-клиентский сертификат, который предъявляется удалённому серверу или релею по его запросу (взаимный TLS). Задавайте вместе с client_key_file. Читается при каждом TLS-рукопожатии, поэтому следующий сеанс использует заменённый сертификат. Другой тип провайдера отвергает этот ключ."
-providers[].client_key_file:
-  en: "Provider of type coddy only: PEM private key of client_cert_file. A path: the key itself never goes in the configuration. Another provider type refuses the key."
-  ru: "Только для провайдера типа coddy: PEM-закрытый ключ из client_cert_file. Это путь: сам ключ в конфигурацию не попадает. Другой тип провайдера отвергает этот ключ."
-providers[].tls_auto:
-  en: "Provider of type coddy only: use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones), client_cert_file and client_key_file to the client pair, which Coddy makes at start. A file named here wins. Another provider type refuses the key."
-  ru: "Только для провайдера типа coddy: использовать встроенные сертификаты (coddy tls): ca_file по умолчанию берётся из набора (CA этой машины и доверенные), а client_cert_file и client_key_file - из клиентской пары, которую Coddy создаёт при старте. Указанный здесь файл имеет приоритет. Другой тип провайдера отвергает этот ключ."
 models[].shared_as:
   en: "Offers this model to other Coddys that reach this server, under this alias: the only name that leaves the host, in the listing, in requests and in errors, never the provider/model selector. Empty or absent keeps the model private. 1 to 64 letters, digits, dots, underscores or hyphens, starting with a letter or a digit; unique across models; not allowed on a model of a provider of type coddy. The shared routes need a credential: httpserver.shared_models.tokens (opens only the LLM routes) or httpserver.auth_token; coddy -t reports shared_as without one as an error. The alias is a name, not an access boundary: the main token still reaches every model by its selector on the rest of the API."
   ru: "Предлагает эту модель другим Coddy, которые подключаются к этому серверу, под этим псевдонимом: это единственное имя, которое покидает хост - в списке, запросах и ошибках, но не селектор провайдера и модели. Пустое или отсутствующее значение оставляет модель приватной. От 1 до 64 букв, цифр, точек, подчёркиваний или дефисов, начиная с буквы или цифры; значение уникально среди моделей; не допускается у модели провайдера типа coddy. Для общих маршрутов нужны учётные данные: httpserver.shared_models.tokens (открывает только LLM-маршруты) или httpserver.auth_token; coddy -t считает shared_as без них ошибкой. Псевдоним - имя, а не граница доступа: основной токен по-прежнему открывает каждую модель по её селектору на остальных маршрутах API."
@@ -832,66 +799,6 @@ httpserver.shared_models.rate_burst:
 httpserver.shared_models.max_call_ms:
   en: "Longest time, in milliseconds, one blocking (stream: false) call of a shared model may run, from the start of the provider call to its result; a call that exceeds it ends as an upstream timeout and frees its slot. Omit for 1800000 (30 minutes). At most 28800000 (8 hours); an explicit 0 means that ceiling, never \"no bound\". A streamed model is bounded by agent.llm_stream_idle_timeout_ms per gap instead. coddy -t warns about a value above 1800000 together with a shared stream: false model whose provider has no timeout_ms."
   ru: "Наибольшее время в миллисекундах, которое может выполняться один блокирующий вызов общей модели (stream: false), от начала вызова провайдера до результата; превышение завершает его тайм-аутом вышестоящего сервера и освобождает слот. Без значения - 1800000 (30 минут). Не более 28800000 (8 часов); явный 0 означает этот потолок, а не отсутствие ограничения. Потоковая модель ограничивается agent.llm_stream_idle_timeout_ms на каждый промежуток. coddy -t предупреждает о значении выше 1800000 вместе с моделью общей модели stream: false, у провайдера которой нет timeout_ms."
-httpserver.tls:
-  en: "Serve the API over HTTPS, HTTP/1.1 only (so a shared call keeps a connection of its own and the liveness bound applies). Set both files or neither; without them the listener is plain HTTP, which is a reverse proxy's job to wrap. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart. A request through a TLS terminator or through the swarm tunnel carries no client certificate: require it at the terminator."
-  ru: "Отдавать API по HTTPS только через HTTP/1.1, чтобы у общего вызова было собственное соединение и действовал предел жизнеспособности. Задайте оба файла или ни одного; без них слушатель работает по обычному HTTP, который должен обернуть обратный прокси. Минимальная версия TLS - 1.2; сертификаты относятся к состоянию старта, поэтому их замена требует перезапуска. Запрос через TLS-терминатор или туннель роя не несёт клиентский сертификат: требуйте его на терминаторе."
-httpserver.tls.cert_file:
-  en: "PEM certificate chain."
-  ru: "PEM-цепочка сертификатов."
-httpserver.tls.key_file:
-  en: "PEM private key."
-  ru: "PEM-закрытый ключ."
-httpserver.tls.client_ca_file:
-  en: "PEM bundle that client certificates are verified against. With it the TLS handshake requires a certificate that chains to it and refuses every peer without one (mutual TLS admission at the transport level: Coddy reads no identity out of the certificate, so who may do what is for a reverse proxy). Needs cert_file and key_file. Startup state: changing it takes a restart."
-  ru: "PEM-набор, по которому проверяются клиентские сертификаты. С ним TLS-рукопожатие требует сертификат, образующий с ним цепочку, и отклоняет каждого клиента без него (допуск взаимного TLS на транспортном уровне: Coddy не читает личность из сертификата, поэтому права доступа задаёт обратный прокси). Нужны cert_file и key_file. Состояние старта: изменение требует перезапуска."
-httpserver.tls.auto:
-  en: "Serve with the built-in certificates (coddy tls ensure, $CODDY_HOME/tls): cert_file and key_file default to the server pair, which Coddy makes at start and renews when it ends within 30 days, so there is no openssl step. A file named here wins. The listener reads its pair at start, so a renewed one takes a restart."
-  ru: "Отдавать сервер со встроенными сертификатами (coddy tls ensure, $CODDY_HOME/tls): cert_file и key_file по умолчанию берутся из серверной пары, которую Coddy создаёт при старте и обновляет, когда до окончания остаётся 30 дней, поэтому шаг с openssl не нужен. Указанный здесь файл имеет приоритет. Слушатель читает пару при старте, поэтому обновлённая пара требует перезапуска."
-httpserver.tls.require_client_cert:
-  en: "With auto, make the handshake require a client certificate that chains to a CA of the built-in bundle (this machine's and the ones trusted with coddy tls trust). Coddy reads no identity out of it. client_ca_file does the same for a bundle of your own."
-  ru: "С auto требовать в TLS-рукопожатии клиентский сертификат, образующий цепочку с CA встроенного набора (CA этой машины и доверенные через coddy tls trust). Coddy не читает личность из него. client_ca_file делает то же для вашего собственного набора."
-swarm.tls.client_ca_file:
-  en: "PEM bundle that client certificates are verified against. With it the TLS handshake requires a certificate that chains to it and refuses every peer without one, nodes that join included (they present dial.cert_file and key_file). Coddy reads no identity out of the certificate: a client of the relay is told apart by its token. Needs cert_file and key_file. Startup state: changing it takes a restart."
-  ru: "PEM-набор, по которому проверяются клиентские сертификаты. С ним TLS-рукопожатие требует сертификат, образующий с ним цепочку, и отклоняет каждого клиента без него, включая подключающиеся узлы (они предъявляют dial.cert_file и key_file). Coddy не читает личность из сертификата: клиент релея различается по токену. Нужны cert_file и key_file. Состояние старта: изменение требует перезапуска."
-swarm.tls.auto:
-  en: "Serve with the built-in certificates (coddy tls ensure, $CODDY_HOME/tls): cert_file and key_file default to the server pair, which Coddy makes at start and renews when it ends within 30 days, so there is no openssl step. A file named here wins. The listener reads its pair at start, so a renewed one takes a restart."
-  ru: "Отдавать сервер со встроенными сертификатами (coddy tls ensure, $CODDY_HOME/tls): cert_file и key_file по умолчанию берутся из серверной пары, которую Coddy создаёт при старте и обновляет, когда до окончания остаётся 30 дней, поэтому шаг с openssl не нужен. Указанный здесь файл имеет приоритет. Слушатель читает пару при старте, поэтому обновлённая пара требует перезапуска."
-swarm.tls.require_client_cert:
-  en: "With auto, make the handshake require a client certificate that chains to a CA of the built-in bundle (this machine's and the ones trusted with coddy tls trust). Coddy reads no identity out of it. client_ca_file does the same for a bundle of your own."
-  ru: "С auto требовать в TLS-рукопожатии клиентский сертификат, образующий цепочку с CA встроенного набора (CA этой машины и доверенные через coddy tls trust). Coddy не читает личность из него. client_ca_file делает то же для вашего собственного набора."
-swarm.node_tls:
-  en: "How this relay reaches the nodes that registered themselves over a direct address (a node that dials out through the tunnel carries no TLS of its own): the authority their certificates are verified against and the client certificate the relay presents when a node asks for one (httpserver.tls.client_ca_file on the node). A node cannot ask for either itself. A swarm.upstreams entry with a dial block of its own keeps it and gets nothing from this block (they are not merged); one with no dial block gets it. A ca_file here replaces the system roots. The pair is read at each handshake; the CA is read when the node's route is built."
-  ru: "Как этот релей подключается к узлам, зарегистрировавшимся по прямому адресу (узел, который сам набирает туннель, не имеет собственного TLS): центр, по которому проверяются их сертификаты, и клиентский сертификат, который релей предъявляет по запросу узла (httpserver.tls.client_ca_file на узле). Узел не может запросить ни то ни другое сам. Запись swarm.upstreams с собственным блоком dial сохраняет его и ничего не получает из этого блока (они не объединяются); запись без блока dial получает его. ca_file здесь заменяет системные корни. Пара читается при каждом TLS-рукопожатии, а CA - при построении маршрута узла."
-swarm.node_tls.ca_file:
-  en: "PEM bundle that the nodes' server certificates are verified against, when they are signed privately. Without it the system roots are used."
-  ru: "PEM-набор, по которому проверяются сертификаты серверов узлов, если они подписаны частным центром. Без него используются системные корни."
-swarm.node_tls.cert_file:
-  en: "PEM certificate chain the relay presents to a node that asks for a client certificate. Set with key_file."
-  ru: "PEM-цепочка сертификатов, которую релей предъявляет узлу, запросившему клиентский сертификат. Задайте вместе с key_file."
-swarm.node_tls.key_file:
-  en: "PEM private key of cert_file."
-  ru: "PEM-закрытый ключ из cert_file."
-swarm.node_tls.auto:
-  en: "Use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones) and cert_file and key_file to the client pair, which Coddy makes at start. A file named here wins."
-  ru: "Использовать встроенные сертификаты (coddy tls): ca_file по умолчанию берётся из набора (CA этой машины и доверенные), а cert_file и key_file - из клиентской пары, которую Coddy создаёт при старте. Указанный здесь файл имеет приоритет."
-swarm.upstreams[].dial.cert_file:
-  en: "PEM client certificate this end presents when the other asks for one: a relay with swarm.tls.client_ca_file for a join, a node with httpserver.tls.client_ca_file or a child relay for an upstream. Set together with key_file; read at each handshake."
-  ru: "PEM-клиентский сертификат, который этот конец предъявляет по запросу другого: релей с swarm.tls.client_ca_file для присоединения, узел с httpserver.tls.client_ca_file или дочерний релей для вышестоящего подключения. Задайте вместе с key_file; читается при каждом TLS-рукопожатии."
-swarm.upstreams[].dial.key_file:
-  en: "PEM private key of cert_file."
-  ru: "PEM-закрытый ключ из cert_file."
-swarm.upstreams[].dial.auto:
-  en: "Use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones) and cert_file and key_file to the client pair, which Coddy makes at start. A file named here wins."
-  ru: "Использовать встроенные сертификаты (coddy tls): ca_file по умолчанию берётся из набора (CA этой машины и доверенные), а cert_file и key_file - из клиентской пары, которую Coddy создаёт при старте. Указанный здесь файл имеет приоритет."
-swarm.join[].dial.cert_file:
-  en: "PEM client certificate this end presents when the other asks for one: a relay with swarm.tls.client_ca_file for a join, a node with httpserver.tls.client_ca_file or a child relay for an upstream. Set together with key_file; read at each handshake."
-  ru: "PEM-клиентский сертификат, который этот конец предъявляет по запросу другого: релей с swarm.tls.client_ca_file для присоединения, узел с httpserver.tls.client_ca_file или дочерний релей для вышестоящего подключения. Задайте вместе с key_file; читается при каждом TLS-рукопожатии."
-swarm.join[].dial.key_file:
-  en: "PEM private key of cert_file."
-  ru: "PEM-закрытый ключ из cert_file."
-swarm.join[].dial.auto:
-  en: "Use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones) and cert_file and key_file to the client pair, which Coddy makes at start. A file named here wins."
-  ru: "Использовать встроенные сертификаты (coddy tls): ca_file по умолчанию берётся из набора (CA этой машины и доверенные), а cert_file и key_file - из клиентской пары, которую Coddy создаёт при старте. Указанный здесь файл имеет приоритет."
 swarm.clients:
   en: "Relay clients with a credential of their own that opens only the shared-model routes (GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage, POST /coddy/llm/completions) of the nodes they list. swarm.auth_token stays the full class and is not an entry here."
   ru: "Клиенты релея со своими учётными данными, которые открывают только маршруты общих моделей (GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage, POST /coddy/llm/completions) перечисленных ими узлов. swarm.auth_token остаётся полным классом доступа и не записывается здесь."
@@ -916,9 +823,3 @@ swarm.clients[].rate_per_minute:
 swarm.clients[].rate_burst:
   en: "Calls allowed at once before rate_per_minute applies. Empty takes the rate, capped by max_streams, at least 1."
   ru: "Сколько вызовов допускается сразу до применения rate_per_minute. Пустое значение берёт rate, ограниченный max_streams, но не меньше 1."
-tls:
-  en: "What the built-in certificate authority (coddy tls, files under $CODDY_HOME/tls) puts into the server certificate beyond what it finds by itself: the host name, localhost, the loopback addresses, the addresses of the interfaces and the bind and advertise_url hosts of this file are always there. TLS is the transport's business: nothing here is an identity or a credential."
-  ru: "Что встроенный центр сертификации (coddy tls, файлы в $CODDY_HOME/tls) добавляет в сертификат сервера сверх того, что находит сам: имя хоста, localhost, loopback-адреса, адреса интерфейсов и хосты bind и advertise_url из этого файла уже включены. TLS относится к транспорту: ничто здесь не является личностью или учётными данными."
-tls.names:
-  en: "Extra DNS names and IP addresses for the server certificate, for a host reached by a name Coddy cannot see: a proxy's name, a DNS alias, a public address behind NAT. A new name makes coddy tls ensure issue the server certificate again."
-  ru: "Дополнительные DNS-имена и IP-адреса для сертификата сервера, когда хост доступен по имени, которого Coddy не видит: имени прокси, DNS-псевдониму, публичному адресу за NAT. Новое имя заставляет coddy tls ensure выпустить сертификат сервера заново."

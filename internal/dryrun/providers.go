@@ -74,26 +74,13 @@ func (r *runner) probeProvider(ctx context.Context, prov *config.ProviderConfig,
 		return append(out, r.skipModels(models, "provider "+prov.Name+" is not signed in")...)
 	}
 
-	if prov.Type == "coddy" && prov.TLSAuto && r.builtinPending {
-		out = append(out, r.check(StatusSkipped, path, path+".tls_auto", "not probed: the built-in certificates are not made yet", ""))
-		return append(out, r.skipModels(models, "the built-in certificates of provider "+prov.Name+" are not made yet")...)
-	}
-	if prov.Type == "coddy" {
-		idChecks := r.coddyIdentityChecks(prov)
-		out = append(out, idChecks...)
-		if hasIdentityError(idChecks) {
-			return append(out, r.skipModels(models, "the TLS identity of provider "+prov.Name+" cannot be used")...)
-		}
-	}
-
 	in := llm.ProviderInput{
-		Name:      prov.Name,
-		Type:      prov.Type,
-		APIKey:    key,
-		BaseURL:   prov.APIBase,
-		ProxyURL:  prov.Proxy,
-		ClientTLS: r.req.Cfg.ProviderClientTLS(prov),
-		AuthPath:  config.ProviderAuthPath(r.req.Paths.Home, prov.Name, prov.Type),
+		Name:     prov.Name,
+		Type:     prov.Type,
+		APIKey:   key,
+		BaseURL:  prov.APIBase,
+		ProxyURL: prov.Proxy,
+		AuthPath: config.ProviderAuthPath(r.req.Paths.Home, prov.Name, prov.Type),
 		// The account a request of this row would use: the CLI login of the
 		// type serves one row only.
 		NoCLILogin: !r.req.Cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),

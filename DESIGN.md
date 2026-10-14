@@ -156,6 +156,12 @@ the row (see **Three-state fields** below). `multimodal` remains a local binary 
 `httpserver` block is hidden); they are edited in the file. The provider's **Usage limits panel** switch
 renders for a `coddy` row too (its account usage is the remote's, read per model).
 
+#### Connection settings
+
+Settings exposes no built-in TLS, CA, certificate or private-key controls. Provider forms keep HTTPS endpoint URLs, API credentials, outbound proxies and request timeouts; the Advanced settings group has no certificate fields. The relay's Swarm tab has no TLS or Node TLS blocks, and each join or upstream's Dialling block contains only its outbound proxy. Incoming HTTPS and client-certificate enforcement belong to an external reverse proxy, not this form. Application authentication remains separate.
+
+Coverage: **`SettingsSection.shared.test.tsx`** checks the forms against the server schema and preserves HTTPS, proxy and authentication controls in both locales. **`scripts/remove-tls-settings-check.mjs`** captures the real embedded provider and relay Settings at 1280px and 390px.
+
 #### Three-state fields
 
 `allow_reasoning_off` of a model whose provider is of type `coddy` (a model another Coddy shares) has

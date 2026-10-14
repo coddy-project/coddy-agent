@@ -1,64 +1,30 @@
 package llm
 
 import (
-	"io/fs"
-	"os"
-	"path/filepath"
-	"strings"
+	"net/http"
+	"reflect"
 	"testing"
 )
 
-// A row's TLS identity travels with its proxy: a ProviderInput built from a
-// provider row and given its ProxyURL must be given its ClientTLS too, or a
-// coddy row would present its certificate on the completion and not on the
-// listing, the usage read or the context-window probe. The sites that copy
-// ProxyURL from something that is not a provider row are named here.
-var identityGuardExempt = map[string]string{
-	"internal/llm/codex_auth.go": "the Codex catalog fetch: a codex row has no identity",
-}
-
-func TestEveryProviderInputThatCopiesTheProxyCopiesTheIdentity(t *testing.T) {
-	root := filepath.Join("..", "..")
-	var misses []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			switch d.Name() {
-			case "node_modules", ".git", "build", "dist":
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		rel, _ := filepath.Rel(root, path)
-		rel = filepath.ToSlash(rel)
-		if _, ok := identityGuardExempt[rel]; ok || strings.HasPrefix(rel, "internal/llm/") {
-			return nil
-		}
-		data, rerr := os.ReadFile(path)
-		if rerr != nil {
-			return rerr
-		}
-		lines := strings.Split(string(data), "\n")
-		for i, line := range lines {
-			if !strings.Contains(line, "ProxyURL:") || strings.Contains(line, "//") && strings.Index(line, "//") < strings.Index(line, "ProxyURL:") {
-				continue
-			}
-			lo, hi := max(0, i-14), min(len(lines), i+14)
-			if !strings.Contains(strings.Join(lines[lo:hi], "\n"), "ClientTLS:") {
-				misses = append(misses, rel+":"+itoa(i+1)+": "+strings.TrimSpace(line))
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
+func TestProvidersUseSystemTrustWithoutClientIdentity(t *testing.T) {
+	if _, exists := reflect.TypeFor[ProviderInput]().FieldByName("ClientTLS"); exists {
+		t.Fatal("provider-specific client TLS identity returned")
 	}
-	if len(misses) > 0 {
-		t.Fatalf("these ProviderInput literals copy ProxyURL and not ClientTLS:\n%s", strings.Join(misses, "\n"))
+	for _, typ := range []string{"coddy", "openai", "codex", "neuraldeep"} {
+		t.Run(typ, func(t *testing.T) {
+			rt, err := providerTransportFor(typ, "none")
+			if err != nil {
+				t.Fatal(err)
+			}
+			transport, ok := rt.(*http.Transport)
+			if !ok {
+				t.Fatalf("unexpected transport %T", rt)
+			}
+			if cfg := transport.TLSClientConfig; cfg != nil {
+				if cfg.RootCAs != nil || len(cfg.Certificates) != 0 || cfg.GetClientCertificate != nil || cfg.InsecureSkipVerify {
+					t.Fatal("provider transport overrides system trust or supplies a client identity")
+				}
+			}
+		})
 	}
 }

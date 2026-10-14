@@ -58,10 +58,6 @@ API credentials and transport selection for upstream LLM vendors. When api_key i
 | `providers[].proxy` | string | inherit | inherit (the default, the same as leaving the key out), none, or a proxy URL: http://, https://, socks5:// or socks5h://. inherit follows the proxy the environment of the Coddy process names - HTTPS_PROXY, HTTP_PROXY and NO_PROXY, never for a loopback address; ALL_PROXY is not read. none connects directly and ignores those variables. A proxy URL sends every request of this row through that proxy, NO_PROXY and loopback included; with SOCKS the proxy resolves host names. The setting covers every request of the provider: its completions, its model list, its account usage and its sign-in. |
 | `providers[].timeout_ms` | integer | 0 | Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short. |
 | `providers[].busy_wait_ms` | integer | 0 | How long, in milliseconds, one call to a provider of type coddy waits for a free slot of the remote when the remote answers busy (it runs at most httpserver.shared_models.max_streams calls per credential at once). A value above zero wins; 0 or absent falls back to agent.shared_busy_wait_ms, which is 30000 unless set. Other provider types ignore it. |
-| `providers[].ca_file` | string | "" | Provider of type coddy only: PEM bundle of the certificate authority that signed the remote's (or the relay's) certificate. When set, it replaces the system roots for this provider leg; when absent, the system roots are used. Another provider type refuses the key. |
-| `providers[].client_cert_file` | string | "" | Provider of type coddy only: PEM client certificate presented to the remote or the relay when it asks for one (mutual TLS). Set together with client_key_file. Read at each handshake, so a rotated certificate is used by the next connection. Another provider type refuses the key. |
-| `providers[].client_key_file` | string | "" | Provider of type coddy only: PEM private key of client_cert_file. A path: the key itself never goes in the configuration. Another provider type refuses the key. |
-| `providers[].tls_auto` | boolean | false | Provider of type coddy only: use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones), client_cert_file and client_key_file to the client pair, which Coddy makes at start. A file named here wins. Another provider type refuses the key. |
 | `providers[].usage_limits_panel` | boolean or null | true | Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep, the Codex backend's usage endpoint for type codex, the seat-management status RPC for type devin, and for type coddy the account of the remote Coddy behind each model, read through that remote). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected. |
 
 ### `models`
@@ -317,12 +313,6 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 | `httpserver.shared_models.rate_per_minute` | integer | 0 | How many shared-model calls one credential may start per minute, beside max_streams. A call past the window is refused at once with 429 kind busy and a Retry-After; the calling Coddy waits for it like for a full slot. 0 or omitted means no limit; a negative value is refused. |
 | `httpserver.shared_models.rate_burst` | integer | 0 | How many calls may start at once before rate_per_minute applies. 0 or omitted means the rate, capped by max_streams, at least 1. Has no effect without rate_per_minute. |
 | `httpserver.shared_models.max_call_ms` | integer or null | 1800000 | Longest time, in milliseconds, one blocking (stream: false) call of a shared model may run, from the start of the provider call to its result; a call that exceeds it ends as an upstream timeout and frees its slot. Omit for 1800000 (30 minutes). At most 28800000 (8 hours); an explicit 0 means that ceiling, never "no bound". A streamed model is bounded by agent.llm_stream_idle_timeout_ms per gap instead. coddy -t warns about a value above 1800000 together with a shared stream: false model whose provider has no timeout_ms. |
-| `httpserver.tls` | object |  | Serve the API over HTTPS, HTTP/1.1 only (so a shared call keeps a connection of its own and the liveness bound applies). Set both files or neither; without them the listener is plain HTTP, which is a reverse proxy's job to wrap. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart. A request through a TLS terminator or through the swarm tunnel carries no client certificate: require it at the terminator. |
-| `httpserver.tls.cert_file` | string | "" | PEM certificate chain. |
-| `httpserver.tls.key_file` | string | "" | PEM private key. |
-| `httpserver.tls.client_ca_file` | string | "" | PEM bundle that client certificates are verified against. With it the TLS handshake requires a certificate that chains to it and refuses every peer without one (mutual TLS admission at the transport level: Coddy reads no identity out of the certificate, so who may do what is for a reverse proxy). Needs cert_file and key_file. Startup state: changing it takes a restart. |
-| `httpserver.tls.auto` | boolean | false | Serve with the built-in certificates (coddy tls ensure, $CODDY_HOME/tls): cert_file and key_file default to the server pair, which Coddy makes at start and renews when it ends within 30 days, so there is no openssl step. A file named here wins. The listener reads its pair at start, so a renewed one takes a restart. |
-| `httpserver.tls.require_client_cert` | boolean | false | With auto, make the handshake require a client certificate that chains to a CA of the built-in bundle (this machine's and the ones trusted with coddy tls trust). Coddy reads no identity out of it. client_ca_file does the same for a bundle of your own. |
 
 ### `swarm`
 
@@ -343,17 +333,6 @@ Stateless relay that nodes register into and that chains into other relays. The 
 | `swarm.cors.enable` | boolean | false | Handle CORS preflight and emit Access-Control-* headers for allowed origins. |
 | `swarm.cors.allow_loopback` | boolean | false | Also allow any page served from the browser's own machine: an http or https origin whose host is localhost, a *.localhost name, 127.0.0.0/8 or [::1], on any port. A laptop's web UI reaching this relay, whatever port its own coddy serve took. Narrower than "*"; the client token still applies. |
 | `swarm.cors.allowed_origins` | list of strings | [] | Exact origins permitted to call the API, e.g. "http://localhost:5173". A single "*" allows any origin. |
-| `swarm.tls` | object |  | Serve the relay over HTTPS. Set both files or neither. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart. |
-| `swarm.tls.cert_file` | string | "" | PEM certificate chain. |
-| `swarm.tls.key_file` | string | "" | PEM private key. |
-| `swarm.tls.client_ca_file` | string | "" | PEM bundle that client certificates are verified against. With it the TLS handshake requires a certificate that chains to it and refuses every peer without one, nodes that join included (they present dial.cert_file and key_file). Coddy reads no identity out of the certificate: a client of the relay is told apart by its token. Needs cert_file and key_file. Startup state: changing it takes a restart. |
-| `swarm.tls.auto` | boolean | false | Serve with the built-in certificates (coddy tls ensure, $CODDY_HOME/tls): cert_file and key_file default to the server pair, which Coddy makes at start and renews when it ends within 30 days, so there is no openssl step. A file named here wins. The listener reads its pair at start, so a renewed one takes a restart. |
-| `swarm.tls.require_client_cert` | boolean | false | With auto, make the handshake require a client certificate that chains to a CA of the built-in bundle (this machine's and the ones trusted with coddy tls trust). Coddy reads no identity out of it. client_ca_file does the same for a bundle of your own. |
-| `swarm.node_tls` | object |  | How this relay reaches the nodes that registered themselves over a direct address (a node that dials out through the tunnel carries no TLS of its own): the authority their certificates are verified against and the client certificate the relay presents when a node asks for one (httpserver.tls.client_ca_file on the node). A node cannot ask for either itself. A swarm.upstreams entry with a dial block of its own keeps it and gets nothing from this block (they are not merged); one with no dial block gets it. A ca_file here replaces the system roots. The pair is read at each handshake; the CA is read when the node's route is built. |
-| `swarm.node_tls.ca_file` | string | "" | PEM bundle that the nodes' server certificates are verified against, when they are signed privately. Without it the system roots are used. |
-| `swarm.node_tls.cert_file` | string | "" | PEM certificate chain the relay presents to a node that asks for a client certificate. Set with key_file. |
-| `swarm.node_tls.key_file` | string | "" | PEM private key of cert_file. |
-| `swarm.node_tls.auto` | boolean | false | Use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones) and cert_file and key_file to the client pair, which Coddy makes at start. A file named here wins. |
 | `swarm.lease_ttl_seconds` | integer | 0 | How long a registration survives without a heartbeat. 0 falls back to 90; nodes refresh at a third of it. |
 | `swarm.fanout_timeout_seconds` | integer | 0 | Per-node deadline for an aggregated call. A slower node degrades into a warning rather than stalling the answer. 0 falls back to 3. |
 | `swarm.upstreams` | list of objects | [] | Nodes configured by hand rather than registered, for an agent that cannot run the join loop. |
@@ -361,13 +340,8 @@ Stateless relay that nodes register into and that chains into other relays. The 
 | `swarm.upstreams[].url` | string |  | Origin the relay dials to reach the node. |
 | `swarm.upstreams[].kind` | string, one of `""`, `agent`, `relay` | "" | agent (default) or relay. |
 | `swarm.upstreams[].token` | string | "" | Bearer credential the relay presents to this node. Never echoed back. |
-| `swarm.upstreams[].dial` | object |  | How this leg reaches the other side. Relays are expected to live in different networks, so a proxy hop and a private certificate authority are ordinary here. |
+| `swarm.upstreams[].dial` | object |  | Proxy settings for reaching the other side. Relays can use a proxy to connect across networks. |
 | `swarm.upstreams[].dial.proxy` | string | "" | Route the connection through a proxy: http, https, socks5 or socks5h. Empty falls back to the standard environment variables. Never echoed back. |
-| `swarm.upstreams[].dial.ca_file` | string | "" | Certificate authority used to verify a peer whose certificate is signed privately. |
-| `swarm.upstreams[].dial.insecure_skip_verify` | boolean | false | Accept any certificate. For a lab only; every use is logged. |
-| `swarm.upstreams[].dial.cert_file` | string | "" | PEM client certificate this end presents when the other asks for one: a relay with swarm.tls.client_ca_file for a join, a node with httpserver.tls.client_ca_file or a child relay for an upstream. Set together with key_file; read at each handshake. |
-| `swarm.upstreams[].dial.key_file` | string | "" | PEM private key of cert_file. |
-| `swarm.upstreams[].dial.auto` | boolean | false | Use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones) and cert_file and key_file to the client pair, which Coddy makes at start. A file named here wins. |
 | `swarm.join` | list of objects | [] | Parent relays this process registers into on startup. Honoured whether or not this process runs a relay of its own, which is what lets relays chain. |
 | `swarm.join[].url` | string |  | Parent relay origin. |
 | `swarm.join[].name` | string | "" | Name to claim in that relay. Empty falls back to the host name. |
@@ -375,13 +349,8 @@ Stateless relay that nodes register into and that chains into other relays. The 
 | `swarm.join[].advertise_url` | string | "" | Where the relay can reach this process. Leave empty to select the tunnel transport: this process dials out and serves its API back over that connection, which is the only way in when the network accepts no inbound connections. |
 | `swarm.join[].token` | string | "" | This process's own bearer credential, handed to the relay so it can authenticate when it proxies. Prefer a credential minted for the relay alone. Never echoed back. |
 | `swarm.join[].labels` | map of strings |  | Free-form tags shown in topology views. |
-| `swarm.join[].dial` | object |  | How this leg reaches the other side. Relays are expected to live in different networks, so a proxy hop and a private certificate authority are ordinary here. |
+| `swarm.join[].dial` | object |  | Proxy settings for reaching the other side. Relays can use a proxy to connect across networks. |
 | `swarm.join[].dial.proxy` | string | "" | Route the connection through a proxy: http, https, socks5 or socks5h. Empty falls back to the standard environment variables. Never echoed back. |
-| `swarm.join[].dial.ca_file` | string | "" | Certificate authority used to verify a peer whose certificate is signed privately. |
-| `swarm.join[].dial.insecure_skip_verify` | boolean | false | Accept any certificate. For a lab only; every use is logged. |
-| `swarm.join[].dial.cert_file` | string | "" | PEM client certificate this end presents when the other asks for one: a relay with swarm.tls.client_ca_file for a join, a node with httpserver.tls.client_ca_file or a child relay for an upstream. Set together with key_file; read at each handshake. |
-| `swarm.join[].dial.key_file` | string | "" | PEM private key of cert_file. |
-| `swarm.join[].dial.auto` | boolean | false | Use the built-in certificates (coddy tls): ca_file defaults to the bundle (this machine's CA and the trusted ones) and cert_file and key_file to the client pair, which Coddy makes at start. A file named here wins. |
 | `swarm.clients` | list of objects | [] | Relay clients with a credential of their own that opens only the shared-model routes (GET /coddy/llm/models, GET /coddy/llm/models/{alias}/usage, POST /coddy/llm/completions) of the nodes they list. swarm.auth_token stays the full class and is not an entry here. |
 | `swarm.clients[].name` | string |  | Label of the client in logs and counters: lower case letters, digits, '_' and '-', up to 32 characters, unique. 'full' and 'unknown' are reserved. |
 | `swarm.clients[].token` | string | "" | Bearer credential of the client. A token belongs to one class only: it must differ from httpserver.auth_token, swarm.auth_token, the pairing tokens, the shared-model tokens and every other client's token. An entry with no token (an ${ENV} reference to an unset variable) can be authenticated by nothing and is ignored. A certificate is no credential. Never echoed back. |
@@ -476,14 +445,6 @@ Checks a session goal (/goal) after every turn with a second model, continues un
 | `supervisor.loop_repeat` | integer or null | 3 | How many times a repeating cycle of identical tool operations (same call, same result) may come round before the watchdog cuts the turn. 0 disables loop detection. |
 | `supervisor.token_budget` | integer or null | 0 | Uncached input plus output tokens one goal's turns may spend; 0 means no cap. |
 | `supervisor.max_chain_sessions` | integer or null | 10 | Sessions one goal chain (/goal --then-file) may open one after another; when the goal of the last one is met, the chain stops. 0 turns goal chains off. |
-
-### `tls`
-
-What the built-in certificate authority (coddy tls, files under $CODDY_HOME/tls) puts into the server certificate beyond what it finds by itself: the host name, localhost, the loopback addresses, the addresses of the interfaces and the bind and advertise_url hosts of this file are always there. TLS is the transport's business: nothing here is an identity or a credential.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `tls.names` | list of strings |  | Extra DNS names and IP addresses for the server certificate, for a host reached by a name Coddy cannot see: a proxy's name, a DNS alias, a public address behind NAT. A new name makes coddy tls ensure issue the server certificate again. |
 
 ### `toolsets`
 

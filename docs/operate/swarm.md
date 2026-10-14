@@ -511,69 +511,29 @@ swarm:
 
 ### Client certificates
 
-TLS at the relay is the transport's business and nothing else. With `swarm.tls.client_ca_file` the handshake **requires** a certificate that chains to that authority and
-refuses every peer without one: nodes that join and browsers included, so a node then needs `dial.cert_file` and `dial.key_file`
-([Encryption and proxies](#encryption-and-proxies)). That is all TLS does here.
+Coddy does not terminate TLS or evaluate client certificates. Put the relay behind an external transport when HTTPS or mutual TLS is required. That transport owns certificate issuance, renewal and client-certificate enforcement; the relay still authorizes requests with its tokens. A certificate is never a Swarm credential or scope.
 
-- **Coddy reads no identity out of a certificate.** No name, no subject, no class. A relay client is told apart by its **token**: a `swarm.clients` entry is a bearer entry, a certificate opens nothing and adds nothing
-  to a request, and a request with a certificate and no token is a `401` like a request with neither. What a certificate holder may do is for a **reverse proxy** in front of the relay
-  and for the infrastructure around it: [Certificates and TLS](certificates.md#where-the-other-risks-go).
-- **Coddy makes the certificates** (`coddy tls`, built in): `swarm.tls.auto: true` serves the relay with the server pair, with `require_client_cert: true` the handshake requires a certificate of the built-in bundle, and `auto: true` on a `swarm.join[].dial`, a `swarm.upstreams[].dial` or `swarm.node_tls` presents the client pair and trusts the bundle; see [Certificates and TLS](certificates.md#built-in-certificates-coddy-tls). An authority of your own or a public one, named by hand, is the same setup, and a file named by hand wins over `auto`.
-- The full class and the scoped class are unchanged: the full token opens the relay, an entry's token opens the shared-model routes of the nodes it lists.
+For outbound HTTPS, Coddy verifies the certificate and hostname with the system trust store of the process. Install a private authority in that store. Do not replace verification with an insecure setting. If an outbound client certificate is required, make an external transport component present it.
 
-#### The relay's own certificate towards a node
-
-A node that serves TLS itself and asks for a client certificate (`httpserver.tls.client_ca_file` on the node, which then refuses a peer without a certificate at the handshake)
-needs the relay to present one, and a node with a private certificate needs the relay to trust its authority. A node that registered itself cannot say
-either, since that would be the node choosing whom the relay trusts, so the relay's operator does:
-
-```yaml
-swarm:
-  node_tls:
-    ca_file: /etc/coddy/nodes-ca.pem        # verifies the nodes' server certificates; without it the system roots
-    cert_file: /etc/coddy/relay-client.crt  # presented when a node asks for a certificate
-    key_file: /etc/coddy/relay-client.key   # set with cert_file
-    # auto: true                            # or the built-in bundle and client pair (coddy tls), with no file named
-```
-
-- **Where it applies.** To every node that registered itself over a direct address (`advertise_url`) and to a hand-written `swarm.upstreams` entry with no `dial` block. The mount, the aggregated
-  sessions and the topology all ride the same route. A `swarm.upstreams` entry with a `dial` block keeps its own and gets nothing from `node_tls`: the two are not merged, so an entry that sets only `proxy` also has no `node_tls` CA or certificate. A `ca_file` here replaces the system roots, so an upstream with no `dial` block and a publicly signed certificate stops verifying: give it a `dial.ca_file`. A node that dialled out through the tunnel
-  carries no TLS of its own, so nothing applies to it.
-- **No proxy and no skipped verification here.** Only the authority and the certificate: a proxy for every node would also bypass the egress check of an
-  advertised address, and `insecure_skip_verify` stays per upstream.
-- **What the node sees.** The relay's certificate, for every client of the relay alike: the node tells the relay apart, not the relay's clients (they keep their
-  scoped entries on the relay). The certificate is presented to whichever address a node advertises, as any TLS client certificate is: it names the relay and proves
-  nothing to a host that does not hold the authority the node trusts.
-- **Rotation.** The pair is read at each handshake (both files each time, parsed again only when their bytes changed), so a renewed certificate is used by the next connection. The
-  authority is read when a node's route is built, which is at its next registration; a change to the `swarm` block (this one, a client, a limit) rebuilds the relay in the same process, which starts the registry, the client windows and the counters afresh.
-- **Checks.** `coddy -t` refuses a certificate without its key; `--dry-run` loads the pair and the authority bundle; a relay whose `ca_file` cannot be read does not start, and names `swarm.node_tls`.
-
-The design record with the verdicts of the model checks behind these rules is
-[`docs/plans/remote-model-provider-phase3.md`](../plans/remote-model-provider-phase3.md) (D1, D2 and D5).
-
-For the whole story of certificates (self-signed, a private authority, wildcard, personal, purchased, Microsoft CA, ACME, passphrases, where to install what, the errors) see [Certificates and TLS](certificates.md).
+The full and scoped token classes are unchanged: the full token opens the relay, and an entry token opens only the shared-model routes of its listed nodes. See [Certificates and TLS](certificates.md).
 
 ## Encryption and proxies
 
-Relays usually sit in different networks.
+HTTP APIs and the web UI may sit behind an ordinary HTTP-layer TLS reverse proxy. Keep the Coddy HTTP backend on loopback or an isolated network.
+
+The reverse Swarm tunnel has a stricter transport requirement. After accepting HTTP/1, it changes into a raw reverse-role HTTP/2 connection. Its TLS terminator must therefore be a **TCP byte forwarder** that accepts TLS with HTTP/1.1 ALPN and forwards the byte stream unchanged to the relay. An ordinary HTTP-layer reverse proxy cannot carry that protocol transition. Use a separate HTTPS endpoint for browser/API traffic when that endpoint needs normal HTTP middleware.
+
+A join or upstream can still use its supported `dial.proxy` value:
 
 ```yaml
 swarm:
-  tls:
-    cert_file: "/etc/coddy/relay.crt"
-    key_file: "/etc/coddy/relay.key"
   join:
     - url: "https://parent.example"
       dial:
         proxy: "socks5://127.0.0.1:1080"   # http, https, socks5, socks5h
-        ca_file: "/etc/coddy/internal-ca.pem"
 ```
 
-Both files or neither; minimum TLS 1.2; certificates are startup state, so rotating them needs
-a restart. `insecure_skip_verify` exists for a lab and is logged once, as a warning, when the join or the upstream it belongs to starts.
-
-Opening a tunnel through a proxy to a TLS relay composes: dial the proxy, `CONNECT` to the
-relay, wrap in TLS, upgrade, invert roles. The HTTP/2 layer above is unaware of any of it.
+The process verifies `https://` peers through system trust. Install a private CA in that trust store. Do not send tokens or tunnels over non-loopback plain HTTP.
 
 ## What is deliberately absent
 

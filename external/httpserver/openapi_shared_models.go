@@ -171,7 +171,7 @@ func mergeSharedModelsOpenAPI(doc map[string]interface{}) {
 		map[string]interface{}{"bearerAuth": []interface{}{}},
 		map[string]interface{}{"cookieAuth": []interface{}{}},
 	}
-	access := "**Credentials.** A token of the LLM-only class (**`httpserver.shared_models.tokens`**) opens this route and the other three shared-model routes (the listing, the usage read and the probe's ping, with the completions) and nothing else: every other route answers it **401** like an unknown token. A TLS client certificate is **not** a credential: with **`httpserver.tls.client_ca_file`** the handshake requires one and refuses a peer without, and the application reads no identity out of it. The main token and a signed-in browser open every route. " +
+	access := "**Credentials.** A token of the LLM-only class (**`httpserver.shared_models.tokens`**) opens this route and the other three shared-model routes (the listing, the usage read and the probe's ping, with the completions) and nothing else: every other route answers it **401** like an unknown token. A TLS client certificate checked by an external reverse proxy is **not** an application credential. Coddy serves plain HTTP behind that proxy and reads no identity from a client certificate or forwarded certificate headers. The main token and a signed-in browser open every route. " +
 		"Any shared-model token closes the whole API gate, so a node that holds only shared-model tokens refuses every route but these four to everyone. " +
 		"While **no credential of any class** is configured and **`httpserver.allow_insecure`** is not set, the route answers **403** with `kind: auth` (on a loopback listener too); once a credential exists an anonymous caller gets the gate's **401**. "
 

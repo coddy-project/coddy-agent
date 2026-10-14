@@ -75,6 +75,9 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	if enc := utf16Encoding(data); enc != "" {
 		return nil, fmt.Errorf("config %s: the file is %s text, not UTF-8; %s", paths.ConfigPath, enc, utf16Fix)
 	}
+	if err := ValidateRemovedTLSKeys(data); err != nil {
+		return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
+	}
 	// Keys that left config.yaml move into their own files before anything
 	// reads the text (legacy_keys.go).
 	data = migrateLegacyKeys(paths, data)
@@ -84,6 +87,9 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {
+		if isTLSMigrationError(err) {
+			return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
+		}
 		rec, rerr := tryRecoverFromBackup(paths)
 		if rerr == nil && rec != nil {
 			return rec, nil
@@ -114,12 +120,6 @@ func validateSubconfigs(cfg *Config) error {
 		return fmt.Errorf("rules: %w", err)
 	}
 	cfg.Swarm.Normalize()
-	cfg.TLS.Normalize()
-	// `auto: true` names files under <home>/tls: with no home they would resolve to nothing, and a listener asked to require a client
-	// certificate would silently ask for none.
-	if cfg.BuiltinTLSWanted() && strings.TrimSpace(cfg.Paths.Home) == "" {
-		return fmt.Errorf("tls: auto: true needs an agent home to keep the built-in certificates in (set CODDY_HOME or --home)")
-	}
 	if err := cfg.Swarm.Validate(); err != nil {
 		return err
 	}

@@ -39,7 +39,7 @@ coddy serve
 
 The relay listens on every address of the machine, so the phone reaches it at the machine's address on the Wi-Fi, for example `http://192.168.1.10:12346`. From the phone's browser, `http://192.168.1.10:12346/swarm/info` answers without a token and says the relay is up.
 
-A relay on a server the phone reaches over the internet takes a certificate (`swarm.tls`, [Encryption and proxies](../operate/swarm.md#encryption-and-proxies)) and the phone joins `https://...`: the tokens travel in the request headers, and a mobile network may pass plain HTTP through a proxy that re-frames it, which the tunnel does not survive ([Two transports](../operate/swarm.md#two-transports)).
+Put the internet-facing relay behind external TLS transport and let the phone join `https://...`. For the reverse tunnel that transport must be a TCP byte forwarder with HTTP/1.1 ALPN; an L7 proxy may serve browser/API traffic only. The tokens travel in request headers.
 
 ## 2. Coddy in Termux
 

@@ -54,7 +54,7 @@ On the client, the token is the first of:
 
 The entry's token wins over the variable because it is bound to one destination and the variable to none. It is optional, and keeping it in the file is a choice with a cost: every browser that reads this server's configuration (`GET /coddy/config`) receives it, as it receives a provider's `api_key`, and so does anyone who can read the file. Write it as a `${ENV}` reference so the secret itself lives in `.env`. Without it, the web UI takes the token in its **Connect to…** form and keeps it in the browser only (`localStorage`, per remote), and the console reads the flag or the variable.
 
-An `http://` address outside loopback sends the token in clear, and the console and `coddy acp` warn before they use one. `coddy serve` can terminate HTTPS itself through `httpserver.tls`, including the built-in certificates configured with `auto: true`; a TLS-terminating reverse proxy or an SSH tunnel are alternatives. See [Certificates and TLS](certificates.md).
+An `http://` address outside loopback sends the token in clear, and the console and `coddy acp` warn before they use one. Put `coddy serve` behind an external TLS-terminating reverse proxy or use an SSH tunnel. Keep its plain-HTTP listener on loopback or an isolated network. See [Certificates and TLS](certificates.md).
 
 ```bash
 ssh -N -L 12345:127.0.0.1:12345 nas02   # in one terminal
@@ -88,7 +88,7 @@ httpserver:
 
 Signing in sets an `HttpOnly`, `SameSite=Strict` cookie that opens the same routes a token opens, streams included. Signing out (the entry at the bottom of the nav rail) drops the session on the server, so a copy of the cookie taken elsewhere stops working too. Sessions live in memory: saving settings from the page keeps them, restarting the process ends them, and rotating the password ends every session it opened. Full behaviour, including the CSRF rule for cookie-authenticated writes and the throttle on wrong passwords, is in [HTTP API](../reference/http-api.md#web-ui-sign-in-optional).
 
-A password typed into a non-loopback `http://` page travels in clear just like a token. Use `httpserver.tls` with the built-in certificates, a TLS-terminating reverse proxy, or the SSH tunnel above. A client certificate only admits a peer during the TLS handshake: authorization still needs the token or the sign-in session. See [Certificates and TLS](certificates.md).
+A password typed into a non-loopback `http://` page travels in clear just like a token. Use a TLS-terminating reverse proxy or the SSH tunnel above. The external transport may require a client certificate; authorization still needs the token or the sign-in session. See [Certificates and TLS](certificates.md).
 
 ## CORS for the web UI
 
@@ -150,7 +150,7 @@ Trust decisions are the server's too. A project MCP server, hooks file or subage
 ## Limitations
 
 - One bearer token per server, no users or roles: whoever holds it has the whole API, including the config editor and the workspace files.
-- HTTPS is optional. Configure `httpserver.tls` for a listener that terminates TLS itself, or use a reverse proxy or a tunnel. A non-loopback `http://` connection exposes credentials and transcript data.
+- HTTPS is optional. Use an external TLS-terminating reverse proxy or a tunnel. A non-loopback `http://` connection exposes credentials and transcript data.
 - A permission mode a remote client switches (`/permissions`, `--permission-mode`, the dialog's session switch) applies to the server's session for every client of it, and is kept with that session on the server, across a restart of `coddy serve` too. It also becomes the mode new sessions on that server start in.
 - A dropped connection leaves the server turn, its children and any open prompt running; `/resume` shows the outcome once the turn ends, and an answer to a prompt the server has already withdrawn is ignored. Quitting the console mid-turn waits briefly for the cancel to reach the server.
 - A session is one turn at a time: a second client prompting the same session gets `409` while the first turn holds the lock.
@@ -167,4 +167,4 @@ curl -sS -H "Authorization: Bearer $CODDY_REMOTE_TOKEN" https://nas02.example:12
 
 ## History
 
-The design record, [Remote control design](../plans/remote-control.md), documents the direction that shipped - the authenticated API, CORS, the environment selector and the Go client behind `--remote` - and the reverse tunnel with an agent registry that the [swarm relay](swarm.md) later covered with its reverse HTTP/2 tunnel. Native listener TLS is described in [Certificates and TLS](certificates.md).
+The design record, [Remote control design](../plans/remote-control.md), documents the direction that shipped - the authenticated API, CORS, the environment selector and the Go client behind `--remote` - and the reverse tunnel with an agent registry that the [swarm relay](swarm.md) later covered with its reverse HTTP/2 tunnel. [Certificates and TLS](certificates.md) describes the external transport that protects the plain HTTP listener.

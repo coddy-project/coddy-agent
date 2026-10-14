@@ -342,13 +342,12 @@ func (m *Manager) startListingLocked(cfg *config.Config, prov config.ProviderCon
 		defer close(done)
 		defer cancel()
 		models, err := list(ctx, llm.ProviderInput{
-			Name:      prov.Name,
-			Type:      prov.Type,
-			APIKey:    prov.EffectiveAPIKeyContext(ctx),
-			BaseURL:   prov.APIBase,
-			ProxyURL:  prov.Proxy,
-			ClientTLS: cfg.ProviderClientTLS(&prov),
-			AuthPath:  authPath,
+			Name:     prov.Name,
+			Type:     prov.Type,
+			APIKey:   prov.EffectiveAPIKeyContext(ctx),
+			BaseURL:  prov.APIBase,
+			ProxyURL: prov.Proxy,
+			AuthPath: authPath,
 			// The same account a request of this row would use.
 			NoCLILogin: !cfg.ProviderMayUseCLILogin(prov.Name, prov.Type),
 		})

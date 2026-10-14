@@ -47,7 +47,11 @@ source ~/.zshrc   # or open a new terminal
 coddy -v
 ```
 
-Встроенные [TLS-сертификаты](../operate/certificates.md#встроенные-сертификаты-coddy-tls) (без `openssl`) выпускает **`coddy tls ensure`**. Его за вас запускают **`coddy serve install`**, **`coddy serve`** (когда блок `config.yaml` запрашивает сертификаты) и **`coddy update`**; при необходимости запустите его вручную. Скрипт не устанавливает юнит systemd. Чтобы в Linux **`coddy serve`** работал как сервис вашей
+Coddy обслуживает обычный HTTP и не создаёт TLS-сертификаты. Перед слушателем, доступным за
+пределами loopback или изолированной сети, поставьте внешний обратный прокси; см.
+[TLS-терминацию и миграцию](../operate/certificates.md).
+
+Скрипт не устанавливает юнит systemd. Чтобы в Linux **`coddy serve`** работал как сервис вашей
 учётной записи, выполните **`coddy serve install`**, когда в конфигурации появится ключ провайдера.
 Команда записывает **`~/.config/systemd/user/coddy.service`** для бинарника, который поставил скрипт,
 включает этот юнит и запускает его в **`~/Coddy`**. Об этом скрипт и сообщает в конце работы. См.
@@ -277,4 +281,4 @@ coddy update -y
 
 См. [build.md](../contributing/build.md) и раздел README **Other installation methods**.
 
-<!-- docsgen:source sha256=177eeeefe802e26a -->
+<!-- docsgen:source sha256=93aa6d24e4fd9642 -->

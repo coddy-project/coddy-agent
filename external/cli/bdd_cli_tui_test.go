@@ -147,10 +147,19 @@ type cliTUIState struct {
 	detachedAnswers chan *acp.PermissionResult
 	questionAns     [][]string
 	prompts         []string
-	sawCancel       bool
-	activeToolID    string
-	toolSeq         int
-	blockedCh       chan struct{}
+	// pendingRunnerPrompt is the prompt the operator most recently submitted,
+	// and runnerEntered is the barrier the stubRunner closes when that exact
+	// prompt reaches it. The token step waits on it: a submission step's
+	// waitScreen can match the editor or the user bubble before the runner is
+	// invoked, and a prior submission's entry must not satisfy this one.
+	// runnerEnteredClosed guards against closing the same barrier twice.
+	pendingRunnerPrompt string
+	runnerEntered       chan struct{}
+	runnerEnteredClosed bool
+	sawCancel           bool
+	activeToolID        string
+	toolSeq             int
+	blockedCh           chan struct{}
 
 	prevSessionID string
 	// outside is a folder outside the workspace the "@" scenarios browse.
@@ -216,6 +225,9 @@ func (s *cliTUIState) reset() {
 	s.detachedAnswers = nil
 	s.questionAns = nil
 	s.prompts = nil
+	s.pendingRunnerPrompt = ""
+	s.runnerEntered = nil
+	s.runnerEnteredClosed = false
 	s.sawCancel = false
 	s.activeToolID = ""
 	s.toolSeq = 0
@@ -347,6 +359,14 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 	}
 	s.mu.Lock()
 	s.prompts = append(s.prompts, userText)
+	// Close the barrier of the submission that sent this exact prompt: it is
+	// the acknowledgement the token step waits on, proof this prompt reached
+	// the runner. A woken or goal turn carries no operator submission, so no
+	// barrier is pending and none is closed.
+	if s.pendingRunnerPrompt == userText && s.runnerEntered != nil && !s.runnerEnteredClosed {
+		close(s.runnerEntered)
+		s.runnerEnteredClosed = true
+	}
 	var offered []string
 	for _, c := range st.GetMCPClients() {
 		offered = append(offered, c.Name())
@@ -951,6 +971,17 @@ func (s *cliTUIState) footerNamesDefaultModel() error {
 }
 
 func (s *cliTUIState) operatorSubmitsPrompt(text string) error {
+	// Record what was just submitted and open a fresh barrier for it: the
+	// stubRunner closes it when this exact prompt reaches it. The token step
+	// waits on that barrier instead of the screen, which the submission's own
+	// waitScreen may have matched (editor or user bubble) before the runner
+	// was invoked.
+	s.mu.Lock()
+	s.pendingRunnerPrompt = text
+	s.runnerEntered = make(chan struct{})
+	s.runnerEnteredClosed = false
+	s.mu.Unlock()
+
 	s.typeText(text)
 	s.press("\r")
 	return s.waitScreen(text, 2*time.Second)
@@ -1059,19 +1090,21 @@ func (s *cliTUIState) footerShowsTokenUsage() error {
 func (s *cliTUIState) agentReportsTurnTokens(tokens int) error {
 	// The agent reports from inside its loop, after the turn announced itself
 	// (the preparing frame of beginTurn): a frame sent before the turn reached
-	// the runner could be overtaken by that one.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		s.mu.Lock()
-		entered := len(s.prompts) > 0
-		s.mu.Unlock()
-		if entered {
-			break
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("the turn never reached the agent runner")
-		}
-		time.Sleep(10 * time.Millisecond)
+	// the runner could be overtaken by that one. The submission step cannot
+	// give this acknowledgement - its waitScreen may have matched the editor
+	// or the user bubble before the runner was even invoked - so the barrier
+	// the stubRunner closed when this exact prompt entered it is the genuine
+	// one: wait on the channel, no sleep, nothing a prior invocation closed.
+	s.mu.Lock()
+	barrier := s.runnerEntered
+	s.mu.Unlock()
+	if barrier == nil {
+		return fmt.Errorf("no prompt was submitted for this turn to reach the agent runner")
+	}
+	select {
+	case <-barrier:
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("the turn never reached the agent runner")
 	}
 	return s.app.Sender().SendSessionUpdate(s.app.sessionID, acp.TurnProgressUpdate{
 		SessionUpdate: acp.UpdateTypeTurnProgress,

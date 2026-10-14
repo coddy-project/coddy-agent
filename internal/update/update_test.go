@@ -872,11 +872,21 @@ func TestNotesDisabled(t *testing.T) {
 	}
 }
 
-// An update asks the binary it has just installed to renew what it keeps (the built-in TLS certificates): AfterInstall runs once, with
-// the installed path, after the file is in place, and only when an update happened.
-func TestRun_afterInstallRunsWithTheInstalledBinaryOnly(t *testing.T) {
-	t.Parallel()
-	archive := mustTarGz(t, "coddy", []byte("#!/bin/sh\necho new\n"))
+// Updating the binary never services the operator's certificate directory.
+func TestRunLeavesOperatorCertificatesUntouched(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODDY_HOME", home)
+	certDir := filepath.Join(home, "tls")
+	if err := os.MkdirAll(certDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cert := filepath.Join(certDir, "ca.crt")
+	const certificate = "operator certificate\n"
+	if err := os.WriteFile(cert, []byte(certificate), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const binary = "#!/bin/sh\necho new\n"
+	archive := mustTarGz(t, "coddy", []byte(binary))
 	mux := http.NewServeMux()
 	mux.HandleFunc("/repos/coddy-project/coddy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		url := "http://" + r.Host + "/asset.tar.gz"
@@ -885,37 +895,37 @@ func TestRun_afterInstallRunsWithTheInstalledBinaryOnly(t *testing.T) {
 	mux.HandleFunc("/asset.tar.gz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive) })
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-
-	run := func(current string, check bool) (calls []string, seen string, out string) {
+	for _, check := range []bool{false, true} {
 		dest := filepath.Join(t.TempDir(), "coddy")
 		if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		var buf bytes.Buffer
+		var out bytes.Buffer
 		err := Run(context.Background(), Options{
-			APIBase: srv.URL, Repo: "coddy-project/coddy-agent", CurrentVersion: current,
-			GOOS: "linux", GOARCH: "amd64", InstallPath: dest, Yes: true, CheckOnly: check, NoNotes: true, Stdout: &buf,
-			AfterInstall: func(_ context.Context, binary string, out io.Writer) {
-				calls = append(calls, binary)
-				body, _ := os.ReadFile(binary)
-				seen = string(body)
-				_, _ = io.WriteString(out, "after install ran\n")
-			},
+			APIBase: srv.URL, Repo: "coddy-project/coddy-agent", CurrentVersion: "0.9.2",
+			GOOS: "linux", GOARCH: "amd64", InstallPath: dest, Yes: true, CheckOnly: check, NoNotes: true, Stdout: &out,
 		})
-		if err != nil && !errors.Is(err, ErrUpdateAvailable) {
+		if err != nil && (!check || !errors.Is(err, ErrUpdateAvailable)) {
 			t.Fatalf("Run: %v", err)
 		}
-		return calls, seen, buf.String()
-	}
-
-	calls, seen, out := run("0.9.2", false)
-	if len(calls) != 1 || !strings.Contains(seen, "echo new") || !strings.Contains(out, "after install ran") {
-		t.Fatalf("an update: calls=%v seen=%q out=%q", calls, seen, out)
-	}
-	if calls, _, _ := run("0.9.4", false); len(calls) != 0 {
-		t.Errorf("AfterInstall ran with nothing to install: %v", calls)
-	}
-	if calls, _, _ := run("0.9.2", true); len(calls) != 0 {
-		t.Errorf("AfterInstall ran on a check: %v", calls)
+		body, err := os.ReadFile(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := binary
+		if check {
+			want = "old"
+		}
+		if string(body) != want {
+			t.Fatalf("binary after check=%v: %q", check, body)
+		}
+		body, err = os.ReadFile(cert)
+		if err != nil || string(body) != certificate {
+			t.Fatalf("operator certificate changed: %q, %v", body, err)
+		}
+		files, err := os.ReadDir(certDir)
+		if err != nil || len(files) != 1 {
+			t.Fatalf("certificate directory changed: %v, %v", files, err)
+		}
 	}
 }

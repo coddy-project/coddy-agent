@@ -206,8 +206,8 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// A TLS client certificate is not a credential. The handshake admitted the peer by its chain
-		// (httpserver.tls.client_ca_file) and that is all TLS does here: the application reads no identity out of it.
+		// A TLS client certificate checked by an external proxy is not an application credential.
+		// The application reads no identity from a client certificate or forwarded certificate headers.
 		// A signed-in browser carries a cookie instead of a token. Same-origin
 		// requests send it on their own, which is why the SPA needs no
 		// ?access_token= on its event streams.

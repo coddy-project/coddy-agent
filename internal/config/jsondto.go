@@ -28,7 +28,6 @@ type ConfigJSON struct {
 	Decisions    DecisionsJSON    `json:"decisions,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Swarm        SwarmJSON        `json:"swarm,omitempty"`
-	TLS          TLSJSON          `json:"tls,omitempty"`
 	UI           UIJSON           `json:"ui,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
@@ -109,12 +108,6 @@ type ProviderJSON struct {
 	Proxy         string `json:"proxy,omitempty"`
 	TimeoutMS     int    `json:"timeout_ms,omitempty"`
 	BusyWaitMS    int    `json:"busy_wait_ms,omitempty"`
-	// The TLS identity of a coddy row: paths, served as plain strings.
-	CAFile         string `json:"ca_file,omitempty"`
-	ClientCertFile string `json:"client_cert_file,omitempty"`
-	ClientKeyFile  string `json:"client_key_file,omitempty"`
-	// TLSAuto: the built-in certificates fill what the three above leave empty.
-	TLSAuto bool `json:"tls_auto,omitempty"`
 	// UsageLimitsPanel keeps the three states of the YAML key: absent (on),
 	// true, false. omitempty leaves an unset switch out of the document.
 	UsageLimitsPanel *bool `json:"usage_limits_panel,omitempty"`
@@ -375,7 +368,6 @@ type HTTPServerJSON struct {
 	CORS            HTTPCORSJSON     `json:"cors,omitempty"`
 	Remotes         []HTTPRemoteJSON `json:"remotes,omitempty"`
 	SharedModels    SharedModelsJSON `json:"shared_models,omitempty"`
-	TLS             SwarmTLSJSON     `json:"tls,omitempty"`
 }
 
 // SharedModelsJSON mirrors SharedModelsConfig. Tokens are write-only, like the
@@ -437,8 +429,6 @@ type SwarmJSON struct {
 	InsecureOpenRegistration bool                `json:"insecure_open_registration,omitempty"`
 	AllowPrivateUpstreams    []string            `json:"allow_private_upstreams,omitempty"`
 	CORS                     HTTPCORSJSON        `json:"cors,omitempty"`
-	TLS                      SwarmTLSJSON        `json:"tls,omitempty"`
-	NodeTLS                  SwarmNodeTLSJSON    `json:"node_tls,omitempty"`
 	LeaseTTLSeconds          int                 `json:"lease_ttl_seconds,omitempty"`
 	FanoutTimeoutSeconds     int                 `json:"fanout_timeout_seconds,omitempty"`
 	Upstreams                []SwarmUpstreamJSON `json:"upstreams,omitempty"`
@@ -460,38 +450,11 @@ type SwarmClientJSON struct {
 	RateBurst       int      `json:"rate_burst,omitempty"`
 }
 
-// SwarmNodeTLSJSON mirrors SwarmNodeTLSConfig.
-type SwarmNodeTLSJSON struct {
-	CAFile   string `json:"ca_file,omitempty"`
-	CertFile string `json:"cert_file,omitempty"`
-	KeyFile  string `json:"key_file,omitempty"`
-	Auto     bool   `json:"auto,omitempty"`
-}
-
-// SwarmTLSJSON mirrors SwarmTLSConfig.
-type SwarmTLSJSON struct {
-	CertFile          string `json:"cert_file,omitempty"`
-	KeyFile           string `json:"key_file,omitempty"`
-	ClientCAFile      string `json:"client_ca_file,omitempty"`
-	Auto              bool   `json:"auto,omitempty"`
-	RequireClientCert bool   `json:"require_client_cert,omitempty"`
-}
-
-// TLSJSON mirrors TLSConfig.
-type TLSJSON struct {
-	Names []string `json:"names,omitempty"`
-}
-
 // SwarmDialJSON mirrors SwarmDialConfig. The proxy URL can carry credentials,
 // so it is write-only like the tokens.
 type SwarmDialJSON struct {
-	Proxy              string `json:"proxy,omitempty"`
-	ProxyConfigured    bool   `json:"proxy_configured,omitempty"`
-	CAFile             string `json:"ca_file,omitempty"`
-	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
-	CertFile           string `json:"cert_file,omitempty"`
-	KeyFile            string `json:"key_file,omitempty"`
-	Auto               bool   `json:"auto,omitempty"`
+	Proxy           string `json:"proxy,omitempty"`
+	ProxyConfigured bool   `json:"proxy_configured,omitempty"`
 }
 
 // SwarmUpstreamJSON mirrors SwarmUpstream.
@@ -704,8 +667,6 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			RatePerMinute:    c.HTTPServer.SharedModels.RatePerMinute,
 			RateBurst:        c.HTTPServer.SharedModels.RateBurst,
 		},
-		TLS: SwarmTLSJSON{CertFile: c.HTTPServer.TLS.CertFile, KeyFile: c.HTTPServer.TLS.KeyFile,
-			ClientCAFile: c.HTTPServer.TLS.ClientCAFile, Auto: c.HTTPServer.TLS.Auto, RequireClientCert: c.HTTPServer.TLS.RequireClientCert},
 	}
 	for _, rm := range c.HTTPServer.Remotes {
 		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
@@ -725,9 +686,6 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			AllowLoopback:  c.Swarm.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), c.Swarm.CORS.AllowedOrigins...),
 		},
-		TLS: SwarmTLSJSON{CertFile: c.Swarm.TLS.CertFile, KeyFile: c.Swarm.TLS.KeyFile,
-			ClientCAFile: c.Swarm.TLS.ClientCAFile, Auto: c.Swarm.TLS.Auto, RequireClientCert: c.Swarm.TLS.RequireClientCert},
-		NodeTLS:              SwarmNodeTLSJSON(c.Swarm.NodeTLS),
 		LeaseTTLSeconds:      c.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: c.Swarm.FanoutTimeoutSeconds,
 	}
@@ -806,7 +764,6 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Chats:            chatsToJSON(pc.Chats),
 	}
 	out.Gateways = GatewaysJSON{Telegram: tgJSON, Pachca: pcJSON}
-	out.TLS = TLSJSON{Names: append([]string(nil), c.TLS.Names...)}
 	return out
 }
 
@@ -962,8 +919,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			RatePerMinute: j.HTTPServer.SharedModels.RatePerMinute,
 			RateBurst:     j.HTTPServer.SharedModels.RateBurst,
 		},
-		TLS: HTTPTLSConfig{CertFile: j.HTTPServer.TLS.CertFile, KeyFile: j.HTTPServer.TLS.KeyFile,
-			ClientCAFile: j.HTTPServer.TLS.ClientCAFile, Auto: j.HTTPServer.TLS.Auto, RequireClientCert: j.HTTPServer.TLS.RequireClientCert},
 	}
 	for _, rm := range j.HTTPServer.Remotes {
 		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))
@@ -983,9 +938,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			AllowLoopback:  j.Swarm.CORS.AllowLoopback,
 			AllowedOrigins: append([]string(nil), j.Swarm.CORS.AllowedOrigins...),
 		},
-		TLS: SwarmTLSConfig{CertFile: j.Swarm.TLS.CertFile, KeyFile: j.Swarm.TLS.KeyFile,
-			ClientCAFile: j.Swarm.TLS.ClientCAFile, Auto: j.Swarm.TLS.Auto, RequireClientCert: j.Swarm.TLS.RequireClientCert},
-		NodeTLS:              SwarmNodeTLSConfig(j.Swarm.NodeTLS),
 		LeaseTTLSeconds:      j.Swarm.LeaseTTLSeconds,
 		FanoutTimeoutSeconds: j.Swarm.FanoutTimeoutSeconds,
 	}
@@ -1061,7 +1013,6 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Chats:            chatsFromJSON(jp.Chats),
 	}
 	cfg.Gateways = GatewayConfig{Telegram: tg, Pachca: pc}
-	cfg.TLS = TLSConfig{Names: append([]string(nil), j.TLS.Names...)}
 	return cfg
 }
 
@@ -1134,6 +1085,9 @@ func ParseAndValidateConfigJSON(data []byte, paths Paths) (*Config, error) {
 // httpserver auth tokens) from current into the incoming config when the payload omitted them.
 // This lets the UI save an edited, redacted config without wiping tokens it never received.
 func ParseConfigJSONPreservingSecrets(data []byte, paths Paths, current *Config) (*Config, error) {
+	if err := ValidateRemovedTLSJSONKeys(data); err != nil {
+		return nil, err
+	}
 	var j ConfigJSON
 	if err := json.Unmarshal(data, &j); err != nil {
 		return nil, fmt.Errorf("json: %w", err)
@@ -1282,23 +1236,13 @@ func swarmDialToJSON(d SwarmDialConfig) SwarmDialJSON {
 	return SwarmDialJSON{
 		// A proxy URL can carry credentials, so it is reported as present
 		// rather than echoed back.
-		ProxyConfigured:    strings.TrimSpace(d.Proxy) != "",
-		CAFile:             d.CAFile,
-		InsecureSkipVerify: d.InsecureSkipVerify,
-		CertFile:           d.CertFile,
-		KeyFile:            d.KeyFile,
-		Auto:               d.Auto,
+		ProxyConfigured: strings.TrimSpace(d.Proxy) != "",
 	}
 }
 
 func swarmDialFromJSON(d SwarmDialJSON) SwarmDialConfig {
 	return SwarmDialConfig{
-		Proxy:              d.Proxy,
-		CAFile:             d.CAFile,
-		InsecureSkipVerify: d.InsecureSkipVerify,
-		CertFile:           d.CertFile,
-		KeyFile:            d.KeyFile,
-		Auto:               d.Auto,
+		Proxy: d.Proxy,
 	}
 }
 

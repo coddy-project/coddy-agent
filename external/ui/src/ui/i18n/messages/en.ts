@@ -181,13 +181,6 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.swarm.cors.allowed_origins.label": "Allowed origins",
   "settings.schema.swarm.cors.allowed_origins.desc":
     "Exact origins, for example http://localhost:12345, or * for any.",
-  "settings.schema.swarm.tls.label": "TLS",
-  "settings.schema.swarm.tls.desc":
-    "Certificate and key the relay serves HTTPS with. Both or neither.",
-  "settings.schema.swarm.tls.cert_file.label": "Certificate file",
-  "settings.schema.swarm.tls.cert_file.desc": "PEM certificate chain.",
-  "settings.schema.swarm.tls.key_file.label": "Key file",
-  "settings.schema.swarm.tls.key_file.desc": "PEM private key.",
   "settings.schema.swarm.lease_ttl_seconds.label": "Lease TTL (seconds)",
   "settings.schema.swarm.lease_ttl_seconds.desc":
     "How long a registration lasts without a refresh; nodes refresh at a third of it.",
@@ -212,17 +205,10 @@ export const messagesEn: Record<string, string> = {
     "The node's own bearer token, which the relay presents when it proxies.",
   "settings.schema.swarm.upstreams.dial.label": "Dialling",
   "settings.schema.swarm.upstreams.dial.desc":
-    "How the relay reaches the node: an outbound proxy and the certificate check.",
+    "Outbound proxy the relay uses to reach the node.",
   "settings.schema.swarm.upstreams.dial.proxy.label": "Proxy",
   "settings.schema.swarm.upstreams.dial.proxy.desc":
     "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is not shown.",
-  "settings.schema.swarm.upstreams.dial.ca_file.label": "CA file",
-  "settings.schema.swarm.upstreams.dial.ca_file.desc":
-    "PEM bundle trusted for the node's certificate, besides the system roots.",
-  "settings.schema.swarm.upstreams.dial.insecure_skip_verify.label":
-    "Skip certificate check",
-  "settings.schema.swarm.upstreams.dial.insecure_skip_verify.desc":
-    "For a lab only: every connection is logged as insecure.",
   "settings.schema.swarm.join.label": "Joins",
   "settings.schema.swarm.join.desc":
     "Parent relays this relay registers into, which is how relays chain.",
@@ -243,17 +229,10 @@ export const messagesEn: Record<string, string> = {
     "This relay's own client token, which the parent presents when it proxies.",
   "settings.schema.swarm.join.dial.label": "Dialling",
   "settings.schema.swarm.join.dial.desc":
-    "How this relay reaches the parent: an outbound proxy and the certificate check.",
+    "Outbound proxy this relay uses to reach the parent.",
   "settings.schema.swarm.join.dial.proxy.label": "Proxy",
   "settings.schema.swarm.join.dial.proxy.desc":
     "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is not shown.",
-  "settings.schema.swarm.join.dial.ca_file.label": "CA file",
-  "settings.schema.swarm.join.dial.ca_file.desc":
-    "PEM bundle trusted for the parent's certificate, besides the system roots.",
-  "settings.schema.swarm.join.dial.insecure_skip_verify.label":
-    "Skip certificate check",
-  "settings.schema.swarm.join.dial.insecure_skip_verify.desc":
-    "For a lab only: every connection is logged as insecure.",
   "settings.schema.swarm.allow_private_upstreams.label":
     "Private upstream hosts",
   "settings.schema.swarm.allow_private_upstreams.desc":
@@ -443,18 +422,6 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.busy_wait_ms.label": "Wait for a free slot ms",
   "settings.schema.providers.busy_wait_ms.desc":
     "coddy providers only: how long one call waits for a free slot of the remote when it answers busy. Above zero it wins; 0 follows the agent's shared busy wait (30000 unless set).",
-  "settings.schema.providers.ca_file.label": "CA file",
-  "settings.schema.providers.ca_file.desc":
-    "coddy providers only: PEM bundle of the authority that signed the remote's or the relay's certificate, besides the system roots.",
-  "settings.schema.providers.client_cert_file.label": "Client certificate",
-  "settings.schema.providers.client_cert_file.desc":
-    "coddy providers only: PEM certificate presented when the remote or the relay asks for one (mutual TLS). Set together with the client key; the file is read at each handshake, so a rotated certificate needs no restart.",
-  "settings.schema.providers.client_key_file.label": "Client key",
-  "settings.schema.providers.client_key_file.desc":
-    "coddy providers only: PEM private key of the client certificate. A path: the key itself never goes in the configuration.",
-  "settings.schema.providers.tls_auto.label": "Built-in certificates",
-  "settings.schema.providers.tls_auto.desc":
-    "coddy providers only: use the built-in certificates (coddy tls): the CA file defaults to the bundle (this machine's CA and the trusted ones), the client certificate and key to the client pair. A file named here wins.",
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
     "Show the account usage of this NeuralDeep, Codex, Devin or coddy provider here, in the console footer and in /usage, reading its usage endpoint for it. For a coddy provider that is the remote Coddy's account, read through the remote. Off hides the panel and stops those reads for this row.",

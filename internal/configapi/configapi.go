@@ -141,6 +141,9 @@ func (b *Backend) project(dto *config.ConfigJSON) (map[string]json.RawMessage, e
 // document the save path works on: those sections as sent, every other one
 // as base has it. A body naming any other section is refused.
 func (b *Backend) scope(body []byte, base *config.Config) ([]byte, error) {
+	if err := config.ValidateRemovedTLSJSONKeys(body); err != nil {
+		return nil, err
+	}
 	if len(b.Sections) == 0 {
 		return body, nil
 	}
@@ -271,6 +274,9 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return errSerialize
 		}
+		if err := config.ValidateRemovedTLSKeys(yb); err != nil {
+			return fmt.Errorf("%w: %s", errParse, err)
+		}
 		if err := config.BackupCurrent(cfgPath); err != nil {
 			b.log().Error("coddy config backup", "error", err)
 			return errBackup
@@ -285,7 +291,7 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			b.log().Error("coddy config reload after write", "error", err)
-			if bak, er2 := os.ReadFile(config.BackupPath(cfgPath)); er2 == nil {
+			if bak, er2 := os.ReadFile(config.BackupPath(cfgPath)); er2 == nil && config.ValidateRemovedTLSKeys(bak) == nil {
 				if er3 := config.AtomicWriteConfigYAML(cfgPath, bak); er3 != nil {
 					b.log().Error("coddy config rollback", "error", er3)
 				}

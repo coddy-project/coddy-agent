@@ -74,7 +74,7 @@ type TunnelOptions struct {
 	LeaseSecret string
 	// Handler is the node's own HTTP surface, served back over the connection.
 	Handler http.Handler
-	// Dial carries proxy and TLS settings.
+	// Dial carries proxy settings.
 	Dial netx.Options
 	// PingAfter and PingTimeout replace TunnelPingAfter and TunnelPingTimeout
 	// when set. They exist so a test can scale the health check; production

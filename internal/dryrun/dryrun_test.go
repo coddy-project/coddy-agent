@@ -626,27 +626,6 @@ func TestHooksFileParses(t *testing.T) {
 	}
 }
 
-func TestSwarmTLSAndCAFiles(t *testing.T) {
-	dir := t.TempDir()
-	junk := filepath.Join(dir, "junk.pem")
-	if err := os.WriteFile(junk, []byte("not a certificate"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rep := run(t, fmt.Sprintf("swarm:\n  enable: true\n  auth_token: t\n  tls:\n    cert_file: %s\n    key_file: %s\n  join:\n    - url: http://127.0.0.1:9\n      pairing_token: p\n    - url: http://127.0.0.1:9\n      pairing_token: p\n      dial:\n        ca_file: %s\n", junk, junk, junk), nil)
-	if c := find(t, rep, "swarm.tls"); c.Status != StatusError || c.Line != 5 {
-		t.Errorf("tls %+v", c)
-	}
-	if c := find(t, rep, "swarm.join[0]"); c.Status != StatusError || !strings.Contains(c.Message, "cannot reach") || c.Line != 9 {
-		t.Errorf("join %+v", c)
-	}
-	if c := find(t, rep, "swarm.join[1].dial.ca_file"); c.Status != StatusError || !strings.Contains(c.Message, "certificate") {
-		t.Errorf("ca %+v", c)
-	}
-	if c := find(t, rep, "swarm.join[1]"); c.Status != StatusSkipped {
-		t.Errorf("a peer behind an unusable CA bundle is not probed: %+v", c)
-	}
-}
-
 func TestSubsystemErrorIsReported(t *testing.T) {
 	rep := run(t, "agent:\n  max_turns: 3\n", func(r *Request) {
 		r.SubsystemErr = errors.New("httpserver.enable is true but this binary has no httpserver support")
@@ -981,35 +960,5 @@ func TestGatewayWithoutAdminsIsWarned(t *testing.T) {
 		if c.Path == "gateways.pachca.admins" {
 			t.Errorf("a bot with admins was warned: %+v", c)
 		}
-	}
-}
-
-func TestHTTPServerTLSAndClientCA(t *testing.T) {
-	dir := t.TempDir()
-	junk := filepath.Join(dir, "junk.pem")
-	if err := os.WriteFile(junk, []byte("not a certificate"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rep := run(t, fmt.Sprintf("httpserver:\n  auth_token: t\n  tls:\n    cert_file: %s\n    key_file: %s\n    client_ca_file: %s\n", junk, junk, junk), nil)
-	if c := find(t, rep, "httpserver.tls"); c.Status != StatusError || c.Line != 4 {
-		t.Errorf("tls %+v", c)
-	}
-	if c := find(t, rep, "httpserver.tls.client_ca_file"); c.Status != StatusError || !strings.Contains(c.Message, "certificate") {
-		t.Errorf("client CA %+v", c)
-	}
-}
-
-func TestSwarmNodeTLSFilesAreChecked(t *testing.T) {
-	dir := t.TempDir()
-	junk := filepath.Join(dir, "junk.pem")
-	if err := os.WriteFile(junk, []byte("not a certificate"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rep := run(t, fmt.Sprintf("swarm:\n  enable: true\n  auth_token: t\n  node_tls:\n    ca_file: %s\n    cert_file: %s\n    key_file: %s\n", junk, junk, junk), nil)
-	if c := find(t, rep, "swarm.node_tls.cert_file"); c.Status != StatusError || !strings.Contains(c.Message, "cannot use the client certificate") {
-		t.Errorf("pair %+v", c)
-	}
-	if c := find(t, rep, "swarm.node_tls.ca_file"); c.Status != StatusError || !strings.Contains(c.Message, "no certificate") {
-		t.Errorf("ca %+v", c)
 	}
 }

@@ -92,11 +92,6 @@ type Registry struct {
 	// it, anyone holding a pairing token could point the relay at loopback or a
 	// cloud metadata endpoint and read the answer through a mount.
 	egress netx.EgressPolicy
-	// nodeDial is the TLS identity of the relay's leg to a node that registered itself over a direct address
-	// (swarm.node_tls): the authority its certificate is verified against and the client certificate the relay presents. It
-	// is the operator's, never the node's, and it applies to a node with no dial settings of its own.
-	nodeDial netx.Options
-
 	// now and newSecret are injectable so tests can drive time and identity
 	// instead of sleeping and hoping.
 	now       func() time.Time
@@ -128,15 +123,6 @@ type relayRouteError struct{ cause error }
 func (e *relayRouteError) Error() string        { return e.cause.Error() }
 func (e *relayRouteError) Is(target error) bool { return target == errRelayRoute }
 func (e *relayRouteError) Unwrap() error        { return e.cause }
-
-// SetNodeDial installs the TLS settings of the relay's leg to the nodes that registered themselves (swarm.node_tls). Only the
-// authority and the client certificate: a proxy or a skipped verification for every node would be a wider decision than a
-// certificate, and a proxy would also bypass the egress policy of an advertised address.
-func (r *Registry) SetNodeDial(o netx.Options) {
-	r.mu.Lock()
-	r.nodeDial = netx.Options{CAFile: o.CAFile, CertFile: o.CertFile, KeyFile: o.KeyFile}
-	r.mu.Unlock()
-}
 
 // SetEgressPolicy installs the policy applied to every advertised address.
 func (r *Registry) SetEgressPolicy(p netx.EgressPolicy) {
@@ -234,8 +220,6 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 			effectiveDial := existing.dial
 			if dial != (netx.Options{}) {
 				effectiveDial = dial
-			} else if existing.dial == (netx.Options{}) {
-				effectiveDial = r.nodeDial
 			}
 			t, terr := newDirectTransport(advertise, effectiveDial, pinned)
 			if terr != nil {
@@ -307,9 +291,6 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 		advertise: advertise,
 		dial:      dial,
 		expiresAt: now.Add(r.ttl),
-	}
-	if l.dial == (netx.Options{}) {
-		l.dial = r.nodeDial
 	}
 	if req.Transport == swarmdto.TransportDirect {
 		t, terr := newDirectTransport(advertise, l.dial, pinned)

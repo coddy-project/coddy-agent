@@ -482,7 +482,7 @@ func (r *runner) swarmProbes() []probe {
 		j := cfg.Swarm.Join[i]
 		path := fmt.Sprintf("swarm.join[%d]", i)
 		out = append(out, func(ctx context.Context) []Check {
-			return r.probeSwarmPeer(ctx, path, j.URL, j.Dial, StatusError, "check "+path+".url and its dial settings (proxy, ca_file)")
+			return r.probeSwarmPeer(ctx, path, j.URL, j.Dial, StatusError, "check "+path+".url, its dial proxy and the system CA trust store")
 		})
 	}
 	if cfg.Swarm.Enabled {
@@ -499,25 +499,7 @@ func (r *runner) swarmProbes() []probe {
 
 func (r *runner) probeSwarmPeer(ctx context.Context, path, rawURL string, dial config.SwarmDialConfig, onFail Status, fix string) []Check {
 	var out []Check
-	if dial.Auto && r.builtinPending {
-		return append(out, r.check(StatusSkipped, path, path+".url", "not probed: the built-in certificates of "+path+".dial are not made yet", ""))
-	}
-	df := r.req.Cfg.DialFiles(dial)
-	if ca := df.CAFile; ca != "" {
-		caCheck := r.caFileCheck(path+".dial.ca_file", ca)
-		out = append(out, caCheck)
-		if caCheck.Status == StatusError {
-			return append(out, r.check(StatusSkipped, path, path+".url", "not probed: "+path+".dial.ca_file is unusable", ""))
-		}
-	}
-	// The dial pair the leg presents when the other end asks for a certificate: loaded and checked here, and presented by the probe
-	// as the real join and the real mount present it.
-	pairChecks := r.clientPairChecks(path+".dial.cert_file", df.CertFile, df.KeyFile)
-	out = append(out, pairChecks...)
-	if hasIdentityError(pairChecks) {
-		return append(out, r.check(StatusSkipped, path, path+".url", "not probed: "+path+".dial.cert_file is unusable", ""))
-	}
-	opts := netx.Options{Proxy: dial.Proxy, CAFile: df.CAFile, CertFile: df.CertFile, KeyFile: df.KeyFile, InsecureSkipVerify: dial.InsecureSkipVerify}
+	opts := netx.Options{Proxy: dial.Proxy}
 	hc, err := opts.HTTPClient()
 	if err != nil {
 		return append(out, r.check(StatusError, path, path+".dial", "dial settings: "+err.Error(), "fix "+path+".dial"))

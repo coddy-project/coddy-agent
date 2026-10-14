@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
@@ -14,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -174,52 +172,19 @@ func TestDialFuncReportsAProxyRefusal(t *testing.T) {
 	}
 }
 
-func TestTLSConfigLoadsAPrivateAuthority(t *testing.T) {
+func TestHTTPSRejectsAnUnknownAuthority(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprint(w, "secured")
+		t.Error("an untrusted request reached the handler")
 	}))
 	defer ts.Close()
-
-	dir := t.TempDir()
-	caPath := filepath.Join(dir, "ca.pem")
-	if err := os.WriteFile(caPath, pemOf(t, ts), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Without the authority the handshake must fail: that is the whole point.
 	client, err := (Options{}).HTTPClient()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.Get(ts.URL); err == nil {
+	defer client.CloseIdleConnections()
+	if res, err := client.Get(ts.URL); err == nil {
+		_ = res.Body.Close()
 		t.Fatal("an unknown authority should not verify")
-	}
-
-	trusting, err := (Options{CAFile: caPath}).HTTPClient()
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := trusting.Get(ts.URL)
-	if err != nil {
-		t.Fatalf("with the authority the handshake should succeed: %v", err)
-	}
-	defer func() { _ = res.Body.Close() }()
-	body, _ := io.ReadAll(res.Body)
-	if string(body) != "secured" {
-		t.Fatalf("body %q", body)
-	}
-}
-
-func TestTLSConfigRejectsAMissingAuthorityFile(t *testing.T) {
-	if _, err := (Options{CAFile: filepath.Join(t.TempDir(), "absent.pem")}).TLSConfig(""); err == nil {
-		t.Fatal("a missing ca_file should be an error, not a silent fallback")
-	}
-	bad := filepath.Join(t.TempDir(), "not-a-cert.pem")
-	if err := os.WriteFile(bad, []byte("this is not a certificate"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := (Options{CAFile: bad}).TLSConfig(""); err == nil {
-		t.Fatal("a ca_file without a certificate should be an error")
 	}
 }
 
@@ -235,7 +200,7 @@ func TestTLSConfigMinimumVersion(t *testing.T) {
 		t.Fatalf("ServerName = %q", cfg.ServerName)
 	}
 	if cfg.InsecureSkipVerify {
-		t.Fatal("verification must be on unless the caller opts out")
+		t.Fatal("verification must always be on")
 	}
 }
 
@@ -258,19 +223,6 @@ func TestDialTimeoutDefaults(t *testing.T) {
 	if got := (Options{DialTimeout: time.Second}).dialTimeout(); got != time.Second {
 		t.Fatalf("explicit dial timeout = %v", got)
 	}
-}
-
-func pemOf(t *testing.T, ts *httptest.Server) []byte {
-	t.Helper()
-	cert := ts.Certificate()
-	if cert == nil {
-		t.Fatal("test server has no certificate")
-	}
-	return pemEncode(cert.Raw)
-}
-
-func pemEncode(der []byte) []byte {
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
 // A proxy may relay the origin's first bytes in the same packet as its 200.

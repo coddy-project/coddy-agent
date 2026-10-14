@@ -117,6 +117,20 @@ Clear the field to use the session model for summarization.
 - The Settings drawer is 680px wide on a desktop: enough for three theme cards a row on **Appearance** and a readable measure for the forms.
 - Automated checks: **`ProviderModelList.test.tsx`** (the fetch with the row as the form holds it and without the command, the refetch for a new id or type only, add and remove, the stale row, the error line, the context badge, the filter, the containment rules), **`ModelField.test.tsx`**, **`ContextWindowField.test.tsx`** (the reported window as the placeholder, the explicit fetch writing it, a late answer for a changed id dropped), **`SettingsArraySection.test.tsx`** (the address in both directions, the back link), **`SettingsSection.test.tsx`** (the three blocks of the provider form, the four blocks of the logical-model form, its toolset and the Toolsets tab in English and in Russian, the reported window seeded on add, the usage switch per provider type, the row form not surviving a tab switch), **`features/provider_models_web_ui.feature`** (**`external/ui/bdd_provider_models_ui_test.go`**), **`features/toolsets_web_ui.feature`** (**`external/ui/bdd_toolsets_ui_test.go`**), and on the API side **`features/provider_models_fetch.feature`** with **`external/httpserver/providers_models_http_test.go`**. Live check at **390px**: the provider form scrolls vertically only (`.settings-scroll` has `scrollWidth` equal to `clientWidth`), long ids ellipsize.
 
+## Settings: connection settings
+
+- Provider forms keep the connection settings that Coddy uses: an HTTPS API endpoint, authentication, an outbound proxy and a request timeout. The **Advanced settings** block keeps the credential command, proxy and timeout together.
+
+![Provider Advanced settings with a proxy URL and request timeout; no built-in certificate controls](../assets/settings-provider-advanced-dark-1280.png)
+
+*Provider connections retain endpoint, authentication, proxy and timeout settings.*
+
+- The relay's **Swarm** settings likewise keep its listener and outbound proxy settings. A join or upstream has its own outbound proxy. There are no built-in TLS, CA, certificate or private-key controls in provider or relay forms: incoming HTTPS and client-certificate enforcement belong to an external reverse proxy, while application authentication remains separate.
+
+![Relay connection settings with listener and authentication fields; no built-in TLS controls](../assets/settings-relay-connection-dark-1280.png)
+
+*Relay connections retain listener and authentication settings; TLS is configured at the reverse proxy.*
+
 ## Settings: tabs and form layout
 
 - The tabs read in groups: **Appearance** and **Sessions**; where the models come from (**LLM providers**, **Logical models**, **Toolsets**); the loop that runs them (**ReAct loop**, **Session goal**, **Context compaction**, **Memory**); what the agent can do (**Command safety (decisions)**, **Tools and permissions**, **MCP servers**, **Skills**, **Subagents**, **Hooks**); what runs it without a person at the composer (**Scheduler**, **Gateways**); and the operation of the process (**Logger**, **Prompts**). **Prompts** holds the prompt templates and the instruction files and is always last.

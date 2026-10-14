@@ -60,7 +60,7 @@ type JoinOptions struct {
 	Labels  map[string]string
 	// InstanceUUID identifies this process. Generated when empty.
 	InstanceUUID string
-	// Dial carries proxy and TLS settings for reaching the relay.
+	// Dial carries proxy settings for reaching the relay.
 	Dial netx.Options
 	// Handler is this node's own HTTP surface. It is required for the tunnel
 	// transport, where the relay drives this node over the connection this
@@ -117,9 +117,6 @@ func NewClient(opts JoinOptions) (*Client, error) {
 	hc, err := opts.Dial.HTTPClient()
 	if err != nil {
 		return nil, fmt.Errorf("swarm join %s: %w", opts.RelayURL, err)
-	}
-	if opts.Dial.InsecureSkipVerify {
-		opts.Log.Warn("swarm join: certificate verification disabled", "relay", opts.RelayURL)
 	}
 	c := &Client{opts: opts, hc: hc, log: opts.Log}
 	if opts.Secrets != nil {

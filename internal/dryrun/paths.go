@@ -1,7 +1,6 @@
 package dryrun
 
 import (
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
-	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
@@ -87,37 +85,6 @@ func (r *runner) paths() {
 		r.rep.add(r.creatableDir("memory.dir", cfg.Memory.Dir))
 	}
 
-	if hf := cfg.HTTPListenerFiles(); cfg.HTTPServer.IsEnabled() && cfg.HTTPServer.TLS.Enabled() && (!r.builtinPending || !cfg.HTTPServer.TLS.Auto) {
-		for _, c := range r.serverPairChecks("httpserver.tls", hf.Cert, hf.Key) {
-			r.rep.add(c)
-		}
-		if ca := hf.ClientCA; ca != "" {
-			if _, err := netx.ClientCertTLS(ca, "httpserver.tls.client_ca_file"); err != nil {
-				r.rep.add(r.check(StatusError, "httpserver.tls.client_ca_file", "httpserver.tls.client_ca_file", "the client CA bundle is unusable: "+err.Error(), "point httpserver.tls.client_ca_file at a PEM bundle of certificates"))
-			} else {
-				r.rep.add(r.check(StatusOK, "httpserver.tls.client_ca_file", "httpserver.tls.client_ca_file", "client CA bundle loads", ""))
-			}
-		}
-	}
-
-	if cfg.Swarm.Enabled && !cfg.Swarm.NodeTLS.IsZero() && (!r.builtinPending || !cfg.Swarm.NodeTLS.Auto) {
-		nt := cfg.NodeDialFiles()
-		for _, c := range r.clientPairChecks("swarm.node_tls.cert_file", nt.CertFile, nt.KeyFile) {
-			r.rep.add(c)
-		}
-		if ca := nt.CAFile; ca != "" {
-			r.rep.add(r.caFileCheck("swarm.node_tls.ca_file", ca))
-		}
-	}
-
-	if sf := cfg.SwarmListenerFiles(); cfg.Swarm.Enabled && cfg.Swarm.TLS.Enabled() && (!r.builtinPending || !cfg.Swarm.TLS.Auto) {
-		for _, c := range r.serverPairChecks("swarm.tls", sf.Cert, sf.Key) {
-			r.rep.add(c)
-		}
-		if ca := sf.ClientCA; ca != "" && cfg.Swarm.TLS.Auto {
-			r.rep.add(r.caFileCheck("swarm.tls.client_ca_file", ca))
-		}
-	}
 }
 
 func hasOutput(outputs []string, want string) bool {
@@ -236,29 +203,6 @@ func (r *runner) instructionFile(path, entry string) {
 		r.rep.add(r.check(StatusWarning, path, path, file+" "+session.UnreadReason(err)+"; no session reads it",
 			"correct the path or remove the entry; a coddy running in a container or under another account has to see the file at this path"))
 	}
-}
-
-// caFileCheck reads a PEM bundle and counts its certificates.
-func (r *runner) caFileCheck(path, file string) Check {
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return r.check(StatusError, path, path, "cannot read "+file+": "+shortErr(err), "point "+path+" at a PEM bundle of CA certificates")
-	}
-	n := 0
-	for rest := data; ; {
-		var block *pem.Block
-		block, rest = pem.Decode(rest)
-		if block == nil {
-			break
-		}
-		if block.Type == "CERTIFICATE" {
-			n++
-		}
-	}
-	if n == 0 {
-		return r.check(StatusError, path, path, "no certificate found in "+file, path+" must be a PEM bundle of CA certificates")
-	}
-	return r.check(StatusOK, path, path, fmt.Sprintf("%s holds %s", file, plural(n, "certificate")), "")
 }
 
 // mcpCommands resolves the executable of every stdio MCP server of

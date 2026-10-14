@@ -8,9 +8,58 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestInstallDoesNotTouchCertificates(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(strconv.FormatBool(existing), func(t *testing.T) {
+			f := newFakeService(t)
+			dir := filepath.Join(f.Home, ".coddy", "tls")
+			paths := []string{"ca.key", "ca.crt", "server.key", "server.crt"}
+			stamp := time.Unix(1600000000, 0)
+			if existing {
+				for _, name := range paths {
+					path := filepath.Join(dir, name)
+					writeTestFile(t, path, "user-owned "+name)
+					if err := os.Chtimes(path, stamp, stamp); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if err := f.Install(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if !existing {
+				if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("install created TLS directory: %v", err)
+				}
+				return
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil || len(entries) != len(paths) {
+				t.Fatalf("certificate directory changed: %v, %v", entries, err)
+			}
+			for _, name := range paths {
+				path := filepath.Join(dir, name)
+				body, err := os.ReadFile(path)
+				if err != nil || string(body) != "user-owned "+name {
+					t.Fatalf("certificate %s changed: %q, %v", name, body, err)
+				}
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !info.ModTime().Equal(stamp) {
+					t.Fatalf("certificate %s was touched", name)
+				}
+			}
+		})
+	}
+}
 
 // fakeService is a UserService over a temporary home whose systemctl records
 // its calls and answers from answer.
@@ -481,66 +530,5 @@ func TestInstallFromAShellWithoutPathKeepsTheHandedOverPath(t *testing.T) {
 	}
 	if !strings.Contains(f.out.String(), "no PATH to hand over") {
 		t.Fatalf("output:\n%s", f.out.String())
-	}
-}
-
-// Installing the service makes the TLS certificates of the agent home before anything is started, so that turning on `auto: true`
-// later needs no step of its own; a failure is a warning and the install goes on.
-func TestInstallMakesTheCertificatesBeforeTheServiceStarts(t *testing.T) {
-	f := newFakeService(t)
-	var gotHome string
-	f.EnsureCertificates = func(w io.Writer, home string) error {
-		gotHome = home
-		if len(f.calls) != 0 {
-			t.Errorf("certificates were made after %q: want before any systemctl call", f.calls)
-		}
-		_, _ = io.WriteString(w, "TLS certificates made\n")
-		return nil
-	}
-	if err := f.Install(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if gotHome != filepath.Join(f.Home, ".coddy") {
-		t.Errorf("certificates made for %q", gotHome)
-	}
-	if !strings.Contains(f.out.String(), "TLS certificates made") {
-		t.Errorf("what ensure did was not shown:\n%s", f.out.String())
-	}
-}
-
-func TestInstallGoesOnWhenTheCertificatesCannotBeMade(t *testing.T) {
-	f := newFakeService(t)
-	f.EnsureCertificates = func(io.Writer, string) error { return errors.New("read-only home") }
-	if err := f.Install(context.Background()); err != nil {
-		t.Fatalf("install failed over the certificates: %v", err)
-	}
-	if out := f.out.String(); !strings.Contains(out, "warning: read-only home") || !strings.Contains(out, "coddy tls ensure") {
-		t.Errorf("the failure was not reported with its remedy:\n%s", out)
-	}
-	if !strings.Contains(f.out.String(), "is enabled and running") {
-		t.Error("the service was not started")
-	}
-}
-
-func TestEnsureCertificatesMakesTheFilesOnceAndToleratesABrokenConfiguration(t *testing.T) {
-	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("agent: [broken\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	if err := EnsureCertificates(&out, home); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), "create-ca") {
-		t.Errorf("first run printed %q", out.String())
-	}
-	for _, f := range []string{"ca.crt", "server.crt", "client.crt", "bundle.pem"} {
-		if _, err := os.Stat(filepath.Join(home, "tls", f)); err != nil {
-			t.Errorf("%s: %v", f, err)
-		}
-	}
-	out.Reset()
-	if err := EnsureCertificates(&out, home); err != nil || out.Len() != 0 {
-		t.Errorf("second run: %q %v, want nothing", out.String(), err)
 	}
 }

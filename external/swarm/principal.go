@@ -5,15 +5,13 @@ package swarm
 import (
 	"context"
 	"crypto/subtle"
-	"crypto/tls"
 	"net/http"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 )
 
-// The principal of a request at the relay, resolved once per request. Scoped principals are bearer-token entries;
-// TLS only admits a peer at the handshake (docs/plans/remote-model-provider-tls-builtin.md).
+// The principal of a request at the relay, resolved once per request.
+// Scoped principals are bearer-token entries.
 
 type principalClass int
 
@@ -86,9 +84,7 @@ func (s *Server) authRequired() bool {
 // principalOf resolves the request against every entry, without an early exit.
 //
 // A scoped entry is a bearer entry: it proves itself with its token. A token that is also a full token is scoped: least privilege,
-// and load refuses the duplicate anyway. A TLS certificate is not read: the handshake admitted the peer by its chain (swarm.tls.client_ca_file)
-// and that is all TLS does here; what a certificate holder may do is for the reverse proxy and the infrastructure
-// (docs/plans/remote-model-provider-tls-builtin.md).
+// and load refuses the duplicate anyway.
 func (s *Server) principalOf(r *http.Request) principal {
 	bearer := credentialOf(r)
 	clients := s.scopedClients()
@@ -113,12 +109,4 @@ func (s *Server) principalOf(r *http.Request) principal {
 		return principal{class: principalScoped, client: scoped}
 	}
 	return principal{class: principalNone}
-}
-
-// ClientCertTLS builds the server side of the relay's mutual TLS from swarm.tls: the pool of swarm.tls.client_ca_file, and the
-// handshake then requires a certificate that chains to it, nodes that join and browsers included. It returns nil when no client CA is
-// set: the listener then asks for no certificate. The server certificate is the caller's (ListenAndServeTLS loads cert_file and
-// key_file). The CA is startup state: changing it takes a restart.
-func ClientCertTLS(clientCAFile string) (*tls.Config, error) {
-	return netx.ClientCertTLS(clientCAFile, "swarm.tls.client_ca_file")
 }

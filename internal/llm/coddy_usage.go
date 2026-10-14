@@ -67,7 +67,7 @@ func CoddyUsageForProvider(ctx context.Context, in ProviderInput, alias string) 
 	if err != nil {
 		return nil, coddyUsageError(0, ProviderUsageUnavailable, err.Error(), key)
 	}
-	hc, err := httpClientForProviderType("coddy", in.ProxyURL, in.ClientTLS)
+	hc, err := httpClientForProviderType("coddy", in.ProxyURL)
 	if err != nil {
 		return nil, coddyUsageError(0, ProviderUsageUnavailable, err.Error(), key)
 	}

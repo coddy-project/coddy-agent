@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -975,12 +974,12 @@ func TestRenewalKeepsTheWorkingRouteWhenTheNewOneCannotBeBuilt(t *testing.T) {
 		t.Fatal("the node should start with a route")
 	}
 
-	// A renewal naming a certificate authority that does not exist: everything
+	// A renewal naming an unsupported proxy: everything
 	// about the request is fine except that its transport cannot be built.
 	broken := directRequest("nas02")
 	broken.LeaseSecret = res.LeaseSecret
 	if _, err := r.RegisterWithDial(broken, netx.Options{
-		CAFile: filepath.Join(t.TempDir(), "absent.pem"),
+		Proxy: "ftp://proxy.example",
 	}); err == nil {
 		t.Fatal("a renewal that cannot build its transport should fail")
 	}

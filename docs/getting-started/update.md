@@ -45,11 +45,11 @@ Nothing is created: a file that was never installed (**`--no-shell-setup`**, a b
 
 ## TLS certificates
 
-Where Coddy keeps its own [TLS certificates](../operate/certificates.md#built-in-certificates-coddy-tls) (the directory **`~/.coddy/tls`** exists, or a block of
-**`config.yaml`** asks for them with **`auto: true`**), **`coddy update`** asks the binary it has just installed to renew them
-(**`coddy tls ensure --if-used`**): a leaf that ends within 30 days or lacks a name is issued again, the CA is never replaced, and what changed is printed. A machine that
-never used them gets nothing. On Windows, where a helper installs the binary after Coddy exits, and under a package manager's own upgrade, the next **`coddy serve`**
-start makes what a block asks for, and **`coddy tls ensure`** does it by hand.
+**`coddy update`** does not create or renew certificates. HTTPS and mTLS belong to the external
+reverse proxy or transport sidecar. Before upgrading a deployment that used Coddy's former TLS
+settings, follow [TLS termination and migration](../operate/certificates.md): configure the
+external transport, remove the obsolete keys, and restrict the plain-HTTP listener. Existing
+certificate files are left untouched.
 
 ## A server that is already running
 
