@@ -1350,13 +1350,11 @@ func (s *remoteModelState) oneOfFiveEnds() error {
 	if len(s.held) == 0 || !s.remote.gate.releaseOne() {
 		return fmt.Errorf("no running stream to end")
 	}
-	if _, err := io.Copy(io.Discard, s.held[0].Body); err != nil {
-		return err
-	}
-	_ = s.held[0].Body.Close()
-	s.held = s.held[1:]
+	// HTTP responses reach their headers before their provider calls reach the
+	// gate, so the first held response is not necessarily the released call.
 	key := sharedBearerKey(s.spec.sharedToken)
-	return remoteModelWaitUntil("the slot of the ended stream to be free", func() bool { return s.remote.srv.sharedLimit.inUse(key) == len(s.held) })
+	remaining := len(s.held) - 1
+	return remoteModelWaitUntil("the slot of the ended stream to be free", func() bool { return s.remote.srv.sharedLimit.inUse(key) == remaining })
 }
 
 func (s *remoteModelState) sixthServed() error {
