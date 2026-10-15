@@ -106,6 +106,10 @@ func TestTheMetricsWiringServesTheRuntimeAndRebuildsOnANewAddress(t *testing.T) 
 	if got := sub.Fingerprint(cfg); got != cfg.Metrics.ListenAddr() {
 		t.Fatalf("fingerprint %q, want the listen address %q", got, cfg.Metrics.ListenAddr())
 	}
+	if sub.RestartKey != nil || sub.Address == nil || sub.Address(cfg) != cfg.Metrics.ListenAddr() {
+		t.Fatalf("exporter descriptor: Address set = %v, RestartKey set = %v; want its listen address as the Address and no RestartKey, so a new address rebuilds it in place",
+			sub.Address != nil, sub.RestartKey != nil)
+	}
 	tokenOnly := *cfg
 	tokenOnly.Metrics.Token = "rotated"
 	if sub.Fingerprint(&tokenOnly) != sub.Fingerprint(cfg) {
@@ -143,6 +147,19 @@ func TestTheMetricsWiringServesTheRuntimeAndRebuildsOnANewAddress(t *testing.T) 
 	if !strings.Contains(body, "coddy_config_reloads_total 0") {
 		t.Fatalf("no reload yet:\n%s", body)
 	}
+	exporterRow := func() serve.SubsystemStatus {
+		t.Helper()
+		for _, row := range rt.Status().Subsystems {
+			if row.Kind == serve.KindMetrics {
+				return row
+			}
+		}
+		t.Fatal("the status has no metrics row")
+		return serve.SubsystemStatus{}
+	}
+	if row := exporterRow(); row.State != serve.StateRunning || row.Address != first || row.Credential != serve.CredentialToken {
+		t.Fatalf("exporter row = %+v, want running on %s behind a token", row, first)
+	}
 
 	// A new address: the supervisor rebuilds the exporter in place, and the
 	// reload it was told of is already in the counter the new listener serves.
@@ -156,6 +173,10 @@ func TestTheMetricsWiringServesTheRuntimeAndRebuildsOnANewAddress(t *testing.T) 
 	if _, body = scrapeMetrics(t, second, "scrape-me"); !strings.Contains(body, "coddy_config_reloads_total 1") {
 		t.Fatalf("the counter did not continue across the rebuild:\n%s", body)
 	}
+	eventually(t, "the row names the new address", func() bool { return exporterRow().Address == second })
+	if row, snap := exporterRow(), rt.Status(); row.PendingAddress != "" || snap.RestartRequired {
+		t.Fatalf("exporter row = %+v, restartRequired = %v: a move is rebuilt in place, nothing waits for a restart", row, snap.RestartRequired)
+	}
 
 	// A rotated token needs no rebuild.
 	rotated := moved
@@ -167,6 +188,9 @@ func TestTheMetricsWiringServesTheRuntimeAndRebuildsOnANewAddress(t *testing.T) 
 	}
 	if code, _ := scrapeMetrics(t, second, "rotated"); code != http.StatusOK {
 		t.Fatalf("the new token after a rotation: %d, want 200", code)
+	}
+	if row := exporterRow(); row.Address != second || row.Credential != serve.CredentialToken {
+		t.Fatalf("exporter row after a rotation = %+v, want the same address behind a token", row)
 	}
 
 	// Switched off while the keeper still serves, the exporter stops.

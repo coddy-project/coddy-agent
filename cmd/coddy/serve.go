@@ -745,7 +745,7 @@ func printServeBanner(w io.Writer, cfg *config.Config, enabled []serve.Subsystem
 		case serve.KindMetrics:
 			// Whether a scrape needs a credential, never the credential.
 			auth := "no token"
-			if cfg.Metrics.Token != "" {
+			if cfg.Metrics.HasToken() {
 				auth = "bearer token"
 			}
 			_, _ = fmt.Fprintf(w, "  metrics     http://%s/metrics  (%s)\n", cfg.Metrics.ListenAddr(), auth)

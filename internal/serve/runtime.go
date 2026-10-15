@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"log/slog"
 
@@ -54,6 +55,15 @@ type Runtime struct {
 	// sup is the supervisor whose reading of the live configuration Status
 	// reports (SetSupervisor).
 	sup atomic.Pointer[Supervisor]
+
+	// process is how this process was started, read once by Init: coddy serve
+	// clears the role variable for the processes it starts, so nothing could
+	// read it later.
+	process struct {
+		startedAt  time.Time
+		startedBy  StartedBy
+		configFile string
+	}
 
 	// diskFree reads the free and total bytes of a folder's disk, nil for
 	// platform.DiskFree. A test lowers the figures through it.
@@ -231,6 +241,10 @@ func (r *Runtime) Init(opts Options) error {
 	}
 	r.Paths = paths
 	r.Log = log
+	// Before the early return below: a runtime without sessions reports it too.
+	r.process.startedAt = time.Now()
+	r.process.startedBy = startedByRole(Role())
+	r.process.configFile = paths.ConfigPath
 	r.live.replace(opts.Cfg)
 	if !opts.NeedsSessions {
 		return nil
