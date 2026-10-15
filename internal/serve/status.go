@@ -136,44 +136,52 @@ const (
 
 // Build is what the binary says it is.
 type Build struct {
-	Version   string
-	Revision  string // empty when the binary carries no vcs.revision
-	GoVersion string
-	GOOS      string
-	GOARCH    string
+	Version   string `json:"version"`
+	Revision  string `json:"revision,omitempty"` // empty when the binary carries no vcs.revision
+	GoVersion string `json:"goVersion"`
+	GOOS      string `json:"os"`
+	GOARCH    string `json:"arch"`
 	// Tags are the build tags of the binary.
-	Tags []string
+	Tags []string `json:"tags,omitempty"`
 }
 
 // SubsystemStatus is one row of the process's subsystem table.
 type SubsystemStatus struct {
-	Kind Kind
+	Kind Kind `json:"kind"`
 	// State is one of the State constants.
-	State string
+	State string `json:"state"`
 	// Address is the listener address the running instance was started on,
 	// empty for a surface without one and for one that is not running.
-	Address string
+	Address string `json:"address,omitempty"`
 	// PendingAddress is the address the live configuration moved a running
 	// listener to, empty when it did not; it takes a fresh process.
-	PendingAddress string
+	PendingAddress string `json:"pendingAddress,omitempty"`
 	// Credential says what a request to the metrics exporter has to carry. It
 	// is set on that row only.
-	Credential Credential
+	Credential Credential `json:"credential,omitempty"`
 }
 
 // Disk is the room on one disk: what a process without privileges can still
-// write there, and the disk's size.
+// write there, and the disk's size. Both figures are always sent: no room left
+// is a figure of 0.
 type Disk struct {
-	AvailableBytes, SizeBytes uint64
+	AvailableBytes uint64 `json:"availableBytes"`
+	SizeBytes      uint64 `json:"sizeBytes"`
 }
 
-var currentBuild = sync.OnceValue(func() Build {
-	info, _ := debug.ReadBuildInfo()
-	return buildOf(info)
-})
+var (
+	buildOnce sync.Once
+	build     Build
+)
 
 // CurrentBuild describes the running binary. It is read once.
-func CurrentBuild() Build { return currentBuild() }
+func CurrentBuild() Build {
+	buildOnce.Do(func() {
+		info, _ := debug.ReadBuildInfo()
+		build = buildOf(info)
+	})
+	return build
+}
 
 func buildOf(info *debug.BuildInfo) Build {
 	b := Build{
@@ -224,7 +232,7 @@ func startedByRole(role string) StartedBy {
 func (r *Runtime) Status() Snapshot {
 	snap := Snapshot{
 		Build:     CurrentBuild(),
-		StartedAt: r.process.startedAt, StartedBy: r.process.startedBy, ConfigFile: r.process.configFile,
+		StartedAt: r.process.StartedAt, StartedBy: r.process.StartedBy, ConfigFile: r.process.ConfigFile,
 		Tasks: make(map[string]map[string]int),
 	}
 	if sup := r.sup.Load(); sup != nil {

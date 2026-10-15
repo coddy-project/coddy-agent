@@ -56,14 +56,15 @@ type Runtime struct {
 	// reports (SetSupervisor).
 	sup atomic.Pointer[Supervisor]
 
+	// metrics reads the exporter's block for the status document, nil while
+	// no exporter is registered (SetMetricsSource).
+	metricsMu sync.Mutex
+	metrics   func() *MetricsBlock
+
 	// process is how this process was started, read once by Init: coddy serve
 	// clears the role variable for the processes it starts, so nothing could
-	// read it later.
-	process struct {
-		startedAt  time.Time
-		startedBy  StartedBy
-		configFile string
-	}
+	// read it later. Its ConfigFile is the path as the process loaded it.
+	process ProcessDoc
 
 	// diskFree reads the free and total bytes of a folder's disk, nil for
 	// platform.DiskFree. A test lowers the figures through it.
@@ -242,9 +243,9 @@ func (r *Runtime) Init(opts Options) error {
 	r.Paths = paths
 	r.Log = log
 	// Before the early return below: a runtime without sessions reports it too.
-	r.process.startedAt = time.Now()
-	r.process.startedBy = startedByRole(Role())
-	r.process.configFile = paths.ConfigPath
+	r.process.StartedAt = time.Now()
+	r.process.StartedBy = startedByRole(Role())
+	r.process.ConfigFile = paths.ConfigPath
 	r.live.replace(opts.Cfg)
 	if !opts.NeedsSessions {
 		return nil
