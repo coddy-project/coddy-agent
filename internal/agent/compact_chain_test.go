@@ -116,3 +116,37 @@ func TestCompactionRequestWithoutEarlierSummariesIsUnchanged(t *testing.T) {
 		t.Fatal("the budget does not shrink by the earlier summaries")
 	}
 }
+
+// The rows of the chain are part of every request after an in-turn fold, so
+// the fold's budget for the steps it keeps is what its aim leaves after them.
+// Without that, a chain near its share of the window would put the request
+// after the fold far past the aim, and the turn would fold again within a few
+// steps.
+func TestInTurnFoldBudgetLeavesRoomForTheChain(t *testing.T) {
+	off := false
+	comp := config.Compaction{ResultEviction: config.ResultEviction{Enabled: &off}}
+	earlier := []llm.Message{
+		userText("an earlier request"), {Role: llm.RoleAssistant, Content: "done"},
+		session.NewCompactionBlockMessage("EARLIER "+strings.Repeat("x", 4000*3), "m", false),
+	}
+	st := stateOf(t, earlier, fixtureTurn("Audit every module and report.", 24, 1, 1200))
+	provider := &compactCannedProvider{t: t, summary: "the first modules were audited"}
+	const window, overhead = 16000, 1500
+	conv := conversationTokens(windowOf(st), false)
+	ag, logs := windowAgent(t, st, comp, provider, window, overhead, conv)
+
+	if !ag.maybeAutoCompact(context.Background()) {
+		t.Fatalf("the turn is over the threshold and must be folded:\n%s", logs)
+	}
+	window_ := windowOf(st)
+	row := window_[1]
+	if !row.CompactionBlock || !strings.HasPrefix(row.Content, "Audit every module and report.") {
+		t.Fatalf("the fold did not add its row after the earlier one: %q", firstChars(transcriptText(window_), 200))
+	}
+	target := inTurnTargetTokens(window, config.CompactionDefaultThresholdPercent)
+	// What the aim does not pay for is the new row itself (its summary and the
+	// prompt in front of it); everything else has to fit.
+	if next, room := ag.inTurnRequestTokens(1), target+session.EstimateContextTokens(row.Content)+50; next > room {
+		t.Fatalf("the fold left the next request at %d tokens, over its aim of %d plus its own row:\n%s", next, room, logs)
+	}
+}

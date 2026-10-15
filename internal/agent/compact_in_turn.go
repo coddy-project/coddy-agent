@@ -72,7 +72,8 @@ type inTurnSplitRequest struct {
 	// while the turn in progress fits.
 	recovery bool
 	// budget is how many tokens the kept steps may take: the target less the
-	// request's overhead and the prompt at the start of the summary row. It may
+	// request's overhead, the summary rows of the chain and the prompt at the
+	// start of the summary row. It may
 	// be negative; then nothing fits and the floor is taken.
 	budget int
 	// regularBudget is the same for a regular split, which writes no prompt in
@@ -282,6 +283,11 @@ func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, viewOffset i
 		prefixTokens = session.EstimateContextTokens(session.NewInTurnCompactionSummaryMessage(prefix, "", "").Content)
 	}
 	regularPreamble := session.EstimateContextTokens(session.NewCompactionSummaryMessage("", "").Content)
+	// The summary rows of the chain stay in every request after the fold, in
+	// front of what it keeps, so they come off both budgets. A merge after the
+	// fold can only make them smaller.
+	_, tailStart := session.LLMWindow(msgs)
+	chainTokens := conversationTokens(projected[:tailStart-viewOffset], a.modelReadsImages())
 
 	choice, err := chooseInTurnSplit(inTurnSplitRequest{
 		msgs:          msgs,
@@ -289,8 +295,8 @@ func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, viewOffset i
 		projected:     projected,
 		keepSteps:     inTurnKeepRecentSteps,
 		recovery:      opts.Recovery,
-		budget:        target - overhead - prefixTokens,
-		regularBudget: target - overhead - regularPreamble,
+		budget:        target - overhead - chainTokens - prefixTokens,
+		regularBudget: target - overhead - chainTokens - regularPreamble,
 		readsImages:   a.modelReadsImages(),
 	})
 	if err != nil {
