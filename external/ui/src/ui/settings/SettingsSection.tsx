@@ -7,9 +7,22 @@ import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { ProviderModelList } from "./ProviderModelList";
+import {
+  CoddyAPIBaseField,
+  SharedAsField,
+  SharedSubscriptionAckField,
+} from "./SharedModelFields";
+import {
+  CODDY_PROVIDER_TYPE,
+  contextWindowToPin,
+  isCoddyType,
+  providerRowOfModel,
+  sharedSubscriptionAckNeeded,
+} from "./sharedModels";
 import type { ProviderRow } from "./useProviderModels";
 import { ProxySettingField } from "./ProxySettingField";
 import { ReasoningLevelsField } from "./ReasoningLevelsField";
+import { TriStateField } from "./TriStateField";
 import {
   defaultForSchema,
   SchemaForm,
@@ -65,7 +78,14 @@ type FieldOverrideContext = Parameters<FieldOverride>[0];
 // Provider types with an account-usage source server-side
 // (internal/session/provider_usage_sources.go): the usage_limits_panel switch
 // means something only for them, so the other types do not show it.
-const USAGE_PANEL_PROVIDER_TYPES = new Set(["neuraldeep", "codex", "devin"]);
+const USAGE_PANEL_PROVIDER_TYPES = new Set([
+  "neuraldeep",
+  "codex",
+  "devin",
+  "coddy",
+]);
+
+const TRI_STATE_MODEL_KEYS = new Set(["allow_reasoning_off"]);
 
 /**
  * seedLogicalModel builds a models[] row from the item schema's defaults,
@@ -79,6 +99,7 @@ function seedLogicalModel(
   itemSchema: JsonSchema | undefined,
   id: string,
   contextWindow?: number | undefined,
+  providerType?: string | undefined,
 ): Record<string, unknown> {
   const seed = defaultForSchema(itemSchema ?? {});
   const row: Record<string, unknown> =
@@ -86,9 +107,15 @@ function seedLogicalModel(
       ? { ...(seed as Record<string, unknown>) }
       : {};
   delete row.reasoning_levels;
+  delete row.allow_reasoning_off;
   row.model = id;
-  if (contextWindow && itemSchema?.properties?.max_context_tokens) {
-    row.max_context_tokens = contextWindow;
+  const pinnedContext = contextWindowToPin(providerType, contextWindow);
+  if (pinnedContext && itemSchema?.properties?.max_context_tokens) {
+    row.max_context_tokens = pinnedContext;
+  }
+  if (isCoddyType(providerType) || id.trim() === "") {
+    delete row.max_context_tokens;
+    delete row.multimodal;
   }
   return row;
 }
@@ -214,6 +241,7 @@ export function overrideTexts(
   path: string,
   parent: Record<string, unknown> | undefined,
   schema: JsonSchema,
+  providers: ProviderRow[] = [],
 ): false | null | OverrideTexts {
   const label = () =>
     schemaFieldLabel(
@@ -263,6 +291,12 @@ export function overrideTexts(
     return null;
   }
   if (domain === "models") {
+    if (
+      path === "shared_subscription_ack" &&
+      !sharedSubscriptionAckNeeded(parent, providers)
+    ) {
+      return false;
+    }
     return path === "model"
       ? {
           primary: label(),
@@ -282,8 +316,12 @@ export function overrideTexts(
 }
 
 // A field override's answer: false draws nothing, null leaves it to the schema.
-function boxFor(domain: string, ctx: FieldOverrideContext) {
-  return overrideTexts(domain, ctx.path, ctx.parentObj, ctx.schema);
+function boxFor(
+  domain: string,
+  ctx: FieldOverrideContext,
+  providers: ProviderRow[] = [],
+) {
+  return overrideTexts(domain, ctx.path, ctx.parentObj, ctx.schema, providers);
 }
 
 // A bot's proxy reads like a provider's, so it gets the same switch and URL
@@ -302,9 +340,34 @@ function gatewaysFieldOverride(ctx: FieldOverrideContext) {
 }
 
 function providerFieldOverride(ctx: FieldOverrideContext) {
+  const providerType = rowText(ctx.parentObj, "type");
   const box = boxFor("providers", ctx);
   if (box === false || box === null) {
     return box;
+  }
+  if (ctx.path === "busy_wait_ms" && providerType !== CODDY_PROVIDER_TYPE) {
+    return false;
+  }
+  if (providerType === CODDY_PROVIDER_TYPE && ctx.path === "api_base") {
+    return (
+      <CoddyAPIBaseField
+        value={ctx.value}
+        onChange={(value) => ctx.onChange(value)}
+        label={
+          schemaFieldLabel(
+            "providers",
+            "api_base",
+            ctx.schema.title,
+            "api_base",
+          ) || translate("settings.field.apiBaseFallback")
+        }
+        description={schemaFieldDesc(
+          "providers",
+          "api_base",
+          ctx.schema.description,
+        )}
+      />
+    );
   }
   // Every provider type has the proxy switch and URL field, codex included: its
   // sign-in and its requests take the row's route like any other.
@@ -317,7 +380,7 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
       />
     );
   }
-  if (rowText(ctx.parentObj, "type") === "codex") {
+  if (providerType === "codex") {
     return (
       <CodexAuthField
         providerName={rowText(ctx.parentObj, "name")}
@@ -601,6 +664,7 @@ export function SettingsSection(props: {
                   onChange={(v) => ctx.onChange(v)}
                   model={modelId}
                   providerType={providerTypeFor(modelId)}
+                  providerRow={providerRowOfModel(modelId, providerRows)}
                   label={
                     schemaFieldLabel(
                       key,
@@ -614,6 +678,71 @@ export function SettingsSection(props: {
                     "reasoning_levels",
                     ctx.schema.description,
                   )}
+                />
+              );
+            }
+            if (TRI_STATE_MODEL_KEYS.has(ctx.path)) {
+              const modelId = String(ctx.parentObj?.["model"] ?? "");
+              if (isCoddyType(providerTypeFor(modelId))) {
+                return (
+                  <TriStateField
+                    name={ctx.path}
+                    value={ctx.value}
+                    onChange={(value) => ctx.onChange(value)}
+                    label={schemaFieldLabel(
+                      key,
+                      ctx.path,
+                      ctx.schema.title,
+                      ctx.path,
+                    )}
+                    description={schemaFieldDesc(
+                      key,
+                      ctx.path,
+                      ctx.schema.description,
+                    )}
+                  />
+                );
+              }
+            }
+            if (ctx.path === "shared_as") {
+              return (
+                <SharedAsField
+                  value={ctx.value}
+                  onChange={(value) => ctx.onChange(value)}
+                  label={schemaFieldLabel(
+                    key,
+                    "shared_as",
+                    ctx.schema.title,
+                    "shared_as",
+                  )}
+                  description={schemaFieldDesc(
+                    key,
+                    "shared_as",
+                    ctx.schema.description,
+                  )}
+                />
+              );
+            }
+            if (ctx.path === "shared_subscription_ack") {
+              if (boxFor(key, ctx, providerRows) === false) {
+                return false;
+              }
+              const provider = providerRowOfModel(
+                String(ctx.parentObj?.["model"] ?? ""),
+                providerRows,
+              );
+              return (
+                <SharedSubscriptionAckField
+                  checked={ctx.value === true}
+                  onChange={(value) => ctx.onChange(value)}
+                  label={schemaFieldLabel(
+                    key,
+                    "shared_subscription_ack",
+                    ctx.schema.title,
+                    "shared_subscription_ack",
+                  )}
+                  providerName={String(provider?.name ?? "").trim()}
+                  providerType={String(provider?.type ?? "").trim()}
                 />
               );
             }
@@ -679,6 +808,7 @@ export function SettingsSection(props: {
                           props_["models"]?.items,
                           id,
                           contextWindow,
+                          String(asObject(item).type ?? ""),
                         ),
                       ]),
                     );
@@ -784,7 +914,7 @@ export function providerFormGroups(): SchemaFormGroup[] {
     {
       id: "advanced",
       legend: translate("settings.providers.group.advanced"),
-      paths: ["api_key_command", "proxy", "timeout_ms"],
+      paths: ["api_key_command", "proxy", "timeout_ms", "busy_wait_ms"],
       collapsible: true,
     },
   ];
@@ -810,6 +940,11 @@ export function modelFormGroups(): SchemaFormGroup[] {
       id: "reasoning",
       legend: translate("settings.models.group.reasoning"),
       paths: ["reasoning_levels", "reasoning_default", "allow_reasoning_off"],
+    },
+    {
+      id: "sharing",
+      legend: translate("settings.models.group.sharing"),
+      paths: ["shared_as", "shared_subscription_ack"],
     },
     {
       id: "tools",
@@ -883,6 +1018,11 @@ export function objectSectionGroups(
         id: "limits",
         legend: translate("settings.group.agent.limits"),
         paths: ["wait_for_limit_reset", "wait_for_limit_reset_max_ms"],
+      },
+      {
+        id: "shared",
+        legend: translate("settings.group.agent.shared"),
+        paths: ["shared_busy_wait_ms"],
       },
     ];
   }

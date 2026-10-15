@@ -15,8 +15,10 @@ import (
 
 // providerUsageFingerprint identifies the credential behind a provider row for
 // the usage cache; cliLogin says whether the row may fall back to the
-// machine-wide CLI login of its type (config.Config.CLILoginRow).
-func providerUsageFingerprint(provider config.ProviderConfig, authPath string, cliLogin bool) string {
+// machine-wide CLI login of its type (config.Config.CLILoginRow). alias names
+// the model of a coddy row, whose usage is read per alias; every other type
+// ignores it.
+func providerUsageFingerprint(provider config.ProviderConfig, alias, authPath string, cliLogin bool) string {
 	switch strings.ToLower(strings.TrimSpace(provider.Type)) {
 	case "neuraldeep":
 		return llm.NeuralDeepUsageFingerprint(provider, authPath)
@@ -24,6 +26,8 @@ func providerUsageFingerprint(provider config.ProviderConfig, authPath string, c
 		return llm.CodexUsageFingerprint(provider, authPath, cliLogin)
 	case "devin":
 		return llm.DevinUsageFingerprint(provider, authPath, cliLogin)
+	case "coddy":
+		return llm.CoddyUsageFingerprint(provider, alias)
 	default:
 		// No usage source, no cache key: a caller that skipped the
 		// providerUsageSource gate must not get NeuralDeep's fingerprint
@@ -34,7 +38,8 @@ func providerUsageFingerprint(provider config.ProviderConfig, authPath string, c
 
 // fetchProviderUsage keeps transport payloads below the session layer while
 // every source shares the manager's scheduling and surface-facing snapshot.
-func (m *Manager) fetchProviderUsage(ctx context.Context, provider config.ProviderConfig, authPath string, cliLogin bool) (acp.ProviderUsageUpdate, error) {
+// alias is the model a coddy row is read for and is ignored by the other types.
+func (m *Manager) fetchProviderUsage(ctx context.Context, provider config.ProviderConfig, alias, authPath string, cliLogin bool) (acp.ProviderUsageUpdate, error) {
 	switch strings.ToLower(strings.TrimSpace(provider.Type)) {
 	case "neuraldeep":
 		u, err := llm.NeuralDeepUsageForProvider(ctx, provider, authPath)
@@ -54,6 +59,20 @@ func (m *Manager) fetchProviderUsage(ctx context.Context, provider config.Provid
 			return acp.ProviderUsageUpdate{}, err
 		}
 		return mapDevinUsage(u, provider.Name, m.usageNow()), nil
+	case "coddy":
+		key, helperErr := provider.EffectiveAPIKeyContextErr(ctx)
+		if key == "" && helperErr != nil {
+			// A remote can be open on purpose, so no key is not an error; a
+			// helper that was cut short is, and must not be mistaken for it.
+			return acp.ProviderUsageUpdate{}, &llm.ProviderUsageError{Kind: llm.ProviderUsageUnavailable, Detail: "credential helper cut short: " + helperErr.Error()}
+		}
+		w, err := llm.CoddyUsageForProvider(ctx, llm.ProviderInput{
+			Name: provider.Name, Type: provider.Type, APIKey: key, BaseURL: provider.APIBase, ProxyURL: provider.Proxy,
+		}, alias)
+		if err != nil {
+			return acp.ProviderUsageUpdate{}, err
+		}
+		return mapCoddyUsage(w, provider.Name, alias, m.usageNow()), nil
 	default:
 		return acp.ProviderUsageUpdate{}, fmt.Errorf("provider usage: unsupported source")
 	}
@@ -242,4 +261,50 @@ func devinQuotaWindow(w *acp.UsageWindow, remaining uint64, resetAt int64, now t
 	if in := int(at.Sub(now).Seconds()); in > 0 {
 		w.ResetInSec = in
 	}
+}
+
+// mapCoddyUsage turns the projection a remote Coddy answers with into the
+// surface-facing update of the alias. The remote's document is all this reads:
+// no plan, key name, wallet or rate exists on the wire, so none is invented,
+// and nothing absolute is taken from it either, since the two hosts' clocks
+// differ. A window's reset arrives as seconds from the moment the remote
+// answered; the update anchors it at the receipt on this host (the delivery
+// then ages the countdown like every source's). A window without reset_in_s
+// has no reset clock and gets neither field; 0 is a clock that has run out.
+// An answer that says unsupported is that and nothing else.
+func mapCoddyUsage(w *llm.WireUsage, provider, alias string, fetchedAt time.Time) acp.ProviderUsageUpdate {
+	out := acp.ProviderUsageUpdate{
+		SessionUpdate: acp.UpdateTypeProviderUsage, Provider: provider, ProviderType: "coddy", Model: alias,
+		FetchedAt: fetchedAt.UTC().Format(time.RFC3339),
+	}
+	if w == nil || !w.Supported {
+		out.Unsupported = true
+		return out
+	}
+	out.Stale = w.Stale
+	for _, raw := range w.Windows {
+		label := raw.Label
+		if label == "" {
+			label = raw.ID
+		}
+		win := acp.UsageWindow{ID: raw.ID, Label: label, UsedPercent: clampPercent(raw.UsedPercent), Exhausted: raw.Exhausted}
+		if raw.ResetInS != nil {
+			in := *raw.ResetInS
+			if in < 0 {
+				in = 0
+			}
+			win.ResetInSec = in
+			win.ResetsAt = fetchedAt.Add(time.Duration(in) * time.Second).UTC().Format(time.RFC3339)
+		}
+		out.Windows = append(out.Windows, win)
+	}
+	out.Blocked = w.Blocked
+	if len(w.Blockers) > 0 {
+		out.Blockers = append([]string(nil), w.Blockers...)
+	}
+	if out.Blocked && w.RetryInS > 0 {
+		out.RetryInSec = w.RetryInS
+		out.RetryAt = fetchedAt.Add(time.Duration(w.RetryInS) * time.Second).UTC().Format(time.RFC3339)
+	}
+	return out
 }

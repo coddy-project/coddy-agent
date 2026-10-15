@@ -15,9 +15,11 @@ func runConsoleDryRun(cli config.CLIPaths, verbose bool, remoteArg, remoteToken 
 
 // runServeDryRun resolves the subsystems exactly as a start would - the
 // configuration with the typed flags applied - and probes the addresses they
-// would bind, on top of everything the config names.
-func runServeDryRun(cli config.CLIPaths, verbose bool, apply func(*config.Config) error, httpListenAddr, swarmListenAddr func(*config.Config) string, extraAuth bool) error {
-	return dryrun.RunAndReport(configTestOutput, cli, verbose, apply, func(prep *dryrun.Prepared) (dryrun.Request, error) {
+// would bind, on top of everything the config names. extraAuth is asked once
+// the configuration is loaded, which is also when <home>/.env reaches the
+// environment it reads.
+func runServeDryRun(cli config.CLIPaths, verbose bool, extra config.ExtraTokens, apply func(*config.Config) error, httpListenAddr, swarmListenAddr func(*config.Config) string, extraAuth func() bool) error {
+	return dryrun.RunAndReportWith(configTestOutput, cli, extra, verbose, apply, func(prep *dryrun.Prepared) (dryrun.Request, error) {
 		rt := &serve.Runtime{}
 		all := subsystems(rt, subsystemDeps{
 			httpListenAddr:  httpListenAddr,
@@ -26,7 +28,7 @@ func runServeDryRun(cli config.CLIPaths, verbose bool, apply func(*config.Config
 		})
 		enabled, rerr := serve.Resolve(prep.Cfg, all)
 		req := dryrun.Request{Surface: dryrun.SurfaceServe, SubsystemErr: rerr,
-			WebUIOpen: webUIAccess(prep.Cfg, extraAuth, outOfBandLogin().IsSet()) == gateway.WebUIOpen}
+			WebUIOpen: webUIAccess(prep.Cfg, extraAuth(), outOfBandLogin().IsSet()) == gateway.WebUIOpen}
 		for _, sub := range enabled {
 			switch sub.Kind {
 			case serve.KindHTTP:

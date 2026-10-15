@@ -81,6 +81,12 @@
           "title": "Queue mode",
           "type": "string"
         },
+        "shared_busy_wait_ms": {
+          "default": 30000,
+          "description": "How long calls to a coddy provider wait for a free remote slot in milliseconds. Empty uses 30000; 0 fails at the first busy answer. A positive provider busy_wait_ms takes precedence.",
+          "title": "Shared model busy wait ms",
+          "type": "integer"
+        },
         "wait_for_limit_reset": {
           "description": "Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile.",
           "title": "Wait for limit reset",
@@ -109,7 +115,8 @@
         "loop_stream_repeat_cycles",
         "loop_nudge_max",
         "wait_for_limit_reset",
-        "wait_for_limit_reset_max_ms"
+        "wait_for_limit_reset_max_ms",
+        "shared_busy_wait_ms"
       ]
     },
     "compaction": {
@@ -912,6 +919,17 @@
             "title": "Reasoning levels",
             "type": "array"
           },
+          "shared_as": {
+            "description": "Optional alias that offers this model to other Coddys. Empty keeps it private. The alias is the only model name a borrower sees; it must be unique and cannot name a model served by another Coddy.",
+            "title": "Shared as",
+            "type": "string"
+          },
+          "shared_subscription_ack": {
+            "default": false,
+            "description": "Required to share a model that uses a Codex, Devin or keyless NeuralDeep subscription. Every holder of a shared-model token can spend the subscription quota, and sharing may breach the vendor's terms.",
+            "title": "Acknowledge subscription sharing",
+            "type": "boolean"
+          },
           "stream": {
             "default": true,
             "description": "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
@@ -1039,7 +1057,8 @@
               "anthropic",
               "neuraldeep",
               "codex",
-              "devin"
+              "devin",
+              "coddy"
             ],
             "title": "Provider type",
             "type": "string"

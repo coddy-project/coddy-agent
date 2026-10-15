@@ -61,9 +61,7 @@ type SwarmConfig struct {
 	// origin by construction, so this matters more here than on the agent.
 	CORS HTTPCORSConfig `yaml:"cors"`
 
-	// TLS serves the relay over HTTPS. Relays usually sit in different networks
-	// and carry every node's credential, so the link between them is the last
-	// place to leave in the clear.
+	// TLS serves the relay over HTTPS using an existing certificate and key.
 	TLS SwarmTLSConfig `yaml:"tls"`
 
 	// LeaseTTLSeconds overrides how long a registration survives without a
@@ -80,6 +78,10 @@ type SwarmConfig struct {
 	// `coddy serve` process honours it, relay or not, which is what lets relays
 	// chain.
 	Join []SwarmJoin `yaml:"join"`
+
+	// Clients are relay clients limited to the shared-model routes of the nodes
+	// they list. AuthToken stays the full class.
+	Clients []SwarmClient `yaml:"clients"`
 }
 
 // SwarmTLSConfig serves the relay over HTTPS. Both files or neither.
@@ -115,7 +117,7 @@ type SwarmUpstream struct {
 	Kind string `yaml:"kind"`
 	// Token is the bearer credential the relay presents to this node.
 	Token string `yaml:"token"`
-	// Dial carries the proxy and TLS settings for reaching this node.
+	// Dial carries the proxy settings for reaching this node.
 	Dial SwarmDialConfig `yaml:"dial"`
 }
 
@@ -138,7 +140,7 @@ type SwarmJoin struct {
 	Token string `yaml:"token"`
 	// Labels are free-form tags shown in topology views.
 	Labels map[string]string `yaml:"labels"`
-	// Dial carries the proxy and TLS settings for reaching the parent relay,
+	// Dial carries the proxy settings for reaching the parent relay,
 	// which matters most for the tunnel transport: that connection is the only
 	// way in, so it is the one most likely to cross a proxy.
 	Dial SwarmDialConfig `yaml:"dial"`
@@ -206,6 +208,8 @@ func (s *SwarmConfig) Normalize() {
 		return
 	}
 	s.Host = strings.TrimSpace(s.Host)
+	s.TLS.CertFile = strings.TrimSpace(s.TLS.CertFile)
+	s.TLS.KeyFile = strings.TrimSpace(s.TLS.KeyFile)
 	s.Name = strings.TrimSpace(s.Name)
 	s.AuthToken = strings.TrimSpace(s.AuthToken)
 	for i := range s.PairingTokens {
@@ -224,6 +228,9 @@ func (s *SwarmConfig) Normalize() {
 		s.Join[i].AdvertiseURL = strings.TrimRight(strings.TrimSpace(s.Join[i].AdvertiseURL), "/")
 		s.Join[i].Token = strings.TrimSpace(s.Join[i].Token)
 	}
+	for i := range s.Clients {
+		s.Clients[i].normalize()
+	}
 }
 
 // Validate reports configuration a relay could not act on.
@@ -234,16 +241,14 @@ func (s *SwarmConfig) Validate() error {
 	if s.Port < 0 || s.Port > 65535 {
 		return fmt.Errorf("swarm.port %d is out of range", s.Port)
 	}
+	if (strings.TrimSpace(s.TLS.CertFile) == "") != (strings.TrimSpace(s.TLS.KeyFile) == "") {
+		return fmt.Errorf("swarm.tls.cert_file and swarm.tls.key_file must be set together")
+	}
 	if s.LeaseTTLSeconds < 0 {
 		return fmt.Errorf("swarm.lease_ttl_seconds must not be negative")
 	}
 	if s.FanoutTimeoutSeconds < 0 {
 		return fmt.Errorf("swarm.fanout_timeout_seconds must not be negative")
-	}
-	certSet := strings.TrimSpace(s.TLS.CertFile) != ""
-	keySet := strings.TrimSpace(s.TLS.KeyFile) != ""
-	if certSet != keySet {
-		return fmt.Errorf("swarm.tls: cert_file and key_file must be set together")
 	}
 	seen := map[string]bool{}
 	for _, up := range s.Upstreams {
@@ -268,5 +273,20 @@ func (s *SwarmConfig) Validate() error {
 			return fmt.Errorf("swarm.join[%d]: url is required", i)
 		}
 	}
-	return nil
+	return s.validateClients()
+}
+
+// EffectiveClientTokens lists the full-class client tokens of the relay: the
+// configured one and the ones given out of band.
+func (s *SwarmConfig) EffectiveClientTokens(extra ExtraTokens) []string {
+	var out []string
+	if s != nil && strings.TrimSpace(s.AuthToken) != "" {
+		out = append(out, strings.TrimSpace(s.AuthToken))
+	}
+	for _, t := range extra.Swarm {
+		if t = strings.TrimSpace(t); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

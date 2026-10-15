@@ -24,16 +24,16 @@ type Options struct {
 	// Proxy routes the connection through http, https, socks5 or socks5h.
 	// Empty falls back to the standard environment variables.
 	Proxy string
-	// CAFile verifies a peer whose certificate is signed privately.
-	CAFile string
-	// InsecureSkipVerify accepts any certificate. Never a default, and every
-	// caller that sets it is expected to say so out loud in its log.
-	InsecureSkipVerify bool
 	// DialTimeout bounds establishing the connection, not using it.
 	DialTimeout time.Duration
 	// Scheme is what the caller is about to speak, http or https. It decides
 	// which of the standard proxy variables applies when Proxy is empty.
 	Scheme string
+	// CAFile adds the PEM authority at this path to the system trust store.
+	CAFile string
+	// InsecureSkipVerify disables certificate verification for callers that
+	// explicitly opt in to an insecure transport.
+	InsecureSkipVerify bool
 }
 
 func (o Options) dialTimeout() time.Duration {
@@ -45,21 +45,24 @@ func (o Options) dialTimeout() time.Duration {
 
 // TLSConfig builds the client configuration for reaching serverName.
 func (o Options) TLSConfig(serverName string) (*tls.Config, error) {
-	cfg := &tls.Config{
+	cfg := &tls.Config{ // #nosec G402 -- callers explicitly opt in through Options.
 		MinVersion:         tls.VersionTLS12,
 		ServerName:         serverName,
-		InsecureSkipVerify: o.InsecureSkipVerify, //nolint:gosec // opt-in, and the caller logs it
+		InsecureSkipVerify: o.InsecureSkipVerify,
 	}
 	if path := strings.TrimSpace(o.CAFile); path != "" {
 		pem, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read ca_file: %w", err)
+			return nil, fmt.Errorf("read certificate authority %q: %w", path, err)
 		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("ca_file %q contains no certificate", path)
+		roots, err := x509.SystemCertPool()
+		if err != nil || roots == nil {
+			roots = x509.NewCertPool()
 		}
-		cfg.RootCAs = pool
+		if !roots.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("certificate authority %q contains no certificates", path)
+		}
+		cfg.RootCAs = roots
 	}
 	return cfg, nil
 }

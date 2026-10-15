@@ -92,7 +92,6 @@ type Registry struct {
 	// it, anyone holding a pairing token could point the relay at loopback or a
 	// cloud metadata endpoint and read the answer through a mount.
 	egress netx.EgressPolicy
-
 	// now and newSecret are injectable so tests can drive time and identity
 	// instead of sleeping and hoping.
 	now       func() time.Time
@@ -114,6 +113,16 @@ func NewRegistry(ttl time.Duration) *Registry {
 		newSecret: randomSecret,
 	}
 }
+
+// errRelayRoute marks a failure to build the relay's own route to a node (its CA or client certificate cannot be read): the node's
+// request was fine, the relay's settings are not, and the text of the cause names the relay's files.
+var errRelayRoute = errors.New("the relay cannot build its route to the node")
+
+type relayRouteError struct{ cause error }
+
+func (e *relayRouteError) Error() string        { return e.cause.Error() }
+func (e *relayRouteError) Is(target error) bool { return target == errRelayRoute }
+func (e *relayRouteError) Unwrap() error        { return e.cause }
 
 // SetEgressPolicy installs the policy applied to every advertised address.
 func (r *Registry) SetEgressPolicy(p netx.EgressPolicy) {
@@ -214,7 +223,7 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 			}
 			t, terr := newDirectTransport(advertise, effectiveDial, pinned)
 			if terr != nil {
-				return swarmdto.RegisterResponse{}, terr
+				return swarmdto.RegisterResponse{}, &relayRouteError{cause: terr}
 			}
 			replacement = t
 			existing.dial = effectiveDial
@@ -229,9 +238,9 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 		existing.info.LastSeen = now.UTC().Format(time.RFC3339)
 		existing.advertise = advertise
 		existing.info.URL = advertiseString(advertise)
-		if req.Token != "" {
-			existing.token = req.Token
-		}
+		// The owner's registration is the whole truth about its token: a node
+		// that stopped sending one no longer lets the relay authenticate for it.
+		existing.token = req.Token
 		switch req.Transport {
 		case swarmdto.TransportDirect:
 			// A node that switched back to being reachable no longer needs the
@@ -286,7 +295,7 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 	if req.Transport == swarmdto.TransportDirect {
 		t, terr := newDirectTransport(advertise, l.dial, pinned)
 		if terr != nil {
-			return swarmdto.RegisterResponse{}, terr
+			return swarmdto.RegisterResponse{}, &relayRouteError{cause: terr}
 		}
 		l.transport = t
 	}

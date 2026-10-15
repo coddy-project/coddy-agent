@@ -424,6 +424,13 @@ func isRetryableLLMError(err error) bool {
 	if errors.Is(err, context.Canceled) {
 		return false
 	}
+	if coddyNeverRetried(err) {
+		// A remote Coddy's answer (coddyAPIError) or the spent wait for its
+		// slot (coddyBusyError), by type and never by the words in it: the
+		// remote already retried its own upstream, and a restart of a spent
+		// wait would multiply it (coddy_errors.go).
+		return false
+	}
 	// A request the provider refused for its size is refused again the same
 	// way. Typed statuses already keep it out of the switch below, but an
 	// error that reached this far as text is read for a status by its digits,
@@ -567,6 +574,11 @@ func isDialFailure(err error) bool {
 
 func httpStatusFromError(err error) int {
 	if err == nil {
+		return 0
+	}
+	if coddyNeverRetried(err) {
+		// Typed like the streamed errors below, and ahead of them: the
+		// remote's text can hold any digits, and its status is informational.
 		return 0
 	}
 	var oai *openai.Error

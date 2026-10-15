@@ -55,13 +55,11 @@ func stringListProp(title, description string) map[string]interface{} {
 
 // swarmDialUISchema is how a relay or a joining node dials the other end.
 func swarmDialUISchema() map[string]interface{} {
-	return objectSchema("Dialling", "How this end reaches the other one: an outbound proxy and the certificate check.",
+	return objectSchema("Dialling", "How this end reaches the other one: an outbound proxy.",
 		map[string]interface{}{
-			"proxy":                secretProp("Proxy", "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is write-only: leave it empty to keep the one set.", "proxy_configured"),
-			"ca_file":              strProp("CA file", "PEM bundle trusted for the other end's certificate, besides the system roots."),
-			"insecure_skip_verify": boolProp("Skip certificate check", "For a lab only: every connection is logged as insecure."),
+			"proxy": secretProp("Proxy", "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is write-only: leave it empty to keep the one set.", "proxy_configured"),
 		},
-		[]string{"proxy", "ca_file", "insecure_skip_verify"},
+		[]string{"proxy"},
 		nil)
 }
 
@@ -90,11 +88,31 @@ func swarmUISchema() map[string]interface{} {
 		"token":         secretProp("Token", "This relay's own client token, which the parent presents when it proxies. Write-only: leave it empty to keep the one set.", "token_configured"),
 		"dial":          swarmDialUISchema(),
 	}
+	clientProps := map[string]interface{}{
+		"name":  strProp("Name", "Label of this client in logs and counters: lower case letters, digits, _ and -, unique. Renaming an entry asks for its token again."),
+		"token": secretProp("Token", "Bearer token of this client. It opens only the shared-model routes of the nodes below. Write-only: leave it empty to keep the one set.", "token_configured"),
+		"scope": map[string]interface{}{
+			"type":        "string",
+			"title":       "Scope",
+			"description": "What the token opens. shared_models: the shared-model routes (the three calls and the probe's ping) of the listed nodes.",
+			"enum":        []string{ScopeSharedModels},
+			"default":     ScopeSharedModels,
+		},
+		"nodes":           stringListProp("Nodes", "Node paths this client may reach: a node name, child/node through a chained relay, or * for any node directly below this relay."),
+		"max_streams":     intProp("Max streams", "Concurrent shared-model calls this client may hold on this relay. 0 is no limit."),
+		"rate_per_minute": intProp("Calls per minute", "Calls the relay forwards for this client per minute. 0 is no limit."),
+		"rate_burst":      intProp("Burst", "Calls allowed at once before the rate applies. Empty takes the rate, capped by max streams."),
+	}
 	return objectSchema("Swarm relay", "This relay's deployment: its name and address, the tokens of its clients and nodes, CORS for pages served elsewhere, the nodes it dials itself and the relays it joins. A save rebuilds the relay; a new address takes a restart.",
 		map[string]interface{}{
 			"name": strProp("Name", "The relay's name on the map and in /swarm/info; empty takes the host name it runs on."),
 			"host": strProp("Listen host", "Address to bind. 0.0.0.0 listens on every interface. Takes effect on a restart."),
 			"port": intProp("Listen port", "Port to bind. Takes effect on a restart."),
+			"tls": objectSchema("HTTPS listener", "Serve this relay over HTTPS with an existing PEM certificate and private key. Set both paths or leave both empty for HTTP. No automatic certificates or client mTLS.",
+				map[string]interface{}{
+					"cert_file": strProp("Certificate file", "PEM certificate chain file. Set together with the private key file."),
+					"key_file":  strProp("Private key file", "PEM private key file. Set together with the certificate file."),
+				}, []string{"cert_file", "key_file"}, nil),
 			"auth_token": secretProp("Client token", "Bearer token a client presents to use this relay, and every node behind it. Write-only: leave it empty to keep the one set. A new one signs out every client, this page included: enter it again with Connect to… in the environment menu.",
 				"auth_configured"),
 			"pairing_tokens": func() map[string]interface{} {
@@ -110,13 +128,6 @@ func swarmUISchema() map[string]interface{} {
 					"allowed_origins": stringListProp("Allowed origins", "Exact origins, for example http://localhost:12345, or * for any."),
 				},
 				[]string{"enable", "allow_loopback", "allowed_origins"},
-				nil),
-			"tls": objectSchema("TLS", "Certificate and key the relay serves HTTPS with. Both or neither.",
-				map[string]interface{}{
-					"cert_file": strProp("Certificate file", "PEM certificate chain."),
-					"key_file":  strProp("Key file", "PEM private key."),
-				},
-				[]string{"cert_file", "key_file"},
 				nil),
 			"lease_ttl_seconds":          intProp("Lease TTL (seconds)", "How long a registration lasts without a refresh; nodes refresh at a third of it."),
 			"fanout_timeout_seconds":     intProp("Fan-out timeout (seconds)", "How long the aggregated session list and the topology wait for a node."),
@@ -135,10 +146,16 @@ func swarmUISchema() map[string]interface{} {
 				"description": "Parent relays this relay registers into, which is how relays chain.",
 				"items":       objectSchema("", "", joinProps, []string{"url", "name", "pairing_token", "advertise_url", "token", "dial"}, nil),
 			},
+			"clients": map[string]interface{}{
+				"type":        "array",
+				"title":       "Scoped clients",
+				"description": "Clients with a token of their own that opens only the shared-model routes of the nodes they list. The client token above stays the full one.",
+				"items":       objectSchema("", "", clientProps, []string{"name", "token", "scope", "nodes", "max_streams", "rate_per_minute", "rate_burst"}, nil),
+			},
 		},
 		[]string{
-			"name", "host", "port", "auth_token", "pairing_tokens", "cors", "tls",
-			"lease_ttl_seconds", "fanout_timeout_seconds", "upstreams", "join",
+			"name", "host", "port", "tls", "auth_token", "pairing_tokens", "cors",
+			"lease_ttl_seconds", "fanout_timeout_seconds", "upstreams", "join", "clients",
 			"allow_private_upstreams", "allow_insecure", "insecure_open_registration",
 		},
 		nil)

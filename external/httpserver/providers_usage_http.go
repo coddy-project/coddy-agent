@@ -4,10 +4,12 @@ package httpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // Provider usage over REST and on the server-wide events stream. The manager
@@ -31,6 +33,13 @@ func (s *Server) registerProviderUsageRoutes() {
 // for an unknown provider name. ?refresh=1 asks for a fresh read (subject to
 // the manager's pacing floor, which then answers the cached snapshot with
 // refreshPending set).
+//
+// A row of type coddy (the models of a remote Coddy) is read per alias:
+// ?model=<alias> is required for it (400 {"ok":false,"error":"invalid",...}
+// without), must be one of the row's configured models[] (404
+// {"ok":false,"error":"unknown_model"} otherwise, before any entry is created
+// or the remote is asked), and the answers carry the alias as "model". Every
+// other type ignores the parameter.
 func (s *Server) coddyProviderUsageGet(w http.ResponseWriter, r *http.Request) {
 	c := s.activeCfg()
 	if c == nil || s.mgr == nil {
@@ -38,19 +47,41 @@ func (s *Server) coddyProviderUsageGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSpace(r.PathValue("name"))
-	if c.FindProvider(name) == nil {
+	prov := c.FindProvider(name)
+	if prov == nil {
 		writeCoddyConfigErr(w, http.StatusNotFound, "unknown provider")
 		return
+	}
+	// The subject the manager reads: the provider, and for a coddy row the
+	// provider/alias selector. The manager binds the alias to the configured
+	// models and refuses the rest.
+	subject := name
+	if strings.EqualFold(strings.TrimSpace(prov.Type), "coddy") {
+		model := strings.TrimSpace(r.URL.Query().Get("model"))
+		if model == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"ok": false, "error": "invalid",
+				"detail": "model is required for a provider of type coddy: the usage of a remote is read per model, pass ?model=<alias>",
+			})
+			return
+		}
+		subject = name + "/" + model
 	}
 	refresh := false
 	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("refresh"))) {
 	case "1", "true", "yes":
 		refresh = true
 	}
-	usage, err := s.mgr.ProviderUsage(r.Context(), name, refresh)
+	usage, err := s.mgr.ProviderUsage(r.Context(), subject, refresh)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	switch {
+	case errors.Is(err, session.ErrProviderUsageUnknownModel):
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "unknown_model"})
 	case err != nil:
 		// A cancelled request or a fetch that produced nothing: the kind the
 		// clients understand, with the detail beside it.
@@ -59,6 +90,9 @@ func (s *Server) coddyProviderUsageGet(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "no usage snapshot", "usage": nil})
 	case usage.Unsupported:
 		answer := map[string]interface{}{"ok": false, "unsupported": true, "provider": usage.Provider, "providerType": usage.ProviderType}
+		if usage.Model != "" {
+			answer["model"] = usage.Model
+		}
 		if usage.Disabled {
 			// The type has a source, the row's panel is switched off: a
 			// client can tell the operator which switch to look at.

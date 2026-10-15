@@ -275,6 +275,7 @@ export const messagesRu: Record<string, string> = {
   "settings.group.agent.timeouts": "Таймауты потока",
   "settings.group.agent.loop": "Защита от зацикливания",
   "settings.group.agent.limits": "Лимиты использования",
+  "settings.group.agent.shared": "Общие модели",
   "settings.group.hooks.main": "Настройки хуков",
   "settings.group.hooks.mainDesc":
     "Как выполняются хуки, то есть можно ли запускать файлы, пришедшие с чекаутом, сколько может длиться один процесс хука без своего таймаута, сколько раз хук Stop может вернуть агента к работе и сколько текста может передать один хук.",
@@ -348,6 +349,15 @@ export const messagesRu: Record<string, string> = {
   "settings.models.group.model": "Модель",
   "settings.models.group.generation": "Генерация",
   "settings.models.group.reasoning": "Рассуждение",
+  "settings.models.group.sharing": "Общий доступ",
+  "settings.sharedAs.invalid":
+    "Недопустимый псевдоним: от 1 до 64 латинских букв, цифр, точек, подчёркиваний или дефисов, первая буква или цифра.",
+  "settings.sharedAs.placeholder":
+    "например, terra; пусто оставляет модель закрытой",
+  "settings.sharedAck.required": "обязательно",
+  "settings.sharedAck.warning":
+    "{provider} ({type}) работает по входу с подпиской. Общий доступ отдаёт её квоту каждому, у кого есть токен общих моделей, и может нарушить условия поставщика. Без этого подтверждения конфигурация будет отклонена.",
+  "settings.coddyApiBase.placeholder": "https://host:12345",
   "settings.models.group.tools": "Инструменты",
   "settings.models.group.toolsDesc":
     "Набор, из которого сессия на этой модели получает инструменты: пресет с вкладки наборов инструментов. Без него модели доступны все инструменты, которые даёт режим. Сессия может выбрать другой набор в композере или командой /toolset.",
@@ -369,6 +379,11 @@ export const messagesRu: Record<string, string> = {
     "Окно контекста {tokens} токенов",
   "settings.providerModels.contextWindow.other":
     "Окно контекста {tokens} токена",
+  "settings.providerModels.images": "изображения",
+  "settings.providerModels.imagesTitle":
+    "Удалённый сообщает, что модель принимает изображения",
+  "settings.providerModels.levelsTitle":
+    "Уровни рассуждения, о которых сообщает удалённый: {levels}",
   "settings.reasoning.levelsFallback": "Уровни рассуждений",
   "settings.reasoning.fetch": "Получить уровни ризонинга",
   "settings.reasoning.fetching": "Получение уровней ризонинга…",
@@ -383,6 +398,23 @@ export const messagesRu: Record<string, string> = {
     "Для этого идентификатора уровни не определяются. Добавьте вручную, если провайдер их поддерживает.",
   "settings.reasoning.fetchError":
     "Не удалось получить уровни ризонинга: {error}. Добавьте их вручную ниже.",
+  "settings.reasoning.fromRemote":
+    "Уровни рассуждения этой модели определяет список моделей удалённого Coddy.",
+  "settings.reasoning.fromRemoteLevels":
+    "Сейчас удалённый предлагает: {levels}",
+  "settings.reasoning.fromRemoteNone":
+    "Удалённый не сообщает для этой модели уровней рассуждения.",
+  "settings.reasoning.useRemote": "Как у удалённого",
+  "settings.reasoning.overriddenRemote":
+    "Для этой модели предлагаются именно эти уровни вместо уровней удалённого.",
+  "settings.reasoning.hiddenRemote":
+    "Пустой список: селектор рассуждений скрыт для этой модели. Нажмите «Как у удалённого», чтобы вернуть как было.",
+  "settings.tristate.remote": "Как у удалённого",
+  "settings.tristate.yes": "Да",
+  "settings.tristate.no": "Нет",
+  "settings.tristate.fromRemote": "Следует списку моделей удалённого Coddy.",
+  "settings.tristate.hint":
+    "Список моделей удалённого Coddy для этого ключа игнорируется. Выберите «Как у удалённого», чтобы вернуться к нему.",
 
   "settings.field.apiKeyPlaceholder":
     "Если пусто, читается из {env} во время выполнения, либо укажите ключ явно (в YAML можно использовать {varToken} при загрузке)",

@@ -595,6 +595,8 @@ func commitUCICommandsLocked(paths Paths, cmds []UCICommand) (*ConfigCommitResul
 	// The snapshot is written even for the first commit into a missing file
 	// (as an empty document), so config_rollback can always return to the
 	// pre-commit state.
+	// Preserve the previous document for an operator reverting with an older
+	// binary. This binary validates the snapshot before any rollback write.
 	if err := atomicWriteFile(PrevConfigPath(paths.ConfigPath), previous, 0o600); err != nil {
 		return nil, fmt.Errorf("snapshot config: %w", err)
 	}
