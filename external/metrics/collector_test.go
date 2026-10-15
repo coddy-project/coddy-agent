@@ -2389,3 +2389,26 @@ func TestTheRealClockWaitsForTheNextSlotBoundary(t *testing.T) {
 		}
 	}
 }
+
+// The two credentials are not interchangeable: the token of the HTTP API does
+// not open the exporter, as the exporter's does not open /coddy/status
+// (external/httpserver pins that side).
+func TestTheAPITokenDoesNotOpenTheExporter(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}}))
+	cfg := l.cfg
+	cfg.HTTPServer.AuthToken = "api-token"
+	cfg.Metrics.Token = "metrics-token"
+	c := newCollector(t, l)
+	addr := freeAddr(t)
+	serving(t, Options{Addr: addr, Cfg: l.source().Cfg, Log: slog.New(slog.DiscardHandler), Collector: c})
+
+	if code, body := get(t, addr, "api-token"); code != http.StatusUnauthorized || strings.Contains(body, "coddy_") {
+		t.Errorf("GET /metrics with the API token: %d, want 401 and no figures", code)
+	}
+	if code, _ := get(t, addr, ""); code != http.StatusUnauthorized {
+		t.Errorf("GET /metrics with no token: %d, want 401", code)
+	}
+	if code, body := get(t, addr, "metrics-token"); code != http.StatusOK || !strings.Contains(body, "coddy_build_info") {
+		t.Errorf("GET /metrics with its own token: %d", code)
+	}
+}

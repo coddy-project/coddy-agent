@@ -27,6 +27,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/configapi"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
+	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/webauth"
 )
@@ -71,6 +72,10 @@ type Server struct {
 	// unbuiltSections are the settings sections the form leaves out
 	// (Options.UnbuiltSections).
 	unbuiltSections []string
+
+	// statusDoc builds the document GET /coddy/status answers, nil while the
+	// route is not registered (SetStatus).
+	statusDoc func() serve.StatusDocument
 
 	// envLoginUser and envLoginHash are the web sign-in account supplied out of
 	// band (CODDY_HTTP_USER / CODDY_HTTP_PASSWORD). The password is hashed once
