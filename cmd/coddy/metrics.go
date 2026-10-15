@@ -29,7 +29,13 @@ func (e *exporter) Start() (stop func()) {
 		AddConfigObserver: e.rt.AddConfigObserver,
 		Log:               e.rt.Log,
 	})
-	return e.collector.Close
+	e.rt.SetMetricsSource(e.collector.Metrics)
+	return func() {
+		// The source goes first, so the status document never reads a
+		// collector that is closing.
+		e.rt.SetMetricsSource(nil)
+		e.collector.Close()
+	}
 }
 
 func (e *exporter) Subsystem() serve.Subsystem {

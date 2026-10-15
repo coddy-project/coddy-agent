@@ -200,3 +200,37 @@ func TestTheMetricsWiringServesTheRuntimeAndRebuildsOnANewAddress(t *testing.T) 
 	reloads <- &off
 	eventually(t, "the disabled exporter stops answering", func() bool { return refuses(second) })
 }
+
+// The exporter is the metrics source of the runtime's status document from the
+// moment it starts, and stopping it takes the source away before the collector
+// closes, so the document never reads a collector that is closing.
+func TestTheMetricsWiringRegistersItsSourceAndTheStopClearsIt(t *testing.T) {
+	home := t.TempDir()
+	rt := &serve.Runtime{}
+	if err := rt.Init(serve.Options{
+		CLI: config.CLIPaths{Home: home, CWD: home}, SessionsRoot: filepath.Join(home, "sessions"),
+		NeedsSessions: true, Log: slog.New(slog.DiscardHandler), Cfg: &config.Config{Paths: config.Paths{Home: home, CWD: home}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	wiring := newMetricsWiring(rt)
+	if doc := rt.StatusDocument(); doc.Metrics != nil {
+		t.Fatalf("metrics = %+v before the wiring started", doc.Metrics)
+	}
+
+	stop := wiring.Start()
+	t.Cleanup(stop)
+	doc := rt.StatusDocument()
+	if doc.Metrics == nil {
+		t.Fatal("a started exporter registered no source: the document has no metrics block")
+	}
+	if got := len(doc.Metrics.Series.AttemptsOK); got != 240 {
+		t.Errorf("the series has %d points, want the 240 of the last hour", got)
+	}
+
+	stop()
+	stop()
+	if doc := rt.StatusDocument(); doc.Metrics != nil {
+		t.Errorf("metrics = %+v after the stop, want none", doc.Metrics)
+	}
+}

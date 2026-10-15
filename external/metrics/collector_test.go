@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1005,13 +1007,19 @@ func TestAThirdConcurrentScrapeIsRefused(t *testing.T) {
 	open := sync.OnceFunc(func() { close(release) })
 	t.Cleanup(open)
 	src := l.source()
+	// The collector reads the process once when it is built, and the sampler
+	// never ticks here, so the stand holds a read only from the first scrape on.
+	var armed atomic.Bool
 	src.Status = func() serve.Snapshot {
-		entered <- struct{}{}
-		<-release
+		if armed.Load() {
+			entered <- struct{}{}
+			<-release
+		}
 		return serve.Snapshot{}
 	}
-	c := NewCollector(src)
+	c := newCollectorAt(src, t0, idle)
 	t.Cleanup(c.Close)
+	armed.Store(true)
 	handler := c.Handler(func() string { return "" })
 	serveOne := func() *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
@@ -1527,5 +1535,857 @@ func fullSnapshot() serve.Snapshot {
 		ProviderQuotas: []serve.ProviderQuota{{Provider: "stub", Window: "session", UsedRatio: 0.5, ResetsAt: time.Unix(1_800_000_000, 0)}},
 		SwarmJoins:     []swarm.JoinStatus{{Relay: "relay.example:8443", Kind: swarm.KindAgent, Transport: swarm.TransportDirect, Online: true}},
 		RelayNodes:     []serve.RelayNodeCount{{Kind: swarm.KindAgent, Transport: swarm.TransportDirect, State: serve.NodeOnline, Count: 1}},
+	}
+}
+
+// The sampler keeps the last hour of the exporter's own counters. These tests
+// drive it with times of their own: a collector built by sampled reads the
+// process at t0 and then only when a test calls tick, never by the clock.
+
+// t0 is a slot boundary: when the collectors of these tests first read.
+var t0 = time.Date(2026, 10, 15, 10, 0, 0, 0, time.UTC)
+
+// slotAt is the n-th slot after t0.
+func slotAt(n int) time.Time { return t0.Add(time.Duration(n) * sampleEvery) }
+
+// idle is a tick source that never ticks.
+func idle(stop <-chan struct{}) (time.Time, bool) {
+	<-stop
+	return time.Time{}, false
+}
+
+// sampled builds a collector whose first read is at t0 and whose goroutine
+// waits for a tick that never comes, and closes it with the test.
+func sampled(t *testing.T, l *live) *Collector {
+	t.Helper()
+	c := newCollectorAt(l.source(), t0, idle)
+	t.Cleanup(c.Close)
+	return c
+}
+
+// called feeds the collector one first attempt of the given outcome.
+func called(c *Collector, provider, model, outcome string, seconds float64, input, output int) {
+	c.observeCall(llm.CallEvent{
+		Provider: provider, Model: model, Outcome: outcome,
+		Duration: time.Duration(seconds * float64(time.Second)), InputTokens: input, OutputTokens: output,
+	})
+}
+
+// retried feeds it one attempt the wrapper made after a failed one.
+func retried(c *Collector, provider, model, outcome string, seconds float64, input, output int) {
+	c.observeCall(llm.CallEvent{
+		Provider: provider, Model: model, Outcome: outcome, Retry: true,
+		Duration: time.Duration(seconds * float64(time.Second)), InputTokens: input, OutputTokens: output,
+	})
+}
+
+func seriesOf(s serve.Series) map[string][]float64 {
+	return map[string][]float64{
+		"attemptsOk": s.AttemptsOK, "providerErrors": s.ProviderErrors, "attemptSecondsMean": s.AttemptSecondsMean,
+		"tokensIn": s.TokensIn, "tokensOut": s.TokensOut, "turnsRunning": s.TurnsRunning, "tasksUnfinished": s.TasksUnfinished,
+	}
+}
+
+func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
+
+func lastOf(s []float64) float64 { return s[len(s)-1] }
+
+func providerRow(t *testing.T, c *Collector, name string) serve.ProviderStats {
+	t.Helper()
+	rows := c.Metrics().Providers
+	for _, p := range rows {
+		if p.Name == name {
+			return p
+		}
+	}
+	t.Fatalf("no row for the provider %q in %+v", name, rows)
+	return serve.ProviderStats{}
+}
+
+func rowNames(c *Collector) []string {
+	var names []string
+	for _, p := range c.Metrics().Providers {
+		names = append(names, p.Name)
+	}
+	return names
+}
+
+// The read in NewCollector is the first point of the ring: it has no rate and
+// no mean, since nothing came before it, and its gauges are what the process
+// said.
+func TestTheFirstReadIsTheFirstPointAndHasNoRate(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}}))
+	l.setStatus(serve.Snapshot{TurnsRunning: 2, Tasks: map[string]map[string]int{
+		"agent": {"running": 1}, "command": {"queued": 2, "running": 1},
+	}})
+	c := sampled(t, l)
+
+	got := c.Metrics().Series
+	if got.StepSeconds != sampleEvery.Seconds() || !got.End.Equal(t0) {
+		t.Errorf("step %v s, end %v; want %v s, %v", got.StepSeconds, got.End, sampleEvery.Seconds(), t0)
+	}
+	for name, s := range seriesOf(got) {
+		if len(s) != samplePoints {
+			t.Errorf("%s has %d points, want %d", name, len(s), samplePoints)
+			continue
+		}
+		for i, v := range s[:samplePoints-1] {
+			if !math.IsNaN(v) {
+				t.Errorf("%s[%d] = %v, want a gap: nothing was sampled before the first read", name, i, v)
+				break
+			}
+		}
+	}
+	for _, name := range []string{"attemptsOk", "providerErrors", "attemptSecondsMean", "tokensIn", "tokensOut"} {
+		if v := seriesOf(got)[name]; !math.IsNaN(v[samplePoints-1]) {
+			t.Errorf("the first point of %s = %v, want a gap: a rate needs two reads", name, v[samplePoints-1])
+		}
+	}
+	if v := got.TurnsRunning[samplePoints-1]; v != 2 {
+		t.Errorf("turns running = %v, want 2", v)
+	}
+	if v := got.TasksUnfinished[samplePoints-1]; v != 4 {
+		t.Errorf("unfinished tasks = %v, want 4: every kind and status counts", v)
+	}
+}
+
+// A rate is the rise since the previous read, per minute, over the time since
+// that read; a slot nobody sampled is a gap.
+func TestRatesAreRisesPerMinuteAndAMissedSlotIsAGap(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}}))
+	c := sampled(t, l)
+
+	for range 3 {
+		called(c, "stub", "echo", "ok", 1, 100, 7)
+	}
+	called(c, "stub", "echo", "timeout", 1, 0, 0)
+	c.tick(slotAt(1))
+	got := c.Metrics().Series
+	for name, want := range map[string]float64{
+		"attemptsOk": 12, "providerErrors": 4, "tokensIn": 1200, "tokensOut": 84,
+	} {
+		if v := seriesOf(got)[name]; !near(v[samplePoints-1], want) {
+			t.Errorf("%s = %v after 15 s, want %v", name, v[samplePoints-1], want)
+		}
+	}
+	if !got.End.Equal(slotAt(1)) {
+		t.Errorf("end = %v, want %v", got.End, slotAt(1))
+	}
+
+	// Two slots skipped: the next point is a rate over the 45 s since the last read.
+	called(c, "stub", "echo", "ok", 1, 0, 0)
+	c.tick(slotAt(4))
+	got = c.Metrics().Series
+	ok := got.AttemptsOK
+	if !near(ok[samplePoints-1], 60.0/45) {
+		t.Errorf("rate over 45 s = %v, want %v", ok[samplePoints-1], 60.0/45)
+	}
+	if !math.IsNaN(ok[samplePoints-2]) || !math.IsNaN(ok[samplePoints-3]) {
+		t.Errorf("the skipped slots are %v and %v, want gaps", ok[samplePoints-3], ok[samplePoints-2])
+	}
+	if !near(ok[samplePoints-4], 12) {
+		t.Errorf("the point before the gap = %v, want 12", ok[samplePoints-4])
+	}
+	for name, s := range seriesOf(got) {
+		if !math.IsNaN(s[samplePoints-2]) {
+			t.Errorf("%s has a value at a skipped slot: %v", name, s[samplePoints-2])
+		}
+	}
+}
+
+// A time stamp inside a slot is the slot, and a second tick in a slot already
+// sampled reads nothing.
+func TestATickFallsInItsSlotAndASecondOneInTheSlotReadsNothing(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}}))
+	c := sampled(t, l)
+	called(c, "stub", "echo", "ok", 1, 0, 0)
+	c.tick(slotAt(1).Add(9 * time.Second))
+	if end := c.Metrics().Series.End; !end.Equal(slotAt(1)) {
+		t.Fatalf("end = %v, want the slot %v", end, slotAt(1))
+	}
+	before := c.Metrics().Series
+	if got, want := before.AttemptsOK[samplePoints-1], 60.0/24; !near(got, want) {
+		t.Errorf("rate = %v, want %v: one attempt over the 24 s since the first read", got, want)
+	}
+
+	called(c, "stub", "echo", "ok", 1, 0, 0)
+	c.tick(slotAt(1).Add(14 * time.Second)) // the same slot
+	after := c.Metrics().Series
+	if !after.End.Equal(before.End) || !near(after.AttemptsOK[samplePoints-1], before.AttemptsOK[samplePoints-1]) {
+		t.Errorf("a second tick in the slot changed the series: %v -> %v", before.AttemptsOK[samplePoints-1], after.AttemptsOK[samplePoints-1])
+	}
+
+	// The attempt that tick left is in the next point, which rises over the
+	// time since the last read that did happen: 6 s before this slot.
+	c.tick(slotAt(2))
+	if got, want := c.Metrics().Series.AttemptsOK[samplePoints-1], 60.0/6; !near(got, want) {
+		t.Errorf("the next point = %v, want %v: one attempt over the 6 s since the last read", got, want)
+	}
+}
+
+// A clock that goes back puts the sample in a slot before the newest: the
+// series starts again from there, with no point left from the hour the clock
+// has taken back.
+func TestAClockThatGoesBackStartsTheSeriesAgain(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}}))
+	c := sampled(t, l)
+	for i := 1; i <= 10; i++ {
+		l.setStatus(serve.Snapshot{TurnsRunning: 1})
+		c.tick(slotAt(i))
+	}
+	l.setStatus(serve.Snapshot{TurnsRunning: 7})
+	c.tick(slotAt(4))
+
+	got := c.Metrics().Series
+	if !got.End.Equal(slotAt(4)) {
+		t.Fatalf("end = %v, want %v", got.End, slotAt(4))
+	}
+	if v := lastOf(got.TurnsRunning); v != 7 {
+		t.Errorf("the last point = %v, want 7", v)
+	}
+	for i, v := range got.TurnsRunning[:samplePoints-1] {
+		if !math.IsNaN(v) {
+			t.Fatalf("turnsRunning[%d] = %v, want a gap: the points of the taken-back hour are gone", i, v)
+		}
+	}
+	if v := lastOf(got.AttemptsOK); !math.IsNaN(v) {
+		t.Errorf("rate across the step back = %v, want a gap", v)
+	}
+
+	// And it goes on from there.
+	c.tick(slotAt(5))
+	if end := c.Metrics().Series.End; !end.Equal(slotAt(5)) {
+		t.Errorf("end = %v after the next slot, want %v", end, slotAt(5))
+	}
+}
+
+// The mean is the rise of the duration sum over the rise of the count, so it
+// is the mean of the window and not of the process, and it is a gap where no
+// attempt ended.
+func TestTheMeanAttemptTimeIsThatOfTheWindowAndAGapWithoutAttempts(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}, "local": {"mlx"}}))
+	c := sampled(t, l)
+
+	called(c, "stub", "echo", "ok", 2, 0, 0)
+	called(c, "local", "mlx", "ok", 4, 0, 0)
+	c.tick(slotAt(1))
+	if v := lastOf(c.Metrics().Series.AttemptSecondsMean); !near(v, 3) {
+		t.Errorf("mean = %v, want 3 across both providers", v)
+	}
+
+	c.tick(slotAt(2))
+	if v := lastOf(c.Metrics().Series.AttemptSecondsMean); !math.IsNaN(v) {
+		t.Errorf("mean of a window with no attempt = %v, want a gap", v)
+	}
+
+	called(c, "stub", "echo", "timeout", 10, 0, 0)
+	c.tick(slotAt(3))
+	if v := lastOf(c.Metrics().Series.AttemptSecondsMean); !near(v, 10) {
+		t.Errorf("mean = %v, want 10: the attempts of earlier windows do not count", v)
+	}
+}
+
+// The ring holds an hour: after 240 ticks the oldest points are overwritten
+// and the series still reads oldest first.
+func TestTheRingWrapsAfterTwoHundredAndFortyTicks(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}}))
+	c := sampled(t, l)
+	const ticks = 300
+	for i := 1; i <= ticks; i++ {
+		l.setStatus(serve.Snapshot{TurnsRunning: i})
+		called(c, "stub", "echo", "ok", 1, 0, 0)
+		c.tick(slotAt(i))
+	}
+
+	got := c.Metrics().Series
+	if !got.End.Equal(slotAt(ticks)) {
+		t.Errorf("end = %v, want %v", got.End, slotAt(ticks))
+	}
+	for name, s := range seriesOf(got) {
+		if len(s) != samplePoints {
+			t.Fatalf("%s has %d points after the wrap, want %d", name, len(s), samplePoints)
+		}
+	}
+	for j := range samplePoints {
+		tickNo := ticks - (samplePoints - 1 - j)
+		if v := got.TurnsRunning[j]; v != float64(tickNo) {
+			t.Fatalf("turnsRunning[%d] = %v, want %d: oldest first, the newest last", j, v, tickNo)
+		}
+		if v := got.AttemptsOK[j]; !near(v, 4) {
+			t.Fatalf("attemptsOk[%d] = %v, want 4: one attempt every 15 s", j, v)
+		}
+	}
+}
+
+// A silence of more than the hour leaves nothing of the old points.
+func TestASilenceOfAWholeHourLeavesOnlyTheLastPoint(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}}))
+	c := sampled(t, l)
+	for i := 1; i <= 10; i++ {
+		l.setStatus(serve.Snapshot{TurnsRunning: 1})
+		c.tick(slotAt(i))
+	}
+	l.setStatus(serve.Snapshot{TurnsRunning: 5})
+	c.tick(slotAt(1000))
+
+	got := c.Metrics().Series
+	if !got.End.Equal(slotAt(1000)) {
+		t.Fatalf("end = %v, want %v", got.End, slotAt(1000))
+	}
+	for i, v := range got.TurnsRunning[:samplePoints-1] {
+		if !math.IsNaN(v) {
+			t.Fatalf("turnsRunning[%d] = %v, want a gap: the old points are gone", i, v)
+		}
+	}
+	if v := lastOf(got.TurnsRunning); v != 5 {
+		t.Errorf("the last point = %v, want 5", v)
+	}
+}
+
+// What the block hands out is a copy.
+func TestTheMetricsBlockIsACopy(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}}))
+	c := sampled(t, l)
+	called(c, "stub", "echo", "ok", 1, 0, 0)
+	c.tick(slotAt(1))
+
+	first := c.Metrics()
+	for _, s := range seriesOf(first.Series) {
+		for i := range s {
+			s[i] = 99
+		}
+	}
+	for name, s := range seriesOf(c.Metrics().Series) {
+		for _, v := range s {
+			if v == 99 {
+				t.Fatalf("%s: changing a returned series changed the ring", name)
+			}
+		}
+	}
+	if len(first.Providers) == 0 {
+		t.Fatal("no provider rows")
+	}
+	first.Providers[0].Attempts = 99
+	if got := c.Metrics().Providers[0].Attempts; got != 1 {
+		t.Errorf("attempts = %d after changing a returned row, want 1", got)
+	}
+}
+
+// A provider row counts every attempt, whatever the model, the outcome and the
+// attempt, and a failure is one of the four outcomes the shipped alert rule
+// counts.
+func TestTheProviderRowsCountEveryAttemptAndTheFailuresAmongThem(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo", "big"}, "local": {"mlx"}}))
+	c := sampled(t, l)
+	called(c, "stub", "echo", "ok", 2, 0, 0)
+	called(c, "stub", "big", "ok", 4, 0, 0)
+	called(c, "stub", "echo", "timeout", 30, 0, 0)
+	called(c, "stub", "big", "server_error", 1, 0, 0)
+	retried(c, "stub", "echo", "rate_limited", 1, 0, 0)
+	retried(c, "stub", "echo", "auth", 1, 0, 0)
+	for _, outcome := range []string{"canceled", "error", "client_error", "context_overflow"} {
+		called(c, "stub", "echo", outcome, 1, 0, 0)
+	}
+	called(c, "ghost", "x", "ok", 1, 0, 0) // not declared: counted under other
+	c.tick(slotAt(1))
+
+	stub := providerRow(t, c, "stub")
+	if stub.Attempts != 10 || stub.Failures != 4 || stub.MeanSeconds == nil || *stub.MeanSeconds != 4.3 {
+		t.Errorf("stub = %+v, want 10 attempts, 4 failures, a mean of 4.3 s (43 s over 10 timed)", stub)
+	}
+	if local := providerRow(t, c, "local"); local.Attempts != 0 || local.Failures != 0 || local.MeanSeconds != nil || !local.LastFailureAt.IsZero() || !local.LastOKAt.IsZero() {
+		t.Errorf("local = %+v, want a row of zeros and no mean: the seeds make it", local)
+	}
+	if other := providerRow(t, c, "other"); other.Attempts != 1 {
+		t.Errorf("other = %+v, want the one undeclared attempt", other)
+	}
+	if names := rowNames(c); !slices.IsSorted(names) {
+		t.Errorf("rows %v are not in name order", names)
+	}
+}
+
+// The first read happens after the seeds, so a configured provider has a row
+// at once, and one a reload declares has it from the next tick.
+func TestTheFirstReadSeesTheSeededProvidersAndATickTheReloadedOnes(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}, "local": {"mlx"}}))
+	c := sampled(t, l)
+	if names := rowNames(c); !slices.Equal(names, []string{"local", "stub"}) {
+		t.Fatalf("rows %v, want local and stub: the first read comes after the seeds", names)
+	}
+
+	l.reload(configWith(map[string][]string{"stub": {"echo"}, "local": {"mlx"}, "added": {"m"}}))
+	c.tick(slotAt(1))
+	if row := providerRow(t, c, "added"); row.Attempts != 0 {
+		t.Errorf("added = %+v, want a row of zeros", row)
+	}
+}
+
+// LastFailureAt and LastOKAt are the slot of the last tick in which the totals
+// rose, so one tick that sees both leaves the provider not failing, and a
+// retry counts like a first attempt.
+func TestLastFailureAndLastOKMoveOnlyOnATickWhoseTotalsRose(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}}))
+	c := sampled(t, l)
+	failing := func(at time.Time) bool {
+		for _, item := range serve.RenderStatus(serve.Snapshot{}, c.Metrics(), at, "").Attention {
+			if item.Code == serve.AttentionProviderFailing && item.Provider == "stub" {
+				return true
+			}
+		}
+		return false
+	}
+
+	c.tick(slotAt(1))
+	if row := providerRow(t, c, "stub"); !row.LastFailureAt.IsZero() || !row.LastOKAt.IsZero() {
+		t.Fatalf("a tick that saw nothing rise stamped %+v", row)
+	}
+
+	called(c, "stub", "echo", "timeout", 1, 0, 0)
+	c.tick(slotAt(2).Add(9 * time.Second))
+	row := providerRow(t, c, "stub")
+	if !row.LastFailureAt.Equal(slotAt(2)) || !row.LastOKAt.IsZero() {
+		t.Fatalf("after a failure: %+v, want LastFailureAt = %v and no success", row, slotAt(2))
+	}
+	if !failing(slotAt(2)) {
+		t.Error("a failure with no success after it is not failing")
+	}
+
+	c.tick(slotAt(3))
+	if row := providerRow(t, c, "stub"); !row.LastFailureAt.Equal(slotAt(2)) {
+		t.Errorf("a quiet tick moved LastFailureAt to %v", row.LastFailureAt)
+	}
+
+	// Outcomes that are neither a success nor one of the four failures move nothing.
+	for _, outcome := range []string{"canceled", "error", "client_error", "context_overflow"} {
+		called(c, "stub", "echo", outcome, 1, 0, 0)
+	}
+	c.tick(slotAt(4))
+	if row := providerRow(t, c, "stub"); !row.LastFailureAt.Equal(slotAt(2)) || !row.LastOKAt.IsZero() {
+		t.Errorf("neutral outcomes moved the stamps: %+v", row)
+	}
+
+	called(c, "stub", "echo", "ok", 1, 0, 0)
+	c.tick(slotAt(5))
+	row = providerRow(t, c, "stub")
+	if !row.LastOKAt.Equal(slotAt(5)) || !row.LastFailureAt.Equal(slotAt(2)) {
+		t.Errorf("after a success: %+v", row)
+	}
+	if failing(slotAt(5)) {
+		t.Error("a success after the failure left the provider failing")
+	}
+
+	// A failure and a success counted in the same tick: both move, and the
+	// provider is not failing, because the success is not before the failure.
+	called(c, "stub", "echo", "server_error", 1, 0, 0)
+	called(c, "stub", "echo", "ok", 1, 0, 0)
+	c.tick(slotAt(6))
+	row = providerRow(t, c, "stub")
+	if !row.LastFailureAt.Equal(slotAt(6)) || !row.LastOKAt.Equal(slotAt(6)) {
+		t.Errorf("a failure and a success in one tick: %+v, want both at %v", row, slotAt(6))
+	}
+	if failing(slotAt(6)) {
+		t.Error("a failure and a success in the same tick count as failing")
+	}
+
+	// A retry that fails is a failure of the provider like any other, and one
+	// that succeeds a success.
+	retried(c, "stub", "echo", "rate_limited", 1, 0, 0)
+	c.tick(slotAt(7))
+	if !failing(slotAt(7)) {
+		t.Error("a failed retry after the last success is not failing")
+	}
+	retried(c, "stub", "echo", "ok", 1, 0, 0)
+	c.tick(slotAt(8))
+	if row := providerRow(t, c, "stub"); !row.LastOKAt.Equal(slotAt(8)) || failing(slotAt(8)) {
+		t.Errorf("a successful retry: %+v, failing %v", row, failing(slotAt(8)))
+	}
+}
+
+// The alert rule that ships with the exporter counts four outcomes as a
+// failed call, summed over the attempt label; the figures of the System page
+// count the same four the same way.
+func TestTheFailureSetMatchesTheShippedRule(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "examples", "prometheus", "coddy-rules.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sets := regexp.MustCompile(`outcome=~"([^"]+)"`).FindAllStringSubmatch(string(raw), -1)
+	if len(sets) == 0 {
+		t.Fatal(`coddy-rules.yml holds no outcome=~"..." matcher: the failure set has nothing to be held to`)
+	}
+	want := slices.Clone(providerFailureOutcomes)
+	slices.Sort(want)
+	for _, m := range sets {
+		got := strings.Split(m[1], "|")
+		slices.Sort(got)
+		if !slices.Equal(got, want) {
+			t.Errorf("the rule counts %v as failures, the sampler %v", got, want)
+		}
+	}
+	if !strings.Contains(string(raw), "sum without (model, outcome, attempt) (increase(coddy_llm_attempts_total{outcome=~") {
+		t.Error("the rule no longer sums the failures over model and attempt, as the sampler does")
+	}
+	for _, outcome := range providerFailureOutcomes {
+		if !slices.Contains(llm.CallOutcomes(), outcome) {
+			t.Errorf("%q is not an outcome the exporter can count", outcome)
+		}
+	}
+}
+
+// At a quiet moment the sampler holds what a scrape serves: the same families
+// from the same sets, summed over the model and over both values of attempt.
+func TestTheSamplerReadsWhatAScrapeServes(t *testing.T) {
+	odd := "we\"ird\\pro\nv"
+	l := newLive(configWith(map[string][]string{"stub": {"echo", "big"}, "local": {"mlx"}, odd: {"m\"x"}}))
+	c := sampled(t, l)
+	called(c, "stub", "echo", "ok", 2.5, 100, 10)
+	called(c, "stub", "big", "ok", 1.25, 50, 5)
+	retried(c, "stub", "echo", "timeout", 30, 0, 0)
+	called(c, "local", "mlx", "server_error", 3, 0, 0)
+	retried(c, "local", "mlx", "auth", 0.5, 7, 0)
+	called(c, odd, "m\"x", "rate_limited", 1, 9, 9)
+	retried(c, odd, "m\"x", "ok", 6, 1, 2)
+	c.tick(slotAt(1))
+	body := scrape(t, c)
+
+	var retries float64
+	var tokensIn, tokensOut float64
+	for _, name := range []string{"stub", "local", odd} {
+		var attempts, failures, count, seconds float64
+		for _, s := range parseSamples(body) {
+			if s.labels["provider"] != name {
+				continue
+			}
+			switch s.name {
+			case "coddy_llm_attempts_total":
+				attempts += s.value
+				if s.labels["attempt"] == "retry" {
+					retries += s.value
+				}
+				if slices.Contains(providerFailureOutcomes, s.labels["outcome"]) {
+					failures += s.value
+				}
+			case "coddy_llm_attempt_duration_seconds_count":
+				count += s.value
+			case "coddy_llm_attempt_duration_seconds_sum":
+				seconds += s.value
+			case "coddy_llm_input_tokens_total":
+				tokensIn += s.value
+			case "coddy_llm_output_tokens_total":
+				tokensOut += s.value
+			}
+		}
+		row := providerRow(t, c, name)
+		if float64(row.Attempts) != attempts || float64(row.Failures) != failures ||
+			(count > 0) != (row.MeanSeconds != nil) || (count > 0 && *row.MeanSeconds != seconds/count) {
+			t.Errorf("%q: the sampler holds %+v, the scrape %v attempts, %v failures, %v timed, %v s", name, row, attempts, failures, count, seconds)
+		}
+		if attempts == 0 {
+			t.Errorf("%q has no attempts in the scrape: the test would hold nothing", name)
+		}
+	}
+	if retries != 3 {
+		t.Errorf("the scrape holds %v retries, want 3: the test would not cross both values of attempt", retries)
+	}
+	// The first point rises over the first read, at which nothing was counted,
+	// 15 s before: a rate of n per minute is n/4 tokens.
+	series := c.Metrics().Series
+	if got := lastOf(series.TokensIn) / 4; got != tokensIn || tokensIn != 167 {
+		t.Errorf("tokens in: the sampler holds %v, the scrape %v (want 167)", got, tokensIn)
+	}
+	if got := lastOf(series.TokensOut) / 4; got != tokensOut || tokensOut != 26 {
+		t.Errorf("tokens out: the sampler holds %v, the scrape %v (want 26)", got, tokensOut)
+	}
+	// 3 successes and 4 failures among the 7 attempts, as the scrape has them.
+	if got := lastOf(series.AttemptsOK) / 4; got != 3 {
+		t.Errorf("successes: the sampler holds %v, want 3", got)
+	}
+	if got := lastOf(series.ProviderErrors) / 4; got != 4 {
+		t.Errorf("failures: the sampler holds %v, want 4", got)
+	}
+}
+
+// parseSample is the inverse of series: whatever series writes, escapes
+// included, comes back as the name, the labels and the value.
+func TestParseSampleIsTheInverseOfSeries(t *testing.T) {
+	cases := [][]string{
+		{"coddy_llm_attempts_total"},
+		{"m", "provider", "plain"},
+		{"m", "provider", `back\slash`, "model", `q"uote`},
+		{"m", "provider", "line\nfeed"},
+		{"m", "provider", `\n`}, // a backslash and an n, not a line feed
+		{"m", "provider", `\\`},
+		{"m", "provider", `"`},
+		{"m", "provider", "a}b,c d=e{f"},
+		{"m", "provider", ""},
+		{"m", "provider", "наш"},
+		{"m", "provider", "x\\\ny\"\\", "model", "z"},
+	}
+	for _, kv := range cases {
+		line := series(kv[0], kv[1:]...) + " 2.5"
+		name, labels, value, ok := parseSample(line)
+		if !ok || name != kv[0] || value != 2.5 {
+			t.Errorf("parseSample(%q) = %q, %v, %v, %v", line, name, labels, value, ok)
+			continue
+		}
+		want := lbl(kv[1:]...)
+		if len(labels) != len(want) {
+			t.Errorf("parseSample(%q) labels %v, want %v", line, labels, want)
+			continue
+		}
+		for k, v := range want {
+			if labels[k] != v {
+				t.Errorf("parseSample(%q): label %s = %q, want %q", line, k, labels[k], v)
+			}
+		}
+	}
+
+	for _, line := range []string{"", "# HELP m something", "# TYPE m counter", "m", "m{a=\"1\"}", `m{a="1} 2`, `m{a=1} 2`, `m{a="1" 2`, "m x"} {
+		if name, labels, value, ok := parseSample(line); ok {
+			t.Errorf("parseSample(%q) = %q, %v, %v, true; want no sample", line, name, labels, value)
+		}
+	}
+	for text, want := range map[string]float64{"m 7": 7, "m 1e+06": 1e6, `m{le="+Inf"} 3`: 3, "m 0.000125": 0.000125} {
+		if _, _, got, ok := parseSample(text); !ok || got != want {
+			t.Errorf("parseSample(%q) value %v, %v; want %v", text, got, ok, want)
+		}
+	}
+}
+
+// A provider whose name holds a quote, a backslash and a line feed reaches the
+// sampler through the text and comes out under its own name.
+func TestAProviderNamedWithEscapedCharactersKeepsItsNameThroughTheSampler(t *testing.T) {
+	odd := "we\"ird\\prov\nline"
+	l := newLive(configWith(map[string][]string{odd: {"m"}}))
+	c := sampled(t, l)
+	called(c, odd, "m", "timeout", 1, 3, 4)
+	c.tick(slotAt(1))
+	row := providerRow(t, c, odd)
+	if row.Attempts != 1 || row.Failures != 1 || row.MeanSeconds == nil || *row.MeanSeconds != 1 {
+		t.Errorf("row %+v, want the one failed attempt", row)
+	}
+}
+
+// A sample is read from the exporter's own sets and the process: it takes no
+// slot of a scrape. While a sample waits for the process, two scrapes are
+// still served, and the third is the one refused.
+func TestTwoScrapesInFlightAreStillServedWhileASampleIsRead(t *testing.T) {
+	l := newLive(configWith(nil))
+	entered := make(chan int32, 4)
+	release := make(chan struct{})
+	open := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(open)
+	var armed atomic.Bool
+	var reads atomic.Int32
+	src := l.source()
+	src.Status = func() serve.Snapshot {
+		if armed.Load() {
+			entered <- reads.Add(1)
+			<-release
+		}
+		return serve.Snapshot{}
+	}
+	c := newCollectorAt(src, t0, idle)
+	t.Cleanup(c.Close)
+	armed.Store(true)
+	handler := c.Handler(func() string { return "" })
+	serveOne := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+		return rec
+	}
+	awaitRead := func(want int32) {
+		t.Helper()
+		select {
+		case got := <-entered:
+			if got != want {
+				t.Fatalf("read number %d came in where %d was expected", got, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("read number %d never began", want)
+		}
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.tick(slotAt(1))
+	}()
+	awaitRead(1)
+
+	held := make([]*httptest.ResponseRecorder, 2)
+	for i := range held {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			held[i] = serveOne()
+		}()
+		awaitRead(int32(i) + 2)
+	}
+	third := serveOne()
+	if third.Code != http.StatusServiceUnavailable {
+		t.Errorf("the third scrape beside a sample: %d, want 503", third.Code)
+	}
+	if len(entered) != 0 {
+		t.Error("the refused scrape read the process")
+	}
+
+	open()
+	wg.Wait()
+	for i, rec := range held {
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "coddy_build_info") {
+			t.Errorf("scrape %d beside the sample: %d", i, rec.Code)
+		}
+	}
+	if end := c.Metrics().Series.End; !end.Equal(slotAt(1)) {
+		t.Errorf("the sample did not complete: end %v", end)
+	}
+}
+
+// Reading the block waits for nothing: it is a copy under one mutex, and a
+// sample that is waiting for the process holds none.
+func TestTheBlockIsReadableWhileASampleWaitsForTheProcess(t *testing.T) {
+	l := newLive(configWith(nil))
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	open := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(open)
+	var armed atomic.Bool
+	src := l.source()
+	src.Status = func() serve.Snapshot {
+		if armed.Load() {
+			entered <- struct{}{}
+			<-release
+		}
+		return serve.Snapshot{}
+	}
+	c := newCollectorAt(src, t0, idle)
+	t.Cleanup(c.Close)
+	armed.Store(true)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.tick(slotAt(1))
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sample never began to read the process")
+	}
+	read := make(chan *serve.MetricsBlock, 1)
+	go func() { read <- c.Metrics() }()
+	select {
+	case block := <-read:
+		if !block.Series.End.Equal(t0) {
+			t.Errorf("end = %v, want %v: the sample has not been recorded yet", block.Series.End, t0)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Metrics waited for a sample that was waiting for the process")
+	}
+	open()
+	<-done
+}
+
+// The goroutine samples at every tick it is given, and Close stops it and
+// returns only when it has: a tick it had begun is finished.
+func TestTheGoroutineSamplesOnEveryTickAndCloseWaitsForIt(t *testing.T) {
+	l := newLive(configWith(map[string][]string{"stub": {"echo"}}))
+	ch := make(chan time.Time)
+	ticks := func(stop <-chan struct{}) (time.Time, bool) {
+		select {
+		case at := <-ch:
+			return at, true
+		case <-stop:
+			return time.Time{}, false
+		}
+	}
+	c := newCollectorAt(l.source(), t0, ticks)
+	called(c, "stub", "echo", "ok", 1, 0, 0)
+	called(c, "stub", "echo", "ok", 1, 0, 0)
+	ch <- slotAt(1)
+	ch <- slotAt(2) // taken once the loop has finished the first
+	c.Close()
+	c.Close()
+
+	select {
+	case <-c.sampleDone:
+	default:
+		t.Fatal("Close returned while the sampler's goroutine was still running")
+	}
+	got := c.Metrics().Series
+	if !got.End.Equal(slotAt(2)) || !near(got.AttemptsOK[samplePoints-2], 8) || !near(got.AttemptsOK[samplePoints-1], 0) {
+		t.Errorf("end %v, rates %v then %v; want %v, 8 then 0", got.End, got.AttemptsOK[samplePoints-2], got.AttemptsOK[samplePoints-1], slotAt(2))
+	}
+	select {
+	case ch <- slotAt(3):
+		t.Error("a closed sampler still takes ticks")
+	default:
+	}
+}
+
+// Close does not return while the goroutine is still ending.
+func TestCloseWaitsForTheSamplersGoroutineToEnd(t *testing.T) {
+	l := newLive(configWith(nil))
+	waiting := make(chan struct{})
+	sawStop := make(chan struct{})
+	gate := make(chan struct{})
+	var ended atomic.Bool
+	ticks := func(stop <-chan struct{}) (time.Time, bool) {
+		close(waiting)
+		<-stop
+		close(sawStop)
+		<-gate
+		ended.Store(true)
+		return time.Time{}, false
+	}
+	c := newCollectorAt(l.source(), t0, ticks)
+	select {
+	case <-waiting:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sampler's goroutine never began to wait")
+	}
+	closed := make(chan struct{})
+	go func() {
+		c.Close()
+		close(closed)
+	}()
+	select {
+	case <-sawStop:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close never told the sampler to stop")
+	}
+	select {
+	case <-closed:
+		t.Fatal("Close returned while the sampler's goroutine was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(gate)
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close never returned")
+	}
+	if !ended.Load() {
+		t.Error("Close returned before the goroutine ended")
+	}
+}
+
+// The real clock ticks on the slot boundaries, so a point is named for the
+// slot it falls in whatever the process's start time was.
+func TestTheRealClockWaitsForTheNextSlotBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		now  time.Time
+		want time.Duration
+	}{
+		{t0, sampleEvery},
+		{t0.Add(7300 * time.Millisecond), 7700 * time.Millisecond},
+		{t0.Add(14999 * time.Millisecond), time.Millisecond},
+		{t0.Add(sampleEvery), sampleEvery},
+	} {
+		if got := untilNextSlot(tc.now); got != tc.want {
+			t.Errorf("untilNextSlot(%v) = %v, want %v", tc.now.Sub(t0), got, tc.want)
+		}
 	}
 }
