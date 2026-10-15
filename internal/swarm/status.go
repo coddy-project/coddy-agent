@@ -3,6 +3,7 @@ package swarm
 import (
 	"net/url"
 	"sync"
+	"time"
 )
 
 // JoinStatus is one registration of this process into a parent relay, as a
@@ -17,6 +18,11 @@ type JoinStatus struct {
 	Kind, Transport string
 	// Online is whether the last registration attempt succeeded.
 	Online bool
+	// OfflineSince is when the registration went offline: the first failure
+	// since its last success, or its creation while it has never registered.
+	// An agent registration that stopped yielding to the relay of its own
+	// process counts from that moment. Zero while Online.
+	OfflineSince time.Time
 }
 
 // The swarm state of this process that status surfaces read: the join sets
@@ -52,13 +58,15 @@ func Joins() []JoinStatus {
 	var out []JoinStatus
 	for _, s := range sets {
 		for _, c := range s.Clients() {
+			yielding, online, offlineSince := c.status()
 			// An agent registration that leaves its name to the relay of the
 			// same process is not a registration of its own.
-			if c.Yielding() {
+			if yielding {
 				continue
 			}
 			out = append(out, JoinStatus{
-				Relay: relayHost(c.opts.RelayURL), Kind: c.opts.Kind, Transport: c.Transport(), Online: c.Online(),
+				Relay: relayHost(c.opts.RelayURL), Kind: c.opts.Kind, Transport: c.Transport(),
+				Online: online, OfflineSince: offlineSince,
 			})
 		}
 	}
