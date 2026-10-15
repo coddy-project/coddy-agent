@@ -1,6 +1,7 @@
 package session
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -113,6 +114,120 @@ func TestMessagesForLLM(t *testing.T) {
 	}
 }
 
+func blockMsg(text string) llm.Message {
+	m := NewCompactionSummaryMessage(text, "m")
+	m.CompactionBlock = true
+	return m
+}
+
+// TestLLMWindowReadsTheChain holds which summary rows the model reads: the
+// last row that starts a chain and every block after it, never a row before
+// that start, and the tail after the last row.
+func TestLLMWindowReadsTheChain(t *testing.T) {
+	root := NewCompactionSummaryMessage("root", "m")
+	cases := []struct {
+		name       string
+		msgs       []llm.Message
+		wantBlocks []int
+		wantTail   int
+	}{
+		{name: "no summary", msgs: exchangeMessages(2), wantTail: 0},
+		{
+			name: "one row written before blocks existed",
+			// u a S u a
+			msgs:       []llm.Message{userMsg("q"), assistantMsg("a"), root, userMsg("q"), assistantMsg("a")},
+			wantBlocks: []int{2}, wantTail: 3,
+		},
+		{
+			name: "several unmarked rows read only the last",
+			// u S u S u
+			msgs:       []llm.Message{userMsg("q"), root, userMsg("q"), root, userMsg("q")},
+			wantBlocks: []int{3}, wantTail: 4,
+		},
+		{
+			name: "a root and the blocks after it",
+			// u S u B u B u
+			msgs:       []llm.Message{userMsg("q"), root, userMsg("q"), blockMsg("b1"), userMsg("q"), blockMsg("b2"), userMsg("q")},
+			wantBlocks: []int{1, 3, 5}, wantTail: 6,
+		},
+		{
+			name: "blocks with no root reach back to the first",
+			// u B u B u
+			msgs:       []llm.Message{userMsg("q"), blockMsg("b1"), userMsg("q"), blockMsg("b2"), userMsg("q")},
+			wantBlocks: []int{1, 3}, wantTail: 4,
+		},
+		{
+			name: "a merge row cuts off the blocks it retold",
+			// B u B M u B u: the merge after b2 retold b1 and b2.
+			msgs:       []llm.Message{blockMsg("b1"), userMsg("q"), blockMsg("b2"), root, userMsg("q"), blockMsg("b3"), userMsg("q")},
+			wantBlocks: []int{3, 5}, wantTail: 6,
+		},
+		{
+			name:       "a block at the very end leaves an empty tail",
+			msgs:       []llm.Message{userMsg("q"), blockMsg("b1")},
+			wantBlocks: []int{1}, wantTail: 2,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			blocks, tail := LLMWindow(tc.msgs)
+			if !slices.Equal(blocks, tc.wantBlocks) || tail != tc.wantTail {
+				t.Fatalf("LLMWindow = %v, %d; want %v, %d", blocks, tail, tc.wantBlocks, tc.wantTail)
+			}
+		})
+	}
+}
+
+func TestMessagesForLLMReadsTheBlocksInOrderThenTheTail(t *testing.T) {
+	msgs := []llm.Message{
+		userMsg("q1"), assistantMsg("a1"), blockMsg("b1"),
+		userMsg("q2"), assistantMsg("a2"), blockMsg("b2"),
+		userMsg("q3"), assistantMsg("a3"),
+	}
+	var got []string
+	for _, m := range MessagesForLLM(msgs) {
+		got = append(got, m.Content)
+	}
+	want := []string{msgs[2].Content, msgs[5].Content, "q3", "a3"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("MessagesForLLM = %q, want %q", got, want)
+	}
+	// The window is a fresh slice: writing to it must not reach the transcript.
+	MessagesForLLM(msgs)[0].Content = "changed"
+	if msgs[2].Content == "changed" {
+		t.Fatal("MessagesForLLM shares its backing array with the transcript for a chain of blocks")
+	}
+}
+
+// TestCompactionSplitIndexNeverFoldsTheChain holds the boundary of a chained
+// compaction: the turns are counted in the tail after the last block, so the
+// head to summarize starts at the tail and no summary row is in it.
+func TestCompactionSplitIndexNeverFoldsTheChain(t *testing.T) {
+	// u a B u a B u a u a u a
+	msgs := []llm.Message{
+		userMsg("q1"), assistantMsg("a1"), blockMsg("b1"),
+		userMsg("q2"), assistantMsg("a2"), blockMsg("b2"),
+		userMsg("q3"), assistantMsg("a3"),
+		userMsg("q4"), assistantMsg("a4"),
+		userMsg("q5"), assistantMsg("a5"),
+	}
+	idx, ok := CompactionSplitIndex(msgs, 2)
+	if !ok || idx != 8 {
+		t.Fatalf("CompactionSplitIndex = %d, %v; want 8, true", idx, ok)
+	}
+	_, tail := LLMWindow(msgs)
+	for _, m := range msgs[tail:idx] {
+		if m.CompactionSummary {
+			t.Fatalf("the head to fold carries a summary row: %+v", m)
+		}
+	}
+	// Two turns in the tail and keep 2: nothing to fold, whatever the chain
+	// before the tail holds.
+	if _, ok := CompactionSplitIndex(msgs[:10], 2); ok {
+		t.Fatal("a tail of exactly keep turns has nothing to fold")
+	}
+}
+
 func TestNewCompactionSummaryMessage(t *testing.T) {
 	m := NewCompactionSummaryMessage("  the summary body  ", "prov/model")
 	if m.Role != llm.RoleUser {
@@ -159,5 +274,38 @@ func TestInsertCompactionSummary(t *testing.T) {
 	msgs = st.GetMessages()
 	if !msgs[len(msgs)-1].CompactionSummary {
 		t.Fatal("out-of-range insert must append")
+	}
+}
+
+// TestSessionDigestCarriesEveryRowOfTheChain holds what "@session:" shows of a
+// session compacted more than once: every summary row of the chain, oldest
+// first, as its earlier conversation, and none of them as a message of its own.
+func TestSessionDigestCarriesEveryRowOfTheChain(t *testing.T) {
+	st := &State{ID: "sess_digest_chain", CWD: t.TempDir()}
+	for _, m := range []llm.Message{
+		userMsg("q1"), assistantMsg("a1"), blockMsg("FIRST-BLOCK"),
+		userMsg("q2"), assistantMsg("a2"), blockMsg("SECOND-BLOCK"),
+		userMsg("q3"), assistantMsg("a3"),
+	} {
+		st.AddMessage(m)
+	}
+	r := &mentionResolver{
+		store: &FileStore{Root: t.TempDir()},
+		live:  func(string) *State { return st },
+	}
+	digest, _, err := r.sessionDigest(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, earlier, ok := strings.Cut(digest, "Summary of its earlier conversation:\n")
+	if !ok {
+		t.Fatalf("the digest has no earlier conversation:\n%s", digest)
+	}
+	first, second := strings.Index(earlier, "FIRST-BLOCK"), strings.Index(earlier, "SECOND-BLOCK")
+	if first < 0 || second < first {
+		t.Fatalf("the earlier conversation does not carry both rows in order:\n%s", digest)
+	}
+	if n := strings.Count(digest, "SECOND-BLOCK"); n != 1 {
+		t.Fatalf("the second row is in the digest %d times, want once:\n%s", n, digest)
 	}
 }

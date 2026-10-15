@@ -1,6 +1,7 @@
 package session
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -11,23 +12,67 @@ import (
 // transcript reader) knows earlier history was replaced by this message.
 const compactionSummaryPreamble = "The earlier conversation was compacted. Summary of the compacted part:\n\n"
 
-// llmWindowStart returns the index where the LLM-visible window begins: the
-// last compaction summary message (inclusive), or 0 when none exists.
-func llmWindowStart(msgs []llm.Message) int {
+// LLMWindow returns what of the transcript the LLM reads: the absolute
+// indexes of the summary rows of the chain, oldest first, and the index where
+// the verbatim tail after the last of them begins. Without a summary row the
+// whole transcript is the tail (blocks is nil, tailStart 0).
+//
+// A compaction inserts a block (llm.Message.CompactionBlock) at its boundary
+// and never rewrites what is before it, so each block covers the messages
+// between the previous summary row and itself. The chain is the last summary
+// row that starts one (a row without the block mark: a merge of earlier
+// blocks, or any row written before blocks existed) followed by every block
+// after it. A transcript with several unmarked rows reads only the last: each
+// already retold the one before it.
+func LLMWindow(msgs []llm.Message) (blocks []int, tailStart int) {
+	last := -1
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].CompactionSummary {
-			return i
+			last = i
+			break
 		}
 	}
-	return 0
+	if last < 0 {
+		return nil, 0
+	}
+	for i := last; i >= 0; i-- {
+		if !msgs[i].CompactionSummary {
+			continue
+		}
+		blocks = append(blocks, i)
+		if !msgs[i].CompactionBlock {
+			break
+		}
+	}
+	slices.Reverse(blocks)
+	return blocks, last + 1
 }
 
-// MessagesForLLM returns the slice of history visible to the LLM: everything
-// from the last compaction summary (inclusive) to the end. Messages before the
-// summary stay in the persisted transcript for UI replay only.
+// MessagesForLLM returns the history visible to the LLM: the summary rows of
+// the chain, oldest first, then everything after the last of them (LLMWindow).
+// The messages the summaries cover stay in the persisted transcript for UI
+// replay only. A window with at most one summary row is a slice of msgs; a
+// longer chain is a fresh slice.
 func MessagesForLLM(msgs []llm.Message) []llm.Message {
-	return msgs[llmWindowStart(msgs):]
+	blocks, tailStart := LLMWindow(msgs)
+	switch len(blocks) {
+	case 0:
+		return msgs
+	case 1:
+		return msgs[blocks[0]:]
+	}
+	out := make([]llm.Message, 0, len(blocks)+len(msgs)-tailStart)
+	for _, i := range blocks {
+		out = append(out, msgs[i])
+	}
+	return append(out, msgs[tailStart:]...)
 }
+
+// compactionBlockPreamble prefixes a summary row that continues the chain: the
+// model reads it after the summaries before it, so it says what part it covers.
+// It ends in the same words as compactionSummaryPreamble, which is where the
+// web UI cuts a summary row.
+const compactionBlockPreamble = "The conversation after the summary above was compacted as well. Summary of the compacted part:\n\n"
 
 // inTurnSummaryPreamble follows the opening message of the turn at the start of
 // the summary row an in-turn fold writes. It says what the text above it is: the
@@ -76,16 +121,17 @@ func OpeningPromptIndex(msgs []llm.Message) (int, bool) {
 
 // CompactionSplitIndex returns the absolute index in msgs where the kept tail
 // begins when compacting with keepRecentTurns: the boundary sits at the
-// keepRecentTurns-th from last real user message inside the LLM-visible
-// window (keepRecentTurns 0 keeps nothing verbatim). The head to summarize is
-// msgs[llmWindowStart:idx], which includes the previous summary on chained
-// compaction. ok is false when the window has no full user turn to fold away.
+// keepRecentTurns-th from last real user message of the verbatim tail after
+// the last summary row (LLMWindow; keepRecentTurns 0 keeps nothing verbatim).
+// The head to summarize is msgs[tailStart:idx]: the summaries of the chain are
+// never folded again. ok is false when the tail has no full user turn to fold
+// away.
 //
-// A window that opens with a summary row followed straight by an assistant
-// message is the remainder of a turn whose prompt an in-turn fold took away.
-// That row counts as the start of a turn, so the remainder can be folded the
-// way any older turn is once a new prompt arrives; a summary followed by a user
-// message is a regular compaction and stays out of the count.
+// A tail that opens with an assistant message straight after the last summary
+// row is the remainder of a turn whose prompt an in-turn fold took away. That
+// row counts as the start of a turn, so the remainder can be folded the way any
+// older turn is once a new prompt arrives; a summary followed by a user message
+// is a regular compaction and stays out of the count.
 func CompactionSplitIndex(msgs []llm.Message, keepRecentTurns int) (idx int, ok bool) {
 	return CompactionSplitIndexUpTo(msgs, keepRecentTurns, len(msgs)-1)
 }
@@ -100,10 +146,10 @@ func CompactionSplitIndexUpTo(msgs []llm.Message, keepRecentTurns, lastTurnStart
 	if keepRecentTurns < 0 {
 		keepRecentTurns = 0
 	}
-	start := llmWindowStart(msgs)
+	blocks, start := LLMWindow(msgs)
 	var userIdx []int
-	if start+1 < len(msgs) && msgs[start].CompactionSummary && msgs[start+1].Role == llm.RoleAssistant {
-		userIdx = append(userIdx, start)
+	if len(blocks) > 0 && start < len(msgs) && msgs[start].Role == llm.RoleAssistant {
+		userIdx = append(userIdx, start-1)
 	}
 	for i := start; i < len(msgs) && i <= lastTurnStart; i++ {
 		if isRealUser(msgs[i]) {
@@ -158,13 +204,13 @@ func TurnStepCount(msgs []llm.Message) int {
 // the steps of the turn being answered, in order (see TurnStepSplitIndex for
 // what the turn is).
 func turnSteps(msgs []llm.Message) []int {
-	start := llmWindowStart(msgs)
+	blocks, start := LLMWindow(msgs)
 	from := -1
 	if p, ok := OpeningPromptIndex(msgs); ok && p >= start {
 		from = p
 	}
-	if from < 0 && start < len(msgs) && msgs[start].CompactionSummary {
-		from = start
+	if from < 0 && len(blocks) > 0 {
+		from = start - 1
 	}
 	if from < 0 {
 		return nil
@@ -210,7 +256,7 @@ func NewInTurnCompactionSummaryMessage(prompt, summary, model string) llm.Messag
 // the summary. A plain row is recognised by its own leading preamble and is never
 // split, whatever its summary quotes.
 func SplitInTurnSummary(content string) (prompt, summary string, ok bool) {
-	if strings.HasPrefix(content, compactionSummaryPreamble) {
+	if strings.HasPrefix(content, compactionSummaryPreamble) || strings.HasPrefix(content, compactionBlockPreamble) {
 		return "", "", false
 	}
 	before, after, found := strings.Cut(content, "\n\n"+inTurnSummaryPreamble)
@@ -242,6 +288,19 @@ func NewCompactionSummaryMessage(summary, model string) llm.Message {
 		Model:             model,
 		CreatedAt:         time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+// NewCompactionBlockMessage builds the summary row a compaction inserts at its
+// boundary: a block of the chain (llm.Message.CompactionBlock), which leaves the
+// summary rows before it as they are. continues says the chain already has a
+// row, so this one is read after it and its preamble says so.
+func NewCompactionBlockMessage(summary, model string, continues bool) llm.Message {
+	m := NewCompactionSummaryMessage(summary, model)
+	m.CompactionBlock = true
+	if continues {
+		m.Content = compactionBlockPreamble + strings.TrimSpace(summary)
+	}
+	return m
 }
 
 // InsertCompactionSummary inserts msg at index idx (append when out of range)

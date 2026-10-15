@@ -143,8 +143,8 @@ func withoutTargets(rs []*rules.Rule, paths []string) []*rules.Rule {
 // their attachment, with the text each was last attached with: the rule
 // attachments of user messages (a rule the user named, one a mentioned path
 // activated) and of tool results (one a call activated), in the window the
-// provider is sent - everything from the last compaction summary on. The
-// summary itself does not count: whatever of a rule a summarizer retold is not
+// provider is sent - the summary rows of the chain and the tail after them
+// (session.LLMWindow). A summary itself does not count: whatever of a rule a summarizer retold is not
 // the rule, and the next match attaches it whole. The exception is the part of
 // an in-turn row in front of the summary: it is the turn's request as the user
 // sent it, rule attachments included, so the rules it carries are delivered. A

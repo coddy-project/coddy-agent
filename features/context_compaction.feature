@@ -84,3 +84,18 @@ Feature: Context compaction
     Then the summarizer refused a request as too large
     And the compaction summary is inserted into the transcript
     And the transcript still contains all 4 original exchanges
+
+  # coddy-project/coddy-agent#361: a compaction used to hand the previous
+  # summary back to the summarizer as part of the transcript, so every summary
+  # retold the one before it and the details of the earliest turns wore away.
+  # Each summary is now a block of its own: a later compaction reads only what
+  # came after the last block and adds a block after it.
+  Scenario: A second compaction adds a block and leaves the first one as it was
+    Given a session with 4 completed exchanges
+    And the session is compacted keeping the last 2 user turns
+    And 2 more exchanges are added to the session
+    When the session is compacted keeping the last 2 user turns
+    Then the first summary is still in the transcript, unchanged
+    And the second summarization request retells only exchanges 3 to 4
+    And the second summarization request shows the first summary as earlier context
+    And the next LLM request carries both summaries in order, then the last 2 exchanges verbatim

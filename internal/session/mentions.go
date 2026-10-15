@@ -687,12 +687,18 @@ func (r *mentionResolver) sessionDigest(id string) (string, string, error) {
 	}
 	fmt.Fprintf(&b, "Full transcript (JSON): %s\n", filepath.Join(dir, MessagesFileName))
 
+	// The window opens with the chain of summary rows (LLMWindow): together they
+	// are the earlier conversation, oldest first.
 	window := MessagesForLLM(msgs)
-	if len(window) > 0 && window[0].CompactionSummary {
-		b.WriteString("\nSummary of its earlier conversation:\n")
-		b.WriteString(clipText(strings.TrimSpace(window[0].Content), sessionDigestBytes/3))
-		b.WriteString("\n")
+	var summaries []string
+	for len(window) > 0 && window[0].CompactionSummary {
+		summaries = append(summaries, strings.TrimSpace(window[0].Content))
 		window = window[1:]
+	}
+	if len(summaries) > 0 {
+		b.WriteString("\nSummary of its earlier conversation:\n")
+		b.WriteString(clipText(strings.Join(summaries, "\n\n"), sessionDigestBytes/3))
+		b.WriteString("\n")
 	}
 	lines := digestLines(window)
 	budget := sessionDigestBytes - b.Len()

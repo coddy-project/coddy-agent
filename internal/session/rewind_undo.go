@@ -47,7 +47,7 @@ type rewindUndoTail struct {
 	UILog    []UILogEntry  `json:"uiLog,omitempty"`
 }
 
-// prefixDigest fingerprints a message prefix: role, the compaction flag,
+// prefixDigest fingerprints a message prefix: role, the compaction flags,
 // content and the tool-call ids of each message, in order, separated so no
 // two message lists collide on a shared concatenation. The full JSON is not
 // hashed on purpose - fields set after the fact would change it.
@@ -56,9 +56,14 @@ func prefixDigest(msgs []llm.Message) string {
 	for _, m := range msgs {
 		h.Write([]byte(m.Role))
 		h.Write([]byte{0})
-		if m.CompactionSummary {
+		switch {
+		case m.CompactionBlock:
+			// A block reads the rows before it as well (LLMWindow), so it is
+			// another prefix than the same text written as the start of a chain.
+			h.Write([]byte("2"))
+		case m.CompactionSummary:
 			h.Write([]byte("1"))
-		} else {
+		default:
 			h.Write([]byte("0"))
 		}
 		h.Write([]byte{0})

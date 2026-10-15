@@ -154,11 +154,11 @@ func tailTokens(msgs []llm.Message, idx int) int {
 
 func splitRequest(msgs []llm.Message, mod func(*inTurnSplitRequest)) inTurnSplitRequest {
 	r := inTurnSplitRequest{
-		msgs:         msgs,
-		visibleStart: 0,
-		projected:    msgs,
-		keepSteps:    inTurnKeepRecentSteps,
-		budget:       1 << 30,
+		msgs:       msgs,
+		viewOffset: 0,
+		projected:  msgs,
+		keepSteps:  inTurnKeepRecentSteps,
+		budget:     1 << 30,
 	}
 	if mod != nil {
 		mod(&r)
@@ -322,7 +322,7 @@ func TestChooseInTurnSplit(t *testing.T) {
 		msgs := concatMsgs(old, []llm.Message{row}, rest)
 		visibleStart := len(old)
 		got, err := chooseInTurnSplit(splitRequest(msgs, func(r *inTurnSplitRequest) {
-			r.visibleStart = visibleStart
+			r.viewOffset = visibleStart
 			r.projected = msgs[visibleStart:]
 			r.keepSteps = 2
 		}))
@@ -1057,7 +1057,17 @@ func TestOpeningPromptIsFoundAfterARegularCompactionBeforeIt(t *testing.T) {
 	if !res.InTurn || res.KeptSteps != inTurnKeepRecentSteps {
 		t.Fatalf("result = %+v, want an in-turn fold over the six steps since the prompt", res)
 	}
-	row := windowOf(st)[0]
+	// The rows the earlier compactions wrote stay in front; the in-turn fold adds
+	// its own row after them, and that one carries the prompt.
+	window := windowOf(st)
+	rows := 0
+	for rows < len(window) && window[rows].CompactionSummary {
+		rows++
+	}
+	if rows < 2 {
+		t.Fatalf("the window does not open with the earlier row and the in-turn one: %q", firstChars(transcriptText(window), 300))
+	}
+	row := window[rows-1]
 	if !strings.HasPrefix(row.Content, followUpPrompt+"\n\nThe text above is") {
 		t.Fatalf("the row must begin with the opening prompt, got %q", firstChars(row.Content, 200))
 	}

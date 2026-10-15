@@ -358,6 +358,11 @@ func carriesPrompt(req []llm.Message) error {
 			if !strings.HasPrefix(m.Content, inTurnPrompt) {
 				return fmt.Errorf("the summary row does not begin with the prompt: %q", firstChars(m.Content, 120))
 			}
+			// Later rows of the chain continue the first and must not repeat the
+			// prompt it carries.
+			if n := strings.Count(transcriptText(req), inTurnPrompt); n != 1 {
+				return fmt.Errorf("the request carries the prompt %d times, want once", n)
+			}
 			return nil
 		}
 		if m.Content != inTurnPrompt {
@@ -387,12 +392,13 @@ func (s *inTurnFeatureState) everyRequestCarriedThePrompt() error {
 	return nil
 }
 
-// everySummaryRowStartsWithThePromptNotTheFollowUp checks the follow-up the user
+// firstSummaryRowStartsWithThePromptNotTheFollowUp checks the follow-up the user
 // typed was read into the turn the way the product reads one - a user message
 // marked as a follow-up, through the session queue - and that no fold took it
-// for the message the turn started with: every summary row begins with the
-// prompt, verbatim, and the follow-up is never in front of a summary.
-func (s *inTurnFeatureState) everySummaryRowStartsWithThePromptNotTheFollowUp() error {
+// for the message the turn started with: the first summary row begins with the
+// prompt, verbatim, the rows after it continue the chain without repeating it,
+// and the follow-up is never in front of a summary.
+func (s *inTurnFeatureState) firstSummaryRowStartsWithThePromptNotTheFollowUp() error {
 	read := false
 	for _, m := range s.st.GetMessages() {
 		if m.Role == llm.RoleUser && !m.CompactionSummary && strings.Contains(m.Content, s.followUp) {
@@ -409,13 +415,28 @@ func (s *inTurnFeatureState) everySummaryRowStartsWithThePromptNotTheFollowUp() 
 	if len(rows) == 0 {
 		return fmt.Errorf("the transcript holds no summary row")
 	}
+	if err := firstRowCarriesThePromptOnly(rows); err != nil {
+		return err
+	}
+	for i, m := range rows {
+		if strings.HasPrefix(m.Content, s.followUp) {
+			return fmt.Errorf("summary row %d carries the follow-up in front of its summary: %q", i+1, firstChars(m.Content, 200))
+		}
+	}
+	return nil
+}
+
+// firstRowCarriesThePromptOnly holds the chain an in-turn fold writes: the first
+// row begins with the prompt, verbatim, and every later row continues it without
+// the prompt in front.
+func firstRowCarriesThePromptOnly(rows []llm.Message) error {
 	for i, m := range rows {
 		prompt, _, ok := session.SplitInTurnSummary(m.Content)
-		if !ok || prompt != inTurnPrompt {
-			return fmt.Errorf("summary row %d does not begin with the prompt: %q", i+1, firstChars(m.Content, 120))
+		if i == 0 && (!ok || prompt != inTurnPrompt) {
+			return fmt.Errorf("summary row 1 does not begin with the prompt: %q", firstChars(m.Content, 120))
 		}
-		if strings.Contains(prompt, s.followUp) {
-			return fmt.Errorf("summary row %d carries the follow-up in front of its summary: %q", i+1, firstChars(m.Content, 200))
+		if i > 0 && (ok || strings.Contains(m.Content, inTurnPrompt)) {
+			return fmt.Errorf("summary row %d repeats the prompt the first row carries: %q", i+1, firstChars(m.Content, 120))
 		}
 	}
 	return nil
@@ -507,11 +528,11 @@ func (s *inTurnFeatureState) everySummaryRowStartsWithTheSupervisorsInstruction(
 	if len(rows) == 0 {
 		return fmt.Errorf("the transcript holds no summary row")
 	}
+	if err := firstRowCarriesThePromptOnly(rows); err != nil {
+		return err
+	}
 	for i, m := range rows {
-		prompt, _, ok := session.SplitInTurnSummary(m.Content)
-		if !ok || prompt != inTurnPrompt {
-			return fmt.Errorf("summary row %d does not begin with the supervisor's instruction: %q", i+1, firstChars(m.Content, 120))
-		}
+		prompt, _, _ := session.SplitInTurnSummary(m.Content)
 		if strings.Contains(m.Content, "the user's request") {
 			return fmt.Errorf("summary row %d calls the supervisor's instruction the user's request: %q", i+1, firstChars(m.Content[len(prompt):], 200))
 		}
@@ -538,12 +559,12 @@ func initializeInTurnScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the provider refuses any request larger than what it serves$`, s.providerRefusesAboveWhatItServes)
 	sc.Step(`^the prompt is a goal continuation the supervisor started$`, s.promptIsAGoalContinuation)
 	sc.Step(`^the user sends one prompt$`, s.userSendsOnePrompt)
-	sc.Step(`^every summary row starts with the supervisor's instruction and does not call it the user's request$`, s.everySummaryRowStartsWithTheSupervisorsInstruction)
+	sc.Step(`^the first summary row starts with the supervisor's instruction, the later ones do not repeat it, and none calls it the user's request$`, s.everySummaryRowStartsWithTheSupervisorsInstruction)
 	sc.Step(`^no request was refused$`, s.noRequestWasRefused)
 	sc.Step(`^the turn ended with the model's answer$`, s.turnEndedWithAnswer)
 	sc.Step(`^the turn was folded more than once$`, s.turnFoldedMoreThanOnce)
 	sc.Step(`^every request carried the prompt verbatim$`, s.everyRequestCarriedThePrompt)
-	sc.Step(`^every summary row starts with the prompt, not with the follow-up$`, s.everySummaryRowStartsWithThePromptNotTheFollowUp)
+	sc.Step(`^the first summary row starts with the prompt, not with the follow-up, and the later ones do not repeat it$`, s.firstSummaryRowStartsWithThePromptNotTheFollowUp)
 	sc.Step(`^every tool result in each request answers a call that request carries$`, s.everyToolResultAnswersACall)
 	sc.Step(`^the transcript still holds every original message$`, s.transcriptHoldsEveryOriginalMessage)
 	sc.Step(`^the provider refused one request as larger than its window$`, s.providerRefusedOneRequest)

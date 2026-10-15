@@ -44,7 +44,9 @@ func (p *bddCompactionProvider) Complete(_ context.Context, messages []llm.Messa
 		p.completeRefused++
 		return nil, fmt.Errorf("400 Bad Request: This model's maximum context length is 8192 tokens. However, your messages resulted in 12000 tokens. Please reduce the length of the messages.")
 	}
-	return &llm.Response{Content: "CANNED-SUMMARY of the earlier exchanges", StopReason: "end_turn"}, nil
+	// Numbered by call, so a scenario that compacts twice can tell the summaries
+	// apart.
+	return &llm.Response{Content: fmt.Sprintf("CANNED-SUMMARY %d of the earlier exchanges", len(p.completeSeen)), StopReason: "end_turn"}, nil
 }
 
 func (p *bddCompactionProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
@@ -86,6 +88,14 @@ type compactionFeatureState struct {
 	// stop and runErr are how the turn of a scenario meant to fail ended.
 	stop   string
 	runErr error
+	// compactions records, for every compaction a scenario ran, the index of
+	// its first summarization request and the summary row it inserted.
+	compactions []compactionRecord
+}
+
+type compactionRecord struct {
+	firstRequest int
+	summary      string
 }
 
 func (s *compactionFeatureState) reset() error {
@@ -96,6 +106,7 @@ func (s *compactionFeatureState) reset() error {
 	s.beforeUsed = 0
 	s.filler = ""
 	s.stop, s.runErr = "", nil
+	s.compactions = nil
 	return nil
 }
 
@@ -158,12 +169,127 @@ func (s *compactionFeatureState) compactSession() error {
 	if s.ag == nil {
 		return fmt.Errorf("no session prepared")
 	}
+	first := len(s.provider.completeSeen)
 	res, err := s.ag.CompactSession(context.Background(), CompactOptions{})
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(res.Summary) == "" {
 		return fmt.Errorf("compaction returned an empty summary")
+	}
+	row := ""
+	for _, m := range s.st.GetMessages() {
+		if m.CompactionSummary && strings.Contains(m.Content, res.Summary) {
+			row = m.Content
+		}
+	}
+	if row == "" {
+		return fmt.Errorf("no summary row carries the summary %q", res.Summary)
+	}
+	s.compactions = append(s.compactions, compactionRecord{firstRequest: first, summary: row})
+	return nil
+}
+
+// moreExchangesAdded appends exchanges numbered after the ones the session
+// already has, the way a few more turns would leave them.
+func (s *compactionFeatureState) moreExchangesAdded(n int) error {
+	if s.st == nil {
+		return fmt.Errorf("no session prepared")
+	}
+	for i := s.exchanges + 1; i <= s.exchanges+n; i++ {
+		s.st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("question %d", i)})
+		s.st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d%s", i, s.filler)})
+	}
+	s.exchanges += n
+	return nil
+}
+
+func (s *compactionFeatureState) firstSummaryUnchanged() error {
+	if len(s.compactions) < 2 {
+		return fmt.Errorf("the scenario compacted %d times, want at least twice", len(s.compactions))
+	}
+	want := s.compactions[0].summary
+	for _, m := range s.st.GetMessages() {
+		if m.CompactionSummary {
+			if m.Content != want {
+				return fmt.Errorf("the first summary row reads %q, want it unchanged: %q", m.Content, want)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("no compaction summary row in transcript")
+}
+
+// secondSummarizationRequest is the user message of the first summarization
+// request the second compaction sent.
+func (s *compactionFeatureState) secondSummarizationRequest() (string, error) {
+	if len(s.compactions) < 2 {
+		return "", fmt.Errorf("the scenario compacted %d times, want at least twice", len(s.compactions))
+	}
+	req := s.provider.completeSeen[s.compactions[1].firstRequest]
+	return req[len(req)-1].Content, nil
+}
+
+func (s *compactionFeatureState) secondRequestRetellsOnly(from, to int) error {
+	content, err := s.secondSummarizationRequest()
+	if err != nil {
+		return err
+	}
+	start := strings.Index(content, "<transcript>")
+	end := strings.LastIndex(content, "</transcript>")
+	if start < 0 || end < start {
+		return fmt.Errorf("the summarization request has no transcript: %q", content)
+	}
+	transcript := content[start:end]
+	for i := 1; i <= s.exchanges; i++ {
+		in := strings.Contains(transcript, fmt.Sprintf("question %d\n", i)) || strings.Contains(transcript, fmt.Sprintf("answer %d\n", i))
+		if want := i >= from && i <= to; in != want {
+			return fmt.Errorf("exchange %d in the transcript to retell = %v, want %v: %q", i, in, want, transcript)
+		}
+	}
+	if strings.Contains(transcript, "CANNED-SUMMARY") {
+		return fmt.Errorf("the transcript to retell carries an earlier summary: %q", transcript)
+	}
+	return nil
+}
+
+func (s *compactionFeatureState) secondRequestShowsFirstSummary() error {
+	content, err := s.secondSummarizationRequest()
+	if err != nil {
+		return err
+	}
+	before, _, _ := strings.Cut(content, "<transcript>")
+	if !strings.Contains(before, "CANNED-SUMMARY 1") {
+		return fmt.Errorf("the first summary is not shown ahead of the transcript: %q", content)
+	}
+	return nil
+}
+
+func (s *compactionFeatureState) nextRequestCarriesBothSummariesThenTail(keep int) error {
+	req, err := s.nextLLMRequest()
+	if err != nil {
+		return err
+	}
+	var history []llm.Message
+	for _, m := range req {
+		if m.Role != llm.RoleSystem {
+			history = append(history, m)
+		}
+	}
+	var want []string
+	for _, c := range s.compactions {
+		want = append(want, c.summary)
+	}
+	for i := s.exchanges - keep + 1; i <= s.exchanges; i++ {
+		want = append(want, fmt.Sprintf("question %d", i), fmt.Sprintf("answer %d%s", i, s.filler))
+	}
+	if len(history) < len(want) {
+		return fmt.Errorf("the request carries %d history messages, want at least %d: %s", len(history), len(want), transcriptText(history))
+	}
+	for i, w := range want {
+		if history[i].Content != w {
+			return fmt.Errorf("history message %d = %q, want %q", i, history[i].Content, w)
+		}
 	}
 	return nil
 }
@@ -643,6 +769,11 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a session with (\d+) completed exchanges$`, s.sessionWithExchanges)
 	sc.Step(`^the session is compacted keeping the last 2 user turns$`, s.compactSession)
+	sc.Step(`^(\d+) more exchanges are added to the session$`, s.moreExchangesAdded)
+	sc.Step(`^the first summary is still in the transcript, unchanged$`, s.firstSummaryUnchanged)
+	sc.Step(`^the second summarization request retells only exchanges (\d+) to (\d+)$`, s.secondRequestRetellsOnly)
+	sc.Step(`^the second summarization request shows the first summary as earlier context$`, s.secondRequestShowsFirstSummary)
+	sc.Step(`^the next LLM request carries both summaries in order, then the last (\d+) exchanges verbatim$`, s.nextRequestCarriesBothSummariesThenTail)
 	sc.Step(`^the compaction summary is inserted into the transcript$`, s.summaryInsertedIntoTranscript)
 	sc.Step(`^the transcript still contains all (\d+) original exchanges$`, func(int) error { return s.transcriptContainsAllExchanges() })
 	sc.Step(`^the next LLM request starts from the summary$`, s.nextRequestStartsFromSummary)
