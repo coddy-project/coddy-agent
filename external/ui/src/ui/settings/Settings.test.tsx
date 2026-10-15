@@ -23,6 +23,7 @@ import {
   resetSettingsConfigForTests,
 } from "./settingsConfigStore";
 import {
+  REVEAL_PENDING_MAX_MS,
   REVEAL_WAIT_MS,
   SEARCH_TARGET_MS,
   SETTINGS_REVEAL_EVENT,
@@ -64,6 +65,23 @@ vi.mock("./settingsSearch", async (importOriginal) => {
     ) => {
       rowsKeyCalls.count += 1;
       return actual.settingsIndexRowsKey(doc);
+    },
+  };
+});
+
+// The System tab's chunk, held back by a test: the real page, rendered once a
+// gate opens, so the tab shows its Suspense fallback meanwhile - as it does
+// while a browser fetches chunks/SystemSection-<hash>.js.
+const lateChunk = vi.hoisted(() => ({ gate: null as Promise<void> | null }));
+vi.mock("./SystemSection", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./SystemSection")>();
+  const { createElement, use } = await import("react");
+  return {
+    default: function SystemSectionAfterGate() {
+      if (lateChunk.gate !== null) {
+        use(lateChunk.gate);
+      }
+      return createElement(actual.default);
     },
   };
 });
@@ -133,6 +151,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   resetSettingsConfigForTests();
+  lateChunk.gate = null;
 });
 
 // Issue #359: Settings is mounted only while it is open, and every mount read the
@@ -1284,6 +1303,31 @@ describe("settings search", () => {
     expect(options()).toEqual([]);
   });
 
+  test("the System tab is a tab and a result, and choosing it opens #/settings/status", async () => {
+    await drawer();
+    expect(screen.getByTestId("settings-tab-status").textContent).toContain(
+      "System",
+    );
+    // the Prompts tab keeps its own name and address
+    expect(screen.getByTestId("settings-tab-system").textContent).toContain(
+      "Prompts",
+    );
+    typeQuery("system");
+    expect(offered()).toContain("tab:status");
+    await choose("system", "tab:status");
+    expect(tabIsOpen("status")).toBe(true);
+    expectAddress("#/settings/status");
+    expect(await screen.findByTestId("system-section")).toBeTruthy();
+
+    // each of its blocks is a result of its own, never the charts
+    typeQuery("subsystems");
+    expect(offered()).toContain("landmark:status:subsystems");
+    typeQuery("last hour");
+    expect(offered().filter((t) => t.startsWith("landmark:status:"))).toEqual(
+      [],
+    );
+  });
+
   test.each(revealCases)("%s", async (_title, open, pick, landing) => {
     useClockWithFrames();
     await drawer(open);
@@ -2044,6 +2088,148 @@ describe("settings search", () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
+  // ---- the System tab is a chunk loaded on demand: a result inside it waits
+  // for the chunk, within REVEAL_PENDING_MAX_MS, and leaving ends the wait.
+
+  /** Holds the System tab's chunk back; the returned function lets it in. */
+  function holdChunk(): () => Promise<void> {
+    let open!: () => void;
+    lateChunk.gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    return async () => {
+      open();
+      await frames.settle();
+    };
+  }
+  const pendingMark = () => document.querySelector("[data-settings-pending]");
+  const diskBox = () => boxOf("landmark:status:disk");
+  /** Nothing was scrolled to, ringed or given the cursor for the Disk block. */
+  function expectNoReveal() {
+    expect(scrolledTo()).toEqual([]);
+    expect(document.querySelector(".is-search-target")).toBeNull();
+    expect(diskBox()?.contains(document.activeElement) ?? false).toBe(false);
+  }
+
+  test("a block of the System tab is scrolled to, ringed and given the cursor although its chunk comes after the second a reveal waits", async () => {
+    useClockWithFrames();
+    const release = holdChunk();
+    await drawer();
+    await choose("disk", "landmark:status:disk");
+    // The pane says it is loading, and the reveal waits past its second.
+    expect(pendingMark()).not.toBeNull();
+    expect(
+      pendingMark()!
+        .closest("[data-settings-tab]")!
+        .getAttribute("data-settings-tab"),
+    ).toBe("status");
+    await tick(REVEAL_WAIT_MS + 500);
+    expect(pendingMark()).not.toBeNull();
+    expect(scrolledTo()).toEqual([]);
+
+    await release();
+    const box = diskBox()!;
+    expect(pendingMark()).toBeNull();
+    expect(scrolledTo()).toEqual([box]);
+    expect(isRinged(box)).toBe(true);
+    expectCursor(box);
+  });
+
+  test("the wait for a chunk ends after ten seconds, quietly, and a chunk within them is gone to", async () => {
+    useClockWithFrames();
+    const errors = vi.spyOn(console, "error");
+    onTestFinished(() => errors.mockRestore());
+    let release = holdChunk();
+    const view = await drawer();
+    await choose("disk", "landmark:status:disk");
+    await tick(REVEAL_PENDING_MAX_MS - 1_000);
+    await release();
+    expect(scrolledTo()).toEqual([diskBox()]);
+    view.unmount();
+
+    release = holdChunk();
+    await drawer();
+    await choose("disk", "landmark:status:disk");
+    await tick(REVEAL_PENDING_MAX_MS + 500);
+    await release();
+    expect(diskBox()).not.toBeNull();
+    expect(scrolledTo()).toHaveLength(1);
+    expect(document.querySelector(".is-search-target")).toBeNull();
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  // Ordinary navigation ends the wait, and coming back does not revive it.
+  const FAST = 500;
+  const BACK = 800;
+  const ARRIVES = 1_500;
+  const LATER = 3_000;
+
+  test("leaving by the rail and coming back to System before the chunk arrives scrolls to nothing, rings nothing and takes no cursor", async () => {
+    useClockWithFrames();
+    const release = holdChunk();
+    await drawer();
+    await choose("disk", "landmark:status:disk");
+    await tick(FAST);
+    await press("settings-tab-agent");
+    expect(tabIsOpen("agent")).toBe(true);
+    await tick(BACK - FAST);
+    await press("settings-tab-status");
+    expect(tabIsOpen("status")).toBe(true);
+    await tick(ARRIVES - BACK);
+    await release();
+    expect(diskBox()).not.toBeNull();
+    await tick(LATER - ARRIVES);
+    expectNoReveal();
+  });
+
+  test("leaving by the phone's grid and coming back through the System tile does the same", async () => {
+    useClockWithFrames();
+    const release = holdChunk();
+    await drawer({ width: 390 });
+    await choose("disk", "landmark:status:disk");
+    await tick(FAST);
+    await press("settings-head-back");
+    expect(screen.getByTestId("settings-tile-grid")).toBeTruthy();
+    await tick(BACK - FAST);
+    await press("settings-tile-status");
+    await tick(ARRIVES - BACK);
+    await release();
+    expect(diskBox()).not.toBeNull();
+    await tick(LATER - ARRIVES);
+    expectNoReveal();
+  });
+
+  test("an address that names another section ends the wait too, and the one that names System again does not bring it back", async () => {
+    useClockWithFrames();
+    const release = holdChunk();
+    await drawer();
+    await choose("disk", "landmark:status:disk");
+    await tick(FAST);
+    await goTo("#/settings/agent");
+    expect(tabIsOpen("agent")).toBe(true);
+    await tick(BACK - FAST);
+    await goTo("#/settings/status");
+    await tick(ARRIVES - BACK);
+    await release();
+    expect(diskBox()).not.toBeNull();
+    await tick(LATER - ARRIVES);
+    expectNoReveal();
+  });
+
+  test("a new result chosen while the chunk is loading replaces the wait, and the chunk then goes to the new one", async () => {
+    useClockWithFrames();
+    const release = holdChunk();
+    await drawer();
+    await choose("disk", "landmark:status:disk");
+    await tick(FAST);
+    fireEvent.click(searchInput());
+    await choose("activity", "landmark:status:activity");
+    await tick(ARRIVES);
+    await release();
+    expect(scrolledTo()).toEqual([boxOf("landmark:status:activity")]);
+    expect(isRinged(diskBox()!)).toBe(false);
+  });
+
   test("a new choice cancels the reveal before it, and closing the drawer takes the ring away", async () => {
     const view = await drawer();
     typeQuery("llm");
@@ -2394,6 +2580,29 @@ describe("system status", () => {
     expect(railTab().getAttribute("aria-current")).toBe("page");
     expect(await screen.findByTestId("system-section")).toBeTruthy();
     expect(window.location.hash).toBe("#/settings/status");
+  });
+
+  // The first React.lazy of the SPA: a tab left open over an upgrade asks for a
+  // chunk the server no longer has, and a render error with nothing to catch it
+  // would unmount the whole page.
+  test("a System chunk that fails to load leaves a message in the tab and the rest of Settings working", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    onTestFinished(() => errors.mockRestore());
+    lateChunk.gate = Promise.reject(
+      new Error("Failed to fetch dynamically imported module"),
+    );
+    lateChunk.gate.catch(() => {});
+    await drawer({ section: "status" });
+    const failed = await screen.findByTestId("system-load-failed");
+    expect(failed.textContent).toBe(
+      "This page failed to load. Reload the page.",
+    );
+    expect(failed.getAttribute("role")).toBe("alert");
+    // A reveal has nothing to wait for any more, and the drawer is still there.
+    expect(document.querySelector("[data-settings-pending]")).toBeNull();
+    fireEvent.click(screen.getByTestId("settings-tab-agent"));
+    expect(tabIsOpen("agent")).toBe(true);
+    expect(screen.queryByTestId("system-load-failed")).toBeNull();
   });
 
   test("looking at the tab marks nothing unsaved", async () => {

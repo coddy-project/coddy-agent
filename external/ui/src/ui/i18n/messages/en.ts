@@ -2550,4 +2550,5 @@ export const messagesEn: Record<string, string> = {
   "system.col.last": "Last failure",
   "system.updated": "Updated {ago}",
   "system.docs": "Monitoring docs",
+  "system.loadFailed": "This page failed to load. Reload the page.",
 };

@@ -9961,6 +9961,16 @@ html:not([data-theme="light"]) .settings.drawer {
   color: var(--muted);
 }
 
+/* The four blocks the settings search finds wear the Appearance sheet's label
+   class (the drawing is read back through it), which comes later in the sheet
+   and uppercases: the page's own heading look stands over it. */
+.system-block > .system-block-title {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 .system-block-title:focus-visible,
 .system-h:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);

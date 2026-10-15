@@ -2645,4 +2645,5 @@ export const messagesRu: Record<string, string> = {
   "system.col.last": "Последний сбой",
   "system.updated": "Обновлено {ago}",
   "system.docs": "Документация по мониторингу",
+  "system.loadFailed": "Не удалось загрузить страницу. Перезагрузите её.",
 };

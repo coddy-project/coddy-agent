@@ -408,13 +408,24 @@ export function Settings(props: {
     [sections, schema, rowsKey, locale],
   );
 
+  // A trip to a setting: a result opened or an address that names one. Each
+  // request is a new object, so choosing the same result again goes again.
+  // Opening a result opens its tab and row through the address, which also
+  // names the setting; the effect below then takes the operator to it. A trip
+  // outlives a second when its tab is a chunk still loading, so ordinary
+  // navigation ends it (navigateTo, backToGrid, the address below): coming
+  // back to the tab must not revive a reveal the operator walked away from.
+  const [trip, setTrip] = useState<{ entry: SettingsSearchEntry } | null>(null);
+
   // Reflect the `#/settings/<section>` deep link (initial load and browser
   // back/forward) into local tab state; writing the hash below re-enters here
-  // with the same value, so this is a no-op on self-initiated changes.
+  // with the same value, so this is a no-op on self-initiated changes. An
+  // address that names another section than the trip's ends the trip.
   const routeSection = props.initialSection ?? null;
   useEffect(() => {
     setActiveTab(routeSection ?? "");
     setMobileDetailId(routeSection);
+    setTrip((t) => (t !== null && t.entry.section !== routeSection ? null : t));
   }, [routeSection]);
 
   // Selecting a section, a list row or a setting anchors it in the URL and puts
@@ -438,8 +449,20 @@ export function Settings(props: {
     [search],
   );
 
+  // A rail entry or a tile is ordinary navigation: it ends a trip still waiting
+  // for its tab. selectSection itself must not, since openResult sets the trip
+  // and then calls it.
+  const navigateTo = useCallback(
+    (id: string) => {
+      setTrip(null);
+      selectSection(id);
+    },
+    [selectSection],
+  );
+
   // Mobile back to the tile grid drops the section anchor.
   const backToGrid = useCallback(() => {
+    setTrip(null);
     setMobileDetailId(null);
     setSettingsHash();
   }, []);
@@ -479,11 +502,6 @@ export function Settings(props: {
             : null,
   );
 
-  // A trip to a setting: a result opened or an address that names one. Each
-  // request is a new object, so choosing the same result again goes again.
-  // Opening a result opens its tab and row through the address, which also
-  // names the setting; the effect below then takes the operator to it.
-  const [trip, setTrip] = useState<{ entry: SettingsSearchEntry } | null>(null);
   // The setting last taken to: the address read back after a choice names it
   // again and is no second trip.
   const takenTo = useRef<string | null>(null);
@@ -977,7 +995,7 @@ export function Settings(props: {
               ) : (
                 <SettingsTileGrid
                   sections={sections}
-                  onSelect={selectSection}
+                  onSelect={navigateTo}
                   placeholders={loading ? PLACEHOLDER_TABS : 0}
                   badges={badges}
                 />
@@ -989,7 +1007,7 @@ export function Settings(props: {
             <SettingsNav
               sections={sections}
               active={showing || !activeSection ? "" : activeSection.id}
-              onSelect={selectSection}
+              onSelect={navigateTo}
               placeholders={loading ? PLACEHOLDER_TABS : 0}
               search={searchField()}
               badges={badges}

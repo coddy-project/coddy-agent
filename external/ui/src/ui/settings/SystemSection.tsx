@@ -4,6 +4,11 @@ import { readServerVersion, releaseNotesUrl } from "../chat/HeroFooter";
 import { useT } from "../i18n/I18nProvider";
 import { appNavHrefDocs } from "../scheduler/hashRoute";
 import { RestartNotice } from "./RestartNotice";
+import {
+  landmarkAnchor,
+  SETTINGS_TEXTS,
+  type DrawnText,
+} from "./settingsSections";
 import { Sparkline } from "./Sparkline";
 import {
   ago,
@@ -40,28 +45,35 @@ function Row(props: { label: string; children: ReactNode }) {
 }
 
 /**
- * A block with a heading the "jump to" links focus. It stands at module level
- * on purpose: a component type made inside the section would be a new one on
- * every read and remount the block, taking the focus from a heading and from
- * the copy button.
+ * A block the settings search finds by its heading: the box carries the
+ * landmark anchor and the heading is the first thing in it. It stands at module
+ * level on purpose: a component type made inside the section would be a new
+ * one on every read and remount the block, taking the focus from a heading and
+ * from the copy button.
  */
 function Block(props: {
   base: string;
-  id: BlockId;
-  title: string;
+  id: "installation" | "subsystems" | "disk" | "activity";
+  text: DrawnText;
   /** A server that answered nothing has nothing to say here: `na` stands in. */
   empty: boolean;
   na: ReactNode;
   children?: ReactNode;
 }) {
+  const { t } = useT();
   return (
-    <section className="system-block" data-testid={`system-${props.id}`}>
+    <section
+      className="system-block"
+      data-testid={`system-${props.id}`}
+      data-settings-anchor={landmarkAnchor("status", props.id)}
+      aria-labelledby={`${props.base}-${props.id}`}
+    >
       <h3
         id={`${props.base}-${props.id}`}
-        className="system-block-title"
+        className="appearance-section-label system-block-title"
         tabIndex={-1}
       >
-        {props.title}
+        {t(props.text.label!)}
       </h3>
       {props.empty ? props.na : props.children}
     </section>
@@ -246,7 +258,7 @@ export default function SystemSection() {
         <Block
           base={base}
           id="installation"
-          title={t("system.installation")}
+          text={SETTINGS_TEXTS.systemInstallation}
           empty={empty}
           na={na}
         >
@@ -301,7 +313,7 @@ export default function SystemSection() {
         <Block
           base={base}
           id="subsystems"
-          title={t("system.subsystems")}
+          text={SETTINGS_TEXTS.systemSubsystems}
           empty={empty}
           na={na}
         >
@@ -347,7 +359,7 @@ export default function SystemSection() {
         <Block
           base={base}
           id="disk"
-          title={t("system.disk")}
+          text={SETTINGS_TEXTS.systemDisk}
           empty={empty}
           na={na}
         >
@@ -378,7 +390,7 @@ export default function SystemSection() {
         <Block
           base={base}
           id="activity"
-          title={t("system.activity")}
+          text={SETTINGS_TEXTS.systemActivity}
           empty={empty}
           na={na}
         >

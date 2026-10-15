@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { Component, lazy, Suspense, type ReactNode } from "react";
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import { applyModelsChange, applyToolsetsChange } from "./applyModelsChange";
 import { CodexAuthField } from "./CodexAuthField";
@@ -336,10 +336,44 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
   return neuralDeepAPIBaseOverride(ctx, box);
 }
 
-/** The grey frame the System tab shows while its chunk is on its way. */
+/**
+ * Catches a chunk that fails to load. A tab left open over an upgrade asks for
+ * a file the server no longer has, and with nothing to catch the render error
+ * React would unmount the whole page; the tab says so, and the rest of Settings
+ * keeps working. A loaded chunk is kept, a failed one is not retried: it takes
+ * a reload of the page.
+ */
+class ChunkBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  override state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  override render() {
+    return this.state.failed ? (
+      <p
+        className="settings-error"
+        role="alert"
+        data-testid="system-load-failed"
+      >
+        {translate("system.loadFailed")}
+      </p>
+    ) : (
+      this.props.children
+    );
+  }
+}
+
+/**
+ * The grey frame the System tab shows while its chunk is on its way. Its mark
+ * tells a reveal that the tab is loading, not missing the setting it looks for
+ * (settingsReveal.ts), so the search waits for the chunk past its second.
+ */
 function SystemPending() {
   return (
-    <div className="settings-skeleton" aria-busy="true">
+    <div className="settings-skeleton" data-settings-pending aria-busy="true">
       <div className="settings-skeleton-frame" aria-hidden="true">
         <span className="settings-skeleton-bar settings-skeleton-legend" />
         {[0, 1, 2].map((i) => (
@@ -452,9 +486,11 @@ export function SettingsSection(props: {
   // The installation's own status, read from /coddy/status: it edits nothing.
   if (section.kind === "status") {
     return (
-      <Suspense fallback={<SystemPending />}>
-        <SystemSection />
-      </Suspense>
+      <ChunkBoundary>
+        <Suspense fallback={<SystemPending />}>
+          <SystemSection />
+        </Suspense>
+      </ChunkBoundary>
     );
   }
 

@@ -38,6 +38,11 @@ Feature: Settings can be searched
   Scenario: A tab the binary cannot run is not searched
     Then the Metrics tab is a tab and a result, and a binary without its tag offers neither
 
+  Scenario: The System tab is found and opened from a query
+    Then the System tab is a tab and a result, and choosing it opens its address
+    And a block of the System tab is scrolled to and ringed although the tab's chunk comes late
+    And leaving the System tab before its chunk comes cancels that, and coming back does not revive it
+
   Scenario: A link to a highlighted setting opens it highlighted
     Then choosing a result writes the setting into the address, next to its row, and a tab writes none
     And an address that names a setting reveals it as a choice does: the tab, the ring, the scroll and the control

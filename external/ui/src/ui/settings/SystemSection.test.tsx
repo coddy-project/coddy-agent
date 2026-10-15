@@ -15,6 +15,7 @@ import { Sparkline } from "./Sparkline";
 import { fakeStatus } from "./systemStatus.fakes";
 import { compact, tasksText } from "./systemStatus";
 import { resetSystemStatusForTests } from "./systemStatusApi";
+import { landmarkAnchor } from "./settingsSections";
 import { PaneHidden } from "../components/PanePortal";
 import { resetServerVersionForTests } from "../chat/HeroFooter";
 import { installRemoteFetchShim, setEnv } from "../env/remoteEnv";
@@ -96,23 +97,54 @@ afterEach(() => {
   delete (document as { visibilityState?: unknown }).visibilityState;
 });
 
+const BLOCKS = [
+  ["installation", "This installation"],
+  ["subsystems", "Subsystems"],
+  ["disk", "Disk"],
+  ["activity", "Activity"],
+] as const;
+
 describe("the four blocks that are always drawn", () => {
   test("stand on the first frame, before the first read returns, as focusable headings", () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     render(<SystemSection />);
-    const blocks = [
-      ["installation", "This installation"],
-      ["subsystems", "Subsystems"],
-      ["disk", "Disk"],
-      ["activity", "Activity"],
-    ] as const;
-    for (const [id, title] of blocks) {
+    for (const [id, title] of BLOCKS) {
       const h = heading(title);
       expect(h.parentElement).toBe(block(id));
       expect(h.getAttribute("tabindex")).toBe("-1");
     }
     expect(screen.queryByText("Last hour")).toBeNull();
     expect(screen.queryByRole("img")).toBeNull();
+  });
+
+  // The settings search finds a block by its heading and takes the operator to
+  // the box that carries the anchor (settingsReveal.ts).
+  test("carry their landmark anchors on the box, which is named by the heading", async () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    render(<SystemSection />);
+    for (const [id, title] of BLOCKS) {
+      const box = block(id);
+      expect(box.getAttribute("data-settings-anchor")).toBe(
+        landmarkAnchor("status", id),
+      );
+      const h = heading(title);
+      expect(box.getAttribute("aria-labelledby")).toBe(h.id);
+      expect(h.classList.contains("appearance-section-label")).toBe(true);
+    }
+  });
+
+  test("a heading that is no landmark carries neither an anchor nor the landmark class", async () => {
+    await open([doc()]);
+    for (const title of ["Last hour", "Model providers since start"]) {
+      const h = heading(title);
+      expect(h.closest("[data-settings-anchor]")).toBeNull();
+      expect(h.classList.contains("appearance-section-label")).toBe(false);
+    }
+    expect(
+      [...document.querySelectorAll("[data-settings-anchor]")].map((el) =>
+        el.getAttribute("data-settings-anchor"),
+      ),
+    ).toEqual(BLOCKS.map(([id]) => landmarkAnchor("status", id)));
   });
 
   test("keep standing when the server does not report its status", async () => {

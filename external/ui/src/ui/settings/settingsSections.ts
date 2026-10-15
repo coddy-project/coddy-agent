@@ -349,6 +349,10 @@ export const SETTINGS_TEXTS = {
     desc: "subagents.catalog.description",
   },
   providerModels: { label: "settings.providerModels.legend" },
+  systemInstallation: { label: "system.installation" },
+  systemSubsystems: { label: "system.subsystems" },
+  systemDisk: { label: "system.disk" },
+  systemActivity: { label: "system.activity" },
 } as const satisfies Record<string, DrawnText>;
 
 export type SettingsTextId = keyof typeof SETTINGS_TEXTS;
