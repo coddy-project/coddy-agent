@@ -99,6 +99,12 @@ type CompactionResult struct {
 	// KeptSteps is how many steps of the turn stayed verbatim after an in-turn
 	// cut.
 	KeptSteps int
+	// MergedSummaries is how many of the earliest summary rows were retold as
+	// one because the chain outgrew its share of the window (compact_merge.go).
+	MergedSummaries int
+	// MergeError is why a merge that was due did not happen. The compaction
+	// itself is done: its block is in the transcript.
+	MergeError string
 }
 
 // compactionSystemPrompt instructs the summarizer model.
@@ -258,6 +264,9 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// supervisor's next continuation and the model read the same story. Added
 	// after the hooks, which see the operator's own words only.
 	instructions = withGoalSummaryInstructions(a.state, instructions)
+	// A merge of the chain keeps the operator's and the goal's notes, not the
+	// in-turn one: the rows it retells are summaries, not work in progress.
+	mergeInstructions := instructions
 	// A cut inside the turn tells the summarizer the work is still going on and
 	// that the request stays in front of its summary.
 	if prefix != "" {
@@ -306,6 +315,13 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 		summaryRow.CompactionBlock = true
 	}
 	a.state.InsertCompactionSummary(splitIdx, summaryRow)
+	// The chain grows by a row per compaction; one that outgrew its share of the
+	// window has its earliest rows retold as one. A merge that fails leaves the
+	// chain as it was and the compaction done.
+	merged, mergeErr := a.mergeChain(ctx, chain, mergeInstructions, row.step)
+	if mergeErr != nil {
+		a.log.Warn("compaction could not merge the earliest summaries; the chain stays as it is", "error", mergeErr)
+	}
 	// The history the provider had cached changes from the new block on, which
 	// makes this the moment to read the standing rules again: an AGENTS.md or
 	// a rule file edited since the session started reaches the next system
@@ -325,6 +341,10 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	}
 	if plan != nil && !plan.regular {
 		res.InTurn, res.KeptSteps = true, plan.keptSteps
+	}
+	res.MergedSummaries = merged
+	if mergeErr != nil {
+		res.MergeError = mergeErr.Error()
 	}
 	row.done(compactionOutcomeText(res))
 	return res, nil
@@ -348,6 +368,12 @@ func compactionOutcomeText(res *CompactionResult) string {
 	}
 	if res.Steps > 1 {
 		text += fmt.Sprintf(" The history did not fit one summarization request, so it was folded in %d passes.", res.Steps)
+	}
+	if res.MergedSummaries > 0 {
+		text += fmt.Sprintf(" The %d earliest summaries were merged into one to keep them within their share of the context window.", res.MergedSummaries)
+	}
+	if res.MergeError != "" {
+		text += " The earliest summaries could not be merged and stay as they are: " + res.MergeError
 	}
 	return text
 }

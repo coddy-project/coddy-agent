@@ -99,3 +99,12 @@ Feature: Context compaction
     And the second summarization request retells only exchanges 3 to 4
     And the second summarization request shows the first summary as earlier context
     And the next LLM request carries both summaries in order, then the last 2 exchanges verbatim
+
+  Scenario: A chain of summaries that outgrew its share of the window is merged from its earliest rows
+    Given a session with 4 completed exchanges
+    And the model's context window is 30000 tokens
+    And the summarizer writes summaries of 2000 tokens
+    When the session is compacted 6 times, with 2 exchanges added before each compaction after the first
+    Then a compaction merged the earliest summaries into one row that starts the chain
+    And the transcript still contains every summary row that was written
+    And the next LLM request carries less than a third of the window in summaries

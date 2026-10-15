@@ -36,6 +36,9 @@ type bddCompactionProvider struct {
 	// refused as too large for the model's window, and counted.
 	completeLimit   int
 	completeRefused int
+	// summaryPad, when positive, pads every summary to about that many estimate
+	// tokens, so a scenario can grow a chain of summaries past its share.
+	summaryPad int
 }
 
 func (p *bddCompactionProvider) Complete(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
@@ -46,7 +49,11 @@ func (p *bddCompactionProvider) Complete(_ context.Context, messages []llm.Messa
 	}
 	// Numbered by call, so a scenario that compacts twice can tell the summaries
 	// apart.
-	return &llm.Response{Content: fmt.Sprintf("CANNED-SUMMARY %d of the earlier exchanges", len(p.completeSeen)), StopReason: "end_turn"}, nil
+	summary := fmt.Sprintf("CANNED-SUMMARY %d of the earlier exchanges", len(p.completeSeen))
+	if p.summaryPad > 0 {
+		summary += " " + strings.Repeat("x", p.summaryPad*3)
+	}
+	return &llm.Response{Content: summary, StopReason: "end_turn"}, nil
 }
 
 func (p *bddCompactionProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
@@ -96,6 +103,7 @@ type compactionFeatureState struct {
 type compactionRecord struct {
 	firstRequest int
 	summary      string
+	merged       int
 }
 
 func (s *compactionFeatureState) reset() error {
@@ -186,7 +194,70 @@ func (s *compactionFeatureState) compactSession() error {
 	if row == "" {
 		return fmt.Errorf("no summary row carries the summary %q", res.Summary)
 	}
-	s.compactions = append(s.compactions, compactionRecord{firstRequest: first, summary: row})
+	s.compactions = append(s.compactions, compactionRecord{firstRequest: first, summary: row, merged: res.MergedSummaries})
+	return nil
+}
+
+func (s *compactionFeatureState) summarizerWritesSummariesOf(tokens int) error {
+	s.provider.summaryPad = tokens
+	return nil
+}
+
+func (s *compactionFeatureState) compactedTimesWithExchangesBetween(times, exchanges int) error {
+	for i := 0; i < times; i++ {
+		if i > 0 {
+			if err := s.moreExchangesAdded(exchanges); err != nil {
+				return err
+			}
+		}
+		if err := s.compactSession(); err != nil {
+			return fmt.Errorf("compaction %d: %w", i+1, err)
+		}
+	}
+	return nil
+}
+
+func (s *compactionFeatureState) aCompactionMergedTheEarliestSummaries() error {
+	merges := 0
+	for _, c := range s.compactions {
+		if c.merged > 0 {
+			merges++
+		}
+	}
+	if merges == 0 {
+		return fmt.Errorf("no compaction merged summaries")
+	}
+	window := session.MessagesForLLM(s.st.GetMessages())
+	if len(window) == 0 || !window[0].CompactionSummary || window[0].CompactionBlock {
+		return fmt.Errorf("the window does not open with a merged row that starts the chain: %+v", window[0])
+	}
+	return nil
+}
+
+func (s *compactionFeatureState) transcriptKeepsEverySummaryRow() error {
+	joined := transcriptText(s.st.GetMessages())
+	for i, c := range s.compactions {
+		if !strings.Contains(joined, c.summary) {
+			return fmt.Errorf("summary row %d is gone from the transcript", i+1)
+		}
+	}
+	return nil
+}
+
+func (s *compactionFeatureState) nextRequestCarriesUnderAThirdOfTheWindowInSummaries() error {
+	req, err := s.nextLLMRequest()
+	if err != nil {
+		return err
+	}
+	tokens := 0
+	for _, m := range req {
+		if m.CompactionSummary {
+			tokens += session.EstimateContextTokens(m.Content)
+		}
+	}
+	if window := s.ag.cfg.Models[0].MaxContextTokens; tokens*3 >= window {
+		return fmt.Errorf("the request carries %d tokens of summaries, a third of the window is %d", tokens, window/3)
+	}
 	return nil
 }
 
@@ -770,6 +841,11 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a session with (\d+) completed exchanges$`, s.sessionWithExchanges)
 	sc.Step(`^the session is compacted keeping the last 2 user turns$`, s.compactSession)
 	sc.Step(`^(\d+) more exchanges are added to the session$`, s.moreExchangesAdded)
+	sc.Step(`^the summarizer writes summaries of (\d+) tokens$`, s.summarizerWritesSummariesOf)
+	sc.Step(`^the session is compacted (\d+) times, with (\d+) exchanges added before each compaction after the first$`, s.compactedTimesWithExchangesBetween)
+	sc.Step(`^a compaction merged the earliest summaries into one row that starts the chain$`, s.aCompactionMergedTheEarliestSummaries)
+	sc.Step(`^the transcript still contains every summary row that was written$`, s.transcriptKeepsEverySummaryRow)
+	sc.Step(`^the next LLM request carries less than a third of the window in summaries$`, s.nextRequestCarriesUnderAThirdOfTheWindowInSummaries)
 	sc.Step(`^the first summary is still in the transcript, unchanged$`, s.firstSummaryUnchanged)
 	sc.Step(`^the second summarization request retells only exchanges (\d+) to (\d+)$`, s.secondRequestRetellsOnly)
 	sc.Step(`^the second summarization request shows the first summary as earlier context$`, s.secondRequestShowsFirstSummary)
