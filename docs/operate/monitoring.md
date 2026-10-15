@@ -180,6 +180,10 @@ Prometheus answers on `http://127.0.0.1:9090` and Grafana on `http://127.0.0.1:3
 
 It shows the version and build tags, how the process was started, the state and address of each subsystem (the exporter's row says whether a scrape needs a token), the sessions disk against the 512 MiB line `CoddyDiskLow` watches, the turns, the prompts waiting for an answer and the background tasks running now, and a badge when something needs attention, a relay registration that has been offline for the 5 minutes `CoddySwarmJoinDown` waits for included. See [System](../surfaces/web-ui.md#system-settings-tab).
 
+![Settings → System with three items needing attention, over the charts of the last hour and the installation, subsystems, disk, activity and model providers](../assets/web-ui/system-attention-dark-1280.png)
+
+*Settings → System with a restart pending, the metrics exporter stopped and a relay unreachable.*
+
 The page reads `GET /coddy/status` ([HTTP API](../reference/http-api.md#system-status)), which sits behind the API's own credential: the metrics token does not open it, and the API token does not open `/metrics`. A binary built with the `metrics` tag adds the **Last hour** charts and the **Model providers since start** table, whatever `metrics.enable` says; a binary without it has neither. A sampler reads the exporter's own counters every 15 seconds, as a scrape writes them, and keeps 240 samples, one hour, in memory. The attempt series add up over `attempt` (first and retry), as the rules do. It counts nothing of its own, needs no scrape, and starts empty after a restart.
 
 ## What is never exported
