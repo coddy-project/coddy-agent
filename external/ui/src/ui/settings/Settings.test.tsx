@@ -28,7 +28,9 @@ import {
   SETTINGS_REVEAL_EVENT,
 } from "./settingsReveal";
 import { parseAppHash } from "../scheduler/hashRoute";
-import { initLocale } from "../i18n/i18n";
+import { initLocale, setLocale, translatePlural } from "../i18n/i18n";
+import { connectRemote, setEnv } from "../env/remoteEnv";
+import { fakeStatus } from "./systemStatus.fakes";
 import { OpenRailScreen } from "../nav/railEscape.fakes";
 import { pressBack } from "../telegram/backButton";
 import {
@@ -2135,5 +2137,379 @@ describe("settings search", () => {
     expect(more).toBeGreaterThan(1);
     await tick(550);
     expect(status().textContent).toBe(`${50 + more} settings found`);
+  });
+});
+
+// ---- the System tab: its badge, the read after a save, its pane
+
+describe("system status", () => {
+  afterEach(() => {
+    resetPage();
+    setEnv({ mode: "local" });
+    localStorage.clear();
+  });
+
+  /** A status answer that names `count` things needing attention. */
+  const needing = (count: number, over = {}) => ({
+    status: 200,
+    body: fakeStatus({
+      attention: Array.from({ length: count }, () => ({ code: "disk_low" })),
+      ...over,
+    }),
+  });
+
+  /** The reads of GET /coddy/status the page made. */
+  const statusReads = (fetch: ReturnType<typeof stubServerFor>) =>
+    fetch.mock.calls.filter(
+      ([path, init]) =>
+        new URL(String(path), "http://coddy.test").pathname ===
+          "/coddy/status" &&
+        ((init as RequestInit | undefined)?.method ?? "GET") === "GET",
+    ).length;
+
+  const railTab = () => screen.getByTestId("settings-tab-status");
+  const railBadge = () => railTab().querySelector(".settings-nav-badge");
+  const tile = () => screen.getByTestId("settings-tile-status");
+  const tileBadge = () => tile().querySelector(".settings-tile-badge");
+
+  /** Lets the read Settings makes when it opens answer. */
+  const answered = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+  // The @ui scenario of features/system_status.feature.
+  test('the System tile reads "2 need attention" on a phone', async () => {
+    await drawer({ width: 390, status: needing(2) });
+    await answered();
+    expect(tile().textContent).toContain("2 need attention");
+    expect(tile()).toHaveAccessibleName("System");
+    expect(tile()).toHaveAccessibleDescription("2 need attention");
+  });
+
+  // OP-4: an offline relay registration is an attention item like any other,
+  // and each relay counts once.
+  test("a low disk and two relays that do not register the node read 3 need attention", async () => {
+    const down = (relay: string) => ({
+      code: "swarm_join_down",
+      relay,
+      offlineSince: "2026-10-15T09:48:00Z",
+    });
+    await drawer({
+      width: 390,
+      status: {
+        status: 200,
+        body: fakeStatus({
+          attention: [
+            { code: "disk_low" },
+            down("relay.example:12346"),
+            down("other.example:12346"),
+          ],
+        }),
+      },
+    });
+    await answered();
+    expect(tileBadge()!.textContent).toBe("3");
+    expect(tile().textContent).toContain("3 need attention");
+    expect(tile()).toHaveAccessibleDescription("3 need attention");
+  });
+
+  test("Settings reads the status once when it opens", async () => {
+    const { fetch } = await drawer({ width: 390, status: needing(2) });
+    await answered();
+    expect(statusReads(fetch)).toBe(1);
+  });
+
+  test("one read when Settings opens, none while it is closed and no timer of its own while it is open", async () => {
+    useClockWithFrames();
+    const view = await drawer({ section: "agent", status: needing(2) });
+    await answered();
+    expect(statusReads(view.fetch)).toBe(1);
+    // Open on another tab: nothing polls for the badge alone.
+    await tick(120_000);
+    expect(statusReads(view.fetch)).toBe(1);
+    view.unmount();
+    await tick(120_000);
+    expect(statusReads(view.fetch)).toBe(1);
+  });
+
+  test("the rail shows the number after the label and keeps the button's name", async () => {
+    await drawer({ status: needing(2) });
+    await answered();
+    expect(railBadge()!.textContent).toBe("2");
+    expect(railBadge()!.getAttribute("aria-hidden")).toBe("true");
+    expect(railTab().textContent).toBe("System2");
+    expect(railTab()).toHaveAccessibleName("System");
+    expect(railTab()).toHaveAccessibleDescription("2 need attention");
+    // The description is a visually hidden span beside the button, not in it.
+    const described = document.getElementById(
+      railTab().getAttribute("aria-describedby")!,
+    )!;
+    expect(described.classList.contains("sr-only")).toBe(true);
+    expect(railTab().contains(described)).toBe(false);
+    // Neither is a live region.
+    const nav = railTab().closest("nav")!;
+    expect(nav.querySelectorAll("[aria-live], [role='status']")).toHaveLength(
+      0,
+    );
+    // The other tabs say nothing of the kind.
+    expect(
+      screen
+        .getByTestId("settings-tab-sessions_manager")
+        .hasAttribute("aria-describedby"),
+    ).toBe(false);
+  });
+
+  test("the phone tile puts the number at its top right and the count in place of the blurb", async () => {
+    await drawer({ width: 390, status: needing(2) });
+    await answered();
+    expect(tileBadge()!.textContent).toBe("2");
+    expect(tileBadge()!.getAttribute("aria-hidden")).toBe("true");
+    const desc = tile().querySelector(".settings-tile-desc")!;
+    expect(desc.textContent).toBe("2 need attention");
+    expect(tile().textContent).not.toContain("Version, disk, activity");
+    expect(
+      tile().querySelectorAll("[aria-live], [role='status']"),
+    ).toHaveLength(0);
+  });
+
+  // A listitem button takes no name from its content: every tile is named by
+  // its title and described by its description line.
+  test("every tile is named by its title and described by its description line", async () => {
+    await drawer({ width: 390, status: needing(2) });
+    await answered();
+    expect(tile().getAttribute("role")).toBe("listitem");
+    const sessions = screen.getByTestId("settings-tile-sessions_manager");
+    expect(sessions).toHaveAccessibleName("Sessions");
+    expect(sessions).toHaveAccessibleDescription("Stored chats & cleanup");
+    const logger = screen.getByTestId("settings-tile-logger");
+    expect(logger).toHaveAccessibleName("Logger");
+    const ids = [...document.querySelectorAll(".settings-tile")].map(
+      (el) => el.getAttribute("aria-labelledby") ?? "",
+    );
+    expect(ids.every((id) => id !== "")).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test.each([
+    [
+      "no attention at all",
+      { status: 200, body: fakeStatus({ attention: undefined }) },
+    ],
+    ["a server without the route", { status: 404 }],
+    ["a refusal", { status: 401 }],
+    ["a failed read", { status: 503 }],
+  ])(
+    "%s: there is no badge and the tile keeps its blurb",
+    async (_why, status) => {
+      const view = await drawer({ width: 390, status });
+      await answered();
+      expect(tileBadge()).toBeNull();
+      expect(tile().querySelector(".settings-tile-desc")!.textContent).toBe(
+        "Version, disk, activity",
+      );
+      expect(tile()).toHaveAccessibleDescription("Version, disk, activity");
+      view.unmount();
+      await drawer({ status });
+      await answered();
+      expect(railBadge()).toBeNull();
+      expect(railTab().hasAttribute("aria-describedby")).toBe(false);
+    },
+  );
+
+  test("the count is plural in both languages", () => {
+    const say = (locale: "en" | "ru", n: number) => {
+      setLocale(locale);
+      return translatePlural("system.attention.count", n);
+    };
+    expect([1, 2, 5].map((n) => say("en", n))).toEqual([
+      "1 needs attention",
+      "2 need attention",
+      "5 need attention",
+    ]);
+    expect([1, 2, 4, 5, 11, 21, 22, 25].map((n) => say("ru", n))).toEqual([
+      "1 требует внимания",
+      "2 требуют внимания",
+      "4 требуют внимания",
+      "5 требуют внимания",
+      "11 требуют внимания",
+      "21 требует внимания",
+      "22 требуют внимания",
+      "25 требуют внимания",
+    ]);
+  });
+
+  test("a Russian page says it in Russian", async () => {
+    await drawer({ width: 390, status: needing(1), lang: "ru" });
+    await answered();
+    expect(tile().querySelector(".settings-tile-desc")!.textContent).toBe(
+      "1 требует внимания",
+    );
+    expect(tile()).toHaveAccessibleName("Система");
+  });
+
+  test("a switch of environment drops the number, and a new environment starts without one", async () => {
+    const realLocation = window.location;
+    Object.defineProperty(window, "location", {
+      value: { hash: "", reload: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+    try {
+      setEnv({ mode: "remote", baseUrl: "http://a:1", token: "t" });
+      await drawer({ status: needing(2) });
+      await answered();
+      expect(railBadge()!.textContent).toBe("2");
+      act(() => connectRemote("http://b:1", "t", "b"));
+      expect(railBadge()).toBeNull();
+      expect(railTab().hasAttribute("aria-describedby")).toBe(false);
+    } finally {
+      Object.defineProperty(window, "location", {
+        value: realLocation,
+        writable: true,
+        configurable: true,
+      });
+    }
+  });
+
+  test("a relay's home has no System tab, no badge and reads no status", async () => {
+    const view = await drawer({ schema: RELAY_SCHEMA, status: needing(2) });
+    await answered();
+    expect(screen.queryByTestId("settings-tab-status")).toBeNull();
+    expect(document.querySelector(".settings-nav-badge")).toBeNull();
+    expect(statusReads(view.fetch)).toBe(0);
+    view.unmount();
+    const phone = await drawer({
+      schema: RELAY_SCHEMA,
+      status: needing(2),
+      width: 390,
+    });
+    await answered();
+    expect(screen.queryByTestId("settings-tile-status")).toBeNull();
+    expect(statusReads(phone.fetch)).toBe(0);
+  });
+
+  test("the tab is drawn on the first frame, before the schema is read, and opens at #/settings/status", async () => {
+    mountSettings({ section: "status", routed: true, status: needing(2) });
+    expect(railTab().getAttribute("aria-current")).toBe("page");
+    expect(await screen.findByTestId("system-section")).toBeTruthy();
+    expect(window.location.hash).toBe("#/settings/status");
+  });
+
+  test("looking at the tab marks nothing unsaved", async () => {
+    await drawer({ section: "status", status: needing(2) });
+    await screen.findByTestId("system-section");
+    await answered();
+    expect(screen.getByTestId("settings-save-status").textContent).toBe("");
+    expect(screen.getByTestId("settings-save").className).not.toContain(
+      "is-dirty",
+    );
+  });
+
+  describe("after Save all", () => {
+    const lead = () => document.querySelector(".settings-lead-pane");
+
+    async function saveAll(fetch: ReturnType<typeof stubServerFor>) {
+      fireEvent.click(screen.getByTestId("settings-save"));
+      await waitFor(() =>
+        expect(fetch).toHaveBeenCalledWith(
+          "/coddy/config",
+          expect.objectContaining({ method: "PUT" }),
+        ),
+      );
+      await answered();
+    }
+
+    test("the status is read once more, and a restart that waits is said in the lead pane", async () => {
+      const { fetch } = await drawer({ section: "agent", status: needing(2) });
+      await answered();
+      expect(statusReads(fetch)).toBe(1);
+      // Said only once a save has been made.
+      expect(lead()).toBeNull();
+      await saveAll(fetch);
+      expect(statusReads(fetch)).toBe(2);
+      await waitFor(() => expect(lead()).not.toBeNull());
+      expect(lead()!.textContent).toContain(
+        "Saved address 0.0.0.0:12345 applies after Coddy restarts.",
+      );
+      expect(
+        within(lead() as HTMLElement)
+          .getByRole("link", { name: "How to restart" })
+          .getAttribute("href"),
+      ).toBe("#/docs/operate/serve#applying-a-saved-address");
+      expect(lead()!.textContent).not.toContain("coddy serve restart");
+    });
+
+    test("a restart that moves no listener says a saved change waits", async () => {
+      const { fetch } = await drawer({
+        section: "agent",
+        status: needing(2, {
+          subsystems: [
+            {
+              kind: "httpserver",
+              state: "running",
+              address: "127.0.0.1:12345",
+            },
+          ],
+        }),
+      });
+      await answered();
+      await saveAll(fetch);
+      await waitFor(() => expect(lead()).not.toBeNull());
+      expect(lead()!.textContent).toContain(
+        "A saved change applies after Coddy restarts.",
+      );
+      expect(lead()!.textContent).not.toContain("Saved address");
+      expect(
+        within(lead() as HTMLElement)
+          .getByRole("link", { name: "How to restart" })
+          .getAttribute("href"),
+      ).toBe("#/docs/operate/serve#applying-a-saved-address");
+      expect(lead()!.textContent).not.toContain("coddy serve restart");
+    });
+
+    test("a refused restart says why", async () => {
+      const { fetch } = await drawer({
+        section: "agent",
+        status: needing(2, { restartRefused: "address already in use" }),
+      });
+      await answered();
+      await saveAll(fetch);
+      await waitFor(() =>
+        expect(lead()?.textContent).toContain(
+          "The saved settings can't start: address already in use",
+        ),
+      );
+    });
+
+    test("with no restart waiting there is no notice", async () => {
+      const { fetch } = await drawer({
+        section: "agent",
+        status: needing(0, { restartRequired: undefined }),
+      });
+      await answered();
+      await saveAll(fetch);
+      expect(statusReads(fetch)).toBe(2);
+      expect(lead()).toBeNull();
+    });
+
+    test("a server that does not know the route is ignored: no notice, no error", async () => {
+      const { fetch } = await drawer({ section: "agent" });
+      await answered();
+      await saveAll(fetch);
+      expect(statusReads(fetch)).toBe(2);
+      expect(lead()).toBeNull();
+      expect(document.querySelector(".settings-error")).toBeNull();
+    });
+
+    test("a relay's home reads nothing after a save", async () => {
+      const { fetch } = await drawer({
+        schema: RELAY_SCHEMA,
+        status: needing(2),
+      });
+      await answered();
+      await saveAll(fetch);
+      expect(statusReads(fetch)).toBe(0);
+    });
   });
 });

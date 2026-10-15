@@ -513,7 +513,7 @@ test("the index lists the tabs, their blocks and their fields in the drawer's or
   });
   expect(
     bare.filter((e) => e.kind === "section").map((e) => e.section),
-  ).toEqual(["appearance", "sessions_manager"]);
+  ).toEqual(["appearance", "sessions_manager", "status"]);
   expect(bare.every((e) => e.kind === "section" || e.kind === "landmark")).toBe(
     true,
   );

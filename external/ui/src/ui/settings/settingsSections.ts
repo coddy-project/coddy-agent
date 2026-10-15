@@ -9,7 +9,8 @@ export type SectionKind =
   | "mcp"
   | "subagents"
   | "appearance"
-  | "sessions";
+  | "sessions"
+  | "status";
 
 /** The MCP servers tab: its id stays the old key's, the address #/settings/mcp_servers. */
 export const MCP_SECTION_ID = "mcp_servers";
@@ -37,6 +38,7 @@ export type SectionDescriptor = {
 const SECTION_LABEL_KEYS = {
   appearance: "settings.section.appearance.label",
   sessions_manager: "settings.section.sessions_manager.label",
+  status: "settings.section.status.label",
   providers: "settings.section.providers.label",
   models: "settings.section.models.label",
   toolsets: "settings.section.toolsets.label",
@@ -68,6 +70,7 @@ const SECTION_LABEL_KEYS = {
 const SECTION_DESC_KEYS = {
   appearance: "settings.section.appearance.desc",
   sessions_manager: "settings.section.sessions_manager.desc",
+  status: "settings.section.status.desc",
   providers: "settings.section.providers.desc",
   models: "settings.section.models.desc",
   toolsets: "settings.section.toolsets.desc",
@@ -167,10 +170,20 @@ export function deriveSettingsSections(
     schemaKey: SESSIONS_CONFIG_KEY,
   };
 
+  // What this installation is and what needs attention, read from
+  // /coddy/status. The id is not `system`, which is the Prompts tab.
+  const status: SectionDescriptor = {
+    id: "status",
+    label: labelFor("status"),
+    description: translate(SECTION_DESC_KEYS.status),
+    kind: "status",
+  };
+
   // A relay's form (config.RelayUISchemaMap) says it is one; the stored
-  // sessions the Sessions tab manages exist only on an agent.
+  // sessions the Sessions tab manages and the status route exist only on an
+  // agent.
   const relay = opts.relay === true || schema?.["x-coddy-relay"] === true;
-  const head = relay ? [appearance] : [appearance, sessionsManager];
+  const head = relay ? [appearance] : [appearance, sessionsManager, status];
   if (!schema || schema.type !== "object" || !schema.properties) {
     return head;
   }

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import { applyModelsChange, applyToolsetsChange } from "./applyModelsChange";
 import { CodexAuthField } from "./CodexAuthField";
@@ -31,6 +32,12 @@ import {
 } from "./settingsSections";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
+
+// The System tab is the one page of the SPA loaded on demand by React.lazy: its
+// charts and the formatting of the status document are a chunk of their own
+// (vite.config.ts names it SystemSection-<hash>.js), so app.js carries only the
+// store, the badge and the strings.
+const SystemSection = lazy(() => import("./SystemSection"));
 
 // The deployments a neuraldeep provider may point at, mirroring
 // neuralDeepEndpoints in internal/llm/neuraldeep_auth.go. The backend ignores
@@ -329,6 +336,23 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
   return neuralDeepAPIBaseOverride(ctx, box);
 }
 
+/** The grey frame the System tab shows while its chunk is on its way. */
+function SystemPending() {
+  return (
+    <div className="settings-skeleton" aria-busy="true">
+      <div className="settings-skeleton-frame" aria-hidden="true">
+        <span className="settings-skeleton-bar settings-skeleton-legend" />
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="settings-skeleton-field">
+            <span className="settings-skeleton-bar settings-skeleton-label" />
+            <span className="settings-skeleton-bar settings-skeleton-input" />
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
  * SettingsSection renders the active settings tab. Object sections render their
  * sub-schema fields directly (the tab already names the section); array sections
@@ -422,6 +446,15 @@ export function SettingsSection(props: {
           {...(onSessionTagsChanged ? { onSessionTagsChanged } : {})}
         />
       </div>
+    );
+  }
+
+  // The installation's own status, read from /coddy/status: it edits nothing.
+  if (section.kind === "status") {
+    return (
+      <Suspense fallback={<SystemPending />}>
+        <SystemSection />
+      </Suspense>
     );
   }
 
