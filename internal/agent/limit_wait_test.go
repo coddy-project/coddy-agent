@@ -130,6 +130,9 @@ func TestWaitForLimitResetHeartbeatsAndCancel(t *testing.T) {
 		if !u.Resuming || !u.Blocked || u.Provider != "neuraldeep" || u.ProviderType != "neuraldeep" || u.RetryAt == "" {
 			t.Fatalf("update %d is incomplete: %+v", i, u)
 		}
+		if u.Model != "" {
+			t.Fatalf("update %d names model %q: only a coddy row's usage is per alias", i, u.Model)
+		}
 		if i > 0 && u.RetryInSec > updates[i-1].RetryInSec {
 			t.Fatalf("the countdown must not grow: %d after %d", u.RetryInSec, updates[i-1].RetryInSec)
 		}
@@ -172,3 +175,64 @@ func TestLLMProviderInputRetryBudget(t *testing.T) {
 		t.Fatalf("a helper's provider input carries no bound and no ledger: %+v", in)
 	}
 }
+
+// The countdown of a limit wait names the alias for a coddy row, the way the
+// busy countdown does (the usage of a remote Coddy is per alias), and carries
+// no remote_busy blocker: it is a usage limit and keeps its own rule, a snapshot
+// replaces it. Every other provider type names no model.
+func TestWaitForLimitResetNamesTheAliasOfACoddyRow(t *testing.T) {
+	cfg := coddyConfig("https://remote.example", func(c *config.Config) {
+		c.Agent.WaitForLimitReset = true
+	})
+	cfg.Agent.ApplyDefaults()
+	sender := &limitWaitCapture{}
+	ag := NewAgent(cfg, &session.State{ID: "sess_limit_alias", CWD: t.TempDir(), Mode: session.ModeAgent}, sender, nil)
+	ag.limitWaitHeartbeat = 20 * time.Millisecond
+	if err := ag.waitForLimitReset(context.Background(), "sess_limit_alias", quotaReset(70*time.Millisecond)); err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	updates := sender.snapshot()
+	if len(updates) < 2 {
+		t.Fatalf("want the first update plus a heartbeat, got %d", len(updates))
+	}
+	for i, u := range updates {
+		if u.Provider != "remote" || u.ProviderType != "coddy" || u.Model != "coder" {
+			t.Fatalf("update %d = %+v, want remote/coddy naming the alias coder, not the selector %q", i, u, coddyRow)
+		}
+		if !u.Resuming || !u.Blocked || u.RetryAt == "" || len(u.Blockers) != 0 {
+			t.Fatalf("update %d = %+v, want a resuming, blocked update with its time and no blocker", i, u)
+		}
+	}
+}
+
+// limitWaitProvider returns the alias only for a coddy row; a model that no
+// longer resolves keeps its prefix as the label and names no alias.
+func TestLimitWaitProviderReturnsTheAliasOfACoddyRowOnly(t *testing.T) {
+	cfg := coddyConfig("https://remote.example", nil)
+	cfg.Agent.ApplyDefaults()
+	state := &modelPinnedState{SessionState: &session.State{ID: "sess_limit_provider", CWD: t.TempDir(), Mode: session.ModeAgent}}
+	ag := NewAgent(cfg, state, resumePermissionSender{}, nil)
+	for _, tc := range []struct {
+		model, name, typ, alias string
+	}{
+		{coddyRow, "remote", "coddy", "coder"},
+		{"plain/gpt", "plain", "openai", ""},
+		{"gone/model", "gone", "", ""},
+	} {
+		state.model = tc.model
+		name, typ, alias := ag.limitWaitProvider()
+		if name != tc.name || typ != tc.typ || alias != tc.alias {
+			t.Errorf("%s: limitWaitProvider = (%q, %q, %q), want (%q, %q, %q)", tc.model, name, typ, alias, tc.name, tc.typ, tc.alias)
+		}
+	}
+}
+
+// modelPinnedState answers EffectiveModelID with whatever the test says, even a
+// model the configuration does not have (a real state falls back to the first
+// configured one).
+type modelPinnedState struct {
+	SessionState
+	model string
+}
+
+func (s *modelPinnedState) EffectiveModelID(*config.Config) string { return s.model }
