@@ -29,8 +29,9 @@ Equivalent **`go build`** (after `ui-build` when you use **`ui`**, or use **`mak
 ```bash
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
+REVISION="$(git rev-parse HEAD)"
 go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
-  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
+  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION} -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=${REVISION}" \
   -o build/coddy \
   ./cmd/coddy/
 ```
@@ -275,7 +276,7 @@ a device before the release.
 The Makefile sets:
 
 ```text
-LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION)
+LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(REVISION)
 ```
 
 **`VERSION`** is resolved from git (tag at **HEAD**, else **`git describe`**, else **`dev`**). Print the same value the next **`make build`** would embed:
@@ -284,12 +285,14 @@ LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(V
 make -s print-version
 ```
 
+**`REVISION`** is **`git rev-parse HEAD`**, empty outside git. The build names the commit itself because the Go toolchain stamps its own **`vcs.revision`** from the nearest **`.git`** *directory*, and in a git worktree **`.git`** is a file: a worktree nested in another checkout (the usual layout of agent tools: a worktree in a subfolder of the checkout) would report the enclosing checkout's commit next to its own version, in the **`coddy_build_info`** series. A binary built without the flag (a plain **`go build`**) keeps reading **`vcs.revision`**. **`scripts/build-packages.sh`** passes both values; the release workflow, the [**Dockerfile**](../../Dockerfile) and the Homebrew formula pass the version only, because they build from a clean clone, an image context without **`.git`** or a source tarball, where the toolchain's value is right or absent.
+
 Manual one-liner aligned with **`make build`**:
 
 ```bash
 go build \
   -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
-  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version)" \
+  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(git rev-parse HEAD)" \
   -o build/coddy \
   ./cmd/coddy/
 ```

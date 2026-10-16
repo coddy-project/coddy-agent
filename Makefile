@@ -21,7 +21,7 @@
 #             make build TAGS="gateway metrics"
 #             make build TAGS="http ui scheduler memory cli gateway swarm metrics"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enable only applies when built with memory.
-#   VERSION / LDFLAGS   embedded version string (see print-version).
+#   VERSION / REVISION / LDFLAGS   embedded version string (see print-version) and commit.
 
 # Prefer a tag that points at HEAD (semantically latest if several), else nearest tag from history,
 # else abbreviated commit (only if this is a git checkout), else "dev".
@@ -31,7 +31,12 @@ VERSION := $(shell \
 	elif desc=$$(git describe --tags --dirty 2>/dev/null); then echo $$desc; \
 	elif desc=$$(git describe --tags --always --dirty 2>/dev/null); then echo $$desc; \
 	else echo dev; fi)
-LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION)
+# The commit HEAD points at, passed to the binary the way the version is: the Go
+# toolchain stamps its own vcs.revision from the nearest .git *directory*, so a
+# worktree (whose .git is a file) nested in another checkout would report the
+# enclosing checkout's commit. Empty outside git; the binary then keeps vcs.revision.
+REVISION := $(shell git rev-parse HEAD 2>/dev/null)
+LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(REVISION)
 
 TAGS ?=
 BUILD_DIR := build
