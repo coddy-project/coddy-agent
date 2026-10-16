@@ -190,6 +190,11 @@ func (st *sharedStream) writeLocked(b []byte) error {
 		// stream bounded by the connection alone; nothing else to do about it.
 		_ = st.rc.SetWriteDeadline(time.Now().Add(st.writeDeadline))
 	}
+	// The gap the heartbeat keeps under its interval counts from the moment the
+	// bytes are handed over, not from the end of the write: a write that takes
+	// long cannot stretch it, and the reader, who may see the bytes before the
+	// write returns, never sees a later moment recorded for them.
+	at := st.clk.Now()
 	_, err := st.w.Write(b)
 	if err == nil {
 		if ferr := st.rc.Flush(); ferr != nil && !errors.Is(ferr, http.ErrNotSupported) {
@@ -203,7 +208,7 @@ func (st *sharedStream) writeLocked(b []byte) error {
 		}
 		return err
 	}
-	st.lastWrite = st.clk.Now()
+	st.lastWrite = at
 	return nil
 }
 

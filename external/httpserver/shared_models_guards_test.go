@@ -66,22 +66,31 @@ func TestSharedHeartbeatKeepsTheGapUnderFifteenSeconds(t *testing.T) {
 	rd := newSSEReader(t, fx.complete(wireReq(sharedTestAlias)))
 	rd.expectHeartbeat()
 	waitFor(t, "the heartbeat and the stall guard to arm", func() bool { return fx.clk.armed() >= 2 })
+	// The heartbeat goroutine re-arms its timer only after it has written,
+	// and a loaded machine can take longer than Advance waits for that: an
+	// advance before the re-arm would move the next comment a whole interval
+	// away. Both timers are armed again before the clock moves on.
+	advance := func(d time.Duration) {
+		t.Helper()
+		fx.clk.Advance(d)
+		waitFor(t, "the heartbeat and the stall guard to be armed again", func() bool { return fx.clk.armed() >= 2 })
+	}
 
-	fx.clk.Advance(14 * time.Second)
+	advance(14 * time.Second)
 	rd.expectNone(60 * time.Millisecond)
-	fx.clk.Advance(1 * time.Second)
+	advance(1 * time.Second)
 	rd.expectHeartbeat()
 
 	// A chunk is a byte too: it moves the next comment 15 s past itself.
-	fx.clk.Advance(10 * time.Second)
+	advance(10 * time.Second)
 	rd.expectNone(40 * time.Millisecond)
 	close(chunk)
 	if ev, _ := rd.next(5 * time.Second); ev.typ != llm.WireTypeChunk {
 		t.Fatalf("want the chunk, got %+v", ev)
 	}
-	fx.clk.Advance(14 * time.Second)
+	advance(14 * time.Second)
 	rd.expectNone(60 * time.Millisecond)
-	fx.clk.Advance(1 * time.Second)
+	advance(1 * time.Second)
 	rd.expectHeartbeat()
 
 	close(finish)
