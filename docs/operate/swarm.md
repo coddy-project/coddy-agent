@@ -320,6 +320,78 @@ requires a token, it will say so and ask for one rather than reporting an empty 
 without the `ui` tag the relay's root explains how to rebuild, and the console can still be
 opened from any node and pointed at the relay.
 
+## Sharing a model with another Coddy
+
+A node can lend a configured logical model to another Coddy. The lender runs the provider call;
+the borrower receives a stateless streamed completion, not a session, tools, rules, hooks, or
+access to the lender's workspace. A relay can sit between them, including in a chain.
+
+On the lending node, give the logical model a public alias and create an LLM-only token. The
+alias is the only model name the borrower sees: the lender's provider name and model selector do
+not leave the host.
+
+![Logical-model settings with a shared alias](../assets/swarm/shared-model-settings-dark-1280.png)
+
+*Set the public alias in the Sharing section of the logical model.*
+
+```yaml
+httpserver:
+  shared_models:
+    tokens:
+      - "${CODDY_SHARED_MODEL_TOKEN}"
+
+models:
+  - model: "neuraldeep/qwen3.8-27b"
+    shared_as: "qwen38"
+```
+
+`shared_as` must be unique and contain 1 to 64 letters, digits, dots, underscores, or hyphens.
+It cannot be set on a `type: coddy` model, so a borrowed model cannot be lent again. A node with
+shared models needs `httpserver.shared_models.tokens` or `httpserver.auth_token`; otherwise
+`coddy -t` and startup reject the configuration. Prefer an LLM-only token: it opens only the
+shared-model routes and cannot read sessions, configuration, files, or other `/coddy/*` routes.
+The main HTTP token also works, but has its normal full-server authority.
+
+Sharing a subscription login spends that account's quota for every holder of a shared-model token.
+For a `codex` or `devin` provider, and for a `neuraldeep` provider that has no API key, make that
+choice explicit beside the alias:
+
+```yaml
+models:
+  - model: "codex/gpt-5"
+    shared_as: "gpt5"
+    shared_subscription_ack: true
+```
+
+Without `shared_subscription_ack: true`, Coddy refuses this configuration. Check the provider's
+terms before sharing a subscription login.
+
+On the borrowing node, create a provider of type `coddy`, then name the remote alias as a normal
+logical model. `api_base` points either to the lender directly or to its relay mount. The token
+is the lender's LLM-only token, not the relay client token.
+
+```yaml
+providers:
+  - name: "studio"
+    type: "coddy"
+    api_base: "https://relay.example/swarm/nodes/studio"
+    api_key: "${CODDY_SHARED_MODEL_TOKEN}"
+
+models:
+  - model: "studio/qwen38"
+```
+
+The borrower discovers the aliases at `GET /coddy/llm/models` and sends requests to
+`POST /coddy/llm/completions`. The remote provider waits for a busy lender for up to
+`agent.shared_busy_wait_ms` (30 seconds by default); set `providers[].shared_busy_wait_ms` to
+override that wait for one remote. The lender limits concurrent calls per credential with
+`httpserver.shared_models.max_streams`, which defaults to 5, and can also apply
+`rate_per_minute` and `rate_burst`.
+
+The route through a relay is the same mounted base URL used for remote sessions. The relay client
+token only opens the relay; the shared-model token remains the credential presented to the lending
+node. Treat both tokens as secrets and use TLS for every hop.
+
 ## Where the settings live
 
 | What | Where |
