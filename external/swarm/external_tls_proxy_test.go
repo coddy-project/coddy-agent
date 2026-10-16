@@ -204,6 +204,10 @@ func externalTLSGate(t *testing.T) {
 				select {
 				case <-delivered:
 				case <-r.Context().Done():
+					// The client cancels right after it reports the last
+					// frame, so both cases can be ready here and select picks
+					// either: a cancellation seen here reached the node too.
+					canceled <- struct{}{}
 					return
 				}
 			}
