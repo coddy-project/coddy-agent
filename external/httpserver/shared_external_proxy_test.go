@@ -88,7 +88,7 @@ func sharedExternalProxyEdge(t *testing.T, backend string) string {
 	proxy := httputil.NewSingleHostReverseProxy(u)
 	proxy.Transport = transport
 	proxy.FlushInterval = -1
-	edge := httptest.NewTLSServer(proxy)
+	edge := httptest.NewTLSServer(fullDuplexEdge(proxy))
 	t.Cleanup(edge.Close)
 	return edge.URL
 }

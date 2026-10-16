@@ -344,12 +344,18 @@ type rmpExchange struct {
 type rmpRecorder struct {
 	next     http.Handler
 	upstream *rmpUpstream
+	// inflight counts the exchanges whose handler has not returned: one is in
+	// the log only once it has, which can be after its client has read the
+	// whole answer.
+	inflight atomic.Int32
 
 	mu        sync.Mutex
 	exchanges []rmpExchange
 }
 
 func (rec *rmpRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	rec.inflight.Add(1)
+	defer rec.inflight.Add(-1)
 	ex := rmpExchange{Method: r.Method, Path: r.URL.Path, CallsAtStart: rec.upstream.callCount()}
 	body := &rmpTeeBody{ReadCloser: r.Body}
 	r.Body = body

@@ -242,6 +242,19 @@ func (s *rmpState) expectStatus(want int) error {
 	return nil
 }
 
+// settled waits until every exchange but the streams a step holds open is in
+// the remote's log, so a step that reads the log sees the answers its client
+// has already read.
+func (s *rmpState) settled() error {
+	if s.remote.rec == nil {
+		return nil
+	}
+	return rmpEventually("the remote's exchanges to settle", func() (bool, string) {
+		n := int(s.remote.rec.inflight.Load())
+		return n <= len(s.held), fmt.Sprintf("%d in flight", n)
+	})
+}
+
 // ---- the local Coddy's stream ----
 
 // localStream sends msgs and tools through the provider the local agent built
@@ -980,6 +993,9 @@ func (s *rmpState) remoteHoldsNoSession() error {
 }
 
 func (s *rmpState) nothingSentMentions(word string) error {
+	if err := s.settled(); err != nil {
+		return err
+	}
 	for _, ex := range s.remote.rec.snapshot() {
 		var headers strings.Builder
 		_ = ex.Header.Write(&headers)
@@ -1026,6 +1042,9 @@ func (s *rmpState) localReceivesToolCall(tool, args, id string) error {
 // remoteExecutedNoTool holds when the remote ran no turn and made one provider
 // call per completion it served, so no tool loop ran there.
 func (s *rmpState) remoteExecutedNoTool() error {
+	if err := s.settled(); err != nil {
+		return err
+	}
 	if calls := s.remote.runnerCalls.Load(); calls != 0 {
 		return fmt.Errorf("the remote ran %d turns", calls)
 	}
@@ -1174,6 +1193,9 @@ func rmpWireCode(raw []byte) string {
 }
 
 func (s *rmpState) remoteAnswersBeforeProvider(code string) error {
+	if err := s.settled(); err != nil {
+		return err
+	}
 	for i, ex := range s.remote.rec.snapshot() {
 		if ex.Method != http.MethodPost || ex.Path != "/coddy/llm/completions" || ex.Status != http.StatusBadRequest {
 			continue
@@ -1199,6 +1221,9 @@ func (s *rmpState) exchangeSummary() string {
 }
 
 func (s *rmpState) localRefreshesAndResends(string) error {
+	if err := s.settled(); err != nil {
+		return err
+	}
 	if s.staleAt < 0 {
 		return fmt.Errorf("no stale answer to follow")
 	}
@@ -1225,6 +1250,9 @@ func (s *rmpState) providerCalledOnce() error {
 }
 
 func (s *rmpState) fallsBackTo(level, received string) error {
+	if err := s.settled(); err != nil {
+		return err
+	}
 	var sent string
 	for _, ex := range s.remote.rec.snapshot() {
 		if ex.Method == http.MethodPost && ex.Path == "/coddy/llm/completions" && ex.Status == http.StatusOK {
@@ -1317,6 +1345,9 @@ func (s *rmpState) reportsPercent(percent int) error {
 
 // usageDocument is the remote's answer to the usage read of the alias.
 func (s *rmpState) usageDocument() ([]byte, error) {
+	if err := s.settled(); err != nil {
+		return nil, err
+	}
 	for _, ex := range s.remote.rec.snapshot() {
 		if ex.Method == http.MethodGet && strings.HasPrefix(ex.Path, "/coddy/llm/models/") && strings.HasSuffix(ex.Path, "/usage") {
 			return ex.Response, nil

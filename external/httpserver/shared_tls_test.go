@@ -89,6 +89,21 @@ func (ca *mtlsCA) client(cert *tls.Certificate) *http.Client {
 	return &http.Client{Transport: &http.Transport{TLSClientConfig: cfg}, Timeout: 10 * time.Second}
 }
 
+// fullDuplexEdge is the handler of a test edge in front of a node: next, run
+// full duplex. A node answers a call with its headers and a first heartbeat as
+// soon as it has read the body, and an HTTP/1 server closes an inbound body once
+// the handler writes headers, so the transport of a plain proxy, still reading
+// for the end of the body, would fail, drop its connection to the node and end
+// a call that had started. The relay's mount answers that read itself
+// (declaredBody, external/swarm/mount.go); an edge in front of a node keeps the
+// body open instead, as a buffering edge would.
+func fullDuplexEdge(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = http.NewResponseController(w).EnableFullDuplex()
+		next.ServeHTTP(w, r)
+	})
+}
+
 // mtlsFixture puts the ordinary HTTP handler behind an independent mTLS edge.
 func mtlsFixture(t *testing.T, opts ...sharedFixtureOption) (*sharedFixture, *mtlsCA, string) {
 	t.Helper()
@@ -102,7 +117,7 @@ func mtlsFixture(t *testing.T, opts ...sharedFixtureOption) (*sharedFixture, *mt
 	}
 	pool := x509.NewCertPool()
 	pool.AddCert(ca.cert)
-	ts := httptest.NewUnstartedServer(httputil.NewSingleHostReverseProxy(target))
+	ts := httptest.NewUnstartedServer(fullDuplexEdge(httputil.NewSingleHostReverseProxy(target)))
 	ts.TLS = &tls.Config{
 		MinVersion:   tls.VersionTLS12,
 		Certificates: []tls.Certificate{ca.leaf(t, true)},
