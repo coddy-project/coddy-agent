@@ -7,7 +7,7 @@ One `coddy serve` process polls a bot, answers in the chats you allow, and keeps
    ```bash
    make build TAGS="gateway.telegram"
    # or the set a release ships
-   make build TAGS="http ui scheduler memory cli gateway swarm"
+   make build TAGS="http ui scheduler memory cli gateway swarm metrics"
    ```
 
    Enabling the bot in a binary built without the tag is a startup error naming the tag, so a mismatch cannot pass unnoticed.

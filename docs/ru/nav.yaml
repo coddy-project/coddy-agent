@@ -136,6 +136,12 @@ pages:
     en:
       title: "coddy serve and the daemon"
       summary: "One process for every enabled subsystem, the systemd user service (serve install and uninstall), --daemon with status, stop and restart, and configuration reloads."
+  operate/monitoring.md:
+    title: "Мониторинг"
+    summary: "Экспортёр Prometheus в coddy serve, его включение и привязка в контейнере, конфигурация сбора, каждая метрика, поставляемые правила оповещений и то, что не экспортируется никогда."
+    en:
+      title: "Monitoring"
+      summary: "The Prometheus exporter of coddy serve, enabling it and binding it in a container, the scrape config, every metric, the shipped alert rules and what is never exported."
   operate/remote.md:
     title: "Удалённый режим"
     summary: "Управление удалённым coddy serve из консоли, ACP или веб-интерфейса через --remote, токены, CORS и меню окружения."

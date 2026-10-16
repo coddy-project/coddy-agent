@@ -410,6 +410,14 @@ rules:
 #   timeout: "30m"
 #   retain_sessions: 5  # max completed run session dirs kept per job_id (default 5)
 
+# Prometheus exporter (Go: config.MetricsConfig, internal/config/metrics.go; only with go build -tags=metrics).
+# GET /metrics on a port of its own, run by coddy serve. See docs/operate/monitoring.md
+# metrics:
+#   enable: false
+#   host: "127.0.0.1"   # empty falls back to it; bind 0.0.0.0 only together with a token
+#   port: 12347         # 0 falls back to it
+#   token: ""           # bearer credential a scrape must present; ${ENV} is expanded
+
 # Logging (Go: config.Logger, internal/config/logger.go)
 logger:
   level: "info"           # debug | info | warn | error
@@ -506,6 +514,10 @@ Jobs are flat **`*.md`** files in two fixed folders: your own in **`${CODDY_HOME
 **`retain_sessions`** (default **5**) caps how many **finished** runs are kept per **`job_id`** (their task records and transcripts, under the job session); older runs are removed when a run finishes. **`max_queue`** caps the runs in flight across all jobs and **`timeout`** is a run's hard limit (the background task pool still caps it at **`tools.background.max_timeout_seconds`**).
 
 When the scheduler is effectively enabled, **`coddy_scheduler_*`** tools cover list or get, create or replace or patch, delete, pause or resume, manual run, cancel, and listing run metadata (**`coddy_scheduler_jobs_list`**, **`coddy_scheduler_job_get`**, **`coddy_scheduler_job_create`**, **`coddy_scheduler_job_replace`**, **`coddy_scheduler_job_patch`**, **`coddy_scheduler_job_delete`**, **`coddy_scheduler_job_pause`**, **`coddy_scheduler_job_resume`**, **`coddy_scheduler_job_run`**, **`coddy_scheduler_job_cancel`**, **`coddy_scheduler_job_runs`**). With **`-tags=http,scheduler`**, the same operations exist as REST under **`/coddy/scheduler`** (see **`docs/reference/http-api.md`**).
+
+## Metrics exporter (optional build)
+
+The **`metrics`** key (`config.MetricsConfig` in `internal/config/metrics.go`) takes effect only in a binary built with **`-tags metrics`**, which the release binaries carry. Any other binary refuses **`metrics.enable: true`** at start and names the tag. With the tag, **`coddy serve`** runs the exporter beside its other subsystems when **`metrics.enable`** is true, and it serves **`GET /metrics`** on **`metrics.host`** and **`metrics.port`** (`127.0.0.1:12347` by default). **`metrics.token`** is the bearer credential a scrape must present: set one before binding off loopback, which `coddy serve` warns about at start and `--dry-run` reports. The Settings screen shows a **Metrics** tab in builds that carry the tag. The scrape config, the list of metrics and the alert rules are in [Monitoring](../operate/monitoring.md).
 
 ## Messenger Gateway (`gateways`)
 

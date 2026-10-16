@@ -35,6 +35,28 @@ export const AGENT_SCHEMA: JsonSchema = readSchema("ui_schema.json");
 /** The schema of a swarm relay's Settings (config.RelayUISchemaJSON). */
 export const RELAY_SCHEMA: JsonSchema = readSchema("ui_schema_relay.json");
 
+/**
+ * The schema coddy serve hands the form of a binary that cannot run some
+ * sections (config.UISchemaJSONHiding): the sections are gone from the
+ * properties and from the property order. The settings document still holds
+ * them, so a test that wants the server's whole answer keeps its document.
+ */
+export function schemaWithout(
+  schema: JsonSchema,
+  ...sections: string[]
+): JsonSchema {
+  const hidden = new Set(sections);
+  return {
+    ...schema,
+    properties: Object.fromEntries(
+      Object.entries(schema.properties ?? {}).filter(([k]) => !hidden.has(k)),
+    ),
+    "x-coddy-property-order": (schema["x-coddy-property-order"] ?? []).filter(
+      (k) => !hidden.has(k),
+    ),
+  };
+}
+
 /** Values that look like secrets; no search may ever find one. */
 export const SECRET_VALUES = {
   apiKey: "sk-live-9f3c1d7a52e4b608",
@@ -46,6 +68,7 @@ export const SECRET_VALUES = {
   searxngUrl: "https://searx.corp.example/search",
   relayToken: "relay-client-token-5528",
   pairingToken: "pairing-token-3190",
+  metricsToken: "scrape-token-6204",
 } as const;
 
 /** A document to put in front of the form: what a server would hold for a user. */
@@ -139,6 +162,7 @@ export function configFromSchema(schema: JsonSchema): SettingsDoc {
   setPath(doc, "tools.websearch.searxng_url", SECRET_VALUES.searxngUrl);
   setPath(doc, "swarm.auth_token", SECRET_VALUES.relayToken);
   setPath(doc, "swarm.pairing_tokens", [SECRET_VALUES.pairingToken]);
+  setPath(doc, "metrics.token", SECRET_VALUES.metricsToken);
   return doc;
 }
 

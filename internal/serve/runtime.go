@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"log/slog"
 
@@ -49,6 +50,14 @@ type Runtime struct {
 	// of it (liveconfig.go). Once a manager exists it owns the live pointer,
 	// because every reload path replaces it there.
 	live liveConfig
+
+	// sup is the supervisor whose reading of the live configuration Status
+	// reports (SetSupervisor).
+	sup atomic.Pointer[Supervisor]
+
+	// diskFree reads the free and total bytes of a folder's disk, nil for
+	// platform.DiskFree. A test lowers the figures through it.
+	diskFree func(path string) (available, size uint64, err error)
 }
 
 // Cfg returns the live configuration.

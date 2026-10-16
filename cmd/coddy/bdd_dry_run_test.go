@@ -202,6 +202,34 @@ func (s *dryRunState) httpOnHeldPort() error {
 	return s.write(dryRunModeline + fmt.Sprintf("httpserver:\n  host: 127.0.0.1\n  port: %d\n", port))
 }
 
+// httpAndMetrics writes a config whose HTTP API and exporter bind the given
+// ports. The exporter's section comes first, so "port:" is its line.
+func (s *dryRunState) httpAndMetrics(metricsPort int) error {
+	httpPort, err := s.freePort()
+	if err != nil {
+		return err
+	}
+	srv := s.modelServer("qwen")
+	return s.write(dryRunModeline + fmt.Sprintf("providers:\n  - name: local\n    type: openai\n    api_base: %s/v1\nmodels:\n  - model: local/qwen\nagent:\n  model: local/qwen\nmetrics:\n  enable: true\n  host: 127.0.0.1\n  port: %d\nhttpserver:\n  host: 127.0.0.1\n  port: %d\n", srv.URL, metricsPort, httpPort))
+}
+
+func (s *dryRunState) httpAndMetricsOnFreePorts() error {
+	port, err := s.freePort()
+	if err != nil {
+		return err
+	}
+	return s.httpAndMetrics(port)
+}
+
+func (s *dryRunState) metricsOnHeldPort() error {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	s.holder = l
+	return s.httpAndMetrics(l.Addr().(*net.TCPAddr).Port)
+}
+
 func (s *dryRunState) run(fn func([]string) error, flags ...string) error {
 	s.out.Reset()
 	s.runErr = fn(append(flags, "--home", s.home, "--config", s.cfgPath))
@@ -320,6 +348,8 @@ func initializeDryRunScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a config\.yaml whose httpserver section says "enabled: true" on line (\d+)$`, s.misspelledHTTPServerKey)
 	sc.Step(`^a config\.yaml with the HTTP API on a free port and a provider that answers$`, s.httpOnFreePort)
 	sc.Step(`^a config\.yaml with the HTTP API on a port another process holds$`, s.httpOnHeldPort)
+	sc.Step(`^a config\.yaml with the HTTP API and the metrics exporter on free ports$`, s.httpAndMetricsOnFreePorts)
+	sc.Step(`^a config\.yaml with the metrics exporter on a port another process holds$`, s.metricsOnHeldPort)
 	sc.Step(`^I run coddy with --dry-run$`, s.runCLIDry)
 	sc.Step(`^I run coddy with --dry-run --test-config$`, s.runCLIDryVerbose)
 	sc.Step(`^I run coddy acp with --dry-run$`, s.runACPDry)

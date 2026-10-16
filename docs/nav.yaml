@@ -66,6 +66,9 @@ groups:
       - path: operate/serve.md
         title: coddy serve and the daemon
         summary: One process for every enabled subsystem, the systemd user service (serve install and uninstall), --daemon with status, stop and restart, and configuration reloads.
+      - path: operate/monitoring.md
+        title: Monitoring
+        summary: The Prometheus exporter of coddy serve, enabling it and binding it in a container, the scrape config, every metric, the shipped alert rules and what is never exported.
       - path: operate/remote.md
         title: Remote mode
         summary: Driving a remote coddy serve from the console, ACP or the web UI with --remote, tokens, CORS and the environment menu.

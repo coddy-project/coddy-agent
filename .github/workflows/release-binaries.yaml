@@ -31,7 +31,7 @@ defaults:
     shell: bash
 
 env:
-  GO_BUILD_TAGS: "http,ui,scheduler,memory,cli,gateway,swarm"
+  GO_BUILD_TAGS: "http,ui,scheduler,memory,cli,gateway,swarm,metrics"
 
 jobs:
   release-binaries:
@@ -39,6 +39,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      tag: ${{ steps.git_tag.outputs.tag }}
+      skip: ${{ steps.gate.outputs.skip }}
 
     steps:
       - name: Checkout repository
@@ -209,3 +212,34 @@ jobs:
             dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Current Homebrew installs a cask only out of a tap (issue #269), so the
+      # cask rendered above goes to coddy-project/homebrew-coddy-agent once the
+      # archives it names are on the release. The deploy key in the secret can
+      # write to that one repository and nothing else; the script never takes
+      # the tap back to an older release, so re-running an old tag is safe.
+      - name: Publish the cask to the Homebrew tap
+        if: steps.gate.outputs.skip != 'true' && github.repository == 'coddy-project/coddy-agent'
+        env:
+          VERSION: ${{ steps.git_tag.outputs.tag }}
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HOMEBREW_TAP_DEPLOY_KEY" ]; then
+            echo "::error::the HOMEBREW_TAP_DEPLOY_KEY secret is not set; brew users will not see ${VERSION}"
+            exit 1
+          fi
+          scripts/publish-homebrew-tap.sh --version "$VERSION" --cask dist/coddy.rb
+
+  # Installs what the tap now carries, by name, on a macOS runner with current
+  # Homebrew: the command the documentation gives is run after every release.
+  homebrew:
+    name: Homebrew tap
+    needs: release-binaries
+    if: needs.release-binaries.outputs.skip != 'true' && github.repository == 'coddy-project/coddy-agent'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/homebrew.yaml
+    with:
+      version: ${{ needs.release-binaries.outputs.tag }}

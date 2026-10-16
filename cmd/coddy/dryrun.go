@@ -25,6 +25,7 @@ func runServeDryRun(cli config.CLIPaths, verbose bool, extra config.ExtraTokens,
 			httpListenAddr:  httpListenAddr,
 			swarmListenAddr: swarmListenAddr,
 			home:            prep.Paths.Home,
+			metrics:         newMetricsWiring(rt),
 		})
 		enabled, rerr := serve.Resolve(prep.Cfg, all)
 		req := dryrun.Request{Surface: dryrun.SurfaceServe, SubsystemErr: rerr,
@@ -35,6 +36,8 @@ func runServeDryRun(cli config.CLIPaths, verbose bool, extra config.ExtraTokens,
 				req.Listeners = append(req.Listeners, dryrun.Listener{Path: "httpserver", Addr: httpListenAddr(prep.Cfg)})
 			case serve.KindSwarm:
 				req.Listeners = append(req.Listeners, dryrun.Listener{Path: "swarm", Addr: swarmListenAddr(prep.Cfg)})
+			case serve.KindMetrics:
+				req.Listeners = append(req.Listeners, dryrun.Listener{Path: "metrics", Addr: prep.Cfg.Metrics.ListenAddr()})
 			}
 		}
 		return req, nil

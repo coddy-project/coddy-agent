@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway"
@@ -120,7 +124,7 @@ func TestGatewayFingerprintsAreIndependent(t *testing.T) {
 // supervisor refuses by name in a build without the tag.
 func TestServeRunsThePachcaBotAsASubsystemOfItsOwn(t *testing.T) {
 	var found bool
-	for _, sub := range subsystems(nil, subsystemDeps{}) {
+	for _, sub := range subsystems(nil, subsystemDeps{metrics: newMetricsWiring(nil)}) {
 		if sub.Kind != serve.KindGatewayPachca {
 			continue
 		}
@@ -170,5 +174,99 @@ func TestWebUIAccessDecidesWhatTheBotMayAdvertise(t *testing.T) {
 	elsewhere := &config.Config{HTTPServer: config.HTTPServerConfig{Enabled: &off}}
 	if got := webUIAccess(elsewhere, false, false); got != gateway.WebUIElsewhere {
 		t.Fatalf("httpserver.enable: false: %v", got)
+	}
+}
+
+// The exporter is a subsystem of its own in every build, so a configuration
+// that asks for one a binary cannot run is refused by name; it is auxiliary, so
+// it is never what keeps a process up.
+func TestServeRunsTheExporterAsAnAuxiliarySubsystem(t *testing.T) {
+	wiring := newMetricsWiring(&serve.Runtime{})
+	all := subsystems(&serve.Runtime{}, subsystemDeps{metrics: wiring})
+	sub := all[len(all)-1]
+	if sub.Kind != serve.KindMetrics || sub.ConfigKey != "metrics.enable" || sub.BuildTag != "metrics" {
+		t.Fatalf("exporter descriptor: %+v", sub)
+	}
+	if !sub.Auxiliary || sub.NeedsSessions || sub.RestartKey != nil {
+		t.Fatalf("the exporter is auxiliary, needs no sessions and has no restart key: %+v", sub)
+	}
+	c := &config.Config{}
+	if sub.Enabled(c) {
+		t.Fatal("metrics enabled by an empty config")
+	}
+	c.Metrics.Enable = true
+	if !sub.Enabled(c) {
+		t.Fatal("metrics.enable does not enable the exporter")
+	}
+
+	// Enabled alone it starts nothing; in a binary without the tag it is
+	// refused naming the tag.
+	off := false
+	c.HTTPServer.Enabled = &off
+	_, err := serve.Resolve(c, all)
+	var notBuilt *serve.ErrNotBuilt
+	var nothing *serve.ErrNothingEnabled
+	switch {
+	case sub.Available:
+		if !errors.As(err, &nothing) || slices.Contains(nothing.Keys, "metrics.enable") {
+			t.Fatalf("metrics alone: %v, want ErrNothingEnabled that does not suggest metrics.enable", err)
+		}
+		// Something is enabled, so the refusal must not claim otherwise: it
+		// names the exporter and asks for a surface beside it.
+		if !slices.Equal(nothing.Auxiliary, []string{"metrics.enable"}) ||
+			!strings.HasPrefix(err.Error(), "only metrics.enable is set, and it runs only beside a surface") ||
+			strings.Contains(err.Error(), "no subsystem is enabled") {
+			t.Fatalf("metrics alone: %q (auxiliary %v), want the refusal that names metrics.enable as set", err, nothing.Auxiliary)
+		}
+	default:
+		if !errors.As(err, &notBuilt) || notBuilt.BuildTag != "metrics" || notBuilt.ConfigKey != "metrics.enable" {
+			t.Fatalf("metrics in a binary without the tag: %v, want ErrNotBuilt naming the tag", err)
+		}
+	}
+}
+
+// The banner says what the process started, the exporter included: where it
+// listens and whether a scrape needs a token, never the token itself.
+func TestServeBannerListsTheExporter(t *testing.T) {
+	const secret = "scrape-secret-value"
+	surface := serve.Subsystem{Kind: serve.KindHTTP}
+	exporter := serve.Subsystem{Kind: serve.KindMetrics}
+	banner := func(cfg *config.Config, enabled ...serve.Subsystem) string {
+		var out bytes.Buffer
+		printServeBanner(&out, cfg, enabled, "127.0.0.1:12345", "127.0.0.1:12346", false, false)
+		return out.String()
+	}
+
+	cfg := &config.Config{}
+	cfg.Metrics.Enable = true
+	cfg.Metrics.Host, cfg.Metrics.Port = "127.0.0.1", 12999
+
+	got := banner(cfg, surface, exporter)
+	if !strings.Contains(got, "  metrics     http://127.0.0.1:12999/metrics  (no token)\n") {
+		t.Errorf("exporter without a token:\n%s", got)
+	}
+
+	cfg.Metrics.Token = secret
+	got = banner(cfg, surface, exporter)
+	if !strings.Contains(got, "  metrics     http://127.0.0.1:12999/metrics  (bearer token)\n") {
+		t.Errorf("exporter with a token:\n%s", got)
+	}
+	if strings.Contains(got, secret) {
+		t.Errorf("the banner prints the scrape token:\n%s", got)
+	}
+
+	// The default address is the one the listener binds, not a blank.
+	cfg.Metrics.Host, cfg.Metrics.Port = "", 0
+	if got = banner(cfg, exporter); !strings.Contains(got, "http://127.0.0.1:12347/metrics") {
+		t.Errorf("exporter on its default address:\n%s", got)
+	}
+
+	// An exporter the process did not start is not announced, whatever the
+	// configuration holds.
+	if got = banner(cfg, surface); strings.Contains(got, "metrics") || strings.Contains(got, secret) {
+		t.Errorf("exporter announced although it was not started:\n%s", got)
+	}
+	if !strings.Contains(got, "  httpserver  http://127.0.0.1:12345  (no auth)\n") {
+		t.Errorf("the surface line is gone:\n%s", got)
 	}
 }

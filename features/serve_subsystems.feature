@@ -40,6 +40,12 @@ Feature: coddy serve runs the subsystems the config enables
     When the runtime resolves which subsystems to start
     Then resolving fails asking for a subsystem to be enabled
 
+  Scenario: a configuration that enables only the metrics exporter is refused
+    Given a config enabling only the metrics exporter
+    When the runtime resolves which subsystems to start
+    Then resolving fails saying only "metrics.enable" is set and a surface is needed beside it
+    And the suggestions do not name "metrics.enable"
+
   Scenario: rotating the bot token restarts the gateway alone
     Given a running runtime with the httpserver and the telegram gateway enabled
     When the telegram token is changed through the configuration
@@ -67,3 +73,15 @@ Feature: coddy serve runs the subsystems the config enables
     Given a running runtime with only the httpserver enabled
     When the httpserver is disabled through the configuration
     Then the "httpserver" subsystem is running
+
+  Scenario: turning the metrics exporter off through the configuration stops it
+    Given a running runtime with the httpserver and the metrics exporter enabled
+    When the metrics exporter is disabled through the configuration
+    Then the "metrics" subsystem is stopped
+    And the "httpserver" subsystem keeps running
+
+  Scenario: the last surface is not turned off while only the metrics exporter would remain
+    Given a running runtime with the httpserver and the metrics exporter enabled
+    When the httpserver is disabled through the configuration
+    Then the "httpserver" subsystem is running
+    And the "metrics" subsystem is running

@@ -1,0 +1,74 @@
+# Alert rules for the Prometheus exporter of `coddy serve` (metrics.enable).
+# The cases in coddy-rules.test.yml run with promtool in CI:
+#   promtool test rules coddy-rules.test.yml
+groups:
+  - name: coddy
+    rules:
+      - alert: CoddyDown
+        expr: up{job=~"coddy.*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} has not answered a scrape for 5 minutes"
+
+      # 512 MiB leaves room for a few more sessions before the volume fills;
+      # adapt it to the size of the volume the sessions live on.
+      - alert: CoddyDiskLow
+        expr: coddy_sessions_disk_available_bytes < 512 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Less than 512 MiB is free on the sessions volume of {{ $labels.instance }}"
+
+      # Keeps job, instance and provider, so nodes behind one relay stay apart;
+      # first attempts and retries count together.
+      - alert: CoddyProviderFailing
+        expr: |
+          (
+            sum without (model, outcome, attempt) (increase(coddy_llm_attempts_total{outcome=~"server_error|timeout|auth|rate_limited"}[15m]))
+              / sum without (model, outcome, attempt) (increase(coddy_llm_attempts_total[15m])) > 0.2
+          )
+          and sum without (model, outcome, attempt) (increase(coddy_llm_attempts_total[15m])) > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 20% of the {{ $labels.provider }} calls of {{ $labels.instance }} failed in the last 15 minutes"
+
+      # Informational: a wait for a permission or for a usage limit is legitimate.
+      - alert: CoddyTurnLongRunning
+        expr: coddy_turn_oldest_running_seconds > 3600
+        labels:
+          severity: info
+        annotations:
+          summary: "A turn on {{ $labels.instance }} has been running for over an hour"
+
+      # A saved change (a listen address, a surface that needs sessions) that
+      # nothing will apply on its own.
+      - alert: CoddyRestartRequired
+        expr: coddy_restart_required == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} needs a restart to apply a saved change"
+
+      # A node that cannot register into its relay is missing from the swarm.
+      - alert: CoddySwarmJoinDown
+        expr: coddy_swarm_joins{state="offline"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} has not registered into the relay {{ $labels.relay }} for 5 minutes"
+
+      # Turns stop when a window runs out; the reset says when they come back.
+      - alert: CoddyProviderQuotaHigh
+        expr: coddy_provider_quota_used_ratio > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.provider }} on {{ $labels.instance }} has used over 90% of its {{ $labels.window }} quota"

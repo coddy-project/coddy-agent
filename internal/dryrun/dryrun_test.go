@@ -249,6 +249,76 @@ func TestListenerFreeAndInUse(t *testing.T) {
 	}
 }
 
+// The hint of a taken port names the section's own key, and the flag that moves
+// it only where there is one: the exporter has none.
+func TestTheListenerHintNamesTheFlagOnlyWhereThereIsOne(t *testing.T) {
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = held.Close() })
+	rep := run(t, "metrics:\n  enable: true\n", func(r *Request) {
+		addr := held.Addr().String()
+		r.Listeners = []Listener{{Path: "httpserver", Addr: addr}, {Path: "swarm", Addr: addr}, {Path: "metrics", Addr: addr}}
+	})
+	for path, want := range map[string]string{
+		"httpserver": "httpserver.port / -P",
+		"swarm":      "swarm.port / --swarm-port",
+		"metrics":    "change metrics.port",
+	} {
+		c := find(t, rep, path)
+		if c.Status != StatusError || !strings.Contains(c.Fix, want) {
+			t.Errorf("%s: %+v, want an error whose fix says %q", path, c, want)
+		}
+	}
+	if fix := find(t, rep, "metrics").Fix; !strings.HasSuffix(fix, "change metrics.port") {
+		t.Errorf("the metrics hint goes on past its key: %q", fix)
+	}
+}
+
+// An exporter bound off loopback answers anybody who reaches the port, so a
+// start without a token is warned about, once, at the line that opened it.
+func TestAnExporterOffLoopbackWithoutATokenIsWarned(t *testing.T) {
+	serveMetrics := func(addr string) func(*Request) {
+		return func(r *Request) {
+			r.Surface = SurfaceServe
+			r.Listeners = []Listener{{Path: "metrics", Addr: addr}}
+		}
+	}
+	open := "metrics:\n  enable: true\n  host: 0.0.0.0\n"
+	c := find(t, run(t, open, serveMetrics("0.0.0.0:0")), "metrics.token")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "without a token") || c.Line != 4 {
+		t.Errorf("an open exporter: %+v", c)
+	}
+	n := 0
+	for _, c := range run(t, open, serveMetrics("0.0.0.0:0")).Checks {
+		if c.Path == "metrics.token" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d findings, want one", n)
+	}
+
+	for name, body := range map[string]string{
+		"a token":  "metrics:\n  enable: true\n  host: 0.0.0.0\n  token: scrape-me\n",
+		"loopback": "metrics:\n  enable: true\n",
+	} {
+		for _, c := range run(t, body, serveMetrics("127.0.0.1:0")).Checks {
+			if c.Path == "metrics.token" {
+				t.Errorf("%s was warned: %+v", name, c)
+			}
+		}
+	}
+	// A binary that cannot run the exporter, or a configuration that leaves it
+	// off, binds nothing: serve lists no listener, and there is nothing to warn of.
+	for _, c := range run(t, open, func(r *Request) { r.Surface = SurfaceServe }).Checks {
+		if c.Path == "metrics.token" {
+			t.Errorf("an exporter that would not run was warned: %+v", c)
+		}
+	}
+}
+
 func TestTelegramTokenProbe(t *testing.T) {
 	var status int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

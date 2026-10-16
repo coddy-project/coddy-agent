@@ -11,7 +11,7 @@ https://github.com/user-attachments/assets/2a26f40a-97dd-46ef-b554-80e53602ed44
 
 Релей собирается с `-tags swarm`, а этот тег входит в поставляемый набор (`FULL_TAGS` в **Makefile**),
 поэтому релей есть в бинарниках релиза, образе Docker, пакетах Linux и формуле Homebrew. Собрать
-его самостоятельно можно командой `make build TAGS="http ui scheduler memory cli gateway swarm"`.
+его самостоятельно можно командой `make build TAGS="http ui scheduler memory cli gateway swarm metrics"`.
 
 Отдельной команды у релея нет. Его запускает `coddy serve`, когда `swarm.enable` равен true, рядом
 со всем остальным, что включено в конфигурации. Бинарник, собранный без этого тега, при запуске
@@ -64,6 +64,10 @@ coddy serve --swarm-auth-token "$CLIENT_TOKEN" --swarm-pairing-token "$PAIRING_T
 Релей, который больше ничего не делает, добавляет `--http=false`. Релей, который одновременно
 работает обычным агентом, оставляет API включённым и обслуживает и то и другое - свои сессии на
 `httpserver.port`, а весь парк узлов на `swarm.port`.
+Такой процесс регистрируется в каждом релее из `swarm.join` один раз, как релей. Релей говорит за
+весь процесс, поэтому родители видят узлы за ним, а собственные сессии процесса остаются на
+`httpserver.port`. В записях `swarm.join` такого процесса указывайте в `advertise_url` адрес релея, тот, что
+на `swarm.port`.
 
 Узел присоединяется к релею, указав его в своей конфигурации.
 
@@ -468,4 +472,4 @@ swarm:
 - `examples/swarm/` - живой стенд: релеи, агенты, кольцо и узел, который только сам подключается наружу;
 - руководства: [релей и его узлы в Docker](../tutorials/swarm-relay-and-nodes.md), [цепочка релеев](../tutorials/swarm-multi-hop.md), [работа с удалёнными узлами](../tutorials/swarm-remote-nodes.md).
 
-<!-- docsgen:source sha256=c28d75be954b0bf9 -->
+<!-- docsgen:source sha256=bb0464689798b2dc -->

@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -72,8 +73,8 @@ func (s *serveFeatureState) stopSupervisor() {
 	}
 }
 
-// describe builds the same four descriptors the CLI does, over surfaces that
-// only record that they ran.
+// describe builds the same descriptors the CLI does, over surfaces that only
+// record that they ran.
 func (s *serveFeatureState) describe(gatewayAvailable bool) []Subsystem {
 	block := func(kind Kind) func(context.Context, *config.Config) error {
 		return func(ctx context.Context, cfg *config.Config) error {
@@ -115,6 +116,12 @@ func (s *serveFeatureState) describe(gatewayAvailable bool) []Subsystem {
 			Fingerprint:   func(c *config.Config) string { return c.Scheduler.Timeout },
 			Run:           block(KindScheduler),
 		},
+		{
+			Kind: KindMetrics, ConfigKey: "metrics.enable", BuildTag: "metrics", Available: true,
+			Auxiliary: true,
+			Enabled:   func(c *config.Config) bool { return c.Metrics.Enable },
+			Run:       block(KindMetrics),
+		},
 	}
 }
 
@@ -150,7 +157,7 @@ func (s *serveFeatureState) settle(cfg *config.Config) error {
 
 func (s *serveFeatureState) kind(name string) (Kind, error) {
 	switch Kind(name) {
-	case KindHTTP, KindGateway, KindSwarm, KindScheduler:
+	case KindHTTP, KindGateway, KindSwarm, KindScheduler, KindMetrics:
 		return Kind(name), nil
 	}
 	return "", fmt.Errorf("unknown subsystem %q", name)
@@ -186,6 +193,14 @@ func (s *serveFeatureState) configEnablingGateway() error {
 	return nil
 }
 
+func (s *serveFeatureState) configEnablingOnlyMetrics() error {
+	s.reset()
+	off := false
+	s.cfg.HTTPServer.Enabled = &off
+	s.cfg.Metrics.Enable = true
+	return nil
+}
+
 func (s *serveFeatureState) binaryWithoutGateway() error {
 	s.subs = s.describe(false)
 	return nil
@@ -202,6 +217,12 @@ func (s *serveFeatureState) runningRuntime() error {
 	s.reset()
 	s.cfg.Gateways.Telegram.Enabled = true
 	s.cfg.Gateways.Telegram.Token = "first-token"
+	return s.launch()
+}
+
+func (s *serveFeatureState) runningRuntimeWithMetrics() error {
+	s.reset()
+	s.cfg.Metrics.Enable = true
 	return s.launch()
 }
 
@@ -275,6 +296,11 @@ func (s *serveFeatureState) reload(mutate func(*config.Config)) *config.Config {
 func (s *serveFeatureState) schedulerEnabled() error {
 	s.reload(func(c *config.Config) { c.Scheduler.Enabled = true })
 	return waitFor(func() bool { return s.startCount(KindScheduler) == 1 })
+}
+
+func (s *serveFeatureState) metricsDisabled() error {
+	s.reload(func(c *config.Config) { c.Metrics.Enable = false })
+	return waitFor(func() bool { return !s.isRunning(KindMetrics) })
 }
 
 func (s *serveFeatureState) gatewayDisabled() error {
@@ -409,6 +435,51 @@ func (s *serveFeatureState) resolvingAsksForASubsystem() error {
 	return nil
 }
 
+// resolvingNeedsASurfaceBeside is the refusal for a configuration that enables
+// an auxiliary subsystem and nothing it could serve beside: it names what is
+// set, offers the surfaces that would complete it, and does not claim that
+// nothing is enabled.
+func (s *serveFeatureState) resolvingNeedsASurfaceBeside(key string) error {
+	var nothing *ErrNothingEnabled
+	if !errors.As(s.err, &nothing) {
+		return fmt.Errorf("resolving returned %v, want the refusal that no surface is enabled", s.err)
+	}
+	if !slices.Equal(nothing.Auxiliary, []string{key}) {
+		return fmt.Errorf("the enabled auxiliary keys are %v, want [%s]", nothing.Auxiliary, key)
+	}
+	msg := s.err.Error()
+	if strings.Contains(msg, "no subsystem is enabled") {
+		return fmt.Errorf("error %q says nothing is enabled although %s is", msg, key)
+	}
+	for _, want := range []string{"only " + key + " is set", "beside a surface"} {
+		if !strings.Contains(msg, want) {
+			return fmt.Errorf("error %q does not say %q", msg, want)
+		}
+	}
+	if len(nothing.Keys) == 0 {
+		return fmt.Errorf("error %q offers no surface to enable beside %s", msg, key)
+	}
+	for _, surface := range nothing.Keys {
+		if !strings.Contains(msg, surface) {
+			return fmt.Errorf("error %q does not offer the surface %s", msg, surface)
+		}
+	}
+	return nil
+}
+
+func (s *serveFeatureState) suggestionsDoNotName(key string) error {
+	var nothing *ErrNothingEnabled
+	if !errors.As(s.err, &nothing) {
+		return fmt.Errorf("resolving returned %v, want the refusal that nothing is enabled", s.err)
+	}
+	for _, k := range nothing.Keys {
+		if k == key {
+			return fmt.Errorf("the suggestions %v name %s, which could not start the process alone", nothing.Keys, key)
+		}
+	}
+	return nil
+}
+
 func (s *serveFeatureState) subsystemRestarted(name string) error {
 	kind, err := s.kind(name)
 	if err != nil {
@@ -453,15 +524,18 @@ func initializeServeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a config enabling the telegram gateway and the scheduler$`, s.configEnablingGatewayAndScheduler)
 	sc.Step(`^a config with httpserver disabled and the telegram gateway enabled$`, s.configHTTPDisabledGatewayEnabled)
 	sc.Step(`^a config enabling the telegram gateway$`, s.configEnablingGateway)
+	sc.Step(`^a config enabling only the metrics exporter$`, s.configEnablingOnlyMetrics)
 	sc.Step(`^a binary built without gateway support$`, s.binaryWithoutGateway)
 	sc.Step(`^a config with every subsystem disabled$`, s.configWithEverythingDisabled)
 	sc.Step(`^a running runtime with the httpserver and the telegram gateway enabled$`, s.runningRuntime)
 	sc.Step(`^a running runtime with only the httpserver enabled$`, s.runningRuntimeHTTPOnly)
+	sc.Step(`^a running runtime with the httpserver and the metrics exporter enabled$`, s.runningRuntimeWithMetrics)
 
 	sc.Step(`^the runtime resolves which subsystems to start$`, s.resolveSubsystems)
 	sc.Step(`^the runtime resolves the httpserver listen address$`, s.resolveListenAddress)
 	sc.Step(`^the telegram token is changed through the configuration$`, s.tokenChanged)
 	sc.Step(`^the scheduler is enabled through the configuration$`, s.schedulerEnabled)
+	sc.Step(`^the metrics exporter is disabled through the configuration$`, s.metricsDisabled)
 	sc.Step(`^the telegram gateway is disabled through the configuration$`, s.gatewayDisabled)
 	sc.Step(`^the httpserver is disabled through the configuration$`, s.httpDisabled)
 	sc.Step(`^the httpserver is turned off and back on at port (\d+) through the configuration$`, s.httpBackAtPort)
@@ -471,6 +545,8 @@ func initializeServeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the listen address is "([^"]*)"$`, s.listenAddressIs)
 	sc.Step(`^resolving fails naming the build tag "([^"]*)"$`, s.resolvingFailsNamingTag)
 	sc.Step(`^resolving fails asking for a subsystem to be enabled$`, s.resolvingAsksForASubsystem)
+	sc.Step(`^resolving fails saying only "([^"]*)" is set and a surface is needed beside it$`, s.resolvingNeedsASurfaceBeside)
+	sc.Step(`^the suggestions do not name "([^"]*)"$`, s.suggestionsDoNotName)
 	sc.Step(`^the "([^"]*)" subsystem is restarted$`, s.subsystemRestarted)
 	sc.Step(`^the "([^"]*)" subsystem keeps running$`, s.subsystemKeepsRunning)
 	sc.Step(`^the "([^"]*)" subsystem is running$`, s.subsystemRunning)
@@ -978,5 +1054,135 @@ func TestARefusedRestartLeavesEverySurfaceAsItWas(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("moving the HTTP address did not ask for a fresh process")
+	}
+}
+
+// resolveDescriptors builds the descriptors Resolve reads: a surface per key
+// (available unless it is listed in unbuilt) and an auxiliary one per key in
+// auxiliary. A key in on is enabled by every config these tests resolve.
+func resolveDescriptors(surfaces, auxiliary, unbuilt, on []string) ([]Subsystem, *config.Config) {
+	var all []Subsystem
+	add := func(key string, aux bool) {
+		all = append(all, Subsystem{
+			Kind: Kind(key), ConfigKey: key, BuildTag: key, Auxiliary: aux,
+			Available: !slices.Contains(unbuilt, key),
+			Enabled:   func(*config.Config) bool { return slices.Contains(on, key) },
+			Run:       func(context.Context, *config.Config) error { return nil },
+		})
+	}
+	for _, key := range surfaces {
+		add(key, false)
+	}
+	for _, key := range auxiliary {
+		add(key, true)
+	}
+	return all, &config.Config{}
+}
+
+const shippedTagsMessage = "(rebuild with -tags \"http ui scheduler memory cli gateway swarm metrics\")"
+
+// A configuration that enables nothing is told to enable a surface; one that
+// enables only an auxiliary subsystem is told that it needs a surface beside
+// it, because something IS enabled and "nothing is enabled" would send the
+// operator looking for a key they already set.
+func TestResolveRefusalSaysWhatIsAndIsNotEnabled(t *testing.T) {
+	cases := []struct {
+		name                    string
+		surfaces, aux           []string
+		unbuilt, on             []string
+		wantMessage             string
+		wantKeys, wantAuxiliary []string
+	}{
+		{
+			name:        "nothing enabled offers the surfaces and leaves the auxiliary key out",
+			surfaces:    []string{"swarm.enable", "httpserver.enable"},
+			aux:         []string{"metrics.enable"},
+			wantMessage: "no subsystem is enabled: set one of httpserver.enable, swarm.enable to true in config.yaml",
+			wantKeys:    []string{"httpserver.enable", "swarm.enable"},
+		},
+		{
+			name:        "nothing enabled in a binary with no surface keeps the rebuild hint",
+			surfaces:    []string{"swarm.enable"},
+			aux:         []string{"metrics.enable"},
+			unbuilt:     []string{"swarm.enable"},
+			wantMessage: "no subsystem is enabled, and this binary was built with none of them " + shippedTagsMessage,
+		},
+		{
+			name:          "only the exporter names it and offers the surfaces",
+			surfaces:      []string{"swarm.enable", "httpserver.enable"},
+			aux:           []string{"metrics.enable"},
+			on:            []string{"metrics.enable"},
+			wantMessage:   "only metrics.enable is set, and it runs only beside a surface: also set one of httpserver.enable, swarm.enable to true in config.yaml",
+			wantKeys:      []string{"httpserver.enable", "swarm.enable"},
+			wantAuxiliary: []string{"metrics.enable"},
+		},
+		{
+			name:          "only the exporter in a binary with no surface keeps the rebuild hint",
+			surfaces:      []string{"swarm.enable"},
+			aux:           []string{"metrics.enable"},
+			unbuilt:       []string{"swarm.enable"},
+			on:            []string{"metrics.enable"},
+			wantMessage:   "only metrics.enable is set, and it runs only beside a surface, but this binary was built with none " + shippedTagsMessage,
+			wantAuxiliary: []string{"metrics.enable"},
+		},
+		{
+			name:          "several auxiliary subsystems are all named",
+			surfaces:      []string{"httpserver.enable"},
+			aux:           []string{"profiling.enable", "metrics.enable"},
+			on:            []string{"profiling.enable", "metrics.enable"},
+			wantMessage:   "only metrics.enable, profiling.enable are set, and they run only beside a surface: also set one of httpserver.enable to true in config.yaml",
+			wantKeys:      []string{"httpserver.enable"},
+			wantAuxiliary: []string{"metrics.enable", "profiling.enable"},
+		},
+		{
+			name:          "an auxiliary subsystem that is off is not reported as set",
+			surfaces:      []string{"httpserver.enable"},
+			aux:           []string{"metrics.enable", "profiling.enable"},
+			on:            []string{"profiling.enable"},
+			wantMessage:   "only profiling.enable is set, and it runs only beside a surface: also set one of httpserver.enable to true in config.yaml",
+			wantKeys:      []string{"httpserver.enable"},
+			wantAuxiliary: []string{"profiling.enable"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			all, cfg := resolveDescriptors(tc.surfaces, tc.aux, tc.unbuilt, tc.on)
+			ready, err := Resolve(cfg, all)
+			if len(ready) != 0 {
+				t.Fatalf("resolved %d subsystem(s) although no surface is enabled", len(ready))
+			}
+			var nothing *ErrNothingEnabled
+			if !errors.As(err, &nothing) {
+				t.Fatalf("Resolve returned %v, want *ErrNothingEnabled", err)
+			}
+			if err.Error() != tc.wantMessage {
+				t.Errorf("message:\n got %q\nwant %q", err.Error(), tc.wantMessage)
+			}
+			if !slices.Equal(nothing.Keys, tc.wantKeys) {
+				t.Errorf("Keys = %v, want %v", nothing.Keys, tc.wantKeys)
+			}
+			if !slices.Equal(nothing.Auxiliary, tc.wantAuxiliary) {
+				t.Errorf("Auxiliary = %v, want %v", nothing.Auxiliary, tc.wantAuxiliary)
+			}
+		})
+	}
+}
+
+// Beside a surface an auxiliary subsystem is simply one more to start, and one
+// the binary cannot run is refused by name before the "needs a surface" case.
+func TestResolveAuxiliaryBesideASurfaceAndNotBuilt(t *testing.T) {
+	all, cfg := resolveDescriptors([]string{"httpserver.enable"}, []string{"metrics.enable"}, nil,
+		[]string{"httpserver.enable", "metrics.enable"})
+	ready, err := Resolve(cfg, all)
+	if err != nil || len(ready) != 2 {
+		t.Fatalf("surface plus exporter: %d subsystem(s), %v; want both, no error", len(ready), err)
+	}
+
+	all, cfg = resolveDescriptors([]string{"httpserver.enable"}, []string{"metrics.enable"}, []string{"metrics.enable"},
+		[]string{"metrics.enable"})
+	_, err = Resolve(cfg, all)
+	var notBuilt *ErrNotBuilt
+	if !errors.As(err, &notBuilt) || notBuilt.ConfigKey != "metrics.enable" {
+		t.Fatalf("exporter in a binary without it: %v, want *ErrNotBuilt naming metrics.enable", err)
 	}
 }

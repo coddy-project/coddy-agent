@@ -45,6 +45,10 @@ type Supervisor struct {
 
 	mu      sync.Mutex
 	running map[Kind]*instance
+	// applied is the configuration the running set was last brought in line
+	// with, nil until the surfaces of the first one have been started. Status
+	// reads a configuration the supervisor has not applied yet as pending.
+	applied *config.Config
 }
 
 // instance is one live subsystem: the context that stops it, the goroutine that
@@ -54,6 +58,7 @@ type instance struct {
 	done        chan struct{}
 	fingerprint string
 	restartKey  string
+	auxiliary   bool
 }
 
 // NewSupervisor prepares a supervisor over every subsystem this binary knows
@@ -75,7 +80,8 @@ func NewSupervisor(log *slog.Logger, subs []Subsystem) *Supervisor {
 // A failure is fatal for the whole process on purpose. Half of `coddy serve`
 // still answering is worse than none of it: the operator's supervisor restarts
 // a process that exited, and nobody notices one that is quietly missing the
-// surface they rely on.
+// surface they rely on. An auxiliary subsystem is the exception: nobody is
+// served through it, so it fails alone.
 //
 // cfg is the configuration the surfaces are being started from: it seeds the
 // restart fingerprints, so the first reload only rebuilds what actually moved.
@@ -91,6 +97,7 @@ func (s *Supervisor) Run(ctx context.Context, cfg *config.Config, reloads <-chan
 			s.start(ctx, sub, cfg, failures)
 		}
 	}
+	s.markApplied(cfg)
 
 	var runErr error
 	for {
@@ -127,6 +134,7 @@ func (s *Supervisor) start(ctx context.Context, sub Subsystem, cfg *config.Confi
 		done:        make(chan struct{}),
 		fingerprint: sub.fingerprint(cfg),
 		restartKey:  sub.restartKey(cfg),
+		auxiliary:   sub.Auxiliary,
 	}
 	s.mu.Lock()
 	s.running[sub.Kind] = inst
@@ -146,6 +154,17 @@ func (s *Supervisor) start(ctx context.Context, sub Subsystem, cfg *config.Confi
 			err = fmt.Errorf("%s stopped on its own", sub.Kind)
 		}
 		s.log.Error("subsystem failed", "subsystem", string(sub.Kind), "error", err)
+		if sub.Auxiliary {
+			// Nobody is served through it, so its failure - an exporter moved
+			// onto a port that is taken - ends it alone; the next configuration
+			// that enables it starts it again.
+			s.mu.Lock()
+			if s.running[sub.Kind] == inst {
+				delete(s.running, sub.Kind)
+			}
+			s.mu.Unlock()
+			return
+		}
 		failures <- fmt.Errorf("%s: %w", sub.Kind, err)
 	}()
 }
@@ -179,6 +198,8 @@ func (s *Supervisor) applyConfig(ctx context.Context, cfg *config.Config, failur
 	if cfg == nil {
 		return false
 	}
+	// A refused change counts as applied: the process stays as it is.
+	defer s.markApplied(cfg)
 	// What only a fresh process can adopt is weighed before anything moves.
 	// Applying the rest first would leave a refused change half done - a
 	// surface it turned off already stopped, the others as they were - and a
@@ -222,12 +243,13 @@ func (s *Supervisor) applyConfig(ctx context.Context, cfg *config.Config, failur
 			s.log.Info("subsystem enabled by a configuration change", "subsystem", string(sub.Kind))
 			s.start(ctx, sub, cfg, failures)
 		case inst != nil && !want:
-			// Stopping the last one would leave a process that runs nothing
+			// Stopping the last surface would leave a process that runs nothing
 			// and can no longer be reached to say otherwise - the state
 			// Resolve refuses at startup. Keep it and say so instead, the way
-			// a listener whose bind address moved is kept.
-			if s.runningCount() == 1 {
-				s.log.Error("refusing to stop the only running subsystem",
+			// a listener whose bind address moved is kept. An auxiliary
+			// subsystem can always stop, and it does not count as a surface.
+			if !sub.Auxiliary && s.runningSurfaces() == 1 {
+				s.log.Error("refusing to stop the only running surface",
 					"subsystem", string(sub.Kind), "key", sub.ConfigKey,
 					"hint", "a process with nothing enabled cannot be reached; enable another subsystem first, or restart coddy serve")
 				continue
@@ -252,6 +274,64 @@ func (s *Supervisor) applyConfig(ctx context.Context, cfg *config.Config, failur
 		}
 	}
 	return false
+}
+
+// markApplied records cfg as the configuration the running set was last
+// brought in line with.
+func (s *Supervisor) markApplied(cfg *config.Config) {
+	s.mu.Lock()
+	s.applied = cfg
+	s.mu.Unlock()
+}
+
+// Status reads the subsystem table off the running set and live, the
+// configuration in force. Nothing is recorded as a change comes in, so a read
+// right after a save sees a listener's new address before the supervisor has
+// been handed the configuration, and moving the address back clears it.
+//
+// A change only a fresh process can adopt is pending, as needsFreshProcess
+// decides it: a listener whose address live moved, or a surface that runs
+// turns in a process started without a session store. It needs a manual
+// restart unless a dispatcher would restart the process by itself, which it
+// does only into a configuration the pre-flight accepts (the check applyConfig
+// makes). A listener live no longer enables may simply stop, so it is never
+// pending.
+func (s *Supervisor) Status(live *config.Config) (subs []SubsystemStatus, restartRequired bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending := false
+	for _, sub := range s.subs {
+		inst := s.running[sub.Kind]
+		want := sub.enabled(live)
+		if inst == nil && !want {
+			continue
+		}
+		row := SubsystemStatus{Kind: sub.Kind}
+		switch {
+		case inst != nil && want:
+			row.State = StateRunning
+		case inst != nil:
+			row.State = StateRetained
+		case s.applied != live:
+			row.State = StateStarting
+		default:
+			row.State = StateStopped
+		}
+		switch {
+		case inst != nil && want && sub.restartKey(live) != inst.restartKey,
+			inst == nil && want && sub.Available && sub.NeedsSessions && s.Sessionless:
+			pending = true
+		}
+		subs = append(subs, row)
+	}
+	if !pending {
+		return subs, false
+	}
+	if !s.Restartable {
+		return subs, true
+	}
+	_, err := Resolve(live, s.subs)
+	return subs, err != nil
 }
 
 // needsFreshProcess names a surface cfg asks for that this process cannot
@@ -292,11 +372,18 @@ func (s *Supervisor) canRunFresh(cfg *config.Config, kind Kind) bool {
 	return true
 }
 
-// runningCount reports how many subsystems are live right now.
-func (s *Supervisor) runningCount() int {
+// runningSurfaces reports how many subsystems that are not auxiliary are live
+// right now.
+func (s *Supervisor) runningSurfaces() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.running)
+	n := 0
+	for _, inst := range s.running {
+		if !inst.auxiliary {
+			n++
+		}
+	}
+	return n
 }
 
 // stop cancels one instance and waits for its goroutine, bounded by restartDrain.

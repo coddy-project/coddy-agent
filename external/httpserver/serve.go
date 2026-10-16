@@ -49,6 +49,10 @@ type Options struct {
 	// (--swarm-auth-token, --swarm-pairing-token): this server never uses
 	// them, it refuses a shared-model token that is the same as one.
 	ExtraSwarmTokens []string
+	// UnbuiltSections names the settings sections this binary cannot run
+	// (config.UISchemaJSONHiding): the form leaves them out, and a save still
+	// writes them back.
+	UnbuiltSections []string
 	// ExtraLogin is a web sign-in account supplied out of band (CODDY_HTTP_USER,
 	// CODDY_HTTP_PASSWORD), for the same reason: it enables the form on its own
 	// and never reaches the file, so a save from the settings screen cannot

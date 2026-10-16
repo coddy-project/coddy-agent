@@ -40,6 +40,8 @@ func TestWebUISettingsSearchFeature(t *testing.T) {
 			"settings search a Russian page finds a setting by its Russian name and by its config key"},
 		{`^a relay's settings are searched too$`,
 			"settings search a relay's settings are searched too"},
+		{`^the Metrics tab is a tab and a result, and a binary without its tag offers neither$`,
+			"settings search the Metrics tab is a tab and a result, and a binary without its tag offers neither"},
 		{`^choosing a result writes the setting into the address, next to its row, and a tab writes none$`,
 			"settings search choosing a result writes the setting into the address, next to its row, and a tab writes none"},
 		{`^an address that names a setting reveals it as a choice does: the tab, the ring, the scroll and the control$`,

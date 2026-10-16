@@ -23,6 +23,7 @@ import {
   SECRET_VALUES,
   configFromSchema,
   launchAsTelegram,
+  schemaWithout,
   type SettingsDoc,
 } from "./settingsServer.fakes";
 import {
@@ -745,6 +746,132 @@ test("the index speaks the page's language and keeps the config key as YAML spel
   expect(only(indexOf(AGENT_SCHEMA), "agent:max_turns").names).toEqual([
     english,
   ]);
+});
+
+// ---- the Metrics tab, which a binary without the metrics tag does not have
+
+const METRICS_FIELDS = ["enable", "host", "port", "token"] as const;
+
+/** The ids of what a query finds, best first. */
+const idsFound = (index: Entries, query: string) =>
+  searchSettings(index, query).hits.map((h) => h.entry.id);
+
+test("the Metrics tab and each of its four fields are found by name, by config key and by description, in English and in Russian", () => {
+  const english = ["Enabled", "Listen host", "Listen port", "Token"];
+  for (const locale of ["en", "ru"] as const) {
+    setLocale(locale);
+    const index = indexOf(AGENT_SCHEMA);
+    const tab = inTab(index, "metrics");
+    const tabLabel = translate("settings.section.metrics.label");
+    const names = METRICS_FIELDS.map((key) =>
+      translate(`settings.schema.metrics.${key}.label`),
+    );
+    if (locale === "en") {
+      expect([tabLabel, ...names]).toEqual(["Metrics", ...english]);
+    } else {
+      expect(tabLabel).toBe("Метрики");
+      names.forEach((name, i) => expect(name, locale).not.toBe(english[i]));
+    }
+
+    // the tab, then its fields in the order the schema declares, under the tab
+    expect(
+      tab.map((e) => e.kind),
+      locale,
+    ).toEqual(["section", "field", "field", "field", "field"]);
+    expect(
+      tab.map((e) => e.names[0]),
+      locale,
+    ).toEqual([tabLabel, ...names]);
+    expect(tab.slice(1).map((e) => e.keyPath)).toEqual(
+      METRICS_FIELDS.map((key) => `metrics.${key}`),
+    );
+    expect(tab.slice(1).map((e) => e.anchor)).toEqual(
+      METRICS_FIELDS.map((key) => fieldAnchor("metrics", key)),
+    );
+    expect(tab.slice(1).every((e) => e.where.join() === tabLabel)).toBe(true);
+    // the section is where the rail puts it: after the logger, before the tail
+    const order = deriveSettingsSections(AGENT_SCHEMA).map((s) => s.id);
+    expect(order.indexOf("metrics")).toBe(order.indexOf("logger") + 1);
+
+    const [tabEntry, ...fields] = tab;
+    // by the tab's name: the tab leads, its fields follow
+    expect(idsFound(index, tabLabel)[0], locale).toBe(tabEntry!.id);
+    expect(idsFound(index, "metrics").slice(0, 5), locale).toEqual(
+      locale === "en"
+        ? tab.map((e) => e.id)
+        : // the tab's Russian name is not "metrics", only the keys are
+          fields.map((e) => e.id),
+    );
+    fields.forEach((field, i) => {
+      // by the key as YAML spells it: this field and no other
+      expect(idsFound(index, `metrics.${METRICS_FIELDS[i]}`), locale).toEqual([
+        field.id,
+      ]);
+      // by its name, and by every word of its description
+      expect(idsFound(index, names[i]!), locale).toContain(field.id);
+      const description = translate(
+        `settings.schema.metrics.${METRICS_FIELDS[i]}.desc`,
+      );
+      expect(
+        idsFound(index, description),
+        `${locale}: ${description}`,
+      ).toContain(field.id);
+    });
+    // the tab by its own description
+    expect(
+      idsFound(index, translate("settings.section.metrics.desc")),
+      locale,
+    ).toContain(tabEntry!.id);
+  }
+  setLocale("en");
+});
+
+test("a tab the server leaves out for want of a build tag is neither in the index nor found, while the document still holds it", () => {
+  const whole = indexOf(AGENT_SCHEMA);
+  const hiddenSchema = schemaWithout(AGENT_SCHEMA, "metrics");
+  const doc = configFromSchema(AGENT_SCHEMA);
+  // GET /coddy/config answers the whole document, the hidden section included
+  expect(doc["metrics"]).toBeTruthy();
+  const index = indexOf(hiddenSchema, doc);
+
+  expect(deriveSettingsSections(hiddenSchema).map((s) => s.id)).not.toContain(
+    "metrics",
+  );
+  expect(inTab(index, "metrics")).toEqual([]);
+  expect(
+    index.filter(
+      (e) =>
+        e.keyPath?.startsWith("metrics") === true ||
+        e.anchor?.startsWith("metrics:") === true,
+    ),
+  ).toEqual([]);
+  // nothing else moved: the index is the whole one less the tab
+  expect(index.map((e) => e.id)).toEqual(
+    whole.filter((e) => e.section !== "metrics").map((e) => e.id),
+  );
+  for (const locale of ["en", "ru"] as const) {
+    setLocale(locale);
+    const metrics = inTab(indexOf(AGENT_SCHEMA), "metrics");
+    const hidden = indexOf(hiddenSchema, doc);
+    for (const query of [
+      "metrics",
+      "metrics.port",
+      "listen port",
+      translate("settings.section.metrics.label"),
+      translate("settings.schema.metrics.port.label"),
+      translate("settings.schema.metrics.token.desc"),
+      SECRET_VALUES.metricsToken,
+    ]) {
+      const ids = idsFound(hidden, query);
+      for (const e of metrics) {
+        expect(ids, `${locale}: ${query}`).not.toContain(e.id);
+      }
+      expect(
+        hidden.filter((e) => ids.includes(e.id) && e.section === "metrics"),
+      ).toEqual([]);
+    }
+  }
+  setLocale("en");
 });
 
 test("every landmark heading and every drawn text is a key of the default dictionary", () => {

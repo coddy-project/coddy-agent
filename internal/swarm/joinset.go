@@ -110,6 +110,7 @@ func StartJoins(ctx context.Context, cfg *config.Config, opts StartJoinsOptions)
 			_ = c.Run(runCtx)
 		}(c)
 	}
+	registerJoinSet(set)
 	return set, nil
 }
 
@@ -126,6 +127,7 @@ func (s *JoinSet) Stop() {
 	if s == nil {
 		return
 	}
+	unregisterJoinSet(s)
 	if s.cancel != nil {
 		s.cancel()
 	}

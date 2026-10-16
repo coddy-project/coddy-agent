@@ -41,6 +41,8 @@ pty (see the CLI section below):
 | **`acp/`** | ACP Python harnesses and **`test_acp.sh`**. |
 | **`cli/`** | Console TUI harnesses and **`test_cli.sh`** (pty-driven, Linux-only). |
 | **`gateway/`** | **`tg_e2e_offline.sh`** (wrapper **`test_gateway.sh`**): the Telegram bot against the fake Bot API and scripted model of **[tgfake](https://github.com/EvilFreelancer/tgfake)**, no Telegram and no LLM involved (bash, Git Bash on Windows included). |
+| **`prometheus/`** | **`coddy-rules.yml`**, the alert rules for the exporter of **`coddy serve`**, and **`coddy-rules.test.yml`**, their **`promtool test rules`** cases (CI runs them from a pinned `prom/prometheus` image). |
+| **`grafana/`** | **`coddy-dashboard.json`**, the Grafana dashboard over the exporters of one or many **`coddy serve`** processes (a swarm: every agent and relay is a target), and **`docker-compose.yaml`** with **`targets.yml`**, Prometheus and Grafana on the host network with the dashboard and the rules of **`prometheus/`** provisioned (`docs/operate/monitoring.md`, *The Grafana dashboard*). |
 | **`shared/`** | **`scheduler_e2e_common.py`**, **`plan_e2e_common.py`**, **`ask_e2e_common.py`** for paired e2e harnesses; **`wake_e2e_common.py`**, the stand of the **`e2e_background_wake`** scripts (the scripted model of **tgfake** with a tool rule, a home and a config pointing at it, **`coddy serve`** on demand). |
 | **`skills_fixture/`** | Bundled skill for slash-command HTTP demo (copied into **`$CODDY_HOME/skills_fixture`** by **`test_httpserver.sh`**). |
 | **`agents_fixture/`** | Project-scope subagent definitions: **`.coddy/agents/marker-reporter.md`** (read-only, reports the `MARKER:` line of a named file), which each **`e2e_subagents`** script copies into its work dir and approves before the spawn, and **`.coddy/agents/echo-runner.md`** (`permission_mode: ask`, `background: true`, runs one named command), which the HTTP script approves for its detached-prompt phase. |
@@ -54,7 +56,7 @@ TG_E2E_KEEP=1 ./examples/test_gateway.sh             # leaves both running and p
 RICH_MESSAGES=true ./examples/test_gateway.sh
 ```
 
-Knobs: **`TG_PORT`** (18790), **`LLM_DELAY`** (50ms), **`TG_VERBOSE`** (one line per Bot API call), **`CODDY_BIN`**, **`CODDY_TGFAKE_BIN`** (a prebuilt tgfake; unset builds the version **`go.mod`** pins). The same variable feeds every script here that starts tgfake (**`shared/wake_e2e_common.py`**, **`cli/capture_wake.py`**, `npm run check:telegram`). Guides: [Integration tests with tgfake](../docs/contributing/tgfake.md), [Debugging against a fake Bot API](../docs/surfaces/gateway.md#debugging-against-a-fake-bot-api).
+Knobs: **`TG_PORT`** (18790), **`LLM_DELAY`** (50ms), **`TG_VERBOSE`** (one line per Bot API call), **`CODDY_BIN`**, **`TG_E2E_METRICS=1`** (also turns the Prometheus exporter on and scrapes it after the chat; needs a binary built with **`TAGS="gateway metrics"`**), **`CODDY_TGFAKE_BIN`** (a prebuilt tgfake; unset builds the version **`go.mod`** pins). The same variable feeds every script here that starts tgfake (**`shared/wake_e2e_common.py`**, **`cli/capture_wake.py`**, `npm run check:telegram`). Guides: [Integration tests with tgfake](../docs/contributing/tgfake.md), [Debugging against a fake Bot API](../docs/surfaces/gateway.md#debugging-against-a-fake-bot-api).
 
 ## HTTP gateway
 

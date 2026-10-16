@@ -35,6 +35,9 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 	defer srv.Close()
 	srv.EnableSettings(opts.Live, opts.Install)
+	// Status surfaces (the metrics exporter) count the nodes this relay knows
+	// for as long as it runs.
+	defer swarmdto.PublishRelay(srv.Registry().List)()
 
 	// Resolving the client credential is a security decision, not a
 	// convenience: a relay holds every node's credential, so an open one hands

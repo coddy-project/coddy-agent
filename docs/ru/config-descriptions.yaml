@@ -632,6 +632,21 @@ swarm.join[].dial.ca_file:
 swarm.join[].dial.insecure_skip_verify:
   en: "Accept any certificate. For a lab only; every use is logged."
   ru: "Принимать любой сертификат. Только для стенда; каждое использование пишется в журнал."
+metrics:
+  en: "Prometheus exporter: GET /metrics on a port of its own, run by coddy serve. It takes effect only in a binary built with -tags metrics; other binaries refuse metrics.enable. Off by default."
+  ru: "Экспортёр Prometheus: GET /metrics на отдельном порту, его запускает coddy serve. Работает только в бинарнике, собранном с -tags metrics; остальные отвергают metrics.enable. По умолчанию выключен."
+metrics.enable:
+  en: "Run the exporter in this process. Needs the metrics build tag."
+  ru: "Запускать экспортёр в этом процессе. Нужен тег сборки metrics."
+metrics.host:
+  en: "Bind address of the exporter. Empty falls back to 127.0.0.1, which only this machine can reach."
+  ru: "Адрес привязки экспортёра. Пусто - 127.0.0.1, до которого достаёт только эта машина."
+metrics.port:
+  en: "Listen port of the exporter. 0 falls back to 12347."
+  ru: "Порт экспортёра. 0 - порт 12347."
+metrics.token:
+  en: "Bearer credential a scrape must present in its Authorization header. ${ENV} references are expanded at load. Empty means no authentication, so set one before binding off loopback. Never echoed back."
+  ru: "Bearer-токен, который сборщик метрик должен передать в заголовке Authorization. Ссылки ${ENV} разворачиваются при загрузке. Пусто - без аутентификации, поэтому задайте токен, прежде чем привязывать экспортёр не к loopback. Никогда не возвращается обратно."
 ui:
   en: "Controls the bundled single-page UI (only meaningful in binaries built with -tags http,ui)."
   ru: "Управляет встроенным одностраничным интерфейсом (имеет смысл только в бинарниках, собранных с -tags http,ui)."

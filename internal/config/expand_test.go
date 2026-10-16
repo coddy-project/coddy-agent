@@ -92,3 +92,17 @@ func TestExpandConfigBodyKeepsEscapedPlaceholders(t *testing.T) {
 		t.Fatalf("expandConfigBody(%q) = %q, want %q", in, got, want)
 	}
 }
+
+// TestMetricsTokenExpandsEnv pins the contract the scrape token relies on: the
+// exporter's credential can be a ${VAR}, so it need not be written into the file.
+func TestMetricsTokenExpandsEnv(t *testing.T) {
+	t.Setenv("CODDY_METRICS_TEST_TOKEN", "scrape-secret")
+	paths := testPathConfig(t, "metrics:\n  enable: true\n  token: ${CODDY_METRICS_TEST_TOKEN}\n")
+	cfg, err := LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Metrics.Token != "scrape-secret" {
+		t.Fatalf("metrics.token = %q, want the environment value", cfg.Metrics.Token)
+	}
+}

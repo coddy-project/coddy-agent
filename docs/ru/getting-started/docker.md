@@ -1,6 +1,6 @@
 # Docker
 
-Запускайте Coddy как **`coddy serve`** внутри минимального образа **`scratch`**. Образ по умолчанию содержит встроенный веб-интерфейс (тег сборки **`ui`**), OpenAI-совместимый REST (**`http`**), планировщик (**`scheduler`**), долговременную память (**`memory`**), консоль (**`cli`**), шлюзы мессенджеров (**`gateway`**) и релей роя (**`swarm`**).
+Запускайте Coddy как **`coddy serve`** внутри минимального образа **`scratch`**. Образ по умолчанию содержит встроенный веб-интерфейс (тег сборки **`ui`**), OpenAI-совместимый REST (**`http`**), планировщик (**`scheduler`**), долговременную память (**`memory`**), консоль (**`cli`**), шлюзы мессенджеров (**`gateway`**), релей роя (**`swarm`**) и экспортёр Prometheus (**`metrics`**).
 
 Связанные файлы:
 
@@ -162,7 +162,7 @@ docker compose -f docker-compose.dev.yml logs -f coddy   # expect: "telegram bot
 
 Примечания:
 
-- **опубликованный образ GHCR содержит тег `gateway`** (CI [`docker-build-push.yaml`](../../../.github/workflows/docker-build-push.yaml) задаёт **`BUILD_TAGS=http,scheduler,ui,memory,cli,gateway,swarm`**), поэтому **`docker-compose.yml`** с **`CODDY_COMMAND=gateway`** работает на стандартном образе, и собственный **`CODDY_IMAGE`** не нужен;
+- **опубликованный образ GHCR содержит тег `gateway`** (CI [`docker-build-push.yaml`](../../../.github/workflows/docker-build-push.yaml) задаёт **`BUILD_TAGS=http,scheduler,ui,memory,cli,gateway,swarm,metrics`**), поэтому **`docker-compose.yml`** с **`CODDY_COMMAND=gateway`** работает на стандартном образе, и собственный **`CODDY_IMAGE`** не нужен;
 - токен бота читается из **`TELEGRAM_BOT_TOKEN`** (его пробрасывают оба файла compose) или из **`$CODDY_HOME/.env`**; не кладите его в git;
 - если ваш **`gateways.telegram.proxy`** указывает на прокси на самом хосте (например, **`socks5://127.0.0.1:7890`**), изнутри контейнера он недоступен - используйте **`host.docker.internal`** или добавьте **`network_mode: host`** в **`docker-compose.override.yml`**;
 - режим шлюза не использует входящий порт (Telegram long-polling), поэтому проброшенный **`12345`** просто остаётся незанятым.
@@ -255,7 +255,7 @@ docker compose logs -f coddy
 
 ## Что входит в образ по умолчанию
 
-**`ARG BUILD_TAGS`** в **`Dockerfile`** по умолчанию равен **`http,scheduler,ui,memory,gateway,cli,swarm`** (через запятую, в том же значении, что и **`go build -tags=`**) - это набор, который несут бинарники релиза.
+**`ARG BUILD_TAGS`** в **`Dockerfile`** по умолчанию равен **`http,scheduler,ui,memory,gateway,cli,swarm,metrics`** (через запятую, в том же значении, что и **`go build -tags=`**) - это набор, который несут бинарники релиза.
 
 - **`http`** - **`coddy serve`** и REST-шлюз (см. **[docs/reference/http-api.md](../reference/http-api.md)**);
 - **`ui`** - встроенное SPA на **`/`** (нужен **`http`**);
@@ -263,7 +263,8 @@ docker compose logs -f coddy
 - **`memory`** - субагент долговременной памяти и REST памяти сессии (**[external/memory/README.md](../../../external/memory/README.md)**); поведение во время работы переключается через **`memory.enable`**;
 - **`gateway`** - боты Telegram и Pachca (**[docs/surfaces/gateway.md](../surfaces/gateway.md)**), каждый под своим ключом **`enable`**;
 - **`cli`** - интерактивная консоль (**[docs/surfaces/console.md](../surfaces/console.md)**) для **`docker run -it ... coddy`**;
-- **`swarm`** - релей, который объединяет узлы (**[docs/operate/swarm.md](../operate/swarm.md)**), под **`swarm.enable`**.
+- **`swarm`** - релей, который объединяет узлы (**[docs/operate/swarm.md](../operate/swarm.md)**), под **`swarm.enable`**;
+- **`metrics`** - экспортёр Prometheus (**[docs/operate/monitoring.md](../operate/monitoring.md)**), выключенный, пока не задан **`metrics.enable`**. Он слушает loopback, до которого не дотянется опубликованный порт контейнера: чтобы снимать метрики снаружи контейнера, задайте **`metrics.host`** равным **`0.0.0.0`** вместе с **`metrics.token`** и опубликуйте **`metrics.port`** (по умолчанию 12347).
 
 Чтобы собрать образ **без** памяти или встроенного интерфейса, переопределите **`BUILD_TAGS`** (например, **`http,scheduler,ui`** или **`http,scheduler`**) через **`docker compose` `args`** или **`docker build --build-arg`**.
 
@@ -296,4 +297,4 @@ make check-image IMAGE_PLATFORMS=linux/arm64
 
 Скрипт создаёт временный **`config.yaml`**, поднимает **`coddy`** через **`docker-compose.dev.yml`**, ждёт **`/v1/models`** и запускает **`examples/httpserver/http_smoke_gateway.py`**.
 
-<!-- docsgen:source sha256=797d9069cc48a10d -->
+<!-- docsgen:source sha256=0d80434ea3fa54b5 -->

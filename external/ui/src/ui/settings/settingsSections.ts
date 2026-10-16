@@ -53,6 +53,7 @@ const SECTION_LABEL_KEYS = {
   hooks: "settings.section.hooks.label",
   scheduler: "settings.section.scheduler.label",
   logger: "settings.section.logger.label",
+  metrics: "settings.section.metrics.label",
   gateways: "settings.section.gateways.label",
   swarm: "settings.section.swarm.label",
 } as const;
@@ -83,6 +84,7 @@ const SECTION_DESC_KEYS = {
   hooks: "settings.section.hooks.desc",
   scheduler: "settings.section.scheduler.desc",
   logger: "settings.section.logger.desc",
+  metrics: "settings.section.metrics.desc",
   gateways: "settings.section.gateways.desc",
   swarm: "settings.section.swarm.desc",
 } as const;

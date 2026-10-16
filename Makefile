@@ -1,8 +1,8 @@
-.PHONY: test-external-tls build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway swarm"
+#     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway swarm metrics"
 #     http     OpenAI-compatible gateway and web UI (coddy serve)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
@@ -12,12 +12,14 @@
 #     gateway         all messenger gateways: Telegram and Pachca (superset of both)
 #     cli      interactive console TUI (bare `coddy` on a terminal; see external/cli/)
 #     swarm    stateless relay that aggregates nodes (coddy serve; see external/swarm/)
+#     metrics  Prometheus exporter, off by default (coddy serve; see external/metrics/)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
 #             make build TAGS="http ui scheduler memory"
 #             make build TAGS="gateway.telegram"
-#             make build TAGS="http ui scheduler memory cli gateway swarm"
+#             make build TAGS="gateway metrics"
+#             make build TAGS="http ui scheduler memory cli gateway swarm metrics"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enable only applies when built with memory.
 #   VERSION / LDFLAGS   embedded version string (see print-version).
 
@@ -37,7 +39,7 @@ GOEXE := $(shell go env GOEXE)
 BINARY := $(BUILD_DIR)/coddy$(GOEXE)
 
 # Default tag set for `make install` when build/coddy is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli gateway swarm
+FULL_TAGS := http ui scheduler memory cli gateway swarm metrics
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -143,6 +145,12 @@ install:
 # macOS archives of a release. It needs those archives, so pass the version of a
 # published release: make brew VERSION=1.0.11
 #
+# `brew-cask-check` installs that rendered cask with a real Homebrew out of a
+# throwaway local tap and checks what it linked (macOS only); BREW_TAP=
+# coddy-project/coddy-agent checks the published cask by name instead. `brew-publish`
+# commits the rendered cask to the tap coddy-project/homebrew-coddy-agent, which the
+# release job does for every release.
+#
 # `brew-formula` renders the Homebrew formula (packaging/homebrew/coddy-formula.rb.tmpl)
 # for the source archive of a release - that is the artefact homebrew/core takes,
 # because Homebrew wants open-source command-line software built from source.
@@ -165,6 +173,12 @@ rpm:
 
 brew:
 	scripts/build-homebrew-cask.sh --version "$(VERSION)" --out "$(DIST_DIR)"
+
+brew-cask-check:
+	scripts/check-homebrew-cask.sh $(if $(BREW_TAP),--tap "$(BREW_TAP)",--cask "$(DIST_DIR)/coddy.rb")
+
+brew-publish:
+	scripts/publish-homebrew-tap.sh --version "$(VERSION)" --cask "$(DIST_DIR)/coddy.rb"
 
 brew-formula:
 	scripts/build-homebrew-formula.sh --version "$(VERSION)" --out "$(DIST_DIR)/formula"
@@ -303,6 +317,8 @@ TEST_TAG_SETS := \
 	gateway \
 	http,scheduler,ui,memory,cli,gateway \
 	http,scheduler,ui,memory,cli,swarm \
+	metrics \
+	gateway,metrics \
 	$(FULL_TAGS_CSV)
 
 # Express run: the SPA suite, then the whole Go tree once with every optional
@@ -432,7 +448,8 @@ check-windows:
 	GOOS=windows go vet -tags=http,swarm ./...
 	GOOS=windows go vet -tags=gateway ./...
 	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway ./...
-	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway,swarm ./...
+	GOOS=windows go vet -tags=metrics ./...
+	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway,swarm,metrics ./...
 
 # Type-check the Android build without a device, test files included.
 #

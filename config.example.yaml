@@ -720,3 +720,14 @@ logger:
 #       dial:
 #         proxy: "socks5://127.0.0.1:1080"
 #         ca_file: "/etc/coddy/internal-ca.pem"
+
+# ----------------------------------------------------------------------------
+# metrics - the Prometheus exporter: GET /metrics on a port of its own, run by
+# coddy serve. Needs a binary built with -tags metrics; others refuse enable.
+# Full reference: docs/reference/config.md
+# ----------------------------------------------------------------------------
+# metrics:
+#   enable: false                    # off by default
+#   host: "127.0.0.1"                # empty: 127.0.0.1; set a token before binding wider
+#   port: 12347                      # 0: 12347
+#   token: "${CODDY_METRICS_TOKEN}"  # a scrape must send it as a bearer token

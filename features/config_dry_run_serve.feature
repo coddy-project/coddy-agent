@@ -16,3 +16,18 @@ Feature: coddy serve --dry-run checks the addresses it would bind
     Then the command fails
     And the report marks httpserver as an error mentioning "in use"
     And the report points at the line of "port:"
+
+  @metrics
+  Scenario: the metrics listen address is checked before the daemon starts
+    Given a config.yaml with the HTTP API and the metrics exporter on free ports
+    When I run coddy serve with --dry-run --test-config
+    Then the command succeeds
+    And the report marks metrics as ok mentioning "free"
+
+  @metrics
+  Scenario: a port another process holds is reported at metrics.port
+    Given a config.yaml with the metrics exporter on a port another process holds
+    When I run coddy serve with --dry-run
+    Then the command fails
+    And the report marks metrics as an error mentioning "in use"
+    And the report points at the line of "port:"

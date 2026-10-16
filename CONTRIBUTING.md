@@ -14,7 +14,7 @@ This page is for people: the environment, the build, the test runs, the flow of 
 git clone https://github.com/coddy-project/coddy-agent
 cd coddy-agent
 make hooks      # once per clone: git commit runs the gate in .githooks/pre-commit
-make build TAGS="http ui scheduler memory cli gateway swarm"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics"
 ./build/coddy -v
 ```
 
@@ -24,7 +24,7 @@ On Windows the `Makefile` targets need a Unix-like shell: run them from Git Bash
 
 ## Building
 
-`make build` writes `build/coddy`. Optional modules are Go build tags, passed through the `TAGS` variable with spaces (a raw `go build` takes the same list with commas, `-tags=http,ui,scheduler,memory,cli,gateway,swarm`):
+`make build` writes `build/coddy`. Optional modules are Go build tags, passed through the `TAGS` variable with spaces (a raw `go build` takes the same list with commas, `-tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics`):
 
 | Command | What you get |
 |---|---|
@@ -32,7 +32,7 @@ On Windows the `Makefile` targets need a Unix-like shell: run them from Git Bash
 | `make build TAGS=http` | the HTTP API and `/docs` for `coddy serve`, no npm step |
 | `make build TAGS=cli` | the interactive console, bare `coddy` on a terminal |
 | `make build TAGS="http ui"` | the API plus the embedded SPA; `ui-build` runs first |
-| `make build TAGS="http ui scheduler memory cli gateway swarm"` | the full set (`FULL_TAGS` in the `Makefile`): what the releases, the Docker image and the packages ship |
+| `make build TAGS="http ui scheduler memory cli gateway swarm metrics"` | the full set (`FULL_TAGS` in the `Makefile`): what the releases, the Docker image and the packages ship |
 
 A subsystem enabled in `config.yaml` but not compiled into the binary is a startup error naming the tag. The tag reference, `make install`, `make print-version` and the distribution packages (`make deb`, `make rpm`, `make brew`) are in [docs/contributing/build.md](docs/contributing/build.md).
 
@@ -53,7 +53,7 @@ What ships is still the embedded copy: a change under `external/ui/src` is compl
 ## Running the tests
 
 - **`go test ./...`** - the untagged tree with its stubs; the quick check while iterating. A single package: `go test ./path/to/pkg -run TestName -count=1`.
-- **`make test`** - the express run, before every push: `make test-agent-rules` (Python hooks plus the OpenCode plugin), `ui-build`, the SPA's vitest suite (`make ui-test`), then one `go test -tags=http,ui,scheduler,memory,cli,gateway,swarm ./...` over the whole tree with every optional module compiled in. Minutes, not tens of minutes.
+- **`make test`** - the express run, before every push: `make test-agent-rules` (Python hooks plus the OpenCode plugin), `ui-build`, the SPA's vitest suite (`make ui-test`), then one `go test -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics ./...` over the whole tree with every optional module compiled in. Minutes, not tens of minutes.
 - **`make test-matrix`** - every tag combination in `TEST_TAG_SETS` (`Makefile`), one after another. This is CI's job, one job per combination on every pull request; do not walk it locally. When a change moved a build-tag boundary (a `_stub.go`, an `Available` const, a `//go:build` line), run that one combination by hand, `go test -tags=<set> ./...`, and leave the rest to CI.
 - **`make test-race`** - the tree under the Go race detector, with every optional module but `ui` compiled in. CI runs it on every pull request (job **Race detector**). Run it before the push when a change touches goroutines, locks, channels or a test harness that drives a live loop; `GOFLAGS=-count=3 make test-race` repeats every test for a race that shows up rarely. Every package is clean under it, so a race it reports is fixed rather than skipped.
 - **`make test-cache`** - the prompt-cache group on its own: the `features/prompt_cache_*.feature` specs and every test named `TestPromptCache*`, which check what each request sends the provider - the same system message for the whole session, a history that only grows at its end, every rule at most once and nothing no path brought in. It is part of `make test`; run it when a change touches the system prompt, the rules, the history or the send boundary, and name a new test of the kind `TestPromptCache...` so it joins the group.

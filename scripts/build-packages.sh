@@ -17,7 +17,7 @@
 #
 # Environment:
 #   TAGS          go build tags for the binary built here
-#                 (default: "http ui scheduler memory cli", the release set)
+#                 (default: the release set, `make print-full-tags`)
 #   NFPM          nfpm command to use (default: nfpm on PATH, else `go run`)
 #   NFPM_VERSION  pinned nfpm module version for the `go run` fallback
 set -euo pipefail
@@ -46,7 +46,7 @@ done
 archs=$(echo "$archs" | tr ',' ' ')
 formats=$(echo "$formats" | tr ',' ' ')
 
-TAGS="${TAGS:-http ui scheduler memory cli}"
+TAGS="${TAGS:-$(make -s -C "$root" print-full-tags | tr , ' ')}"
 NFPM_VERSION="${NFPM_VERSION:-v2.45.0}"
 
 if [ -z "$version" ]; then

@@ -95,6 +95,10 @@ type Server struct {
 	sharedProbeI time.Duration
 	sharedProbeG time.Duration
 
+	// unbuiltSections are the settings sections the form leaves out
+	// (Options.UnbuiltSections).
+	unbuiltSections []string
+
 	// envLoginUser and envLoginHash are the web sign-in account supplied out of
 	// band (CODDY_HTTP_USER / CODDY_HTTP_PASSWORD). The password is hashed once
 	// as the server comes up, and neither value is ever written to config.yaml.

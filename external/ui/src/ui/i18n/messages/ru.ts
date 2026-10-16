@@ -268,6 +268,8 @@ export const messagesRu: Record<string, string> = {
     "Разрешить любому узлу присоединяться без токена присоединения. Только для стенда.",
   "settings.section.logger.label": "Логирование",
   "settings.section.logger.desc": "Уровень, приёмники, ротация",
+  "settings.section.metrics.label": "Метрики",
+  "settings.section.metrics.desc": "Экспортёр Prometheus, свой порт",
   "settings.section.gateways.label": "Шлюзы",
   "settings.section.gateways.desc": "Боты Telegram и Пачки",
   "settings.group.agent.turn": "Модель и ходы",
@@ -866,6 +868,19 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.logger.rotation.max_files.label": "Максимум файлов",
   "settings.schema.logger.rotation.max_files.desc":
     "Сколько сегментов ротации хранить; 0 — значения по умолчанию логгера.",
+  "settings.schema.metrics.label": "Метрики",
+  "settings.schema.metrics.desc":
+    "Экспортёр Prometheus на отдельном порту. Работает только в сборке с тегом metrics.",
+  "settings.schema.metrics.enable.label": "Включено",
+  "settings.schema.metrics.enable.desc": "Отдавать /metrics из этого процесса.",
+  "settings.schema.metrics.host.label": "Адрес прослушивания",
+  "settings.schema.metrics.host.desc":
+    "Адрес для привязки. Пусто - 127.0.0.1, он доступен только с этой машины.",
+  "settings.schema.metrics.port.label": "Порт",
+  "settings.schema.metrics.port.desc": "Порт для привязки. 0 - порт 12347.",
+  "settings.schema.metrics.token.label": "Токен",
+  "settings.schema.metrics.token.desc":
+    "Bearer-токен, который Prometheus должен предъявить при сборе метрик. Без токена экспортёр не требует учётных данных.",
   "settings.schema.sessions.label": "Сессии",
   "settings.schema.sessions.dir.label": "Каталог сессий",
   "settings.schema.sessions.dir.desc":

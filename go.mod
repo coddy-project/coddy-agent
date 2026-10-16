@@ -7,6 +7,7 @@ toolchain go1.26.9
 require (
 	github.com/EvilFreelancer/tgfake v1.1.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.1
+	github.com/VictoriaMetrics/metrics v1.44.1
 	github.com/anthropics/anthropic-sdk-go v1.27.1
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cucumber/godog v0.15.1
@@ -58,6 +59,8 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
+	github.com/valyala/fastrand v1.1.0 // indirect
+	github.com/valyala/histogram v1.2.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect

@@ -410,6 +410,14 @@ rules:
 #   timeout: "30m"
 #   retain_sessions: 5  # max completed run session dirs kept per job_id (default 5)
 
+# Prometheus exporter (Go: config.MetricsConfig, internal/config/metrics.go; only with go build -tags=metrics).
+# GET /metrics on a port of its own, run by coddy serve. See docs/operate/monitoring.md
+# metrics:
+#   enable: false
+#   host: "127.0.0.1"   # empty falls back to it; bind 0.0.0.0 only together with a token
+#   port: 12347         # 0 falls back to it
+#   token: ""           # bearer credential a scrape must present; ${ENV} is expanded
+
 # Logging (Go: config.Logger, internal/config/logger.go)
 logger:
   level: "info"           # debug | info | warn | error
@@ -500,6 +508,10 @@ httpserver:
 **`retain_sessions`** (по умолчанию **5**) ограничивает, сколько **завершённых** запусков хранится для каждого **`job_id`** (их записи задач и транскрипты в сессии задания); более старые запуски удаляются, когда завершается очередной. **`max_queue`** ограничивает число одновременно идущих запусков по всем заданиям, а **`timeout`** задаёт жёсткий предел одного запуска (пул фоновых задач всё равно ограничивает его значением **`tools.background.max_timeout_seconds`**).
 
 Когда планировщик фактически включён, инструменты **`coddy_scheduler_*`** покрывают просмотр списка и одного задания, создание, замену и частичное изменение, удаление, паузу и возобновление, ручной запуск, отмену и список метаданных запусков (**`coddy_scheduler_jobs_list`**, **`coddy_scheduler_job_get`**, **`coddy_scheduler_job_create`**, **`coddy_scheduler_job_replace`**, **`coddy_scheduler_job_patch`**, **`coddy_scheduler_job_delete`**, **`coddy_scheduler_job_pause`**, **`coddy_scheduler_job_resume`**, **`coddy_scheduler_job_run`**, **`coddy_scheduler_job_cancel`**, **`coddy_scheduler_job_runs`**). Со сборкой **`-tags=http,scheduler`** те же операции доступны через REST в **`/coddy/scheduler`** (см. **`docs/reference/http-api.md`**).
+
+## Экспортёр метрик (необязательная сборка)
+
+Ключ **`metrics`** (`config.MetricsConfig` в `internal/config/metrics.go`) действует только в бинарнике, собранном с **`-tags metrics`**; этот тег есть в бинарниках релиза. Любой другой бинарник при запуске отклоняет **`metrics.enable: true`** и называет тег. С тегом **`coddy serve`** запускает экспортёр рядом с другими подсистемами, когда **`metrics.enable`** равен true, и отдаёт **`GET /metrics`** на **`metrics.host`** и **`metrics.port`** (по умолчанию `127.0.0.1:12347`). **`metrics.token`** - bearer-токен, который должен предъявить сбор метрик: задайте его, прежде чем привязывать экспортёр не к loopback, о чём `coddy serve` предупреждает при старте, а `--dry-run` сообщает. В настройках есть вкладка **Метрики** в сборках с этим тегом. Конфигурация сбора, список метрик и правила оповещений описаны в разделе [Мониторинг](../operate/monitoring.md).
 
 ## Шлюз мессенджеров (`gateways`)
 
@@ -783,4 +795,4 @@ models:
 
 Уровни рассуждения для такого id Coddy определяет по модели после автора, поэтому **`openrouter/qwen/qwen3.8-flash`** предлагает уровни **`qwen3.8-flash`**. Список моделей агрегатора называет параметры запроса, которые принимает каждая модель (**`supported_parameters`**), и Coddy читает его вместе с окном контекста модели. Если список называет единый объект **`reasoning`**, а **`reasoning_effort`** не называет, выбранный уровень уходит как **`reasoning: {"effort": "<уровень>"}`**, а **`off`** как **`reasoning: {"enabled": false}`**. Переключатель Qwen3 **`chat_template_kwargs`** уходит только серверу, список которого его называет или не называет ничего. Рассуждение модели приходит в поле **`reasoning`** ответа и видно в чате, как любое другое, а рядом с его длительностью стоят токены, которые агрегатор за него насчитал (**`usage.completion_tokens_details.reasoning_tokens`**) ([Веб-интерфейс](../surfaces/web-ui.md#типы-сообщений-транскрипта)).
 
-<!-- docsgen:source sha256=a03e33272a6a8f82 -->
+<!-- docsgen:source sha256=5c098110196ccc54 -->

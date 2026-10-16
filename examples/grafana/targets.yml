@@ -1,0 +1,7 @@
+# The exporters Prometheus scrapes, one per `coddy serve` process. Every node
+# of a swarm (each agent and each relay) runs its own exporter, so list them
+# all; a label set here (node, role, site...) lands on every series of the
+# target and can be used to filter the dashboard.
+- targets: ["127.0.0.1:12347"]
+  labels:
+    node: local

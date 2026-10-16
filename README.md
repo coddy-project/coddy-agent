@@ -34,7 +34,13 @@ curl -fsSL https://coddy.dev/install.sh | bash
 irm https://coddy.dev/install.ps1 | iex
 ```
 
-The installer puts `coddy` on `PATH`, creates `~/.coddy/config.yaml` from the release `config.example.yaml` when it is missing and, on Linux and macOS, installs the man page and the shell completions. Every release also publishes `.deb` and `.rpm` packages, a Homebrew cask, archives for Linux, macOS, Windows and [Android under Termux](docs/getting-started/android.md), and the image `ghcr.io/coddy-project/coddy-agent` for `docker compose up -d`. The packages and the cask recommend tmux, for a console session that outlives the terminal, without installing it. Details for each route are in [Install](docs/getting-started/install.md) and [Docker](docs/getting-started/docker.md); building from source is `make build TAGS="http ui scheduler memory cli gateway swarm"` after `git clone`, see [Build from source](docs/contributing/build.md).
+The installer puts `coddy` on `PATH`, creates `~/.coddy/config.yaml` from the release `config.example.yaml` when it is missing and, on Linux and macOS, installs the man page and the shell completions. Every release also publishes `.deb` and `.rpm` packages, a Homebrew cask in the tap [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent), archives for Linux, macOS, Windows and [Android under Termux](docs/getting-started/android.md), and the image `ghcr.io/coddy-project/coddy-agent` for `docker compose up -d`. The packages and the cask recommend tmux, for a console session that outlives the terminal, without installing it. Details for each route are in [Install](docs/getting-started/install.md) and [Docker](docs/getting-started/docker.md); building from source is `make build TAGS="http ui scheduler memory cli gateway swarm metrics"` after `git clone`, see [Build from source](docs/contributing/build.md).
+
+On macOS, Homebrew installs it from Coddy's own tap and `brew upgrade` follows the releases:
+
+```bash
+brew install coddy-project/coddy-agent/coddy
+```
 
 Then give it a model. Put a provider key into `~/.coddy/config.yaml`, or export `OPENAI_API_KEY` and let the defaults pick it up:
 
@@ -66,6 +72,7 @@ agent:
 | Pachca | `coddy serve` with `gateways.pachca.enable` | A Pachca (Пачка) integration bot for direct chats, groups and threads; reads its events history, so no public address is needed | [Pachca gateway](docs/surfaces/pachca.md) |
 | Scheduler | `coddy serve` with `scheduler.enable` | Cron jobs as Markdown files, each run a session of its own | [Scheduler](docs/operate/scheduler.md) |
 | Swarm | `coddy serve` with `swarm.enable` | A relay that lists and reaches many Coddy nodes, including ones that can only dial out | [Swarm](docs/operate/swarm.md), [video](docs/assets/video/swarm.mp4) |
+| Metrics | `coddy serve` with `metrics.enable` | A Prometheus exporter on a port of its own: provider calls and tokens, turns, background tasks and the session disk, with alert rules for the common failures | [Monitoring](docs/operate/monitoring.md) |
 | Remote | `coddy --remote host:port` | The console, an editor or the browser driving a `coddy serve` on another machine | [Remote mode](docs/operate/remote.md) |
 
 `coddy serve` runs whatever `config.yaml` enables in one process. On Linux, `coddy serve install` runs it as a systemd user service of your account, working in `~/Coddy` (`coddy serve uninstall` removes it); elsewhere `coddy serve --daemon` keeps it running in the background with `status`, `stop` and `restart` ([coddy serve and the daemon](docs/operate/serve.md)).

@@ -140,6 +140,7 @@ func Run(ctx context.Context, req Request) *Report {
 	r.corsOpen()
 	r.miniApp()
 	r.listeners()
+	r.metricsExposure()
 	r.unsentModelSettings()
 	r.unknownToolsetTools()
 	r.gatewayAdmins()

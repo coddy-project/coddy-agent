@@ -273,6 +273,83 @@ func TestLoadFromCLIWhenConfigMissing_AppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestMetricsDefaults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+	cfgPath := filepath.Join(home, "empty.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(config.EnvCODDYConfig, cfgPath)
+
+	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Metrics.Enable {
+		t.Fatal("metrics.enable must default to false")
+	}
+	if got := cfg.Metrics.ListenAddr(); got != "127.0.0.1:12347" {
+		t.Fatalf("metrics listen address: got %q, want 127.0.0.1:12347", got)
+	}
+	m := config.MetricsConfig{Host: " ::1 ", Port: 9100, Token: " t "}
+	m.Normalize()
+	if got := m.ListenAddr(); got != "[::1]:9100" || m.Token != "t" {
+		t.Fatalf("normalized: addr %q token %q", got, m.Token)
+	}
+}
+
+// A metrics.port outside the range of a TCP port is refused when the file
+// loads, as httpserver.port and swarm.port are, instead of falling back to the
+// default and binding an address nobody asked for.
+func TestMetricsPortOutOfRangeIsRefused(t *testing.T) {
+	for _, port := range []string{"-1", "65536"} {
+		t.Run(port, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv(config.EnvCODDYHome, home)
+			cfgPath := filepath.Join(home, "config.yaml")
+			if err := os.WriteFile(cfgPath, []byte("metrics:\n  enable: true\n  port: "+port+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(config.EnvCODDYConfig, cfgPath)
+			if _, err := config.LoadFromCLI(config.CLIPaths{}); err == nil || !strings.Contains(err.Error(), "metrics.port") {
+				t.Fatalf("metrics.port %s loaded: %v, want an error naming metrics.port", port, err)
+			}
+		})
+	}
+}
+
+// An exporter bound anywhere but this machine, with no token, answers whoever
+// can reach the port.
+func TestMetricsExposedWithoutToken(t *testing.T) {
+	cases := []struct {
+		name string
+		m    config.MetricsConfig
+		want bool
+	}{
+		{"the default address", config.MetricsConfig{}, false},
+		{"127.0.0.1", config.MetricsConfig{Host: "127.0.0.1"}, false},
+		{"::1", config.MetricsConfig{Host: "::1"}, false},
+		{"localhost", config.MetricsConfig{Host: "localhost"}, false},
+		{"every interface", config.MetricsConfig{Host: "0.0.0.0"}, true},
+		{"every interface of IPv6", config.MetricsConfig{Host: "::"}, true},
+		{"a LAN address", config.MetricsConfig{Host: "192.168.1.20"}, true},
+		{"a host name", config.MetricsConfig{Host: "coddy.internal"}, true},
+		{"every interface behind a token", config.MetricsConfig{Host: "0.0.0.0", Token: "scrape-me"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.m.ExposedWithoutToken(); got != tc.want {
+				t.Fatalf("ExposedWithoutToken() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+	var none *config.MetricsConfig
+	if none.ExposedWithoutToken() {
+		t.Fatal("a missing section is not exposed")
+	}
+}
+
 func TestLoadFromCLIWhenConfigMissing_UsesLoopSafetyDefaults(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(config.EnvCODDYHome, home)

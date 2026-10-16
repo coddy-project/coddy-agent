@@ -7,6 +7,11 @@ the [configuration reference](../reference/config.md) and the per-surface guides
 ([HTTP API](../reference/http-api.md), [gateway](../surfaces/gateway.md), [swarm](swarm.md),
 [scheduler](scheduler.md)).
 
+One more subsystem serves beside them: the Prometheus exporter, under `metrics.enable`
+([Monitoring](monitoring.md)). It is auxiliary. It never counts as the surface that keeps the
+process up, so a configuration that enables only `metrics` is refused like one that enables
+nothing, and turning it off always works.
+
 The subsystems share more than the manager. A background task the agent started wakes it
 when it ends (`notify_on_finish`, on by default) whichever subsystems run: the process owns the
 waker, and hands each woken turn to the Telegram or Pachca chat bound to the session, else to the
@@ -279,7 +284,8 @@ What happens next depends on what moved:
 | Change | Effect |
 |--------|--------|
 | models, providers, skills, permissions, most settings | the live configuration is swapped; `GET /coddy/events` carries `config_reloaded` and open clients re-read (see [the SPA notes](../surfaces/web-ui.md)) |
-| the Telegram or the Pachca token (each bot is rebuilt alone, the other keeps running), the scheduler's directory or timeout, a relay's `swarm` settings other than its address | that subsystem alone is rebuilt in place |
+| the Telegram or the Pachca token (each bot is rebuilt alone, the other keeps running), the scheduler's directory or timeout, a relay's `swarm` settings other than its address, the exporter's address (`metrics.host` / `port`, with its counters kept) | that subsystem alone is rebuilt in place |
+| `metrics.token` | nothing is rebuilt: the exporter reads the token on every scrape |
 | a subsystem's `enable` | it is started, on the address the new configuration gives it, or stopped |
 | `mcp.project_trust` | every live session reconnects its configured MCP servers under the new policy; moved to `deny`, the project servers stop |
 | `mcp.idle_timeout_seconds` | a server that goes unheld from then on waits the new time before it stops |

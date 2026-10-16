@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -1540,6 +1541,42 @@ func TestSystemTasksAreAdmittedPastThePerSessionCapAndNotCounted(t *testing.T) {
 	}
 	sysHandle.finish(0)
 	waitForStatus(t, p, "s1", sys.ID, StatusSucceeded)
+}
+
+// A scrape counts the work in flight in every session, by kind and status. The
+// runtime's own tasks are not the model's and a finished task is no work in
+// flight, so neither is counted.
+func TestCountUnfinishedSkipsSystemTasks(t *testing.T) {
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{MaxConcurrent: 4})
+	t.Cleanup(func() { p.StopSession("s2") })
+	if got := p.CountUnfinished(); len(got) != 0 {
+		t.Fatalf("CountUnfinished() on an empty pool = %v, want nothing", got)
+	}
+
+	done, err := p.Start(Spec{SessionID: "s1", Command: "finishes"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	for _, spec := range []Spec{{SessionID: "s1", Command: "runs"}, {SessionID: "s2", Command: "runs too"}} {
+		if _, err := p.Start(spec); err != nil {
+			t.Fatalf("Start(): %v", err)
+		}
+	}
+	held := func(string, io.Writer) (Handle, error) { return &stubHandle{release: make(chan struct{})}, nil }
+	if _, err := p.Launch(Spec{SessionID: "s2", Kind: KindAgent, Label: "explore", Agent: &AgentInfo{Name: "explore"}}, held); err != nil {
+		t.Fatalf("Launch(): %v", err)
+	}
+	if _, err := p.Launch(systemAgentSpec("s1"), held); err != nil {
+		t.Fatalf("Launch(): %v", err)
+	}
+	runner.handles[0].finish(0)
+	waitForStatus(t, p, "s1", done.ID, StatusSucceeded)
+
+	want := map[Kind]map[Status]int{KindCommand: {StatusRunning: 2}, KindAgent: {StatusRunning: 1}}
+	if got := p.CountUnfinished(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("CountUnfinished() = %v, want %v", got, want)
+	}
 }
 
 func TestSystemFlagPersistsWithTheTaskRecord(t *testing.T) {

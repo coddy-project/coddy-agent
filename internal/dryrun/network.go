@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/external/httpserver"
@@ -20,6 +21,10 @@ import (
 
 const defaultTelegramAPIBase = "https://api.telegram.org"
 
+// portFlags name the command-line flag that moves a listener's port; a
+// listener without one (the exporter) is moved by its key alone.
+var portFlags = map[string]string{"httpserver": "-P", "swarm": "--swarm-port"}
+
 // listeners tries each address the command would bind, once, and lets go.
 func (r *runner) listeners() {
 	for _, l := range r.req.Listeners {
@@ -29,13 +34,13 @@ func (r *runner) listeners() {
 			r.rep.add(r.check(StatusOK, l.Path, l.Path+".port", l.Addr+" is free to bind", ""))
 			continue
 		}
-		flag := "-P"
-		if l.Path == "swarm" {
-			flag = "--swarm-port"
-		}
 		if isAddrInUse(err) {
+			change := l.Path + ".port"
+			if flag := portFlags[l.Path]; flag != "" {
+				change += " / " + flag
+			}
 			r.rep.add(r.check(StatusError, l.Path, l.Path+".port", l.Addr+" is in use",
-				fmt.Sprintf("another process listens there (a running coddy serve? see `coddy serve status`); stop it or change %s.port / %s", l.Path, flag)))
+				"another process listens there (a running coddy serve? see `coddy serve status`); stop it or change "+change))
 			continue
 		}
 		r.rep.add(r.check(StatusError, l.Path, l.Path+".port", fmt.Sprintf("cannot bind %s: %s", l.Addr, shortErr(err)),
@@ -46,6 +51,22 @@ func (r *runner) listeners() {
 func isAddrInUse(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "address already in use") || strings.Contains(msg, "only one usage of each socket address")
+}
+
+// metricsExposure warns of an exporter that coddy serve would run bound off
+// loopback with no token, once, at the line of the host that opens it: the
+// startup warning of the exporter, said before the daemon starts. A listener
+// for it exists only where serve resolved the exporter as enabled and built in.
+func (r *runner) metricsExposure() {
+	if r.req.Surface != SurfaceServe || !slices.ContainsFunc(r.req.Listeners, func(l Listener) bool { return l.Path == "metrics" }) {
+		return
+	}
+	if !r.req.Cfg.Metrics.ExposedWithoutToken() {
+		return
+	}
+	r.rep.add(r.check(StatusWarning, "metrics.token", "metrics.host",
+		"the metrics exporter will listen on "+r.req.Cfg.Metrics.ListenAddr()+" without a token: anybody who can reach the port reads its figures",
+		"set metrics.token, or bind metrics.host to 127.0.0.1"))
 }
 
 // telegramProbes checks the bot token against the Bot API when the gateway
