@@ -430,6 +430,30 @@ agent:
 	}
 }
 
+// The YAML writer writes allow_reasoning_off exactly when the row sets it: not
+// for a row that leaves it out, as a decoded written false, and as a true set
+// by code, which counts as written although no document said it.
+func TestAllowReasoningOffIsWrittenWhenTheRowSetsIt(t *testing.T) {
+	encode := func(m config.ModelEntry) string {
+		t.Helper()
+		raw, err := yaml.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	if out := encode(config.ModelEntry{Model: "far/coder"}); strings.Contains(out, "allow_reasoning_off") {
+		t.Errorf("a row without the key was written with it:\n%s", out)
+	}
+	if out := encode(config.ModelEntry{Model: "far/coder", AllowReasoningOff: true}); !strings.Contains(out, "allow_reasoning_off: true") {
+		t.Errorf("a true set by code was not written:\n%s", out)
+	}
+	written := triRow(t, config.ModelEntry{Model: "far/coder"}, triAbsent, triFalse)
+	if out := encode(written); !strings.Contains(out, "allow_reasoning_off: false") {
+		t.Errorf("a written false was not written:\n%s", out)
+	}
+}
+
 func TestLegacyFileWithBothKeysFalseLoadsAsExplicitFalse(t *testing.T) {
 	legacy := `providers:
   - name: far
@@ -580,5 +604,29 @@ func TestUISchemaCapabilityKeysStayBoolean(t *testing.T) {
 	}
 	if off := props["allow_reasoning_off"].(map[string]interface{}); off["default"] != false {
 		t.Errorf("allow_reasoning_off default = %v, want false", off["default"])
+	}
+}
+
+// The published schema types both keys as booleans whose default is false: an
+// absent key reads as false for every provider but coddy, whose row follows the
+// remote's listing for allow_reasoning_off.
+func TestSchemaFileCapabilityKeysAreBooleansThatDefaultToFalse(t *testing.T) {
+	var doc map[string]interface{}
+	if err := json.Unmarshal(config.ConfigSchemaJSON(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	items := doc["properties"].(map[string]interface{})["models"].(map[string]interface{})["items"].(map[string]interface{})
+	props := items["properties"].(map[string]interface{})
+	for _, key := range []string{"multimodal", "allow_reasoning_off"} {
+		node, ok := props[key].(map[string]interface{})
+		if !ok {
+			t.Fatalf("%s is missing from the schema", key)
+		}
+		if node["type"] != "boolean" {
+			t.Errorf("%s: schema type %v, want boolean", key, node["type"])
+		}
+		if node["default"] != false {
+			t.Errorf("%s: schema default %v, want false", key, node["default"])
+		}
 	}
 }

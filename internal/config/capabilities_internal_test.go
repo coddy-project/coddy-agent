@@ -46,8 +46,8 @@ agent:
 		if got.Exists {
 			file = fmt.Sprint(got.Value)
 		}
+		e := read()
 		if key == "allow_reasoning_off" {
-			e := read()
 			row := "absent"
 			if e.AllowReasoningOffExplicit() {
 				row = strconv.FormatBool(e.AllowReasoningOff)
@@ -55,6 +55,8 @@ agent:
 			if row != file {
 				t.Fatalf("%s: the file says %s, the loaded row %s", path, file, row)
 			}
+		} else if e.Multimodal != (file == "true") {
+			t.Fatalf("%s: the file says %s, the loaded row multimodal=%v", path, file, e.Multimodal)
 		}
 		return file
 	}

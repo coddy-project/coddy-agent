@@ -1,8 +1,44 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
+
+func TestSharedModelsRateLimit(t *testing.T) {
+	noOutOfBandCredentials(t)
+	h := &HTTPServerConfig{}
+	if per, burst := h.EffectiveSharedRate(); per != 0 || burst != 0 {
+		t.Fatalf("no default limit: got %d/%d", per, burst)
+	}
+	h.SharedModels.RatePerMinute = 30
+	if per, burst := h.EffectiveSharedRate(); per != 30 || burst != 5 {
+		t.Fatalf("burst defaults to min(rate, max_streams) = 5: got %d/%d", per, burst)
+	}
+	h.SharedModels.MaxStreams = 2
+	if _, burst := h.EffectiveSharedRate(); burst != 2 {
+		t.Fatalf("burst = %d, want 2", burst)
+	}
+	h.SharedModels.RateBurst = 7
+	if _, burst := h.EffectiveSharedRate(); burst != 7 {
+		t.Fatalf("burst = %d, want 7", burst)
+	}
+	for key, body := range map[string]string{
+		"httpserver.shared_models.rate_per_minute": "httpserver:\n  shared_models:\n    rate_per_minute: -1\n",
+		"httpserver.shared_models.rate_burst":      "httpserver:\n  shared_models:\n    rate_burst: -1\n",
+	} {
+		rep := checkYAML(t, withModeline(body))
+		var found bool
+		for _, e := range errorsOf(rep) {
+			if strings.Contains(e.Message, key) || e.Path == key {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: negative must be an error: %+v", key, rep.Findings)
+		}
+	}
+}
 
 func TestSwarmRelayDocumentCarriesTheNewKeys(t *testing.T) {
 	cfg := &Config{}

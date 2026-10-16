@@ -452,20 +452,20 @@ func TestCoddyPhaseOneResidueIsWarnedOnlyWhereTheRemoteDisagrees(t *testing.T) {
 }
 
 func TestCoddyEveryDifferingKeyGetsItsOwnWarning(t *testing.T) {
-	srv := rowsRemote(t, wireRow("coder", nil))
+	srv := rowsRemote(t, wireRow("coder", func(r *llm.WireModelRow) { r.Multimodal = false }))
 	rep := run(t, coddyKeysYAML(srv.URL,
-		"max_context_tokens: 64000", "allow_reasoning_off: false",
+		"max_context_tokens: 64000", "multimodal: true", "allow_reasoning_off: false",
 		"reasoning_default: low", "reasoning_levels: [low]"), nil)
 	got := keyChecks(rep)
-	if len(got) != 4 {
-		t.Fatalf("want four warnings, got %+v", got)
+	if len(got) != 5 {
+		t.Fatalf("want five warnings, got %+v", got)
 	}
-	for i, key := range []string{"max_context_tokens", "allow_reasoning_off", "reasoning_default", "reasoning_levels"} {
+	for i, key := range []string{"max_context_tokens", "multimodal", "allow_reasoning_off", "reasoning_default", "reasoning_levels"} {
 		if got[i].Path != "models[remote/coder]."+key || got[i].Status != StatusWarning {
 			t.Errorf("warning %d is %+v, want %s", i, got[i], key)
 		}
 	}
-	if rep.Warnings() != 4 || rep.Errors() != 0 {
+	if rep.Warnings() != 5 || rep.Errors() != 0 {
 		t.Errorf("%d warnings and %d errors", rep.Warnings(), rep.Errors())
 	}
 }
