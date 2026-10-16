@@ -1,5 +1,7 @@
 import { composerAutoFocusAllowed } from "./composerFocus";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -15,6 +17,19 @@ import { WorkspaceBar } from "./WorkspaceBar";
 import { useComposerFieldHeight } from "./useComposerFieldHeight";
 import { useT } from "../i18n/I18nProvider";
 import { ImageLightbox } from "../components/ImageLightbox";
+import { markupSupported } from "../markup/markupSupport";
+import { MarkupEditIcon } from "../markup/markupIcons";
+
+/**
+ * The picture markup editor, loaded the first time a picture opens in it:
+ * the canvas code stays out of app.js, which features/web_ui_diagrams.feature
+ * holds to a budget.
+ */
+const ImageMarkupDialog = lazy(() =>
+  import("../markup/ImageMarkupDialog").then((m) => ({
+    default: m.ImageMarkupDialog,
+  })),
+);
 import { PaperclipIcon } from "../components/PaperclipIcon";
 import { useEscapeCloses } from "../components/useEscapeCloses";
 import type {
@@ -230,10 +245,13 @@ function AttachedFileChip({
   file,
   disabled,
   onRemove,
+  onMarkup,
 }: {
   file: File;
   disabled: boolean;
   onRemove: () => void;
+  /** Opens the picture in the markup editor; absent where it cannot draw. */
+  onMarkup?: (() => void) | undefined;
 }) {
   const { t } = useT();
   const { svg, label } = fileTypeIcon(file.type, file.name);
@@ -285,6 +303,18 @@ function AttachedFileChip({
             data-testid="composer-attachment-thumb"
           />
         </button>
+        {onMarkup ? (
+          <button
+            type="button"
+            className="composer-attachment-card-markup"
+            aria-label={t("composer.markupAttachment", { fileName: file.name })}
+            title={t("composer.markupAttachment", { fileName: file.name })}
+            data-testid="composer-attachment-markup"
+            onClick={onMarkup}
+          >
+            <MarkupEditIcon />
+          </button>
+        ) : null}
         {remove}
         {zoomed ? (
           <ImageLightbox
@@ -617,6 +647,15 @@ export function Composer(props: {
   const attachHintTimerRef = useRef<number | null>(null);
   /** Names pasted images deterministically ("pasted-1.png"); clipboard files are all "image.png". */
   const pastedSeqRef = useRef(0);
+  /**
+   * The picture open in the markup editor: a pasted one (not attached yet:
+   * Done attaches it, Cancel drops it) or an attached one (Done replaces it,
+   * Cancel leaves it as it was).
+   */
+  const [markup, setMarkup] = useState<{
+    file: File;
+    attached: boolean;
+  } | null>(null);
   const attachmentSendingEnabled = props.llmModelMultimodal === true;
   const sendableAttachedFiles = attachmentSendingEnabled ? attachedFiles : [];
   const queuedMessages = props.queuedMessages ?? [];
@@ -3110,9 +3149,31 @@ export function Composer(props: {
                   onRemove={() =>
                     setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
                   }
+                  onMarkup={
+                    attachmentSendingEnabled && markupSupported()
+                      ? () => setMarkup({ file: f, attached: true })
+                      : undefined
+                  }
                 />
               ))}
             </div>
+          ) : null}
+          {markup ? (
+            <Suspense fallback={null}>
+              <ImageMarkupDialog
+                file={markup.file}
+                onCancel={() => setMarkup(null)}
+                onDone={(edited) => {
+                  const { file: source, attached } = markup;
+                  setMarkup(null);
+                  setAttachedFiles((prev) =>
+                    attached
+                      ? prev.map((f) => (f === source ? edited : f))
+                      : [...prev, edited],
+                  );
+                }}
+              />
+            </Suspense>
           ) : null}
           {attachHint ? (
             <div
@@ -3252,10 +3313,15 @@ export function Composer(props: {
                     showAttachHint();
                     return;
                   }
-                  setAttachedFiles((prev) => [
-                    ...prev,
-                    ...renamePastedImages(images, pastedSeqRef),
-                  ]);
+                  const pasted = renamePastedImages(images, pastedSeqRef);
+                  const [only] = pasted;
+                  if (only && pasted.length === 1 && markupSupported()) {
+                    // One pasted picture opens in the markup editor first,
+                    // as ctrl+v does in the console on a desktop.
+                    setMarkup({ file: only, attached: false });
+                    return;
+                  }
+                  setAttachedFiles((prev) => [...prev, ...pasted]);
                 }}
                 onCompositionStart={() => {
                   compositionEndedAtRef.current = null;

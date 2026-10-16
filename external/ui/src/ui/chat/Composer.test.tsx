@@ -11,6 +11,7 @@ import {
 import { describe, expect, test } from "vitest";
 import { Composer } from "./Composer";
 import { setLocale } from "../i18n/i18n";
+import { installMarkupFakes } from "../markup/markupFakes";
 import {
   recordWorkspaceAtRecent,
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
@@ -1397,6 +1398,8 @@ function dropFiles(el: Element, files: File[]) {
   fireEvent(el, ev);
 }
 
+// A browser that cannot draw (jsdom without the markup fakes) attaches a
+// pasted picture at once, without the markup editor.
 test("pasting an image attaches it under a deterministic pasted-N name", () => {
   stubMatchMediaMobile(false);
   render(
@@ -3369,4 +3372,121 @@ describe("the mirror follows the textarea", () => {
       }
     }
   });
+});
+
+/**
+ * Renders a multimodal composer in a browser that can draw (the markup
+ * fakes) and reports what it sends.
+ */
+function renderMarkupComposer() {
+  stubMatchMediaMobile(false);
+  const fakes = installMarkupFakes({ width: 40, height: 30 });
+  const urlCtor = URL as unknown as {
+    createObjectURL?: ((f: File) => string) | undefined;
+    revokeObjectURL?: ((u: string) => void) | undefined;
+  };
+  const orig = {
+    create: urlCtor.createObjectURL,
+    revoke: urlCtor.revokeObjectURL,
+  };
+  let n = 0;
+  urlCtor.createObjectURL = vi.fn(() => `blob:coddy-markup-${++n}`);
+  urlCtor.revokeObjectURL = vi.fn();
+  const onSend = vi.fn();
+  const view = render(
+    <Composer
+      value="look"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  return {
+    ...view,
+    onSend,
+    ta: screen.getByRole("textbox", { name: "Message" }),
+    restore: () => {
+      urlCtor.createObjectURL = orig.create;
+      urlCtor.revokeObjectURL = orig.revoke;
+      fakes.restore();
+    },
+  };
+}
+
+// A pasted picture opens in the markup editor first, as ctrl+v does in the
+// console on a desktop: Done attaches it as marked up (a PNG), and nothing is
+// attached while the editor is open.
+test("a pasted picture opens in the markup editor and Done attaches it", async () => {
+  const { ta, restore, onSend } = renderMarkupComposer();
+  try {
+    pasteWithImages(ta, [
+      new File(["img"], "image.jpeg", { type: "image/jpeg" }),
+    ]);
+    await screen.findByTestId("markup-canvas");
+    expect(screen.queryByTestId("composer-attachment-chip")).toBeNull();
+    fireEvent.click(screen.getByTestId("markup-done"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("markup-dialog")).toBeNull(),
+    );
+    expect(screen.getByTestId("composer-attachment-chip")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const files = onSend.mock.calls[0]![1] as File[];
+    expect(files.map((f) => [f.name, f.type])).toEqual([
+      ["pasted-1.png", "image/png"],
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+test("Cancel in the markup editor attaches nothing", async () => {
+  const { ta, restore } = renderMarkupComposer();
+  try {
+    pasteWithImages(ta, [
+      new File(["img"], "image.png", { type: "image/png" }),
+    ]);
+    await screen.findByTestId("markup-canvas");
+    fireEvent.click(screen.getByTestId("markup-cancel"));
+    expect(screen.queryByTestId("markup-dialog")).toBeNull();
+    expect(screen.queryByTestId("composer-attachment-chip")).toBeNull();
+  } finally {
+    restore();
+  }
+});
+
+// An attached picture's card has a pencil that opens it in the editor: Done
+// replaces it with the marked-up one, Cancel leaves it as it was.
+test("the pencil on an attached picture marks it up in place", async () => {
+  const { restore, onSend } = renderMarkupComposer();
+  try {
+    fireEvent.change(screen.getByTestId("composer-file-input"), {
+      target: {
+        files: [new File(["data"], "shot.webp", { type: "image/webp" })],
+      },
+    });
+    const pencil = screen.getByRole("button", { name: "Mark up shot.webp" });
+    fireEvent.click(pencil);
+    await screen.findByTestId("markup-canvas");
+    fireEvent.click(screen.getByTestId("markup-cancel"));
+    fireEvent.click(screen.getByRole("button", { name: "Mark up shot.webp" }));
+    const canvas = await screen.findByTestId("markup-canvas");
+    fireEvent.click(screen.getByTestId("markup-rotate"));
+    expect(canvas).toHaveAttribute("width", "30");
+    fireEvent.click(screen.getByTestId("markup-done"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("markup-dialog")).toBeNull(),
+    );
+    expect(screen.getAllByTestId("composer-attachment-chip")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const files = onSend.mock.calls[0]![1] as File[];
+    expect(files.map((f) => [f.name, f.type])).toEqual([
+      ["shot.png", "image/png"],
+    ]);
+  } finally {
+    restore();
+  }
 });
