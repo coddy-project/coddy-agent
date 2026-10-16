@@ -45,6 +45,9 @@ const rmpTurnSession = "sess_rmp_turn"
 type rmpHeldStream struct {
 	res     *http.Response
 	message string
+	// cancel ends the request: the scenario's end, or a read of its end that
+	// takes longer than the stand waits.
+	cancel context.CancelFunc
 }
 
 type rmpState struct {
@@ -89,6 +92,7 @@ func (s *rmpState) reset() error {
 
 func (s *rmpState) close() {
 	for _, h := range s.held {
+		h.cancel()
 		_ = h.res.Body.Close()
 	}
 	s.held = nil
@@ -162,7 +166,22 @@ func (s *rmpState) clientToken() string {
 	return ""
 }
 
-func (s *rmpState) send(method, path, token string, body []byte) (*http.Response, error) {
+// rmpDo sends req and reads its whole answer, both within the stand's wait, so
+// an answer that never ends fails the step instead of hanging the package.
+func rmpDo(req *http.Request) (*http.Response, []byte, error) {
+	ctx, cancel := context.WithTimeout(req.Context(), rmpWait)
+	defer cancel()
+	res, err := http.DefaultClient.Do(req.WithContext(ctx))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, err := io.ReadAll(res.Body)
+	return res, body, err
+}
+
+// remoteRequest builds a request to the remote, starting it first.
+func (s *rmpState) remoteRequest(method, path, token string, body []byte) (*http.Request, error) {
 	if err := s.remote.start(); err != nil {
 		return nil, err
 	}
@@ -180,19 +199,21 @@ func (s *rmpState) send(method, path, token string, body []byte) (*http.Response
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	return http.DefaultClient.Do(req)
+	return req, nil
 }
 
 // call sends a request to the remote and reads its whole answer.
 func (s *rmpState) call(method, path, token string, body []byte) error {
-	res, err := s.send(method, path, token, body)
+	req, err := s.remoteRequest(method, path, token, body)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = res.Body.Close() }()
-	s.status, s.header = res.StatusCode, res.Header
-	s.body, err = io.ReadAll(res.Body)
-	return err
+	res, raw, err := rmpDo(req)
+	if err != nil {
+		return err
+	}
+	s.status, s.header, s.body = res.StatusCode, res.Header, raw
+	return nil
 }
 
 func rmpWireBody(model, text string) []byte {
@@ -207,8 +228,19 @@ func rmpWireBody(model, text string) []byte {
 // requestStream asks the remote for one completion of alias. A stream the
 // provider holds stays open in held; any other answer is read whole.
 func (s *rmpState) requestStream(alias, text string) error {
-	res, err := s.send(http.MethodPost, "/coddy/llm/completions", rmpSharedToken, rmpWireBody(alias, text))
+	req, err := s.remoteRequest(http.MethodPost, "/coddy/llm/completions", rmpSharedToken, rmpWireBody(alias, text))
 	if err != nil {
+		return err
+	}
+	// The headers, and the whole answer of a stream nobody holds, come within
+	// the stand's wait; a held stream lives on until it is released or the
+	// scenario ends.
+	ctx, cancel := context.WithCancel(context.Background())
+	bound := time.AfterFunc(rmpWait, cancel)
+	res, err := http.DefaultClient.Do(req.WithContext(ctx))
+	if err != nil {
+		bound.Stop()
+		cancel()
 		return err
 	}
 	s.status, s.header = res.StatusCode, res.Header
@@ -217,11 +249,16 @@ func (s *rmpState) requestStream(alias, text string) error {
 		s.served++
 	}
 	if streaming && (s.remote.upstream.holdAll || text == rmpHoldMarker) {
-		s.held = append(s.held, rmpHeldStream{res: res, message: text})
+		bound.Stop()
+		s.held = append(s.held, rmpHeldStream{res: res, message: text, cancel: cancel})
 		s.body = nil
 		return nil
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		bound.Stop()
+		cancel()
+		_ = res.Body.Close()
+	}()
 	s.body, err = io.ReadAll(res.Body)
 	return err
 }
@@ -313,12 +350,14 @@ func (s *rmpState) localModel(sel string) (map[string]any, error) {
 	if err := s.local.start(s.remote); err != nil {
 		return nil, err
 	}
-	res, err := http.Get(s.local.ts.URL + "/v1/models")
+	req, err := http.NewRequest(http.MethodGet, s.local.ts.URL+"/v1/models", nil)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = res.Body.Close() }()
-	raw, _ := io.ReadAll(res.Body)
+	res, raw, err := rmpDo(req)
+	if err != nil {
+		return nil, err
+	}
 	if res.StatusCode != http.StatusOK {
 		return nil, errStatus("GET /v1/models", res.StatusCode, string(raw))
 	}
@@ -521,12 +560,14 @@ func (s *rmpState) localAddsInSettings(sel string) error {
 	if err := s.local.start(s.remote); err != nil {
 		return err
 	}
-	res, err := http.Get(s.local.ts.URL + "/coddy/config")
+	get, err := http.NewRequest(http.MethodGet, s.local.ts.URL+"/coddy/config", nil)
 	if err != nil {
 		return err
 	}
-	raw, _ := io.ReadAll(res.Body)
-	_ = res.Body.Close()
+	res, raw, err := rmpDo(get)
+	if err != nil {
+		return err
+	}
 	if res.StatusCode != http.StatusOK {
 		return errStatus("GET /coddy/config", res.StatusCode, string(raw))
 	}
@@ -542,12 +583,10 @@ func (s *rmpState) localAddsInSettings(sel string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	put, err := http.DefaultClient.Do(req)
+	put, answer, err := rmpDo(req)
 	if err != nil {
 		return err
 	}
-	answer, _ := io.ReadAll(put.Body)
-	_ = put.Body.Close()
 	if put.StatusCode != http.StatusOK {
 		return errStatus("PUT /coddy/config", put.StatusCode, string(answer))
 	}
@@ -555,6 +594,19 @@ func (s *rmpState) localAddsInSettings(sel string) error {
 }
 
 func (s *rmpState) localRestarts() error { return s.local.restart() }
+
+// localFileLeavesKeyOut holds that the row follows the remote rather than a
+// value of its own: the file names no allow_reasoning_off for it.
+func (s *rmpState) localFileLeavesKeyOut(sel string) error {
+	row, err := s.local.configRow(sel)
+	if err != nil {
+		return err
+	}
+	if v, ok := row["allow_reasoning_off"]; ok {
+		return fmt.Errorf("the local configuration file sets allow_reasoning_off: %v for %s", v, sel)
+	}
+	return nil
+}
 
 func (s *rmpState) localWithTool(name, tool, result string) error {
 	if tool != "get_weather" {
@@ -719,12 +771,15 @@ func (s *rmpState) localAttachesImage(sel string) error {
 			map[string]any{"type": "image_url", "image_url": map[string]any{"url": rmpRedSquare}},
 		}}},
 	})
-	res, err := http.Post(s.local.ts.URL+"/v1/chat/completions", "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, s.local.ts.URL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
-	defer func() { _ = res.Body.Close() }()
-	raw, _ := io.ReadAll(res.Body)
+	req.Header.Set("Content-Type", "application/json")
+	res, raw, err := rmpDo(req)
+	if err != nil {
+		return err
+	}
 	if res.StatusCode != http.StatusOK {
 		return errStatus("POST /v1/chat/completions", res.StatusCode, string(raw))
 	}
@@ -754,12 +809,10 @@ func (s *rmpState) localRunsTurn(sel, prompt string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Coddy-Session-ID", rmpTurnSession)
-	res, err := http.DefaultClient.Do(req)
+	res, raw, err := rmpDo(req)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = res.Body.Close() }()
-	raw, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
 		return errStatus("POST /v1/responses", res.StatusCode, string(raw))
 	}
@@ -785,12 +838,14 @@ func (s *rmpState) localReadsUsage(sel string) error {
 		return err
 	}
 	provider, alias, _ := strings.Cut(sel, "/")
-	res, err := http.Get(s.local.ts.URL + "/coddy/providers/" + provider + "/usage?model=" + alias)
+	req, err := http.NewRequest(http.MethodGet, s.local.ts.URL+"/coddy/providers/"+provider+"/usage?model="+alias, nil)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = res.Body.Close() }()
-	raw, _ := io.ReadAll(res.Body)
+	res, raw, err := rmpDo(req)
+	if err != nil {
+		return err
+	}
 	if res.StatusCode != http.StatusOK {
 		return errStatus("GET the local usage", res.StatusCode, string(raw))
 	}
@@ -867,7 +922,10 @@ func (s *rmpState) oneStreamEnds(n int) error {
 	h := s.held[0]
 	s.held = s.held[1:]
 	s.remote.upstream.release(h.message)
+	bound := time.AfterFunc(rmpWait, h.cancel)
 	raw, err := io.ReadAll(h.res.Body)
+	bound.Stop()
+	h.cancel()
 	_ = h.res.Body.Close()
 	if err != nil {
 		return err
@@ -954,8 +1012,30 @@ func (s *rmpState) assembles(text string) error {
 	return nil
 }
 
-func (s *rmpState) remoteReceivedSystemAndMessage(system, msg string) error {
+// remoteModelCall is the last call of the remote's provider, which has to be a
+// call of the model the remote shares now: the one row with shared_as.
+func (s *rmpState) remoteModelCall() (rmpUpstreamCall, error) {
 	call, err := s.remote.upstream.last()
+	if err != nil {
+		return call, err
+	}
+	var shared []string
+	for _, m := range s.remote.doc["models"].([]any) {
+		if row := m.(map[string]any); row["shared_as"] != nil {
+			shared = append(shared, fmt.Sprint(row["model"]))
+		}
+	}
+	if len(shared) != 1 {
+		return call, fmt.Errorf("the remote shares %v, want one model", shared)
+	}
+	if call.Selector != shared[0] {
+		return call, fmt.Errorf("the remote called %q, the alias points at %q", call.Selector, shared[0])
+	}
+	return call, nil
+}
+
+func (s *rmpState) remoteReceivedSystemAndMessage(system, msg string) error {
+	call, err := s.remoteModelCall()
 	if err != nil {
 		return err
 	}
@@ -1007,7 +1087,7 @@ func (s *rmpState) nothingSentMentions(word string) error {
 }
 
 func (s *rmpState) remoteOfferedSchema(tool string) error {
-	call, err := s.remote.upstream.last()
+	call, err := s.remoteModelCall()
 	if err != nil {
 		return err
 	}
@@ -1057,7 +1137,7 @@ func (s *rmpState) remoteExecutedNoTool() error {
 }
 
 func (s *rmpState) remoteReceivedToolResult(result, id string) error {
-	call, err := s.remote.upstream.last()
+	call, err := s.remoteModelCall()
 	if err != nil {
 		return err
 	}
@@ -1145,7 +1225,7 @@ func (s *rmpState) localReceivesReasoning(text string) error {
 }
 
 func (s *rmpState) remoteReceivedSignature(sig string) error {
-	call, err := s.remote.upstream.last()
+	call, err := s.remoteModelCall()
 	if err != nil {
 		return err
 	}
@@ -1158,7 +1238,7 @@ func (s *rmpState) remoteReceivedSignature(sig string) error {
 }
 
 func (s *rmpState) remoteDidNotReceiveSignature(sig string) error {
-	call, err := s.remote.upstream.last()
+	call, err := s.remoteModelCall()
 	if err != nil {
 		return err
 	}
@@ -1220,26 +1300,65 @@ func (s *rmpState) exchangeSummary() string {
 	return b.String()
 }
 
-func (s *rmpState) localRefreshesAndResends(string) error {
+// localRefreshesAndResends holds the sentence to its words: after the stale
+// answer the listing is read again, and then the refused request, for the same
+// alias with the same messages and tools, is sent exactly once more and
+// answered. Only the revision it names and its reasoning level may differ.
+func (s *rmpState) localRefreshesAndResends(alias string) error {
 	if err := s.settled(); err != nil {
 		return err
 	}
 	if s.staleAt < 0 {
 		return fmt.Errorf("no stale answer to follow")
 	}
-	read, resent := false, false
-	for _, ex := range s.remote.rec.snapshot()[s.staleAt+1:] {
+	log := s.remote.rec.snapshot()
+	refused, err := rmpWireRequestOf(log[s.staleAt])
+	if err != nil {
+		return err
+	}
+	read := false
+	var resent []rmpExchange
+	for _, ex := range log[s.staleAt+1:] {
 		switch {
 		case ex.Method == http.MethodGet && ex.Path == "/coddy/llm/models" && ex.Status == http.StatusOK:
 			read = true
-		case read && ex.Method == http.MethodPost && ex.Path == "/coddy/llm/completions" && ex.Status == http.StatusOK:
-			resent = true
+		case ex.Method == http.MethodPost && ex.Path == "/coddy/llm/completions":
+			if !read {
+				return fmt.Errorf("the local coddy sent a completion before it read the listing again%s", s.exchangeSummary())
+			}
+			resent = append(resent, ex)
 		}
 	}
-	if !read || !resent {
-		return fmt.Errorf("after the stale answer the local coddy read the listing: %v, sent the request again: %v%s", read, resent, s.exchangeSummary())
+	if !read || len(resent) != 1 || resent[0].Status != http.StatusOK {
+		return fmt.Errorf("after the stale answer the local coddy read the listing: %v, and sent %d completions, want one answered 200%s", read, len(resent), s.exchangeSummary())
+	}
+	again, err := rmpWireRequestOf(resent[0])
+	if err != nil {
+		return err
+	}
+	if refused.Model != alias || again.Model != alias {
+		return fmt.Errorf("the requests named %q and %q, want the alias %q", refused.Model, again.Model, alias)
+	}
+	if ok, got, want := rmpJSONEqual(again.Messages, refused.Messages); !ok {
+		return fmt.Errorf("the request sent again carried other messages: %s, refused %s", got, want)
+	}
+	if ok, got, want := rmpJSONEqual(again.Tools, refused.Tools); !ok {
+		return fmt.Errorf("the request sent again carried other tools: %s, refused %s", got, want)
+	}
+	kept := func(o llm.WireOptions) llm.WireOptions { o.ExpectedRevision, o.ReasoningEffort = nil, nil; return o }
+	if ok, got, want := rmpJSONEqual(kept(again.Options), kept(refused.Options)); !ok {
+		return fmt.Errorf("the request sent again changed more than the revision and the level: %s, refused %s", got, want)
 	}
 	return nil
+}
+
+// rmpWireRequestOf decodes the completion request of an exchange.
+func rmpWireRequestOf(ex rmpExchange) (llm.WireRequest, error) {
+	var req llm.WireRequest
+	if err := json.Unmarshal(ex.Request, &req); err != nil {
+		return req, fmt.Errorf("%s %s is not a completion request: %v", ex.Method, ex.Path, err)
+	}
+	return req, nil
 }
 
 func (s *rmpState) providerCalledOnce() error {
@@ -1284,7 +1403,7 @@ func (s *rmpState) localConfigSays(tokens int) error {
 }
 
 func (s *rmpState) providerReceivedLevel(level string) error {
-	call, err := s.remote.upstream.last()
+	call, err := s.remoteModelCall()
 	if err != nil {
 		return err
 	}
@@ -1295,7 +1414,7 @@ func (s *rmpState) providerReceivedLevel(level string) error {
 }
 
 func (s *rmpState) remoteReceivedImage() error {
-	call, err := s.remote.upstream.last()
+	call, err := s.remoteModelCall()
 	if err != nil {
 		return err
 	}
@@ -1543,6 +1662,7 @@ func initRemoteModelProviderScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a local coddy with a provider `+q+` of type coddy pointing at the remote and no model of it yet$`, s.localWithNoModel)
 	sc.Step(`^the local operator adds the model `+q+` in Settings$`, s.localAddsInSettings)
 	sc.Step(`^the local coddy restarts$`, s.localRestarts)
+	sc.Step(`^the local configuration file sets no allow_reasoning_off for `+q+`$`, s.localFileLeavesKeyOut)
 	sc.Step(`^the local coddy adds the model `+q+` without a context window$`, s.localAddsModel)
 	sc.Step(`^the local coddy adds the model `+q+` without reasoning levels$`, s.localAddsModel)
 	sc.Step(`^the local coddy adds the model `+q+` declaring it multimodal$`, s.localAddsMultimodal)

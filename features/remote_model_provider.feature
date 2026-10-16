@@ -125,6 +125,7 @@ Feature: A model shared by a remote Coddy serves another Coddy's harness
     When the local operator adds the model "remote/coder" in Settings
     And the local coddy restarts
     Then GET /v1/models of the local coddy reports "remote/coder" with the reasoning levels "low, high, off"
+    And the local configuration file sets no allow_reasoning_off for "remote/coder"
 
   Scenario: The requested reasoning level reaches the provider
     Given a remote coddy sharing "stub/qwen3-secret" as "coder" with the reasoning levels "low,high"
