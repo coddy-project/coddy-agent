@@ -348,3 +348,27 @@ func TestFramePaintsTheToolbarState(t *testing.T) {
 		t.Fatalf("the ring stayed on the old swatch: %v", p)
 	}
 }
+
+func TestEditorShortcutsFollowTheKeyNotTheLayout(t *testing.T) {
+	e := NewEditor(solid(400, 300, grey), 1)
+	// The R key in a Russian layout, and with caps lock on.
+	e.KeyPress(Key{Rune: 'к', Base: 'r'})
+	if e.Tool() != ToolRect {
+		t.Fatalf("the R key in a Russian layout picked %v", e.Tool())
+	}
+	e.KeyPress(Key{Rune: 'A', Base: 'a'})
+	if e.Tool() != ToolArrow {
+		t.Fatalf("the A key with caps lock picked %v", e.Tool())
+	}
+	drag(e, Pt{10, 10}, Pt{100, 100})
+	// ctrl+z where the layout makes it ctrl+я.
+	e.KeyPress(Key{Rune: 'я', Ctrl: true, Base: 'z'})
+	if e.Document().Edited() {
+		t.Fatal("ctrl+z in a Russian layout did not undo")
+	}
+	// A window that cannot tell the base still takes caps-locked letters.
+	e.KeyPress(Key{Rune: 'P'})
+	if e.Tool() != ToolPen {
+		t.Fatalf("P picked %v", e.Tool())
+	}
+}

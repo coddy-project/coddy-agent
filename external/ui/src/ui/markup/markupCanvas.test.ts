@@ -51,5 +51,9 @@ describe("renderPicture", () => {
     const label = fakes.calls.find((c) => c.op === "fillText");
     expect(label?.args).toEqual(["Привет", 5, 6]);
     expect(label?.canvas).toBe(out);
+    // The canvases a crop and a turn replaced give their pixels back.
+    const first = fakes.calls.find((c) => c.op === "strokeRect")!.canvas;
+    expect([first.width, first.height]).toEqual([0, 0]);
+    expect(out.width).toBe(50);
   });
 });

@@ -101,6 +101,7 @@ func (k *keymap) key(code xproto.Keycode, state uint16) (markup.Key, bool) {
 	if r == 0 {
 		return markup.Key{}, false
 	}
+	plain := keysymRune(at(0, 0))
 	if unicode.IsLetter(r) {
 		// A letter's case is shift, inverted by caps lock; a keymap that
 		// lists only one case for a key still types both.
@@ -113,7 +114,7 @@ func (k *keymap) key(code xproto.Keycode, state uint16) (markup.Key, bool) {
 	if ctrl {
 		r = unicode.ToLower(r)
 	}
-	return markup.Key{Rune: r, Ctrl: ctrl}, true
+	return markup.Key{Rune: r, Ctrl: ctrl, Base: plain}, true
 }
 
 // keysymRune is the character a keysym types: Latin-1 keysyms are their

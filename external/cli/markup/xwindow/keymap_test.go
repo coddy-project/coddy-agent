@@ -24,20 +24,20 @@ func TestKeymapTypesBothGroupsAndBothCases(t *testing.T) {
 		state uint16
 		want  markup.Key
 	}{
-		{10, 0, markup.Key{Rune: 'a'}},
-		{10, xproto.ModMaskShift, markup.Key{Rune: 'A'}},
-		{10, xproto.ModMaskLock, markup.Key{Rune: 'A'}},
-		{10, xproto.ModMaskLock | xproto.ModMaskShift, markup.Key{Rune: 'a'}},
-		{10, group2, markup.Key{Rune: 'ф'}},
-		{10, group2 | xproto.ModMaskShift, markup.Key{Rune: 'Ф'}},
-		{10, xproto.ModMaskControl, markup.Key{Rune: 'a', Ctrl: true}},
-		{10, xproto.ModMaskControl | xproto.ModMaskShift, markup.Key{Rune: 'a', Ctrl: true}},
+		{10, 0, markup.Key{Rune: 'a', Base: 'a'}},
+		{10, xproto.ModMaskShift, markup.Key{Rune: 'A', Base: 'a'}},
+		{10, xproto.ModMaskLock, markup.Key{Rune: 'A', Base: 'a'}},
+		{10, xproto.ModMaskLock | xproto.ModMaskShift, markup.Key{Rune: 'a', Base: 'a'}},
+		{10, group2, markup.Key{Rune: 'ф', Base: 'a'}},
+		{10, group2 | xproto.ModMaskShift, markup.Key{Rune: 'Ф', Base: 'a'}},
+		{10, xproto.ModMaskControl, markup.Key{Rune: 'a', Ctrl: true, Base: 'a'}},
+		{10, xproto.ModMaskControl | xproto.ModMaskShift, markup.Key{Rune: 'a', Ctrl: true, Base: 'a'}},
 		{11, 0, markup.Key{Name: "enter"}},
-		{12, group2, markup.Key{Rune: '2'}},
-		{12, group2 | xproto.ModMaskShift, markup.Key{Rune: '@'}},
+		{12, group2, markup.Key{Rune: '2', Base: '2'}},
+		{12, group2 | xproto.ModMaskShift, markup.Key{Rune: '@', Base: '2'}},
 		{13, 0, markup.Key{Name: "escape"}},
-		{14, 0, markup.Key{Rune: 'ё'}},
-		{14, xproto.ModMaskShift, markup.Key{Rune: 'Ё'}},
+		{14, 0, markup.Key{Rune: 'ё', Base: 'ё'}},
+		{14, xproto.ModMaskShift, markup.Key{Rune: 'Ё', Base: 'ё'}},
 	}
 	for _, c := range cases {
 		got, ok := k.key(c.code, c.state)

@@ -16,6 +16,7 @@ import {
   drawShape,
   labelFont,
   loadPicture as loadPictureDefault,
+  releaseCanvas,
   renderPicture,
   type LoadedPicture,
 } from "./markupCanvas";
@@ -96,6 +97,20 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const color = (MARKUP_PALETTE[colorIndex] ?? MARKUP_PALETTE[0]).color;
 
+  // Set once the editor is cancelled or gone: a PNG still being encoded
+  // then hands nothing back.
+  const closedRef = useRef(false);
+  useEffect(() => {
+    closedRef.current = false;
+    return () => {
+      closedRef.current = true;
+    };
+  }, []);
+  const cancel = useCallback(() => {
+    closedRef.current = true;
+    onCancel();
+  }, [onCancel]);
+
   useEffect(() => {
     let live = true;
     let loaded: LoadedPicture | null = null;
@@ -120,10 +135,41 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
     [picture],
   );
   const size = useMemo(() => sizeAfter(baseSize, ops), [baseSize, ops]);
-  const raster = useMemo(
-    () => (picture ? renderPicture(picture.source, baseSize, ops) : null),
-    [picture, baseSize, ops],
-  );
+  // The picture as it stands. A new shape is drawn onto the current raster;
+  // anything else (undo, a crop, a turn) replays the history onto a fresh
+  // one and the old one is released, so a large photo is not held once per
+  // step.
+  const rasterRef = useRef<{
+    picture: LoadedPicture;
+    ops: readonly MarkupOp[];
+    canvas: HTMLCanvasElement;
+  } | null>(null);
+  const raster = useMemo(() => {
+    if (!picture) return null;
+    const prev =
+      rasterRef.current?.picture === picture ? rasterRef.current : null;
+    if (prev && prev.ops === ops) return prev.canvas;
+    const last = ops[ops.length - 1];
+    if (
+      prev &&
+      last?.kind === "shape" &&
+      ops.length === prev.ops.length + 1 &&
+      prev.ops.every((op, i) => op === ops[i])
+    ) {
+      const ctx = prev.canvas.getContext("2d");
+      if (ctx) {
+        drawShape(ctx, last.shape);
+        rasterRef.current = { picture, ops, canvas: prev.canvas };
+        return prev.canvas;
+      }
+    }
+    const next = renderPicture(picture.source, baseSize, ops);
+    if (rasterRef.current && rasterRef.current.canvas !== next) {
+      releaseCanvas(rasterRef.current.canvas);
+    }
+    rasterRef.current = { picture, ops, canvas: next };
+    return next;
+  }, [picture, baseSize, ops]);
   const view = fitView(size, stage);
 
   // The stage's size decides how large the picture is shown.
@@ -148,13 +194,13 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
 
   // Leaving the screen closes the editor, like the picture viewer.
   useEffect(() => {
-    window.addEventListener("hashchange", onCancel);
-    window.addEventListener("popstate", onCancel);
+    window.addEventListener("hashchange", cancel);
+    window.addEventListener("popstate", cancel);
     return () => {
-      window.removeEventListener("hashchange", onCancel);
-      window.removeEventListener("popstate", onCancel);
+      window.removeEventListener("hashchange", cancel);
+      window.removeEventListener("popstate", cancel);
     };
-  }, [onCancel]);
+  }, [cancel]);
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
@@ -346,37 +392,81 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
     setBusy(true);
     try {
       const canvas = renderPicture(picture.source, baseSize, final);
-      const blob = await encode(canvas);
+      let blob: Blob;
+      try {
+        blob = await encode(canvas);
+      } finally {
+        releaseCanvas(canvas);
+      }
+      if (closedRef.current) return;
+      closedRef.current = true;
       onDone(new File([blob], markedUpName(file.name), { type: "image/png" }));
     } catch {
+      if (closedRef.current) return;
       setBusy(false);
       setFailed(true);
     }
   };
 
-  useEscapeCloses(!label, onCancel);
+  useEscapeCloses(!label, cancel);
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Tab") {
+      // aria-modal promises the page behind is inert; the portal sits
+      // outside the shell's DOM order, so Tab is wrapped by hand, as
+      // ConfirmDialog does.
+      const root = rootRef.current;
+      if (!root) return;
+      const items = Array.from(
+        root.querySelectorAll<HTMLElement>("button:not([disabled]), input"),
+      );
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) {
+        e.preventDefault();
+        return;
+      }
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || active === root)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+      return;
+    }
     if (e.target instanceof HTMLInputElement || e.nativeEvent.isComposing)
       return;
-    if (e.key === "Enter" && !e.repeat) {
+    if (e.key === "Enter") {
+      // Enter is Done only from the editor itself: on a focused button it
+      // is that button's own press.
+      if (e.target !== e.currentTarget || e.repeat) return;
       e.preventDefault();
       void done();
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
+    // Shortcuts go by the key, not the character, so they work in any
+    // layout and with caps lock on.
+    const letter =
+      /^Key([A-Z])$/.exec(e.code)?.[1]?.toLowerCase() ?? e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && letter === "z") {
       e.preventDefault();
       undo();
       return;
     }
     if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-      const next = MARKUP_TOOL_KEYS[e.key.toLowerCase()];
+      const next = MARKUP_TOOL_KEYS[letter];
       if (next) {
         e.preventDefault();
         pickTool(next);
       }
     }
   };
+
+  // A press on a control of the toolbar keeps the focus on the editor, so
+  // Enter after it is still Done.
+  const keepFocus = (e: { preventDefault: () => void }) => e.preventDefault();
 
   const toolTitle = (tl: MarkupTool) => {
     const key = Object.keys(MARKUP_TOOL_KEYS).find(
@@ -394,6 +484,7 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
       aria-label={t(`composer.markup.tool.${tl}`)}
       title={toolTitle(tl)}
       data-testid={`markup-tool-${tl}`}
+      onMouseDown={keepFocus}
       onClick={() => pickTool(tl)}
     >
       <MarkupToolIcon tool={tl} />
@@ -409,6 +500,16 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
       aria-label={t("composer.markup.title")}
       tabIndex={-1}
       onKeyDown={onKeyDown}
+      // A file dropped on the editor must not reach the composer under it
+      // (React bubbles through the portal) or the browser's own navigation.
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
       data-testid="markup-dialog"
     >
       <div className="markup-stage" ref={stageRef}>
@@ -479,7 +580,7 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
           type="button"
           className="markup-action markup-action--cancel"
           data-testid="markup-cancel"
-          onClick={onCancel}
+          onClick={cancel}
         >
           {t("common.cancel")}
         </button>
@@ -497,6 +598,7 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
             aria-label={t("composer.markup.rotate")}
             title={t("composer.markup.rotate")}
             data-testid="markup-rotate"
+            onMouseDown={keepFocus}
             disabled={!raster}
             onClick={rotate}
           >
@@ -508,6 +610,7 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
             aria-label={t("composer.markup.undo")}
             title={`${t("composer.markup.undo")} (Ctrl+Z)`}
             data-testid="markup-undo"
+            onMouseDown={keepFocus}
             disabled={ops.length === 0 && !label}
             onClick={undo}
           >
@@ -529,7 +632,7 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
                 aria-label={t(`composer.markup.color.${c.id}`)}
                 title={t(`composer.markup.color.${c.id}`)}
                 data-testid={`markup-color-${c.id}`}
-                onMouseDown={(e) => e.preventDefault()}
+                onMouseDown={keepFocus}
                 onClick={() => setColorIndex(i)}
               />
             ))}

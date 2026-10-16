@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
@@ -104,22 +106,57 @@ func TestPlanPicksTheDesktopsClipboard(t *testing.T) {
 	}
 }
 
-func TestReadFallsBackOnlyWhenASourceFails(t *testing.T) {
+func TestReadAsksEverySourceUntilOneHasAPicture(t *testing.T) {
 	want := pngBytes(t, 3, 2)
 	e := env("linux", map[string]string{"DISPLAY": ":0", "WAYLAND_DISPLAY": "w"}, "wl-paste")
-	f := &fakeRun{fail: map[string]error{"wl-paste --list-types": errors.New("broken pipe")}}
+	// wl-paste exits 1 for an empty clipboard and for a compositor it cannot
+	// reach alike (a stale WAYLAND_DISPLAY in tmux): X is asked next.
+	f := &fakeRun{fail: map[string]error{"wl-paste --list-types": exitErr(1)}}
 	e.Run = f.run
 	x11Asked := false
 	e.X11 = func(context.Context, string) (Image, error) { x11Asked = true; return fromBytes(want, "") }
-	// wl-paste exiting non-zero reads as an empty clipboard, so it never
-	// reaches the X source.
-	if _, err := Read(context.Background(), e); !errors.Is(err, ErrNoImage) || x11Asked {
-		t.Fatalf("an empty Wayland clipboard: err %v, x11 asked %v", err, x11Asked)
-	}
-	e.LookPath = func(string) (string, error) { return "", errors.New("none") }
 	img, err := Read(context.Background(), e)
-	if err != nil || !bytes.Equal(img.Data, want) {
-		t.Fatalf("x11 source: %v", err)
+	if err != nil || !x11Asked || !bytes.Equal(img.Data, want) {
+		t.Fatalf("a failing wl-paste kept X from answering: err %v, x11 asked %v", err, x11Asked)
+	}
+	// Both empty: no picture.
+	e.X11 = func(context.Context, string) (Image, error) { return Image{}, ErrNoImage }
+	if _, err := Read(context.Background(), e); !errors.Is(err, ErrNoImage) {
+		t.Fatalf("both empty: %v", err)
+	}
+	// One empty and one broken: the clipboard is empty, not broken.
+	e.X11 = func(context.Context, string) (Image, error) { return Image{}, errors.New("connection refused") }
+	if _, err := Read(context.Background(), e); !errors.Is(err, ErrNoImage) {
+		t.Fatalf("empty and broken: %v", err)
+	}
+	// Only a broken source: its error.
+	e.LookPath = func(string) (string, error) { return "", errors.New("none") }
+	if _, err := Read(context.Background(), e); err == nil || errors.Is(err, ErrNoImage) {
+		t.Fatalf("broken X alone: %v", err)
+	}
+}
+
+func TestAPictureDeclaringTooManyPixelsIsRefusedBeforeDecoding(t *testing.T) {
+	// A one-pixel PNG whose header is rewritten to claim 12000x12000:
+	// decoding it would hold half a gigabyte.
+	data := pngBytes(t, 1, 1)
+	ihdr := data[8:] // past the signature: length, "IHDR", width, height, ...
+	binary.BigEndian.PutUint32(ihdr[8:], 12000)
+	binary.BigEndian.PutUint32(ihdr[12:], 12000)
+	binary.BigEndian.PutUint32(ihdr[8+13:], crc32.ChecksumIEEE(ihdr[4:8+13]))
+	_, err := fromBytes(data, "")
+	if err == nil || !strings.Contains(err.Error(), "12000x12000") {
+		t.Fatalf("a 144-megapixel picture: %v", err)
+	}
+}
+
+func TestProgramOutputIsCapped(t *testing.T) {
+	b := &cappedBuffer{max: 4}
+	if _, err := b.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Write([]byte("de")); !errors.Is(err, errOutputTooLarge) {
+		t.Fatalf("a write past the cap: %v", err)
 	}
 }
 

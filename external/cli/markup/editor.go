@@ -5,6 +5,7 @@ package markup
 import (
 	"image"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -26,6 +27,18 @@ type Key struct {
 	Rune rune
 	Name string
 	Ctrl bool
+	// Base is what the key types in the first keyboard layout with neither
+	// shift nor caps lock, 0 when the window cannot tell. The shortcuts read
+	// it, so p, r or ctrl+z work in a Russian layout and with caps lock on.
+	Base rune
+}
+
+// shortcut is the letter a key stands for as a shortcut.
+func (k Key) shortcut() rune {
+	if k.Base != 0 {
+		return unicode.ToLower(k.Base)
+	}
+	return unicode.ToLower(k.Rune)
 }
 
 // Editor is the markup window's state and behaviour without the window: the
@@ -252,7 +265,7 @@ func (e *Editor) KeyPress(k Key) Result {
 			if _, n := utf8.DecodeLastRuneInString(e.label.Text); n > 0 {
 				e.label.Text = e.label.Text[:len(e.label.Text)-n]
 			}
-		case k.Ctrl && (k.Rune == 'z' || k.Rune == 'Z'):
+		case k.Ctrl && k.shortcut() == 'z':
 			e.Undo()
 		case k.Rune >= ' ' && !k.Ctrl:
 			e.label.Text += string(k.Rune)
@@ -264,10 +277,10 @@ func (e *Editor) KeyPress(k Key) Result {
 		return Done
 	case k.Name == "escape":
 		return Cancel
-	case k.Ctrl && (k.Rune == 'z' || k.Rune == 'Z'):
+	case k.Ctrl && k.shortcut() == 'z':
 		e.Undo()
 	case !k.Ctrl:
-		if t, ok := toolKeys[k.Rune]; ok {
+		if t, ok := toolKeys[k.shortcut()]; ok {
 			e.tool = t
 		}
 	}

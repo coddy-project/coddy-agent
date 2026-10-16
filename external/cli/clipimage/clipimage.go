@@ -10,7 +10,8 @@
 //   - macOS through osascript, which every Mac has;
 //   - Windows through PowerShell and System.Windows.Forms.
 //
-// The first source that answers wins; a source that is not there is skipped.
+// The sources are tried in that order and the first picture wins; a source
+// that is not there is skipped.
 package clipimage
 
 import (
@@ -40,6 +41,11 @@ var ErrNoImage = errors.New("the clipboard holds no image")
 // MaxBytes bounds what is read from the clipboard: a picture larger than
 // this would not reach a model anyway.
 const MaxBytes = 50 << 20
+
+// MaxPixels bounds the size a picture may declare: a small file can claim a
+// huge canvas, and decoding it, then editing it, holds four bytes a pixel
+// several times over. 40 megapixels is past an 8K screenshot.
+const MaxPixels = 40_000_000
 
 // Image is a picture taken from the clipboard.
 type Image struct {
@@ -72,6 +78,7 @@ func Read(ctx context.Context, env Env) (Image, error) {
 		return Image{}, errors.New("no clipboard to read: no X display, no wl-paste on a Wayland session")
 	}
 	var firstErr error
+	empty := false
 	for _, s := range sources {
 		img, err := s.read(ctx)
 		if err == nil {
@@ -80,14 +87,17 @@ func Read(ctx context.Context, env Env) (Image, error) {
 		if ctx.Err() != nil {
 			return Image{}, ctx.Err()
 		}
+		// The next source is asked either way: wl-paste exits 1 for an
+		// empty clipboard and for a compositor it cannot reach alike (a
+		// stale WAYLAND_DISPLAY inside tmux), and X may still answer.
 		if errors.Is(err, ErrNoImage) {
-			// Another source of the same desktop would see the same
-			// clipboard; only a source that failed hands over to the next.
-			return Image{}, ErrNoImage
-		}
-		if firstErr == nil {
+			empty = true
+		} else if firstErr == nil {
 			firstErr = err
 		}
+	}
+	if empty {
+		return Image{}, ErrNoImage
 	}
 	return Image{}, firstErr
 }
@@ -155,6 +165,13 @@ func fromBytes(data []byte, name string) (Image, error) {
 	}
 	if len(data) > MaxBytes {
 		return Image{}, fmt.Errorf("the clipboard image is larger than %d MB", MaxBytes>>20)
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return Image{}, fmt.Errorf("the clipboard image cannot be read: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > MaxPixels {
+		return Image{}, fmt.Errorf("the clipboard image is %dx%d, larger than %d megapixels", cfg.Width, cfg.Height, MaxPixels/1_000_000)
 	}
 	pic, format, err := image.Decode(bytes.NewReader(data))
 	if err != nil {

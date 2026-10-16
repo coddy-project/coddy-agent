@@ -101,9 +101,17 @@ func (c *Conn) AtomName(a xproto.Atom) string {
 	return r.Name
 }
 
-// ReadProperty reads a whole property of w, however long, and reports its
-// type and format. A missing property is a nil value with type 0.
-func (c *Conn) ReadProperty(w xproto.Window, prop xproto.Atom, del bool) (value []byte, typ xproto.Atom, format byte, err error) {
+// ErrPropertyTooLarge says a property holds more than the reader takes.
+var ErrPropertyTooLarge = errors.New("the X property is larger than the reader takes")
+
+// ReadProperty reads a whole property of w and reports its type and format;
+// a property longer than limit bytes (when limit is above zero) is
+// ErrPropertyTooLarge, found before more than limit bytes are held. A
+// missing property is a nil value with type 0.
+func (c *Conn) ReadProperty(w xproto.Window, prop xproto.Atom, del bool, limit int) (value []byte, typ xproto.Atom, format byte, err error) {
+	if del {
+		defer xproto.DeleteProperty(c.Conn, w, prop)
+	}
 	var offset uint32
 	for {
 		// The length is in 32-bit units; a megabyte per round trip.
@@ -114,15 +122,15 @@ func (c *Conn) ReadProperty(w xproto.Window, prop xproto.Atom, del bool) (value 
 		if r.Type == xproto.AtomNone {
 			return nil, 0, 0, nil
 		}
+		if limit > 0 && len(value)+len(r.Value)+int(r.BytesAfter) > limit {
+			return nil, 0, 0, ErrPropertyTooLarge
+		}
 		value = append(value, r.Value...)
 		typ, format = r.Type, r.Format
 		if r.BytesAfter == 0 {
 			break
 		}
 		offset += uint32(len(r.Value)) / 4
-	}
-	if del {
-		xproto.DeleteProperty(c.Conn, w, prop)
 	}
 	return value, typ, format, nil
 }
@@ -145,7 +153,7 @@ func (c *Conn) SetAtoms(w xproto.Window, prop xproto.Atom, atoms ...xproto.Atom)
 // resource (96 dpi is 1), in quarter steps between 1 and 4; 1 when the
 // resource is not set.
 func (c *Conn) DPIScale() float64 {
-	v, _, _, err := c.ReadProperty(c.Screen.Root, xproto.AtomResourceManager, false)
+	v, _, _, err := c.ReadProperty(c.Screen.Root, xproto.AtomResourceManager, false, 1<<20)
 	if err != nil {
 		return 1
 	}

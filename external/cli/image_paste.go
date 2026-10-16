@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/clipimage"
 	"github.com/EvilFreelancer/coddy-agent/external/cli/markup/xwindow"
@@ -71,14 +72,35 @@ func systemImageIO(getenv func(string) string) imageIO {
 	return io
 }
 
+// clipboardReadTimeout bounds reading the clipboard, so a helper program
+// stuck on a frozen clipboard owner does not keep the paste busy for the
+// rest of the session. The markup window has no bound: it waits for a person.
+var clipboardReadTimeout = 15 * time.Second
+
+// modelTakesPictures reports whether the session's model is marked as one
+// that reads images. In-process a model with no models row takes none, as
+// the send boundary decides; over --remote the server's catalogue is not
+// the local one, so only a row the local config knows can refuse.
+func (a *App) modelTakesPictures() bool {
+	entry := a.config().FindModelEntry(a.modelID)
+	if entry == nil {
+		return a.remoteURL != ""
+	}
+	return entry.Multimodal
+}
+
+func (a *App) refuseForModel() {
+	a.appendStatus(roleWarning, fmt.Sprintf("The model %s does not take pictures: set multimodal: true on its models row", a.modelID))
+}
+
 // pasteImage starts taking a picture from the clipboard (ctrl+v, alt+v).
 func (a *App) pasteImage() {
 	if a.imageBusy {
 		a.appendStatus(roleDim, "The last picture is still being read or marked up")
 		return
 	}
-	if entry := a.config().FindModelEntry(a.modelID); entry != nil && !entry.Multimodal {
-		a.appendStatus(roleWarning, fmt.Sprintf("The model %s does not take pictures: set multimodal: true on its models row", a.modelID))
+	if !a.modelTakesPictures() {
+		a.refuseForModel()
 		return
 	}
 	io := a.imgIO
@@ -91,13 +113,17 @@ func (a *App) pasteImage() {
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
-		got, err := io.read(ctx)
+		readCtx, cancel := context.WithTimeout(ctx, clipboardReadTimeout)
+		got, err := io.read(readCtx)
+		cancel()
 		if err != nil {
 			a.postUI(func() {
 				a.imageBusy = false
 				switch {
 				case errors.Is(err, clipimage.ErrNoImage):
 					a.appendStatus(roleDim, "No picture in the clipboard")
+				case errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil:
+					a.appendStatus(roleWarning, "Could not read the clipboard: its owner did not answer")
 				case ctx.Err() == nil:
 					a.appendStatus(roleWarning, "Could not read the clipboard: "+err.Error())
 				}
@@ -138,8 +164,14 @@ func pngName(name string) string {
 	return name + ".png"
 }
 
-// attachImage keeps a picture and puts its marker into the editor.
+// attachImage keeps a picture and puts its marker into the editor, unless
+// the model was switched to one that takes no pictures while it was on its
+// way.
 func (a *App) attachImage(data []byte, mime, name string) {
+	if !a.modelTakesPictures() {
+		a.refuseForModel()
+		return
+	}
 	if a.pasted == nil {
 		a.pasted = map[int]pastedImage{}
 	}
@@ -176,8 +208,9 @@ func extForMIME(mime string) string {
 }
 
 // imagePartsFor is the pictures a prompt's markers name, in the order they
-// first appear; a marker of a picture the console no longer holds (or one
-// typed by hand) stays plain text.
+// first appear. A marker of a picture the console no longer holds stays plain
+// text; one it still holds attaches that picture, whether the marker was
+// pasted, recalled from history or typed.
 func (a *App) imagePartsFor(text string) []acp.ImagePartRef {
 	var parts []acp.ImagePartRef
 	seen := map[int]bool{}

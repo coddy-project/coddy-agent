@@ -186,6 +186,81 @@ describe("ImageMarkupDialog", () => {
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
   });
 
+  it("Enter on a focused button is that button's press, not Done", async () => {
+    const { onDone } = await open();
+    const cancel = screen.getByTestId("markup-cancel");
+    cancel.focus();
+    const e = fireEvent.keyDown(cancel, { key: "Enter" });
+    expect(e).toBe(true); // not prevented: the button gets its own press
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("a press on a tool keeps the focus on the editor, so Enter stays Done", async () => {
+    const { onDone } = await open();
+    const rect = screen.getByTestId("markup-tool-rect");
+    expect(fireEvent.mouseDown(rect)).toBe(false);
+    fireEvent.click(rect);
+    fireEvent.keyDown(screen.getByTestId("markup-dialog"), { key: "Enter" });
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+  });
+
+  it("Cancel while the PNG is being encoded hands nothing back", async () => {
+    let finish: (b: Blob) => void = () => {};
+    const encode = () => new Promise<Blob>((r) => (finish = r));
+    const onDone = vi.fn();
+    const onCancel = vi.fn();
+    const file = new File(["raw"], "pasted-1.png", { type: "image/png" });
+    render(
+      <ImageMarkupDialog
+        file={file}
+        onDone={onDone}
+        onCancel={onCancel}
+        encode={encode}
+      />,
+    );
+    await screen.findByTestId("markup-canvas");
+    fireEvent.click(screen.getByTestId("markup-done"));
+    fireEvent.click(screen.getByTestId("markup-cancel"));
+    await act(async () => finish(new Blob(["png"], { type: "image/png" })));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("shortcuts go by the key, so a Russian layout and caps lock keep them", async () => {
+    const { canvas } = await open();
+    const root = screen.getByTestId("markup-dialog");
+    fireEvent.keyDown(root, { key: "к", code: "KeyR" });
+    expect(screen.getByTestId("markup-tool-rect")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.keyDown(root, { key: "A", code: "KeyA" });
+    expect(screen.getByTestId("markup-tool-arrow")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    drag(canvas, [10, 10], [120, 90]);
+    expect(screen.getByTestId("markup-undo")).toBeEnabled();
+    fireEvent.keyDown(root, { key: "я", code: "KeyZ", ctrlKey: true });
+    expect(screen.getByTestId("markup-undo")).toBeDisabled();
+  });
+
+  it("Tab stays inside the editor", async () => {
+    await open();
+    const root = screen.getByTestId("markup-dialog");
+    const done = screen.getByTestId("markup-done");
+    const cancel = screen.getByTestId("markup-cancel");
+    done.focus();
+    fireEvent.keyDown(done, { key: "Tab" });
+    expect(cancel).toHaveFocus();
+    fireEvent.keyDown(cancel, { key: "Tab", shiftKey: true });
+    expect(done).toHaveFocus();
+    root.focus();
+    fireEvent.keyDown(root, { key: "Tab", shiftKey: true });
+    expect(done).toHaveFocus();
+  });
+
   it("names the result after the original", () => {
     expect(markedUpName("shot.jpeg")).toBe("shot.png");
     expect(markedUpName("pasted-3.png")).toBe("pasted-3.png");

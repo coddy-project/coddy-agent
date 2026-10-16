@@ -23,12 +23,14 @@ import { MarkupEditIcon } from "../markup/markupIcons";
 /**
  * The picture markup editor, loaded the first time a picture opens in it:
  * the canvas code stays out of app.js, which features/web_ui_diagrams.feature
- * holds to a budget.
+ * holds to a budget. The chunk is fetched before the editor is shown
+ * (openMarkup), so a chunk the server no longer has - a tab left open across
+ * an update - falls back to attaching the picture instead of failing a
+ * render.
  */
+const loadImageMarkup = () => import("../markup/ImageMarkupDialog");
 const ImageMarkupDialog = lazy(() =>
-  import("../markup/ImageMarkupDialog").then((m) => ({
-    default: m.ImageMarkupDialog,
-  })),
+  loadImageMarkup().then((m) => ({ default: m.ImageMarkupDialog })),
 );
 import { PaperclipIcon } from "../components/PaperclipIcon";
 import { useEscapeCloses } from "../components/useEscapeCloses";
@@ -656,6 +658,16 @@ export function Composer(props: {
     file: File;
     attached: boolean;
   } | null>(null);
+  const openMarkup = (file: File, attached: boolean) => {
+    loadImageMarkup().then(
+      () => setMarkup({ file, attached }),
+      () => {
+        // Without the editor a pasted picture is attached as it is, as in
+        // a browser that cannot draw; an attached one stays as it was.
+        if (!attached) setAttachedFiles((prev) => [...prev, file]);
+      },
+    );
+  };
   const attachmentSendingEnabled = props.llmModelMultimodal === true;
   const sendableAttachedFiles = attachmentSendingEnabled ? attachedFiles : [];
   const queuedMessages = props.queuedMessages ?? [];
@@ -3151,7 +3163,7 @@ export function Composer(props: {
                   }
                   onMarkup={
                     attachmentSendingEnabled && markupSupported()
-                      ? () => setMarkup({ file: f, attached: true })
+                      ? () => openMarkup(f, true)
                       : undefined
                   }
                 />
@@ -3318,7 +3330,7 @@ export function Composer(props: {
                   if (only && pasted.length === 1 && markupSupported()) {
                     // One pasted picture opens in the markup editor first,
                     // as ctrl+v does in the console on a desktop.
-                    setMarkup({ file: only, attached: false });
+                    openMarkup(only, false);
                     return;
                   }
                   setAttachedFiles((prev) => [...prev, ...pasted]);

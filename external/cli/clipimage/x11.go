@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jezek/xgb"
@@ -60,7 +61,7 @@ func ReadX11(ctx context.Context, display string) (Image, error) {
 	byName := map[string]xproto.Atom{}
 	for i := 0; i+4 <= len(raw); i += 4 {
 		a := xproto.Atom(xgb.Get32(raw[i:]))
-		name := c.AtomName(a)
+		name := strings.ToLower(c.AtomName(a))
 		offered = append(offered, name)
 		byName[name] = a
 	}
@@ -126,7 +127,7 @@ func (r *selReader) convert(ctx context.Context, target xproto.Atom) ([]byte, er
 	if ev.(xproto.SelectionNotifyEvent).Property == xproto.AtomNone {
 		return nil, ErrNoImage
 	}
-	value, typ, _, err := r.c.ReadProperty(r.win, r.prop, true)
+	value, typ, _, err := r.c.ReadProperty(r.win, r.prop, true, MaxBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +145,7 @@ func (r *selReader) convert(ctx context.Context, target xproto.Atom) ([]byte, er
 		}); err != nil {
 			return nil, err
 		}
-		piece, _, _, err := r.c.ReadProperty(r.win, r.prop, true)
+		piece, _, _, err := r.c.ReadProperty(r.win, r.prop, true, MaxBytes)
 		if err != nil {
 			return nil, err
 		}

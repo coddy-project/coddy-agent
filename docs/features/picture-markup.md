@@ -11,11 +11,11 @@ Press **ctrl+v** in the console to paste the picture the clipboard holds. A term
 | Desktop | Where the picture comes from |
 |---|---|
 | X11, or Wayland with XWayland | the X clipboard, read over the X protocol by Coddy itself; `xclip` is not needed |
-| Wayland | `wl-paste` from wl-clipboard, when it is installed |
+| Wayland | `wl-paste` from wl-clipboard when it is installed, then the X clipboard when XWayland runs |
 | macOS | `osascript`, which every Mac has |
 | Windows | PowerShell |
 
-A picture the clipboard offers as PNG, JPEG, WebP, GIF, BMP or TIFF is taken; BMP and TIFF become PNG, since providers do not take them. An image file copied in a file manager is read from its path. Where the terminal keeps ctrl+v for its own paste, as Windows Terminal does, press **alt+v**.
+A picture the clipboard offers as PNG, JPEG, WebP, GIF, BMP or TIFF is taken; BMP and TIFF become PNG, since providers do not take them. An image file copied in a file manager is read from its path. A picture larger than 50 MB or 40 megapixels is refused before it is decoded, and a clipboard whose owner does not answer within 15 seconds is reported as such. Where the terminal keeps ctrl+v for its own paste, as Windows Terminal does, press **alt+v**.
 
 The picture appears in the editor as a marker, and the prompt that holds the marker carries the picture:
 
@@ -25,7 +25,7 @@ what is circled here? [image #1]
 
 Backspace deletes a marker as one piece, and the picture goes with it. The marker text reaches the model too, so a prompt with several pictures can say which one it means. A prompt recalled from history with the up arrow attaches its pictures again while they are among the last 32 pasted. A picture pasted while a turn runs travels with the message you queue ([Message queue](message-queue.md)).
 
-The console says so when the clipboard holds no picture, and refuses the paste when the session's model is not marked `multimodal`.
+The console says so when the clipboard holds no picture, and refuses the paste when the session's model is not marked `multimodal` or has no row in `models`; a picture still in the markup window when the session switches to such a model is not attached either. Over `--remote` the server decides which models take pictures.
 
 ## The markup window
 
@@ -46,7 +46,7 @@ The window is drawn by Coddy itself over the X protocol, with no GUI library, so
 | Text | `t` | a click puts a label there; type it, Enter finishes it, Escape drops it |
 | Crop | `c` | keeps the part of the picture inside the box dragged |
 
-The toolbar also turns the picture a quarter clockwise and takes back the last step: a shape, a label, a crop or a turn. Nothing is lost to a crop, since undo replays the original. The seven colours are red, orange, yellow, green, blue, white and black; a line's width and a label's size follow the size of the picture. **Enter** is Done and **Escape** is Cancel while no label is being typed, **ctrl+z** is undo. A label is typed in the keyboard layout in effect, a second layout such as Russian included. The window follows the desktop's scale (`Xft.dpi`).
+The toolbar also turns the picture a quarter clockwise and takes back the last step: a shape, a label, a crop or a turn. Nothing is lost to a crop, since undo replays the original. The seven colours are red, orange, yellow, green, blue, white and black; a line's width and a label's size follow the size of the picture. **Enter** is Done and **Escape** is Cancel while no label is being typed, **ctrl+z** is undo. A label is typed in the keyboard layout in effect, a second layout such as Russian included, while the shortcuts go by the key: `r` and ctrl+z work in a Russian layout and with caps lock on. The window follows the desktop's scale (`Xft.dpi`).
 
 ## In the web UI
 
@@ -54,9 +54,9 @@ The toolbar also turns the picture a quarter clockwise and takes back the last s
 
 *The markup editor in the web UI.*
 
-One picture pasted into the composer opens in the same editor over the chat. **Done** attaches it as a PNG named after the paste (`pasted-1.png`), **Cancel** or **Escape** attaches nothing. The tools, the keys and the colours are the ones in the table above; **Ctrl+Z** or **⌘Z** undoes the last step.
+One picture pasted into the composer opens in the same editor over the chat. **Done** attaches it as a PNG named after the paste (`pasted-1.png`), **Cancel** or **Escape** attaches nothing. The tools, the keys and the colours are the ones in the table above, the keys going by their place on the keyboard as in the console; **Ctrl+Z** or **⌘Z** undoes the last step. Enter on a focused button of the toolbar presses that button, and Tab stays inside the editor.
 
-A picture attached with the paperclip, dropped onto the composer or pasted together with others is attached at once. The pencil in the top-left corner of its card opens it in the editor: Done replaces it with the marked-up copy, Cancel leaves it as it was. A browser that cannot draw on a canvas attaches a pasted picture at once and shows no pencil.
+A picture attached with the paperclip, dropped onto the composer or pasted together with others is attached at once. The pencil in the top-left corner of its card opens it in the editor: Done replaces it with the marked-up copy, Cancel leaves it as it was. A browser that cannot draw on a canvas attaches a pasted picture at once and shows no pencil. The editor's code is loaded the first time a picture opens; when it cannot be loaded (a tab left open across an update), a pasted picture is attached as it is.
 
 ## What is sent
 

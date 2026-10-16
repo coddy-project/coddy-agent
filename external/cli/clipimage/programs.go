@@ -10,18 +10,46 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
+// maxProgramOutput bounds what a clipboard program may print: the picture as
+// hex (osascript) is twice its size, as base64 (PowerShell) a third more.
+const maxProgramOutput = 2*MaxBytes + 64<<10
+
+// errOutputTooLarge ends a program that printed more than a picture can be.
+var errOutputTooLarge = errors.New("the clipboard image is too large")
+
+// cappedBuffer keeps at most max bytes and fails the write past them, which
+// ends the copy from the program's pipe.
+type cappedBuffer struct {
+	bytes.Buffer
+	max int
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	if b.Len()+len(p) > b.max {
+		return 0, errOutputTooLarge
+	}
+	return b.Buffer.Write(p)
+}
+
 // RunProgram runs a program and returns its standard output; a non-zero exit
-// is an error carrying the exit status.
+// is an error carrying the exit status. ctx bounds it, and the pipes are
+// given up a second after the program is killed, so a helper that leaves a
+// child holding them does not hang the read.
 func RunProgram(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
+	out := &cappedBuffer{max: maxProgramOutput}
+	cmd.Stdout = out
+	cmd.WaitDelay = time.Second
 	platform.AdaptCommand(cmd)
 	if err := cmd.Run(); err != nil {
+		if out.Len() >= maxProgramOutput || errors.Is(err, errOutputTooLarge) {
+			return nil, errOutputTooLarge
+		}
 		return out.Bytes(), err
 	}
 	return out.Bytes(), nil

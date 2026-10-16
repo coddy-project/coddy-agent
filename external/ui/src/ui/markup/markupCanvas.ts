@@ -20,6 +20,15 @@ export function labelFont(size: number): string {
   return `bold ${size}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
 }
 
+/**
+ * Gives a canvas's pixels back at once rather than at garbage collection:
+ * Safari caps the memory of every canvas of a page together.
+ */
+export function releaseCanvas(c: HTMLCanvasElement): void {
+  c.width = 0;
+  c.height = 0;
+}
+
 /** Draws one mark onto a context in picture coordinates. */
 export function drawShape(ctx: CanvasRenderingContext2D, s: MarkupShape): void {
   ctx.save();
@@ -123,6 +132,7 @@ export function renderPicture(
       ctx = canvas.getContext("2d");
       if (!ctx) return prev;
       ctx.drawImage(prev, op.x, op.y, op.w, op.h, 0, 0, op.w, op.h);
+      releaseCanvas(prev);
     } else {
       // A quarter turn clockwise: (x, y) moves to (h - y, x).
       canvas = make(prev.height, prev.width);
@@ -132,6 +142,7 @@ export function renderPicture(
       ctx.rotate(Math.PI / 2);
       ctx.drawImage(prev, 0, 0);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
+      releaseCanvas(prev);
     }
   }
   return canvas;
