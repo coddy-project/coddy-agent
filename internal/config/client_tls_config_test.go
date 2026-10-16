@@ -11,9 +11,13 @@ func TestSharedModelsRateLimit(t *testing.T) {
 	if per, burst := h.EffectiveSharedRate(); per != 0 || burst != 0 {
 		t.Fatalf("no default limit: got %d/%d", per, burst)
 	}
+	h.SharedModels.RatePerMinute = 3
+	if per, burst := h.EffectiveSharedRate(); per != 3 || burst != 3 {
+		t.Fatalf("burst defaults to min(rate, max_streams) = 3, the rate: got %d/%d", per, burst)
+	}
 	h.SharedModels.RatePerMinute = 30
 	if per, burst := h.EffectiveSharedRate(); per != 30 || burst != 5 {
-		t.Fatalf("burst defaults to min(rate, max_streams) = 5: got %d/%d", per, burst)
+		t.Fatalf("burst defaults to min(rate, max_streams) = 5, the streams: got %d/%d", per, burst)
 	}
 	h.SharedModels.MaxStreams = 2
 	if _, burst := h.EffectiveSharedRate(); burst != 2 {
@@ -30,7 +34,7 @@ func TestSharedModelsRateLimit(t *testing.T) {
 		rep := checkYAML(t, withModeline(body))
 		var found bool
 		for _, e := range errorsOf(rep) {
-			if strings.Contains(e.Message, key) || e.Path == key {
+			if e.Path == key && strings.Contains(e.Message, "at least 0") {
 				found = true
 			}
 		}

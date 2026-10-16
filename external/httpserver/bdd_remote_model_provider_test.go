@@ -1622,6 +1622,21 @@ func initRemoteModelProviderScenario(sc *godog.ScenarioContext) {
 		if err != nil && s.logs != nil {
 			fmt.Fprintf(os.Stderr, "--- log of the failed scenario %q:\n%s", sn.Name, s.logs.String())
 		}
+		if err == nil && s.remote != nil {
+			// Every provider call reached the model the alias pointed at when it was made.
+			for i, c := range s.remote.upstream.snapshot() {
+				model := ""
+				for _, e := range s.remote.epochs {
+					if e.from <= i {
+						model = e.model
+					}
+				}
+				if model != "" && c.Selector != model {
+					s.close()
+					return ctx, fmt.Errorf("provider call %d went to %q, the alias pointed at %q", i, c.Selector, model)
+				}
+			}
+		}
 		s.close()
 		return ctx, nil
 	})

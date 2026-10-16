@@ -471,6 +471,28 @@ type rmpRemote struct {
 	srv         *Server
 	ts          *httptest.Server
 	runnerCalls atomic.Int64
+	// epochs are the model the alias pointed at from a provider call on.
+	epochs []rmpEpoch
+}
+
+type rmpEpoch struct {
+	from  int
+	model string
+}
+
+// markEpoch records the model the remote shares from the next provider call on.
+func (r *rmpRemote) markEpoch() {
+	var shared []string
+	for _, m := range r.doc["models"].([]any) {
+		if row := m.(map[string]any); row["shared_as"] != nil {
+			shared = append(shared, fmt.Sprint(row["model"]))
+		}
+	}
+	model := ""
+	if len(shared) == 1 {
+		model = shared[0]
+	}
+	r.epochs = append(r.epochs, rmpEpoch{from: r.upstream.callCount(), model: model})
 }
 
 func newRMPRemote(root string, logs *rmpLogBuffer) *rmpRemote {
@@ -638,6 +660,7 @@ func (r *rmpRemote) start() error {
 	// request, which bounds a vanished peer (httpx.ProbeCall).
 	r.ts.Config.ConnContext = httpx.ConnContext
 	r.ts.Start()
+	r.markEpoch()
 	return nil
 }
 
@@ -656,6 +679,7 @@ func (r *rmpRemote) reconfigure(edit func() error) error {
 	}
 	r.srv.ReplaceConfig(cfg)
 	r.mgr.ReplaceConfig(cfg)
+	r.markEpoch()
 	return nil
 }
 
