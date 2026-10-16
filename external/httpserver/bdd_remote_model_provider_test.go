@@ -495,6 +495,54 @@ func (s *rmpState) localWithBusyWait(name string, seconds int) error {
 	return nil
 }
 
+func (s *rmpState) localWithNoModel(name string) error {
+	s.local = newRMPLocal(s.root, name, s.logs)
+	s.local.noRows = true
+	return nil
+}
+
+// localAddsInSettings saves the settings document the way the web form does:
+// the document GET /coddy/config served, with one more models[] row that names
+// nothing but its model, sent back whole with PUT /coddy/config.
+func (s *rmpState) localAddsInSettings(sel string) error {
+	if err := s.local.start(s.remote); err != nil {
+		return err
+	}
+	res, err := http.Get(s.local.ts.URL + "/coddy/config")
+	if err != nil {
+		return err
+	}
+	raw, _ := io.ReadAll(res.Body)
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return errStatus("GET /coddy/config", res.StatusCode, string(raw))
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return err
+	}
+	models, _ := doc["models"].([]any)
+	doc["models"] = append(models, map[string]any{"model": sel})
+	body, _ := json.Marshal(doc)
+	req, err := http.NewRequest(http.MethodPut, s.local.ts.URL+"/coddy/config", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	put, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	answer, _ := io.ReadAll(put.Body)
+	_ = put.Body.Close()
+	if put.StatusCode != http.StatusOK {
+		return errStatus("PUT /coddy/config", put.StatusCode, string(answer))
+	}
+	return nil
+}
+
+func (s *rmpState) localRestarts() error { return s.local.restart() }
+
 func (s *rmpState) localWithTool(name, tool, result string) error {
 	if tool != "get_weather" {
 		return fmt.Errorf("the stand's local MCP server offers get_weather, not %q", tool)
@@ -1461,6 +1509,9 @@ func initRemoteModelProviderScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a local coddy with a provider `+q+` of type coddy pointing at the remote$`, s.localWithProvider)
 	sc.Step(`^a local coddy with a provider `+q+` of type coddy pointing at the remote with a busy wait of (\d+) seconds$`, s.localWithBusyWait)
 	sc.Step(`^a local coddy with a provider `+q+` and a local tool `+q+` that returns `+q+`$`, s.localWithTool)
+	sc.Step(`^a local coddy with a provider `+q+` of type coddy pointing at the remote and no model of it yet$`, s.localWithNoModel)
+	sc.Step(`^the local operator adds the model `+q+` in Settings$`, s.localAddsInSettings)
+	sc.Step(`^the local coddy restarts$`, s.localRestarts)
 	sc.Step(`^the local coddy adds the model `+q+` without a context window$`, s.localAddsModel)
 	sc.Step(`^the local coddy adds the model `+q+` without reasoning levels$`, s.localAddsModel)
 	sc.Step(`^the local coddy adds the model `+q+` declaring it multimodal$`, s.localAddsMultimodal)

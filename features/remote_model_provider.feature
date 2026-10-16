@@ -119,6 +119,13 @@ Feature: A model shared by a remote Coddy serves another Coddy's harness
     Then GET /v1/models of the local coddy reports "remote/coder" with a context of 64000 tokens
     And the local configuration file still says 64000
 
+  Scenario: A model added in Settings keeps following the reasoning off the remote allows
+    Given a remote coddy sharing "stub/qwen3-secret" as "coder" that allows reasoning off
+    And a local coddy with a provider "remote" of type coddy pointing at the remote and no model of it yet
+    When the local operator adds the model "remote/coder" in Settings
+    And the local coddy restarts
+    Then GET /v1/models of the local coddy reports "remote/coder" with the reasoning levels "low, high, off"
+
   Scenario: The requested reasoning level reaches the provider
     Given a remote coddy sharing "stub/qwen3-secret" as "coder" with the reasoning levels "low,high"
     And a local coddy with a provider "remote" of type coddy pointing at the remote

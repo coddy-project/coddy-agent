@@ -748,6 +748,8 @@ type rmpLocal struct {
 	rows         []map[string]any
 
 	weather *rmpWeatherMCP
+	// noRows starts the local Coddy with the provider and no model of it.
+	noRows bool
 
 	log *slog.Logger
 	mgr *session.Manager
@@ -801,7 +803,7 @@ func (l *rmpLocal) start(remote *rmpRemote) error {
 			return err
 		}
 	}
-	if len(l.rows) == 0 {
+	if len(l.rows) == 0 && !l.noRows {
 		l.row(l.providerName + "/coder")
 	}
 	if err := os.WriteFile(filepath.Join(l.cwd, "AGENTS.md"),
@@ -828,7 +830,9 @@ func (l *rmpLocal) start(remote *rmpRemote) error {
 	doc := map[string]any{
 		"providers": []any{provider},
 		"models":    rows,
-		"agent":     map[string]any{"model": l.rows[0]["model"]},
+	}
+	if len(l.rows) > 0 {
+		doc["agent"] = map[string]any{"model": l.rows[0]["model"]}
 	}
 	raw, err := yaml.Marshal(doc)
 	if err != nil {
@@ -955,6 +959,13 @@ func (l *rmpLocal) configRow(selector string) (map[string]any, error) {
 		}
 	}
 	return nil, fmt.Errorf("the local config file has no row %q:\n%s", selector, raw)
+}
+
+// restart stops the local Coddy and boots it again from the file, as a new
+// process does: nothing it held in memory survives.
+func (l *rmpLocal) restart() error {
+	l.stop()
+	return l.boot()
 }
 
 func (l *rmpLocal) stop() {

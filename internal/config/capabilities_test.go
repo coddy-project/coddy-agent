@@ -320,6 +320,116 @@ func TestCapabilityKeysJSONDTORoundTrip(t *testing.T) {
 	assertCapStates(t, "json null", viaNull)
 }
 
+// What a settings save writes: an absent allow_reasoning_off stays out of the
+// file and a written false stays in it. (multimodal is a plain boolean, whose
+// false is the absent key, so its spelling in the file is not checked.)
+func TestCapabilityKeysSurviveASettingsSave(t *testing.T) {
+	p := writeConfig(t, capYAML)
+	cur, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(config.ConfigToJSONDTO(cur))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded := saveThroughSettings(t, p, body)
+	assertCapStates(t, "after the settings save", reloaded)
+
+	written, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if section := rowSection(t, string(written), "openai/absent"); strings.Contains(section, "allow_reasoning_off") {
+		t.Errorf("the save wrote allow_reasoning_off for a row that never had it:\n%s", section)
+	}
+	if section := rowSection(t, string(written), "openai/no"); !strings.Contains(section, "allow_reasoning_off: false") {
+		t.Errorf("the save dropped a written allow_reasoning_off: false:\n%s", section)
+	}
+}
+
+// The writer the settings route uses (MarshalConfigYAMLForEdit over the file)
+// saves allow_reasoning_off as the form sent it. A row the form adds with no
+// allow_reasoning_off stays without one, so a model of a coddy provider goes on
+// following the remote's listing after the next load. A false the form sends
+// is written, also for a row whose file had no key (the operator turning off
+// what the listing offers), and a written false stays written. A row the form
+// sends back without the key (the switch at "remote") loses it in the file.
+func TestSettingsSaveWritesAllowReasoningOffAsTheFormSentIt(t *testing.T) {
+	p := writeConfig(t, `providers:
+  - name: far
+    type: coddy
+    api_base: http://127.0.0.1:1
+models:
+  - model: far/pinned
+    allow_reasoning_off: false
+  - model: far/inherit
+  - model: far/back
+    allow_reasoning_off: false
+agent:
+  model: far/pinned
+`)
+	live, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	served, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(config.ConfigToJSONDTO(live))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	models, _ := doc["models"].([]any)
+	for _, m := range models {
+		switch row, _ := m.(map[string]any); row["model"] {
+		case "far/inherit":
+			row["allow_reasoning_off"] = false
+		case "far/back":
+			delete(row, "allow_reasoning_off")
+		}
+	}
+	doc["models"] = append(models,
+		map[string]any{"model": "far/coder"},
+		map[string]any{"model": "far/written", "allow_reasoning_off": false})
+	body, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := config.ParseConfigJSONPreservingSecrets(body, live.Paths, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := config.MarshalConfigYAMLForEdit(next, served, live, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := rowSection(t, string(out), "far/coder"); strings.Contains(s, "allow_reasoning_off") {
+		t.Errorf("the save wrote allow_reasoning_off for a row the form sent without it:\n%s", s)
+	}
+	if err := os.WriteFile(p, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for model, want := range map[string]tri{"far/coder": triAbsent, "far/pinned": triFalse, "far/written": triFalse, "far/inherit": triFalse, "far/back": triAbsent} {
+		e := reloaded.FindModelEntry(model)
+		if e == nil {
+			t.Fatalf("%s is missing after the save:\n%s", model, out)
+		}
+		if got := offState(e); got != want {
+			t.Errorf("%s: allow_reasoning_off is %v after the save, want %v", model, got, want)
+		}
+	}
+}
+
 func TestLegacyFileWithBothKeysFalseLoadsAsExplicitFalse(t *testing.T) {
 	legacy := `providers:
   - name: far
