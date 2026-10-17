@@ -1,6 +1,6 @@
 # Images
 
-A model that reads images gets a picture two ways: you attach it to a prompt, or the agent opens an image file of the workspace with `read`. This page covers the second way and where you see what the agent looked at. Attaching a picture in the web composer is described in [Web UI](../surfaces/web-ui.md#composer-file-attachments-multimodal) and, for a message sent while a turn runs, in [Message queue](message-queue.md).
+A model that reads images gets a picture two ways: you attach it to a prompt, or the agent opens an image file of the workspace with `read`. This page covers the second way and where you see what the agent looked at. Attaching a picture in the web composer is described in [Web UI](../surfaces/web-ui.md#composer-file-attachments-multimodal) and, for a message sent while a turn runs, in [Message queue](message-queue.md); pasting one in the console or the browser, and marking it up first, in [Pasting and marking up pictures](picture-markup.md).
 
 ## A model that reads images
 

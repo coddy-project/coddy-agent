@@ -233,6 +233,7 @@ func (a *App) enqueuePromptFor(text string, mode session.QueueMode, savePreferen
 	a.expectGoalEcho(body)
 	sessionID, mgr, local := a.sessionID, a.mgr, a.remoteURL == ""
 	preferred := a.queuePreference
+	parts := a.imagePartsFor(body)
 	a.runQueueRequest(sessionID, func() queueResult {
 		if savePreference {
 			if writer, ok := mgr.(interface{ SetQueueModePreference(session.QueueMode) error }); ok {
@@ -248,7 +249,7 @@ func (a *App) enqueuePromptFor(text string, mode session.QueueMode, savePreferen
 		if withMode, ok := mgr.(interface {
 			EnqueueFollowUpWithMode(context.Context, string, string, string, session.QueueMode, []acp.ImagePartRef) (session.QueuedMessage, bool, string, error)
 		}); ok {
-			_, queued, _, err = withMode.EnqueueFollowUpWithMode(context.Background(), sessionID, body, "console", mode, nil)
+			_, queued, _, err = withMode.EnqueueFollowUpWithMode(context.Background(), sessionID, body, "console", mode, parts)
 		} else {
 			_, queued, _, err = mgr.EnqueueFollowUp(context.Background(), sessionID, body, "console")
 		}

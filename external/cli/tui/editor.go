@@ -324,8 +324,27 @@ func (e *Editor) InsertPaste(body string) {
 
 var pasteMarkerRegex = regexp.MustCompile(`\[paste #(\d+)(?: (?:\+\d+ lines|\d+ chars))?\]`)
 
-// markerRangeEndingAt reports a paste marker whose closing bracket sits at
-// col (backspace lands right after it).
+// imageMarkerRegex matches the marker of a picture attached to the prompt
+// ([image #N], InsertAtom). The console keeps the picture; the editor only
+// deletes the marker as one piece, like a paste marker.
+var imageMarkerRegex = regexp.MustCompile(`\[image #\d+\]`)
+
+// InsertAtom inserts a marker the editor deletes as one piece (an attached
+// picture's [image #N]), set off by spaces so typing goes on after it.
+func (e *Editor) InsertAtom(marker string) {
+	line := e.lines[e.cursorLine]
+	if e.cursorCol > 0 && line[e.cursorCol-1] != ' ' {
+		marker = " " + marker
+	}
+	if e.cursorCol >= len(line) || line[e.cursorCol] != ' ' {
+		marker += " "
+	}
+	e.insertText(marker)
+}
+
+// markerRangeEndingAt reports a paste or image marker whose closing bracket
+// sits at col (backspace lands right after it); id is the paste's, 0 for an
+// image marker.
 func (e *Editor) markerRangeEndingAt(line string, col int) (start, end, id int, ok bool) {
 	for _, m := range pasteMarkerRegex.FindAllStringSubmatchIndex(line, -1) {
 		if m[1] == col {
@@ -336,10 +355,16 @@ func (e *Editor) markerRangeEndingAt(line string, col int) (start, end, id int, 
 			return m[0], m[1], markerID, true
 		}
 	}
+	for _, m := range imageMarkerRegex.FindAllStringIndex(line, -1) {
+		if m[1] == col {
+			return m[0], m[1], 0, true
+		}
+	}
 	return 0, 0, 0, false
 }
 
-// markerRangeStartingAt reports a paste marker beginning exactly at col.
+// markerRangeStartingAt reports a paste or image marker beginning exactly at
+// col.
 func (e *Editor) markerRangeStartingAt(line string, col int) (start, end, id int, ok bool) {
 	for _, m := range pasteMarkerRegex.FindAllStringSubmatchIndex(line, -1) {
 		if m[0] == col {
@@ -348,6 +373,11 @@ func (e *Editor) markerRangeStartingAt(line string, col int) (start, end, id int
 				return 0, 0, 0, false
 			}
 			return m[0], m[1], markerID, true
+		}
+	}
+	for _, m := range imageMarkerRegex.FindAllStringIndex(line, -1) {
+		if m[0] == col {
+			return m[0], m[1], 0, true
 		}
 	}
 	return 0, 0, 0, false
