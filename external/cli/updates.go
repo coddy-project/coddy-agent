@@ -365,8 +365,9 @@ func (a *App) applyMessageChunk(u acp.MessageChunkUpdate) {
 		// deferred one that starts a prompt of its own (live submissions echo
 		// locally). The content is the message as the model got it: what a
 		// person reads is the text with its attachments collapsed to the
-		// mentions that brought them.
-		if text := session.UserMessageDisplayText(u.Content.Text); text != "" {
+		// mentions that brought them, and the files it was sent with named
+		// as [image #N] or [file: name] (session.UserMessageText).
+		if text := session.UserMessageText(u.Content.Text); text != "" {
 			a.chat.AddChild(newUserMessage(a.theme, text))
 			a.curAssistant = nil
 		}

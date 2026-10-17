@@ -147,10 +147,12 @@ type cliTUIState struct {
 	detachedAnswers chan *acp.PermissionResult
 	questionAns     [][]string
 	prompts         []string
-	sawCancel       bool
-	activeToolID    string
-	toolSeq         int
-	blockedCh       chan struct{}
+	// pictures holds the pictures each stub turn's prompt carried.
+	pictures     [][]llm.ImagePart
+	sawCancel    bool
+	activeToolID string
+	toolSeq      int
+	blockedCh    chan struct{}
 
 	prevSessionID string
 	// outside is a folder outside the workspace the "@" scenarios browse.
@@ -216,6 +218,7 @@ func (s *cliTUIState) reset() {
 	s.detachedAnswers = nil
 	s.questionAns = nil
 	s.prompts = nil
+	s.pictures = nil
 	s.sawCancel = false
 	s.activeToolID = ""
 	s.toolSeq = 0
@@ -345,8 +348,11 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 			userText += b.Text
 		}
 	}
+	// Like the agent, the turn takes the pictures its prompt brought.
+	pictures := st.TakePendingImageParts()
 	s.mu.Lock()
 	s.prompts = append(s.prompts, userText)
+	s.pictures = append(s.pictures, pictures)
 	var offered []string
 	for _, c := range st.GetMCPClients() {
 		offered = append(offered, c.Name())
