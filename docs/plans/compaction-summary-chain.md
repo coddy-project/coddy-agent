@@ -25,17 +25,25 @@ the numbers measured against `main`.
   from the prompt, not the session.
 - **The summarizer reads the chain but folds only the tail.** The earlier rows
   go in an `<earlier-summaries>` section ahead of the transcript, as context it
-  must not repeat; their size comes off the budget of each pass. A request with
-  no earlier rows is the one `main` sends.
+  must not repeat; their size comes off the budget of each pass, and they take
+  at most half of it, the oldest left out of the request first: the chain is
+  sized against the session's window, and a smaller `compaction.model` or a
+  switch to a smaller model would otherwise leave passes with no room for the
+  transcript. A request with no earlier rows is the one `main` sends.
 - **In-turn folds join the chain.** The first fold of a turn writes the row
   that begins with the prompt (#495); a second fold of the same turn adds a
   block without it, so a request carries the prompt once. The fold's step
   budget leaves room for the chain, which is in every request after it.
 - **Merge with hysteresis.** The chain may take a third of the session model's
   window; past that, the earliest rows are merged until it is down to half of
-  that share. The rows of the turn in progress and the row just written are
-  never merged. Both numbers are constants: #495 removed the keys a fold had
-  rather than adding new ones, and nothing measured here asks for a knob.
+  that share, the merged row counted as long as the longest row it retells
+  (the summarizer is asked for no more). The row just written is never merged.
+  The rows of the turn in progress go last, when the earlier ones are not
+  enough: one long turn folded again and again would otherwise grow a chain
+  that only ends the turn, and the merged row then carries the turn's prompt in
+  front, as the turn's first row did. Both numbers are constants: #495 removed
+  the keys a fold had rather than adding new ones, and nothing measured here
+  asks for a knob.
 
 ## 2. Method
 

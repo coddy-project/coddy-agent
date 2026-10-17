@@ -14,8 +14,8 @@ package agent
 // message with the tool results after it, so a batch of parallel calls is never
 // split. The steps before it are summarized; the latest ones stay as they were.
 // The prompt cannot be summarized away - a model that is not told what it was
-// asked answers nothing - so the summary row, which becomes the first message
-// of the replay window, begins with the prompt itself, verbatim, capped to a
+// asked answers nothing - so the summary row, which opens what the model reads
+// of the turn, begins with the prompt itself, verbatim, capped to a
 // share of the window, and only then carries the summary.
 //
 // How many steps stay is decided by a budget, not only by inTurnKeepRecentSteps:

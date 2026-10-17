@@ -604,8 +604,9 @@ func TestCompactSessionInTurnNeedsAtLeastTwoSteps(t *testing.T) {
 	}
 }
 
-// Folding twice keeps one copy of the prompt: the second row's head holds the
-// first row, whose prompt is not written again beside the new one.
+// Folding twice keeps one copy of the prompt: the first row carries it, and the
+// second, a block after it, summarizes only the steps since and does not write
+// the prompt again.
 func TestChainedInTurnFoldsKeepOnePromptCopy(t *testing.T) {
 	const prompt = "UNIQUE-REQUEST-TEXT: audit every module and report."
 	st := inTurnSession(t, prompt, 10)
@@ -636,10 +637,10 @@ func TestChainedInTurnFoldsKeepOnePromptCopy(t *testing.T) {
 	if issues := session.ValidateToolPairing(window); len(issues) > 0 {
 		t.Fatalf("malformed tool-call history after two folds: %v", issues)
 	}
-	// The second summarization request saw the first row: that is where the
-	// earlier work is.
+	// The second summarization request saw the first row among the earlier
+	// summaries: that is where the earlier work is.
 	if len(provider.requests) != 2 || !strings.Contains(transcriptText(provider.requests[1]), "SUMMARY-OF-EARLIER-WORK") {
-		t.Fatalf("the second fold did not summarize the first row: %d requests", len(provider.requests))
+		t.Fatalf("the second fold did not read the first row: %d requests", len(provider.requests))
 	}
 	// Each fold cuts in the middle of the work, the second one too, although its
 	// row has no prompt in front: the summarizer is told so both times.

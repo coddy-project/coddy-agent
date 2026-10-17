@@ -76,7 +76,7 @@ const compactionBlockPreamble = "The conversation after the summary above was co
 
 // inTurnSummaryPreamble follows the opening message of the turn at the start of
 // the summary row an in-turn fold writes. It says what the text above it is: the
-// row is the first message of the replay window, and without this line the
+// row opens what the model reads of the turn, and without this line the
 // request would read as a message of its own that the summary below it has
 // nothing to do with. The wording names no author: a goal turn's instruction and
 // a background wake's notice say who wrote them in their own first words. The
