@@ -354,6 +354,8 @@ export const messagesRu: Record<string, string> = {
   "settings.models.group.sharing": "Общий доступ",
   "settings.sharedAs.invalid":
     "Недопустимый псевдоним: от 1 до 64 латинских букв, цифр, точек, подчёркиваний или дефисов, первая буква или цифра.",
+  "settings.sharedAs.servedByCoddy":
+    "Модель, которую даёт другой Coddy, нельзя опубликовать ещё раз: удалите псевдоним.",
   "settings.sharedAs.placeholder":
     "например, terra; пусто оставляет модель закрытой",
   "settings.sharedAck.required": "обязательно",

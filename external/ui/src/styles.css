@@ -10997,6 +10997,18 @@ html:not([data-theme="light"]) .context-usage-note--error {
   background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
 }
 
+/* The id and the badges a remote Coddy's listing adds. The badges go under the
+   id when the row has no room for both, so the id is never cut to fit them. */
+.provider-models-item-main {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+
 .provider-models-item-id {
   flex: 0 1 auto;
   min-width: 0;
@@ -11018,7 +11030,7 @@ html:not([data-theme="light"]) .context-usage-note--error {
 .provider-models-item-badge {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 16em;
+  max-width: min(16em, 100%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

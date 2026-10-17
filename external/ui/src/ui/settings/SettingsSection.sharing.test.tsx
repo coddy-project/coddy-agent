@@ -12,6 +12,7 @@ import { SettingsSection } from "./SettingsSection";
 import type { JsonSchema } from "./SchemaForm";
 import type { SectionDescriptor } from "./settingsSections";
 import { initLocale } from "../i18n/i18n";
+import { AGENT_SCHEMA } from "./settingsServer.fakes";
 
 beforeEach(() => initLocale("en"));
 
@@ -153,6 +154,7 @@ function stubListing(models: unknown[] = []) {
 function Harness(props: {
   section: SectionDescriptor;
   doc: Record<string, unknown>;
+  schema?: JsonSchema;
 }) {
   const [doc, setDoc] = React.useState<Record<string, unknown>>(props.doc);
   return (
@@ -160,7 +162,7 @@ function Harness(props: {
       <output data-testid="settings-doc">{JSON.stringify(doc)}</output>
       <SettingsSection
         section={props.section}
-        schema={schema}
+        schema={props.schema ?? schema}
         doc={doc}
         setDoc={setDoc}
       />
@@ -242,6 +244,56 @@ test("a model of any other provider keeps Allow disabling reasoning as its switc
   expect(toggle.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(toggle);
   expect(savedModel().allow_reasoning_off).toBe(true);
+});
+
+// The served schema (internal/config/ui_schema.go) puts the sharing keys after
+// the reasoning ones, and a group stands where its first field stands.
+test("in the served form the Sharing group follows Reasoning and comes before Tools", () => {
+  stubListing();
+  render(
+    <Harness
+      section={modelsSection}
+      schema={AGENT_SCHEMA}
+      doc={{
+        providers: [{ name: "demo", type: "openai" }],
+        models: [{ model: "demo/m1" }],
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  const legends = [
+    ...document.querySelectorAll(".settings-schema-root > fieldset > legend"),
+  ].map((l) => l.textContent);
+  expect(legends).toEqual([
+    "Model",
+    "Generation",
+    "Reasoning",
+    "Sharing",
+    "Tools",
+  ]);
+});
+
+test("a model another Coddy serves offers no alias, so its form has no Sharing group", () => {
+  stubListing();
+  openModel(TERRA, { model: "terra/qwen" });
+  expect(screen.queryByTestId("shared-as-field")).toBeNull();
+  expect(screen.queryByTestId("settings-group-sharing")).toBeNull();
+  // The rest of the form is there.
+  expect(screen.getByTestId("settings-group-reasoning")).toBeTruthy();
+});
+
+test("an alias written on a model another Coddy serves stays on show, marked, until it is removed", () => {
+  stubListing();
+  openModel(TERRA, { model: "terra/qwen", shared_as: "again" });
+  const input = screen.getByTestId("shared-as-input") as HTMLInputElement;
+  expect(input.getAttribute("aria-invalid")).toBe("true");
+  expect(screen.getByTestId("shared-as-error").textContent).toBe(
+    "A model served by another Coddy cannot be shared again: remove the alias.",
+  );
+  fireEvent.change(input, { target: { value: "" } });
+  expect(savedModel().shared_as).toBe("");
+  expect(screen.queryByTestId("shared-as-field")).toBeNull();
+  expect(screen.queryByTestId("settings-group-sharing")).toBeNull();
 });
 
 test("the alias a model is shared as is its own field in a Sharing group", () => {

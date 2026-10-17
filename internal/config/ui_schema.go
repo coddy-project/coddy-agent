@@ -435,7 +435,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "toolset"},
+				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default", "allow_reasoning_off", "shared_as", "shared_subscription_ack", "toolset"},
 				[]string{"model"}),
 		},
 		"toolsets": map[string]interface{}{

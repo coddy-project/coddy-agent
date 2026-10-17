@@ -653,6 +653,27 @@ test("a model row's subscription acknowledgement is indexed only for a shared mo
   expect(ackRows(doc)).toEqual(["neuraldeep/qwen3"]);
 });
 
+// A model another Coddy serves draws no alias field unless one is written, and
+// then no Sharing group either; the index lists neither for it.
+test("a model another Coddy serves has no alias and no Sharing group in the index", () => {
+  const doc = configFromSchema(AGENT_SCHEMA);
+  const providers = doc["providers"] as Record<string, unknown>[];
+  const models = doc["models"] as Record<string, unknown>[];
+  providers.push({ name: "terra", type: "coddy" });
+  models.push({ model: "terra/qwen" });
+  const rowsOf = (anchor: string) =>
+    entriesAt(indexOf(AGENT_SCHEMA, doc), anchor).map((e) => e.row);
+
+  expect(rowsOf("models:shared_as")).not.toContain("terra/qwen");
+  expect(rowsOf("group:models:sharing")).not.toContain("terra/qwen");
+  expect(rowsOf("models:shared_as")).toContain("demo/qwen3-27b");
+
+  // A written alias stays findable, so that it can be taken out.
+  models[models.length - 1]!["shared_as"] = "again";
+  expect(rowsOf("models:shared_as")).toContain("terra/qwen");
+  expect(rowsOf("group:models:sharing")).toContain("terra/qwen");
+});
+
 // busy_wait_ms is drawn only on a provider row of type coddy (overrideTexts),
 // so the index lists it under exactly those rows.
 test("a provider row's busy_wait_ms is indexed only for a remote Coddy", () => {

@@ -936,6 +936,23 @@ export function SchemaForm(props: {
     />
   );
   const renderGroup = (g: SchemaFormGroup, fields: [string, JsonSchema][]) => {
+    // A group none of whose fields is drawn here draws no frame either (the
+    // settings search skips it by the same answers).
+    if (
+      fieldOverride &&
+      fields.every(
+        ([k, sub]) =>
+          fieldOverride({
+            path: k,
+            schema: sub,
+            value: value[k],
+            onChange: () => {},
+            parentObj: value,
+          }) === false,
+      )
+    ) {
+      return null;
+    }
     const testid = `settings-group-${g.id}`;
     return g.collapsible ? (
       <CollapsibleFieldset

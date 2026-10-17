@@ -348,6 +348,8 @@ export const messagesEn: Record<string, string> = {
   "settings.models.group.sharing": "Sharing",
   "settings.sharedAs.invalid":
     "Not a valid alias: use 1 to 64 letters, digits, dots, underscores or hyphens, starting with a letter or a digit.",
+  "settings.sharedAs.servedByCoddy":
+    "A model served by another Coddy cannot be shared again: remove the alias.",
   "settings.sharedAs.placeholder": "e.g. terra; empty keeps the model private",
   "settings.sharedAck.required": "required",
   "settings.sharedAck.warning":

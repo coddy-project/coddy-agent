@@ -183,27 +183,29 @@ export function ProviderModelList(props: {
                 data-testid={`provider-model-${m.id}`}
                 title={modelDisplayName(m)}
               >
-                <span className="provider-models-item-id">{m.id}</span>
-                {remote && m.multimodal ? (
-                  <span
-                    className="provider-models-item-badge"
-                    data-testid={`provider-model-images-${m.id}`}
-                    title={t("settings.providerModels.imagesTitle")}
-                  >
-                    {t("settings.providerModels.images")}
-                  </span>
-                ) : null}
-                {remote && listedLevels(m).length > 0 ? (
-                  <span
-                    className="provider-models-item-badge"
-                    data-testid={`provider-model-levels-${m.id}`}
-                    title={t("settings.providerModels.levelsTitle", {
-                      levels: listedLevels(m).join(", "),
-                    })}
-                  >
-                    {listedLevels(m).join(" · ")}
-                  </span>
-                ) : null}
+                <span className="provider-models-item-main">
+                  <span className="provider-models-item-id">{m.id}</span>
+                  {remote && m.multimodal ? (
+                    <span
+                      className="provider-models-item-badge"
+                      data-testid={`provider-model-images-${m.id}`}
+                      title={t("settings.providerModels.imagesTitle")}
+                    >
+                      {t("settings.providerModels.images")}
+                    </span>
+                  ) : null}
+                  {remote && listedLevels(m).length > 0 ? (
+                    <span
+                      className="provider-models-item-badge"
+                      data-testid={`provider-model-levels-${m.id}`}
+                      title={t("settings.providerModels.levelsTitle", {
+                        levels: listedLevels(m).join(", "),
+                      })}
+                    >
+                      {listedLevels(m).join(" · ")}
+                    </span>
+                  ) : null}
+                </span>
                 {m.context_window ? (
                   <span
                     className="provider-models-item-ctx"

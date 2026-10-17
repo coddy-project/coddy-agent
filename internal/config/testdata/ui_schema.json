@@ -998,6 +998,8 @@
           "reasoning_levels",
           "reasoning_default",
           "allow_reasoning_off",
+          "shared_as",
+          "shared_subscription_ack",
           "toolset"
         ]
       },

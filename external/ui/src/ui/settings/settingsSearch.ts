@@ -504,6 +504,16 @@ function walkForm(walk: Walk, parent: PlainObject, where: string[]): void {
       continue;
     }
     const g = node.group;
+    // A group whose every field the form leaves out is not drawn (SchemaForm).
+    if (
+      node.fields.length > 0 &&
+      node.fields.every(
+        ([k, sub]) =>
+          overrideTexts(form.domain, k, parent, sub, walk.providers) === false,
+      )
+    ) {
+      continue;
+    }
     walk.out.push(
       makeSearchEntry({
         kind: "group",

@@ -16,6 +16,7 @@ import {
   CODDY_PROVIDER_TYPE,
   contextWindowToPin,
   isCoddyType,
+  modelServedByCoddy,
   providerRowOfModel,
   sharedSubscriptionAckNeeded,
 } from "./sharedModels";
@@ -299,6 +300,15 @@ export function overrideTexts(
     if (
       path === "shared_subscription_ack" &&
       !sharedSubscriptionAckNeeded(parent, providers)
+    ) {
+      return false;
+    }
+    // A model another Coddy serves is not offered to be shared again; an alias
+    // already written stays on show, marked, so that it can be taken out.
+    if (
+      path === "shared_as" &&
+      modelServedByCoddy(parent, providers) &&
+      rowText(parent, "shared_as").trim() === ""
     ) {
       return false;
     }
@@ -712,10 +722,17 @@ export function SettingsSection(props: {
               }
             }
             if (ctx.path === "shared_as") {
+              if (boxFor(key, ctx, providerRows) === false) {
+                return false;
+              }
               return (
                 <SharedAsField
                   value={ctx.value}
                   onChange={(value) => ctx.onChange(value)}
+                  servedByCoddy={modelServedByCoddy(
+                    ctx.parentObj,
+                    providerRows,
+                  )}
                   label={schemaFieldLabel(
                     key,
                     "shared_as",

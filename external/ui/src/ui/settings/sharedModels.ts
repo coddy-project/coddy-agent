@@ -64,6 +64,17 @@ export function providerRowOfModel(
 }
 
 /**
+ * Whether a model row is served by another Coddy (its provider is of type
+ * coddy). Such a model cannot be shared again: the loader refuses shared_as on it.
+ */
+export function modelServedByCoddy(
+  model: Record<string, unknown> | undefined,
+  providers: ProviderRow[],
+): boolean {
+  return isCoddyType(providerRowOfModel(text(model?.model), providers)?.type);
+}
+
+/**
  * Whether a model row needs shared_subscription_ack: it is shared and its
  * provider runs through a subscription login.
  */

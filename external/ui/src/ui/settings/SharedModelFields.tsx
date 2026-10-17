@@ -14,11 +14,14 @@ export function SharedAsField(props: {
   onChange: (value: string) => void;
   label: string;
   description?: string | undefined;
+  /** The model is served by another Coddy, which no alias may share again. */
+  servedByCoddy?: boolean | undefined;
 }) {
-  const { value, onChange, label, description } = props;
+  const { value, onChange, label, description, servedByCoddy } = props;
   const { t } = useT();
   const errorId = useId();
-  const invalid = !sharedAliasIsValid(value);
+  const reshared = servedByCoddy === true && text(value).trim() !== "";
+  const invalid = reshared || !sharedAliasIsValid(value);
 
   return (
     <div className="settings-row" data-testid="shared-as-field">
@@ -42,7 +45,9 @@ export function SharedAsField(props: {
           className="settings-field-desc settings-error"
           data-testid="shared-as-error"
         >
-          {t("settings.sharedAs.invalid")}
+          {reshared
+            ? t("settings.sharedAs.servedByCoddy")
+            : t("settings.sharedAs.invalid")}
         </p>
       ) : null}
     </div>

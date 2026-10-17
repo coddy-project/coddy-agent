@@ -138,6 +138,38 @@ test("each group stands where its first field stands; a key no group names stays
   ]);
 });
 
+test("a group none of whose fields the override draws is left out, frame and legend too", () => {
+  const groups = [
+    { id: "limits", legend: "Limits", paths: ["max_runs", "timeout"] },
+    { id: "trust", legend: "Trust", paths: ["trust"] },
+  ];
+  const { container } = render(
+    <Harness
+      groups={groups}
+      override={({ path }) =>
+        path === "max_runs" || path === "timeout" ? false : null
+      }
+    />,
+  );
+  expect(blocks(container)).toEqual([
+    "F:Enabled",
+    "FS:Definition directories",
+    "FS:Trust",
+    "F:Added later",
+  ]);
+  expect(screen.queryByTestId("settings-group-limits")).toBeNull();
+  cleanup();
+
+  // One field still drawn keeps the group.
+  const kept = render(
+    <Harness
+      groups={groups}
+      override={({ path }) => (path === "max_runs" ? false : null)}
+    />,
+  );
+  expect(blocks(kept.container)).toContain("FS:Limits");
+});
+
 test("only the first group without paths is the catch-all", () => {
   render(
     <Harness
