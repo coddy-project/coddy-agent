@@ -1404,18 +1404,18 @@
         },
         "tls": {
           "type": "object",
-          "title": "HTTPS listener",
-          "description": "Serve the relay over HTTPS with an existing certificate and private key. Set both paths or leave both empty for HTTP. No automatic certificates or client mTLS.",
+          "title": "Relay TLS",
+          "description": "Serve the relay over HTTPS. Set both files or neither. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart.",
           "additionalProperties": false,
           "properties": {
             "cert_file": {
               "type": "string",
-              "description": "PEM certificate chain file for the relay's HTTPS listener. Set together with key_file.",
+              "description": "PEM certificate chain.",
               "default": ""
             },
             "key_file": {
               "type": "string",
-              "description": "PEM private key file for the relay's HTTPS listener. Set together with cert_file.",
+              "description": "PEM private key.",
               "default": ""
             }
           }

@@ -219,7 +219,7 @@ export const messagesRu: Record<string, string> = {
     "URL прокси http, https, socks5 или socks5h. В нём может быть пароль, поэтому он не показывается.",
   "settings.schema.swarm.upstreams.dial.ca_file.label": "Файл CA",
   "settings.schema.swarm.upstreams.dial.ca_file.desc":
-    "Набор сертификатов в PEM, которому доверяют для сертификата узла вдобавок к системным.",
+    "Набор сертификатов в PEM, которому доверяют для сертификата узла вместо системных.",
   "settings.schema.swarm.upstreams.dial.insecure_skip_verify.label":
     "Не проверять сертификат",
   "settings.schema.swarm.upstreams.dial.insecure_skip_verify.desc":
@@ -250,7 +250,7 @@ export const messagesRu: Record<string, string> = {
     "URL прокси http, https, socks5 или socks5h. В нём может быть пароль, поэтому он не показывается.",
   "settings.schema.swarm.join.dial.ca_file.label": "Файл CA",
   "settings.schema.swarm.join.dial.ca_file.desc":
-    "Набор сертификатов в PEM, которому доверяют для сертификата родителя вдобавок к системным.",
+    "Набор сертификатов в PEM, которому доверяют для сертификата родителя вместо системных.",
   "settings.schema.swarm.join.dial.insecure_skip_verify.label":
     "Не проверять сертификат",
   "settings.schema.swarm.join.dial.insecure_skip_verify.desc":

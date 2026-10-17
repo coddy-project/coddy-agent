@@ -218,7 +218,7 @@ export const messagesEn: Record<string, string> = {
     "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is not shown.",
   "settings.schema.swarm.upstreams.dial.ca_file.label": "CA file",
   "settings.schema.swarm.upstreams.dial.ca_file.desc":
-    "PEM bundle trusted for the node's certificate, besides the system roots.",
+    "PEM bundle trusted for the node's certificate, in place of the system roots.",
   "settings.schema.swarm.upstreams.dial.insecure_skip_verify.label":
     "Skip certificate check",
   "settings.schema.swarm.upstreams.dial.insecure_skip_verify.desc":
@@ -249,7 +249,7 @@ export const messagesEn: Record<string, string> = {
     "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is not shown.",
   "settings.schema.swarm.join.dial.ca_file.label": "CA file",
   "settings.schema.swarm.join.dial.ca_file.desc":
-    "PEM bundle trusted for the parent's certificate, besides the system roots.",
+    "PEM bundle trusted for the parent's certificate, in place of the system roots.",
   "settings.schema.swarm.join.dial.insecure_skip_verify.label":
     "Skip certificate check",
   "settings.schema.swarm.join.dial.insecure_skip_verify.desc":

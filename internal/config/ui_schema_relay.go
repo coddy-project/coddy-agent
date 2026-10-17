@@ -55,11 +55,13 @@ func stringListProp(title, description string) map[string]interface{} {
 
 // swarmDialUISchema is how a relay or a joining node dials the other end.
 func swarmDialUISchema() map[string]interface{} {
-	return objectSchema("Dialling", "How this end reaches the other one: an outbound proxy.",
+	return objectSchema("Dialling", "How this end reaches the other one: an outbound proxy and the certificate check.",
 		map[string]interface{}{
-			"proxy": secretProp("Proxy", "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is write-only: leave it empty to keep the one set.", "proxy_configured"),
+			"proxy":                secretProp("Proxy", "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is write-only: leave it empty to keep the one set.", "proxy_configured"),
+			"ca_file":              strProp("CA file", "PEM bundle trusted for the other end's certificate, in place of the system roots."),
+			"insecure_skip_verify": boolProp("Skip certificate check", "For a lab only: every connection is logged as insecure."),
 		},
-		[]string{"proxy"},
+		[]string{"proxy", "ca_file", "insecure_skip_verify"},
 		nil)
 }
 
@@ -108,11 +110,6 @@ func swarmUISchema() map[string]interface{} {
 			"name": strProp("Name", "The relay's name on the map and in /swarm/info; empty takes the host name it runs on."),
 			"host": strProp("Listen host", "Address to bind. 0.0.0.0 listens on every interface. Takes effect on a restart."),
 			"port": intProp("Listen port", "Port to bind. Takes effect on a restart."),
-			"tls": objectSchema("HTTPS listener", "Serve this relay over HTTPS with an existing PEM certificate and private key. Set both paths or leave both empty for HTTP. No automatic certificates or client mTLS.",
-				map[string]interface{}{
-					"cert_file": strProp("Certificate file", "PEM certificate chain file. Set together with the private key file."),
-					"key_file":  strProp("Private key file", "PEM private key file. Set together with the certificate file."),
-				}, []string{"cert_file", "key_file"}, nil),
 			"auth_token": secretProp("Client token", "Bearer token a client presents to use this relay, and every node behind it. Write-only: leave it empty to keep the one set. A new one signs out every client, this page included: enter it again with Connect to… in the environment menu.",
 				"auth_configured"),
 			"pairing_tokens": func() map[string]interface{} {
@@ -128,6 +125,13 @@ func swarmUISchema() map[string]interface{} {
 					"allowed_origins": stringListProp("Allowed origins", "Exact origins, for example http://localhost:12345, or * for any."),
 				},
 				[]string{"enable", "allow_loopback", "allowed_origins"},
+				nil),
+			"tls": objectSchema("TLS", "Certificate and key the relay serves HTTPS with. Both or neither.",
+				map[string]interface{}{
+					"cert_file": strProp("Certificate file", "PEM certificate chain."),
+					"key_file":  strProp("Key file", "PEM private key."),
+				},
+				[]string{"cert_file", "key_file"},
 				nil),
 			"lease_ttl_seconds":          intProp("Lease TTL (seconds)", "How long a registration lasts without a refresh; nodes refresh at a third of it."),
 			"fanout_timeout_seconds":     intProp("Fan-out timeout (seconds)", "How long the aggregated session list and the topology wait for a node."),
@@ -154,7 +158,7 @@ func swarmUISchema() map[string]interface{} {
 			},
 		},
 		[]string{
-			"name", "host", "port", "tls", "auth_token", "pairing_tokens", "cors",
+			"name", "host", "port", "auth_token", "pairing_tokens", "cors", "tls",
 			"lease_ttl_seconds", "fanout_timeout_seconds", "upstreams", "join", "clients",
 			"allow_private_upstreams", "allow_insecure", "insecure_open_registration",
 		},

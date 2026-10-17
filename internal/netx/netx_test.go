@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -207,6 +208,27 @@ func TestTLSConfigLoadsAPrivateAuthority(t *testing.T) {
 	body, _ := io.ReadAll(res.Body)
 	if string(body) != "secured" {
 		t.Fatalf("body %q", body)
+	}
+}
+
+// A ca_file replaces the system roots instead of joining them: a relay
+// pinned to a private authority must not also accept a certificate any public
+// authority signed for its name.
+func TestTLSConfigTrustsOnlyThePrivateAuthority(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer ts.Close()
+	caPath := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(caPath, pemOf(t, ts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := (Options{CAFile: caPath}).TLSConfig("relay.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	only := x509.NewCertPool()
+	only.AddCert(ts.Certificate())
+	if cfg.RootCAs == nil || !cfg.RootCAs.Equal(only) {
+		t.Fatal("the trusted roots are not exactly the ca_file's authority")
 	}
 }
 

@@ -588,14 +588,14 @@ swarm.cors.allowed_origins:
   en: "Exact origins permitted to call the API, e.g. \"http://localhost:5173\". A single \"*\" allows any origin."
   ru: "Точные origin, которым разрешено вызывать API, например \"http://localhost:5173\". Единственный \"*\" разрешает любой origin."
 swarm.tls:
-  en: "Serve the relay over HTTPS with an existing certificate and private key. Set both paths or leave both empty for HTTP. No automatic certificates or client mTLS."
-  ru: "Отдавать релей по HTTPS с существующими сертификатом и закрытым ключом. Задайте оба пути или оставьте оба пустыми для HTTP. Автоматического выпуска сертификатов и клиентского mTLS нет."
+  en: "Serve the relay over HTTPS. Set both files or neither. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart."
+  ru: "Отдавать релей по HTTPS. Задайте оба файла или ни одного. Минимум TLS 1.2; сертификаты читаются при запуске, поэтому для их смены нужен перезапуск."
 swarm.tls.cert_file:
-  en: "PEM certificate chain file for the relay's HTTPS listener. Set together with key_file."
-  ru: "Файл цепочки сертификатов PEM для HTTPS-слушателя релея. Задавайте вместе с key_file."
+  en: "PEM certificate chain."
+  ru: "Цепочка сертификатов в PEM."
 swarm.tls.key_file:
-  en: "PEM private key file for the relay's HTTPS listener. Set together with cert_file."
-  ru: "Файл закрытого ключа PEM для HTTPS-слушателя релея. Задавайте вместе с cert_file."
+  en: "PEM private key."
+  ru: "Закрытый ключ в PEM."
 swarm.lease_ttl_seconds:
   en: "How long a registration survives without a heartbeat. 0 falls back to 90; nodes refresh at a third of it."
   ru: "Сколько регистрация живёт без сигнала heartbeat. 0 сводится к 90; узлы обновляют регистрацию через треть этого срока."

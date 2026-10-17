@@ -503,7 +503,7 @@ func (r *runner) swarmProbes() []probe {
 		j := cfg.Swarm.Join[i]
 		path := fmt.Sprintf("swarm.join[%d]", i)
 		out = append(out, func(ctx context.Context) []Check {
-			return r.probeSwarmPeer(ctx, path, j.URL, j.Dial, StatusError, "check "+path+".url, its dial proxy and the system CA trust store")
+			return r.probeSwarmPeer(ctx, path, j.URL, j.Dial, StatusError, "check "+path+".url and its dial settings (proxy, ca_file)")
 		})
 	}
 	if cfg.Swarm.Enabled {

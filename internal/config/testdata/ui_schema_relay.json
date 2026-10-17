@@ -269,8 +269,18 @@
               },
               "dial": {
                 "additionalProperties": false,
-                "description": "How this end reaches the other one: an outbound proxy.",
+                "description": "How this end reaches the other one: an outbound proxy and the certificate check.",
                 "properties": {
+                  "ca_file": {
+                    "description": "PEM bundle trusted for the other end's certificate, in place of the system roots.",
+                    "title": "CA file",
+                    "type": "string"
+                  },
+                  "insecure_skip_verify": {
+                    "description": "For a lab only: every connection is logged as insecure.",
+                    "title": "Skip certificate check",
+                    "type": "boolean"
+                  },
                   "proxy": {
                     "description": "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is write-only: leave it empty to keep the one set.",
                     "title": "Proxy",
@@ -282,7 +292,9 @@
                 "title": "Dialling",
                 "type": "object",
                 "x-coddy-property-order": [
-                  "proxy"
+                  "proxy",
+                  "ca_file",
+                  "insecure_skip_verify"
                 ]
               },
               "name": {
@@ -350,20 +362,20 @@
         },
         "tls": {
           "additionalProperties": false,
-          "description": "Serve this relay over HTTPS with an existing PEM certificate and private key. Set both paths or leave both empty for HTTP. No automatic certificates or client mTLS.",
+          "description": "Certificate and key the relay serves HTTPS with. Both or neither.",
           "properties": {
             "cert_file": {
-              "description": "PEM certificate chain file. Set together with the private key file.",
+              "description": "PEM certificate chain.",
               "title": "Certificate file",
               "type": "string"
             },
             "key_file": {
-              "description": "PEM private key file. Set together with the certificate file.",
-              "title": "Private key file",
+              "description": "PEM private key.",
+              "title": "Key file",
               "type": "string"
             }
           },
-          "title": "HTTPS listener",
+          "title": "TLS",
           "type": "object",
           "x-coddy-property-order": [
             "cert_file",
@@ -377,8 +389,18 @@
             "properties": {
               "dial": {
                 "additionalProperties": false,
-                "description": "How this end reaches the other one: an outbound proxy.",
+                "description": "How this end reaches the other one: an outbound proxy and the certificate check.",
                 "properties": {
+                  "ca_file": {
+                    "description": "PEM bundle trusted for the other end's certificate, in place of the system roots.",
+                    "title": "CA file",
+                    "type": "string"
+                  },
+                  "insecure_skip_verify": {
+                    "description": "For a lab only: every connection is logged as insecure.",
+                    "title": "Skip certificate check",
+                    "type": "boolean"
+                  },
                   "proxy": {
                     "description": "http, https, socks5 or socks5h proxy URL. It may carry a password, so it is write-only: leave it empty to keep the one set.",
                     "title": "Proxy",
@@ -390,7 +412,9 @@
                 "title": "Dialling",
                 "type": "object",
                 "x-coddy-property-order": [
-                  "proxy"
+                  "proxy",
+                  "ca_file",
+                  "insecure_skip_verify"
                 ]
               },
               "kind": {
@@ -440,10 +464,10 @@
         "name",
         "host",
         "port",
-        "tls",
         "auth_token",
         "pairing_tokens",
         "cors",
+        "tls",
         "lease_ttl_seconds",
         "fanout_timeout_seconds",
         "upstreams",

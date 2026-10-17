@@ -326,6 +326,29 @@ func TestScopedTokenNeverReachesTheNodeOrWorksAsACapability(t *testing.T) {
 	}
 }
 
+// A node that does not answer is reported to a scoped client without the
+// transport's words, which name the node's address behind the relay; the full
+// class keeps the detail it debugs with.
+func TestScopedClientHearsNoTransportDetailOfAFailedNode(t *testing.T) {
+	node := newRecordingNode(t)
+	_, ts := scopedRelay(t, node, acme("nas02"))
+	addr := strings.TrimPrefix(node.ts.URL, "http://")
+	node.ts.Close()
+
+	res, body := do(t, http.MethodGet, ts.URL+"/swarm/nodes/nas02/coddy/llm/models", scopedToken)
+	if res.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status %d: %s", res.StatusCode, body)
+	}
+	if strings.Contains(body, addr) || strings.Contains(body, "127.0.0.1") || !strings.Contains(body, "did not answer") {
+		t.Fatalf("a scoped client heard the transport's detail: %s", body)
+	}
+
+	res, body = do(t, http.MethodGet, ts.URL+"/swarm/nodes/nas02/coddy/llm/models", fullToken)
+	if res.StatusCode != http.StatusBadGateway || !strings.Contains(body, addr) {
+		t.Fatalf("the full class lost the detail: %d %s", res.StatusCode, body)
+	}
+}
+
 func TestQueryTokenIsNotAScopedCredentialExceptOnEventStreams(t *testing.T) {
 	node := newRecordingNode(t)
 	_, ts := scopedRelay(t, node, acme("nas02"))

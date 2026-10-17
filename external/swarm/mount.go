@@ -316,7 +316,15 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 			if outcome == statOK {
 				outcome = statNodeError
 			}
-			refuse(func() { writeHopError(w, http.StatusBadGateway, name, err.Error(), node.Info.LastSeen) })
+			// The transport's own words name the node's address and the network
+			// behind this relay: the operator's business, not a borrower's. A
+			// scoped client hears that the node did not answer; the log above
+			// keeps the detail.
+			reason := err.Error()
+			if p.class == principalScoped {
+				reason = "the node did not answer"
+			}
+			refuse(func() { writeHopError(w, http.StatusBadGateway, name, reason, node.Info.LastSeen) })
 		},
 	}
 	proxy.ServeHTTP(w, r)
