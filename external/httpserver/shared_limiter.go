@@ -24,8 +24,8 @@ func sharedKeyFor(bearer string) string {
 	return "b:" + hex.EncodeToString(sum[:16])
 }
 
-// sharedLimiter counts the shared-model calls running per credential (4.1a of
-// docs/plans/remote-model-provider.md). The count of a key is one value under
+// sharedLimiter counts the shared-model calls running per credential. The
+// count of a key is one value under
 // one mutex: the test against the limit and the increment are one atomic step,
 // so concurrent callers can never overshoot it.
 type sharedLimiter struct {

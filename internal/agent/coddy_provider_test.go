@@ -4,8 +4,7 @@ package agent
 // first-token timer for such a row, the wait for a free stream slot lives in
 // the provider and is shown the way a limit wait is, the capability cache of
 // the session manager supplies the revision a request sends, and the agent's
-// provider recovery reacts to the typed errors of the type as the plan says
-// (docs/plans/remote-model-provider.md, 4.1b, 4.2, 4.3).
+// provider recovery reacts to the typed errors of the type.
 
 import (
 	"context"

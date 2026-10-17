@@ -19,7 +19,7 @@ package session
 // answers stale_revision refreshes the record at once and the reader that
 // follows it waits for the new one (RefreshProviderModelEntry). The listing
 // lives here and never in the configuration: a refresh writes no key of any
-// models[] row (docs/plans/remote-model-provider.md, 4.3).
+// models[] row.
 
 import (
 	"context"

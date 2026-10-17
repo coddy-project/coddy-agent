@@ -2,7 +2,7 @@ package config
 
 // The credential rules of shared models: a shared-model token is its own class
 // and never doubles as a main-class or swarm token, and the shared routes never
-// run without some credential (docs/plans/remote-model-provider.md, 4.5).
+// run without some credential.
 
 import (
 	"fmt"

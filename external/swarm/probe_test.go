@@ -2,7 +2,7 @@
 
 package swarm
 
-// The ping of the application probe through a relay (docs/plans/remote-model-provider-probe.md, 2): the closed table of D5 gains one
+// The ping of the application probe through a relay: the closed table of the scoped routes gains one
 // exact entry, POST /coddy/llm/alive; the ping spends no slot and no token and is not counted as a call.
 
 import (

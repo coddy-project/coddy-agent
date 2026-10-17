@@ -12,7 +12,7 @@ import (
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
-// The audit counters of the relay (docs/plans/remote-model-provider-phase3.md, 6): in-memory, per client label, node and outcome, for the
+// The audit counters of the relay: in-memory, per client label, node and outcome, for the
 // three shared-model routes only, labels only: no token, no digest of a token, no request id, no content, and no alias (the relay does not
 // parse bodies). They reset with the relay, which every settings save rebuilds.
 

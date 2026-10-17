@@ -2,8 +2,8 @@
 
 package httpserver
 
-// The liveness of a peer of a shared-model call on the direct listener
-// (docs/plans/remote-model-provider-phase2.md, 5.2): the slot of a peer that
+// The liveness of a peer of a shared-model call on the direct listener: the
+// slot of a peer that
 // vanished is freed at most B after it, by a per-call TCP user timeout
 // U = B - H that the handler sets after it has read the request body and
 // restores on every exit. Most of these tests prove the plumbing - the option is
@@ -598,8 +598,8 @@ func TestSharedCallOverTLSWithHTTP11SetsTheOptionOnTheUnderlyingSocket(t *testin
 //
 //	CODDY_TEST_NETNS=1 go test -tags=http ./external/httpserver -run VanishedPeer -v
 //
-// The bound is scaled to B = 12 s and H = 2 s, so U = 10 s (the experiment of
-// docs/plans/remote-model-provider-phase2.md, 5.1). It takes about 35 seconds.
+// The bound is scaled to B = 12 s and H = 2 s, so U = 10 s. It takes about 35
+// seconds.
 const (
 	kernelParentEnv = "CODDY_TEST_NETNS"
 	kernelChildEnv  = "CODDY_TEST_NETNS_CHILD"

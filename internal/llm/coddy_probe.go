@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// The client side of the application probe of a vanished peer (docs/plans/remote-model-provider-probe.md). Every completions call asks
+// The client side of the application probe of a vanished peer. Every completions call asks
 // for it with X-Coddy-Probe: 1. A remote that supports it confirms in the same response with "id=<32 hex>; every_ms=<n>; grace_ms=<n>",
 // and from then on the client posts the call's ping every n milliseconds while the stream runs, so the remote can tell a client that
 // is alive from one that vanished behind an intermediary that acknowledges bytes for it. A remote that does not confirm, or confirms in
@@ -21,7 +21,7 @@ import (
 var coddyProbeFloor = time.Second
 
 // probePingBound bounds one ping to DMAX = half the interval (10 s asked, 5 s): a ping slower than that counts as lost, which is what keeps
-// the bound of the model p4-probe true (a delivered ping arrives within DMAX), and a hung ping never lasts into the next tick.
+// the remote's grace true (a delivered ping arrives within DMAX), and a hung ping never lasts into the next tick.
 func probePingBound(every time.Duration) time.Duration { return every / 2 }
 
 // coddyProbeMaxEveryMS is the longest interval a confirmation may ask for (an hour): a larger value is not a probe this client reads, and
@@ -67,7 +67,7 @@ func (p *coddyProvider) startProbe(ctx context.Context, resp *http.Response) (st
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		// The first ping goes out at once, as the model p4-probe has it: the remote arms its guard at the first ping it accepts, so the
+		// The first ping goes out at once: the remote arms its guard at the first ping it accepts, so the
 		// sooner it comes the sooner the call is guarded. The ticker starts before it, so the pings are spaced start to start from the
 		// first one on, and a slow first ping does not push the second later.
 		ticker := time.NewTicker(every)

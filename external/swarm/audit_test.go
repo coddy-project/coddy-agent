@@ -2,7 +2,7 @@
 
 package swarm
 
-// The audit counters of the relay (docs/plans/remote-model-provider-phase3.md, 6): counted outcomes per client label and node, never
+// The audit counters of the relay: counted outcomes per client label and node, never
 // content and never a token, read with the full class only.
 
 import (

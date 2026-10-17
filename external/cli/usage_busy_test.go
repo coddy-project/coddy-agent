@@ -12,8 +12,7 @@ import (
 )
 
 // The countdown of a call that waits for a free slot of a remote Coddy is state
-// of its own beside the usage snapshot (docs/plans/remote-model-provider-phase2.md,
-// 4.6): ended by an explicit end update on the countdown's own fields, guarded
+// of its own beside the usage snapshot: ended by an explicit end update on the countdown's own fields, guarded
 // by a strict tombstone and by two local nets. These tests hold the console to
 // that state machine, one rule each.
 

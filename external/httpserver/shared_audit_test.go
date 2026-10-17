@@ -2,7 +2,7 @@
 
 package httpserver
 
-// The audit counters of a node (docs/plans/remote-model-provider-phase3.md, 6):
+// The audit counters of a node:
 // counted outcomes per alias and credential class, never content or a token.
 
 import (

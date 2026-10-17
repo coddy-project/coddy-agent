@@ -1,8 +1,7 @@
 package agent
 
-// One request of a coddy row is built from one record of the remote's listing
-// (docs/plans/remote-model-provider-phase2.md, 3.3 and 3.8 item 2; decided by
-// docs/plans/remote-model-provider-models/p2-d1-config-source.md): the
+// One request of a coddy row is built from one record of the remote's listing:
+// the
 // revision a request is checked against and the level it asks for come from the
 // same record, so a refresh that lands between the reads of the two cannot make
 // a request that names the new revision carry a level the new record does not

@@ -16,11 +16,11 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
-// The application probe of a vanished peer (docs/plans/remote-model-provider-probe.md, model p4-probe). A client that asked for it
+// The application probe of a vanished peer. A client that asked for it
 // pings while its stream runs. The guard is armed by the first accepted ping (a ping path that carries nothing leaves the call as it is
 // today), and from then on more than the grace G of silence cancels the call. G = (L + 1) I + DMAX is the exact boundary at which a
 // client that pings every I, with up to L pings lost in a row and a delay of at most DMAX, is never cut: I = 10 s, L = 2, DMAX = 5 s
-// give 35 s. The cut comes at G + 1 s on the monotonic clock, so a ping on the tick the grace ends still wins (the model's tie rule).
+// give 35 s. The cut comes at G + 1 s on the monotonic clock, so a ping on the tick the grace ends still wins.
 const (
 	sharedProbeEvery = 10 * time.Second
 	sharedProbeGrace = 35 * time.Second

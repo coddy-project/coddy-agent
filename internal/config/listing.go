@@ -15,8 +15,7 @@ import (
 // Paths.AttachListing, Paths.AttachListingIfEmpty), and the one place that asks
 // it (listedFor).
 //
-// The rules, each of which a test of the decided model (p2-d1-config-source)
-// fails without:
+// The rules, each of which a test of this package fails without:
 //   - one cell per lineage: every loader allocates it when the Paths it is
 //     handed has none and every constructor hands its Paths on, so a config
 //     loaded from c.Paths shares c's cell and is bound the moment it exists;

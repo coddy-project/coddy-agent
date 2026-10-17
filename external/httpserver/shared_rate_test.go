@@ -2,8 +2,7 @@
 
 package httpserver
 
-// The window limit of a shared-model credential, beside the stream slot
-// (docs/plans/remote-model-provider-phase3.md, 5.3).
+// The window limit of a shared-model credential, beside the stream slot.
 
 import (
 	"bytes"

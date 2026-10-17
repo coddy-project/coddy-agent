@@ -92,8 +92,8 @@ const (
 	WireCodeUnknownCall = "unknown_call"
 )
 
-// CoddyProbeHeader is the header of the application probe of a vanished peer
-// (docs/plans/remote-model-provider-probe.md). A client sets it to "1" on a
+// CoddyProbeHeader is the header of the application probe of a vanished peer.
+// A client sets it to "1" on a
 // completions call to say it will ping while the stream runs; a remote that
 // supports the probe answers the same call with
 // "id=<32 hex>; every_ms=<n>; grace_ms=<n>", and the client then posts

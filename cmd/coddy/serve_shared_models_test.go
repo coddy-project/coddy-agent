@@ -5,7 +5,7 @@ package main
 // and shared models are never served without some credential. The start-up
 // check, the config reload and `-t` / `--dry-run` all see the tokens of
 // --auth-token, --swarm-auth-token and --swarm-pairing-token and of the
-// environment (docs/plans/remote-model-provider.md, 4.5).
+// environment.
 
 import (
 	"bytes"

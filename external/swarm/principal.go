@@ -41,7 +41,7 @@ func principalFrom(ctx context.Context) principal {
 }
 
 // SetClients replaces the scoped entries, for a caller that holds the relay while its configuration moves. A settings save
-// rebuilds the relay, so this is the live read the verdict of D2 asks for: removing an entry or a name takes effect on the next
+// rebuilds the relay, so the entries are read live: removing an entry or a name takes effect on the next
 // request, also on a connection that is already open.
 func (s *Server) SetClients(clients []config.SwarmClient) {
 	s.mu.Lock()

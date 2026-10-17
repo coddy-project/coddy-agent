@@ -2,8 +2,8 @@
 
 package httpserver
 
-// GET /coddy/llm/models/{alias}/usage (docs/plans/remote-model-provider-phase2.md,
-// 4.1): the account usage behind a shared model, as an allowlist projection.
+// GET /coddy/llm/models/{alias}/usage: the account usage behind a shared model,
+// as an allowlist projection.
 //
 // The reading is the manager's own, the one every surface of this host shows
 // (Manager.ProviderUsage, from its per-account cache, never forced): any number

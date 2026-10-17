@@ -6,8 +6,7 @@ package httpserver
 // model another Coddy shares) for the callers that are not the agent loop: the
 // direct completion routes, prompt enhancement and the describe call. Every
 // caller of such a row waits for a free stream slot of the remote and is held
-// to the liveness guard of the stream whatever models[].stream says
-// (docs/plans/remote-model-provider.md, 4.1b and 4.3).
+// to the liveness guard of the stream whatever models[].stream says.
 
 import (
 	"context"

@@ -2,8 +2,7 @@
 
 package swarm
 
-// The relay's own limits of a scoped client (docs/plans/remote-model-provider-phase3.md, 5.3; D3 closed by
-// docs/plans/remote-model-provider-models/p3-d3-rate-windows.md): a slot count and a window of calls per minute per entry, a
+// The relay's own limits of a scoped client: a slot count and a window of calls per minute per entry, a
 // refusal that costs the node nothing, a refund of the window token when the node answers busy.
 
 import (

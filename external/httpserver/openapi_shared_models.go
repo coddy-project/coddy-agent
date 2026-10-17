@@ -4,8 +4,8 @@ package httpserver
 
 import "github.com/EvilFreelancer/coddy-agent/internal/llm"
 
-// mergeSharedModelsOpenAPI adds the routes a Coddy shares its models through
-// (docs/plans/remote-model-provider.md): the listing, the usage projection of
+// mergeSharedModelsOpenAPI adds the routes a Coddy shares its models through:
+// the listing, the usage projection of
 // one alias and the completions stream, with the error object, the frames and
 // the credential rules. The schemas mirror internal/llm's wire types, which the
 // handler and the `coddy` provider both encode through.

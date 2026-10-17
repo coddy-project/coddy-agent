@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TLS is the transport's and HTTP's business, not the application's (docs/plans/remote-model-provider-tls-builtin.md): the
+// TLS is the transport's and HTTP's business, not the application's: the
 // application does not read the identity of a certificate, so there is no key that maps a certificate name to a credential, a class
 // or a budget, and no mode that verifies a certificate it then ignores. Each of these keys was one of those and is gone; the schema
 // of `coddy -t` says so at the key.

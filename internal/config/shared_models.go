@@ -1,7 +1,7 @@
 package config
 
-// The configuration side of models that a Coddy shares with other Coddys
-// (docs/plans/remote-model-provider.md): the models[] keys that offer a row
+// The configuration side of models that a Coddy shares with other Coddys: the
+// models[] keys that offer a row
 // under an alias, the httpserver.shared_models block (the LLM-only token class
 // and the limits of the shared routes), the wait for a free slot of a remote,
 // and the cross-checks that keep the token classes apart and the shared routes

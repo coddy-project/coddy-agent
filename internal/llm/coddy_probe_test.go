@@ -1,6 +1,6 @@
 package llm
 
-// The client side of the application probe (docs/plans/remote-model-provider-probe.md): the call asks for it, and when the remote
+// The client side of the application probe: the call asks for it, and when the remote
 // confirms, a goroutine posts the ping every interval until the stream ends. A remote that does not confirm is never pinged.
 
 import (
@@ -220,7 +220,7 @@ func TestCoddyProbeKeepsTheMountPrefixOfARelay(t *testing.T) {
 }
 
 // The pings go out start to start, every interval, whatever happens to the one before: a hung ping is cut at DMAX = I / 2 and the next
-// tick is on time, so a run of slow pings never stretches the gap the model's grace was sized for.
+// tick is on time, so a run of slow pings never stretches the gap the remote's grace was sized for.
 func TestCoddyProbePingsKeepTheirRateWhenSomeHang(t *testing.T) {
 	withProbeFloor(t, 0)
 	pr := newProbeRemote(t, "id="+probeTestID+"; every_ms=200; grace_ms=1000")

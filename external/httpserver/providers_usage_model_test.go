@@ -5,7 +5,7 @@ package httpserver
 // GET /coddy/providers/{name}/usage?model=<alias>: the usage of a provider row
 // of type coddy is read per alias, so the route takes the alias, requires it for
 // such a row, binds it to the row's configured models and ignores it for every
-// other type (docs/plans/remote-model-provider-phase2.md, 4.4).
+// other type.
 
 import (
 	"encoding/json"

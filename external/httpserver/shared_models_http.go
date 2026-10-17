@@ -2,7 +2,7 @@
 
 package httpserver
 
-// The routes a Coddy shares its models[] rows through (docs/plans/remote-model-provider.md):
+// The routes a Coddy shares its models[] rows through:
 //
 //	GET  /coddy/llm/models                  the shared rows, under their aliases
 //	GET  /coddy/llm/models/{alias}/usage    the account usage behind one alias (shared_usage.go)
@@ -42,8 +42,8 @@ const (
 
 // isSharedLLMPattern reports the routes a shared-model token opens, and nothing
 // else: the listing, the usage of one alias, the completions and the probe's
-// ping. The model p7-gate holds that set: a route added here or dropped changes
-// which credential classes open it.
+// ping. A route added here or dropped changes which credential classes open
+// it.
 func isSharedLLMPattern(pattern string) bool {
 	switch pattern {
 	case sharedModelsPattern, sharedUsagePattern, sharedCompletionsPattern, sharedAlivePattern:

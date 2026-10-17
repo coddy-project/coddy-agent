@@ -2,8 +2,7 @@
 
 package swarm
 
-// The scoped clients of a relay (docs/plans/remote-model-provider-phase3.md, 3.2 and 3.5; the verdicts of D1 and D5 in
-// docs/plans/remote-model-provider-models/): a client with a token of its own reaches the three shared-model routes of the nodes
+// The scoped clients of a relay: a client with a token of its own reaches the three shared-model routes of the nodes
 // its entry lists, as exact hop paths, and nothing else of the relay.
 
 import (

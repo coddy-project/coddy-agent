@@ -10,9 +10,7 @@ import (
 )
 
 // The countdown of a call that waits for a free stream slot of a remote Coddy
-// (docs/plans/remote-model-provider-phase2.md, 4.6; decided by the model of
-// docs/plans/remote-model-provider-models/p2-d4-busy-notice.md) is state of its
-// own on the console, beside the usage snapshot of the footer:
+// is state of its own on the console, beside the usage snapshot of the footer:
 //
 //   - an update whose blockers carry remote_busy belongs to the countdown of the
 //     call that sent it, never to the snapshot; every other update is a snapshot,

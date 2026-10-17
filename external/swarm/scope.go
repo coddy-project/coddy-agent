@@ -11,8 +11,8 @@ import (
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
-// What a scoped client may reach, and where (docs/plans/remote-model-provider-phase3.md, 3.2; the verdicts of D1 and D5 are
-// in docs/plans/remote-model-provider-models/p3-d1-allowlist-chain.md and p3-d5-scope-routes.md).
+// What a scoped client may reach, and where: the nodes its entry lists, as exact hop paths, and the closed table of the
+// shared-model routes.
 
 // splitHops reads a mounted request the way the node will route it. name is the node of this relay and rest the escaped path
 // after it; the result is the chain of node names from this relay, the first being name, and the DECODED route that follows the
@@ -40,7 +40,7 @@ func splitHops(name, rest string) (hops []string, route string, ok bool) {
 	return hops, decoded, true
 }
 
-// clientAdmitsHops is the allowlist of D1: an entry is an exact hop path. A bare `a` admits the single-hop path [a] only,
+// clientAdmitsHops is the allowlist of a scoped client: an entry is an exact hop path. A bare `a` admits the single-hop path [a] only,
 // `edge/gpu` the two-hop path through the chained relay `edge` only, and `*` any single-hop path below this relay. A longer
 // chain that starts with an entry, and a node of the same name at another place in the topology, are not admitted.
 func clientAdmitsHops(c config.SwarmClient, hops []string) bool {
@@ -68,7 +68,7 @@ const (
 	sharedModelsUsageSuffix = "/usage"
 )
 
-// sharedAliveRoute is the ping of the application probe (docs/plans/remote-model-provider-probe.md): the one entry the table gained after D5.
+// sharedAliveRoute is the ping of the application probe: the one entry the table of the scoped routes gained after the three calls.
 // The call id travels in a header, so the route is a fixed string like the others and no path carries a capability.
 const sharedAliveRoute = "/coddy/llm/alive"
 
@@ -78,7 +78,7 @@ func isProbePing(method, route string) bool {
 	return method == http.MethodPost && route == sharedAliveRoute
 }
 
-// sharedRoute is the closed table of D5: the three shared-model routes and the ping of the probe, with their methods, matched exactly on the decoded
+// sharedRoute is the closed table of the scoped routes: the three shared-model routes and the ping of the probe, with their methods, matched exactly on the decoded
 // route. Nothing else is in it: not a HEAD, not an OPTIONS, not a path with a trailing slash or a `;x=1`, not a route a later
 // release adds under /coddy/llm/. A prefix would admit that route the day it ships; a new scoped route is a change of this table.
 func sharedRoute(method, route string) bool {

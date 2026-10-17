@@ -15,7 +15,7 @@ import (
 )
 
 // The usage of a model another Coddy shares is read per alias (the update's
-// Model, docs/plans/remote-model-provider-phase2.md 4.4): the footer keeps one
+// Model): the footer keeps one
 // snapshot per subject, orders the snapshots of one subject by the time they
 // were read, and asks the backend for the alias, not for the row.
 

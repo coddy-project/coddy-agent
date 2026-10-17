@@ -234,8 +234,7 @@ func TestResolverAsksTheSourceForTheRowOfTheReadersConfig(t *testing.T) {
 
 	// A second configuration of the same lineage, with the row repointed to
 	// another provider name: the source is handed that one, so it can find the
-	// row there and in no other configuration (the cross-row answer of the
-	// decided model, SRCCFG=0).
+	// row there and in no other configuration.
 	other := *cfg
 	other.Providers = []config.ProviderConfig{{Name: "near", Type: "coddy", APIBase: "http://127.0.0.1:2"}}
 	other.Models = []config.ModelEntry{{Model: "near/team/coder"}}

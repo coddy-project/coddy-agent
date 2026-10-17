@@ -2,8 +2,7 @@ package session
 
 // The coddy usage source: the account usage behind a model a remote Coddy
 // shares, read per alias through GET /coddy/llm/models/{alias}/usage. The
-// manager keeps one entry per (provider, alias) (docs/plans/
-// remote-model-provider-phase2.md, 4.3 and 4.4), remembers "unsupported" for
+// manager keeps one entry per (provider, alias), remembers "unsupported" for
 // 60 s, drops the numbers of a vanished alias, and reads once more a TTL after
 // the end of a turn.
 

@@ -3,7 +3,7 @@
 package httpserver
 
 // GET /coddy/llm/models/{alias}/usage: the allowlist projection of the account
-// usage behind a shared model (docs/plans/remote-model-provider-phase2.md, 4.1).
+// usage behind a shared model.
 // The pure projection is tested on hand-built snapshots; the route is tested
 // end to end on a remote whose provider is a NeuralDeep row read from a
 // stand-in hub, with a needle scan of every body for what must never leave.

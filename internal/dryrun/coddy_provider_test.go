@@ -3,8 +3,7 @@ package dryrun
 // --dry-run over a provider of type coddy: the probe reads the remote's list of
 // shared models (GET /coddy/llm/models) and tells an unreachable remote from a
 // refused token, a protocol mismatch, a remote that does not offer shared
-// models, and a configured alias the remote does not list
-// (docs/plans/remote-model-provider.md, 4.3 and 5a).
+// models, and a configured alias the remote does not list.
 
 import (
 	"bytes"
@@ -212,8 +211,8 @@ func TestOtherTypesKeepTheWarningForAnUnlistedModel(t *testing.T) {
 	}
 }
 
-// --dry-run compares the keys a coddy row writes with the remote's listing
-// (docs/plans/remote-model-provider-phase2.md, 3.7 and 3.8 item 2): a written
+// --dry-run compares the keys a coddy row writes with the remote's listing: a
+// written
 // key wins over the listing, a refresh never writes one, and a key that
 // disagrees stays refused or unused for as long as it is written, so every
 // difference is a warning that names the key, both values and the fix.

@@ -10,9 +10,6 @@ package agent
 // first-token timer is not armed for such a row (llmTransport.firstTokenGuard):
 // the remote applies its own stall guard from the start of the provider call
 // and the client keeps the byte-level guard of its HTTP client.
-// Design record: docs/plans/remote-model-provider.md, 4.1b and 4.3, and
-// docs/plans/remote-model-provider-phase2.md, 3.3 (the one record of a request)
-// and 4.6 (the countdown and its end).
 
 import (
 	"context"
@@ -73,8 +70,8 @@ func (a *Agent) coddyProviderInput(in *llm.ProviderInput, rm *config.ResolvedLLM
 // the remote's listing, the level it asks for and the revision it is checked
 // against, from ONE read of the listing record: a refresh that lands between
 // the reads of the two cannot make a request that names the new revision carry
-// a level the new record does not offer (the split read of level and revision
-// is what the decided model of p2-d1-config-source refutes).
+// a level the new record does not offer, which two separate reads of level and
+// revision could.
 //
 // effort is the session's level as EffectiveReasoning resolved it. When the
 // row writes neither reasoning_levels nor allow_reasoning_off, its levels and

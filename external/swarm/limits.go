@@ -15,8 +15,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/shareguard"
 )
 
-// The relay's own limits of a scoped client (docs/plans/remote-model-provider-phase3.md, 5.3; D3 closed by
-// docs/plans/remote-model-provider-models/p3-d3-rate-windows.md): a count of the client's shared-model calls running through this
+// The relay's own limits of a scoped client: a count of the client's shared-model calls running through this
 // relay (swarm.clients[].max_streams) and a window of calls per minute (rate_per_minute, rate_burst), keyed by the entry's name. The
 // node sees the relay as ONE credential, so only the relay can hold one client to its own contract; the node's limit still protects the
 // provider from all the relay's clients together.

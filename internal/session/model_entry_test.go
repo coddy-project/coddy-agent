@@ -3,7 +3,7 @@ package session
 // The listing cache keeps the WHOLE record of a model a remote Coddy shares
 // (type coddy): its context window next to the revision the client sends as
 // expected_revision. A refresh reads the listing again and never writes a key
-// of the configuration (docs/plans/remote-model-provider.md, 4.3).
+// of the configuration.
 
 import (
 	"context"

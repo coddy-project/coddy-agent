@@ -1,8 +1,7 @@
 package agent
 
 // The countdown of a call that waits for a free stream slot of a remote Coddy,
-// and its end (docs/plans/remote-model-provider-phase2.md, 4.6; decided by
-// docs/plans/remote-model-provider-models/p2-d4-busy-notice.md): the agent
+// and its end: the agent
 // sends the countdown and, when the wait is over, one explicit end update on the
 // same fields - the blocker remote_busy with Resuming absent and Blocked false,
 // stamped by the clock at the moment of sending - and nothing else. It names

@@ -2946,7 +2946,7 @@ type llmTransport struct {
 	// a free stream slot lives in the provider, so a timer here would cut a
 	// live remote that only heartbeats. It is a field of its own and not a
 	// reading of streaming, which also drives the reasoning clock and is true
-	// for that row (docs/plans/remote-model-provider.md, 4.1b).
+	// for that row.
 	firstTokenGuard bool
 	// providerName and providerType name the row the transport was built for,
 	// for the notices a call of it shows (the wait for a free stream slot of a

@@ -18,8 +18,7 @@ package session
 // A provider row of type coddy (the models a remote Coddy shares) is read per
 // alias: its remote answers one projection per shared model, so the cache
 // keys an entry by a subject, the provider and the alias, and every other type
-// keeps its one entry under the provider name. Design record:
-// docs/plans/remote-model-provider-phase2.md, 4.3 and 4.4.
+// keeps its one entry under the provider name.
 
 import (
 	"context"
