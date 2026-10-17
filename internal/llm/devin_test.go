@@ -31,6 +31,12 @@ func devinTestEnv(t *testing.T, standURL string) {
 		t.Setenv(env, standURL)
 	}
 	t.Setenv(EnvDevinCLICredentials, filepath.Join(t.TempDir(), "absent.toml"))
+	// The JWT and catalog caches are the process's, keyed by the API server and
+	// the session token, and every stand takes the same token: a stand that gets
+	// the port of one closed earlier would be handed that stand's JWT, which it
+	// never issued, and answer 401.
+	resetDevinCaches()
+	t.Cleanup(resetDevinCaches)
 }
 
 // The golden streams are real GetChatMessage answers of the Devin API server
