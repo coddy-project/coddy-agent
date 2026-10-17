@@ -66,6 +66,8 @@ type providerProxyState struct {
 	origins   map[string]bool
 	home      string
 	restore   []func()
+	// coddyPinged hears the first ping of a coddy row's liveness probe.
+	coddyPinged chan struct{}
 
 	mu       sync.Mutex
 	failures []error
@@ -162,6 +164,9 @@ func (s *providerProxyState) newModelServer() *proxyStub {
 			s.fail(fmt.Errorf("the model server got a proxy request for %s", r.URL))
 		}
 		st.count.Add(1)
+		if s.answerCoddyRequest(w, r) {
+			return
+		}
 		if !answerProviderRequest(w, r) {
 			s.fail(fmt.Errorf("the model server has no answer for %s %s", r.Method, r.URL.Path))
 			http.NotFound(w, r)
@@ -207,12 +212,61 @@ func (s *providerProxyState) newProxyStub(label string) *proxyStub {
 			s.answerDevinRequest(w, r)
 			return
 		}
+		if s.answerCoddyRequest(w, r) {
+			return
+		}
 		if !answerProviderRequest(w, r) {
 			s.fail(fmt.Errorf("%s has no answer for %s %s", label, r.Method, r.URL.Path))
 			http.NotFound(w, r)
 		}
 	}))
 	return st
+}
+
+// answerCoddyRequest answers the routes a coddy row calls on the Coddy that
+// shares its models: the listing, the account usage of an alias, a completion
+// and the pings of the liveness probe the completion asks for. The completion
+// confirms the probe with an interval far longer than the scenario and keeps
+// its stream open until the first ping has come, so exactly one ping is made.
+func (s *providerProxyState) answerCoddyRequest(w http.ResponseWriter, r *http.Request) bool {
+	path := r.URL.Path
+	switch {
+	case r.Method == http.MethodGet && path == CoddyModelsPath:
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(WireListing{Protocol: CoddyProtocol,
+			Data: []WireModelRow{{ID: "m", Revision: "r1", MaxContextTokens: 131072}}})
+	case r.Method == http.MethodGet && path == CoddyUsagePath("m"):
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"supported":false}`)
+	case r.Method == http.MethodPost && path == CoddyAlivePath:
+		select {
+		case s.coddyPinged <- struct{}{}:
+		default:
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPost && path == CoddyCompletionsPath:
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set(CoddyProbeHeader, "id=0123456789abcdef0123456789abcdef; every_ms=600000; grace_ms=1200000")
+		w.WriteHeader(http.StatusOK)
+		frame := func(v any) {
+			raw, _ := json.Marshal(v)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", raw)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+		frame(WireChunk{Type: WireTypeChunk, TextDelta: "pong"})
+		select {
+		case <-s.coddyPinged:
+		case <-time.After(5 * time.Second):
+			s.fail(fmt.Errorf("no ping of the liveness probe while the completion ran"))
+		}
+		frame(WireFinal{Type: WireTypeFinal, Content: "pong", InputTokens: 1, OutputTokens: 1})
+	default:
+		return false
+	}
+	return true
 }
 
 func (s *providerProxyState) answerDevinRequest(w http.ResponseWriter, r *http.Request) {
@@ -233,6 +287,7 @@ func (s *providerProxyState) reset(t *testing.T) {
 	s.origins = map[string]bool{strings.TrimPrefix(s.model.srv.URL, "http://"): true}
 	s.failures = nil
 	s.home = t.TempDir()
+	s.coddyPinged = make(chan struct{}, 1)
 	resetDevinCaches()
 }
 
@@ -700,6 +755,47 @@ func (s *providerProxyState) askDevinEverything(name string) error {
 	return nil
 }
 
+// askCoddyEverything makes every request class of a coddy row once: the
+// listing of the shared models, a completion with its liveness probe (the
+// completion and one ping) and the account usage behind the alias.
+func (s *providerProxyState) askCoddyEverything(name string) error {
+	row, err := s.row(name)
+	if err != nil {
+		return err
+	}
+	in := ProviderInput{Name: name, Type: "coddy", Model: "m", APIKey: "k",
+		BaseURL: s.model.srv.URL, ProxyURL: row.setting, RetryDisabled: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	models, err := ListModels(ctx, in)
+	switch {
+	case err != nil:
+		s.fail(fmt.Errorf("%s: model list: %w", name, err))
+	case len(models) != 1 || models[0].ID != "m":
+		s.fail(fmt.Errorf("%s: model list = %+v, want the one model m", name, models))
+	}
+	p, err := NewProvider(in)
+	if err != nil {
+		s.fail(fmt.Errorf("%s: build the provider: %w", name, err))
+		return nil
+	}
+	resp, err := p.Stream(ctx, []Message{{Role: RoleUser, Content: "ping"}}, nil, func(StreamChunk) {})
+	switch {
+	case err != nil:
+		s.fail(fmt.Errorf("%s: completion: %w", name, err))
+	case resp.Content != "pong":
+		s.fail(fmt.Errorf("%s: completion = %q, want pong", name, resp.Content))
+	}
+	usage, err := CoddyUsageForProvider(ctx, in, "m")
+	switch {
+	case err != nil:
+		s.fail(fmt.Errorf("%s: account usage: %w", name, err))
+	case usage == nil || usage.Supported:
+		s.fail(fmt.Errorf("%s: account usage = %+v, want the unsupported document", name, usage))
+	}
+	return nil
+}
+
 func (s *providerProxyState) everyAnswerComesBack() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -763,6 +859,7 @@ func initializeProviderProxyScenario(t *testing.T) func(*godog.ScenarioContext) 
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a command safety decision and its auth flow$`, s.askNeuralDeepEverything)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a token refresh, a device sign-in and a config apply$`, s.askCodexEverything)
 		sc.Step(`^"([^"]*)" is asked for a credential check, its model list, a chat answer, its account usage and a sign-in$`, s.askDevinEverything)
+		sc.Step(`^"([^"]*)" is asked for its model list, a completion with the liveness probe and its account usage$`, s.askCoddyEverything)
 		sc.Step(`^every answer comes back$`, s.everyAnswerComesBack)
 		sc.Step(`^the environment's proxy carried (\d+) requests?$`, s.theEnvironmentsProxyCarried)
 		sc.Step(`^the own proxy of "([^"]*)" carried (\d+) requests?$`, s.theOwnProxyCarried)
