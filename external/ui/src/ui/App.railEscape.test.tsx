@@ -289,6 +289,62 @@ test("on the stacked shell Escape takes Settings back to its tiles first, then c
   await backInChat("settings-screen");
 });
 
+// An Escape pressed the moment the open row has given way to its list - which a
+// mutation observer sees in the microtask after that commit, before React has
+// run its passive effects - is the next step back, to the tiles. Inside act
+// every effect has run when an event returns, so the page's own order is set up
+// by hand: act off, the keys dispatched the way a browser does.
+test("on the stacked shell an Escape pressed as the row closes takes Settings to its tiles", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === shellStackMaxWidthMediaQuery,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+  mountInChat();
+  history.replaceState(null, "", "/#/settings/models?id=fake%2Falpha");
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+  await screen.findByTestId("settings-head-back");
+  await settle();
+  expect(screen.queryByTestId("settings-master-item-0")).toBeNull();
+
+  const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const actEnvironment = env.IS_REACT_ACT_ENVIRONMENT;
+  env.IS_REACT_ACT_ENVIRONMENT = false;
+  const press = () =>
+    (document.activeElement ?? document.body).dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+  try {
+    const pressedAgain = new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (screen.queryByTestId("settings-master-item-0")) {
+          observer.disconnect();
+          press();
+          resolve();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    press();
+    await pressedAgain;
+    await waitFor(() =>
+      expect(screen.queryByTestId("settings-tile-grid")).not.toBeNull(),
+    );
+  } finally {
+    if (actEnvironment === undefined) {
+      delete env.IS_REACT_ACT_ENVIRONMENT;
+    } else {
+      env.IS_REACT_ACT_ENVIRONMENT = actEnvironment;
+    }
+  }
+  expect(screen.getByTestId("settings-screen")).toBeTruthy();
+});
+
 test("on desktop Tasks stays open across rail screens and uses local panel state", async () => {
   mountInChat();
   fireEvent.click(await screen.findByTestId("open-tasks"));
