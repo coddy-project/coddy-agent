@@ -76,14 +76,21 @@ func (a *Agent) coddyProviderInput(in *llm.ProviderInput, rm *config.ResolvedLLM
 // effort is the session's level as EffectiveReasoning resolved it. When the
 // row writes neither reasoning_levels nor allow_reasoning_off, its levels and
 // its off switch are inherited from the listing, so a level the record no longer
-// offers falls back to the record's default (llm.FallbackReasoningEffort). When
-// the row writes either key the choices are the operator's own and the level is
-// sent as it is: the remote answers invalid_option for one it does not offer,
-// and no refresh fixes a key someone wrote (plan 3.8, item 2). With no record
-// (the listing never answered, dropped the alias, or the session has no
-// manager) the level goes as it is and no revision is named.
+// offers falls back to the default (llm.FallbackReasoningEffort: the row's own
+// reasoning_default, else the record's). When the row writes either key the
+// choices are the operator's own and the level is sent as it is, by this
+// request and by the one the provider rebuilds after a stale_revision: the
+// remote answers invalid_option for one it does not offer, and no refresh
+// fixes a key someone wrote. With no record (the listing never answered,
+// dropped the alias, or the session has no manager) the level goes as it is
+// and no revision is named.
 func (a *Agent) coddyRequestView(in *llm.ProviderInput, rm *config.ResolvedLLM, effort string) {
 	in.ReasoningEffort = effort
+	inherits := a.coddyRowInheritsChoices(rm)
+	in.ReasoningChoicesWritten = !inherits
+	if ent := a.cfg.FindModelEntry(rm.ProviderName + "/" + rm.Model); ent != nil {
+		in.ReasoningDefault = ent.ReasoningDefault
+	}
 	listing, ok := a.state.(capabilityListing)
 	if !ok {
 		return
@@ -93,8 +100,8 @@ func (a *Agent) coddyRequestView(in *llm.ProviderInput, rm *config.ResolvedLLM, 
 		return
 	}
 	in.ExpectedRevision = record.Revision
-	if a.coddyRowInheritsChoices(rm) {
-		in.ReasoningEffort = llm.FallbackReasoningEffort(effort, &record)
+	if inherits {
+		in.ReasoningEffort = llm.FallbackReasoningEffort(effort, &record, in.ReasoningDefault)
 	}
 }
 

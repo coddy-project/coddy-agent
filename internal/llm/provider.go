@@ -294,6 +294,15 @@ type ProviderInput struct {
 	// more. Nil leaves the stale answer as the error; a nil entry means the
 	// alias is no longer listed.
 	RefreshCapabilities func(ctx context.Context) (*ModelEntry, error)
+	// ReasoningChoicesWritten says the coddy row writes reasoning_levels or
+	// allow_reasoning_off itself: the choices are the operator's, so a call
+	// rebuilt after stale_revision sends the level as it was asked for. Unset,
+	// the row inherits them from the listing and the level falls back by the
+	// refreshed record.
+	ReasoningChoicesWritten bool
+	// ReasoningDefault is the coddy row's own reasoning_default, which a level
+	// that falls back by a listing record takes before the record's default.
+	ReasoningDefault string
 }
 
 // neuralDeepBaseURL is the default NeuralDeep deployment; neuralDeepEndpoints

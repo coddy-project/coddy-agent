@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -394,6 +395,34 @@ func TestClassifySharedFailureNeverReadsTheErrorText(t *testing.T) {
 				t.Errorf("%s: the message mentions %q: %q", name, leak, e.Message)
 			}
 		}
+	}
+}
+
+// A provider's refusal of a request that does not fit the model's context
+// window reaches the client as invalid with the code context_overflow, so the
+// client compacts and asks again; the message still repeats none of the
+// provider's words.
+func TestClassifySharedFailureNamesAContextOverflow(t *testing.T) {
+	overflow := fmt.Errorf("provider %q (http://stub-upstream.invalid/v1): %w", "stub",
+		errors.New("prompt is too long: 250000 tokens > 200000 maximum, qwen3-secret-2026"))
+	e := classifySharedFailure(overflow, false, false, 0)
+	if e.Kind != llm.WireKindInvalid || e.Code != llm.WireCodeContextOverflow || e.Status != http.StatusBadRequest {
+		t.Fatalf("an overflow is classified as %+v", e)
+	}
+	for _, leak := range []string{"stub", "qwen3", "250000", "invalid"} {
+		if strings.Contains(e.Message, leak) {
+			t.Errorf("the message mentions %q: %q", leak, e.Message)
+		}
+	}
+
+	fx := newSharedFixture(t)
+	fx.stub.run = func(context.Context, int, []llm.Message, []llm.ToolDefinition, func(llm.StreamChunk)) (*llm.Response, error) {
+		return nil, overflow
+	}
+	evs := newSSEReader(t, fx.complete(wireReq(sharedTestAlias))).all()
+	terms := terminalEvents(evs)
+	if len(terms) != 1 || terms[0].typ != llm.WireTypeError || !strings.Contains(string(terms[0].raw), `"code":"context_overflow"`) {
+		t.Fatalf("the stream ended with %+v", evs)
 	}
 }
 

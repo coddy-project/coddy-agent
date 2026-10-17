@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"sync/atomic"
@@ -160,6 +161,62 @@ func TestCoddyStaleRevisionFallsBackALevelTheRefreshedRowNoLongerLists(t *testin
 	}
 }
 
+// A row that writes its reasoning choices keeps the level the session asked
+// for in the request rebuilt after a stale_revision, and an inheriting row
+// falls back to its own reasoning_default before the record's.
+func TestCoddyStaleRevisionMovesTheLevelOnlyOfAnInheritingRow(t *testing.T) {
+	refreshed := ModelEntry{Revision: "r2", ReasoningLevels: []string{"low", "medium"}, ReasoningDefault: "low"}
+	cases := []struct {
+		name    string
+		written bool
+		ownDef  string
+		effort  string
+		want    *string
+	}{
+		{"written choices keep the level", true, "", "high", ptr("high")},
+		{"written choices keep the level whatever the default", true, "medium", "high", ptr("high")},
+		{"an inheriting row takes its own default first", false, "medium", "high", ptr("medium")},
+		{"an inheriting row without one takes the record's", false, "", "high", ptr("low")},
+		{"an own default the record does not offer is none", false, "xhigh", "high", nil},
+		{"an off default is never a default", false, "off", "high", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var generated atomic.Int32
+			remote := newFakeRemote(t, staleUntil("r2", &generated))
+			in := coddyInput(remote)
+			in.ExpectedRevision, in.ReasoningEffort = "r1", tc.effort
+			in.ReasoningChoicesWritten, in.ReasoningDefault = tc.written, tc.ownDef
+			entry := refreshed
+			in.RefreshCapabilities = func(context.Context) (*ModelEntry, error) { return &entry, nil }
+			got := streamOnce(newTestCoddy(t, in), userMsg("Hi"), nil)
+			if got.err != nil {
+				t.Fatal(got.err)
+			}
+			second := remote.request(2).req.Options.ReasoningEffort
+			if (second == nil) != (tc.want == nil) || (second != nil && *second != *tc.want) {
+				t.Fatalf("the retried request sends %v, want %v", deref(second), deref(tc.want))
+			}
+			if rev := remote.request(2).req.Options.ExpectedRevision; rev == nil || *rev != "r2" {
+				t.Fatalf("the retried request names revision %v, want r2", deref(rev))
+			}
+		})
+	}
+}
+
+// A record whose default is off, with off not allowed, gives no default: off
+// is never one of the levels a default is taken from.
+func TestFallbackReasoningEffortNeverDefaultsToOff(t *testing.T) {
+	row := &ModelEntry{ReasoningLevels: []string{"off", "low"}, ReasoningDefault: "off"}
+	if got := fallbackReasoningEffort("high", row, ""); got != "" {
+		t.Fatalf("fallback = %q, want none", got)
+	}
+	row.AllowReasoningOff = true
+	if got := fallbackReasoningEffort("off", row, ""); got != "off" {
+		t.Fatalf("an allowed off asked for = %q, want off", got)
+	}
+}
+
 func TestCoddyStaleRevisionDropsImagesWhenTheRowIsNoLongerMultimodal(t *testing.T) {
 	images := []Message{
 		{Role: RoleUser, Content: "look", ImageParts: []ImagePart{{DataURL: "data:image/png;base64,AAAA", MIMEType: "image/png"}}},
@@ -250,4 +307,50 @@ func deref(s *string) string {
 		return "<nil>"
 	}
 	return *s
+}
+
+// A shared model's remote reports a request that is too large for the model in
+// a code of its own, before the stream or as its error frame, and the borrower
+// reads it as a context overflow, so the agent compacts and asks again instead
+// of failing every turn that follows. Any other invalid answer is not one.
+func TestCoddyOverflowCodesAreAContextOverflow(t *testing.T) {
+	refused := func(code string, status int) fakeRemoteHandler {
+		return func(w http.ResponseWriter, _ *http.Request, _ int, _ WireRequest) {
+			answerWire(w, status, WireError{Status: status, Kind: WireKindInvalid, Code: code, Message: "refused"})
+		}
+	}
+	inStream := func(code string) fakeRemoteHandler {
+		return func(w http.ResponseWriter, _ *http.Request, _ int, _ WireRequest) {
+			startStream(w).fail(WireError{Type: WireTypeError, Status: 400, Kind: WireKindInvalid, Code: code, Message: "refused"})
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		h    fakeRemoteHandler
+		want bool
+	}{
+		{"context_overflow as the error frame", inStream(WireCodeContextOverflow), true},
+		{"context_overflow before the stream", refused(WireCodeContextOverflow, http.StatusBadRequest), true},
+		{"request_too_large before the stream", refused(WireCodeRequestTooLarge, http.StatusRequestEntityTooLarge), true},
+		{"another invalid code", refused("bad_role", http.StatusBadRequest), false},
+		{"an invalid without a code", inStream(""), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			remote := newFakeRemote(t, tc.h)
+			got := streamOnce(newTestCoddy(t, coddyInput(remote)), userMsg("Hi"), nil)
+			if got.err == nil {
+				t.Fatal("the refusal was not an error")
+			}
+			if IsContextOverflow(got.err) != tc.want {
+				t.Fatalf("IsContextOverflow(%v) = %v, want %v", got.err, !tc.want, tc.want)
+			}
+		})
+	}
+
+	// The borrower's own refusal of a body over the size a shared model takes
+	// carries the same code.
+	own := &coddyAPIError{kind: WireKindInvalid, code: WireCodeRequestTooLarge, status: http.StatusRequestEntityTooLarge, message: "too large"}
+	if !IsContextOverflow(fmt.Errorf("provider %q: %w", "remote", own)) {
+		t.Fatal("the client's own size refusal is not a context overflow")
+	}
 }

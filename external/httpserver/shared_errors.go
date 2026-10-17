@@ -60,6 +60,18 @@ func classifySharedFailure(err error, stalled, timedOut bool, emitted int) llm.W
 
 	status := llm.UpstreamStatus(err)
 	switch {
+	case llm.IsContextOverflow(err):
+		// The one refusal of the provider whose meaning the client needs: the
+		// history does not fit the window, and the client compacts it rather
+		// than failing every turn that follows.
+		out.Kind = llm.WireKindInvalid
+		out.Code = llm.WireCodeContextOverflow
+		out.Status = status
+		if out.Status == 0 {
+			out.Status = http.StatusBadRequest
+		}
+		out.Message = "the request does not fit the context window of the model"
+		return out
 	case status == http.StatusTooManyRequests:
 		out.Kind = llm.WireKindRate
 		out.Status = status

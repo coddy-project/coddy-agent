@@ -28,25 +28,60 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
-// emptyElementsBody is a request whose messages array is made of n empty
-// objects: three bytes each on the wire.
-func emptyElementsBody(n int) []byte {
-	head := fmt.Sprintf(`{"protocol":%d,"model":%q,"messages":[`, llm.CoddyProtocol, sharedTestAlias)
+// emptyElementsBody is a request whose messages array is made of n+1 empty
+// objects, three bytes each on the wire, and whose envelope carries pad null
+// fields of no meaning in front of the three it needs. It holds 2n+5+pad
+// elements: the envelope and the array open two, the envelope's 3+pad fields
+// have 2+pad commas between them, and the n+1 messages open n+1 with n commas
+// between them.
+func emptyElementsBody(n, pad int) []byte {
+	head := fmt.Sprintf(`{%s"protocol":%d,"model":%q,"messages":[`, strings.Repeat(`"pad":null,`, pad), llm.CoddyProtocol, sharedTestAlias)
 	const tail = `{}]}`
 	return []byte(head + strings.Repeat("{},", n) + tail)
 }
 
-// A 32 MiB body of `{},` decodes into millions of messages: refused before the
-// decoder sees it, fast and without growing the heap by more than the read.
-func TestSharedRefusesABodyOfManyElementsBeforeDecodingIt(t *testing.T) {
-	fx := newSharedFixture(t)
+// scalarElementsBody is a request whose messages array is made of n bare
+// numbers: two bytes each on the wire, and a whole message each to the
+// decoder that reads them into the wire's messages.
+func scalarElementsBody(n int) []byte {
 	head := fmt.Sprintf(`{"protocol":%d,"model":%q,"messages":[`, llm.CoddyProtocol, sharedTestAlias)
-	n := (llm.CoddyMaxRequestBytes - len(head) - len(`{}]}`)) / 3
-	body := emptyElementsBody(n)
+	return []byte(head + strings.Repeat("1,", n-1) + `1]}`)
+}
+
+// schemaElementsBody is a request whose one tool has an input schema made of
+// n bare numbers, which the decoder reads into values of its own.
+func schemaElementsBody(n int) []byte {
+	head := fmt.Sprintf(`{"protocol":%d,"model":%q,"messages":[{"role":"user","content":"hi"}],"tools":[{"name":"t","input_schema":[`, llm.CoddyProtocol, sharedTestAlias)
+	return []byte(head + strings.Repeat("1,", n-1) + `1]}]}`)
+}
+
+// A body just under 32 MiB made of `{},`, of bare numbers in the messages or
+// of bare numbers in a tool's schema decodes into millions of values: each is
+// refused before the decoder sees it, fast and without growing the heap by
+// more than the read.
+func TestSharedRefusesABodyOfManyElementsBeforeDecodingIt(t *testing.T) {
+	head := fmt.Sprintf(`{"protocol":%d,"model":%q,"messages":[`, llm.CoddyProtocol, sharedTestAlias)
+	room := llm.CoddyMaxRequestBytes - len(head) - 256
+	for _, tc := range []struct {
+		name string
+		body []byte
+	}{
+		{"empty objects in the messages", emptyElementsBody(room/3, 0)},
+		{"numbers in the messages", scalarElementsBody(room / 2)},
+		{"numbers in a tool's schema", schemaElementsBody(room / 2)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			refusesManyElements(t, tc.body)
+		})
+	}
+}
+
+func refusesManyElements(t *testing.T, body []byte) {
+	t.Helper()
+	fx := newSharedFixture(t)
 	if len(body) > llm.CoddyMaxRequestBytes {
 		t.Fatalf("the test body is %d bytes, above the size limit it must stay under", len(body))
 	}
-
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
@@ -68,7 +103,7 @@ func TestSharedRefusesABodyOfManyElementsBeforeDecodingIt(t *testing.T) {
 	// Reading the body costs a few times its size (the buffer grows as it
 	// fills); decoding it would cost gigabytes.
 	grown := after.TotalAlloc - before.TotalAlloc
-	t.Logf("a %d MiB body of %d elements: refused in %v, %d MiB allocated", len(body)>>20, n, took, grown>>20)
+	t.Logf("a %d MiB body: refused in %v, %d MiB allocated", len(body)>>20, took, grown>>20)
 	if grown > 256<<20 {
 		t.Fatalf("the request allocated %d MiB: the body was decoded", grown>>20)
 	}
@@ -82,13 +117,13 @@ func TestSharedRefusesABodyOfManyElementsBeforeDecodingIt(t *testing.T) {
 // content, one element over is refused as too large.
 func TestSharedElementCapIsExact(t *testing.T) {
 	fx := newSharedFixture(t)
-	// The envelope and the messages array are two of the openers.
-	atCap := emptyElementsBody(sharedMaxJSONElements - 3)
+	n := (sharedMaxJSONElements - 6) / 2
+	atCap := emptyElementsBody(n, 1)
 	resp := fx.post(llm.CoddyCompletionsPath, sharedTestSharedTok, atCap)
 	if e := readError(t, resp); resp.StatusCode != http.StatusBadRequest || e.Code != "bad_role" {
 		t.Fatalf("a body at the cap: status %d: %+v", resp.StatusCode, e)
 	}
-	over := emptyElementsBody(sharedMaxJSONElements - 2)
+	over := emptyElementsBody(n, 2)
 	resp = fx.post(llm.CoddyCompletionsPath, sharedTestSharedTok, over)
 	if e := readError(t, resp); resp.StatusCode != http.StatusRequestEntityTooLarge || e.Code != "request_too_large" {
 		t.Fatalf("a body one over the cap: status %d: %+v", resp.StatusCode, e)
@@ -96,9 +131,10 @@ func TestSharedElementCapIsExact(t *testing.T) {
 	waitFor(t, "slots released", func() bool { return fx.srv.sharedLimit.tracked() == 0 })
 }
 
-// Only openers outside strings count: braces in text, escaped quotes and
-// escaped backslashes do not change what is a string.
-func TestJSONOpenersCountOutsideStringsOnly(t *testing.T) {
+// Only openers and commas outside strings count: braces, brackets and commas
+// in text, escaped quotes and escaped backslashes do not change what is a
+// string, and a bare value after a comma costs as much as an object.
+func TestJSONElementsCountOutsideStringsOnly(t *testing.T) {
 	cases := []struct {
 		name string
 		body string
@@ -109,18 +145,21 @@ func TestJSONOpenersCountOutsideStringsOnly(t *testing.T) {
 		{"one object", `{}`, 1, false},
 		{"one object over a cap of zero", `{}`, 0, true},
 		{"at the cap", `[{}]`, 2, false},
-		{"one over the cap", `[{},{}]`, 2, true},
+		{"one over the cap", `[{},{}]`, 3, true},
 		{"braces in a string", `{"s":"{{{{[[[[{{{{"}`, 1, false},
-		{"an escaped quote does not end the string", `{"s":"\"{{{{[[[["}`, 1, false},
-		{"an escaped backslash before the closing quote does", `[{"s":"\\"},{"t":"x"}]`, 3, false},
-		{"an escaped backslash then openers", `[{"s":"\\"},{"t":"x"}]`, 2, true},
-		{"a backslash pair then an escaped quote stays inside", `{"s":"\\\"{{{{"}`, 1, false},
-		{"keys are strings too", `{"{[":1,"[{":2}`, 1, false},
-		{"numbers and literals", `[1,2.5,-3e2,true,false,null]`, 1, false},
+		{"commas in a string", `{"s":",,,,,,,,"}`, 1, false},
+		{"an escaped quote does not end the string", `{"s":"\"{{{{[[[[,,"}`, 1, false},
+		{"an escaped backslash before the closing quote does", `[{"s":"\\"},{"t":"x"}]`, 4, false},
+		{"an escaped backslash then openers", `[{"s":"\\"},{"t":"x"}]`, 3, true},
+		{"a backslash pair then an escaped quote stays inside", `{"s":"\\\"{{{{,,"}`, 1, false},
+		{"keys are strings too", `{"{[":1,"[{":2}`, 2, false},
+		{"members count", `{"a":1,"b":2,"c":3}`, 2, true},
+		{"bare values count", `[1,2.5,-3e2,true,false,null]`, 6, false},
+		{"one bare value over", `[1,2.5,-3e2,true,false,null]`, 5, true},
 	}
 	for _, tc := range cases {
-		if got := jsonOpenersExceed([]byte(tc.body), tc.max); got != tc.over {
-			t.Errorf("%s: jsonOpenersExceed(%q, %d) = %v, want %v", tc.name, tc.body, tc.max, got, tc.over)
+		if got := jsonElementsExceed([]byte(tc.body), tc.max); got != tc.over {
+			t.Errorf("%s: jsonElementsExceed(%q, %d) = %v, want %v", tc.name, tc.body, tc.max, got, tc.over)
 		}
 	}
 }

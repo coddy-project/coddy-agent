@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -58,6 +59,10 @@ type coddyProvider struct {
 	busyWait         time.Duration
 	expectedRevision string
 	refresh          func(ctx context.Context) (*ModelEntry, error)
+	// choicesWritten and ownDefault are what the local row writes of its
+	// reasoning (ProviderInput.ReasoningChoicesWritten, ReasoningDefault).
+	choicesWritten bool
+	ownDefault     string
 
 	requestBound time.Duration
 	// answerBound bounds the read of an answer that is not the stream.
@@ -95,6 +100,8 @@ func newCoddyProvider(p ProviderInput, hc *http.Client) (*coddyProvider, error) 
 		busyWait:         p.BusyWait,
 		expectedRevision: p.ExpectedRevision,
 		refresh:          p.RefreshCapabilities,
+		choicesWritten:   p.ReasoningChoicesWritten,
+		ownDefault:       p.ReasoningDefault,
 		requestBound:     coddyRequestBound,
 		answerBound:      coddyBodyDeadline,
 		clock:            realCoddyClock(),
@@ -182,13 +189,16 @@ func (p *coddyProvider) currentView() *ModelEntry {
 // buildRequest projects the call onto the wire. Only the options the client
 // set explicitly are sent. A request rebuilt from a refreshed view keeps only
 // what the provider owns: a reasoning level the row no longer lists falls back
-// by the rule the session applies, and image parts go when the row is no
-// longer multimodal; the history is not re-projected.
+// by the rule the session applies, unless the local row writes its reasoning
+// choices itself, and image parts go when the row is no longer multimodal; the
+// history is not re-projected.
 func (p *coddyProvider) buildRequest(messages []Message, tools []ToolDefinition) WireRequest {
 	effort := p.effort
 	revision := p.expectedRevision
 	if view := p.currentView(); view != nil {
-		effort = fallbackReasoningEffort(effort, view)
+		if !p.choicesWritten {
+			effort = fallbackReasoningEffort(effort, view, p.ownDefault)
+		}
 		revision = view.Revision
 		if !view.Multimodal {
 			messages = withoutImageParts(messages)
@@ -230,32 +240,32 @@ func (p *coddyProvider) buildRequest(messages []Message, tools []ToolDefinition)
 	}
 }
 
-// fallbackReasoningEffort is the level a session ends up with for a row: the
-// level it asked for while the row still offers it ("off" included where the
-// row allows it), else the row's default level, else none. It mirrors
-// State.EffectiveReasoning applied to a listing entry.
-func fallbackReasoningEffort(effort string, row *ModelEntry) string {
-	var choices []string
+// fallbackReasoningEffort is the level a session ends up with for a row that
+// inherits its reasoning choices from a listing record: the level it asked for
+// while the record still offers it ("off" included where the record allows
+// it), else the default, else none. The default is the row's own
+// reasoning_default when it writes one, else the record's, and either only
+// when it is one of the record's levels ("off" is never a default). It mirrors
+// State.EffectiveReasoning over config's resolveCoddy for such a row.
+func fallbackReasoningEffort(effort string, row *ModelEntry, ownDefault string) string {
+	var levels []string
 	for _, lv := range row.ReasoningLevels {
 		if lv != "off" {
-			choices = append(choices, lv)
+			levels = append(levels, lv)
 		}
 	}
-	if len(choices) == 0 {
+	if len(levels) == 0 {
 		return ""
 	}
-	if row.AllowReasoningOff {
-		choices = append(choices, "off")
+	if effort != "" && (slices.Contains(levels, effort) || (effort == "off" && row.AllowReasoningOff)) {
+		return effort
 	}
-	for _, c := range choices {
-		if c == effort && effort != "" {
-			return effort
-		}
+	def := strings.TrimSpace(ownDefault)
+	if def == "" {
+		def = strings.TrimSpace(row.ReasoningDefault)
 	}
-	for _, lv := range row.ReasoningLevels {
-		if lv == row.ReasoningDefault && lv != "" {
-			return lv
-		}
+	if def != "" && slices.Contains(levels, def) {
+		return def
 	}
 	return ""
 }
@@ -263,8 +273,8 @@ func fallbackReasoningEffort(effort string, row *ModelEntry) string {
 // FallbackReasoningEffort is fallbackReasoningEffort for the agent: it builds a
 // request of a coddy row from one listing record, level and revision together,
 // and needs the rule the provider applies to a refreshed view.
-func FallbackReasoningEffort(effort string, row *ModelEntry) string {
-	return fallbackReasoningEffort(effort, row)
+func FallbackReasoningEffort(effort string, row *ModelEntry, ownDefault string) string {
+	return fallbackReasoningEffort(effort, row, ownDefault)
 }
 
 // withoutImageParts returns the messages with every attached part removed, as
@@ -295,7 +305,7 @@ func (p *coddyProvider) attempt(ctx context.Context, st *busyWaitState, req Wire
 		return nil, fmt.Errorf("coddy request: %w", err)
 	}
 	if len(body) > CoddyMaxRequestBytes {
-		return nil, &coddyAPIError{kind: WireKindInvalid, status: http.StatusRequestEntityTooLarge,
+		return nil, &coddyAPIError{kind: WireKindInvalid, code: WireCodeRequestTooLarge, status: http.StatusRequestEntityTooLarge,
 			message: "the request is larger than the 32 MiB a shared model takes; the history has to be shorter"}
 	}
 	resp, err := p.admit(ctx, st, body)

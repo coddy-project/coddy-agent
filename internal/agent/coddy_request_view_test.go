@@ -168,12 +168,52 @@ func TestRequestViewAWrittenOffSwitchKeepsTheLevelAsItIs(t *testing.T) {
 }
 
 // reasoning_default is not a level key of the request: a row that writes only
-// it (and the other keys the listing may fill) still inherits its levels.
+// it (and the other keys the listing may fill) still inherits its levels, and
+// a level the record does not offer falls back to that default first, as the
+// session resolves it (config's resolveCoddy): the record's default only when
+// the row writes none, and a written default the record does not offer is no
+// default at all.
 func TestRequestViewAWrittenDefaultAloneStillInheritsTheLevels(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		def  string
+		rec  llm.ModelEntry
+		want string
+	}{
+		{"the row's default wins over the record's", "medium", record("rev-2", "low", false, "low", "medium"), "medium"},
+		{"the row's default with a record that has none", "medium", record("rev-2", "", false, "low", "medium"), "medium"},
+		{"a row's default the record does not offer is none", "high", record("rev-2", "low", false, "low"), ""},
+		{"no row default takes the record's", "", record("rev-2", "low", false, "low", "medium"), "low"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newListingState(t, tc.rec)
+			in := requestView(t, st, func(m *config.ModelEntry) { m.ReasoningDefault = tc.def }, "xhigh")
+			if in.ReasoningEffort != tc.want {
+				t.Errorf("ReasoningEffort = %q, want %q", in.ReasoningEffort, tc.want)
+			}
+			if in.ReasoningChoicesWritten || in.ReasoningDefault != tc.def {
+				t.Errorf("the provider is told choices written %v, default %q", in.ReasoningChoicesWritten, in.ReasoningDefault)
+			}
+		})
+	}
+}
+
+// The provider rebuilds a request after a stale_revision from the record it
+// refreshes, and is told whether it may move the level: a row that writes its
+// choices keeps the level there too.
+func TestRequestViewTellsTheProviderWhetherTheChoicesAreWritten(t *testing.T) {
 	st := newListingState(t, record("rev-2", "low", false, "low"))
-	in := requestView(t, st, func(m *config.ModelEntry) { m.ReasoningDefault = "high" }, "high")
-	if in.ReasoningEffort != "low" {
-		t.Errorf("ReasoningEffort = %q, want the record's default low: the levels are inherited", in.ReasoningEffort)
+	if in := requestView(t, st, nil, "low"); in.ReasoningChoicesWritten {
+		t.Error("an inheriting row is reported as writing its choices")
+	}
+	if in := requestView(t, st, writesLevels("low", "high"), "high"); !in.ReasoningChoicesWritten {
+		t.Error("a row that writes reasoning_levels is reported as inheriting")
+	}
+	if in := requestView(t, st, func(m *config.ModelEntry) { *m = rowWithAllowReasoningOff(t, *m, false) }, "high"); !in.ReasoningChoicesWritten {
+		t.Error("a row that writes allow_reasoning_off is reported as inheriting")
+	}
+	if in := requestView(t, newListingState(t), writesLevels("high"), "high"); !in.ReasoningChoicesWritten {
+		t.Error("without a record a row that writes its levels is reported as inheriting")
 	}
 }
 

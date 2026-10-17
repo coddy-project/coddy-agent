@@ -314,10 +314,11 @@ func (s *Server) llmCompletionsPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A request that is small on the wire can still decode into gigabytes: an
-	// empty object is three bytes with its comma and a message of the wire about
-	// a hundred and thirty, so the number of objects and arrays is bounded before
+	// empty object or a bare number is two or three bytes with its comma, and
+	// the decoder grows a slice by a whole message of the wire (about a hundred
+	// and thirty bytes) for either, so the number of elements is bounded before
 	// the body is held or decoded.
-	if jsonOpenersExceed(body, sharedMaxJSONElements) {
+	if jsonElementsExceed(body, sharedMaxJSONElements) {
 		refuse(http.StatusRequestEntityTooLarge, sharedTooManyElements())
 		return
 	}
@@ -392,13 +393,13 @@ func sharedSetupFailure() llm.WireError {
 
 // sharedTooLarge is the answer to a request above the body limit.
 func sharedTooLarge() llm.WireError {
-	return sharedInvalid("request_too_large", "the request is larger than the 32 MiB a shared model takes; the history has to be shorter")
+	return sharedInvalid(llm.WireCodeRequestTooLarge, "the request is larger than the 32 MiB a shared model takes; the history has to be shorter")
 }
 
 // sharedTooManyElements is the answer to a request that opens more objects and
 // arrays than a history needs.
 func sharedTooManyElements() llm.WireError {
-	return sharedInvalid("request_too_large", "the request holds too many elements; the history has to be shorter")
+	return sharedInvalid(llm.WireCodeRequestTooLarge, "the request holds too many elements; the history has to be shorter")
 }
 
 // logSharedCall writes the one line a call leaves in the log.
@@ -467,19 +468,26 @@ func (s *Server) readSharedBody(w http.ResponseWriter, r *http.Request, deadline
 	return body, err
 }
 
-// sharedMaxJSONElements is the number of objects and arrays (every `{` and `[`
-// outside a string) one request body may open. A real history stays orders of
-// magnitude below it: a message with a tool call opens about five, a tool
-// definition with a nested schema about ten.
-const sharedMaxJSONElements = 1 << 19
+// sharedMaxJSONElements is the number of elements one request body may hold,
+// counted as jsonElementsExceed counts them. A real history stays far below
+// it: a tool round (the call and its result) is about fifteen, a tool
+// definition with a nested schema about the same, so a history of eight
+// thousand tool rounds and a hundred tools fits. At the cap the worst body
+// (bare numbers in the messages, each decoded into a whole message of the
+// wire) costs the decoder about a hundred MiB of allocations.
+const sharedMaxJSONElements = 1 << 17
 
-// jsonOpenersExceed reports whether body opens more than limit objects and arrays,
-// counting in one pass over the bytes and stopping at the first one over. A
-// brace or a bracket inside a string, an escaped quote included, is text and
-// does not count. The body is not checked for being JSON: the decoder does
-// that, and only for a body that passed this.
-func jsonOpenersExceed(body []byte, limit int) bool {
-	opened := 0
+// jsonElementsExceed reports whether body holds more than limit elements,
+// counting every object and array it opens and every comma outside a string,
+// in one pass over the bytes and stopping at the first one over. A comma
+// stands before every array element and every object member but the first,
+// so a scalar costs as much as an object: an array of bare numbers is bounded
+// like an array of empty objects. A brace, a bracket or a comma inside a
+// string, an escaped quote included, is text and does not count. The body is
+// not checked for being JSON: the decoder does that, and only for a body that
+// passed this.
+func jsonElementsExceed(body []byte, limit int) bool {
+	elements := 0
 	inString, escaped := false, false
 	for _, c := range body {
 		if inString {
@@ -496,9 +504,9 @@ func jsonOpenersExceed(body []byte, limit int) bool {
 		switch c {
 		case '"':
 			inString = true
-		case '{', '[':
-			opened++
-			if opened > limit {
+		case '{', '[', ',':
+			elements++
+			if elements > limit {
 				return true
 			}
 		}

@@ -68,6 +68,18 @@ const (
 // asked on a stale view of the row: its expected_revision is not the row's.
 const WireCodeStaleRevision = "stale_revision"
 
+// The codes of an invalid error that says the request is too large for the
+// model: WireCodeContextOverflow when the remote's provider refused it for not
+// fitting the context window (llm.IsContextOverflow on the remote), and
+// WireCodeRequestTooLarge when it is over the size or the number of elements a
+// shared model takes. The same request fails the same way again; what helps is
+// sending less, so a client reads either as a context overflow and compacts
+// its history.
+const (
+	WireCodeContextOverflow = "context_overflow"
+	WireCodeRequestTooLarge = "request_too_large"
+)
+
 // The codes of a busy refusal that came from a limit on calls rather than from a
 // full slot: the node's window per credential, and a relay's per-client slots
 // and window. All are kind busy, so a client that predates them waits them out
