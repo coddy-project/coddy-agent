@@ -29,8 +29,9 @@ make build TAGS="http ui scheduler memory cli gateway swarm metrics"
 ```bash
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
+REVISION="$(git rev-parse HEAD)"
 go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
-  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
+  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION} -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=${REVISION}" \
   -o build/coddy \
   ./cmd/coddy/
 ```
@@ -178,7 +179,7 @@ make check-android                                              # go vet with GO
 Makefile задаёт следующее.
 
 ```text
-LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION)
+LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(REVISION)
 ```
 
 **`VERSION`** определяется по git (тег на **HEAD**, иначе **`git describe`**, иначе **`dev`**). Вывести то же значение, которое встроит следующий **`make build`**, можно так.
@@ -187,12 +188,14 @@ LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(V
 make -s print-version
 ```
 
+**`REVISION`** - это **`git rev-parse HEAD`**, вне git он пуст. Коммит называет сама сборка, потому что тулчейн Go проставляет собственный **`vcs.revision`** по ближайшему каталогу **`.git`**, а в git worktree **`.git`** - это файл: worktree, вложенный в другой checkout (обычная раскладка у агентных инструментов: worktree в подкаталоге checkout), показал бы рядом со своей версией коммит внешнего checkout, в серии **`coddy_build_info`**. Бинарник, собранный без этого флага (обычный **`go build`**), по-прежнему читает **`vcs.revision`**. **`scripts/build-packages.sh`** передаёт оба значения; релизный workflow, [**Dockerfile**](../../../Dockerfile) и формула Homebrew передают только версию, потому что собирают из чистого клона, из контекста образа без **`.git`** или из архива исходников, где значение тулчейна верно или отсутствует.
+
 Ручная команда, согласованная с **`make build`**.
 
 ```bash
 go build \
   -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
-  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version)" \
+  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(git rev-parse HEAD)" \
   -o build/coddy \
   ./cmd/coddy/
 ```
@@ -270,4 +273,4 @@ go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 
 Так компилируется то, что модуль собирает по умолчанию, **без** ваших локальных **`TAGS`**. Чтобы получить известный набор возможностей (HTTP, веб-интерфейс, планировщик, память, консоль, шлюз мессенджеров), клонируйте репозиторий и используйте **`make build TAGS="http ui scheduler memory cli gateway swarm metrics"`** (или **`go build -tags=...`**, как выше).
 
-<!-- docsgen:source sha256=bcc9b605f0d39786 -->
+<!-- docsgen:source sha256=50c3d5f1cdefdbbc -->

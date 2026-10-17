@@ -90,10 +90,14 @@ for arch in $archs; do
         cp "$binary" "$stage/coddy"
     else
         echo "building coddy for linux/${arch} with tags \"${TAGS}\""
+        # The commit is named here, as `make build` does: the toolchain's own
+        # vcs.revision is the enclosing checkout's when this tree is a worktree
+        # nested in another one. Empty outside git, the binary then keeps its own.
+        revision=$(git rev-parse HEAD 2>/dev/null || true)
         GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build \
             -tags "$TAGS" \
             -trimpath \
-            -ldflags "-s -w -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${version}" \
+            -ldflags "-s -w -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${version} -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=${revision}" \
             -o "$stage/coddy" \
             ./cmd/coddy/
     fi
