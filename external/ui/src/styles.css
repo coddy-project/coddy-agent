@@ -7496,6 +7496,42 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   filter: grayscale(1);
 }
 
+/* The pencil that opens an attached picture in the markup editor: the
+   remove control's twin in the opposite corner. */
+.composer-attachment-card .composer-attachment-card-markup {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--coddy-blend-base) 62%, transparent);
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.composer-attachment-card:hover .composer-attachment-card-markup,
+.composer-attachment-card .composer-attachment-card-markup:hover,
+.composer-attachment-card .composer-attachment-card-markup:focus-visible {
+  opacity: 1;
+}
+
+.composer-attachment-card .composer-attachment-card-markup:hover,
+.composer-attachment-card .composer-attachment-card-markup:focus-visible {
+  background: color-mix(in srgb, var(--coddy-blend-base) 82%, transparent);
+  color: var(--text);
+}
+
 /* Transient rejection notice for paste/drop when the model is not multimodal. */
 .composer-attach-hint {
   padding: 6px 12px 0;
@@ -15681,6 +15717,203 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 /* An image opened over everything (ui/components/ImageLightbox.tsx): the bar with
    the caption, the zoom and the close control, and a stage that scrolls when
    the image is larger than the window. */
+/* Picture markup editor (markup/ImageMarkupDialog.tsx): the picture fitted
+   into the stage, the toolbar along the bottom - Cancel, the tools and the
+   palette in one group, Done - as in the console's window. */
+.markup-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  outline: none;
+}
+
+.markup-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 16px 16px 0;
+}
+
+.markup-picture {
+  position: absolute;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.markup-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.markup-canvas--text {
+  cursor: text;
+}
+
+.markup-label-input {
+  position: absolute;
+  min-width: 2ch;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 1px dashed color-mix(in srgb, var(--accent) 80%, transparent);
+  outline-offset: 3px;
+  background: transparent;
+  line-height: 1;
+  field-sizing: content;
+}
+
+.markup-message {
+  margin: 0;
+  padding-top: 40px;
+  text-align: center;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+}
+
+.markup-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px 16px;
+}
+
+.markup-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--text) 8%, var(--bg));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.markup-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.markup-tool:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.markup-tool.is-active {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.markup-tool:disabled {
+  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  cursor: default;
+}
+
+.markup-sep {
+  width: 1px;
+  height: 22px;
+  margin: 0 6px;
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+.markup-swatches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.markup-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 24%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.markup-swatch.is-active {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--text);
+}
+
+.markup-action {
+  min-width: 84px;
+  height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.markup-action--cancel {
+  justify-self: start;
+  background: transparent;
+  color: var(--text);
+}
+
+.markup-action--cancel:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.markup-action--done {
+  justify-self: end;
+  background: var(--accent);
+  color: var(--coddy-on-accent-fg);
+}
+
+.markup-action--done:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* A phone puts the actions over the tools, which scroll sideways. */
+@media (max-width: 599px) {
+  .markup-bar {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "cancel done"
+      "tools tools";
+  }
+
+  .markup-action--cancel {
+    grid-area: cancel;
+  }
+
+  .markup-action--done {
+    grid-area: done;
+  }
+
+  .markup-tools {
+    grid-area: tools;
+    overflow-x: auto;
+    justify-self: stretch;
+  }
+
+  .markup-tool,
+  .markup-swatches {
+    flex: none;
+  }
+}
+
 .docs-lightbox {
   position: fixed;
   inset: 0;

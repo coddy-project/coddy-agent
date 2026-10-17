@@ -33,7 +33,9 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 			}
 			// The attachments a message was sent with ride in its content;
 			// a client shows the mentions that brought them, not their bodies
-			// (mention.ForDisplay, the web UI's stripCoddyAttachments twin).
+			// (mention.ForDisplay, the web UI's stripCoddyAttachments twin),
+			// and the files saved with it as [image #N] or [file: name], since
+			// a text surface cannot show the picture (UserMessageText).
 			content := msg.Content
 			if msg.CompactionSummary {
 				// A summary row written inside a turn starts with the request,
@@ -41,7 +43,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 				// from its preamble on, not as a second copy of the prompt.
 				content = SummaryReplayText(content)
 			}
-			content = UserMessageDisplayText(content)
+			content = UserMessageText(content)
 			if content != "" {
 				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: "user_message_chunk",

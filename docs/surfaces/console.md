@@ -270,6 +270,8 @@ session runs with after the model and the level (`• tools coding`). A preset
 added to the configuration brings both without a restart
 ([Toolsets](../getting-started/configuration.md#toolsets)).
 
+**Pictures** - **ctrl+v** (**alt+v** where the terminal keeps ctrl+v for its own paste) takes the picture the clipboard holds and puts an `[image #N]` marker into the editor; the prompt that holds the marker carries the picture to a model marked `multimodal`. With an X display the picture first opens in a markup window - pencil, ellipse, rectangle, arrow, text, crop, rotate, undo - and Done attaches it as marked up. A picture a prompt was sent with from the web UI or Telegram shows as `[image #N]` too, and the web UI shows a picture pasted here as a picture ([Pasting and marking up pictures](../features/picture-markup.md)).
+
 **Model memory** — the console is a surface of its own. A session-scoped pick
 (`/model`, the picker, or `/model <id>` ahead of a prompt) is remembered in
 `$CODDY_HOME/console-state.json` (`{"last_model": "..."}`), and every **new**

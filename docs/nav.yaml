@@ -130,6 +130,9 @@ groups:
       - path: features/images.md
         title: Images
         summary: The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat.
+      - path: features/picture-markup.md
+        title: Pasting and marking up pictures
+        summary: A copied picture pasted into a prompt - ctrl+v in the console, a paste in the web UI - and the markup editor it opens in first, with pencil, shapes, arrow, text, crop, rotate and undo.
       - path: features/built-in-docs.md
         title: Built-in documentation
         summary: This documentation inside the binary - the web UI's reader, F1 in the console, coddy docs, the agent's coddy_docs tools and @coddy:<page> mentions - searched with BM25, with no site involved.

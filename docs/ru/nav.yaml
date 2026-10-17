@@ -256,6 +256,12 @@ pages:
     en:
       title: "Images"
       summary: "The model looking at a picture - read of a PNG, JPEG, GIF or WebP file for a model marked multimodal, the limits, what the provider is sent, and the preview in the web UI and a Telegram chat."
+  features/picture-markup.md:
+    title: "Вставка и разметка картинок"
+    summary: "Скопированная картинка в промпте - ctrl+v в консоли, вставка в веб-интерфейсе - и редактор разметки, в котором она сначала открывается: карандаш, фигуры, стрелка, текст, обрезка, поворот и отмена."
+    en:
+      title: "Pasting and marking up pictures"
+      summary: "A copied picture pasted into a prompt - ctrl+v in the console, a paste in the web UI - and the markup editor it opens in first, with pencil, shapes, arrow, text, crop, rotate and undo."
   features/built-in-docs.md:
     title: "Встроенная документация"
     summary: "Эта документация внутри бинарника - читалка веб-интерфейса, F1 в консоли, coddy docs, инструменты агента coddy_docs и упоминания @coddy:<page> - с поиском по BM25 и без обращения к сайту."
