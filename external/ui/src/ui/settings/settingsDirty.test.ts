@@ -98,3 +98,64 @@ test("a header named with an empty value is an edit: an empty value leaves the h
   expect(settingsFormDirty(base, withHeader, schema)).toBe(true);
   expect(settingsFormDirty(withHeader, base, schema)).toBe(true);
 });
+
+// The models of a provider of type coddy: allow_reasoning_off has a third
+// position there, "As the remote" (the key left out), which a save writes
+// differently from "No".
+const coddySchema: JsonSchema = {
+  type: "object",
+  properties: {
+    providers: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { name: { type: "string" }, type: { type: "string" } },
+      },
+    },
+    models: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          model: { type: "string" },
+          allow_reasoning_off: { type: "boolean", default: false },
+        },
+      },
+    },
+  },
+};
+
+function rows(type: string, off?: boolean) {
+  const model: Record<string, unknown> = { model: "studio/coder" };
+  if (off !== undefined) {
+    model["allow_reasoning_off"] = off;
+  }
+  return { providers: [{ name: "studio", type }], models: [model] };
+}
+
+test("on a model a coddy provider serves, As the remote and No are two settings", () => {
+  expect(
+    settingsFormDirty(rows("coddy"), rows("coddy", false), coddySchema),
+  ).toBe(true);
+  expect(
+    settingsFormDirty(rows("coddy", false), rows("coddy"), coddySchema),
+  ).toBe(true);
+  expect(
+    settingsFormDirty(rows("coddy"), rows("coddy", true), coddySchema),
+  ).toBe(true);
+  expect(
+    settingsFormDirty(rows("coddy", false), rows("coddy", false), coddySchema),
+  ).toBe(false);
+  expect(
+    settingsFormDirty(rows("coddy", true), rows("coddy", true), coddySchema),
+  ).toBe(false);
+});
+
+test("on any other model a switch turned off is no edit", () => {
+  expect(
+    settingsFormDirty(rows("openai"), rows("openai", false), coddySchema),
+  ).toBe(false);
+  expect(
+    settingsFormDirty(rows("openai"), rows("openai", true), coddySchema),
+  ).toBe(true);
+});

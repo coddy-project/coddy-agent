@@ -62,18 +62,22 @@ test("reads at session open and model change, refreshes after a turn", async () 
     },
   );
   await waitFor(() => expect(result.current.usage?.plan).toBe("pro"));
-  expect(calls).toEqual(["/coddy/providers/neuraldeep/usage"]);
+  expect(calls).toEqual([
+    "/coddy/providers/neuraldeep/usage?model=qwen3.8-27b",
+  ]);
   rerender({
     sessionId: "s1",
     llmModel: "neuraldeep/qwen3.8-27b",
     turnEpoch: 1,
   });
   await waitFor(() => expect(calls.length).toBe(2));
-  expect(calls[1]).toBe("/coddy/providers/neuraldeep/usage?refresh=1");
+  expect(calls[1]).toBe(
+    "/coddy/providers/neuraldeep/usage?model=qwen3.8-27b&refresh=1",
+  );
   rerender({ sessionId: "s1", llmModel: "stub/model", turnEpoch: 1 });
   // The stub provider answers unsupported once and is not asked again.
   await waitFor(() => expect(calls.length).toBe(3));
-  expect(calls[2]).toBe("/coddy/providers/stub/usage");
+  expect(calls[2]).toBe("/coddy/providers/stub/usage?model=model");
   rerender({ sessionId: "s2", llmModel: "stub/model", turnEpoch: 1 });
   await new Promise((r) => setTimeout(r, 30));
   expect(calls.length).toBe(3);
@@ -126,13 +130,15 @@ test("a deferred refresh is followed by one cache read, a reset by a hub read", 
     await vi.advanceTimersByTimeAsync(11_100);
   });
   await waitFor(() => expect(calls.length).toBe(3));
-  expect(calls[2]).toBe("/coddy/providers/neuraldeep/usage");
+  expect(calls[2]).toBe("/coddy/providers/neuraldeep/usage?model=qwen3.8-27b");
   // The fresh snapshot carries a reset in 777 s: a hub read is armed for it.
   await act(async () => {
     await vi.advanceTimersByTimeAsync(777_000 + 2_100);
   });
   await waitFor(() => expect(calls.length).toBe(4));
-  expect(calls[3]).toBe("/coddy/providers/neuraldeep/usage?refresh=1");
+  expect(calls[3]).toBe(
+    "/coddy/providers/neuraldeep/usage?model=qwen3.8-27b&refresh=1",
+  );
 });
 
 test("the banner dismissal is remembered per period", async () => {
@@ -324,4 +330,52 @@ test("an unsupported answer for the shown provider clears the snapshot", async (
   rerender({ turnEpoch: 1 });
   await waitFor(() => expect(result.current.usage).toBeNull());
   expect(calls.length).toBe(2);
+});
+
+// A provider of type coddy is read per model: the alias goes with every read,
+// a snapshot of another alias of the same row is neither pushed nor shown
+// over the active one, and switching aliases shows the new alias's numbers
+// even when they were read earlier than the old ones.
+test("a coddy row's usage is read and shown per alias", async () => {
+  const coder = snapshot(100, {
+    provider: "studio",
+    providerType: "coddy",
+    model: "coder",
+    fetchedAt: "2026-09-06T17:00:10Z",
+  });
+  const writer = snapshot(200, {
+    provider: "studio",
+    providerType: "coddy",
+    model: "writer",
+    fetchedAt: "2026-09-06T17:00:05Z",
+  });
+  const { impl, calls } = fetchStub([
+    { url: /model=coder/, body: { ok: true, usage: coder } },
+    { url: /model=writer/, body: { ok: true, usage: writer } },
+  ]);
+  const { result, rerender } = renderHook(
+    (p: { llmModel: string }) =>
+      useProviderUsage({
+        sessionId: "s1",
+        llmModel: p.llmModel,
+        turnEpoch: 0,
+        fetchImpl: impl,
+      }),
+    { initialProps: { llmModel: "studio/coder" } },
+  );
+  await waitFor(() => expect(result.current.usage?.model).toBe("coder"));
+  expect(calls).toEqual(["/coddy/providers/studio/usage?model=coder"]);
+
+  act(() =>
+    result.current.applyPushed({
+      ...writer,
+      fetchedAt: "2026-09-06T17:30:00Z",
+    }),
+  );
+  expect(result.current.usage?.model).toBe("coder");
+
+  rerender({ llmModel: "studio/writer" });
+  await waitFor(() => expect(result.current.usage?.model).toBe("writer"));
+  expect(calls[1]).toBe("/coddy/providers/studio/usage?model=writer");
+  expect(result.current.usage?.windows?.[0]?.used).toBe(200);
 });

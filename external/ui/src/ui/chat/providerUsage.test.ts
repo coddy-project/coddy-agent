@@ -256,6 +256,35 @@ describe("providerUsage helpers", () => {
     expect(usagePassedResetKey(ndDay)).toBe("");
   });
 
+  test("a coddy row's snapshot is shown for its own alias only", () => {
+    const u: ProviderUsage = {
+      ...fixture(),
+      provider: "studio",
+      model: "coder",
+    };
+    expect(summarizeUsage(u, "studio/coder").kind).toBe("metered");
+    expect(summarizeUsage(u, "studio/writer").kind).toBe("none");
+    expect(usageBannerKey({ ...u, blocked: true }, "studio/coder")).toMatch(
+      /^studio\/coder@blocked@/,
+    );
+  });
+
+  test("the model goes with the read", async () => {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string) => {
+      calls.push(url);
+      return new Response(JSON.stringify({ ok: true, usage: fixture() }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+    await fetchProviderUsage("studio", true, fetchImpl, "team coder");
+    await fetchProviderUsage("studio", false, fetchImpl, "coder");
+    expect(calls).toEqual([
+      "/coddy/providers/studio/usage?model=team+coder&refresh=1",
+      "/coddy/providers/studio/usage?model=coder",
+    ]);
+  });
+
   test("REST envelope", async () => {
     const calls: string[] = [];
     const fetchImpl = vi.fn(async (url: string) => {

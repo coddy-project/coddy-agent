@@ -7,6 +7,14 @@ import type { FetchedModel, ProviderRow } from "./useProviderModels";
 /** The provider type of a model that another Coddy shares. */
 export const CODDY_PROVIDER_TYPE = "coddy";
 
+/**
+ * The keys of a model row a coddy provider serves that have three positions:
+ * written true, written false, or left to the remote's listing (absent).
+ */
+export const TRI_STATE_MODEL_KEYS: ReadonlySet<string> = new Set([
+  "allow_reasoning_off",
+]);
+
 /** True for the provider type of a model that another Coddy shares. */
 export function isCoddyType(type: unknown): boolean {
   return text(type) === CODDY_PROVIDER_TYPE;

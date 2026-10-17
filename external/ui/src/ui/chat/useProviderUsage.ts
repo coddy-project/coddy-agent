@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchProviderUsage,
   usageBannerKey,
+  usageIsFor,
   usageIsNewer,
+  usageModelOf,
   usageNextReadMs,
   usagePassedResetKey,
   usageProviderOf,
@@ -50,6 +52,10 @@ export function useProviderUsage(params: {
   fetchImpl?: typeof fetch;
 }) {
   const provider = usageProviderOf(params.llmModel);
+  // The subject of the reads is the model selector, not the row alone: a
+  // coddy row's usage is read and shown per model, and every other type
+  // ignores the model.
+  const selector = provider ? params.llmModel.trim() : "";
   const [usage, setUsage] = useState<ProviderUsage | null>(null);
   const [dismissedKey, setDismissedKey] = useState<string>(() =>
     readDismissed(),
@@ -60,15 +66,24 @@ export function useProviderUsage(params: {
   const seqRef = useRef(0);
   const timerRef = useRef<number | null>(null);
   const followUpRef = useRef<string>("");
-  const providerRef = useRef(provider);
-  providerRef.current = provider;
+  const selectorRef = useRef(selector);
+  selectorRef.current = selector;
   const fetchImpl = params.fetchImpl;
 
   // A snapshot replaces the state only when the server read it no earlier
   // than the one shown: a REST answer issued before a pushed frame, or a
-  // frame that crossed a later read, never brings the numbers back.
+  // frame that crossed a later read, never brings the numbers back. A
+  // snapshot of another subject (another row, or another alias of a coddy
+  // row) is no older or newer than it: it replaces it.
   const accept = useCallback((next: ProviderUsage) => {
-    setUsage((current) => (usageIsNewer(next, current) ? next : current));
+    setUsage((current) =>
+      !current ||
+      current.provider !== next.provider ||
+      (current.model ?? "") !== (next.model ?? "") ||
+      usageIsNewer(next, current)
+        ? next
+        : current,
+    );
   }, []);
 
   const clearTimer = useCallback(() => {
@@ -79,27 +94,31 @@ export function useProviderUsage(params: {
   }, []);
 
   const read = useCallback(
-    async (name: string, refresh: boolean) => {
+    async (sel: string, refresh: boolean) => {
+      const name = usageProviderOf(sel);
       if (!name) return;
-      const until = unsupportedRef.current.get(name);
+      const until = unsupportedRef.current.get(sel);
       if (until !== undefined) {
         if (until > Date.now()) return;
-        unsupportedRef.current.delete(name);
+        unsupportedRef.current.delete(sel);
       }
       const seq = ++seqRef.current;
       try {
-        const answer = await fetchProviderUsage(name, refresh, fetchImpl);
-        if (providerRef.current !== name) return;
+        const answer = await fetchProviderUsage(
+          name,
+          refresh,
+          fetchImpl,
+          usageModelOf(sel),
+        );
+        if (selectorRef.current !== sel) return;
         if (!answer.ok && "unsupported" in answer) {
           unsupportedRef.current.set(
-            name,
+            sel,
             Date.now() + USAGE_UNSUPPORTED_TTL_MS,
           );
           // The row has no usage now (no source, or its usage limits panel
           // switched off in config): a snapshot shown for it must go too.
-          setUsage((current) =>
-            current && current.provider === name ? null : current,
-          );
+          setUsage((current) => (usageIsFor(current, sel) ? null : current));
           return;
         }
         if (seq !== seqRef.current) return;
@@ -112,14 +131,14 @@ export function useProviderUsage(params: {
     [fetchImpl, accept],
   );
 
-  // Session open and model change: a cache read for the active provider.
+  // Session open and model change: a cache read for the active model's row.
   useEffect(() => {
-    if (!provider) {
+    if (!selector) {
       setUsage(null);
       return;
     }
-    void read(provider, false);
-  }, [provider, params.sessionId, read]);
+    void read(selector, false);
+  }, [selector, params.sessionId, read]);
 
   // A finished turn spent quota: a refresh, which the server may defer. Only
   // a new epoch triggers it; a model change alone is the cache read above.
@@ -127,14 +146,14 @@ export function useProviderUsage(params: {
   useEffect(() => {
     if (params.turnEpoch === lastEpochRef.current) return;
     lastEpochRef.current = params.turnEpoch;
-    if (!provider) return;
-    void read(provider, true);
-  }, [params.turnEpoch, provider, read]);
+    if (!selector) return;
+    void read(selector, true);
+  }, [params.turnEpoch, selector, read]);
 
   // The schedule the snapshot implies.
   useEffect(() => {
     clearTimer();
-    if (!usage || usage.provider !== provider) return;
+    if (!usage || !usageIsFor(usage, selector)) return;
     let { delayMs, forced } = usageNextReadMs(usage);
     const passed = usagePassedResetKey(usage);
     // The passed-reset follow-up is remembered only once it is the read
@@ -152,17 +171,17 @@ export function useProviderUsage(params: {
     if (delayMs === 0) return;
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
-      void read(provider, forced);
+      void read(selector, forced);
     }, delayMs);
     return clearTimer;
-  }, [usage, provider, read, clearTimer]);
+  }, [usage, selector, read, clearTimer]);
 
   useEffect(() => clearTimer, [clearTimer]);
 
   const applyPushed = useCallback(
     (pushed: ProviderUsage) => {
       if (!pushed || pushed.unsupported) return;
-      if (pushed.provider !== providerRef.current) return;
+      if (!usageIsFor(pushed, selectorRef.current)) return;
       accept(pushed);
     },
     [accept],
@@ -179,6 +198,6 @@ export function useProviderUsage(params: {
     applyPushed,
     dismissedKey: bannerKey && dismissedKey === bannerKey ? bannerKey : "",
     dismissBanner,
-    refresh: () => (provider ? read(provider, true) : Promise.resolve()),
+    refresh: () => (selector ? read(selector, true) : Promise.resolve()),
   };
 }

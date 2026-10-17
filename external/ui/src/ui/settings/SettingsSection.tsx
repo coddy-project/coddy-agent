@@ -19,6 +19,7 @@ import {
   modelServedByCoddy,
   providerRowOfModel,
   sharedSubscriptionAckNeeded,
+  TRI_STATE_MODEL_KEYS,
 } from "./sharedModels";
 import type { ProviderRow } from "./useProviderModels";
 import { ProxySettingField } from "./ProxySettingField";
@@ -85,8 +86,6 @@ const USAGE_PANEL_PROVIDER_TYPES = new Set([
   "devin",
   "coddy",
 ]);
-
-const TRI_STATE_MODEL_KEYS = new Set(["allow_reasoning_off"]);
 
 /**
  * seedLogicalModel builds a models[] row from the item schema's defaults,

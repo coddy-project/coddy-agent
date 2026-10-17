@@ -21,9 +21,12 @@ import (
 // Raised from 1_850_000 for the session goal's chip, popover and rows, which
 // are application code every chat may show, and from 1_900_000 when main sat
 // 182 bytes under it and the per-session composer settings (#489) needed
-// about a kilobyte, and from 1_950_000 for the composer's toolset chip and
-// menu and the Toolsets settings tab (#513), which went 7 KB over it.
-const appJSBudget = 2_000_000
+// about a kilobyte, from 1_950_000 for the composer's toolset chip and menu
+// and the Toolsets settings tab (#513), which went 7 KB over it, and from
+// 2_000_000 when the shared models' branch sat 174 bytes under it and reading
+// a borrowed model's usage per alias, with the third position of its
+// reasoning switch counted as an edit, needed 544.
+const appJSBudget = 2_050_000
 
 // Strings only the renderers' own code carries: their error messages.
 var rendererMarkers = map[string]string{
