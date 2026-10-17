@@ -235,6 +235,11 @@ func sharedExternalProxyStream(t *testing.T, mounted bool) {
 	if runtime.GOOS == "linux" {
 		sockets = f.boundSockets(t)
 	}
+	// The heartbeat goroutine arms its timer on its own schedule, and the first
+	// chunk can reach the reader before it has: an advance before that would
+	// put the comment a whole interval past the moved clock. The heartbeat and
+	// the stall guard are both armed before the clock moves.
+	waitFor(t, "the heartbeat and the stall guard to arm", func() bool { return f.fx.clk.armed() >= 2 })
 	f.fx.clk.Advance(httpx.LivenessHeartbeat)
 	ev, ok := rd.next(5 * time.Second)
 	if !ok || ev.comment != "hb" {
