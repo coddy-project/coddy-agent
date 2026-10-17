@@ -816,8 +816,9 @@ const earlierSummariesCutMarker = "[%d earlier summaries left out of this reques
 
 // renderEarlierSummaries is the text of the summary rows of the chain, oldest
 // first, as the summarizer reads them ahead of the transcript it folds, within
-// maxTokens: the newest rows are kept whole and the oldest left out first, and a
-// newest row larger than maxTokens on its own is cut in the middle. The chain
+// maxTokens: the newest rows in a row, as many as fit whole, the rest left out
+// (a later row may correct an earlier one, so none is skipped over), and a
+// newest row larger than maxTokens on its own cut in the middle. The chain
 // itself is not touched.
 func renderEarlierSummaries(rows []llm.Message, maxTokens int) string {
 	var parts []string
@@ -829,6 +830,8 @@ func renderEarlierSummaries(rows []llm.Message, maxTokens int) string {
 		}
 		n := session.EstimateContextTokens(s)
 		switch {
+		case left > 0:
+			left++
 		case used+n <= maxTokens:
 			parts = append(parts, s)
 			used += n

@@ -49,14 +49,16 @@ const (
 
 // chainMergeCount is how many of the earliest rows of the chain a merge retells
 // for a session window of window tokens: the fewest that bring the chain to the
-// aim, counting the merged row as long as the longest row it retells (the
-// summarizer is asked for no more). ok is false when the chain is within its
+// aim, counting the merged row as long as the longest summary it retells (the
+// summarizer is asked for no more), plus the turn's prompt when it takes the
+// row that carries it (turnPromptRow). ok is false when the chain is within its
 // share, or when fewer than compactionChainMinMerge rows may be merged.
 func chainMergeCount(msgs []llm.Message, window int) (k int, ok bool) {
 	if window <= 0 {
 		window = config.DefaultContextWindowTokens
 	}
 	blocks, _ := session.LLMWindow(msgs)
+	at, _, summary := turnPromptRow(msgs, blocks)
 	sizes := make([]int, len(blocks))
 	total := 0
 	for i, idx := range blocks {
@@ -68,17 +70,43 @@ func chainMergeCount(msgs []llm.Message, window int) (k int, ok bool) {
 		return 0, false
 	}
 	aim := share * compactionChainAimPercent / 100
-	rest, longest := total, 0
+	rest, longest, carried := total, 0, 0
 	// The newest row is never merged.
-	for k < len(blocks)-1 && (k < compactionChainMinMerge || rest+longest > aim) {
+	for k < len(blocks)-1 && (k < compactionChainMinMerge || rest+longest+carried > aim) {
+		retold := sizes[k]
+		if k == at {
+			retold = session.EstimateContextTokens(summary)
+			carried = sizes[k] - retold
+		}
 		rest -= sizes[k]
-		longest = max(longest, sizes[k])
+		longest = max(longest, retold)
 		k++
 	}
 	if k < compactionChainMinMerge {
 		return 0, false
 	}
 	return k, true
+}
+
+// turnPromptRow finds the row of the chain (blocks, as session.LLMWindow gives
+// them) that carries the prompt of the turn in progress in front of its
+// summary: the first row after the turn's opening prompt that
+// session.SplitInTurnSummary splits. It returns its position in blocks and the
+// two parts, or -1 when the chain has no such row.
+func turnPromptRow(msgs []llm.Message, blocks []int) (at int, prompt, summary string) {
+	open, ok := session.OpeningPromptIndex(msgs)
+	if !ok {
+		return -1, "", ""
+	}
+	for i, idx := range blocks {
+		if idx <= open {
+			continue
+		}
+		if p, s, ok := session.SplitInTurnSummary(msgs[idx].Content); ok {
+			return i, p, s
+		}
+	}
+	return -1, "", ""
 }
 
 // withChainMergeInstructions tells the summarizer the transcript it reads is a
@@ -106,19 +134,18 @@ func (a *Agent) mergeChain(ctx context.Context, chain []compactionCandidate, ins
 		return 0, nil
 	}
 	blocks, _ := session.LLMWindow(msgs)
-	open, hasOpen := session.OpeningPromptIndex(msgs)
 	rows := make([]llm.Message, k)
-	prompt := ""
 	for i := range rows {
 		rows[i] = msgs[blocks[i]]
-		// The row of the turn in progress that carries its prompt: the prompt
-		// goes in front of the merged row as it stands, and only the summary
-		// after it is retold.
-		if hasOpen && blocks[i] > open && prompt == "" {
-			if p, summary, ok := session.SplitInTurnSummary(rows[i].Content); ok {
-				prompt, rows[i].Content = p, summary
-			}
-		}
+	}
+	// The row of the turn in progress that carries its prompt: the prompt goes
+	// in front of the merged row as it stands, and only the summary after it is
+	// retold.
+	at, prompt, summary := turnPromptRow(msgs, blocks)
+	if at >= 0 && at < k {
+		rows[at].Content = summary
+	} else {
+		prompt = ""
 	}
 	instructions = withChainMergeInstructions(instructions)
 	if prompt != "" {

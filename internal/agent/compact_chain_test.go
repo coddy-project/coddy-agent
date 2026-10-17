@@ -161,3 +161,20 @@ func TestInTurnFoldBudgetLeavesRoomForTheChain(t *testing.T) {
 		t.Fatalf("the fold left the next request at %d tokens, over its aim of %d plus its own row:\n%s", next, room, logs)
 	}
 }
+
+// The earlier summaries cut for room are the oldest run of them: the rows sent
+// are the newest ones in a row, so the summarizer never reads an old decision
+// without the later row that corrected it, and the marker counts every row
+// left out.
+func TestRenderEarlierSummariesKeepsANewestRun(t *testing.T) {
+	row := func(name string, tokens int) llm.Message {
+		return session.NewCompactionSummaryMessage(name+" "+strings.Repeat("x", tokens*3), "m")
+	}
+	got := renderEarlierSummaries([]llm.Message{row("OLDEST", 400), row("MIDDLE", 1800), row("NEWEST", 500)}, 1000)
+	if !strings.Contains(got, "NEWEST") || strings.Contains(got, "MIDDLE") || strings.Contains(got, "OLDEST") {
+		t.Fatalf("the rows sent are not the newest run:\n%s", firstChars(got, 300))
+	}
+	if !strings.HasPrefix(got, "[2 earlier summaries left out") {
+		t.Fatalf("the marker does not count the two rows left out:\n%s", firstChars(got, 120))
+	}
+}

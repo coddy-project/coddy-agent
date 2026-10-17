@@ -359,3 +359,40 @@ func TestAMergeLeavesRoomForTheNextBlocks(t *testing.T) {
 		t.Fatalf("merges at compactions %v, want the chain merged more than once over 14 compactions", merges)
 	}
 }
+
+// A merge that takes the row carrying the turn's prompt writes the prompt in
+// front of the merged row, so the prompt is counted on top of the merged
+// summary when the merge decides how many rows to retell: with a long prompt
+// the merge still brings the chain down to the aim.
+func TestAMergeOfTheTurnsRowsCountsItsPrompt(t *testing.T) {
+	prompt := "AUDIT-REQUEST " + strings.Repeat("p", 2500*3)
+	first := session.NewInTurnCompactionSummaryMessage(prompt, "first steps "+strings.Repeat("s", 100*3), "m")
+	first.CompactionBlock = true
+	parts := [][]llm.Message{{userText(prompt)}, steps("a", 1), {first}}
+	for i := 2; i <= 14; i++ {
+		parts = append(parts, steps(fmt.Sprintf("b%d_", i), 1), []llm.Message{chainBlock(fmt.Sprintf("B%d", i), 600)})
+	}
+	parts = append(parts, steps("c", 1), []llm.Message{chainBlock("NEW", 100)})
+	st := stateOf(t, parts...)
+	// The summarizer writes the merged summary as long as the longest row it
+	// retells, the most it is asked for.
+	provider := &compactCannedProvider{t: t, summary: "MERGED " + strings.Repeat("m", 600*3)}
+	ag := compactTestAgent(t, st, config.Compaction{}, provider)
+	const window = 30000
+	ag.cfg.Models[0].MaxContextTokens = window
+	chain, err := ag.compactionChain("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	k, err := ag.mergeChain(context.Background(), chain, "", nil)
+	if err != nil || k == 0 {
+		t.Fatalf("merge = %d, %v; want a merge", k, err)
+	}
+	if aim := window * compactionChainSharePercent / 100 * compactionChainAimPercent / 100; chainTokens(st) > aim {
+		t.Fatalf("the merge of %d rows left the chain at %d tokens, over the aim of %d", k, chainTokens(st), aim)
+	}
+	if got := strings.Count(transcriptText(windowOf(st)), "AUDIT-REQUEST"); got != 1 {
+		t.Fatalf("the window holds the prompt %d times, want once", got)
+	}
+}

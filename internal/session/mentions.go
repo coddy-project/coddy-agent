@@ -689,15 +689,26 @@ func (r *mentionResolver) sessionDigest(id string) (string, string, error) {
 
 	// The window opens with the chain of summary rows (LLMWindow): together they
 	// are the earlier conversation, oldest first, and a chain too long for its
-	// share loses its oldest rows, not the newest.
+	// share loses its oldest rows, not the newest. The request an in-turn row
+	// carries in front of its summary is kept apart and clipped on its own: it
+	// is the oldest text of the chain, and no later summary repeats it.
 	window := MessagesForLLM(msgs)
 	var summaries []string
+	request := ""
 	for len(window) > 0 && window[0].CompactionSummary {
-		summaries = append(summaries, strings.TrimSpace(window[0].Content))
+		text := strings.TrimSpace(window[0].Content)
+		if prompt, summary, ok := SplitInTurnSummary(window[0].Content); ok && request == "" {
+			request = clipText(strings.TrimSpace(prompt), sessionDigestMessageBytes) + "\n\n" + strings.TrimSpace(inTurnSummaryPreamble)
+			text = strings.TrimSpace(summary)
+		}
+		summaries = append(summaries, text)
 		window = window[1:]
 	}
 	if len(summaries) > 0 {
 		b.WriteString("\nSummary of its earlier conversation:\n")
+		if request != "" {
+			b.WriteString(request + "\n")
+		}
 		b.WriteString(clipTextFront(strings.Join(summaries, "\n\n"), sessionDigestBytes/3))
 		b.WriteString("\n")
 	}

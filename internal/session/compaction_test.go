@@ -333,3 +333,31 @@ func TestSessionDigestOfALongChainKeepsTheNewestRows(t *testing.T) {
 		t.Fatalf("the digest does not keep the newest rows of the chain:\n%s", digest)
 	}
 }
+
+// TestSessionDigestOfALongChainKeepsTheTurnsRequest: the request an in-turn row
+// carries in front of its summary is the oldest text of the chain and the one
+// no later summary repeats, so the cut for room never takes it.
+func TestSessionDigestOfALongChainKeepsTheTurnsRequest(t *testing.T) {
+	st := &State{ID: "sess_digest_turn_request", CWD: t.TempDir()}
+	first := NewInTurnCompactionSummaryMessage("REQUEST-TEXT audit every module", "STEPS-1 "+strings.Repeat("x", sessionDigestBytes/4), "m")
+	first.CompactionBlock = true
+	for _, m := range []llm.Message{
+		userMsg("REQUEST-TEXT audit every module"), assistantMsg("step"), first,
+		assistantMsg("step"), blockMsg("STEPS-2 " + strings.Repeat("y", sessionDigestBytes/4)),
+		assistantMsg("step"),
+	} {
+		st.AddMessage(m)
+	}
+	r := &mentionResolver{
+		store: &FileStore{Root: t.TempDir()},
+		live:  func(string) *State { return st },
+	}
+	digest, _, err := r.sessionDigest(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, earlier, _ := strings.Cut(digest, "Summary of its earlier conversation:\n")
+	if !strings.Contains(earlier, "REQUEST-TEXT") || !strings.Contains(earlier, "STEPS-2") {
+		t.Fatalf("the earlier conversation lost the turn's request or the newest row:\n%.400s", earlier)
+	}
+}
