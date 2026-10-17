@@ -259,6 +259,26 @@ describe("ImageMarkupDialog", () => {
     root.focus();
     fireEvent.keyDown(root, { key: "Tab", shiftKey: true });
     expect(done).toHaveFocus();
+    // The editor's resting focus is its root: Tab from there goes to the
+    // first control, never to the page behind.
+    root.focus();
+    fireEvent.keyDown(root, { key: "Tab" });
+    expect(cancel).toHaveFocus();
+  });
+
+  it("gives the picture's canvas back when it closes", async () => {
+    const { unmount } = render(
+      <ImageMarkupDialog
+        file={new File(["raw"], "a.png", { type: "image/png" })}
+        onDone={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    await screen.findByTestId("markup-canvas");
+    const raster = fakes.calls.find((c) => c.op === "drawImage")!.canvas;
+    expect(raster.width).toBe(400);
+    unmount();
+    expect([raster.width, raster.height]).toEqual([0, 0]);
   });
 
   it("names the result after the original", () => {

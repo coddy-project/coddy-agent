@@ -15,7 +15,7 @@ Press **ctrl+v** in the console to paste the picture the clipboard holds. A term
 | macOS | `osascript`, which every Mac has |
 | Windows | PowerShell |
 
-A picture the clipboard offers as PNG, JPEG, WebP, GIF, BMP or TIFF is taken; BMP and TIFF become PNG, since providers do not take them. An image file copied in a file manager is read from its path. A picture larger than 50 MB or 40 megapixels is refused before it is decoded, and a clipboard whose owner does not answer within 15 seconds is reported as such. Where the terminal keeps ctrl+v for its own paste, as Windows Terminal does, press **alt+v**.
+A picture the clipboard offers as PNG, JPEG, WebP, GIF, BMP or TIFF is taken; BMP and TIFF become PNG, since providers do not take them. An image file copied in a file manager is read from its path. A picture larger than 50 MB, or one whose header declares more than 40 megapixels, is refused before its pixels are decoded, with the reason; a clipboard whose owner does not answer within 15 seconds is reported as such. Where the terminal keeps ctrl+v for its own paste, as Windows Terminal does, press **alt+v**.
 
 The picture appears in the editor as a marker, and the prompt that holds the marker carries the picture:
 

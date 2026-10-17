@@ -170,6 +170,16 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
     rasterRef.current = { picture, ops, canvas: next };
     return next;
   }, [picture, baseSize, ops]);
+  // The last raster goes when its picture does: on close, Cancel included.
+  useEffect(
+    () => () => {
+      if (rasterRef.current?.picture === picture) {
+        releaseCanvas(rasterRef.current.canvas);
+        rasterRef.current = null;
+      }
+    },
+    [picture],
+  );
   const view = fitView(size, stage);
 
   // The stage's size decides how large the picture is shown.
@@ -427,10 +437,16 @@ export function ImageMarkupDialog(props: ImageMarkupDialogProps) {
         return;
       }
       const active = document.activeElement;
-      if (e.shiftKey && (active === first || active === root)) {
+      if (
+        e.shiftKey &&
+        (active === first || active === root || !root.contains(active))
+      ) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && active === last) {
+      } else if (
+        !e.shiftKey &&
+        (active === last || active === root || !root.contains(active))
+      ) {
         e.preventDefault();
         first.focus();
       }

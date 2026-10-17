@@ -5,7 +5,6 @@ package clipimage
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -128,6 +127,9 @@ func (r *selReader) convert(ctx context.Context, target xproto.Atom) ([]byte, er
 		return nil, ErrNoImage
 	}
 	value, typ, _, err := r.c.ReadProperty(r.win, r.prop, true, MaxBytes)
+	if errors.Is(err, xutil.ErrPropertyTooLarge) {
+		return nil, tooLarge()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +148,9 @@ func (r *selReader) convert(ctx context.Context, target xproto.Atom) ([]byte, er
 			return nil, err
 		}
 		piece, _, _, err := r.c.ReadProperty(r.win, r.prop, true, MaxBytes)
+		if errors.Is(err, xutil.ErrPropertyTooLarge) {
+			return nil, tooLarge()
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +159,7 @@ func (r *selReader) convert(ctx context.Context, target xproto.Atom) ([]byte, er
 		}
 		out = append(out, piece...)
 		if len(out) > MaxBytes {
-			return nil, fmt.Errorf("the clipboard image is larger than %d MB", MaxBytes>>20)
+			return nil, tooLarge()
 		}
 	}
 }

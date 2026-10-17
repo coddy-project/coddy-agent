@@ -101,7 +101,7 @@ func (k *keymap) key(code xproto.Keycode, state uint16) (markup.Key, bool) {
 	if r == 0 {
 		return markup.Key{}, false
 	}
-	plain := keysymRune(at(0, 0))
+	plain := shortcutRune(at)
 	if unicode.IsLetter(r) {
 		// A letter's case is shift, inverted by caps lock; a keymap that
 		// lists only one case for a key still types both.
@@ -115,6 +115,18 @@ func (k *keymap) key(code xproto.Keycode, state uint16) (markup.Key, bool) {
 		r = unicode.ToLower(r)
 	}
 	return markup.Key{Rune: r, Ctrl: ctrl, Base: plain}, true
+}
+
+// shortcutRune is the letter a key stands for as a shortcut: the first Latin
+// letter its groups type unshifted, so a layout list that starts with Russian
+// still finds p, r or z; else whatever the first group types.
+func shortcutRune(at func(group, level int) xproto.Keysym) rune {
+	for g := 0; g < 2; g++ {
+		if r := keysymRune(at(g, 0)); r < unicode.MaxASCII && unicode.IsLetter(r) {
+			return r
+		}
+	}
+	return keysymRune(at(0, 0))
 }
 
 // keysymRune is the character a keysym types: Latin-1 keysyms are their

@@ -124,6 +124,14 @@ func TestReadAsksEverySourceUntilOneHasAPicture(t *testing.T) {
 	if _, err := Read(context.Background(), e); !errors.Is(err, ErrNoImage) {
 		t.Fatalf("both empty: %v", err)
 	}
+	// One empty and one holding a picture it cannot take: the person hears
+	// why, not that the clipboard is empty.
+	e.X11 = func(context.Context, string) (Image, error) { return fromBytes([]byte("not a picture"), "") }
+	_, err = Read(context.Background(), e)
+	var bad *BadImageError
+	if !errors.As(err, &bad) || !strings.Contains(err.Error(), "cannot be read") {
+		t.Fatalf("empty and undecodable: %v", err)
+	}
 	// One empty and one broken: the clipboard is empty, not broken.
 	e.X11 = func(context.Context, string) (Image, error) { return Image{}, errors.New("connection refused") }
 	if _, err := Read(context.Background(), e); !errors.Is(err, ErrNoImage) {
@@ -152,11 +160,22 @@ func TestAPictureDeclaringTooManyPixelsIsRefusedBeforeDecoding(t *testing.T) {
 
 func TestProgramOutputIsCapped(t *testing.T) {
 	b := &cappedBuffer{max: 4}
-	if _, err := b.Write([]byte("abc")); err != nil {
-		t.Fatal(err)
+	if _, err := b.Write([]byte("abcd")); err != nil || b.over {
+		t.Fatalf("a write up to the cap: %v, over %v", err, b.over)
 	}
-	if _, err := b.Write([]byte("de")); !errors.Is(err, errOutputTooLarge) {
+	if _, err := b.Write([]byte("e")); !errors.Is(err, errOutputTooLarge) || !b.over {
 		t.Fatalf("a write past the cap: %v", err)
+	}
+	// A picture too large for wl-paste's pipe is reported as too large,
+	// not as an empty clipboard.
+	f := &fakeRun{
+		answers: map[string][]byte{"wl-paste --list-types": []byte("image/png\n")},
+		fail:    map[string]error{"wl-paste --no-newline --type image/png": errOutputTooLarge},
+	}
+	_, err := readWayland(context.Background(), f.run)
+	var bad *BadImageError
+	if !errors.As(err, &bad) {
+		t.Fatalf("an oversized wl-paste answer: %v", err)
 	}
 }
 

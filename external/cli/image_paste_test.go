@@ -149,13 +149,21 @@ func TestPasteRefusedForAModelTheConfigDoesNotList(t *testing.T) {
 	read := false
 	a.imgIO = imageIO{read: func(context.Context) (clipimage.Image, error) { read = true; return copiedPicture() }}
 	a.pasteImage()
-	if read || !strings.Contains(transcriptText(a), "does not take pictures") {
+	if read || !strings.Contains(transcriptText(a), "takes no pictures") {
 		t.Fatalf("an unlisted model: read %v, transcript:\n%s", read, transcriptText(a))
 	}
-	// Over --remote the server's catalogue decides.
+	if !strings.Contains(transcriptText(a), "is not in models") {
+		t.Fatalf("the refusal points at a row that does not exist:\n%s", transcriptText(a))
+	}
+	// Over --remote the server's catalogue decides, even against a local row
+	// that says otherwise.
 	a.remoteURL = "http://127.0.0.1:1"
 	if !a.modelTakesPictures() {
 		t.Fatal("a remote console refused a model only the server knows")
+	}
+	a.config().Models = []config.ModelEntry{{Model: "stub/unlisted"}}
+	if !a.modelTakesPictures() {
+		t.Fatal("a stale local row refused a remote model")
 	}
 }
 

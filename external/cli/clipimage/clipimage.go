@@ -5,13 +5,13 @@
 // file copied in a file manager.
 //
 // A terminal pastes text only, so the console asks the desktop itself:
-//   - X11 (and XWayland) over the X protocol in Go, no xclip needed (x11.go);
 //   - Wayland through wl-paste, from wl-clipboard;
+//   - X11 (and XWayland) over the X protocol in Go, no xclip needed (x11.go);
 //   - macOS through osascript, which every Mac has;
 //   - Windows through PowerShell and System.Windows.Forms.
 //
-// The sources are tried in that order and the first picture wins; a source
-// that is not there is skipped.
+// A Wayland session with XWayland tries wl-paste first and X next; the first
+// picture wins, and a source that is not there is skipped.
 package clipimage
 
 import (
@@ -37,6 +37,22 @@ import (
 
 // ErrNoImage says the clipboard holds no picture.
 var ErrNoImage = errors.New("the clipboard holds no image")
+
+// BadImageError says the clipboard does hold a picture, but one the console
+// cannot take: too large, or not a picture it can decode. It outranks
+// ErrNoImage from another source, so the person hears why the paste failed.
+type BadImageError struct{ Err error }
+
+func (e *BadImageError) Error() string { return e.Err.Error() }
+func (e *BadImageError) Unwrap() error { return e.Err }
+
+func badImage(format string, args ...any) error {
+	return &BadImageError{Err: fmt.Errorf(format, args...)}
+}
+
+func tooLarge() error {
+	return badImage("the clipboard image is larger than %d MB", MaxBytes>>20)
+}
 
 // MaxBytes bounds what is read from the clipboard: a picture larger than
 // this would not reach a model anyway.
@@ -77,26 +93,37 @@ func Read(ctx context.Context, env Env) (Image, error) {
 	if len(sources) == 0 {
 		return Image{}, errors.New("no clipboard to read: no X display, no wl-paste on a Wayland session")
 	}
-	var firstErr error
+	// The next source is asked whatever this one said: wl-paste exits 1 for
+	// an empty clipboard and for a compositor it cannot reach alike (a stale
+	// WAYLAND_DISPLAY inside tmux), and X may still answer. What is reported
+	// when none has a picture: a picture that could not be taken first, then
+	// an empty clipboard, then the first failure.
+	var bad, firstErr error
 	empty := false
 	for _, s := range sources {
 		img, err := s.read(ctx)
-		if err == nil {
-			return img, nil
-		}
 		if ctx.Err() != nil {
 			return Image{}, ctx.Err()
 		}
-		// The next source is asked either way: wl-paste exits 1 for an
-		// empty clipboard and for a compositor it cannot reach alike (a
-		// stale WAYLAND_DISPLAY inside tmux), and X may still answer.
-		if errors.Is(err, ErrNoImage) {
+		if err == nil {
+			return img, nil
+		}
+		var b *BadImageError
+		switch {
+		case errors.As(err, &b):
+			if bad == nil {
+				bad = err
+			}
+		case errors.Is(err, ErrNoImage):
 			empty = true
-		} else if firstErr == nil {
+		case firstErr == nil:
 			firstErr = err
 		}
 	}
-	if empty {
+	switch {
+	case bad != nil:
+		return Image{}, bad
+	case empty:
 		return Image{}, ErrNoImage
 	}
 	return Image{}, firstErr
@@ -164,18 +191,18 @@ func fromBytes(data []byte, name string) (Image, error) {
 		return Image{}, ErrNoImage
 	}
 	if len(data) > MaxBytes {
-		return Image{}, fmt.Errorf("the clipboard image is larger than %d MB", MaxBytes>>20)
+		return Image{}, tooLarge()
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return Image{}, fmt.Errorf("the clipboard image cannot be read: %w", err)
+		return Image{}, badImage("the clipboard image cannot be read: %w", err)
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > MaxPixels {
-		return Image{}, fmt.Errorf("the clipboard image is %dx%d, larger than %d megapixels", cfg.Width, cfg.Height, MaxPixels/1_000_000)
+		return Image{}, badImage("the clipboard image is %dx%d, larger than %d megapixels", cfg.Width, cfg.Height, MaxPixels/1_000_000)
 	}
 	pic, format, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return Image{}, fmt.Errorf("the clipboard image cannot be read: %w", err)
+		return Image{}, badImage("the clipboard image cannot be read: %w", err)
 	}
 	switch format {
 	case "png", "jpeg", "gif", "webp":
@@ -227,7 +254,7 @@ func fromFile(path string) (Image, error) {
 		return Image{}, ErrNoImage
 	}
 	if st.Size() > MaxBytes {
-		return Image{}, fmt.Errorf("%s is larger than %d MB", filepath.Base(path), MaxBytes>>20)
+		return Image{}, badImage("%s is larger than %d MB", filepath.Base(path), MaxBytes>>20)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

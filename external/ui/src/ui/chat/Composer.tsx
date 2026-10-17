@@ -658,13 +658,37 @@ export function Composer(props: {
     file: File;
     attached: boolean;
   } | null>(null);
+  // One picture is marked up at a time: the editor's chunk may still be on
+  // its way when another is pasted, and the composer may be gone when it
+  // arrives (the start screen hands over to the docked composer).
+  const markupPendingRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const openMarkup = (file: File, attached: boolean) => {
+    // Without the editor a pasted picture is attached as it is, as in a
+    // browser that cannot draw; an attached one stays as it was.
+    const attachAsIs = () => {
+      if (!attached) setAttachedFiles((prev) => [...prev, file]);
+    };
+    if (markupPendingRef.current || markup) {
+      attachAsIs();
+      return;
+    }
+    markupPendingRef.current = true;
     loadImageMarkup().then(
-      () => setMarkup({ file, attached }),
       () => {
-        // Without the editor a pasted picture is attached as it is, as in
-        // a browser that cannot draw; an attached one stays as it was.
-        if (!attached) setAttachedFiles((prev) => [...prev, file]);
+        markupPendingRef.current = false;
+        if (mountedRef.current) setMarkup({ file, attached });
+        else attachAsIs();
+      },
+      () => {
+        markupPendingRef.current = false;
+        attachAsIs();
       },
     );
   };

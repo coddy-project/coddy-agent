@@ -78,18 +78,22 @@ func systemImageIO(getenv func(string) string) imageIO {
 var clipboardReadTimeout = 15 * time.Second
 
 // modelTakesPictures reports whether the session's model is marked as one
-// that reads images. In-process a model with no models row takes none, as
-// the send boundary decides; over --remote the server's catalogue is not
-// the local one, so only a row the local config knows can refuse.
+// that reads images. Over --remote the server decides with its own
+// catalogue, which the local config does not mirror; in-process a model with
+// no models row takes none, as the send boundary decides.
 func (a *App) modelTakesPictures() bool {
-	entry := a.config().FindModelEntry(a.modelID)
-	if entry == nil {
-		return a.remoteURL != ""
+	if a.remoteURL != "" {
+		return true
 	}
-	return entry.Multimodal
+	entry := a.config().FindModelEntry(a.modelID)
+	return entry != nil && entry.Multimodal
 }
 
 func (a *App) refuseForModel() {
+	if a.config().FindModelEntry(a.modelID) == nil {
+		a.appendStatus(roleWarning, fmt.Sprintf("The model %s is not in models, so it takes no pictures: add it there with multimodal: true, or pick a model that has it", a.modelID))
+		return
+	}
 	a.appendStatus(roleWarning, fmt.Sprintf("The model %s does not take pictures: set multimodal: true on its models row", a.modelID))
 }
 
@@ -128,6 +132,11 @@ func (a *App) pasteImage() {
 					a.appendStatus(roleWarning, "Could not read the clipboard: "+err.Error())
 				}
 			})
+			return
+		}
+		if ctx.Err() != nil {
+			// The console is closing: no window, nothing to attach.
+			a.postUI(func() { a.imageBusy = false })
 			return
 		}
 		if io.edit == nil {

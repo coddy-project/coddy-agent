@@ -3443,6 +3443,24 @@ test("a pasted picture opens in the markup editor and Done attaches it", async (
   }
 });
 
+// One picture is marked up at a time: a second one pasted while the editor
+// is on its way goes in as it is.
+test("a picture pasted while the editor loads is attached as it is", async () => {
+  const { ta, restore } = renderMarkupComposer();
+  try {
+    pasteWithImages(ta, [new File(["a"], "image.png", { type: "image/png" })]);
+    pasteWithImages(ta, [new File(["b"], "image.png", { type: "image/png" })]);
+    await screen.findByTestId("markup-canvas");
+    expect(screen.getAllByTestId("composer-attachment-chip")).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("markup-done"));
+    await waitFor(() =>
+      expect(screen.getAllByTestId("composer-attachment-chip")).toHaveLength(2),
+    );
+  } finally {
+    restore();
+  }
+});
+
 test("Cancel in the markup editor attaches nothing", async () => {
   const { ta, restore } = renderMarkupComposer();
   try {

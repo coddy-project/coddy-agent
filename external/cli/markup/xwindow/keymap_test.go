@@ -18,6 +18,7 @@ func TestKeymapTypesBothGroupsAndBothCases(t *testing.T) {
 		'2', '@', 0, 0, // no second group: types the first
 		0xff1b, 0, 0, 0,
 		0x6a3, 0x6b3, 0, 0, // ё Ё
+		0x6d1, 0x6f1, 'z', 'Z', // я Я | z Z: a layout list that starts with Russian
 	}}
 	cases := []struct {
 		code  xproto.Keycode
@@ -38,6 +39,8 @@ func TestKeymapTypesBothGroupsAndBothCases(t *testing.T) {
 		{13, 0, markup.Key{Name: "escape"}},
 		{14, 0, markup.Key{Rune: 'ё', Base: 'ё'}},
 		{14, xproto.ModMaskShift, markup.Key{Rune: 'Ё', Base: 'ё'}},
+		{15, xproto.ModMaskControl, markup.Key{Rune: 'я', Ctrl: true, Base: 'z'}},
+		{15, group2, markup.Key{Rune: 'z', Base: 'z'}},
 	}
 	for _, c := range cases {
 		got, ok := k.key(c.code, c.state)

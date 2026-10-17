@@ -20,17 +20,19 @@ import (
 const maxProgramOutput = 2*MaxBytes + 64<<10
 
 // errOutputTooLarge ends a program that printed more than a picture can be.
-var errOutputTooLarge = errors.New("the clipboard image is too large")
+var errOutputTooLarge error = &BadImageError{Err: errors.New("the clipboard image is too large")}
 
 // cappedBuffer keeps at most max bytes and fails the write past them, which
 // ends the copy from the program's pipe.
 type cappedBuffer struct {
 	bytes.Buffer
-	max int
+	max  int
+	over bool
 }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
 	if b.Len()+len(p) > b.max {
+		b.over = true
 		return 0, errOutputTooLarge
 	}
 	return b.Buffer.Write(p)
@@ -47,7 +49,7 @@ func RunProgram(ctx context.Context, name string, args ...string) ([]byte, error
 	cmd.WaitDelay = time.Second
 	platform.AdaptCommand(cmd)
 	if err := cmd.Run(); err != nil {
-		if out.Len() >= maxProgramOutput || errors.Is(err, errOutputTooLarge) {
+		if out.over || errors.Is(err, errOutputTooLarge) {
 			return nil, errOutputTooLarge
 		}
 		return out.Bytes(), err
@@ -79,7 +81,7 @@ func readWayland(ctx context.Context, run func(context.Context, string, ...strin
 	}
 	data, err := run(ctx, "wl-paste", "--no-newline", "--type", t)
 	if err != nil {
-		return Image{}, err
+		return Image{}, err // errOutputTooLarge says the picture is too large
 	}
 	if t == "text/uri-list" {
 		return fromURIList(string(data))
@@ -98,6 +100,9 @@ const (
 func readMac(ctx context.Context, run func(context.Context, string, ...string) ([]byte, error)) (Image, error) {
 	for _, script := range []string{macPNG, macTIFF} {
 		out, err := run(ctx, "osascript", "-e", script)
+		if errors.Is(err, errOutputTooLarge) {
+			return Image{}, err
+		}
 		if err != nil {
 			continue
 		}
