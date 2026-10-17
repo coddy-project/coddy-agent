@@ -238,7 +238,10 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// the history up to there is in the chain already. It is where a turn whose
 	// prompt an in-turn fold took away is counted from (the last block), and
 	// where a second /compact with nothing said since the first one cuts.
-	if splitIdx <= tailStart {
+	// Nor does a head of nothing but /compact commands and their answers, the
+	// rows a /compact typed into the chat leaves after its own summary: folding
+	// them would add a block that summarizes a command.
+	if splitIdx <= tailStart || onlyCompactCommands(msgs[tailStart:splitIdx]) {
 		return nil, ErrNothingToCompact
 	}
 	// What goes in front of the summary when an in-turn fold takes the turn's
@@ -268,8 +271,9 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// in-turn one: the rows it retells are summaries, not work in progress.
 	mergeInstructions := instructions
 	// A cut inside the turn tells the summarizer the work is still going on and
-	// that the request stays in front of its summary.
-	if prefix != "" {
+	// that the request stays ahead of its summary: in front of it on the first
+	// fold of the turn, in the row of that fold on a later one.
+	if plan != nil && !plan.regular {
 		instructions = withInTurnSummaryInstructions(instructions)
 	}
 
@@ -578,6 +582,26 @@ func (a *Agent) addUserCommandMessage(text string) {
 		Content:   text,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+// onlyCompactCommands reports a run of rows that holds nothing but /compact
+// commands, each followed by its one-line answer (runCompactCommand).
+func onlyCompactCommands(rows []llm.Message) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	for i := 0; i < len(rows); i++ {
+		if rows[i].Role != llm.RoleUser {
+			return false
+		}
+		if _, ok := parseCompactCommand(rows[i].Content); !ok {
+			return false
+		}
+		if i+1 < len(rows) && rows[i+1].Role == llm.RoleAssistant && len(rows[i+1].ToolCalls) == 0 {
+			i++
+		}
+	}
+	return true
 }
 
 // maybeAutoCompact runs compaction when the estimated context usage reached

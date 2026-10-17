@@ -82,22 +82,33 @@ func TestCompactSessionStartsTheChainWithABlock(t *testing.T) {
 	}
 }
 
-// A /compact with nothing said since the last one has nothing to fold: the
-// summaries are not retold again, and the summarizer is not called.
-func TestCompactSessionWithNothingAfterTheChainHasNothingToFold(t *testing.T) {
+// A /compact with nothing said since the last one has nothing to fold. The
+// command and its answer are the only rows after the chain, and folding them
+// would retell the chain (before blocks) or add a block that summarizes a
+// command: the summarizer is not called and the chain stays as it is.
+func TestCompactCommandWithNothingSaidSinceTheLastOneHasNothingToFold(t *testing.T) {
 	st := seededCompactState(t, 2)
 	keep := 0
 	provider := &compactCannedProvider{t: t, summary: "S"}
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
-	if _, err := ag.CompactSession(context.Background(), CompactOptions{Force: true}); err != nil {
-		t.Fatal(err)
-	}
-	_, err := ag.CompactSession(context.Background(), CompactOptions{Force: true})
-	if !errors.Is(err, ErrNothingToCompact) {
-		t.Fatalf("second /compact: err = %v, want ErrNothingToCompact", err)
+	for range 2 {
+		if _, err := ag.runCompactCommand(context.Background(), compactCommandArgs{}, "/compact"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if len(provider.requests) != 1 {
-		t.Fatalf("the summarizer was called %d times, want once", len(provider.requests))
+		t.Fatalf("the summarizer was called %d times, want once:\n%s", len(provider.requests), transcriptText(st.GetMessages()))
+	}
+	if rows := summaryRowsOf(st); rows != 1 {
+		t.Fatalf("the transcript holds %d summary rows, want the first one only", rows)
+	}
+	msgs := st.GetMessages()
+	if last := msgs[len(msgs)-1].Content; !strings.HasPrefix(last, "Nothing to compact") {
+		t.Fatalf("the second /compact answered %q, want nothing to compact", last)
+	}
+	// The same holds for the route and the tool, which write no command rows.
+	if _, err := ag.CompactSession(context.Background(), CompactOptions{Force: true}); !errors.Is(err, ErrNothingToCompact) {
+		t.Fatalf("a compaction after two /compact: err = %v, want ErrNothingToCompact", err)
 	}
 }
 
