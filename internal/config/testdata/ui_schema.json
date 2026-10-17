@@ -1068,6 +1068,11 @@
             "title": "API key command",
             "type": "string"
           },
+          "busy_wait_ms": {
+            "description": "How long one call to this remote Coddy waits for a free slot when the remote answers busy, in milliseconds. 0 or empty uses agent.shared_busy_wait_ms (30000 unless set).",
+            "title": "Busy wait ms",
+            "type": "integer"
+          },
           "name": {
             "default": "openai",
             "description": "Prefix of this provider's model ids, as in provider/model-id. Letters, digits, hyphen and underscore, starting with a letter.",
@@ -1119,6 +1124,7 @@
           "api_key_command",
           "proxy",
           "timeout_ms",
+          "busy_wait_ms",
           "usage_limits_panel"
         ]
       },

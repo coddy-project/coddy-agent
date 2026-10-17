@@ -450,6 +450,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.providers.timeout_ms.label": "Request timeout ms",
   "settings.schema.providers.timeout_ms.desc":
     "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
+  "settings.schema.providers.busy_wait_ms.label": "Busy wait ms",
+  "settings.schema.providers.busy_wait_ms.desc":
+    "How long one call to this remote Coddy waits for a free slot when the remote answers busy, in milliseconds. 0 or empty uses agent.shared_busy_wait_ms (30000 unless set).",
   "settings.schema.providers.usage_limits_panel.label": "Usage limits panel",
   "settings.schema.providers.usage_limits_panel.desc":
     "Show the account usage of this NeuralDeep, Codex or Devin provider here, in the console footer and in /usage, reading its usage endpoint for it. Off hides the panel and stops those reads for this row.",

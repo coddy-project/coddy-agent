@@ -240,6 +240,9 @@ func UISchemaMap() map[string]interface{} {
 			"Optional proxy for this provider only: http:// or https:// for an HTTP proxy, socks5:// or socks5h:// for SOCKS5 (with SOCKS the proxy resolves host names). A URL here replaces the system proxy for this provider. Left empty, the provider follows the system proxy (HTTPS_PROXY, HTTP_PROXY, NO_PROXY); none connects directly."),
 		"timeout_ms": intProp("Request timeout ms",
 			"Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout."),
+		// Shown for a coddy provider only (SettingsSection.tsx, overrideTexts).
+		"busy_wait_ms": intProp("Busy wait ms",
+			"How long one call to this remote Coddy waits for a free slot when the remote answers busy, in milliseconds. 0 or empty uses agent.shared_busy_wait_ms (30000 unless set)."),
 		// Defaults to true when the key is absent, like models[].stream: the
 		// form seeds new rows from schema defaults and renders an unset switch
 		// from them.
@@ -424,7 +427,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "usage_limits_panel"},
+				[]string{"name", "type", "api_base", "api_key", "api_key_command", "proxy", "timeout_ms", "busy_wait_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{

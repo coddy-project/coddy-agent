@@ -269,6 +269,11 @@ export function overrideTexts(
     ) {
       return false;
     }
+    // Only a call to a remote Coddy waits for a busy slot; the search index
+    // reads this answer too, so the field is found only where it is drawn.
+    if (path === "busy_wait_ms" && providerType !== CODDY_PROVIDER_TYPE) {
+      return false;
+    }
     if (providerType === "codex") {
       if (path === "api_key" || path === "api_key_command") {
         return false;
@@ -342,12 +347,11 @@ function gatewaysFieldOverride(ctx: FieldOverrideContext) {
 function providerFieldOverride(ctx: FieldOverrideContext) {
   const providerType = rowText(ctx.parentObj, "type");
   const box = boxFor("providers", ctx);
-  if (box === false || box === null) {
+  if (box === false) {
     return box;
   }
-  if (ctx.path === "busy_wait_ms" && providerType !== CODDY_PROVIDER_TYPE) {
-    return false;
-  }
+  // The texts have nothing to say about a coddy row's address, so this field
+  // is decided before a null answer hands it back to the schema.
   if (providerType === CODDY_PROVIDER_TYPE && ctx.path === "api_base") {
     return (
       <CoddyAPIBaseField
@@ -368,6 +372,9 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
         )}
       />
     );
+  }
+  if (box === null) {
+    return box;
   }
   // Every provider type has the proxy switch and URL field, codex included: its
   // sign-in and its requests take the row's route like any other.

@@ -460,6 +460,10 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.providers.timeout_ms.label": "Таймаут запроса, мс",
   "settings.schema.providers.timeout_ms.desc":
     "Необязательный предел на каждый HTTP-запрос к LLM этого провайдера, включая чтение потокового тела ответа. 0 (по умолчанию) — без клиентского таймаута.",
+  "settings.schema.providers.busy_wait_ms.label":
+    "Ожидание свободного слота, мс",
+  "settings.schema.providers.busy_wait_ms.desc":
+    "Сколько один вызов к этому удалённому Coddy ждёт свободного слота, если удалённый отвечает, что занят, в миллисекундах. 0 или пустое значение берёт agent.shared_busy_wait_ms (30000, если он не задан).",
   "settings.schema.providers.usage_limits_panel.label": "Панель лимитов",
   "settings.schema.providers.usage_limits_panel.desc":
     "Показывать расход лимитов аккаунта этого провайдера NeuralDeep, Codex или Devin здесь, в футере консоли и в /usage, читая для этого его эндпоинт лимитов. Выключено скрывает панель и прекращает эти запросы для данной строки.",
