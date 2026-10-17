@@ -382,15 +382,95 @@ models:
 ```
 
 The borrower discovers the aliases at `GET /coddy/llm/models` and sends requests to
-`POST /coddy/llm/completions`. The remote provider waits for a busy lender for up to
-`agent.shared_busy_wait_ms` (30 seconds by default); set `providers[].shared_busy_wait_ms` to
-override that wait for one remote. The lender limits concurrent calls per credential with
-`httpserver.shared_models.max_streams`, which defaults to 5, and can also apply
+`POST /coddy/llm/completions`; the routes are described in the
+[HTTP API reference](../reference/http-api.md#shared-models-coddyllm). The remote provider waits
+for a busy lender for up to `agent.shared_busy_wait_ms` (30 seconds by default); set
+`providers[].busy_wait_ms` to override that wait for one remote. The lender limits concurrent calls
+per credential with `httpserver.shared_models.max_streams`, which defaults to 5, and can also apply
 `rate_per_minute` and `rate_burst`.
 
 The route through a relay is the same mounted base URL used for remote sessions. The relay client
 token only opens the relay; the shared-model token remains the credential presented to the lending
 node. Treat both tokens as secrets and use TLS for every hop.
+
+### What a borrowed model takes from the remote
+
+A `models[]` row of a `type: coddy` provider follows the remote's listing for every capability key
+it leaves out: `reasoning_levels`, `reasoning_default`, `allow_reasoning_off` and
+`max_context_tokens`. When the lender changes the row, it answers the next call `stale_revision`;
+the borrower reads the listing again and sends the call once more, so a level the lender adds or an
+`off` it allows reaches the borrower without an edit. A key the row writes wins over the listing,
+and a refresh of the listing never writes one. `multimodal` stays a local setting: an absent key
+means the model takes no pictures, whatever the remote lists.
+
+Settings shows what the remote offers. The model list of a `coddy` provider marks the models that
+take pictures and lists their reasoning levels, `off` included when the remote allows it. A model
+added from that list is saved without the inherited keys, so it keeps following the remote. In the
+model's form, `allow_reasoning_off` has three positions: **Remote** leaves the key out, **Yes** and
+**No** write it. The reasoning levels field says that the levels come from the remote and shows
+them.
+
+`coddy --dry-run` reads the remote's listing and reports every key a row writes that differs from
+it: a level or an `off` the remote does not offer is refused by the remote on every request that
+uses it. Each finding has the same fix, removing the key.
+
+### Busy remotes and long calls
+
+A lender refuses a call at once with `429` and `kind: busy` when the credential already holds
+`max_streams` calls, or when its `rate_per_minute` window is spent. The borrower does not fail the
+turn: it waits and tries again until `providers[].busy_wait_ms` or `agent.shared_busy_wait_ms` runs
+out. An explicit `agent.shared_busy_wait_ms: 0` turns the wait off. While a call waits, the
+console's status row reads `Waiting for a free slot on the remote · resumes on its own`, with the
+time it gives up at, and the footer's usage line says `waiting for a free slot on the remote`. Stop
+cuts the wait like any turn.
+
+A call to a model with `stream: false` computes its answer in one piece and is bounded on the lender
+by `httpserver.shared_models.max_call_ms`, 30 minutes by default and 8 hours at most. A streamed
+model is bounded by `agent.llm_stream_idle_timeout_ms` between chunks instead.
+
+A borrower that vanishes in the middle of a call does not hold the lender's slot. The borrower asks
+for a liveness probe and pings the lender every 10 seconds while the stream runs; after 36 seconds
+without a ping, the lender cancels the provider call and frees the slot. On Linux and Android the
+lender and every relay on the route also set a TCP user timeout on the call's connection, so the
+connection of a vanished borrower is closed without waiting for the system's retransmission limit.
+
+### Relay clients
+
+A relay can give a client a credential that opens only the shared-model routes of the nodes it
+names, instead of `swarm.auth_token`, which opens the whole relay:
+
+```yaml
+swarm:
+  enable: true
+  clients:
+    - name: "laptop"
+      token: "${CODDY_RELAY_LAPTOP_TOKEN}"
+      scope: shared_models
+      nodes: ["studio", "lab/gpu"]
+      max_streams: 2
+      rate_per_minute: 30
+```
+
+`nodes` lists node names directly below this relay, `child/node` paths through a chained relay (at
+most four hops) or `"*"` for every node directly below it. `max_streams`, `rate_per_minute` and
+`rate_burst` limit this client on this relay; 0 means no limit. A call past a client limit is
+refused as busy with the code `client_streams` or `client_rate`, and the borrower waits for it like
+for a full slot of the lender. A client token must differ from every other token of the relay and
+of the node. The borrower still presents the lender's shared-model token to the node.
+
+### Usage and counters
+
+A borrower's usage panel shows the account usage behind an alias, read from
+`GET /coddy/llm/models/{alias}/usage`: each metered window as percent used with the time to its
+reset, and whether a call would be refused now. The lender never sends the plan, the key name, the
+wallet or a model id. `usage_limits_panel: false` on the lender's provider row hides the panel for
+every borrower.
+
+The lender counts the outcomes of the shared-model calls per alias and credential class, and serves
+them at `GET /coddy/shared-models/stats` to the main token or a web sign-in. A relay counts the calls
+it forwards per client and node at `GET /swarm/stats`, for its full-class token only. The counters
+hold labels and numbers, never a token, a prompt or an upstream model id, and they reset when the
+process restarts.
 
 ## Where the settings live
 

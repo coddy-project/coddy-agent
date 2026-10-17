@@ -44,7 +44,7 @@ A model switched to has its context window read at once, the window its provider
 
 ## Thinking off
 
-`/nothink` and `/reasoning off` are offered only when the model entry explicitly sets `allow_reasoning_off: true`. The default is `false`: Coddy cannot infer that a provider/model deployment honours the request, so the operator enables the choice only after verifying that deployment.
+`/nothink` and `/reasoning off` are offered only when the model entry explicitly sets `allow_reasoning_off: true`. The default is `false`: Coddy cannot infer that a provider/model deployment honours the request, so the operator enables the choice only after verifying that deployment. A model of a `type: coddy` provider is the exception: while its entry leaves `allow_reasoning_off` out, the remote Coddy's listing decides, and a written value wins over it ([Sharing a model with another Coddy](../operate/swarm.md#what-a-borrowed-model-takes-from-the-remote)).
 
 - Qwen3 models on an OpenAI-compatible server receive `chat_template_kwargs.enable_thinking: false`;
 - Anthropic models receive no thinking block;

@@ -92,6 +92,16 @@ providers:
   #   api_base: "https://api.deepseek.com/v1"
   #   api_key: "${DEEPSEEK_API_KEY}"
 
+  # Models another Coddy shares (its models[].shared_as), reached directly or
+  # through a swarm relay mount. api_key is the lender's LLM-only token
+  # (httpserver.shared_models.tokens there), not a relay token. Its models name
+  # the remote aliases, and their reasoning settings follow the remote's listing.
+  # - name: studio
+  #   type: coddy
+  #   api_base: "https://relay.example/swarm/nodes/studio"
+  #   api_key: "${CODDY_SHARED_MODEL_TOKEN}"
+  #   # busy_wait_ms: 60000   # wait this long for a free slot of a busy remote (default: agent.shared_busy_wait_ms)
+
 models:
   - model: "openai/gpt-5.6-terra"
     max_tokens: 8192
@@ -141,6 +151,18 @@ models:
   #   max_context_tokens: 49152
   #   toolset: coding
 
+  # Offer a model to other Coddys under an alias: the only name that leaves this
+  # host. Needs httpserver.shared_models.tokens (or httpserver.auth_token). A
+  # subscription login (codex, devin, a neuraldeep row without a key) also needs
+  # shared_subscription_ack: true - every token holder spends that account's quota.
+  # - model: "neuraldeep/qwen3.8-27b"
+  #   shared_as: "qwen38"
+
+  # A model borrowed from the studio provider above, by its remote alias. Leave
+  # reasoning_levels, reasoning_default, allow_reasoning_off and
+  # max_context_tokens out to follow the remote; multimodal stays local.
+  # - model: "studio/qwen38"
+
 # Named presets of the tools a session is offered. tools is an allowlist of tool
 # names, * or a prefix* (context7__* is every tool of that MCP server); empty or
 # absent offers every tool the mode would. This one list takes the request's tool
@@ -189,6 +211,7 @@ agent:
   # the client stream stay open meanwhile, hence off by default.
   # wait_for_limit_reset: false
   # wait_for_limit_reset_max_ms: 14400000  # total per turn (4 h), the retry wrapper's sleeps on a limit
+  # shared_busy_wait_ms: 30000  # how long a call to a coddy provider waits for a free remote slot; 0 fails at once
   #                                          # included; under 60 s it also bounds ordinary 429 retries;
   #                                          # a longer pause ends the turn; 0 never waits
 
@@ -522,6 +545,14 @@ tools:
 #     enable: false
 #     allow_loopback: false
 #     allowed_origins: ["http://localhost:12345"]
+#   # Serve the models that carry shared_as to other Coddys (/coddy/llm/*). A token
+#   # here opens only those routes and nothing else of this server.
+#   shared_models:
+#     tokens:
+#       - "${CODDY_SHARED_MODEL_TOKEN}"
+#     max_streams: 5          # calls at once per credential, all aliases together
+#     # rate_per_minute: 30   # and calls started per minute; 0 = no limit
+#     # max_call_ms: 1800000  # bound of one stream: false call (30 min)
 #   # Remote coddy serve servers and swarm relays offered in the UI environment selector and
 #   # resolved by `coddy --remote <name>`. An entry may carry the token to present (usually a
 #   # ${ENV} reference): every browser that reads this config receives it, which is the choice
@@ -691,6 +722,14 @@ logger:
 #   # What a node must present to join. Empty closes registration.
 #   pairing_tokens:
 #     - "${CODDY_SWARM_PAIRING_TOKEN}"
+#   # Clients whose token opens only the shared-model routes of the nodes listed,
+#   # with limits of their own on this relay. auth_token stays the full class.
+#   clients:
+#     - name: "laptop"
+#       token: "${CODDY_RELAY_LAPTOP_TOKEN}"
+#       scope: shared_models
+#       nodes: ["studio"]       # a node below this relay, child/node through a chain, or "*"
+#       max_streams: 2
 #   cors:
 #     enable: true
 #     allow_loopback: true    # a laptop's web UI on any loopback port
