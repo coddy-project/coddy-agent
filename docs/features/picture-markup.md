@@ -25,6 +25,12 @@ what is circled here? [image #1]
 
 Backspace deletes a marker as one piece, and the picture goes with it. The marker text reaches the model too, so a prompt with several pictures can say which one it means. A prompt recalled from history with the up arrow attaches its pictures again while they are among the last 32 pasted. A picture pasted while a turn runs travels with the message you queue ([Message queue](message-queue.md)).
 
+The console has no pictures, so it names every picture a prompt carries as text: `[image #N]` for a picture, `[file: name]` for any other file. A prompt sent from the web UI or a Telegram chat with a picture shows in the console the same way, `[image #1] describe it`. The session keeps every picture with its assets, so the web UI shows a picture pasted in the console as a picture, and a click opens it full size:
+
+![The web UI showing a prompt typed in the console: the pasted chart as a preview card over the bubble "[image #1] which node backs up here?", and the answer under it](../assets/picture-markup/console-paste-in-web-dark-1280.png)
+
+*A picture pasted in the console, in the web UI.*
+
 The console says so when the clipboard holds no picture, and refuses the paste when the session's model is not marked `multimodal` or has no row in `models`; a picture still in the markup window when the session switches to such a model is not attached either. Over `--remote` the server decides which models take pictures.
 
 ## The markup window

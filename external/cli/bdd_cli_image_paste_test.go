@@ -11,10 +11,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +27,9 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/clipimage"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 type cliImageState struct {
@@ -32,6 +39,8 @@ type cliImageState struct {
 	marked []byte
 	shown  image.Point
 	io     imageIO
+	// model is the scripted model of a console over the real agent.
+	model *recordingModel
 }
 
 func pngOf(w, h int, c color.RGBA) []byte {
@@ -185,6 +194,163 @@ func (s *cliImageState) queuedCarries(text string, n int) error {
 	return fmt.Errorf("no queued message %q", text)
 }
 
+// aConsoleOverTheAgent builds the console the way `coddy` does - the real
+// agent, a session store on disk - over a scripted OpenAI-compatible model
+// marked as one that takes pictures.
+func (s *cliImageState) aConsoleOverTheAgent() error {
+	s.model = newRecordingModel()
+	home, err := os.MkdirTemp("", "coddy-cli-image-")
+	if err != nil {
+		return err
+	}
+	s.home, s.homes, s.cwd = home, append(s.homes, home), filepath.Join(home, "work")
+	if err := os.MkdirAll(s.cwd, 0o755); err != nil {
+		return err
+	}
+	yaml := fmt.Sprintf(`providers:
+  - name: stub
+    type: openai
+    api_base: "%s/v1"
+    api_key: "sk-stub"
+models:
+  - model: stub/coddy-demo
+    max_context_tokens: 131072
+    multimodal: true
+agent:
+  model: stub/coddy-demo
+rules:
+  auto_discover: false
+`, s.model.ts.URL)
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(yaml), 0o644); err != nil {
+		return err
+	}
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Home: home, CWD: s.cwd})
+	if err != nil {
+		return err
+	}
+	s.cfg = cfg
+	s.store = &session.FileStore{Root: filepath.Join(home, "sessions")}
+	s.app = buildApp(cfg, s.store, slog.New(slog.DiscardHandler), &bddTerminal{cols: 100, rows: 35}, "dark", true)
+	s.wakerAttached = true
+	return nil
+}
+
+func (s *cliImageState) modelAnswers() error {
+	return s.waitScreen(promptInputAnswer, 20*time.Second)
+}
+
+// modelWasSentThePicture finds the user message of the completion request
+// that carries the prompt, and the copied picture next to it as an image part.
+func (s *cliImageState) modelWasSentThePicture(prompt string) error {
+	want := "data:image/png;base64," + base64.StdEncoding.EncodeToString(s.copied)
+	for _, body := range s.model.calls() {
+		var req struct {
+			Messages []struct {
+				Role    string          `json:"role"`
+				Content json.RawMessage `json:"content"`
+			} `json:"messages"`
+		}
+		if json.Unmarshal(body, &req) != nil {
+			continue
+		}
+		for _, m := range req.Messages {
+			var parts []struct {
+				Type     string `json:"type"`
+				Text     string `json:"text"`
+				ImageURL struct {
+					URL string `json:"url"`
+				} `json:"image_url"`
+			}
+			if m.Role != "user" || json.Unmarshal(m.Content, &parts) != nil {
+				continue
+			}
+			text, picture := false, false
+			for _, p := range parts {
+				text = text || strings.Contains(p.Text, prompt)
+				picture = picture || (p.Type == "image_url" && p.ImageURL.URL == want)
+			}
+			if text && picture {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("no request carried %q with the picture (%d requests)", prompt, len(s.model.calls()))
+}
+
+// sessionKeepsThePicture reads the session from disk the way the web UI's
+// GET /coddy/sessions/{id}/messages does: a user message whose picture is a
+// file of the session's assets with a thumbnail, which the web UI turns into
+// a preview card (external/httpserver/coddy_coddy.go).
+func (s *cliImageState) sessionKeepsThePicture() error {
+	var id string
+	if err := s.onLoop(2*time.Second, func() { id = s.app.sessionID }); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		snap, err := s.store.ReadSnapshot(id)
+		if err == nil {
+			for _, m := range snap.Messages {
+				if m.Role != llm.RoleUser || len(m.ImageParts) != 1 {
+					continue
+				}
+				p := m.ImageParts[0]
+				data, err := os.ReadFile(p.FilePath)
+				if err != nil || !bytes.Equal(data, s.copied) {
+					return fmt.Errorf("the session's copy of the picture %q: %v", p.FilePath, err)
+				}
+				if filepath.Dir(p.FilePath) != filepath.Join(snap.Dir, "assets") {
+					return fmt.Errorf("the picture %q is not with the session's assets", p.FilePath)
+				}
+				thumb, err := os.ReadFile(p.ThumbnailPath)
+				if err != nil {
+					return fmt.Errorf("no thumbnail: %v", err)
+				}
+				if _, err := png.Decode(bytes.NewReader(thumb)); err != nil {
+					return fmt.Errorf("the thumbnail is not a PNG: %v", err)
+				}
+				if got := session.UserMessageText(m.Content); got != "[image #1] what is on it?" {
+					return fmt.Errorf("the console shows the prompt as %q", got)
+				}
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("no saved user message with the picture (%v)", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// sessionHoldsAWebPrompt writes into the console's session the message a
+// prompt sent from the web UI with a picture leaves: the text, the note of
+// the files saved with it (internal/agent filePathsNote), and the picture.
+func (s *cliImageState) sessionHoldsAWebPrompt(text string) error {
+	var err error
+	if e := s.onLoop(3*time.Second, func() {
+		st := s.app.mgr.SessionByID(s.app.sessionID)
+		if st == nil {
+			err = fmt.Errorf("no live session")
+			return
+		}
+		dir, derr := s.store.EnsureLayout(st.GetID())
+		if derr != nil {
+			err = derr
+			return
+		}
+		asset := filepath.Join(dir, "assets", "pasted-1.png")
+		note := "\n\n<coddy_session_assets>Uploaded files saved to session assets (read-only). You can read or copy them:\n- " +
+			asset + "\n</coddy_session_assets>"
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: text + note,
+			ImageParts: []llm.ImagePart{{Name: "pasted-1.png", FilePath: asset}}})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "It is a chart."})
+		err = s.store.Save(st)
+	}); e != nil {
+		return e
+	}
+	return err
+}
+
 func initializeCLIImagePasteScenario(sc *godog.ScenarioContext) {
 	s := &cliImageState{cliTUIState: &cliTUIState{}}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -213,6 +379,14 @@ func initializeCLIImagePasteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stub turn received (\d+) pictures?$`, s.receivedPictures)
 	sc.Step(`^the picture the stub turn received is the (marked-up|copied) one$`, s.receivedIs)
 	sc.Step(`^the queued message "([^"]*)" carries (\d+) pictures?$`, s.queuedCarries)
+	sc.Step(`^a coddy console app over the agent and a scripted model that takes pictures$`, s.aConsoleOverTheAgent)
+	sc.Step(`^the model answers$`, s.modelAnswers)
+	sc.Step(`^the model was sent the picture with the prompt "([^"]*)"$`, s.modelWasSentThePicture)
+	sc.Step(`^the session keeps the picture with a thumbnail the web UI shows$`, s.sessionKeepsThePicture)
+	sc.Step(`^the session holds a prompt "([^"]*)" sent from the web UI with a picture$`, s.sessionHoldsAWebPrompt)
+	sc.Step(`^the stub turn streams the text "([^"]*)"$`, s.stubStreamsText)
+	sc.Step(`^the operator starts a new session$`, s.operatorStartsNewSession)
+	sc.Step(`^the operator resumes the session before$`, s.operatorResumesSessionBefore)
 }
 
 func TestCLIImagePasteFeature(t *testing.T) {
@@ -221,7 +395,7 @@ func TestCLIImagePasteFeature(t *testing.T) {
 		ScenarioInitializer: initializeCLIImagePasteScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/cli_image_paste.feature"},
+			Paths:    []string{"../../features/cli_image_paste.feature", "../../features/cli_image_paste_surfaces.feature"},
 			TestingT: t,
 			Strict:   true,
 		},
