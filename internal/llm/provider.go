@@ -228,8 +228,10 @@ type ProviderInput struct {
 	// a set temperature is sent as is, zero included, and next to a reasoning
 	// level too, where a configured one is left out.
 	TemperatureSet bool
-	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), "off" to turn thinking off, or empty.
-	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking token budget.
+	// ReasoningEffort is the reasoning level name, "off" to disable thinking where
+	// the model supports it, or empty to keep the backend default.
+	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking
+	// token budget, or to output_config.effort for adaptive-thinking models.
 	ReasoningEffort string
 	// SupportedParameters is what the provider's model listing says the model
 	// takes (supported_parameters, which OpenRouter-style aggregators publish),

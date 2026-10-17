@@ -2,8 +2,10 @@ package llm
 
 import (
 	"encoding/json"
+	"math/rand"
 	"strings"
 	"testing"
+	"testing/quick"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
@@ -273,7 +275,7 @@ func TestRequestOptionsValidateAndApply(t *testing.T) {
 		"codex cap":                   {"codex", RequestOptions{MaxTokens: intp(64)}, "max_tokens is not supported by a codex model"},
 		"codex temperature":           {"codex", RequestOptions{Temperature: floatp(0)}, "temperature is not supported by a codex model"},
 	} {
-		err := tc.opts.Validate(tc.providerType)
+		err := tc.opts.Validate(tc.providerType, "test-model")
 		if tc.wantErr == "" && err != nil || tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
 			t.Errorf("%s: Validate = %v, want %q", name, err, tc.wantErr)
 		}
@@ -326,7 +328,7 @@ func TestRequestOptionsCapAgainstAnthropicThinking(t *testing.T) {
 		"cap below the minimum":    {"anthropic", "high", 1000, "max_tokens must exceed 1024"},
 		"openai has no budget":     {"openai", "high", 16, ""},
 	} {
-		err := RequestOptions{MaxTokens: intp(tc.maxTokens), ReasoningEffort: tc.level}.Validate(tc.providerType)
+		err := RequestOptions{MaxTokens: intp(tc.maxTokens), ReasoningEffort: tc.level}.Validate(tc.providerType, "claude-sonnet-4-5")
 		if tc.wantErr == "" && err != nil || tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
 			t.Errorf("%s: Validate = %v, want %q", name, err, tc.wantErr)
 		}
@@ -336,6 +338,31 @@ func TestRequestOptionsCapAgainstAnthropicThinking(t *testing.T) {
 	RequestOptions{ReasoningEffort: "none"}.Apply(&in)
 	if in.ReasoningEffort != "none" {
 		t.Fatalf("reasoning level not applied: %+v", in)
+	}
+}
+
+func TestRequestOptionsAdaptiveSmallCap(t *testing.T) {
+	cap := 512
+	if err := (RequestOptions{MaxTokens: &cap, ReasoningEffort: "high"}).Validate("anthropic", "claude-opus-5-5"); err != nil {
+		t.Fatalf("adaptive thinking cap rejected: %v", err)
+	}
+}
+
+func TestRequestOptionsAdaptivePreservesPositiveCap(t *testing.T) {
+	property := func(value uint16) bool {
+		cap := int(value) + 1
+		opts := RequestOptions{MaxTokens: &cap, ReasoningEffort: "high"}
+		if err := opts.Validate("anthropic", "claude-opus-5-5"); err != nil {
+			return false
+		}
+		in := ProviderInput{}
+		opts.Apply(&in)
+		p := newAnthropicProvider("claude-opus-5-5", "", "", nil, in.MaxTokens, 0, in.ReasoningEffort)
+		params := p.buildParams("", nil, nil)
+		return params.MaxTokens == int64(cap) && params.Thinking.OfAdaptive != nil && params.Thinking.OfEnabled == nil
+	}
+	if err := quick.Check(property, &quick.Config{MaxCount: 100, Rand: rand.New(rand.NewSource(55))}); err != nil {
+		t.Fatal(err)
 	}
 }
 
