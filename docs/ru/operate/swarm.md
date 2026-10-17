@@ -431,8 +431,8 @@ models:
 ждёт и повторяет вызов, пока не истечёт `providers[].busy_wait_ms` или `agent.shared_busy_wait_ms`.
 Явное `agent.shared_busy_wait_ms: 0` отключает ожидание. Пока вызов ждёт, строка состояния консоли
 показывает `Waiting for a free slot on the remote · resumes on its own` со временем, когда ожидание
-закончится, а строка расхода в подвале - `waiting for a free slot on the remote`. Остановка хода
-прерывает и ожидание.
+закончится, а футер продолжает показывать расход аккаунта за псевдонимом. Остановка хода прерывает
+и ожидание.
 
 Вызов модели со `stream: false` вычисляет ответ целиком. На выдающем узле его ограничивает
 `httpserver.shared_models.max_call_ms`, по умолчанию 30 минут и не больше 8 часов. Потоковую модель
@@ -628,4 +628,4 @@ swarm:
 - `examples/swarm/` - живой стенд: релеи, агенты, кольцо и узел, который только сам подключается наружу;
 - руководства: [релей и его узлы в Docker](../tutorials/swarm-relay-and-nodes.md), [цепочка релеев](../tutorials/swarm-multi-hop.md), [работа с удалёнными узлами](../tutorials/swarm-remote-nodes.md).
 
-<!-- docsgen:source sha256=47a74026c9836e5b -->
+<!-- docsgen:source sha256=b663e031c29b7372 -->

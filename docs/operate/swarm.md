@@ -421,8 +421,8 @@ A lender refuses a call at once with `429` and `kind: busy` when the credential 
 turn: it waits and tries again until `providers[].busy_wait_ms` or `agent.shared_busy_wait_ms` runs
 out. An explicit `agent.shared_busy_wait_ms: 0` turns the wait off. While a call waits, the
 console's status row reads `Waiting for a free slot on the remote · resumes on its own`, with the
-time it gives up at, and the footer's usage line says `waiting for a free slot on the remote`. Stop
-cuts the wait like any turn.
+time it gives up at, and the footer keeps the account usage of the alias. Stop cuts the wait like
+any turn.
 
 A call to a model with `stream: false` computes its answer in one piece and is bounded on the lender
 by `httpserver.shared_models.max_call_ms`, 30 minutes by default and 8 hours at most. A streamed

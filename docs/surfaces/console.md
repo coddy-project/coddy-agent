@@ -248,9 +248,8 @@ Top to bottom:
   alias, each window as percent used with its reset, without the plan or the
   wallet, which the lender never sends. While a call to such a model waits
   for a free slot of a busy remote, the status row reads `Waiting for a free
-  slot on the remote · resumes on its own, gives up at 20:59` and the usage
-  line `waiting for a free slot on the remote (gives up at 20:59)` in the
-  warning colour; the line goes back to the numbers when the call starts or
+  slot on the remote · resumes on its own, gives up at 20:59` and the footer
+  keeps the numbers of the alias; the row moves on when the call starts or
   gives up, and Esc stops the wait like any turn (see
   [Busy remotes and long calls](../operate/swarm.md#busy-remotes-and-long-calls)).
   Design record: `docs/plans/neuraldeep-usage.md`.
@@ -907,6 +906,10 @@ and is visible via `coddy mcp list` (approve with `coddy mcp trust <name>`).
 ![The turn resuming after the reset](../assets/cli-tui/12-usage-resuming.png)
 
 *The turn resuming after the reset*
+
+![A call to a model another Coddy shares waits for a free slot](../assets/cli-tui/23-coddy-busy-wait.png)
+
+*A call to a model another Coddy shares waits for the lender's free slot: the status row counts down to the time it gives up, the footer keeps the account usage behind the alias*
 
 ![The status line of a running turn: 2s, 64 tokens, 1 running task, Responding](../assets/cli-tui/14-turn-progress.png)
 
