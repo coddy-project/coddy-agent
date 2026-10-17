@@ -584,6 +584,10 @@ var (
 func loaderFinding(err error, body *yaml.Node, cfg *Config) Finding {
 	msg := err.Error()
 	f := Finding{Severity: SeverityError, Message: msg, Fix: loaderFix(msg, cfg)}
+	var clash *SharedTokenClassError
+	if errors.As(err, &clash) {
+		f.Fix = clash.Fix()
+	}
 	paths := loaderPaths(msg)
 	for _, p := range paths {
 		if n := locatePath(body, p, true); n != nil {

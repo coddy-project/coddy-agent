@@ -27,8 +27,15 @@ type Backend struct {
 	Live func() *config.Config
 	// Install puts a configuration that was just written and loaded again in
 	// place: the session manager's ReplaceConfig on an agent, the runtime's on
-	// a relay. It runs under the process-wide config file lock. Required.
+	// a relay. It runs under the process-wide config file lock. Required. A
+	// refusal puts the file back as the save found it.
 	Install func(*config.Config) error
+	// Check refuses a candidate before anything is written, for what Install
+	// would refuse it for: it gets the configuration as the loader will read
+	// it back from the file, ${NAME} references expanded. A refusal answers a
+	// validation or a save with 400 and leaves the file and the running
+	// configuration as they were. Optional.
+	Check func(*config.Config) error
 	// Schema renders the JSON Schema the settings form is drawn from. Required.
 	Schema func() ([]byte, error)
 	// Decorate adjusts a document a read serves, after it is built from the live
@@ -212,9 +219,14 @@ func (b *Backend) validatePost(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "read body")
 		return
 	}
-	body, err = b.scope(body, b.served(body, c))
+	served := b.served(body, c)
+	body, err = b.scope(body, served)
+	var cand *config.Config
 	if err == nil {
-		_, err = config.ParseConfigJSONPreservingSecrets(body, c.Paths, c)
+		cand, err = config.ParseConfigJSONPreservingSecrets(body, c.Paths, c)
+	}
+	if err == nil {
+		err = b.check(cand, served, c)
 	}
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -271,6 +283,14 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return errSerialize
 		}
+		if err := b.checkYAML(yb, paths); err != nil {
+			return fmt.Errorf("%w: %s", errParse, err.Error())
+		}
+		// What the save found, to put back if the configuration it wrote is
+		// refused: the backup cannot serve, since a load that succeeds
+		// refreshes it with the file it just read.
+		prev, prevErr := os.ReadFile(cfgPath)
+		prevBak, prevBakErr := os.ReadFile(config.BackupPath(cfgPath))
 		if err := config.BackupCurrent(cfgPath); err != nil {
 			b.log().Error("coddy config backup", "error", err)
 			return errBackup
@@ -285,11 +305,7 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			b.log().Error("coddy config reload after write", "error", err)
-			if bak, er2 := os.ReadFile(config.BackupPath(cfgPath)); er2 == nil {
-				if er3 := config.AtomicWriteConfigYAML(cfgPath, bak); er3 != nil {
-					b.log().Error("coddy config rollback", "error", er3)
-				}
-			}
+			b.putBack(cfgPath, prev, prevErr, prevBak, prevBakErr)
 			return err
 		}
 		return nil
@@ -327,6 +343,68 @@ func (b *Backend) configPut(w http.ResponseWriter, r *http.Request) {
 	b.log().Info("config updated", "path", cfgPath)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+}
+
+// check runs Check on a candidate as the file it would be written to will
+// load: rendered over that file and read back the way the loader reads it.
+func (b *Backend) check(cand, served, live *config.Config) error {
+	if b.Check == nil {
+		return nil
+	}
+	yb, err := config.MarshalConfigYAMLForEdit(cand, served, live, live.Paths.ConfigPath)
+	if err != nil {
+		return err
+	}
+	return b.checkYAML(yb, live.Paths)
+}
+
+// checkYAML runs Check on the configuration the bytes of a config file load
+// as. Bytes that do not load are left to the save, whose reload reports them
+// in the loader's words and puts the file back.
+func (b *Backend) checkYAML(yb []byte, paths config.Paths) error {
+	if b.Check == nil {
+		return nil
+	}
+	cand, err := config.ParseConfigYAML(yb, paths)
+	if err != nil {
+		return nil
+	}
+	return b.Check(cand)
+}
+
+// putBack restores the config file and its backup as a save found them, after
+// the configuration it wrote was refused: a file that was not there is removed
+// again, and the backup holds the file the save found, as a load of it would
+// have left it.
+func (b *Backend) putBack(cfgPath string, prev []byte, prevErr error, prevBak []byte, prevBakErr error) {
+	bakPath := config.BackupPath(cfgPath)
+	switch {
+	case prevErr == nil:
+		if err := config.AtomicWriteConfigYAML(cfgPath, prev); err != nil {
+			b.log().Error("coddy config rollback", "error", err)
+		}
+		if err := config.WriteBackup(cfgPath, prev); err != nil {
+			b.log().Error("coddy config rollback of the backup", "error", err)
+		}
+		return
+	case errors.Is(prevErr, os.ErrNotExist):
+		if err := os.Remove(cfgPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			b.log().Error("coddy config rollback", "error", err)
+		}
+	default:
+		b.log().Error("coddy config rollback: the file the save found could not be read", "error", prevErr)
+		return
+	}
+	switch {
+	case prevBakErr == nil:
+		if err := config.WriteBackup(cfgPath, prevBak); err != nil {
+			b.log().Error("coddy config rollback of the backup", "error", err)
+		}
+	case errors.Is(prevBakErr, os.ErrNotExist):
+		if err := os.Remove(bakPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			b.log().Error("coddy config rollback of the backup", "error", err)
+		}
+	}
 }
 
 // WriteError answers with the error document of the configuration routes:

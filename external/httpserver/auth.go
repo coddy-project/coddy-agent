@@ -5,6 +5,8 @@ package httpserver
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -117,6 +119,25 @@ func (s *Server) extraCredentials() config.ExtraTokens {
 // The error names both keys and never a value.
 func (s *Server) checkTokenClasses(c *config.Config) error {
 	return config.CheckSharedTokenClasses(c, s.extraCredentials())
+}
+
+// checkSharedModels refuses a configuration that shares models unsafely, the
+// way coddy serve refuses it at start: a token of two classes, or shared models
+// with no credential of any class in front of them, the flag and environment
+// credentials of this process included. The message names keys, never a
+// value, and says how to resolve it.
+func (s *Server) checkSharedModels(c *config.Config) error {
+	if err := s.checkTokenClasses(c); err != nil {
+		return err
+	}
+	if err := config.SharedModelsAuthProblem(c, s.extraCredentials()); err != nil {
+		var open *config.SharedModelsAuthError
+		if errors.As(err, &open) {
+			return fmt.Errorf("%w; %s", err, open.Fix())
+		}
+		return err
+	}
+	return nil
 }
 
 // authPolicyNow builds the current policy from the atomic config and any extra tokens.

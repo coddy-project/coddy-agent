@@ -115,6 +115,15 @@ func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {
 }
 
 // parseValidateYAMLBytes parses expanded YAML and validates (includes applyDefaults).
+// ParseConfigYAML reads a configuration out of the bytes of a config file the
+// way LoadWithPaths reads the file: ${NAME} and ${CODDY_HOME} references
+// expanded, defaults applied, every section validated. Nothing is read from or
+// written to disk, so a save can see what the file it is about to write will
+// load as before it writes it.
+func ParseConfigYAML(data []byte, paths Paths) (*Config, error) {
+	return parseValidateYAMLBytes(expandConfigBody(string(data), paths), paths)
+}
+
 func parseValidateYAMLBytes(expanded string, paths Paths) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {

@@ -84,7 +84,7 @@ func (s *Server) authRequired() bool {
 // principalOf resolves the request against every entry, without an early exit.
 //
 // A scoped entry is a bearer entry: it proves itself with its token. A token that is also a full token is scoped: least privilege,
-// and load refuses the duplicate anyway.
+// for a configuration installed past the load check (config.CheckSharedTokenClasses refuses the duplicate).
 func (s *Server) principalOf(r *http.Request) principal {
 	bearer := credentialOf(r)
 	clients := s.scopedClients()
@@ -100,8 +100,8 @@ func (s *Server) principalOf(r *http.Request) principal {
 			}
 		}
 	}
-	// A bearer that is a full token proves the full class. A bearer that is a token of a scoped entry too (load refuses the duplicate)
-	// is scoped, the narrower class.
+	// A bearer that is a full token proves the full class. A bearer that is a token of a scoped entry too (the load check refuses
+	// the duplicate) is scoped, the narrower class.
 	if !bearerIsScopedToken && acceptToken(s.clientTokens(), bearer) {
 		return principal{class: principalFull}
 	}

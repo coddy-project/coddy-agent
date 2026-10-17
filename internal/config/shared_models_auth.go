@@ -78,6 +78,11 @@ type namedToken struct {
 // CODDY_SWARM_TOKEN) the relay: a token of two classes would grant the wider
 // one to whoever was only meant to borrow a model.
 //
+// A relay client's token (swarm.clients[].token) is refused the same way when
+// it is any of those, a shared-model token of this node or another client's
+// token: it opens only the shared-model routes of the nodes its entry lists,
+// and the relay would read a token of two entries as the first one.
+//
 // swarm.join[].token and swarm.upstreams[].token are not a class of their own:
 // they are the credential a node hands to a relay, or a relay presents to a
 // node, and a node that shares models through a relay is meant to use its
@@ -86,7 +91,7 @@ type namedToken struct {
 // extra holds what the file cannot show (the flags, the environment). The
 // error is a *SharedTokenClassError: it names both keys and never a value.
 func CheckSharedTokenClasses(cfg *Config, extra ExtraTokens) error {
-	if cfg == nil || len(cfg.HTTPServer.SharedModels.Tokens) == 0 {
+	if cfg == nil || (len(cfg.HTTPServer.SharedModels.Tokens) == 0 && len(cfg.Swarm.Clients) == 0) {
 		return nil
 	}
 	var others []namedToken
@@ -124,25 +129,63 @@ func CheckSharedTokenClasses(cfg *Config, extra ExtraTokens) error {
 			return &SharedTokenClassError{Index: i, Other: name}
 		}
 	}
+	for i, t := range cfg.HTTPServer.SharedModels.Tokens {
+		if t = strings.TrimSpace(t); t != "" {
+			if _, seen := owners[t]; !seen {
+				owners[t] = fmt.Sprintf("httpserver.shared_models.tokens[%d]", i)
+			}
+		}
+	}
+	for i, c := range cfg.Swarm.Clients {
+		t := strings.TrimSpace(c.Token)
+		if t == "" {
+			continue
+		}
+		key := fmt.Sprintf("swarm.clients[%d].token", i)
+		if name, clash := owners[t]; clash {
+			return &SharedTokenClassError{Key: key, Other: name}
+		}
+		owners[t] = key
+	}
 	return nil
 }
 
-// SharedTokenClassError says that a shared-model token is also a token of
-// another class.
+// SharedTokenClassError says that a shared-model token, or a relay client's
+// token, is also a token of another class.
 type SharedTokenClassError struct {
 	// Index is the position of the offending entry in httpserver.shared_models.tokens.
 	Index int
+	// Key is the config path of an offending relay client token
+	// (swarm.clients[N].token); empty for a shared-model token.
+	Key string
 	// Other names the key (or flag) that holds the same token. Never the value.
 	Other string
 }
 
 // Path is the config path of the offending entry.
 func (e *SharedTokenClassError) Path() string {
+	if e.Key != "" {
+		return e.Key
+	}
 	return fmt.Sprintf("httpserver.shared_models.tokens[%d]", e.Index)
+}
+
+// Client reports whether the offending entry is a relay client's token.
+func (e *SharedTokenClassError) Client() bool { return e.Key != "" }
+
+// Fix says how to resolve it.
+func (e *SharedTokenClassError) Fix() string {
+	if e.Client() {
+		return "give the relay client a token of its own: a token that opens more than the shared-model routes must never be handed to a borrower of a model"
+	}
+	return "give the shared-model token a value of its own: a token that opens the whole API must never be handed to a borrower of a model"
 }
 
 // Error describes the clash.
 func (e *SharedTokenClassError) Error() string {
+	if e.Client() {
+		return e.Path() + " is the same token as " + e.Other + ": a token belongs to one class, and a relay client's token must open only the shared-model routes of the nodes its entry lists; give each its own"
+	}
 	return e.Path() + " is the same token as " + e.Other + ": a token belongs to one class, and a shared-model token must open only the LLM routes; give each its own"
 }
 

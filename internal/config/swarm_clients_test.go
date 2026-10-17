@@ -85,6 +85,24 @@ func TestCheckPlacesAClientErrorAtItsKey(t *testing.T) {
 	}
 }
 
+// A client token that is also the relay's full token is refused at the
+// client's token key, naming the other key and neither value: the relay would
+// otherwise read the full token as the client's and lock its operator out.
+func TestCheckRefusesAClientTokenOfAnotherClass(t *testing.T) {
+	noOutOfBandCredentials(t)
+	rep := checkYAML(t, clientsYAML("    - name: a\n      token: full-secret\n      scope: shared_models\n      nodes: [a]\n"))
+	f := onlyError(t, rep)
+	if !strings.HasPrefix(f.Message, "swarm.clients[0].token") || f.Line != 6 || !strings.Contains(f.Message, "swarm.auth_token") {
+		t.Fatalf("finding %+v is not placed at the client's token naming swarm.auth_token", f)
+	}
+	if strings.Contains(f.Message, "full-secret") || strings.Contains(f.Fix, "full-secret") {
+		t.Fatalf("the finding leaks the token: %+v", f)
+	}
+	if !strings.Contains(f.Fix, "relay client a token of its own") {
+		t.Fatalf("the fix does not say what to do for a client: %q", f.Fix)
+	}
+}
+
 func TestSwarmClientStarNodeIsAllowedAsAWholeEntry(t *testing.T) {
 	noOutOfBandCredentials(t)
 	rep := checkYAML(t, clientsYAML("    - name: a\n      token: t1\n      scope: shared_models\n      nodes: [\"*\"]\n"))

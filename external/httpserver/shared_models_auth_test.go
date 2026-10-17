@@ -339,6 +339,104 @@ func TestSharedConfigSaveWithADuplicateTokenIsRefused(t *testing.T) {
 	}
 }
 
+// A shared-model token written as a ${NAME} reference is checked as the value
+// it loads as: a reference to the flag's main token is refused before the
+// write, so the file and its backup stay as they were and the next start is
+// not refused.
+func TestSharedConfigSaveChecksATokenReferenceAsItsValue(t *testing.T) {
+	t.Setenv("CODDY_TEST_SHARE_REF", "cli-tok")
+	home := t.TempDir()
+	cfgPath := home + "/config.yaml"
+	yml := "providers:\n  - name: stub\n    type: openai\n    api_key: k\n" +
+		"models:\n  - model: stub/m\n    max_tokens: 100\n    shared_as: coder\n" +
+		"agent:\n  model: stub/m\n" +
+		"httpserver:\n  auth_token: \"main-tok\"\n  shared_models:\n    tokens: [\"shared-tok\"]\n"
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx := newSharedFixture(t, withSharedConfig(func(c *config.Config) { *c = *cfg }))
+	fx.srv.SetExtraAuthTokens([]string{"cli-tok"})
+
+	body := `{"providers":[{"name":"stub","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"stub/m","max_tokens":100,"shared_as":"coder"}],` +
+		`"agent":{"model":"stub/m"},` +
+		`"httpserver":{"auth_configured":true,"shared_models":{"tokens":["${CODDY_TEST_SHARE_REF}"]}}}`
+	for _, route := range []struct{ method, path string }{
+		{http.MethodPost, "/coddy/config/validate"},
+		{http.MethodPut, "/coddy/config"},
+	} {
+		req := fx.request(route.method, route.path, "main-tok", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := sharedTestClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw := bodyString(t, resp)
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(raw, "httpserver.shared_models.tokens[0]") || strings.Contains(raw, "cli-tok") {
+			t.Fatalf("%s %s: status %d: %s", route.method, route.path, resp.StatusCode, raw)
+		}
+	}
+	if after, _ := os.ReadFile(cfgPath); string(after) != yml {
+		t.Fatalf("the file changed:\n%s", after)
+	}
+	if bak, _ := os.ReadFile(config.BackupPath(cfgPath)); string(bak) != yml {
+		t.Fatalf("the backup changed:\n%s", bak)
+	}
+	if got := fx.srv.activeCfg().HTTPServer.EffectiveSharedTokens(); len(got) != 1 || got[0] != "shared-tok" {
+		t.Fatalf("the running configuration changed: %v", got)
+	}
+}
+
+// A save that shares a model with no credential in front of it is refused the
+// way the next start would refuse it, before anything is written.
+func TestSharedConfigSaveWithoutACredentialIsRefused(t *testing.T) {
+	for _, name := range []string{"CODDY_HTTP_TOKEN", "CODDY_HTTP_USER", "CODDY_HTTP_PASSWORD"} {
+		t.Setenv(name, "")
+	}
+	home := t.TempDir()
+	cfgPath := home + "/config.yaml"
+	yml := "providers:\n  - name: stub\n    type: openai\n    api_key: k\n" +
+		"models:\n  - model: stub/m\n    max_tokens: 100\n" +
+		"agent:\n  model: stub/m\n"
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx := newSharedFixture(t, withSharedConfig(func(c *config.Config) { *c = *cfg }))
+
+	body := `{"providers":[{"name":"stub","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"stub/m","max_tokens":100,"shared_as":"coder"}],` +
+		`"agent":{"model":"stub/m"}}`
+	for _, route := range []struct{ method, path string }{
+		{http.MethodPost, "/coddy/config/validate"},
+		{http.MethodPut, "/coddy/config"},
+	} {
+		req := fx.request(route.method, route.path, "", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := sharedTestClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw := bodyString(t, resp)
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(raw, "models[stub/m].shared_as") || !strings.Contains(raw, "httpserver.shared_models.tokens") {
+			t.Fatalf("%s %s: status %d: %s", route.method, route.path, resp.StatusCode, raw)
+		}
+	}
+	if after, _ := os.ReadFile(cfgPath); string(after) != yml {
+		t.Fatalf("the file changed:\n%s", after)
+	}
+	if fx.srv.activeCfg().FindSharedModel("coder") != nil {
+		t.Fatal("the running configuration shares the model")
+	}
+}
+
 func (fx *sharedFixture) put(path, token, body string) *http.Response {
 	fx.t.Helper()
 	req := fx.request(http.MethodPut, path, token, strings.NewReader(body))

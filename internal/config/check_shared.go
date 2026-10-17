@@ -31,8 +31,7 @@ func sharedModelFindings(cfg *Config, body *yaml.Node, extra ExtraTokens, loadEr
 
 	if err := CheckSharedTokenClasses(cfg, extra); err != nil && (loadErr == nil || err.Error() != loadErr.Error()) {
 		if clash, ok := err.(*SharedTokenClassError); ok {
-			at(SeverityError, clash.Path(), strings.TrimPrefix(clash.Error(), clash.Path()+" "),
-				"give the shared-model token a value of its own: a token that opens the whole API must never be handed to a borrower of a model")
+			at(SeverityError, clash.Path(), strings.TrimPrefix(clash.Error(), clash.Path()+" "), clash.Fix())
 		}
 	}
 	if err := SharedModelsAuthProblem(cfg, extra); err != nil {

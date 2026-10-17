@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -535,6 +536,69 @@ func TestSharedTokenClassesAreDisjoint(t *testing.T) {
 	}
 	if err := CheckSharedTokenClasses(cfg, ExtraTokens{HTTP: []string{""}}); err != nil {
 		t.Fatalf("blank tokens compared equal: %v", err)
+	}
+}
+
+// A relay client's token is a class of its own: it may be no other token of
+// the relay or the node, and no other client's.
+func TestRelayClientTokensAreAClassOfTheirOwn(t *testing.T) {
+	base := func() *Config {
+		return &Config{
+			HTTPServer: HTTPServerConfig{
+				AuthToken:    "main-tok",
+				SharedModels: SharedModelsConfig{Tokens: []string{"share-1"}},
+			},
+			Swarm: SwarmConfig{
+				AuthToken:     "swarm-tok",
+				PairingTokens: []string{"pair-tok"},
+				Join:          []SwarmJoin{{URL: "https://relay.example", PairingToken: "join-pair", Token: "share-1"}},
+				Clients: []SwarmClient{
+					{Name: "a", Token: "client-a", Scope: ScopeSharedModels, Nodes: []string{"*"}},
+					{Name: "b", Token: "client-b", Scope: ScopeSharedModels, Nodes: []string{"*"}},
+				},
+			},
+		}
+	}
+	if err := CheckSharedTokenClasses(base(), ExtraTokens{}); err != nil {
+		t.Fatalf("disjoint tokens refused: %v", err)
+	}
+	onlyClients := &Config{Swarm: SwarmConfig{Clients: []SwarmClient{{Name: "a", Token: "client-a"}}}}
+	if err := CheckSharedTokenClasses(onlyClients, ExtraTokens{}); err != nil {
+		t.Fatalf("a relay with clients and nothing else refused: %v", err)
+	}
+
+	cases := []struct {
+		name  string
+		edit  func(*Config) ExtraTokens
+		other string
+	}{
+		{"the relay's full token", func(c *Config) ExtraTokens { c.Swarm.Clients[1].Token = "swarm-tok"; return ExtraTokens{} }, "swarm.auth_token"},
+		{"a pairing token", func(c *Config) ExtraTokens { c.Swarm.Clients[0].Token = "pair-tok"; return ExtraTokens{} }, "swarm.pairing_tokens[0]"},
+		{"a join pairing token", func(c *Config) ExtraTokens { c.Swarm.Clients[0].Token = "join-pair"; return ExtraTokens{} }, "swarm.join[0].pairing_token"},
+		{"the node's main token", func(c *Config) ExtraTokens { c.Swarm.Clients[0].Token = "main-tok"; return ExtraTokens{} }, "httpserver.auth_token"},
+		{"a shared-model token", func(c *Config) ExtraTokens { c.Swarm.Clients[0].Token = "share-1"; return ExtraTokens{} }, "httpserver.shared_models.tokens[0]"},
+		{"another client's token", func(c *Config) ExtraTokens { c.Swarm.Clients[1].Token = "client-a"; return ExtraTokens{} }, "swarm.clients[0].token"},
+		{"a swarm token from the environment", func(c *Config) ExtraTokens { return ExtraTokens{Swarm: []string{"client-b"}} }, "CODDY_SWARM_TOKEN"},
+		{"a main token from a flag", func(c *Config) ExtraTokens { return ExtraTokens{HTTP: []string{"client-a"}} }, "CODDY_HTTP_TOKEN"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := base()
+			err := CheckSharedTokenClasses(cfg, tc.edit(cfg))
+			var clash *SharedTokenClassError
+			if !errors.As(err, &clash) || !clash.Client() {
+				t.Fatalf("a client token of two classes was not refused as one: %v", err)
+			}
+			msg := err.Error()
+			if !strings.HasPrefix(msg, "swarm.clients[") || !strings.Contains(msg, tc.other) {
+				t.Errorf("error %q does not name both keys (want swarm.clients[i].token and %s)", msg, tc.other)
+			}
+			for _, secret := range []string{"main-tok", "swarm-tok", "pair-tok", "share-1", "join-pair", "client-a", "client-b"} {
+				if strings.Contains(msg, secret) {
+					t.Errorf("error %q leaks a token value", msg)
+				}
+			}
+		})
 	}
 }
 
