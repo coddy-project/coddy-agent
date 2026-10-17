@@ -41,6 +41,7 @@ Feature: Pasting a picture into the console prompt
     Given there is no display for the markup window
     When the console app starts
     And the operator submits the prompt "start working"
+    And the stub turn blocks until cancelled
     And the operator presses ctrl+v
     Then the editor shows "[image #1]"
     When the operator submits the prompt "and look at this"

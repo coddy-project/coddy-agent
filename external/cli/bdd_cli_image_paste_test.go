@@ -385,6 +385,10 @@ func initializeCLIImagePasteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the session keeps the picture with a thumbnail the web UI shows$`, s.sessionKeepsThePicture)
 	sc.Step(`^the session holds a prompt "([^"]*)" sent from the web UI with a picture$`, s.sessionHoldsAWebPrompt)
 	sc.Step(`^the stub turn streams the text "([^"]*)"$`, s.stubStreamsText)
+	// A message is queued only while the manager runs a turn; the first turn
+	// of a fresh console can take seconds to reach the stub on a loaded
+	// runner, and a message sent before then is held as a prompt of its own.
+	sc.Step(`^the stub turn blocks until cancelled$`, s.stubBlocksUntilCancelled)
 	sc.Step(`^the operator starts a new session$`, s.operatorStartsNewSession)
 	sc.Step(`^the operator resumes the session before$`, s.operatorResumesSessionBefore)
 }
