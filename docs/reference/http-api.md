@@ -393,7 +393,11 @@ credential's window is refused the same way with **`code: rate_window`** and the
 token in **`Retry-After`**. A relay that forwards the call can refuse it as busy too, with
 **`code: client_streams`** or **`client_rate`** for the limits of a **`swarm.clients`** entry. A
 **`stream: false`** row is bounded by **`httpserver.shared_models.max_call_ms`** (30 minutes). A body
-above 32 MiB is a **`413`**, a body that does not arrive within 30 s a **`408`**.
+above 32 MiB, or one that holds more than 131072 JSON elements, is a **`413`** with
+**`code: request_too_large`**, and a body that does not arrive within 30 s a **`408`**. A request
+the provider behind the model refuses because it does not fit the context window is an
+**`invalid`** error with **`code: context_overflow`**. The borrower compacts its history and asks
+again after either.
 
 **Errors.** A call refused before its stream starts answers a flat JSON error object, and a stream
 ends with the same object as its **`error`** frame. Its **`kind`** is **`busy`**, **`rate`** (the
@@ -401,7 +405,7 @@ upstream provider is rate limiting), **`quota`** (a usage limit, with **`reset_a
 **`retry_after_s`**), **`upstream`** (the provider failed; **`cause`** is **`status`**, **`stall`**,
 **`truncated`** or **`timeout`**), **`invalid`** (**`400`**, **`404`**, **`408`**, **`413`**, refined
 by **`code`**) or **`auth`** (**`403`**: no credential is configured). The gate's own **`401`** is plain
-text. **`emitted`** counts the chunk frames written before the error.
+text. **`emitted`** says whether any chunk frame went out before the error.
 
 ## **`model`**, profiles, and direct completion
 

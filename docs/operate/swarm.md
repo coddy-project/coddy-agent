@@ -347,10 +347,12 @@ models:
 
 `shared_as` must be unique and contain 1 to 64 letters, digits, dots, underscores, or hyphens.
 It cannot be set on a `type: coddy` model, so a borrowed model cannot be lent again. A node with
-shared models needs `httpserver.shared_models.tokens` or `httpserver.auth_token`; otherwise
-`coddy -t` and startup reject the configuration. Prefer an LLM-only token: it opens only the
-shared-model routes and cannot read sessions, configuration, files, or other `/coddy/*` routes.
-The main HTTP token also works, but has its normal full-server authority.
+shared models needs a credential in front of them: `httpserver.shared_models.tokens`,
+`httpserver.auth_token` (or `--auth-token` / `CODDY_HTTP_TOKEN`) or a web sign-in. Without one,
+`coddy -t`, startup and a save in Settings refuse the configuration, unless
+`httpserver.allow_insecure` says the node is open on purpose. Prefer an LLM-only token: it opens
+only the shared-model routes and cannot read sessions, configuration, files, or other `/coddy/*`
+routes. The main HTTP token also works, but has its normal full-server authority.
 
 Sharing a subscription login spends that account's quota for every holder of a shared-model token.
 For a `codex` or `devin` provider, and for a `neuraldeep` provider that has no API key, make that
@@ -367,15 +369,17 @@ Without `shared_subscription_ack: true`, Coddy refuses this configuration. Check
 terms before sharing a subscription login.
 
 On the borrowing node, create a provider of type `coddy`, then name the remote alias as a normal
-logical model. `api_base` points either to the lender directly or to its relay mount. The token
-is the lender's LLM-only token, not the relay client token.
+logical model. `api_base` points either to the lender directly or to its relay mount, and
+`api_key` is the credential of the first hop. For a direct `api_base` it is the lender's LLM-only
+token. For a relay mount it is the relay's credential, best the token of a
+[relay client](#relay-clients) with `scope: shared_models`.
 
 ```yaml
 providers:
   - name: "studio"
     type: "coddy"
     api_base: "https://relay.example/swarm/nodes/studio"
-    api_key: "${CODDY_SHARED_MODEL_TOKEN}"
+    api_key: "${CODDY_RELAY_CLIENT_TOKEN}"
 
 models:
   - model: "studio/qwen38"
@@ -389,9 +393,14 @@ for a busy lender for up to `agent.shared_busy_wait_ms` (30 seconds by default);
 per credential with `httpserver.shared_models.max_streams`, which defaults to 5, and can also apply
 `rate_per_minute` and `rate_burst`.
 
-The route through a relay is the same mounted base URL used for remote sessions. The relay client
-token only opens the relay; the shared-model token remains the credential presented to the lending
-node. Treat both tokens as secrets and use TLS for every hop.
+The route through a relay is the same mounted base URL used for remote sessions. The relay checks
+the borrower's credential, removes it and presents its own to the lending node: the token the
+lender joined the relay with (`swarm.join[].token`), or the one an `upstreams` entry pins. A lender
+that joins with one of its `httpserver.shared_models.tokens` lets the relay reach only its
+shared-model routes; joined with its main token, it trusts the relay with its whole API. The
+lender counts every borrower that comes through the relay under that one credential, against its
+`max_streams` and `rate_per_minute`, so limits per borrower belong to the relay's `swarm.clients`.
+Treat every token as a secret and use TLS for every hop.
 
 ### What a borrowed model takes from the remote
 
@@ -452,11 +461,15 @@ swarm:
 ```
 
 `nodes` lists node names directly below this relay, `child/node` paths through a chained relay (at
-most four hops) or `"*"` for every node directly below it. `max_streams`, `rate_per_minute` and
-`rate_burst` limit this client on this relay; 0 means no limit. A call past a client limit is
-refused as busy with the code `client_streams` or `client_rate`, and the borrower waits for it like
-for a full slot of the lender. A client token must differ from every other token of the relay and
-of the node. The borrower still presents the lender's shared-model token to the node.
+most four hops) or `"*"` for every node directly below it. `max_streams` and `rate_per_minute`
+limit this client on this relay, 0 meaning no limit; `rate_burst` is the number of calls allowed at
+once before the rate applies, and without it the rate itself, capped by `max_streams`. A call past a
+client limit is refused as busy with the code `client_streams` or `client_rate`, and the borrower
+waits for it like for a full slot of the lender. A client token must differ from every other token
+of the relay and of the node: `coddy -t`, startup and a save in Settings refuse one that is also
+the main, a swarm, a pairing or a shared-model token, or another client's. The borrower sets the
+client token as the `api_key` of its `coddy` provider, and the relay presents the lender's join
+token to the node.
 
 ### Usage and counters
 
@@ -477,7 +490,7 @@ process restarts.
 | What | Where |
 |---|---|
 | Whether this process relays at all | `swarm.enable` in `config.yaml`, or `--swarm` / `--swarm=false` |
-| Relay's own deployment: bind address, client and pairing tokens, TLS, static upstreams | `swarm:` in `config.yaml`, or the `--swarm-*` flags |
+| Relay's own deployment: bind address, client and pairing tokens, TLS, static upstreams, scoped clients | `swarm:` in `config.yaml`, or the `--swarm-*` flags |
 | Which relays this process joins | `swarm.join` in `config.yaml` - honoured whether or not this process relays |
 | Relays offered in the UI environment menu | `httpserver.remotes` of the page's server: name, URL and, optionally, the client token (`token`, best as a `${ENV}` reference) |
 | Pages served elsewhere that may call the relay | `swarm.cors` (`enable`, `allow_loopback` for a laptop's web UI on any loopback port, `allowed_origins`) |
@@ -485,7 +498,8 @@ process restarts.
 
 **The relay's own Settings.** Opened on the relay (its map is the page's home), the Settings
 drawer edits the relay's deployment and its log: the **Swarm relay** tab (name, listen address,
-client and pairing tokens, CORS, TLS, lease and fan-out timeouts, upstreams, joins) and **Logger**.
+client and pairing tokens, CORS, TLS, lease and fan-out timeouts, upstreams, joins, scoped clients)
+and **Logger**.
 There is no Sessions tab, because a relay holds no sessions. The routes are the agent's own -
 `GET /coddy/config/schema`, `GET /coddy/config`, `POST /coddy/config/validate`, `PUT
 /coddy/config` - served by the relay behind its client token, and they carry only those two
@@ -515,21 +529,23 @@ it, and a client of the parent is not its operator. Reading them through the mou
 
 ## Security
 
-Three credentials, three jobs:
+Four credentials, four jobs:
 
 | Credential | Who holds it | What it authorises |
 |---|---|---|
 | `swarm.auth_token` | clients | using this relay |
+| `swarm.clients[].token` | borrowers of a model | the shared-model routes of the nodes its entry lists |
 | `swarm.pairing_tokens` | nodes | joining this relay |
 | per-node `token` | the relay | acting as that node |
 
 **A relay is a fleet-wide door.** It holds every node's credential, so whoever holds its
-client token controls every node it reaches, transitively through every hop - its sessions, its
-tools and its settings, the secrets a node's `GET /coddy/config` hands back (provider keys,
-remote tokens) included. This is stated
-rather than mitigated: there are no per-node client ACLs in this version. Give each node a
-credential minted for its relay rather than your own, put TLS in front, and keep the pairing
-token secret.
+client token, `swarm.auth_token`, controls every node it reaches, transitively through every hop -
+its sessions, its tools and its settings, the secrets a node's `GET /coddy/config` hands back
+(provider keys, remote tokens) included. This is stated rather than mitigated: the full token has no
+per-node scope. A `swarm.clients` entry is the narrower door: its token opens only the shared-model
+routes of the nodes it lists, and nothing of the relay itself (see [Relay clients](#relay-clients)).
+Give each node a credential minted for its relay rather than your own, put TLS in front, and keep
+the pairing token secret.
 
 Binding off loopback without a client token **refuses to start** (`swarm.allow_insecure`
 overrides). On loopback one is generated for the run rather than left absent, because an open
@@ -608,7 +624,8 @@ relay, wrap in TLS, upgrade, invert roles. The HTTP/2 layer above is unaware of 
   single HTTP/2 connection per node and are not worked around.
 - **One relay process per endpoint.** Two replicas behind a load balancer would split the
   registry and the tunnels.
-- **No per-node client authorisation.** See the blast radius above.
+- **No per-node scope for the full token.** `swarm.auth_token` opens every node; only the
+  shared-model routes can be scoped to nodes, through `swarm.clients`. See the blast radius above.
 
 ## Reference
 

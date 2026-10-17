@@ -662,7 +662,7 @@ An environment variable named **`CWD`** does not replace the placeholder (a bare
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`**, **`coddy`**. A **`coddy`** provider reaches the models another Coddy shares: its **`api_base`** is that Coddy's **`coddy serve`** or its swarm relay mount, its **`api_key`** the lender's LLM-only token, and every model turn is one streamed call to it (see [Sharing a model with another Coddy](../operate/swarm.md#sharing-a-model-with-another-coddy)).
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`**, **`coddy`**. A **`coddy`** provider reaches the models another Coddy shares: its **`api_base`** is that Coddy's **`coddy serve`** or its swarm relay mount, its **`api_key`** the credential of that first hop (the lender's LLM-only token for a direct address, the relay's client token for a mount), and every model turn is one streamed call to it (see [Sharing a model with another Coddy](../operate/swarm.md#sharing-a-model-with-another-coddy)).
 
 YAML split:
 

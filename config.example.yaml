@@ -93,13 +93,15 @@ providers:
   #   api_key: "${DEEPSEEK_API_KEY}"
 
   # Models another Coddy shares (its models[].shared_as), reached directly or
-  # through a swarm relay mount. api_key is the lender's LLM-only token
-  # (httpserver.shared_models.tokens there), not a relay token. Its models name
-  # the remote aliases, and their reasoning settings follow the remote's listing.
+  # through a swarm relay mount. api_key is the credential of the first hop:
+  # the lender's LLM-only token (httpserver.shared_models.tokens there) for a
+  # direct api_base, the relay's client token (best a swarm.clients entry with
+  # scope shared_models) for a mount. Its models name the remote aliases, and
+  # their reasoning settings follow the remote's listing.
   # - name: studio
   #   type: coddy
   #   api_base: "https://relay.example/swarm/nodes/studio"
-  #   api_key: "${CODDY_SHARED_MODEL_TOKEN}"
+  #   api_key: "${CODDY_RELAY_CLIENT_TOKEN}"
   #   # busy_wait_ms: 60000   # wait this long for a free slot of a busy remote (default: agent.shared_busy_wait_ms)
 
 models:
