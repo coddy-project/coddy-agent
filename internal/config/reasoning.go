@@ -113,8 +113,12 @@ func ReasoningLevelsForProviderType(ent *ModelEntry, providerType string) []stri
 // for this model entry. The setting attests that this deployment honours its
 // provider-specific request; Coddy does not infer that capability from a model
 // name or provider type. An absent key reads as false. A model with no reasoning
-// levels has nothing to switch. For a model of a provider of type coddy an absent
-// key is answered by the remote's listing and a written one wins (resolveCoddy).
+// levels has nothing to switch, and a Claude model the Anthropic API serves with
+// thinking always on (ReasoningAlwaysOn) never offers it, whatever the setting
+// says: every surface checks a level against these choices, so "off" is refused
+// before it reaches the provider. For a model of a provider of type coddy an
+// absent key is answered by the remote's listing and a written one wins
+// (resolveCoddy).
 func (c *Config) ReasoningOffOffered(ent *ModelEntry) bool {
 	if ent == nil {
 		return false
@@ -125,8 +129,23 @@ func (c *Config) ReasoningOffOffered(ent *ModelEntry) bool {
 	if !ent.AllowReasoningOff {
 		return false
 	}
+	if c.ReasoningAlwaysOn(ent) {
+		return false
+	}
 	levels := c.ReasoningLevelsFor(ent)
 	return len(levels) > 0
+}
+
+// ReasoningAlwaysOn reports a model entry an anthropic provider serves whose
+// thinking cannot be turned off (ClaudeThinkingFor AlwaysOn): the API refuses
+// thinking.type "disabled" for it. Another provider type serving the same id
+// keeps its own mapping of "off".
+func (c *Config) ReasoningAlwaysOn(ent *ModelEntry) bool {
+	if c == nil || ent == nil {
+		return false
+	}
+	prov := c.FindProvider(ent.ProviderName())
+	return prov != nil && prov.Type == "anthropic" && ClaudeThinkingFor(ent.APIModel()).AlwaysOn
 }
 
 // ReasoningChoicesFor returns what a session may select for this model entry:
@@ -243,13 +262,58 @@ func isOpenAIOSeries(id string) bool {
 func isAnthropicThinking(id string) bool {
 	for _, p := range []string{
 		"claude-opus-4", "claude-sonnet-4", "claude-haiku-4", "claude-3-7",
-		"claude-opus-5", "claude-sonnet-5", "claude-haiku-5", "claude-fable-5",
+		"claude-opus-5", "claude-sonnet-5", "claude-haiku-5", "claude-fable-5", "claude-mythos-5",
 	} {
 		if strings.HasPrefix(id, p) {
 			return true
 		}
 	}
 	return false
+}
+
+// ClaudeThinking is how an Anthropic model takes thinking on the Messages API.
+// The zero value is the extended-thinking contract of Claude 3.7 to 4.6: a
+// thinking.budget_tokens budget turns it on, no thinking field leaves it off.
+type ClaudeThinking struct {
+	// Adaptive models refuse thinking.type "enabled" with a budget (HTTP 400):
+	// thinking is {type: "adaptive"} and output_config.effort sets its depth.
+	Adaptive bool
+	// OnByDefault models think when the request names no thinking at all.
+	OnByDefault bool
+	// AlwaysOn models refuse thinking.type "disabled" (HTTP 400), so their
+	// thinking cannot be turned off.
+	AlwaysOn bool
+}
+
+// ClaudeThinkingFor returns the thinking contract of an Anthropic API model id
+// (claude-opus-5-5, or a gateway's anthropic/claude-opus-5-5). Ids it does not
+// know, older Claude models and non-Claude models get the zero value.
+func ClaudeThinkingFor(apiModel string) ClaudeThinking {
+	id := strings.ToLower(strings.TrimSpace(apiModel))
+	if i := strings.LastIndex(id, "/"); i >= 0 {
+		id = id[i+1:]
+	}
+	hasPrefix := func(prefixes ...string) bool {
+		for _, p := range prefixes {
+			if strings.HasPrefix(id, p) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	// Thinking is always on: "disabled" is refused at every effort level.
+	case hasPrefix("claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5", "claude-mythos-5"):
+		return ClaudeThinking{Adaptive: true, OnByDefault: true, AlwaysOn: true}
+	// On by default, "disabled" accepted (Opus 5 and Haiku 5.5 up to effort high).
+	case hasPrefix("claude-opus-5", "claude-sonnet-5", "claude-haiku-5"):
+		return ClaudeThinking{Adaptive: true, OnByDefault: true}
+	// Off unless the request turns adaptive thinking on.
+	case hasPrefix("claude-opus-4-7", "claude-opus-4-8"):
+		return ClaudeThinking{Adaptive: true}
+	default:
+		return ClaudeThinking{}
+	}
 }
 
 // isQwenThinking matches Qwen3-family hybrid thinking models (qwen3, qwen3.5,

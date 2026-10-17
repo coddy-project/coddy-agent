@@ -48,12 +48,12 @@ func TestRequestOptionsValidateAcceptsEverythingForACoddyRow(t *testing.T) {
 		{MaxTokens: &neg, Temperature: &hot, ReasoningEffort: "high"},
 		{ReasoningEffort: "off"},
 	} {
-		if err := o.Validate("coddy"); err != nil {
+		if err := o.Validate("coddy", "coder"); err != nil {
 			t.Errorf("the remote validates, not the client: %+v -> %v", o, err)
 		}
 	}
 	// The other types keep their own rules.
-	if err := (RequestOptions{MaxTokens: &zero}).Validate("openai"); err == nil {
+	if err := (RequestOptions{MaxTokens: &zero}).Validate("openai", "gpt-5"); err == nil {
 		t.Error("openai still refuses max_tokens 0")
 	}
 }

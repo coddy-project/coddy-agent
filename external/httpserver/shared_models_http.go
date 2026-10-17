@@ -578,7 +578,7 @@ func sharedCallOptions(cfg *config.Config, ent *config.ModelEntry, wo llm.WireOp
 		}
 		return fail("reasoning_effort %q is not offered by shared model %q (offered: %s)", level, alias, strings.Join(offered, ", "))
 	}
-	if err := opts.Validate(providerType); err != nil {
+	if err := opts.Validate(providerType, ent.APIModel()); err != nil {
 		// The provider's own text names its type and its backend, which the
 		// answer of a remote never does.
 		return fail("shared model %q cannot take an option of this request; leave max_tokens, temperature and reasoning_effort out to use the model's own", alias)

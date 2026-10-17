@@ -47,9 +47,11 @@ A model switched to has its context window read at once, the window its provider
 `/nothink` and `/reasoning off` are offered only when the model entry explicitly sets `allow_reasoning_off: true`. The default is `false`: Coddy cannot infer that a provider/model deployment honours the request, so the operator enables the choice only after verifying that deployment. A model of a `type: coddy` provider is the exception: while its entry leaves `allow_reasoning_off` out, the remote Coddy's listing decides, and a written value wins over it ([Sharing a model with another Coddy](../operate/swarm.md#what-a-borrowed-model-takes-from-the-remote)).
 
 - Qwen3 models on an OpenAI-compatible server receive `chat_template_kwargs.enable_thinking: false`;
-- Anthropic models receive no thinking block;
+- Anthropic models with a thinking budget receive no thinking block, and Claude Opus 4.7, 4.8 and 5, Sonnet 5 and Haiku 5.5 receive `thinking: {"type": "disabled"}`;
 - the Codex backend receives `none`;
 - another provider/model deployment uses its existing `off` mapping.
+
+Claude Opus 5.5, Sonnet 5.5 and the Fable models always think: on a `type: anthropic` provider they never offer `off`, even with the opt-in, and a lower level is what makes them think less.
 
 Without the opt-in, the command is refused with the levels the model does offer. An explicit empty `reasoning_levels: []` hides the selector and `off` even when the opt-in is set. When you switch to a model that does not offer the stored level, the session runs at that model's default, and the selectors and the snapshot show the level actually used.
 
