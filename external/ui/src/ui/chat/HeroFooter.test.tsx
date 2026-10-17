@@ -29,25 +29,27 @@ describe("HeroFooter", () => {
     vi.unstubAllGlobals();
   });
 
-  it("puts the running server's version after the links, linked to its release", async () => {
+  // The version is the way into Settings -> System: the tab says what this
+  // installation is, which a release's notes do not.
+  it("puts the running server's version after the links, linked to the System tab", async () => {
     answer({ object: "coddy.info", version: "1.2.35", hostname: "box" });
     const { container } = render(<HeroFooter />);
     const version = await screen.findByRole("link", { name: "v1.2.35" });
-    expect(version).toHaveAttribute(
-      "href",
-      "https://github.com/coddy-project/coddy-agent/releases/tag/1.2.35",
-    );
+    expect(version).toHaveAttribute("href", "#/settings/status");
+    expect(version).not.toHaveAttribute("target");
     const items = [...container.querySelectorAll(".hero-footer > *")].map(
       (el) => el.textContent,
     );
     expect(items).toEqual(["GitHub", "|", "API docs", "|", "v1.2.35"]);
   });
 
-  it("shows a build that is not a release as text, without a link", async () => {
+  it("links a build that is not a release to the System tab as well", async () => {
     answer({ version: "1.2.31-2-gcb322c30-dirty" });
     render(<HeroFooter />);
-    expect(await screen.findByText("v1.2.31-2-gcb322c30-dirty")).toBeTruthy();
-    expect(screen.queryByRole("link", { name: /1\.2\.31/ })).toBeNull();
+    const version = await screen.findByRole("link", {
+      name: "v1.2.31-2-gcb322c30-dirty",
+    });
+    expect(version).toHaveAttribute("href", "#/settings/status");
   });
 
   // A switch between two remotes starts the app over in place, and the new

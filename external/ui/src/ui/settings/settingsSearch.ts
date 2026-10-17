@@ -318,6 +318,13 @@ export const SETTINGS_LANDMARKS: readonly SettingsLandmark[] = [
     shown: notificationsShown,
   }),
   landmark("sessions_manager", "manage", "sessionsManage", "after"),
+  // The four blocks the System tab always draws; the charts and the provider
+  // rows depend on the build and have no anchor, and no value of the status
+  // document is indexed.
+  landmark("status", "installation", "systemInstallation", "before"),
+  landmark("status", "subsystems", "systemSubsystems", "before"),
+  landmark("status", "disk", "systemDisk", "before"),
+  landmark("status", "activity", "systemActivity", "before"),
   landmark(MCP_SECTION_ID, "discovery", "mcpDiscovery", "before", {
     keyPath: "mcp.project_trust",
   }),

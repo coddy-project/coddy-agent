@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react";
 import { getEnv, switchGeneration } from "../env/remoteEnv";
+import { appNavHrefSettingsSection } from "../scheduler/hashRoute";
 import { serverEventsScope } from "./sharedServerEvents";
 
 const REPO_URL = "https://github.com/coddy-project/coddy-agent";
 
 /** A release version as the tags spell it; a build between them says more. */
 const RELEASE_RE = /^\d+\.\d+\.\d+$/;
+
+/** The notes of a release, null for a build between releases. */
+export function releaseNotesUrl(version: string): string | null {
+  return RELEASE_RE.test(version)
+    ? `${REPO_URL}/releases/tag/${version}`
+    : null;
+}
 
 // One question per server, credential and switch: the version changes only
 // with the server the page talks to, and the answer is kept by the same scope
@@ -16,7 +24,7 @@ const RELEASE_RE = /^\d+\.\d+\.\d+$/;
 let versionRead: { scope: string; answer: Promise<string> } | null = null;
 
 /** readServerVersion asks the active environment which build it runs. */
-function readServerVersion(): Promise<string> {
+export function readServerVersion(): Promise<string> {
   const scope = `${serverEventsScope(getEnv())}#${switchGeneration()}`;
   if (versionRead?.scope !== scope) {
     const answer = fetch("/coddy/info", {
@@ -46,8 +54,8 @@ export function resetServerVersionForTests(): void {
 /**
  * HeroFooter is the line under the start screen: the project on GitHub, the
  * API reference, and the version of the server the page is talking to, on the
- * right - the local one, a remote, or a node reached through a relay. A
- * release links to its notes; a build between releases is shown as it is.
+ * right - the local one, a remote, or a node reached through a relay. It links
+ * to Settings -> System, which says what that installation is.
  */
 export function HeroFooter() {
   const [version, setVersion] = useState("");
@@ -79,18 +87,12 @@ export function HeroFooter() {
           <span className="hero-footer-sep" aria-hidden>
             |
           </span>
-          {RELEASE_RE.test(version) ? (
-            <a
-              href={`${REPO_URL}/releases/tag/${version}`}
-              target="_blank"
-              rel="noopener"
-              className="hero-footer-version"
-            >
-              {label}
-            </a>
-          ) : (
-            <span className="hero-footer-version">{label}</span>
-          )}
+          <a
+            href={appNavHrefSettingsSection("status")}
+            className="hero-footer-version"
+          >
+            {label}
+          </a>
         </>
       ) : null}
     </div>

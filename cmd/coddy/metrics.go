@@ -29,7 +29,13 @@ func (e *exporter) Start() (stop func()) {
 		AddConfigObserver: e.rt.AddConfigObserver,
 		Log:               e.rt.Log,
 	})
-	return e.collector.Close
+	e.rt.SetMetricsSource(e.collector.Metrics)
+	return func() {
+		// The source goes first, so the status document never reads a
+		// collector that is closing.
+		e.rt.SetMetricsSource(nil)
+		e.collector.Close()
+	}
 }
 
 func (e *exporter) Subsystem() serve.Subsystem {
@@ -38,6 +44,9 @@ func (e *exporter) Subsystem() serve.Subsystem {
 	// Only the address rebuilds the listener; the token is read on every request.
 	// There is no RestartKey: nobody configures Coddy through /metrics.
 	sub.Fingerprint = func(c *config.Config) string { return c.Metrics.ListenAddr() }
+	// The address is what the row shows, not a reason to restart the process:
+	// a move still rebuilds the exporter in place.
+	sub.Address = func(c *config.Config) string { return c.Metrics.ListenAddr() }
 	sub.Run = func(ctx context.Context, cfg *config.Config) error {
 		if e.collector == nil {
 			return errors.New("metrics: the exporter was not started")

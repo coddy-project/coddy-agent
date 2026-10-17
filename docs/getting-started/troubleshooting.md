@@ -313,6 +313,10 @@ brew install coddy-project/coddy-agent/coddy
 
 See [Install](install.md#macos-homebrew).
 
+## The sessions disk is almost full
+
+**Symptom.** **Settings → System** shows **Disk low** or **Disk full** beside the meter of the sessions disk, and the `CoddyDiskLow` rule of `examples/prometheus/coddy-rules.yml` fires after five minutes. **Cause.** Both warn when the disk that holds `sessions.dir` (`~/.coddy/sessions` unless set) has under 512 MiB free, a fixed value. Session bundles, with the files uploaded into them and their tool output, and a log file nothing rotates are what grow. **Fix.** In **Settings → Sessions** tick old sessions and delete them, or empty the archive ([Sessions](../features/sessions.md)); `coddy sessions list` only lists them, and the folder of a session no process holds can be deleted by hand. Cap the file of `logger.file` with `logger.rotation.max_size_mb` and `logger.rotation.max_files`, and trim the daemon's `~/.coddy/logs/serve.log`, which every restart appends to. The page reads the disk again within 15 seconds.
+
 ## `coddy update` refuses to overwrite a packaged binary
 
 **Symptom.** `coddy update` changes nothing, names the package that owns the installation, prints the package manager command and exits 1; or it points at `brew upgrade`.

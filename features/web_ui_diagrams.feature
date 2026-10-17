@@ -14,3 +14,9 @@ Feature: Diagrams and formulas in the web UI
     When a browser fetches a renderer chunk
     Then the chunk is served as JavaScript
     And the response may be cached for a year without revalidation
+
+  Scenario: The System tab ships as a chunk loaded on demand
+    Given the embedded web UI build
+    Then the System tab's code is not part of app.js
+    And the System tab is embedded as one content-hashed chunk within its size budget
+    And app.js stays within its size budget

@@ -20,6 +20,14 @@
  * relay or a token - is where the documentation's screenshots are taken, so
  * they show the plain local setup.
  *
+ * The System tab (Settings -> System, GET /coddy/status) is held to each
+ * server's own document: on the local server, on the node through the relay,
+ * on a remote environment chosen in the environment switcher (a fourth
+ * server, the page's own, offering the node under httpserver.remotes), and
+ * with the node stopped. Every stand runs with a HOME and a TMPDIR of its own
+ * and nothing of the caller's environment, and its status names a config file
+ * under that home.
+ *
  * Usage, from the repository root:
  *   make build TAGS="http ui swarm"
  *   cd external/ui
@@ -30,7 +38,7 @@
  *   CODDY_BIN           the binary (default ../../build/coddy from external/ui)
  *   CODDY_ENGINE        chromium (default), webkit or firefox
  *   CODDY_BROWSER_PATH  an installed Chromium instead of Playwright's download
- *   CODDY_PORT_BASE     first of four loopback ports (default 19890)
+ *   CODDY_PORT_BASE     first of five loopback ports (default 19890)
  *   CODDY_SHOTS_DIR     write the screenshots of the run there (docs and PR)
  *   CODDY_E2E_KEEP=1    leave the stand running after the checks, for a look
  */
@@ -377,13 +385,27 @@ function startModel(port) {
 // ------------------------------------------------------------------- stand
 
 const procs = [];
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "coddy-files-check-"));
+// The real path: a stand's HOME and the config path it is given must spell the
+// same folder, or its status cannot write the config file as `~/config.yaml`.
+const scratch = fs.realpathSync(
+  fs.mkdtempSync(path.join(os.tmpdir(), "coddy-files-check-")),
+);
 
-function start(args, name) {
+/**
+ * Starts a stand with an environment of its own: its HOME is its home folder
+ * (so `~/.agents/agents` and the rest of what a person's home holds are its
+ * own, and the config file is `~/config.yaml`) and its TMPDIR a folder under
+ * it. Nothing of the caller's environment reaches it, no CODDY_* variable
+ * included: an inherited CODDY_CONFIG would outrank the home it is given.
+ */
+function start(args, name, home) {
   const log = fs.openSync(path.join(scratch, `${name}.log`), "w");
+  const tmp = path.join(home, "tmp");
+  fs.mkdirSync(tmp, { recursive: true });
   const proc = spawn(BIN, args, {
     stdio: ["ignore", log, log],
     detached: false,
+    env: { PATH: process.env.PATH, HOME: home, TMPDIR: tmp },
   });
   procs.push(proc);
   return proc;
@@ -420,22 +442,39 @@ const MODEL_PORT = PORT_BASE;
 const NODE_PORT = PORT_BASE + 1;
 const RELAY_PORT = PORT_BASE + 2;
 const SHOTS_NODE_PORT = PORT_BASE + 3;
+const REMOTE_PAGE_PORT = PORT_BASE + 4;
 // Nothing listens here: a workspace page or picture that fetched from it would
 // show up in the browser's requests, which the formats scenario counts.
 const BEACON = `http://127.0.0.1:${PORT_BASE + 9}/beacon`;
 const NODE = `http://127.0.0.1:${NODE_PORT}`;
 const RELAY = `http://127.0.0.1:${RELAY_PORT}`;
 const SHOTS_NODE = `http://127.0.0.1:${SHOTS_NODE_PORT}`;
+// The page's own server of the remote-environment scenario: it serves the web
+// UI and offers the node as a remote; the node answers the page's origin.
+const REMOTE_PAGE = `http://127.0.0.1:${REMOTE_PAGE_PORT}`;
 const NODE_TOKEN = "files-check-node-token";
 const RELAY_TOKEN = "files-check-client-token";
+const REMOTE_NAME = "system-remote";
 const MOUNT = `${RELAY}/swarm/nodes/node`;
 
 const nodeHome = path.join(scratch, "node");
 const relayHome = path.join(scratch, "relay");
 const shotsHome = path.join(scratch, "shots");
+const remoteHome = path.join(scratch, "remote");
 const workspace = path.join(scratch, "demo-workspace");
 const shotsWorkspace = path.join(scratch, "shots", "demo-workspace");
-for (const d of [nodeHome, relayHome, shotsHome, workspace, shotsWorkspace])
+const relayWorkspace = path.join(relayHome, "workspace");
+const remoteWorkspace = path.join(remoteHome, "workspace");
+for (const d of [
+  nodeHome,
+  relayHome,
+  shotsHome,
+  remoteHome,
+  workspace,
+  shotsWorkspace,
+  relayWorkspace,
+  remoteWorkspace,
+])
   fs.mkdirSync(d, { recursive: true });
 seedWorkspace(workspace);
 seedWorkspace(shotsWorkspace);
@@ -457,8 +496,33 @@ logger:
   level: warn
   outputs: [stderr]
 `;
-fs.writeFileSync(path.join(nodeHome, "config.yaml"), nodeConfig);
+// The node answers the origin of the remote-environment page: the browser reads
+// the node from there, so the node's own CORS answer is all it has. Its address
+// and token are in its configuration and not on its command line, so a listen
+// address moved in the configuration is a restart pending (a flag would win).
+fs.writeFileSync(
+  path.join(nodeHome, "config.yaml"),
+  `${nodeConfig}httpserver:
+  host: 127.0.0.1
+  port: ${NODE_PORT}
+  auth_token: "${NODE_TOKEN}"
+  cors:
+    enable: true
+    allowed_origins: ["${REMOTE_PAGE}"]
+`,
+);
 fs.writeFileSync(path.join(shotsHome, "config.yaml"), nodeConfig);
+// The page's own server offers the node, with its token, as a remote
+// environment of the switcher.
+fs.writeFileSync(
+  path.join(remoteHome, "config.yaml"),
+  `${nodeConfig}httpserver:
+  remotes:
+    - name: ${REMOTE_NAME}
+      url: "${NODE}"
+      token: "${NODE_TOKEN}"
+`,
+);
 // The relay lets the node's own web UI read through it from the node's origin:
 // the cross-origin case, where the relay's CORS answer is all the browser has.
 fs.writeFileSync(
@@ -478,7 +542,7 @@ logger:
   outputs: [stderr]
 `,
 );
-start(
+const nodeProc = start(
   [
     "serve",
     "--config",
@@ -487,14 +551,9 @@ start(
     nodeHome,
     "--cwd",
     workspace,
-    "-H",
-    "127.0.0.1",
-    "-P",
-    String(NODE_PORT),
-    "--auth-token",
-    NODE_TOKEN,
   ],
   "node",
+  nodeHome,
 );
 start(
   [
@@ -503,6 +562,8 @@ start(
     path.join(relayHome, "config.yaml"),
     "--home",
     relayHome,
+    "--cwd",
+    relayWorkspace,
     "--swarm",
     "--http=false",
     "--swarm-host",
@@ -513,6 +574,7 @@ start(
     RELAY_TOKEN,
   ],
   "relay",
+  relayHome,
 );
 // A plain node without a token: the screenshots are taken on it, and the
 // documentation reader is read from it on every run.
@@ -531,8 +593,31 @@ start(
     String(SHOTS_NODE_PORT),
   ],
   "shots-node",
+  shotsHome,
+);
+// The page's own server of the remote-environment scenario, a plain node.
+start(
+  [
+    "serve",
+    "--config",
+    path.join(remoteHome, "config.yaml"),
+    "--home",
+    remoteHome,
+    "--cwd",
+    remoteWorkspace,
+    "-H",
+    "127.0.0.1",
+    "-P",
+    String(REMOTE_PAGE_PORT),
+  ],
+  "remote-page",
+  remoteHome,
 );
 await waitFor(`${SHOTS_NODE}/v1/models`, "the screenshot node");
+await waitFor(
+  `${REMOTE_PAGE}/v1/models`,
+  "the remote-environment page's server",
+);
 await waitFor(`${NODE}/v1/models`, "the node", {
   Authorization: `Bearer ${NODE_TOKEN}`,
 });
@@ -2893,7 +2978,457 @@ async function scenarioManyEdits(sid) {
   fs.rmSync(path.join(workspace, "pkg"), { recursive: true, force: true });
 }
 
+// -------------------------------------------------------------- System tab
+
+/** A server's own status document, read with the token it asks for. */
+async function statusOf(base, token = "") {
+  const res = await fetch(`${base}/coddy/status`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const body = await res.json().catch(() => null);
+  if (res.status !== 200 || body?.object !== "coddy.status") {
+    throw new Error(
+      `GET ${base}/coddy/status answered ${res.status}: ${JSON.stringify(body)}`,
+    );
+  }
+  return body;
+}
+
+/** The words the tab uses for how the process was started. */
+const STARTED_BY = {
+  systemd: "systemd service",
+  daemon: "background daemon",
+  foreground: "foreground",
+};
+
+/**
+ * The System tab as a reader sees it, once its first read has left a document
+ * or a reason: the state of the summary and its text, the rows of the blocks by
+ * their labels (each with its text, its code, its state word and its link), the
+ * charts and the provider table, and the number on the rail's tab.
+ */
+async function readSystemTab(page) {
+  await page.getByTestId("system-section").waitFor({ timeout: 20000 });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector("[data-testid=system-summary]")
+        ?.getAttribute("data-state") !== "pending",
+    null,
+    { timeout: 20000 },
+  );
+  return page.evaluate(() => {
+    const text = (el) =>
+      el ? el.textContent.replace(/[\s ]+/g, " ").trim() : "";
+    const rows = (block) => {
+      const out = {};
+      for (const dt of document.querySelectorAll(
+        `[data-testid=system-${block}] dt`,
+      )) {
+        const dd = dt.nextElementSibling;
+        out[text(dt)] = {
+          text: text(dd),
+          code: text(dd?.querySelector(".system-code")),
+          pill: text(dd?.querySelector(".system-pill")),
+        };
+      }
+      return out;
+    };
+    const summary = document.querySelector("[data-testid=system-summary]");
+    const blocks = ["installation", "subsystems", "disk", "activity"];
+    return {
+      state: summary.getAttribute("data-state"),
+      summary: text(summary),
+      stale: document
+        .querySelector("[data-testid=system-section]")
+        .classList.contains("is-stale"),
+      headings: [...document.querySelectorAll(".system-block-title")].map(text),
+      blocks: Object.fromEntries(
+        blocks.map((id) => [
+          id,
+          text(document.querySelector(`[data-testid=system-${id}]`)),
+        ]),
+      ),
+      installation: rows("installation"),
+      subsystems: rows("subsystems"),
+      activity: rows("activity"),
+      charts: document.querySelector(".system-charts") !== null,
+      providers: document.querySelector(".system-table") !== null,
+      rail: text(document.querySelector("[data-testid=settings-tab-status]")),
+      badge: text(
+        document.querySelector(
+          "[data-testid=settings-tab-status] .settings-nav-badge",
+        ),
+      ),
+    };
+  });
+}
+
+/**
+ * What the tab shows that is not what the server's own document says, one
+ * sentence each (none when the two agree): the version, the build, how the
+ * process was started, its config file, the HTTP server's row with the address
+ * it listens on (the value that tells one server from another), whether the
+ * charts and the providers are there as the document's `metrics` says, the
+ * number on the rail and the summary's count.
+ */
+function systemMismatches(tab, doc, port) {
+  const bad = [];
+  const want = (what, shown, expected) => {
+    if (shown !== expected)
+      bad.push(
+        `${what}: the tab shows ${JSON.stringify(shown)}, the document says ${JSON.stringify(expected)}`,
+      );
+  };
+  const inst = tab.installation;
+  want(
+    "version",
+    (inst["Version"]?.text ?? "").replace(/ \([0-9a-f]{8}\)$/, ""),
+    doc.build.version,
+  );
+  want(
+    "build tags",
+    inst["Built with"]?.text,
+    (doc.build.tags ?? []).join(" · "),
+  );
+  want(
+    "platform",
+    inst["Platform"]?.text,
+    `${doc.build.os}/${doc.build.arch} · ${doc.build.goVersion}`,
+  );
+  want(
+    "started by",
+    inst["Started by"]?.text,
+    STARTED_BY[doc.process.startedBy] ?? doc.process.startedBy,
+  );
+  want("config file", inst["Config file"]?.code, doc.process.configFile);
+  const http = doc.subsystems.find((x) => x.kind === "httpserver");
+  const row = tab.subsystems["HTTP server"];
+  want("HTTP server state", row?.pill, http?.state);
+  want("HTTP server address", row?.code, http?.address);
+  want("HTTP server port", row?.code?.split(":").pop(), String(port));
+  want("charts", tab.charts, "metrics" in doc);
+  want("provider table", tab.providers, "metrics" in doc);
+  const n = doc.attention?.length ?? 0;
+  want("rail badge", tab.badge, n > 0 ? String(n) : "");
+  want(
+    "summary",
+    n === 0 ? tab.summary : tab.summary.slice(0, `${n} need`.length),
+    n === 0 ? "Everything OK" : `${n} need`,
+  );
+  return bad;
+}
+
+/**
+ * Every stand's status names its config file under that stand's own home: the
+ * stand ran with HOME set to the folder that holds its config.yaml, so the
+ * document says `~/config.yaml`, and no path of the scratch folder (the real
+ * home of the person running the check would be one) is in it anywhere.
+ */
+async function scenarioStandHomes() {
+  for (const [name, base, token] of [
+    ["the node", NODE, NODE_TOKEN],
+    ["the screenshot node", SHOTS_NODE, ""],
+    ["the remote-environment page's server", REMOTE_PAGE, ""],
+  ]) {
+    const doc = await statusOf(base, token);
+    check(
+      `${name} names its config file under its own home`,
+      doc.process.configFile === "~/config.yaml",
+      JSON.stringify(doc.process),
+    );
+    check(
+      `${name} puts no path of the scratch folder in its status`,
+      !JSON.stringify(doc).includes(scratch),
+      scratch,
+    );
+  }
+}
+
+/**
+ * Settings -> System on the local server and on the node through the relay: the
+ * same values the server's own /coddy/status holds, on screen.
+ */
+async function scenarioSystem() {
+  const local = await openPage({ throughRelay: false });
+  await local.page.goto(`${SHOTS_NODE}/#/settings/status`);
+  const tab = await readSystemTab(local.page);
+  const doc = await statusOf(SHOTS_NODE);
+  check(
+    "the System tab of the local server is the tab named System, with its four blocks",
+    tab.rail.startsWith("System") &&
+      JSON.stringify(tab.headings) ===
+        JSON.stringify(["This installation", "Subsystems", "Disk", "Activity"]),
+    JSON.stringify({ rail: tab.rail, headings: tab.headings }),
+  );
+  const bad = systemMismatches(tab, doc, SHOTS_NODE_PORT);
+  check(
+    "the System tab of the local server matches its /coddy/status",
+    bad.length === 0,
+    bad.join("; "),
+  );
+  check(
+    "no page errors on the local System tab",
+    local.errors.length === 0,
+    local.errors.join(" | "),
+  );
+  await local.context.close();
+
+  const relayed = await openPage();
+  await relayed.page.goto(`${RELAY}/#/settings/status`);
+  const through = await readSystemTab(relayed.page);
+  const nodeDoc = await statusOf(NODE, NODE_TOKEN);
+  const badNode = systemMismatches(through, nodeDoc, NODE_PORT);
+  check(
+    "the System tab of a node through the relay matches that node's /coddy/status",
+    badNode.length === 0,
+    badNode.join("; "),
+  );
+  check(
+    "and it is the node's, not the screenshot node's: the address on screen is the node's own",
+    through.subsystems["HTTP server"]?.code === `127.0.0.1:${NODE_PORT}` &&
+      through.subsystems["HTTP server"]?.code !==
+        tab.subsystems["HTTP server"]?.code,
+    `${through.subsystems["HTTP server"]?.code} against ${tab.subsystems["HTTP server"]?.code}`,
+  );
+  check(
+    "the status was read through the relay's mount",
+    relayed.mountRequests.some((r) => r.startsWith("GET /coddy/status")),
+    `${relayed.mountRequests.length} requests through the mount`,
+  );
+  check(
+    "no page errors on the System tab through the relay",
+    relayed.errors.length === 0,
+    relayed.errors.join(" | "),
+  );
+  await relayed.context.close();
+}
+
+/**
+ * A remote environment chosen in the switcher (an `httpserver.remotes` entry of
+ * the page's own server, the node allowing that origin under `httpserver.cors`)
+ * shows the remote's System tab: the address and the version on screen are the
+ * node's and not the page server's. The node is given a restart pending (the
+ * listen address in its config.yaml edited on disk, which the node reloads, and
+ * put back afterwards) that the page server's own document does not have, so
+ * the rail's number and the summary on screen can only be the node's.
+ */
+async function scenarioSystemRemote() {
+  const file = path.join(nodeHome, "config.yaml");
+  const before = fs.readFileSync(file, "utf8");
+  const moved = before.replace(
+    `\n  port: ${NODE_PORT}\n`,
+    `\n  port: ${PORT_BASE + 40}\n`,
+  );
+  if (moved === before)
+    throw new Error(`no listen port to move in ${file}:\n${before}`);
+  fs.writeFileSync(file, moved);
+  try {
+    const nodeDoc = await until("the node's restart pending", async () => {
+      const doc = await statusOf(NODE, NODE_TOKEN);
+      return doc.restartRequired === true ? doc : null;
+    });
+    const pageDoc = await statusOf(REMOTE_PAGE);
+    check(
+      "the node has a restart pending that the page server has not",
+      (nodeDoc.attention ?? []).length === 1 &&
+        (pageDoc.attention ?? []).length === 0,
+      JSON.stringify({ node: nodeDoc.attention, page: pageDoc.attention }),
+    );
+    const r = await openPage({ throughRelay: false, from: REMOTE_PAGE });
+    await r.page.goto(`${REMOTE_PAGE}/`);
+    await r.page.getByTestId("nav-environment").click();
+    await r.page
+      .getByTestId("env-remote")
+      .filter({ hasText: REMOTE_NAME })
+      .getByRole("menuitem")
+      .first()
+      .click();
+    // Local to a remote reloads the page; waiting on the rail's own mark rides
+    // over that.
+    await r.page
+      .locator("[data-testid=nav-environment][data-env=remote]")
+      .waitFor({ timeout: 20000 });
+    const env = await until("the remote stored as the environment", () =>
+      r.page
+        .evaluate(() => JSON.parse(localStorage.getItem("coddy_env") || "{}"))
+        .catch(() => null),
+    );
+    check(
+      "choosing the remote in the switcher stores it as the environment",
+      env.mode === "remote" && env.baseUrl === NODE,
+      JSON.stringify({ mode: env.mode, baseUrl: env.baseUrl }),
+    );
+    await r.page.evaluate(() => {
+      location.hash = "#/settings/status";
+    });
+    const tab = await readSystemTab(r.page);
+    const bad = systemMismatches(tab, nodeDoc, NODE_PORT);
+    check(
+      "the System tab of the remote environment matches the remote's /coddy/status",
+      bad.length === 0,
+      bad.join("; "),
+    );
+    const shown = tab.subsystems["HTTP server"]?.code;
+    const own = pageDoc.subsystems.find(
+      (x) => x.kind === "httpserver",
+    )?.address;
+    check(
+      "and the HTTP server's address on screen is the remote's, not the page server's",
+      !!shown && shown !== own && shown === `127.0.0.1:${NODE_PORT}`,
+      `${shown} against the page server's ${own}`,
+    );
+    check(
+      "the version on screen is the remote's version",
+      (tab.installation["Version"]?.text ?? "").startsWith(
+        nodeDoc.build.version,
+      ),
+      `${tab.installation["Version"]?.text} against ${nodeDoc.build.version}`,
+    );
+    check(
+      "the rail's number and the summary are the remote's restart pending, not the page server's nothing",
+      tab.badge === "1" &&
+        tab.state === "problems" &&
+        tab.summary.startsWith("1 needs attention") &&
+        (tab.subsystems["HTTP server"]?.text ?? "").includes(
+          `127.0.0.1:${PORT_BASE + 40}`,
+        ),
+      JSON.stringify({
+        badge: tab.badge,
+        summary: tab.summary,
+        http: tab.subsystems["HTTP server"]?.text,
+      }),
+    );
+    check(
+      "no page errors on the remote environment's System tab",
+      r.errors.length === 0,
+      r.errors.join(" | "),
+    );
+    await r.context.close();
+  } finally {
+    // The node as it was: the restart pending goes with the address.
+    fs.writeFileSync(file, before);
+  }
+  const back = await until("the restart pending to clear", async () => {
+    const doc = await statusOf(NODE, NODE_TOKEN);
+    return doc.restartRequired === undefined ? doc : null;
+  });
+  check(
+    "putting the address back clears the restart pending",
+    (back.attention ?? []).length === 0,
+    JSON.stringify(back.attention),
+  );
+}
+
+/**
+ * The node stopped: a tab opened afterwards says the node is offline and when
+ * it was last seen and draws no value; the tab that was open before keeps its
+ * last values, greyed, and says it cannot refresh. The last scenario: the node
+ * stays down.
+ */
+async function scenarioSystemOffline() {
+  const open = await openPage();
+  await open.page.goto(`${RELAY}/#/settings/status`);
+  const before = await readSystemTab(open.page);
+  check(
+    "before the node stops, the tab through the relay holds its document",
+    before.state !== "offline" &&
+      !before.stale &&
+      !!before.installation["Version"],
+    JSON.stringify({ state: before.state, summary: before.summary }),
+  );
+  const exited = new Promise((resolve) => nodeProc.once("exit", resolve));
+  nodeProc.kill("SIGTERM");
+  await Promise.race([
+    exited,
+    new Promise((resolve) => setTimeout(resolve, 20000)),
+  ]);
+  const hop = await until(
+    "the relay to answer for the stopped node",
+    async () => {
+      const res = await fetch(`${MOUNT}/coddy/status`, {
+        headers: { Authorization: `Bearer ${RELAY_TOKEN}` },
+      }).catch(() => null);
+      if (!res || res.status === 200) return null;
+      const body = await res.json().catch(() => null);
+      return { status: res.status, error: body?.error };
+    },
+    30000,
+  );
+  check(
+    "the relay names the stopped node and when it was last seen",
+    hop.error?.node === "node" && typeof hop.error?.last_seen === "string",
+    JSON.stringify(hop),
+  );
+  const down = await openPage();
+  await down.page.goto(`${RELAY}/#/settings/status`);
+  const off = await readSystemTab(down.page);
+  check(
+    "a tab opened with the node stopped says the node is offline and when it was last seen",
+    off.state === "offline" &&
+      off.summary.includes("node is offline.") &&
+      /Last seen .+\./.test(off.summary),
+    JSON.stringify({ state: off.state, summary: off.summary }),
+  );
+  check(
+    "and draws no value of its own: every block says it is not available",
+    Object.keys(off.installation).length === 0 &&
+      Object.keys(off.subsystems).length === 0 &&
+      Object.values(off.blocks).every((t) => t.includes("Not available")),
+    JSON.stringify(off.blocks),
+  );
+  await down.context.close();
+  // The tab that was open reads again every 15 s, and keeps what it had.
+  const staleText = await until(
+    "the open tab to say it cannot refresh",
+    () =>
+      open.page.evaluate(() => {
+        const s = document.querySelector("[data-testid=system-summary]");
+        return s?.getAttribute("data-state") === "stale" ? s.textContent : "";
+      }),
+    40000,
+  );
+  const kept = await readSystemTab(open.page);
+  check(
+    "the tab that was open keeps its last values, greyed, and says it is offline and cannot refresh",
+    kept.stale &&
+      staleText.includes("node is offline.") &&
+      staleText.includes("Can't refresh. Showing the last values read.") &&
+      kept.installation["Version"]?.text ===
+        before.installation["Version"]?.text &&
+      kept.subsystems["HTTP server"]?.code ===
+        before.subsystems["HTTP server"]?.code,
+    JSON.stringify({ stale: kept.stale, summary: staleText }),
+  );
+  check(
+    "no page errors with the node stopped",
+    open.errors.length === 0,
+    open.errors.join(" | "),
+  );
+  await open.context.close();
+}
+
+/**
+ * Runs a scenario that needs no chat, reporting it by name when it throws so
+ * that the scenarios after it still run: the System tab's checks do not hide
+ * behind a failure of the chat's.
+ */
+async function guarded(name, scenario) {
+  try {
+    await scenario();
+  } catch (err) {
+    check(
+      `${name} finished`,
+      false,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 try {
+  await guarded("the stands' homes", scenarioStandHomes);
+  await guarded("the System tab", scenarioSystem);
+  await guarded("the System tab of a remote environment", scenarioSystemRemote);
   await scenarioDocsClose();
   const sid = await scenarioViews();
   await scenarioPhone(sid);
@@ -2915,6 +3450,8 @@ try {
     err instanceof Error ? err.message : String(err),
   );
 } finally {
+  // The node stays down for it: nothing that needs the node can follow.
+  await guarded("the System tab with the node stopped", scenarioSystemOffline);
   await browser.close();
   // A stand left for a look keeps its model, so a turn there still answers.
   if (!KEEP) {

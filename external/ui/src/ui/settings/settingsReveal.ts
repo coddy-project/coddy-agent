@@ -13,6 +13,8 @@ export const SETTINGS_REVEAL_EVENT = "coddy:settings-reveal";
 
 export const SEARCH_TARGET_MS = 1600;
 export const REVEAL_WAIT_MS = 1000;
+/** The most a reveal waits for a tab whose chunk is still loading, in all. */
+export const REVEAL_PENDING_MAX_MS = 10_000;
 const TARGET_CLASS = "is-search-target";
 
 function squash(text: string | null | undefined): string {
@@ -59,6 +61,20 @@ export function findSettingsBox(
       : (boxes.find(
           (box) => box.dataset["settingsAnchor"] === entry.fallbackAnchor,
         ) ?? null))
+  );
+}
+
+/**
+ * Whether the tab of an entry is still loading: a tab that is a chunk loaded on
+ * demand draws a fallback marked data-settings-pending until it arrives. What
+ * it does not draw yet is not missing, only late.
+ */
+function isPending(root: HTMLElement, entry: SettingsSearchEntry): boolean {
+  const pane = findPane(root, entry);
+  return (
+    pane !== null &&
+    (pane.hasAttribute("data-settings-pending") ||
+      pane.querySelector("[data-settings-pending]") !== null)
   );
 }
 
@@ -173,7 +189,9 @@ function nameForFocus(box: HTMLElement, name: string): () => void {
  * Takes the operator to the setting of an entry once the page can show it:
  * waits (within REVEAL_WAIT_MS) until the box is drawn and nothing above it is
  * hidden, then scrolls it into view, rings it for SEARCH_TARGET_MS and focuses
- * it. A field takes the control named by its primary name, except on a
+ * it. A tab whose chunk is still loading (data-settings-pending) is waited for
+ * past that, up to REVEAL_PENDING_MAX_MS in all, and no longer once the chunk
+ * is in and the setting is not drawn. A field takes the control named by its primary name, except on a
  * touch-only device (no keyboard rises), where, like every tab, row, block and
  * landmark, the box itself is focused. A tab is scrolled to its top, with no
  * ring. It gives up quietly when the budget runs out; returns what cancels it.
@@ -187,12 +205,26 @@ export function revealWhenReady(
   let frame: number | null = null;
   let ringTimer: number | null = null;
   let ringed: HTMLElement | null = null;
+  let waitedForChunk = false;
   const observer = new MutationObserver(() => attempt());
-  const budget = window.setTimeout(stopWaiting, REVEAL_WAIT_MS);
+  let budget = window.setTimeout(onBudget, REVEAL_WAIT_MS);
 
   const isTab = entry.anchor === null;
   const locate = (): HTMLElement | null =>
     isTab ? findPane(root, entry) : findSettingsBox(root, entry);
+
+  // The second is up: a tab that is only loading is waited for a while longer.
+  function onBudget() {
+    if (isPending(root, entry)) {
+      waitedForChunk = true;
+      budget = window.setTimeout(
+        stopWaiting,
+        REVEAL_PENDING_MAX_MS - REVEAL_WAIT_MS,
+      );
+    } else {
+      stopWaiting();
+    }
+  }
 
   function stopWaiting() {
     observer.disconnect();
@@ -209,6 +241,10 @@ export function revealWhenReady(
     }
     const target = locate();
     if (target === null) {
+      // The chunk is in and the setting is not in it: there is nothing to wait for.
+      if (waitedForChunk && !isPending(root, entry)) {
+        stopWaiting();
+      }
       return;
     }
     if (!isShown(target)) {

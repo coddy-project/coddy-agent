@@ -29,7 +29,17 @@
  *            accepts is not kept, and the screen says so;
  *   settings the Settings search on a touch phone (assertions shared with
  *            settings-search-assert.mjs): a reveal leaves the focus on the box,
- *            Back steps out layer by layer, Notifications is not found.
+ *            Back steps out layer by layer, Notifications is not found;
+ *   status   the stand's own /coddy/status names its config file under the
+ *            stand's home and no path of the scratch folder;
+ *   system   Settings -> System on a touch phone at 390: the tile opens it, its
+ *            four blocks stand with their headings, nothing scrolls sideways,
+ *            and the HTTP server's and the Telegram bot's rows are the
+ *            stand's own.
+ *
+ * Every stand runs with a HOME and a TMPDIR of its own and nothing of the
+ * caller's environment (no CODDY_* variable): only what the check passes on
+ * purpose, the fake Bot API's address and the sign-in of the gated stand.
  *
  * Usage, from the repository root:
  *   make build TAGS="http ui gateway"
@@ -43,7 +53,8 @@
  *                       built into the scratch directory)
  *   CODDY_BROWSER_PATH  an installed Chromium instead of Playwright's download
  *   CODDY_PORT_BASE     first of three loopback ports (default 19890)
- *   CODDY_SCENARIOS     a comma list (bot, open, half, sheets, theme, signin, settings); all by default
+ *   CODDY_SCENARIOS     a comma list (bot, open, half, sheets, theme, signin, settings,
+ *                       status, system); all by default
  *   CODDY_SCREENSHOTS   a directory to write the documentation captures into
  *   CODDY_E2E_KEEP=1    leave the stand running after the checks, for a look
  */
@@ -75,7 +86,10 @@ const SHOTS = process.env.CODDY_SCREENSHOTS
   ? path.resolve(process.env.CODDY_SCREENSHOTS)
   : "";
 const SCENARIOS = new Set(
-  (process.env.CODDY_SCENARIOS || "bot,open,half,sheets,theme,signin,settings")
+  (
+    process.env.CODDY_SCENARIOS ||
+    "bot,open,half,sheets,theme,signin,settings,status,system"
+  )
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
@@ -102,15 +116,27 @@ function check(label, ok, detail = "") {
 // ------------------------------------------------------------------- stand
 
 const procs = [];
-const scratch = fs.mkdtempSync(
-  path.join(os.tmpdir(), "coddy-telegram-mini-app-"),
+// The real path: a stand's HOME and the config path it is given must spell the
+// same folder, or its status cannot write the config file as `~/config.yaml`.
+const scratch = fs.realpathSync(
+  fs.mkdtempSync(path.join(os.tmpdir(), "coddy-telegram-mini-app-")),
 );
 
-function start(bin, args, name, env = {}) {
+/**
+ * Starts a process with an environment of its own: its HOME is `home` (for a
+ * coddy stand the folder that holds its config.yaml, so the config file is
+ * `~/config.yaml`), its TMPDIR a folder under it, and nothing of the caller's
+ * environment reaches it, no CODDY_* variable included (an inherited
+ * CODDY_CONFIG would outrank the home it is given). `env` is what the check
+ * passes on purpose.
+ */
+function start(bin, args, name, home, env = {}) {
   const log = fs.openSync(path.join(scratch, `${name}.log`), "w");
+  const tmp = path.join(home, "tmp");
+  fs.mkdirSync(tmp, { recursive: true });
   const proc = spawn(bin, args, {
     stdio: ["ignore", log, log],
-    env: { ...process.env, ...env },
+    env: { PATH: process.env.PATH, HOME: home, TMPDIR: tmp, ...env },
   });
   procs.push(proc);
   return proc;
@@ -213,6 +239,7 @@ start(
     "4",
   ],
   "tgfake",
+  path.join(scratch, "tgfake-home"),
 );
 await waitFor(`${TG}/sim/state`, "tgfake");
 
@@ -257,11 +284,8 @@ gateways:
       url: "${NODE}/"
 `,
 );
-const env = (home) => ({
-  HOME: home,
-  CODDY_HOME: home,
-  CODDY_TELEGRAM_API_BASE: TG,
-});
+// What the check hands a coddy stand on purpose: the fake Bot API's address.
+const passed = { CODDY_TELEGRAM_API_BASE: TG };
 start(
   BIN,
   [
@@ -278,7 +302,8 @@ start(
     String(NODE_PORT),
   ],
   "node",
-  env(nodeHome),
+  nodeHome,
+  passed,
 );
 await waitFor(`${NODE}/v1/models`, "coddy serve");
 
@@ -325,11 +350,12 @@ const frame = () =>
   page.frames().find((f) => f.url().startsWith(NODE));
 
 /**
- * The Settings search inside the Mini App, in a phone context of its own (touch
- * and no hover), so the touch-only media query that decides where a reveal puts
- * the focus is the real one. The first failure ends the scenario.
+ * Runs `scenario` against the Mini App in a phone context of its own (touch and
+ * no hover), so the touch-only media query that decides where a reveal puts the
+ * focus is the real one. `step(label, fn)` runs one step with the phone at the
+ * top and reports it; the first failure ends the scenario.
  */
-async function settingsScenario() {
+async function onPhone(scenario) {
   const phoneContext = await browser.newContext({
     viewport: { width: 390, height: 844 },
     hasTouch: true,
@@ -375,7 +401,17 @@ async function settingsScenario() {
     // The gear of the top bar, a link named Settings.
     const gear = () =>
       app.getByRole("link", { name: "Settings", exact: true }).tap();
+    await scenario({ app, step, back, drawer, gear });
+  } catch (err) {
+    check(at, false, err.message);
+  } finally {
+    await phoneContext.close();
+  }
+}
 
+/** The Settings search inside the Mini App, on a phone. */
+async function settingsScenario() {
+  await onPhone(async ({ app, step, back, drawer, gear }) => {
     await step("max_turns is revealed, its box holds the focus", async () => {
       await assertTouchOnly(app, true);
       await gear();
@@ -414,11 +450,129 @@ async function settingsScenario() {
         throw new Error("Notifications is offered, and the Mini App has none");
       }
     });
-  } catch (err) {
-    check(at, false, err.message);
-  } finally {
-    await phoneContext.close();
+  });
+}
+
+/**
+ * Settings -> System inside the Mini App at 390: the tile opens it, its four
+ * blocks stand with their headings, the page does not scroll sideways, and the
+ * rows of the subsystems are the stand's own (the HTTP server on its port and
+ * the Telegram bot, both running).
+ */
+async function systemScenario() {
+  await onPhone(async ({ app, step, back, drawer, gear }) => {
+    await step("the System tile opens the System tab", async () => {
+      await assertTouchOnly(app, true);
+      await gear();
+      await app.getByTestId("settings-tile-status").tap();
+      await app.getByTestId("system-section").waitFor({ timeout: 20000 });
+      await app.waitForFunction(
+        () =>
+          document
+            .querySelector("[data-testid=system-summary]")
+            ?.getAttribute("data-state") !== "pending",
+        null,
+        { timeout: 20000 },
+      );
+    });
+    await step(
+      "the four blocks stand with their headings and nothing scrolls sideways",
+      async () => {
+        const seen = await app.evaluate(async () => {
+          const sideways = (el) => el.scrollWidth - el.clientWidth;
+          const blocks = ["installation", "subsystems", "disk", "activity"];
+          const out = [];
+          for (const id of blocks) {
+            const box = document.querySelector(`[data-testid=system-${id}]`);
+            const title = box?.querySelector(".system-block-title");
+            title?.scrollIntoView({ block: "center" });
+            await new Promise((r) =>
+              requestAnimationFrame(() => requestAnimationFrame(r)),
+            );
+            const r = title?.getBoundingClientRect();
+            const b = box?.getBoundingClientRect();
+            out.push({
+              id,
+              heading: title?.textContent?.trim() ?? "",
+              inSight:
+                !!r &&
+                r.width > 0 &&
+                r.height > 0 &&
+                r.top >= 0 &&
+                r.bottom <= innerHeight,
+              inside: !!b && b.left >= -0.5 && b.right <= innerWidth + 0.5,
+            });
+          }
+          const pane = document.querySelector(
+            '.settings-scroll[data-settings-tab="status"]',
+          );
+          return {
+            blocks: out,
+            page: sideways(document.documentElement),
+            pane: pane ? sideways(pane) : -1,
+          };
+        });
+        const bad = seen.blocks.filter(
+          (b) => !b.heading || !b.inSight || !b.inside,
+        );
+        if (bad.length > 0 || seen.page > 0 || seen.pane !== 0) {
+          throw new Error(
+            `The four headings should be in sight inside the window with nothing scrolling sideways, but ${JSON.stringify(seen)}.`,
+          );
+        }
+      },
+    );
+    await step("the rows are the stand's own", async () => {
+      const doc = await statusOf(NODE);
+      const rows = await app.evaluate(() => {
+        const text = (el) => (el ? el.textContent.trim() : "");
+        const out = {};
+        for (const dt of document.querySelectorAll(
+          "[data-testid=system-subsystems] dt",
+        )) {
+          const dd = dt.nextElementSibling;
+          out[text(dt)] = {
+            pill: text(dd?.querySelector(".system-pill")),
+            address: text(dd?.querySelector(".system-code")),
+          };
+        }
+        const config = document.querySelector(
+          "[data-testid=system-installation] code",
+        );
+        return { rows: out, config: text(config) };
+      });
+      const http = doc.subsystems.find((x) => x.kind === "httpserver");
+      const bot = doc.subsystems.find((x) => x.kind === "gateway");
+      if (
+        rows.rows["HTTP server"]?.address !== http?.address ||
+        http?.address !== `127.0.0.1:${NODE_PORT}` ||
+        rows.rows["HTTP server"]?.pill !== "running" ||
+        rows.rows["Telegram bot"]?.pill !== bot?.state ||
+        bot?.state !== "running" ||
+        rows.config !== doc.process.configFile
+      ) {
+        throw new Error(
+          `The tab should show the stand's HTTP server on 127.0.0.1:${NODE_PORT}, its running Telegram bot and its config file, but it shows ${JSON.stringify(rows)} against ${JSON.stringify({ subsystems: doc.subsystems, configFile: doc.process.configFile })}.`,
+        );
+      }
+    });
+    await step("Back leaves the tab for the tiles", async () => {
+      await back();
+      await drawer({ tiles: true });
+    });
+  });
+}
+
+/** The stand's own status document, read from the stand. */
+async function statusOf(base) {
+  const res = await fetch(`${base}/coddy/status`);
+  const body = await res.json().catch(() => null);
+  if (res.status !== 200 || body?.object !== "coddy.status") {
+    throw new Error(
+      `GET ${base}/coddy/status answered ${res.status}: ${JSON.stringify(body)}`,
+    );
   }
+  return body;
 }
 
 try {
@@ -711,6 +865,26 @@ try {
     await settingsScenario();
   }
 
+  // ---- the stand's status: its config file is under the stand's own home
+  if (SCENARIOS.has("status")) {
+    const doc = await statusOf(NODE);
+    check(
+      "the stand names its config file under its own home",
+      doc.process.configFile === "~/config.yaml",
+      JSON.stringify(doc.process),
+    );
+    check(
+      "and puts no path of the scratch folder in its status",
+      !JSON.stringify(doc).includes(scratch),
+      scratch,
+    );
+  }
+
+  // ---- Settings -> System on a phone
+  if (SCENARIOS.has("system")) {
+    await systemScenario();
+  }
+
   // ---- the cross-site frame of Telegram Web and a sign-in it does not keep
   if (SCENARIOS.has("signin")) {
     const gatedHome = writeHome("gated", "");
@@ -730,8 +904,9 @@ try {
         String(GATED_PORT),
       ],
       "gated",
+      gatedHome,
       {
-        ...env(gatedHome),
+        ...passed,
         CODDY_HTTP_USER: "operator",
         CODDY_HTTP_PASSWORD: "mini-app-check-password",
       },

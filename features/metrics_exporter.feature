@@ -17,3 +17,13 @@ Feature: Prometheus exporter
     And "coddy_prompts_pending" is present
     And "coddy_sessions_disk_available_bytes" is present
     And the answer contains none of "SECRET-TITLE", "SECRET-WS", "SECRET-PROMPT"
+
+  Scenario: the last hour is sampled from the exporter's own counters
+    Given coddy serve built with metrics, the exporter on a free port with the token "scrape-me"
+    And a provider "stub" served by llmstub with the model "stub/echo" declared
+    And a session titled "SECRET-TITLE" in the folder "SECRET-WS" ran one turn with "SECRET-PROMPT" that read a file
+    When the sampler's clock reaches the next slot, 15 seconds after its first read
+    And Prometheus scrapes "/metrics" with the token "scrape-me"
+    Then the status document shows "attemptsOk" at 8 per minute in its last point and a gap before it
+    And its provider row "stub" counts 2 attempts and 0 failures, the last success at that slot
+    And the scrape counts the same 2 attempts for "coddy_llm_attempts_total" stub, echo, ok
