@@ -475,12 +475,12 @@ func TestInTurnPromptPrefix(t *testing.T) {
 }
 
 // The summarizer of a fold inside a turn is told the work is still going on and
-// that the message the turn started with stays in front of its summary. The note
+// that the message the turn started with stays ahead of its summary. The note
 // names no author: a goal turn's instruction or a woken turn's notice is not the
 // user's request, and the note must not call it so.
 func TestInTurnSummaryInstructions(t *testing.T) {
 	got := withInTurnSummaryInstructions("")
-	for _, want := range []string{"middle of the agent's work", "stays verbatim in front of your summary", "what remains to be done"} {
+	for _, want := range []string{"middle of the agent's work", "stays verbatim ahead of your summary", "what remains to be done"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("note %q does not say %q", got, want)
 		}
@@ -640,6 +640,13 @@ func TestChainedInTurnFoldsKeepOnePromptCopy(t *testing.T) {
 	// earlier work is.
 	if len(provider.requests) != 2 || !strings.Contains(transcriptText(provider.requests[1]), "SUMMARY-OF-EARLIER-WORK") {
 		t.Fatalf("the second fold did not summarize the first row: %d requests", len(provider.requests))
+	}
+	// Each fold cuts in the middle of the work, the second one too, although its
+	// row has no prompt in front: the summarizer is told so both times.
+	for i, req := range provider.requests {
+		if text := transcriptText(req); !strings.Contains(text, "middle of the agent's work") {
+			t.Fatalf("fold %d was not told the work is still going on:\n%s", i+1, text)
+		}
 	}
 }
 

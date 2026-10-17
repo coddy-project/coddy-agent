@@ -209,10 +209,10 @@ func (a *Agent) inTurnPrefix(msgs []llm.Message, split, limit int) (prefix strin
 
 // withInTurnSummaryInstructions tells the summarizer the transcript it reads
 // stops in the middle of the work, and that the message the turn answers is
-// kept verbatim in front of its summary.
+// kept verbatim ahead of its summary.
 func withInTurnSummaryInstructions(instructions string) string {
 	note := "The transcript ends in the middle of the agent's work on the message this turn started with. " +
-		"That message stays verbatim in front of your summary, so do not repeat it. " +
+		"That message stays verbatim ahead of your summary, so do not repeat it. " +
 		"Summarize what was done for it so far, what it found, the files touched, and what remains to be done."
 	if instructions == "" {
 		return note
