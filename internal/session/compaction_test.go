@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -307,5 +308,28 @@ func TestSessionDigestCarriesEveryRowOfTheChain(t *testing.T) {
 	}
 	if n := strings.Count(digest, "SECOND-BLOCK"); n != 1 {
 		t.Fatalf("the second row is in the digest %d times, want once:\n%s", n, digest)
+	}
+}
+
+// TestSessionDigestOfALongChainKeepsTheNewestRows: a chain larger than the
+// digest's share of the earlier conversation loses its oldest rows, not its
+// newest ones, which carry what the session was doing last.
+func TestSessionDigestOfALongChainKeepsTheNewestRows(t *testing.T) {
+	st := &State{ID: "sess_digest_long_chain", CWD: t.TempDir()}
+	for i := 1; i <= 5; i++ {
+		st.AddMessage(userMsg(fmt.Sprintf("q%d", i)))
+		st.AddMessage(assistantMsg(fmt.Sprintf("a%d", i)))
+		st.AddMessage(blockMsg(fmt.Sprintf("BLOCK-%d ", i) + strings.Repeat("x", sessionDigestBytes/6)))
+	}
+	r := &mentionResolver{
+		store: &FileStore{Root: t.TempDir()},
+		live:  func(string) *State { return st },
+	}
+	digest, _, err := r.sessionDigest(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(digest, "BLOCK-5 ") || strings.Contains(digest, "BLOCK-1 ") {
+		t.Fatalf("the digest does not keep the newest rows of the chain:\n%s", digest)
 	}
 }

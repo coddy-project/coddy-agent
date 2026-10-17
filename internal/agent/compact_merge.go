@@ -12,14 +12,18 @@ package agent
 // its earliest rows are retold as one summary row that starts the chain anew: a
 // row without the block mark, inserted right after the last row it retells, so
 // the chain reads from it on (session.LLMWindow) and the transcript keeps every
-// row it replaced. As many rows are merged as bring the chain down to
-// compactionChainAimPercent of that share. The distance between the two is the
-// point: a merge rewrites the prefix the provider cached, and a chain merged
-// down to the threshold would be merged again at the next compaction.
+// row it replaced. As many rows are merged as bring the chain, the merged row
+// included, down to compactionChainAimPercent of that share. The distance
+// between the two is the point: a merge rewrites the prefix the provider
+// cached, and a chain merged down to the threshold would be merged again at the
+// next compaction.
 //
-// The rows of the turn in progress are never merged: the first of them carries
-// the turn's prompt verbatim, which a summary must not take away. Nor is the
-// row the compaction just wrote, which no merge could make smaller.
+// The row the compaction just wrote is never merged: no merge could make it
+// smaller. The rows of the turn in progress go last, and only when the earlier
+// ones are not enough, which is the case of one long turn folded again and
+// again. The first of them carries the turn's prompt verbatim in front of its
+// summary; a merge that takes it puts the prompt in front of the merged row the
+// same way, so the model still reads the prompt once.
 
 import (
 	"context"
@@ -44,9 +48,10 @@ const (
 )
 
 // chainMergeCount is how many of the earliest rows of the chain a merge retells
-// for a session window of window tokens: the fewest that bring the rest of the
-// chain to the aim. ok is false when the chain is within its share, or when
-// fewer than compactionChainMinMerge rows may be merged.
+// for a session window of window tokens: the fewest that bring the chain to the
+// aim, counting the merged row as long as the longest row it retells (the
+// summarizer is asked for no more). ok is false when the chain is within its
+// share, or when fewer than compactionChainMinMerge rows may be merged.
 func chainMergeCount(msgs []llm.Message, window int) (k int, ok bool) {
 	if window <= 0 {
 		window = config.DefaultContextWindowTokens
@@ -62,20 +67,12 @@ func chainMergeCount(msgs []llm.Message, window int) (k int, ok bool) {
 	if total <= share {
 		return 0, false
 	}
-	// The newest row is never merged, and neither is a row of the turn in
-	// progress: one that lies after the turn's opening prompt.
-	limit := len(blocks) - 1
-	if open, found := session.OpeningPromptIndex(msgs); found {
-		n := 0
-		for n < limit && blocks[n] < open {
-			n++
-		}
-		limit = n
-	}
 	aim := share * compactionChainAimPercent / 100
-	rest := total
-	for k < limit && (k < compactionChainMinMerge || rest > aim) {
+	rest, longest := total, 0
+	// The newest row is never merged.
+	for k < len(blocks)-1 && (k < compactionChainMinMerge || rest+longest > aim) {
 		rest -= sizes[k]
+		longest = max(longest, sizes[k])
 		k++
 	}
 	if k < compactionChainMinMerge {
@@ -90,7 +87,8 @@ func withChainMergeInstructions(instructions string) string {
 	note := "The transcript is a run of consecutive summaries of one conversation, oldest first; there are no other messages in it. " +
 		"Write one summary that replaces them all. Keep every detail of them that can still matter: the user's requirements, " +
 		"the decisions and the approaches rejected, exact paths, names, commands and values, and what is still open. " +
-		"Where a later summary corrects an earlier one, keep the later account."
+		"Where a later summary corrects an earlier one, keep the later account. " +
+		"Make it no longer than the longest of the summaries you are given."
 	if instructions == "" {
 		return note
 	}
@@ -108,17 +106,34 @@ func (a *Agent) mergeChain(ctx context.Context, chain []compactionCandidate, ins
 		return 0, nil
 	}
 	blocks, _ := session.LLMWindow(msgs)
+	open, hasOpen := session.OpeningPromptIndex(msgs)
 	rows := make([]llm.Message, k)
+	prompt := ""
 	for i := range rows {
 		rows[i] = msgs[blocks[i]]
+		// The row of the turn in progress that carries its prompt: the prompt
+		// goes in front of the merged row as it stands, and only the summary
+		// after it is retold.
+		if hasOpen && blocks[i] > open && prompt == "" {
+			if p, summary, ok := session.SplitInTurnSummary(rows[i].Content); ok {
+				prompt, rows[i].Content = p, summary
+			}
+		}
 	}
 	instructions = withChainMergeInstructions(instructions)
+	if prompt != "" {
+		instructions = withInTurnSummaryInstructions(instructions)
+	}
 	sumWindow, _ := a.contextWindowFor(chain[0].modelID)
 	budget := compactionInputBudget(sumWindow, session.EstimateContextTokens(instructions))
 	summary, modelID, _, err := a.foldCompactionHead(ctx, chain, "", rows, instructions, budget, progress)
 	if err != nil {
 		return 0, err
 	}
-	a.state.InsertCompactionSummary(blocks[k-1]+1, session.NewCompactionSummaryMessage(summary, modelID))
+	row := session.NewCompactionSummaryMessage(summary, modelID)
+	if prompt != "" {
+		row = session.NewInTurnCompactionSummaryMessage(prompt, summary, modelID)
+	}
+	a.state.InsertCompactionSummary(blocks[k-1]+1, row)
 	return k, nil
 }

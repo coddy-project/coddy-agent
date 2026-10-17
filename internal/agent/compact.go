@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -278,9 +279,6 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	}
 
 	head := project()[len(blocks) : splitIdx-viewOffset]
-	// The summaries already written are what the new one continues: the
-	// summarizer reads them so it does not repeat them, and never retells them.
-	earlier := renderEarlierSummaries(visible[:len(blocks)])
 
 	chain, err := a.compactionChain(override, reasoning)
 	if err != nil {
@@ -301,7 +299,15 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// The first of the chain sets the size; a fallback below it reads the same
 	// pass, which is why the share is a share rather than the whole window.
 	window, _ := a.contextWindowFor(chain[0].modelID)
-	budget := compactionInputBudget(window, session.EstimateContextTokens(instructions)+session.EstimateContextTokens(earlier))
+	// The summaries already written are what the new one continues: the
+	// summarizer reads them so it does not repeat them, and never retells them.
+	// They are reference only and take at most half of a pass: the chain is
+	// sized against the session's window, and a summarizer with a smaller one
+	// would otherwise get passes with no room for the transcript, or none that
+	// fit at all.
+	instructionTokens := session.EstimateContextTokens(instructions)
+	earlier := renderEarlierSummaries(visible[:len(blocks)], compactionInputBudget(window, instructionTokens)/compactionCarryShare)
+	budget := compactionInputBudget(window, instructionTokens+session.EstimateContextTokens(earlier))
 
 	row := a.newCompactionRow()
 	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, earlier, head, instructions, budget, row.step)
@@ -394,7 +400,7 @@ func (a *Agent) compactFromTool(ctx context.Context, req tooling.CompactRequest)
 	})
 	switch {
 	case errors.Is(err, ErrNothingToCompact):
-		return "Nothing to compact: there is no earlier conversation to summarize yet.", nil
+		return "Nothing to compact: there is no earlier conversation to summarize yet, or nothing new since the last compaction.", nil
 	case errors.Is(err, ErrCompactionDisabled):
 		return "", err
 	case err != nil:
@@ -534,7 +540,7 @@ func (a *Agent) runCompactCommand(ctx context.Context, args compactCommandArgs, 
 		// are. Nothing was compacted and nothing failed, so the turn ends.
 		text = "Nothing was compacted: " + strings.TrimPrefix(err.Error(), ErrCompactionModel.Error()+": ") + ". " + compactUsage
 	case errors.Is(err, ErrNothingToCompact):
-		text = "Nothing to compact: there is no earlier conversation to summarize yet."
+		text = "Nothing to compact: there is no earlier conversation to summarize yet, or nothing new since the last compaction."
 	case errors.Is(err, ErrCompactionDisabled):
 		text = "Compaction is disabled in the configuration (compaction.enable: false)."
 	case err != nil:
@@ -804,15 +810,39 @@ func renderCompactionMessage(m llm.Message) string {
 	return b.String()
 }
 
+// earlierSummariesCutMarker stands in for the oldest summary rows the
+// summarizer's request has no room for; its one verb is how many were left out.
+const earlierSummariesCutMarker = "[%d earlier summaries left out of this request for room]"
+
 // renderEarlierSummaries is the text of the summary rows of the chain, oldest
-// first, as the summarizer reads them ahead of the transcript it folds.
-func renderEarlierSummaries(rows []llm.Message) string {
-	parts := make([]string, 0, len(rows))
-	for _, m := range rows {
-		if s := strings.TrimSpace(m.Content); s != "" {
+// first, as the summarizer reads them ahead of the transcript it folds, within
+// maxTokens: the newest rows are kept whole and the oldest left out first, and a
+// newest row larger than maxTokens on its own is cut in the middle. The chain
+// itself is not touched.
+func renderEarlierSummaries(rows []llm.Message, maxTokens int) string {
+	var parts []string
+	used, left := 0, 0
+	for i := len(rows) - 1; i >= 0; i-- {
+		s := strings.TrimSpace(rows[i].Content)
+		if s == "" {
+			continue
+		}
+		n := session.EstimateContextTokens(s)
+		switch {
+		case used+n <= maxTokens:
 			parts = append(parts, s)
+			used += n
+		case len(parts) == 0:
+			parts = append(parts, elideToTokens(s, maxTokens))
+			used = maxTokens
+		default:
+			left++
 		}
 	}
+	if left > 0 {
+		parts = append(parts, fmt.Sprintf(earlierSummariesCutMarker, left))
+	}
+	slices.Reverse(parts)
 	return strings.Join(parts, "\n\n---\n\n")
 }
 
