@@ -38,6 +38,7 @@ import {
   mountSettings,
   openSettings,
   resetPage,
+  schemaWithout,
   stubServer as stubServerFor,
   type MountOptions,
   type ServerState,
@@ -1197,6 +1198,15 @@ describe("settings search", () => {
       onPairingTokens,
     ],
     [
+      "choosing a field of the Metrics tab opens that tab, rings the setting and puts the cursor in it",
+      {},
+      ["listen port", "metrics:port"],
+      () => {
+        expect(tabIsOpen("metrics")).toBe(true);
+        expectCursor(screen.getByLabelText("Listen port"));
+      },
+    ],
+    [
       "choosing a field in another tab opens that tab, rings the setting and puts the cursor in it",
       {},
       ["max_turns", "agent:max_turns"],
@@ -1238,6 +1248,39 @@ describe("settings search", () => {
       },
     ],
   ];
+
+  /** What the results offer: the box each result opens, a tab as `tab:<id>`. */
+  const offered = () => options().map((o) => o.dataset["settingsTarget"] ?? "");
+
+  test("the Metrics tab is a tab and a result, and a binary without its tag offers neither", async () => {
+    // The whole schema: the tab, its field and the tab's name as results.
+    const whole = await drawer();
+    expect(screen.getByTestId("settings-tab-metrics").textContent).toContain(
+      "Metrics",
+    );
+    typeQuery("metrics");
+    expect(offered()).toContain("tab:metrics");
+    expect(offered()).toContain("metrics:port");
+    typeQuery("scrape");
+    expect(offered()).toEqual(["metrics:token"]);
+    whole.unmount();
+
+    // The server left the section out of the schema; the document keeps it.
+    const config = configFromSchema(AGENT_SCHEMA);
+    expect(config["metrics"]).toBeTruthy();
+    await drawer({ schema: schemaWithout(AGENT_SCHEMA, "metrics"), config });
+    expect(screen.queryByTestId("settings-tab-metrics")).toBeNull();
+    for (const query of ["metrics", "listen port", "scrape", "prometheus"]) {
+      typeQuery(query);
+      expect(
+        offered().filter((t) => t === "tab:metrics" || /^metrics:/.test(t)),
+        query,
+      ).toEqual([]);
+    }
+    typeQuery("scrape");
+    expect(screen.getByTestId("settings-search-empty")).toBeTruthy();
+    expect(options()).toEqual([]);
+  });
 
   test.each(revealCases)("%s", async (_title, open, pick, landing) => {
     useClockWithFrames();

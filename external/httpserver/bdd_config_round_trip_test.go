@@ -28,8 +28,9 @@ import (
 )
 
 // spelledConfigYAML is a config kept by hand: paths under ${CODDY_HOME}, ~ and ${CWD},
-// a key and a directory taken from the environment, quoted values, a flow list, a
-// comment, and list entries that name only the fields their author cared about.
+// a key, a scrape token and a directory taken from the environment, quoted values, a
+// flow list, a comment, and list entries that name only the fields their author cared
+// about.
 const spelledConfigYAML = `# yaml-language-server: $schema=https://coddy.dev/config.schema.json
 # Workstation config, kept by hand.
 providers:
@@ -60,9 +61,15 @@ skills:
 logger:
   outputs: [stderr, file]
   file: ${CODDY_HOME}/coddy.log
+metrics:
+  enable: true
+  host: 0.0.0.0
+  port: 9100
+  token: ${CODDY_BDD_METRICS_TOKEN}
 `
 
 type configRoundTripWorld struct {
+	srv     *Server
 	ts      *httptest.Server
 	cfgPath string
 	initial string
@@ -79,6 +86,7 @@ func (w *configRoundTripWorld) startSpelledGateway(t *testing.T) error {
 	t.Setenv(config.EnvCODDYHome, "")
 	t.Setenv("CODDY_BDD_LOCAL_KEY", "sk-local")
 	t.Setenv("CODDY_BDD_TEAM", "/opt/team")
+	t.Setenv("CODDY_BDD_METRICS_TOKEN", "scrape-secret")
 	dir := t.TempDir()
 	home := filepath.Join(dir, "home")
 	if err := os.MkdirAll(home, 0o755); err != nil {
@@ -103,8 +111,8 @@ func (w *configRoundTripWorld) startSpelledGateway(t *testing.T) error {
 		return string(acp.StopReasonEndTurn), nil
 	}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
-	srv := New(cfg, mgr, slog.Default(), home)
-	w.ts = httptest.NewServer(srv.Handler())
+	w.srv = New(cfg, mgr, slog.Default(), home)
+	w.ts = httptest.NewServer(w.srv.Handler())
 	t.Cleanup(w.ts.Close)
 	return nil
 }
@@ -167,6 +175,34 @@ func (w *configRoundTripWorld) put(doc map[string]interface{}) error {
 		return err
 	}
 	w.saved = string(raw)
+	return nil
+}
+
+// withoutMetrics makes the server answer as a binary built without the metrics tag.
+func (w *configRoundTripWorld) withoutMetrics() error {
+	if w.srv == nil {
+		return fmt.Errorf("gateway not started")
+	}
+	w.srv.SetUnbuiltSections([]string{"metrics"})
+	return nil
+}
+
+// wantNoSection checks the form the settings screen is drawn from.
+func (w *configRoundTripWorld) wantNoSection(section string) error {
+	res, err := http.Get(w.ts.URL + "/coddy/config/schema")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var doc struct {
+		Properties map[string]interface{} `json:"properties"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&doc); err != nil {
+		return err
+	}
+	if _, offered := doc.Properties[section]; offered {
+		return fmt.Errorf("GET /coddy/config/schema still offers the %q section", section)
+	}
 	return nil
 }
 
@@ -246,10 +282,12 @@ func TestConfigSaveRoundTripFeature(t *testing.T) {
 			sc.Step(`^a coddy server whose config\.yaml spells its paths with \$\{CODDY_HOME\}, \$\{CWD\}, ~ and \$\{VAR\}$`, func() error {
 				return w.startSpelledGateway(t)
 			})
+			sc.Step(`^the binary behind the server has no metrics support$`, w.withoutMetrics)
 			sc.Step(`^the settings screen saves the config without changing anything$`, w.saveUnchanged)
 			sc.Step(`^the settings screen saves the config with "([^"]*)" set to (\d+)$`, w.saveWithField)
 			sc.Step(`^a second browser has read the config$`, w.secondReads)
 			sc.Step(`^the second browser saves what it read with "([^"]*)" set to "([^"]*)"$`, w.secondSaves)
+			sc.Step(`^the settings form offers no "([^"]*)" section$`, w.wantNoSection)
 			sc.Step(`^config\.yaml carries both saves and is otherwise what it was$`, w.wantBothSaves)
 			sc.Step(`^config\.yaml is byte for byte what it was$`, w.wantUnchanged)
 			sc.Step(`^config\.yaml is what it was with "([^"]*)" written as "([^"]*)"$`, w.wantOneLineChanged)

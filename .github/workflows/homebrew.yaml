@@ -1,0 +1,72 @@
+# Install the Coddy cask with a real, current Homebrew on macOS.
+#
+# Current Homebrew loads a cask only out of a tap (issue #269), so the release
+# job publishes every cask to coddy-project/homebrew-coddy-agent and the
+# documentation installs it with `brew install coddy-project/coddy-agent/coddy`.
+# Nothing on Linux can prove that command works; this job runs it, and checks
+# the result with scripts/check-homebrew-cask.sh:
+#   - the cask this checkout renders, for the latest published release, out of a
+#     throwaway local tap: pull requests that touch the cask, manual and weekly
+#     runs;
+#   - the cask published to the tap, installed by name: every run, and after a
+#     release with the version that release has just published.
+# The weekly run catches a Homebrew release that stops installing the tap's
+# cask before a user does: Homebrew 7 changed how a cask may be loaded, which
+# stanzas it accepts and which taps it trusts.
+
+name: Homebrew tap
+
+on:
+  pull_request:
+    paths:
+      - packaging/homebrew/coddy.rb.tmpl
+      - scripts/build-homebrew-cask.sh
+      - scripts/check-homebrew-cask.sh
+      - scripts/publish-homebrew-tap.sh
+      - .github/workflows/homebrew.yaml
+  workflow_call:
+    inputs:
+      version:
+        description: Release the tap has just been given (X.Y.Z)
+        required: true
+        type: string
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  cask:
+    name: Install the cask on macOS
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # The runner image carries a Homebrew some days old; the check is against
+      # the one a user gets today.
+      - name: Update Homebrew
+        run: brew update
+
+      # A release passes the version it has just published; every other run
+      # proves this checkout's template against the archives of the latest one.
+      - name: Install this checkout's cask from a local tap
+        if: inputs.version == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(gh release view --repo coddy-project/coddy-agent --json tagName --jq .tagName)
+          scripts/build-homebrew-cask.sh --version "$version" --out dist
+          scripts/check-homebrew-cask.sh --cask dist/coddy.rb
+
+      - name: Install the published cask by name
+        env:
+          VERSION: ${{ inputs.version }}
+        run: scripts/check-homebrew-cask.sh --tap coddy-project/coddy-agent ${VERSION:+--version "$VERSION"}

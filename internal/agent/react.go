@@ -2129,6 +2129,10 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		env.ToolCallID = ""
 		a.currentToolCallID = ""
 	}()
+	// Every call ends in one outcome for the observers (tool_observer.go):
+	// refused until the person declines it or it runs.
+	outcome, ranFor := ToolOutcomeRefused, time.Duration(0)
+	defer func() { a.observeToolCall(tc.Name, outcome, ranFor) }()
 
 	sessionDir := ""
 	if st := sessionStatePtr(a.state); st != nil {
@@ -2357,6 +2361,8 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		if hookRes.ask {
 			askedUnder = config.PermModeAsk
 		}
+		answered := waitingFor(&pendingPermissions)
+		defer answered()
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
@@ -2374,8 +2380,15 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			}),
 			SessionPermissionMode: askedUnder,
 		})
+		answered()
 
 		if err != nil || !permission.Approved(permResult) {
+			// A prompt nobody answered is resumed later and counted when it
+			// runs; only an answer is a decline.
+			outcome = ToolOutcomeDenied
+			if err != nil {
+				outcome = ""
+			}
 			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 				SessionUpdate: acp.UpdateTypeToolCallUpdate,
 				ToolCallID:    tc.ID,
@@ -2407,13 +2420,25 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			execErr = tools.ApplyOutputLimitError(execErr, tc.Name, env)
 		}
 	} else {
+		// A question waits for the person for the whole of its run.
+		answered := func() {}
+		if tc.Name == "question" {
+			answered = waitingFor(&pendingQuestions)
+			defer answered()
+		}
 		result, execErr = a.registry.Execute(ctx, tc.Name, tc.InputJSON, env)
+		answered()
+	}
+	ranFor = time.Since(started)
+	outcome = ToolOutcomeOK
+	if execErr != nil {
+		outcome = ToolOutcomeError
 	}
 
 	// PostToolUse (or PostToolUseFailure) feedback and the PreToolUse
 	// context travel with the result, so the model reads them next to the
 	// output they refer to.
-	if feedback := a.runPostToolUseHooks(ctx, tc, result, execErr, time.Since(started), mode); feedback != "" {
+	if feedback := a.runPostToolUseHooks(ctx, tc, result, execErr, ranFor, mode); feedback != "" {
 		if execErr != nil {
 			execErr = fmt.Errorf("%w\n\n%s", execErr, feedback)
 		} else {

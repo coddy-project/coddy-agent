@@ -28,6 +28,7 @@ type ConfigJSON struct {
 	Decisions    DecisionsJSON    `json:"decisions,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Swarm        SwarmJSON        `json:"swarm,omitempty"`
+	Metrics      MetricsJSON      `json:"metrics,omitempty"`
 	UI           UIJSON           `json:"ui,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
@@ -407,6 +408,16 @@ type SwarmJSON struct {
 	Join                     []SwarmJoinJSON     `json:"join,omitempty"`
 }
 
+// MetricsJSON mirrors MetricsConfig. The token is write-only, the way the
+// swarm credentials are: reading the config reports only whether one is set.
+type MetricsJSON struct {
+	Enable          bool   `json:"enable,omitempty"`
+	Host            string `json:"host,omitempty"`
+	Port            int    `json:"port,omitempty"`
+	Token           string `json:"token,omitempty"`
+	TokenConfigured bool   `json:"token_configured,omitempty"`
+}
+
 // SwarmTLSJSON mirrors SwarmTLSConfig.
 type SwarmTLSJSON struct {
 	CertFile string `json:"cert_file,omitempty"`
@@ -660,6 +671,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Dial:                   swarmDialToJSON(j.Dial),
 		})
 	}
+	out.Metrics = MetricsJSON{
+		Enable:          c.Metrics.Enable,
+		Host:            c.Metrics.Host,
+		Port:            c.Metrics.Port,
+		TokenConfigured: strings.TrimSpace(c.Metrics.Token) != "",
+	}
 	out.UI = UIJSON{Enabled: cloneBoolPtr(c.UI.Enabled)}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, MaxQueue: c.Scheduler.MaxQueue,
@@ -893,6 +910,12 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Dial:   swarmDialFromJSON(jn.Dial),
 		})
 	}
+	cfg.Metrics = MetricsConfig{
+		Enable: j.Metrics.Enable,
+		Host:   j.Metrics.Host,
+		Port:   j.Metrics.Port,
+		Token:  j.Metrics.Token,
+	}
 	cfg.UI = UIConfig{Enabled: cloneBoolPtr(j.UI.Enabled)}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, MaxQueue: j.Scheduler.MaxQueue,
@@ -1045,6 +1068,9 @@ func preserveRedactedSecrets(next, current *Config) {
 		next.HTTPServer.Login.PasswordHash = current.HTTPServer.Login.PasswordHash
 	}
 	preserveSwarmSecrets(&next.Swarm, &current.Swarm)
+	if strings.TrimSpace(next.Metrics.Token) == "" && strings.TrimSpace(current.Metrics.Token) != "" {
+		next.Metrics.Token = current.Metrics.Token
+	}
 }
 
 // preserveSwarmSecrets carries a relay's credentials across a save.

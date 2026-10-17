@@ -10,7 +10,7 @@ Nothing agent-side is console-specific — the TUI is a fourth `UpdateSender`
 next to ACP, HTTP, and the Telegram gateway.
 
 Build: `make build TAGS=cli` (or any tag set including `cli`; the recommended
-full binary is `make build TAGS="http ui scheduler memory cli gateway swarm"`). In builds
+full binary is `make build TAGS="http ui scheduler memory cli gateway swarm metrics"`). In builds
 without the tag, `coddy cli` explains how to rebuild and bare `coddy` keeps
 printing usage.
 
@@ -269,6 +269,8 @@ its picker lists the presets and `default`; the footer names the preset the
 session runs with after the model and the level (`• tools coding`). A preset
 added to the configuration brings both without a restart
 ([Toolsets](../getting-started/configuration.md#toolsets)).
+
+**Pictures** - **ctrl+v** (**alt+v** where the terminal keeps ctrl+v for its own paste) takes the picture the clipboard holds and puts an `[image #N]` marker into the editor; the prompt that holds the marker carries the picture to a model marked `multimodal`. With an X display the picture first opens in a markup window - pencil, ellipse, rectangle, arrow, text, crop, rotate, undo - and Done attaches it as marked up. A picture a prompt was sent with from the web UI or Telegram shows as `[image #N]` too, and the web UI shows a picture pasted here as a picture ([Pasting and marking up pictures](../features/picture-markup.md)).
 
 **Model memory** — the console is a surface of its own. A session-scoped pick
 (`/model`, the picker, or `/model <id>` ahead of a prompt) is remembered in

@@ -25,7 +25,7 @@ tool github.com/EvilFreelancer/tgfake/cmd/tgfake
 | тесты `external/gateway/telegram` (`-tags gateway`) | `pkg/server` внутри процесса на `httptest`, импортированный как `tgfake` и открываемый через `fakeapi_test.go`; `pkg/botapi` для типов клавиатуры. Через него проходит каждый тест шлюза, которому нужен Telegram. |
 | наборы тестов `internal/agent`, `external/httpserver`, `external/cli` и шлюза | `pkg/llmstub`, модель по сценарию, с `StripTags: []string{"turn_context"}`, чтобы правило сопоставлялось с тем, что написал человек, а не с блоком, который Coddy добавляет к каждому запросу. |
 | `examples/gateway/tg_e2e_offline.sh`, `examples/shared/wake_e2e_common.py`, `examples/cli/capture_wake.py`, `npm run check:telegram` | Бинарник `tgfake` - тот, на который указывает `CODDY_TGFAKE_BIN`, иначе собранный из зафиксированного модуля (`go build github.com/EvilFreelancer/tgfake/cmd/tgfake`). Скрипты запускают его с `--llm-model coddy-demo --llm-strip-tag turn_context`. |
-| CI, задание **Telegram stand (tgfake)** | Релизный бинарник зафиксированной версии, установленный собственным GitHub Action tgfake, затем `tg_e2e_offline.sh` против настоящего `coddy serve`. |
+| CI, задание **Telegram stand (tgfake)** | Релизный бинарник зафиксированной версии, установленный собственным GitHub Action tgfake, затем `tg_e2e_offline.sh` (с `TG_E2E_METRICS=1`) против настоящего `coddy serve`. |
 
 Go-тестам не нужно ничего, кроме `go test` - модуль скачивается, как любая
 другая зависимость. Процесс запускают только скрипты.
@@ -53,6 +53,10 @@ make build TAGS=gateway
 ```bash
 examples/gateway/tg_e2e_offline.sh
 ```
+
+Переменная `TG_E2E_METRICS=1` ещё и включает экспортёр Prometheus и после чата
+снимает его метрики; нужен бинарник, собранный с `TAGS="gateway metrics"`, как в
+CI, а без неё скрипту хватает сборки с `gateway`.
 
 `TG_E2E_KEEP=1` оставляет стенд работать и печатает адрес страницы чата, где
 можно продолжить разговор с ботом. Чтобы запустить готовый бинарник вместо
@@ -93,8 +97,9 @@ go tool tgfake --llm --llm-strip-tag turn_context
    могут разойтись;
 2. `EvilFreelancer/tgfake@vX.Y.Z` устанавливает релизный бинарник этой версии
    для раннера и сверяет его с контрольными суммами релиза;
-3. оно собирает `coddy` с тегом `gateway` и запускает
-   `examples/gateway/tg_e2e_offline.sh` с заданным `CODDY_TGFAKE_BIN`.
+3. оно собирает `coddy` с тегами `gateway` и `metrics` и запускает
+   `examples/gateway/tg_e2e_offline.sh` с заданными `CODDY_TGFAKE_BIN` и
+   `TG_E2E_METRICS=1`.
 
 Ни токен, ни модель, ни сеть, кроме скачивания, не нужны. Наборы тестов
 внутри процесса идут в матрице тестов, как и все остальные тесты.
@@ -159,4 +164,4 @@ GOWORK=$PWD/../coddy-tgfake.work go test -tags gateway ./external/gateway/telegr
 рабочего пространства никогда не коммитится - CI и все остальные чекауты
 используют зафиксированный релиз.
 
-<!-- docsgen:source sha256=1a47bd3e81823e45 -->
+<!-- docsgen:source sha256=d9117e6a969e0277 -->

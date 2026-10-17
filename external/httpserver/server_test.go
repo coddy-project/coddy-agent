@@ -2622,6 +2622,76 @@ agent:
 	}
 }
 
+// TestConfigSchemaHidesUnbuiltSections: the form of a binary that cannot run a
+// section does not offer it. Serve takes the list from its Options, as coddy
+// serve passes it, and the server answers GET /coddy/config/schema without it.
+func TestConfigSchemaHidesUnbuiltSections(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("agent: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	sections := func(srv *Server) map[string]interface{} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/coddy/config/schema", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("schema status %d: %s", rec.Code, rec.Body.String())
+		}
+		var doc map[string]interface{}
+		if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+			t.Fatal(err)
+		}
+		return doc["properties"].(map[string]interface{})
+	}
+
+	if _, ok := sections(New(cfg, mgr, slog.Default(), home))["metrics"]; !ok {
+		t.Fatal("a server with nothing unbuilt must offer the metrics section")
+	}
+
+	served := make(chan *Server, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(ctx, Options{
+			Cfg: cfg, Mgr: mgr, Log: slog.Default(), DefaultCWD: home, Home: home,
+			ListenAddr:      "127.0.0.1:0",
+			UnbuiltSections: []string{"metrics"},
+			OnServer: func(s *Server) {
+				if s != nil {
+					served <- s
+				}
+			},
+		})
+	}()
+	var srv *Server
+	select {
+	case srv = <-served:
+	case err := <-done:
+		t.Fatalf("Serve returned before it offered the server: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("Serve did not offer its server")
+	}
+	props := sections(srv)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	if _, ok := props["metrics"]; ok {
+		t.Fatal("the schema offers a section the binary cannot run")
+	}
+	if _, ok := props["logger"]; !ok {
+		t.Fatal("hiding metrics dropped another section")
+	}
+}
+
 // TestCoddyConfigPutKeepsProviderProxySetting saves provider rows through the
 // settings route the way the settings screen does and reads them back: the
 // "Ignore system proxy" switch writes none, and the value reaches the file,
@@ -3236,6 +3306,25 @@ func TestHTTPAuthExtraTokensEnableAuth(t *testing.T) {
 	}
 	if got := authGET(t, ts.URL+"/v1/models", "cli-token"); got != http.StatusOK {
 		t.Fatalf("cli token: %d want 200", got)
+	}
+}
+
+// The scrape token of the metrics exporter is a credential of its own listener: the
+// API neither accepts it nor turns its gate on because one is set.
+func TestHTTPAuthIgnoresTheMetricsToken(t *testing.T) {
+	gated := cfgWithAuth("s3cret")
+	gated.Metrics.Token = "scrape-me"
+	_, ts := authTestServer(t, gated)
+	for _, path := range []string{"/v1/models", "/coddy/config", "/coddy/sessions"} {
+		if got := authGET(t, ts.URL+path, "scrape-me"); got != http.StatusUnauthorized {
+			t.Errorf("GET %s with the metrics token: %d, want 401", path, got)
+		}
+	}
+	open := cfgWithAuth("")
+	open.Metrics.Token = "scrape-me"
+	_, ts = authTestServer(t, open)
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Errorf("a metrics token alone gated the API: %d, want 200", got)
 	}
 }
 

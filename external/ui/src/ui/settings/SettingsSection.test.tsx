@@ -2378,3 +2378,74 @@ describe("settings search index matches the drawing", () => {
     }
   });
 });
+
+// The Metrics tab is drawn from the server's schema, whose text is English; the
+// dictionary has to cover every label and hint, or the Russian form shows a
+// mix.
+test("the Metrics tab names its fields and their hints in Russian", () => {
+  setLocale("ru");
+  const metricsSection: SectionDescriptor = {
+    id: "metrics",
+    label: "Метрики",
+    kind: "object",
+    schemaKey: "metrics",
+  };
+  const english: Record<string, [string, string]> = {
+    enable: ["Enabled", "Serve /metrics from this process."],
+    host: ["Listen host", "Bind address."],
+    port: ["Listen port", "Port to bind."],
+    token: ["Token", "Bearer credential a scrape must present."],
+  };
+  const field = (type: string, name: string) => ({
+    type,
+    title: english[name]![0],
+    description: english[name]![1],
+  });
+  const schema = {
+    type: "object",
+    properties: {
+      metrics: {
+        type: "object",
+        title: "Metrics",
+        description: "Prometheus exporter on a port of its own.",
+        "x-coddy-property-order": ["enable", "host", "port", "token"],
+        properties: {
+          enable: field("boolean", "enable"),
+          host: field("string", "host"),
+          port: field("integer", "port"),
+          token: {
+            ...field("string", "token"),
+            writeOnly: true,
+            "x-coddy-configured": "token_configured",
+          },
+        },
+      },
+    },
+  } as JsonSchema;
+  render(
+    <SettingsSection
+      section={metricsSection}
+      schema={schema}
+      doc={{ metrics: { enable: false, token_configured: true } }}
+      setDoc={() => {}}
+    />,
+  );
+
+  expect(screen.getByLabelText("Адрес прослушивания")).toBeTruthy();
+  expect(screen.getByLabelText("Порт")).toBeTruthy();
+  expect(screen.getByLabelText("Токен")).toBeTruthy();
+  const hints = screen.getAllByTestId("field-hint").map((hint) => {
+    fireEvent.mouseEnter(hint);
+    const tip = screen.getByTestId("field-hint-tip").textContent ?? "";
+    fireEvent.mouseLeave(hint);
+    return tip;
+  });
+  const shown = [document.body.textContent ?? "", ...hints].join("\n");
+  for (const text of Object.values(english).flat()) {
+    expect(shown).not.toContain(text);
+  }
+  expect(hints.length).toBeGreaterThanOrEqual(4);
+  for (const hint of hints) {
+    expect(hint).toMatch(/[а-яё]/i);
+  }
+});

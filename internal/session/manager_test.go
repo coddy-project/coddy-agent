@@ -1929,3 +1929,47 @@ func TestConfigReplacementsReachObserversInTheOrderTheyWereStored(t *testing.T) 
 		t.Fatalf("the observer was left on %p while the manager holds %p", last, m.Cfg())
 	}
 }
+
+// TestReasoningOffNeverReachesAModelThatAlwaysThinks pins that "off" cannot be
+// chosen for a model whose thinking cannot be turned off, even with
+// allow_reasoning_off, and that an "off" chosen for another model falls back
+// to the default level once that model runs, for the session or one turn.
+func TestReasoningOffNeverReachesAModelThatAlwaysThinks(t *testing.T) {
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "a", Type: "anthropic"}},
+		Models: []config.ModelEntry{
+			{Model: "a/claude-sonnet-4-5", ReasoningDefault: "high", AllowReasoningOff: true},
+			{Model: "a/claude-opus-5-5", ReasoningDefault: "high", AllowReasoningOff: true},
+		},
+		Agent: config.Agent{Model: "a/claude-sonnet-4-5"},
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, id := context.Background(), res.SessionID
+	st := m.SessionByID(id)
+	opus, off := "a/claude-opus-5-5", "off"
+	if _, err := m.ApplySessionSettings(ctx, id, session.SettingsChange{Model: &opus, Reasoning: &off}); err == nil || !strings.Contains(err.Error(), "always thinks") {
+		t.Fatalf("Opus 5.5 with off: err = %v, want the model always thinks", err)
+	}
+	if st.GetSelectedModelID() != "" || st.GetSelectedReasoning() != "" {
+		t.Fatalf("a refused change was written: model %q, reasoning %q", st.GetSelectedModelID(), st.GetSelectedReasoning())
+	}
+	// Off on the model that takes it, then a turn on Opus 5.5.
+	if _, err := m.ApplySessionSettings(ctx, id, session.SettingsChange{Reasoning: &off}); err != nil {
+		t.Fatal(err)
+	}
+	st.SetTurnSetting(session.SettingModel, opus)
+	if got := st.EffectiveReasoning(m.Cfg()); got != "high" {
+		t.Fatalf("a turn on Opus 5.5 runs at %q, want its default high", got)
+	}
+	st.SetTurnSetting(session.SettingModel, "")
+	if _, err := m.ApplySessionSettings(ctx, id, session.SettingsChange{Model: &opus}); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.EffectiveReasoning(m.Cfg()); got != "high" {
+		t.Fatalf("the session on Opus 5.5 runs at %q, want its default high", got)
+	}
+}

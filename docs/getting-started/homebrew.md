@@ -1,7 +1,8 @@
 # Homebrew
 
-Coddy installs through Homebrew today, and is not yet in one of Homebrew's own repositories. This
-page separates those two things: what a user runs now, and what the submission to Homebrew needs.
+Coddy installs through Homebrew today, from a tap of its own, and is not yet in one of Homebrew's
+own repositories. This page separates those two things: what a user runs now, and what the
+submission to Homebrew needs.
 
 ## Which repository Coddy belongs in
 
@@ -22,27 +23,49 @@ This is a correction to the original plan in
 homebrew/cask.
 
 Our own **cask** does not go away. It installs the prebuilt macOS archives of a release - no Go, no
-Node, no build - and it is what the release asset and the landing page point at. A cask is the right
+Node, no build - and it is what our tap carries and the landing page installs. A cask is the right
 shape for that job; it is only the wrong shape for Homebrew's own repository.
 
 ## Installing today
 
 ```bash
-brew install --cask https://github.com/coddy-project/coddy-agent/releases/latest/download/coddy.rb
+brew install coddy-project/coddy-agent/coddy
 ```
 
-Every release publishes **`coddy.rb`** beside the archives, rendered with the checksums of the two
-macOS archives of that same tag. This installs and upgrades by hand: Homebrew cannot see new
-versions of a cask it did not get from a tap, so a new release means running the command again.
+The tap [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent) carries one
+file, **`Casks/coddy.rb`**. Every release renders it with the checksums of its two macOS archives,
+attaches it to the release as **`coddy.rb`** and commits it to the tap
+(**`scripts/publish-homebrew-tap.sh`**), so **`brew upgrade --cask coddy`** sees each new release.
+Given the full name, Homebrew adds the tap and trusts that one cask. Homebrew 7 loads nothing else
+from a third-party tap until it is trusted; **`brew trust coddy-project/coddy-agent`** trusts the whole tap,
+and the short name then works in every command.
+
+The release asset on its own no longer installs. Outside **`HOMEBREW_DEVELOPER`** mode current
+Homebrew loads a cask only out of a tap: it reads a URL as a cask name, so
+**`brew install --cask <URL>`** ends at **`No Cask with this name exists`**
+([#269](https://github.com/coddy-project/coddy-agent/issues/269)), and it rejects a local file with
+**`Homebrew requires casks to be in a tap`**. The asset stays for anyone who wants the file; the tap
+is the route.
+
+After each release the **Homebrew tap** workflow runs that command on a macOS runner with current
+Homebrew and checks the result; it also runs weekly and on pull requests that change the cask
+([build.md](../contributing/build.md#homebrew-tap)).
+
+The cask is written for Homebrew 7: the completions go through **`bash_completion`** and
+**`zsh_completion`**, the one install step is a **`postflight_steps`** block rather than a Ruby
+**`postflight`** block, and the **`url`** carries no **`verified:`**. That step removes
+**`com.apple.quarantine`**, which Homebrew sets on every cask download: the binary is ad-hoc signed
+and not notarised, and with the attribute in place Gatekeeper stops its first run. Notarisation needs
+an Apple Developer ID, which the project does not have. The cask asks for macOS 12 or later, because
+binaries built by Go 1.25 and later do not run on older releases.
 
 The cask installs Coddy alone and recommends **`tmux`** in its caveats (**`brew install tmux`**).
 A cask's **`depends_on`** has no optional form, so declaring tmux there would install it for
 everyone, and Coddy runs without it; the deb and the rpm suggest it the same way.
 
-To let **`brew upgrade`** track releases before Coddy is in homebrew/core, put the same cask in a tap
-of ours (`brew tap coddy-project/coddy`). That is a repository of its own and is not set up yet; a
-tap is also the documented home for anything Homebrew's official repositories decline
-([Package Acceptance Policy](https://docs.brew.sh/Package-Acceptance-Policy#scope-and-third-party-taps)).
+The tap is also the documented home for anything Homebrew's official repositories decline
+([Package Acceptance Policy](https://docs.brew.sh/Package-Acceptance-Policy#scope-and-third-party-taps)),
+so it stays useful whatever the submission below decides.
 
 ## The formula
 
@@ -54,7 +77,7 @@ make brew-formula VERSION=1.0.13
 version and the SHA-256 of that tag's source archive and writes **`dist/formula/coddy.rb`**. It
 downloads the archive to hash it, so the version has to be a published tag.
 
-The formula builds what the release binaries carry - **`http ui scheduler memory cli gateway swarm`** - so a
+The formula builds what the release binaries carry - **`http ui scheduler memory cli gateway swarm metrics`** - so a
 `brew install` and a release archive are the same feature set. That is why **`node`** is a build
 dependency beside **`go`**: the embedded SPA is generated rather than committed, and **`go:embed`**
 needs those files to exist before the binary that carries them is linked. It runs **`npm ci`**, not
@@ -151,6 +174,7 @@ pushing an update to it.
 
 The formula's **`livecheck`** block tracks GitHub releases, so Homebrew's own automation opens the
 version bumps and the submission is one-time work rather than per-release work. What changes on our
-side is small: **`brew install coddy`** starts working by name, the docs stop pointing at the release
-asset, and a formula install reports **`brew upgrade coddy`** from **`coddy update`** - which it
-already does.
+side is small: **`brew install coddy`** starts working on a Mac that has never added the tap, the docs lead with
+it instead of the tap, and a formula install reports **`brew upgrade coddy`** from **`coddy update`** -
+which it already does. How the users of the tap's cask move to the formula is decided with that
+change.

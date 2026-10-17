@@ -176,10 +176,10 @@ jobs:
   # go.mod pins; here the release binary of that same version, installed by
   # tgfake's own action, stands in for Telegram and for the model while the
   # real coddy serve answers a message, comes back to a session with /resume
-  # and is woken by a background task - the offline stand of
-  # docs/surfaces/gateway.md, proven without a token or a key. A bump of
-  # tgfake changes go.mod and the action ref below together; the first step
-  # fails when they drift. Guide: docs/contributing/tgfake.md.
+  # and is woken by a background task, then its Prometheus exporter is scraped -
+  # the offline stand of docs/surfaces/gateway.md, proven without a token or a
+  # key. A bump of tgfake changes go.mod and the action ref below together;
+  # the first step fails when they drift. Guide: docs/contributing/tgfake.md.
   telegram-stand:
     name: Telegram stand (tgfake)
     runs-on: ubuntu-latest
@@ -210,8 +210,10 @@ jobs:
         with:
           version: ${{ steps.pin.outputs.version }}
 
-      - name: Build the gateway
-        run: make build TAGS=gateway
+      # No http tag: the exporter must serve from a binary with the gateway and
+      # nothing else, and the script scrapes it after the chat (TG_E2E_METRICS).
+      - name: Build the gateway with the exporter
+        run: make build TAGS="gateway metrics"
 
       # The script builds tgfake from source when CODDY_TGFAKE_BIN is empty,
       # which would prove nothing about the release binary.
@@ -220,7 +222,7 @@ jobs:
           CODDY_TGFAKE_BIN: ${{ steps.tgfake.outputs.path }}
         run: |
           test -x "$CODDY_TGFAKE_BIN" || { echo "the action gave no tgfake binary" >&2; exit 1; }
-          CODDY_BIN="$PWD/build/coddy" examples/gateway/tg_e2e_offline.sh
+          CODDY_BIN="$PWD/build/coddy" TG_E2E_METRICS=1 examples/gateway/tg_e2e_offline.sh
 
   # The race detector, `make test-race`: the whole tree with every tag but ui.
   # The races fixed so far lived mostly in test harnesses - a backend swapped
@@ -442,7 +444,7 @@ jobs:
           cache: true
 
       - name: Build deb and rpm
-        run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm"
+        run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm metrics"
 
       # The unit is rendered by internal/serve and held to the source file by a
       # Go test; this checks that both package formats carry that file byte for
@@ -543,6 +545,11 @@ jobs:
 
       - name: Check the generated pages, the links and the assets
         run: make docs-check
+
+      # The shipped alert rules (examples/prometheus), run by promtool from an
+      # image pinned by tag and digest, so a rule that stops firing is a red job.
+      - name: Test the Prometheus alert rules
+        run: docker run --rm -v "$PWD/examples/prometheus:/r:ro" --entrypoint promtool 'prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e' test rules /r/coddy-rules.test.yml
 
   # The passes of `make lint` and `make lint-windows`: `make fmt-check` (gofmt -s
   # over every tracked Go file, the ones no pass compiles included), then the

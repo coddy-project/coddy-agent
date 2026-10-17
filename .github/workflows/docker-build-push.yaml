@@ -32,7 +32,7 @@ defaults:
 
 env:
   REGISTRY: ghcr.io
-  BUILD_TAGS: "http,scheduler,ui,memory,cli,gateway,swarm"
+  BUILD_TAGS: "http,scheduler,ui,memory,cli,gateway,swarm,metrics"
   PLATFORMS: "linux/amd64,linux/arm64"
 
 jobs:

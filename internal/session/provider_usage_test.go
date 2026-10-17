@@ -1514,3 +1514,40 @@ func TestMapNeuralDeepUsageDropsMalformedBlockedModels(t *testing.T) {
 		t.Fatalf("an unparsable reset must be dropped, not passed through: %q", u.BlockedModels[0].RetryAt)
 	}
 }
+
+// CachedProviderUsage is what a scrape reads: the snapshots the manager holds,
+// age-corrected, for the rows the live configuration still reads, and never a
+// request of its own, whether the cache is empty, fresh or past its TTL.
+func TestCachedProviderUsageReadsOnlyTheCache(t *testing.T) {
+	stand := newUsageStand(t)
+	m := newUsageManager(t, stand, &usageCapture{}, nil)
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+
+	if got := m.CachedProviderUsage(); len(got) != 0 || stand.calls.Load() != 0 {
+		t.Fatalf("an empty cache: %+v after %d requests, want nothing and none", got, stand.calls.Load())
+	}
+	if _, err := m.ProviderUsage(context.Background(), "neuraldeep", false); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(time.Hour)
+	got := m.CachedProviderUsage()
+	if stand.calls.Load() != 1 {
+		t.Fatalf("reading the cache made %d requests in all, want only the first read's", stand.calls.Load())
+	}
+	nd, ok := got["neuraldeep"]
+	if !ok || len(got) != 1 {
+		t.Fatalf("cached usage = %+v, want the neuraldeep row alone", got)
+	}
+	if w := findWindow(nd, "session"); w == nil || *w.Used != 407 || w.ResetInSec != 0 {
+		t.Fatalf("session window = %+v, want the cached 407 with the reset an hour behind", w)
+	}
+
+	// A row the live configuration no longer reads is left out.
+	next := *m.Cfg()
+	next.Providers = []config.ProviderConfig{{Name: "stub", Type: "openai", APIBase: "http://127.0.0.1:0", APIKey: "test"}}
+	m.storeConfig(&next)
+	if got := m.CachedProviderUsage(); len(got) != 0 {
+		t.Fatalf("a removed row is still reported: %+v", got)
+	}
+}

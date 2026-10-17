@@ -19,7 +19,7 @@
 **HTTP-шлюз**, **встроенный SPA**, **планировщик**, **память**, **шлюз мессенджеров** (**`gateway`**, см. [`docs/surfaces/gateway.md`](../surfaces/gateway.md)) и **интерактивная консоль** (**`cli`**, **`coddy`** без аргументов в терминале, см. [`docs/surfaces/console.md`](../surfaces/console.md)) управляются тегами сборки Go. Один бинарник, который соответствует **Docker**-образу по умолчанию и включает все необязательные возможности, собирается так.
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics"
 ```
 
 Результат - **`build/coddy`**.
@@ -29,26 +29,26 @@ make build TAGS="http ui scheduler memory cli gateway swarm"
 ```bash
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
-go build -tags=http,ui,scheduler,memory,cli \
+go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
   -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
   -o build/coddy \
   ./cmd/coddy/
 ```
 
-[**Dockerfile**](../../../Dockerfile) следует той же схеме, передаёт теги через запятую в **`BUILD_TAGS`** (по умолчанию **`http,scheduler,ui,memory,gateway,cli`**) и, кроме флага версии **`X`**, убирает отладочные символы через **`-ldflags "-s -w ..."`**.
+[**Dockerfile**](../../../Dockerfile) следует той же схеме, передаёт теги через запятую в **`BUILD_TAGS`** (по умолчанию **`http,scheduler,ui,memory,gateway,cli,swarm,metrics`**) и, кроме флага версии **`X`**, убирает отладочные символы через **`-ldflags "-s -w ..."`**.
 
 ## Установка в PATH
 
 **`make install`** копирует **`build/coddy`** в каталог из вашего **`PATH`**:
 
-- если **`build/coddy`** уже есть (например, после **`make build TAGS="http ui scheduler memory cli gateway swarm"`**), он устанавливается как есть, без пересборки;
-- если бинарника нет, **`make install`** сначала запускает **`make build TAGS="http ui scheduler memory cli gateway swarm"`**.
+- если **`build/coddy`** уже есть (например, после **`make build TAGS="http ui scheduler memory cli gateway swarm metrics"`**), он устанавливается как есть, без пересборки;
+- если бинарника нет, **`make install`** сначала запускает **`make build TAGS="http ui scheduler memory cli gateway swarm metrics"`**.
 
 - **root** - **`/usr/local/bin/coddy`**, man-страница в **`/usr/local/share/man/man1`**;
 - **не root** - **`~/.local/bin/coddy`** (убедитесь, что этот каталог есть в **`PATH`**), man-страница в **`~/.local/share/man/man1`**.
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics"
 make install
 ```
 
@@ -66,7 +66,7 @@ make rpm
 | Переменная | По умолчанию | Назначение |
 |----------|---------|------|
 | **`PKG_ARCHS`** | **`GOARCH`** хоста | архитектуры для упаковки, например **`"amd64 arm64"`** |
-| **`PKG_TAGS`** | **`http ui scheduler memory cli gateway swarm`** | теги сборки упакованного бинарника |
+| **`PKG_TAGS`** | **`http ui scheduler memory cli gateway swarm metrics`** | теги сборки упакованного бинарника |
 | **`DIST_DIR`** | **`dist`** | куда кладутся пакеты |
 
 ```bash
@@ -88,15 +88,46 @@ make rpm PKG_TAGS="http cli"      # lean binary, no npm step
 make brew VERSION=1.0.11
 ```
 
-**`scripts/build-homebrew-cask.sh`** подставляет в **`packaging/homebrew/coddy.rb.tmpl`** версию и SHA-256 обоих архивов для macOS и записывает **`dist/coddy.rb`**. Архивы он берёт из **`DIST_DIR`**, если они там есть (так бывает в задании релиза, сразу после кросс-компиляции), а иначе скачивает из релиза на GitHub - cask закрепляет контрольные суммы, поэтому сгенерировать его можно только для версии, архивы которой уже существуют.
+**`scripts/build-homebrew-cask.sh`** подставляет в **`packaging/homebrew/coddy.rb.tmpl`** версию и SHA-256 обоих архивов для macOS и записывает **`dist/coddy.rb`**. Архивы он хеширует в **`DIST_DIR`**, если они там есть (так бывает в задании релиза, сразу после кросс-компиляции), а иначе берёт их контрольные суммы из **`SHA256SUMS`** этого релиза на GitHub - cask закрепляет контрольные суммы, поэтому сгенерировать его можно только для версии, архивы которой уже существуют.
 
-Чтобы попробовать сгенерированный файл, установите его.
+Текущий Homebrew не принимает cask по пути к файлу, поэтому сгенерированный файл пробуют через временный локальный тап. На Mac с Homebrew это выглядит так.
 
 ```bash
-brew install --cask dist/coddy.rb
+make brew-cask-check                                    # dist/coddy.rb from a local tap
+make brew-cask-check BREW_TAP=coddy-project/coddy-agent # the published cask, by name
 ```
 
-Cask создаёт ссылки на **`coddy`**, **`coddy.1`** и оба скрипта автодополнения, поэтому релизные архивы **`darwin`** и **`linux`** содержат эти файлы рядом с бинарником. **`tmux`** он рекомендует в своих **`caveats`**, а не объявляет зависимостью, потому что у **`depends_on`** в cask нет необязательной формы, а Coddy работает без tmux, так что cask его называет и ничего не устанавливает. Каждый релиз публикует **`coddy.rb`** как файл релиза, и **`brew install --cask <url>`** устанавливает из него.
+**`scripts/check-homebrew-cask.sh`** устанавливает cask, прогоняет по нему **`brew style`** и проверяет, что **`coddy -v`** печатает его версию, что бинарник ведёт в **`Caskroom`** и на нём не осталось атрибута **`com.apple.quarantine`**, что ссылки на man-страницу и оба автодополнения созданы и что **`coddy update`** называет **`brew upgrade --cask coddy`**, после чего запускает эту команду. В конце он удаляет cask и добавленный им тап, а **`--keep`** оставляет и то и другое. Режим разработчика Homebrew он не включает. Локальный тап он создаёт обычным каталогом, без **`brew tap-new`**, а **`brew style`** запускает с переменной **`HOMEBREW_DEVELOPER`** только для этой команды, потому что команда для разработчиков без неё включает этот режим насовсем.
+
+Cask создаёт ссылки на **`coddy`**, **`coddy.1`** и оба скрипта автодополнения, поэтому релизные архивы **`darwin`** и **`linux`** содержат эти файлы рядом с бинарником. Он объявляет **`depends_on macos: :monterey`**, потому что Go 1.25 и новее собирает бинарники, которым нужна macOS 12. Шаг **`postflight_steps`** снимает с бинарника атрибут карантина, который Homebrew ставит на загрузку. Бинарник подписан ad-hoc и не нотаризован, и без этого шага Gatekeeper остановил бы его первый запуск. **`tmux`** cask рекомендует в своих **`caveats`**, а не объявляет зависимостью, потому что у **`depends_on`** в cask нет необязательной формы, а Coddy работает без tmux, так что cask его называет и ничего не устанавливает.
+
+### Тап Homebrew
+
+До пользователей cask доходит через тап [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent), который ставится командой **`brew install coddy-project/coddy-agent/coddy`**. Его **`Casks/coddy.rb`** генерируется, и вручную его не правят.
+
+```bash
+make brew-publish VERSION=1.0.11
+```
+
+**`scripts/publish-homebrew-tap.sh`** клонирует тап, заменяет **`Casks/coddy.rb`** сгенерированным cask и пушит коммит **`coddy X.Y.Z`**. Тап движется только вперёд. Cask для релиза старше того, что уже лежит в тапе, пропускается, а cask, совпадающий с тем, что в тапе, ничего не меняет, поэтому перезапуск задания релиза для старого тега не откатит тап. Пуш, проигравший гонку с другим заданием релиза, повторяется поверх нового состояния тапа.
+
+Задание релиза запускает скрипт после загрузки файлов релиза с приватной частью deploy key из секрета **`HOMEBREW_TAP_DEPLOY_KEY`**. У этого ключа есть право записи только в тап. SSH-ключи хоста GitHub скрипт берёт из **`api.github.com/meta`**. Без секрета шаг релиза останавливается с ошибкой уже после загрузки файлов, и тап остаётся на прошлом релизе, пока задание не запустят снова. Если запустить скрипт вручную без секрета, он пушит с вашими собственными учётными данными git. Затем workflow **Homebrew tap** ([`homebrew.yaml`](../../../.github/workflows/homebrew.yaml)) ставит cask по имени на macOS-раннере с текущим Homebrew и проверяет, что в нём только что опубликованный релиз или более новый. Тот же workflow запускается на пул-реквестах, которые меняют cask, скрипты или сам workflow, и там он ещё ставит cask, сгенерированный из этого чекаута. Ещё его запускают вручную, а раз в неделю он запускается сам, чтобы вовремя заметить релиз Homebrew, который перестал ставить cask из тапа.
+
+Ключ один раз настраивает владелец организации. Сначала разрешите deploy keys для репозиториев организации в её настройках, раздел Member privileges, пункт Deploy keys. Затем сгенерируйте пару ключей и дайте публичной части право записи в тап.
+
+```bash
+ssh-keygen -t ed25519 -N "" -C "coddy-agent release workflow" -f ./tap_key
+gh repo deploy-key add tap_key.pub --repo coddy-project/homebrew-coddy-agent --allow-write --title "coddy-agent release workflow"
+```
+
+Приватную часть сохраните в секрет этого репозитория, а оба файла удалите.
+
+```bash
+gh secret set HOMEBREW_TAP_DEPLOY_KEY --repo coddy-project/coddy-agent < tap_key
+rm tap_key tap_key.pub
+```
+
+Больше ничего не нужно. **`tag-on-merge.yaml`** вызывает workflow релиза с **`secrets: inherit`**, а **`GITHUB_TOKEN`** Actions подставляет сам. Новый ключ заменяет старый так же, после этого старый deploy key удалите из тапа.
 
 ### Формула для Homebrew
 
@@ -130,7 +161,7 @@ make build
 ## Android (Termux)
 
 ```bash
-make android TAGS="http ui scheduler memory cli gateway swarm"   # build/coddy-android-arm64, -amd64
+make android TAGS="http ui scheduler memory cli gateway swarm metrics"   # build/coddy-android-arm64, -amd64
 make check-android                                              # go vet with GOOS=android, test files included
 ```
 
@@ -160,7 +191,7 @@ make -s print-version
 
 ```bash
 go build \
-  -tags=http,ui,scheduler,memory,cli \
+  -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics \
   -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version)" \
   -o build/coddy \
   ./cmd/coddy/
@@ -171,13 +202,13 @@ go build \
 В **`Makefile`** список **`TAGS`** разделяется **пробелами**.
 
 ```bash
-make build TAGS="http ui scheduler memory cli gateway swarm"
+make build TAGS="http ui scheduler memory cli gateway swarm metrics"
 ```
 
 **`go build`** ожидает список **через запятую** (без пробелов).
 
 ```bash
-go build -tags=http,ui,scheduler,memory,cli ...
+go build -tags=http,ui,scheduler,memory,cli,gateway,swarm,metrics ...
 ```
 
 Порядок этих тегов не важен.
@@ -194,8 +225,9 @@ go build -tags=http,ui,scheduler,memory,cli ...
 | **`gateway.telegram`** | Адаптер Telegram-бота, который запускает **`coddy serve`** при **`gateways.telegram.enable`**; сессии на пользователя или группу, контроль доступа | [`docs/surfaces/gateway.md`](../surfaces/gateway.md) · [`external/gateway/`](../../../external/gateway) |
 | **`gateway`** | Все адаптеры мессенджеров (надмножество **`gateway.telegram`**; включает будущие адаптеры Discord и Slack) | [`docs/surfaces/gateway.md`](../surfaces/gateway.md) |
 | **`swarm`** | Релей без состояния, который объединяет узлы и запускается **`coddy serve`** при **`swarm.enable`** | [`docs/operate/swarm.md`](../operate/swarm.md) · [`external/swarm/`](../../../external/swarm) |
+| **`metrics`** | Экспортёр Prometheus, который запускает **`coddy serve`** при **`metrics.enable`** (по умолчанию выключен); отдаёт **`/metrics`** на отдельном порту | [`docs/operate/monitoring.md`](../operate/monitoring.md) · [`external/metrics/`](../../../external/metrics) |
 
-**`make test`** - экспресс-прогон, то есть всё дерево один раз со всеми необязательными модулями (**`http,ui,scheduler,memory,cli,gateway,swarm`**). **`make test-matrix`** перебирает все комбинации (список **`TEST_TAG_SETS`** в [`Makefile`](../../../Makefile)); CI прогоняет эту матрицу на каждом пул-реквесте, по заданию на комбинацию. Задание `cli` к тому же запускает собранный бинарник и управляет консолью через настоящий pty (`examples/cli/cli_e2e_startup.py`), а задание **Telegram stand (tgfake)** запускает Telegram-бота против релизного бинарника [tgfake](tgfake.md) (`examples/gateway/tg_e2e_offline.sh`). Задание **Docker image** собирает образ среды выполнения для **`linux/amd64`** и **`linux/arm64`**, платформ, которые публикует релиз, и проверяет, что в каждом варианте лежит бинарник его собственной платформы (**`make check-image`**, см. [Проверка платформ образа](../getting-started/docker.md#проверка-платформ-образа)). **`make test-race`** прогоняет всё дерево под детектором гонок Go со всеми тегами, кроме `ui`; CI запускает его на каждом пул-реквесте в задании **Race detector**, а `GOFLAGS=-count=3 make test-race` локально повторяет каждый тест, чтобы поймать редко проявляющуюся гонку. Две группы можно запускать отдельно. **`make test-cache`** - группа кэша промптов (спецификации `features/prompt_cache_*.feature` и тесты `TestPromptCache*`, входят в `make test`; они проверяют, что каждый запрос отправляет провайдеру, байт в байт на протяжении сессии), а **`make test-perf`** - группа производительности (бенчмарки файлов `perf_test.go`, никогда не входят в `make test`; они измеряют время работы, которую повторяет каждый ход, и стоимость контекста сессии над собственными правилами этого репозитория в виде `system-tokens`, `request-tokens` и `duplicate-rules`).
+**`make test`** - экспресс-прогон, то есть всё дерево один раз со всеми необязательными модулями (**`http,ui,scheduler,memory,cli,gateway,swarm,metrics`**). **`make test-matrix`** перебирает все комбинации (список **`TEST_TAG_SETS`** в [`Makefile`](../../../Makefile)); CI прогоняет эту матрицу на каждом пул-реквесте, по заданию на комбинацию. Задание `cli` к тому же запускает собранный бинарник и управляет консолью через настоящий pty (`examples/cli/cli_e2e_startup.py`), а задание **Telegram stand (tgfake)** запускает Telegram-бота против релизного бинарника [tgfake](tgfake.md) (`examples/gateway/tg_e2e_offline.sh`; запускаемый им бинарник собран с `gateway metrics`, и после чата скрипт снимает метрики экспортёра). Задание **Docker image** собирает образ среды выполнения для **`linux/amd64`** и **`linux/arm64`**, платформ, которые публикует релиз, и проверяет, что в каждом варианте лежит бинарник его собственной платформы (**`make check-image`**, см. [Проверка платформ образа](../getting-started/docker.md#проверка-платформ-образа)). **`make test-race`** прогоняет всё дерево под детектором гонок Go со всеми тегами, кроме `ui`; CI запускает его на каждом пул-реквесте в задании **Race detector**, а `GOFLAGS=-count=3 make test-race` локально повторяет каждый тест, чтобы поймать редко проявляющуюся гонку. Две группы можно запускать отдельно. **`make test-cache`** - группа кэша промптов (спецификации `features/prompt_cache_*.feature` и тесты `TestPromptCache*`, входят в `make test`; они проверяют, что каждый запрос отправляет провайдеру, байт в байт на протяжении сессии), а **`make test-perf`** - группа производительности (бенчмарки файлов `perf_test.go`, никогда не входят в `make test`; они измеряют время работы, которую повторяет каждый ход, и стоимость контекста сессии над собственными правилами этого репозитория в виде `system-tokens`, `request-tokens` и `duplicate-rules`).
 
 В Windows запускайте Make через Git Bash. Цели сборки и установки используют суффикс исполняемых файлов Go (`coddy.exe`), в том числе для бинарника, который запускает `make docs`. Фикстуры экранируют родные пути Windows в JSON и YAML, а проверки упаковки принимают чекауты с CRLF. Проверки прав доступа POSIX в Windows не применяются; тесты, которые вызывают сбои через права на каталоги или файлы Unix, там пропускаются (и при запуске от root). Сценарий ACP с символической ссылкой пропускается, только если Windows не даёт права на создание символических ссылок; чтобы его выполнить, включите режим разработчика или запустите терминал с повышенными правами. Проверки ресурсов Docker охватывают и чекауты Git с `core.symlinks=false`, читая режимы ссылок из индекса.
 
@@ -215,12 +247,12 @@ go build -tags=http,ui,scheduler,memory,cli ...
 | **`coddy_X.Y.Z_darwin_arm64.tar.gz`** | macOS Apple Silicon |
 | **`coddy_X.Y.Z_linux_amd64.deb`**, **`coddy_X.Y.Z_linux_arm64.deb`** | Debian, Ubuntu и производные |
 | **`coddy_X.Y.Z_linux_amd64.rpm`**, **`coddy_X.Y.Z_linux_arm64.rpm`** | Fedora, RHEL, openSUSE и производные |
-| **`coddy.rb`** | Homebrew cask для архивов macOS этого тега |
+| **`coddy.rb`** | Homebrew cask для архивов macOS этого тега; тот же файл коммитится в тап [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent) |
 | **`SHA256SUMS`** | Контрольные суммы всех архивов и пакетов выше |
 
 Архивы **`.tar.gz`** содержат рядом с бинарником man-страницу и автодополнения оболочек; пакеты оборачивают бинарники Linux, которые только что собрало то же задание, а не компилируют свои, поэтому в **`.deb`**, **`.rpm`** и **`.tar.gz`** одного тега лежат побайтно одинаковые исполняемые файлы.
 
-Теги соответствуют полному набору возможностей: **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`**, **`swarm`**. Ручной запуск, когда тег уже существует, выглядит так.
+Теги соответствуют полному набору возможностей: **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`**, **`swarm`**, **`metrics`**. Ручной запуск, когда тег уже существует, выглядит так.
 
 ```bash
 gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
@@ -236,6 +268,6 @@ gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 ```
 
-Так компилируется то, что модуль собирает по умолчанию, **без** ваших локальных **`TAGS`**. Чтобы получить известный набор возможностей (HTTP, веб-интерфейс, планировщик, память, консоль, шлюз мессенджеров), клонируйте репозиторий и используйте **`make build TAGS="http ui scheduler memory cli gateway swarm"`** (или **`go build -tags=...`**, как выше).
+Так компилируется то, что модуль собирает по умолчанию, **без** ваших локальных **`TAGS`**. Чтобы получить известный набор возможностей (HTTP, веб-интерфейс, планировщик, память, консоль, шлюз мессенджеров), клонируйте репозиторий и используйте **`make build TAGS="http ui scheduler memory cli gateway swarm metrics"`** (или **`go build -tags=...`**, как выше).
 
-<!-- docsgen:source sha256=4332fb0f693ff713 -->
+<!-- docsgen:source sha256=bcc9b605f0d39786 -->

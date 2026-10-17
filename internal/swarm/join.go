@@ -83,6 +83,9 @@ type Client struct {
 	ttl         time.Duration
 	generation  uint64
 	online      bool
+	// yielding is an agent registration that stays quiet while the relay of
+	// its own process registers the same name into the same relay.
+	yielding bool
 }
 
 // NewClient validates the options and returns a client that has not yet
@@ -153,6 +156,32 @@ func (c *Client) Online() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.online
+}
+
+// Yielding reports an agent registration that leaves the name to the relay
+// of its own process (yieldsToRelay).
+func (c *Client) Yielding() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.yielding
+}
+
+// yieldsToRelay reports an agent registration whose name the relay of this
+// very process registers into the same relay. A process that runs both its
+// agent API and a relay starts two join sets from one swarm.join, and both
+// hold the lease of one name (the secret store is keyed by relay and name):
+// left alone, each heartbeat would rewrite the parent's row to the other
+// kind. The relay speaks for the process, since its nodes are what a parent
+// chains to, so the agent stays quiet until that relay stops.
+func (c *Client) yieldsToRelay() bool {
+	yield := c.opts.Kind == KindAgent && relayRegisters(c.opts.RelayURL, c.opts.Name)
+	c.mu.Lock()
+	c.yielding = yield
+	if yield {
+		c.online = false
+	}
+	c.mu.Unlock()
+	return yield
 }
 
 // Register performs one registration or heartbeat.
@@ -273,6 +302,14 @@ func (c *Client) heartbeatInterval() time.Duration {
 func (c *Client) Run(ctx context.Context) error {
 	backoff := initialBackoff
 	for {
+		if c.yieldsToRelay() {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(jitter(initialBackoff)):
+			}
+			continue
+		}
 		err := c.Register(ctx)
 		if ctx.Err() != nil {
 			return ctx.Err()

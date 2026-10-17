@@ -1,6 +1,9 @@
 package session
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestMarkTurnActiveNestedReleaseKeepsOuterTurn(t *testing.T) {
 	m := &Manager{}
@@ -95,5 +98,31 @@ func TestTurnStartedAtIsKeptForTheWholeTurnAndMatchesTheEvent(t *testing.T) {
 	outer()
 	if _, ok := m.TurnStartedAt("sess_clock"); ok {
 		t.Fatal("the start outlived the turn")
+	}
+}
+
+func TestOldestTurnStartedAt(t *testing.T) {
+	m := &Manager{}
+	if _, ok := m.OldestTurnStartedAt(); ok {
+		t.Fatal("an idle manager has no oldest turn")
+	}
+
+	older := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	releaseOld := m.markTurnActive("sess_old")
+	releaseNew := m.markTurnActive("sess_new")
+	m.activeTurnMu.Lock()
+	m.turnStarted["sess_old"], m.turnStarted["sess_new"] = older, older.Add(time.Minute)
+	m.activeTurnMu.Unlock()
+
+	if at, ok := m.OldestTurnStartedAt(); !ok || !at.Equal(older) {
+		t.Fatalf("oldest turn = %v, %v; want %v", at, ok, older)
+	}
+	releaseOld()
+	if at, ok := m.OldestTurnStartedAt(); !ok || !at.Equal(older.Add(time.Minute)) {
+		t.Fatalf("after the oldest ended: %v, %v; want the other turn's start", at, ok)
+	}
+	releaseNew()
+	if _, ok := m.OldestTurnStartedAt(); ok {
+		t.Fatal("no turn runs, yet one has a start")
 	}
 }

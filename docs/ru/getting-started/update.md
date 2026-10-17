@@ -24,9 +24,9 @@
 | **`coddy_X.Y.Z_linux_amd64.rpm`** | Fedora, RHEL, openSUSE и производные, x86_64 |
 | **`coddy_X.Y.Z_linux_arm64.rpm`** | Fedora, RHEL, openSUSE и производные, arm64 |
 
-В архивах для Linux, Android и macOS рядом с бинарником лежат man-страница и автодополнения для bash и zsh; пакеты ставят те же файлы туда, где их ждёт система, - см. [Установка](install.md#пакеты-для-linux-deb-rpm). Каждый релиз также публикует **`coddy.rb`** - Homebrew cask для двух архивов macOS этого тега.
+В архивах для Linux, Android и macOS рядом с бинарником лежат man-страница и автодополнения для bash и zsh; пакеты ставят те же файлы туда, где их ждёт система, - см. [Установка](install.md#пакеты-для-linux-deb-rpm). Каждый релиз также публикует **`coddy.rb`** - Homebrew cask для двух архивов macOS этого тега - и коммитит тот же файл в тап [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent), откуда его читают **`brew install coddy-project/coddy-agent/coddy`** и **`brew upgrade`**.
 
-Каждый бинарник собран со всем набором тегов - **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`** и **`swarm`**, - так же, как при **`make build TAGS="http ui scheduler memory cli gateway swarm"`** и в Docker-образе по умолчанию. Конвейер релиза описан в разделе [Сборка из исходников](../contributing/build.md#релизные-бинарники-ci).
+Каждый бинарник собран со всем набором тегов - **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`**, **`swarm`** и **`metrics`**, - так же, как при **`make build TAGS="http ui scheduler memory cli gateway swarm metrics"`** и в Docker-образе по умолчанию. Конвейер релиза описан в разделе [Сборка из исходников](../contributing/build.md#релизные-бинарники-ci).
 
 ## Какой файл заменяется
 
@@ -168,4 +168,4 @@ Full changelog: https://github.com/coddy-project/coddy-agent/compare/1.0.35...1.
 - путь через пакеты есть только на Linux (об установках через Homebrew Coddy сообщает, но сам их не обновляет), а пакетный менеджер работает неинтерактивно, поэтому обновление, которое удалило бы другой пакет, завершается ошибкой вместо вопроса. В этом случае запустите пакетный менеджер сами;
 - конфигурация в **`$CODDY_HOME`** не меняется; заменяется только бинарник или пакет, в котором он лежит.
 
-<!-- docsgen:source sha256=ff835d6593b2c588 -->
+<!-- docsgen:source sha256=565f862fb1941ccb -->

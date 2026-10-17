@@ -419,6 +419,17 @@ Ask the NeuralDeep decisions API whether a shell command is safe before the perm
 | `decisions.model` | string, one of `frida-decisions`, `clef-flash` | frida-decisions | Decisions model to ask: frida-decisions (encoder pass, up to 512 tokens of command text, ~20 ms per request) or clef-flash (up to 8192 tokens, ~150 ms). |
 | `decisions.threshold` | number | 0.5 | Probability of the unsafe option at or above which a command counts as unsafe. 0 uses the default (0.5); lower is stricter, higher lets borderline commands through. A bare unsafe answer counts as 1. |
 
+### `metrics`
+
+Prometheus exporter: GET /metrics on a port of its own, run by coddy serve. It takes effect only in a binary built with -tags metrics; other binaries refuse metrics.enable. Off by default.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `metrics.enable` | boolean | false | Run the exporter in this process. Needs the metrics build tag. |
+| `metrics.host` | string | "" | Bind address of the exporter. Empty falls back to 127.0.0.1, which only this machine can reach. |
+| `metrics.port` | integer | 0 | Listen port of the exporter. 0 falls back to 12347. |
+| `metrics.token` | string | "" | Bearer credential a scrape must present in its Authorization header. ${ENV} references are expanded at load. Empty means no authentication, so set one before binding off loopback. Never echoed back. |
+
 ### `supervisor`
 
 Checks a session goal (/goal) after every turn with a second model, continues unfinished work within bounds, and watches for stalled or looping turns; see https://coddy.dev/docs/features/session-supervisor.

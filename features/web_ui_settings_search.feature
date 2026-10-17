@@ -35,6 +35,9 @@ Feature: Settings can be searched
   Scenario: A relay's own settings are searched
     Then a relay's settings are searched too
 
+  Scenario: A tab the binary cannot run is not searched
+    Then the Metrics tab is a tab and a result, and a binary without its tag offers neither
+
   Scenario: A link to a highlighted setting opens it highlighted
     Then choosing a result writes the setting into the address, next to its row, and a tab writes none
     And an address that names a setting reveals it as a choice does: the tab, the ring, the scroll and the control

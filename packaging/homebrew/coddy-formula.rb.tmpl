@@ -7,8 +7,8 @@
 # This is the artefact homebrew/core takes. Homebrew routes open-source
 # command-line software to homebrew/core as a formula built from source and
 # keeps homebrew/cask for native applications and binary-only software, so the
-# cask beside this file (coddy.rb.tmpl) is what the release asset offers and
-# this is what the homebrew/core pull request carries. docs/getting-started/homebrew.md has the
+# cask beside this file (coddy.rb.tmpl) is what our own tap carries and this
+# is what the homebrew/core pull request carries. docs/getting-started/homebrew.md has the
 # whole submission path.
 #
 # Everything above the `class` line is stripped when the file is rendered, so
@@ -41,7 +41,7 @@ class Coddy < Formula
     end
 
     ldflags = "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=#{version}"
-    tags = %w[http ui scheduler memory cli gateway swarm]
+    tags = %w[http ui scheduler memory cli gateway swarm metrics]
     system "go", "build", *std_go_args(ldflags:, tags:), "./cmd/coddy"
 
     man1.install "packaging/man/coddy.1"

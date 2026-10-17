@@ -69,7 +69,7 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 		"agent", "supervisor", "compaction", "memory", "decisions",
 		"tools", "skills", "subagents", "hooks",
 		"scheduler", "gateways",
-		"logger", "sessions", "prompts", "instructions",
+		"logger", "metrics", "sessions", "prompts", "instructions",
 	}
 	if !reflect.DeepEqual(ord, want) {
 		t.Fatalf("root order:\n got %v\nwant %v", ord, want)
@@ -465,5 +465,105 @@ func TestUISchemaTestdataIsCurrent(t *testing.T) {
 				t.Fatalf("%s is stale; regenerate with: go test ./internal/config -run '^TestUISchemaTestdataIsCurrent$' -update", path)
 			}
 		})
+	}
+}
+
+// The metrics token is the bearer credential of a scrape, so the settings
+// document reports only that one is set, and a save that sends none back keeps
+// the stored one.
+func TestMetricsSectionSurvivesTheJSONDTO(t *testing.T) {
+	live := &config.Config{Metrics: config.MetricsConfig{Enable: true, Host: "0.0.0.0", Port: 9100, Token: "scrape-secret"}}
+	raw, err := json.Marshal(config.ConfigToJSONDTO(live))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]map[string]interface{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	section := doc["metrics"]
+	if _, leaked := section["token"]; leaked || strings.Contains(string(raw), "scrape-secret") {
+		t.Fatalf("the document carries the token: %s", raw)
+	}
+	if section["token_configured"] != true || section["enable"] != true || section["host"] != "0.0.0.0" || section["port"] != float64(9100) {
+		t.Fatalf("metrics section = %v", section)
+	}
+
+	kept, err := config.ParseConfigJSONPreservingSecrets(raw, config.Paths{}, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept.Metrics != live.Metrics {
+		t.Fatalf("a save without a token changed the section: %+v, want %+v", kept.Metrics, live.Metrics)
+	}
+	dropped, err := config.ParseAndValidateConfigJSON(raw, config.Paths{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dropped.Metrics.Token != "" {
+		t.Fatalf("a save with nothing to keep it from invented the token %q", dropped.Metrics.Token)
+	}
+	replaced, err := config.ParseConfigJSONPreservingSecrets([]byte(`{"metrics":{"enable":true,"token":"new-secret"}}`), config.Paths{}, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replaced.Metrics.Token != "new-secret" {
+		t.Fatalf("a new token was not taken: %q", replaced.Metrics.Token)
+	}
+}
+
+// The Metrics tab edits the four keys, with the token as a write-only field.
+func TestUISchemaMetricsSection(t *testing.T) {
+	doc := config.UISchemaMap()
+	section, ok := doc["properties"].(map[string]interface{})["metrics"].(map[string]interface{})
+	if !ok {
+		t.Fatal("the UI schema has no metrics section")
+	}
+	if order := section["x-coddy-property-order"]; !reflect.DeepEqual(order, []interface{}{"enable", "host", "port", "token"}) {
+		t.Fatalf("metrics property order = %v", order)
+	}
+	token := section["properties"].(map[string]interface{})["token"].(map[string]interface{})
+	if token["writeOnly"] != true || token["x-coddy-configured"] != "token_configured" {
+		t.Fatalf("metrics.token is not a write-only field: %v", token)
+	}
+}
+
+// A binary that cannot run the exporter offers no Metrics tab. The section stays
+// in the settings document, so a save from that form still writes it back.
+func TestUISchemaJSONHidingOmitsSection(t *testing.T) {
+	raw, err := config.UISchemaJSONHiding("metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]interface{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	props := doc["properties"].(map[string]interface{})
+	if _, shown := props["metrics"]; shown {
+		t.Fatal("the hidden section is still among the properties")
+	}
+	if _, kept := props["logger"]; !kept {
+		t.Fatal("hiding metrics dropped another section")
+	}
+	for _, key := range doc["x-coddy-property-order"].([]interface{}) {
+		if key == "metrics" {
+			t.Fatalf("the hidden section is still in the tab order: %v", doc["x-coddy-property-order"])
+		}
+	}
+
+	whole, err := config.UISchemaJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(whole, []byte(`"metrics"`)) {
+		t.Fatal("the full schema lost the section")
+	}
+	none, err := config.UISchemaJSONHiding()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(none, whole) {
+		t.Fatal("hiding nothing must give the full schema")
 	}
 }

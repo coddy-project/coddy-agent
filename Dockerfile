@@ -43,7 +43,7 @@ ARG VERSION=dev
 # of them the mounted config.yaml enables
 # by overriding CMD (see docker-compose command override). Pass --build-arg BUILD_TAGS
 # to trim it. CI (docker-build-push.yaml) sets its own BUILD_TAGS for the published image.
-ARG BUILD_TAGS=http,scheduler,ui,memory,gateway,cli,swarm
+ARG BUILD_TAGS=http,scheduler,ui,memory,gateway,cli,swarm,metrics
 # BuildKit sets these from the platform being built. They are declared without
 # a value on purpose: a default here wins over the value BuildKit passes, which
 # is how the linux/arm64 image shipped an x86-64 binary (issue #482).

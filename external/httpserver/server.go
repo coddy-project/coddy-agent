@@ -68,6 +68,10 @@ type Server struct {
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
 	extraAuthTokens []string
 
+	// unbuiltSections are the settings sections the form leaves out
+	// (Options.UnbuiltSections).
+	unbuiltSections []string
+
 	// envLoginUser and envLoginHash are the web sign-in account supplied out of
 	// band (CODDY_HTTP_USER / CODDY_HTTP_PASSWORD). The password is hashed once
 	// as the server comes up, and neither value is ever written to config.yaml.

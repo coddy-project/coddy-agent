@@ -1,6 +1,6 @@
 # Docker
 
-Run Coddy as **`coddy serve`** inside a minimal **`scratch`** image. The default image ships the embedded web UI (**`ui`** build tag), OpenAI-compatible REST (**`http`**), scheduler (**`scheduler`**), long-term memory (**`memory`**), the console (**`cli`**), the messenger gateways (**`gateway`**) and the swarm relay (**`swarm`**).
+Run Coddy as **`coddy serve`** inside a minimal **`scratch`** image. The default image ships the embedded web UI (**`ui`** build tag), OpenAI-compatible REST (**`http`**), scheduler (**`scheduler`**), long-term memory (**`memory`**), the console (**`cli`**), the messenger gateways (**`gateway`**), the swarm relay (**`swarm`**) and the Prometheus exporter (**`metrics`**).
 
 Related files:
 
@@ -162,7 +162,7 @@ The bot and the web UI then share one session manager, so a Telegram conversatio
 
 Notes:
 
-- The **published GHCR image carries the `gateway` tag** (CI [`docker-build-push.yaml`](../../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory,cli,gateway,swarm`**), so **`docker-compose.yml`** with **`CODDY_COMMAND=gateway`** runs on the stock image; no custom **`CODDY_IMAGE`** is needed.
+- The **published GHCR image carries the `gateway` tag** (CI [`docker-build-push.yaml`](../../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory,cli,gateway,swarm,metrics`**), so **`docker-compose.yml`** with **`CODDY_COMMAND=gateway`** runs on the stock image; no custom **`CODDY_IMAGE`** is needed.
 - The bot token is read from **`TELEGRAM_BOT_TOKEN`** (passed through by both compose files) or **`$CODDY_HOME/.env`**; keep it out of git.
 - If your **`gateways.telegram.proxy`** points at a host-local proxy (e.g. **`socks5://127.0.0.1:7890`**), it is unreachable from inside the container - use **`host.docker.internal`** or add **`network_mode: host`** in a **`docker-compose.override.yml`**.
 - Gateway mode uses no inbound port (Telegram long-polling); the mapped **`12345`** is simply unused.
@@ -255,7 +255,7 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 
 ## What the image contains by default
 
-**`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory,gateway,cli,swarm`** (comma-separated, same meaning as **`go build -tags=`**), the set the release binaries carry.
+**`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory,gateway,cli,swarm,metrics`** (comma-separated, same meaning as **`go build -tags=`**), the set the release binaries carry.
 
 - **`http`** - **`coddy serve`** and REST gateway (see **[docs/reference/http-api.md](../reference/http-api.md)**).
 - **`ui`** - embedded SPA on **`/`** (needs **`http`**).
@@ -264,6 +264,7 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 - **`gateway`** - the Telegram and Pachca bots (**[docs/surfaces/gateway.md](../surfaces/gateway.md)**), each under its own **`enable`** key.
 - **`cli`** - the interactive console (**[docs/surfaces/console.md](../surfaces/console.md)**), for **`docker run -it ... coddy`**.
 - **`swarm`** - the relay that aggregates nodes (**[docs/operate/swarm.md](../operate/swarm.md)**), under **`swarm.enable`**.
+- **`metrics`** - the Prometheus exporter (**[docs/operate/monitoring.md](../operate/monitoring.md)**), off until **`metrics.enable`** is set. It listens on loopback, which a published container port cannot reach: to scrape it from outside the container, set **`metrics.host`** to **`0.0.0.0`** together with **`metrics.token`**, and publish **`metrics.port`** (12347 by default).
 
 To build an image **without** memory or the embedded UI, override **`BUILD_TAGS`** (for example **`http,scheduler,ui`** or **`http,scheduler`**) via **`docker compose` `args`** or **`docker build --build-arg`**.
 

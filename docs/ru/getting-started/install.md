@@ -92,7 +92,7 @@ SSH-соединение. **`apt`** показывает его в списке 
 
 | Путь | Что |
 |------|------|
-| **`/usr/bin/coddy`** | Полный бинарник (**`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`**, **`swarm`**) |
+| **`/usr/bin/coddy`** | Полный бинарник (**`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`gateway`**, **`swarm`**, **`metrics`**) |
 | **`/usr/share/man/man1/coddy.1.gz`** | **`man coddy`** |
 | **`/usr/share/bash-completion/completions/coddy`** | автодополнение bash |
 | **`/usr/share/zsh/site-functions/_coddy`** | автодополнение zsh |
@@ -159,25 +159,45 @@ make rpm
 ## macOS (Homebrew)
 
 ```bash
-brew install --cask https://github.com/coddy-project/coddy-agent/releases/latest/download/coddy.rb
+brew install coddy-project/coddy-agent/coddy
 ```
 
-Каждый релиз рядом с архивами публикует **`coddy.rb`**, собранный с контрольными суммами
-macOS-архивов того же тега. Cask ставит тот же бинарник **`coddy`**, что лежит в архиве для macOS,
-а также **`man coddy`** и автодополнения bash и zsh. **`tmux`** он не ставит. Его caveats, которые
-выводятся после установки и командой **`brew info --cask coddy`**, рекомендуют **`brew install tmux`**
-для консольной сессии, которая переживает терминал. Удаление идёт через Homebrew.
+Cask лежит в собственном тапе Coddy, [coddy-project/homebrew-coddy-agent](https://github.com/coddy-project/homebrew-coddy-agent),
+и каждый релиз его обновляет. Команда добавляет тап, доверяет этому одному cask и ставит бинарник
+**`coddy`** из архива для macOS последнего релиза, а также **`man coddy`** и автодополнения bash и zsh.
+Нужна macOS 12 или новее. **`tmux`** cask не ставит. Его caveats, которые выводятся после установки
+и командой **`brew info --cask coddy`**, рекомендуют **`brew install tmux`** для консольной сессии,
+которая переживает терминал.
+
+Обновления приходят вместе с релизами.
+
+```bash
+brew upgrade --cask coddy
+```
+
+Homebrew 7 ничего не загружает из стороннего тапа, пока ему не доверяют. При установке по полному
+имени Homebrew начинает доверять этому cask, поэтому следующие команды принимают короткое имя
+**`coddy`**. Чтобы доверять всему тапу, один раз выполните **`brew trust coddy-project/coddy-agent`**, после
+этого по имени работает и **`brew install --cask coddy`**. Удаление идёт через Homebrew.
 
 ```bash
 brew uninstall --cask coddy      # brew zap --cask coddy also removes ~/.coddy
 ```
 
-Чтобы обновиться, снова выполните команду установки. Homebrew отслеживает новые версии cask,
-полученного из tap, но не установленного по URL.
+Homebrew ставит атрибут карантина на каждую загрузку cask, а бинарник Coddy не нотаризован. Поэтому
+после установки cask снимает этот атрибут с **`coddy`**, и macOS пропускает первый запуск. Если macOS
+всё же остановит первый запуск, снимите атрибут сами командой
+**`xattr -d com.apple.quarantine "$(which coddy)"`**.
 
-Для **`brew install --cask coddy`** по имени Coddy должен попасть в один из собственных
-репозиториев Homebrew, и этот вопрос ещё открыт. Открытые консольные программы Homebrew направляет в
-**homebrew/core** как формулу, которая собирается из исходников, поэтому cask выше служит нашим
+Команда, которую эта страница давала раньше,
+**`brew install --cask https://github.com/coddy-project/coddy-agent/releases/latest/download/coddy.rb`**,
+больше не работает. Текущий Homebrew не принимает cask по URL или по пути к файлу и отвечает
+**`No Cask with this name exists`**. Как перевести на тап Coddy, установленный таким способом,
+описано в разделе [Устранение неполадок](troubleshooting.md#brew-сообщает-no-cask-with-this-name-exists).
+
+На Mac, где тап ещё не добавлен, **`brew install coddy`** работает, только если Coddy попадёт в
+один из собственных репозиториев Homebrew, и этот вопрос ещё открыт. Открытые консольные программы Homebrew направляет в
+**homebrew/core** как формулу, которая собирается из исходников, поэтому тап служит нашим
 собственным каналом распространения и в Homebrew не подаётся. Весь путь, включая то, что
 сейчас его блокирует, описан в [homebrew.md](homebrew.md).
 
@@ -185,9 +205,6 @@ brew uninstall --cask coddy      # brew zap --cask coddy also removes ~/.coddy
 чтобы заменять файл, который отслеживает Homebrew, - **`brew upgrade --cask coddy`** для этого cask
 и **`brew upgrade coddy`** для формулы. Homebrew отказывается работать под **`sudo`**, так что
 привилегированного обходного пути здесь нет.
-
-Если macOS блокирует первый запуск, потому что бинарник не нотаризован, снимите флаг карантина
-командой **`xattr -d com.apple.quarantine "$(which coddy)"`**.
 
 ## Android (Termux)
 
@@ -277,4 +294,4 @@ coddy update -y
 
 См. [build.md](../contributing/build.md) и раздел README **Other installation methods**.
 
-<!-- docsgen:source sha256=cccf085abf891453 -->
+<!-- docsgen:source sha256=04105abe630a2f24 -->

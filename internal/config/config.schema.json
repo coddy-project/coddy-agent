@@ -1486,6 +1486,36 @@
         }
       }
     },
+    "metrics": {
+      "type": "object",
+      "title": "Metrics",
+      "description": "Prometheus exporter: GET /metrics on a port of its own, run by coddy serve. It takes effect only in a binary built with -tags metrics; other binaries refuse metrics.enable. Off by default.",
+      "additionalProperties": false,
+      "properties": {
+        "enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the exporter in this process. Needs the metrics build tag."
+        },
+        "host": {
+          "type": "string",
+          "description": "Bind address of the exporter. Empty falls back to 127.0.0.1, which only this machine can reach.",
+          "default": ""
+        },
+        "port": {
+          "type": "integer",
+          "description": "Listen port of the exporter. 0 falls back to 12347.",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "token": {
+          "type": "string",
+          "description": "Bearer credential a scrape must present in its Authorization header. ${ENV} references are expanded at load. Empty means no authentication, so set one before binding off loopback. Never echoed back.",
+          "default": ""
+        }
+      }
+    },
     "ui": {
       "type": "object",
       "title": "Embedded web UI",

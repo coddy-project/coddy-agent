@@ -859,6 +859,42 @@
         "max_note_chars"
       ]
     },
+    "metrics": {
+      "additionalProperties": false,
+      "description": "Prometheus exporter on a port of its own. It takes effect only in a binary built with the metrics tag.",
+      "properties": {
+        "enable": {
+          "description": "Serve /metrics from this process.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "host": {
+          "description": "Address to bind. Empty falls back to 127.0.0.1, which only this machine can reach.",
+          "title": "Listen host",
+          "type": "string"
+        },
+        "port": {
+          "description": "Port to bind. 0 falls back to 12347.",
+          "title": "Listen port",
+          "type": "integer"
+        },
+        "token": {
+          "description": "Bearer credential a scrape must present. Write-only: leave it empty to keep the one set. With none set the exporter asks for no credential.",
+          "title": "Token",
+          "type": "string",
+          "writeOnly": true,
+          "x-coddy-configured": "token_configured"
+        }
+      },
+      "title": "Metrics",
+      "type": "object",
+      "x-coddy-property-order": [
+        "enable",
+        "host",
+        "port",
+        "token"
+      ]
+    },
     "models": {
       "default": [
         {
@@ -1624,6 +1660,7 @@
     "scheduler",
     "gateways",
     "logger",
+    "metrics",
     "sessions",
     "prompts",
     "instructions"
