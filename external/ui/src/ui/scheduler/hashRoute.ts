@@ -30,6 +30,9 @@ export type ParsedAppHash =
       filesOpen?: boolean;
       filePath?: string;
       fileLine?: number;
+      /** The canvas window is open over the chat, on this frame when named. */
+      canvasOpen?: boolean;
+      canvasFrame?: string;
     }
   | { branch: "draft"; draftId: string; historyOpen: boolean }
   | { branch: "history" }
@@ -246,6 +249,19 @@ export function parseAppHash(): ParsedAppHash {
         Number.isSafeInteger(requestedLine) && requestedLine > 0
           ? requestedLine
           : 1,
+    };
+  }
+  const sessCanvas = /^s\/([^/]+)\/canvas$/.exec(h);
+  if (sessCanvas?.[1]) {
+    const params = new URLSearchParams(search);
+    return {
+      branch: "session",
+      sessionId: decodeURIComponent(sessCanvas[1]),
+      historyOpen,
+      tasksOpen: false,
+      taskId: null,
+      canvasOpen: true,
+      canvasFrame: params.get("frame") || "",
     };
   }
   const sessChanges = /^s\/([^/]+)\/changes$/.exec(h);
@@ -471,6 +487,20 @@ export function setSessionFilesHash(
   if (line > 1) params.set("line", String(line));
   const query = params.toString();
   const next = `#/s/${encodeURIComponent(sessionId)}/files${query ? "?" + query : ""}`;
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
+}
+
+export function setSessionCanvasHash(sessionId: string, frame = ""): void {
+  if (!sessionId.trim()) return;
+  const query = frame ? `?frame=${encodeURIComponent(frame)}` : "";
+  const next = `#/s/${encodeURIComponent(sessionId)}/canvas${query}`;
   if (window.location.hash !== next) {
     history.replaceState(
       null,

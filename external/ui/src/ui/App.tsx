@@ -138,7 +138,10 @@ import type {
 } from "./chat/workspaceContext";
 import { setHostShell } from "./chat/hostShell";
 import { NavRail } from "./nav/NavRail";
-import { shellStackMaxWidthMediaQuery } from "./shellBreakpoint";
+import {
+  phoneMaxWidthMediaQuery,
+  shellStackMaxWidthMediaQuery,
+} from "./shellBreakpoint";
 import { SwarmView } from "./swarm/SwarmView";
 import { probeSwarm } from "./swarm/api";
 import {
@@ -276,6 +279,9 @@ import {
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
 import { FilesView } from "./files/FilesView";
+import { CanvasView } from "./canvas/CanvasView";
+import { useCanvasBoard } from "./canvas/useCanvasBoard";
+import { onOpenCanvas } from "./canvas/canvasBus";
 import { useFilesWindowKey } from "./files/filesWindowKey";
 import { isFilesHotkey } from "./files/filesHotkey";
 import {
@@ -290,6 +296,7 @@ import { useRightDock, useRightDockEscape } from "./components/useRightDock";
 import { finishedToolCalls } from "./changes/toolActivity";
 import {
   setSessionFilesHash,
+  setSessionCanvasHash,
   setSessionChangesHash,
 } from "./scheduler/hashRoute";
 import { fetchDocsPage } from "./docs/api";
@@ -322,7 +329,10 @@ import { MCP_SECTION_ID } from "./settings/settingsSections";
 import { wideRailMinWidthMediaQuery } from "./shellBreakpoint";
 import { AttentionTracker } from "./pwa/attentionTracker";
 import { onNotificationOpen } from "./pwa/notifications";
-import type { SubagentPermissionEvent } from "./chat/serverEvents";
+import type {
+  CanvasChangedEvent,
+  SubagentPermissionEvent,
+} from "./chat/serverEvents";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -806,6 +816,7 @@ export function App() {
     ) => void;
     questionPending: (sid: string) => void;
     sessionRewound: (sid: string) => void;
+    canvasChanged: (event: CanvasChangedEvent) => void;
     ready: () => void;
   }>({
     turnStarted: () => {},
@@ -818,6 +829,7 @@ export function App() {
     subagentPermission: () => {},
     questionPending: () => {},
     sessionRewound: () => {},
+    canvasChanged: () => {},
     ready: () => {},
   });
   // Provider account usage for the composer pill and banner: read over REST
@@ -1292,6 +1304,21 @@ export function App() {
   const [changesViewerOpen, setChangesViewerOpen] = useState(
     initialRoute.branch === "session" && initialRoute.editsOpen === true,
   );
+  // The canvas window, a third window over the chat: open, the frame its
+  // address or the agent's last show points at, and a counter that asks for
+  // that focus again. canvasEpoch moves whenever the board may have changed.
+  const [canvasOpen, setCanvasOpen] = useState(
+    initialRoute.branch === "session" && initialRoute.canvasOpen === true,
+  );
+  const [canvasFocus, setCanvasFocus] = useState<{
+    frame: string;
+    seq: number;
+  }>(() => ({
+    frame:
+      initialRoute.branch === "session" ? initialRoute.canvasFrame || "" : "",
+    seq: 0,
+  }));
+  const [canvasEpoch, setCanvasEpoch] = useState(0);
   // A card the shell asks the Tasks panel to open from a task-targeted link. Which
   // cards are open otherwise is the panel's own business and is not part of the address.
   //
@@ -2486,6 +2513,7 @@ export function App() {
     // one puts them away.
     if (!(p.branch === "session" && p.filesOpen)) setFilesOpen(false);
     if (!(p.branch === "session" && p.editsOpen)) setChangesViewerOpen(false);
+    if (!(p.branch === "session" && p.canvasOpen)) setCanvasOpen(false);
     if (p.branch === "docs") {
       setDocsRoute({ slug: p.slug, anchor: p.anchor });
       if (p.slug) {
@@ -2519,6 +2547,7 @@ export function App() {
           p.tasksOpen ||
           ((p.filesOpen === true ||
             p.editsOpen === true ||
+            p.canvasOpen === true ||
             !isStackedShell()) &&
             wasOpen),
       );
@@ -2528,6 +2557,15 @@ export function App() {
         setFileLine(p.fileLine || 1);
       }
       setChangesViewerOpen(p.editsOpen === true);
+      if (p.canvasOpen) {
+        setCanvasOpen(true);
+        if (p.canvasFrame) {
+          const frame = p.canvasFrame;
+          setCanvasFocus((f) =>
+            f.frame === frame ? f : { frame, seq: f.seq + 1 },
+          );
+        }
+      }
       if (p.tasksOpen && p.taskId) {
         // A link that names a task opens its card once; the address goes back to
         // saying only that the panel is showing.
@@ -2683,6 +2721,7 @@ export function App() {
     setSessionsOpen(false);
     setFilesOpen(false);
     setChangesViewerOpen(false);
+    setCanvasOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     // On desktop Tasks is the side panel of the chat on screen, not a screen of
@@ -3445,6 +3484,8 @@ export function App() {
       void attachViewedComposer(key);
     },
     turnEnded: (sid: string, at: string) => {
+      // A turn of the chat on screen ended: its pages may have changed.
+      if (sid.trim() === sessionId.trim()) setCanvasEpoch((n) => n + 1);
       void loadSessionsList(true);
       noteSchedulerTurn();
       const key = sid.trim();
@@ -3486,6 +3527,29 @@ export function App() {
     // tells every History view to re-read the row's questionPending flag.
     questionPending: () => {
       void loadSessionsList(true);
+    },
+    // A chat's canvas changed: its board is read again. A frame put there or
+    // shown again opens the canvas on it, unless another window or screen is
+    // up, and never on a phone, where the chat stays and the view button and
+    // the tool card offer the canvas instead.
+    canvasChanged: (event: CanvasChangedEvent) => {
+      if (event.sessionId !== sessionId.trim()) return;
+      setCanvasEpoch((n) => n + 1);
+      if (event.reason !== "added" && event.reason !== "shown") return;
+      if (!event.frameId) return;
+      if (window.matchMedia?.(phoneMaxWidthMediaQuery).matches) return;
+      if (
+        filesOpen ||
+        changesViewerOpen ||
+        sessionsOpen ||
+        settingsRoute ||
+        swarmRoute ||
+        docsRoute !== null ||
+        schedulerOpen
+      ) {
+        return;
+      }
+      openCanvasWindow(event.frameId);
     },
     // A surface - this tab, another tab, a console over --remote - rewound the
     // session: the tail it held is gone, so the shadow transcript and the
@@ -3550,6 +3614,8 @@ export function App() {
       onMessageQueue: (sid, queue) =>
         serverEventHandlersRef.current.messageQueue(sid, queue),
       onSessionChanges: (sid) => emitChangesSettled(sid),
+      onCanvasChanged: (event) =>
+        serverEventHandlersRef.current.canvasChanged(event),
       onSessionSettings: (event) =>
         serverEventHandlersRef.current.sessionSettings(event),
       onSessionGoal: (update) =>
@@ -6627,6 +6693,7 @@ export function App() {
     setDocsRoute(null);
     setSwarmRoute(false);
     setFilesOpen(false);
+    setCanvasOpen(false);
     setChangesViewerOpen(true);
     setSessionChangesHash(sid);
   }, [sessionId]);
@@ -6679,6 +6746,7 @@ export function App() {
       setSwarmRoute(false);
       // One window over the chat at a time: the files take the edits' place.
       setChangesViewerOpen(false);
+      setCanvasOpen(false);
       setFilePath(path || "");
       setFileLine(line || 1);
       if (path) setFileOpenSeq((n) => n + 1);
@@ -6692,6 +6760,43 @@ export function App() {
    *  tasks when the dock under it shows them on the stacked shell. */
   const closeFilesWindow = useCallback(() => {
     setFilesOpen(false);
+    const sid = sessionId.trim();
+    if (!sid) return;
+    if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
+    else setSessionHashInLocation(sid);
+  }, [sessionId, tasksOpen]);
+
+  /** Opens the canvas window over the chat, on a frame when one is named; it
+   *  takes the Files or the edits window's place. */
+  const openCanvasWindow = useCallback(
+    (frame?: string) => {
+      const sid = sessionId.trim();
+      if (!sid) return;
+      setSessionsOpen(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setSettingsRoute(false);
+      setDocsRoute(null);
+      setSwarmRoute(false);
+      setFilesOpen(false);
+      setChangesViewerOpen(false);
+      if (frame) setCanvasFocus((f) => ({ frame, seq: f.seq + 1 }));
+      setCanvasOpen(true);
+      setSessionCanvasHash(sid, frame || "");
+    },
+    [sessionId],
+  );
+
+  // The canvas_show card of the transcript and the Files window's Open on
+  // canvas ask for the canvas through the bus.
+  useEffect(
+    () => onOpenCanvas((frame) => openCanvasWindow(frame)),
+    [openCanvasWindow],
+  );
+
+  /** Puts the canvas window away, the address back to the chat or the tasks. */
+  const closeCanvasWindow = useCallback(() => {
+    setCanvasOpen(false);
     const sid = sessionId.trim();
     if (!sid) return;
     if (tasksOpen && isStackedShell()) setSessionTasksHash(sid);
@@ -7114,9 +7219,21 @@ export function App() {
   // open state, which every Escape path and stacked-shell rule speaks.
   const dockOpen = tasksPanelOpen;
 
-  // A window over the chat - the files or the edits - is one more layer the
-  // shell's backdrop covers the chat under.
-  const chatWindowOpen = (filesOpen || changesViewerOpen) && !!sessionId.trim();
+  // The chat's canvas: read with the chat, again on canvas_changed, after a
+  // finished tool call (a page the agent edits) and, while its window is
+  // open, every few seconds.
+  const canvas = useCanvasBoard(sessionId, {
+    open: canvasOpen,
+    epoch: canvasEpoch + finishedToolCalls(transcriptItems),
+  });
+  const canvasFrameCount = canvas.available
+    ? (canvas.board?.frames.length ?? 0)
+    : 0;
+
+  // A window over the chat - the files, the edits or the canvas - is one more
+  // layer the shell's backdrop covers the chat under.
+  const chatWindowOpen =
+    (filesOpen || changesViewerOpen || canvasOpen) && !!sessionId.trim();
   const shellBackdropOpen =
     chatWindowOpen ||
     sessionsOpen ||
@@ -7373,13 +7490,21 @@ export function App() {
       streamResponses(text, opts),
   );
   const handleQueueMessage = useStableHandler(
-    (text: string, mode: QueueMode, files: File[] = []) => {
+    (
+      text: string,
+      mode: QueueMode,
+      files: File[] = [],
+      // The canvas's prompt bar keeps a draft of its own: a message it queues
+      // neither clears the composer's draft nor comes back into it.
+      source: "composer" | "canvas" = "composer",
+    ) => {
       const sid = sessionId.trim();
       const generation = turnActivity.generation(sid);
       const queueEpoch = queueOrderRef.current.capture(sid).epoch;
       const body = text.trim();
       if (!sid || (!body && files.length === 0)) return;
-      setDraft("");
+      const fromComposer = source === "composer";
+      if (fromComposer) setDraft("");
       void (async () => {
         type QueueAnswer = {
           messages?: QueuedMessage[];
@@ -7437,10 +7562,10 @@ export function App() {
           // ordinary prompt; if the admission has not been released yet and that
           // is refused too, the text comes back to the composer rather than
           // being lost between the two answers.
-          void sendLatest(body, { files, restoreOnRefusal: true });
+          void sendLatest(body, { files, restoreOnRefusal: fromComposer });
           return;
         }
-        if (viewedSessionIdRef.current.trim() === sid) {
+        if (fromComposer && viewedSessionIdRef.current.trim() === sid) {
           setDraft((current) => current || body);
           setComposerFiles((current) => [...files, ...current]);
         }
@@ -7683,6 +7808,7 @@ export function App() {
             // gives the address back to what the dock under it shows.
             if (chatWindowOpen) {
               if (filesOpen) closeFilesWindow();
+              else if (canvasOpen) closeCanvasWindow();
               else closeEditsWindow();
               setSessionsOpen(false);
               setSchedulerOpen(false);
@@ -7907,6 +8033,43 @@ export function App() {
             onClose={closeFilesWindow}
           />
         ) : null}
+        {canvasOpen && sessionId.trim() ? (
+          <CanvasView
+            key={`canvas:${sessionId}`}
+            sessionId={sessionId}
+            board={canvas.board}
+            reloadBoard={canvas.reload}
+            focusFrameId={canvasFocus.frame}
+            focusSeq={canvasFocus.seq}
+            busy={
+              !!(
+                turnActivity.get(sessionId) ??
+                activeComposerSidRef.current.has(sessionId.trim())
+              )
+            }
+            onSend={(text) => {
+              const sid = sessionId.trim();
+              if (!sid || subagentTranscript) return;
+              // The way the composer's Send goes: the queue while a turn
+              // runs, else a turn on the chat's mode, model and reasoning.
+              if (
+                turnActivity.get(sid) ??
+                activeComposerSidRef.current.has(sid)
+              ) {
+                handleQueueMessage(
+                  text,
+                  queueMode ?? "after_turn",
+                  [],
+                  "canvas",
+                );
+                return;
+              }
+              void streamResponses(text, { restoreOnRefusal: false });
+            }}
+            onStop={() => stopActiveGeneration()}
+            onClose={closeCanvasWindow}
+          />
+        ) : null}
 
         {atSwarmRoot ? null : (
           <ChatScreen
@@ -7919,6 +8082,11 @@ export function App() {
               filesOpen ? closeFilesWindow() : openFilesWindow()
             }
             filesOpen={filesOpen}
+            onOpenCanvas={() =>
+              canvasOpen ? closeCanvasWindow() : openCanvasWindow()
+            }
+            canvasOpen={canvasOpen}
+            canvasFrames={canvasFrameCount}
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
             onBackgroundTasksChanged={() => {

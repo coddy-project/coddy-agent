@@ -23,6 +23,12 @@ export function ChatHeader(props: {
   onOpenFiles?: () => void;
   /** The files window is open. */
   filesOpen?: boolean;
+  /** Opens the chat's canvas, or puts it away; offered while it has frames. */
+  onOpenCanvas?: () => void;
+  /** The canvas window is open. */
+  canvasOpen?: boolean;
+  /** How many frames the chat's canvas holds. */
+  canvasFrames?: number;
 }) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
@@ -108,13 +114,20 @@ export function ChatHeader(props: {
           tasksOpen={props.tasksOpen === true}
           {...(props.onOpenFiles ? { onOpenFiles: props.onOpenFiles } : {})}
           filesOpen={props.filesOpen === true}
+          {...(props.onOpenCanvas && (props.canvasFrames ?? 0) > 0
+            ? {
+                onOpenCanvas: props.onOpenCanvas,
+                canvasFrames: props.canvasFrames ?? 0,
+              }
+            : {})}
+          canvasOpen={props.canvasOpen === true}
         />
       ) : null}
     </header>
   );
 }
 
-type ViewId = "tasks" | "files";
+type ViewId = "tasks" | "files" | "canvas";
 
 /**
  * The views of a chat in its header - its files, its background tasks - as a
@@ -136,8 +149,11 @@ function HeaderViews(props: {
   tasksOpen: boolean;
   onOpenFiles?: () => void;
   filesOpen: boolean;
+  onOpenCanvas?: () => void;
+  canvasOpen: boolean;
+  canvasFrames?: number;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const { running, total } = countTasks(props.tasks);
   const live = running > 0;
   const tasksName =
@@ -159,6 +175,15 @@ function HeaderViews(props: {
       name: t("chat.views.filesTitle", { key: filesShortcutLabel() }),
       pressed: props.filesOpen,
       run: props.onOpenFiles,
+    });
+  }
+  if (props.onOpenCanvas) {
+    views.push({
+      id: "canvas",
+      label: t("canvas.view.label"),
+      name: tp("canvas.view.title", props.canvasFrames ?? 0),
+      pressed: props.canvasOpen,
+      run: props.onOpenCanvas,
     });
   }
   views.push({
@@ -202,6 +227,8 @@ function HeaderViews(props: {
                   className={`bgtask-dot ${live ? "bgtask-dot--running" : "bgtask-dot--muted"}`}
                   aria-hidden="true"
                 />
+              ) : view.id === "canvas" ? (
+                <CanvasIcon />
               ) : (
                 <FilesIcon />
               )}
@@ -225,6 +252,28 @@ function HeaderViews(props: {
         </span>
       ))}
     </div>
+  );
+}
+
+/** The Canvas view's 18px line icon: two frames on a board. */
+function CanvasIcon() {
+  return (
+    <svg
+      className="chat-view-icon"
+      width={18}
+      height={18}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.3}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden={true}
+    >
+      <rect x="1.75" y="3" width="8" height="6.5" rx="1" />
+      <rect x="11" y="5" width="3.25" height="7.5" rx="0.8" />
+      <path d="M3.5 12.5h4.5" />
+    </svg>
   );
 }
 

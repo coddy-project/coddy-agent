@@ -5,12 +5,15 @@
  * origin, so the web UI around it cannot reach into it; this script is the
  * only thing the two say to each other, over postMessage:
  *
- *   frame -> window   ready, location, loaded, console, pick, escape
+ *   frame -> window   ready, location, loaded, console, pick, escape, leaving
  *   window -> frame   hello, mode, highlight
  *
  * The window learns nothing it did not already know from "hello"; the bridge
- * learns the window's origin from it and from then on answers only that origin
- * and window.parent. Everything the bridge sends is untrusted text for the
+ * learns the window's origin from it, the window's load generation and the
+ * frame's id, which it echoes in every later message so the window can tell
+ * this document's messages from those of the one before it - and name the
+ * frame of a "leaving" sent while the document is discarded, which arrives
+ * with no source; from then on it answers only that origin and window.parent. Everything the bridge sends is untrusted text for the
  * window: the page can fake or remove this script, which only spoils its own
  * picks and reports.
  */
@@ -19,11 +22,56 @@
   var PROTO = "coddy-canvas/1";
   if (window.__coddyCanvasBridge) return;
   window.__coddyCanvasBridge = true;
+
+  // An opaque origin has no localStorage or sessionStorage: reading either
+  // throws. A prototype that keeps its state there gets an in-memory Storage
+  // for the life of the frame instead, here and in a tab of its own.
+  function memoryStorage() {
+    var data = Object.create(null);
+    return {
+      get length() {
+        return Object.keys(data).length;
+      },
+      key: function (i) {
+        var k = Object.keys(data)[i];
+        return k === undefined ? null : k;
+      },
+      getItem: function (k) {
+        k = String(k);
+        return k in data ? data[k] : null;
+      },
+      setItem: function (k, v) {
+        data[String(k)] = String(v);
+      },
+      removeItem: function (k) {
+        delete data[String(k)];
+      },
+      clear: function () {
+        data = Object.create(null);
+      },
+    };
+  }
+  ["localStorage", "sessionStorage"].forEach(function (name) {
+    try {
+      void window[name];
+    } catch (e) {
+      try {
+        Object.defineProperty(window, name, {
+          value: memoryStorage(),
+          configurable: true,
+        });
+      } catch (e2) {
+        /* the property cannot be replaced here */
+      }
+    }
+  });
   // Opened in a tab of its own: there is no window to talk to.
   if (window.parent === window) return;
 
   var parentWin = window.parent;
   var parentOrigin = null;
+  var gen = 0;
+  var frameId = "";
   var pending = [];
   var mode = "interact";
   var MAX_TEXT = 300;
@@ -36,6 +84,8 @@
       if (pending.length < 200) pending.push(msg);
       return;
     }
+    msg.gen = gen;
+    msg.frame = frameId;
     try {
       parentWin.postMessage(msg, parentOrigin);
     } catch (e) {
@@ -61,6 +111,8 @@
     if (!d || d.proto !== PROTO || typeof d.type !== "string") return;
     if (d.type === "hello") {
       if (parentOrigin === null) {
+        gen = typeof d.gen === "number" && isFinite(d.gen) ? d.gen : 0;
+        frameId = typeof d.frame === "string" ? d.frame.slice(0, 64) : "";
         parentOrigin = ev.origin && ev.origin !== "null" ? ev.origin : "*";
         post({ type: "location", href: String(location.href) });
         if (document.readyState === "complete") {
@@ -88,6 +140,22 @@
 
   window.addEventListener("load", function () {
     post({ type: "loaded", title: cut(document.title, MAX_TEXT) });
+  });
+
+  // The document is going away: the window then expects the next one's
+  // "ready", and a navigation that brings none (another site, an error page)
+  // is a page that left the canvas.
+  window.addEventListener("pagehide", function () {
+    // Sent at once, greeted or not: a page that navigates on load goes
+    // before the window's hello arrives, and the message says only that.
+    try {
+      parentWin.postMessage(
+        { proto: PROTO, type: "leaving", gen: gen, frame: frameId },
+        parentOrigin && parentOrigin !== "*" ? parentOrigin : "*",
+      );
+    } catch (e) {
+      /* the window went away */
+    }
   });
 
   // Console: the errors and warnings the page logs and what it does not catch.
