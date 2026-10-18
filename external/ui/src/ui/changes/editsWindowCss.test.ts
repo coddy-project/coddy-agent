@@ -68,3 +68,17 @@ test("a file's head is as tall as the filter", () => {
   // The card's top border, then the head with its 1px line.
   expect(1 + height).toBe(parseFloat(input));
 });
+
+// A number cell is as wide as the widest number of its file, never as its own:
+// sized by its content, the blank cell of a removal or an addition and a row
+// of shorter numbers started their code left of the context around them.
+test("a line number cell takes its width from the file, not from its number", () => {
+  const num = rule(".dv-num");
+  expect(num).toMatch(
+    /(?:^|[;\s])width:\s*calc\(var\(--dv-num-digits\)\s*\*\s*1ch\)/,
+  );
+  // The width names the digits alone; the padding goes around them.
+  expect(num).toMatch(/box-sizing:\s*content-box/);
+  expect(num).not.toMatch(/min-width/);
+  expect(num).toMatch(/flex:\s*0 0 auto/);
+});

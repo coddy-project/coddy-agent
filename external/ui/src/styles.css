@@ -18969,15 +18969,20 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   background: var(--diff-del-bg);
 }
 
+/* Every number cell of a file is as wide as its widest number, never as its
+   own: --dv-num-digits comes with the diff (lineNumberDigits), and the content
+   box holds that many digits of the monospace stack. A cell sized by its
+   number put the code of a removal or an addition (one cell blank) and of a
+   row of shorter numbers a few pixels left of the context around it. */
 .dv-num {
   flex: 0 0 auto;
-  min-width: 4ch;
+  width: calc(var(--dv-num-digits) * 1ch);
   padding: 0 6px;
   text-align: right;
   font-size: 11px;
   color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
   user-select: none;
-  box-sizing: border-box;
+  box-sizing: content-box;
 }
 
 .dv-line--add .dv-num {

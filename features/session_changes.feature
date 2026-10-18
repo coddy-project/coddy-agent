@@ -34,6 +34,11 @@ Feature: Reviewing and discarding the edits of a session's working copy
     And I open the diff for "notes.txt"
     Then the diff removes "two" and adds "TWO"
 
+  Scenario: A line replaced by two reads as removed, then added
+    When the agent runs a turn that writes "notes.txt" as "one\nTWO\nTOO\nthree\n"
+    And I open the diff for "notes.txt"
+    Then the diff removes "two" before it adds "TWO" and "TOO"
+
   Scenario: Discarding one file puts it back at HEAD
     When the agent runs a turn that writes "notes.txt" as "one\nTWO\nthree\n"
     And the agent runs a turn that writes "extra.txt" as "fresh\n"
