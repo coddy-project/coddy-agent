@@ -1,7 +1,7 @@
 // Package version provides the application version string.
-// The Version and Revision variables are injected at build time via -ldflags (see Makefile print-version target):
+// The Version and Revision variables are injected at build time via -ldflags (see the Makefile targets print-version and print-revision):
 //
-//	go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(git rev-parse HEAD)"
+//	go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version) -X github.com/EvilFreelancer/coddy-agent/internal/version.Revision=$(make -s print-revision)"
 //
 //	Otherwise run `make build` from the repository. Without -X Version stays "dev" and Revision empty.
 package version

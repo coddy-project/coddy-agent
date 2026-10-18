@@ -1,4 +1,4 @@
-.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
+.PHONY: build build-acp android check-android ui-deps ui-build ui-test ui-typecheck ui-format-check fmt-check test test-matrix test-race test-cache test-perf bench-cli-startup bench-cli-startup-real print-test-tag-sets print-full-tags print-lint-tags-no-ui test-agent-rules test-opencode-rules check-windows lint lint-windows clean install print-version print-revision hooks deb rpm brew brew-cask-check brew-publish brew-formula brew-check check-image site-schema site-schema-check docs docs-check docs-stamp docs-changelog docs-fast site-docs site-docs-check skills-vendor skills-vendor-check security sec-trivy sec-semgrep sec-govulncheck sec-report
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -21,7 +21,7 @@
 #             make build TAGS="gateway metrics"
 #             make build TAGS="http ui scheduler memory cli gateway swarm metrics"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enable only applies when built with memory.
-#   VERSION / REVISION / LDFLAGS   embedded version string (see print-version) and commit.
+#   VERSION / REVISION / LDFLAGS   embedded version string and commit (see print-version, print-revision).
 
 # Prefer a tag that points at HEAD (semantically latest if several), else nearest tag from history,
 # else abbreviated commit (only if this is a git checkout), else "dev".
@@ -117,6 +117,10 @@ android:
 # Print the same version string embedded by `make build` (for manual go build -ldflags).
 print-version:
 	@echo $(VERSION)
+
+# Print the commit `make build` names as the binary's revision (empty outside git).
+print-revision:
+	@echo $(REVISION)
 
 # Install binary: /usr/local/bin for root, ~/.local/bin for regular users.
 INSTALL_DIR := $(if $(filter 0,$(shell id -u)),/usr/local/bin,$(HOME)/.local/bin)
