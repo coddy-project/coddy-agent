@@ -547,8 +547,8 @@ An [operator command](../features/operator-commands.md) - a command the agent
 was refused and asks you to run - opens a modal too: the agent's reason, the
 shell, the host and the folder, and every line of the command, which you cannot
 edit. The selection starts on **Decline**, so an Enter typed before the modal
-appeared never runs anything; `r`, or **Run** and Enter, runs it, and escape
-declines. While it runs, its tool box shows the output, escape stops it (the
+appeared never runs anything, and no letter key decides; **Run** and Enter runs
+it, and escape declines. While it runs, its tool box shows the output, escape stops it (the
 turn goes on with what it printed) and a second escape kills it. In `--remote`
 mode the same modal shows the server's request, and the command runs on the
 server, where the session's files are.

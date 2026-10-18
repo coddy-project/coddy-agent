@@ -207,6 +207,14 @@ func TestOperatorCommandRefusesWhatWouldDisplayDifferently(t *testing.T) {
 		"bidi override":   "echo \u202eevil",
 		"zero width":      "ec\u200bho x",
 		"bom":             "\ufeffecho x",
+		"invisible times": "echo a\u2063b",
+		"tag character":   "echo a\U000E0041",
+		"mongolian vowel": "echo a\u180eb",
+		"grapheme joiner": "echo a\u034fb",
+		"variation sel":   "echo a\ufe0fb",
+		"hangul filler":   "echo a\u3164b",
+		"line separator":  "echo a\u2028rm -rf ~",
+		"paragraph sep":   "echo a\u2029b",
 		"empty":           "   ",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -221,7 +229,7 @@ func TestOperatorCommandRefusesWhatWouldDisplayDifferently(t *testing.T) {
 		})
 	}
 	client := &operatorClient{available: true, answer: acp.OperatorActionDecline}
-	if _, err := runOperatorTool(t, operatorEnv(t, client), operatorArgs("printf 'a\\tb'\necho done")); err != nil {
+	if _, err := runOperatorTool(t, operatorEnv(t, client), operatorArgs("printf 'a\tb'\necho done")); err != nil {
 		t.Fatalf("a tab and a newline are ordinary: %v", err)
 	}
 }
@@ -398,5 +406,34 @@ func TestOperatorCancelKeepsTheRequestOpenUntilTheProcessEnds(t *testing.T) {
 	case <-tk.Finished():
 	case <-time.After(5 * time.Second):
 		t.Fatal("the request did not end once its process did")
+	}
+}
+
+// TestOperatorCommandRefusesAFolderThatWouldDisplayDifferently: the folder is
+// on the card too.
+func TestOperatorCommandRefusesAFolderThatWouldDisplayDifferently(t *testing.T) {
+	client := &operatorClient{available: true, answer: acp.OperatorActionRun}
+	env := operatorEnv(t, client)
+	odd := filepath.Join(env.CWD, "a\u202eb")
+	if err := os.MkdirAll(odd, 0o755); err != nil {
+		t.Skipf("the filesystem refuses the name: %v", err)
+	}
+	b, _ := json.Marshal(map[string]string{"command": "echo x", "reason": "r", "cwd": odd})
+	if _, err := runOperatorTool(t, env, string(b)); err == nil || !strings.Contains(err.Error(), "cwd") {
+		t.Fatalf("err = %v, want the folder refused", err)
+	}
+	if len(client.shown()) != 0 {
+		t.Fatal("the operator was shown a folder that reads differently")
+	}
+}
+
+// TestOperatorCommandRefusesAMultiLineCommandForCmd: cmd /c runs the first
+// line only, so the operator would approve lines that never run.
+func TestOperatorCommandRefusesAMultiLineCommandForCmd(t *testing.T) {
+	if err := validateOperatorCommandFor("echo a\necho b", platform.ShellCmd); err == nil {
+		t.Fatal("a multi-line command for cmd was accepted")
+	}
+	if err := validateOperatorCommandFor("echo a\necho b", platform.ShellBash); err != nil {
+		t.Fatalf("bash takes lines: %v", err)
 	}
 }

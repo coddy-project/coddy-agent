@@ -6,11 +6,20 @@ import (
 )
 
 // operatorCommandsOffered reports whether this turn may offer operator_command:
-// a person can answer on the turn's surface (the sender, or a wrapper that
-// forwards the capability, says so), and the turn is not a child's, whose
-// tool set leaves the tool out anyway.
+// the tool is registered (the operator did not turn it off), a person can
+// answer on the turn's surface (the sender, or a wrapper that forwards the
+// capability, says so), and the turn is not a child's, whose tool set leaves
+// the tool out anyway.
 func (a *Agent) operatorCommandsOffered() bool {
 	if a.subagent != nil {
+		return false
+	}
+	// tools.operator_command.enable: false leaves the tool out of the
+	// registry, and nothing may point at it then.
+	if a.registry == nil {
+		return false
+	}
+	if _, ok := a.registry.Get(tools.ToolOperatorCommand); !ok {
 		return false
 	}
 	return acp.OperatorCommandsOf(a.server) != nil

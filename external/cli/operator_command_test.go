@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"context"
 	"os/exec"
 	"regexp"
 	"runtime"
@@ -42,8 +43,12 @@ func TestOperatorModalStartsOnDecline(t *testing.T) {
 	if got := decideWith(t, "\x1b"); got != acp.OperatorActionDecline {
 		t.Fatalf("escape = %q, want decline", got)
 	}
-	if got := decideWith(t, "r"); got != acp.OperatorActionRun {
-		t.Fatalf("r = %q, want run", got)
+	// No letter runs it: a key typed for the editor while the modal opened
+	// must not be read as a decision.
+	for _, k := range []string{"r", "R", "y", " "} {
+		if got := decideWith(t, k); got != "" {
+			t.Fatalf("%q = %q, want no decision", k, got)
+		}
 	}
 	if got := decideWith(t, "\x1b[B", "\r"); got != acp.OperatorActionRun {
 		t.Fatalf("down, enter = %q, want run", got)
@@ -79,7 +84,12 @@ func TestEscapeStopsTheOperatorCommandFirst(t *testing.T) {
 	if err := tk.Answer(acp.OperatorActionRun, ""); err != nil {
 		t.Fatal(err)
 	}
-	a.operatorRunning(tk)
+	a.sessionID = "sess_1"
+	a.operatorRunning(tk, "sess_other")
+	if a.handleGlobalKey([]byte("\x1b")) && tk.State() != acp.OperatorStateRunning {
+		t.Fatal("escape in another session stopped this session's command")
+	}
+	a.operatorRunning(tk, "sess_1")
 	if !a.handleGlobalKey([]byte("\x1b")) {
 		t.Fatal("escape was not taken by the running operator command")
 	}
@@ -89,6 +99,28 @@ func TestEscapeStopsTheOperatorCommandFirst(t *testing.T) {
 	a.handleGlobalKey([]byte("\x1b"))
 	if tk.State() != acp.OperatorStateKilling {
 		t.Fatalf("after two escapes: %s", tk.State())
+	}
+}
+
+// TestRunHandsTheConsoleTheTicketAtOnce: an escape pressed right after Run
+// stops the command, not the turn - the ticket is the console's from the Run
+// itself, not from a later message.
+func TestRunHandsTheConsoleTheTicketAtOnce(t *testing.T) {
+	a := newTestApp(t)
+	a.sessionID = "sess_1"
+	tk := acp.NewOperatorCommandTicket()
+	a.openOperatorModal(opRequest{ctx: context.Background(), req: sampleOperatorRequest(), ticket: tk})
+	m, ok := a.modal.(*operatorModal)
+	if !ok {
+		t.Fatalf("modal = %T", a.modal)
+	}
+	m.HandleInput([]byte("\x1b[B"))
+	m.HandleInput([]byte("\r"))
+	if tk.State() != acp.OperatorStateRunning {
+		t.Fatalf("state after Run = %s", tk.State())
+	}
+	if !a.handleGlobalKey([]byte("\x1b")) || tk.State() != acp.OperatorStateStopping {
+		t.Fatalf("escape right after Run: state %s", tk.State())
 	}
 }
 

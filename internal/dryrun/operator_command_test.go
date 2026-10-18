@@ -45,3 +45,21 @@ func TestOperatorShellAndMultiplexerProbes(t *testing.T) {
 		t.Errorf("missing multiplexer %+v", c)
 	}
 }
+
+// TestOperatorShellIsProbedWithTheToolOff: the console's !! uses the shell
+// whatever the tool's switch says; the multiplexer serves only the tool.
+func TestOperatorShellIsProbedWithTheToolOff(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PATH lookup of a shell script is a POSIX fixture")
+	}
+	t.Setenv("PATH", t.TempDir())
+	rep := runYAMLBody(t, "tools:\n  operator_command:\n    enable: false\n    shell: definitely-not-a-shell\n    multiplexer: tmux\n")
+	if c := find(t, rep, "tools.operator_command.shell"); c.Status != StatusError {
+		t.Errorf("shell with the tool off: %+v", c)
+	}
+	for _, c := range rep.Checks {
+		if c.Path == "tools.operator_command.multiplexer" {
+			t.Errorf("the multiplexer of a turned-off tool was probed: %+v", c)
+		}
+	}
+}

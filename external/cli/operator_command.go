@@ -54,7 +54,6 @@ func (s *sender) RequestOperatorCommand(ctx context.Context, req acp.OperatorCom
 		return nil, err
 	}
 	if d.Action == acp.OperatorActionRun {
-		a.postUI(func() { a.operatorRunning(tk) })
 		go func() {
 			<-tk.Finished()
 			a.postUI(func() { a.operatorEnded(tk) })
@@ -63,11 +62,16 @@ func (s *sender) RequestOperatorCommand(ctx context.Context, req acp.OperatorCom
 	return d, nil
 }
 
-func (a *App) operatorRunning(tk *acp.OperatorCommandTicket) { a.opTicket = tk }
+// operatorRunning hands escape the ticket of the command the operator just
+// ran in sessionID; it is set by the Run itself, on the UI loop, so an escape
+// pressed right after it stops the command rather than the turn.
+func (a *App) operatorRunning(tk *acp.OperatorCommandTicket, sessionID string) {
+	a.opTicket, a.opSession = tk, sessionID
+}
 
 func (a *App) operatorEnded(tk *acp.OperatorCommandTicket) {
 	if a.opTicket == tk {
-		a.opTicket = nil
+		a.opTicket, a.opSession = nil, ""
 	}
 }
 
@@ -76,7 +80,9 @@ func (a *App) operatorEnded(tk *acp.OperatorCommandTicket) {
 // it. It reports whether escape was taken.
 func (a *App) stopOperatorCommand() bool {
 	tk := a.opTicket
-	if tk == nil {
+	// Only the command of the session on screen: escape in another session
+	// is about that one.
+	if tk == nil || a.opSession != a.sessionID {
 		return false
 	}
 	switch tk.State() {
@@ -97,7 +103,9 @@ func (a *App) openOperatorModal(req opRequest) {
 		a.blockStatus("Waiting for you to run or decline a command")
 		m := newOperatorModal(a.theme, req.req)
 		m.OnDone = func(action string) {
-			_ = req.ticket.Answer(action, "")
+			if req.ticket.Answer(action, "") == nil && action == acp.OperatorActionRun {
+				a.operatorRunning(req.ticket, req.req.SessionID)
+			}
 			a.closeModal()
 			a.screen.RequestRender()
 		}
@@ -107,7 +115,7 @@ func (a *App) openOperatorModal(req opRequest) {
 
 // operatorModal shows an operator command exactly as it will run and takes
 // Run or Decline. The selection starts on Decline: an Enter typed before the
-// modal appeared never runs anything.
+// modal appeared never runs anything, and no letter key decides.
 type operatorModal struct {
 	tui.Container
 
@@ -156,7 +164,7 @@ func newOperatorModal(theme *tui.Theme, req acp.OperatorCommandRequest) *operato
 	}
 	m.AddChild(tui.NewSpacer(1))
 	m.AddChild(m.list)
-	m.AddChild(tui.NewText(th.Fg(roleDim, "↑↓ navigate · enter choose · r run · esc decline"), 1, 0, nil))
+	m.AddChild(tui.NewText(th.Fg(roleDim, "↑↓ navigate · enter choose · esc decline"), 1, 0, nil))
 	m.AddChild(tui.NewDynamicBorder(th.FgFn(roleWarning)))
 	return m
 }
@@ -171,14 +179,10 @@ func (m *operatorModal) finish(action string) {
 	}
 }
 
-// HandleInput takes r as Run and forwards everything else to the list.
-func (m *operatorModal) HandleInput(data []byte) {
-	if s := string(data); s == "r" || s == "R" {
-		m.finish(acp.OperatorActionRun)
-		return
-	}
-	m.list.HandleInput(data)
-}
+// HandleInput forwards to the list. No letter is a decision: the console
+// takes keys while a turn runs, and one typed for the editor as the modal
+// opened must not run a command; Run is the second row and Enter.
+func (m *operatorModal) HandleInput(data []byte) { m.list.HandleInput(data) }
 
 // operatorFrameOutput is the output window a frame of a running operator
 // command carries, if it is one.

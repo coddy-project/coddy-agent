@@ -190,6 +190,7 @@ type App struct {
 	// opTicket is the operator command the operator ran and that still runs:
 	// escape stops it before it reaches the turn.
 	opTicket  *acp.OperatorCommandTicket
+	opSession string
 	inputCh   chan []byte
 	pasteCh   chan []byte
 	resizeCh  chan struct{}

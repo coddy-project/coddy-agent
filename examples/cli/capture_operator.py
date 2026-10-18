@@ -6,7 +6,7 @@ Stands a local OpenAI-compatible endpoint that scripts one turn - an
 seconds, then an answer that reads its output - so the shots need no provider
 and no key. It starts build/coddy cli in a pty and renders two PNGs: the modal
 that shows the command (selection on Decline), and the tool box streaming the
-command's output after `r` ran it.
+command's output after Run (down, Enter) ran it.
 
 Usage: python3 capture_operator.py [repo] [outdir]   (default docs/assets/operator-commands)
 Needs a cli-tagged build/coddy (make build TAGS=cli), pexpect, pyte and
@@ -199,7 +199,7 @@ try:
             raise AssertionError(f"{row!r} is not in the modal:\n{tui.text()}")
     capture.snapshot(tui, OUT, NAMES[0])
     print("modal captured")
-    tui.send("r")
+    tui.send("\x1b[B"); tui.pump(0.2); tui.send(CR)
     tui.wait_for("test...", timeout=20)
     tui.pump(0.3)
     capture.snapshot(tui, OUT, NAMES[1])

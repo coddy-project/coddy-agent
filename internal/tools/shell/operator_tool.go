@@ -163,8 +163,15 @@ func executeOperatorCommand(ctx context.Context, argsJSON string, env *tooling.E
 	if err != nil {
 		return "", fmt.Errorf("tools.operator_command.shell: %w", err)
 	}
+	if err := validateOperatorCommandFor(args.Command, commandShell.Kind); err != nil {
+		return "", err
+	}
 	cwd, err := operatorCWD(env.CWD, args.CWD)
 	if err != nil {
+		return "", err
+	}
+	// The folder is on the card too.
+	if err := validateOperatorText("cwd", cwd); err != nil {
 		return "", err
 	}
 	host, _ := os.Hostname()
@@ -457,16 +464,34 @@ func validateOperatorText(field, text string) error {
 	return nil
 }
 
-// hiddenRune reports the format characters that change how text displays
-// without showing: bidirectional controls and zero-width characters.
+// hiddenRune reports the characters that change how text displays without
+// showing, or show as nothing: every format character (Cf: bidirectional
+// controls, zero-width characters, invisible operators, tag characters), the
+// line and paragraph separators, the variation selectors, the combining
+// grapheme joiner and the Hangul fillers.
 func hiddenRune(r rune) bool {
 	switch {
-	case r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069, r == 0x200E, r == 0x200F, r == 0x061C:
+	case unicode.Is(unicode.Cf, r), unicode.Is(unicode.Zl, r), unicode.Is(unicode.Zp, r):
 		return true
-	case r >= 0x200B && r <= 0x200D, r == 0x2060, r == 0xFEFF, r == 0x00AD:
+	case r >= 0xFE00 && r <= 0xFE0F, r >= 0xE0100 && r <= 0xE01EF, r == 0x180B, r == 0x180C, r == 0x180D, r == 0x180F:
+		return true
+	case r == 0x034F, r == 0x115F, r == 0x1160, r == 0x3164, r == 0xFFA0:
 		return true
 	}
 	return false
+}
+
+// validateOperatorCommandFor adds what one shell cannot run as shown: cmd /c
+// runs the first line of its command line only, so a later line the operator
+// read would never run.
+func validateOperatorCommandFor(command string, kind platform.ShellKind) error {
+	if err := validateOperatorCommand(command); err != nil {
+		return err
+	}
+	if kind == platform.ShellCmd && strings.ContainsAny(command, "\r\n") {
+		return fmt.Errorf("command has more than one line, and cmd runs only the first: join the lines with & or use a PowerShell operator shell")
+	}
+	return nil
 }
 
 // operatorCWD resolves the folder the command runs in the way run_command

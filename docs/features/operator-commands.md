@@ -91,7 +91,7 @@ On macOS and Linux, `multiplexer: tmux` or `multiplexer: screen` runs each opera
 
 ## In the console
 
-The console shows the request in a dialog above the composer. The selection starts on **Decline**: an Enter you typed before the dialog appeared never runs anything. Press `r`, or move to **Run** and press Enter; escape declines.
+The console shows the request in a dialog above the composer. The selection starts on **Decline**: an Enter you typed before the dialog appeared never runs anything, and no letter key decides, so a word you were typing does not either. Move to **Run** and press Enter; escape declines.
 
 ![The console's operator command dialog: the shell, the host, the folder, the agent's reason and the command, with Decline selected](../assets/operator-commands/operator-command-console-modal-dark.png)
 
@@ -101,7 +101,7 @@ While the command runs, its tool box shows the output. Escape stops the command 
 
 ![The console while the operator command runs: its output streams into the tool's box](../assets/operator-commands/operator-command-console-running-dark.png)
 
-*After `r`, the command's output streams into the tool's box.*
+*After Run, the command's output streams into the tool's box.*
 
 The console captures are made with `examples/cli/capture_operator.py`.
 
