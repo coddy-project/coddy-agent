@@ -11,6 +11,8 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  lazy,
+  Suspense,
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
@@ -279,7 +281,12 @@ import {
 } from "./scheduler/hashRoute";
 import { DocsView } from "./docs/DocsView";
 import { FilesView } from "./files/FilesView";
-import { CanvasView } from "./canvas/CanvasView";
+// The canvas window is code a chat needs only once its canvas opens: a chunk
+// of its own, so app.js stays within the budget that
+// features/web_ui_diagrams.feature holds it to.
+const CanvasView = lazy(() =>
+  import("./canvas/CanvasView").then((m) => ({ default: m.CanvasView })),
+);
 import { useCanvasBoard } from "./canvas/useCanvasBoard";
 import { onOpenCanvas } from "./canvas/canvasBus";
 import { useFilesWindowKey } from "./files/filesWindowKey";
@@ -8051,48 +8058,50 @@ export function App() {
           />
         ) : null}
         {canvasOpen && sessionId.trim() ? (
-          <CanvasView
-            key={`canvas:${sessionId}`}
-            sessionId={sessionId}
-            board={canvas.board}
-            reloadBoard={canvas.reload}
-            focusFrameId={canvasFocus.frame}
-            focusSeq={canvasFocus.seq}
-            busy={
-              !!(
-                turnActivity.get(sessionId) ??
-                activeComposerSidRef.current.has(sessionId.trim())
-              )
-            }
-            onSend={(text, giveBack) => {
-              const sid = sessionId.trim();
-              if (!sid || subagentTranscript) {
-                giveBack();
-                return;
+          <Suspense fallback={null}>
+            <CanvasView
+              key={`canvas:${sessionId}`}
+              sessionId={sessionId}
+              board={canvas.board}
+              reloadBoard={canvas.reload}
+              focusFrameId={canvasFocus.frame}
+              focusSeq={canvasFocus.seq}
+              busy={
+                !!(
+                  turnActivity.get(sessionId) ??
+                  activeComposerSidRef.current.has(sessionId.trim())
+                )
               }
-              // The way the composer's Send goes: the queue while a turn
-              // runs, else a turn on the chat's mode, model and reasoning.
-              if (
-                turnActivity.get(sid) ??
-                activeComposerSidRef.current.has(sid)
-              ) {
-                handleQueueMessage(
-                  text,
-                  queueMode ?? "after_turn",
-                  [],
-                  "canvas",
-                  giveBack,
-                );
-                return;
-              }
-              void streamResponses(text, {
-                restoreOnRefusal: false,
-                onRefusal: giveBack,
-              });
-            }}
-            onStop={() => stopActiveGeneration()}
-            onClose={closeCanvasWindow}
-          />
+              onSend={(text, giveBack) => {
+                const sid = sessionId.trim();
+                if (!sid || subagentTranscript) {
+                  giveBack();
+                  return;
+                }
+                // The way the composer's Send goes: the queue while a turn
+                // runs, else a turn on the chat's mode, model and reasoning.
+                if (
+                  turnActivity.get(sid) ??
+                  activeComposerSidRef.current.has(sid)
+                ) {
+                  handleQueueMessage(
+                    text,
+                    queueMode ?? "after_turn",
+                    [],
+                    "canvas",
+                    giveBack,
+                  );
+                  return;
+                }
+                void streamResponses(text, {
+                  restoreOnRefusal: false,
+                  onRefusal: giveBack,
+                });
+              }}
+              onStop={() => stopActiveGeneration()}
+              onClose={closeCanvasWindow}
+            />
+          </Suspense>
         ) : null}
 
         {atSwarmRoot ? null : (
