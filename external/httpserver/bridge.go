@@ -46,6 +46,11 @@ type Sender struct {
 	model           string
 	sessionDir      string
 	questionPending func(sessionID string, pending bool)
+	// operatorCommands is set when the client that started the turn declared
+	// it answers operator commands (metadata.coddy_operator_commands on
+	// POST /v1/responses): a stream alone says nothing, an OpenAI client
+	// streams too and would leave the turn waiting for an answer forever.
+	operatorCommands bool
 	// lastWrite stamps the most recent frame so the idle keepalive knows whether the
 	// stream has gone quiet. Guarded by mu, like every other write to w.
 	lastWrite time.Time

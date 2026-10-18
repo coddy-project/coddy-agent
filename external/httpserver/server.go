@@ -1296,6 +1296,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		if body.Stream {
 			writeSSEHeaders(w)
 			bridge = s.configureSender(NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model))
+			bridge.EnableOperatorCommands(operatorCommandsFromHTTP(body.Metadata))
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}

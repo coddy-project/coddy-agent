@@ -2466,6 +2466,50 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/operator-command": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Answer an operator command: run, decline or stop",
+					"description": "Answers **`event: operator_command`** of a streaming **`POST /v1/responses`** turn whose request declared **`metadata.coddy_operator_commands`**: the agent asks the operator to run a shell command it was refused. The event carries **`requestId`**, **`toolCallId`**, the **`command`** exactly as it will run, **`reason`**, **`cwd`**, **`shell`**, **`shellPath`** and **`host`** (plus **`multiplexer`** and **`attachCommand`** when the command runs inside tmux or screen). The body names only the action: the server runs the command it holds, so a body with any other field (a **`command`**) is refused with 400. **`run`** starts the command, which then streams on the tool call's **`tool_call_update`** frames (**`_meta.coddy.operatorCommand`**: **`requestId`**, **`phase`** running / stopping / stopped / ended, **`output`** - the last lines - and **`exitCode`** at the end); **`decline`** refuses it (optional **`note`** reaches the agent); **`stop`** interrupts a running command (Ctrl+C) and a second **`stop`** terminates it. The first fitting answer wins across every client following the session. Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "id",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":                 "object",
+									"additionalProperties": false,
+									"required":             []interface{}{"requestId", "action"},
+									"properties": map[string]interface{}{
+										"requestId": map[string]string{"type": "string"},
+										"action": map[string]interface{}{
+											"type": "string",
+											"enum": []interface{}{"run", "decline", "stop"},
+										},
+										"note": map[string]interface{}{
+											"type":        "string",
+											"description": "Optional words for the agent with a decline.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Answer accepted"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/skills": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List skills",
@@ -4002,7 +4046,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. `surface: \"webui\"` (what the bundled web UI sends with every turn) adds a system prompt block for that turn telling the model the web UI draws `mermaid` and `svg` fences as pictures and typesets LaTeX; any other value, or none, adds nothing. `lang` (the web UI sends its locale, e.g. `\"ru\"`) is the language of the turn: Coddy's documentation that the turn's `@coddy:` mentions attach and the agent's documentation tools read is in it. `coddy_operator_commands: \"1\"` (what the web UI and the remote console send with a streaming turn) declares that the client shows **`event: operator_command`** and answers it through **`POST /coddy/sessions/{id}/operator-command`**; only such a turn is offered the agent's `operator_command` tool. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
