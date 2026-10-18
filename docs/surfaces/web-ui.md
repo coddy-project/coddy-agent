@@ -1221,6 +1221,26 @@ On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
 (`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
 the composer included.
 
+When the chat's canvas holds a frame, or is a `.canvas` file, a **Canvas** button
+stands between Files and Tasks; it opens the [Canvas window](#canvas), and its tooltip
+names the frames or the file.
+
+## Canvas
+
+The Canvas window is a third window over the chat, framed like the Files window: a
+board of live frames, each a page of the workspace running in a sandbox, and a prompt
+bar under it. It opens by itself when the agent puts a page on the canvas (never on a
+phone), from the **Canvas** button of the chat header, from the canvas_show card of the
+transcript and from **Open on canvas** in the Files window; its address is
+`#/s/<id>/canvas`. Its head switches **Interact** and **Comment**, zooms and fits the
+board, and holds the file menu, which saves the board as an Obsidian `.canvas` file,
+opens one as the board and gives the chat its own board back. The guide is
+[Canvas](../features/canvas.md).
+
+![The Canvas window in the light theme: two frames of one page beside the prompt bar](../assets/canvas/canvas-window-light-1280.png)
+
+*The Canvas window in the light theme.*
+
 ## Workspace files
 
 The **Files** window shows the session's workspace over the chat, the way the
@@ -2139,6 +2159,35 @@ CODDY_UI_URL=http://127.0.0.1:5247 npm --prefix external/ui run check:diagrams
 ```
 
 The stand also takes **`?theme=<id>`**, **`?lang=ru`** and **`?case=<name>`** (one answer of the stand) for screenshots. **`CODDY_BROWSER_PATH`** and **`CODDY_ENGINE=webkit`** work as in the checks above. It is **not part of `make test`**: run it when a change touches the Markdown renderers, their styles or the build of the chunks.
+
+### Checking the canvas through a swarm relay
+
+The Canvas window is checked against the real binary by
+**`external/ui/scripts/canvas-check.mjs`**: a scripted model puts a shop page of the
+workspace on the canvas, edits its script and reads the browser's report, a node that
+asks for a bearer token sits behind a relay with its own client token, and the browser
+reaches the node through the relay's mount only. It checks that the canvas opens on the
+frame the agent showed, that the page's module script runs in an opaque origin with the
+parent and the API out of reach, that a pick in Comment mode becomes the prompt of the
+chat, that the page's console error reaches `canvas_inspect`, that an edit reloads only
+the frame whose files moved, that a page which navigated away says so and its old
+address stops working, that a frame's address opened as a tab of its own is still
+sandboxed and refused by an open node, that the window fits every tier of the grid in
+English and in Russian, and that an Obsidian `.canvas` file works as the board: its page
+runs, its cards, group and edges are drawn, a dragged card and a resized frame move in
+the file with the keys Coddy does not know kept, and an edit of the file elsewhere
+shows on the open canvas.
+
+```bash
+make build TAGS="http ui swarm"
+cd external/ui && npm i --no-save playwright
+CODDY_BROWSER_PATH=/usr/bin/chromium npm run check:canvas
+```
+
+**`CODDY_SHOTS_DIR`** writes the screenshots of this page and of the canvas guide, and
+**`CODDY_ENGINE=webkit`** runs it in WebKit. It is **not part of `make test`**: run it
+when a change touches `external/ui/src/ui/canvas/`, `internal/canvas`, the canvas routes
+or the relay's mount.
 
 ### Checking the transcript at every width of the grid
 

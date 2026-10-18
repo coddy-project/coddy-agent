@@ -52,8 +52,8 @@ pointing at an element of the running app, version history beyond undo.
 What this plan takes: workspace files as the truth (every coding tool above), a board of
 device-sized frames (Stitch, Onlook), comment mode packaged as selector, HTML, styles and note
 (Hermes `pack.ts`, Cursor, Lovable), console errors offered back (Devin Desktop, Gemini's "Show
-console"), the frame's own response CSP `sandbox` (Claude), and - in a second stage - Bionic's
-editable sketch as a second kind of frame (6.10).
+console"), the frame's own response CSP `sandbox` (Claude), and Obsidian's JSON Canvas files as a
+board the canvas opens and writes back (6.10), in place of Bionic's Excalidraw scene.
 
 ## 3. Principles
 
@@ -446,23 +446,51 @@ An entry is a scheme-host source (`https://host`, `https://*.host`, an optional 
 files. Schema, `config.example.yaml`, `UISchemaMap`, the `configure-coddy` skill, the Russian
 descriptions and the site's copy of the schema move together.
 
-### 6.10 Sketch frames (second stage)
+### 6.10 JSON Canvas files (Obsidian)
 
-Bionic's half of the idea - a mockup both sides draw on - joins the same board as a second kind of
-frame, once the live frames pass their browser check:
+The operator asked for the canvas to work with Obsidian's canvases, so people move between the two
+without a conversion (2026-10-18). Obsidian stores a canvas as a `.canvas` file in **JSON Canvas 1.0**
+(jsoncanvas.org, MIT): `nodes` of type `text`, `file`, `link` and `group` with `x`, `y`, `width`,
+`height` and an optional `color` (`"1"` to `"6"` or hex), `edges` between them with `fromSide`,
+`toSide`, `fromEnd`, `toEnd`, `color` and `label`. This replaces the Excalidraw sketch frames planned
+here before: Obsidian is what the operator's readers use, and its format is already a board of
+positioned nodes, which is what the canvas is.
 
-- a frame can show an **`.excalidraw`** file of the workspace: the scene format Bionic, Excalidraw and
-  the agents' own Excalidraw skills write, so a sketch opens in excalidraw.com as well;
-- in the web UI it is an Excalidraw editor (the `@excalidraw/excalidraw` package, MIT, React 19,
-  loaded as a lazy chunk with its fonts embedded in the binary, never from a CDN), and the person's
-  edits are saved back to the file through
-  `PUT /coddy/sessions/{id}/canvas/frames/{frame}/sketch` with the version read (`If-Match`), so an
-  edit by the agent in between is never overwritten: the frame reloads it and says so;
-- the agent writes the sketch with `write` / `edit` like any file, and reads the person's changes
-  with `read` and git; `canvas_show` takes `.excalidraw` files, and its guidance says to sketch a
-  screen first when the person asks for a mockup;
-- the route writes only the frame's own file, only `.excalidraw`, at most 5 MB, as JSON that parses
-  as a scene.
+- **Linking.** A board can be **linked** to a `.canvas` file of the workspace (`Board.Link`, kept in
+  `canvas.json`; the chat's own frames wait there until the link is undone). From then on the file is
+  the board: every file node naming an HTML page of the workspace is a live frame (its page and root
+  checked as `canvas_show` checks them, its size clamped to the frame bounds, its device inferred from
+  its size), every other node is an **item** the web UI draws, and the edges are drawn between them.
+  Linking writes nothing; a file that cannot be read shows nothing of it and says why.
+- **The file stays Obsidian's.** `internal/canvas/jsoncanvas.go` reads the document into ordered
+  objects, so a key Coddy does not know - a field of a later version, `styleAttributes`, another
+  plugin's - and the order of the keys survive every write, and writes it the way Obsidian does, one
+  node and one edge per line with tabs, so a change shows in git as the lines it changed. A frame's
+  own settings that the standard has no field for (a device that its size does not say, a root that
+  is not the page's folder, a title, who added it) go under a namespaced `coddy` key of its node,
+  which Obsidian keeps; a node Coddy only moved gets no such key. The generation behind a frame's
+  address is the bundle's (`Board.Gens`), never the file's: a rotation writes nothing to the
+  workspace.
+- **Writes.** The file is read again before every write, and only the board's frames and the
+  geometry of the items it moved are applied to what is there, so an edit made in Obsidian in
+  between is kept. A frame shown on a linked board becomes a file node with an id in Obsidian's shape
+  (16 hex digits) right of everything on the board; a removed frame takes its edges along; a dragged
+  group carries the nodes inside it in one write (`PATCH .../canvas/nodes`, all or none). Writes
+  happen only when something changed (`dirty`), through a dot-named temporary file and a rename.
+- **Limits.** The file is a regular file of the workspace outside dot-named folders, at most 8 MB;
+  node paths are relative to the workspace, which is the vault's root; a page of another working
+  directory (a subagent's worktree) is refused on a linked board, since its path means nothing in the
+  vault; a node id outside `[A-Za-z0-9_-]{1,64}` is not a frame (it goes into addresses and bridge
+  messages); at most 24 frames.
+- **Surfaces.** `canvas_show` with a `.canvas` path links the board; the Files window offers
+  **Open on canvas** for a `.canvas` file; the window's file menu saves the chat's own board as a new
+  file (`Export`, which makes the folders it needs and then links it), opens one, shows it in Files
+  and gives the chat its own board back. The web UI draws text cards as Markdown, `.md` file nodes as
+  their note, pictures through the workspace media route, other files and links as cards (a link
+  opens only an `http(s)` address), groups under everything with their label, and edges as Obsidian's
+  curves from side to side with their arrows and labels; colours are taken only as a preset or a hex
+  value. The board is read again every few seconds while open, so an edit in Obsidian shows without
+  a reload.
 
 ## 7. Security summary
 
@@ -541,7 +569,9 @@ line, `DESIGN.md` (**Canvas window**), the `ui-spa` and `ui-verification` rules 
 5. SPA: the window, board, frames, bridge client, picks, prompt bar, tool card, Files menu item,
    i18n; vitest and the web UI feature.
 6. `check:canvas`, screenshots, documentation in both languages, `DESIGN.md`, rules.
-7. Sketch frames (6.10), their check and documentation.
+7. JSON Canvas files (6.10): the codec and the link in `internal/canvas`, the routes, `canvas_show`
+   for a `.canvas` path, the nodes and edges in the window, their scenario, unit tests and browser
+   check, documentation.
 8. Final cross-review.
 
 ## 11. Found on the way
@@ -554,7 +584,9 @@ line, `DESIGN.md` (**Canvas window**), the `ui-spa` and `ui-verification` rules 
 
 ## 12. Not in this change
 
-Drawing on the board outside a sketch frame; a screenshot of a frame for the model; frames
+Drawing on the board and editing a text card in the web UI (the file is edited in Obsidian or by the
+agent); Excalidraw sketch frames, which the JSON Canvas files replaced (6.10); a screenshot of a
+frame for the model; frames
 from a dev server (`npm run dev`) instead of files; version history beyond git; sharing a frame
 outside Coddy (issue #480); React/JSX compiled in the browser without a CDN.
 

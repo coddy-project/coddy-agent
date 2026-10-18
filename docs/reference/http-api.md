@@ -151,7 +151,9 @@ httpserver:
 When `cors.enable` is true, preflight `OPTIONS` requests for an allowed origin return `204` with
 `Access-Control-Allow-Origin` (echoed origin, or `*` when configured), `Vary: Origin` and
 `Access-Control-Allow-Headers: Authorization, Content-Type, X-Coddy-Session-ID`; disallowed origins
-receive no CORS headers. An origin is allowed when `allowed_origins` names it exactly, when
+receive no CORS headers. A request whose `Origin` is `null` (a sandboxed page, a `file://`
+page) is refused with `403` on every route but a canvas frame's address
+([Canvas](#canvas)). An origin is allowed when `allowed_origins` names it exactly, when
 `allowed_origins` holds `"*"`, or when `allow_loopback` is on and the origin is `http` or `https`
 with a loopback host - `localhost`, a `*.localhost` name, `127.0.0.0/8` or `[::1]` - on any port.
 The list is read first and in order, so a `"*"` in it answers `*` to every origin no entry names
@@ -447,3 +449,58 @@ rotating that credential invalidates outstanding URLs. An unauthenticated server
 uses a random per-process key. No API credential is placed in a media URL. CORS
 allows HEAD, Range and If-None-Match and exposes Content-Range, Accept-Ranges, ETag
 and Content-Disposition.
+
+## Canvas
+
+The routes of a chat's [canvas](../features/canvas.md): a board of live frames, each an HTML page
+of the session's workspace. A subagent's id acts on the board of the top session of its spawn tree.
+Every route answers `404` while `tools.canvas.enable` is false, and `409` for a session that is not
+saved.
+
+| Method | Route | Contract |
+|---|---|---|
+| GET | `/coddy/sessions/{id}/canvas` | The board: `session_id`, `revision`, `frames[]`. A frame carries `id`, `path`, `root`, `title`, `device`, `width`, `height`, `x`, `y`, `added_by`, `added_at`, `shown_at`, `gen`, `stamp` (a digest of the names, sizes and times of the files under its root, which moves when they change), `url` (its address relative to the API base, signed now) with `expires_at`, and `report`, the counts of the newest browser report. A board linked to a `.canvas` file adds `link` (`path`, `stamp`, which moves when the file changes, and `error` when it cannot be read), `items[]` (its other nodes: `id`, `type` - `text`, `file`, `link` or `group` - `x`, `y`, `width`, `height`, `color`, `text`, `file`, `url`, `label`, and `note` for a page that does not run) and `edges[]` (`id`, `fromNode`, `fromSide`, `fromEnd`, `toNode`, `toSide`, `toEnd`, `color`, `label`), read from the file on every request. `Cache-Control: no-store`. |
+| POST | `/coddy/sessions/{id}/canvas/frames` | Puts a page on the board: `{"path","root","title","device","width","height"}`, the page relative to the workspace. The same page at the same size is one frame (`reason: shown`); past 24 frames `409`. Answers `reason`, `frame`, `revision`. On a linked board the frame becomes a file node of the file. |
+| PATCH | `/coddy/sessions/{id}/canvas/frames/{frame}` | Moves, resizes or renames a frame: `title`, `device` (`""` for a custom size), `width`, `height`, `x`, `y`. |
+| DELETE | `/coddy/sessions/{id}/canvas/frames/{frame}` | Takes a frame off the board; the files stay, every address of the frame stops working, a linked file loses the node and its edges. |
+| POST | `/coddy/sessions/{id}/canvas/frames/{frame}/rotate` | Moves the frame to its next generation, so every address handed out before stops working; the web UI calls it when the page navigated away from the canvas. Answers the frame with its new address. A linked file is not written. |
+| POST | `/coddy/sessions/{id}/canvas/frames/{frame}/report` | What the browser saw: `stamp` (the files it loaded), `loaded`, `closed`, `error`, `title`, `console[]` (`level` `error` or `warning`, `message`, `source`, `line`, `column`). Kept in memory, the newest per frame, at most 20 lines of at most 1,000 characters; `canvas_inspect` reads it. `204`. |
+| PATCH | `/coddy/sessions/{id}/canvas/nodes` | Moves or resizes nodes in one change: `{"nodes":[{"id","x","y","width","height"}]}`, frames and the cards, links and groups of a linked file, at most 500, written to the file once. All of them or none: an id the board does not hold is `404`. |
+| POST | `/coddy/sessions/{id}/canvas/link` | Makes a `.canvas` file (JSON Canvas 1.0) of the workspace the board: `{"path"}`, a regular file outside dot-named folders, at most 8 MB, that parses. Its file nodes naming HTML pages are frames, the rest are `items`. Linking writes nothing; the chat's own frames wait until the link is undone. Answers the board. |
+| DELETE | `/coddy/sessions/{id}/canvas/link` | Gives the chat its own board back; the file stays. `409` while the board is not linked. |
+| POST | `/coddy/sessions/{id}/canvas/export` | Writes the chat's own board as a new `.canvas` file, `{"path"}`, making the folders it needs, and links the board to it. `409` when the file exists or the board is already linked. |
+| GET / HEAD | `/coddy/canvas/{capability}/{path}` | A file of a frame, `path` relative to its root; `.coddy/bridge.js` is the bridge script. |
+
+Writes to a linked file keep every node, edge and key they do not change, the keys Coddy does not
+know and their order included, and write one node and one edge per line, as Obsidian does. A frame's
+own settings go under a `coddy` key of its node. The generation behind a frame's address is kept in
+the session bundle, never in the file.
+
+Every change to a board is announced on `GET /coddy/events` as `event: canvas_changed` with
+`{"object":"coddy.canvas_changed","sessionId","revision","frameId","reason","at"}`; `reason` is
+`added`, `shown`, `updated`, `removed`, `linked` or `unlinked`.
+
+**A frame's address.** `/coddy/canvas/<capability>/<page>` is authenticated by the capability in its
+path alone: no bearer, no cookie, so it loads in an iframe of any origin, through a remote server
+and through a swarm relay alike. The capability is an HMAC over the session, the frame, its
+workspace, its root, its generation and an expiry of 12 hours, signed with a key derived for the
+canvas from the secret behind media tokens, so a media token never passes for a frame address. It is
+valid while the frame is on the board at that generation with that root and workspace; a removed,
+repointed or rotated frame answers `401`. Files are served through `os.Root` with no symbolic link
+on the way and the opened file checked to be the one walked to: `GET` and `HEAD` only, no
+dot-named path, a folder's `index.html` (with a `301` to add a missing slash), never a listing.
+
+Every answer of the route carries:
+
+- `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals; default-src 'self' data: blob: 'unsafe-inline' 'unsafe-eval' <sources>; connect-src 'self' <sources>; form-action 'none'; base-uri 'self'; frame-ancestors *`, the sources being the CDNs of `tools.canvas.allow_cdn` and `tools.canvas.allowed_sources`;
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`;
+- `Access-Control-Allow-Origin: *`, since the page's own module scripts and fetches come from an opaque origin; a preflight `OPTIONS` of the route is answered the same way.
+
+An HTML page gets the bridge script and a `<meta name="referrer" content="no-referrer">` at the
+start of its head, pages up to 10 MB.
+
+**Opaque origins.** Every other route refuses a request whose `Origin` header is `null` with `403`,
+before authentication and whatever credential it carries: a sandboxed page sends `Origin: null`, and
+neither a bearer it read from a file nor a relay's substituted credential may let it drive the
+server. A client that sends `Origin: null` by itself (a `file://` page) is refused the same way; one
+that sends no `Origin` is not affected.

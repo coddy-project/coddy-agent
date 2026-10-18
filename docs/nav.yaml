@@ -145,6 +145,9 @@ groups:
       - path: features/preview-server.md
         title: Preview server
         summary: Serving a project directory on a free localhost port so you can open HTML, JS and CSS work in a browser; the server as a background task, what it refuses to serve, the bind host.
+      - path: features/canvas.md
+        title: Canvas
+        summary: A board of live pages beside a chat of the web UI - canvas_show and canvas_inspect, pointing at an element to ask for a change, the sandbox a frame runs in, and Obsidian's .canvas files opened and written back as the board.
       - path: features/compaction.md
         title: Context compaction
         summary: /compact and automatic summarisation at a threshold, the kept recent turns, result eviction with keep_result.

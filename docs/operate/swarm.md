@@ -415,6 +415,17 @@ relay would refuse (an unknown or unreachable node, a path it does not carry); o
 otherwise. A relay that asks no client token hands such a request on the same way, without its own
 credential, so a relay with a gate above it in a chain cannot be walked around through it.
 
+The frames of the [canvas](../features/canvas.md) are the second such request: a `GET` or `HEAD` of a
+node's `/coddy/canvas/<capability>/<path>` with no `Authorization` header, through one mount or a
+chain of them. A frame is an iframe whose page runs in an opaque origin and loads its own scripts and
+files from its address, so the capability is in the path: the node signed it for one frame of one
+session, and only the node checks it. The relay carries the request without its own credential,
+answers its CORS itself with `Access-Control-Allow-Origin: *` (a preflight included) and passes the
+node's `Content-Security-Policy` through, which is what keeps the page in its sandbox. Every other
+request whose `Origin` is `null` - what a sandboxed page sends - is refused by the relay with `403`,
+whatever credential it carries, so a page on the canvas cannot reach a node's API through the relay
+either.
+
 Credentials are preserved across a config save by **destination**, not by label: renaming an
 entry keeps its token, pointing it at a new address does not.
 
