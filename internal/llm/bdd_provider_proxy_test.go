@@ -82,7 +82,34 @@ func (s *providerProxyState) fail(err error) {
 // that stands in for the origin.
 func answerProviderRequest(w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
+	if r.Method == http.MethodPost && (strings.HasSuffix(path, "/chat/completions") || strings.HasSuffix(path, "/v1/messages")) {
+		var body struct {
+			Stream bool `json:"stream"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid inference request", http.StatusBadRequest)
+			return true
+		}
+		if body.Stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			if strings.HasSuffix(path, "/chat/completions") {
+				_, _ = io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"pong\"},\"finish_reason\":null}]}\n\n"+
+					"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			} else {
+				events := append(anthropicEvents(anthropicTextBlock(0, "pong")), anthropicMessageEnd("end_turn")...)
+				for _, event := range events {
+					var head struct{ Type string }
+					_ = json.Unmarshal([]byte(event), &head)
+					_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", head.Type, event)
+				}
+			}
+			return true
+		}
+	}
 	switch {
+	case r.Method == http.MethodPost && strings.HasSuffix(path, ":streamGenerateContent"):
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", opencodeGoogleAnswer)
 	case r.Method == http.MethodPost && strings.HasSuffix(path, ":generateContent"):
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, opencodeGoogleAnswer)
@@ -439,15 +466,20 @@ func (s *providerProxyState) askCompletionAndModels(name string) error {
 	return nil
 }
 
-func (s *providerProxyState) askOpenCodeEverything(name string) error {
+func (s *providerProxyState) askOpenCodeEverything(name, gateway string) error {
 	row, err := s.row(name)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	for _, model := range []string{"glm-5.3", "gpt-6-luna", "claude-haiku-5-5", "gemini-4-argon-contributor"} {
-		p, err := NewProvider(ProviderInput{Type: "opencode", Model: model, APIKey: "k", SessionID: "proxy-conversation", ProxyURL: row.setting, RetryDisabled: true})
+	base, standPath := opencodeGoBaseURL, "/inference/go/v1"
+	if gateway == "Console" {
+		base, standPath = opencodeConsoleBaseURL, "/inference/v1"
+	}
+	s.setenv(EnvOpenCodeBaseURL, s.model.srv.URL+standPath)
+	for _, model := range []string{"glm-5.3", "gpt-6-luna", "claude-haiku-5-5", "gemini-4-argon-contributor", "qwen3.8-max", "minimax-m3"} {
+		p, err := NewProvider(ProviderInput{Type: "opencode", Model: model, BaseURL: base, APIKey: "k", SessionID: "proxy-conversation", ProxyURL: row.setting, RetryDisabled: true})
 		if err != nil {
 			return err
 		}
@@ -457,11 +489,20 @@ func (s *providerProxyState) askOpenCodeEverything(name string) error {
 		} else if resp.Content != "pong" {
 			s.fail(fmt.Errorf("%s: content %q", model, resp.Content))
 		}
+		var streamed strings.Builder
+		resp, err = p.Stream(ctx, []Message{{Role: RoleUser, Content: "ping"}}, nil, func(chunk StreamChunk) {
+			streamed.WriteString(chunk.TextDelta)
+		})
+		if err != nil {
+			s.fail(fmt.Errorf("%s stream: %w", model, err))
+		} else if resp.Content != "pong" || streamed.String() != "pong" {
+			s.fail(fmt.Errorf("%s: stream content %q, chunks %q", model, resp.Content, streamed.String()))
+		}
 	}
-	if _, err := ListModels(ctx, ProviderInput{Type: "opencode", APIKey: "k", ProxyURL: row.setting}); err != nil {
+	if _, err := ListModels(ctx, ProviderInput{Type: "opencode", BaseURL: base, APIKey: "k", ProxyURL: row.setting}); err != nil {
 		s.fail(err)
 	}
-	if _, err := ApplyOpenCodeLoginToConfig(ctx, s.testConfig(), name, opencodeGoBaseURL, "k", row.setting); err != nil {
+	if _, err := ApplyOpenCodeLoginToConfig(ctx, s.testConfig(), name, base, "k", row.setting); err != nil {
 		s.fail(err)
 	}
 	return nil
@@ -793,7 +834,7 @@ func initializeProviderProxyScenario(t *testing.T) func(*godog.ScenarioContext) 
 		sc.Step(`^an? "([^"]*)" provider "([^"]*)" with a proxy of its own$`, s.aProviderWithAProxyOfItsOwn)
 		sc.Step(`^"([^"]*)" is asked for a completion$`, s.askCompletion)
 		sc.Step(`^"([^"]*)" is asked for a completion and its model list$`, s.askCompletionAndModels)
-		sc.Step(`^"([^"]*)" is asked for all OpenCode protocols, its model list and a login config apply$`, s.askOpenCodeEverything)
+		sc.Step(`^"([^"]*)" is asked for all OpenCode protocols and streams, its model list and a login config apply on "([^"]*)"$`, s.askOpenCodeEverything)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a command safety decision and its auth flow$`, s.askNeuralDeepEverything)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a token refresh, a device sign-in and a config apply$`, s.askCodexEverything)
 		sc.Step(`^"([^"]*)" is asked for a credential check, its model list, a chat answer, its account usage and a sign-in$`, s.askDevinEverything)

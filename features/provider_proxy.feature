@@ -90,21 +90,25 @@ Feature: Each provider reaches its server the way its own proxy setting says
       | with proxy "none"       | 0                       | 0                     | 2        |
       | with a proxy of its own | 0                       | 2                     | 0        |
 
-  Scenario Outline: Every OpenCode API family and catalog request follows the provider's setting
+  Scenario Outline: Every OpenCode API family, stream and catalog request follows the provider's setting
     Given the environment names a proxy for every request
     And an "opencode" provider "oc" <setting>
-    When "oc" is asked for all OpenCode protocols, its model list and a login config apply
+    When "oc" is asked for all OpenCode protocols and streams, its model list and a login config apply on "<gateway>"
     Then every answer comes back
     And the environment's proxy carried <through the environment> requests
     And the own proxy of "oc" carried <through its own proxy> requests
     And the provider's servers were reached directly <directly> times
 
     Examples:
-      | setting                 | through the environment | through its own proxy | directly |
-      | without a proxy setting | 6                       | 0                     | 0        |
-      | with proxy "inherit"    | 6                       | 0                     | 0        |
-      | with proxy "none"       | 0                       | 0                     | 6        |
-      | with a proxy of its own | 0                       | 6                     | 0        |
+      | gateway | setting                 | through the environment | through its own proxy | directly |
+      | Go      | without a proxy setting | 14                      | 0                     | 0        |
+      | Go      | with proxy "inherit"    | 14                      | 0                     | 0        |
+      | Go      | with proxy "none"       | 0                       | 0                     | 14       |
+      | Go      | with a proxy of its own | 0                       | 14                    | 0        |
+      | Console | without a proxy setting | 14                      | 0                     | 0        |
+      | Console | with proxy "inherit"    | 14                      | 0                     | 0        |
+      | Console | with proxy "none"       | 0                       | 0                     | 14       |
+      | Console | with a proxy of its own | 0                       | 14                    | 0        |
 
   Scenario: A proxy URL on one provider leaves the direct provider next to it alone
     Given the environment names a proxy for every request
