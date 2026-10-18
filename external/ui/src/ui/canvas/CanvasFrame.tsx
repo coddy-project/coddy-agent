@@ -55,6 +55,8 @@ interface Props {
   onPick: (frame: Frame, element: PickedElement, screenRect: Rect) => void;
   onEscape: () => void;
   onMove: (frame: Frame, x: number, y: number) => void;
+  /** A drag of the title bar in progress, in screen pixels; 0, 0 when it ends. */
+  onDragging?: (frame: Frame, dx: number, dy: number) => void;
   onResize: (frame: Frame, device: CanvasDevice) => void;
   onRemove: (frame: Frame) => void;
   /** The page navigated away from the canvas: revoke its address. */
@@ -342,6 +344,7 @@ export function CanvasFrame(props: Props) {
     const s = dragStart.current;
     if (!s) return;
     setDrag({ dx: e.clientX - s.x, dy: e.clientY - s.y });
+    props.onDragging?.(frame, e.clientX - s.x, e.clientY - s.y);
   };
   const onBarUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     const s = dragStart.current;
@@ -350,6 +353,7 @@ export function CanvasFrame(props: Props) {
     const dx = (e.clientX - s.x) / scale;
     const dy = (e.clientY - s.y) / scale;
     setDrag(null);
+    props.onDragging?.(frame, 0, 0);
     if (Math.abs(dx) + Math.abs(dy) >= 2) {
       props.onMove(frame, Math.round(frame.x + dx), Math.round(frame.y + dy));
     }
@@ -376,6 +380,7 @@ export function CanvasFrame(props: Props) {
         onPointerCancel={() => {
           dragStart.current = null;
           setDrag(null);
+          props.onDragging?.(frame, 0, 0);
         }}
       >
         <span className="canvas-frame-title" title={frame.path}>

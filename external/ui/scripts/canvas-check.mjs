@@ -26,7 +26,13 @@
  *     without an Origin is served (the control). The binary never runs a
  *     relay without a client token (it generates one for the run), so an open
  *     relay is the Go tests' case (external/swarm/canvas_capability_test.go);
- *   - the window at every tier of the grid, in English and Russian.
+ *   - the window at every tier of the grid, in English and Russian;
+ *   - an Obsidian canvas (design/shop.canvas, JSON Canvas) linked as the
+ *     board: its page runs as a frame through the relay, its text card, note,
+ *     link, group and edges are drawn, a dragged card and a frame resized from
+ *     its menu move in the file with the keys Coddy does not know kept, an
+ *     edit of the file elsewhere shows on the open canvas, and the chat gets
+ *     its own board back with the file left in place.
  *
  * With CODDY_SHOTS_DIR set, the documentation's screenshots are taken on a
  * plain node without a relay or a token.
@@ -116,6 +122,23 @@ const APP_JS_EDITED = APP_JS.replace("Add to cart", "Buy").replace(
   'document.getElementById("add").textContent = "Buy";\ndocument.getElementById("add")',
 );
 
+// A board as Obsidian writes it: a group, a text card with a key of
+// Obsidian's own, a note file, a link, the shop page as a file node, edges.
+const OBSIDIAN_CANVAS = `{
+	"nodes":[
+		{"id":"b1a2c3d4e5f60789","type":"group","x":-760,"y":-80,"width":700,"height":980,"label":"Brief","color":"5"},
+		{"id":"c0ffee0000000001","type":"text","text":"## Checkout\\nTwo steps: **cart**, then *pay*.","x":-720,"y":-20,"width":620,"height":200,"color":"4","styleAttributes":{"textAlign":"left"}},
+		{"id":"c0ffee0000000002","type":"file","file":"notes/brief.md","x":-720,"y":240,"width":620,"height":300},
+		{"id":"c0ffee0000000003","type":"link","url":"https://jsoncanvas.org/","x":-720,"y":600,"width":620,"height":160},
+		{"id":"5b0a0c0d0e0f1011","type":"file","file":"site/index.html","x":0,"y":0,"width":1280,"height":800}
+	],
+	"edges":[
+		{"id":"e0e0e0e0e0e0e001","fromNode":"c0ffee0000000001","fromSide":"right","toNode":"5b0a0c0d0e0f1011","toSide":"left","label":"opens","color":"4"},
+		{"id":"e0e0e0e0e0e0e002","fromNode":"c0ffee0000000002","toNode":"c0ffee0000000001"}
+	]
+}
+`;
+
 function seedWorkspace(dir) {
   const files = {
     "site/index.html": `<!doctype html>
@@ -155,6 +178,9 @@ function seedWorkspace(dir) {
     "site/leave.html": `<!doctype html><title>away</title><script>location.href = ${JSON.stringify(NOWHERE)};</script>`,
     "site/.env": "SECRET=never-served\n",
     "other/index.html": `<!doctype html><html><head><title>Other</title><style>body{font-family:system-ui;margin:40px}</style></head><body><h1>Other page</h1></body></html>`,
+    "notes/brief.md":
+      "# Brief\n\nA shop for the workshop: **three** products, one checkout.\n",
+    "design/shop.canvas": OBSIDIAN_CANVAS,
   };
   for (const [rel, body] of Object.entries(files)) {
     const p = path.join(dir, rel);
@@ -936,6 +962,164 @@ try {
   }
   await ru.context.close();
 
+  // ------------------------------------------------------ an Obsidian canvas
+  // A .canvas file of the workspace becomes the board: its page runs as a
+  // frame through the relay, its cards, groups and edges are drawn, a card
+  // dragged on the canvas moves in the file, and an edit of the file
+  // elsewhere (Obsidian) shows without a reload.
+  {
+    const canvasFile = path.join(workspace, "design", "shop.canvas");
+    const linked = await relayApi(`/coddy/sessions/${sid}/canvas/link`, {
+      method: "POST",
+      body: JSON.stringify({ path: "design/shop.canvas" }),
+    });
+    check(
+      "a .canvas file links through the relay",
+      linked.status === 200,
+      String(linked.status),
+    );
+    const ob = await openPage();
+    await ob.page.goto(`${RELAY}/?lang=en#/s/${sid}/canvas`);
+    await ob.page.getByTestId("canvas-view").waitFor();
+    const obFrame = await frameFor(ob.page, "index.html");
+    const drawn = await until("the file's nodes", () =>
+      ob.page.evaluate(() => {
+        const q = (s) => document.querySelector(s);
+        const card = q('[data-node-id="c0ffee0000000001"]');
+        const note = q('[data-node-id="c0ffee0000000002"]');
+        return card && note && note.textContent.includes("three")
+          ? {
+              subtitle: q("[data-testid=canvas-subtitle]")?.textContent || "",
+              heading: card.querySelector("h2")?.textContent || "",
+              note: note.textContent,
+              group: q("[data-testid=canvas-group]")?.textContent || "",
+              edges: document.querySelectorAll("path.canvas-edge").length,
+              label: q(".canvas-edge-label")?.textContent || "",
+              link:
+                q('[data-node-id="c0ffee0000000003"] a')?.getAttribute(
+                  "href",
+                ) || "",
+            }
+          : null;
+      }),
+    );
+    check(
+      "the window names the linked file",
+      drawn.subtitle.includes("design/shop.canvas"),
+      drawn.subtitle,
+    );
+    check("a text card is rendered Markdown", drawn.heading === "Checkout");
+    check("a note file node shows the note", drawn.note.includes("Brief"));
+    check("a group shows its label", drawn.group === "Brief", drawn.group);
+    check(
+      "the edges are drawn with their label",
+      drawn.edges === 2 && drawn.label === "opens",
+      JSON.stringify(drawn),
+    );
+    check(
+      "a link node links out",
+      drawn.link === "https://jsoncanvas.org/",
+      drawn.link,
+    );
+    await clickInFrame(ob.page, obFrame, "#add");
+    const counted = await until("the count in the file's frame", () =>
+      obFrame
+        .evaluate(() => document.getElementById("count")?.textContent || "")
+        .then((t) => (/count: [1-9]/.test(t) ? t : "")),
+    ).catch(() => "");
+    check("the file's page runs as a live frame", !!counted, counted);
+
+    // Drag the text card 160px to the right.
+    const card = ob.page.locator('[data-node-id="c0ffee0000000001"]');
+    const box = await card.boundingBox();
+    const scale = await ob.page.evaluate(() => {
+      const el = document.querySelector('[data-node-id="c0ffee0000000001"]');
+      return el.getBoundingClientRect().width / 620;
+    });
+    await ob.page.mouse.move(box.x + 40, box.y + box.height - 20);
+    await ob.page.mouse.down();
+    for (let i = 1; i <= 8; i++) {
+      await ob.page.mouse.move(box.x + 40 + i * 20, box.y + box.height - 20);
+    }
+    await ob.page.mouse.up();
+    const want = -720 + Math.round(160 / scale);
+    const moved = await until("the card moved in the file", () => {
+      const doc = JSON.parse(fs.readFileSync(canvasFile, "utf8"));
+      const n = doc.nodes.find((x) => x.id === "c0ffee0000000001");
+      return Math.abs(n.x - want) <= 2 ? n : null;
+    }).catch(() => null);
+    check(
+      "a card dragged on the canvas moves in the file",
+      !!moved,
+      `want x ${want}, file ${fs.readFileSync(canvasFile, "utf8").slice(0, 400)}`,
+    );
+    const raw = fs.readFileSync(canvasFile, "utf8");
+    check(
+      "the file keeps what Coddy does not know, one node per line",
+      raw.includes('"styleAttributes":{"textAlign":"left"}') &&
+        /\n\t\t\{"id":"c0ffee0000000001",/.test(raw),
+    );
+
+    // The frame's size menu: a tablet, written into its node.
+    const bar = ob.page.locator(
+      '[data-testid=canvas-frame-bar][data-frame-id="5b0a0c0d0e0f1011"]',
+    );
+    await bar.getByRole("button", { name: "Size" }).click();
+    await ob.page.getByRole("menuitemradio", { name: /Tablet/ }).click();
+    const resized = await until("the tablet node in the file", () => {
+      const doc = JSON.parse(fs.readFileSync(canvasFile, "utf8"));
+      const n = doc.nodes.find((x) => x.id === "5b0a0c0d0e0f1011");
+      return n.width === 820 && n.height === 1180 ? n : null;
+    }).catch(() => null);
+    check("a frame resized from its menu is resized in the file", !!resized);
+
+    // Obsidian edits the file: the card's text changes on the canvas.
+    fs.writeFileSync(
+      canvasFile,
+      raw.replace("## Checkout", "## Checkout in one step"),
+    );
+    const edited = await until(
+      "the outside edit on the canvas",
+      () =>
+        ob.page.evaluate(
+          () =>
+            document.querySelector('[data-node-id="c0ffee0000000001"] h2')
+              ?.textContent === "Checkout in one step",
+        ),
+      12000,
+    ).catch(() => false);
+    check("an edit of the file elsewhere shows on the open canvas", edited);
+
+    // Back to the chat's own board: the file stays as it is.
+    await ob.page.getByTestId("canvas-file-menu").click();
+    const menuInside = await ob.page.evaluate(() => {
+      const m = document
+        .querySelector(".canvas-file-menu")
+        .getBoundingClientRect();
+      const w = document
+        .querySelector("[data-testid=canvas-view]")
+        .getBoundingClientRect();
+      return m.left >= w.left - 0.5 && m.right <= w.right + 0.5;
+    });
+    check("the file menu stays inside the window", menuInside);
+    await ob.page.getByTestId("canvas-file-unlink").click();
+    const own = await until("the chat's own board", () =>
+      ob.page.evaluate(() =>
+        document.querySelector("[data-node-id]") === null &&
+        !document
+          .querySelector("[data-testid=canvas-subtitle]")
+          ?.textContent.includes(".canvas")
+          ? true
+          : false,
+      ),
+    ).catch(() => false);
+    check(
+      "the chat gets its own board back and the file stays",
+      own && fs.existsSync(canvasFile),
+    );
+    await ob.context.close();
+  }
+
   // ------------------------------- a frame's address opened as a tab of its own
   // The open node (no token, no sign-in) keeps sessions of its own: one of its
   // turns puts the page on its canvas.
@@ -1060,6 +1244,40 @@ try {
         await s.page.setViewportSize({ width: 390, height: 844 });
         await s.page.waitForTimeout(600);
         await shoot(s.page, "canvas-window-dark-390");
+      }
+      await s.context.close();
+    }
+    // A board drawn in Obsidian, open on the canvas.
+    for (const theme of ["dark", "light"]) {
+      const s = await openPage({ throughRelay: false, theme });
+      await s.page.goto(`${SHOTS_NODE}/?lang=en`);
+      await ask(
+        s.page,
+        "Please show the shop on the canvas",
+        "The shop is on the canvas.",
+      );
+      const shotSid = await sessionIdOf(s.page);
+      await fetch(`${SHOTS_NODE}/coddy/sessions/${shotSid}/canvas/link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "design/shop.canvas" }),
+      });
+      await showCanvas(s.page);
+      await until("the note", () =>
+        s.page.evaluate(() =>
+          (
+            document.querySelector('[data-node-id="c0ffee0000000002"]')
+              ?.textContent || ""
+          ).includes("three"),
+        ),
+      );
+      await frameFor(s.page, "index.html");
+      await s.page.getByTestId("canvas-fit").click();
+      await s.page.waitForTimeout(900);
+      await shoot(s.page, `canvas-obsidian-${theme}-1280`);
+      if (theme === "dark") {
+        await s.page.getByTestId("canvas-file-menu").click();
+        await shoot(s.page, "canvas-file-menu-dark-1280");
       }
       await s.context.close();
     }

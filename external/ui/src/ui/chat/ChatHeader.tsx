@@ -29,6 +29,8 @@ export function ChatHeader(props: {
   canvasOpen?: boolean;
   /** How many frames the chat's canvas holds. */
   canvasFrames?: number;
+  /** The .canvas file the chat's canvas is, when it is one: offered too. */
+  canvasFile?: string;
 }) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
@@ -114,10 +116,12 @@ export function ChatHeader(props: {
           tasksOpen={props.tasksOpen === true}
           {...(props.onOpenFiles ? { onOpenFiles: props.onOpenFiles } : {})}
           filesOpen={props.filesOpen === true}
-          {...(props.onOpenCanvas && (props.canvasFrames ?? 0) > 0
+          {...(props.onOpenCanvas &&
+          ((props.canvasFrames ?? 0) > 0 || !!props.canvasFile)
             ? {
                 onOpenCanvas: props.onOpenCanvas,
                 canvasFrames: props.canvasFrames ?? 0,
+                ...(props.canvasFile ? { canvasFile: props.canvasFile } : {}),
               }
             : {})}
           canvasOpen={props.canvasOpen === true}
@@ -152,6 +156,7 @@ function HeaderViews(props: {
   onOpenCanvas?: () => void;
   canvasOpen: boolean;
   canvasFrames?: number;
+  canvasFile?: string;
 }) {
   const { t, tp } = useT();
   const { running, total } = countTasks(props.tasks);
@@ -181,7 +186,9 @@ function HeaderViews(props: {
     views.push({
       id: "canvas",
       label: t("canvas.view.label"),
-      name: tp("canvas.view.title", props.canvasFrames ?? 0),
+      name: props.canvasFile
+        ? t("canvas.view.titleFile", { file: props.canvasFile })
+        : tp("canvas.view.title", props.canvasFrames ?? 0),
       pressed: props.canvasOpen,
       run: props.onOpenCanvas,
     });

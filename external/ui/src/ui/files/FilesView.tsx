@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { addFrame } from "../canvas/api";
+import { addFrame, isCanvasFile, linkCanvasFile } from "../canvas/api";
 import { openCanvas } from "../canvas/canvasBus";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
@@ -418,6 +418,24 @@ export function FilesView(props: {
                             // its own (or the frame it already has), shown.
                             void addFrame(sessionId, { path: active }).then(
                               (res) => openCanvas(res.frame.id),
+                              () => {},
+                            );
+                          }}
+                        >
+                          <span className="files-menu-check" aria-hidden />
+                          {t("canvas.openOnCanvas")}
+                        </button>
+                      ) : isCanvasFile(active) ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="mode-item files-menu-item"
+                          data-testid="files-open-on-canvas"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            // A JSON Canvas file becomes the chat's canvas.
+                            void linkCanvasFile(sessionId, active).then(
+                              () => openCanvas(),
                               () => {},
                             );
                           }}

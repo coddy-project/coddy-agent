@@ -18363,11 +18363,14 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   display: inline-flex;
 }
 
+/* Over its own backdrop (.mode-menu-backdrop, 100) in the same stacking
+   context, or the backdrop takes the click meant for an item. */
 .canvas-frame-menu {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  z-index: 3;
+  left: auto;
+  z-index: 101;
   min-width: 190px;
 }
 
@@ -18626,11 +18629,312 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   background: color-mix(in srgb, var(--text) 12%, transparent);
 }
 
-/* A phone: the head keeps the mode and the zoom; the fit and the expand
-   controls give way, the frames start fitted. */
+/* The nodes of a linked .canvas file (JSON Canvas, Obsidian's format) that
+   are not live frames: groups under everything, then the edges, then the
+   cards; a node's body stands at its own size, scaled like a frame. */
+.canvas-group,
+.canvas-node {
+  position: absolute;
+  box-sizing: border-box;
+  cursor: grab;
+  user-select: none;
+  --canvas-node-tint: var(--canvas-node-color, var(--text));
+}
+
+.canvas-group {
+  border-radius: 10px;
+  border: 2px solid color-mix(in srgb, var(--canvas-node-tint) 28%, transparent);
+  background: color-mix(in srgb, var(--canvas-node-tint) 5%, transparent);
+}
+
+.canvas-group.is-colored {
+  border-color: color-mix(in srgb, var(--canvas-node-color) 70%, transparent);
+  background: color-mix(in srgb, var(--canvas-node-color) 9%, transparent);
+}
+
+.canvas-group-label {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--canvas-node-tint) 16%, var(--bg));
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.canvas-node {
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 22%, transparent);
+}
+
+.canvas-node.is-colored {
+  border-color: var(--canvas-node-color);
+  background: color-mix(in srgb, var(--canvas-node-color) 10%, var(--bg));
+}
+
+.canvas-group.is-dragging,
+.canvas-node.is-dragging {
+  cursor: grabbing;
+  opacity: 0.92;
+}
+
+.canvas-node-body {
+  box-sizing: border-box;
+  transform-origin: 0 0;
+  overflow: hidden;
+}
+
+.canvas-node-text {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  overflow: hidden;
+  font-size: 16px;
+}
+
+.canvas-node-note-name {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.canvas-node-card {
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  font-size: 15px;
+  overflow: hidden;
+}
+
+.canvas-node-kind {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.canvas-node-name {
+  color: var(--text);
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.canvas-node-folder,
+.canvas-node-url {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+a.canvas-node-url {
+  color: var(--coddy-link);
+}
+
+.canvas-node-warning {
+  margin-top: 4px;
+  color: var(--coddy-danger);
+  font-size: 13px;
+}
+
+.canvas-node-open {
+  align-self: flex-start;
+  margin-top: auto;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.canvas-node-open:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.canvas-node-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  -webkit-user-drag: none;
+}
+
+.canvas-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+.canvas-edge {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.canvas-edge-arrow {
+  fill: currentColor;
+}
+
+.canvas-edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: 220px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.canvas-link-error {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--coddy-danger) 50%, transparent);
+  background: color-mix(in srgb, var(--coddy-danger) 10%, var(--bg));
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.canvas-subtitle-file {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* The file menu of the head and its form. */
+.canvas-file-host {
+  position: relative;
+  display: inline-flex;
+}
+
+.canvas-file-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  z-index: 101;
+  min-width: 230px;
+}
+
+.canvas-file-menu-note {
+  margin: 0;
+  padding: 6px 12px 4px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.canvas-file-form {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  width: min(340px, calc(100vw - 32px));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.canvas-file-label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.canvas-file-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  padding: 0 10px;
+}
+
+.canvas-file-found {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.canvas-file-found-item {
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.canvas-file-found-item:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+.canvas-file-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.canvas-file-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--coddy-danger);
+  overflow-wrap: anywhere;
+}
+
+/* A phone: the head keeps the mode, the file menu and the window controls;
+   the zoom controls give way (two fingers zoom), the frames start fitted. */
 @media (max-width: 599px) {
-  .canvas-actions .canvas-fit,
-  .canvas-actions .canvas-zoom-value,
+  .canvas-actions .canvas-zoom,
   .canvas-window .files-subtitle {
     display: none;
   }

@@ -43,13 +43,14 @@ func ShowTool() *tooling.Tool {
 				"in a folder of its own; CDN libraries and Google Fonts load, other hosts do not. The frame is a sandbox: use <script type=\"module\">, " +
 				"localStorage lasts only the frame's life, forms post nowhere. It reloads itself when its folder changes. Show the page again with " +
 				"another device for a responsive check. The page can read and send out every file under its root folder. After script edits, call " +
-				ToolInspect + ". Not visible on the console or in an editor; use preview_server there.",
+				ToolInspect + ". A .canvas file (JSON Canvas, as Obsidian writes it) as path makes that file the board: its pages run as frames and " +
+				"frames shown later are written into it. Not visible on the console or in an editor; use preview_server there.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"path": map[string]interface{}{
 						"type":        "string",
-						"description": "The HTML page, relative to the working directory.",
+						"description": "The HTML page, or a .canvas file to open as the board, relative to the working directory.",
 					},
 					"title": map[string]interface{}{
 						"type":        "string",
@@ -103,6 +104,13 @@ func executeShow(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 	if err != nil {
 		return "", err
 	}
+	if board.IsCanvasFile(args.Path) {
+		b, err := board.LinkFile(bundle, env.CWD, args.Path)
+		if err != nil {
+			return "", err
+		}
+		return describeLinked(b), nil
+	}
 	addedBy := "agent"
 	if env.SubagentDepth > 0 {
 		addedBy = "subagent"
@@ -134,16 +142,43 @@ func describeShow(res board.ShowResult) string {
 	if f.Root == "" {
 		b.WriteString("Its root is the whole working directory: the page can read every file of it outside dot-folders. Keep a page in a folder of its own.\n")
 	}
-	fmt.Fprintf(&b, "The canvas holds %d frame(s):\n", len(res.Board.Frames))
-	for _, fr := range res.Board.Frames {
-		fmt.Fprintf(&b, "- %s  %s  %s", fr.ID, fr.Path, sizeName(fr))
+	if l := res.Board.Link; l != nil {
+		fmt.Fprintf(&b, "The canvas is the file %s: the frame is a file node of it.\n", l.Path)
+	}
+	writeFrames(&b, res.Board)
+	b.WriteString("After an edit that touches scripts, call " + ToolInspect + " with frame " + f.ID + " and wait_seconds to read the browser's console for the new files.")
+	return b.String()
+}
+
+func writeFrames(b *strings.Builder, bd board.Board) {
+	fmt.Fprintf(b, "The canvas holds %d frame(s):\n", len(bd.Frames))
+	for _, fr := range bd.Frames {
+		fmt.Fprintf(b, "- %s  %s  %s", fr.ID, fr.Path, sizeName(fr))
 		if fr.Title != "" {
-			fmt.Fprintf(&b, "  %q", fr.Title)
+			fmt.Fprintf(b, "  %q", fr.Title)
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("After an edit that touches scripts, call " + ToolInspect + " with frame " + f.ID + " and wait_seconds to read the browser's console for the new files.")
-	return b.String()
+}
+
+// describeLinked is the result of opening a .canvas file as the board.
+func describeLinked(bd board.Board) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "The canvas of this chat is now the file %s.\n", bd.Link.Path)
+	b.WriteString("Its file nodes that name HTML pages run as live frames; its other nodes and its edges are drawn as they are. Frames shown, moved or removed are written back into the file, which keeps everything else it holds; edit the file itself for text cards, links, groups and edges.\n")
+	notes := 0
+	for _, it := range bd.Items {
+		if it.Note != "" {
+			if notes == 0 {
+				b.WriteString("Nodes that name a page but do not run:\n")
+			}
+			notes++
+			fmt.Fprintf(&b, "- %s  %s: %s\n", it.ID, it.File, it.Note)
+		}
+	}
+	fmt.Fprintf(&b, "Other nodes: %d, edges: %d.\n", len(bd.Items)-notes, len(bd.Edges))
+	writeFrames(&b, bd)
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func sizeName(f board.Frame) string {

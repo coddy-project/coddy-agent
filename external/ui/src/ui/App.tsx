@@ -3529,14 +3529,17 @@ export function App() {
       void loadSessionsList(true);
     },
     // A chat's canvas changed: its board is read again. A frame put there or
-    // shown again opens the canvas on it, unless another window or screen is
-    // up, and never on a phone, where the chat stays and the view button and
-    // the tool card offer the canvas instead.
+    // shown again opens the canvas on it, and a .canvas file that became the
+    // board opens the canvas on the whole of it, unless another window or
+    // screen is up, and never on a phone, where the chat stays and the view
+    // button and the tool card offer the canvas instead.
     canvasChanged: (event: CanvasChangedEvent) => {
       if (event.sessionId !== sessionId.trim()) return;
       setCanvasEpoch((n) => n + 1);
-      if (event.reason !== "added" && event.reason !== "shown") return;
-      if (!event.frameId) return;
+      const linked = event.reason === "linked";
+      if (!linked && event.reason !== "added" && event.reason !== "shown")
+        return;
+      if (!linked && !event.frameId) return;
       if (window.matchMedia?.(phoneMaxWidthMediaQuery).matches) return;
       if (
         filesOpen ||
@@ -8087,6 +8090,9 @@ export function App() {
             }
             canvasOpen={canvasOpen}
             canvasFrames={canvasFrameCount}
+            {...(canvas.available && canvas.board?.link
+              ? { canvasFile: canvas.board.link.path }
+              : {})}
             backgroundTasks={backgroundTasks}
             onOpenBackgroundTasks={openTasksFromNav}
             onBackgroundTasksChanged={() => {

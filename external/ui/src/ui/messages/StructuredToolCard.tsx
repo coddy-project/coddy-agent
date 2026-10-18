@@ -529,24 +529,45 @@ export function canvasShowView(
   result: string,
 ): { frameId: string; path: string; size: string; reason: string } | null {
   const m =
-    /^Canvas frame (fr_[a-z0-9]+): (.+) \(([^)]*)\), (added|shown|updated)\./.exec(
+    /^Canvas frame ([A-Za-z0-9_-]+): (.+) \(([^)]*)\), (added|shown|updated)\./.exec(
       result.trim(),
     );
   if (!m) return null;
   return { frameId: m[1]!, path: m[2]!, size: m[3]!, reason: m[4]! };
 }
 
+/** The .canvas file a canvas_show made the chat's canvas, when it did. */
+export function canvasLinkedFile(result: string): string | null {
+  const m = /^The canvas of this chat is now the file (.+)\.$/m.exec(
+    result.trim().split("\n", 1)[0] ?? "",
+  );
+  return m ? m[1]! : null;
+}
+
 function CanvasShowCard(props: BodyProps & { args: ToolArgs; result: string }) {
   const { t } = useT();
   const view = canvasShowView(props.result);
+  const linked = view ? null : canvasLinkedFile(props.result);
   const title = str(props.args.title);
   return (
     <Card
-      heading={title || view?.path || str(props.args.path)}
+      heading={title || view?.path || linked || str(props.args.path)}
       bodyRef={props.bodyRef}
       bodyClassName={props.bodyClassName}
     >
-      {view ? (
+      {linked ? (
+        <>
+          {fields([[t("canvas.card.file"), <Mono>{linked}</Mono>]])}
+          <button
+            type="button"
+            className="structured-tool-action canvas-card-open"
+            data-testid="canvas-card-open"
+            onClick={() => openCanvas()}
+          >
+            {t("canvas.card.open")}
+          </button>
+        </>
+      ) : view ? (
         <>
           {fields([
             title ? [t("structuredTool.file"), <Mono>{view.path}</Mono>] : null,

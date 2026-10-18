@@ -288,3 +288,70 @@ func TestCanvasOpenAPIListsTheRoutes(t *testing.T) {
 		}
 	}
 }
+
+const obsidianShopCanvas = `{
+	"nodes":[
+		{"id":"5c0b1f2e3d4a5b6c","type":"text","text":"## Checkout","x":-400,"y":0,"width":300,"height":120,"styleAttributes":{}},
+		{"id":"9a8b7c6d5e4f3a2b","type":"file","file":"site/index.html","x":0,"y":0,"width":1280,"height":800}
+	],
+	"edges":[{"id":"0f1e2d3c4b5a6978","fromNode":"5c0b1f2e3d4a5b6c","fromSide":"right","toNode":"9a8b7c6d5e4f3a2b","toSide":"left"}]
+}
+`
+
+func TestCanvasLinkedFileRoutes(t *testing.T) {
+	e := newChangesEnv(t)
+	sitePage(t, e.cwd)
+	writeInWorkspace(t, e.cwd, "design/shop.canvas", obsidianShopCanvas)
+	sess := "/coddy/sessions/" + e.id + "/canvas"
+
+	w := canvasRequest(e, "POST", sess+"/link", `{"path":"design/shop.canvas"}`, nil)
+	if w.Code != 200 {
+		t.Fatalf("link %d %s", w.Code, w.Body)
+	}
+	var b canvasBoardJSON
+	if err := json.Unmarshal(w.Body.Bytes(), &b); err != nil {
+		t.Fatal(err)
+	}
+	if b.Link == nil || b.Link.Path != "design/shop.canvas" || b.Link.Stamp == "" || len(b.Frames) != 1 || len(b.Items) != 1 || len(b.Edges) != 1 {
+		t.Fatalf("linked board %s", w.Body)
+	}
+	if page := canvasRequest(e, "GET", b.Frames[0].URL, "", nil); page.Code != 200 || !strings.Contains(page.Body.String(), "bridge.js") {
+		t.Fatalf("a frame of the file did not serve: %d", page.Code)
+	}
+
+	if w := canvasRequest(e, "PATCH", sess+"/nodes", `{"nodes":[{"id":"5c0b1f2e3d4a5b6c","x":-500,"y":40}]}`, nil); w.Code != 200 {
+		t.Fatalf("move a card %d %s", w.Code, w.Body)
+	}
+	file := readInWorkspace(t, e.cwd, "design/shop.canvas")
+	if !strings.Contains(file, `"x":-500,"y":40`) || !strings.Contains(file, `"styleAttributes":{}`) {
+		t.Fatalf("the file after the move:\n%s", file)
+	}
+	if w := canvasRequest(e, "PATCH", sess+"/nodes", `{"nodes":[{"id":"nope","x":1}]}`, nil); w.Code != http.StatusNotFound {
+		t.Fatalf("an unknown node answered %d", w.Code)
+	}
+	if w := canvasRequest(e, "POST", sess+"/export", `{"path":"design/copy.canvas"}`, nil); w.Code != http.StatusConflict {
+		t.Fatalf("an export of a linked board answered %d", w.Code)
+	}
+
+	if w := canvasRequest(e, "DELETE", sess+"/link", "", nil); w.Code != 200 || strings.Contains(w.Body.String(), `"link"`) {
+		t.Fatalf("unlink %d %s", w.Code, w.Body)
+	}
+	if w := canvasRequest(e, "DELETE", sess+"/link", "", nil); w.Code != http.StatusConflict {
+		t.Fatalf("a second unlink answered %d", w.Code)
+	}
+	addCanvasFrame(t, e, "site/index.html", nil)
+	if w := canvasRequest(e, "POST", sess+"/export", `{"path":"design/shop.canvas"}`, nil); w.Code != http.StatusConflict {
+		t.Fatalf("an export over an existing file answered %d", w.Code)
+	}
+	if w := canvasRequest(e, "POST", sess+"/export", `{"path":"boards/mine.canvas"}`, nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"path":"boards/mine.canvas"`) {
+		t.Fatalf("export %d %s", w.Code, w.Body)
+	}
+	if !strings.Contains(readInWorkspace(t, e.cwd, "boards/mine.canvas"), `"file":"site/index.html"`) {
+		t.Fatal("the exported file has no node for the frame")
+	}
+	for _, body := range []string{`{"path":"../x.canvas"}`, `{"path":"/etc/x.canvas"}`, `{"path":"site/index.html"}`} {
+		if w := canvasRequest(e, "POST", sess+"/link", body, nil); w.Code != http.StatusBadRequest {
+			t.Errorf("link %s answered %d", body, w.Code)
+		}
+	}
+}

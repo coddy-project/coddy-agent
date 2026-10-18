@@ -41,7 +41,7 @@ function frame(over: Partial<CanvasFrame> = {}): CanvasFrame {
 }
 
 function board(frames: CanvasFrame[]): CanvasBoard {
-  return { session_id: "sess_1", revision: 1, frames };
+  return { session_id: "sess_1", revision: 1, frames, items: [], edges: [] };
 }
 
 let fetches: { url: string; init?: RequestInit }[] = [];
@@ -313,4 +313,169 @@ test("while a turn runs, Send queues and Stop stops", () => {
   });
   fireEvent.click(screen.getByTestId("canvas-send"));
   expect(props.onSend).toHaveBeenCalledWith("later");
+});
+
+function linkedBoard(): CanvasBoard {
+  return {
+    session_id: "sess_1",
+    revision: 4,
+    frames: [frame({ id: "9a8b7c6d5e4f3a2b", x: 400, y: 0 })],
+    link: { path: "design/shop.canvas", stamp: "[10,20]" },
+    items: [
+      {
+        id: "g1",
+        type: "group",
+        x: -500,
+        y: -100,
+        width: 450,
+        height: 400,
+        label: "Notes",
+        color: "4",
+      },
+      {
+        id: "t1",
+        type: "text",
+        x: -450,
+        y: 0,
+        width: 300,
+        height: 120,
+        text: "## Checkout\nTwo **steps**",
+      },
+      {
+        id: "l1",
+        type: "link",
+        x: 2000,
+        y: 0,
+        width: 300,
+        height: 100,
+        url: "javascript:alert(1)",
+      },
+    ],
+    edges: [
+      { id: "e1", fromNode: "t1", toNode: "9a8b7c6d5e4f3a2b", label: "opens" },
+    ],
+  };
+}
+
+test("a linked .canvas file draws its cards, groups and edges beside the frames", () => {
+  renderView({ board: linkedBoard() });
+  expect(screen.getByTestId("canvas-subtitle").textContent).toContain(
+    "design/shop.canvas",
+  );
+  const text = document.querySelector('[data-node-id="t1"]')!;
+  expect(text.querySelector("h2")?.textContent).toBe("Checkout");
+  expect(text.querySelector("strong")?.textContent).toBe("steps");
+  expect(screen.getByTestId("canvas-group").textContent).toBe("Notes");
+  expect(
+    screen
+      .getByTestId("canvas-group")
+      .style.getPropertyValue("--canvas-node-color"),
+  ).toBe("#44cf6e");
+  const edges = screen.getByTestId("canvas-edges");
+  expect(edges.querySelectorAll("path.canvas-edge")).toHaveLength(1);
+  expect(edges.querySelectorAll("polygon.canvas-edge-arrow")).toHaveLength(1);
+  expect(document.querySelector(".canvas-edge-label")?.textContent).toBe(
+    "opens",
+  );
+  // A link that is not a web address is shown, never made clickable.
+  const link = document.querySelector('[data-node-id="l1"]')!;
+  expect(link.querySelector("a")).toBeNull();
+  expect(link.textContent).toContain("javascript:alert(1)");
+});
+
+// jsdom carries no PointerEvent: a MouseEvent under the pointer event's name
+// carries the coordinates the board reads.
+function pointer(
+  type: "pointerdown" | "pointermove" | "pointerup",
+  el: Element,
+  x: number,
+  y: number,
+  id = 1,
+) {
+  const e = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    clientX: x,
+    clientY: y,
+  });
+  Object.defineProperty(e, "pointerId", { value: id });
+  fireEvent(el, e);
+}
+
+test("dragging a group moves it with what it holds in one change of the file", () => {
+  renderView({ board: linkedBoard() });
+  const group = screen.getByTestId("canvas-group");
+  pointer("pointerdown", group, 10, 10);
+  pointer("pointermove", group, 30, 10);
+  pointer("pointerup", group, 30, 10);
+  const patch = fetches.find((f) => f.url.endsWith("/canvas/nodes"));
+  expect(patch?.init?.method).toBe("PATCH");
+  const body = JSON.parse(String(patch!.init!.body)) as {
+    nodes: { id: string; x: number; y: number }[];
+  };
+  expect(body.nodes.map((n) => n.id).sort()).toEqual(["g1", "t1"]);
+  const g = body.nodes.find((n) => n.id === "g1")!;
+  const t = body.nodes.find((n) => n.id === "t1")!;
+  // Both moved by the same distance on the board, and only sideways.
+  expect(g.x + 500).toBeGreaterThan(0);
+  expect(t.x + 450).toBe(g.x + 500);
+  expect(t.y).toBe(0);
+  expect(g.y).toBe(-100);
+  // The frame outside the group stays where it was.
+  expect(body.nodes.some((n) => n.id === "9a8b7c6d5e4f3a2b")).toBe(false);
+  // A press that does not travel is no change.
+  fetches = [];
+  const text = document.querySelector('[data-node-id="t1"]') as HTMLElement;
+  pointer("pointerdown", text, 5, 5, 2);
+  pointer("pointermove", text, 6, 5, 2);
+  pointer("pointerup", text, 6, 5, 2);
+  expect(fetches.some((f) => f.url.endsWith("/canvas/nodes"))).toBe(false);
+});
+
+test("the file menu saves the chat's own board as a .canvas file", async () => {
+  const props = renderView();
+  fireEvent.click(screen.getByTestId("canvas-file-menu"));
+  fireEvent.click(screen.getByTestId("canvas-file-save"));
+  const input = screen.getByTestId("canvas-file-path") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "design/board.txt" } });
+  fireEvent.click(screen.getByTestId("canvas-file-submit"));
+  expect(screen.getByTestId("canvas-file-error").textContent).toMatch(
+    /\.canvas/,
+  );
+  fireEvent.change(input, { target: { value: "design/board.canvas" } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("canvas-file-submit"));
+  });
+  const post = fetches.find((f) => f.url.endsWith("/canvas/export"));
+  expect(post?.init?.method).toBe("POST");
+  expect(JSON.parse(String(post!.init!.body))).toEqual({
+    path: "design/board.canvas",
+  });
+  expect(props.reloadBoard).toHaveBeenCalled();
+  expect(screen.queryByTestId("canvas-file-form")).toBeNull();
+});
+
+test("a linked file that cannot be read says so and offers the chat's own board", () => {
+  const b = linkedBoard();
+  renderView({
+    board: {
+      ...b,
+      frames: [],
+      items: [],
+      edges: [],
+      link: { ...b.link!, error: "unexpected end of JSON input" },
+    },
+  });
+  expect(screen.getByTestId("canvas-link-error").textContent).toContain(
+    "unexpected end of JSON input",
+  );
+  expect(screen.queryByTestId("canvas-empty")).toBeNull();
+  fireEvent.click(screen.getByTestId("canvas-file-menu"));
+  fireEvent.click(screen.getByTestId("canvas-file-unlink"));
+  expect(
+    fetches.some(
+      (f) => f.url.endsWith("/canvas/link") && f.init?.method === "DELETE",
+    ),
+  ).toBe(true);
 });

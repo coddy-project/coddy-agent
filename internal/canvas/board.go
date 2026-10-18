@@ -121,6 +121,37 @@ type Board struct {
 	Version  int     `json:"version"`
 	Revision int64   `json:"revision"`
 	Frames   []Frame `json:"frames"`
+	// Link names the .canvas file of the workspace the chat's canvas is, when
+	// it is linked to one (JSON Canvas, Obsidian's format): its frames and its
+	// other nodes are that file's, and every change is written back to it.
+	Link *Link `json:"link,omitempty"`
+	// Gens are the generations of a linked file's frames, kept here so the
+	// workspace file carries none of the canvas's own bookkeeping.
+	Gens map[string]int `json:"gens,omitempty"`
+
+	// Items and Edges are the other nodes of a linked file and its lines.
+	Items []Item `json:"-"`
+	Edges []Edge `json:"-"`
+	// LinkError says why a linked file cannot be read now; its frames are
+	// then not shown and nothing is written to it.
+	LinkError string `json:"-"`
+
+	own    []Frame   // the chat's own frames, kept while the board is linked
+	doc    *Document // the linked file as read
+	inDoc  map[string]bool
+	fileOK bool
+	// dirty says a change touched the linked file's nodes; only then is the
+	// file written, so linking a file never rewrites it.
+	dirty bool
+}
+
+// Link is a .canvas file of the workspace a board is.
+type Link struct {
+	// Path is the file, slash-separated and relative to Workspace.
+	Path string `json:"path"`
+	// Workspace is the folder the file's own paths are relative to: the vault
+	// root of a JSON Canvas file, the session's working directory here.
+	Workspace string `json:"workspace"`
 }
 
 // Frame returns the frame with this id.
@@ -175,6 +206,11 @@ func Load(bundle string) (Board, error) {
 			b.Frames[i].Gen = 1
 		}
 	}
+	if b.Link != nil {
+		b.own = b.Frames
+		b.Frames = nil
+		readLinked(&b)
+	}
 	return b, nil
 }
 
@@ -217,6 +253,10 @@ func Show(bundle string, req ShowRequest) (ShowResult, error) {
 	var res ShowResult
 	err = mutate(bundle, func(b *Board) (string, error) {
 		now := time.Now().UTC()
+		if b.Link != nil && !session.SameWorkspacePath(b.Link.Workspace, req.Workspace) {
+			// A node of the file names its page relative to the file's vault.
+			return "", fmt.Errorf("the canvas is %s of %s, and a page of another working directory cannot be a node of it", b.Link.Path, b.Link.Workspace)
+		}
 		if id := strings.TrimSpace(req.FrameID); id != "" {
 			i := indexOf(b.Frames, id)
 			if i < 0 {
@@ -229,6 +269,7 @@ func Show(bundle string, req ShowRequest) (ShowResult, error) {
 				f.Title = title
 			}
 			f.ShownAt = now
+			b.dirty = true
 			res.Frame, res.Reason = *f, ReasonUpdated
 			return id, nil
 		}
@@ -242,6 +283,7 @@ func Show(bundle string, req ShowRequest) (ShowResult, error) {
 					f.Title = title
 				}
 				f.ShownAt = now
+				b.dirty = b.dirty || req.Root != "" || title != ""
 				res.Frame, res.Reason = *f, ReasonShown
 				return f.ID, nil
 			}
@@ -249,18 +291,21 @@ func Show(bundle string, req ShowRequest) (ShowResult, error) {
 		if len(b.Frames) >= MaxFrames {
 			return "", ErrTooManyFrames
 		}
-		x := 0
-		for _, f := range b.Frames {
-			if end := f.X + f.Width + frameGap; end > x {
-				x = end
-			}
+		if b.Link != nil && !b.fileOK {
+			return "", fmt.Errorf("the linked canvas %s cannot be read: %s", b.Link.Path, b.LinkError)
+		}
+		x := nextX(b)
+		id := newFrameID()
+		if b.Link != nil {
+			id = newNodeID()
 		}
 		f := Frame{
-			ID: newFrameID(), Path: page.path, Root: page.root, Workspace: req.Workspace,
+			ID: id, Path: page.path, Root: page.root, Workspace: req.Workspace,
 			Title: title, Device: device, Width: width, Height: height, X: x, Y: 0,
 			AddedBy: strings.TrimSpace(req.AddedBy), AddedAt: now, ShownAt: now, Gen: 1,
 		}
 		b.Frames = append(b.Frames, f)
+		b.dirty = true
 		res.Frame, res.Reason = f, ReasonAdded
 		return f.ID, nil
 	}, func() string { return res.Reason }, &res.Board)
@@ -328,6 +373,7 @@ func Update(bundle, frameID string, p Patch) (Board, Frame, error) {
 			f.Y = clamp(*p.Y, -100000, 100000)
 		}
 		b.Frames[i] = f
+		b.dirty = true
 		out = f
 		return f.ID, nil
 	}, func() string { return ReasonUpdated }, &board)
@@ -361,6 +407,7 @@ func Remove(bundle, frameID string) (Board, error) {
 			return "", fmt.Errorf("%w: %s", ErrFrameNotFound, frameID)
 		}
 		b.Frames = append(b.Frames[:i], b.Frames[i+1:]...)
+		b.dirty = true
 		return frameID, nil
 	}, func() string { return ReasonRemoved }, &board)
 	return board, err
@@ -536,7 +583,27 @@ func mutate(bundle string, fn func(*Board) (frameID string, err error), reason f
 	if b.Frames == nil {
 		b.Frames = []Frame{}
 	}
-	if err := write(bundle, b); err != nil {
+	stored := b
+	if b.Link != nil {
+		if b.Gens == nil {
+			b.Gens = map[string]int{}
+		}
+		for _, fr := range b.Frames {
+			b.Gens[fr.ID] = fr.Gen
+		}
+		if b.fileOK && b.dirty {
+			if err := writeLinked(&b); err != nil {
+				mu.Unlock()
+				return err
+			}
+		}
+		stored.Frames = b.own
+		stored.Gens = b.Gens
+		if stored.Frames == nil {
+			stored.Frames = []Frame{}
+		}
+	}
+	if err := write(bundle, stored); err != nil {
 		mu.Unlock()
 		return err
 	}

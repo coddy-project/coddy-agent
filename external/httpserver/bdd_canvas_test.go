@@ -76,6 +76,7 @@ func (s *canvasFeature) chatWithShopPage(dir string) error {
 	stub := &llmstub.Server{Model: "coddy-demo", StripTags: []string{"turn_context"}, Rules: []llmstub.Rule{
 		{Match: "show the shop on the canvas", Tool: &llmstub.ToolCall{Name: "canvas_show", Arguments: json.RawMessage(`{"path":"` + dir + `/index.html","title":"Shop"}`)}, Answer: "The shop is on the canvas."},
 		{Match: "check the canvas", Tool: &llmstub.ToolCall{Name: "canvas_inspect", Arguments: json.RawMessage(`{}`)}, Answer: "The cart script throws."},
+		{Match: "open the design board", Tool: &llmstub.ToolCall{Name: "canvas_show", Arguments: json.RawMessage(`{"path":"design/shop.canvas"}`)}, Answer: "The design board is on the canvas."},
 	}}
 	s.model = httptest.NewServer(stub.Handler())
 	home := filepath.Join(s.root, "home")
@@ -346,6 +347,71 @@ func (s *canvasFeature) stillInWorkspace(rel string) error {
 	return err
 }
 
+// obsidianNote is the text card of the Obsidian canvas, with a key of
+// Obsidian's own that Coddy does not read.
+const obsidianNote = `{"id":"6e0d3c2b1a0f9e8d","type":"text","text":"Checkout has two steps","x":-420,"y":0,"width":320,"height":140,"color":"5","styleAttributes":{"textAlign":"center"}}`
+
+func (s *canvasFeature) obsidianCanvas(rel string) error {
+	doc := "{\n\t\"nodes\":[\n\t\t" + obsidianNote + ",\n" +
+		"\t\t{\"id\":\"1d2c3b4a5f6e7d8c\",\"type\":\"file\",\"file\":\"site/index.html\",\"x\":0,\"y\":0,\"width\":390,\"height\":844}\n\t],\n" +
+		"\t\"edges\":[\n\t\t{\"id\":\"a0b1c2d3e4f5a6b7\",\"fromNode\":\"6e0d3c2b1a0f9e8d\",\"fromSide\":\"right\",\"toNode\":\"1d2c3b4a5f6e7d8c\",\"toSide\":\"left\",\"label\":\"opens\"}\n\t]\n}\n"
+	p := filepath.Join(s.cwd, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte(doc), 0o644)
+}
+
+func (s *canvasFeature) canvasIsTheFile(rel string) error {
+	b, err := s.readBoard()
+	if err != nil {
+		return err
+	}
+	if b.Link == nil || b.Link.Path != rel || b.Link.Error != "" {
+		return fmt.Errorf("the canvas is not %s: %+v", rel, b.Link)
+	}
+	if len(b.Frames) != 1 || b.Frames[0].Path != "site/index.html" || b.Frames[0].Device != canvas.DevicePhone {
+		return fmt.Errorf("frames %+v", b.Frames)
+	}
+	if len(b.Items) != 1 || b.Items[0].Type != canvas.NodeText || b.Items[0].Color != "5" {
+		return fmt.Errorf("items %+v", b.Items)
+	}
+	if len(b.Edges) != 1 || b.Edges[0].Label != "opens" || b.Edges[0].ToNode != b.Frames[0].ID {
+		return fmt.Errorf("edges %+v", b.Edges)
+	}
+	s.frame = b.Frames[0]
+	return nil
+}
+
+func (s *canvasFeature) personMovesTheNote() error {
+	req, _ := http.NewRequest(http.MethodPatch, s.ts.URL+"/coddy/sessions/"+s.sid+"/canvas/nodes", strings.NewReader(`{"nodes":[{"id":"6e0d3c2b1a0f9e8d","x":-460,"y":60}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("move the note: %s", res.Status)
+	}
+	return nil
+}
+
+func (s *canvasFeature) fileHoldsTheMovedNote(rel string) error {
+	raw, err := os.ReadFile(filepath.Join(s.cwd, filepath.FromSlash(rel)))
+	if err != nil {
+		return err
+	}
+	moved := strings.Replace(obsidianNote, `"x":-420,"y":0`, `"x":-460,"y":60`, 1)
+	if !strings.Contains(string(raw), "\t\t"+moved) {
+		return fmt.Errorf("the file does not hold the moved note on a line of its own:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), `"label":"opens"`) {
+		return fmt.Errorf("the edge lost its label:\n%s", raw)
+	}
+	return nil
+}
+
 func initializeCanvasScenario(sc *godog.ScenarioContext) {
 	s := &canvasFeature{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { return ctx, s.reset() })
@@ -366,6 +432,10 @@ func initializeCanvasScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the person takes the frame off the canvas$`, s.personRemovesFrame)
 	sc.Step(`^the frame's address is refused$`, s.addressRefused)
 	sc.Step(`^"([^"]*)" is still in the workspace$`, s.stillInWorkspace)
+	sc.Step(`^the workspace has an Obsidian canvas "([^"]*)" with a note linked to the shop page$`, s.obsidianCanvas)
+	sc.Step(`^the canvas of the chat is "([^"]*)" with the shop page as a live frame, the note and the edge$`, s.canvasIsTheFile)
+	sc.Step(`^the person moves the note on the canvas$`, s.personMovesTheNote)
+	sc.Step(`^"([^"]*)" holds the note at its new place and every key Coddy does not know$`, s.fileHoldsTheMovedNote)
 }
 
 func TestCanvasFeature(t *testing.T) {

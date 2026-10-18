@@ -174,3 +174,36 @@ func TestInspectOfAnUnknownFrame(t *testing.T) {
 		t.Fatalf("empty board: %q %v", out, err)
 	}
 }
+
+func TestShowOpensACanvasFileAsTheBoard(t *testing.T) {
+	env, bundle := testEnv(t, "site/index.html", "site/about.html")
+	file := filepath.Join(env.CWD, "design.canvas")
+	doc := `{"nodes":[{"id":"aaaaaaaaaaaaaaaa","type":"file","file":"site/index.html","x":0,"y":0,"width":390,"height":844},` +
+		`{"id":"bbbbbbbbbbbbbbbb","type":"text","text":"Notes","x":-300,"y":0,"width":250,"height":60}],` +
+		`"edges":[{"id":"e1","fromNode":"bbbbbbbbbbbbbbbb","toNode":"aaaaaaaaaaaaaaaa"}]}`
+	if err := os.WriteFile(file, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := call(t, ShowTool(), env, map[string]any{"path": "design.canvas"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "is now the file design.canvas") || !strings.Contains(out, "aaaaaaaaaaaaaaaa  site/index.html  phone 390x844") || !strings.Contains(out, "Other nodes: 1, edges: 1.") {
+		t.Fatalf("result %q", out)
+	}
+	out, err = call(t, ShowTool(), env, map[string]any{"path": "site/about.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "The canvas is the file design.canvas") {
+		t.Fatalf("result %q", out)
+	}
+	raw, _ := os.ReadFile(file)
+	if !strings.Contains(string(raw), `"file":"site/about.html"`) {
+		t.Fatalf("the shown page is not a node of the file:\n%s", raw)
+	}
+	b, _ := board.Load(bundle)
+	if len(b.Frames) != 2 || b.Link == nil {
+		t.Fatalf("board %+v", b)
+	}
+}

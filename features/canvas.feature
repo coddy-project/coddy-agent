@@ -28,3 +28,12 @@ Feature: The agent and the person work on a page on the canvas
     When the person takes the frame off the canvas
     Then the frame's address is refused
     And "site/index.html" is still in the workspace
+
+  Scenario: A board drawn in Obsidian opens on the canvas and stays an Obsidian file
+    Given a chat whose agent is a scripted model, in a workspace with a shop page in "site"
+    And the workspace has an Obsidian canvas "design/shop.canvas" with a note linked to the shop page
+    When the person asks "open the design board"
+    Then the canvas of the chat is "design/shop.canvas" with the shop page as a live frame, the note and the edge
+    And the frame's address serves the page with the bridge under a sandbox policy
+    When the person moves the note on the canvas
+    Then "design/shop.canvas" holds the note at its new place and every key Coddy does not know
