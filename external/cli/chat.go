@@ -228,6 +228,10 @@ func (t *toolBox) title() string {
 		if cmd := arg("command"); cmd != "" {
 			return t.theme.Bold("$ " + tui.SanitizeText(firstLine(cmd)))
 		}
+	case "operator_command":
+		if cmd := arg("command"); cmd != "" {
+			return t.theme.Bold("$ "+tui.SanitizeText(firstLine(cmd))) + " " + t.theme.Fg(roleDim, "(run by you)")
+		}
 	case "read", "write", "edit", "apply_patch":
 		if p := arg("path", "file_path", "filename"); p != "" {
 			return t.theme.Bold(t.name) + " " + t.theme.Fg(roleAccent, tui.SanitizeText(p))

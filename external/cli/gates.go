@@ -30,7 +30,7 @@ type gateWithdrawn struct{}
 
 func isGateModal(c tui.Component) bool {
 	switch c.(type) {
-	case *permissionModal, *questionModal:
+	case *permissionModal, *questionModal, *operatorModal:
 		return true
 	}
 	return false

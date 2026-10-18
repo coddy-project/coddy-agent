@@ -127,6 +127,14 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		}
 		body.Metadata["runPlanSlug"] = slug
 	}
+	// A console with a person in front of it answers operator commands: the
+	// server offers the tool only to a client that says so.
+	if acp.OperatorCommandsOf(sender) != nil {
+		if body.Metadata == nil {
+			body.Metadata = map[string]string{}
+		}
+		body.Metadata[operatorCommandsMetadataKey] = "1"
+	}
 	for _, part := range params.ImageParts {
 		if strings.TrimSpace(part.DataURL) == "" {
 			continue
@@ -234,6 +242,9 @@ type turnStream struct {
 	follow bool
 	asksMu sync.Mutex
 	asks   map[string]context.CancelFunc
+	// ops are the operator commands of this turn shown to the local operator,
+	// by tool call: each ends when the server's call reaches its final status.
+	ops map[string]context.CancelFunc
 }
 
 // onFrame translates one SSE frame into ACP updates or answer round-trips.
@@ -345,6 +356,8 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		return t.onPermission(f.data)
 	case "question":
 		return t.onQuestion(f.data)
+	case "operator_command":
+		t.onOperatorCommand(f.data)
 	case "coddy_meta":
 		var meta metaFrame
 		if json.Unmarshal([]byte(f.data), &meta) == nil {
@@ -482,9 +495,14 @@ func (t *turnStream) settleAsk(u acp.ToolCallStatusUpdate) {
 	t.asksMu.Lock()
 	cancel := t.asks[u.ToolCallID]
 	delete(t.asks, u.ToolCallID)
+	op := t.ops[u.ToolCallID]
+	delete(t.ops, u.ToolCallID)
 	t.asksMu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if op != nil {
+		op()
 	}
 }
 

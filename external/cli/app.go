@@ -186,6 +186,10 @@ type App struct {
 	updatesCh chan updateMsg
 	permCh    chan permRequest
 	questCh   chan questRequest
+	opCh      chan opRequest
+	// opTicket is the operator command the operator ran and that still runs:
+	// escape stops it before it reaches the turn.
+	opTicket  *acp.OperatorCommandTicket
 	inputCh   chan []byte
 	pasteCh   chan []byte
 	resizeCh  chan struct{}
@@ -231,6 +235,7 @@ func newApp(cfg *config.Config, mgr backend, log *slog.Logger, term appTerminal,
 		updatesCh:       make(chan updateMsg, 1024),
 		permCh:          make(chan permRequest),
 		questCh:         make(chan questRequest),
+		opCh:            make(chan opRequest),
 		inputCh:         make(chan []byte, 64),
 		pasteCh:         make(chan []byte, 8),
 		resizeCh:        make(chan struct{}, 1),
@@ -612,6 +617,9 @@ func (a *App) Run(ctx context.Context) error {
 		case req := <-a.questCh:
 			a.openQuestionModal(req)
 			render.now()
+		case req := <-a.opCh:
+			a.openOperatorModal(req)
+			render.now()
 		case <-a.resizeCh:
 			render.now()
 		case <-a.screen.RenderSignal():
@@ -768,6 +776,9 @@ func (a *App) handleGlobalKey(data []byte) bool {
 	case "escape":
 		if a.editor.AutocompleteOpen() {
 			return false // editor closes its own menu
+		}
+		if a.stopOperatorCommand() {
+			return true
 		}
 		if a.shellActive {
 			a.stopLocalShell()
