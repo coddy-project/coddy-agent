@@ -154,11 +154,11 @@ func tailTokens(msgs []llm.Message, idx int) int {
 
 func splitRequest(msgs []llm.Message, mod func(*inTurnSplitRequest)) inTurnSplitRequest {
 	r := inTurnSplitRequest{
-		msgs:         msgs,
-		visibleStart: 0,
-		projected:    msgs,
-		keepSteps:    inTurnKeepRecentSteps,
-		budget:       1 << 30,
+		msgs:       msgs,
+		viewOffset: 0,
+		projected:  msgs,
+		keepSteps:  inTurnKeepRecentSteps,
+		budget:     1 << 30,
 	}
 	if mod != nil {
 		mod(&r)
@@ -322,7 +322,7 @@ func TestChooseInTurnSplit(t *testing.T) {
 		msgs := concatMsgs(old, []llm.Message{row}, rest)
 		visibleStart := len(old)
 		got, err := chooseInTurnSplit(splitRequest(msgs, func(r *inTurnSplitRequest) {
-			r.visibleStart = visibleStart
+			r.viewOffset = visibleStart
 			r.projected = msgs[visibleStart:]
 			r.keepSteps = 2
 		}))
@@ -475,12 +475,12 @@ func TestInTurnPromptPrefix(t *testing.T) {
 }
 
 // The summarizer of a fold inside a turn is told the work is still going on and
-// that the message the turn started with stays in front of its summary. The note
+// that the message the turn started with stays ahead of its summary. The note
 // names no author: a goal turn's instruction or a woken turn's notice is not the
 // user's request, and the note must not call it so.
 func TestInTurnSummaryInstructions(t *testing.T) {
 	got := withInTurnSummaryInstructions("")
-	for _, want := range []string{"middle of the agent's work", "stays verbatim in front of your summary", "what remains to be done"} {
+	for _, want := range []string{"middle of the agent's work", "stays verbatim ahead of your summary", "what remains to be done"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("note %q does not say %q", got, want)
 		}
@@ -604,8 +604,9 @@ func TestCompactSessionInTurnNeedsAtLeastTwoSteps(t *testing.T) {
 	}
 }
 
-// Folding twice keeps one copy of the prompt: the second row's head holds the
-// first row, whose prompt is not written again beside the new one.
+// Folding twice keeps one copy of the prompt: the first row carries it, and the
+// second, a block after it, summarizes only the steps since and does not write
+// the prompt again.
 func TestChainedInTurnFoldsKeepOnePromptCopy(t *testing.T) {
 	const prompt = "UNIQUE-REQUEST-TEXT: audit every module and report."
 	st := inTurnSession(t, prompt, 10)
@@ -636,10 +637,17 @@ func TestChainedInTurnFoldsKeepOnePromptCopy(t *testing.T) {
 	if issues := session.ValidateToolPairing(window); len(issues) > 0 {
 		t.Fatalf("malformed tool-call history after two folds: %v", issues)
 	}
-	// The second summarization request saw the first row: that is where the
-	// earlier work is.
+	// The second summarization request saw the first row among the earlier
+	// summaries: that is where the earlier work is.
 	if len(provider.requests) != 2 || !strings.Contains(transcriptText(provider.requests[1]), "SUMMARY-OF-EARLIER-WORK") {
-		t.Fatalf("the second fold did not summarize the first row: %d requests", len(provider.requests))
+		t.Fatalf("the second fold did not read the first row: %d requests", len(provider.requests))
+	}
+	// Each fold cuts in the middle of the work, the second one too, although its
+	// row has no prompt in front: the summarizer is told so both times.
+	for i, req := range provider.requests {
+		if text := transcriptText(req); !strings.Contains(text, "middle of the agent's work") {
+			t.Fatalf("fold %d was not told the work is still going on:\n%s", i+1, text)
+		}
 	}
 }
 
@@ -1057,7 +1065,17 @@ func TestOpeningPromptIsFoundAfterARegularCompactionBeforeIt(t *testing.T) {
 	if !res.InTurn || res.KeptSteps != inTurnKeepRecentSteps {
 		t.Fatalf("result = %+v, want an in-turn fold over the six steps since the prompt", res)
 	}
-	row := windowOf(st)[0]
+	// The rows the earlier compactions wrote stay in front; the in-turn fold adds
+	// its own row after them, and that one carries the prompt.
+	window := windowOf(st)
+	rows := 0
+	for rows < len(window) && window[rows].CompactionSummary {
+		rows++
+	}
+	if rows < 2 {
+		t.Fatalf("the window does not open with the earlier row and the in-turn one: %q", firstChars(transcriptText(window), 300))
+	}
+	row := window[rows-1]
 	if !strings.HasPrefix(row.Content, followUpPrompt+"\n\nThe text above is") {
 		t.Fatalf("the row must begin with the opening prompt, got %q", firstChars(row.Content, 200))
 	}

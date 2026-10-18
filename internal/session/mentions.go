@@ -687,12 +687,30 @@ func (r *mentionResolver) sessionDigest(id string) (string, string, error) {
 	}
 	fmt.Fprintf(&b, "Full transcript (JSON): %s\n", filepath.Join(dir, MessagesFileName))
 
+	// The window opens with the chain of summary rows (LLMWindow): together they
+	// are the earlier conversation, oldest first, and a chain too long for its
+	// share loses its oldest rows, not the newest. The request an in-turn row
+	// carries in front of its summary is kept apart and clipped on its own: it
+	// is the oldest text of the chain, and no later summary repeats it.
 	window := MessagesForLLM(msgs)
-	if len(window) > 0 && window[0].CompactionSummary {
-		b.WriteString("\nSummary of its earlier conversation:\n")
-		b.WriteString(clipText(strings.TrimSpace(window[0].Content), sessionDigestBytes/3))
-		b.WriteString("\n")
+	var summaries []string
+	request := ""
+	for len(window) > 0 && window[0].CompactionSummary {
+		text := strings.TrimSpace(window[0].Content)
+		if prompt, summary, ok := SplitInTurnSummary(window[0].Content); ok && request == "" {
+			request = clipText(strings.TrimSpace(prompt), sessionDigestMessageBytes) + "\n\n" + strings.TrimSpace(inTurnSummaryPreamble)
+			text = strings.TrimSpace(summary)
+		}
+		summaries = append(summaries, text)
 		window = window[1:]
+	}
+	if len(summaries) > 0 {
+		b.WriteString("\nSummary of its earlier conversation:\n")
+		if request != "" {
+			b.WriteString(request + "\n")
+		}
+		b.WriteString(clipTextFront(strings.Join(summaries, "\n\n"), sessionDigestBytes/3))
+		b.WriteString("\n")
 	}
 	lines := digestLines(window)
 	budget := sessionDigestBytes - b.Len()
@@ -783,6 +801,19 @@ func clipText(s string, limit int) string {
 		cut = cut[:len(cut)-1]
 	}
 	return cut + " […]"
+}
+
+// clipTextFront is clipText from the other end: it keeps the last limit bytes
+// of s, the newest part of a text written oldest first.
+func clipTextFront(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	cut := s[len(s)-limit:]
+	for !utf8.ValidString(cut) && len(cut) > 0 {
+		cut = cut[1:]
+	}
+	return "[…] " + cut
 }
 
 // resolveRule attaches a rule's body: "@rule:<name>" names any rule of the

@@ -137,7 +137,7 @@ func TestFoldRetriesASmallerPassWhenTheProviderRefuses(t *testing.T) {
 	// A budget that says both messages fit; the provider says otherwise, so the
 	// pass has to come down on its own.
 	chain := []compactionCandidate{{provider: provider, modelID: "fake/model"}}
-	summary, _, steps, err := ag.foldCompactionHead(context.Background(), chain, head, "", 100000, nil)
+	summary, _, steps, err := ag.foldCompactionHead(context.Background(), chain, "", head, "", 100000, nil)
 	if err != nil {
 		t.Fatalf("fold: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestFoldGivesUpOnAnErrorThatShrinkingCannotFix(t *testing.T) {
 
 	head := []llm.Message{{Role: llm.RoleUser, Content: "short"}}
 	chain := []compactionCandidate{{provider: provider, modelID: "fake/model"}}
-	_, _, _, err := ag.foldCompactionHead(context.Background(), chain, head, "", 100000, nil)
+	_, _, _, err := ag.foldCompactionHead(context.Background(), chain, "", head, "", 100000, nil)
 	if err == nil {
 		t.Fatal("expected the failure to surface")
 	}
@@ -432,7 +432,7 @@ func TestFoldFailsOverAtOnceOnARefusalThatIsNotAboutSize(t *testing.T) {
 		{provider: broken, modelID: "fake/broken"},
 		{provider: working, modelID: "fake/model"},
 	}
-	summary, used, _, err := ag.foldCompactionHead(context.Background(), chain, longHead(4, 2000), "", 100000, nil)
+	summary, used, _, err := ag.foldCompactionHead(context.Background(), chain, "", longHead(4, 2000), "", 100000, nil)
 	if err != nil {
 		t.Fatalf("fold: %v", err)
 	}
@@ -488,7 +488,7 @@ func TestFoldShrinksAPassTheProviderFoundTooLarge(t *testing.T) {
 				t.Fatalf("setup: the first pass covers %d of %d messages", chunk.count, len(rest))
 			}
 			chain := []compactionCandidate{{provider: provider, modelID: "fake/model"}}
-			out, _, covered, err := ag.foldOnePass(context.Background(), chain, "", rest, chunk, "")
+			out, _, covered, err := ag.foldOnePass(context.Background(), chain, "", "", rest, chunk, "")
 			if err != nil {
 				t.Fatalf("pass: %v", err)
 			}
@@ -520,7 +520,7 @@ func TestFoldLogsTheEstimatedAndTheRefusedSize(t *testing.T) {
 	ag.log = slog.New(slog.NewTextHandler(&logs, nil))
 
 	chain := []compactionCandidate{{provider: provider, modelID: "fake/model"}}
-	if _, _, _, err := ag.foldCompactionHead(context.Background(), chain, longHead(4, 3000), "", 100000, nil); err != nil {
+	if _, _, _, err := ag.foldCompactionHead(context.Background(), chain, "", longHead(4, 3000), "", 100000, nil); err != nil {
 		t.Fatalf("fold: %v", err)
 	}
 	if provider.refused == 0 {
@@ -551,7 +551,7 @@ func TestFoldShrinksOnceOnARefusalItCannotRecognise(t *testing.T) {
 			rest := longHead(2, 3000)
 			chunk := nextCompactionChunk(rest, 100000)
 			chain := []compactionCandidate{{provider: provider, modelID: "fake/model"}}
-			out, _, covered, err := ag.foldOnePass(context.Background(), chain, "", rest, chunk, "")
+			out, _, covered, err := ag.foldOnePass(context.Background(), chain, "", "", rest, chunk, "")
 			if err != nil {
 				t.Fatalf("a single-model chain did not recover after one cut: %v", err)
 			}
@@ -578,7 +578,7 @@ func TestFoldFailsOverAfterOneCutWhenAnUnrecognisedBadRequestPersists(t *testing
 		{provider: broken, modelID: "fake/broken"},
 		{provider: working, modelID: "fake/model"},
 	}
-	out, used, _, err := ag.foldOnePass(context.Background(), chain, "", rest, chunk, "")
+	out, used, _, err := ag.foldOnePass(context.Background(), chain, "", "", rest, chunk, "")
 	if err != nil || out != "SUMMARY" || used != "fake/model" {
 		t.Fatalf("pass = %q by %q, %v; want the fallback's summary", out, used, err)
 	}
@@ -605,7 +605,7 @@ func TestFoldDoesNotCutForAStatusThatIsNotAboutSize(t *testing.T) {
 				{provider: broken, modelID: "fake/broken"},
 				{provider: working, modelID: "fake/model"},
 			}
-			if _, _, _, err := ag.foldOnePass(context.Background(), chain, "", rest, chunk, ""); err != nil {
+			if _, _, _, err := ag.foldOnePass(context.Background(), chain, "", "", rest, chunk, ""); err != nil {
 				t.Fatal(err)
 			}
 			if len(broken.requests) != 1 {

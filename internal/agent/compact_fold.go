@@ -186,6 +186,7 @@ func elideToTokensMarked(s string, tokens int, marker string) string {
 func (a *Agent) foldCompactionHead(
 	ctx context.Context,
 	chain []compactionCandidate,
+	earlier string,
 	head []llm.Message,
 	instructions string,
 	budget int,
@@ -217,7 +218,7 @@ func (a *Agent) foldCompactionHead(
 		if progress != nil {
 			progress(steps, total)
 		}
-		out, answered, done, callErr := a.foldOnePass(ctx, chain, carry, rest, chunk, instructions)
+		out, answered, done, callErr := a.foldOnePass(ctx, chain, earlier, carry, rest, chunk, instructions)
 		if callErr != nil {
 			return "", "", steps, callErr
 		}
@@ -243,6 +244,7 @@ func (a *Agent) foldCompactionHead(
 func (a *Agent) foldOnePass(
 	ctx context.Context,
 	chain []compactionCandidate,
+	earlier string,
 	carry string,
 	rest []llm.Message,
 	chunk compactionChunk,
@@ -251,7 +253,7 @@ func (a *Agent) foldOnePass(
 	var lastErr error
 	for i, cand := range chain {
 		for attempt := 0; ; attempt++ {
-			req := compactionRequest(carry, chunk.body, instructions)
+			req := compactionRequest(earlier, carry, chunk.body, instructions)
 			resp, callErr := cand.provider.Complete(ctx, req, nil)
 			if callErr == nil {
 				out := strings.TrimSpace(resp.Content)

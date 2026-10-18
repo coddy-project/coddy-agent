@@ -14,8 +14,8 @@ package agent
 // message with the tool results after it, so a batch of parallel calls is never
 // split. The steps before it are summarized; the latest ones stay as they were.
 // The prompt cannot be summarized away - a model that is not told what it was
-// asked answers nothing - so the summary row, which becomes the first message
-// of the replay window, begins with the prompt itself, verbatim, capped to a
+// asked answers nothing - so the summary row, which opens what the model reads
+// of the turn, begins with the prompt itself, verbatim, capped to a
 // share of the window, and only then carries the summary.
 //
 // How many steps stay is decided by a budget, not only by inTurnKeepRecentSteps:
@@ -55,13 +55,14 @@ const inTurnPromptCutMarker = "\n[... %d characters omitted from the middle of t
 
 // inTurnSplitRequest is everything the choice of an in-turn boundary reads.
 type inTurnSplitRequest struct {
-	// msgs is the whole transcript; visibleStart is where the replay window
-	// begins in it. Every index is absolute.
-	msgs         []llm.Message
-	visibleStart int
+	// msgs is the whole transcript. Every index is absolute.
+	msgs []llm.Message
+	// viewOffset maps the tail after the last summary row into projected:
+	// msgs[i] is projected[i-viewOffset] for every index of the tail.
+	viewOffset int
 	// projected is the window as the fold summarizes it and as the next request
-	// replays it (result eviction applied), index-aligned with
-	// msgs[visibleStart:]. The kept tail is measured on it.
+	// replays it (result eviction applied): the summary rows of the chain, then
+	// the tail. The kept tail is measured on it.
 	projected []llm.Message
 	// keepSteps is the most steps kept (inTurnKeepRecentSteps).
 	keepSteps int
@@ -71,7 +72,8 @@ type inTurnSplitRequest struct {
 	// while the turn in progress fits.
 	recovery bool
 	// budget is how many tokens the kept steps may take: the target less the
-	// request's overhead and the prompt at the start of the summary row. It may
+	// request's overhead, the summary rows of the chain and the prompt at the
+	// start of the summary row. It may
 	// be negative; then nothing fits and the floor is taken.
 	budget int
 	// regularBudget is the same for a regular split, which writes no prompt in
@@ -106,7 +108,7 @@ type inTurnSplit struct {
 // ErrNothingToCompact is the answer when there is no boundary to cut at.
 func chooseInTurnSplit(r inTurnSplitRequest) (inTurnSplit, error) {
 	tail := func(idx int) int {
-		return conversationTokens(r.projected[idx-r.visibleStart:], r.readsImages)
+		return conversationTokens(r.projected[idx-r.viewOffset:], r.readsImages)
 	}
 	steps := session.TurnStepCount(r.msgs)
 	hasSteps := steps > 0
@@ -118,7 +120,7 @@ func chooseInTurnSplit(r inTurnSplitRequest) (inTurnSplit, error) {
 		if open, ok := session.OpeningPromptIndex(r.msgs); ok {
 			last = open
 		}
-		if idx, ok := session.CompactionSplitIndexUpTo(r.msgs, 1, last); ok && idx >= r.visibleStart {
+		if idx, ok := session.CompactionSplitIndexUpTo(r.msgs, 1, last); ok {
 			if !hasSteps || tail(idx) <= r.regularBudget {
 				return inTurnSplit{idx: idx, regular: true}, nil
 			}
@@ -191,9 +193,14 @@ func (a *Agent) promptShareLimit(limitTokens int) int {
 
 // inTurnPrefix is the prefix of the summary row of an in-turn fold that cuts at
 // split, and ok says whether the row has one: it has when the turn's opening
-// prompt lies before the split and carries text.
+// prompt lies in the tail before the split and carries text. A prompt before
+// the tail was folded already, and an earlier in-turn row of the chain carries
+// it in front of its own summary, so the model reads it there once.
 func (a *Agent) inTurnPrefix(msgs []llm.Message, split, limit int) (prefix string, ok bool) {
 	open, found := session.OpeningPromptIndex(msgs)
+	if _, tailStart := session.LLMWindow(msgs); open < tailStart {
+		found = false
+	}
 	if !found || open >= split || strings.TrimSpace(msgs[open].Content) == "" {
 		return "", false
 	}
@@ -202,10 +209,10 @@ func (a *Agent) inTurnPrefix(msgs []llm.Message, split, limit int) (prefix strin
 
 // withInTurnSummaryInstructions tells the summarizer the transcript it reads
 // stops in the middle of the work, and that the message the turn answers is
-// kept verbatim in front of its summary.
+// kept verbatim ahead of its summary.
 func withInTurnSummaryInstructions(instructions string) string {
 	note := "The transcript ends in the middle of the agent's work on the message this turn started with. " +
-		"That message stays verbatim in front of your summary, so do not repeat it. " +
+		"That message stays verbatim ahead of your summary, so do not repeat it. " +
 		"Summarize what was done for it so far, what it found, the files touched, and what remains to be done."
 	if instructions == "" {
 		return note
@@ -256,7 +263,7 @@ type inTurnPlan struct {
 // planInTurn decides where an in-turn compaction cuts, and the prompt that goes
 // in front of its summary. opts.LimitTokens is the limit the next request has to
 // fit under; unset, it is the session's window.
-func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, visibleStart int, projected []llm.Message) (*inTurnPlan, error) {
+func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, viewOffset int, projected []llm.Message) (*inTurnPlan, error) {
 	comp := &a.cfg.Compaction
 	limit := a.promptShareLimit(opts.LimitTokens)
 	target := inTurnTargetTokens(limit, comp.EffectiveThresholdPercent())
@@ -276,15 +283,20 @@ func (a *Agent) planInTurn(opts CompactOptions, msgs []llm.Message, visibleStart
 		prefixTokens = session.EstimateContextTokens(session.NewInTurnCompactionSummaryMessage(prefix, "", "").Content)
 	}
 	regularPreamble := session.EstimateContextTokens(session.NewCompactionSummaryMessage("", "").Content)
+	// The summary rows of the chain stay in every request after the fold, in
+	// front of what it keeps, so they come off both budgets. A merge after the
+	// fold can only make them smaller.
+	_, tailStart := session.LLMWindow(msgs)
+	chainTokens := conversationTokens(projected[:tailStart-viewOffset], a.modelReadsImages())
 
 	choice, err := chooseInTurnSplit(inTurnSplitRequest{
 		msgs:          msgs,
-		visibleStart:  visibleStart,
+		viewOffset:    viewOffset,
 		projected:     projected,
 		keepSteps:     inTurnKeepRecentSteps,
 		recovery:      opts.Recovery,
-		budget:        target - overhead - prefixTokens,
-		regularBudget: target - overhead - regularPreamble,
+		budget:        target - overhead - chainTokens - prefixTokens,
+		regularBudget: target - overhead - chainTokens - regularPreamble,
 		readsImages:   a.modelReadsImages(),
 	})
 	if err != nil {
