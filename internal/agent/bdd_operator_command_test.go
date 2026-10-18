@@ -258,4 +258,3 @@ func TestOperatorCommandFeature(t *testing.T) {
 		t.Fatal("operator command feature suite failed")
 	}
 }
-
