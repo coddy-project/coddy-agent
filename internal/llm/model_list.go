@@ -135,6 +135,11 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		// The gateway asks every client to identify itself with its own name
 		// rather than a generic HTTP-library one.
 		req.Header.Set("User-Agent", opencodeUserAgent())
+		sessionID := strings.TrimSpace(in.SessionID)
+		if sessionID == "" {
+			sessionID = newCodexSessionID()
+		}
+		hc = opencodeClient(hc, in.APIKey, sessionID)
 	}
 
 	resp, err := hc.Do(req)

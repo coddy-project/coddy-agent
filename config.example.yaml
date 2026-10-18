@@ -87,7 +87,8 @@ providers:
 
   # OpenCode Go / Console gateway: one API key, its curated coding models served
   # over the right wire protocol per model id (Grok/GPT/Muse on the Responses
-  # API, Claude/Qwen/MiniMax on the Anthropic API, the rest OpenAI-compatible).
+  # API, Gemini on Google, Claude/Qwen/MiniMax M3 on Anthropic for Go, the rest
+  # OpenAI-compatible; Console's Qwen3.8 Max and MiniMax use Chat Completions).
   # Get a key at https://opencode.ai/console, then either paste it here or run
   # `coddy providers login opencode` (a paste-and-store flow; it also writes this
   # row and the gateway's models). api_base picks the gateway: omit it for Go

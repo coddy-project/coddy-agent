@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -26,6 +27,7 @@ func TestOpenCodeProtocolFor(t *testing.T) {
 		{"qwen3.8-max", opencodeMessages},
 		{"qwen3.7-plus", opencodeMessages},
 		{"minimax-m3", opencodeMessages},
+		{"gemini-4-argon-contributor", opencodeGoogle},
 		// OpenAI-compatible families and the fallback.
 		{"glm-5.3", opencodeChat},
 		{"kimi-k3", opencodeChat},
@@ -71,10 +73,10 @@ func TestOpenCodeAPIBaseResolution(t *testing.T) {
 func TestOpenCodeAnthropicBase(t *testing.T) {
 	// The Anthropic SDK appends /v1/messages, so the /v1 the OpenAI-style base
 	// carries is stripped: .../go/v1 -> .../go.
-	if got := opencodeAnthropicBase(opencodeGoBaseURL); got != "https://opencode.ai/inference/go" {
+	if got := opencodeAnthropicBase(opencodeGoBaseURL); got != "https://opencode.ai/inference/go/anthropic" {
 		t.Errorf("opencodeAnthropicBase(go) = %q", got)
 	}
-	if got := opencodeAnthropicBase(opencodeConsoleBaseURL); got != "https://opencode.ai/inference" {
+	if got := opencodeAnthropicBase(opencodeConsoleBaseURL); got != "https://opencode.ai/inference/anthropic" {
 		t.Errorf("opencodeAnthropicBase(console) = %q", got)
 	}
 }
@@ -101,7 +103,8 @@ func TestOpenCodeNormalizeAndDefault(t *testing.T) {
 // per-model routing at once.
 type opencodeStand struct {
 	srv      *httptest.Server
-	mu       []opencodeSeen
+	mu       sync.Mutex
+	requests []opencodeSeen
 	t        *testing.T
 	chatBody string
 }
@@ -117,7 +120,9 @@ type opencodeSeen struct {
 func newOpenCodeStand(t *testing.T) *opencodeStand {
 	s := &opencodeStand{t: t}
 	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.mu = append(s.mu, opencodeSeen{
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.requests = append(s.requests, opencodeSeen{
 			Path:      r.URL.Path,
 			UserAgent: r.Header.Get("User-Agent"),
 			Session:   r.Header.Get("x-opencode-session"),
@@ -148,7 +153,11 @@ func newOpenCodeStand(t *testing.T) *opencodeStand {
 	return s
 }
 
-func (s *opencodeStand) seen(t *testing.T) []opencodeSeen { return s.mu }
+func (s *opencodeStand) seen(t *testing.T) []opencodeSeen {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]opencodeSeen(nil), s.requests...)
+}
 
 // buildOpenCodeForTest points the allowlist at the stand and builds a provider
 // for one model, so the request lands on the test server.
@@ -189,7 +198,7 @@ func TestOpenCodeChatHeadersAndRoute(t *testing.T) {
 		t.Fatalf("saw %d requests, want 1", len(seen))
 	}
 	got := seen[0]
-	if !strings.HasSuffix(got.Path, "/chat/completions") {
+	if got.Path != "/inference/go/openai/v1/chat/completions" {
 		t.Errorf("glm-5.3 went to %q, want a /chat/completions path", got.Path)
 	}
 	if got.UserAgent != opencodeUserAgent() {
@@ -221,7 +230,7 @@ func TestOpenCodeResponsesRoute(t *testing.T) {
 		t.Errorf("content = %q, want pong", resp.Content)
 	}
 	seen := stand.seen(t)
-	if len(seen) != 1 || !strings.HasSuffix(seen[0].Path, "/responses") {
+	if len(seen) != 1 || seen[0].Path != "/inference/go/openai/v1/responses" {
 		t.Fatalf("gpt-6-luna requests = %+v, want one /responses", seen)
 	}
 	if seen[0].Session != "sess_resp" {
@@ -243,15 +252,15 @@ func TestOpenCodeMessagesRoute(t *testing.T) {
 		t.Errorf("content = %q, want pong", resp.Content)
 	}
 	seen := stand.seen(t)
-	if len(seen) != 1 || !strings.HasSuffix(seen[0].Path, "/v1/messages") {
+	if len(seen) != 1 || seen[0].Path != "/inference/go/anthropic/v1/messages" {
 		t.Fatalf("claude-haiku-5-5 requests = %+v, want one /v1/messages", seen)
 	}
-	// The Anthropic SDK sends x-api-key; the gateway is also offered Bearer.
+	// The gateway authenticates with Bearer, independently of SDK defaults.
 	if seen[0].Auth != "Bearer oc-key" {
 		t.Errorf("Authorization = %q, want Bearer oc-key", seen[0].Auth)
 	}
-	if seen[0].APIKeyHdr != "oc-key" {
-		t.Errorf("x-api-key = %q, want oc-key", seen[0].APIKeyHdr)
+	if seen[0].APIKeyHdr != "" {
+		t.Errorf("unexpected native SDK credential: %q", seen[0].APIKeyHdr)
 	}
 	if seen[0].Session != "sess_msg" {
 		t.Errorf("x-opencode-session = %q, want sess_msg", seen[0].Session)
@@ -299,6 +308,105 @@ func TestOpenCodeListModels(t *testing.T) {
 	}
 	if seen[0].Auth != "Bearer oc-key" {
 		t.Errorf("model list Authorization = %q, want Bearer oc-key", seen[0].Auth)
+	}
+	if seen[0].Session == "" {
+		t.Error("model list must carry a generated session id")
+	}
+}
+
+func TestOpenCodeDoesNotUseOtherProviderKeys(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "unrelated-openai-key")
+	t.Setenv("ANTHROPIC_API_KEY", "unrelated-anthropic-key")
+	stand := newOpenCodeStand(t)
+	t.Setenv(EnvOpenCodeBaseURL, stand.srv.URL+"/inference/go/v1")
+	for _, model := range []string{"glm-5.3", "gpt-6-luna", "claude-haiku-5-5"} {
+		p, err := NewProvider(ProviderInput{Type: "opencode", Model: model, ProxyURL: "none", RetryDisabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, r := range stand.seen(t) {
+		if r.Auth != "" || r.APIKeyHdr != "" {
+			t.Errorf("unrelated credentials sent to %s", r.Path)
+		}
+	}
+}
+
+func TestOpenCodeRejectsCrossOriginRedirect(t *testing.T) {
+	target := newOpenCodeStand(t)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.srv.URL+"/chat/completions", http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+	t.Setenv(EnvOpenCodeBaseURL, origin.URL+"/inference/go/v1")
+	p, err := NewProvider(ProviderInput{Type: "opencode", Model: "glm-5.3", APIKey: "oc-key", ProxyURL: "none", RetryDisabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil); err == nil {
+		t.Fatal("cross-origin redirect succeeded")
+	}
+	if got := target.seen(t); len(got) != 0 {
+		t.Fatalf("redirect target received %d requests", len(got))
+	}
+}
+
+func TestOpenCodeGatewayRoutes(t *testing.T) {
+	stand := newOpenCodeStand(t)
+	for _, gateway := range []string{"/inference/go", "/inference"} {
+		base := opencodeGoBaseURL
+		if gateway == "/inference" {
+			base = opencodeConsoleBaseURL
+		}
+		gatewaySpecificPath := "/anthropic/v1/messages"
+		if gateway == "/inference" {
+			gatewaySpecificPath = "/openai/v1/chat/completions"
+		}
+		for _, tc := range []struct{ model, path string }{
+			{"glm-5.3", "/openai/v1/chat/completions"},
+			{"gpt-6-luna", "/openai/v1/responses"},
+			{"claude-haiku-5-5", "/anthropic/v1/messages"},
+			{"qwen3.8-max", gatewaySpecificPath},
+			{"minimax-m3", gatewaySpecificPath},
+		} {
+			t.Setenv(EnvOpenCodeBaseURL, stand.srv.URL+gateway+"/v1")
+			p, err := NewProvider(ProviderInput{Type: "opencode", BaseURL: base, Model: tc.model, APIKey: "oc-key", SessionID: "same-conversation", ProxyURL: "none", RetryDisabled: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				if _, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			seen := stand.seen(t)
+			for _, r := range seen[len(seen)-2:] {
+				if r.Path != gateway+tc.path || r.Session != "same-conversation" || r.UserAgent != opencodeUserAgent() || r.Auth != "Bearer oc-key" {
+					t.Fatalf("%s: unexpected request: %+v", tc.model, r)
+				}
+			}
+		}
+	}
+}
+
+func TestOpenCodeGatewaySpecificProtocols(t *testing.T) {
+	for _, tc := range []struct {
+		model, base string
+		want        opencodeProtocol
+	}{
+		{"qwen3.8-max", opencodeGoBaseURL, opencodeMessages},
+		{"qwen3.8-max", opencodeConsoleBaseURL, opencodeChat},
+		{"minimax-m3", opencodeGoBaseURL, opencodeMessages},
+		{"minimax-m3", opencodeConsoleBaseURL, opencodeChat},
+		{"minimax-m2.7", opencodeConsoleBaseURL, opencodeChat},
+		{"minimax-m2.7", opencodeGoBaseURL, opencodeChat},
+	} {
+		if got := opencodeProtocolForGateway(tc.model, tc.base); got != tc.want {
+			t.Errorf("%s at %s: protocol %d, want %d", tc.model, tc.base, got, tc.want)
+		}
 	}
 }
 

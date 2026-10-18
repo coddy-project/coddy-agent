@@ -61,7 +61,7 @@ Usage:
   coddy plugin remove <name>
   coddy plugin enable <name> | disable <name>
   coddy mcp list | trust <name> | untrust <name> [--cwd DIR]
-  coddy providers list | login <name> [--type neuraldeep|codex|devin] [--browser] [--devin-cli] [--no-config] [--api-base URL] | logout <name> [--home DIR]
+  coddy providers list | login <name> [--type neuraldeep|opencode|codex|devin] [--browser] [--devin-cli] [--api-key KEY] [--no-config] [--api-base URL] | logout <name> [--home DIR]
   coddy rules list [--cwd DIR]
   coddy agents list [--cwd DIR]
   coddy agents trust <name> [--cwd DIR]
@@ -294,7 +294,9 @@ usage: coddy sessions export <session-id> [--format md|html|json|jsonl] [--out <
 ```text
 Usage of providers:
   -api-base string
-    	neuraldeep: API endpoint to sign in against, one of https://api.neuraldeep.ru/v1, https://api.neuraldeep.tech/v1 (default: the provider's api_base, else the first)
+    	neuraldeep: API endpoint to sign in against, one of https://api.neuraldeep.ru/v1, https://api.neuraldeep.tech/v1 (default: the provider's api_base, else the first); opencode: the gateway, one of https://opencode.ai/inference/go/v1, https://opencode.ai/inference/v1 (default: Go)
+  -api-key string
+    	opencode: the API key to store, instead of pasting it at the prompt
   -browser
     	neuraldeep: sign in through a loopback browser callback instead of the device flow
   -device
@@ -306,7 +308,7 @@ Usage of providers:
   -no-config
     	login: do not add the provider and its models to config.yaml after login
   -type string
-    	login: type of a provider config.yaml does not list yet (neuraldeep, codex or devin), so another profile of a type is created by signing it in
+    	login: type of a provider config.yaml does not list yet (neuraldeep, opencode, codex or devin), so another profile of a type is created by signing it in
 flag: help requested
 ```
 

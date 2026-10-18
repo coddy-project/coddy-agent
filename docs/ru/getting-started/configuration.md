@@ -633,7 +633,9 @@ providers:
 
 ## Справочник по провайдерам моделей
 
-Значения **`type`** провайдера соответствуют **`internal/llm.NewProvider`**, это **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`** и **`devin`**.
+Значения **`type`** провайдера соответствуют **`internal/llm.NewProvider`**, это **`openai`**, **`anthropic`**, **`neuraldeep`**, **`opencode`**, **`codex`** и **`devin`**.
+
+**`type: opencode`** использует API-ключ OpenCode со шлюзом подписки Go по умолчанию; **`api_base: https://opencode.ai/inference/v1`** выбирает Console с оплатой по мере использования. Сохраните ключ командой **`coddy providers login opencode`** или задайте **`api_key`**. Coddy выбирает API генерации по модели и шлюзу; см. [OpenCode](../features/opencode.md).
 
 Разделение в YAML:
 
@@ -718,4 +720,4 @@ models:
 ### Локальные OpenAI-совместимые серверы (Ollama, llama.cpp, LM Studio)
 Используйте **`type: openai`** и задайте в **`api_base`** OpenAI-совместимый базовый URL, который уже включает **`/v1`**, например **`http://localhost:11434/v1`** для Ollama.
 
-<!-- docsgen:source sha256=eaa9d65159906a57 -->
+<!-- docsgen:source sha256=599266c1a3aabc05 -->

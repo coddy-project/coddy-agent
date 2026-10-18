@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -18,10 +19,12 @@ import (
 // OpenCode Go / Console (Zen) provider.
 //
 // One gateway, one Bearer API key, and a catalog whose models are served over
-// three different wire protocols: the OpenAI Responses API (/responses) for the
+// four different wire protocols: the OpenAI Responses API (/responses) for the
 // Grok, GPT and Muse models, the Anthropic API (/messages) for Claude, Qwen and
-// MiniMax, and an OpenAI-compatible API (/chat/completions) for the rest. The
-// gateway's /models list carries no protocol hint - only ids - so the protocol
+// MiniMax on Go, the Google API for Gemini, and an OpenAI-compatible API
+// (/chat/completions) for the rest. Console's Qwen3.8 Max and MiniMax use chat.
+// Inference paths include /openai, /anthropic or /google before the API version.
+// The gateway's /models list carries no protocol hint - only ids - so the protocol
 // is chosen from the model id (opencodeProtocolFor) and an unknown id falls back
 // to /chat/completions, the most common shape.
 //
@@ -105,12 +108,13 @@ const (
 	opencodeChat      opencodeProtocol = iota // /chat/completions (OpenAI-compatible)
 	opencodeResponses                         // /responses (OpenAI Responses API)
 	opencodeMessages                          // /messages (Anthropic)
+	opencodeGoogle                            // /models/<id>:generateContent (Google)
 )
 
 // opencodeProtocolFor picks the wire protocol from the model id. The gateway
 // publishes no machine-readable mapping, so this mirrors the catalog in the
-// OpenCode docs: Grok, GPT and Muse on the Responses API; Claude, Qwen and
-// MiniMax on the Anthropic API; everything else (GLM, Kimi, DeepSeek, LongCat,
+// OpenCode Go docs: Grok, GPT and Muse on Responses; Claude, Qwen and MiniMax M3
+// on Anthropic; Gemini on Google; everything else (GLM, Kimi, DeepSeek, LongCat,
 // MiMo, Hy, Space Bunny, Step, Cat Jam, Omen and the free models) on the
 // OpenAI-compatible API, which is also the fallback for an id this does not
 // know.
@@ -123,24 +127,41 @@ func opencodeProtocolFor(model string) opencodeProtocol {
 		return opencodeResponses
 	case strings.HasPrefix(id, "claude"),
 		strings.HasPrefix(id, "qwen"),
-		strings.HasPrefix(id, "minimax"):
+		id == "minimax-m3":
 		return opencodeMessages
+	case strings.HasPrefix(id, "gemini-"):
+		return opencodeGoogle
 	default:
 		return opencodeChat
 	}
 }
 
+// Go and Console publish different API families for the same model ids.
+// Resolve the logical gateway before the stand override changes its address.
+func opencodeProtocolForGateway(model, configured string) opencodeProtocol {
+	id := strings.ToLower(strings.TrimSpace(model))
+	if base, ok := NormalizeOpenCodeAPIBase(configured); ok && base == opencodeConsoleBaseURL {
+		if id == "qwen3.8-max" || strings.HasPrefix(id, "minimax-") {
+			return opencodeChat
+		}
+	}
+	return opencodeProtocolFor(model)
+}
+
 // opencodeAnthropicBase turns the OpenAI-style base (.../go/v1) into the base
-// the Anthropic SDK wants (.../go), because that SDK appends /v1/messages
+// the Anthropic SDK wants (.../go/anthropic), because that SDK appends /v1/messages
 // itself.
 func opencodeAnthropicBase(base string) string {
-	return strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")
+	return strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1") + "/anthropic"
+}
+
+func opencodeOpenAIBase(base string) string {
+	return strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1") + "/openai/v1"
 }
 
 // opencodeHeaderTransport injects the headers the OpenCode gateway asks for on
 // every request, whatever SDK built it: Coddy's own User-Agent, the stable
-// conversation id in x-opencode-session, and the Bearer credential (the
-// Anthropic SDK sends x-api-key instead, so the gateway is offered both). It
+// conversation id in x-opencode-session, and the row's Bearer credential. It
 // wraps the row's proxy-aware transport and clones each request before editing
 // it, as the http.RoundTripper contract requires.
 type opencodeHeaderTransport struct {
@@ -152,6 +173,10 @@ type opencodeHeaderTransport struct {
 
 func (t *opencodeHeaderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r := req.Clone(req.Context())
+	// SDKs can pick up OPENAI_API_KEY or ANTHROPIC_API_KEY from the process.
+	// This row authenticates only with its own resolved OpenCode credential.
+	r.Header.Del("Authorization")
+	r.Header.Del("x-api-key")
 	if t.userAgent != "" {
 		r.Header.Set("User-Agent", t.userAgent)
 	}
@@ -171,15 +196,26 @@ func opencodeClient(hc *http.Client, apiKey, sessionID string) *http.Client {
 	if hc == nil {
 		return nil
 	}
-	return &http.Client{
-		Transport: &opencodeHeaderTransport{
-			inner:     hc.Transport,
-			userAgent: opencodeUserAgent(),
-			sessionID: sessionID,
-			apiKey:    apiKey,
-		},
-		Timeout: hc.Timeout,
+	client := *hc
+	client.Transport = &opencodeHeaderTransport{
+		inner:     hc.Transport,
+		userAgent: opencodeUserAgent(),
+		sessionID: sessionID,
+		apiKey:    apiKey,
 	}
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && (req.URL.Scheme != via[0].URL.Scheme || req.URL.Host != via[0].URL.Host) {
+			return fmt.Errorf("opencode: refusing a redirect to another origin")
+		}
+		if hc.CheckRedirect != nil {
+			return hc.CheckRedirect(req, via)
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("opencode: too many redirects")
+		}
+		return nil
+	}
+	return &client
 }
 
 // opencodeProvider routes a model to the transport that serves it. It is built
@@ -201,15 +237,17 @@ func newOpenCodeProvider(p ProviderInput, hc *http.Client) *opencodeProvider {
 	client := opencodeClient(hc, key, session)
 
 	var inner Provider
-	switch opencodeProtocolFor(p.Model) {
+	switch opencodeProtocolForGateway(p.Model, p.BaseURL) {
 	case opencodeResponses:
-		inner = newOpenCodeResponsesProvider(p.Model, key, base, client, p.MaxTokens, p.ReasoningEffort)
+		inner = newOpenCodeResponsesProvider(p.Model, key, opencodeOpenAIBase(base), client, p.MaxTokens, p.ReasoningEffort)
+	case opencodeGoogle:
+		inner = &opencodeGoogleProvider{input: p, client: client, base: strings.TrimSuffix(base, "/v1") + "/google/v1beta"}
 	case opencodeMessages:
 		ap := newAnthropicProvider(p.Model, key, opencodeAnthropicBase(base), client, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 		ap.tempSet = p.TemperatureSet
 		inner = ap
 	default:
-		op := newOpenAIProvider(p.Model, key, base, client, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		op := newOpenAIProvider(p.Model, key, opencodeOpenAIBase(base), client, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 		op.tempSet = p.TemperatureSet
 		inner = op
 	}
@@ -281,7 +319,8 @@ func (p *opencodeResponsesProvider) Stream(ctx context.Context, messages []Messa
 // standard OpenAI tiers, so "minimal" passes through; only "off" (and an empty
 // level) drop the reasoning block.
 func opencodeReasoningEffort(level string) string {
-	if l := strings.ToLower(strings.TrimSpace(level)); l == "" || l == reasoningOff {
+	level = strings.ToLower(strings.TrimSpace(level))
+	if level == "" || level == reasoningOff {
 		return ""
 	}
 	return level

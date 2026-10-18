@@ -83,6 +83,9 @@ func (s *providerProxyState) fail(err error) {
 func answerProviderRequest(w http.ResponseWriter, r *http.Request) bool {
 	path := r.URL.Path
 	switch {
+	case r.Method == http.MethodPost && strings.HasSuffix(path, ":generateContent"):
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, opencodeGoogleAnswer)
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/chat/completions"):
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"id":"chatcmpl-p1","object":"chat.completion","created":1,"model":"m",`+
@@ -299,6 +302,8 @@ func (s *providerProxyState) theEnvironmentNamesAProxy() error {
 
 func (s *providerProxyState) addRow(typ, name, setting string) error {
 	switch typ {
+	case "opencode":
+		s.setenv(EnvOpenCodeBaseURL, s.model.srv.URL+"/inference/go/v1")
 	case "neuraldeep":
 		// A neuraldeep row is pinned to the official deployments; the
 		// process-wide override is how stands and tests aim it elsewhere.
@@ -430,6 +435,34 @@ func (s *providerProxyState) askCompletionAndModels(name string) error {
 		s.fail(fmt.Errorf("%s: model list: %w", name, err))
 	case len(models) != 1 || models[0].ID != "m":
 		s.fail(fmt.Errorf("%s: model list = %+v, want the one model m", name, models))
+	}
+	return nil
+}
+
+func (s *providerProxyState) askOpenCodeEverything(name string) error {
+	row, err := s.row(name)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, model := range []string{"glm-5.3", "gpt-6-luna", "claude-haiku-5-5", "gemini-4-argon-contributor"} {
+		p, err := NewProvider(ProviderInput{Type: "opencode", Model: model, APIKey: "k", SessionID: "proxy-conversation", ProxyURL: row.setting, RetryDisabled: true})
+		if err != nil {
+			return err
+		}
+		resp, err := p.Complete(ctx, []Message{{Role: RoleUser, Content: "ping"}}, nil)
+		if err != nil {
+			s.fail(err)
+		} else if resp.Content != "pong" {
+			s.fail(fmt.Errorf("%s: content %q", model, resp.Content))
+		}
+	}
+	if _, err := ListModels(ctx, ProviderInput{Type: "opencode", APIKey: "k", ProxyURL: row.setting}); err != nil {
+		s.fail(err)
+	}
+	if _, err := ApplyOpenCodeLoginToConfig(ctx, s.testConfig(), name, opencodeGoBaseURL, "k", row.setting); err != nil {
+		s.fail(err)
 	}
 	return nil
 }
@@ -760,6 +793,7 @@ func initializeProviderProxyScenario(t *testing.T) func(*godog.ScenarioContext) 
 		sc.Step(`^an? "([^"]*)" provider "([^"]*)" with a proxy of its own$`, s.aProviderWithAProxyOfItsOwn)
 		sc.Step(`^"([^"]*)" is asked for a completion$`, s.askCompletion)
 		sc.Step(`^"([^"]*)" is asked for a completion and its model list$`, s.askCompletionAndModels)
+		sc.Step(`^"([^"]*)" is asked for all OpenCode protocols, its model list and a login config apply$`, s.askOpenCodeEverything)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a command safety decision and its auth flow$`, s.askNeuralDeepEverything)
 		sc.Step(`^"([^"]*)" is asked for a completion, its model list, its account usage, a token refresh, a device sign-in and a config apply$`, s.askCodexEverything)
 		sc.Step(`^"([^"]*)" is asked for a credential check, its model list, a chat answer, its account usage and a sign-in$`, s.askDevinEverything)

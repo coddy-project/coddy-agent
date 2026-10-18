@@ -267,7 +267,7 @@ type ProviderInput struct {
 	// conversation on one route and reuse its prompt cache; a provider that
 	// needs one and finds it empty generates a random id for the call. Empty
 	// for the callers that are not a conversation (a model list, a dry-run
-	// probe), which do not send it.
+	// probe), for which the OpenCode transport generates an id.
 	SessionID string
 }
 
@@ -331,7 +331,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		op.tempSet = p.TemperatureSet
 		inner = op
 	case "opencode":
-		// One gateway, three wire protocols chosen per model id; the key is an
+		// One gateway, four wire protocols chosen per model id; the key is an
 		// explicit api_key or the login `coddy providers login opencode`
 		// stored, and every request carries Coddy's User-Agent and the
 		// conversation's x-opencode-session over the row's proxy route.

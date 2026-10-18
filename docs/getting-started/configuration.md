@@ -638,7 +638,9 @@ An environment variable named **`CWD`** does not replace the placeholder (a bare
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**, **`devin`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`opencode`**, **`codex`**, **`devin`**.
+
+**`type: opencode`** uses an OpenCode API key with the Go subscription gateway by default; **`api_base: https://opencode.ai/inference/v1`** selects pay-as-you-go Console. Store the key with **`coddy providers login opencode`** or set **`api_key`**. Coddy selects the inference API per model and gateway; see [OpenCode](../features/opencode.md).
 
 YAML split:
 

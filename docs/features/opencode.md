@@ -2,7 +2,7 @@
 
 A `type: opencode` provider gives Coddy the models of an [OpenCode](https://opencode.ai) gateway - the **Go** subscription or the pay-as-you-go **Console** (Zen) - with one API key. OpenCode is only the backend here: the agent stays Coddy's own, with its system prompt, its tools, its permission gate and its ReAct loop, on every surface - the console, the web UI, ACP editors and the Telegram gateway.
 
-OpenCode curates a catalog of coding models (Grok, GPT, Claude, Qwen, GLM, Kimi, DeepSeek, MiniMax, MiMo and the rest) and serves each over the wire protocol that fits it. Coddy picks that protocol per model, so one provider row reaches the whole catalog.
+OpenCode curates a catalog of coding models (Grok, GPT, Claude, Qwen, GLM, Kimi, DeepSeek, MiniMax, MiMo, Gemini and the rest) and serves each over the wire protocol that fits it. Coddy picks that protocol per model and gateway. Console's Jev decision models use a separate System One API and are not conversational models for Coddy.
 
 ## Get a key
 
@@ -66,34 +66,40 @@ The OpenCode gateway serves different models over different protocols, and its `
 
 | Protocol | Endpoint | Model families |
 |----------|----------|----------------|
-| OpenAI Responses | `/responses` | `grok-*`, `gpt-*`, `muse-*` |
-| Anthropic | `/messages` | `claude-*`, `qwen*`, `minimax-*` |
-| OpenAI-compatible | `/chat/completions` | `glm-*`, `kimi-*`, `deepseek-*`, `longcat-*`, `mimo-*`, `hy*`, `space-bunny`, the free models, and anything else |
+| OpenAI Responses | `/openai/v1/responses` | `grok-*`, `gpt-*`, `muse-*` |
+| Anthropic | `/anthropic/v1/messages` | `claude-*`, `qwen*`, `minimax-m3` on Go |
+| Google | `/google/v1beta/models/<id>:generateContent` | `gemini-*` |
+| OpenAI-compatible | `/openai/v1/chat/completions` | `glm-*`, `kimi-*`, `deepseek-*`, `longcat-*`, `mimo-*`, `hy*`, `space-bunny`, the free chat models, and unknown ids |
 
-An id this table does not know falls back to `/chat/completions`, the most common shape. The mapping mirrors the catalog in the [OpenCode Go docs](https://opencode.ai/v2/docs/console/go/) and the [Console docs](https://opencode.ai/docs/zen/); when OpenCode adds a family on a new protocol, the map in `internal/llm/opencode.go` (`opencodeProtocolFor`) is what changes.
+These paths follow `https://opencode.ai/inference/go` for Go or `https://opencode.ai/inference` for Console. The catalog stays at `/v1/models` under that prefix. Console serves `qwen3.8-max` and every `minimax-*` model over Chat Completions; Go serves `qwen3.8-max` and `minimax-m3` over Anthropic. Older MiniMax models use Chat Completions.
 
-Reasoning levels work as they do for any provider: the level a model entry resolves to is sent as the OpenAI Responses `reasoning.effort`, the Anthropic thinking budget, or the OpenAI-compatible `reasoning_effort`, per the protocol that model uses.
+An id this table does not know falls back to Chat Completions. The mapping follows the [OpenCode Go docs](https://opencode.ai/v2/docs/console/go/) and the [Console model endpoints](https://opencode.ai/v2/docs/console/models/); when OpenCode changes a model's protocol, update `opencodeProtocolForGateway` in `internal/llm/opencode.go`.
+
+Reasoning levels are sent as OpenAI Responses `reasoning.effort`, an Anthropic thinking budget, OpenAI-compatible `reasoning_effort`, or Google's `thinkingConfig.thinkingLevel`, per the model's protocol. Gemini streams through `:streamGenerateContent?alt=sse`; Coddy preserves its signed response parts across tool calls and keeps partial text if a stream is cut before its finish reason. Inline pictures are supported; remote picture URLs are named as attachments without fetching them.
 
 ## Required client headers
 
-The gateway is abuse-monitored and asks every client to identify itself and to keep a conversation on one route. Coddy sends, on every request it makes to OpenCode - completions, the model list, all three protocols:
+The gateway is abuse-monitored and asks every client to identify itself and to keep a conversation on one route. Coddy sends, on every request it makes to OpenCode - completions, the model list, all four protocols:
 
 - `User-Agent: coddy/<version>`, its own name rather than a generic SDK or HTTP-library one;
 - `x-opencode-session: <session id>`, the stable id of the conversation, so OpenCode can optimize routing and reuse its prompt cache. A call that is not a conversation (a model list, a `--dry-run` probe) sends a generated id.
 
 Both are injected over the row's own transport, so they never open a route that bypasses `providers[].proxy`.
 
+Only this row's OpenCode credential is sent. SDK defaults such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are discarded, and redirects to another origin are refused before forwarding a key.
+
 ## Proxy
 
-`providers[].proxy` routes every OpenCode request - completions on all three protocols, the model list and a login's catalog fetch - exactly as it does for any other provider: `inherit` follows the environment's proxy, `none` connects directly, and a URL goes through that proxy. See [Provider proxy](../getting-started/configuration.md#provider-proxy).
+`providers[].proxy` routes every OpenCode request - completions on all four protocols, the model list and a login's catalog fetch - exactly as it does for any other provider: `inherit` follows the environment's proxy, `none` connects directly, and a URL goes through that proxy. See [Provider proxy](../getting-started/configuration.md#provider-proxy).
 
 ## Usage limits
 
-OpenCode meters each model against a monthly dollar budget (with 5-hour and weekly sub-limits), and you can watch it in the [console](https://opencode.ai/console). OpenCode publishes no usage API for a client to read, so Coddy shows no usage panel for an `opencode` row: the `usage_limits_panel` switch has nothing to drive, and a model's context window falls back to `max_context_tokens` or 128000, since the gateway's `/models` reports none.
+OpenCode meters each model against a monthly dollar budget (with 5-hour and weekly sub-limits), and you can watch it in the [console](https://opencode.ai/console). Coddy has no OpenCode account usage reader, so it shows no usage panel for an `opencode` row. A model's context window uses `max_context_tokens`, then catalog metadata when available, then 128000.
 
 ## Testing
 
-- Unit tests: `internal/llm/opencode_test.go` pins the protocol map, the gateway resolution and its env override, the required headers and the per-model routing against an `httptest` stand that serves all three protocols, the credential round-trip and the reasoning-carrier isolation from the Codex one.
+- Unit tests: `internal/llm/opencode_test.go` checks exact inference paths for both gateways, headers, credential isolation, redirect refusal and stored credentials. `opencode_google_test.go` covers Gemini tool conversations, signed parts, usage and truncated streams.
+- `features/provider_proxy.feature` covers all four API families, model discovery and login config updates through each proxy setting.
 - The Responses transport is shared with the Codex backend (`internal/llm/responses_stream.go`); `internal/llm/codex_test.go` covers it.
 
 ## See also
