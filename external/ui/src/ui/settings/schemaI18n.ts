@@ -18,7 +18,7 @@ import { hasTranslation, translate } from "../i18n/i18n";
 function fieldKey(
   domain: string,
   path: string,
-  kind: "label" | "desc" | "ph",
+  kind: "label" | "desc" | "ph" | `option.${string}`,
 ): string {
   const where = path ? `${domain}.${path}` : domain;
   return `settings.schema.${where}.${kind}`;
@@ -72,6 +72,30 @@ export function schemaFieldPlaceholder(
 ): string | undefined {
   if (domain) {
     const key = fieldKey(domain, path, "ph");
+    if (hasTranslation(key)) {
+      return translate(key);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Localized name of one choice of an enum field: the dictionary entry
+ * `settings.schema.<domain>.<path>.option.<value>` (`option.none` for the empty
+ * value, which often means "the default behaviour"), else undefined - the
+ * choice then shows as its value.
+ */
+export function schemaEnumOptionLabel(
+  domain: string | undefined,
+  path: string,
+  value: string,
+): string | undefined {
+  if (domain) {
+    const key = fieldKey(
+      domain,
+      path,
+      `option.${value === "" ? "none" : value}`,
+    );
     if (hasTranslation(key)) {
       return translate(key);
     }

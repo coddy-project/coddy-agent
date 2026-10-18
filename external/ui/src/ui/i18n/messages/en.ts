@@ -612,6 +612,8 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.tools.operator_command.multiplexer.label": "Run inside",
   "settings.schema.tools.operator_command.multiplexer.desc":
     "macOS and Linux: run each command in a detached tmux or screen session, for long runs on a real terminal. Empty runs it directly.",
+  "settings.schema.tools.operator_command.multiplexer.option.none":
+    "Directly (no multiplexer)",
   "settings.schema.tools.websearch.brave_api_key.ph": "Read from BRAVE_API_KEY",
   "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",
   "settings.schema.tools.http_request.label": "HTTP requests",

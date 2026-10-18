@@ -79,6 +79,12 @@ tools:
 
 The console's `!!` uses the same shell, so the commands you type by hand and the ones the agent asks you to run go to one place.
 
+In the web UI the section is **Settings → Tools and permissions → Operator commands**: the switch, the shell (empty shows the platform's default) and where the command runs.
+
+![Settings, Tools and permissions, Operator commands: Enabled, Shell with the default bash (PowerShell on Windows), Run inside set to Directly](../assets/operator-commands/operator-command-settings-dark-1280.png)
+
+*The operator commands section of the settings.*
+
 ## Long runs: tmux or screen
 
 On macOS and Linux, `multiplexer: tmux` or `multiplexer: screen` runs each operator command inside a detached session. The command gets a real terminal, a prompt for a password waits for you, and a long run does not depend on the browser tab or the console that pressed Run. Coddy manages the session: you see and approve only the command, never a `tmux` line, and the card shows the command's own output.

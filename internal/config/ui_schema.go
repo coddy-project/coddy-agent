@@ -541,12 +541,9 @@ func UISchemaMap() map[string]interface{} {
 				"operator_command": objectSchema("Operator commands",
 					"The operator_command tool: a command the agent was refused, shown to you exactly as it will run, with Run, Decline and Stop. Its output goes back to the agent. The shell also runs the console's !! commands.",
 					map[string]interface{}{
-						"enable": map[string]interface{}{
-							"type":        "boolean",
-							"title":       "Enabled",
-							"description": "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console.",
-						},
-						"shell": strProp("Shell", "A name on PATH (bash, zsh, pwsh, cmd) or a path. Empty uses PowerShell on Windows and bash on Linux, macOS and Android."),
+						// On when the key is absent: the switch must say so.
+						"enable": boolPropDefault("Enabled", "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console.", true),
+						"shell":  strProp("Shell", "A name on PATH (bash, zsh, pwsh, cmd) or a path. Empty uses PowerShell on Windows and bash on Linux, macOS and Android."),
 						"multiplexer": map[string]interface{}{
 							"type":        "string",
 							"title":       "Run inside",

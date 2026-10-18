@@ -1432,6 +1432,7 @@
           "description": "The operator_command tool: a command the agent was refused, shown to you exactly as it will run, with Run, Decline and Stop. Its output goes back to the agent. The shell also runs the console's !! commands.",
           "properties": {
             "enable": {
+              "default": true,
               "description": "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console.",
               "title": "Enabled",
               "type": "boolean"

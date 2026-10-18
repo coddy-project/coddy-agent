@@ -623,6 +623,8 @@ export const messagesRu: Record<string, string> = {
     "Запускать внутри",
   "settings.schema.tools.operator_command.multiplexer.desc":
     "macOS и Linux: запускать каждую команду в отдельной сессии tmux или screen в фоне, для долгих запусков в настоящем терминале. Пусто - запуск напрямую.",
+  "settings.schema.tools.operator_command.multiplexer.option.none":
+    "Напрямую (без мультиплексора)",
   "settings.schema.tools.websearch.brave_api_key.ph":
     "Берётся из BRAVE_API_KEY",
   "settings.schema.tools.websearch.searxng_url.ph": "http://localhost:8888",

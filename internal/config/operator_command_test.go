@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -41,5 +42,22 @@ func TestOperatorCommandMultiplexerTravelsCanonically(t *testing.T) {
 	cfg.Tools.OperatorCommand.Multiplexer = " TMUX "
 	if got := ConfigToJSONDTO(cfg).Tools.OperatorCommand.Multiplexer; got != "tmux" {
 		t.Fatalf("multiplexer = %q, want tmux", got)
+	}
+}
+
+// TestOperatorCommandSwitchShowsItsDefault: the tool is on when the key is
+// absent, so the form's switch must not draw it off.
+func TestOperatorCommandSwitchShowsItsDefault(t *testing.T) {
+	raw, err := UISchemaJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]interface{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	enable := doc["properties"].(map[string]interface{})["tools"].(map[string]interface{})["properties"].(map[string]interface{})["operator_command"].(map[string]interface{})["properties"].(map[string]interface{})["enable"].(map[string]interface{})
+	if enable["default"] != true {
+		t.Fatalf("operator_command.enable default = %v, want true", enable["default"])
 	}
 }
