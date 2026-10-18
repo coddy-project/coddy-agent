@@ -40,6 +40,10 @@ exactly what is shown, or decline.
 4. The tool is available in the console TUI (local and `--remote`) and in the web UI.
 5. The operator cannot edit the call.
 6. Works on Linux, Windows, macOS and Android.
+7. A **Stop** button interrupts the running command (the console is interrupted) and the turn goes
+   on with the output so far.
+8. On macOS and Linux a setting runs the command inside `tmux` or `screen` for long runs.
+9. The tool organises the multiplexer by itself: the operator sees only the launch of the command.
 
 ## Design
 
@@ -105,6 +109,60 @@ For the web UI and `coddy --remote` that process is the `coddy serve` host, whic
 session's files are; the browser never executes anything, and the card names the host. The command
 runs as the same OS user as Coddy: it bypasses Coddy's rules, not the operating system's.
 
+### Stop: the operator interrupts the command
+
+Every card that shows a running operator command has a **Stop** button (the web card, the remote
+console, the local console: esc while it runs). Stop interrupts the console the way Ctrl+C does and
+the turn goes on with what the command printed so far:
+
+1. Interrupt: on Unix `SIGINT` to the command's process group (in a multiplexer, `C-c` sent to its
+   pane, see below), so a program that cleans up on Ctrl+C gets to; on Windows there is no console
+   to send Ctrl+C to (the command has none), so the step is skipped.
+2. After 3 s, if it still runs: `platform.TerminateProcessGroup` (Unix `SIGTERM`, then `SIGKILL`
+   after a further 3 s; Windows `taskkill /T /F`), or `kill-window` / `screen -X quit` in a
+   multiplexer.
+3. The result says `The operator stopped the command (exit code N). Output so far:` and the card
+   shows "Stopped".
+
+A Stop pressed twice escalates at once to step 2. Turn cancel (the composer's Stop, a second esc in
+the console) does steps 1-2 as well and ends the call `cancelled`.
+
+### Long runs: tmux or screen (macOS, Linux)
+
+```yaml
+tools:
+  operator_command:
+    multiplexer: tmux   # "" (default): run the command directly; tmux | screen: inside a detached session
+```
+
+With a multiplexer the tool starts the command inside a detached `tmux` or `screen` session, so it
+runs on a real terminal (a program that needs a TTY works, and the operator can attach to type into
+it), and a long run does not depend on the connection of the client that pressed Run. The tool
+organises all of it: the operator sees and approves only the command itself, never a `tmux` line,
+and the card and the result show the command's own output.
+
+- One multiplexer session per Coddy session, named `coddy-<short session id>`, created on the first
+  run and reused; each command gets a window of its own named after the request (`oc-<id>`).
+  Nothing of the operator's own tmux or screen sessions is touched (`tmux -L coddy` puts Coddy's on
+  a server socket of its own; screen uses its own session name).
+- The window runs `/bin/sh -c '<shell argv>; echo $? > <exit file>'` with the operator shell's own
+  argv (`platform.Shell.Command`), so the command text reaches the operator shell untouched, the
+  same as without a multiplexer. Output is captured to a log under the session bundle
+  (`<session>/operator-commands/<id>.log`; tmux `pipe-pane`, screen `-L -Logfile`), which the tool
+  reads the way it reads a direct command's pipe: the same 256 KiB tail, decoding and sanitising
+  (terminal sequences stripped, so the card shows text).
+- The command ends when the exit file appears; the tool then closes the window and returns. Stop
+  sends `C-c` to the pane (`tmux send-keys` / `screen -X stuff ^C`), then kills the window.
+- Turn cancel stops the command like Stop. A Coddy process that dies leaves the window running in
+  the operator's multiplexer, which is what "long runs" asks for; the tool call itself ends with the
+  turn, and the docs name the attach command (`tmux -L coddy attach -t coddy-<id>`).
+- The card shows a "tmux"/"screen" badge and, in the local and the remote console, the attach
+  command; the web card shows it under a disclosure.
+- Unix only: on Windows the key is ignored with a `--dry-run` warning. Android (Termux) follows the
+  key when the multiplexer is installed. `--dry-run` reports a multiplexer that is not on `PATH`,
+  and a `screen` older than 4.6 (no `-Logfile`); at run time an unavailable multiplexer is the
+  tool's error, never a silent direct run.
+
 ### The setting: `tools.operator_command`
 
 ```yaml
@@ -112,6 +170,7 @@ tools:
   operator_command:
     enable: true      # false: the tool is never offered
     shell: ""         # empty: PowerShell on Windows (pwsh, then powershell), bash elsewhere (bash, then sh)
+    multiplexer: ""   # macOS, Linux: "" runs the command directly, tmux or screen inside a detached session
 ```
 
 - `shell` is a name on `PATH` or a path: `bash`, `zsh`, `fish`, `sh`, `pwsh`, `powershell`, `cmd`,
@@ -232,6 +291,12 @@ history, not the prefix.
 - `features/web_operator_command.feature`, harness in `external/httpserver`: the capability flag,
   SSE `operator_command`, `POST .../operator-command {run}`, streamed frames, the final result.
 - Console: a `cli` harness scenario (modal starts on Decline, Run, output in the tool box).
+- Stop: a command that traps `SIGINT` and prints is interrupted by Stop and its trap output is in
+  the result; one that ignores `SIGINT` is killed after the grace; a second Stop kills at once.
+- Multiplexer (skipped when `tmux` / `screen` is not installed, both installed on the Linux and
+  macOS CI runners): the command runs in a window of `tmux -L coddy`, its output and exit code come
+  back, `tty` inside it reports a terminal, Stop sends `C-c` and closes the window, the operator's
+  default tmux server is untouched, the user-visible request and card carry only the command.
 - Unit: `platform.ResolveShell` per goos (done); validation of control, bidi and zero-width
   characters; decline; decline remembered for the turn; stop; turn cancel kills the group; second
   run 409; stop before run 409; a body with `command` 400; no capability flag → not offered; the
@@ -245,9 +310,10 @@ history, not the prefix.
 
 ## Model check
 
-A Promela model of one request: two followers answering (run, decline, stop, repeated), the command
-exit, a turn cancel and a client reload, with the properties: the command starts at most once and
-only after `run`; `stop` has effect only on a running command; the tool call ends exactly once and
+A Promela model of one request: two followers answering (run, decline, stop, repeated), the
+interrupt and the escalation of Stop, the command exit, a turn cancel and a client reload, with the properties: the command starts at most once and
+only after `run`; `stop` has effect only on a running command, and a running command that a stop
+reached always ends (by itself, by the interrupt or by the kill); the tool call ends exactly once and
 always ends; after a cancel no process is left. A Petri net of the same for the token view. Results
 under `docs/plans/operator-commands-models/`.
 
@@ -272,3 +338,10 @@ only for policy refusals; `run_command` keeps its own shell. Rejected with evide
 follower pressing Run (one auth tier; Mini App sign-in is admin-only), two prompts racing in one
 batch (tool calls run one after another), persisted running frames (progress is not persisted).
 Supervised goal runs: not offered (decided here).
+
+## Operator additions (after round 1)
+
+The operator asked for three more things, folded into the design above: a Stop button that
+interrupts the running console (section Stop), tmux or screen for long runs on macOS and Linux as a
+setting (section Long runs), and that the tool organises the multiplexer by itself, the operator
+seeing only the launch of the command. Reviewed in round 2.
