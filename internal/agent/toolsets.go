@@ -33,6 +33,9 @@ var planToolNames = []string{
 	"background_wait",
 	"background_stop",
 	"question",
+	// The operator runs, by their own click, a command the planner was
+	// refused; plan mode offers run_command, so it offers this too.
+	"operator_command",
 	"config_get",
 	// Read-only view of staged config commands; staging and committing stay
 	// agent-mode-only.
@@ -370,7 +373,7 @@ func (a *Agent) toolCallRefusedByToolset(name string) (string, bool) {
 		return "", false
 	}
 	return fmt.Sprintf("error: tool %q is not offered: this session runs with the toolset %q. Use one of the tools you were given.",
-		name, ts.Name), true
+		name, ts.Name) + a.operatorCommandHint(name, true), true
 }
 
 // toolCallRefused is the execution-time gate every call passes before a

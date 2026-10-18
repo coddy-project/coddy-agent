@@ -440,6 +440,8 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 		WebSearch:         webSearchSettings(a.cfg),
 		PreviewServer:     previewServerSettings(a.cfg),
+		OperatorCommand:   operatorCommandSettings(a.cfg),
+		OperatorDeclined:  tooling.NewOperatorDeclines(),
 		AttachImage:       a.attachToolImage,
 		ImageRefusal:      a.toolImageRefusal,
 	}
@@ -1882,6 +1884,7 @@ func (a *Agent) runReActLoop(
 			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
 			toolEnv.WebSearch = webSearchSettings(a.cfg)
 			toolEnv.PreviewServer = previewServerSettings(a.cfg)
+			toolEnv.OperatorCommand = operatorCommandSettings(a.cfg)
 			toolEnv.ConfigReloaded = false
 		}
 		// A step the output limit cut off inside its last tool call. The calls
@@ -2315,7 +2318,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			case verdict.safe:
 				requiresPerm = false
 			case env.PermissionMode == config.PermModeBypass:
-				rejection := verdict.refusal()
+				rejection := verdict.refusal() + a.operatorCommandHint(tc.Name, verdict.unsafe)
 				a.finishToolCall(sessionDir, sessionID, tc, rejection, nil, "cancelled")
 				return rejection, nil
 			default:
@@ -2650,6 +2653,15 @@ func (a *Agent) sessionToolDefinitions(mode string) []llm.ToolDefinition {
 		filtered := defs[:0]
 		for _, def := range defs {
 			if def.Name != tools.ToolWorktreeCreate {
+				filtered = append(filtered, def)
+			}
+		}
+		defs = filtered
+	}
+	if !a.operatorCommandsOffered() {
+		filtered := defs[:0]
+		for _, def := range defs {
+			if def.Name != tools.ToolOperatorCommand {
 				filtered = append(filtered, def)
 			}
 		}

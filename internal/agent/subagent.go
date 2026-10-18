@@ -92,6 +92,8 @@ func (a *Agent) SetDetachedPermissionBroker(b DetachedPermissionBroker) {
 // mode on the operator's behalf.
 var subagentMandatoryExclusions = []string{
 	"question",
+	// Nobody stands behind a child to press Run.
+	"operator_command",
 	"config_set", "config_changes", "config_commit", "config_revert", "config_rollback",
 	"plan_exit",
 	// A child runs on the model its parent (or its definition) chose.

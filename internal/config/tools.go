@@ -397,6 +397,8 @@ func (l *ToolOutputLimits) AsMap() map[string]int {
 	for _, n := range names {
 		out[n] = l.MaxLines(n)
 	}
+	// What the operator ran for the agent is a shell command too.
+	out["operator_command"] = l.MaxLines("run_command")
 	out[outputLimitDefaultKey] = l.MaxLines(outputLimitDefaultKey)
 	return out
 }
