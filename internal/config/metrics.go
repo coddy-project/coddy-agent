@@ -44,10 +44,13 @@ func (m *MetricsConfig) ListenAddr() string {
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
+// HasToken reports whether a scrape has to present the bearer credential.
+func (m *MetricsConfig) HasToken() bool { return m != nil && m.Token != "" }
+
 // ExposedWithoutToken reports an exporter bound off loopback with no token:
 // whoever can reach the port reads its figures.
 func (m *MetricsConfig) ExposedWithoutToken() bool {
-	if m == nil || m.Token != "" {
+	if m == nil || m.HasToken() {
 		return false
 	}
 	host, _, err := net.SplitHostPort(m.ListenAddr())

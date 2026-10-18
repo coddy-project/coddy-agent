@@ -86,6 +86,13 @@ type Client struct {
 	// yielding is an agent registration that stays quiet while the relay of
 	// its own process registers the same name into the same relay.
 	yielding bool
+	// offlineSince is when the registration last went offline: zero while it
+	// is online, and while it yields, since yielding is no outage. A client
+	// that has not registered yet is offline since it was created.
+	offlineSince time.Time
+	// now reads the clock offlineSince is taken from, time.Now unless a test
+	// sets it.
+	now func() time.Time
 }
 
 // NewClient validates the options and returns a client that has not yet
@@ -124,7 +131,8 @@ func NewClient(opts JoinOptions) (*Client, error) {
 	if opts.Dial.InsecureSkipVerify {
 		opts.Log.Warn("swarm join: certificate verification disabled", "relay", opts.RelayURL)
 	}
-	c := &Client{opts: opts, hc: hc, log: opts.Log}
+	c := &Client{opts: opts, hc: hc, log: opts.Log, now: time.Now}
+	c.offlineSince = c.now()
 	if opts.Secrets != nil {
 		if secret, ok := opts.Secrets.Load(opts.RelayURL, opts.Name); ok {
 			c.leaseSecret = secret
@@ -158,12 +166,13 @@ func (c *Client) Online() bool {
 	return c.online
 }
 
-// Yielding reports an agent registration that leaves the name to the relay
-// of its own process (yieldsToRelay).
-func (c *Client) Yielding() bool {
+// status reads whether the registration yields, whether it is online and,
+// when it is not, since when, in one step: a registration that succeeds
+// between three separate reads would otherwise read as offline with no start.
+func (c *Client) status() (yielding, online bool, offlineSince time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.yielding
+	return c.yielding, c.online, c.offlineSince
 }
 
 // yieldsToRelay reports an agent registration whose name the relay of this
@@ -176,6 +185,14 @@ func (c *Client) Yielding() bool {
 func (c *Client) yieldsToRelay() bool {
 	yield := c.opts.Kind == KindAgent && relayRegisters(c.opts.RelayURL, c.opts.Name)
 	c.mu.Lock()
+	switch {
+	case yield && !c.yielding:
+		// Yielding is no outage.
+		c.offlineSince = time.Time{}
+	case !yield && c.yielding:
+		// The registration starts over, and so does its first interval.
+		c.offlineSince = c.now()
+	}
 	c.yielding = yield
 	if yield {
 		c.online = false
@@ -248,6 +265,7 @@ func (c *Client) Register(ctx context.Context) error {
 	c.ttl = time.Duration(out.TTLSeconds) * time.Second
 	c.generation = out.Generation
 	c.online = true
+	c.offlineSince = time.Time{}
 	c.mu.Unlock()
 	if fresh && c.opts.Secrets != nil {
 		if err := c.opts.Secrets.Save(c.opts.RelayURL, c.opts.Name, out.LeaseSecret); err != nil {
@@ -271,8 +289,14 @@ func (c *Client) serveTunnel(ctx context.Context) error {
 	})
 }
 
+// markOffline records a failed attempt. An outage starts at its first
+// failure: later ones keep the start, and a registration that has not
+// succeeded yet is offline since it was created.
 func (c *Client) markOffline() {
 	c.mu.Lock()
+	if c.online || c.offlineSince.IsZero() {
+		c.offlineSince = c.now()
+	}
 	c.online = false
 	c.mu.Unlock()
 }

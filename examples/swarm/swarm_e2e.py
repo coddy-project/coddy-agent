@@ -26,7 +26,8 @@ What it proves, in order:
 8. the ring is reported once, with the short route chosen and the long one kept;
 9. the control plane is refused through a mount;
 10. a long transcript is read page by page through a mount and a tunnel;
-11. a node that goes away becomes a warning rather than an error.
+11. an agent's status document is its own, read through a mount and a tunnel;
+12. a node that goes away becomes a warning rather than an error.
 
 Requires ``build/coddy`` built with ``-tags "http swarm"``. No LLM is needed:
 sessions are seeded on disk, and every checked route is metadata-only.
@@ -480,7 +481,29 @@ swarm:
         read_long_session_in_pages(f"{route}/coddy/sessions/sess_long", token, total, where)
     ok("a long transcript was read page by page through a mount and through a tunnel")
 
-    # 12. a node that goes away is a warning, not a failure
+    # 12. the status document read through a mount is the agent's own, not the
+    #     relay's: it names the agent's port and the home it was started in, and
+    #     carries nothing of the sessions seeded above or of the tokens
+    for route, token, port, name, where in (
+        (f"{r2}/swarm/nodes/agent8", R2_CLIENT, p_a8, "agent8", "agent8 through its relay"),
+        (f"{r1}/swarm/nodes/shortcut/swarm/nodes/agent7", R1_CLIENT, p_a7, "agent7", "agent7 over its tunnel, two relays away"),
+    ):
+        code, doc, raw = call("GET", f"{route}/coddy/status", token)
+        if code != 200 or doc.get("object") != "coddy.status":
+            fail(f"{where}: /coddy/status: {code} {raw[:200]}")
+        rows = [r for r in doc.get("subsystems", []) if r.get("kind") == "httpserver"]
+        if len(rows) != 1 or rows[0].get("state") != "running" or not str(rows[0].get("address", "")).endswith(f":{port}"):
+            fail(f"{where}: the document is not {name}'s own: want the HTTP API on :{port}, got {rows}")
+        config_file = (doc.get("process") or {}).get("configFile", "")
+        if f"coddy-agent-{name}-" not in config_file:
+            fail(f"{where}: the document names another configuration file: {config_file!r}")
+        for private in ("Refactor the SSE parser", "Train the reranker", "/srv/parser", "/data/models",
+                        "sess_parser", AGENT7_TOKEN, AGENT8_TOKEN, PAIRING, R1_CLIENT, R2_CLIENT, R3_CLIENT):
+            if private in raw:
+                fail(f"{where}: the status document carries {private!r}")
+    ok("an agent's status document came through a mount and through a tunnel, its own each time")
+
+    # 13. a node that goes away is a warning, not a failure
     os.killpg(os.getpgid(agent8_proc.pid), signal.SIGKILL)
     agent8_proc.wait(timeout=10)
     deadline = time.time() + 30
