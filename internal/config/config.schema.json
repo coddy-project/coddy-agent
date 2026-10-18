@@ -596,7 +596,7 @@
         "canvas": {
           "type": "object",
           "title": "Canvas",
-          "description": "The canvas of the web UI: a board of live frames beside a chat, each a page of the workspace running in a sandbox, put there by the agent with canvas_show or by the person from the Files window; canvas_inspect reads what the browser saw. See https://coddy.dev/docs/features/canvas.",
+          "description": "The canvas of the web UI: a .canvas file of the workspace shown in the Files window as a board of live frames, each a page of the workspace running in a sandbox, put there by the agent with canvas_show or by the person from the Files window; canvas_inspect reads what the browser saw. See https://coddy.dev/docs/features/canvas.",
           "additionalProperties": false,
           "properties": {
             "enable": {

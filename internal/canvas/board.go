@@ -1,5 +1,5 @@
-// Package canvas is the board of live frames the web UI shows beside a chat:
-// a .canvas file of the workspace (JSON Canvas, the format of Obsidian's
+// Package canvas is the board of live frames the web UI shows in the Files
+// window: a .canvas file of the workspace (JSON Canvas, the format of Obsidian's
 // canvases) whose file nodes naming HTML pages run as live frames and whose
 // other nodes and edges are drawn as they are. The pages are ordinary files
 // written with the file tools, and the board is a file too, so git, the files

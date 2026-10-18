@@ -143,8 +143,9 @@ When adding or changing behavior (including words like feature, add, implement, 
       from the GitHub Releases.
     - **Translation** - the documentation is also in Russian: **`docs/ru/<group>/<page>.md`** translates
       **`docs/<group>/<page>.md`** under the same path. A change to an English page carries the same change
-      into its translation in the same pull request, then **`make docs-stamp PAGES="docs/ru/..."`** records
-      that the translation follows the English page; a new page brings its translation and its entry in
+      into its translation in the same pull request; new or rewritten Russian prose is read by reviewers who
+      did not write it (*Cross-review of a translation* in the documentation translation rule), then
+      **`make docs-stamp PAGES="docs/ru/..."`** records that the translation follows the English page; a new page brings its translation and its entry in
       **`docs/ru/nav.yaml`**, a changed title or summary its translation there with **`en:`** set to the new English text, a schema description its entry
       in **`docs/ru/config-descriptions.yaml`**. Link targets are copied from the English page and
       **`make docs`** makes them right for the translation's folder. **`make docs-check`** fails on a missing
@@ -227,7 +228,7 @@ Add a light/dark theme variant only when the change modifies theme colors or tok
 - **`make site-docs-check`** clean when a documentation page, **`docs/nav.yaml`** or the schema changed: the interceptor script, **`docs-anchors-ru.json`** and the llms files of both languages on coddy.dev follow the repository.
 - **No stale spelling of anything renamed**: `git grep -nI '<old name>'` comes back empty outside **`docs/plans/**`** - docs, `config.example.yaml`, `examples/`, Go comments, every `external/ui/src/ui/i18n/messages/` dictionary and `internal/skills/bundled/` included.
 - **Man page and completions match the usage text** when the CLI surface changed: `go test ./cmd/coddy -run 'TestUsage|TestPackaging'` green, and the flags of the changed command present in **`packaging/completions/*`** and **`packaging/man/coddy.1`**.
-- **`make docs-check`** clean: every new page in **`docs/nav.yaml`**, the generated pages regenerated with **`make docs`**, no broken relative link or anchor, no asset without a page, every changed English page carried into its translation under **`docs/ru/`** and restamped. The page of every user-visible change updated, with a screenshot on the page when the change is visible in the web UI or the console.
+- **`make docs-check`** clean: every new page in **`docs/nav.yaml`**, the generated pages regenerated with **`make docs`**, no broken relative link or anchor, no asset without a page, every changed English page carried into its translation under **`docs/ru/`**, cross-reviewed when its prose is new or rewritten, and restamped. The page of every user-visible change updated, with a screenshot on the page when the change is visible in the web UI or the console.
 - **`make lint`** clean.
 - **Rules sync** - when one representation of shared policy changes, update every deliberate counterpart in the same commit:
   1. inventory root `AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`, `.claude/rules/`, the Codex hook and other verified host integrations;

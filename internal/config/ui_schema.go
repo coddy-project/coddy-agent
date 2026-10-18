@@ -539,7 +539,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"enable", "host", "public_host"},
 					nil),
 				"canvas": objectSchema("Canvas",
-					"The canvas of the web UI: a board of live frames beside a chat, each a page of the workspace running in a sandbox.",
+					"The canvas of the web UI: a .canvas file of the workspace shown in the Files window as a board of live frames, each a page of the workspace running in a sandbox.",
 					map[string]interface{}{
 						"enable": map[string]interface{}{
 							"type":        "boolean",
