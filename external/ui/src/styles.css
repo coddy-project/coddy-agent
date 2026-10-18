@@ -7189,6 +7189,10 @@ html:not([data-theme="light"]) .workspace-branch-warning {
   padding: 20px 20px 16px;
 }
 
+.confirm-dialog.confirm-dialog--wide {
+  width: min(500px, calc(100vw - 32px));
+}
+
 .confirm-dialog-body {
   display: flex;
   gap: 14px;
@@ -7240,8 +7244,40 @@ html:not([data-theme="light"]) .workspace-branch-warning {
 
 .confirm-dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* What leaving a worktree would touch, under the dialog's question
+   (LeaveWorktreeDialog): one short line each, the message's tint; uncommitted
+   work at full text strength, and what stops a removal in the danger tone. */
+.leave-worktree-facts {
+  margin: 10px 0 0;
+  padding: 0 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.leave-worktree-fact {
+  overflow-wrap: anywhere;
+}
+
+.leave-worktree-fact.is-warn {
+  color: var(--text);
+}
+
+.leave-worktree-fact.is-stop {
+  color: var(--coddy-danger);
+}
+
+.leave-worktree-note {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .confirm-dialog-btn {

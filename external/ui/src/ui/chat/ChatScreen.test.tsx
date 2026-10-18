@@ -1047,9 +1047,31 @@ function workspaceProps(locked: boolean) {
 }
 
 // A chat in a linked worktree goes back to its project from the plate: the
-// button sends /worktree exit, which the server runs without a model turn.
-test("the plate of a chat in a worktree sends /worktree exit to go back", async () => {
-  stubSessionChanges(0);
+// button asks first, keep the worktree or remove it, and keeping sends
+// /worktree exit, which the server runs without a model turn.
+test("the plate of a chat in a worktree asks, then sends /worktree exit to go back", async () => {
+  const fetchMock = stubSessionChanges(0);
+  const changesFetch = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (input: unknown) => {
+    if (String(input).endsWith("/worktree")) {
+      return new Response(
+        JSON.stringify({
+          in_worktree: true,
+          branch: "feat/session-changes",
+          managed: true,
+          uncommitted: 0,
+          unpushed: 0,
+          locked: false,
+          submodules: false,
+          running_tasks: 0,
+          removable: true,
+          needs_discard: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return changesFetch(input);
+  });
   const onSend = vi.fn();
   render(
     turnLineScreen({
@@ -1064,7 +1086,13 @@ test("the plate of a chat in a worktree sends /worktree exit to go back", async 
     }),
   );
   fireEvent.click(await screen.findByTestId("workspace-bar-leave"));
+  const dialog = await screen.findByTestId("leave-worktree-dialog");
+  expect(onSend).not.toHaveBeenCalled();
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Keep worktree" }),
+  );
   expect(onSend).toHaveBeenCalledWith("/worktree exit");
+  expect(screen.queryByTestId("leave-worktree-dialog")).toBeNull();
   vi.unstubAllGlobals();
 });
 

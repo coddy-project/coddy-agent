@@ -277,3 +277,77 @@ func TestWorktreeCommandRefusesToRemoveAWorktreeAnotherChatWorksIn(t *testing.T)
 		t.Fatalf("the shared worktree is gone: %v", err)
 	}
 }
+
+// An existing worktree is reached by its folder too, relative to where the
+// chat works; the same path a worktree on a detached HEAD has to be named by.
+func TestWorktreeCommandEntersAWorktreeByItsFolder(t *testing.T) {
+	if !gitws.GitAvailable() {
+		t.Skip("git binary not available")
+	}
+	s := &worktreeCommandState{}
+	t.Cleanup(s.close)
+	if err := s.serverWithChatInRepository(); err != nil {
+		t.Fatal(err)
+	}
+	for _, prompt := range []string{"/worktree feature/ui", "/worktree exit", "/worktree ./.coddy/worktrees/feature-ui"} {
+		if err := s.sends(prompt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.worksInWorktree("feature/ui"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// GET /coddy/sessions/{id}/worktree tells the web UI what leaving would touch
+// before it asks: uncommitted work (removable only by discarding it), and
+// another chat in the worktree (not removable at all).
+func TestSessionWorktreeRouteSaysWhatRemovalWouldTouch(t *testing.T) {
+	if !gitws.GitAvailable() {
+		t.Skip("git binary not available")
+	}
+	s := &worktreeCommandState{}
+	t.Cleanup(s.close)
+	if err := s.serverWithChatInRepository(); err != nil {
+		t.Fatal(err)
+	}
+	read := func() map[string]interface{} {
+		t.Helper()
+		res, err := http.Get(s.ts.URL + "/coddy/sessions/" + s.sessionID + "/worktree")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = res.Body.Close() }()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("status %d", res.StatusCode)
+		}
+		var body map[string]interface{}
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	if body := read(); body["in_worktree"] != false {
+		t.Fatalf("main checkout reads %v, want in_worktree false", body)
+	}
+	if err := s.sends("/worktree feature/ui"); err != nil {
+		t.Fatal(err)
+	}
+	wt := s.worktreePath("feature/ui")
+	if err := os.WriteFile(filepath.Join(wt, "draft.txt"), []byte("half done\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := read()
+	if body["in_worktree"] != true || body["uncommitted"] != float64(1) || body["removable"] != true || body["needs_discard"] != true || body["branch"] != "feature/ui" {
+		t.Fatalf("dirty worktree reads %v, want 1 uncommitted, removable by discarding", body)
+	}
+	other, err := s.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: wt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = read()
+	others, _ := body["other_sessions"].([]interface{})
+	if body["removable"] != false || len(others) != 1 || !strings.Contains(fmt.Sprint(others[0]), other.SessionID) || !strings.Contains(fmt.Sprint(body["refusal"]), other.SessionID) {
+		t.Fatalf("shared worktree reads %v, want the other chat named and no removal", body)
+	}
+}

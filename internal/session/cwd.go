@@ -118,7 +118,7 @@ func (m *Manager) ReloadSessionWorkspace(ctx context.Context, st *State) {
 
 // reloadWorkspaceScopedState re-derives everything a session's workspace
 // decides. External switches acquire the turn lock or park the MCP reload;
-// a worktree_create call already owns that lock and refreshes its MCP clients
+// a worktree_open call already owns that lock and refreshes its MCP clients
 // before the next model step.
 func (m *Manager) reloadWorkspaceScopedState(ctx context.Context, st *State, turnOwned bool) {
 	cwd := st.GetCWD()

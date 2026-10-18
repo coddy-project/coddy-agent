@@ -6,47 +6,69 @@ rule lookup and project-scoped MCP connection use that directory without a
 manual `cd`.
 
 In an agent conversation, ask Coddy to work on a feature branch. The
-`worktree_create` tool takes `{"branch":"feature/login"}`. It fetches `origin`,
-reads the default branch from `origin/HEAD`, and creates a new branch from the
-fresh `origin/<base>` commit. A branch that exists only on `origin` is checked
-out from `origin/<branch>` with tracking; a branch that already exists locally
-is reused at its own tip, and a branch already checked out in a worktree reuses
-that worktree. The tool refuses the default branch itself and a local branch
-that tracks `origin/<base>`.
+`worktree_open` tool takes `{"branch":"feature/login"}` and moves the session
+into the worktree that holds the branch, or opens one for it: it fetches
+`origin`, reads the default branch from `origin/HEAD`, and creates a new branch
+from the fresh `origin/<base>` commit. A branch that exists only on `origin` is
+checked out from `origin/<branch>` with tracking; a branch that already exists
+locally is reused at its own tip, and a branch already checked out in a worktree
+reuses that worktree. The tool refuses the default branch itself and a local
+branch that tracks `origin/<base>`.
 
 A new branch can also start where the session stands: with `"base":"head"` the
 tool starts it at the commit the session's checkout is on, so the next branch is
 stacked on the work in progress, even when the session works in a worktree
 itself. A branch that already exists keeps its own tip whatever `base` says. In
 both cases the new worktree goes under the main checkout's `.coddy/worktrees/`,
-never inside the worktree it was opened from.
+never inside the worktree it was opened from. With `{"path":"..."}` instead of a
+branch, `worktree_open` enters a worktree that already exists, its folder
+absolute or relative to the main checkout. It creates and fetches nothing, so it
+reaches a worktree on a detached HEAD or one another tool opened; the main
+checkout itself is `worktree_exit`'s.
+
+`worktree_list` shows every worktree of the repository, the main checkout first,
+and where each stands: its branch and last commit, uncommitted and unpushed
+changes, commits ahead of and behind origin's default branch, whether it is
+locked or its folder is gone, which one the session works in and which other
+sessions work in each. It moves nothing and is offered in Plan and Ask modes
+too. To look closer at one worktree without moving there, the agent runs `git`
+in it with `run_command` and its `cwd`.
 
 When the work in a worktree is done, `worktree_exit` moves the session back to
 the main checkout, and its next tool call runs there. `{"action":"keep"}`, the
-default, leaves the worktree and its branch for later; `worktree_create` with the
+default, leaves the worktree and its branch for later; `worktree_open` with the
 same branch goes back to it. `{"action":"remove"}` removes the worktree on the
-way. It refuses a worktree with uncommitted changes or initialised submodules
-unless `discard_changes` is `true`, and, whatever `discard_changes` says, a
-worktree on commits no branch holds (a detached HEAD with work of its own), a
-locked one, one another live session or a background task of any session still
-works in, and one Coddy did not open (outside `.coddy/worktrees/`). The branch
-goes with the worktree only when git counts it as merged (`git branch -d`): a
-branch with commits of its own stays, and the answer says so. A refusal leaves
-the session where it was. A session whose worktree folder is gone, removed by
-hand or by another chat, comes back to the main checkout with the same call. Like `worktree_create`, the tool asks for approval under
-the current permission mode, runs in agent mode only and is never offered to a
+way. It refuses a worktree with uncommitted changes unless `discard_changes` is
+`true`, and, whatever `discard_changes` says, a worktree on commits that no
+branch, remote branch or tag holds (a detached HEAD with work of its own), one
+with initialised submodules (their own commits live in the worktree's git
+directory), a locked one, one another live session or a background task of any
+session still works in, and one Coddy did not open (outside `.coddy/worktrees/`).
+Discarded changes are not lost: before the worktree goes, Coddy saves them as
+one commit under `refs/coddy/worktree-snapshots/` and names it in the answer,
+and `git cherry-pick --no-commit <ref>` brings them back onto the branch.
+Ignored files, such as build output, go with the worktree. The branch goes with
+the worktree only when git counts it as merged (`git branch -d`): a branch with
+commits of its own stays, and the answer says so. A refusal leaves the session
+where it was. A session whose worktree folder is gone, removed by hand or by
+another chat, comes back to the main checkout with the same call, and git
+forgets the worktree. Like `worktree_open`, the tool asks for approval under the
+current permission mode, runs in agent mode only and is never offered to a
 subagent.
 
 The operator does the same with the `/worktree` command in the console, the web
-UI and an ACP editor, without a turn of the model: `/worktree <branch>` opens a
-worktree for the branch and moves the chat there (`--from-head` starts a new
-branch at the current commit), `/worktree exit` brings the chat back to the main
-checkout (`--remove` removes the worktree too, and `--force` with it drops its
-uncommitted changes), and `/worktree` alone says where the chat works and lists
-the worktrees of the repository. The command makes the same checks and refusals
-as the tools, but as operator input it asks for no approval and works in every
-session mode. The messenger bots drop it like the other built-ins, and a turn the
-bot restricts for somebody who is not its admin refuses it.
+UI and an ACP editor, without a turn of the model. `/worktree <branch>` moves the
+chat into the worktree of the branch, opening one when there is none
+(`--from-head` starts a new branch at the current commit); `/worktree <path>`
+moves it into an existing worktree (a path starts with `/`, `./`, `../` or `~`
+and is read from the chat's folder); `/worktree exit` brings the chat back to
+the main checkout (`--remove` removes the worktree too, and `--force` with it
+discards its uncommitted changes, kept as a snapshot); and `/worktree` alone
+says where the chat works and where every worktree of the repository stands, as
+`worktree_list` does. The command makes the same checks and refusals as the
+tools, but as operator input it asks for no approval and works in every session
+mode. The messenger bots drop it like the other built-ins, and a turn the bot
+restricts for somebody who is not its admin refuses it.
 
 Creation requires an `origin` remote and an approval under the current tool
 permission mode; reusing a worktree that already exists needs neither the
@@ -94,14 +116,28 @@ plate once the conversation starts; the agent tool can move its own session
 during a turn.
 
 A chat that runs in a linked worktree has the way back on the plate: the arrow
-right after the branch sends `/worktree exit`, and the plate names the main
-checkout as soon as that turn ends. The plate reads where the chat works after
-every turn of the chat, so it follows `worktree_create`, `worktree_exit` and
-`/worktree` without a reload.
+right after the branch.
 
 ![The plate over the composer of a chat in a worktree: the project, the worktree's branch and the arrow back to the main checkout](../assets/git-worktree/worktree-leave-plate-dark-1280.png)
 
 *The arrow after the branch brings the chat back to the main checkout.*
+
+The arrow asks first whether to keep the worktree or remove it, the way Claude
+Code asks when a worktree session ends, with what removing would touch in view:
+the branch, uncommitted changes, commits not pushed, and whatever stops a
+removal now (another chat in the worktree, a running background task, a lock,
+commits on no branch, submodules, a worktree Coddy did not open). Keeping is the
+default answer and sends `/worktree exit`. Removing sends `/worktree exit
+--remove`, or `/worktree exit --remove --force` when there are uncommitted
+changes, which the button then says it discards and the dialog says it keeps as
+a snapshot. The dialog reads `GET /coddy/sessions/{id}/worktree` each time it
+opens. The plate names the main checkout as soon as that turn ends: it reads
+where the chat works after every turn of the chat, so it follows `worktree_open`,
+`worktree_exit` and `/worktree` without a reload.
+
+![The dialog of the arrow: the branch, three uncommitted changes and a commit not pushed, with Cancel, Discard changes and remove, and Keep worktree](../assets/git-worktree/worktree-leave-dialog-dark-1280.png)
+
+*Removing a worktree with uncommitted work says that it discards it and keeps a snapshot.*
 
 ![History grouped under the main project, and the plate over the composer naming the project and the worktree's branch](../assets/git-worktree/worktree-project-group-dark-1920.png)
 

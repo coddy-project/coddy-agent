@@ -178,12 +178,19 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
     }
     case "mv":
       return stringArg(args, "src");
+    case "worktree_open":
+      return stringArg(args, "branch") || stringArg(args, "path");
     case "worktree_create":
+      // The tool's name before worktree_open, in a transcript from then.
       return stringArg(args, "branch");
-    case "worktree_exit":
-      // Going back is the call; removing the worktree on the way is what
-      // an approval has to see.
-      return stringArg(args, "action") === "remove" ? "remove" : "";
+    case "worktree_exit": {
+      // Going back is the call; removing the worktree on the way, and its
+      // uncommitted work with it, is what an approval has to see.
+      if (stringArg(args, "action").trim() !== "remove") return "";
+      return boolArg(args, "discard_changes", false)
+        ? "remove, discard changes"
+        : "remove";
+    }
     case "spawn_agent":
       return stringArg(args, "agent");
     case "load_skill":

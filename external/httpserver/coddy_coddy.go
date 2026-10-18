@@ -262,6 +262,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.registerSchedulerRoutes()
 	s.registerRewindRoute()
 	s.registerChangesRoutes()
+	s.registerWorktreeRoutes()
 	s.registerWorkspaceViewerRoutes()
 	s.registerCanvasRoutes()
 	s.registerSkillsManagementRoutes()

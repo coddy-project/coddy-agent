@@ -217,7 +217,7 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 	a.configReloader = reload
 }
 
-// SetWorkspaceSwitcher connects worktree_create, worktree_exit and /worktree to the session manager's
+// SetWorkspaceSwitcher connects worktree_open, worktree_exit and /worktree to the session manager's
 // workspace reload path. Child sessions cannot move their inherited workspace.
 func (a *Agent) SetWorkspaceSwitcher(switchTo func(context.Context, string) error) {
 	if a != nil {
@@ -292,7 +292,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			return a.runExportCommand(ctx, args, userText)
 		}
 		// The built-in /worktree command moves the chat between the main
-		// checkout and a worktree, as worktree_create and worktree_exit do.
+		// checkout and a worktree, as worktree_open and worktree_exit do.
 		if c, ok := parseWorktreeCommand(typed); ok {
 			return a.runWorktreeCommand(ctx, c, userText)
 		}
@@ -2659,7 +2659,7 @@ func (a *Agent) sessionToolDefinitions(mode string) []llm.ToolDefinition {
 	if a.workspaceSwitcher == nil || a.subagent != nil {
 		filtered := defs[:0]
 		for _, def := range defs {
-			if def.Name != tools.ToolWorktreeCreate && def.Name != tools.ToolWorktreeExit {
+			if def.Name != tools.ToolWorktreeOpen && def.Name != tools.ToolWorktreeExit {
 				filtered = append(filtered, def)
 			}
 		}

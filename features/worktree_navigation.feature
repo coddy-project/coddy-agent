@@ -25,3 +25,13 @@ Feature: Leave a feature worktree, and stack a branch on the current work
     When the agent creates a worktree for "feature/next" from the current commit
     Then the session works in the worktree for "feature/next"
     And the branch "feature/next" starts at the commit of "feature/base"
+
+  Scenario: The agent sees where every worktree stands and moves into one of them
+    Given a session in a repository with a bare origin
+    And the agent works in a worktree for "feature/a" with a commit of its own
+    And the agent works in a worktree for "feature/b" and leaves a file uncommitted there
+    When the agent lists the worktrees
+    Then the list shows "feature/a" one commit ahead of the default branch
+    And the list shows "feature/b" with one uncommitted change, as the worktree the session works in
+    When the agent enters the worktree of "feature/a" by its folder
+    Then the session works in the worktree for "feature/a"

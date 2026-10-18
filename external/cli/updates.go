@@ -489,7 +489,7 @@ func (a *App) applyFollow(u remote.FollowUpdate) {
 }
 
 // followSessionFolder lists the context of the folder the session works in
-// now when a turn moved it (worktree_create, worktree_exit, /worktree): the
+// now when a turn moved it (worktree_open, worktree_exit, /worktree): the
 // header names what the prompt of the next turn carries.
 func (a *App) followSessionFolder() {
 	if a.remoteURL != "" || a.mgr == nil {

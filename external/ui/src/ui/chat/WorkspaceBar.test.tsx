@@ -178,7 +178,7 @@ test("a worktree's plate offers the way back to the main checkout", () => {
   const leave = screen.getByTestId("workspace-bar-leave");
   expect(leave.getAttribute("aria-label")).toBe("Back to coddy-agent");
   expect(leave.getAttribute("title")).toBe(
-    "Return the chat to the main checkout coddy-agent. The worktree stays",
+    "Return the chat to the main checkout coddy-agent, keeping or removing the worktree",
   );
   expect(screen.getByTestId("workspace-bar-branch").nextElementSibling).toBe(
     leave,

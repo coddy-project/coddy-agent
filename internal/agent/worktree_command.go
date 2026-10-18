@@ -2,8 +2,9 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,14 +16,15 @@ import (
 
 // WorktreeCommandName is the built-in slash command that moves the chat
 // between the main checkout and a worktree, the operator's side of
-// worktree_create and worktree_exit.
+// worktree_open and worktree_exit.
 const WorktreeCommandName = "worktree"
 
 // worktreeUsage closes every reply that could not run the command as typed.
 const worktreeUsage = "Usage: /worktree shows where the chat works and the worktrees of its repository; " +
-	"/worktree <branch> [--from-head] opens a worktree for the branch and moves the chat there (a new branch starts at " +
-	"origin's default branch, or at the current commit with --from-head); /worktree exit [--remove [--force]] brings " +
-	"the chat back to the main checkout, --remove removes the worktree too and --force drops its uncommitted changes."
+	"/worktree <branch> [--from-head] moves the chat into the worktree of the branch, opening one when there is none (a new branch starts at " +
+	"origin's default branch, or at the current commit with --from-head); /worktree <path> moves it into an existing worktree " +
+	"(a path starts with /, ./, ../ or ~ and is read from the chat's folder); /worktree exit [--remove [--force]] brings the chat back to the main checkout, " +
+	"--remove removes the worktree too and --force drops its uncommitted changes, kept as a snapshot."
 
 // worktreeCommand is the parsed form of one /worktree invocation.
 type worktreeCommand struct {
@@ -86,7 +88,7 @@ func parseWorktreeCommand(text string) (worktreeCommand, bool) {
 }
 
 // runWorktreeCommand executes /worktree deterministically (no LLM call): it
-// moves the session the way worktree_create and worktree_exit move it, and
+// moves the session the way worktree_open and worktree_exit move it, and
 // answers with one assistant message, like the other built-ins. A surface
 // that took the worktree tools away from the turn (a messenger user who is
 // not the bot's admin) takes the command away too.
@@ -113,7 +115,7 @@ func (a *Agent) worktreeCommandReply(ctx context.Context, c worktreeCommand) str
 		return "/worktree: " + c.Problem + ".\n\n" + worktreeUsage
 	}
 	if st := sessionStatePtr(a.state); st != nil {
-		if r := st.GetTurnRestriction(); r != nil && (!r.Allows(tools.ToolWorktreeCreate) || !r.Allows(tools.ToolWorktreeExit)) {
+		if r := st.GetTurnRestriction(); r != nil && (!r.Allows(tools.ToolWorktreeOpen) || !r.Allows(tools.ToolWorktreeExit)) {
 			note := strings.TrimSpace(r.Note)
 			if note == "" {
 				note = "this conversation cannot move to another folder"
@@ -121,18 +123,18 @@ func (a *Agent) worktreeCommandReply(ctx context.Context, c worktreeCommand) str
 			return "/worktree: " + note + "."
 		}
 	}
-	if c.Branch == "" && !c.Exit {
-		return worktreeStatus(a.state.GetCWD())
-	}
-	if a.workspaceSwitcher == nil {
-		return "/worktree: this surface cannot move the chat to another folder."
-	}
 	env := &tools.Env{
 		CWD:        a.state.GetCWD(),
 		SessionID:  a.state.GetID(),
 		Background: a.backgroundPool(strings.TrimSpace(a.state.GetPersistedSessionDir())),
 	}
 	a.wireWorkspaceTool(env)
+	if c.Branch == "" && !c.Exit {
+		return worktreeStatus(env)
+	}
+	if a.workspaceSwitcher == nil {
+		return "/worktree: this surface cannot move the chat to another folder."
+	}
 	if c.Exit {
 		left, err := tools.LeaveWorktree(ctx, env, c.Remove, c.Force)
 		if err != nil {
@@ -143,6 +145,12 @@ func (a *Agent) worktreeCommandReply(ctx context.Context, c worktreeCommand) str
 		switch {
 		case left.Gone:
 			fmt.Fprintf(&b, " The worktree folder %s was already gone.", left.Left)
+		case left.Removed && left.Snapshot != "" && left.BranchDeleted:
+			fmt.Fprintf(&b, " The worktree %s and its branch %s are removed; its uncommitted work is kept as %s (git cherry-pick --no-commit %s brings it back).",
+				left.Left, left.Branch, left.Snapshot, left.Snapshot)
+		case left.Removed && left.Snapshot != "":
+			fmt.Fprintf(&b, " The worktree %s is removed; its uncommitted work is kept as %s (git cherry-pick --no-commit %s brings it back)%s.",
+				left.Left, left.Snapshot, left.Snapshot, keptNote(left.BranchKept))
 		case left.Removed && left.BranchDeleted:
 			fmt.Fprintf(&b, " The worktree %s and its branch %s are removed.", left.Left, left.Branch)
 		case left.Removed && left.BranchKept != "":
@@ -160,7 +168,19 @@ func (a *Agent) worktreeCommandReply(ctx context.Context, c worktreeCommand) str
 	if c.FromHead {
 		from = gitws.BaseHead
 	}
-	opened, err := tools.OpenWorktree(ctx, env, c.Branch, from)
+	target := tools.WorktreeTarget{Branch: c.Branch, Base: from}
+	if looksLikePath(c.Branch) {
+		path := expandHome(c.Branch)
+		// A path the operator types is read from the chat's folder.
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(env.CWD, path)
+		}
+		target = tools.WorktreeTarget{Path: path}
+		if c.FromHead {
+			return "/worktree: --from-head goes with a branch, not a path.\n\n" + worktreeUsage
+		}
+	}
+	opened, err := tools.OpenWorktree(ctx, env, target)
 	if err != nil {
 		return "/worktree " + c.Branch + ": " + err.Error()
 	}
@@ -168,38 +188,104 @@ func (a *Agent) worktreeCommandReply(ctx context.Context, c worktreeCommand) str
 	if opened.Created {
 		verb = "created"
 	}
-	return fmt.Sprintf("The chat now works in the worktree %s on branch %s (%s). The main checkout is %s; /worktree exit brings the chat back.",
-		opened.Path, opened.Branch, verb, opened.MainCheckout)
+	return fmt.Sprintf("The chat now works in the worktree %s on %s (%s). The main checkout is %s; /worktree exit brings the chat back.",
+		opened.Path, worktreeBranchLabelOf(opened.Branch), verb, opened.MainCheckout)
 }
 
-// worktreeStatus answers /worktree alone: where the chat works and the
-// worktrees of its repository.
-func worktreeStatus(cwd string) string {
-	info := gitws.Describe(cwd)
-	if !info.IsGitRepo {
-		return fmt.Sprintf("The chat works in %s, which is not in a git repository.\n\n%s", cwd, worktreeUsage)
+// worktreeStatus answers /worktree alone: where the chat works, and every
+// worktree of its repository with where it stands (tools.ListWorktrees, what
+// worktree_list answers the model).
+func worktreeStatus(env *tools.Env) string {
+	listing, err := tools.ListWorktrees(env)
+	if err != nil {
+		return fmt.Sprintf("The chat works in %s, which is not in a git repository.\n\n%s", env.CWD, worktreeUsage)
 	}
 	var b strings.Builder
-	if wt, err := gitws.WorktreeOf(cwd); err == nil {
-		fmt.Fprintf(&b, "The chat works in the worktree %s on branch %s; the main checkout is %s.", wt.Path, worktreeBranchLabel(wt.Branch), wt.MainCheckout)
-	} else if errors.Is(err, gitws.ErrNotLinkedWorktree) {
-		fmt.Fprintf(&b, "The chat works in the main checkout %s on branch %s.", info.RepoRoot, worktreeBranchLabel(info.Branch))
-	} else {
-		fmt.Fprintf(&b, "The chat works in %s.", cwd)
+	for _, wt := range listing.Worktrees {
+		if !wt.Current {
+			continue
+		}
+		if wt.Main {
+			fmt.Fprintf(&b, "The chat works in the main checkout %s on %s.", wt.Path, worktreeBranchLabelOf(wt.Branch))
+		} else {
+			fmt.Fprintf(&b, "The chat works in the worktree %s on %s; the main checkout is %s.", wt.Path, worktreeBranchLabelOf(wt.Branch), listing.MainCheckout)
+		}
 	}
-	if len(info.Worktrees) > 1 {
-		b.WriteString("\nWorktrees of this repository:")
-		for _, wt := range info.Worktrees {
-			fmt.Fprintf(&b, "\n- %s (%s)", wt.Path, worktreeBranchLabel(wt.Branch))
-			if wt.Main {
-				b.WriteString(", the main checkout")
+	b.WriteString("\n\nWorktrees of this repository:")
+	for _, wt := range listing.Worktrees {
+		fmt.Fprintf(&b, "\n- %s (%s)", wt.Path, worktreeBranchLabel(wt.Branch))
+		var facts []string
+		if wt.Main {
+			facts = append(facts, "the main checkout")
+		}
+		if wt.Current {
+			facts = append(facts, "this chat")
+		}
+		if wt.Missing {
+			facts = append(facts, "its folder is gone")
+		} else {
+			if wt.Head != "" {
+				facts = append(facts, fmt.Sprintf("at %s %q", wt.Head, wt.Subject))
 			}
+			if wt.Uncommitted > 0 {
+				facts = append(facts, fmt.Sprintf("%d uncommitted", wt.Uncommitted))
+			}
+			if wt.Ahead > 0 || wt.Behind > 0 {
+				facts = append(facts, fmt.Sprintf("%d ahead, %d behind origin/%s", wt.Ahead, wt.Behind, listing.BaseBranch))
+			}
+			if wt.Unpushed > 0 {
+				facts = append(facts, fmt.Sprintf("%d unpushed", wt.Unpushed))
+			}
+			if wt.Locked {
+				facts = append(facts, "locked")
+			}
+		}
+		if len(wt.Sessions) > 0 {
+			facts = append(facts, fmt.Sprintf("%d other chat(s)", len(wt.Sessions)))
+		}
+		if len(facts) > 0 {
+			b.WriteString(": " + strings.Join(facts, ", "))
 		}
 	}
 	// A blank line ends the list: Markdown would take the usage for a
 	// continuation of its last item.
 	b.WriteString("\n\n" + worktreeUsage)
 	return b.String()
+}
+
+// keptNote adds why a branch stayed to a sentence, when it did.
+func keptNote(kept string) string {
+	if kept == "" {
+		return ""
+	}
+	return "; " + kept
+}
+
+// worktreeBranchLabelOf names the branch a worktree is on for a reply.
+func worktreeBranchLabelOf(branch string) string {
+	if strings.TrimSpace(branch) == "" {
+		return "a detached HEAD"
+	}
+	return "branch " + branch
+}
+
+// looksLikePath tells a folder from a branch in /worktree's argument: a
+// branch name may hold slashes too, so only these starts make a path.
+func looksLikePath(word string) bool {
+	return strings.HasPrefix(word, "/") || strings.HasPrefix(word, "./") ||
+		strings.HasPrefix(word, "../") || word == "~" || strings.HasPrefix(word, "~/")
+}
+
+// expandHome turns a leading ~ into the home folder.
+func expandHome(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, strings.TrimPrefix(path, "~"))
 }
 
 // worktreeBranchLabel names a branch, or says there is none checked out.

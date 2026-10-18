@@ -99,3 +99,14 @@ func TestWorktreeCommandOutsideARepository(t *testing.T) {
 		}
 	}
 }
+
+func TestWorktreeCommandTellsAPathFromABranch(t *testing.T) {
+	for word, path := range map[string]bool{
+		"/srv/repo/.coddy/worktrees/x": true, "./review": true, "../other": true, "~": true, "~/wt": true,
+		"feature/login": false, "fix/a/b": false, "main": false, "~branch": false,
+	} {
+		if got := looksLikePath(word); got != path {
+			t.Errorf("looksLikePath(%q) = %t, want %t", word, got, path)
+		}
+	}
+}

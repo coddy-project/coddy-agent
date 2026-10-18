@@ -3466,7 +3466,7 @@ export function App() {
     turnEnded: (sid: string, at: string) => {
       // A turn of the chat on screen ended: its pages may have changed.
       if (sid.trim() === sessionId.trim()) setCanvasEpoch((n) => n + 1);
-      // So may the folder it works in (worktree_create, worktree_exit and
+      // So may the folder it works in (worktree_open, worktree_exit and
       // /worktree move the session), which the plate over the composer names.
       // Asked of the ref: the first turn of a new chat, a /worktree command
       // answered in milliseconds, can end before a render knows its id.

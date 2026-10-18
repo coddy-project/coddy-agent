@@ -181,7 +181,7 @@ func TestRemoveWorktreeRefusesCommitsNoBranchHolds(t *testing.T) {
 	orphan := commitFile(t, wt.Path, "loose.txt", "on no branch\n")
 	wt.Branch = ""
 	for _, discard := range []bool{false, true} {
-		if _, err := RemoveWorktree(wt, discard); err == nil || !strings.Contains(err.Error(), "no branch holds") {
+		if _, err := RemoveWorktree(wt, discard); err == nil || !strings.Contains(err.Error(), "no branch, remote branch or tag holds") {
 			t.Fatalf("RemoveWorktree(discard=%t) = %v, want a refusal naming the loose commits", discard, err)
 		}
 	}
@@ -202,9 +202,10 @@ func TestRemoveWorktreeRefusesALockedWorktree(t *testing.T) {
 	}
 }
 
-// git removes a worktree with initialised submodules only by force, which
-// takes their working trees with it: that is what discard says, nothing less.
-func TestRemoveWorktreeWithSubmodulesNeedsDiscard(t *testing.T) {
+// A worktree with initialised submodules keeps their own commits in its git
+// directory, and a forced removal takes them along: it is refused, discard or
+// not.
+func TestRemoveWorktreeRefusesInitialisedSubmodules(t *testing.T) {
 	dir := initRepo(t)
 	lib := t.TempDir()
 	mustGit(t, lib, "init", "-q", "-b", "main")
@@ -212,13 +213,96 @@ func TestRemoveWorktreeWithSubmodulesNeedsDiscard(t *testing.T) {
 	wt := openedWorktree(t, dir, "feature/sub")
 	mustGit(t, wt.Path, "-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, "lib")
 	mustGit(t, wt.Path, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-q", "-m", "add lib")
-	if _, err := RemoveWorktree(wt, false); err == nil || !strings.Contains(err.Error(), "submodules") {
-		t.Fatalf("RemoveWorktree without discard = %v, want a refusal naming the submodules", err)
+	for _, discard := range []bool{false, true} {
+		if _, err := RemoveWorktree(wt, discard); err == nil || !strings.Contains(err.Error(), "submodules") {
+			t.Fatalf("RemoveWorktree(discard=%t) = %v, want a refusal naming the submodules", discard, err)
+		}
 	}
-	if _, err := RemoveWorktree(wt, true); err != nil {
-		t.Fatalf("RemoveWorktree with discard = %v", err)
+	if _, err := os.Stat(wt.Path); err != nil {
+		t.Fatalf("the worktree is gone: %v", err)
 	}
-	if _, err := os.Stat(wt.Path); !os.IsNotExist(err) {
-		t.Fatalf("worktree %s still there: %v", wt.Path, err)
+}
+
+// A repository that hides untracked files from git status
+// (status.showUntrackedFiles=no) still has them counted: a removal without
+// discard would delete them.
+func TestRemoveWorktreeSeesUntrackedFilesGitStatusHides(t *testing.T) {
+	dir := initRepo(t)
+	mustGit(t, dir, "config", "status.showUntrackedFiles", "no")
+	wt := openedWorktree(t, dir, "feature/hidden")
+	if err := os.WriteFile(filepath.Join(wt.Path, "draft.txt"), []byte("only here\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RemoveWorktree(wt, false); err == nil || !strings.Contains(err.Error(), "uncommitted") {
+		t.Fatalf("RemoveWorktree = %v, want a refusal naming the uncommitted file", err)
+	}
+	if _, err := os.Stat(filepath.Join(wt.Path, "draft.txt")); err != nil {
+		t.Fatalf("the untracked file is gone: %v", err)
+	}
+}
+
+// Discarding is not losing: before a worktree with uncommitted work goes, its
+// changed and untracked files are saved as one commit under
+// refs/coddy/worktree-snapshots/, which brings them back onto the branch.
+func TestRemoveWorktreeKeepsDiscardedWorkAsASnapshot(t *testing.T) {
+	dir := initRepo(t)
+	wt := openedWorktree(t, dir, "feature/snap")
+	commitFile(t, wt.Path, "kept.txt", "committed\n")
+	if err := os.WriteFile(filepath.Join(wt.Path, "kept.txt"), []byte("changed, not committed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt.Path, "new.txt"), []byte("never added\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	removal, err := RemoveWorktree(wt, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(removal.Snapshot, SnapshotRefPrefix) {
+		t.Fatalf("removal = %+v, want a snapshot ref under %s", removal, SnapshotRefPrefix)
+	}
+	// The branch stayed (it has a commit of its own); the snapshot brings the
+	// work back onto it as uncommitted changes.
+	back := filepath.Join(t.TempDir(), "back")
+	mustGit(t, dir, "worktree", "add", "-q", back, "feature/snap")
+	mustGit(t, back, "cherry-pick", "--no-commit", removal.Snapshot)
+	for name, want := range map[string]string{"kept.txt": "changed, not committed\n", "new.txt": "never added\n"} {
+		got, err := os.ReadFile(filepath.Join(back, name))
+		if err != nil || string(got) != want {
+			t.Fatalf("%s after restoring = %q, %v; want %q", name, got, err, want)
+		}
+	}
+}
+
+// A clean worktree leaves no snapshot behind.
+func TestRemoveWorktreeOfCleanWorkMakesNoSnapshot(t *testing.T) {
+	dir := initRepo(t)
+	wt := openedWorktree(t, dir, "feature/clean")
+	removal, err := RemoveWorktree(wt, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removal.Snapshot != "" {
+		t.Fatalf("snapshot %q of a clean worktree", removal.Snapshot)
+	}
+	if refs := mustGit(t, dir, "for-each-ref", SnapshotRefPrefix); refs != "" {
+		t.Fatalf("snapshot refs left: %q", refs)
+	}
+}
+
+func TestInspectWorktreeCountsWhatRemovalWouldTouch(t *testing.T) {
+	dir := initRepo(t)
+	wt := openedWorktree(t, dir, "feature/look")
+	commitFile(t, wt.Path, "a.txt", "one\n")
+	commitFile(t, wt.Path, "b.txt", "two\n")
+	if err := os.WriteFile(filepath.Join(wt.Path, "c.txt"), []byte("three\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := InspectWorktree(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Uncommitted != 1 || st.Unpushed != 2 || st.LooseCommit != "" || st.Locked || st.Submodules {
+		t.Fatalf("state = %+v, want 1 uncommitted, 2 unpushed and nothing else", st)
 	}
 }

@@ -1,12 +1,13 @@
 package tools_test
 
 // Godog harness for features/worktree_navigation.feature: worktree_exit and
-// worktree_create's base over a real repository with a bare origin, the
+// worktree_open over a real repository with a bare origin, the
 // session moved through the manager's workspace switch exactly as a turn
-// moves it (the worktree_create harness's setup).
+// moves it (the setup of the harness of features/worktree_create.feature).
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,8 @@ type worktreeNavigationState struct {
 	// tips a branch to the commit it was left on.
 	worktrees map[string]string
 	tips      map[string]string
+	// listing is what worktree_list answered last.
+	listing apptools.WorktreeListing
 }
 
 func (s *worktreeNavigationState) reset() error {
@@ -41,7 +44,7 @@ func (s *worktreeNavigationState) execute(tool, args string) error {
 }
 
 func (s *worktreeNavigationState) worksInWorktree(branch string) error {
-	if err := s.execute(apptools.ToolWorktreeCreate, fmt.Sprintf(`{"branch":%q}`, branch)); err != nil {
+	if err := s.execute(apptools.ToolWorktreeOpen, fmt.Sprintf(`{"branch":%q}`, branch)); err != nil {
 		return err
 	}
 	s.worktrees[branch] = s.state.GetCWD()
@@ -79,7 +82,7 @@ func (s *worktreeNavigationState) leavesAndRemoves() error {
 }
 
 func (s *worktreeNavigationState) createsFromCurrentCommit(branch string) error {
-	if err := s.execute(apptools.ToolWorktreeCreate, fmt.Sprintf(`{"branch":%q,"base":"head"}`, branch)); err != nil {
+	if err := s.execute(apptools.ToolWorktreeOpen, fmt.Sprintf(`{"branch":%q,"base":"head"}`, branch)); err != nil {
 		return err
 	}
 	s.worktrees[branch] = s.state.GetCWD()
@@ -141,6 +144,60 @@ func (s *worktreeNavigationState) startsAt(branch, from string) error {
 	return nil
 }
 
+func (s *worktreeNavigationState) worksInWorktreeLeavingAFile(branch string) error {
+	if err := s.worksInWorktree(branch); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.worktrees[branch], "draft.txt"), []byte("not yet\n"), 0o644)
+}
+
+func (s *worktreeNavigationState) lists() error {
+	out, err := apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeList, `{}`, s.env)
+	if err != nil {
+		return err
+	}
+	s.listing = apptools.WorktreeListing{}
+	return json.Unmarshal([]byte(out), &s.listing)
+}
+
+func (s *worktreeNavigationState) entry(branch string) (apptools.WorktreeListEntry, error) {
+	for _, e := range s.listing.Worktrees {
+		if e.Branch == branch {
+			return e, nil
+		}
+	}
+	return apptools.WorktreeListEntry{}, fmt.Errorf("the list %+v has no worktree on %s", s.listing.Worktrees, branch)
+}
+
+func (s *worktreeNavigationState) listShowsAhead(branch string) error {
+	e, err := s.entry(branch)
+	if err != nil {
+		return err
+	}
+	if e.Ahead != 1 || e.Uncommitted != 0 || e.Current {
+		return fmt.Errorf("%s: %+v, want one commit ahead, nothing uncommitted, not current", branch, e)
+	}
+	return nil
+}
+
+func (s *worktreeNavigationState) listShowsUncommittedCurrent(branch string) error {
+	e, err := s.entry(branch)
+	if err != nil {
+		return err
+	}
+	if e.Uncommitted != 1 || !e.Current || !session.SameWorkspacePath(e.Path, s.worktrees[branch]) {
+		return fmt.Errorf("%s: %+v, want one uncommitted change and the session's own worktree", branch, e)
+	}
+	if !s.listing.Worktrees[0].Main || !session.SameWorkspacePath(s.listing.MainCheckout, s.root) {
+		return fmt.Errorf("the list does not start with the main checkout %s: %+v", s.root, s.listing)
+	}
+	return nil
+}
+
+func (s *worktreeNavigationState) entersByFolder(branch string) error {
+	return s.execute(apptools.ToolWorktreeOpen, fmt.Sprintf(`{"path":%q}`, s.worktrees[branch]))
+}
+
 func TestWorktreeNavigationFeature(t *testing.T) {
 	s := &worktreeNavigationState{}
 	suite := godog.TestSuite{
@@ -166,6 +223,11 @@ func TestWorktreeNavigationFeature(t *testing.T) {
 			sc.Step(`^the worktree for "([^"]*)" is gone$`, s.worktreeGone)
 			sc.Step(`^the branch "([^"]*)" is gone$`, s.branchGone)
 			sc.Step(`^the branch "([^"]*)" starts at the commit of "([^"]*)"$`, s.startsAt)
+			sc.Step(`^the agent works in a worktree for "([^"]*)" and leaves a file uncommitted there$`, s.worksInWorktreeLeavingAFile)
+			sc.Step(`^the agent lists the worktrees$`, s.lists)
+			sc.Step(`^the list shows "([^"]*)" one commit ahead of the default branch$`, s.listShowsAhead)
+			sc.Step(`^the list shows "([^"]*)" with one uncommitted change, as the worktree the session works in$`, s.listShowsUncommittedCurrent)
+			sc.Step(`^the agent enters the worktree of "([^"]*)" by its folder$`, s.entersByFolder)
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/worktree_navigation.feature"}, TestingT: t, Strict: true},
 	}

@@ -44,12 +44,17 @@ func GitAvailable() bool {
 }
 
 func runGit(dir string, args ...string) (string, error) {
+	return runGitEnv(dir, nil, args...)
+}
+
+// runGitEnv is runGit with variables added to the environment.
+func runGitEnv(dir string, env []string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	// These commands run synchronously inside request handlers and agent
 	// turns: a remote that answers an auth prompt on the terminal would hang
 	// them for good, so every credential prompt fails instead of asking.
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), env...)
 	platform.AdaptCommand(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

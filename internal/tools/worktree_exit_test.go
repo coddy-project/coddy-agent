@@ -144,10 +144,10 @@ func TestWorktreeCreateRejectsAnUnknownBase(t *testing.T) {
 		_ = os.RemoveAll(s.root)
 		_ = os.RemoveAll(s.root + "-origin.git")
 	})
-	_, err := apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeCreate,
+	_, err := apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeOpen,
 		fmt.Sprintf(`{"branch":%q,"base":"tip"}`, "feature/x"), s.env)
 	if err == nil || !strings.Contains(err.Error(), "tip") {
-		t.Fatalf("worktree_create base tip = %v, want a refusal naming it", err)
+		t.Fatalf("worktree_open base tip = %v, want a refusal naming it", err)
 	}
 	stays(t, s, s.root)
 }
@@ -205,7 +205,8 @@ func TestWorktreeExitRefusesALockedWorktreeBeforeMoving(t *testing.T) {
 func TestWorktreeExitBringsAChatBackFromAWorktreeThatIsGone(t *testing.T) {
 	s := openedNavigation(t, "feature/vanished")
 	wt := s.worktrees["feature/vanished"]
-	if _, err := s.git(s.root, "worktree", "remove", "--force", wt); err != nil {
+	// Deleted by hand: git still lists it.
+	if err := os.RemoveAll(wt); err != nil {
 		t.Fatal(err)
 	}
 	if err := exitWorktree(s, `{}`); err != nil {
@@ -213,5 +214,29 @@ func TestWorktreeExitBringsAChatBackFromAWorktreeThatIsGone(t *testing.T) {
 	}
 	if err := s.inMainCheckout(); err != nil {
 		t.Fatal(err)
+	}
+	// git forgot it on the way, so the branch opens in a worktree again.
+	if err := s.worksInWorktree("feature/vanished"); err != nil {
+		t.Fatalf("reopen the branch of a vanished worktree = %v", err)
+	}
+	if _, err := os.Stat(s.worktrees["feature/vanished"]); err != nil {
+		t.Fatalf("the reopened worktree has no folder: %v", err)
+	}
+}
+
+// Removing with discard_changes keeps the dropped work as a snapshot, and the
+// answer names it.
+func TestWorktreeExitNamesTheSnapshotOfDiscardedWork(t *testing.T) {
+	s := openedNavigation(t, "feature/snapshot")
+	wt := s.worktrees["feature/snapshot"]
+	if err := os.WriteFile(filepath.Join(wt, "draft.txt"), []byte("half done\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := apptools.NewRegistry().Execute(context.Background(), apptools.ToolWorktreeExit, `{"action":"remove","discard_changes":true}`, s.env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"snapshot":"refs/coddy/worktree-snapshots/`) {
+		t.Fatalf("answer %s does not name the snapshot", out)
 	}
 }

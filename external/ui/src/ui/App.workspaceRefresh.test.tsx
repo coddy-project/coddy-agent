@@ -6,7 +6,7 @@ import { ConfirmProvider } from "./components/useConfirm";
 import { initLocale } from "./i18n/i18n";
 
 /**
- * Where a chat works can change during a turn: worktree_create and
+ * Where a chat works can change during a turn: worktree_open and
  * worktree_exit move the session, and so does /worktree. The plate over the
  * composer reads the chat's folder again whenever a turn of the chat on
  * screen ends, so it names the worktree the chat went into, or the main
