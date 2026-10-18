@@ -154,6 +154,9 @@ type muxRun struct {
 	offset   int64
 	exitCode int
 	pid      int
+	// pgid is the process group the window's command runs in, when the
+	// launcher could tell; 0 means the group pid leads.
+	pgid int
 
 	interrupt func()
 	closeWin  func()
@@ -198,10 +201,13 @@ func (r *muxRun) ExitCode() int { r.mu.Lock(); defer r.mu.Unlock(); return r.exi
 // ended from it and closes it then.
 func (r *muxRun) Kill(grace time.Duration) {
 	r.mu.Lock()
-	pid := r.pid
+	pid, pgid := r.pid, r.pgid
 	r.mu.Unlock()
-	if pid > 0 {
-		_ = platform.TerminateProcessGroupByPID(pid, time.Time{}, grace)
+	if pgid <= 0 {
+		pgid = pid
+	}
+	if pgid > 0 {
+		_ = platform.TerminateProcessGroupByPID(pgid, time.Time{}, grace)
 	}
 }
 
@@ -302,7 +308,9 @@ func writeMuxLauncher(base, cwd string, commandShell platform.Shell, command str
 		// command gets the window's stderr back (fd 8).
 		"exec 8>&2 2>&9\n" +
 		"set -x\n" +
-		"echo $$ > " + shellQuote(l.pidFile) + " || exit 1\n" +
+		// The pid and the process group: a window's first process does not
+		// lead a group under every screen (macOS ships 4.00).
+		"echo \"$$ $(ps -o pgid= -p $$ 2>/dev/null)\" > " + shellQuote(l.pidFile) + " || exit 1\n" +
 		"cd " + shellQuote(cwd) + " || exit 1\n" +
 		"trap 'echo \"launcher got INT\" >&9' INT\n" +
 		"trap 'echo \"launcher got HUP\" >&9' HUP\n" +
@@ -616,7 +624,12 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 	deadline := time.Now().Add(5 * time.Second)
 	for r.pid == 0 {
 		if b, err := os.ReadFile(pidFile); err == nil {
-			r.pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+			if f := strings.Fields(string(b)); len(f) > 0 {
+				r.pid, _ = strconv.Atoi(f[0])
+				if len(f) > 1 {
+					r.pgid, _ = strconv.Atoi(f[1])
+				}
+			}
 		}
 		if r.pid == 0 {
 			if time.Now().After(deadline) {
@@ -637,7 +650,10 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 	pid := r.pid
 	go func() {
 		r.watch(func() (bool, int) {
-			ended, code, why := screenEnded(exitFile, func() bool { return platform.ProcessGroupAlive(pid, time.Time{}) })
+			// The launcher's own process, not its group: under macOS's
+			// screen it does not lead one, and a group check would read a
+			// running command as gone.
+			ended, code, why := screenEnded(exitFile, func() bool { return platform.ProcessAlive(pid, time.Time{}) })
 			if why != "" {
 				r.noteGone(why + "; launcher trace: " + l.trace())
 			}
