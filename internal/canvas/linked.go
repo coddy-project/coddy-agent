@@ -207,7 +207,9 @@ func writeLinked(b *Board) error {
 			node.set("width", fr.Width)
 			node.set("height", fr.Height)
 		}
+		changed := moved || was.Path != fr.Path
 		if moved || was.Title != fr.Title || was.Device != fr.Device || was.AddedBy != fr.AddedBy {
+			changed = true
 			ext := frameExt{Title: fr.Title, AddedBy: fr.AddedBy}
 			if fr.Device != "" && inferDevice(fr.Width, fr.Height) != fr.Device {
 				ext.Device = fr.Device
@@ -219,6 +221,9 @@ func writeLinked(b *Board) error {
 					node.set(coddyExt, ext)
 				}
 			}
+		}
+		if changed {
+			node.obsidianOrder()
 		}
 	}
 	for id := range b.inDoc {
@@ -240,6 +245,7 @@ func writeLinked(b *Board) error {
 			node.set("y", it.Y)
 			node.set("width", it.Width)
 			node.set("height", it.Height)
+			node.obsidianOrder()
 		}
 	}
 	return writeFileAtomic(b.linkedFile(), doc.Marshal())

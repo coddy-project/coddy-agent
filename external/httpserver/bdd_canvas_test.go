@@ -402,9 +402,18 @@ func (s *canvasFeature) fileHoldsTheMovedNote(rel string) error {
 	if err != nil {
 		return err
 	}
-	moved := strings.Replace(obsidianNote, `"x":-420,"y":0`, `"x":-460,"y":60`, 1)
-	if !strings.Contains(string(raw), "\t\t"+moved) {
-		return fmt.Errorf("the file does not hold the moved note on a line of its own:\n%s", raw)
+	// As Obsidian writes a node it changed that holds an object: one key a
+	// line, the geometry after the other keys, the colour last.
+	moved := "\t\t{\n" +
+		"\t\t\t\"id\":\"6e0d3c2b1a0f9e8d\",\n" +
+		"\t\t\t\"type\":\"text\",\n" +
+		"\t\t\t\"text\":\"Checkout has two steps\",\n" +
+		"\t\t\t\"styleAttributes\":{\"textAlign\":\"center\"},\n" +
+		"\t\t\t\"x\":-460,\n\t\t\t\"y\":60,\n\t\t\t\"width\":320,\n\t\t\t\"height\":140,\n" +
+		"\t\t\t\"color\":\"5\"\n" +
+		"\t\t},"
+	if !strings.Contains(string(raw), moved) {
+		return fmt.Errorf("the file does not hold the moved note as Obsidian writes it:\n%s", raw)
 	}
 	if !strings.Contains(string(raw), `"label":"opens"`) {
 		return fmt.Errorf("the edge lost its label:\n%s", raw)

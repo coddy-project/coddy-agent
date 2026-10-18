@@ -93,7 +93,9 @@ What the canvas writes back to the file:
 
 - a frame shown, moved, resized or taken off the canvas; a new frame becomes a file node right of everything on the board, a removed one takes its edges along;
 - a card, a link or a group dragged on the board; a group carries the nodes inside it;
-- nothing else. Every other node, edge and key stays as it was, keys Coddy does not know included, and the file is written the way Obsidian writes it, one node and one edge per line, so git shows a change as the lines it changed. Linking writes nothing.
+- nothing else. Every other node, edge and key stays as it was, keys Coddy does not know included, and the file is written byte for byte the way Obsidian writes it: a node or an edge of plain values on one line, one holding an object (`styleAttributes`, the `coddy` key) one key a line, the keys of a node Coddy changed in the order Obsidian gives a node it changed, characters escaped as Obsidian escapes them, and the file ending at its closing brace. Saved in Obsidian 1.14.4, such a file changes only on the lines of the edit made there, and Coddy writing it while it is open in Obsidian changes only the lines Coddy moved: Obsidian reads the change and keeps it on its next save. Linking writes nothing.
+
+Obsidian makes edits of its own as it draws a canvas: a picture node takes the picture's proportions, and an edge without sides gets the sides it is drawn with. They show in the file after Obsidian's next save, not after Coddy's.
 
 `canvas_show` on a linked board writes the file without a permission prompt, the way it writes the chat's own board: the node of the frame it shows and nothing else.
 

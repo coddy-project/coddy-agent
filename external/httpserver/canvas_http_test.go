@@ -323,7 +323,7 @@ func TestCanvasLinkedFileRoutes(t *testing.T) {
 		t.Fatalf("move a card %d %s", w.Code, w.Body)
 	}
 	file := readInWorkspace(t, e.cwd, "design/shop.canvas")
-	if !strings.Contains(file, `"x":-500,"y":40`) || !strings.Contains(file, `"styleAttributes":{}`) {
+	if !strings.Contains(file, "\t\t\t\"x\":-500,\n\t\t\t\"y\":40,") || !strings.Contains(file, `"styleAttributes":{}`) {
 		t.Fatalf("the file after the move:\n%s", file)
 	}
 	if w := canvasRequest(e, "PATCH", sess+"/nodes", `{"nodes":[{"id":"nope","x":1}]}`, nil); w.Code != http.StatusNotFound {

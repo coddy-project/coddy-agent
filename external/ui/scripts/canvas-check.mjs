@@ -1055,9 +1055,17 @@ try {
     );
     const raw = fs.readFileSync(canvasFile, "utf8");
     check(
-      "the file keeps what Coddy does not know, one node per line",
-      raw.includes('"styleAttributes":{"textAlign":"left"}') &&
-        /\n\t\t\{"id":"c0ffee0000000001",/.test(raw),
+      "the file keeps what Coddy does not know, written as Obsidian writes it",
+      // A node holding an object is one key a line, the geometry after the
+      // other keys and the colour last; a node of plain values one line.
+      raw.includes(
+        '\t\t{\n\t\t\t"id":"c0ffee0000000001",\n\t\t\t"type":"text",\n',
+      ) &&
+        raw.includes(
+          '\n\t\t\t"styleAttributes":{"textAlign":"left"},\n\t\t\t"x":',
+        ) &&
+        raw.includes('\n\t\t\t"color":"4"\n\t\t}') &&
+        /\n\t\t\{"id":"c0ffee0000000002","type":"file",/.test(raw),
     );
 
     // The frame's size menu: a tablet, written into its node.

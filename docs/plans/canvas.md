@@ -466,8 +466,8 @@ positioned nodes, which is what the canvas is.
   Linking writes nothing; a file that cannot be read shows nothing of it and says why.
 - **The file stays Obsidian's.** `internal/canvas/jsoncanvas.go` reads the document into ordered
   objects, so a key Coddy does not know - a field of a later version, `styleAttributes`, another
-  plugin's - and the order of the keys survive every write, and writes it the way Obsidian does, one
-  node and one edge per line with tabs, so a change shows in git as the lines it changed. A frame's
+  plugin's - and the order of the keys survive every write, and writes it the way Obsidian does (a
+  port of its stringify, `obsidian_json.go`), so a change shows in git as the lines it changed. A frame's
   own settings that the standard has no field for and that are harmless to take from a file (a
   device that its size does not say, a title, who added it) go under a namespaced `coddy` key of its
   node, which Obsidian keeps; a node Coddy only moved gets no such key, and a node Coddy did not move
@@ -706,4 +706,32 @@ Left as known limits: every request for a frame's file and every board read load
 linked board, parses the file) and computes the stamps of up to 2000 files per frame (Devin); a cache
 keyed on the modification times is the next step if a large workspace shows it. In interact mode an
 Escape inside a page also steps the window back, by design (6.5).
+
+## 15. Checked in Obsidian
+
+Asked whether the compatibility was complete, the operator had the files checked in Obsidian itself
+(2026-10-18). A disposable Obsidian 1.14.4 (its own configuration folder, a scratch vault, Xvfb,
+driven over the debugging port through Obsidian's own API) opened canvases Coddy wrote, saved edits of
+its own, and reloaded a file Coddy wrote while it was open. Found and fixed:
+
+- the writer ended the file with a newline and escaped `<`, `>`, `&`, U+2028 and U+2029 as Go does,
+  where Obsidian ends at the closing brace and escapes as `JSON.stringify`: every save by either side
+  showed a line of the other's formatting;
+- Obsidian's stringify (`Xb` and `Yb` of its bundle) puts a node of plain values on one line and a node
+  holding an object (`styleAttributes`, the `coddy` key) one key a line, with `null` counted as an
+  object; the writer put every node on one line, so a node of Obsidian's with `styleAttributes`, and
+  Coddy's own page nodes, flipped between the two shapes. The writer is a port of it
+  (`obsidian_json.go`), held to `testdata/jsoncanvas-sample.canvas` (the format's sample, saved by
+  Obsidian) and `testdata/obsidian-1.14.4-saved.canvas` (a file Obsidian 1.14.4 wrote with a page
+  node of Coddy's in it), both round-tripping byte for byte;
+- a node Obsidian changed is written in the order of its getData: the other keys, then `x`, `y`,
+  `width`, `height`, then `color`, then a group's `label` and `background`; a node Coddy creates or
+  changes is written so, one it did not touch keeps its order, as Obsidian does;
+- Obsidian keeps a key it does not know (`coddy`) through every save (`unknownData`), and it reads a
+  file Coddy rewrote while the file was open in it and keeps that change on its next save.
+
+After the fix: an edit saved in Obsidian changed only its own lines, Coddy's write over the open file
+only the lines it moved, and Obsidian's save after reloading it only Obsidian's own. Left as
+Obsidian's: a picture node takes the picture's proportions and an edge without sides gets sides when
+Obsidian draws them, and both reach the file with Obsidian's next save.
 

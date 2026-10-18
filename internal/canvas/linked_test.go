@@ -77,9 +77,13 @@ func TestADocumentRoundTripsWhatItDoesNotKnow(t *testing.T) {
 			t.Errorf("lost %s:\n%s", want, out)
 		}
 	}
-	// One node per line, as Obsidian writes them, keys in their order.
-	if !regexp.MustCompile(`\n\t\t\{"id":"0123456789abcdef","type":"text","text":`).Match(out) {
-		t.Fatalf("not one node per line in key order:\n%s", out)
+	// As Obsidian writes them: a node of plain values on one line, keys in
+	// their order; one holding an object (styleAttributes) one key a line.
+	if !regexp.MustCompile(`\n\t\t\{"id":"fedcba9876543210","type":"file","file":"site/index.html",`).Match(out) {
+		t.Fatalf("a flat node is not on one line in key order:\n%s", out)
+	}
+	if !regexp.MustCompile(`\n\t\t\{\n\t\t\t"id":"0123456789abcdef",\n\t\t\t"type":"text",\n(?s:.*)\t\t\t"styleAttributes":\{"shape":"pill"\}\n\t\t\},`).Match(out) {
+		t.Fatalf("a node holding an object is not one key a line:\n%s", out)
 	}
 	var generic map[string]any
 	if err := json.Unmarshal(out, &generic); err != nil {

@@ -69,7 +69,7 @@ func (o object) num(key string) int {
 
 // set puts a value at its key's place, or appends the key.
 func (o *object) set(key string, value any) {
-	raw, err := json.Marshal(value)
+	raw, err := encodeJSON(value)
 	if err != nil {
 		return
 	}
@@ -98,7 +98,7 @@ func (o object) MarshalJSON() ([]byte, error) {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		k, _ := json.Marshal(m.Key)
+		k, _ := encodeJSON(m.Key)
 		b.Write(k)
 		b.WriteByte(':')
 		var compact bytes.Buffer
@@ -149,6 +149,49 @@ type Document struct {
 	top   object
 	nodes []object
 	edges []object
+	// newlineAtEnd says the file ended with a newline. Obsidian ends one at
+	// its closing brace; a file another tool ended with one keeps it.
+	newlineAtEnd bool
+}
+
+// encodeJSON writes a value the way JSON.stringify, which Obsidian saves
+// with, does: quotes, backslashes and control characters escaped, every other
+// character as it is. Go's encoder would also escape <, > and & (turned off)
+// and U+2028 and U+2029 (always), so a value Coddy writes would differ from
+// the one Obsidian writes back and show in a diff.
+func encodeJSON(v any) ([]byte, error) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	out := bytes.TrimSuffix(b.Bytes(), []byte("\n"))
+	if !bytes.Contains(out, []byte(`\u202`)) {
+		return out, nil
+	}
+	// Outside strings there is no backslash, and inside one every backslash
+	// starts a two-byte or a \uXXXX escape: copying escapes whole keeps an
+	// escaped backslash before "u2028" from being taken for one.
+	res := make([]byte, 0, len(out))
+	for i := 0; i < len(out); i++ {
+		if out[i] != '\\' || i+1 >= len(out) {
+			res = append(res, out[i])
+			continue
+		}
+		if i+5 < len(out) && string(out[i+1:i+5]) == "u202" && (out[i+5] == '8' || out[i+5] == '9') {
+			if out[i+5] == '8' {
+				res = append(res, "\u2028"...)
+			} else {
+				res = append(res, "\u2029"...)
+			}
+			i += 5
+			continue
+		}
+		res = append(res, out[i], out[i+1])
+		i++
+	}
+	return res, nil
 }
 
 // maxDocumentBytes bounds a .canvas file the board reads.
@@ -165,7 +208,7 @@ func ParseDocument(r io.Reader) (*Document, error) {
 		return nil, fmt.Errorf("the canvas file is over %d MB", maxDocumentBytes>>20)
 	}
 	raw = bytes.TrimPrefix(raw, utf8BOM)
-	d := &Document{}
+	d := &Document{newlineAtEnd: bytes.HasSuffix(raw, []byte("\n"))}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return d, nil
 	}
@@ -190,8 +233,9 @@ func ParseDocument(r io.Reader) (*Document, error) {
 	return d, nil
 }
 
-// Marshal writes the document the way Obsidian does: the top-level keys in
-// their order, nodes and edges first if the file had none, one per line.
+// Marshal writes the document the way Obsidian does (obsidianStringify):
+// the top-level keys in their order, nodes and edges first if the file had
+// none, and the file ending where it ended (Obsidian's at the closing brace).
 func (d *Document) Marshal() []byte {
 	top := d.top
 	if _, ok := top.get("nodes"); !ok {
@@ -200,54 +244,44 @@ func (d *Document) Marshal() []byte {
 	if _, ok := top.get("edges"); !ok {
 		top = append(top, member{Key: "edges"})
 	}
-	var b bytes.Buffer
-	b.WriteString("{\n")
+	doc := make(object, len(top))
 	for i, m := range top {
-		k, _ := json.Marshal(m.Key)
-		b.WriteByte('\t')
-		b.Write(k)
-		b.WriteByte(':')
+		doc[i] = m
 		switch m.Key {
 		case "nodes":
-			writeList(&b, d.nodes)
+			doc[i].Value = listJSON(d.nodes)
 		case "edges":
-			writeList(&b, d.edges)
-		default:
-			var compact bytes.Buffer
-			if json.Compact(&compact, m.Value) == nil {
-				b.Write(compact.Bytes())
-			} else {
-				b.WriteString("null")
-			}
+			doc[i].Value = listJSON(d.edges)
 		}
-		if i < len(top)-1 {
-			b.WriteByte(',')
-		}
-		b.WriteByte('\n')
 	}
-	b.WriteString("}\n")
-	return b.Bytes()
+	raw, err := doc.MarshalJSON()
+	if err == nil {
+		raw, err = obsidianStringify(raw)
+	}
+	if err != nil {
+		raw = []byte("{}")
+	}
+	if d.newlineAtEnd {
+		raw = append(raw, '\n')
+	}
+	return raw
 }
 
-func writeList(b *bytes.Buffer, list []object) {
-	if len(list) == 0 {
-		b.WriteString("[]")
-		return
-	}
-	b.WriteString("[\n")
+func listJSON(list []object) json.RawMessage {
+	var b bytes.Buffer
+	b.WriteByte('[')
 	for i, o := range list {
+		if i > 0 {
+			b.WriteByte(',')
+		}
 		raw, err := o.MarshalJSON()
 		if err != nil {
 			raw = []byte("{}")
 		}
-		b.WriteString("\t\t")
 		b.Write(raw)
-		if i < len(list)-1 {
-			b.WriteByte(',')
-		}
-		b.WriteByte('\n')
 	}
-	b.WriteString("\t]")
+	b.WriteByte(']')
+	return b.Bytes()
 }
 
 // Item is a node of a linked board that is not a live frame: a text card, a

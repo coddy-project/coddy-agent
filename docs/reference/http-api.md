@@ -532,7 +532,9 @@ saved.
 | GET / HEAD | `/coddy/canvas/{capability}/{path}` | A file of a frame, `path` relative to its root; `.coddy/bridge.js` is the bridge script. |
 
 Writes to a linked file keep every node, edge and key they do not change, the keys Coddy does not
-know and their order included, and write one node and one edge per line, as Obsidian does. A frame's
+know and their order included, and write the file byte for byte as Obsidian 1.14 does: a node of plain
+values on one line, one holding an object one key a line, a node Coddy changed in Obsidian's key order,
+characters escaped as `JSON.stringify` escapes them, the file ending where it ended. A frame's
 device and title go under a `coddy` key of its node; a node Coddy did not move keeps its own numbers.
 A root wider than the page's folder and the generation behind a frame's address are kept in the
 session bundle, never in the file, so a file cannot widen what its pages read.
