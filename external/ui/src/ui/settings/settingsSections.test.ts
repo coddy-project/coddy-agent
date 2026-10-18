@@ -70,6 +70,7 @@ test("derives tabs in schema order with Appearance first and System last", () =>
   expect(ids).toEqual([
     "appearance",
     "sessions_manager",
+    "status",
     "providers",
     "models",
     "agent",
@@ -95,9 +96,10 @@ test("System is the last tab even when its keys come first", () => {
     ...rootSchema,
     "x-coddy-property-order": ["prompts", "providers", "logger"],
   } as JsonSchema).map((s) => s.id);
-  expect(ids.slice(0, 4)).toEqual([
+  expect(ids.slice(0, 5)).toEqual([
     "appearance",
     "sessions_manager",
+    "status",
     "providers",
     "logger",
   ]);
@@ -206,11 +208,16 @@ test("the schema-driven hooks tab gets its own label and blurb", () => {
   expect(byId.hooks?.description).toBe("Lifecycle hooks & trust");
 });
 
-test("Appearance and Sessions are present even without a schema", () => {
-  // Both are client-side tabs: the theme picker edits no config key and the
-  // session table talks to /coddy/sessions, so neither waits for the schema.
+test("Appearance, Sessions and System are present even without a schema", () => {
+  // All three are client-side tabs: the theme picker edits no config key, the
+  // session table talks to /coddy/sessions and the System tab reads
+  // /coddy/status, so none waits for the schema.
   const sections = deriveSettingsSections(null);
-  expect(sections.map((s) => s.id)).toEqual(["appearance", "sessions_manager"]);
+  expect(sections.map((s) => s.id)).toEqual([
+    "appearance",
+    "sessions_manager",
+    "status",
+  ]);
 });
 
 test("the session management tab also owns the sessions config section", () => {
@@ -256,6 +263,57 @@ test("a relay's settings leave out the Sessions tab and name the swarm section",
 
 // On a relay that predates its settings page the schema is not there at all;
 // the app knows it is on a relay and still leaves the Sessions tab out.
+// The System tab is the installation's own status, read from /coddy/status:
+// a display page in the head group, right after Sessions, drawn before the
+// schema arrives. Its id is `status`, since `system` is the Prompts tab.
+test("the System tab follows Sessions in the head, before every tab the schema brings", () => {
+  const sections = deriveSettingsSections(rootSchema);
+  const ids = sections.map((s) => s.id);
+  expect(ids.slice(0, 3)).toEqual(["appearance", "sessions_manager", "status"]);
+  expect(ids[0]).toBe("appearance");
+  expect(ids.indexOf("providers")).toBe(3);
+  const status = sections.find((s) => s.id === "status")!;
+  expect(status.kind).toBe("status");
+  expect(status.label).toBe("System");
+  expect(status.description).toBe("Version, disk, activity");
+  expect(status.schemaKey).toBeUndefined();
+  // the Prompts tab keeps its id and its name
+  const prompts = sections.find((s) => s.id === "system")!;
+  expect(prompts.label).toBe("Prompts");
+});
+
+test("the System tab is named in the active locale", () => {
+  initLocale("ru");
+  const status = deriveSettingsSections(rootSchema).find(
+    (s) => s.id === "status",
+  )!;
+  expect(status.label).toBe("Система");
+  expect(status.description).toBe("Версия, диск, нагрузка");
+  expect(knownSectionLabel("status")).toBe("Система");
+});
+
+test("a relay's home has no System tab, with its schema or without one", () => {
+  const relaySchema = {
+    type: "object",
+    "x-coddy-relay": true,
+    "x-coddy-property-order": ["swarm", "logger"],
+    properties: {
+      swarm: { type: "object", title: "Swarm relay", properties: {} },
+      logger: { type: "object", title: "Logger", properties: {} },
+    },
+  };
+  expect(deriveSettingsSections(relaySchema).map((s) => s.id)).not.toContain(
+    "status",
+  );
+  expect(
+    deriveSettingsSections(null, { relay: true }).map((s) => s.id),
+  ).toEqual(["appearance"]);
+  // the page knows it is on a relay before a schema says so
+  expect(
+    deriveSettingsSections(rootSchema, { relay: true }).map((s) => s.id),
+  ).not.toContain("status");
+});
+
 test("a relay without a settings page keeps only Appearance", () => {
   expect(
     deriveSettingsSections(null, { relay: true }).map((s) => s.id),

@@ -289,7 +289,7 @@ What happens next depends on what moved:
 | a subsystem's `enable` | it is started, on the address the new configuration gives it, or stopped |
 | `mcp.project_trust` | every live session reconnects its configured MCP servers under the new policy; moved to `deny`, the project servers stop |
 | `mcp.idle_timeout_seconds` | a server that goes unheld from then on waits the new time before it stops |
-| a listen address (`httpserver.host` / `port`, `swarm.host` / `port`) | under a dispatcher the process restarts on the new address; in the foreground it is logged as needing a restart |
+| a listen address (`httpserver.host` / `port`, `swarm.host` / `port`) | under a dispatcher the process restarts on the new address; in the foreground it is logged as needing a restart; [Settings → System](#applying-a-saved-address) shows either |
 
 The MCP servers are not in `config.yaml`: the process watches `~/.coddy/mcp.json` the same
 way, and an edit of it starts a server added or switched on, stops one removed or switched
@@ -333,6 +333,16 @@ it goes through the pre-flight a fresh process runs, and one that pre-flight wou
 such as a surface this binary was built without, is refused whole. Nothing is stopped,
 started or rebuilt, the log names the reason, and the process is not restarted into a
 configuration nothing can start.
+
+### Applying a saved address
+
+A saved change that the running process cannot adopt shows in **Settings → System**. For a listen address, the **Subsystems** row names the address in use and the saved one, and the notice reads **Saved address {address} applies after Coddy restarts.** The same notice, worded **A saved change applies after Coddy restarts.**, covers a surface that runs turns (the HTTP server, a gateway or the scheduler) switched on in a process started without a session store, a swarm relay alone for instance. **Started by** on the same page tells which of these applies:
+
+- **systemd service**: the process exits with status 75 and systemd starts it on the saved settings by itself. To restart it yourself, run `systemctl --user restart coddy.service`.
+- **background daemon**: the dispatcher replaces the worker by itself. To restart it yourself, run `coddy serve restart`. A port another process holds is retried at the [pacing](#restart-pacing) above.
+- **foreground**: nothing starts the process again, so stop it and run `coddy serve` again. A unit or supervisor of your own needs `CODDY_SERVE_ROLE=service` in its environment to behave like the first.
+
+A supervised process restarts only into settings a fresh process can start. When the check a fresh process runs would refuse the saved configuration, nothing restarts: the old listener stays up and the page says **The saved settings can't start:** followed by the message of the check. Correct the setting, and the process restarts by itself once the file passes the check. Run `coddy serve --dry-run` before you save to see a refusal, or a port another process holds.
 
 ## Which form to use
 

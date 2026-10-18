@@ -536,7 +536,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 					DefaultCWD: rt.Paths.CWD, Home: deps.home,
 					ListenAddr: deps.httpListenAddr(cfg), ExtraAuthTokens: deps.httpAuthTokens,
 					ExtraLogin: deps.httpLogin, DetachedPrompts: rt, Wakes: rt,
-					UnbuiltSections: unbuilt,
+					UnbuiltSections: unbuilt, Status: rt.StatusDocument,
 					OnServer: func(s *httpserver.Server) {
 						if s == nil {
 							rt.SetTurnMirror(nil)
@@ -745,7 +745,7 @@ func printServeBanner(w io.Writer, cfg *config.Config, enabled []serve.Subsystem
 		case serve.KindMetrics:
 			// Whether a scrape needs a credential, never the credential.
 			auth := "no token"
-			if cfg.Metrics.Token != "" {
+			if cfg.Metrics.HasToken() {
 				auth = "bearer token"
 			}
 			_, _ = fmt.Fprintf(w, "  metrics     http://%s/metrics  (%s)\n", cfg.Metrics.ListenAddr(), auth)

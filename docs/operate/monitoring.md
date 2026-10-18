@@ -1,6 +1,6 @@
 # Monitoring with Prometheus
 
-`coddy serve` can export provider calls, tool calls, turns, prompts that wait for a person, provider quotas, the state of a swarm, background tasks and the disk of the session store as Prometheus metrics on a port of its own. This page covers enabling the exporter, scraping it, the metrics, the shipped alert rules and the Grafana dashboard.
+`coddy serve` can export provider calls, tool calls, turns, prompts that wait for a person, provider quotas, the state of a swarm, background tasks and the disk of the session store as Prometheus metrics on a port of its own. This page covers enabling the exporter, scraping it, the metrics, the shipped alert rules, the Grafana dashboard and the System page of the web UI.
 
 ## What the exporter is
 
@@ -173,6 +173,18 @@ CODDY_METRICS_TOKEN=... docker compose -f examples/grafana/docker-compose.yaml u
 ```
 
 Prometheus answers on `http://127.0.0.1:9090` and Grafana on `http://127.0.0.1:3000`, read-only without signing in (`admin` / `admin` to edit). `PROMETHEUS_PORT`, `GRAFANA_PORT` and `CODDY_TARGETS` (another targets file) move them. Prometheus rereads the targets file when it changes.
+
+## The System page
+
+**Settings → System** in the web UI is for installations without Prometheus and Grafana: it shows one process at a glance, with nothing to set up. Prometheus and [the dashboard](#the-grafana-dashboard) remain the place for history, alerts and the families the page does not draw (provider quotas, tool calls, turn durations, retries, the time to the first token and a relay's node counts). The page keeps no history beyond an hour and sends no alert.
+
+It shows the version and build tags, how the process was started, the state and address of each subsystem (the exporter's row says whether a scrape needs a token), the sessions disk against the 512 MiB line `CoddyDiskLow` watches, the turns, the prompts waiting for an answer and the background tasks running now, and a badge when something needs attention, a relay registration that has been offline for the 5 minutes `CoddySwarmJoinDown` waits for included. See [System](../surfaces/web-ui.md#system-settings-tab).
+
+![Settings → System with three items needing attention, over the charts of the last hour and the installation, subsystems, disk, activity and model providers](../assets/web-ui/system-attention-dark-1280.png)
+
+*Settings → System with a restart pending, the metrics exporter stopped and a relay unreachable.*
+
+The page reads `GET /coddy/status` ([HTTP API](../reference/http-api.md#system-status)), which sits behind the API's own credential: the metrics token does not open it, and the API token does not open `/metrics`. A binary built with the `metrics` tag adds the **Last hour** charts and the **Model providers since start** table, whatever `metrics.enable` says; a binary without it has neither. A sampler reads the exporter's own counters every 15 seconds, as a scrape writes them, and keeps 240 samples, one hour, in memory. The attempt series add up over `attempt` (first and retry), as the rules do. It counts nothing of its own, needs no scrape, and starts empty after a restart.
 
 ## What is never exported
 

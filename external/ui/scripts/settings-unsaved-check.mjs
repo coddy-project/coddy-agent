@@ -7,7 +7,10 @@
  *                          buttons says so;
  *   search                 the Settings search: a query finds a setting and the
  *                          drawer takes the reader to it (ring, bounds, focus),
- *                          on an agent's page and on a relay's own page.
+ *                          on an agent's page and on a relay's own page; and
+ *                          the System tab, found by its name and by the
+ *                          heading of one of its blocks while the tab's chunk
+ *                          (chunks/SystemSection-*.js) is held back 1,500 ms.
  *
  * jsdom has no layout, so vitest cannot tell whether the unsaved line fits the
  * footer beside the buttons on a phone, whether a tap still reaches Save, or
@@ -701,6 +704,196 @@ async function searchOnRelay(browser, c, where) {
   });
 }
 
+// ------------------------------------------------------------------ system
+
+/** The System tab is a chunk loaded on demand; the check holds it back. */
+const SYSTEM_CHUNK = "**/chunks/SystemSection-*.js";
+const CHUNK_HELD_MS = 1500;
+const STATUS_TAB = "tab:status";
+const INSTALLATION = "landmark:status:installation";
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * The System tab on an agent's page, its chunk held back by `page.route`: the
+ * tab is found by its name and opens as a placeholder until the chunk arrives;
+ * a block is found by its heading and, once the chunk is in, is scrolled to,
+ * ringed and holds the cursor, the box being named by that heading; and
+ * leaving before the chunk arrives cancels the reveal. Each part has a page of
+ * its own, since a chunk a page has fetched is not fetched again.
+ */
+async function searchOnSystem(browser, c, where) {
+  const step = (label, fn) => runStep(where, label, fn);
+  const at = (hash) => `${BASE}/?lang=${c.lang}#${hash}`;
+  await inContext(browser, c, headers, async (ctx) => {
+    const asked = [];
+    await ctx.route(SYSTEM_CHUNK, async (route) => {
+      asked.push(route.request().url());
+      await sleep(CHUNK_HELD_MS);
+      await route.continue().catch(() => {});
+    });
+    /** A page of its own with the drawer drawn, on the tiles or the rail. */
+    const fresh = async () => {
+      const page = await newPage(ctx, where);
+      await page.goto(at("/settings"));
+      await page.getByTestId("settings-screen").waitFor();
+      const narrow = await isNarrowShell(page);
+      return { page, narrow };
+    };
+    const option = (page, anchor) =>
+      page.locator(
+        `button[role="option"][data-settings-target=${JSON.stringify(anchor)}]`,
+      );
+
+    // The tab's name as the page draws it (the rail's tab or the phone's tile).
+    let tabName = "";
+    let heading = "";
+    await step(
+      "System is found by its name and its tab is a placeholder until the chunk arrives",
+      async () => {
+        const { page, narrow } = await fresh();
+        tabName = (
+          await page
+            .locator(
+              '[data-testid="settings-tab-status"], [data-testid="settings-tile-status"] .settings-tile-title',
+            )
+            .first()
+            .textContent()
+        )
+          .replace(/\d+$/, "")
+          .trim();
+        await openSearch(page, { narrow });
+        await searchFor(page, tabName);
+        const hit = option(page, STATUS_TAB);
+        await hit.waitFor({ timeout: 5000 }).catch(async () => {
+          throw new Error(
+            `Searching for "${tabName}" should offer the System tab (${STATUS_TAB}), but it offers ${(await shownResults(page)).map((r) => r.anchor).join(", ")}.`,
+          );
+        });
+        const before = asked.length;
+        const t0 = Date.now();
+        await press(page, hit);
+        await page
+          .locator("[data-settings-pending]")
+          .first()
+          .waitFor({ state: "attached", timeout: 3000 })
+          .catch(() => {
+            throw new Error(
+              "The System tab should draw a placeholder (data-settings-pending) while its chunk is held back, but none was drawn.",
+            );
+          });
+        if ((await page.getByTestId("system-section").count()) > 0) {
+          throw new Error(
+            "The System tab should wait for its chunk, but it was drawn at once.",
+          );
+        }
+        await page
+          .getByTestId("system-section")
+          .waitFor({ timeout: CHUNK_HELD_MS + 8000 });
+        const took = Date.now() - t0;
+        if (asked.length === before || took < CHUNK_HELD_MS - 250) {
+          throw new Error(
+            `The System tab should have waited for its chunk held back ${CHUNK_HELD_MS} ms, but it was drawn after ${took} ms (${asked.length - before} chunk requests).`,
+          );
+        }
+        await assertAddress(page, { tab: "status" });
+        heading = (
+          await page
+            .locator('[data-testid="system-installation"] .system-block-title')
+            .textContent()
+        ).trim();
+        await page.close();
+      },
+    );
+
+    await step(
+      "a block of the tab is found by its heading, and revealed once the chunk is in",
+      async () => {
+        const { page, narrow } = await fresh();
+        await openSearch(page, { narrow });
+        await searchFor(page, heading);
+        const hit = option(page, INSTALLATION);
+        await hit.waitFor({ timeout: 5000 }).catch(async () => {
+          throw new Error(
+            `Searching for "${heading}" should offer the block (${INSTALLATION}), but it offers ${(await shownResults(page)).map((r) => r.anchor).join(", ")}.`,
+          );
+        });
+        const t0 = Date.now();
+        await press(page, hit);
+        await page
+          .locator("[data-settings-pending]")
+          .first()
+          .waitFor({ state: "attached", timeout: 3000 })
+          .catch(() => {
+            throw new Error(
+              "Choosing a block should open the tab as a placeholder while its chunk is held back, but none was drawn.",
+            );
+          });
+        await page
+          .locator(`[data-settings-anchor=${JSON.stringify(INSTALLATION)}]`)
+          .waitFor({ timeout: CHUNK_HELD_MS + 8000 });
+        const took = Date.now() - t0;
+        if (took < CHUNK_HELD_MS - 250) {
+          throw new Error(
+            `The block should come with the chunk held back ${CHUNK_HELD_MS} ms, but it was drawn after ${took} ms.`,
+          );
+        }
+        // The box is the block and holds the cursor; its name is the heading.
+        await assertRevealed(page, {
+          anchor: INSTALLATION,
+          focus: "box",
+          name: heading,
+        });
+        const named = await page.evaluate(() => {
+          const a = document.activeElement;
+          const id = a?.getAttribute("aria-labelledby");
+          return {
+            box: a?.getAttribute("data-settings-anchor"),
+            name: (document.getElementById(id ?? "")?.textContent ?? "").trim(),
+          };
+        });
+        if (named.name !== heading) {
+          throw new Error(
+            `The block that holds the cursor should be named by its heading "${heading}", but it is named "${named.name}" (${named.box}).`,
+          );
+        }
+        await assertAddress(page, { tab: "status" });
+        await page.close();
+      },
+    );
+
+    await step(
+      "leaving before the chunk arrives cancels the reveal",
+      async () => {
+        const { page, narrow } = await fresh();
+        await openSearch(page, { narrow });
+        await searchFor(page, heading);
+        await press(page, option(page, INSTALLATION));
+        await page
+          .locator("[data-settings-pending]")
+          .first()
+          .waitFor({ state: "attached", timeout: 3000 });
+        // Out of the tab: the rail's Appearance, or the head's arrow on a phone.
+        if (narrow) await backToTiles(page);
+        else await press(page, page.getByTestId("settings-tab-appearance"));
+        await sleep(CHUNK_HELD_MS + 1200);
+        const seen = await page.evaluate(() => ({
+          ringed: document.querySelectorAll(".is-search-target").length,
+          inSystem: !!document.activeElement?.closest(
+            '[data-settings-anchor^="landmark:status"]',
+          ),
+          hash: location.hash,
+        }));
+        if (seen.ringed > 0 || seen.inSystem) {
+          throw new Error(
+            `Nothing should be ringed or take the cursor after the reader left, but ${JSON.stringify(seen)}.`,
+          );
+        }
+        await page.close();
+      },
+    );
+  });
+}
+
 /** Stops with a plain message when a stand is not what the scenario needs. */
 async function preflight() {
   const get = (url, init) => fetch(url, init).catch(() => null);
@@ -739,6 +932,7 @@ async function runSearch(browser) {
     for (const [page, run] of [
       ["", searchOnAgent],
       [" relay", searchOnRelay],
+      [" system", searchOnSystem],
     ]) {
       try {
         await run(browser, c, where + page);

@@ -29,6 +29,12 @@ import { revealWhenReady } from "./settingsReveal";
 import { SettingsSection } from "./SettingsSection";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 import { SettingsTileGrid } from "./SettingsTileGrid";
+import { RestartNotice } from "./RestartNotice";
+import {
+  pendingAddresses,
+  readSystemStatus,
+  useSystemStatus,
+} from "./systemStatusApi";
 import {
   ensureSettingsConfig,
   noteSettingsConfigSaved,
@@ -362,6 +368,41 @@ export function Settings(props: {
     : null;
   const mobilePending = pendingTab(mobileDetailId);
 
+  // The status the System tab shows is read once when the drawer opens, for the
+  // number on its rail entry and tile, and then follows every read the tab or a
+  // save makes (systemStatusApi.ts). A relay's home has no such tab and reads
+  // nothing; nothing is read while the drawer is closed. The read waits for the
+  // schema, which says whether the server is a relay: App learns it from the
+  // relay itself and may open the drawer before it knows.
+  const hasStatusTab = sections.some((s) => s.kind === "status");
+  const schemaRead = schema !== null;
+  useEffect(() => {
+    if (hasStatusTab && schemaRead) {
+      void readSystemStatus();
+    }
+  }, [hasStatusTab, schemaRead]);
+  const attention = useSystemStatus((s) => s.doc?.attention?.length ?? 0);
+  const badges = useMemo(
+    (): Record<string, number> => (attention > 0 ? { status: attention } : {}),
+    [attention],
+  );
+  // A restart the saved settings wait for: null when none does, the refusal
+  // (empty when nothing refused) when one does.
+  const restart = useSystemStatus((s) => {
+    const d = s.doc;
+    return d && (d.restartRequired === true || d.restartRefused)
+      ? (d.restartRefused ?? "")
+      : null;
+  });
+  const restartAddress = useSystemStatus((s) =>
+    s.doc ? pendingAddresses(s.doc) : "",
+  );
+  // Said over the tabs once a save has been made, unless the System tab is on
+  // screen and says it itself.
+  const [savedOnce, setSavedOnce] = useState(false);
+  const statusOpen =
+    (isMobileShell ? mobileSection : activeSection)?.kind === "status";
+
   // Editing a value never rebuilds the index, only the row names do.
   const rowsKey = settingsIndexRowsKey(doc);
   const index = useMemo(
@@ -370,13 +411,24 @@ export function Settings(props: {
     [sections, schema, rowsKey, locale],
   );
 
+  // A trip to a setting: a result opened or an address that names one. Each
+  // request is a new object, so choosing the same result again goes again.
+  // Opening a result opens its tab and row through the address, which also
+  // names the setting; the effect below then takes the operator to it. A trip
+  // outlives a second when its tab is a chunk still loading, so ordinary
+  // navigation ends it (navigateTo, backToGrid, the address below): coming
+  // back to the tab must not revive a reveal the operator walked away from.
+  const [trip, setTrip] = useState<{ entry: SettingsSearchEntry } | null>(null);
+
   // Reflect the `#/settings/<section>` deep link (initial load and browser
   // back/forward) into local tab state; writing the hash below re-enters here
-  // with the same value, so this is a no-op on self-initiated changes.
+  // with the same value, so this is a no-op on self-initiated changes. An
+  // address that names another section than the trip's ends the trip.
   const routeSection = props.initialSection ?? null;
   useEffect(() => {
     setActiveTab(routeSection ?? "");
     setMobileDetailId(routeSection);
+    setTrip((t) => (t !== null && t.entry.section !== routeSection ? null : t));
   }, [routeSection]);
 
   // Selecting a section, a list row or a setting anchors it in the URL and puts
@@ -400,8 +452,20 @@ export function Settings(props: {
     [search],
   );
 
+  // A rail entry or a tile is ordinary navigation: it ends a trip still waiting
+  // for its tab. selectSection itself must not, since openResult sets the trip
+  // and then calls it.
+  const navigateTo = useCallback(
+    (id: string) => {
+      setTrip(null);
+      selectSection(id);
+    },
+    [selectSection],
+  );
+
   // Mobile back to the tile grid drops the section anchor.
   const backToGrid = useCallback(() => {
+    setTrip(null);
     setMobileDetailId(null);
     setSettingsHash();
   }, []);
@@ -441,11 +505,6 @@ export function Settings(props: {
             : null,
   );
 
-  // A trip to a setting: a result opened or an address that names one. Each
-  // request is a new object, so choosing the same result again goes again.
-  // Opening a result opens its tab and row through the address, which also
-  // names the setting; the effect below then takes the operator to it.
-  const [trip, setTrip] = useState<{ entry: SettingsSearchEntry } | null>(null);
   // The setting last taken to: the address read back after a choice names it
   // again and is no second trip.
   const takenTo = useRef<string | null>(null);
@@ -681,6 +740,12 @@ export function Settings(props: {
       props.onConfigSaved?.();
       setBusy(false);
       void refreshSettingsConfig();
+      // A saved address or port waits for a restart: the tab says so, and a
+      // server that does not know the route says nothing at all.
+      if (hasStatusTab) {
+        setSavedOnce(true);
+        void readSystemStatus({ fresh: true });
+      }
       // The form is saved as it stands only when nothing was typed meanwhile:
       // Save and close keeps the drawer open over edits the save did not take.
       return edits.current === editsAtSend;
@@ -694,7 +759,15 @@ export function Settings(props: {
     } finally {
       setBusy(false);
     }
-  }, [doc, draft.replaced, clearSaved, flashSaved, props, onOtherServer]);
+  }, [
+    doc,
+    draft.replaced,
+    clearSaved,
+    flashSaved,
+    props,
+    onOtherServer,
+    hasStatusTab,
+  ]);
 
   const saveAndClose = useCallback(async () => {
     setAskClose(false);
@@ -781,10 +854,14 @@ export function Settings(props: {
         </div>
       );
     }
-    // Appearance and Sessions are client-side content (the theme picker, the
-    // session table), available before the config schema loads, and they render
-    // in the normal scroll flow like any other tab.
-    if (section.kind === "appearance" || section.kind === "sessions") {
+    // Appearance, Sessions and System are client-side content (the theme
+    // picker, the session table, the status page), available before the config
+    // schema loads, and they render in the normal scroll flow like any other tab.
+    if (
+      section.kind === "appearance" ||
+      section.kind === "sessions" ||
+      section.kind === "status"
+    ) {
       return (
         <div
           className="settings-scroll"
@@ -884,7 +961,7 @@ export function Settings(props: {
 
       {/* The status band says what went wrong, in words; a save that went
           through says so on the Save button alone. */}
-      {copy.error || error ? (
+      {copy.error || error || (savedOnce && !statusOpen && restart !== null) ? (
         <div className="settings-lead-pane">
           {copy.error ? (
             <p className="settings-error">
@@ -892,6 +969,9 @@ export function Settings(props: {
             </p>
           ) : null}
           {error ? <p className="settings-error">{error}</p> : null}
+          {savedOnce && !statusOpen && restart !== null ? (
+            <RestartNotice refused={restart} address={restartAddress} />
+          ) : null}
         </div>
       ) : null}
 
@@ -918,8 +998,9 @@ export function Settings(props: {
               ) : (
                 <SettingsTileGrid
                   sections={sections}
-                  onSelect={selectSection}
+                  onSelect={navigateTo}
                   placeholders={loading ? PLACEHOLDER_TABS : 0}
+                  badges={badges}
                 />
               )}
             </div>
@@ -929,9 +1010,10 @@ export function Settings(props: {
             <SettingsNav
               sections={sections}
               active={showing || !activeSection ? "" : activeSection.id}
-              onSelect={selectSection}
+              onSelect={navigateTo}
               placeholders={loading ? PLACEHOLDER_TABS : 0}
               search={searchField()}
+              badges={badges}
             />
             {/* The tab stays mounted under the results, hidden and deaf
                 (PaneHidden), so its edits survive a query cleared unchosen. */}

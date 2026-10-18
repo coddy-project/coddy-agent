@@ -39,6 +39,7 @@ import {
   type JsonSchema,
 } from "./SchemaForm";
 import { objectSectionGroups } from "./SettingsSection";
+import { fakeStatus } from "./systemStatus.fakes";
 
 beforeEach(() => {
   setLocale("en");
@@ -513,7 +514,7 @@ test("the index lists the tabs, their blocks and their fields in the drawer's or
   });
   expect(
     bare.filter((e) => e.kind === "section").map((e) => e.section),
-  ).toEqual(["appearance", "sessions_manager"]);
+  ).toEqual(["appearance", "sessions_manager", "status"]);
   expect(bare.every((e) => e.kind === "section" || e.kind === "landmark")).toBe(
     true,
   );
@@ -826,6 +827,100 @@ test("the Metrics tab and each of its four fields are found by name, by config k
   setLocale("en");
 });
 
+// ---- the System tab: a display page, found by its name and by its four blocks
+
+const SYSTEM_BLOCKS = [
+  ["installation", "This installation"],
+  ["subsystems", "Subsystems"],
+  ["disk", "Disk"],
+  ["activity", "Activity"],
+] as const;
+
+test("the System tab and its four blocks are found by name and by blurb, in English and in Russian, and nothing the status document says is indexed", () => {
+  for (const locale of ["en", "ru"] as const) {
+    setLocale(locale);
+    const index = indexOf(AGENT_SCHEMA);
+    const tab = inTab(index, "status");
+    const tabLabel = translate("settings.section.status.label");
+    const names = SYSTEM_BLOCKS.map(([id]) => translate(`system.${id}`));
+    if (locale === "en") {
+      expect([tabLabel, ...names]).toEqual([
+        "System",
+        ...SYSTEM_BLOCKS.map(([, title]) => title),
+      ]);
+    } else {
+      expect(tabLabel).toBe("Система");
+      names.forEach((name, i) =>
+        expect(name, locale).not.toBe(SYSTEM_BLOCKS[i]![1]),
+      );
+    }
+
+    // the tab, then its four blocks in the order the page draws them
+    expect(tab.map((e) => e.kind)).toEqual([
+      "section",
+      "landmark",
+      "landmark",
+      "landmark",
+      "landmark",
+    ]);
+    expect(tab.map((e) => e.names[0])).toEqual([tabLabel, ...names]);
+    expect(tab.slice(1).map((e) => e.anchor)).toEqual(
+      SYSTEM_BLOCKS.map(([id]) => landmarkAnchor("status", id)),
+    );
+    expect(tab.slice(1).every((e) => e.where.join() === tabLabel)).toBe(true);
+    // the tab is where the rail puts it: right after Sessions
+    const order = deriveSettingsSections(AGENT_SCHEMA).map((s) => s.id);
+    expect(order.indexOf("status")).toBe(order.indexOf("sessions_manager") + 1);
+
+    const [tabEntry, ...blocks] = tab;
+    expect(idsFound(index, tabLabel), locale).toContain(tabEntry!.id);
+    expect(
+      idsFound(index, translate("settings.section.status.desc")),
+      locale,
+    ).toContain(tabEntry!.id);
+    blocks.forEach((block, i) => {
+      expect(idsFound(index, names[i]!), `${locale}: ${names[i]}`).toContain(
+        block.id,
+      );
+    });
+  }
+  setLocale("en");
+
+  // No value of the document, no heading that depends on the build, and not
+  // the badge's text is in the index: it holds the tab and the four blocks.
+  const index = indexOf(AGENT_SCHEMA);
+  const status = fakeStatus();
+  const values = [
+    status.build.version,
+    status.build.revision!,
+    status.process.configFile!,
+    status.subsystems[0]!.address!,
+    status.metrics!.providers[0]!.name,
+  ];
+  for (const value of values) {
+    expect(
+      searchSettings(index, value).hits.filter(
+        (h) => h.entry.section === "status",
+      ),
+      value,
+    ).toEqual([]);
+  }
+  const texts = index.flatMap((e) => [...e.names, ...e.descriptions]);
+  for (const text of [
+    "Last hour",
+    "Model providers since start",
+    "need attention",
+    "needs attention",
+    "Everything OK",
+    "Applies after Coddy restarts",
+  ]) {
+    expect(
+      texts.filter((t) => t.includes(text)),
+      text,
+    ).toEqual([]);
+  }
+});
+
 test("a tab the server leaves out for want of a build tag is neither in the index nor found, while the document still holds it", () => {
   const whole = indexOf(AGENT_SCHEMA);
   const hiddenSchema = schemaWithout(AGENT_SCHEMA, "metrics");
@@ -869,6 +964,34 @@ test("a tab the server leaves out for want of a build tag is neither in the inde
       expect(
         hidden.filter((e) => ids.includes(e.id) && e.section === "metrics"),
       ).toEqual([]);
+    }
+  }
+  setLocale("en");
+});
+
+test("a relay's home offers neither the System tab nor its blocks, with its schema or without one", () => {
+  for (const locale of ["en", "ru"] as const) {
+    setLocale(locale);
+    const relay = indexOf(RELAY_SCHEMA);
+    const bare = buildSettingsSearchIndex({
+      sections: deriveSettingsSections(null, { relay: true }),
+      schema: null,
+      doc: {},
+    });
+    for (const index of [relay, bare]) {
+      expect(inTab(index, "status"), locale).toEqual([]);
+      expect(
+        index.filter((e) => e.anchor?.startsWith("landmark:status:")),
+        locale,
+      ).toEqual([]);
+      for (const [id] of SYSTEM_BLOCKS) {
+        expect(
+          searchSettings(index, translate(`system.${id}`)).hits.filter(
+            (h) => h.entry.section === "status",
+          ),
+          `${locale}: ${id}`,
+        ).toEqual([]);
+      }
     }
   }
   setLocale("en");

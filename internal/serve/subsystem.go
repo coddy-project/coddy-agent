@@ -75,6 +75,11 @@ type Subsystem struct {
 	// so when this changes the whole process asks to be replaced instead. A nil
 	// RestartKey means nothing about this surface needs that.
 	RestartKey func(*config.Config) string
+	// Address returns the listener address an instance is started on, for a
+	// surface whose RestartKey is not it: one rebuilt in place on a new address
+	// has no RestartKey, and its row still names where it listens. A nil
+	// Address reports the RestartKey.
+	Address func(*config.Config) string
 	// Run blocks until ctx is cancelled or the surface fails. cfg is the
 	// configuration it is started from - the one its Fingerprint and
 	// RestartKey were read from - so a surface a reload turns on is built, and
@@ -104,6 +109,19 @@ func (s Subsystem) restartKey(cfg *config.Config) string {
 		return ""
 	}
 	return s.RestartKey(cfg)
+}
+
+// address reads the listener address an instance is started on: Address when
+// the surface has one, else its RestartKey, or "" when neither applies or
+// there is no configuration to read it from.
+func (s Subsystem) address(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	if s.Address != nil {
+		return s.Address(cfg)
+	}
+	return s.restartKey(cfg)
 }
 
 // ErrNothingEnabled is returned when the configuration asks for no surface at
