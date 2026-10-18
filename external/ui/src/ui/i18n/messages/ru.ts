@@ -2649,6 +2649,7 @@ export const messagesRu: Record<string, string> = {
   "canvas.file.openSubmit": "Открыть",
   "canvas.view.titleFile": "Холст: {file}",
   "canvas.card.file": "Файл холста",
+  "canvas.promptsTitle": "Агент ждёт вашего ответа",
   "canvas.openOnCanvas": "Открыть на холсте",
   "canvas.card.open": "Открыть на холсте",
   "canvas.card.frame": "Фрейм {id}",

@@ -2552,6 +2552,7 @@ export const messagesEn: Record<string, string> = {
   "canvas.file.openSubmit": "Open",
   "canvas.view.titleFile": "Canvas: {file}",
   "canvas.card.file": "Canvas file",
+  "canvas.promptsTitle": "The agent is waiting for your answer",
   "canvas.openOnCanvas": "Open on canvas",
   "canvas.card.open": "Open on canvas",
   "canvas.card.frame": "Frame {id}",

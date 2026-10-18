@@ -112,31 +112,39 @@ export function CanvasPromptBar(props: Props) {
             }
           }}
         />
-        {props.busy ? (
+        {/* One button, as the composer's: Stop while a turn runs and the
+            field is empty, Queue once it is not, Send when idle. */}
+        {props.busy && !canSend ? (
           <button
             type="button"
-            className="canvas-bar-stop"
+            className="canvas-bar-send composer-run-icon composer-run-icon--stop composer-send-stop"
             data-testid="canvas-stop"
             aria-label={t("canvas.stop")}
             title={t("canvas.stop")}
             onClick={props.onStop}
           >
-            <span className="composer-stop-square" aria-hidden="true" />
+            <span className="composer-send-glyph" aria-hidden="true">
+              <span className="composer-stop-square" />
+            </span>
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="canvas-bar-send"
-          data-testid="canvas-send"
-          disabled={!canSend}
-          aria-label={props.busy ? t("canvas.queue") : t("canvas.send")}
-          title={props.busy ? t("canvas.queue") : t("canvas.send")}
-          onClick={props.onSend}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M5 3.5v9l7-4.5z" fill="currentColor" />
-          </svg>
-        </button>
+        ) : (
+          <button
+            type="button"
+            className={
+              "canvas-bar-send" +
+              (props.busy ? " composer-run-icon--queue" : "")
+            }
+            data-testid="canvas-send"
+            disabled={!canSend}
+            aria-label={props.busy ? t("canvas.queue") : t("canvas.send")}
+            title={props.busy ? t("canvas.queue") : t("canvas.send")}
+            onClick={props.onSend}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M5 3.5v9l7-4.5z" fill="currentColor" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

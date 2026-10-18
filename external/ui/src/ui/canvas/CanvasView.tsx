@@ -42,6 +42,11 @@ import {
 import { CanvasFrame, sizeLabel } from "./CanvasFrame";
 import { CanvasPromptBar } from "./CanvasPromptBar";
 import { CanvasEdges, CanvasNode } from "./CanvasNodes";
+import { PermissionPromptSection } from "../chat/PermissionPromptSection";
+import { QuestionPromptSection } from "../chat/QuestionPromptSection";
+import type { TranscriptItem } from "../chat/types";
+import type { PermissionResolvedState } from "../chat/permissionTypes";
+import type { QuestionResolvedState } from "../chat/questionTypes";
 import { CanvasFileMenu } from "./CanvasFileMenu";
 import { drawOrder, insideGroup } from "./jsonCanvas";
 import { composeCanvasPrompt, pickLabel, type CanvasPick } from "./pickPrompt";
@@ -89,7 +94,30 @@ export interface CanvasViewProps {
   onSend: (text: string, giveBack: () => void) => void;
   onStop: () => void;
   onClose: () => void;
+  /** The chat's unanswered permission and question prompts: the window
+   *  covers the chat, so a turn waiting on one is answered here. */
+  prompts?: CanvasPrompt[];
+  /** The chat's tool calls, for what a permission prompt shows. */
+  toolCalls?: ReadonlyMap<
+    string,
+    Extract<TranscriptItem, { type: "tool_call" }>
+  >;
+  onPermissionResolved?: (
+    sessionId: string,
+    itemId: string,
+    state: PermissionResolvedState,
+  ) => void;
+  onQuestionResolved?: (
+    sessionId: string,
+    itemId: string,
+    state: QuestionResolvedState,
+  ) => void;
 }
+
+export type CanvasPrompt = Extract<
+  TranscriptItem,
+  { type: "permission_prompt" } | { type: "question_prompt" }
+>;
 
 interface Popover {
   frame: Frame;
@@ -814,6 +842,42 @@ export function CanvasView(props: CanvasViewProps) {
           </div>
         ) : null}
       </div>
+
+      {props.prompts && props.prompts.length > 0 ? (
+        <section
+          className="canvas-prompts"
+          data-testid="canvas-prompts"
+          aria-label={t("canvas.promptsTitle")}
+        >
+          <p className="canvas-prompts-title">{t("canvas.promptsTitle")}</p>
+          {props.prompts.map((it) =>
+            it.type === "permission_prompt" ? (
+              <PermissionPromptSection
+                key={it.id}
+                itemId={it.id}
+                payload={it.payload}
+                toolCall={props.toolCalls?.get(it.payload.toolCall.toolCallId)}
+                onResolved={(state) =>
+                  props.onPermissionResolved?.(
+                    it.payload.sessionId,
+                    it.id,
+                    state,
+                  )
+                }
+              />
+            ) : (
+              <QuestionPromptSection
+                key={it.id}
+                itemId={it.id}
+                payload={it.payload}
+                onResolved={(state) =>
+                  props.onQuestionResolved?.(it.payload.sessionId, it.id, state)
+                }
+              />
+            ),
+          )}
+        </section>
+      ) : null}
 
       <CanvasPromptBar
         text={text}

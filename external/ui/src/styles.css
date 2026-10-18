@@ -19031,6 +19031,36 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   max-height: 160px;
 }
 
+/* What the turn waits for, shown over the prompt bar: the window covers the
+   chat, where these cards stand otherwise. */
+.canvas-prompts {
+  flex: none;
+  max-height: min(55%, 520px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px 4px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  background: color-mix(in srgb, var(--bg) 92%, var(--coddy-blend-base));
+}
+
+.canvas-prompts-title {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The canvas's fields take the focus as the app's other fields do: their
+   border in the accent, never the browser's ring around them. */
+.canvas-bar-field:focus,
+.canvas-popover-note:focus,
+.canvas-file-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
 .canvas-bar-chat {
   flex: none;
   height: 34px;
@@ -19049,8 +19079,7 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   background: color-mix(in srgb, var(--text) 9%, transparent);
 }
 
-.canvas-bar-send,
-.canvas-bar-stop {
+.canvas-bar-send {
   flex: none;
   width: 34px;
   height: 34px;
@@ -19064,14 +19093,31 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   cursor: pointer;
 }
 
-.canvas-bar-stop {
-  background: color-mix(in srgb, var(--text) 14%, transparent);
-  color: var(--text);
-}
-
 .canvas-bar-send:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* Stop and Queue are the composer's (.composer-send-stop,
+   .composer-run-icon--queue); the bar's own ground above would cover them. */
+.canvas-bar-send.composer-send-stop {
+  background: rgba(239, 68, 68, 0.22);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: rgba(255, 250, 250, 0.95);
+}
+
+.canvas-bar-send.composer-send-stop:hover {
+  background: rgba(239, 68, 68, 0.32);
+}
+
+.canvas-bar-send.composer-run-icon--queue {
+  background: color-mix(in srgb, var(--accent) 82%, var(--coddy-blend-base));
+}
+
+[data-theme="light"] .canvas-bar-send.composer-send-stop {
+  background: rgba(220, 38, 38, 0.92);
+  border-color: rgba(185, 28, 28, 0.45);
+  color: #ffffff;
 }
 
 .canvas-card-open {

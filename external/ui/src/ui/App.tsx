@@ -284,6 +284,7 @@ import { FilesView } from "./files/FilesView";
 // The canvas window is code a chat needs only once its canvas opens: a chunk
 // of its own, so app.js stays within the budget that
 // features/web_ui_diagrams.feature holds it to.
+import type { CanvasPrompt } from "./canvas/CanvasView";
 const CanvasView = lazy(() =>
   import("./canvas/CanvasView").then((m) => ({ default: m.CanvasView })),
 );
@@ -7243,6 +7244,31 @@ export function App() {
     open: canvasOpen,
     epoch: canvasEpoch + finishedToolCalls(transcriptItems),
   });
+  // What the turn waits for while the canvas covers the chat: the canvas
+  // window shows the same cards and takes the same answers.
+  const canvasPrompts = useMemo(
+    () =>
+      canvasOpen
+        ? transcriptItems.filter(
+            (x): x is CanvasPrompt =>
+              (x.type === "permission_prompt" ||
+                x.type === "question_prompt") &&
+              !x.resolved,
+          )
+        : [],
+    [canvasOpen, transcriptItems],
+  );
+  const canvasToolCalls = useMemo(() => {
+    const byId = new Map<
+      string,
+      Extract<TranscriptItem, { type: "tool_call" }>
+    >();
+    if (canvasPrompts.length === 0) return byId;
+    for (const item of transcriptItems) {
+      if (item.type === "tool_call") byId.set(item.toolCallId, item);
+    }
+    return byId;
+  }, [canvasPrompts, transcriptItems]);
   const canvasFrameCount = canvas.available
     ? (canvas.board?.frames.length ?? 0)
     : 0;
@@ -8100,6 +8126,10 @@ export function App() {
               }}
               onStop={() => stopActiveGeneration()}
               onClose={closeCanvasWindow}
+              prompts={canvasPrompts}
+              toolCalls={canvasToolCalls}
+              onPermissionResolved={resolvePermissionPrompt}
+              onQuestionResolved={resolveQuestionPrompt}
             />
           </Suspense>
         ) : null}

@@ -307,15 +307,38 @@ test("an empty board says where frames come from", () => {
   expect(screen.getByTestId("canvas-empty")).toBeTruthy();
 });
 
-test("while a turn runs, Send queues and Stop stops", () => {
+test("the bar has one button, as the composer: Stop while a turn runs and the field is empty, Queue once it is not", () => {
   const props = renderView({ busy: true });
-  fireEvent.click(screen.getByTestId("canvas-stop"));
+  // One button at a time: no disabled Send next to Stop.
+  expect(screen.queryByTestId("canvas-send")).toBeNull();
+  const stop = screen.getByTestId("canvas-stop");
+  expect(stop.className).toContain("composer-send-stop");
+  expect(
+    stop.querySelector(".composer-send-glyph .composer-stop-square"),
+  ).not.toBeNull();
+  fireEvent.click(stop);
   expect(props.onStop).toHaveBeenCalledTimes(1);
   fireEvent.change(screen.getByTestId("canvas-bar-field"), {
     target: { value: "later" },
   });
-  fireEvent.click(screen.getByTestId("canvas-send"));
+  expect(screen.queryByTestId("canvas-stop")).toBeNull();
+  const queue = screen.getByTestId("canvas-send");
+  expect(queue.getAttribute("aria-label")).toBe("Queue for the agent");
+  expect(queue.className).toContain("composer-run-icon--queue");
+  fireEvent.click(queue);
   expect(props.onSend).toHaveBeenCalledWith("later", expect.any(Function));
+});
+
+test("idle, the bar's one button is Send, held back while there is nothing to send", () => {
+  renderView();
+  expect(screen.queryByTestId("canvas-stop")).toBeNull();
+  const send = screen.getByTestId("canvas-send") as HTMLButtonElement;
+  expect(send.disabled).toBe(true);
+  fireEvent.change(screen.getByTestId("canvas-bar-field"), {
+    target: { value: "bigger" },
+  });
+  expect(send.disabled).toBe(false);
+  expect(send.getAttribute("aria-label")).toBe("Send");
 });
 
 function linkedBoard(): CanvasBoard {
@@ -664,4 +687,59 @@ test("what the window tells a frame names no address, token or file", () => {
     expect(text).not.toContain("/coddy/");
     expect(text).not.toContain("site/index.html");
   }
+});
+
+test("a permission the turn waits for is asked in the canvas window, which covers the chat", async () => {
+  const onPermissionResolved = vi.fn();
+  renderView({
+    busy: true,
+    prompts: [
+      {
+        id: "pp_1",
+        type: "permission_prompt",
+        payload: {
+          sessionId: "sess_1",
+          toolCall: {
+            toolCallId: "call_1",
+            title: "Run: run_command",
+            kind: "run_command",
+            content: [
+              {
+                type: "content",
+                content: { type: "text", text: 'Arguments: {"command":"ls"}' },
+              },
+            ],
+          },
+          options: [
+            { optionId: "allow", name: "Allow", kind: "allow_once" },
+            { optionId: "reject", name: "Reject", kind: "reject_once" },
+          ],
+        },
+      },
+    ],
+    onPermissionResolved,
+  });
+  const strip = screen.getByTestId("canvas-prompts");
+  expect(strip.closest("[data-testid=canvas-view]")).not.toBeNull();
+  expect(strip.textContent).toContain("The agent is waiting for your answer");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+  });
+  expect(
+    fetches.some(
+      (f) =>
+        f.url.includes("/coddy/sessions/sess_1/permission") &&
+        f.init?.method === "POST",
+    ),
+  ).toBe(true);
+  expect(onPermissionResolved).toHaveBeenCalledWith(
+    "sess_1",
+    "pp_1",
+    expect.objectContaining({}),
+  );
+});
+
+test("with nothing waiting the window shows no prompt strip", () => {
+  renderView({ prompts: [] });
+  expect(screen.queryByTestId("canvas-prompts")).toBeNull();
 });
