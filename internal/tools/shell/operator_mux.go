@@ -499,21 +499,42 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 	pid := r.pid
 	go func() {
 		r.watch(func() (bool, int) {
-			if b, err := os.ReadFile(exitFile); err == nil {
-				code, err := strconv.Atoi(strings.TrimSpace(string(b)))
-				if err != nil {
-					code = -1
-				}
-				return true, code
+			ended, code, why := screenEnded(exitFile, func() bool { return platform.ProcessGroupAlive(pid, time.Time{}) })
+			if why != "" {
+				r.noteGone(why)
 			}
-			// No status and nothing left of the window's process group:
-			// killed, or the window closed by the operator.
-			if !platform.ProcessGroupAlive(pid, time.Time{}) {
-				return true, -1
-			}
-			return false, 0
+			return ended, code
 		})
 		cleanup()
 	}()
 	return r, nil
+}
+
+// screenEnded reads how a screen window's command ended: the launcher's status
+// file, else a window whose process group is gone (killed, or closed by the
+// operator) as an unknown end. The launcher writes the status and then exits,
+// so a status that is not there yet is looked for once more after the group
+// was found gone: it may have landed between the two looks.
+func screenEnded(exitFile string, groupAlive func() bool) (ended bool, code int, why string) {
+	read := func() (int, bool) {
+		b, err := os.ReadFile(exitFile)
+		if err != nil {
+			return 0, false
+		}
+		code, err := strconv.Atoi(strings.TrimSpace(string(b)))
+		if err != nil {
+			return -1, true
+		}
+		return code, true
+	}
+	if code, ok := read(); ok {
+		return true, code, ""
+	}
+	if groupAlive() {
+		return false, 0, ""
+	}
+	if code, ok := read(); ok {
+		return true, code, ""
+	}
+	return true, -1, "the screen window ended without writing a status"
 }

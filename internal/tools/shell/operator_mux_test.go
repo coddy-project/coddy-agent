@@ -195,3 +195,27 @@ func goneReason(run operatorRun) string {
 	}
 	return ""
 }
+
+// TestScreenEndReadsAStatusThatLandsBetweenTheLooks: the launcher writes the
+// status and then exits, so a watcher that finds no status and then a dead
+// group must look for the status once more before it calls the end unknown.
+func TestScreenEndReadsAStatusThatLandsBetweenTheLooks(t *testing.T) {
+	exitFile := filepath.Join(t.TempDir(), "x.exit")
+	ended, code, why := screenEnded(exitFile, func() bool {
+		// The launcher finishes right between the two looks.
+		if err := os.WriteFile(exitFile, []byte("3"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return false
+	})
+	if !ended || code != 3 || why != "" {
+		t.Fatalf("ended=%v code=%d why=%q, want the status 3", ended, code, why)
+	}
+	ended, code, why = screenEnded(filepath.Join(t.TempDir(), "none.exit"), func() bool { return false })
+	if !ended || code != -1 || why == "" {
+		t.Fatalf("a window gone without a status: ended=%v code=%d why=%q", ended, code, why)
+	}
+	if ended, _, _ := screenEnded(filepath.Join(t.TempDir(), "none.exit"), func() bool { return true }); ended {
+		t.Fatal("a live window was taken for ended")
+	}
+}
