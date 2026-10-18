@@ -9,10 +9,10 @@ Feature: The operator runs a command the agent was refused
   Scenario: A command a hook refused is run by the operator and the turn reads its output
     Given an operator command session where a hook blocks run_command
     And the operator will press Run
-    When the model asks for "echo operator-ok" with run_command and then with operator_command
+    When the model asks for "echo operator-$((40+2))" with run_command and then with operator_command
     Then run_command was refused by the hook
-    And the operator was shown the command "echo operator-ok" in the operator shell
-    And the model received the output "operator-ok" with exit code 0
+    And the operator was shown the command "echo operator-$((40+2))" in the operator shell
+    And the model received the output "operator-42" with exit code 0
     And the turn ended with the model's answer
 
   Scenario: A command the operator declines is not run

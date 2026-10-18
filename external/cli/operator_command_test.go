@@ -60,7 +60,7 @@ func TestOperatorModalStartsOnDecline(t *testing.T) {
 func TestOperatorModalShowsTheWholeCall(t *testing.T) {
 	m := newOperatorModal(newTheme("dark"), sampleOperatorRequest())
 	text := strings.Join(renderedLines(m, 100), "\n")
-	for _, want := range []string{"journalctl -u nginx", "--since today", "bash", "build-box", "/srv/app", "unsafe-command check", "Decline", "Run"} {
+	for _, want := range []string{"journalctl -u nginx", "--since today", "bash (/bin/bash)", "build-box", "/srv/app", "unsafe-command check", "Decline", "Run"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("the modal lacks %q:\n%s", want, text)
 		}

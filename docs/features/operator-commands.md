@@ -14,7 +14,7 @@ The agent calls the tool with the command and the reason it has to ask:
 | `reason` | Why you have to run it: what refused it to the agent, and what the command does. Shown next to the command. |
 | `cwd` | Folder to run it in, relative to the session workspace or absolute. Left out, the workspace. |
 
-The card shows the command, the agent's reason, the shell, the host and the folder, with links resolved. Nothing on it takes the focus when it appears, so a key you were pressing for the composer never runs anything.
+The card shows the command, the agent's reason, the shell and the executable it resolved to, the host and the folder, with links resolved. Nothing on it takes the focus when it appears, so a key you were pressing for the composer never runs anything.
 
 ![The operator command card in the web UI: the folder, the agent's reason, the command and the Run and Decline buttons](../assets/operator-commands/operator-command-waiting-dark-1280.png)
 
@@ -43,7 +43,7 @@ The operator ran the command in bash on build-box, in /srv/app (exit code 0):
 
 *The card in the light theme.*
 
-A request waits for you as long as it takes: there is no timeout. The composer's Stop ends the turn and the request with it.
+A request waits for you as long as it takes: there is no timeout. The composer's Stop ends the turn and stops the command the same way (Ctrl+C, then the group). A command that outlives the turn keeps its request open, and its card keeps Stop, until it has ended.
 
 ## Where it is offered
 
@@ -53,7 +53,8 @@ The agent is offered the tool only where a person can answer it:
 |---|---|
 | Web UI | yes |
 | Console (`coddy`) and `coddy --remote` | yes |
-| An OpenAI-compatible client of `POST /v1/responses` or `/v1/chat/completions` | no, unless it declares `metadata.coddy_operator_commands` (see [HTTP API](../reference/http-api.md)) |
+| A streaming client of `POST /v1/responses` | no, unless it declares `metadata.coddy_operator_commands` (see [HTTP API](../reference/http-api.md)) |
+| A client of `POST /v1/chat/completions` | no |
 | ACP editors, the Telegram and Pachca bots, `coddy -p`, the scheduler, subagents, supervised goal runs | no |
 
 It is offered in Agent and Plan mode, not in Ask mode, which has no shell at all. A `PreToolUse` [hook](hooks.md) can block it like any other tool; a hook matching `Bash` or `run_command` does not match it.
@@ -87,7 +88,7 @@ On macOS and Linux, `multiplexer: tmux` or `multiplexer: screen` runs each opera
 - Stop sends Ctrl+C to the window, then terminates its process group.
 - The window gets the environment the multiplexer server was started with: Coddy's, at the first run.
 - Under the systemd user unit (`coddy serve install`) the server starts in a scope of its own, so restarting the service does not end a long run; without `systemd-run` it does.
-- Windows has neither: the setting is ignored there, and `--dry-run` warns. macOS ships no tmux; install it (`brew install tmux`) or use `screen`.
+- Windows has neither: the setting is ignored there, and `--dry-run` warns. macOS ships no tmux; install it (`brew install tmux`) or use `screen`. tmux 3.0 or newer is needed.
 
 ## In the console
 

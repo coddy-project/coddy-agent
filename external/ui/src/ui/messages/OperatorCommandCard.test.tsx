@@ -322,3 +322,18 @@ test("the Russian card names its buttons in Russian", () => {
     "Отклонить",
   );
 });
+
+test("the card names the shell's executable, not only its kind", () => {
+  renderCall({ request, requestId: request.requestId });
+  expect(screen.getByTestId("operator-command-shell-path")).toHaveTextContent(
+    "/usr/bin/bash",
+  );
+});
+
+test("a command that outlived a cancelled turn still offers Stop", () => {
+  renderCall(
+    { request, requestId: request.requestId, phase: "stopping", output: "x" },
+    { status: "cancelled" },
+  );
+  expect(screen.getByTestId("operator-command-stop")).toBeVisible();
+});

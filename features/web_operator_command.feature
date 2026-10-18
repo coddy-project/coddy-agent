@@ -7,12 +7,12 @@ Feature: The web UI shows an operator command and runs it on Run
   streaming client that declared nothing is never offered the tool.
 
   Scenario: The operator presses Run in the web UI and the model reads the output
-    Given a web server whose model asks the operator to run "echo web-operator-ok"
+    Given a web server whose model asks the operator to run "echo web-operator-$((40+2))"
     When the web UI streams a turn that declares operator commands
     And the operator answers the operator_command event with run
-    Then the stream carried the command "echo web-operator-ok" with its shell, host and folder
+    Then the stream carried the command "echo web-operator-$((40+2))" with its shell, host and folder
     And the stream carried the run of the command until it ended
-    And the model's next request carried the output "web-operator-ok"
+    And the model's next request carried the output "web-operator-42"
 
   Scenario: A streaming client that does not declare operator commands is not offered the tool
     Given a web server whose model asks the operator to run "echo never"

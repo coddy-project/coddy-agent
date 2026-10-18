@@ -409,6 +409,41 @@ func TestOperatorCancelKeepsTheRequestOpenUntilTheProcessEnds(t *testing.T) {
 	}
 }
 
+// TestOperatorCancelReportsAStillRunningCommand: when the drain expires the
+// card hears "stopping" - the request is open, Stop still works - and
+// "stopped" only once the process has ended.
+func TestOperatorCancelReportsAStillRunningCommand(t *testing.T) {
+	old := operatorCancelDrain
+	operatorCancelDrain = 50 * time.Millisecond
+	t.Cleanup(func() { operatorCancelDrain = old })
+	client := &operatorClient{available: true}
+	env := operatorEnv(t, client)
+	req := acp.OperatorCommandRequest{SessionID: "s", RequestID: "oc_3", ToolCallID: "c", Shell: "bash", Host: "h", CWD: "/w"}
+	tk, d := runningTicket(t)
+	run := newFakeRun()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = superviseOperatorRunAndRelease(ctx, env, req, "{}", run, d)
+	phases := client.phases()
+	if last := phases[len(phases)-1]; last != OperatorPhaseStopping {
+		t.Fatalf("phases after the drain = %v, want stopping last", phases)
+	}
+	run.exit()
+	select {
+	case <-tk.Finished():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request did not end")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if p := client.phases(); p[len(p)-1] == OperatorPhaseStopped {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("no stopped frame once the process ended: %v", client.phases())
+}
+
 // TestOperatorCommandRefusesAFolderThatWouldDisplayDifferently: the folder is
 // on the card too.
 func TestOperatorCommandRefusesAFolderThatWouldDisplayDifferently(t *testing.T) {
@@ -435,5 +470,29 @@ func TestOperatorCommandRefusesAMultiLineCommandForCmd(t *testing.T) {
 	}
 	if err := validateOperatorCommandFor("echo a\necho b", platform.ShellBash); err != nil {
 		t.Fatalf("bash takes lines: %v", err)
+	}
+}
+
+// TestOperatorSingleStopEscalates: one Stop of a command that ignores the
+// interrupt still ends it, after the grace, without a second press.
+func TestOperatorSingleStopEscalates(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("signals are a Unix notion")
+	}
+	client := &operatorClient{available: true, answer: acp.OperatorActionRun}
+	client.afterRun = func(tk *acp.OperatorCommandTicket) {
+		time.Sleep(300 * time.Millisecond)
+		_ = tk.Answer(acp.OperatorActionStop, "")
+	}
+	start := time.Now()
+	out, err := runOperatorTool(t, operatorEnv(t, client), operatorArgs(`trap '' INT; echo ready; sleep 30`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "stopped") || !strings.Contains(out, "ready") {
+		t.Fatalf("result = %q", out)
+	}
+	if took := time.Since(start); took < operatorStopGrace || took > 15*time.Second {
+		t.Fatalf("the stop took %s, want the grace (%s) and not much more", took, operatorStopGrace)
 	}
 }

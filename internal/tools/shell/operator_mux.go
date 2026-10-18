@@ -124,21 +124,23 @@ func underService() bool {
 	return os.Getenv("INVOCATION_ID") != "" || os.Getenv("CODDY_SERVE_ROLE") == "service"
 }
 
-// serverCommand starts a multiplexer server: in a systemd scope of its own
-// when Coddy runs as a unit and systemd-run is there, so a long run survives a
-// restart of the service.
-func serverCommand(bin string, args ...string) *exec.Cmd {
-	var cmd *exec.Cmd
+// startServer starts a multiplexer server: in a systemd scope of its own when
+// Coddy runs as a unit and systemd-run is there, so a long run survives a
+// restart of the service, and plainly when that scope cannot be had (a system
+// unit has no user bus to ask) or when Coddy is no unit at all.
+func startServer(bin string, args ...string) ([]byte, error) {
 	if underService() {
 		if run, err := exec.LookPath("systemd-run"); err == nil {
-			cmd = exec.Command(run, append([]string{"--user", "--scope", "--collect", "--quiet", "--", bin}, args...)...) // #nosec G204 -- fixed multiplexer argv
+			cmd := exec.Command(run, append([]string{"--user", "--scope", "--collect", "--quiet", "--", bin}, args...)...) // #nosec G204 -- fixed multiplexer argv
+			platform.AdaptCommand(cmd)
+			if out, err := cmd.CombinedOutput(); err == nil {
+				return out, nil
+			}
 		}
 	}
-	if cmd == nil {
-		cmd = exec.Command(bin, args...) // #nosec G204 -- fixed multiplexer argv
-	}
+	cmd := exec.Command(bin, args...) // #nosec G204 -- fixed multiplexer argv
 	platform.AdaptCommand(cmd)
-	return cmd
+	return cmd.CombinedOutput()
 }
 
 // muxRun is a command running in a multiplexer window, its output read from
@@ -378,8 +380,7 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 	if _, err := m.run("has-session", "-t", "="+m.session); err != nil {
 		// The session keeps an idle window, so closing the last command's
 		// window never ends it.
-		cmd := serverCommand(m.bin, m.args("new-session", "-d", "-s", m.session, "-n", "idle", "cat")...)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := startServer(m.bin, m.args("new-session", "-d", "-s", m.session, "-n", "idle", "cat")...); err != nil {
 			return nil, fmt.Errorf("tmux new-session: %v: %s", err, bytes.TrimSpace(out))
 		}
 	}
@@ -555,8 +556,7 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 	if _, err := m.run("-X", "select", "0"); err != nil {
 		// -c /dev/null: the operator's ~/.screenrc can start windows and run
 		// commands of its own, as a tmux.conf can (tmux runs with -f /dev/null).
-		cmd := serverCommand(m.bin, "-c", "/dev/null", "-dmS", m.session)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := startServer(m.bin, "-c", "/dev/null", "-dmS", m.session); err != nil {
 			return nil, fmt.Errorf("screen -dmS: %v: %s", err, bytes.TrimSpace(out))
 		}
 		deadline := time.Now().Add(3 * time.Second)

@@ -578,8 +578,16 @@ func TestOperatorCommandSurvivesTheJSONDTO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"operator_command"`) {
-		t.Fatalf("GET DTO dropped tools.operator_command: %s", raw)
+	var shown struct {
+		Tools struct {
+			OperatorCommand map[string]interface{} `json:"operator_command"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &shown); err != nil {
+		t.Fatal(err)
+	}
+	if oc := shown.Tools.OperatorCommand; oc["enable"] != false || oc["shell"] != "zsh" || oc["multiplexer"] != "tmux" {
+		t.Fatalf("GET DTO lost tools.operator_command: %v (%s)", oc, raw)
 	}
 
 	put := `{"tools":{"operator_command":{"enable":false,"shell":"zsh","multiplexer":"tmux"}}}`

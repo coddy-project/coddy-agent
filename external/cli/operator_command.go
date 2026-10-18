@@ -140,7 +140,12 @@ func newOperatorModal(theme *tui.Theme, req acp.OperatorCommandRequest) *operato
 	m.AddChild(tui.NewDynamicBorder(th.FgFn(roleWarning)))
 	m.AddChild(tui.NewText(th.Fg(roleWarning, th.Bold("Run this command yourself?")), 1, 0, nil))
 	m.AddChild(tui.NewText(th.Fg(roleMuted, "The agent was refused this command and asks you to run it, exactly as shown."), 1, 0, nil))
-	where := "shell " + tui.SanitizeText(req.Shell) + " · host " + tui.SanitizeText(req.Host)
+	// The executable too: a shell swapped through the configuration must show.
+	shell := tui.SanitizeText(req.Shell)
+	if req.ShellPath != "" {
+		shell += " (" + tui.SanitizeText(req.ShellPath) + ")"
+	}
+	where := "shell " + shell + " · host " + tui.SanitizeText(req.Host)
 	if req.Multiplexer != "" {
 		where += " · in " + tui.SanitizeText(req.Multiplexer)
 	}

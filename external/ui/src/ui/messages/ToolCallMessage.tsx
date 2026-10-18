@@ -474,7 +474,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   // An operator command that is still live opens with the row, so Run and
   // Decline are in view without a click; a finished one is a record and folds
   // like any other call. Read once: the reader's own fold is never undone.
-  const [opensOpen] = useState(() => isOperatorCommandCall && !terminalStatus);
+  // A live request opens its row; so does a command that outlived a
+  // cancelled turn, whose card still offers Stop.
+  const [opensOpen] = useState(
+    () =>
+      isOperatorCommandCall &&
+      (!terminalStatus || props.operatorCommand?.phase === "stopping"),
+  );
   const [showExpanded, setShowExpanded] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(opensOpen);

@@ -62,6 +62,9 @@ export function OperatorCommandCard(props: {
   const liveShell = (state?.shell || request?.shell || "").trim();
   const liveHost = (state?.host || request?.host || "").trim();
   const multiplexer = (state?.multiplexer || request?.multiplexer || "").trim();
+  // The executable the shell resolved to: a shell swapped through the
+  // configuration must show here, not only its kind.
+  const shellPath = (request?.shellPath || "").trim();
   const attachCommand = (request?.attachCommand || "").trim();
 
   const [answered, setAnswered] = useState<OperatorCommandAction | null>(null);
@@ -77,7 +80,11 @@ export function OperatorCommandCard(props: {
   const phase = state?.phase;
   const terminal = isTerminal(status);
   let view: View;
-  if (terminal || phase === "ended" || phase === "stopped") view = "finished";
+  // A command that outlived a cancelled turn still runs, and its request is
+  // open until it ends: the card keeps Stop for it.
+  if (phase === "stopping" && status === "cancelled") view = "stopping";
+  else if (terminal || phase === "ended" || phase === "stopped")
+    view = "finished";
   else if (phase === "stopping") view = "stopping";
   else if (phase === "running") view = "running";
   else if (given === "run" || given === "stop") view = "running";
@@ -252,8 +259,19 @@ export function OperatorCommandCard(props: {
           ) : null}
         </span>
       </div>
-      {cwd || reason ? (
+      {cwd || reason || shellPath ? (
         <dl className="operator-command-fields">
+          {shellPath ? (
+            <div className="operator-command-field">
+              <dt>{t("operatorCommand.shell")}</dt>
+              <dd
+                className="operator-command-cwd"
+                data-testid="operator-command-shell-path"
+              >
+                {shellPath}
+              </dd>
+            </div>
+          ) : null}
           {cwd ? (
             <div className="operator-command-field">
               <dt>{t("operatorCommand.folder")}</dt>

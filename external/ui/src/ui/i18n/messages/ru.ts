@@ -1798,6 +1798,9 @@ export const messagesRu: Record<string, string> = {
   "operatorCommand.alreadyAnswered": "Уже отвечено в другом месте",
   "operatorCommand.ended": "Этот запрос уже завершён",
   "operatorCommand.sendFailed": "Не удалось отправить ответ",
+  "operatorCommand.loadFailed":
+    "Карточка не загрузилась. Повторите загрузку или отклоните команду.",
+  "operatorCommand.retry": "Повторить",
 
   "scheduler.title": "Планировщик",
   "scheduler.close": "Закрыть планировщик",

@@ -1751,6 +1751,9 @@ export const messagesEn: Record<string, string> = {
   "operatorCommand.alreadyAnswered": "Already answered elsewhere",
   "operatorCommand.ended": "This request has ended",
   "operatorCommand.sendFailed": "Could not send the answer",
+  "operatorCommand.loadFailed":
+    "The card did not load. Retry, or decline the command.",
+  "operatorCommand.retry": "Retry",
 
   "scheduler.title": "Scheduler",
   "scheduler.close": "Close scheduler",

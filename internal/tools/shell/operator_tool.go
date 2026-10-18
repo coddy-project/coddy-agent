@@ -252,6 +252,8 @@ func superviseOperatorRunAndRelease(ctx context.Context, env *tooling.Env, req a
 		for {
 			select {
 			case <-run.Done():
+				frame := operatorFrame{env: env, req: req, args: argsJSON}
+				frame.send(OperatorPhaseStopped, run.Output(), run.ExitCode(), run.Dropped())
 				release()
 				return
 			case <-stop:
@@ -326,9 +328,12 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			}()
 			select {
 			case <-run.Done():
+				frame.send(OperatorPhaseStopped, run.Output(), run.ExitCode(), run.Dropped())
 			case <-time.After(operatorCancelDrain):
+				// Still running: the request stays open (and Stop with it)
+				// until it ends, which superviseOperatorRunAndRelease reports.
+				frame.send(OperatorPhaseStopping, run.Output(), 0, run.Dropped())
 			}
-			frame.send(OperatorPhaseStopped, run.Output(), run.ExitCode(), run.Dropped())
 			return "", ctx.Err()
 		case <-ticker.C:
 			if out := run.Output(); out != last {
