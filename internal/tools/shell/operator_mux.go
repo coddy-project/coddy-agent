@@ -2,6 +2,7 @@ package shell
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -132,14 +133,23 @@ func underService() bool {
 func startServer(bin string, args ...string) ([]byte, error) {
 	if underService() {
 		if run, err := exec.LookPath("systemd-run"); err == nil {
-			cmd := exec.Command(run, append([]string{"--user", "--scope", "--collect", "--quiet", "--", bin}, args...)...) // #nosec G204 -- fixed multiplexer argv
-			platform.AdaptCommand(cmd)
-			if out, err := cmd.CombinedOutput(); err == nil {
+			if out, err := muxClient(run, append([]string{"--user", "--scope", "--collect", "--quiet", "--", bin}, args...)...); err == nil {
 				return out, nil
 			}
 		}
 	}
-	cmd := exec.Command(bin, args...) // #nosec G204 -- fixed multiplexer argv
+	return muxClient(bin, args...)
+}
+
+// muxClientTimeout bounds one call of a multiplexer's client: a server that
+// is stopped or wedged must not hold the watcher, a Stop or a start forever.
+const muxClientTimeout = 10 * time.Second
+
+// muxClient runs one client call of tmux, screen or systemd-run.
+func muxClient(bin string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), muxClientTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...) // #nosec G204 -- fixed multiplexer argv
 	platform.AdaptCommand(cmd)
 	return cmd.CombinedOutput()
 }
@@ -212,11 +222,11 @@ func (r *muxRun) Kill(grace time.Duration) {
 	}
 }
 
-// drain copies what the log gained since the last read into the tail, and
-// truncates a log past operatorLogLimit: both writers append, so the next
-// write lands at the start again.
-// drain copies what the log gained into the tail and reports how many bytes
-// that was.
+// drain copies what the log gained since the last read into the tail and
+// reports how many bytes that was. A log past operatorLogLimit is truncated:
+// both writers append, so the next write lands at the start again, and a
+// catch-up read right before the truncate keeps the loss to what lands in
+// between.
 func (r *muxRun) drain() int64 {
 	f, err := os.Open(r.logPath)
 	if err != nil {
@@ -311,11 +321,22 @@ func newMuxRun(logDir, requestID string) (*muxRun, error) {
 // own steps on fd 9, closed for the command, so a window that ends without a
 // status says how far it got.
 type muxLauncher struct {
-	path, pidFile, exitFile, traceFile string
+	path, pidFile, exitFile, traceFile, goFile string
+}
+
+// operatorLauncherGoPolls bounds the launcher's wait for its go, at 50 ms a
+// poll: a Start that never released it leaves nothing running for long.
+var operatorLauncherGoPolls = 200
+
+// release lets the launcher run the command: Start calls it once the capture
+// is set up and the pid is known, so a start that failed half way never runs
+// the command.
+func (l *muxLauncher) release() error {
+	return os.WriteFile(l.goFile, nil, 0o600)
 }
 
 func writeMuxLauncher(base, cwd string, commandShell platform.Shell, command string) (*muxLauncher, error) {
-	l := &muxLauncher{path: base + ".sh", pidFile: base + ".pid", exitFile: base + ".exit", traceFile: base + ".trace"}
+	l := &muxLauncher{path: base + ".sh", pidFile: base + ".pid", exitFile: base + ".exit", traceFile: base + ".trace", goFile: base + ".go"}
 	exe, argv := commandShell.Command(command)
 	quoted := []string{shellQuote(exe)}
 	for _, a := range argv {
@@ -333,6 +354,12 @@ func writeMuxLauncher(base, cwd string, commandShell platform.Shell, command str
 		// The status is written on every way out: the command's end, a
 		// folder it cannot enter (cd says why in the window), a terminate.
 		"trap 'printf \"%s\" \"$?\" > " + tmp + " && mv " + tmp + " " + done + "' EXIT\n" +
+		// Nothing runs before Start has released the window.
+		"i=0\n" +
+		"while [ ! -e " + shellQuote(l.goFile) + " ]; do\n" +
+		"  i=$((i + 1)); if [ \"$i\" -gt " + strconv.Itoa(operatorLauncherGoPolls) + " ]; then echo \"launcher: never released\" >&9; exit 125; fi\n" +
+		"  sleep 0.05\n" +
+		"done\n" +
 		// The folder is absolute and has its links resolved: -P keeps cd
 		// from reading it any other way.
 		"cd -P -- " + shellQuote(cwd) + " || exit 1\n" +
@@ -376,7 +403,7 @@ func (l *muxLauncher) trace() string {
 }
 
 func (l *muxLauncher) cleanup() {
-	for _, p := range []string{l.pidFile, l.exitFile, l.exitFile + ".tmp", l.path, l.traceFile} {
+	for _, p := range []string{l.pidFile, l.exitFile, l.exitFile + ".tmp", l.path, l.traceFile, l.goFile} {
 		_ = os.Remove(p)
 	}
 }
@@ -419,7 +446,7 @@ func envSessionDir(env *tooling.Env) string {
 // AttachCommand names the command's own window: the session's active one is
 // the idle window, which shows nothing of the command and echoes what is typed.
 func (m *tmuxMux) AttachCommand() string {
-	return "tmux -L " + m.socket + " attach -t '=" + m.session + ":=" + windowName(m.requestID) + "'"
+	return attachBin(m.bin) + " -L " + m.socket + " attach -t '=" + m.session + ":=" + windowName(m.requestID) + "'"
 }
 
 func (m *tmuxMux) requestIDForTest() string { return m.requestID }
@@ -431,9 +458,7 @@ func (m *tmuxMux) args(a ...string) []string {
 }
 
 func (m *tmuxMux) run(a ...string) (string, error) {
-	cmd := exec.Command(m.bin, m.args(a...)...) // #nosec G204 -- fixed tmux argv
-	platform.AdaptCommand(cmd)
-	out, err := cmd.CombinedOutput()
+	out, err := muxClient(m.bin, m.args(a...)...)
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -480,7 +505,8 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 	out, err := m.run(args...)
 	if err != nil {
 		// new-window may have run before a later step of the chain failed:
-		// its window must not run on, unwatched.
+		// its launcher was never released, so the command never ran; the
+		// window goes too.
 		_, _ = m.run("kill-window", "-t", "="+m.session+":="+win)
 		l.cleanup()
 		_ = os.Remove(r.logPath)
@@ -489,7 +515,7 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 	}
 	fields := strings.Fields(lastLine(out))
 	if len(fields) != 2 {
-		// The window may be up: it must not run on, unwatched.
+		// The window may be up, its launcher never released: it goes.
 		_, _ = m.run("kill-window", "-t", "="+m.session+":="+win)
 		l.cleanup()
 		_ = os.Remove(r.logPath)
@@ -498,6 +524,13 @@ func (m *tmuxMux) Start(command, cwd string, commandShell platform.Shell) (opera
 	}
 	pane := fields[0]
 	r.pid, _ = strconv.Atoi(fields[1])
+	if err := l.release(); err != nil {
+		_, _ = m.run("kill-window", "-t", "="+m.session+":="+win)
+		l.cleanup()
+		_ = os.Remove(r.logPath)
+		dropDir()
+		return nil, fmt.Errorf("tmux: releasing the window: %w", err)
+	}
 	r.interrupt = func() { _, _ = m.run("send-keys", "-t", pane, "C-c") }
 	r.closeWin = func() { _, _ = m.run("kill-pane", "-t", pane) }
 	var paneEnd tmuxPaneEnd
@@ -608,15 +641,13 @@ func newScreenMux(env *tooling.Env, req acp.OperatorCommandRequest, prefix strin
 func (m *screenMux) Name() string         { return "screen" }
 func (m *screenMux) logDirectory() string { return m.logDir }
 func (m *screenMux) AttachCommand() string {
-	return "screen -r " + m.session + " -p " + windowName(m.requestID)
+	return attachBin(m.bin) + " -x " + m.session + " -p " + windowName(m.requestID)
 }
 
 func (m *screenMux) requestIDForTest() string { return m.requestID }
 
 func (m *screenMux) run(a ...string) (string, error) {
-	cmd := exec.Command(m.bin, append([]string{"-S", m.session}, a...)...) // #nosec G204 -- fixed screen argv
-	platform.AdaptCommand(cmd)
-	out, err := cmd.CombinedOutput()
+	out, err := muxClient(m.bin, append([]string{"-S", m.session}, a...)...)
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -629,7 +660,9 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 	if _, err := m.run("-X", "select", "0"); err != nil {
 		// -c /dev/null: the operator's ~/.screenrc can start windows and run
 		// commands of its own, as a tmux.conf can (tmux runs with -f /dev/null).
-		if out, err := startServer(m.bin, "-c", "/dev/null", "-dmS", m.session); err != nil {
+		// The session's own window runs cat, as tmux's idle window does, not
+		// a login shell that would read rc files and take typed keys.
+		if out, err := startServer(m.bin, "-c", "/dev/null", "-dmS", m.session, "-t", "idle", "cat"); err != nil {
 			return nil, fmt.Errorf("screen -dmS: %v: %s", err, bytes.TrimSpace(out))
 		}
 		deadline := time.Now().Add(3 * time.Second)
@@ -685,15 +718,20 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 		if b, err := os.ReadFile(pidFile); err == nil {
 			if f := strings.Fields(string(b)); len(f) > 0 {
 				r.pid, _ = strconv.Atoi(f[0])
+				// A group of 1 or less is no group to signal: the pid alone
+				// stands for the run then.
 				if len(f) > 1 {
-					r.pgid, _ = strconv.Atoi(f[1])
+					if g, err := strconv.Atoi(f[1]); err == nil && g > 1 {
+						r.pgid = g
+					}
 				}
 			}
 		}
 		if r.pid == 0 {
 			if time.Now().After(deadline) {
-				// The window may be up after all: it must not run on, unwatched.
-				_, _ = m.run("-p", win, "-X", "kill")
+				// A window that came up late is never released: its
+				// launcher gives up without running the command. No kill:
+				// screen would send it to another window.
 				cleanup()
 				_ = os.Remove(r.logPath)
 				dropDir()
@@ -702,8 +740,12 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	// The Ctrl+C byte itself: an older screen (macOS ships 4.00) types the
-	// two characters of "^C" rather than reading them as a control code.
+	if err := l.release(); err != nil {
+		cleanup()
+		_ = os.Remove(r.logPath)
+		dropDir()
+		return nil, fmt.Errorf("screen: releasing the window: %w", err)
+	}
 	pid := r.pid
 	// A window screen no longer has is never addressed: screen closes a
 	// window once its process ends, and an older screen sends a command
@@ -711,14 +753,16 @@ func (m *screenMux) Start(command, cwd string, commandShell platform.Shell) (ope
 	alive := func() bool { return platform.ProcessAlive(pid, time.Time{}) }
 	r.interrupt = func() {
 		if alive() {
+			// The Ctrl+C byte itself: an older screen (macOS ships 4.00)
+			// types the two characters of "^C" rather than reading them as
+			// a control code.
 			_, _ = m.run("-p", win, "-X", "stuff", "\x03")
 		}
 	}
-	r.closeWin = func() {
-		if alive() {
-			_, _ = m.run("-p", win, "-X", "kill")
-		}
-	}
+	// screen closes a window once its process ends (no zombie setting), so
+	// there is nothing to close; a kill sent as the launcher exits would
+	// reach another window on an older screen.
+	r.closeWin = func() {}
 	go func() {
 		r.watch(func() (bool, int) {
 			// The launcher's own process, not its group: under macOS's
@@ -763,4 +807,14 @@ func screenEnded(exitFile string, groupAlive func() bool) (ended bool, code int,
 		return true, code, ""
 	}
 	return true, -1, "the screen window ended without writing a status"
+}
+
+// attachBin is the multiplexer Coddy runs, written for the operator's shell:
+// another tmux on the operator's PATH (Homebrew's next to the system's) would
+// refuse the server with a protocol mismatch.
+func attachBin(bin string) string {
+	if safeMuxPath.MatchString(bin) {
+		return bin
+	}
+	return shellQuote(bin)
 }

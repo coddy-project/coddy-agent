@@ -4,7 +4,7 @@ Some shell commands are refused to the agent: the [unsafe-command check](decisio
 
 The web UI and the console show the request; you cannot edit the command. What you read is byte for byte what the shell gets: before anything is shown, the tool refuses a command, a folder or a reason that holds control characters other than newline and tab, format characters (bidirectional overrides, zero-width characters), line or paragraph separators, variation selectors or fillers, and a multi-line command for `cmd`, which would run its first line only.
 
-The card fixes the command line, not everything it runs. A script, a Makefile or a `package.json` script the command starts is a file of the workspace, which the agent can write, so read it before you press **Run**. The reason is the agent's own account of the command. zsh and fish read their startup files even for `-c`; only PowerShell runs without its profile.
+The card fixes the command line, not everything it runs. A script, a Makefile or a `package.json` script the command starts is a file of the workspace, which the agent can write, so read it before you press **Run**. The reason is the agent's own account of the command. zsh (`.zshenv`) and fish (`config.fish`) read startup files even for `-c`, and bash reads `$BASH_ENV` when it is set; PowerShell (`-NoProfile`), `cmd` (`/d`) and `sh` read none. Look-alike letters (a Cyrillic `і` in a host name) and spaces other than the plain one are not refused: the card shows them as they are, but they can read like other text.
 
 ## The request
 
@@ -22,7 +22,7 @@ The card shows the command, the agent's reason, the shell and the executable it 
 
 *A command the agent was refused, waiting for you: the shell and the host on the right, nothing editable.*
 
-- **Run** starts the command. Its last lines stream onto the card while it runs.
+- **Run** starts the command. Its last lines stream onto the card while it runs. Nothing starts when the turn was cancelled as you pressed Run, or when the folder changed while the card waited (a link swapped into its path): the agent is told why.
 - **Decline** refuses it. The agent is told, and the same command is refused without asking you again for the rest of the turn.
 - **Stop** interrupts a running command the way Ctrl+C does: `SIGINT` to its process group, so a program that cleans up on Ctrl+C gets to. After 3 seconds, or at once on a second press (**Kill**), the whole group is terminated. The turn goes on with what the command printed so far. On Windows there is no interrupt to send, so Stop terminates at once.
 
@@ -63,7 +63,7 @@ It is offered in Agent and Plan mode, not in Ask mode, which has no shell at all
 
 ## Where the command runs
 
-The command runs on the machine that owns the session, in the session's folder: for the console that is your machine, for the web UI and `coddy --remote` it is the `coddy serve` host. It runs as the same user as Coddy, with Coddy's environment: it bypasses Coddy's rules, not the operating system's.
+The command runs on the machine that owns the session, in the session's folder: for the console that is your machine, for the web UI and `coddy --remote` it is the `coddy serve` host. It runs as the same user as Coddy, with Coddy's environment (inside tmux or screen, the multiplexer server's, with the pagers set to `cat`; see [long runs](#long-runs-tmux-or-screen)): it bypasses Coddy's rules, not the operating system's.
 
 ## Commands that ask nothing
 
@@ -93,7 +93,7 @@ tools:
 
 `shell` is a name on `PATH` (`bash`, `zsh`, `fish`, `sh`, `pwsh`, `powershell`, `cmd`) or a path to the executable (`C:\Program Files\Git\bin\bash.exe`, `/data/data/com.termux/files/usr/bin/zsh`). Empty means PowerShell on Windows (`pwsh`, then Windows PowerShell) and bash elsewhere (`bash`, then `sh`), Termux's on Android. The kind of shell is read off the executable's name: PowerShell gets `-NoProfile -Command`, `cmd` gets its command line verbatim (`/d /s /c "..."`), every other shell `-c`. A shell that is not found is an error, never a fallback to another one: a command written for zsh must not run in sh. `coddy serve --dry-run` reports the shell this host resolves to.
 
-The console's `!!` uses the same shell, so the commands you type by hand and the ones the agent asks you to run go to one place.
+The console's `!!` uses the same shell, so the commands you type by hand and the ones the agent asks you to run go to one place. The agent cannot change this section: `config_set` refuses every path under `tools.operator_command`, since a shell the agent chose would run on every Run you press.
 
 In the web UI the section is **Settings → Tools and permissions → Operator commands**: the switch, the shell (empty shows the platform's default) and where the command runs.
 
@@ -103,14 +103,14 @@ In the web UI the section is **Settings → Tools and permissions → Operator c
 
 ## Long runs: tmux or screen
 
-On macOS and Linux, `multiplexer: tmux` or `multiplexer: screen` runs each operator command inside a detached session. The command gets a real terminal, so a program that refuses to run without one works, and the command lives on in its window if Coddy restarts. The terminal is not a way to answer the command: it still has to [ask nothing](#commands-that-ask-nothing). Coddy manages the session: you see and approve only the command, never a `tmux` line, and the card shows the command's own output.
+On macOS and Linux, `multiplexer: tmux` or `multiplexer: screen` runs each operator command inside a detached session. The command gets a real terminal, so a program that refuses to run without one works, and the command lives on in its window if `coddy serve` restarts (see the systemd note below). Quitting the console that ran a command stops it, inside a multiplexer too. The terminal is not a way to answer the command: it still has to [ask nothing](#commands-that-ask-nothing). Coddy manages the session: you see and approve only the command, never a `tmux` line, and the card shows the command's own output.
 
-- One multiplexer session per Coddy session, `coddy-<id>`; each command gets a window of its own. tmux runs on a server of Coddy's own (`tmux -L coddy`, no `tmux.conf`), so your own tmux sessions are never touched.
-- The card shows how to reach the terminal, for example `tmux -L coddy attach -t '=coddy-1a2b3c4d5e6f:=oc-0a1b2c3d4e5f'` (screen: `screen -r coddy-1a2b3c4d5e6f -p oc-0a1b2c3d4e5f`), the command's own window. Attach, as the user Coddy runs as, to watch the command on its terminal; the output keeps streaming to the card.
+- One multiplexer session per Coddy session, `coddy-<id>`; each command gets a window of its own. tmux runs on a server of Coddy's own (`tmux -L coddy`, no `tmux.conf`), so your own tmux sessions are never touched. The session stays after its commands end; Coddy does not remove it. End one with `tmux -L coddy kill-session -t coddy-<id>` (or every one with `tmux -L coddy kill-server`), or `screen -S coddy-<id> -X quit`.
+- The card shows how to reach the terminal, for example `tmux -L coddy attach -t '=coddy-1a2b3c4d5e6f:=oc-0a1b2c3d4e5f'` (screen: `screen -x coddy-1a2b3c4d5e6f -p oc-0a1b2c3d4e5f`), the command's own window, with the tmux or screen Coddy runs named by its path. Attach, as the user Coddy runs as, to watch the command on its terminal; the output keeps streaming to the card.
 - Stop sends Ctrl+C to the window, then terminates its process group.
 - The window gets the environment the multiplexer server was started with. tmux runs one `-L coddy` server for every Coddy process of your account, the console and `coddy serve` alike, so that is the environment of the process that started it first; screen starts one session per Coddy session. Under the systemd unit that environment usually has no `DISPLAY` and no `SSH_AUTH_SOCK` of your terminal, and a `PATH` changed later does not reach the window while the server runs. Attaching to tmux copies your terminal's `DISPLAY`, `SSH_AUTH_SOCK` and the like into the session (tmux's `update-environment`), so the windows of later commands get them too.
 - On a terminal programs print colours, progress bars and full-screen redraws. The card and the result clean the output up, but what `htop`, `vim` or `less` leave there is of little use to the agent.
-- Under the systemd user unit (`coddy serve install`) the server starts in a scope of its own, so restarting the service does not end a long run; without `systemd-run` it does. A restart ends the turn all the same: the command goes on in its window (attach to see it), but its output no longer reaches the agent or the card, and its window and its files under the session's folder stay until you close the window.
+- Under the systemd user unit (`coddy serve install`) the server starts in a scope of its own, so restarting the service does not end a long run; without `systemd-run` it does. A restart ends the turn all the same: the command goes on in its window (attach to see it), but its output no longer reaches the agent or the card, and its window and its files in the session's bundle (`operator-commands/` next to the session's history) stay until you close the window.
 - Windows has neither: the setting is ignored there, and `--dry-run` warns. macOS ships no tmux; install it (`brew install tmux`) or use `screen`. tmux 3.0 or newer is needed.
 
 If a command stops on a prompt anyway and you attach to answer it, that is outside what the tool supports, with these consequences:
@@ -122,7 +122,7 @@ If a command stops on a prompt anyway and you attach to answer it, that is outsi
 
 ## In the console
 
-The console shows the request in a dialog above the composer. The selection starts on **Decline**: an Enter you typed before the dialog appeared never runs anything, and no letter key decides, so a word you were typing does not either. Move to **Run** and press Enter; escape declines.
+The console shows the request in a dialog above the composer. The selection starts on **Decline**: an Enter you typed before the dialog appeared never runs anything - it declines, and the decline holds for the turn - and no letter key decides, so a word you were typing does not either. Move to **Run** and press Enter; escape declines.
 
 ![The console's operator command dialog: the shell, the host, the folder, the agent's reason and the command, with Decline selected](../assets/operator-commands/operator-command-console-modal-dark.png)
 

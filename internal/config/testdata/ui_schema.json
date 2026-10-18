@@ -1465,7 +1465,7 @@
           "properties": {
             "enable": {
               "default": true,
-              "description": "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console, and never in Ask mode, to subagents or to scheduled jobs.",
+              "description": "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console, and never in Ask mode, to subagents, to scheduled jobs, to non-admin senders or in supervised goal runs.",
               "title": "Enabled",
               "type": "boolean"
             },

@@ -588,3 +588,26 @@ func TestOperatorCommandRefusesCmdInAUNCFolder(t *testing.T) {
 		t.Fatalf("PowerShell takes a UNC folder: %v", err)
 	}
 }
+
+// TestOperatorCancelAtTheShellsExitIsStillAStop: the shell's end and the turn's
+// cancel can be ready at once, and select picks either. A cancelled turn is a
+// stop whichever wins: the run is recorded stopped and what the shell left in
+// its group is ended (Unix).
+func TestOperatorCancelAtTheShellsExitIsStillAStop(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		env := operatorEnv(t, &operatorClient{available: true})
+		req := acp.OperatorCommandRequest{SessionID: "s", RequestID: "oc_x", ToolCallID: "c", Shell: "bash", Host: "h", CWD: "/w"}
+		_, d := runningTicket(t)
+		run := newFakeRun()
+		run.exit()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		out, err := superviseOperatorRun(ctx, env, req, "{}", run, d)
+		if err != nil || !strings.HasPrefix(out, "The operator stopped the command") {
+			t.Fatalf("run %d: %q, %v", i, out, err)
+		}
+		if runtime.GOOS != "windows" && run.killCount() == 0 {
+			t.Fatalf("run %d: what the shell left in its group was not ended", i)
+		}
+	}
+}

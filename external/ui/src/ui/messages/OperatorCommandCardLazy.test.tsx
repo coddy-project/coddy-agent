@@ -11,9 +11,14 @@ import {
   OperatorCommandCardLazy,
   __setOperatorCommandCardImporter,
 } from "./OperatorCommandCardLazy";
+import {
+  loadOperatorCommandRecords,
+  upsertOperatorCommandRequest,
+} from "../chat/operatorCommandSessionStore";
 
 afterEach(() => {
   cleanup();
+  window.sessionStorage.clear();
   __setOperatorCommandCardImporter(null);
 });
 
@@ -135,5 +140,68 @@ test("the fallback offers no Decline for an answered request or an ended call", 
     await screen.findByTestId("operator-command-fallback");
     expect(screen.queryByTestId("operator-command-decline")).toBeNull();
     unmount();
+  }
+});
+
+// A chunk that neither loads nor fails (a stalled proxy) must not hide a
+// waiting request: the fallback shows after a few seconds.
+test("a chunk that stalls shows the fallback", async () => {
+  vi.useFakeTimers();
+  try {
+    __setOperatorCommandCardImporter(() => new Promise(() => {}));
+    render(
+      <OperatorCommandCardLazy
+        toolCallId="call_x"
+        sessionId="sess_x"
+        status="in_progress"
+        argsText={JSON.stringify({ command: "make deploy", reason: "r" })}
+      />,
+    );
+    expect(screen.queryByTestId("operator-command-fallback")).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(6000);
+    });
+    expect(screen.getByTestId("operator-command-fallback")).toBeVisible();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+// The fallback's Decline is an answer like the card's: kept, so a reload does
+// not offer it again, and a request the server no longer has is forgotten.
+test("the fallback's Decline is kept, and a 404 forgets the request", async () => {
+  for (const [status, kept] of [
+    [204, "decline"],
+    [404, undefined],
+  ] as const) {
+    window.sessionStorage.clear();
+    upsertOperatorCommandRequest({
+      sessionId: "sess_x",
+      requestId: "oc_x",
+      toolCallId: "call_x",
+      command: "make deploy",
+      reason: "needs the key",
+      cwd: "/w",
+      shell: "bash",
+      shellPath: "/bin/bash",
+      host: "h",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status })),
+    );
+    try {
+      const { unmount } = failingFallback({});
+      await screen.findByTestId("operator-command-fallback");
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("operator-command-decline"));
+      });
+      const rec = loadOperatorCommandRecords("sess_x");
+      if (kept) expect(rec[0]?.answered).toBe(kept);
+      else expect(rec).toHaveLength(0);
+      unmount();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   }
 });

@@ -219,3 +219,37 @@ func TestQuittingTheConsoleEndsTheCommandItRan(t *testing.T) {
 	}
 	d.Done()
 }
+
+// TestOperatorModalKeepsTheReasonOnOneLine: the reason is the agent's text; a
+// newline in it must not draw a row that looks like the command.
+func TestOperatorModalKeepsTheReasonOnOneLine(t *testing.T) {
+	req := sampleOperatorRequest()
+	req.Reason = "needs root\n\n$ git status\n"
+	m := newOperatorModal(newTheme("dark"), req)
+	for _, line := range renderedLines(m, 100) {
+		if strings.HasPrefix(strings.TrimSpace(line), "$ git status") {
+			t.Fatalf("the reason drew a command row:\n%s", strings.Join(renderedLines(m, 100), "\n"))
+		}
+	}
+}
+
+// TestALateRunAfterTheCancelHoldsNoTicket: a Run pressed on a modal whose turn
+// was just cancelled leaves the console no ticket that would eat escapes.
+func TestALateRunAfterTheCancelHoldsNoTicket(t *testing.T) {
+	a := newTestApp(t)
+	s := &sender{app: a}
+	ctx, cancel := context.WithCancel(context.Background())
+	tickets := make(chan *acp.OperatorCommandTicket, 1)
+	go func() {
+		req := <-a.opCh
+		tickets <- req.ticket
+		cancel()
+	}()
+	if _, err := s.RequestOperatorCommand(ctx, sampleOperatorRequest()); err == nil {
+		t.Fatal("a cancelled request returned no error")
+	}
+	tk := <-tickets
+	if err := tk.Answer(acp.OperatorActionRun, ""); err == nil {
+		t.Fatal("a Run after the cancel was taken")
+	}
+}

@@ -182,4 +182,9 @@ func TestOperatorRefusesAFolderSwappedWhileTheCardWaited(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(elsewhere, "ran")); statErr == nil {
 		t.Fatal("the command ran in the folder the link points to")
 	}
+	// Nothing ran, so no frame claims an end with an exit code: the call's
+	// error is what retires the card.
+	if phases := client.phases(); len(phases) != 0 {
+		t.Fatalf("a command that never ran sent frames %v", phases)
+	}
 }

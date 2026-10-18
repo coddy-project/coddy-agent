@@ -294,7 +294,7 @@ pages:
       summary: "Live pages on a .canvas board in the Files window of the web UI - canvas_show and canvas_inspect, pointing at an element to ask for a change, the sandbox a frame runs in, and every board an Obsidian .canvas file of the workspace, read and written back as Obsidian writes it."
   features/operator-commands.md:
     title: "Команды оператора"
-    summary: "Команда, в которой агенту отказали, запускается вами: карточка только для чтения с кнопками Run, Decline и Stop в веб-интерфейсе и консоли, вывод возвращается в ход, шел оператора, tmux или screen для долгих запусков."
+    summary: "Команду, которую агенту не дали выполнить, запускаете вы: карточка только для чтения с кнопками \"Запустить\", \"Отклонить\" и \"Остановить\" в веб-интерфейсе (в консоли - Run и Decline), вывод возвращается в ход, оболочка оператора, tmux или screen для долгих запусков."
     en:
       title: "Operator commands"
       summary: "A command the agent was refused, run by you: the read-only card with Run, Decline and Stop in the web UI and the console, the output going back to the turn, the operator shell, tmux or screen for long runs."

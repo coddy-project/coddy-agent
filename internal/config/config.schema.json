@@ -604,7 +604,7 @@
                 "boolean",
                 "null"
               ],
-              "description": "Offer the operator_command tool. It is offered only on a surface where a person can answer: the web UI and the console, not ACP editors, the messenger bots, the scheduler or subagents.",
+              "description": "Offer the operator_command tool. It is offered only on a surface where a person can answer: the web UI and the console, not ACP editors, the messenger bots, the scheduler, subagents, non-admin senders or supervised goal runs.",
               "default": true
             },
             "shell": {

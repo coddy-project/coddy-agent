@@ -466,3 +466,55 @@ test("a Stop for a request the server no longer has forgets the kept request", a
   fireEvent.click(screen.getByTestId("operator-command-stop"));
   await waitFor(() => expect(loadOperatorCommandRecords(SID)).toHaveLength(0));
 });
+
+// A command that outlived the cancel's drain ends its call failed with the
+// context error while it still runs: the card keeps Kill for it.
+test("a failed call whose command is still stopping keeps Kill", () => {
+  renderCall(
+    { request, requestId: "opc_1", phase: "stopping", output: "still going" },
+    { status: "failed", resultText: "error: context canceled" },
+  );
+  expect(screen.getByTestId("operator-command-card")).toHaveAttribute(
+    "data-view",
+    "stopping",
+  );
+  expect(screen.getByTestId("operator-command-stop")).toHaveTextContent("Kill");
+});
+
+// A cancelled or failed call whose request was never answered offers no Run:
+// a Run during a cancel starts nothing.
+test("an ended call offers no Run for a request nobody answered", () => {
+  for (const status of ["cancelled", "failed"]) {
+    const { unmount } = renderCall(
+      { request, requestId: "opc_1" },
+      { status, resultText: "error: context canceled" },
+    );
+    expect(screen.queryByTestId("operator-command-run")).toBeNull();
+    expect(screen.queryByTestId("operator-command-decline")).toBeNull();
+    unmount();
+  }
+});
+
+// Run's button is not reused as Stop's: a focus Run's click left must not
+// make the next Enter stop the command it just started.
+test("Stop is a button of its own, not the Run button relabelled", async () => {
+  const { rerender } = renderCall({ request, requestId: "opc_1" });
+  const run = screen.getByTestId("operator-command-run");
+  rerender(
+    <ToolCallMessage
+      toolCallId={TC}
+      title="operator_command"
+      status="in_progress"
+      argsText={ARGS}
+      sessionId={SID}
+      operatorCommand={{
+        request,
+        requestId: "opc_1",
+        answered: "run",
+        phase: "running",
+      }}
+    />,
+  );
+  expect(screen.getByTestId("operator-command-stop")).not.toBe(run);
+  expect(run.isConnected).toBe(false);
+});

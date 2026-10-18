@@ -234,13 +234,21 @@ func executeOperatorCommand(ctx context.Context, argsJSON string, env *tooling.E
 	}
 	// The folder shown is the folder the command runs in: a link swapped
 	// into its path while the card waited is refused.
+	// Nothing ran on these paths, so no frame claims an end: the call's error
+	// retires the card.
 	if again, err := operatorCWD(env.CWD, args.CWD); err != nil || again != cwd {
-		frame := operatorFrame{env: env, req: req, args: argsJSON}
-		frame.send(OperatorPhaseEnded, "", -1, 0)
 		if decision.Done != nil {
 			decision.Done()
 		}
 		return "", fmt.Errorf("the folder %s changed while the operator decided; the command was not run", cwd)
+	}
+	// The folder check can take a while on a network filesystem: a cancel
+	// that landed meanwhile still starts nothing.
+	if err := ctx.Err(); err != nil {
+		if decision.Done != nil {
+			decision.Done()
+		}
+		return "", err
 	}
 	var run operatorRun
 	if mux != nil {
@@ -249,8 +257,6 @@ func executeOperatorCommand(ctx context.Context, argsJSON string, env *tooling.E
 		run, err = StartOperatorToolCommand(args.Command, cwd, commandShell)
 	}
 	if err != nil {
-		frame := operatorFrame{env: env, req: req, args: argsJSON}
-		frame.send(OperatorPhaseEnded, "", -1, 0)
 		if decision.Done != nil {
 			decision.Done()
 		}
@@ -318,12 +324,16 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 		select {
 		case <-run.Done():
 			if !stopped {
-				// A Stop and the shell's exit can be ready at once, and
-				// select picks either: an accepted Stop is still a stop.
+				// A Stop, or the turn's cancel, and the shell's exit can be
+				// ready at once, and select picks either: an accepted Stop
+				// is still a stop, and so is a cancelled turn.
 				select {
 				case <-decision.Stop:
 					stopped = true
 				default:
+				}
+				if ctx.Err() != nil {
+					stopped = true
 				}
 			}
 			out := run.Output()
@@ -402,8 +412,6 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 	}
 }
 
-// killIfRunning terminates a run that has not ended yet. A run that has is
-// left alone: on Windows its pid may already name another process.
 // endLeftovers ends what a stopped command's shell left running in its group:
 // a stop or a cancel ends the whole command, not only the shell. Not on
 // Windows, where the reaped pid can already name another process.
@@ -413,6 +421,8 @@ func endLeftovers(run operatorRun) {
 	}
 }
 
+// killIfRunning terminates a run that has not ended yet. A run that has is
+// left alone: on Windows its pid may already name another process.
 func killIfRunning(run operatorRun, grace time.Duration) {
 	select {
 	case <-run.Done():

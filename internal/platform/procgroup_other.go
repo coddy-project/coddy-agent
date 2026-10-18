@@ -140,10 +140,8 @@ func TerminateProcessGroupByPID(pid int, _ time.Time, grace time.Duration) error
 	if pid <= 0 {
 		return nil
 	}
-	// A recorded pid can name Coddy's own group (a window process that did
-	// not get a group of its own): signalling it would end Coddy itself.
-	if pid == syscall.Getpgrp() {
-		return fmt.Errorf("process group %d is this process's own", pid)
+	if refusedGroup(pid) {
+		return fmt.Errorf("process group %d is not one to signal (pid 1, or this process's own)", pid)
 	}
 	pgid := -pid
 
@@ -253,4 +251,11 @@ func DetachFromTerminal(cmd *exec.Cmd) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Setsid = true
+}
+
+// refusedGroup names the groups a recorded pid must never reach: pid 1, whose
+// negative is kill(-1), every process the user may signal, and Coddy's own
+// group (a window process that did not get a group of its own).
+func refusedGroup(pid int) bool {
+	return pid == 1 || pid == syscall.Getpgrp()
 }

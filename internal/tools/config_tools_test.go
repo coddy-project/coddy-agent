@@ -382,3 +382,30 @@ func TestConfigRollbackWithoutSnapshotErrors(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// TestConfigSetRefusesTheOperatorCommandSection: the operator shell is what
+// every command the operator runs for the agent goes through. An agent that
+// could re-point it would make a Run on a harmless card run its own script,
+// so the section is the operator's to change - in Settings or the file.
+func TestConfigSetRefusesTheOperatorCommandSection(t *testing.T) {
+	for _, cmd := range []string{
+		"set tools.operator_command.shell=/work/.coddy/sh",
+		"set tools.operator_command.enable=false",
+		"set tools.operator_command.multiplexer=tmux",
+		"delete tools.operator_command",
+		"delete tools",
+		`set tools={"operator_command":{"shell":"/tmp/sh"}}`,
+	} {
+		env := testConfigToolsEnv(t, "agent:\n  max_turns: 21\n")
+		b, _ := json.Marshal(map[string][]string{"commands": {cmd}})
+		_, err := executeConfigSet(context.Background(), string(b), env)
+		if err == nil || !strings.Contains(err.Error(), "tools.operator_command") {
+			t.Errorf("%s: err = %v, want a refusal naming tools.operator_command", cmd, err)
+		}
+		if pending := pendingOf(t, env); len(pending) != 0 {
+			t.Errorf("%s: a refused command was staged: %v", cmd, pending)
+		}
+	}
+	env := testConfigToolsEnv(t, "agent:\n  max_turns: 21\n")
+	stageCommands(t, env, "set tools.output_limits.run_command=500")
+}

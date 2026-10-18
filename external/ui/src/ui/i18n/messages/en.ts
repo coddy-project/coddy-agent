@@ -603,7 +603,7 @@ export const messagesEn: Record<string, string> = {
     "The operator_command tool: a command the agent was refused, shown to you exactly as it will run, with Run, Decline and Stop. Its output goes back to the agent. The shell also runs the console's !! commands.",
   "settings.schema.tools.operator_command.enable.label": "Enabled",
   "settings.schema.tools.operator_command.enable.desc":
-    "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console, and never in Ask mode, to subagents or to scheduled jobs.",
+    "Offer the operator_command tool (default true). It is offered only where a person can answer: the web UI and the console, and never in Ask mode, to subagents, to scheduled jobs, to non-admin senders or in supervised goal runs.",
   "settings.schema.tools.operator_command.shell.label": "Shell",
   "settings.schema.tools.operator_command.shell.desc":
     "A name on PATH (bash, zsh, pwsh, cmd) or a path. Empty uses PowerShell on Windows and bash on Linux, macOS and Android.",

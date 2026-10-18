@@ -5,6 +5,7 @@ package platform
 import (
 	"errors"
 	"runtime"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -28,11 +29,19 @@ func TestNobodyToSignalReadsDarwinsSpellingOfAnEmptyGroup(t *testing.T) {
 	}
 }
 
-// TestTerminateProcessGroupByPIDNeverSignalsItsOwnGroup: a recorded pid that
-// turns out to be Coddy's own process group (a window process that does not
-// lead a group of its own) is refused, not signalled.
-func TestTerminateProcessGroupByPIDNeverSignalsItsOwnGroup(t *testing.T) {
-	if err := TerminateProcessGroupByPID(syscall.Getpgrp(), time.Time{}, 0); err == nil {
-		t.Fatal("terminating our own process group was not refused")
+// TestTerminateProcessGroupByPIDRefusesPID1AndItsOwnGroup: a recorded pid of
+// 1 (kill(-1) reaches every process the user may signal) or of Coddy's own
+// group (a window process that does not lead a group of its own) is refused,
+// not signalled. The decision is tested as a predicate: a regression must
+// fail this test, not signal the test run's own group.
+func TestTerminateProcessGroupByPIDRefusesPID1AndItsOwnGroup(t *testing.T) {
+	if !refusedGroup(1) || !refusedGroup(syscall.Getpgrp()) {
+		t.Fatal("pid 1 or our own group is not refused")
+	}
+	if refusedGroup(syscall.Getpgrp() + 100000) {
+		t.Fatal("another group is refused")
+	}
+	if err := TerminateProcessGroupByPID(1, time.Time{}, 0); err == nil || !strings.Contains(err.Error(), "not one to signal") {
+		t.Fatalf("pid 1: %v", err)
 	}
 }

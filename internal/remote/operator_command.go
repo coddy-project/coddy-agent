@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
@@ -11,6 +12,14 @@ import (
 // operatorCommandsMetadataKey declares on POST /v1/responses that this client
 // shows operator commands and answers them (external/httpserver).
 const operatorCommandsMetadataKey = "coddy_operator_commands"
+
+// operatorAnswerTimeout bounds one answer's request: a proxy that holds the
+// Run's answer must not hold the operator's Stop behind it.
+var operatorAnswerTimeout = 10 * time.Second
+
+// operatorDeclineRetry is the pause before a decline the server did not take
+// is sent again.
+var operatorDeclineRetry = 500 * time.Millisecond
 
 // onOperatorCommand shows the server's operator command to the local operator
 // and posts the answers back, on a goroutine of its own: the stream keeps
@@ -26,8 +35,23 @@ func (t *turnStream) onOperatorCommand(data string) {
 	// escape stops it only in the session it belongs to.
 	req.SessionID = t.sessionID
 	path := "/coddy/sessions/" + url.PathEscape(t.sessionID) + "/operator-command"
+	post := func(ctx context.Context, action string) error {
+		ctx, cancel := context.WithTimeout(ctx, operatorAnswerTimeout)
+		defer cancel()
+		return t.h.postJSON(ctx, path, map[string]string{"requestId": req.RequestID, "action": action}, nil)
+	}
 	answer := func(ctx context.Context, action string) bool {
-		err := t.h.postJSON(ctx, path, map[string]string{"requestId": req.RequestID, "action": action}, nil)
+		err := post(ctx, action)
+		// A decline the server never got leaves the turn waiting with no
+		// prompt left here to answer again: it is sent once more, twice at
+		// most. A run or a stop is not - a second stop is the kill.
+		for try := 0; err != nil && !isStaleAnswer(err) && action == acp.OperatorActionDecline && try < 2 && ctx.Err() == nil; try++ {
+			select {
+			case <-time.After(operatorDeclineRetry):
+			case <-ctx.Done():
+			}
+			err = post(ctx, action)
+		}
 		if err != nil && !isStaleAnswer(err) {
 			t.h.log.Warn("remote operator command answer failed", "session", t.sessionID, "requestId", req.RequestID, "action", action, "error", err)
 		}

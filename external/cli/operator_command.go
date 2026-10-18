@@ -161,7 +161,9 @@ func newOperatorModal(theme *tui.Theme, req acp.OperatorCommandRequest) *operato
 	}
 	m.AddChild(tui.NewText(th.Fg(roleDim, where), 1, 0, nil))
 	m.AddChild(tui.NewText(th.Fg(roleDim, "folder "+tui.SanitizeText(req.CWD)), 1, 0, nil))
-	if reason := strings.TrimSpace(req.Reason); reason != "" {
+	// The reason is the agent's own text, one line: a newline in it must not
+	// draw a row that reads like the command.
+	if reason := strings.Join(strings.Fields(req.Reason), " "); reason != "" {
 		m.AddChild(tui.NewText(th.Fg(roleText, "Agent's reason: "+tui.SanitizeText(reason)), 1, 0, nil))
 	}
 	m.AddChild(tui.NewSpacer(1))

@@ -24,8 +24,9 @@ import {
 } from "./operatorCommand";
 import {
   dropOperatorCommandRecord,
+  loadOperatorCommandRecords,
   markOperatorCommandStopping,
-  operatorCommandStopping,
+  stillRuns,
   upsertOperatorCommandRequest,
 } from "./operatorCommandSessionStore";
 import type { TokenUsage, TranscriptItem } from "./types";
@@ -378,9 +379,14 @@ export async function consumeComposerSseReader(
   // The call ended (completed, failed, cancelled): its request goes, unless
   // the command was being stopped - one that outlives a cancelled turn keeps
   // its request open, and Stop with it.
-  const forgetFinishedCall = (toolCallId: string) => {
+  const forgetFinishedCall = (toolCallId: string, status: string) => {
     const sid = operatorSessionByToolCall.get(toolCallId);
-    if (sid && operatorCommandStopping(sid, toolCallId)) return;
+    if (sid) {
+      const rec = loadOperatorCommandRecords(sid).find(
+        (r) => r.request.toolCallId === toolCallId,
+      );
+      if (stillRuns(status, rec)) return;
+    }
     forgetOperatorRequest(toolCallId);
   };
   // A frame of a running operator command still carries the call's arguments as
@@ -942,7 +948,7 @@ export async function consumeComposerSseReader(
             status === "failed" ||
             status === "cancelled"
           ) {
-            forgetFinishedCall(u.toolCallId);
+            forgetFinishedCall(u.toolCallId, status);
           }
           if (status === "in_progress" && text0) {
             toolQueue.push({
@@ -1246,7 +1252,7 @@ export async function consumeComposerSseReader(
             status === "failed" ||
             status === "cancelled"
           ) {
-            forgetFinishedCall(u.toolCallId);
+            forgetFinishedCall(u.toolCallId, status);
           }
           if (status === "in_progress" && text0) {
             toolQueue.push({

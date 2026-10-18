@@ -413,9 +413,10 @@ func TestOperatorMuxAttachCommandNamesTheCommandsWindow(t *testing.T) {
 			want := ""
 			switch m := mux.(type) {
 			case *tmuxMux:
-				want = "tmux -L " + m.socket + " attach -t '=" + m.session + ":="
+				want = attachBin(m.bin) + " -L " + m.socket + " attach -t '=" + m.session + ":="
 			case *screenMux:
-				want = "screen -r " + m.session + " -p "
+				// -x: an operator already attached elsewhere is not refused.
+				want = attachBin(m.bin) + " -x " + m.session + " -p "
 			}
 			if want == "" || !strings.HasPrefix(got, want) {
 				t.Fatalf("attach command %q does not reach Coddy's own server and session (%q)", got, want)
@@ -441,5 +442,45 @@ func TestOperatorMuxLauncherReportsAFolderItCannotEnter(t *testing.T) {
 				t.Fatalf("exit code = %d (%s), want 1 for a folder it cannot enter", code, goneReason(run))
 			}
 		})
+	}
+}
+
+// TestOperatorLauncherWaitsForItsGo: the launcher runs the command only once
+// Start released it, after the capture is set up and the pid is known; a start
+// that failed half way never runs the command.
+func TestOperatorLauncherWaitsForItsGo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the launcher is a POSIX script")
+	}
+	old := operatorLauncherGoPolls
+	operatorLauncherGoPolls = 10
+	t.Cleanup(func() { operatorLauncherGoPolls = old })
+	dir := t.TempDir()
+	l, err := writeMuxLauncher(filepath.Join(dir, "run"), dir, posixShell(t), "touch ran")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(launcherShell(), l.path).CombinedOutput()
+	if err == nil {
+		t.Fatalf("a launcher nobody released exited 0: %s", out)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "ran")); statErr == nil {
+		t.Fatal("the command ran without the go")
+	}
+	if code, ok := l.status(); !ok || code != 125 {
+		t.Fatalf("status = %d, %v; want 125", code, ok)
+	}
+	l2, err := writeMuxLauncher(filepath.Join(dir, "run2"), dir, posixShell(t), "touch ran2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l2.release(); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(launcherShell(), l2.path).CombinedOutput(); err != nil {
+		t.Fatalf("a released launcher: %v %s", err, out)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "ran2")); statErr != nil {
+		t.Fatal("the released command did not run")
 	}
 }

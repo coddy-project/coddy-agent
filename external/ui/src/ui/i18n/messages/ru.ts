@@ -610,10 +610,10 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.tools.preview_server.public_host.ph": "Адрес привязки",
   "settings.schema.tools.operator_command.label": "Команды оператора",
   "settings.schema.tools.operator_command.desc":
-    "Инструмент operator_command: команда, в которой агенту отказали, показанная вам ровно так, как она будет запущена, с кнопками Запустить, Отклонить и Остановить. Её вывод возвращается агенту. Та же оболочка выполняет команды !! консоли.",
+    "Инструмент operator_command: команда, которую агенту не дали выполнить, показанная вам ровно так, как она будет запущена, с кнопками Запустить, Отклонить и Остановить. Её вывод возвращается агенту. Та же оболочка выполняет команды !! консоли.",
   "settings.schema.tools.operator_command.enable.label": "Включено",
   "settings.schema.tools.operator_command.enable.desc":
-    'Предлагать инструмент operator_command (по умолчанию включено). Он предлагается только там, где может ответить человек: в веб-интерфейсе и в консоли, и никогда в режиме "Чат", субагентам и задачам планировщика.',
+    'Предлагать инструмент operator_command (по умолчанию включено). Он предлагается только там, где может ответить человек: в веб-интерфейсе и в консоли, и никогда в режиме "Чат", субагентам, задачам планировщика, отправителям без прав администратора и в запусках цели с супервизором.',
   "settings.schema.tools.operator_command.shell.label": "Оболочка",
   "settings.schema.tools.operator_command.shell.desc":
     "Имя из PATH (bash, zsh, pwsh, cmd) или путь. Пусто - PowerShell в Windows и bash в Linux, macOS и Android.",
@@ -1787,7 +1787,7 @@ export const messagesRu: Record<string, string> = {
   "operatorCommand.run": "Запустить",
   "operatorCommand.decline": "Отклонить",
   "operatorCommand.stop": "Остановить",
-  "operatorCommand.kill": "Завершить",
+  "operatorCommand.kill": "Завершить принудительно",
   "operatorCommand.running": "Выполняется…",
   "operatorCommand.stopping": "Останавливается…",
   "operatorCommand.exitCode": "Код выхода {code}",

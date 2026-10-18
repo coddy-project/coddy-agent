@@ -90,7 +90,8 @@ export function OperatorCommandCard(props: {
   let view: View;
   // A command that outlived a cancelled turn still runs, and its request is
   // open until it ends: the card keeps Stop for it.
-  if (phase === "stopping" && status === "cancelled") view = "stopping";
+  if (phase === "stopping" && (status === "cancelled" || status === "failed"))
+    view = "stopping";
   else if (terminal || phase === "ended" || phase === "stopped")
     view = "finished";
   else if (phase === "stopping") view = "stopping";
@@ -391,6 +392,7 @@ export function OperatorCommandCard(props: {
           aria-label={t("operatorCommand.actionsAria")}
         >
           <button
+            key="run"
             type="button"
             className="permission-prompt-btn permission-prompt-btn--allow"
             data-testid="operator-command-run"
@@ -400,6 +402,7 @@ export function OperatorCommandCard(props: {
             {t("operatorCommand.run")}
           </button>
           <button
+            key="decline"
             type="button"
             className="permission-prompt-btn permission-prompt-btn--reject"
             data-testid="operator-command-decline"
@@ -412,6 +415,7 @@ export function OperatorCommandCard(props: {
       ) : live && requestId && sessionId ? (
         <div className="permission-prompt-actions">
           <button
+            key="stop"
             type="button"
             className="permission-prompt-btn permission-prompt-btn--reject"
             data-testid="operator-command-stop"

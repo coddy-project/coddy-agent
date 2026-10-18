@@ -133,16 +133,6 @@ export function markOperatorCommandStopping(
   saveRecords(sid, list);
 }
 
-/** Whether the kept request of a call says its command is being stopped. */
-export function operatorCommandStopping(
-  sessionId: string,
-  toolCallId: string,
-): boolean {
-  return loadOperatorCommandRecords(sessionId).some(
-    (r) => r.request.toolCallId === toolCallId && r.stopping === true,
-  );
-}
-
 /** Forget the request of a call that has finished. */
 export function dropOperatorCommandRecord(
   sessionId: string,
@@ -164,6 +154,29 @@ export function clearOperatorCommandRecords(sessionId: string): void {
   } catch {
     //
   }
+}
+
+/**
+ * Whether the command of a call that ended may still run: the call did not
+ * complete (a completed call carries the run's own end), its run did not end
+ * on screen, and this tab ran it or saw it being stopped. A command that
+ * outlives a cancelled turn keeps its request open, and Stop with it, until a
+ * Stop learns the request is over.
+ */
+export function stillRuns(
+  status: string,
+  rec: StoredOperatorCommandRecord | undefined,
+  live?: { phase?: string | undefined },
+): boolean {
+  if (status === "completed" || !rec) return false;
+  if (live?.phase === "ended" || live?.phase === "stopped") return false;
+  return (
+    rec.stopping === true ||
+    rec.answered === "run" ||
+    rec.answered === "stop" ||
+    live?.phase === "stopping" ||
+    live?.phase === "running"
+  );
 }
 
 function terminal(status: string): boolean {
@@ -203,25 +216,37 @@ export function mergeStoredOperatorCommandsIntoTranscript(
     if (!isOperatorCommandTool(it.title, it.kind) && !byTc.has(it.toolCallId))
       return it;
     const rec = byTc.get(it.toolCallId);
-    if (terminal(it.status) && !rec?.stopping) {
+    const live = liveByTc.get(it.toolCallId);
+    const ended = terminal(it.status);
+    if (ended && !stillRuns(it.status, rec, live)) {
       if (rec) dropOperatorCommandRecord(sessionId, it.toolCallId);
-      return it;
+      // The run's own end, from the frames on screen, stays on the row: the
+      // server's row carries none.
+      if (!live) return it;
+      changed = true;
+      return {
+        ...it,
+        operatorCommand: mergeOperatorCommandState(
+          live,
+          it.operatorCommand ?? {},
+        ),
+      };
     }
     let state = it.operatorCommand;
-    const live = liveByTc.get(it.toolCallId);
     if (live) state = mergeOperatorCommandState(live, state ?? {});
     if (rec) {
       state = mergeOperatorCommandState(
         {
           request: rec.request,
           ...(rec.answered ? { answered: rec.answered } : {}),
-          ...(rec.stopping && terminal(it.status)
-            ? { phase: "stopping" as const }
-            : {}),
+          ...(rec.stopping ? { phase: "stopping" as const } : {}),
         },
         state ?? {},
       );
     }
+    // A call that ended while its command runs on is being stopped, whatever
+    // the last frame this tab saw.
+    if (ended && state) state = { ...state, phase: "stopping" };
     if (!state || state === it.operatorCommand) return it;
     changed = true;
     return { ...it, operatorCommand: state };

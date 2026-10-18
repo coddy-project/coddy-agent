@@ -5,6 +5,7 @@ import {
 } from "./consumeComposerSse";
 import {
   loadOperatorCommandRecords,
+  markOperatorCommandAnswered,
   mergeStoredOperatorCommandsIntoTranscript,
 } from "./operatorCommandSessionStore";
 import type { TranscriptItem } from "./types";
@@ -235,4 +236,53 @@ test("a cancelled call whose command still runs keeps its request", async () => 
   const row = toolRow(reloaded);
   expect(row.operatorCommand?.request?.requestId).toBe("opc_1");
   expect(row.operatorCommand?.phase).toBe("stopping");
+});
+
+const opRow = (status: string) =>
+  ({
+    type: "tool_call",
+    toolCallId: TC,
+    title: "operator_command",
+    status,
+    argsText: ARGS,
+  }) as TranscriptItem;
+
+// A completed call means the process ended: a stopping flag left from a frame
+// the tab saw before the end must not bring Stop back.
+test("a completed call drops its kept request even when it was stopping", async () => {
+  await drive(opening + runFrame("stopping", "partial"));
+  expect(loadOperatorCommandRecords(SID)[0]?.stopping).toBe(true);
+  const merged = mergeStoredOperatorCommandsIntoTranscript(
+    [opRow("completed")],
+    SID,
+  );
+  expect(toolRow(merged).operatorCommand?.phase).not.toBe("stopping");
+  expect(loadOperatorCommandRecords(SID)).toHaveLength(0);
+});
+
+// The tab ran the command but never saw the cancel's stopping frame (its
+// stream was gone): a cancelled or failed call keeps the request, as stopping.
+test("a cancelled or failed call keeps a request this tab ran", async () => {
+  for (const status of ["cancelled", "failed"]) {
+    window.sessionStorage.clear();
+    await drive(opening);
+    markOperatorCommandAnswered(SID, "opc_1", "run");
+    const merged = mergeStoredOperatorCommandsIntoTranscript(
+      [opRow(status)],
+      SID,
+    );
+    expect(toolRow(merged).operatorCommand?.request?.requestId).toBe("opc_1");
+    expect(toolRow(merged).operatorCommand?.phase).toBe("stopping");
+  }
+});
+
+// A reload during the cancel's drain finds the call still in progress: the
+// kept stopping flag is the phase until a newer frame says otherwise.
+test("a stopping request is restored onto a call still in progress", async () => {
+  await drive(opening + runFrame("stopping", "partial"));
+  const merged = mergeStoredOperatorCommandsIntoTranscript(
+    [opRow("in_progress")],
+    SID,
+  );
+  expect(toolRow(merged).operatorCommand?.phase).toBe("stopping");
 });

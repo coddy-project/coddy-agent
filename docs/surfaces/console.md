@@ -491,7 +491,7 @@ offers the same tools; under `--remote` the server owns the reload.
 
 A submitted line that starts with `!!` is not a prompt. Coddy runs the rest of
 it in the workspace with the operator shell of `tools.operator_command` (empty:
-PowerShell on Windows, bash and then sh elsewhere; a shell that is not found is reported in
+PowerShell on Windows, bash and then sh elsewhere; a shell set there that is not found is reported in
 the block, never replaced by another), and neither the command nor its output
 is shown to the model, persisted in the session bundle, or counted against the
 context window. This is pi's bash-mode prefix. A command whose output the agent
