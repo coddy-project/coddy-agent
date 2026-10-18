@@ -113,8 +113,17 @@ func operatorCommandDescription(settings *tooling.OperatorCommandSettings) strin
 		"(an unsafe-command check, a toolset or a surface that does not offer it), or the command needs the operator's own account. " +
 		"The operator sees the command exactly as you write it, cannot edit it, and presses Run or Decline; while it runs they can Stop it. " +
 		"The result is the command's output and exit code. Never use this tool for a command run_command is allowed to run. " +
-		"One command per call. The command runs in " + shellName + " on the machine of the session, with no terminal and no input: " +
-		"it cannot prompt for a password (use sudo -n, not sudo). A decline is final for that command in this turn: do not ask again."
+		"One command per call. The command runs in " + shellName + " on the machine of the session, " + operatorTerminalNote(settings) +
+		" A decline is final for that command in this turn: do not ask again."
+}
+
+// operatorTerminalNote says whether the command gets a terminal: inside a
+// multiplexer it does, and the operator can attach to type into it.
+func operatorTerminalNote(settings *tooling.OperatorCommandSettings) string {
+	if settings != nil && settings.Multiplexer != "" && runtime.GOOS != "windows" {
+		return "in a " + settings.Multiplexer + " window: it has a terminal, and a prompt for input waits for the operator to attach and type."
+	}
+	return "with no terminal and no input: it cannot prompt for a password (use sudo -n, not sudo)."
 }
 
 func executeOperatorCommand(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
@@ -237,6 +246,9 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			phase := OperatorPhaseEnded
 			if stopped {
 				phase = OperatorPhaseStopped
+				// The shell is gone, but what it started in the group may
+				// not be: a stop ends the whole command.
+				run.Kill(0)
 			}
 			frame.send(phase, out, code, run.Dropped())
 			return operatorResult(req, out, run.Dropped(), code, stopped), nil
@@ -244,7 +256,7 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			stop = nil
 			stopped = true
 			run.Interrupt()
-			escalate = time.After(operatorStopGrace)
+			escalate = time.After(operatorInterruptWait())
 			frame.send(OperatorPhaseStopping, run.Output(), 0, run.Dropped())
 		case <-kill:
 			kill = nil
@@ -256,7 +268,10 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			go run.Kill(operatorStopGrace)
 		case <-ctx.Done():
 			run.Interrupt()
-			go run.Kill(operatorStopGrace)
+			go func() {
+				time.Sleep(operatorInterruptWait())
+				run.Kill(operatorStopGrace)
+			}()
 			select {
 			case <-run.Done():
 			case <-time.After(operatorCancelDrain):
@@ -274,6 +289,16 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			}
 		}
 	}
+}
+
+// operatorInterruptWait is how long a stop waits after the interrupt before it
+// terminates the group. Windows has no interrupt to wait for: the command has
+// no console to deliver Ctrl+C to, so the terminate follows at once.
+func operatorInterruptWait() time.Duration {
+	if runtime.GOOS == "windows" {
+		return 0
+	}
+	return operatorStopGrace
 }
 
 func operatorResult(req acp.OperatorCommandRequest, out string, dropped int64, code int, stopped bool) string {

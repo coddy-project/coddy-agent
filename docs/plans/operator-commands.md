@@ -99,7 +99,8 @@ with the configured operator shell, through the process handling of `!!`
 the PowerShell UTF-8 wrapper, decoded and sanitised output, 256 KiB tail), with two additions for
 the tool:
 
-- Unix: the child gets its own session (`Setsid`, not only `Setpgid`), so it has no controlling
+- Unix: the child gets its own session (`Setsid` instead of `Setpgid`: both together fail with
+  `EPERM`), so it has no controlling
   terminal: a program that wants a TTY fails at once instead of drawing over the console or
   stopping on `SIGTTIN`. Stdin stays closed.
 - Windows with `cmd` as the operator shell: `SysProcAttr.CmdLine` carries
@@ -124,7 +125,10 @@ the turn goes on with what the command printed so far:
 3. The result says `The operator stopped the command (exit code N). Output so far:` and the card
    shows "Stopped".
 
-A Stop pressed twice escalates at once to step 2. Turn cancel (the composer's Stop, a second esc in
+A Stop pressed twice escalates at once to a kill of the group (the ticket's `Kill` channel; the second
+`stop` is answered 204). After the shell is reaped, a stopped command's group is terminated too, so
+what it left running in the background ends with it. On Windows the terminate follows the Stop at
+once: there is no interrupt to wait for. Turn cancel (the composer's Stop, a second esc in
 the console) does steps 1-2 as well and ends the call `cancelled`.
 
 ### Long runs: tmux or screen (macOS, Linux)
@@ -141,27 +145,42 @@ it), and a long run does not depend on the connection of the client that pressed
 organises all of it: the operator sees and approves only the command itself, never a `tmux` line,
 and the card and the result show the command's own output.
 
-- One multiplexer session per Coddy session, named `coddy-<short session id>`, created on the first
-  run and reused; each command gets a window of its own named after the request (`oc-<id>`).
-  Nothing of the operator's own tmux or screen sessions is touched (`tmux -L coddy` puts Coddy's on
-  a server socket of its own; screen uses its own session name).
-- The window runs `/bin/sh -c '<shell argv>; echo $? > <exit file>'` with the operator shell's own
-  argv (`platform.Shell.Command`), so the command text reaches the operator shell untouched, the
-  same as without a multiplexer. Output is captured to a log under the session bundle
-  (`<session>/operator-commands/<id>.log`; tmux `pipe-pane`, screen `-L -Logfile`), which the tool
-  reads the way it reads a direct command's pipe: the same 256 KiB tail, decoding and sanitising
-  (terminal sequences stripped, so the card shows text).
-- The command ends when the exit file appears; the tool then closes the window and returns. Stop
-  sends `C-c` to the pane (`tmux send-keys` / `screen -X stuff ^C`), then kills the window.
-- Turn cancel stops the command like Stop. A Coddy process that dies leaves the window running in
-  the operator's multiplexer, which is what "long runs" asks for; the tool call itself ends with the
-  turn, and the docs name the attach command (`tmux -L coddy attach -t coddy-<id>`).
-- The card shows a "tmux"/"screen" badge and, in the local and the remote console, the attach
-  command; the web card shows it under a disclosure.
-- Unix only: on Windows the key is ignored with a `--dry-run` warning. Android (Termux) follows the
-  key when the multiplexer is installed. `--dry-run` reports a multiplexer that is not on `PATH`,
-  and a `screen` older than 4.6 (no `-Logfile`); at run time an unavailable multiplexer is the
-  tool's error, never a silent direct run.
+- One multiplexer session per Coddy session, named `coddy-<last 12 of the session id>`, created on
+  the first run with an idle window (`cat`) so closing a command's window never ends it; each
+  command gets a window of its own named after the request (`oc-<id>`). tmux runs on a server of
+  Coddy's own (`tmux -L coddy -f /dev/null`: the operator's default server and `tmux.conf` are
+  never involved); screen uses its own session name.
+- The command text reaches the operator shell untouched, the same as without a multiplexer
+  (round 2 reproduced that screen expands `$VAR`, `^C` and backslashes in a command it is handed):
+  - tmux gets the operator shell's argv after `--` in `new-window`, no shell wrapper, chained in one
+    call with `set-option -g remain-on-exit on` and `pipe-pane -o "cat >> '<log>'"`;
+  - screen runs a launcher file Coddy writes (`/bin/sh <launcher>`), which records its pid, `cd`s
+    into the folder, sets `trap : INT` (an ignored signal would be inherited by the command, a
+    caught one is reset to its default), runs the shell argv quoted for `/bin/sh`, and writes the
+    status to a file through a `mv`.
+- How it ended: tmux `display-message -p '#{pane_dead} #{pane_dead_status} #{pane_dead_signal}'`
+  on the pane (`128 + signal` when a signal ended it; an empty answer means the window is gone);
+  screen: the status file, or the launcher's process group gone (the window was killed or closed).
+- Output: tmux `pipe-pane`, screen `logfile <path>` + `logfile flush 0` + `screen -L`, into a log
+  Coddy creates as 0600 in a 0700 folder (`<session>/operator-commands/`, or a temporary folder when
+  that path has characters a multiplexer command cannot carry), read into the same 256 KiB tail
+  as a direct run (sanitised, decoded), truncated past 1 MiB, and removed when the command ended
+  along with the launcher and the status files.
+- Stop: `C-c` to the pane (`send-keys` / `stuff ^C`), then the window's process group is
+  terminated (`TerminateProcessGroupByPID` on the pane's process, which leads a session of its
+  own) - `kill-window` alone leaves a command that ignores `SIGHUP` running. The watcher reads the
+  status and closes the window afterwards.
+- Under systemd (`INVOCATION_ID` set, or the `service` role) the server starts in a scope of its own
+  (`systemd-run --user --scope --collect`), so the unit's control group does not take a long run
+  down with a restart of the service; without `systemd-run` the docs say a restart ends it.
+- The window gets the environment the multiplexer server was started with (Coddy's, at the first
+  run): documented.
+- The tool description says the command has a terminal when a multiplexer is set; the request and
+  every frame carry `multiplexer` and `attachCommand` (`tmux -L coddy attach -t coddy-<id>`,
+  `screen -r coddy-<id>`), so every surface shows the badge and how to attach.
+- Unix only: on Windows the key is ignored. `--dry-run` reports a multiplexer that is not on `PATH`;
+  at run time an unavailable multiplexer is the tool's error, never a silent direct run.
+- Open: stock macOS screen 4.00.03 and `logfile flush` - checked on the macOS CI runner.
 
 ### The setting: `tools.operator_command`
 
@@ -345,3 +364,17 @@ The operator asked for three more things, folded into the design above: a Stop b
 interrupts the running console (section Stop), tmux or screen for long runs on macOS and Linux as a
 setting (section Long runs), and that the tool organises the multiplexer by itself, the operator
 seeing only the launch of the command. Reviewed in round 2.
+
+## Review round 2 (decisions)
+
+Same three reviewers, all answered; verdict "needs rework" for the multiplexer section, reproduced
+on the workstation. Taken: argv to tmux without a wrapper and a launcher file for screen (screen
+rewrites a command it parses), the pane status instead of an exit file for tmux and `trap : INT` in
+the screen launcher, `Setsid` without `Setpgid`, a systemd scope for the server under the unit,
+the group (not the window) as what Stop terminates, screen's `logfile` + `flush 0`, a private log
+with a bound and a cleanup, `-f /dev/null`, an idle window so the session survives its last command,
+the terminal named in the description, Windows without the interrupt wait. Rejected: `stuff ^C`
+typing a caret (it fires the trap), a stale exit file under a reused request id (128 random bits).
+Found while implementing: tmux answers `display-message` for a pane that no longer exists with an
+empty line and status 0, so an empty answer counts as "gone" and Kill leaves the window to the
+watcher.
