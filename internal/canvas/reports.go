@@ -156,12 +156,33 @@ func (r *Reports) Wait(ctx context.Context, session, frame, stamp string, d time
 		select {
 		case <-ch:
 		case <-deadline.C:
+			r.dropWaiter(k, ch)
 			got, _ := r.Get(session, frame)
 			return got, false
 		case <-ctx.Done():
+			r.dropWaiter(k, ch)
 			got, _ := r.Get(session, frame)
 			return got, false
 		}
+	}
+}
+
+// dropWaiter forgets a wait that ended without a report, so waits that time
+// out while no browser reports do not pile up.
+func (r *Reports) dropWaiter(k reportKey, ch chan struct{}) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	list := r.waiters[k]
+	for i, c := range list {
+		if c == ch {
+			list = append(list[:i], list[i+1:]...)
+			break
+		}
+	}
+	if len(list) == 0 {
+		delete(r.waiters, k)
+	} else {
+		r.waiters[k] = list
 	}
 }
 

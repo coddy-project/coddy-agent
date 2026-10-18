@@ -44,14 +44,23 @@ export function resetCanvasNodeCachesForTests(): void {
   imageCache.clear();
 }
 
+/** How often a note card reads its file again while the board is open: the
+ *  note is edited in Obsidian or by the agent, and the .canvas file, whose
+ *  stamp moves the pictures, says nothing about it. */
+export const NOTE_REFRESH_MS = 10000;
+
 function useFileResource(
   kind: "note" | "image",
   sessionId: string,
   path: string,
   version: string,
 ): { value: string; failed: boolean } {
-  const [state, setState] = useState({ key: "", value: "", failed: false });
-  const key = `${sessionId}\n${path}\n${version}`;
+  const base = `${sessionId}\n${path}`;
+  const [state, setState] = useState({ base: "", value: "", failed: false });
+  // The board is read every few seconds while open, so this renders that
+  // often and a note's key moves on by itself.
+  const bucket = kind === "note" ? Math.floor(Date.now() / NOTE_REFRESH_MS) : 0;
+  const key = `${base}\n${version}\n${bucket}`;
   useEffect(() => {
     if (!path) return undefined;
     let live = true;
@@ -62,14 +71,15 @@ function useFileResource(
           )
         : cached(imageCache, key, () => mediaUrl(sessionId, path));
     p.then(
-      (value) => live && setState({ key, value, failed: false }),
-      () => live && setState({ key, value: "", failed: true }),
+      (value) => live && setState({ base, value, failed: false }),
+      () => live && setState({ base, value: "", failed: true }),
     );
     return () => {
       live = false;
     };
-  }, [kind, sessionId, path, key]);
-  return state.key === key
+  }, [kind, sessionId, path, key, base]);
+  // What the file said last stays on the card while it is read again.
+  return state.base === base
     ? { value: state.value, failed: state.failed }
     : { value: "", failed: false };
 }

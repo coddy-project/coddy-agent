@@ -178,13 +178,21 @@ func TestServeFrameRefusesALinkToADotFileOrOutOfTheRoot(t *testing.T) {
 	}
 }
 
-func TestServeFrameLeavesAHugePageAlone(t *testing.T) {
+func TestServeFrameAnswersAPageThatGrewTooLargeWithTheBridge(t *testing.T) {
 	f, ws := siteFrame(t)
 	big := "<html><head></head><body>" + strings.Repeat("x", MaxInjectBytes) + "</body></html>"
 	writeFile(t, ws, "site/big.html", big)
 	rec := serve(t, f, http.MethodGet, "big.html")
-	if rec.Code != 200 || rec.Body.Len() != len(big) {
-		t.Fatalf("big page %d, %d bytes", rec.Code, rec.Body.Len())
+	// The bridge is there, so the frame says why instead of reading as a page
+	// that left the canvas.
+	if rec.Code != http.StatusRequestEntityTooLarge || !strings.Contains(rec.Body.String(), BridgePath) || !strings.Contains(rec.Body.String(), "up to 10 MB") {
+		t.Fatalf("big page %d: %q", rec.Code, rec.Body.String())
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.HasPrefix(csp, "sandbox allow-scripts") {
+		t.Fatalf("the answer lost the sandbox: %q", csp)
+	}
+	if _, err := Show(t.TempDir(), ShowRequest{Workspace: ws, Path: "site/big.html"}); err == nil || !strings.Contains(err.Error(), "up to 10 MB") {
+		t.Fatalf("a page too large was put on the canvas: %v", err)
 	}
 }
 
@@ -255,6 +263,44 @@ func TestServeFrameServesNoLinksAtAll(t *testing.T) {
 	for _, rel := range []string{"alias.js", "styles/main.css"} {
 		if rec := serve(t, f, http.MethodGet, rel); rec.Code != http.StatusNotFound {
 			t.Errorf("%s answered %d", rel, rec.Code)
+		}
+	}
+}
+
+func TestServeFrameKeepsToTheWorkspaceWhenItsRootBecomesALink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	f, ws := siteFrame(t)
+	outside := t.TempDir()
+	writeFile(t, outside, "config.yaml", "token: secret")
+	writeFile(t, ws, ".hidden/app.js", "x")
+	if err := os.Rename(filepath.Join(ws, "site"), filepath.Join(ws, "site.orig")); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{outside, filepath.Join(ws, ".hidden")} {
+		_ = os.Remove(filepath.Join(ws, "site"))
+		if err := os.Symlink(target, filepath.Join(ws, "site")); err != nil {
+			t.Fatal(err)
+		}
+		for _, rel := range []string{"config.yaml", "app.js", ""} {
+			if rec := serve(t, f, http.MethodGet, rel); rec.Code != http.StatusNotFound {
+				t.Fatalf("a root swapped for a link to %s served %q: %d %q", target, rel, rec.Code, rec.Body)
+			}
+		}
+	}
+}
+
+func TestServeFrameRefusesABackslashInThePath(t *testing.T) {
+	f, _ := siteFrame(t)
+	// The route hands ServeFrame the path decoded (%5C, %00), so the request
+	// line itself stays a valid URL here.
+	for _, rel := range []string{`css\main.css`, `\.env`, "css/main.css\x00"} {
+		req := httptest.NewRequest(http.MethodGet, "/coddy/canvas/tok/x", nil)
+		rec := httptest.NewRecorder()
+		ServeFrame(rec, req, f, rel, ServeOptions{})
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%q answered %d", rel, rec.Code)
 		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/webfs"
@@ -47,6 +48,8 @@ func (b *Board) linkedFile() string {
 // HTML page of the workspace is a frame, every other node an item.
 func readLinked(b *Board) {
 	b.inDoc = map[string]bool{}
+	b.read = map[string]Frame{}
+	b.readItems = map[string]Item{}
 	f, err := os.Open(b.linkedFile())
 	if err != nil {
 		b.LinkError = err.Error()
@@ -85,20 +88,27 @@ func readLinked(b *Board) {
 			if why == "" {
 				b.Frames = append(b.Frames, frame)
 				b.inDoc[id] = true
+				b.read[id] = frame
 				continue
 			}
 			item.Note = why
 		}
 		b.Items = append(b.Items, item)
+		b.readItems[id] = item
 	}
 	b.Edges = doc.edgeList()
 }
 
-// frameFromNode reads a file node as a live frame: its page and root checked
-// as canvas_show checks them, its size the node's within the frame bounds.
+// frameFromNode reads a file node as a live frame: its page checked as
+// canvas_show checks it, its root the page's folder unless the session widened
+// it (Board.Roots), its size the node's within the frame bounds.
 func frameFromNode(b *Board, n object, item Item) (Frame, string) {
 	ext := n.ext()
-	page, err := resolvePage(b.Link.Workspace, item.File, ext.Root)
+	page, err := resolvePage(b.Link.Workspace, item.File, b.Roots[item.ID])
+	if err != nil && b.Roots[item.ID] != "" {
+		// The page left the root it was shown with: its own folder then.
+		page, err = resolvePage(b.Link.Workspace, item.File, "")
+	}
 	if err != nil {
 		return Frame{}, err.Error()
 	}
@@ -149,8 +159,14 @@ func nextX(b *Board) int {
 // the removal of a frame's node with its edges. Every other node, edge and key
 // stays as it was; the generations go to the bundle.
 func writeLinked(b *Board) error {
-	// The file may have changed since it was read (Obsidian, the agent): the
-	// frames are applied to what is there now.
+	// Two chats linked to one file take turns, and each applies only its own
+	// changes to what the other wrote.
+	mu, _ := fileLocks.LoadOrStore(session.CanonicalWorkspacePath(b.linkedFile()), &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
+	// The file may have changed since it was read (Obsidian, another chat, the
+	// agent): this board's changes are applied to what is there now, and only
+	// they - a node it did not touch keeps what the file says.
 	f, err := os.Open(b.linkedFile())
 	if err != nil {
 		return fmt.Errorf("the linked canvas %s: %w", b.Link.Path, err)
@@ -163,8 +179,13 @@ func writeLinked(b *Board) error {
 	keep := map[string]bool{}
 	for _, fr := range b.Frames {
 		keep[fr.ID] = true
+		was, read := b.read[fr.ID]
 		i := doc.findNode(fr.ID)
 		if i < 0 {
+			if read {
+				// Deleted from the file since it was read: it stays deleted.
+				continue
+			}
 			node := object{}
 			node.set("id", fr.ID)
 			node.set("type", NodeFile)
@@ -173,44 +194,68 @@ func writeLinked(b *Board) error {
 			i = len(doc.nodes) - 1
 		}
 		node := &doc.nodes[i]
-		if node.str("file") != fr.Path {
+		if !read || was.Path != fr.Path {
 			node.set("file", fr.Path)
 		}
-		node.set("x", fr.X)
-		node.set("y", fr.Y)
-		node.set("width", fr.Width)
-		node.set("height", fr.Height)
-		ext := frameExt{Title: fr.Title, AddedBy: fr.AddedBy}
-		if fr.Device != "" && inferDevice(fr.Width, fr.Height) != fr.Device {
-			ext.Device = fr.Device
+		// A frame Coddy did not move keeps the node's own numbers: a node
+		// smaller than a frame may be is drawn at the frame bounds but stays
+		// as Obsidian has it.
+		moved := !read || was.X != fr.X || was.Y != fr.Y || was.Width != fr.Width || was.Height != fr.Height
+		if moved {
+			node.set("x", fr.X)
+			node.set("y", fr.Y)
+			node.set("width", fr.Width)
+			node.set("height", fr.Height)
 		}
-		if def := defaultRoot(fr.Path); fr.Root != def {
-			ext.Root = fr.Root
-		}
-		if ext == (frameExt{}) {
-			node.del(coddyExt)
-		} else {
-			node.set(coddyExt, ext)
+		if moved || was.Title != fr.Title || was.Device != fr.Device || was.AddedBy != fr.AddedBy {
+			ext := frameExt{Title: fr.Title, AddedBy: fr.AddedBy}
+			if fr.Device != "" && inferDevice(fr.Width, fr.Height) != fr.Device {
+				ext.Device = fr.Device
+			}
+			if _, has := node.get(coddyExt); has || ext != (frameExt{}) {
+				if ext == (frameExt{}) {
+					node.del(coddyExt)
+				} else if node.ext() != ext {
+					node.set(coddyExt, ext)
+				}
+			}
 		}
 	}
 	for id := range b.inDoc {
 		if !keep[id] {
 			doc.removeNode(id)
-			delete(b.Gens, id)
+			// An address of the removed frame never applies again, should a
+			// node of that id come back.
+			b.Gens[id]++
 		}
 	}
 	for _, it := range b.Items {
+		was, ok := b.readItems[it.ID]
+		if !ok || (was.X == it.X && was.Y == it.Y && was.Width == it.Width && was.Height == it.Height) {
+			continue
+		}
 		if i := doc.findNode(it.ID); i >= 0 {
 			node := &doc.nodes[i]
-			if node.num("x") != it.X || node.num("y") != it.Y || node.num("width") != it.Width || node.num("height") != it.Height {
-				node.set("x", it.X)
-				node.set("y", it.Y)
-				node.set("width", it.Width)
-				node.set("height", it.Height)
-			}
+			node.set("x", it.X)
+			node.set("y", it.Y)
+			node.set("width", it.Width)
+			node.set("height", it.Height)
 		}
 	}
 	return writeFileAtomic(b.linkedFile(), doc.Marshal())
+}
+
+// fileLocks serialise the read and the write of one linked file in this
+// process (canonical path -> *sync.Mutex), taken inside a board's own lock.
+var fileLocks sync.Map
+
+// rootOrDot names the whole workspace "." where an empty root would read as
+// "the page's own folder".
+func rootOrDot(root string) string {
+	if root == "" {
+		return "."
+	}
+	return root
 }
 
 func defaultRoot(p string) string {
@@ -339,7 +384,9 @@ func LinkFile(bundle, workspace, p string) (Board, error) {
 			b.own = b.Frames
 		}
 		link := &Link{Path: rel, Workspace: workspace}
-		*b = Board{Version: b.Version, Revision: b.Revision, Link: link, own: b.own}
+		// The generations stay: relinking a file must not bring a revoked
+		// address back.
+		*b = Board{Version: b.Version, Revision: b.Revision, Link: link, own: b.own, Gens: b.Gens, Roots: b.Roots}
 		readLinked(b)
 		return "", nil
 	}, func() string { return ReasonLinked }, &board)
@@ -353,7 +400,7 @@ func Unlink(bundle string) (Board, error) {
 		if b.Link == nil {
 			return "", ErrNotLinked
 		}
-		*b = Board{Version: b.Version, Revision: b.Revision, Frames: b.own}
+		*b = Board{Version: b.Version, Revision: b.Revision, Frames: b.own, Gens: b.Gens, Roots: b.Roots}
 		return "", nil
 	}, func() string { return ReasonUnlinked }, &board)
 	return board, err
@@ -367,12 +414,12 @@ func Export(bundle, workspace, p string) (Board, error) {
 		return Board{}, err
 	}
 	var board Board
+	created := ""
 	err = mutate(bundle, func(b *Board) (string, error) {
 		if b.Link != nil {
 			return "", fmt.Errorf("%w: %s", ErrAlreadyLinked, b.Link.Path)
 		}
 		doc := &Document{}
-		gens := map[string]int{}
 		frames := make([]Frame, 0, len(b.Frames))
 		for _, fr := range b.Frames {
 			// A frame of another workspace (a subagent's worktree) has no
@@ -389,8 +436,9 @@ func Export(bundle, workspace, p string) (Board, error) {
 		if err := writeFileAtomic(target, doc.Marshal()); err != nil {
 			return "", err
 		}
+		created = target
 		own := b.Frames
-		*b = Board{Version: b.Version, Revision: b.Revision, Link: &Link{Path: rel, Workspace: workspace}, own: own, Gens: gens}
+		*b = Board{Version: b.Version, Revision: b.Revision, Link: &Link{Path: rel, Workspace: workspace}, own: own, Gens: b.Gens, Roots: b.Roots}
 		readLinked(b)
 		// The frames move into the file with ids in Obsidian's shape.
 		for _, fr := range frames {
@@ -402,6 +450,11 @@ func Export(bundle, workspace, p string) (Board, error) {
 		b.dirty = true
 		return "", nil
 	}, func() string { return ReasonLinked }, &board)
+	if err != nil && created != "" {
+		// The board was not linked: the file this export made goes too, or a
+		// retry would find it there.
+		_ = os.Remove(created)
+	}
 	return board, err
 }
 

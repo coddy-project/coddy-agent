@@ -5,8 +5,10 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import { CanvasView, resetCanvasDraftsForTests } from "./CanvasView";
+import { resetCanvasNodeCachesForTests } from "./CanvasNodes";
 import { FRAME_SANDBOX, LEFT_CANVAS_MS } from "./CanvasFrame";
 import { BRIDGE_PROTOCOL } from "./bridgeProtocol";
 import type { CanvasBoard, CanvasFrame } from "./api";
@@ -49,6 +51,7 @@ let fetches: { url: string; init?: RequestInit }[] = [];
 beforeEach(() => {
   fetches = [];
   resetCanvasDraftsForTests();
+  resetCanvasNodeCachesForTests();
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -312,7 +315,7 @@ test("while a turn runs, Send queues and Stop stops", () => {
     target: { value: "later" },
   });
   fireEvent.click(screen.getByTestId("canvas-send"));
-  expect(props.onSend).toHaveBeenCalledWith("later");
+  expect(props.onSend).toHaveBeenCalledWith("later", expect.any(Function));
 });
 
 function linkedBoard(): CanvasBoard {
@@ -478,4 +481,162 @@ test("a linked file that cannot be read says so and offers the chat's own board"
       (f) => f.url.endsWith("/canvas/link") && f.init?.method === "DELETE",
     ),
   ).toBe(true);
+});
+
+test("a frame renews its address on its own clock, never on every read of the board", () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const t0 = new Date("2026-10-18T12:00:00Z").getTime();
+  vi.setSystemTime(t0);
+  const props = {
+    sessionId: "sess_1",
+    reloadBoard: vi.fn(),
+    focusFrameId: "",
+    focusSeq: 0,
+    busy: false,
+    onSend: vi.fn(),
+    onStop: vi.fn(),
+    onClose: vi.fn(),
+  };
+  // The server's clock is a day behind this page's: every address it signs
+  // already reads as expired here.
+  const skewed = (n: number) =>
+    board([
+      frame({
+        url: `/coddy/canvas/tok${n}.sig/index.html`,
+        expires_at: new Date(t0 - 12 * 3600 * 1000).toISOString(),
+      }),
+    ]);
+  const { rerender } = render(<CanvasView {...props} board={skewed(1)} />);
+  const seq = () => iframe().getAttribute("data-seq");
+  expect(seq()).toBe("0");
+  rerender(<CanvasView {...props} board={skewed(2)} />);
+  rerender(<CanvasView {...props} board={skewed(3)} />);
+  expect(seq()).toBe("0");
+  // Eleven and a half hours on, the next address the board signs is taken.
+  vi.setSystemTime(t0 + 11.6 * 3600 * 1000);
+  rerender(<CanvasView {...props} board={skewed(4)} />);
+  expect(seq()).toBe("1");
+  expect(iframe().getAttribute("src")).toContain("tok4.sig");
+});
+
+test("a request the server never took comes back to the bar with its picks", () => {
+  const onSend = vi.fn();
+  renderView({ onSend });
+  fireEvent.click(screen.getByTestId("canvas-mode-comment"));
+  fromFrame({ type: "ready" });
+  fromFrame({
+    type: "pick",
+    gen: 1,
+    selector: "main > h1",
+    tag: "h1",
+    id: "",
+    classes: ["hero"],
+    text: "Welcome",
+    html: '<h1 class="hero">Welcome</h1>',
+    rect: { x: 10, y: 10, width: 200, height: 40 },
+  });
+  fireEvent.click(screen.getByTestId("canvas-popover-add"));
+  const field = screen.getByTestId("canvas-bar-field") as HTMLTextAreaElement;
+  fireEvent.change(field, { target: { value: "Make it blue." } });
+  fireEvent.click(screen.getByTestId("canvas-send"));
+  expect(field.value).toBe("");
+  expect(screen.queryByTestId("canvas-pick")).toBeNull();
+  // Written meanwhile, then the refusal: both stay, the request first.
+  fireEvent.change(field, { target: { value: "Also the footer." } });
+  const giveBack = onSend.mock.calls[0]![1] as () => void;
+  act(() => giveBack());
+  expect(field.value).toBe("Make it blue.\n\nAlso the footer.");
+  expect(screen.getByTestId("canvas-pick").textContent).toContain("h1.hero");
+});
+
+test("a frame pointed at another page of its root loads that page", () => {
+  const props = {
+    sessionId: "sess_1",
+    reloadBoard: vi.fn(),
+    focusFrameId: "",
+    focusSeq: 0,
+    busy: false,
+    onSend: vi.fn(),
+    onStop: vi.fn(),
+    onClose: vi.fn(),
+  };
+  const { rerender } = render(
+    <CanvasView {...props} board={board([frame()])} />,
+  );
+  expect(iframe().getAttribute("data-seq")).toBe("0");
+  rerender(
+    <CanvasView
+      {...props}
+      board={board([
+        frame({
+          path: "site/about.html",
+          url: "/coddy/canvas/tok2.sig/about.html",
+        }),
+      ])}
+    />,
+  );
+  expect(iframe().getAttribute("data-seq")).toBe("1");
+  expect(iframe().getAttribute("src")).toContain("/about.html");
+});
+
+test("a note card reads its file again while the board is open", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const t0 = new Date("2026-10-18T12:00:00Z").getTime();
+  vi.setSystemTime(t0);
+  let body = "# One";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      if (String(url).includes("/workspace/text")) {
+        return new Response(
+          JSON.stringify({
+            lines: body.split("\n"),
+            offset: 0,
+            next_offset: 1,
+            has_more: false,
+            etag: "e",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("{}", { status: 200 });
+    }),
+  );
+  const noteBoard = (): CanvasBoard => ({
+    session_id: "sess_1",
+    revision: 1,
+    frames: [],
+    link: { path: "design/notes.canvas", stamp: "[1,2]" },
+    items: [
+      {
+        id: "n1",
+        type: "file",
+        file: "notes/brief.md",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+      },
+    ],
+    edges: [],
+  });
+  const props = {
+    sessionId: "sess_1",
+    reloadBoard: vi.fn(),
+    focusFrameId: "",
+    focusSeq: 0,
+    busy: false,
+    onSend: vi.fn(),
+    onStop: vi.fn(),
+    onClose: vi.fn(),
+  };
+  const { rerender } = render(<CanvasView {...props} board={noteBoard()} />);
+  const heading = () =>
+    document.querySelector('[data-node-id="n1"] h1')?.textContent;
+  await waitFor(() => expect(heading()).toBe("One"));
+  body = "# Two";
+  // The next read of the board, a little later: the note is read again.
+  vi.setSystemTime(t0 + 11000);
+  rerender(<CanvasView {...props} board={noteBoard()} />);
+  await waitFor(() => expect(heading()).toBe("Two"));
 });

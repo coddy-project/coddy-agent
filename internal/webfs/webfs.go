@@ -50,7 +50,9 @@ func IsHTML(name string) bool {
 // .git, .env, the Coddy store. Project secrets live behind such names, and a
 // page under preview has no business with them.
 func HasDotSegment(urlPath string) bool {
-	for _, seg := range strings.Split(urlPath, "/") {
+	// A backslash separates path elements on Windows, where os.Root opens
+	// "a\.env" as a/.env.
+	for _, seg := range strings.FieldsFunc(urlPath, func(r rune) bool { return r == '/' || r == '\\' }) {
 		if strings.HasPrefix(seg, ".") {
 			return true
 		}

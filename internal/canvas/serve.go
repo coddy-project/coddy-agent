@@ -4,12 +4,14 @@ import (
 	"bytes"
 	_ "embed"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"mime"
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -25,8 +27,9 @@ const BridgeProtocol = "coddy-canvas/1"
 // the page.
 const BridgePath = ".coddy/bridge.js"
 
-// MaxInjectBytes is the largest page the bridge is put into; a larger one is
-// served as it is, without picking or reports.
+// MaxInjectBytes is the largest page the canvas runs: canvas_show refuses a
+// larger one, and one that grew past it is answered with a short page that
+// says so (with the bridge, so the frame does not read as having left).
 const MaxInjectBytes = 10 << 20
 
 //go:embed bridge.js
@@ -98,6 +101,12 @@ func ServeFrame(w http.ResponseWriter, r *http.Request, f Frame, rel string, opt
 		http.ServeContent(w, r, "bridge.js", bridgeModTime, bytes.NewReader(bridgeJS))
 		return
 	}
+	// A backslash is a separator to Windows and none to the checks below,
+	// so "assets\.env" would open a dot-file there.
+	if strings.ContainsAny(rel, "\\\x00") {
+		http.NotFound(w, r)
+		return
+	}
 	for _, seg := range strings.Split(rel, "/") {
 		if seg == ".." {
 			http.NotFound(w, r)
@@ -109,7 +118,7 @@ func ServeFrame(w http.ResponseWriter, r *http.Request, f Frame, rel string, opt
 		http.NotFound(w, r)
 		return
 	}
-	root, err := os.OpenRoot(f.RootAbs())
+	root, err := openFrameRoot(f)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -140,7 +149,16 @@ func ServeFrame(w http.ResponseWriter, r *http.Request, f Frame, rel string, opt
 	} else if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
-	if webfs.IsHTML(name) && info.Size() <= MaxInjectBytes {
+	if webfs.IsHTML(name) && info.Size() > MaxInjectBytes {
+		page := InjectBridge([]byte(fmt.Sprintf(tooLargePage, info.Size()>>20, MaxInjectBytes>>20)), BridgeSrc(rel))
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write(page)
+		}
+		return
+	}
+	if webfs.IsHTML(name) {
 		raw, err := io.ReadAll(io.LimitReader(file, MaxInjectBytes+1))
 		if err != nil {
 			http.Error(w, "read failed", http.StatusInternalServerError)
@@ -154,6 +172,47 @@ func ServeFrame(w http.ResponseWriter, r *http.Request, f Frame, rel string, opt
 }
 
 var errIsDir = errors.New("is a directory")
+
+// openFrameRoot opens a frame's root beneath its workspace, every folder on
+// the way a real folder and the one opened the one inspected: a root swapped
+// for a link after the frame was shown does not take the frame's address out
+// of the workspace or into a dot-named folder.
+func openFrameRoot(f Frame) (*os.Root, error) {
+	ws, err := os.OpenRoot(f.Workspace)
+	if err != nil {
+		return nil, err
+	}
+	if f.Root == "" {
+		return ws, nil
+	}
+	defer func() { _ = ws.Close() }()
+	rel := filepath.FromSlash(f.Root)
+	parts := strings.Split(f.Root, "/")
+	var last fs.FileInfo
+	for i := range parts {
+		info, err := ws.Lstat(filepath.FromSlash(path.Join(parts[:i+1]...)))
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 || !info.IsDir() {
+			return nil, errors.New("the frame's root is not a folder of the workspace")
+		}
+		last = info
+	}
+	sub, err := ws.OpenRoot(rel)
+	if err != nil {
+		return nil, err
+	}
+	if opened, err := sub.Stat("."); err != nil || !os.SameFile(opened, last) {
+		_ = sub.Close()
+		return nil, errors.New("the frame's root changed while it was opened")
+	}
+	return sub, nil
+}
+
+const tooLargePage = `<!doctype html><html><head><meta charset="utf-8"><title>Too large for the canvas</title></head>` +
+	`<body style="font:15px system-ui,sans-serif;margin:32px;color:#333">` +
+	`<p>This page is %d MB; the canvas runs pages up to %d MB.</p></body></html>`
 
 // openNoLinks opens a regular file of the root whose every path element is a
 // real folder or, last, a regular file: a frame serves no symbolic links at

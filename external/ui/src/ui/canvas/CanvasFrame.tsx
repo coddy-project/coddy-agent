@@ -25,6 +25,21 @@ export const LEFT_CANVAS_MS = 3000;
 /** An address that has less than this left is renewed with a reload. */
 const RENEW_BEFORE_MS = 30 * 60 * 1000;
 
+/** How long a frame's address lasts from its signing (CapabilityTTL of
+ *  internal/canvas). The renewal is timed on this page's own clock from the
+ *  moment the address arrived, never against the server's expires_at, so a
+ *  clock that is off does not reload the frame on every read of the board. */
+export const CANVAS_ADDRESS_TTL_MS = 12 * 3600 * 1000;
+
+/** What a frame shows: its page under its root. */
+function pageOf(f: Pick<Frame, "path" | "root">): string {
+  return `${f.root}\n${f.path}`;
+}
+
+function renewAt(): number {
+  return Date.now() + CANVAS_ADDRESS_TTL_MS - RENEW_BEFORE_MS;
+}
+
 /** At most one report a frame every this long, whatever the page sends. */
 const REPORT_EVERY_MS = 500;
 
@@ -75,15 +90,19 @@ export function CanvasFrame(props: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [loaded, setLoaded] = useState<{
     src: string;
+    url: string;
+    page: string;
     stamp: string;
     gen: number;
-    expires: number;
+    renewAt: number;
     seq: number;
   }>(() => ({
     src: frameSrc(frame.url),
+    url: frame.url,
+    page: pageOf(frame),
     stamp: frame.stamp,
     gen: frame.gen,
-    expires: Date.parse(frame.expires_at) || 0,
+    renewAt: renewAt(),
     seq: 0,
   }));
   const [left, setLeft] = useState(false);
@@ -121,15 +140,25 @@ export function CanvasFrame(props: Props) {
   // the page does that - so a page that leaves again cannot loop.
   useEffect(() => {
     if (left) return;
-    const nearEnd =
-      loaded.expires > 0 && loaded.expires - Date.now() < RENEW_BEFORE_MS;
-    if (frame.stamp !== loaded.stamp || frame.gen !== loaded.gen || nearEnd) {
+    // Renewed only with an address the board signed since: the same one
+    // again would end as soon.
+    const nearEnd = Date.now() >= loaded.renewAt && frame.url !== loaded.url;
+    // The frame pointed at another page or root keeps its stamp and its
+    // generation, and its page changes all the same.
+    if (
+      frame.stamp !== loaded.stamp ||
+      frame.gen !== loaded.gen ||
+      pageOf(frame) !== loaded.page ||
+      nearEnd
+    ) {
       ownReload.current = true;
       setLoaded((cur) => ({
         src: frameSrc(frame.url),
+        url: frame.url,
+        page: pageOf(frame),
         stamp: frame.stamp,
         gen: frame.gen,
-        expires: Date.parse(frame.expires_at) || 0,
+        renewAt: renewAt(),
         seq: cur.seq + 1,
       }));
       setLeft(false);
@@ -139,10 +168,13 @@ export function CanvasFrame(props: Props) {
     frame.stamp,
     frame.gen,
     frame.url,
-    frame.expires_at,
+    frame.path,
+    frame.root,
     loaded.stamp,
     loaded.gen,
-    loaded.expires,
+    loaded.url,
+    loaded.page,
+    loaded.renewAt,
   ]);
 
   const post = useCallback((msg: Record<string, unknown>) => {
@@ -325,9 +357,11 @@ export function CanvasFrame(props: Props) {
     ownReload.current = true;
     setLoaded((cur) => ({
       src: frameSrc(frame.url),
+      url: frame.url,
+      page: pageOf(frame),
       stamp: frame.stamp,
       gen: frame.gen,
-      expires: Date.parse(frame.expires_at) || 0,
+      renewAt: renewAt(),
       seq: cur.seq + 1,
     }));
     setLeft(false);

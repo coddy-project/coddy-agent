@@ -355,3 +355,14 @@ func TestCanvasLinkedFileRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestCanvasFrameAnswersHEADWithoutACredential(t *testing.T) {
+	e := newChangesEnv(t)
+	sitePage(t, e.cwd)
+	e.srv.SetExtraAuthTokens([]string{"test-secret"})
+	added := addCanvasFrame(t, e, "site/index.html", map[string]string{"Authorization": "Bearer test-secret"})
+	head := canvasRequest(e, http.MethodHead, added.Frame.URL, "", nil)
+	if head.Code != http.StatusOK || head.Header().Get("Content-Security-Policy") == "" {
+		t.Fatalf("HEAD of a frame's address answered %d %v", head.Code, head.Header())
+	}
+}

@@ -128,6 +128,11 @@ type Board struct {
 	// Gens are the generations of a linked file's frames, kept here so the
 	// workspace file carries none of the canvas's own bookkeeping.
 	Gens map[string]int `json:"gens,omitempty"`
+	// Roots are the roots of a linked file's frames that are wider than the
+	// page's own folder ("." for the whole workspace). They are the
+	// session's, never the file's: a .canvas file that arrives with a
+	// checkout cannot widen what its pages may read.
+	Roots map[string]string `json:"roots,omitempty"`
 
 	// Items and Edges are the other nodes of a linked file and its lines.
 	Items []Item `json:"-"`
@@ -136,10 +141,16 @@ type Board struct {
 	// then not shown and nothing is written to it.
 	LinkError string `json:"-"`
 
-	own    []Frame   // the chat's own frames, kept while the board is linked
-	doc    *Document // the linked file as read
-	inDoc  map[string]bool
-	fileOK bool
+	own   []Frame   // the chat's own frames, kept while the board is linked
+	doc   *Document // the linked file as read
+	inDoc map[string]bool
+	// read is each frame of the linked file as it was read, so a write
+	// touches the geometry of only the frames that moved.
+	read map[string]Frame
+	// readItems are its other nodes as read, so only the ones dragged here
+	// are written.
+	readItems map[string]Item
+	fileOK    bool
 	// dirty says a change touched the linked file's nodes; only then is the
 	// file written, so linking a file never rewrites it.
 	dirty bool
@@ -506,6 +517,9 @@ func resolvePage(workspace, pagePath, rootPath string) (resolvedPage, error) {
 	if !webfs.IsHTML(pageRel) {
 		return resolvedPage{}, fmt.Errorf("%s is not an HTML page (.html or .htm)", pagePath)
 	}
+	if info.Size() > MaxInjectBytes {
+		return resolvedPage{}, fmt.Errorf("%s is %d MB; the canvas runs pages up to %d MB: move inlined data into files of its folder", pagePath, info.Size()>>20, MaxInjectBytes>>20)
+	}
 	rootRel := ""
 	if dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(pageRel))); dir != "." {
 		rootRel = dir
@@ -591,6 +605,14 @@ func mutate(bundle string, fn func(*Board) (frameID string, err error), reason f
 		for _, fr := range b.Frames {
 			b.Gens[fr.ID] = fr.Gen
 		}
+		if b.fileOK {
+			b.Roots = map[string]string{}
+			for _, fr := range b.Frames {
+				if fr.Root != defaultRoot(fr.Path) {
+					b.Roots[fr.ID] = rootOrDot(fr.Root)
+				}
+			}
+		}
 		if b.fileOK && b.dirty {
 			if err := writeLinked(&b); err != nil {
 				mu.Unlock()
@@ -599,6 +621,7 @@ func mutate(bundle string, fn func(*Board) (frameID string, err error), reason f
 		}
 		stored.Frames = b.own
 		stored.Gens = b.Gens
+		stored.Roots = b.Roots
 		if stored.Frames == nil {
 			stored.Frames = []Frame{}
 		}

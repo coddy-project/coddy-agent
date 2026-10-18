@@ -473,8 +473,9 @@ saved.
 
 Writes to a linked file keep every node, edge and key they do not change, the keys Coddy does not
 know and their order included, and write one node and one edge per line, as Obsidian does. A frame's
-own settings go under a `coddy` key of its node. The generation behind a frame's address is kept in
-the session bundle, never in the file.
+device and title go under a `coddy` key of its node; a node Coddy did not move keeps its own numbers.
+A root wider than the page's folder and the generation behind a frame's address are kept in the
+session bundle, never in the file, so a file cannot widen what its pages read.
 
 Every change to a board is announced on `GET /coddy/events` as `event: canvas_changed` with
 `{"object":"coddy.canvas_changed","sessionId","revision","frameId","reason","at"}`; `reason` is
@@ -497,7 +498,8 @@ Every answer of the route carries:
 - `Access-Control-Allow-Origin: *`, since the page's own module scripts and fetches come from an opaque origin; a preflight `OPTIONS` of the route is answered the same way.
 
 An HTML page gets the bridge script and a `<meta name="referrer" content="no-referrer">` at the
-start of its head, pages up to 10 MB.
+start of its head. A page is at most 10 MB: `canvas_show` and `POST .../canvas/frames` refuse a larger
+one, and one that grew past it is answered with `413` and a short page, with the bridge, that says so.
 
 **Opaque origins.** Every other route refuses a request whose `Origin` header is `null` with `403`,
 before authentication and whatever credential it carries: a sandboxed page sends `Origin: null`, and

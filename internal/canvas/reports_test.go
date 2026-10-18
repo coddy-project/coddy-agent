@@ -83,3 +83,19 @@ func TestAClosedReportSaysSo(t *testing.T) {
 		t.Fatalf("closed report %+v", got)
 	}
 }
+
+func TestAWaitThatTimesOutLeavesNoWaiterBehind(t *testing.T) {
+	r := NewReports()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for i := 0; i < 50; i++ {
+		r.Wait(context.Background(), "s", "f", "stamp", time.Millisecond)
+		r.Wait(ctx, "s", "f", "stamp", time.Hour)
+	}
+	r.mu.Lock()
+	n := len(r.waiters)
+	r.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d waiters left after waits that ended without a report", n)
+	}
+}

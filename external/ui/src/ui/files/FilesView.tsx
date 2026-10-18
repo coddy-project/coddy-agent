@@ -6,7 +6,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { addFrame, isCanvasFile, linkCanvasFile } from "../canvas/api";
+import {
+  addFrame,
+  isCanvasFile,
+  isCanvasPage,
+  linkCanvasFile,
+} from "../canvas/api";
 import { openCanvas } from "../canvas/canvasBus";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
@@ -406,7 +411,7 @@ export function FilesView(props: {
                         <span className="files-menu-check" aria-hidden />
                         {t("files.download")}
                       </button>
-                      {activeKind === "html" ? (
+                      {isCanvasPage(active) ? (
                         <button
                           type="button"
                           role="menuitem"
@@ -418,7 +423,12 @@ export function FilesView(props: {
                             // its own (or the frame it already has), shown.
                             void addFrame(sessionId, { path: active }).then(
                               (res) => openCanvas(res.frame.id),
-                              () => {},
+                              (err: unknown) =>
+                                setNotice(
+                                  err instanceof Error
+                                    ? err.message
+                                    : String(err),
+                                ),
                             );
                           }}
                         >
@@ -436,7 +446,12 @@ export function FilesView(props: {
                             // A JSON Canvas file becomes the chat's canvas.
                             void linkCanvasFile(sessionId, active).then(
                               () => openCanvas(),
-                              () => {},
+                              (err: unknown) =>
+                                setNotice(
+                                  err instanceof Error
+                                    ? err.message
+                                    : String(err),
+                                ),
                             );
                           }}
                         >

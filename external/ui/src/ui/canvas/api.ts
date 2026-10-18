@@ -228,6 +228,13 @@ export async function exportCanvas(
   );
 }
 
+/** A page the canvas runs, by its name: the extensions the server's
+ *  webfs.IsHTML takes (an .xhtml file is previewed as HTML in the Files window
+ *  but not run on the canvas). */
+export function isCanvasPage(path: string): boolean {
+  return /\.html?$/i.test(path);
+}
+
 /** A JSON Canvas file, by its name. */
 export function isCanvasFile(path: string): boolean {
   return /\.canvas$/i.test(path);

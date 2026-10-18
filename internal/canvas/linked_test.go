@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -333,4 +334,185 @@ func TestALinkedBoardTakesNoPageOfAnotherWorkspace(t *testing.T) {
 	if _, err := Show(bundle, ShowRequest{Workspace: other, Path: "site/index.html"}); err == nil || !strings.Contains(err.Error(), "another working directory") {
 		t.Fatalf("a page of a worktree became a node of the file: %v", err)
 	}
+}
+
+func TestAWriteLeavesTheNodesCoddyDidNotMoveAsTheyWere(t *testing.T) {
+	ws, bundle := workspace(t, "site/index.html", "other/index.html")
+	file := filepath.Join(ws, "small.canvas")
+	// A node smaller than a frame may be: drawn at the bounds, kept as it is.
+	doc := `{"nodes":[{"id":"aaaaaaaaaaaaaaaa","type":"file","file":"site/index.html","x":10.5,"y":0,"width":200,"height":100}],"edges":[]}`
+	if err := os.WriteFile(file, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, err := LinkFile(bundle, ws, "small.canvas")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := b.Frames[0]; f.Width != MinWidth || f.Height != MinHeight {
+		t.Fatalf("the frame is not at the bounds: %+v", f)
+	}
+	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "other/index.html"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(file)
+	if !bytes.Contains(raw, []byte(`{"id":"aaaaaaaaaaaaaaaa","type":"file","file":"site/index.html","x":10.5,"y":0,"width":200,"height":100}`)) {
+		t.Fatalf("a node Coddy did not move was rewritten:\n%s", raw)
+	}
+}
+
+func TestAFileCannotWidenWhatItsPagesRead(t *testing.T) {
+	ws, bundle := workspace(t, "site/index.html")
+	file := filepath.Join(ws, "wide.canvas")
+	doc := `{"nodes":[{"id":"aaaaaaaaaaaaaaaa","type":"file","file":"site/index.html","x":0,"y":0,"width":1280,"height":800,"coddy":{"root":"."}}]}`
+	if err := os.WriteFile(file, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, err := LinkFile(bundle, ws, "wide.canvas")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Frames[0].Root != "site" {
+		t.Fatalf("a root named by the file was taken: %q", b.Frames[0].Root)
+	}
+}
+
+func TestARootTheSessionWidenedStaysWithTheSession(t *testing.T) {
+	ws, bundle, file := linkedWorkspace(t)
+	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Show(bundle, ShowRequest{Workspace: ws, Path: "other/index.html", Root: "."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := Load(bundle)
+	if f, _ := b.Frame(res.Frame.ID); f.Root != "" {
+		t.Fatalf("the widened root did not survive a reload: %q", f.Root)
+	}
+	if raw, _ := os.ReadFile(file); bytes.Contains(raw, []byte(`"root"`)) {
+		t.Fatalf("a root reached the workspace file:\n%s", raw)
+	}
+	if _, err := Remove(bundle, res.Frame.ID); err != nil {
+		t.Fatal(err)
+	}
+	var stored Board
+	raw, _ := os.ReadFile(filepath.Join(bundle, FileName))
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if _, kept := stored.Roots[res.Frame.ID]; kept {
+		t.Fatalf("the root of a removed frame stayed:\n%s", raw)
+	}
+	// Its generation stays one up, so none of its addresses applies again.
+	if stored.Gens[res.Frame.ID] != res.Frame.Gen+1 {
+		t.Fatalf("the removed frame's generation %d, want %d", stored.Gens[res.Frame.ID], res.Frame.Gen+1)
+	}
+}
+
+func TestAFailedExportLeavesNoFileBehind(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a read-only bundle folder does not refuse a write on Windows")
+	}
+	ws, bundle := workspace(t, "site/index.html")
+	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/index.html"}); err != nil {
+		t.Fatal(err)
+	}
+	// The bundle cannot take the board any more: the export must not stay.
+	if err := os.Chmod(bundle, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chmod(bundle, 0o700) }()
+	if _, err := Export(bundle, ws, "board.canvas"); err == nil {
+		t.Skip("the bundle folder took a write anyway (running as root)")
+	}
+	if _, err := os.Stat(filepath.Join(ws, "board.canvas")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a failed export left its file: %v", err)
+	}
+}
+
+func TestRelinkingAFileNeverBringsARevokedAddressBack(t *testing.T) {
+	ws, bundle, _ := linkedWorkspace(t)
+	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Rotate(bundle, "fedcba9876543210"); err != nil {
+		t.Fatal(err)
+	}
+	gen := func() int {
+		b, _ := Load(bundle)
+		f, _ := b.Frame("fedcba9876543210")
+		return f.Gen
+	}
+	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
+		t.Fatal(err)
+	}
+	if g := gen(); g != 2 {
+		t.Fatalf("relinking the file reset the frame to generation %d", g)
+	}
+	if _, err := Unlink(bundle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
+		t.Fatal(err)
+	}
+	if g := gen(); g != 2 {
+		t.Fatalf("unlinking and linking again reset the frame to generation %d", g)
+	}
+}
+
+func TestTwoBoardsOfOneFileKeepEachOthersChanges(t *testing.T) {
+	ws, bundleA, file := linkedWorkspace(t)
+	bundleB := filepath.Join(t.TempDir(), "sess_b")
+	if err := os.MkdirAll(bundleB, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, bundle := range []string{bundleA, bundleB} {
+		if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Both chats read the file before either writes, as two requests at once
+	// do: each then writes what it changed.
+	a, _ := Load(bundleA)
+	b, _ := Load(bundleB)
+	a.Items[findItem(t, a, "0123456789abcdef")].X = 77
+	a.dirty = true
+	if err := writeLinked(&a); err != nil {
+		t.Fatal(err)
+	}
+	b.Items[findItem(t, b, "2222222222222222")].X = 88
+	b.dirty = true
+	if err := writeLinked(&b); err != nil {
+		t.Fatal(err)
+	}
+	d := readDoc(t, file)
+	if d.nodes[d.findNode("0123456789abcdef")].num("x") != 77 || d.nodes[d.findNode("2222222222222222")].num("x") != 88 {
+		t.Fatalf("one chat's move undid the other's:\n%s", d.Marshal())
+	}
+	// A frame deleted in Obsidian meanwhile stays deleted.
+	c, _ := Load(bundleB)
+	raw, _ := os.ReadFile(file)
+	doc, _ := ParseDocument(bytes.NewReader(raw))
+	doc.removeNode("fedcba9876543210")
+	if err := os.WriteFile(file, doc.Marshal(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c.Items[findItem(t, c, "1111111111111111")].Y = 999
+	if err := writeLinked(&c); err != nil {
+		t.Fatal(err)
+	}
+	if readDoc(t, file).findNode("fedcba9876543210") >= 0 {
+		t.Fatal("a stale board brought back a node deleted in the file")
+	}
+}
+
+func findItem(t *testing.T, b Board, id string) int {
+	t.Helper()
+	for i, it := range b.Items {
+		if it.ID == id {
+			return i
+		}
+	}
+	t.Fatalf("no item %s", id)
+	return -1
 }

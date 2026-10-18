@@ -16,7 +16,7 @@ The agent writes the page with the file tools, in a folder of its own, and calls
 
 ## Putting a page on the canvas
 
-A frame is an HTML page of the session's workspace (`.html` or `.htm`, outside dot-named folders). It is put there two ways:
+A frame is an HTML page of the session's workspace (`.html` or `.htm`, outside dot-named folders, at most 10 MB; data inlined past that belongs in files of its folder). It is put there two ways:
 
 - the agent calls `canvas_show` with its path;
 - you pick **Open on canvas** in the **More** menu of the Files window, for an HTML file.
@@ -84,7 +84,7 @@ What the board shows of the file:
 
 - a file node naming an HTML page of the workspace is a live frame, at the node's size;
 - a text card is its Markdown, rendered;
-- a file node of a `.md` note shows the note, a picture shows the picture, any other file is a card with **Open in Files**;
+- a file node of a `.md` note shows the note, read again every 10 seconds while the canvas is open, a picture shows the picture, any other file is a card with **Open in Files**;
 - a link node is a card that opens the address in a new tab (only an `http` or `https` one);
 - a group is a frame under the nodes, with its label;
 - an edge is a curve from side to side, with its arrows, its label and its colour; colours are the six presets of JSON Canvas or a hex value.
@@ -97,7 +97,7 @@ What the canvas writes back to the file:
 
 `canvas_show` on a linked board writes the file without a permission prompt, the way it writes the chat's own board: the node of the frame it shows and nothing else.
 
-A frame's settings that JSON Canvas has no field for - a device its size does not say, a root other than the page's folder, a title - go under a `coddy` key of its node, which Obsidian keeps. The generation behind a frame's address stays with the session and never reaches the file.
+A frame's settings that JSON Canvas has no field for - a device its size does not say, a title - go under a `coddy` key of its node, which Obsidian keeps. A node Coddy did not move keeps its own numbers, even one smaller than a frame may be. A root wider than the page's folder and the generation behind a frame's address stay with the session and never reach the file, so a `.canvas` file that arrives with a checkout cannot widen what its pages may read: a page of a linked file reads its own folder unless `canvas_show` widened it in this chat.
 
 The board reads the file again whenever it is read, so an edit in Obsidian, or one the agent makes with the file tools, shows on the open canvas within seconds. Text cards, edges and new links are edited that way, in the file: the canvas moves nodes, it does not write text.
 

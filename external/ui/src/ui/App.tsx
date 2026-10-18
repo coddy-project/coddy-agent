@@ -5355,6 +5355,12 @@ export function App() {
        * refused as busy) - and never for a retry, whose text was not typed.
        */
       restoreOnRefusal?: boolean;
+      /**
+       * Called when the server never took this send, for a sender with a
+       * draft of its own (the canvas's prompt bar), which the composer's
+       * restore does not reach.
+       */
+      onRefusal?: () => void;
     },
   ) {
     const abortCtl = new AbortController();
@@ -5401,6 +5407,7 @@ export function App() {
         applyStreamItemsForSession(key, (prev) =>
           prev.filter((it) => it.id !== userItemId),
         );
+      opts?.onRefusal?.();
       if (
         !opts?.restoreOnRefusal ||
         (key && viewedSessionIdRef.current.trim() !== key)
@@ -7498,8 +7505,10 @@ export function App() {
       mode: QueueMode,
       files: File[] = [],
       // The canvas's prompt bar keeps a draft of its own: a message it queues
-      // neither clears the composer's draft nor comes back into it.
+      // neither clears the composer's draft nor comes back into it, and
+      // onRefused gives it back to the bar when the server does not take it.
       source: "composer" | "canvas" = "composer",
+      onRefused?: () => void,
     ) => {
       const sid = sessionId.trim();
       const generation = turnActivity.generation(sid);
@@ -7565,13 +7574,18 @@ export function App() {
           // ordinary prompt; if the admission has not been released yet and that
           // is refused too, the text comes back to the composer rather than
           // being lost between the two answers.
-          void sendLatest(body, { files, restoreOnRefusal: fromComposer });
+          void sendLatest(body, {
+            files,
+            restoreOnRefusal: fromComposer,
+            ...(onRefused ? { onRefusal: onRefused } : {}),
+          });
           return;
         }
         if (fromComposer && viewedSessionIdRef.current.trim() === sid) {
           setDraft((current) => current || body);
           setComposerFiles((current) => [...files, ...current]);
         }
+        if (!fromComposer) onRefused?.();
         applyStreamItemsForSession(sid, (prev) => [
           ...prev,
           {
@@ -8050,9 +8064,12 @@ export function App() {
                 activeComposerSidRef.current.has(sessionId.trim())
               )
             }
-            onSend={(text) => {
+            onSend={(text, giveBack) => {
               const sid = sessionId.trim();
-              if (!sid || subagentTranscript) return;
+              if (!sid || subagentTranscript) {
+                giveBack();
+                return;
+              }
               // The way the composer's Send goes: the queue while a turn
               // runs, else a turn on the chat's mode, model and reasoning.
               if (
@@ -8064,10 +8081,14 @@ export function App() {
                   queueMode ?? "after_turn",
                   [],
                   "canvas",
+                  giveBack,
                 );
                 return;
               }
-              void streamResponses(text, { restoreOnRefusal: false });
+              void streamResponses(text, {
+                restoreOnRefusal: false,
+                onRefusal: giveBack,
+              });
             }}
             onStop={() => stopActiveGeneration()}
             onClose={closeCanvasWindow}

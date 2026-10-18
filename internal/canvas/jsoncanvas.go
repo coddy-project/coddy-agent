@@ -331,9 +331,11 @@ func (d *Document) edgeList() []Edge {
 // is read from its standard fields alone.
 const coddyExt = "coddy"
 
+// frameExt holds what JSON Canvas has no field for and is harmless to take
+// from a file: never a root, which would widen what a page reads (the
+// session keeps those, Board.Roots).
 type frameExt struct {
 	Device  string `json:"device,omitempty"`
-	Root    string `json:"root,omitempty"`
 	Title   string `json:"title,omitempty"`
 	AddedBy string `json:"added_by,omitempty"`
 }

@@ -48,11 +48,30 @@ import { composeCanvasPrompt, pickLabel, type CanvasPick } from "./pickPrompt";
 
 /** What the bar holds, per chat, for the life of the page: closing the window
  *  to read the transcript does not lose a half-written request. */
-const drafts = new Map<string, { text: string; picks: CanvasPick[] }>();
+type Draft = { text: string; picks: CanvasPick[] };
+const drafts = new Map<string, Draft>();
+const draftListeners = new Map<string, (d: Draft) => void>();
 
 /** Forgets every draft (tests only). */
 export function resetCanvasDraftsForTests(): void {
   drafts.clear();
+}
+
+/** Puts a request the server never took back in the bar of its chat, ahead
+ *  of anything written since, whether or not the window is open now. */
+function giveBackDraft(sessionId: string, sent: Draft): void {
+  const cur = drafts.get(sessionId) ?? { text: "", picks: [] };
+  const text =
+    !cur.text.trim() || cur.text.trim() === sent.text.trim()
+      ? sent.text
+      : `${sent.text}\n\n${cur.text}`;
+  const picks = [
+    ...sent.picks,
+    ...cur.picks.filter((p) => !sent.picks.some((s) => s.id === p.id)),
+  ];
+  const next = { text, picks };
+  drafts.set(sessionId, next);
+  draftListeners.get(sessionId)?.(next);
 }
 
 export interface CanvasViewProps {
@@ -65,7 +84,9 @@ export interface CanvasViewProps {
   focusSeq: number;
   /** The chat's turn is running. */
   busy: boolean;
-  onSend: (text: string) => void;
+  /** Sends the prompt; giveBack puts the bar's text and picks back when the
+   *  server never takes it. */
+  onSend: (text: string, giveBack: () => void) => void;
   onStop: () => void;
   onClose: () => void;
 }
@@ -146,6 +167,16 @@ export function CanvasView(props: CanvasViewProps) {
   useEffect(() => {
     drafts.set(props.sessionId, { text, picks });
   }, [props.sessionId, text, picks]);
+  useEffect(() => {
+    const sid = props.sessionId;
+    draftListeners.set(sid, (d) => {
+      setText(d.text);
+      setPicks(d.picks);
+    });
+    return () => {
+      draftListeners.delete(sid);
+    };
+  }, [props.sessionId]);
 
   useLayoutEffect(() => {
     const el = boardRef.current;
@@ -329,9 +360,12 @@ export function CanvasView(props: CanvasViewProps) {
   const send = () => {
     const prompt = composeCanvasPrompt(picks, text);
     if (!prompt) return;
-    props.onSend(prompt);
+    const sent = { text, picks };
+    const sid = props.sessionId;
     setText("");
     setPicks([]);
+    drafts.set(sid, { text: "", picks: [] });
+    props.onSend(prompt, () => giveBackDraft(sid, sent));
     setMode("interact");
   };
 

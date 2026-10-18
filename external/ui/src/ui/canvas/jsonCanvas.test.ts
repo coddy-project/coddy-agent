@@ -10,7 +10,12 @@ import {
   safeLinkUrl,
   sideAnchor,
 } from "./jsonCanvas";
-import { isCanvasFile, normalizeBoard, type CanvasItem } from "./api";
+import {
+  isCanvasFile,
+  isCanvasPage,
+  normalizeBoard,
+  type CanvasItem,
+} from "./api";
 import {
   canvasLinkedFile,
   canvasShowView,
@@ -118,6 +123,10 @@ describe("JSON Canvas nodes", () => {
     expect(isNoteFile("notes/a.md")).toBe(true);
     expect(isCanvasFile("design/Board.canvas")).toBe(true);
     expect(isCanvasFile("design/board.canvas.json")).toBe(false);
+    // What the server runs: an .xhtml file is previewed, never put on the canvas.
+    expect(isCanvasPage("site/index.html")).toBe(true);
+    expect(isCanvasPage("site/INDEX.HTM")).toBe(true);
+    expect(isCanvasPage("site/page.xhtml")).toBe(false);
     expect(safeLinkUrl("https://example.com/a")).toBe("https://example.com/a");
     expect(safeLinkUrl("javascript:alert(1)")).toBeUndefined();
     expect(safeLinkUrl("data:text/html,x")).toBeUndefined();

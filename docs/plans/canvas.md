@@ -325,7 +325,9 @@ Where it plugs into the SPA, following the Files and Edits windows:
   address resolves inside the frame's own address on a node and behind any number of relay mounts)
   inserted after the `<head>` start tag, else the `<html>` one, else the doctype, else first - never
   before the doctype (quirks mode). The handler answers `.coddy/bridge.js` before the dot-name rule, so
-  the name cannot collide with a file of the page. A page over 10 MB is served without the bridge.
+  the name cannot collide with a file of the page. A page over 10 MB is refused by `canvas_show`, and
+  one that grew past it is answered with a short page that says so, with the bridge, so the frame does
+  not read as having left the canvas (final review).
 - `sandbox ... allow-forms` with `form-action 'none'`: without `allow-forms` a sandboxed form never
   fires its `submit` event, so a prototype's script-handled form would not work; `form-action 'none'`
   keeps a submission from leaving. A form that posts somewhere does nothing, which the documentation
@@ -466,11 +468,13 @@ positioned nodes, which is what the canvas is.
   objects, so a key Coddy does not know - a field of a later version, `styleAttributes`, another
   plugin's - and the order of the keys survive every write, and writes it the way Obsidian does, one
   node and one edge per line with tabs, so a change shows in git as the lines it changed. A frame's
-  own settings that the standard has no field for (a device that its size does not say, a root that
-  is not the page's folder, a title, who added it) go under a namespaced `coddy` key of its node,
-  which Obsidian keeps; a node Coddy only moved gets no such key. The generation behind a frame's
-  address is the bundle's (`Board.Gens`), never the file's: a rotation writes nothing to the
-  workspace.
+  own settings that the standard has no field for and that are harmless to take from a file (a
+  device that its size does not say, a title, who added it) go under a namespaced `coddy` key of its
+  node, which Obsidian keeps; a node Coddy only moved gets no such key, and a node Coddy did not move
+  keeps its own numbers (a node smaller than the frame bounds is drawn clamped and stays as it is).
+  The generation behind a frame's address and a root wider than the page's folder are the bundle's
+  (`Board.Gens`, `Board.Roots`), never the file's: a rotation writes nothing to the workspace, and a
+  `.canvas` file that arrives with a checkout cannot widen what its pages read.
 - **Writes.** The file is read again before every write, and only the board's frames and the
   geometry of the items it moved are applied to what is there, so an edit made in Obsidian in
   between is kept. A frame shown on a linked board becomes a file node with an id in Obsidian's shape
@@ -637,3 +641,59 @@ Rejected, with the reason:
   library); the documentation names the trade-off;
 - "ship the share_file fix in its own pull request": the operator's rule is that a fix found on the
   way lands in the change that found it, as its own commit.
+
+## 14. Final review
+
+Reviewers of the pull request (#556): Cursor `auto`, Codex `gpt-6.1-sol` (restarted once after a
+provider error), Devin `swe-2`, all with the checkout to read; Coddy `qwen3.8-27b` on the Go part
+without tools was stopped after 23 minutes of reasoning with no final list, under the operator's
+standing rule, and its drafted points were checked as advisory. Every finding was checked against
+the code; each accepted one has a test that fails without its fix.
+
+Accepted and fixed:
+
+- the root of a frame was reopened by its absolute path, so a root folder swapped for a link after
+  the frame was shown led its address outside the workspace: the root is now opened beneath the
+  workspace with no link on the way and the folder opened checked to be the one inspected (Codex);
+- on Windows a backslash in a frame's path passed the dot-name checks and opened `.env`: frames refuse
+  `\` and NUL, and `webfs.HasDotSegment` treats `\` as a separator, for the preview server too (Codex);
+- relinking a file (and unlinking and linking again) dropped `Board.Gens`, so an address revoked by a
+  rotation applied again: generations survive link changes, and a frame removed through Coddy keeps
+  its generation one up (Codex, Devin);
+- a linked write replayed the whole board, so two chats on one file, or an edit made in Obsidian in
+  between, lost a move, and a stale board recreated a node deleted in the file: a write now applies
+  only what this board changed since it read the file (`Board.read`, `Board.readItems`), leaves a node
+  deleted meanwhile deleted, and takes a per-file lock (Codex);
+- a `.canvas` file could widen a page's root through `coddy.root` (found while checking the above):
+  roots wider than the page's folder are the session's (`Board.Roots`), never read from the file;
+- a write rewrote the geometry of every frame node, so a node smaller than the frame bounds grew in
+  the file: a node Coddy did not move keeps its numbers (found the same way);
+- a frame pointed at another page of its root kept showing the old one (Codex);
+- the canvas bar cleared its text and picks before the server took them, and a refusal lost them: they
+  come back to the bar, ahead of anything written since, without touching the composer's draft (Codex);
+- the renewal of a frame's address compared the server's `expires_at` with the page's clock, so with a
+  clock half a day off the frame reloaded on every read of the board: it is timed on the page's own
+  clock and takes only an address signed since (Cursor);
+- a page over 10 MB was served without the bridge and read as having left the canvas: `canvas_show`
+  refuses it, and one that grew past the limit gets a short page with the bridge that says so (Cursor);
+- a `canvas_inspect` wait that timed out left its waiter behind (Cursor, qwen);
+- a failed export left the new file behind, so a retry found it there (Cursor);
+- the Files window offered Open on canvas for `.xhtml`, which the canvas does not run, and swallowed
+  every refusal: the item follows the extensions the server takes and a refusal shows (Devin);
+- a note card read its `.md` file only when the `.canvas` file changed: it is read again every
+  10 seconds while the board is open, the last text kept on the card meanwhile (Devin).
+
+Rejected:
+
+- echoing `Access-Control-Request-Headers` on a frame's preflight is wider than needed (Cursor): the
+  route carries no credential but the capability in its path, so an allowed header grants nothing;
+- a HEAD of a frame's address goes through the auth gate (qwen): Go's `GET` pattern matches HEAD, and
+  `TestCanvasFrameAnswersHEADWithoutACredential` holds it;
+- `LinkFile` on a linked board switches files silently (qwen, Devin's question): opening another file
+  is the intent, and the generations now carry over.
+
+Left as known limits: every request for a frame's file and every board read loads the board (for a
+linked board, parses the file) and computes the stamps of up to 2000 files per frame (Devin); a cache
+keyed on the modification times is the next step if a large workspace shows it. In interact mode an
+Escape inside a page also steps the window back, by design (6.5).
+
