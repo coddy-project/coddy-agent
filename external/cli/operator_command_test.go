@@ -3,8 +3,12 @@
 package cli
 
 import (
+	"os/exec"
+	"regexp"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -117,5 +121,43 @@ func TestToolBoxShowsTheOperatorCommandRunning(t *testing.T) {
 	text := transcriptText(a)
 	if !strings.Contains(text, "make deploy") || !strings.Contains(text, "step 1 of 3 done") {
 		t.Fatalf("the transcript lacks the running command:\n%s", text)
+	}
+}
+
+// TestLocalShellUsesTheOperatorShell: the console's !! runs in the shell of
+// tools.operator_command, the one shell the operator runs commands in by hand.
+func TestLocalShellUsesTheOperatorShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses $0 of a POSIX shell")
+	}
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	a := newTestApp(t)
+	a.config().Tools.OperatorCommand.Shell = "sh"
+	a.startLocalShell(`echo "shell=$0"`)
+	deadline := time.Now().Add(10 * time.Second)
+	for a.shellActive && time.Now().Before(deadline) {
+		select {
+		case msg := <-a.updatesCh:
+			a.applyLoopMessage(msg)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	if text := transcriptText(a); !regexp.MustCompile(`shell=(\S*/)?sh\s`).MatchString(text) {
+		t.Fatalf("!! did not run in the configured shell:\n%s", text)
+	}
+}
+
+// TestLocalShellRefusesAShellThatIsNotThere: no fallback to another shell.
+func TestLocalShellRefusesAShellThatIsNotThere(t *testing.T) {
+	a := newTestApp(t)
+	a.config().Tools.OperatorCommand.Shell = "no-such-shell-xyz"
+	a.startLocalShell("echo hi")
+	if a.shellActive {
+		t.Fatal("a command started in a shell that does not exist")
+	}
+	if text := transcriptText(a); !strings.Contains(text, "no-such-shell-xyz") {
+		t.Fatalf("the block does not name the missing shell:\n%s", text)
 	}
 }
