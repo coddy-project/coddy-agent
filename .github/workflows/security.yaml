@@ -39,7 +39,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # The docker fallback of scripts/security-scan.sh: the runner ships
       # docker, the images are pinned tag@sha256 in the script (govulncheck
@@ -81,7 +81,7 @@ jobs:
       # raw JSON) as a plain artifact.
       - name: Upload scan reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: security-reports
           path: dist/security/

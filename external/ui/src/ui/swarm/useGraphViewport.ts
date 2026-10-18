@@ -18,10 +18,9 @@ import {
   type Point,
   type Size,
 } from "./graphViewport";
+import { ZOOM_STEP, wheelFactor } from "../components/zoom";
 
 const PADDING = 24;
-const ZOOM_FACTOR = 1.2;
-const WHEEL_DOUBLING_PX = 500;
 const DRAG_SLOP_PX = 4;
 
 const INITIAL_CAMERA: GraphCamera = {
@@ -192,8 +191,8 @@ export function useGraphViewport(props: {
     [geometry, updateCamera],
   );
 
-  const zoomIn = useCallback(() => zoomAt(ZOOM_FACTOR), [zoomAt]);
-  const zoomOut = useCallback(() => zoomAt(1 / ZOOM_FACTOR), [zoomAt]);
+  const zoomIn = useCallback(() => zoomAt(ZOOM_STEP), [zoomAt]);
+  const zoomOut = useCallback(() => zoomAt(1 / ZOOM_STEP), [zoomAt]);
 
   const panBy = useCallback(
     (dx: number, dy: number) => {
@@ -279,13 +278,7 @@ export function useGraphViewport(props: {
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
       const rect = viewport.getBoundingClientRect();
-      const pixels =
-        event.deltaMode === WheelEvent.DOM_DELTA_LINE
-          ? event.deltaY * 16
-          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-            ? event.deltaY * rect.height
-            : event.deltaY;
-      zoomAt(Math.pow(2, -pixels / WHEEL_DOUBLING_PX), {
+      zoomAt(wheelFactor(event.deltaY, event.deltaMode), {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
       });
@@ -458,6 +451,8 @@ export function useGraphViewport(props: {
     },
     consumeGestureClick,
     userAdjusted: camera.userAdjusted,
+    /** The scale as the zoom controls read it, null while fitted. */
+    percent: camera.userAdjusted ? Math.round(camera.scale * 100) : null,
     wheelReady,
   };
 }

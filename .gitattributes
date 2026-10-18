@@ -2,3 +2,7 @@
 # CRLF working copy (Git for Windows defaults to core.autocrlf=true) would fail
 # `make fmt-check` and the gofmt formatter of golangci-lint on every file.
 *.go text eol=lf
+
+# Canvas fixtures are compared byte for byte with what Coddy writes (Obsidian's
+# own sample among them): no line-ending conversion.
+internal/canvas/testdata/** -text

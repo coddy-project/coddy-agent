@@ -23,6 +23,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
+	"github.com/EvilFreelancer/coddy-agent/internal/canvas"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/configapi"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -131,6 +132,9 @@ type Server struct {
 	// removeGoalObserver detaches the session goal observer that feeds
 	// session_goal frames to the events stream.
 	removeGoalObserver func()
+	// removeCanvasObserver detaches the hook that turns board changes into
+	// canvas_changed frames.
+	removeCanvasObserver func()
 
 	codexAuthIssuer string
 	// codexAuthMu guards both browser-login attempt maps; the attempts share
@@ -159,6 +163,9 @@ func (s *Server) Drain() {
 	}
 	if s.removeGoalObserver != nil {
 		s.removeGoalObserver()
+	}
+	if s.removeCanvasObserver != nil {
+		s.removeCanvasObserver()
 	}
 	if s.removeSettingsObserver != nil {
 		s.removeSettingsObserver()
@@ -211,6 +218,9 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
+	// A board changes from a tool call of any surface's turn or from a route
+	// of this server; either way the web UI reads it again on the event.
+	s.removeCanvasObserver = canvas.OnChange(s.publishCanvasChanged)
 	// Several servers may share one manager (tests do), so each takes its own removable
 	// observer registration rather than a single manager-wide slot.
 	if mgr != nil {

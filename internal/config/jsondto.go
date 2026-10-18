@@ -203,6 +203,7 @@ type ToolsJSON struct {
 	Background        ToolBackgroundJSON      `json:"background,omitempty"`
 	PreviewServer     ToolPreviewServerJSON   `json:"preview_server,omitempty"`
 	OperatorCommand   ToolOperatorCommandJSON `json:"operator_command,omitempty"`
+	Canvas            ToolCanvasJSON          `json:"canvas,omitempty"`
 	WebSearch         ToolWebSearchJSON       `json:"websearch,omitempty"`
 	HTTPRequest       ToolHTTPRequestJSON     `json:"http_request,omitempty"`
 }
@@ -254,6 +255,13 @@ type ToolOperatorCommandJSON struct {
 	Enabled     *bool  `json:"enable,omitempty"`
 	Shell       string `json:"shell,omitempty"`
 	Multiplexer string `json:"multiplexer,omitempty"`
+}
+
+// ToolCanvasJSON mirrors ToolCanvas for JSON APIs.
+type ToolCanvasJSON struct {
+	Enabled        *bool    `json:"enable,omitempty"`
+	AllowCDN       *bool    `json:"allow_cdn,omitempty"`
+	AllowedSources []string `json:"allowed_sources,omitempty"`
 }
 
 // ToolOutputLimitsJSON mirrors ToolOutputLimits. Pointer fields keep the
@@ -583,6 +591,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			Shell:       c.Tools.OperatorCommand.Shell,
 			Multiplexer: c.Tools.OperatorCommand.ToolSettings().Multiplexer,
 		},
+		Canvas: ToolCanvasJSON{
+			Enabled:        cloneBoolPtr(c.Tools.Canvas.Enabled),
+			AllowCDN:       cloneBoolPtr(c.Tools.Canvas.AllowCDN),
+			AllowedSources: append([]string(nil), c.Tools.Canvas.AllowedSources...),
+		},
 		HTTPRequest: ToolHTTPRequestJSON{
 			Allowlist:      append([]string(nil), c.Tools.HTTPRequest.Allowlist...),
 			DefaultHeaders: cloneStringMap(c.Tools.HTTPRequest.DefaultHeaders),
@@ -831,6 +844,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			Enabled:     cloneBoolPtr(j.Tools.OperatorCommand.Enabled),
 			Shell:       j.Tools.OperatorCommand.Shell,
 			Multiplexer: j.Tools.OperatorCommand.Multiplexer,
+		},
+		Canvas: ToolCanvas{
+			Enabled:        cloneBoolPtr(j.Tools.Canvas.Enabled),
+			AllowCDN:       cloneBoolPtr(j.Tools.Canvas.AllowCDN),
+			AllowedSources: append([]string(nil), j.Tools.Canvas.AllowedSources...),
 		},
 		HTTPRequest: ToolHTTPRequest{
 			Allowlist:      append([]string(nil), j.Tools.HTTPRequest.Allowlist...),

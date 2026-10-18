@@ -21,9 +21,16 @@ import (
 // Raised from 1_850_000 for the session goal's chip, popover and rows, which
 // are application code every chat may show, and from 1_900_000 when main sat
 // 182 bytes under it and the per-session composer settings (#489) needed
-// about a kilobyte, and from 1_950_000 for the composer's toolset chip and
-// menu and the Toolsets settings tab (#513), which went 7 KB over it.
-const appJSBudget = 2_000_000
+// about a kilobyte, from 1_950_000 for the composer's toolset chip and
+// menu and the Toolsets settings tab (#513), which went 7 KB over it, to
+// 2_050_000 for the canvas (#556), whose board is a lazy chunk of the Files
+// window and leaves every chat only the canvas_show card, Open on canvas and
+// the API client, and by 100 KB from 2_000_000 when main sat 49 bytes under
+// it and the line number gutter of the edits window's diffs needed 279: a
+// margin of 100 KB keeps an ordinary fix from tripping it. KaTeX alone
+// (259 KB) still overruns it, and rendererMarkers catches either renderer
+// whatever its size.
+const appJSBudget = 2_100_000
 
 // systemChunkBudget is the most the System tab's chunk may weigh: the page, its
 // charts and the formatting of the status document, which only that tab uses.

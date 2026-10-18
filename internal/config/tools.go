@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/webfs"
 )
 
 // Permission mode constants: the modes a session runs under.
@@ -48,6 +50,10 @@ type Tools struct {
 	// refused, run by the operator from the web UI or the console, and the
 	// shell the operator runs commands in (the console's !! too).
 	OperatorCommand ToolOperatorCommand `yaml:"operator_command"`
+
+	// Canvas governs the canvas of the web UI: the canvas_show and
+	// canvas_inspect tools and what a frame's page may load.
+	Canvas ToolCanvas `yaml:"canvas"`
 
 	// WebSearch picks the search engines the websearch tool asks, and bounds
 	// how long it may wait for them.
@@ -450,6 +456,9 @@ func (c *Tools) Validate() error {
 	if err := c.OperatorCommand.validate(); err != nil {
 		return err
 	}
+	if err := c.Canvas.validate(); err != nil {
+		return err
+	}
 	if err := c.HTTPRequest.validate(); err != nil {
 		return err
 	}
@@ -531,6 +540,75 @@ type ToolWebSearchSettings struct {
 	CacheTTLSeconds      int
 	SearXNGURL           string
 	BraveAPIKey          string
+}
+
+// CanvasCDNSources are the hosts a canvas frame may load libraries, styles and
+// fonts from while tools.canvas.allow_cdn is on: the CDNs prototypes reach for.
+var CanvasCDNSources = []string{
+	"https://cdn.jsdelivr.net",
+	"https://unpkg.com",
+	"https://cdnjs.cloudflare.com",
+	"https://cdn.tailwindcss.com",
+	"https://fonts.googleapis.com",
+	"https://fonts.gstatic.com",
+}
+
+// ToolCanvas is the YAML tools.canvas section: the canvas of the web UI, where
+// the agent puts pages of the workspace as live frames.
+type ToolCanvas struct {
+	// Enabled offers the canvas_show and canvas_inspect tools and serves
+	// frames. Unset means enabled.
+	Enabled *bool `yaml:"enable"`
+
+	// AllowCDN lets a frame load from CanvasCDNSources. Unset means true.
+	AllowCDN *bool `yaml:"allow_cdn"`
+
+	// AllowedSources are further hosts a frame may load from and connect to,
+	// as CSP sources (https://host, https://*.host, with an optional port
+	// and path).
+	AllowedSources []string `yaml:"allowed_sources"`
+}
+
+// ResolvedEnabled reports whether the canvas is on, defaulting to true.
+func (c *ToolCanvas) ResolvedEnabled() bool {
+	if c == nil || c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
+// Sources is what a frame may load from besides its own files: the CDNs
+// unless allow_cdn is false, then allowed_sources, each once.
+func (c *ToolCanvas) Sources() []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s != "" && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	if c == nil || c.AllowCDN == nil || *c.AllowCDN {
+		for _, s := range CanvasCDNSources {
+			add(s)
+		}
+	}
+	if c != nil {
+		for _, s := range c.AllowedSources {
+			add(s)
+		}
+	}
+	return out
+}
+
+func (c *ToolCanvas) validate() error {
+	for i, s := range c.AllowedSources {
+		if err := webfs.ValidateCSPSource(strings.TrimSpace(s)); err != nil {
+			return fmt.Errorf("tools.canvas.allowed_sources[%d]: %w", i, err)
+		}
+	}
+	return nil
 }
 
 // PreviewServerDefaultHost is where the preview server listens unless the

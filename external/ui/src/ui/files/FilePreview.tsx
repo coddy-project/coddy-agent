@@ -33,7 +33,9 @@ function renderer(type: string, path: string, preview: boolean): Kind {
   if (type.startsWith("audio/")) return "audio";
   if (type.startsWith("video/")) return "video";
   if (type === "application/pdf") return "pdf";
-  return (preview && previewKindOf(path)) || "text";
+  // A .canvas file's board is the Files window's (CanvasBoard), never here.
+  const kind = preview ? previewKindOf(path) : null;
+  return kind === "svg" || kind === "html" ? kind : "text";
 }
 
 function pageOf(line: number): number {

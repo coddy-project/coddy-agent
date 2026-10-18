@@ -286,6 +286,12 @@ pages:
     en:
       title: "Preview server"
       summary: "Serving a project directory on a free localhost port so you can open HTML, JS and CSS work in a browser; the server as a background task, what it refuses to serve, the bind host."
+  features/canvas.md:
+    title: "Холст"
+    summary: "Живые страницы на доске файла .canvas в окне \"Файлы\" веб-интерфейса: canvas_show и canvas_inspect, указание на элемент, чтобы попросить правку, песочница, в которой работает фрейм, и доска как файл .canvas рабочей папки в формате Obsidian, который читается и записывается так, как его пишет Obsidian."
+    en:
+      title: "Canvas"
+      summary: "Live pages on a .canvas board in the Files window of the web UI - canvas_show and canvas_inspect, pointing at an element to ask for a change, the sandbox a frame runs in, and every board an Obsidian .canvas file of the workspace, read and written back as Obsidian writes it."
   features/operator-commands.md:
     title: "Команды оператора"
     summary: "Команда, в которой агенту отказали, запускается вами: карточка только для чтения с кнопками Run, Decline и Stop в веб-интерфейсе и консоли, вывод возвращается в ход, шел оператора, tmux или screen для долгих запусков."

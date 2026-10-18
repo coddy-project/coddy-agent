@@ -33,7 +33,7 @@ The Permission column uses the classes the gate in `internal/agent/react.go` app
 
 ## Shell and background tasks
 
-The `background_*` tools are registered only while `tools.background` is enabled (the default), and `preview_server` while `tools.preview_server` is enabled as well. The guide is [Background tasks](../features/background-tasks.md#model-facing-surface).
+The `background_*` tools are registered only while `tools.background` is enabled (the default), and `preview_server` while `tools.preview_server` is enabled as well. `canvas_show` and `canvas_inspect` are registered while `tools.canvas` is enabled (the default). The guide is [Background tasks](../features/background-tasks.md#model-facing-surface).
 
 | Tool | Purpose | Arguments (short) | Permission | Modes |
 |---|---|---|---|---|
@@ -47,6 +47,8 @@ The `background_*` tools are registered only while `tools.background` is enabled
 | `background_stop` | Terminate a task and everything it spawned | `task_id` | none | agent, plan |
 | `background_reap` | Find and kill processes of this session that outlived the run which started them | none | always | agent |
 | `preview_server` | Serve a directory of the project as a static website on a free localhost port and return the address for the user to open; the server is a background task that runs until it is stopped ([Preview server](../features/preview-server.md)) | `path`, `timeout_seconds` | none | agent |
+| `canvas_show` | Put an HTML page of the workspace on a canvas, a `.canvas` file (JSON Canvas, Obsidian's format) the web UI opens in its Files window, as a live frame at a device size or a custom one, or point a frame at it; without `file` the page goes on the chat's canvas or a new `canvas/<folder>.canvas`, and a `.canvas` file as `path` makes that file the chat's canvas ([Canvas](../features/canvas.md)) | `path`, `file`, `title`, `device`, `width`, `height`, `root`, `frame` | none | agent |
+| `canvas_inspect` | Read what the browser running a canvas frame reported: loaded or not, its title, console errors and warnings, uncaught exceptions; waits for a report on the current files; `file` names the canvas, default the chat's | `file`, `frame`, `wait_seconds` | none | agent |
 | `ssh_run_command` | Run a command on a remote host over SSH, using the agent socket and then key files ([Configuration](../getting-started/configuration.md#ssh-remote-execution)) | `host`, `command`, `port`, `timeout_seconds`, `permission_rationale` | always | agent |
 
 ## Web

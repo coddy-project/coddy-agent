@@ -46,6 +46,18 @@ change touches the chevron, the rows it sits on or the type around them, run
 chevron's ink centre against the label's on a transcript row and on the Tasks panel toggle, and
 fails past **1px**.
 
+## The line numbers of a diff
+
+Every line number cell of a diff in the edits window is as wide as the file's widest number,
+never as its own (**`DESIGN.md`**, *Edits of a chat*): a cell sized by its content put the code of a
+removed or an added line, whose other cell is blank, a few pixels left of the context around it,
+and every vitest still passed. When the change touches **`changes/DiffFileSection.tsx`**, the
+**`.dv-*`** row styles or the type of the diffs, run **`external/ui/scripts/diff-gutter-check.mjs`**
+(**`npm run check:diff-gutter`**) against a **`vite`** dev server (setup in
+**`docs/surfaces/web-ui.md`**, *Checking the line numbers of a diff*): it reads where the code of
+every row starts in the unified view and in each column of the split view, and fails past **0.5px**
+or on a number that does not fit its cell.
+
 ## The composer caret
 
 The composer's textarea keeps the caret and paints its glyphs transparent; the mirror under it
@@ -94,6 +106,22 @@ chat through a swarm relay*): it drives the menu, the dock and the window throug
 authenticated relay, plays a sound from its signed address through the relay, and measures
 the buttons and the window at every tier of the grid in English and in Russian. Run it once more with
 **`CODDY_ENGINE=webkit`** when the change touches the window's layout.
+
+## The canvas
+
+A frame of the canvas is a sandboxed iframe whose page loads its own files from an address that
+carries its capability, through a remote server and a swarm relay alike; whether the page runs,
+whether a pick reaches the page through a CSS-scaled out-of-process frame and whether the window fits
+are facts of a real browser, which jsdom cannot see. When the change touches
+**`external/ui/src/ui/canvas/`**, **`internal/canvas`**, the canvas routes or the relay's mount, run
+**`external/ui/scripts/canvas-check.mjs`** (**`npm run check:canvas`**) against a binary built with
+**`TAGS="http ui swarm"`** (setup in **`docs/surfaces/web-ui.md`**, *Checking the canvas through a
+swarm relay*): it drives a `.canvas` tab of the Files window through an authenticated relay, checks
+the sandbox, a pick, the reload of only the frame whose files moved, a wheel zoom that draws nothing
+again in about one frame, a page leaving the canvas, a frame's address opened on its own, an
+Obsidian `.canvas` file opened in the window, and the window at every tier of the grid in English
+and in Russian. Run it once more with **`CODDY_ENGINE=webkit`** when the change touches the frames'
+scaling or the pointer handling of the board.
 
 ## The shared file cards
 

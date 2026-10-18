@@ -1,4 +1,6 @@
 import {
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -6,6 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { addFrame, isCanvasFile, isCanvasPage } from "../canvas/api";
+import type { CanvasChatProps } from "../canvas/CanvasBoard";
 import { useT } from "../i18n/I18nProvider";
 import { Chevron } from "../components/Chevron";
 import { useEscapeCloses } from "../components/useEscapeCloses";
@@ -32,6 +36,24 @@ import {
   IconSearch,
   IconTree,
 } from "./windowIcons";
+
+// A .canvas file's board is code a chat needs only once one is open: a chunk
+// of its own (features/web_ui_diagrams.feature holds app.js to a budget).
+const CanvasBoard = lazy(() => import("../canvas/CanvasBoard"));
+
+/** A frame of a .canvas file to show, asked for again whenever seq moves. */
+export interface CanvasFocus {
+  file: string;
+  frame: string;
+  seq: number;
+}
+
+const idleCanvas: CanvasChatProps = {
+  epoch: 0,
+  busy: false,
+  onSend: (_text, giveBack) => giveBack(),
+  onStop: () => {},
+};
 
 /** The files a window had open, per chat and workspace, for the life of the page. */
 interface OpenFiles {
@@ -96,6 +118,11 @@ export function FilesView(props: {
   onClose: () => void;
   /** Reports the file and line on show, for the address. */
   onNavigate?: (path: string, line: number) => void;
+  /** What a .canvas file's board needs of the chat: its turn, its prompts,
+   *  how a message of the board goes. */
+  canvas?: CanvasChatProps;
+  /** The frame the agent's last show points at. */
+  canvasFocus?: CanvasFocus;
 }) {
   const { t } = useT();
   const { sessionId } = props;
@@ -131,6 +158,15 @@ export function FilesView(props: {
   const [epoch, setEpoch] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  // The frame a board opens on: the agent's last show, or a page this window
+  // just put on a canvas.
+  const [focus, setFocus] = useState<CanvasFocus>(
+    () => props.canvasFocus ?? { file: "", frame: "", seq: 0 },
+  );
+  const askedFocus = props.canvasFocus;
+  useEffect(() => {
+    if (askedFocus) setFocus(askedFocus);
+  }, [askedFocus]);
 
   const filterRef = useRef<HTMLInputElement | null>(null);
   const moreRef = useRef<HTMLButtonElement | null>(null);
@@ -404,6 +440,40 @@ export function FilesView(props: {
                         <span className="files-menu-check" aria-hidden />
                         {t("files.download")}
                       </button>
+                      {isCanvasPage(active) ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="mode-item files-menu-item"
+                          data-testid="files-open-on-canvas"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            // The page joins the chat's canvas (a new
+                            // canvas/<folder>.canvas when it has none) as a
+                            // frame of its own, or the frame it already has,
+                            // and that file opens on it.
+                            void addFrame(sessionId, "", { path: active }).then(
+                              (res) => {
+                                open(res.file);
+                                setFocus((f) => ({
+                                  file: res.file,
+                                  frame: res.frame.id,
+                                  seq: f.seq + 1,
+                                }));
+                              },
+                              (err: unknown) =>
+                                setNotice(
+                                  err instanceof Error
+                                    ? err.message
+                                    : String(err),
+                                ),
+                            );
+                          }}
+                        >
+                          <span className="files-menu-check" aria-hidden />
+                          {t("canvas.openOnCanvas")}
+                        </button>
+                      ) : null}
                     </>
                   ) : null}
                 </div>
@@ -501,7 +571,19 @@ export function FilesView(props: {
               })}
             </TabStrip>
           ) : null}
-          {active ? (
+          {active && isCanvasFile(active) && previewPrefs.canvas ? (
+            <Suspense fallback={null}>
+              <CanvasBoard
+                key={active}
+                sessionId={sessionId}
+                file={active}
+                focusFrameId={focus.file === active ? focus.frame : ""}
+                focusSeq={focus.file === active ? focus.seq : 0}
+                {...(props.canvas ?? idleCanvas)}
+                onClose={props.onClose}
+              />
+            </Suspense>
+          ) : active ? (
             <FilePreview
               key={active}
               sessionId={sessionId}

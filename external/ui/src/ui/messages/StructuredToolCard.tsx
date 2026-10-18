@@ -1,3 +1,4 @@
+import { openCanvas } from "../canvas/canvasBus";
 import { Children, memo, type ReactNode, type Ref } from "react";
 
 import {
@@ -48,6 +49,7 @@ const structuredNames = new Set([
   "background_stop",
   "background_reap",
   "preview_server",
+  "canvas_show",
   "coddy_docs_search",
   "coddy_docs_read",
   "plan_list",
@@ -521,6 +523,83 @@ function PreviewServerCard(
   );
 }
 
+/** The frame canvas_show reports on its first line, which is fixed:
+ *  "Canvas frame <id> of <file>: <path> (<size>), <reason>." */
+export function canvasShowView(result: string): {
+  frameId: string;
+  file: string;
+  path: string;
+  size: string;
+  reason: string;
+} | null {
+  const m =
+    /^Canvas frame ([A-Za-z0-9_-]+) of (.+?\.canvas): (.+) \(([^)]*)\), (added|shown|updated)\./.exec(
+      result.trim(),
+    );
+  if (!m) return null;
+  return {
+    frameId: m[1]!,
+    file: m[2]!,
+    path: m[3]!,
+    size: m[4]!,
+    reason: m[5]!,
+  };
+}
+
+/** The .canvas file a canvas_show opened as the chat's canvas, when it did. */
+export function canvasOpenedFile(result: string): string | null {
+  const m = /^The canvas of this chat is now (.+?\.canvas): /.exec(
+    result.trim().split("\n", 1)[0] ?? "",
+  );
+  return m ? m[1]! : null;
+}
+
+function CanvasShowCard(props: BodyProps & { args: ToolArgs; result: string }) {
+  const { t } = useT();
+  const view = canvasShowView(props.result);
+  const opened = view ? null : canvasOpenedFile(props.result);
+  const title = str(props.args.title);
+  return (
+    <Card
+      heading={title || view?.path || opened || str(props.args.path)}
+      bodyRef={props.bodyRef}
+      bodyClassName={props.bodyClassName}
+    >
+      {opened ? (
+        <>
+          {fields([[t("canvas.card.file"), <Mono>{opened}</Mono>]])}
+          <button
+            type="button"
+            className="structured-tool-action canvas-card-open"
+            data-testid="canvas-card-open"
+            onClick={() => openCanvas(opened)}
+          >
+            {t("canvas.card.open")}
+          </button>
+        </>
+      ) : view ? (
+        <>
+          {fields([
+            title ? [t("structuredTool.file"), <Mono>{view.path}</Mono>] : null,
+            [t("canvas.card.file"), <Mono>{view.file}</Mono>],
+            [t("structuredTool.size"), view.size],
+          ])}
+          <button
+            type="button"
+            className="structured-tool-action canvas-card-open"
+            data-testid="canvas-card-open"
+            onClick={() => openCanvas(view.file, view.frameId)}
+          >
+            {t("canvas.card.open")}
+          </button>
+        </>
+      ) : (
+        output(props.result)
+      )}
+    </Card>
+  );
+}
+
 function DocsLink(props: { reference: string; children: ReactNode }) {
   const href = docsHrefFromCoddyLink(`coddy:${props.reference}`);
   return href ? (
@@ -946,6 +1025,8 @@ export const StructuredToolCard = memo(function StructuredToolCard(
     );
   if (name === "preview_server")
     return <PreviewServerCard args={args} result={result} {...body} />;
+  if (name === "canvas_show")
+    return <CanvasShowCard args={args} result={result} {...body} />;
   if (name.startsWith("background_"))
     return <BackgroundCard name={name} args={args} result={result} {...body} />;
   if (name === "coddy_docs_search")

@@ -4,6 +4,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	toolcanvas "github.com/EvilFreelancer/coddy-agent/internal/tools/canvas"
 	toolfs "github.com/EvilFreelancer/coddy-agent/internal/tools/fs"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/preview"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
@@ -51,6 +52,10 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 		if cfg == nil || cfg.Tools.PreviewServer.ResolvedEnabled() {
 			preview.RegisterBuiltins(r.Register)
 		}
+	}
+	// The canvas of the web UI: pages of the workspace as live frames.
+	if cfg == nil || cfg.Tools.Canvas.ResolvedEnabled() {
+		toolcanvas.RegisterBuiltins(r.Register)
 	}
 	r.Register(QuestionTool())
 	// The operator runs what the agent was refused; the agent offers it only

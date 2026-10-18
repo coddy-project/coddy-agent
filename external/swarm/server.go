@@ -257,10 +257,18 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// A media element's request carries the node's capability, not a client
-		// token: the mount hands it to the node, which checks it.
-		if s.workspaceMediaCapability(r) {
+		// A media element's request, and a canvas frame's, carries the node's
+		// capability, not a client token: the mount hands it to the node, which
+		// checks it.
+		if s.nodeCapability(r) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		// A page in an opaque origin (a sandboxed frame, a canvas page among
+		// them) is never a client of the swarm: without a client token the
+		// relay would hand its request on with its own node credential.
+		if isOpaqueOrigin(r) {
+			writeError(w, http.StatusForbidden, "requests from an opaque origin are refused")
 			return
 		}
 		tokens := s.clientTokens()
@@ -342,10 +350,53 @@ func (s *Server) workspaceMediaCapability(r *http.Request) bool {
 	return !acceptToken(s.clientTokens(), token)
 }
 
-// mediaCapabilityOnly reports whether r got past the gate on a media
+// canvasFramePath matches a node's canvas frame address behind one or more
+// mount hops: the capability is the path segment after /coddy/canvas/, because
+// a page's relative addresses (its scripts, styles, fetches) keep the path of
+// the page and lose its query.
+var canvasFramePath = regexp.MustCompile(`^(` + regexp.QuoteMeta(swarmdto.MountPath) + `[^/]+)+/coddy/canvas/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)(/.*)?$`)
+
+// canvasCapability reports whether r is a canvas frame's request the relay
+// carries on the node's capability rather than on a client token: a GET or
+// HEAD of a frame address under a mount, with no bearer of its own and a
+// capability segment that is not one of this relay's client tokens. As with
+// media, the relay neither accepts nor vouches for it: the node checks the
+// capability.
+func (s *Server) canvasCapability(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	if bearerOf(r) != "" {
+		return false
+	}
+	m := canvasFramePath.FindStringSubmatch(r.URL.Path)
+	if m == nil {
+		return false
+	}
+	return !acceptToken(s.clientTokens(), m[2])
+}
+
+// isCanvasFramePath reports a frame address under a mount, whatever the
+// method: its preflight is answered here.
+func isCanvasFramePath(p string) bool {
+	return canvasFramePath.MatchString(p)
+}
+
+// nodeCapability reports a request the relay carries on a capability the
+// node signed: a media element's or a canvas frame's.
+func (s *Server) nodeCapability(r *http.Request) bool {
+	return s.workspaceMediaCapability(r) || s.canvasCapability(r)
+}
+
+// isOpaqueOrigin reports a request a page in an opaque origin made.
+func isOpaqueOrigin(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Origin")), "null")
+}
+
+// mediaCapabilityOnly reports whether r got past the gate on a node's
 // capability alone: the relay asks for a client token and r brought none.
 func (s *Server) mediaCapabilityOnly(r *http.Request) bool {
-	return len(s.clientTokens()) > 0 && s.workspaceMediaCapability(r)
+	return len(s.clientTokens()) > 0 && s.nodeCapability(r)
 }
 
 // writeUnauthorized is the gate's refusal: the same plain 401 whatever was
@@ -393,6 +444,25 @@ func bearerOf(r *http.Request) string {
 // talking to the relay's origin whatever happens further down.
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A canvas frame runs in an opaque origin: its own module scripts and
+		// fetches are cross-origin requests from "null", answered for any
+		// origin and without credentials whatever swarm.cors says. The node's
+		// own CORS headers are dropped on the way back like on every route.
+		if isCanvasFramePath(r.URL.Path) {
+			h := w.Header()
+			h.Set("Access-Control-Allow-Origin", "*")
+			if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+				h.Set("Access-Control-Allow-Methods", "GET, HEAD")
+				if req := r.Header.Get("Access-Control-Request-Headers"); req != "" {
+					h.Set("Access-Control-Allow-Headers", req)
+				}
+				h.Set("Access-Control-Max-Age", "600")
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
 		origin := r.Header.Get("Origin")
 		if allow, ok := s.cfg.Swarm.CORS.AllowOrigin(origin); ok {
 			h := w.Header()

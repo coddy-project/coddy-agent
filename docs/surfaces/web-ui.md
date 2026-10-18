@@ -1277,6 +1277,26 @@ On a phone: [390 px](../assets/views-toolbar-dark-390.png). `Ctrl+Shift+F`
 (`Cmd+Shift+F` on a Mac) opens and closes the Files window from anywhere in a chat,
 the composer included.
 
+## Canvas
+
+A `.canvas` file of the workspace opens in the Files window as a board, in its own
+tab: live frames, each a page of the workspace running in a sandbox, the file's cards,
+groups and edges, and a prompt bar under the board, with the permission and question
+cards of the turn above the bar. The Files window opens on it by itself when the agent
+puts a page on a canvas (never on a phone), from the canvas_show card of the transcript
+and from **Open on canvas** in the window's **More** menu for an HTML file; its address
+is the window's, `#/s/<id>/files?path=<file>.canvas`. The board's top left switches
+**Interact** and **Comment**, its top right holds the zoom controls, the same as the
+picture viewer's and the swarm map's (minus, the level, plus; the wheel zooms at the
+pointer), and **Preview** in **More** shows the file's JSON instead. While a board
+shows, the window is opaque and the chat it covers drops its glass: a blur over or
+under a moving board is drawn again on every frame. The guide is
+[Canvas](../features/canvas.md).
+
+![A .canvas file in the Files window in the light theme: two frames of one page, the prompt bar under the board](../assets/canvas/canvas-board-light-1280.png)
+
+*A .canvas file in the Files window, in the light theme.*
+
 ## Workspace files
 
 The **Files** window shows the session's workspace over the chat, the way the
@@ -1456,7 +1476,10 @@ to keep that row in view when the list is long. On a
 phone the window opens on the diffs and the tree switch brings the list over them.
 
 A file section has a sticky header: the name, which folds the diff, then copy-path and
-discard, always in sight, and the file's `+a −b` at the right end. Between hunks sits a wordless separator
+discard, always in sight, and the file's `+a −b` at the right end. The line numbers stand in
+cells as wide as the file's longest number, so the code of every row, a removed or an added one
+included, starts at one edge; inside a change the removed lines come first, then the added ones,
+the way git writes them. Between hunks sits a wordless separator
 rather than an `N unmodified lines` filler row. In a folder with nothing to show it says
 so: clean, or not in a git repository.
 
@@ -1891,9 +1914,11 @@ Guide: `docs/operate/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   or Graph is browser-only state in localStorage key `coddy_swarm_layout`; a
   saved legacy `star` value migrates to Graph, and an absent, blocked or invalid
   value selects Tree. No server configuration changes.
-- The canvas starts fitted. Its Tree/Graph selector and **Zoom out**, **Fit
-  graph**, and **Zoom in** controls are usable with 40px targets on the stacked
-  shell. Wheel zoom follows the pointer, drag pans in both axes even when fitted,
+- The canvas starts fitted. Its Tree/Graph selector and its zoom controls -
+  **Zoom out**, the level and **Zoom in**, the same controls as the picture
+  viewer's and a `.canvas` board's - are usable with 40px targets on the stacked
+  shell; the level shows the zoom as a percentage once the operator zooms or pans,
+  the fit glyph while the map is fitted, and a click on it fits the graph. Wheel zoom follows the pointer, drag pans in both axes even when fitted,
   two-finger pinch zooms, and drag/pinch gestures do not open nodes. When
   focused, **`+`** / **`=`**, **`-`** and **`0`** zoom in, zoom out and fit. Fit,
   a relay change, or a layout change resets the camera; polling refits only an
@@ -1975,7 +2000,10 @@ Guide: `docs/features/built-in-docs.md`. Visual contract: `DESIGN.md` (**Documen
   where it is; a press that travelled pans and does not also toggle the zoom, so
   the click still works for a press that stayed put. The buttons and the keys keep
   the 100 / 150 / 200 / 300 ladder and take the next level above or below wherever
-  a pinch left the picture. A video of a page
+  a pinch left the picture. The controls are the shared zoom controls of the
+  canvas and the swarm map (**`ui/components/ZoomControls.tsx`**), in the viewer's
+  bar beside the close control, and the wheel follows the same rule
+  (**`ui/components/zoom.ts`**: 500 pixels of wheel double the picture). A video of a page
   (a Markdown image whose file is **`.mp4`**, **`.webm`** or **`.mov`**, which is
   what the server makes of a GitHub attachment line) plays in a **`<video>`**
   fetched from GitHub at the release.
@@ -2033,6 +2061,23 @@ CODDY_UI_URL=http://127.0.0.1:5241 npm --prefix external/ui run check:chevron
 ```
 
 **`CODDY_ENGINE=webkit`** (or **`firefox`**) runs the same measurements in another engine, and **`CODDY_CHEVRON_TOLERANCE_PX`** raises the allowance. Like the WebKit harness above, this one is **not part of `make test`**: it is a manual check, run when a change touches the chevron, the rows it sits on or the type around them.
+
+### Checking the line numbers of a diff
+
+Every line number cell of a diff in the edits window is as wide as the file's longest number (**`DESIGN.md`**, *Edits of a chat*), because a cell sized by its own number put the code of a removed or an added line, whose other cell is blank, a few pixels left of the context around it. How wide a cell is drawn is a layout fact, and jsdom has none, so the vitest suite cannot answer it. **`external/ui/scripts/diff-gutter-check.mjs`** measures it in a real engine: in the unified view and in each column of the split view it reads where the code of every row starts, and exits non-zero when two rows differ by more than **0.5px** or when a line number does not fit its cell.
+
+It drives **`src/diff-gutter-check.html`**, a stand that mounts one file of the edits window from the real component against the real stylesheet, with removed and added lines and numbers of two to four digits, so it needs a **`vite`** dev server and no backend at all.
+
+```bash
+cd external/ui && npm i --no-save playwright && npx playwright install chromium
+```
+
+```bash
+cd external/ui && npx vite --port 5242 &
+CODDY_UI_URL=http://127.0.0.1:5242 npm --prefix external/ui run check:diff-gutter
+```
+
+**`CODDY_ENGINE=webkit`** (or **`firefox`**) runs the same measurements in another engine, and **`CODDY_DIFF_GUTTER_TOLERANCE_PX`** raises the allowance. It is **not part of `make test`**: run it when a change touches the diff rows of the edits window, their line numbers or their type.
 
 ### Checking the composer caret at every zoom
 
@@ -2200,6 +2245,38 @@ CODDY_UI_URL=http://127.0.0.1:5247 npm --prefix external/ui run check:diagrams
 ```
 
 The stand also takes **`?theme=<id>`**, **`?lang=ru`** and **`?case=<name>`** (one answer of the stand) for screenshots. **`CODDY_BROWSER_PATH`** and **`CODDY_ENGINE=webkit`** work as in the checks above. It is **not part of `make test`**: run it when a change touches the Markdown renderers, their styles or the build of the chunks.
+
+### Checking the canvas through a swarm relay
+
+The canvas is checked against the real binary by
+**`external/ui/scripts/canvas-check.mjs`**: a scripted model puts a shop page of the
+workspace on a canvas, edits its script and reads the browser's report, a node that
+asks for a bearer token sits behind a relay with its own client token, and the browser
+reaches the node through the relay's mount only. It checks that the Files window opens
+by itself on the `.canvas` file the page went on, with the prompt bar under the board,
+that the page's module script runs in an opaque origin with the parent and the API out
+of reach, that a pick in Comment mode becomes the prompt of the chat, that the page's
+console error reaches `canvas_inspect`, that an edit reloads only the frame whose files
+moved, that the wheel zooms the board without drawing anything on it again and with
+the window's blur off, in about one frame of the screen, that a page which navigated
+away says so and its old address stops working, that a frame's address opened as a
+tab of its own is still sandboxed and refused by an open node, that the window and the
+board's controls fit every tier of the grid in English and in Russian, and that an
+Obsidian `.canvas` file opened in the window becomes the chat's canvas: its page runs,
+its cards, group and edges are drawn, a dragged card and a resized frame move in the
+file with the keys Coddy does not know kept, an edit of the file elsewhere shows on the
+open board, and Preview shows the file's JSON.
+
+```bash
+make build TAGS="http ui swarm"
+cd external/ui && npm i --no-save playwright
+CODDY_BROWSER_PATH=/usr/bin/chromium npm run check:canvas
+```
+
+**`CODDY_SHOTS_DIR`** writes the screenshots of this page and of the canvas guide, and
+**`CODDY_ENGINE=webkit`** runs it in WebKit. It is **not part of `make test`**: run it
+when a change touches `external/ui/src/ui/canvas/`, `internal/canvas`, the canvas routes
+or the relay's mount.
 
 ### Checking the transcript at every width of the grid
 

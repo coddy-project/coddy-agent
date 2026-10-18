@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { parseDiffPatch } from "../messages/parseDiff";
-import { toSplitRows, toUnifiedRows } from "./diffRows";
+import { lineNumberDigits, toSplitRows, toUnifiedRows } from "./diffRows";
 
 function hunksOf(patch: string) {
   return parseDiffPatch(patch, "f.txt").hunks;
@@ -140,5 +140,41 @@ describe("toSplitRows", () => {
       throw new Error("want pairs");
     expect(first.right).toBeNull();
     expect(last.left).toBeNull();
+  });
+});
+
+describe("lineNumberDigits", () => {
+  test("counts the widest number of either column, across hunks", () => {
+    const patch = [
+      "--- a/f.txt",
+      "+++ b/f.txt",
+      "@@ -97,3 +97,3 @@",
+      " keep",
+      "-old",
+      "+new",
+      " tail",
+      "@@ -998,2 +999,2 @@",
+      "-gone",
+      "+came",
+      " last",
+    ].join("\n");
+    // The new column reaches 1000 while the old one stops at 999.
+    expect(lineNumberDigits(hunksOf(patch))).toBe(4);
+  });
+
+  test("a blank cell of a removal or an addition counts for nothing", () => {
+    const patch = [
+      "--- a/f.txt",
+      "+++ b/f.txt",
+      "@@ -120,2 +120,1 @@",
+      " keep",
+      "-old",
+    ].join("\n");
+    expect(lineNumberDigits(hunksOf(patch))).toBe(3);
+  });
+
+  test("a file of a few lines keeps a two-digit gutter", () => {
+    expect(lineNumberDigits(hunksOf(ONE_HUNK))).toBe(2);
+    expect(lineNumberDigits([])).toBe(2);
   });
 });
