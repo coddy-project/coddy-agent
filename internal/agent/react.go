@@ -2528,14 +2528,7 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 	if status == "completed" && execErr == nil {
 		if tc.Name == tools.ShareFileToolName {
 			if artifact, ok := sharedArtifact(sessionDir, result); ok {
-				if previewMeta == nil {
-					previewMeta = map[string]interface{}{}
-				}
-				previewMeta["artifacts"] = []map[string]interface{}{{
-					"id": artifact.ID, "name": artifact.Name, "sha256": artifact.SHA256,
-					"size": artifact.Size, "sourcePath": artifact.SourcePath, "relativePath": artifact.SourceRelativePath,
-					"url": session.ArtifactRoute(sessionID, artifact.ID), "revealUrl": session.ArtifactRoute(sessionID, artifact.ID) + "/reveal",
-				}}
+				previewMeta = sharedArtifactMeta(previewMeta, sessionID, artifact)
 			}
 		}
 		// The pictures the call showed the model (read on an image file), for
