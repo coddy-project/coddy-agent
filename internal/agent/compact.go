@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -99,6 +100,12 @@ type CompactionResult struct {
 	// KeptSteps is how many steps of the turn stayed verbatim after an in-turn
 	// cut.
 	KeptSteps int
+	// MergedSummaries is how many of the earliest summary rows were retold as
+	// one because the chain outgrew its share of the window (compact_merge.go).
+	MergedSummaries int
+	// MergeError is why a merge that was due did not happen. The compaction
+	// itself is done: its block is in the transcript.
+	MergeError string
 }
 
 // compactionSystemPrompt instructs the summarizer model.
@@ -152,8 +159,15 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// about to start (an over-threshold step with nothing earlier to fold used
 	// to run them every time, only to find that out afterwards).
 	msgs := a.state.GetMessages()
+	// The window is the chain of summary rows earlier compactions inserted, then
+	// the verbatim tail after the last of them. Only the tail is folded: the
+	// summaries stay as they were written and the new one goes after them
+	// (issue #361).
+	blocks, tailStart := session.LLMWindow(msgs)
 	visible := session.MessagesForLLM(msgs)
-	visibleStart := len(msgs) - len(visible)
+	// viewOffset maps the tail into the window: msgs[i] is visible[i-viewOffset]
+	// for every i from tailStart on (the chain's rows sit in front of the tail).
+	viewOffset := tailStart - len(blocks)
 	var splitIdx int
 	var plan *inTurnPlan
 	// The projection the fold summarizes, built once and only when something
@@ -172,7 +186,7 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	}
 	if opts.InTurn {
 		var planErr error
-		if plan, planErr = a.planInTurn(opts, msgs, visibleStart, project()); planErr != nil {
+		if plan, planErr = a.planInTurn(opts, msgs, viewOffset, project()); planErr != nil {
 			return nil, planErr
 		}
 		splitIdx = plan.idx
@@ -217,16 +231,19 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 		if i := lastToolCallMessageIndex(msgs); i >= 0 && splitIdx > i {
 			splitIdx = i
 		}
-		headStart := visibleStart
-		if len(visible) > 0 && visible[0].CompactionSummary {
-			headStart++
-		}
-		if splitIdx <= headStart {
-			return nil, ErrNothingToCompact
-		}
 	}
-	if splitIdx < visibleStart || splitIdx > len(msgs) {
-		return nil, fmt.Errorf("invalid compaction boundary %d for visible window %d..%d", splitIdx, visibleStart, len(msgs))
+	if splitIdx > len(msgs) {
+		return nil, fmt.Errorf("invalid compaction boundary %d for the tail %d..%d", splitIdx, tailStart, len(msgs))
+	}
+	// A boundary at the start of the tail or before it leaves nothing to fold:
+	// the history up to there is in the chain already. It is where a turn whose
+	// prompt an in-turn fold took away is counted from (the last block), and
+	// where a second /compact with nothing said since the first one cuts.
+	// Nor does a head of nothing but /compact commands and their answers, the
+	// rows a /compact typed into the chat leaves after its own summary: folding
+	// them would add a block that summarizes a command.
+	if splitIdx <= tailStart || onlyCompactCommands(msgs[tailStart:splitIdx]) {
+		return nil, ErrNothingToCompact
 	}
 	// What goes in front of the summary when an in-turn fold takes the turn's
 	// opening prompt out of the window.
@@ -251,13 +268,17 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// supervisor's next continuation and the model read the same story. Added
 	// after the hooks, which see the operator's own words only.
 	instructions = withGoalSummaryInstructions(a.state, instructions)
+	// A merge of the chain keeps the operator's and the goal's notes, not the
+	// in-turn one: the rows it retells are summaries, not work in progress.
+	mergeInstructions := instructions
 	// A cut inside the turn tells the summarizer the work is still going on and
-	// that the request stays in front of its summary.
-	if prefix != "" {
+	// that the request stays ahead of its summary: in front of it on the first
+	// fold of the turn, in the row of that fold on a later one.
+	if plan != nil && !plan.regular {
 		instructions = withInTurnSummaryInstructions(instructions)
 	}
 
-	head := project()[:splitIdx-visibleStart]
+	head := project()[len(blocks) : splitIdx-viewOffset]
 
 	chain, err := a.compactionChain(override, reasoning)
 	if err != nil {
@@ -278,10 +299,18 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// The first of the chain sets the size; a fallback below it reads the same
 	// pass, which is why the share is a share rather than the whole window.
 	window, _ := a.contextWindowFor(chain[0].modelID)
-	budget := compactionInputBudget(window, session.EstimateContextTokens(instructions))
+	// The summaries already written are what the new one continues: the
+	// summarizer reads them so it does not repeat them, and never retells them.
+	// They are reference only and take at most half of a pass: the chain is
+	// sized against the session's window, and a summarizer with a smaller one
+	// would otherwise get passes with no room for the transcript, or none that
+	// fit at all.
+	instructionTokens := session.EstimateContextTokens(instructions)
+	earlier := renderEarlierSummaries(visible[:len(blocks)], compactionInputBudget(window, instructionTokens)/compactionCarryShare)
+	budget := compactionInputBudget(window, instructionTokens+session.EstimateContextTokens(earlier))
 
 	row := a.newCompactionRow()
-	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, head, instructions, budget, row.step)
+	summary, modelID, steps, err := a.foldCompactionHead(ctx, chain, earlier, head, instructions, budget, row.step)
 	if err != nil {
 		row.failed(err)
 		return nil, err
@@ -290,12 +319,20 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	// A cut inside the turn takes the prompt out of the window with the steps,
 	// so the row that replaces them begins with it (the prompt's pictures stay
 	// in the transcript; they are not copied onto the row).
-	summaryRow := session.NewCompactionSummaryMessage(summary, modelID)
+	summaryRow := session.NewCompactionBlockMessage(summary, modelID, len(blocks) > 0)
 	if prefix != "" {
 		summaryRow = session.NewInTurnCompactionSummaryMessage(prefix, summary, modelID)
+		summaryRow.CompactionBlock = true
 	}
 	a.state.InsertCompactionSummary(splitIdx, summaryRow)
-	// The history the provider had cached is rewritten from here on, which
+	// The chain grows by a row per compaction; one that outgrew its share of the
+	// window has its earliest rows retold as one. A merge that fails leaves the
+	// chain as it was and the compaction done.
+	merged, mergeErr := a.mergeChain(ctx, chain, mergeInstructions, row.step)
+	if mergeErr != nil {
+		a.log.Warn("compaction could not merge the earliest summaries; the chain stays as it is", "error", mergeErr)
+	}
+	// The history the provider had cached changes from the new block on, which
 	// makes this the moment to read the standing rules again: an AGENTS.md or
 	// a rule file edited since the session started reaches the next system
 	// prompt, and a rule the summary folded away comes back with the next
@@ -314,6 +351,10 @@ func (a *Agent) CompactSession(ctx context.Context, opts CompactOptions) (*Compa
 	}
 	if plan != nil && !plan.regular {
 		res.InTurn, res.KeptSteps = true, plan.keptSteps
+	}
+	res.MergedSummaries = merged
+	if mergeErr != nil {
+		res.MergeError = mergeErr.Error()
 	}
 	row.done(compactionOutcomeText(res))
 	return res, nil
@@ -338,6 +379,12 @@ func compactionOutcomeText(res *CompactionResult) string {
 	if res.Steps > 1 {
 		text += fmt.Sprintf(" The history did not fit one summarization request, so it was folded in %d passes.", res.Steps)
 	}
+	if res.MergedSummaries > 0 {
+		text += fmt.Sprintf(" The %d earliest summaries were merged into one to keep them within their share of the context window.", res.MergedSummaries)
+	}
+	if res.MergeError != "" {
+		text += " The earliest summaries could not be merged and stay as they are: " + res.MergeError
+	}
 	return text
 }
 
@@ -353,7 +400,7 @@ func (a *Agent) compactFromTool(ctx context.Context, req tooling.CompactRequest)
 	})
 	switch {
 	case errors.Is(err, ErrNothingToCompact):
-		return "Nothing to compact: there is no earlier conversation to summarize yet.", nil
+		return "Nothing to compact: there is no earlier conversation to summarize yet, or nothing new since the last compaction.", nil
 	case errors.Is(err, ErrCompactionDisabled):
 		return "", err
 	case err != nil:
@@ -493,7 +540,7 @@ func (a *Agent) runCompactCommand(ctx context.Context, args compactCommandArgs, 
 		// are. Nothing was compacted and nothing failed, so the turn ends.
 		text = "Nothing was compacted: " + strings.TrimPrefix(err.Error(), ErrCompactionModel.Error()+": ") + ". " + compactUsage
 	case errors.Is(err, ErrNothingToCompact):
-		text = "Nothing to compact: there is no earlier conversation to summarize yet."
+		text = "Nothing to compact: there is no earlier conversation to summarize yet, or nothing new since the last compaction."
 	case errors.Is(err, ErrCompactionDisabled):
 		text = "Compaction is disabled in the configuration (compaction.enable: false)."
 	case err != nil:
@@ -541,6 +588,26 @@ func (a *Agent) addUserCommandMessage(text string) {
 		Content:   text,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+// onlyCompactCommands reports a run of rows that holds nothing but /compact
+// commands, each followed by its one-line answer (runCompactCommand).
+func onlyCompactCommands(rows []llm.Message) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	for i := 0; i < len(rows); i++ {
+		if rows[i].Role != llm.RoleUser {
+			return false
+		}
+		if _, ok := parseCompactCommand(rows[i].Content); !ok {
+			return false
+		}
+		if i+1 < len(rows) && rows[i+1].Role == llm.RoleAssistant && len(rows[i+1].ToolCalls) == 0 {
+			i++
+		}
+	}
+	return true
 }
 
 // maybeAutoCompact runs compaction when the estimated context usage reached
@@ -743,6 +810,45 @@ func renderCompactionMessage(m llm.Message) string {
 	return b.String()
 }
 
+// earlierSummariesCutMarker stands in for the oldest summary rows the
+// summarizer's request has no room for; its one verb is how many were left out.
+const earlierSummariesCutMarker = "[%d earlier summaries left out of this request for room]"
+
+// renderEarlierSummaries is the text of the summary rows of the chain, oldest
+// first, as the summarizer reads them ahead of the transcript it folds, within
+// maxTokens: the newest rows in a row, as many as fit whole, the rest left out
+// (a later row may correct an earlier one, so none is skipped over), and a
+// newest row larger than maxTokens on its own cut in the middle. The chain
+// itself is not touched.
+func renderEarlierSummaries(rows []llm.Message, maxTokens int) string {
+	var parts []string
+	used, left := 0, 0
+	for i := len(rows) - 1; i >= 0; i-- {
+		s := strings.TrimSpace(rows[i].Content)
+		if s == "" {
+			continue
+		}
+		n := session.EstimateContextTokens(s)
+		switch {
+		case left > 0:
+			left++
+		case used+n <= maxTokens:
+			parts = append(parts, s)
+			used += n
+		case len(parts) == 0:
+			parts = append(parts, elideToTokens(s, maxTokens))
+			used = maxTokens
+		default:
+			left++
+		}
+	}
+	if left > 0 {
+		parts = append(parts, fmt.Sprintf(earlierSummariesCutMarker, left))
+	}
+	slices.Reverse(parts)
+	return strings.Join(parts, "\n\n---\n\n")
+}
+
 // renderCompactionTranscript is the whole run of messages the summarizer reads
 // in one call.
 func renderCompactionTranscript(msgs []llm.Message) string {
@@ -756,7 +862,7 @@ func renderCompactionTranscript(msgs []llm.Message) string {
 // buildCompactionRequest flattens the head of the conversation into a single
 // summarization request.
 func buildCompactionRequest(head []llm.Message, instructions string) []llm.Message {
-	return compactionRequest("", renderCompactionTranscript(head), instructions)
+	return compactionRequest("", "", renderCompactionTranscript(head), instructions)
 }
 
 // compactionRequest is one summarization call: the summary of everything
@@ -764,8 +870,15 @@ func buildCompactionRequest(head []llm.Message, instructions string) []llm.Messa
 // multi-step one) followed by the next run of transcript. carry travels as
 // part of the same user message so a provider that caches by prefix is not
 // asked to keep a message that changes every pass.
-func compactionRequest(carry, body, instructions string) []llm.Message {
+func compactionRequest(earlier, carry, body, instructions string) []llm.Message {
 	var b strings.Builder
+	if strings.TrimSpace(earlier) != "" {
+		b.WriteString("The conversation was compacted before. The summaries written then stay in the context as they are, ")
+		b.WriteString("and the summary you write is read after them. They are here for reference only: do not repeat what they say, ")
+		b.WriteString("summarize only the transcript below, and refer to them where the transcript builds on them.\n\n<earlier-summaries>\n")
+		b.WriteString(earlier)
+		b.WriteString("\n</earlier-summaries>\n\n")
+	}
 	if strings.TrimSpace(carry) != "" {
 		b.WriteString("This conversation is being summarized in several passes because it does not fit one request. ")
 		b.WriteString("Below is the summary of everything before this point, then the next part of the transcript. ")
