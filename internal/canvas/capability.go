@@ -21,11 +21,14 @@ const maxCapability = 4096
 const capabilityKind = "canvas"
 
 // Claim is what a frame's address grants: the files of one frame's root, in
-// one workspace, of one session's board, until it expires.
+// one workspace, of one node of one .canvas file as one chat shows it, until it
+// expires.
 type Claim struct {
-	Version   int    `json:"v"`
-	Kind      string `json:"k"`
-	Session   string `json:"s"`
+	Version int    `json:"v"`
+	Kind    string `json:"k"`
+	Session string `json:"s"`
+	// File is the board's .canvas file, relative to the workspace.
+	File      string `json:"c"`
 	Frame     string `json:"f"`
 	Workspace string `json:"w"`
 	Root      string `json:"r"`
@@ -85,7 +88,7 @@ func VerifyCapability(key []byte, token string, now time.Time) (Claim, error) {
 		return Claim{}, bad
 	}
 	unix := now.Unix()
-	if c.Version != 1 || c.Kind != capabilityKind || c.Session == "" || c.Frame == "" || c.Workspace == "" {
+	if c.Version != 1 || c.Kind != capabilityKind || c.Session == "" || c.File == "" || c.Frame == "" || c.Workspace == "" {
 		return Claim{}, bad
 	}
 	if c.Expires <= unix || c.Expires > unix+int64(CapabilityTTL/time.Second) {

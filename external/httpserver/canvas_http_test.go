@@ -32,8 +32,10 @@ func canvasRequest(e *changesEnv, method, target, body string, headers map[strin
 }
 
 type addedFrame struct {
-	Reason string `json:"reason"`
-	Frame  struct {
+	Reason  string `json:"reason"`
+	File    string `json:"file"`
+	Created bool   `json:"created"`
+	Frame   struct {
 		ID    string `json:"id"`
 		Path  string `json:"path"`
 		Root  string `json:"root"`
@@ -43,6 +45,7 @@ type addedFrame struct {
 	} `json:"frame"`
 }
 
+// addCanvasFrame shows a page on the chat's canvas, made for it at first.
 func addCanvasFrame(t *testing.T, e *changesEnv, path string, headers map[string]string) addedFrame {
 	t.Helper()
 	w := canvasRequest(e, "POST", "/coddy/sessions/"+e.id+"/canvas/frames", `{"path":"`+path+`"}`, headers)
@@ -68,15 +71,16 @@ func TestCanvasFrameRoundTrip(t *testing.T) {
 	e := newChangesEnv(t)
 	sitePage(t, e.cwd)
 	added := addCanvasFrame(t, e, "site/index.html", nil)
-	if added.Reason != canvas.ReasonAdded || added.Frame.Root != "site" || added.Frame.Gen != 1 || added.Frame.Stamp == "" {
+	if added.Reason != canvas.ReasonAdded || added.File != "canvas/site.canvas" || !added.Created || added.Frame.Root != "site" || added.Frame.Gen != 1 || added.Frame.Stamp == "" {
 		t.Fatalf("added %+v", added)
 	}
 	if !strings.HasPrefix(added.Frame.URL, "/coddy/canvas/") || !strings.HasSuffix(added.Frame.URL, "/index.html") {
 		t.Fatalf("frame url %q", added.Frame.URL)
 	}
 
+	// Without a file the chat's current canvas answers.
 	board := canvasRequest(e, "GET", "/coddy/sessions/"+e.id+"/canvas", "", nil)
-	if board.Code != 200 || !strings.Contains(board.Body.String(), added.Frame.ID) {
+	if board.Code != 200 || !strings.Contains(board.Body.String(), added.Frame.ID) || !strings.Contains(board.Body.String(), `"file":"canvas/site.canvas","current":true`) {
 		t.Fatalf("board %d %s", board.Code, board.Body)
 	}
 
@@ -102,7 +106,10 @@ func TestCanvasFrameRoundTrip(t *testing.T) {
 		}
 	}
 
-	del := canvasRequest(e, "DELETE", "/coddy/sessions/"+e.id+"/canvas/frames/"+added.Frame.ID, "", nil)
+	if w := canvasRequest(e, "DELETE", "/coddy/sessions/"+e.id+"/canvas/frames/"+added.Frame.ID, "", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("a removal naming no file answered %d", w.Code)
+	}
+	del := canvasRequest(e, "DELETE", "/coddy/sessions/"+e.id+"/canvas/frames/"+added.Frame.ID+"?file=canvas/site.canvas", "", nil)
 	if del.Code != 200 {
 		t.Fatalf("remove %d %s", del.Code, del.Body)
 	}
@@ -115,7 +122,7 @@ func TestCanvasRotateRevokesTheOldAddress(t *testing.T) {
 	e := newChangesEnv(t)
 	sitePage(t, e.cwd)
 	added := addCanvasFrame(t, e, "site/index.html", nil)
-	w := canvasRequest(e, "POST", "/coddy/sessions/"+e.id+"/canvas/frames/"+added.Frame.ID+"/rotate", "", nil)
+	w := canvasRequest(e, "POST", "/coddy/sessions/"+e.id+"/canvas/frames/"+added.Frame.ID+"/rotate?file="+added.File, "", nil)
 	if w.Code != 200 {
 		t.Fatalf("rotate %d %s", w.Code, w.Body)
 	}
@@ -136,13 +143,30 @@ func TestCanvasAddressRefusals(t *testing.T) {
 	e := newChangesEnv(t)
 	sitePage(t, e.cwd)
 	added := addCanvasFrame(t, e, "site/index.html", nil)
+	claim := func(c canvas.Claim) canvas.Claim {
+		c.Session, c.Workspace = e.id, workspaceIdentity(e.cwd)
+		if c.File == "" {
+			c.File = added.File
+		}
+		if c.Frame == "" {
+			c.Frame = added.Frame.ID
+		}
+		return c
+	}
+	sign := func(c canvas.Claim, at time.Time) string {
+		return canvas.SignCapability(e.srv.canvasKey(), claim(c), at)
+	}
 	cases := map[string]string{
 		"garbage":     "/coddy/canvas/not-a-token/index.html",
-		"other key":   "/coddy/canvas/" + canvas.SignCapability([]byte("other"), canvas.Claim{Session: e.id, Frame: added.Frame.ID, Workspace: workspaceIdentity(e.cwd), Root: "site", Gen: 1}, time.Now()) + "/index.html",
-		"other root":  "/coddy/canvas/" + canvas.SignCapability(e.srv.canvasKey(), canvas.Claim{Session: e.id, Frame: added.Frame.ID, Workspace: workspaceIdentity(e.cwd), Root: "", Gen: 1}, time.Now()) + "/secret.txt",
-		"other gen":   "/coddy/canvas/" + canvas.SignCapability(e.srv.canvasKey(), canvas.Claim{Session: e.id, Frame: added.Frame.ID, Workspace: workspaceIdentity(e.cwd), Root: "site", Gen: 7}, time.Now()) + "/index.html",
-		"expired":     "/coddy/canvas/" + canvas.SignCapability(e.srv.canvasKey(), canvas.Claim{Session: e.id, Frame: added.Frame.ID, Workspace: workspaceIdentity(e.cwd), Root: "site", Gen: 1}, time.Now().Add(-13*time.Hour)) + "/index.html",
-		"other frame": "/coddy/canvas/" + canvas.SignCapability(e.srv.canvasKey(), canvas.Claim{Session: e.id, Frame: "fr_other", Workspace: workspaceIdentity(e.cwd), Root: "site", Gen: 1}, time.Now()) + "/index.html",
+		"other key":   "/coddy/canvas/" + canvas.SignCapability([]byte("other"), claim(canvas.Claim{Root: "site", Gen: 1}), time.Now()) + "/index.html",
+		"other root":  "/coddy/canvas/" + sign(canvas.Claim{Root: "", Gen: 1}, time.Now()) + "/secret.txt",
+		"other gen":   "/coddy/canvas/" + sign(canvas.Claim{Root: "site", Gen: 7}, time.Now()) + "/index.html",
+		"expired":     "/coddy/canvas/" + sign(canvas.Claim{Root: "site", Gen: 1}, time.Now().Add(-13*time.Hour)) + "/index.html",
+		"other frame": "/coddy/canvas/" + sign(canvas.Claim{Frame: "ffffffffffffffff", Root: "site", Gen: 1}, time.Now()) + "/index.html",
+		"other file":  "/coddy/canvas/" + sign(canvas.Claim{File: "canvas/other.canvas", Root: "site", Gen: 1}, time.Now()) + "/index.html",
+		"other workspace": "/coddy/canvas/" + canvas.SignCapability(e.srv.canvasKey(), canvas.Claim{
+			Session: e.id, File: added.File, Frame: added.Frame.ID, Workspace: workspaceIdentity(t.TempDir()), Root: "site", Gen: 1,
+		}, time.Now()) + "/index.html",
 	}
 	for name, target := range cases {
 		if w := canvasRequest(e, "GET", target, "", nil); w.Code != http.StatusUnauthorized && w.Code != http.StatusNotFound {
@@ -222,11 +246,12 @@ func TestCanvasReportReachesTheStore(t *testing.T) {
 	sitePage(t, e.cwd)
 	added := addCanvasFrame(t, e, "site/index.html", nil)
 	body := `{"stamp":"` + added.Frame.Stamp + `","loaded":true,"title":"Shop","console":[{"level":"error","message":"boom","source":"app.js","line":3}]}`
-	if w := canvasRequest(e, "POST", "/coddy/sessions/"+e.id+"/canvas/frames/"+added.Frame.ID+"/report", body, nil); w.Code != http.StatusNoContent {
+	if w := canvasRequest(e, "POST", "/coddy/sessions/"+e.id+"/canvas/frames/"+added.Frame.ID+"/report?file="+added.File, body, nil); w.Code != http.StatusNoContent {
 		t.Fatalf("report %d %s", w.Code, w.Body)
 	}
-	defer canvas.DefaultReports().Forget(e.id, added.Frame.ID)
-	rep, ok := canvas.DefaultReports().Get(e.id, added.Frame.ID)
+	key := canvas.NodeKey(added.File, added.Frame.ID)
+	defer canvas.DefaultReports().Forget(e.id, key)
+	rep, ok := canvas.DefaultReports().Get(e.id, key)
 	if !ok || rep.Stamp != added.Frame.Stamp || len(rep.Console) != 1 || rep.Console[0].Line != 3 {
 		t.Fatalf("stored report %+v", rep)
 	}
@@ -234,7 +259,7 @@ func TestCanvasReportReachesTheStore(t *testing.T) {
 	if !strings.Contains(board.Body.String(), `"errors":1`) {
 		t.Fatalf("the board does not count the error: %s", board.Body)
 	}
-	if w := canvasRequest(e, "POST", "/coddy/sessions/"+e.id+"/canvas/frames/fr_nope/report", body, nil); w.Code != http.StatusNotFound {
+	if w := canvasRequest(e, "POST", "/coddy/sessions/"+e.id+"/canvas/frames/nope/report?file="+added.File, body, nil); w.Code != http.StatusNotFound {
 		t.Fatalf("a report for an unknown frame answered %d", w.Code)
 	}
 }
@@ -250,7 +275,7 @@ func TestCanvasChangesAreAnnouncedOnTheEventsStream(t *testing.T) {
 		select {
 		case f := <-frames:
 			s := string(f)
-			if strings.HasPrefix(s, "event: canvas_changed\n") && strings.Contains(s, added.Frame.ID) && strings.Contains(s, `"reason":"added"`) && strings.Contains(s, e.id) {
+			if strings.HasPrefix(s, "event: canvas_changed\n") && strings.Contains(s, added.Frame.ID) && strings.Contains(s, `"reason":"added"`) && strings.Contains(s, e.id) && strings.Contains(s, `"file":"canvas/site.canvas"`) {
 				return
 			}
 		case <-deadline:
@@ -277,6 +302,8 @@ func TestCanvasOpenAPIListsTheRoutes(t *testing.T) {
 	paths := openAPISpec()["paths"].(map[string]interface{})
 	for _, p := range []string{
 		"/coddy/sessions/{id}/canvas",
+		"/coddy/sessions/{id}/canvas/open",
+		"/coddy/sessions/{id}/canvas/nodes",
 		"/coddy/sessions/{id}/canvas/frames",
 		"/coddy/sessions/{id}/canvas/frames/{frame}",
 		"/coddy/sessions/{id}/canvas/frames/{frame}/rotate",
@@ -298,60 +325,51 @@ const obsidianShopCanvas = `{
 }
 `
 
-func TestCanvasLinkedFileRoutes(t *testing.T) {
+func TestCanvasFileRoutes(t *testing.T) {
 	e := newChangesEnv(t)
 	sitePage(t, e.cwd)
 	writeInWorkspace(t, e.cwd, "design/shop.canvas", obsidianShopCanvas)
 	sess := "/coddy/sessions/" + e.id + "/canvas"
 
-	w := canvasRequest(e, "POST", sess+"/link", `{"path":"design/shop.canvas"}`, nil)
+	// A chat with no canvas yet answers with no file.
+	if w := canvasRequest(e, "GET", sess, "", nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"file":""`) {
+		t.Fatalf("no canvas %d %s", w.Code, w.Body)
+	}
+	w := canvasRequest(e, "POST", sess+"/open?file=design/shop.canvas", "", nil)
 	if w.Code != 200 {
-		t.Fatalf("link %d %s", w.Code, w.Body)
+		t.Fatalf("open %d %s", w.Code, w.Body)
 	}
 	var b canvasBoardJSON
 	if err := json.Unmarshal(w.Body.Bytes(), &b); err != nil {
 		t.Fatal(err)
 	}
-	if b.Link == nil || b.Link.Path != "design/shop.canvas" || b.Link.Stamp == "" || len(b.Frames) != 1 || len(b.Items) != 1 || len(b.Edges) != 1 {
-		t.Fatalf("linked board %s", w.Body)
+	if b.File != "design/shop.canvas" || !b.Current || b.Stamp == "" || len(b.Frames) != 1 || len(b.Items) != 1 || len(b.Edges) != 1 {
+		t.Fatalf("opened board %s", w.Body)
 	}
 	if page := canvasRequest(e, "GET", b.Frames[0].URL, "", nil); page.Code != 200 || !strings.Contains(page.Body.String(), "bridge.js") {
 		t.Fatalf("a frame of the file did not serve: %d", page.Code)
 	}
 
-	if w := canvasRequest(e, "PATCH", sess+"/nodes", `{"nodes":[{"id":"5c0b1f2e3d4a5b6c","x":-500,"y":40}]}`, nil); w.Code != 200 {
+	if w := canvasRequest(e, "PATCH", sess+"/nodes?file=design/shop.canvas", `{"nodes":[{"id":"5c0b1f2e3d4a5b6c","x":-500,"y":40},{"id":"9a8b7c6d5e4f3a2b","device":"phone"}]}`, nil); w.Code != 200 {
 		t.Fatalf("move a card %d %s", w.Code, w.Body)
 	}
 	file := readInWorkspace(t, e.cwd, "design/shop.canvas")
-	if !strings.Contains(file, "\t\t\t\"x\":-500,\n\t\t\t\"y\":40,") || !strings.Contains(file, `"styleAttributes":{}`) {
+	if !strings.Contains(file, "\t\t\t\"x\":-500,\n\t\t\t\"y\":40,") || !strings.Contains(file, `"styleAttributes":{}`) || !strings.Contains(file, `"width":390,"height":844`) {
 		t.Fatalf("the file after the move:\n%s", file)
 	}
-	if w := canvasRequest(e, "PATCH", sess+"/nodes", `{"nodes":[{"id":"nope","x":1}]}`, nil); w.Code != http.StatusNotFound {
+	if w := canvasRequest(e, "PATCH", sess+"/nodes?file=design/shop.canvas", `{"nodes":[{"id":"nope","x":1}]}`, nil); w.Code != http.StatusNotFound {
 		t.Fatalf("an unknown node answered %d", w.Code)
 	}
-	if w := canvasRequest(e, "POST", sess+"/export", `{"path":"design/copy.canvas"}`, nil); w.Code != http.StatusConflict {
-		t.Fatalf("an export of a linked board answered %d", w.Code)
+	// A page shown without a file goes on the file the chat opened.
+	if added := addCanvasFrame(t, e, "site/index.html", nil); added.File != "design/shop.canvas" || added.Created {
+		t.Fatalf("a page after the open %+v", added)
 	}
-
-	if w := canvasRequest(e, "DELETE", sess+"/link", "", nil); w.Code != 200 || strings.Contains(w.Body.String(), `"link"`) {
-		t.Fatalf("unlink %d %s", w.Code, w.Body)
+	if w := canvasRequest(e, "POST", sess+"/frames?file=boards/mine.canvas", `{"path":"site/index.html"}`, nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("a page onto a missing file answered %d", w.Code)
 	}
-	if w := canvasRequest(e, "DELETE", sess+"/link", "", nil); w.Code != http.StatusConflict {
-		t.Fatalf("a second unlink answered %d", w.Code)
-	}
-	addCanvasFrame(t, e, "site/index.html", nil)
-	if w := canvasRequest(e, "POST", sess+"/export", `{"path":"design/shop.canvas"}`, nil); w.Code != http.StatusConflict {
-		t.Fatalf("an export over an existing file answered %d", w.Code)
-	}
-	if w := canvasRequest(e, "POST", sess+"/export", `{"path":"boards/mine.canvas"}`, nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"path":"boards/mine.canvas"`) {
-		t.Fatalf("export %d %s", w.Code, w.Body)
-	}
-	if !strings.Contains(readInWorkspace(t, e.cwd, "boards/mine.canvas"), `"file":"site/index.html"`) {
-		t.Fatal("the exported file has no node for the frame")
-	}
-	for _, body := range []string{`{"path":"../x.canvas"}`, `{"path":"/etc/x.canvas"}`, `{"path":"site/index.html"}`} {
-		if w := canvasRequest(e, "POST", sess+"/link", body, nil); w.Code != http.StatusBadRequest {
-			t.Errorf("link %s answered %d", body, w.Code)
+	for _, q := range []string{"../x.canvas", "/etc/x.canvas", "site/index.html", "missing.canvas"} {
+		if w := canvasRequest(e, "POST", sess+"/open?file="+q, "", nil); w.Code != http.StatusBadRequest {
+			t.Errorf("open %s answered %d", q, w.Code)
 		}
 	}
 }

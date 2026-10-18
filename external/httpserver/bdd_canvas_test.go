@@ -42,6 +42,7 @@ type canvasFeature struct {
 	events []sseFrame
 
 	frame canvasFrameJSON
+	file  string
 }
 
 func (s *canvasFeature) reset() error {
@@ -187,11 +188,22 @@ func (s *canvasFeature) readBoard() (canvasBoardJSON, error) {
 	return b, json.NewDecoder(res.Body).Decode(&b)
 }
 
-func (s *canvasFeature) canvasHoldsOneFrame(path string, width, height int) error {
+func (s *canvasFeature) canvasHoldsOneFrame(file, path string, width, height int) error {
 	b, err := s.readBoard()
 	if err != nil {
 		return err
 	}
+	if b.File != file || !b.Current {
+		return fmt.Errorf("the chat's canvas is %q (current %v), want %q", b.File, b.Current, file)
+	}
+	raw, err := os.ReadFile(filepath.Join(s.cwd, filepath.FromSlash(file)))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(raw), `"file":"`+path+`"`) {
+		return fmt.Errorf("%s has no file node for the page:\n%s", file, raw)
+	}
+	s.file = b.File
 	if len(b.Frames) != 1 {
 		return fmt.Errorf("the canvas holds %d frames: %+v", len(b.Frames), b.Frames)
 	}
@@ -280,7 +292,7 @@ func (s *canvasFeature) personAsked(text string) error {
 	if len(b.Frames) != 1 {
 		return fmt.Errorf("the canvas holds %d frames", len(b.Frames))
 	}
-	s.frame = b.Frames[0]
+	s.frame, s.file = b.Frames[0], b.File
 	return nil
 }
 
@@ -289,7 +301,7 @@ func (s *canvasFeature) browserReportsError(message string) error {
 		"stamp": s.frame.Stamp, "loaded": true, "title": "Shop",
 		"console": []map[string]any{{"level": "error", "message": message, "source": "app.js", "line": 1}},
 	})
-	res, err := http.Post(s.ts.URL+"/coddy/sessions/"+s.sid+"/canvas/frames/"+s.frame.ID+"/report", "application/json", bytes.NewReader(body))
+	res, err := http.Post(s.ts.URL+"/coddy/sessions/"+s.sid+"/canvas/frames/"+s.frame.ID+"/report?file="+s.file, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -301,7 +313,7 @@ func (s *canvasFeature) browserReportsError(message string) error {
 }
 
 func (s *canvasFeature) agentReadPageOutput(message string) error {
-	defer canvas.DefaultReports().Forget(s.sid, s.frame.ID)
+	defer canvas.DefaultReports().Forget(s.sid, canvas.NodeKey(s.file, s.frame.ID))
 	st := s.srv.mgr.SessionByID(s.sid)
 	if st == nil {
 		return fmt.Errorf("no session")
@@ -319,7 +331,7 @@ func (s *canvasFeature) agentReadPageOutput(message string) error {
 }
 
 func (s *canvasFeature) personRemovesFrame() error {
-	req, _ := http.NewRequest(http.MethodDelete, s.ts.URL+"/coddy/sessions/"+s.sid+"/canvas/frames/"+s.frame.ID, nil)
+	req, _ := http.NewRequest(http.MethodDelete, s.ts.URL+"/coddy/sessions/"+s.sid+"/canvas/frames/"+s.frame.ID+"?file="+s.file, nil)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
@@ -367,9 +379,10 @@ func (s *canvasFeature) canvasIsTheFile(rel string) error {
 	if err != nil {
 		return err
 	}
-	if b.Link == nil || b.Link.Path != rel || b.Link.Error != "" {
-		return fmt.Errorf("the canvas is not %s: %+v", rel, b.Link)
+	if b.File != rel || !b.Current || b.Error != "" {
+		return fmt.Errorf("the canvas is not %s: %q %v %q", rel, b.File, b.Current, b.Error)
 	}
+	s.file = b.File
 	if len(b.Frames) != 1 || b.Frames[0].Path != "site/index.html" || b.Frames[0].Device != canvas.DevicePhone {
 		return fmt.Errorf("frames %+v", b.Frames)
 	}
@@ -384,7 +397,7 @@ func (s *canvasFeature) canvasIsTheFile(rel string) error {
 }
 
 func (s *canvasFeature) personMovesTheNote() error {
-	req, _ := http.NewRequest(http.MethodPatch, s.ts.URL+"/coddy/sessions/"+s.sid+"/canvas/nodes", strings.NewReader(`{"nodes":[{"id":"6e0d3c2b1a0f9e8d","x":-460,"y":60}]}`))
+	req, _ := http.NewRequest(http.MethodPatch, s.ts.URL+"/coddy/sessions/"+s.sid+"/canvas/nodes?file="+s.file, strings.NewReader(`{"nodes":[{"id":"6e0d3c2b1a0f9e8d","x":-460,"y":60}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -432,7 +445,7 @@ func initializeCanvasScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a browser following the server's events$`, s.browserFollowsEvents)
 	sc.Step(`^the person asks "([^"]*)"$`, s.personAsks)
 	sc.Step(`^the person asked "([^"]*)"$`, s.personAsked)
-	sc.Step(`^the canvas of the chat holds one frame for "([^"]*)" at (\d+)x(\d+)$`, s.canvasHoldsOneFrame)
+	sc.Step(`^the chat's canvas is the new file "([^"]*)" holding one frame for "([^"]*)" at (\d+)x(\d+)$`, s.canvasHoldsOneFrame)
 	sc.Step(`^the events stream announced the frame as added$`, s.eventsAnnouncedAdded)
 	sc.Step(`^the frame's address serves the page with the bridge under a sandbox policy$`, s.frameServesThePage)
 	sc.Step(`^the frame's module script loads from the frame's opaque origin$`, s.moduleLoadsFromOpaqueOrigin)

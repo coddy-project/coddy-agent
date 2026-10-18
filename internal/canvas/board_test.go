@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
-	"strings"
 	"sync"
 	"testing"
 )
@@ -32,71 +32,100 @@ func workspace(t *testing.T, files ...string) (ws, bundle string) {
 	return ws, bundle
 }
 
-func TestShowAddsAFrameAtTheDeviceSize(t *testing.T) {
-	ws, bundle := workspace(t, "site/index.html")
-	res, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/index.html", AddedBy: "agent"})
+// boardOn is a workspace with an empty board file, design/board.canvas.
+func boardOn(t *testing.T, files ...string) Ref {
+	t.Helper()
+	ws, bundle := workspace(t, files...)
+	if err := createCanvasFile(ws, "design/board.canvas"); err != nil {
+		t.Fatal(err)
+	}
+	return Ref{Bundle: bundle, Workspace: ws, File: "design/board.canvas"}
+}
+
+var obsidianID = regexp.MustCompile(`^[0-9a-f]{16}$`)
+
+func TestShowWithoutAFileMakesOneNamedAfterThePagesFolder(t *testing.T) {
+	ws, bundle := workspace(t, "site/index.html", "other/index.html")
+	ref := Ref{Bundle: bundle, Workspace: ws}
+	res, err := Show(ref, ShowRequest{Path: "site/index.html", AddedBy: "agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Reason != ReasonAdded {
-		t.Fatalf("reason %q, want %q", res.Reason, ReasonAdded)
+	if !res.Created || res.Board.File != "canvas/site.canvas" || res.Reason != ReasonAdded {
+		t.Fatalf("show %+v", res)
 	}
 	f := res.Frame
-	if f.Path != "site/index.html" || f.Root != "site" || f.Workspace != ws {
-		t.Fatalf("frame paths %+v", f)
+	if !obsidianID.MatchString(f.ID) || f.Path != "site/index.html" || f.Root != "site" || f.Workspace != ws {
+		t.Fatalf("frame %+v", f)
 	}
-	if f.Device != DeviceDesktop || f.Width != 1280 || f.Height != 800 {
+	if f.Device != DeviceDesktop || f.Width != 1280 || f.Height != 800 || f.AddedBy != "agent" || f.Gen != 1 {
 		t.Fatalf("frame size %+v", f)
 	}
-	if !strings.HasPrefix(f.ID, "fr_") || f.AddedBy != "agent" || f.AddedAt.IsZero() {
-		t.Fatalf("frame identity %+v", f)
+	d := readDoc(t, filepath.Join(ws, "canvas", "site.canvas"))
+	if d.findNode(f.ID) < 0 {
+		t.Fatal("the frame is not a node of the new file")
 	}
-	if res.Board.Revision != 1 || len(res.Board.Frames) != 1 {
-		t.Fatalf("board %+v", res.Board)
+	if cur, _ := Current(bundle, ws); cur != "canvas/site.canvas" {
+		t.Fatalf("current file %q", cur)
 	}
-	if _, err := os.Stat(filepath.Join(bundle, FileName)); err != nil {
-		t.Fatalf("board file not written: %v", err)
-	}
-	loaded, err := Load(bundle)
+	// The next page without a file goes on the same board.
+	next, err := Show(ref, ShowRequest{Path: "other/index.html"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := loaded.Frame(f.ID); !ok || got.Path != f.Path {
-		t.Fatalf("reloaded board %+v", loaded)
+	if next.Created || next.Board.File != "canvas/site.canvas" || len(next.Board.Frames) != 2 {
+		t.Fatalf("second show %+v", next)
+	}
+}
+
+func TestANewBoardTakesTheNextFreeName(t *testing.T) {
+	ws, bundle := workspace(t, "site/index.html")
+	if err := createCanvasFile(ws, "canvas/site.canvas"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Show(Ref{Bundle: bundle, Workspace: ws}, ShowRequest{Path: "site/index.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Board.File != "canvas/site-2.canvas" || !res.Created {
+		t.Fatalf("board file %q created %v", res.Board.File, res.Created)
+	}
+	// A page at the top of the workspace names the file after itself.
+	ws2, bundle2 := workspace(t, "landing.html")
+	res, err = Show(Ref{Bundle: bundle2, Workspace: ws2}, ShowRequest{Path: "landing.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Board.File != "canvas/landing.canvas" {
+		t.Fatalf("board file %q", res.Board.File)
 	}
 }
 
 func TestShowTheSameFileAtTheSameSizeKeepsOneFrame(t *testing.T) {
-	ws, bundle := workspace(t, "site/index.html")
-	first, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/index.html"})
+	ref := boardOn(t, "site/index.html")
+	first, err := Show(ref, ShowRequest{Path: "site/index.html"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := Show(bundle, ShowRequest{Workspace: ws, Path: filepath.Join(ws, "site", "index.html"), Title: "Landing"})
+	again, err := Show(ref, ShowRequest{Path: filepath.Join(ref.Workspace, "site", "index.html"), Title: "Landing"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if again.Reason != ReasonShown || again.Frame.ID != first.Frame.ID {
 		t.Fatalf("second show %q %s, want %q %s", again.Reason, again.Frame.ID, ReasonShown, first.Frame.ID)
 	}
-	if len(again.Board.Frames) != 1 || again.Board.Revision != 2 {
+	if len(again.Board.Frames) != 1 || again.Board.Revision != 2 || again.Frame.Title != "Landing" {
 		t.Fatalf("board %+v", again.Board)
-	}
-	if again.Frame.Title != "Landing" {
-		t.Fatalf("title %q", again.Frame.Title)
-	}
-	if !again.Frame.ShownAt.After(first.Frame.ShownAt) && !again.Frame.ShownAt.Equal(first.Frame.ShownAt) {
-		t.Fatalf("shown_at went back: %v then %v", first.Frame.ShownAt, again.Frame.ShownAt)
 	}
 }
 
 func TestShowTheSameFileAtAnotherSizeAddsAFrameBesideIt(t *testing.T) {
-	ws, bundle := workspace(t, "site/index.html")
-	desk, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/index.html"})
+	ref := boardOn(t, "site/index.html")
+	desk, err := Show(ref, ShowRequest{Path: "site/index.html"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	phone, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/index.html", Device: DevicePhone})
+	phone, err := Show(ref, ShowRequest{Path: "site/index.html", Device: DevicePhone})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +138,7 @@ func TestShowTheSameFileAtAnotherSizeAddsAFrameBesideIt(t *testing.T) {
 	if phone.Frame.X < desk.Frame.X+desk.Frame.Width {
 		t.Fatalf("phone frame at x=%d overlaps the desktop one ending at %d", phone.Frame.X, desk.Frame.X+desk.Frame.Width)
 	}
-	custom, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/index.html", Width: 1024, Height: 600})
+	custom, err := Show(ref, ShowRequest{Path: "site/index.html", Width: 1024, Height: 600})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,12 +148,12 @@ func TestShowTheSameFileAtAnotherSizeAddsAFrameBesideIt(t *testing.T) {
 }
 
 func TestShowUpdatesANamedFrameInPlace(t *testing.T) {
-	ws, bundle := workspace(t, "a/index.html", "b/index.html")
-	first, err := Show(bundle, ShowRequest{Workspace: ws, Path: "a/index.html"})
+	ref := boardOn(t, "a/index.html", "a/other.html", "b/index.html")
+	first, err := Show(ref, ShowRequest{Path: "a/index.html"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	upd, err := Show(bundle, ShowRequest{Workspace: ws, Path: "b/index.html", FrameID: first.Frame.ID, Device: DeviceTablet})
+	upd, err := Show(ref, ShowRequest{Path: "b/index.html", FrameID: first.Frame.ID, Device: DeviceTablet})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +163,18 @@ func TestShowUpdatesANamedFrameInPlace(t *testing.T) {
 	if upd.Frame.Width != 820 || upd.Frame.Height != 1180 || len(upd.Board.Frames) != 1 {
 		t.Fatalf("updated board %+v", upd.Board)
 	}
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "a/index.html", FrameID: "fr_missing"}); !errors.Is(err, ErrFrameNotFound) {
+	// Another page is loaded at a new address, even in the same folder.
+	if upd.Frame.Gen != first.Frame.Gen+1 {
+		t.Fatalf("pointing a frame at another page kept generation %d", upd.Frame.Gen)
+	}
+	same, err := Show(ref, ShowRequest{Path: "b/index.html", FrameID: first.Frame.ID, Device: DevicePhone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.Frame.Gen != upd.Frame.Gen {
+		t.Fatalf("resizing a frame moved its generation to %d", same.Frame.Gen)
+	}
+	if _, err := Show(ref, ShowRequest{Path: "a/index.html", FrameID: "missing"}); !errors.Is(err, ErrFrameNotFound) {
 		t.Fatalf("unknown frame: %v", err)
 	}
 }
@@ -167,19 +207,16 @@ func TestShowRefusesWhatIsNotAPageOfTheWorkspace(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := tc.req
-			req.Workspace = ws
-			if _, err := Show(bundle, req); err == nil {
-				t.Fatalf("Show(%+v) succeeded", req)
+			if _, err := Show(Ref{Bundle: bundle, Workspace: ws}, tc.req); err == nil {
+				t.Fatalf("Show(%+v) succeeded", tc.req)
 			}
 		})
 	}
-	b, err := Load(bundle)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(ws, "canvas")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused shows made a board: %v", err)
 	}
-	if len(b.Frames) != 0 {
-		t.Fatalf("refused shows left frames: %+v", b.Frames)
+	if _, err := Show(Ref{Bundle: bundle, Workspace: ws, File: "site/index.html"}, ShowRequest{Path: "site/index.html"}); err == nil {
+		t.Fatal("a page went onto a file that is not a .canvas one")
 	}
 }
 
@@ -187,15 +224,15 @@ func TestShowRefusesALinkOutOfTheWorkspace(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks need privileges on Windows")
 	}
-	ws, bundle := workspace(t, "site/index.html")
+	ref := boardOn(t, "site/index.html")
 	outside := t.TempDir()
 	if err := os.WriteFile(filepath.Join(outside, "page.html"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(outside, "page.html"), filepath.Join(ws, "site", "linked.html")); err != nil {
+	if err := os.Symlink(filepath.Join(outside, "page.html"), filepath.Join(ref.Workspace, "site", "linked.html")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/linked.html"}); err == nil {
+	if _, err := Show(ref, ShowRequest{Path: "site/linked.html"}); err == nil {
 		t.Fatal("a link out of the workspace was put on the canvas")
 	}
 }
@@ -205,77 +242,73 @@ func TestShowRefusesPastTheFrameLimit(t *testing.T) {
 	for i := range files {
 		files[i] = fmt.Sprintf("p%02d.html", i)
 	}
-	ws, bundle := workspace(t, files...)
+	ref := boardOn(t, files...)
 	for i := 0; i < MaxFrames; i++ {
-		if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: files[i]}); err != nil {
+		if _, err := Show(ref, ShowRequest{Path: files[i]}); err != nil {
 			t.Fatalf("frame %d: %v", i, err)
 		}
 	}
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: files[MaxFrames]}); !errors.Is(err, ErrTooManyFrames) {
+	if _, err := Show(ref, ShowRequest{Path: files[MaxFrames]}); !errors.Is(err, ErrTooManyFrames) {
 		t.Fatalf("frame past the limit: %v", err)
 	}
 	// Showing one already there is still fine at the limit.
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: files[0]}); err != nil {
+	if _, err := Show(ref, ShowRequest{Path: files[0]}); err != nil {
 		t.Fatalf("showing an existing frame at the limit: %v", err)
 	}
 }
 
-func TestUpdateAndRemoveAFrame(t *testing.T) {
-	ws, bundle := workspace(t, "site/index.html")
-	res, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/index.html"})
+func TestUpdateNodesAndRemoveAFrame(t *testing.T) {
+	ref := boardOn(t, "site/index.html")
+	res, err := Show(ref, ShowRequest{Path: "site/index.html"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	title, x, y := "Hero", 40, 120
+	x, y := 40, 120
 	phone := DevicePhone
-	b, f, err := Update(bundle, res.Frame.ID, Patch{Title: &title, X: &x, Y: &y, Device: &phone})
+	b, err := UpdateNodes(ref, []NodeChange{{ID: res.Frame.ID, X: &x, Y: &y, Device: &phone}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Title != "Hero" || f.X != 40 || f.Y != 120 || f.Width != 390 || f.Device != DevicePhone || b.Revision != 2 {
-		t.Fatalf("patched frame %+v", f)
+	f, _ := b.Frame(res.Frame.ID)
+	if f.X != 40 || f.Y != 120 || f.Width != 390 || f.Device != DevicePhone || b.Revision != 2 {
+		t.Fatalf("changed frame %+v", f)
 	}
 	w, h := 5000, 800
-	if _, _, err := Update(bundle, res.Frame.ID, Patch{Width: &w, Height: &h}); err == nil {
+	if _, err := UpdateNodes(ref, []NodeChange{{ID: res.Frame.ID, Width: &w, Height: &h}}); err == nil {
 		t.Fatal("an out-of-range size was accepted")
 	}
-	if _, _, err := Update(bundle, "fr_nope", Patch{Title: &title}); !errors.Is(err, ErrFrameNotFound) {
-		t.Fatalf("patch of an unknown frame: %v", err)
+	if _, err := UpdateNodes(ref, []NodeChange{{ID: "nope", X: &x}}); !errors.Is(err, ErrFrameNotFound) {
+		t.Fatalf("a change of an unknown node: %v", err)
 	}
-	b, err = Remove(bundle, res.Frame.ID)
+	b, err = Remove(ref, res.Frame.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(b.Frames) != 0 {
 		t.Fatalf("frame still there: %+v", b)
 	}
-	if _, err := Remove(bundle, res.Frame.ID); !errors.Is(err, ErrFrameNotFound) {
+	if _, err := Remove(ref, res.Frame.ID); !errors.Is(err, ErrFrameNotFound) {
 		t.Fatalf("second remove: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(ws, "site", "index.html")); err != nil {
-		t.Fatalf("removing a frame touched the file: %v", err)
+	if _, err := os.Stat(filepath.Join(ref.Workspace, "site", "index.html")); err != nil {
+		t.Fatalf("removing a frame touched the page: %v", err)
 	}
 }
 
-func TestLoadAMissingBoardIsEmptyAndACorruptOneIsAnError(t *testing.T) {
-	_, bundle := workspace(t)
-	b, err := Load(bundle)
-	if err != nil || len(b.Frames) != 0 || b.Revision != 0 {
-		t.Fatalf("missing board: %+v %v", b, err)
-	}
-	if err := os.WriteFile(filepath.Join(bundle, FileName), []byte("{not json"), 0o600); err != nil {
+func TestACorruptBookkeepingIsAnErrorAndIsNotOverwritten(t *testing.T) {
+	ref := boardOn(t, "index.html")
+	if err := os.WriteFile(filepath.Join(ref.Bundle, FileName), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(bundle); err == nil {
-		t.Fatal("a corrupt board loaded")
+	if _, err := Load(ref); err == nil {
+		t.Fatal("a corrupt bookkeeping loaded")
 	}
-	ws, _ := workspace(t, "index.html")
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "index.html"}); err == nil {
-		t.Fatal("Show overwrote a corrupt board")
+	if _, err := Show(ref, ShowRequest{Path: "index.html"}); err == nil {
+		t.Fatal("Show overwrote a corrupt bookkeeping")
 	}
-	raw, _ := os.ReadFile(filepath.Join(bundle, FileName))
+	raw, _ := os.ReadFile(filepath.Join(ref.Bundle, FileName))
 	if string(raw) != "{not json" {
-		t.Fatalf("corrupt board rewritten: %q", raw)
+		t.Fatalf("corrupt bookkeeping rewritten: %q", raw)
 	}
 }
 
@@ -296,19 +329,20 @@ func TestBoardBundleOfASubagentIsTheRootOfItsSpawnTree(t *testing.T) {
 	}
 }
 
-func TestConcurrentShowsKeepEveryFrame(t *testing.T) {
+func TestConcurrentShowsKeepEveryFrameOnOneBoard(t *testing.T) {
 	files := make([]string, 10)
 	for i := range files {
 		files[i] = fmt.Sprintf("v%d/index.html", i)
 	}
 	ws, bundle := workspace(t, files...)
+	ref := Ref{Bundle: bundle, Workspace: ws}
 	var wg sync.WaitGroup
 	errs := make(chan error, len(files))
 	for _, f := range files {
 		wg.Add(1)
 		go func(f string) {
 			defer wg.Done()
-			if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: f}); err != nil {
+			if _, err := Show(ref, ShowRequest{Path: f}); err != nil {
 				errs <- err
 			}
 		}(f)
@@ -318,24 +352,22 @@ func TestConcurrentShowsKeepEveryFrame(t *testing.T) {
 	for err := range errs {
 		t.Fatal(err)
 	}
-	b, err := Load(bundle)
+	made, _ := filepath.Glob(filepath.Join(ws, "canvas", "*.canvas"))
+	if len(made) != 1 {
+		t.Fatalf("concurrent shows made %d boards: %v", len(made), made)
+	}
+	cur, _ := Current(bundle, ws)
+	b, err := Load(Ref{Bundle: bundle, Workspace: ws, File: cur})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(b.Frames) != len(files) || b.Revision != int64(len(files)) {
 		t.Fatalf("board after concurrent shows: %d frames, revision %d", len(b.Frames), b.Revision)
 	}
-	seen := map[string]bool{}
-	for _, f := range b.Frames {
-		if seen[f.ID] {
-			t.Fatalf("duplicate frame id %s", f.ID)
-		}
-		seen[f.ID] = true
-	}
 }
 
 func TestEveryChangeIsAnnounced(t *testing.T) {
-	ws, bundle := workspace(t, "index.html")
+	ref := boardOn(t, "index.html")
 	var mu sync.Mutex
 	var got []Change
 	stop := OnChange(func(c Change) {
@@ -344,14 +376,14 @@ func TestEveryChangeIsAnnounced(t *testing.T) {
 		got = append(got, c)
 	})
 	defer stop()
-	res, err := Show(bundle, ShowRequest{Workspace: ws, Path: "index.html"})
+	res, err := Show(ref, ShowRequest{Path: "index.html"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "index.html"}); err != nil {
+	if _, err := Show(ref, ShowRequest{Path: "index.html"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Remove(bundle, res.Frame.ID); err != nil {
+	if _, err := Remove(ref, res.Frame.ID); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -361,29 +393,85 @@ func TestEveryChangeIsAnnounced(t *testing.T) {
 	}
 	want := []string{ReasonAdded, ReasonShown, ReasonRemoved}
 	for i, c := range got {
-		if c.Reason != want[i] || c.SessionID != "sess_root" || c.Bundle != bundle || c.FrameID != res.Frame.ID || c.Revision != int64(i+1) {
+		if c.Reason != want[i] || c.SessionID != "sess_root" || c.File != ref.File || c.FrameID != res.Frame.ID || c.Revision != int64(i+1) {
 			t.Fatalf("change %d: %+v", i, c)
 		}
 	}
 }
 
 func TestRotateMovesTheFrameToANewGeneration(t *testing.T) {
-	ws, bundle := workspace(t, "index.html")
-	res, err := Show(bundle, ShowRequest{Workspace: ws, Path: "index.html"})
+	ref := boardOn(t, "index.html")
+	res, err := Show(ref, ShowRequest{Path: "index.html"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Frame.Gen != 1 {
 		t.Fatalf("new frame generation %d", res.Frame.Gen)
 	}
-	b, f, err := Rotate(bundle, res.Frame.ID)
+	b, f, err := Rotate(ref, res.Frame.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if f.Gen != 2 || b.Revision != 2 {
 		t.Fatalf("rotated frame %+v revision %d", f, b.Revision)
 	}
-	if _, _, err := Rotate(bundle, "fr_nope"); !errors.Is(err, ErrFrameNotFound) {
+	if _, _, err := Rotate(ref, "nope"); !errors.Is(err, ErrFrameNotFound) {
 		t.Fatalf("rotate of an unknown frame: %v", err)
+	}
+}
+
+func TestOpenMakesAFileTheOneTheAgentShowsOn(t *testing.T) {
+	ref := boardOn(t, "site/index.html")
+	if err := createCanvasFile(ref.Workspace, "plans/flow.canvas"); err != nil {
+		t.Fatal(err)
+	}
+	other := ref
+	other.File = "plans/flow.canvas"
+	b, err := Open(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.File != "plans/flow.canvas" {
+		t.Fatalf("opened %q", b.File)
+	}
+	res, err := Show(Ref{Bundle: ref.Bundle, Workspace: ref.Workspace}, ShowRequest{Path: "site/index.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Board.File != "plans/flow.canvas" || res.Created {
+		t.Fatalf("a show after the open went to %q (created %v)", res.Board.File, res.Created)
+	}
+	if err := os.WriteFile(filepath.Join(ref.Workspace, "broken.canvas"), []byte("{nope"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	broken := ref
+	broken.File = "broken.canvas"
+	if _, err := Open(broken); err == nil {
+		t.Fatal("a file that does not parse was opened")
+	}
+	if cur, _ := Current(ref.Bundle, ref.Workspace); cur != "plans/flow.canvas" {
+		t.Fatalf("a refused open moved the current file to %q", cur)
+	}
+}
+
+func TestTheBookkeepingOfAnotherWorkspaceDoesNotApply(t *testing.T) {
+	ref := boardOn(t, "site/index.html")
+	if _, err := Show(ref, ShowRequest{Path: "site/index.html", Root: "."}); err != nil {
+		t.Fatal(err)
+	}
+	// The chat moved to a worktree with the same files.
+	other, _ := workspace(t, "site/index.html")
+	if err := createCanvasFile(other, ref.File); err != nil {
+		t.Fatal(err)
+	}
+	if cur, _ := Current(ref.Bundle, other); cur != "" {
+		t.Fatalf("the current file of another workspace applies: %q", cur)
+	}
+	st, err := LoadState(ref.Bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.in(other); got.Roots != nil || got.Current != "" {
+		t.Fatalf("the roots of another workspace apply: %+v", got)
 	}
 }

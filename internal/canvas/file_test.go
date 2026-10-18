@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -32,17 +33,19 @@ const obsidianCanvas = `{
 }
 `
 
-func linkedWorkspace(t *testing.T) (ws, bundle, file string) {
+// obsidianBoard is a workspace whose board design/shop.canvas is
+// obsidianCanvas.
+func obsidianBoard(t *testing.T) (Ref, string) {
 	t.Helper()
-	ws, bundle = workspace(t, "site/index.html", "site/about.html", "notes/brief.md", "other/index.html")
-	file = filepath.Join(ws, "design", "shop.canvas")
+	ws, bundle := workspace(t, "site/index.html", "site/about.html", "notes/brief.md", "other/index.html")
+	file := filepath.Join(ws, "design", "shop.canvas")
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(file, []byte(obsidianCanvas), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return ws, bundle, file
+	return Ref{Bundle: bundle, Workspace: ws, File: "design/shop.canvas"}, file
 }
 
 func readDoc(t *testing.T, file string) *Document {
@@ -91,15 +94,15 @@ func TestADocumentRoundTripsWhatItDoesNotKnow(t *testing.T) {
 	}
 }
 
-func TestLinkingAFileShowsItsPagesAsFramesAndLeavesTheFileAlone(t *testing.T) {
-	ws, bundle, file := linkedWorkspace(t)
+func TestReadingAFileShowsItsPagesAsFramesAndLeavesTheFileAlone(t *testing.T) {
+	ref, file := obsidianBoard(t)
 	before, _ := os.ReadFile(file)
-	b, err := LinkFile(bundle, ws, "design/shop.canvas")
+	b, err := Load(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Link == nil || b.Link.Path != "design/shop.canvas" || b.LinkError != "" {
-		t.Fatalf("link %+v %q", b.Link, b.LinkError)
+	if b.File != "design/shop.canvas" || b.Error != "" {
+		t.Fatalf("board %q %q", b.File, b.Error)
 	}
 	if len(b.Frames) != 1 {
 		t.Fatalf("frames %+v", b.Frames)
@@ -125,22 +128,22 @@ func TestLinkingAFileShowsItsPagesAsFramesAndLeavesTheFileAlone(t *testing.T) {
 	if len(b.Edges) != 2 || b.Edges[0].Label != "opens" {
 		t.Fatalf("edges %+v", b.Edges)
 	}
+	if _, err := Open(ref); err != nil {
+		t.Fatal(err)
+	}
 	after, _ := os.ReadFile(file)
 	if !bytes.Equal(before, after) {
-		t.Fatal("linking rewrote the file")
+		t.Fatal("reading and opening the board rewrote its file")
 	}
 }
 
-func TestChangesOfALinkedBoardAreWrittenBackToTheFile(t *testing.T) {
-	ws, bundle, file := linkedWorkspace(t)
-	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
-		t.Fatal(err)
-	}
-	res, err := Show(bundle, ShowRequest{Workspace: ws, Path: "other/index.html", Title: "Other"})
+func TestChangesOfABoardAreWrittenBackToItsFile(t *testing.T) {
+	ref, file := obsidianBoard(t)
+	res, err := Show(ref, ShowRequest{Path: "other/index.html", Title: "Other"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(res.Frame.ID) {
+	if !obsidianID.MatchString(res.Frame.ID) {
 		t.Fatalf("a new node id %q is not in Obsidian's shape", res.Frame.ID)
 	}
 	d := readDoc(t, file)
@@ -163,7 +166,7 @@ func TestChangesOfALinkedBoardAreWrittenBackToTheFile(t *testing.T) {
 	}
 
 	x, y := 420, 40
-	if _, _, err := Update(bundle, "fedcba9876543210", Patch{X: &x, Y: &y}); err != nil {
+	if _, err := UpdateNodes(ref, []NodeChange{{ID: "fedcba9876543210", X: &x, Y: &y}}); err != nil {
 		t.Fatal(err)
 	}
 	d = readDoc(t, file)
@@ -176,7 +179,7 @@ func TestChangesOfALinkedBoardAreWrittenBackToTheFile(t *testing.T) {
 	}
 
 	tx, gx := 30, -100
-	if _, err := UpdateNodes(bundle, []NodeChange{{ID: "0123456789abcdef", X: &tx}, {ID: "a1b2c3d4e5f60718", X: &gx}}); err != nil {
+	if _, err := UpdateNodes(ref, []NodeChange{{ID: "0123456789abcdef", X: &tx}, {ID: "a1b2c3d4e5f60718", X: &gx}}); err != nil {
 		t.Fatal(err)
 	}
 	d = readDoc(t, file)
@@ -184,14 +187,14 @@ func TestChangesOfALinkedBoardAreWrittenBackToTheFile(t *testing.T) {
 		t.Fatal("a text card and a group did not move in the file")
 	}
 	before, _ := os.ReadFile(file)
-	if _, err := UpdateNodes(bundle, []NodeChange{{ID: "0123456789abcdef", X: &gx}, {ID: "nope", X: &gx}}); !errors.Is(err, ErrFrameNotFound) {
+	if _, err := UpdateNodes(ref, []NodeChange{{ID: "0123456789abcdef", X: &gx}, {ID: "nope", X: &gx}}); !errors.Is(err, ErrFrameNotFound) {
 		t.Fatalf("a change naming an unknown node: %v", err)
 	}
 	if after, _ := os.ReadFile(file); !bytes.Equal(before, after) {
 		t.Fatal("a refused change of nodes wrote part of itself")
 	}
 
-	if _, err := Remove(bundle, "fedcba9876543210"); err != nil {
+	if _, err := Remove(ref, "fedcba9876543210"); err != nil {
 		t.Fatal(err)
 	}
 	d = readDoc(t, file)
@@ -208,13 +211,10 @@ func TestChangesOfALinkedBoardAreWrittenBackToTheFile(t *testing.T) {
 	}
 }
 
-func TestRotatingALinkedFrameKeepsItsGenerationOutOfTheFile(t *testing.T) {
-	ws, bundle, file := linkedWorkspace(t)
-	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
-		t.Fatal(err)
-	}
+func TestRotatingAFrameKeepsItsGenerationOutOfTheFile(t *testing.T) {
+	ref, file := obsidianBoard(t)
 	before, _ := os.ReadFile(file)
-	_, f, err := Rotate(bundle, "fedcba9876543210")
+	_, f, err := Rotate(ref, "fedcba9876543210")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,15 +225,15 @@ func TestRotatingALinkedFrameKeepsItsGenerationOutOfTheFile(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Fatal("a rotation wrote the workspace file")
 	}
-	b, _ := Load(bundle)
+	b, _ := Load(ref)
 	if got, _ := b.Frame("fedcba9876543210"); got.Gen != 2 {
 		t.Fatalf("the generation did not survive a reload: %+v", got)
 	}
 }
 
 func TestAnEditOfTheFileElsewhereIsWhatTheBoardShows(t *testing.T) {
-	ws, bundle, file := linkedWorkspace(t)
-	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
+	ref, file := obsidianBoard(t)
+	if _, err := Load(ref); err != nil {
 		t.Fatal(err)
 	}
 	edited := strings.Replace(obsidianCanvas, `"x":400,"y":0,"width":390`, `"x":900,"y":0,"width":390`, 1)
@@ -242,7 +242,7 @@ func TestAnEditOfTheFileElsewhereIsWhatTheBoardShows(t *testing.T) {
 	if err := os.WriteFile(file, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	b, err := Load(bundle)
+	b, err := Load(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,73 +254,38 @@ func TestAnEditOfTheFileElsewhereIsWhatTheBoardShows(t *testing.T) {
 	}
 }
 
-func TestUnlinkGivesTheChatItsOwnBoardBack(t *testing.T) {
-	ws, bundle, _ := linkedWorkspace(t)
-	own, err := Show(bundle, ShowRequest{Workspace: ws, Path: "other/index.html"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
-		t.Fatal(err)
-	}
-	b, err := Unlink(bundle)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.Link != nil || len(b.Frames) != 1 || b.Frames[0].ID != own.Frame.ID {
-		t.Fatalf("own board back %+v", b)
-	}
-	if _, err := Unlink(bundle); !errors.Is(err, ErrNotLinked) {
-		t.Fatalf("second unlink: %v", err)
-	}
-}
-
-func TestExportWritesTheBoardAsAnObsidianCanvas(t *testing.T) {
-	ws, bundle := workspace(t, "site/index.html", "other/index.html")
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/index.html", Title: "Shop"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "other/index.html", Device: DevicePhone}); err != nil {
-		t.Fatal(err)
-	}
-	b, err := Export(bundle, ws, "design/board.canvas")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.Link == nil || b.Link.Path != "design/board.canvas" || len(b.Frames) != 2 {
-		t.Fatalf("exported board %+v", b)
-	}
-	d := readDoc(t, filepath.Join(ws, "design", "board.canvas"))
-	if len(d.nodes) != 2 || d.nodes[0].str("type") != NodeFile || d.nodes[0].str("file") != "site/index.html" || d.nodes[1].num("width") != 390 {
-		t.Fatalf("exported nodes %s", d.Marshal())
-	}
-	if _, err := Export(bundle, ws, "design/board2.canvas"); err == nil {
-		t.Fatal("an export of a linked board went through")
-	}
-	if _, err := Unlink(bundle); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Export(bundle, ws, "design/board.canvas"); !errors.Is(err, ErrCanvasExists) {
-		t.Fatalf("an export over an existing file: %v", err)
-	}
-}
-
-func TestLinkFileRefusals(t *testing.T) {
-	ws, bundle, _ := linkedWorkspace(t)
+func TestABoardFileThatCannotBeReadIsAnErrorOrRefused(t *testing.T) {
+	ref, _ := obsidianBoard(t)
+	ws := ref.Workspace
 	outside := filepath.Join(t.TempDir(), "x.canvas")
 	_ = os.WriteFile(outside, []byte(obsidianCanvas), 0o644)
 	_ = os.MkdirAll(filepath.Join(ws, ".obsidian"), 0o755)
 	_ = os.WriteFile(filepath.Join(ws, ".obsidian", "x.canvas"), []byte(obsidianCanvas), 0o644)
-	_ = os.WriteFile(filepath.Join(ws, "broken.canvas"), []byte("{nope"), 0o644)
-	for _, p := range []string{"site/index.html", outside, ".obsidian/x.canvas", "missing.canvas", "broken.canvas", "../x.canvas"} {
-		if _, err := LinkFile(bundle, ws, p); err == nil {
-			t.Errorf("linked %s", p)
+	for _, p := range []string{"site/index.html", outside, ".obsidian/x.canvas", "missing.canvas", "../x.canvas"} {
+		r := ref
+		r.File = p
+		if _, err := Load(r); err == nil {
+			t.Errorf("loaded %s", p)
+		}
+		if _, err := Open(r); err == nil {
+			t.Errorf("opened %s", p)
 		}
 	}
-	for _, p := range []string{"site/.hidden.canvas", "../escape.canvas", "notes.txt"} {
-		if _, err := Export(bundle, ws, p); err == nil {
-			t.Errorf("exported to %s", p)
-		}
+	// A file that does not parse is a board with an error, written nothing.
+	if err := os.WriteFile(filepath.Join(ws, "broken.canvas"), []byte("{nope"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := ref
+	r.File = "broken.canvas"
+	b, err := Load(r)
+	if err != nil || b.Error == "" || len(b.Frames) != 0 {
+		t.Fatalf("a broken board %+v %v", b, err)
+	}
+	if _, err := Show(r, ShowRequest{Path: "site/index.html"}); err == nil {
+		t.Fatal("a page went onto a file that does not parse")
+	}
+	if raw, _ := os.ReadFile(filepath.Join(ws, "broken.canvas")); string(raw) != "{nope" {
+		t.Fatalf("a broken board was rewritten: %q", raw)
 	}
 }
 
@@ -329,36 +294,25 @@ func mustJSON(o object) string {
 	return string(raw)
 }
 
-func TestALinkedBoardTakesNoPageOfAnotherWorkspace(t *testing.T) {
-	ws, bundle, _ := linkedWorkspace(t)
-	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
-		t.Fatal(err)
-	}
-	other, _ := workspace(t, "site/index.html")
-	if _, err := Show(bundle, ShowRequest{Workspace: other, Path: "site/index.html"}); err == nil || !strings.Contains(err.Error(), "another working directory") {
-		t.Fatalf("a page of a worktree became a node of the file: %v", err)
-	}
-}
-
 func TestAWriteLeavesTheNodesCoddyDidNotMoveAsTheyWere(t *testing.T) {
 	ws, bundle := workspace(t, "site/index.html", "other/index.html")
-	file := filepath.Join(ws, "small.canvas")
 	// A node smaller than a frame may be: drawn at the bounds, kept as it is.
 	doc := `{"nodes":[{"id":"aaaaaaaaaaaaaaaa","type":"file","file":"site/index.html","x":10.5,"y":0,"width":200,"height":100}],"edges":[]}`
-	if err := os.WriteFile(file, []byte(doc), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(ws, "small.canvas"), []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	b, err := LinkFile(bundle, ws, "small.canvas")
+	ref := Ref{Bundle: bundle, Workspace: ws, File: "small.canvas"}
+	b, err := Load(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if f := b.Frames[0]; f.Width != MinWidth || f.Height != MinHeight {
 		t.Fatalf("the frame is not at the bounds: %+v", f)
 	}
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "other/index.html"}); err != nil {
+	if _, err := Show(ref, ShowRequest{Path: "other/index.html"}); err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := os.ReadFile(file)
+	raw, _ := os.ReadFile(filepath.Join(ws, "small.canvas"))
 	if !bytes.Contains(raw, []byte(`{"id":"aaaaaaaaaaaaaaaa","type":"file","file":"site/index.html","x":10.5,"y":0,"width":200,"height":100}`)) {
 		t.Fatalf("a node Coddy did not move was rewritten:\n%s", raw)
 	}
@@ -366,12 +320,11 @@ func TestAWriteLeavesTheNodesCoddyDidNotMoveAsTheyWere(t *testing.T) {
 
 func TestAFileCannotWidenWhatItsPagesRead(t *testing.T) {
 	ws, bundle := workspace(t, "site/index.html")
-	file := filepath.Join(ws, "wide.canvas")
 	doc := `{"nodes":[{"id":"aaaaaaaaaaaaaaaa","type":"file","file":"site/index.html","x":0,"y":0,"width":1280,"height":800,"coddy":{"root":"."}}]}`
-	if err := os.WriteFile(file, []byte(doc), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(ws, "wide.canvas"), []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	b, err := LinkFile(bundle, ws, "wide.canvas")
+	b, err := Load(Ref{Bundle: bundle, Workspace: ws, File: "wide.canvas"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,121 +333,95 @@ func TestAFileCannotWidenWhatItsPagesRead(t *testing.T) {
 	}
 }
 
-func TestARootTheSessionWidenedStaysWithTheSession(t *testing.T) {
-	ws, bundle, file := linkedWorkspace(t)
-	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
-		t.Fatal(err)
-	}
-	res, err := Show(bundle, ShowRequest{Workspace: ws, Path: "other/index.html", Root: "."})
+func TestARootTheChatWidenedStaysWithTheChat(t *testing.T) {
+	ref, file := obsidianBoard(t)
+	res, err := Show(ref, ShowRequest{Path: "other/index.html", Root: "."})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := Load(bundle)
+	b, _ := Load(ref)
 	if f, _ := b.Frame(res.Frame.ID); f.Root != "" {
 		t.Fatalf("the widened root did not survive a reload: %q", f.Root)
 	}
 	if raw, _ := os.ReadFile(file); bytes.Contains(raw, []byte(`"root"`)) {
 		t.Fatalf("a root reached the workspace file:\n%s", raw)
 	}
-	if _, err := Remove(bundle, res.Frame.ID); err != nil {
+	// Another chat reading the same file sees the page's own folder.
+	_, otherBundle := workspace(t)
+	theirs, err := Load(Ref{Bundle: otherBundle, Workspace: ref.Workspace, File: ref.File})
+	if err != nil {
 		t.Fatal(err)
 	}
-	var stored Board
-	raw, _ := os.ReadFile(filepath.Join(bundle, FileName))
-	if err := json.Unmarshal(raw, &stored); err != nil {
+	if f, _ := theirs.Frame(res.Frame.ID); f.Root != "other" {
+		t.Fatalf("another chat took the widened root: %q", f.Root)
+	}
+	if _, err := Remove(ref, res.Frame.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, kept := stored.Roots[res.Frame.ID]; kept {
-		t.Fatalf("the root of a removed frame stayed:\n%s", raw)
+	st, err := LoadState(ref.Bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := NodeKey(ref.File, res.Frame.ID)
+	if _, kept := st.Roots[key]; kept {
+		t.Fatalf("the root of a removed frame stayed: %+v", st.Roots)
 	}
 	// Its generation stays one up, so none of its addresses applies again.
-	if stored.Gens[res.Frame.ID] != res.Frame.Gen+1 {
-		t.Fatalf("the removed frame's generation %d, want %d", stored.Gens[res.Frame.ID], res.Frame.Gen+1)
+	if st.Gens[key] != res.Frame.Gen+1 {
+		t.Fatalf("the removed frame's generation %d, want %d", st.Gens[key], res.Frame.Gen+1)
 	}
 }
 
-func TestAFailedExportLeavesNoFileBehind(t *testing.T) {
+func TestAFailedShowLeavesNoNewBoardBehind(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("a read-only bundle folder does not refuse a write on Windows")
 	}
 	ws, bundle := workspace(t, "site/index.html")
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/index.html"}); err != nil {
-		t.Fatal(err)
-	}
-	// The bundle cannot take the board any more: the export must not stay.
+	// The bundle cannot take the bookkeeping: the new board must not stay.
 	if err := os.Chmod(bundle, 0o500); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.Chmod(bundle, 0o700) }()
-	if _, err := Export(bundle, ws, "board.canvas"); err == nil {
+	if _, err := Show(Ref{Bundle: bundle, Workspace: ws}, ShowRequest{Path: "site/index.html"}); err == nil {
 		t.Skip("the bundle folder took a write anyway (running as root)")
 	}
-	if _, err := os.Stat(filepath.Join(ws, "board.canvas")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("a failed export left its file: %v", err)
+	if _, err := os.Stat(filepath.Join(ws, "canvas", "site.canvas")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a failed show left its new board: %v", err)
 	}
 }
 
-func TestRelinkingAFileNeverBringsARevokedAddressBack(t *testing.T) {
-	ws, bundle, _ := linkedWorkspace(t)
-	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
+func TestTwoChatsOfOneFileKeepEachOthersChanges(t *testing.T) {
+	refA, file := obsidianBoard(t)
+	refB := refA
+	refB.Bundle = filepath.Join(t.TempDir(), "sess_b")
+	if err := os.MkdirAll(refB.Bundle, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := Rotate(bundle, "fedcba9876543210"); err != nil {
-		t.Fatal(err)
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		x, y := 1000+i, 2000+i
+		go func() {
+			defer wg.Done()
+			if _, err := UpdateNodes(refA, []NodeChange{{ID: "0123456789abcdef", X: &x}}); err != nil {
+				t.Error(err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if _, err := UpdateNodes(refB, []NodeChange{{ID: "2222222222222222", Y: &y}}); err != nil {
+				t.Error(err)
+			}
+		}()
 	}
-	gen := func() int {
-		b, _ := Load(bundle)
-		f, _ := b.Frame("fedcba9876543210")
-		return f.Gen
-	}
-	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
-		t.Fatal(err)
-	}
-	if g := gen(); g != 2 {
-		t.Fatalf("relinking the file reset the frame to generation %d", g)
-	}
-	if _, err := Unlink(bundle); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
-		t.Fatal(err)
-	}
-	if g := gen(); g != 2 {
-		t.Fatalf("unlinking and linking again reset the frame to generation %d", g)
-	}
-}
-
-func TestTwoBoardsOfOneFileKeepEachOthersChanges(t *testing.T) {
-	ws, bundleA, file := linkedWorkspace(t)
-	bundleB := filepath.Join(t.TempDir(), "sess_b")
-	if err := os.MkdirAll(bundleB, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for _, bundle := range []string{bundleA, bundleB} {
-		if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// Both chats read the file before either writes, as two requests at once
-	// do: each then writes what it changed.
-	a, _ := Load(bundleA)
-	b, _ := Load(bundleB)
-	a.Items[findItem(t, a, "0123456789abcdef")].X = 77
-	a.dirty = true
-	if err := writeLinked(&a); err != nil {
-		t.Fatal(err)
-	}
-	b.Items[findItem(t, b, "2222222222222222")].X = 88
-	b.dirty = true
-	if err := writeLinked(&b); err != nil {
-		t.Fatal(err)
-	}
+	wg.Wait()
 	d := readDoc(t, file)
-	if d.nodes[d.findNode("0123456789abcdef")].num("x") != 77 || d.nodes[d.findNode("2222222222222222")].num("x") != 88 {
+	if d.nodes[d.findNode("0123456789abcdef")].num("x") < 1000 || d.nodes[d.findNode("2222222222222222")].num("y") < 2000 {
 		t.Fatalf("one chat's move undid the other's:\n%s", d.Marshal())
 	}
-	// A frame deleted in Obsidian meanwhile stays deleted.
-	c, _ := Load(bundleB)
+	// A board read before a node was deleted in Obsidian does not bring it
+	// back when it writes.
+	c, _ := Load(refB)
 	raw, _ := os.ReadFile(file)
 	doc, _ := ParseDocument(bytes.NewReader(raw))
 	doc.removeNode("fedcba9876543210")
@@ -502,7 +429,7 @@ func TestTwoBoardsOfOneFileKeepEachOthersChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.Items[findItem(t, c, "1111111111111111")].Y = 999
-	if err := writeLinked(&c); err != nil {
+	if err := writeBoardFile(&c); err != nil {
 		t.Fatal(err)
 	}
 	if readDoc(t, file).findNode("fedcba9876543210") >= 0 {
@@ -519,4 +446,23 @@ func findItem(t *testing.T, b Board, id string) int {
 	}
 	t.Fatalf("no item %s", id)
 	return -1
+}
+
+func TestFrameOfIsTheFrameLoadGives(t *testing.T) {
+	ref, _ := obsidianBoard(t)
+	b, err := Load(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range b.Frames {
+		got, err := FrameOf(ref, want.ID)
+		if err != nil || got != want {
+			t.Fatalf("FrameOf(%s) = %+v %v, Load gives %+v", want.ID, got, err, want)
+		}
+	}
+	for _, id := range []string{"3333333333333333", "0123456789abcdef", "a b\"<c>", "missing"} {
+		if _, err := FrameOf(ref, id); err == nil {
+			t.Errorf("FrameOf(%s) gave a frame", id)
+		}
+	}
 }

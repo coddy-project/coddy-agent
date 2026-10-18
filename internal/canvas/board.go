@@ -1,32 +1,35 @@
-// Package canvas is the board of live frames beside a chat of the web UI: which
-// pages of the workspace are on it, at what size and where, kept as one small
-// file in the session's bundle. A frame shows a file of the workspace and
-// nothing else; the page itself is written with the ordinary file tools, so
-// git, the edits window and every surface see the same files.
+// Package canvas is the board of live frames the web UI shows beside a chat:
+// a .canvas file of the workspace (JSON Canvas, the format of Obsidian's
+// canvases) whose file nodes naming HTML pages run as live frames and whose
+// other nodes and edges are drawn as they are. The pages are ordinary files
+// written with the file tools, and the board is a file too, so git, the files
+// window, Obsidian and every surface see the same thing.
 //
-// The package owns the board and its store, the stamp that tells a browser a
-// frame's files changed, the capability that addresses a frame's files, the
-// serving of those files (sandbox policy, the bridge script) and the reports a
-// browser sends back about a frame it runs. The tools (internal/tools/canvas),
-// the HTTP routes (external/httpserver) and the swarm relay build on it.
+// The package owns the board files (read, and written back byte for byte as
+// Obsidian writes them), a chat's own bookkeeping in its bundle (the file the
+// agent shows pages on, the generations of frame addresses, roots wider than a
+// page's folder), the stamp that tells a browser a frame's files changed, the
+// capability that addresses a frame's files, the serving of those files
+// (sandbox policy, the bridge script) and the reports a browser sends back
+// about a frame it runs. The tools (internal/tools/canvas), the HTTP routes
+// (external/httpserver) and the swarm relay build on it.
 package canvas
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/webfs"
 )
 
-// FileName is the board's file inside a session bundle.
+// FileName is a chat's canvas bookkeeping inside its session bundle.
 const FileName = "canvas.json"
 
 // MaxFrames bounds a board: every frame is a live document in the browser.
@@ -50,13 +53,14 @@ const (
 	DevicePhone   = "phone"
 )
 
-// Reasons a board changed, as Show, Update and Remove report them and as the
-// change hook and the HTTP event carry them.
+// Reasons a board changed, as the change hook and the HTTP event carry them.
 const (
 	ReasonAdded   = "added"
 	ReasonShown   = "shown"
 	ReasonUpdated = "updated"
 	ReasonRemoved = "removed"
+	// ReasonOpened is a .canvas file becoming the one the agent shows pages on.
+	ReasonOpened = "opened"
 )
 
 var deviceSizes = map[string][2]int{
@@ -72,40 +76,34 @@ func DeviceSize(device string) (width, height int, ok bool) {
 }
 
 var (
-	// ErrFrameNotFound is a frame id the board does not hold.
+	// ErrFrameNotFound is a node id the board does not hold.
 	ErrFrameNotFound = errors.New("no such frame on the canvas")
 	// ErrTooManyFrames refuses a frame past MaxFrames.
 	ErrTooManyFrames = fmt.Errorf("the canvas already holds %d frames; remove one from the canvas first", MaxFrames)
 )
 
-// Frame is one page on the board.
+// Frame is one page on the board: a file node of the board's file.
 type Frame struct {
-	ID string `json:"id"`
+	ID string
 	// Path is the page, slash-separated and relative to Workspace.
-	Path string `json:"path"`
+	Path string
 	// Root is the folder the page may load files from, relative to Workspace;
 	// "" is the workspace itself. It always contains Path.
-	Root string `json:"root"`
-	// Workspace is the folder Path and Root are relative to: the working
-	// directory of the session that put the frame on the board.
-	Workspace string    `json:"workspace"`
-	Title     string    `json:"title,omitempty"`
-	Device    string    `json:"device,omitempty"`
-	Width     int       `json:"width"`
-	Height    int       `json:"height"`
-	X         int       `json:"x"`
-	Y         int       `json:"y"`
-	AddedBy   string    `json:"added_by,omitempty"`
-	AddedAt   time.Time `json:"added_at"`
-	ShownAt   time.Time `json:"shown_at"`
+	Root string
+	// Workspace is the folder Path and Root are relative to: the chat's working
+	// directory, the vault of the board's file.
+	Workspace string
+	Title     string
+	Device    string
+	Width     int
+	Height    int
+	X         int
+	Y         int
+	AddedBy   string
 	// Gen is the frame's generation: its address is signed for one, so moving
-	// the frame to the next (Rotate) revokes every address handed out before.
-	Gen int `json:"gen"`
-}
-
-// RootAbs is the absolute folder a frame's files are served from.
-func (f Frame) RootAbs() string {
-	return filepath.Join(f.Workspace, filepath.FromSlash(f.Root))
+	// the frame to the next (Rotate, or pointing it at another page) revokes
+	// every address handed out before.
+	Gen int
 }
 
 // PageInRoot is the page's path relative to the frame's root.
@@ -116,53 +114,45 @@ func (f Frame) PageInRoot() string {
 	return strings.TrimPrefix(f.Path, f.Root+"/")
 }
 
-// Board is what a chat's canvas holds.
+// Ref names one board as one chat sees it.
+type Ref struct {
+	// Bundle is the bundle of the top session of the chat's spawn tree
+	// (BoardBundle), which keeps the chat's bookkeeping.
+	Bundle string
+	// Workspace is the chat's working directory, the vault of the file.
+	Workspace string
+	// File is the .canvas file, relative to Workspace.
+	File string
+}
+
+// Board is a .canvas file as the canvas shows it.
 type Board struct {
-	Version  int     `json:"version"`
-	Revision int64   `json:"revision"`
-	Frames   []Frame `json:"frames"`
-	// Link names the .canvas file of the workspace the chat's canvas is, when
-	// it is linked to one (JSON Canvas, Obsidian's format): its frames and its
-	// other nodes are that file's, and every change is written back to it.
-	Link *Link `json:"link,omitempty"`
-	// Gens are the generations of a linked file's frames, kept here so the
-	// workspace file carries none of the canvas's own bookkeeping.
-	Gens map[string]int `json:"gens,omitempty"`
-	// Roots are the roots of a linked file's frames that are wider than the
-	// page's own folder ("." for the whole workspace). They are the
-	// session's, never the file's: a .canvas file that arrives with a
-	// checkout cannot widen what its pages may read.
-	Roots map[string]string `json:"roots,omitempty"`
+	// File is the board's file, slash-separated and relative to Workspace.
+	File      string
+	Workspace string
+	// Revision moves with every change made through the canvas, in any of the
+	// chat's files.
+	Revision int64
+	Frames   []Frame
+	// Items and Edges are the file's other nodes and its lines.
+	Items []Item
+	Edges []Edge
+	// Error says why the file cannot be read now; nothing of it is shown and
+	// nothing is written to it then.
+	Error string
 
-	// Items and Edges are the other nodes of a linked file and its lines.
-	Items []Item `json:"-"`
-	Edges []Edge `json:"-"`
-	// LinkError says why a linked file cannot be read now; its frames are
-	// then not shown and nothing is written to it.
-	LinkError string `json:"-"`
-
-	own   []Frame   // the chat's own frames, kept while the board is linked
-	doc   *Document // the linked file as read
+	state State
 	inDoc map[string]bool
-	// read is each frame of the linked file as it was read, so a write
-	// touches the geometry of only the frames that moved.
+	// read is each frame of the file as it was read, so a write touches only
+	// the frames that changed.
 	read map[string]Frame
 	// readItems are its other nodes as read, so only the ones dragged here
 	// are written.
 	readItems map[string]Item
 	fileOK    bool
-	// dirty says a change touched the linked file's nodes; only then is the
-	// file written, so linking a file never rewrites it.
+	// dirty says a change touched the file's nodes; only then is it written,
+	// so reading a board never rewrites its file.
 	dirty bool
-}
-
-// Link is a .canvas file of the workspace a board is.
-type Link struct {
-	// Path is the file, slash-separated and relative to Workspace.
-	Path string `json:"path"`
-	// Workspace is the folder the file's own paths are relative to: the vault
-	// root of a JSON Canvas file, the session's working directory here.
-	Workspace string `json:"workspace"`
 }
 
 // Frame returns the frame with this id.
@@ -175,9 +165,36 @@ func (b Board) Frame(id string) (Frame, bool) {
 	return Frame{}, false
 }
 
-// BoardBundle is the bundle whose board a session writes to: the session at
-// the root of its spawn tree, since a subagent's bundle sits under its parent's
-// (<parent>/subagents/<child>/) and a person looks at the parent's chat.
+// State is a chat's canvas bookkeeping in the bundle of the top session of
+// its spawn tree: what the files themselves must not decide.
+type State struct {
+	Version  int   `json:"version"`
+	Revision int64 `json:"revision"`
+	// Workspace is the working directory the bookkeeping is about; Current
+	// and Roots apply only there.
+	Workspace string `json:"workspace,omitempty"`
+	// Current is the .canvas file canvas_show shows pages on when it names
+	// none: the last one shown on or opened.
+	Current string `json:"current,omitempty"`
+	// Gens are the generations of the frames' addresses, by NodeKey. A frame
+	// removed through the canvas keeps its generation one up, so none of its
+	// addresses applies again should a node of that id come back.
+	Gens map[string]int `json:"gens,omitempty"`
+	// Roots are the frames' roots that are wider than the page's own folder
+	// ("." for the whole workspace), by NodeKey: a .canvas file that arrives
+	// with a checkout cannot widen what its pages read.
+	Roots map[string]string `json:"roots,omitempty"`
+}
+
+// NodeKey names a node of one file in the chat's bookkeeping and its reports.
+func NodeKey(file, id string) string {
+	return file + "#" + id
+}
+
+// BoardBundle is the bundle whose bookkeeping a session uses: the session at
+// the root of its spawn tree, since a subagent's bundle sits under its
+// parent's (<parent>/subagents/<child>/) and a person looks at the parent's
+// chat.
 func BoardBundle(sessionDir string) string {
 	dir := filepath.Clean(sessionDir)
 	for {
@@ -189,47 +206,69 @@ func BoardBundle(sessionDir string) string {
 	}
 }
 
-// SessionIDOfBundle is the id of the session whose board a bundle holds: the
-// folder name of the root of the spawn tree.
+// SessionIDOfBundle is the id of the session whose bookkeeping a bundle holds:
+// the folder name of the root of the spawn tree.
 func SessionIDOfBundle(sessionDir string) string {
 	return filepath.Base(BoardBundle(sessionDir))
 }
 
-// Load reads a bundle's board. A bundle without one has an empty board; a
-// board that does not parse is an error, never silently replaced.
-func Load(bundle string) (Board, error) {
+// LoadState reads a chat's bookkeeping; a bundle without any has none yet.
+func LoadState(bundle string) (State, error) {
 	raw, err := os.ReadFile(filepath.Join(bundle, FileName))
 	if errors.Is(err, os.ErrNotExist) {
-		return Board{Version: 1}, nil
+		return State{Version: 1}, nil
 	}
 	if err != nil {
-		return Board{}, fmt.Errorf("read the canvas: %w", err)
+		return State{}, fmt.Errorf("read the canvas: %w", err)
 	}
-	var b Board
-	if err := json.Unmarshal(raw, &b); err != nil {
-		return Board{}, fmt.Errorf("the canvas file %s does not parse: %w", filepath.Join(bundle, FileName), err)
+	var st State
+	if err := json.Unmarshal(raw, &st); err != nil {
+		return State{}, fmt.Errorf("the canvas bookkeeping %s does not parse: %w", filepath.Join(bundle, FileName), err)
 	}
-	if b.Version == 0 {
-		b.Version = 1
+	if st.Version == 0 {
+		st.Version = 1
 	}
-	for i := range b.Frames {
-		if b.Frames[i].Gen < 1 {
-			b.Frames[i].Gen = 1
-		}
+	return st, nil
+}
+
+// in is the bookkeeping as it applies in one workspace: the current file and
+// the roots of another one do not.
+func (st State) in(workspace string) State {
+	if st.Workspace != "" && !session.SameWorkspacePath(st.Workspace, workspace) {
+		st.Current, st.Roots = "", nil
 	}
-	if b.Link != nil {
-		b.own = b.Frames
-		b.Frames = nil
-		readLinked(&b)
+	return st
+}
+
+// Load reads a board: its file, with the chat's generations and roots.
+func Load(ref Ref) (Board, error) {
+	rel, err := resolveCanvasFile(ref.Workspace, ref.File, true)
+	if err != nil {
+		return Board{}, err
 	}
+	st, err := LoadState(ref.Bundle)
+	if err != nil {
+		return Board{}, err
+	}
+	st = st.in(ref.Workspace)
+	b := Board{File: rel, Workspace: ref.Workspace, Revision: st.Revision, state: st}
+	readBoardFile(&b)
 	return b, nil
 }
 
-// ShowRequest asks for a page on the board.
+// Current is the .canvas file the chat shows pages on in a workspace, "" when
+// it has none there.
+func Current(bundle, workspace string) (string, error) {
+	st, err := LoadState(bundle)
+	if err != nil {
+		return "", err
+	}
+	return st.in(workspace).Current, nil
+}
+
+// ShowRequest asks for a page on a board.
 type ShowRequest struct {
-	// Workspace is the session's working directory.
-	Workspace string
-	// Path is the page, relative to Workspace or absolute inside it.
+	// Path is the page, relative to the workspace or absolute inside it.
 	Path string
 	// Root is the folder the page may load files from; default its own folder.
 	Root   string
@@ -237,7 +276,7 @@ type ShowRequest struct {
 	Device string
 	// Width and Height are a custom size instead of Device.
 	Width, Height int
-	// FrameID updates that frame in place instead of adding or reusing one.
+	// FrameID points that frame at the page instead of adding or reusing one.
 	FrameID string
 	AddedBy string
 }
@@ -247,12 +286,16 @@ type ShowResult struct {
 	Board  Board
 	Frame  Frame
 	Reason string
+	// Created says the board's file was made for this page.
+	Created bool
 }
 
-// Show puts a page on the board: a new frame, the frame already showing that
-// file at that size, or the named frame updated in place.
-func Show(bundle string, req ShowRequest) (ShowResult, error) {
-	page, err := resolvePage(req.Workspace, req.Path, req.Root)
+// Show puts a page on a board: a new frame, the frame already showing that
+// page at that size, or the named frame pointed at it. A Ref without a File
+// shows on the chat's current file, or on a new canvas/<folder>.canvas made
+// for it when the chat has none.
+func Show(ref Ref, req ShowRequest) (ShowResult, error) {
+	page, err := resolvePage(ref.Workspace, req.Path, req.Root)
 	if err != nil {
 		return ShowResult{}, err
 	}
@@ -260,41 +303,43 @@ func Show(bundle string, req ShowRequest) (ShowResult, error) {
 	if err != nil {
 		return ShowResult{}, err
 	}
-	title := strings.TrimSpace(req.Title)
 	var res ShowResult
-	err = mutate(bundle, func(b *Board) (string, error) {
-		now := time.Now().UTC()
-		if b.Link != nil && !session.SameWorkspacePath(b.Link.Workspace, req.Workspace) {
-			// A node of the file names its page relative to the file's vault.
-			return "", fmt.Errorf("the canvas is %s of %s, and a page of another working directory cannot be a node of it", b.Link.Path, b.Link.Workspace)
-		}
+	var pick func(State) (string, bool, error)
+	if ref.File == "" {
+		pick = func(st State) (string, bool, error) { return currentOrNew(ref.Workspace, st, page.path) }
+	}
+	title := strings.TrimSpace(req.Title)
+	err = mutate(ref, pick, func(b *Board) (string, error) {
+		b.state.Current = b.File
 		if id := strings.TrimSpace(req.FrameID); id != "" {
 			i := indexOf(b.Frames, id)
 			if i < 0 {
 				return "", fmt.Errorf("%w: %s", ErrFrameNotFound, id)
 			}
 			f := &b.Frames[i]
-			f.Path, f.Root, f.Workspace = page.path, page.root, req.Workspace
+			if f.Path != page.path {
+				// Another page: the browser loads it at a new address.
+				f.Gen++
+			}
+			f.Path, f.Root = page.path, page.root
 			f.Device, f.Width, f.Height = device, width, height
 			if title != "" {
 				f.Title = title
 			}
-			f.ShownAt = now
 			b.dirty = true
 			res.Frame, res.Reason = *f, ReasonUpdated
 			return id, nil
 		}
 		for i := range b.Frames {
 			f := &b.Frames[i]
-			if f.Path == page.path && f.Width == width && f.Height == height && session.SameWorkspacePath(f.Workspace, req.Workspace) {
+			if f.Path == page.path && f.Width == width && f.Height == height {
 				if req.Root != "" {
 					f.Root = page.root
 				}
-				if title != "" {
+				if title != "" && f.Title != title {
 					f.Title = title
+					b.dirty = true
 				}
-				f.ShownAt = now
-				b.dirty = b.dirty || req.Root != "" || title != ""
 				res.Frame, res.Reason = *f, ReasonShown
 				return f.ID, nil
 			}
@@ -302,102 +347,165 @@ func Show(bundle string, req ShowRequest) (ShowResult, error) {
 		if len(b.Frames) >= MaxFrames {
 			return "", ErrTooManyFrames
 		}
-		if b.Link != nil && !b.fileOK {
-			return "", fmt.Errorf("the linked canvas %s cannot be read: %s", b.Link.Path, b.LinkError)
-		}
-		x := nextX(b)
-		id := newFrameID()
-		if b.Link != nil {
-			id = newNodeID()
-		}
 		f := Frame{
-			ID: id, Path: page.path, Root: page.root, Workspace: req.Workspace,
-			Title: title, Device: device, Width: width, Height: height, X: x, Y: 0,
-			AddedBy: strings.TrimSpace(req.AddedBy), AddedAt: now, ShownAt: now, Gen: 1,
+			ID: newNodeID(), Path: page.path, Root: page.root, Workspace: b.Workspace,
+			Title: title, Device: device, Width: width, Height: height, X: nextX(b), Y: 0,
+			AddedBy: strings.TrimSpace(req.AddedBy), Gen: 1,
 		}
 		b.Frames = append(b.Frames, f)
 		b.dirty = true
 		res.Frame, res.Reason = f, ReasonAdded
 		return f.ID, nil
-	}, func() string { return res.Reason }, &res.Board)
+	}, func() string { return res.Reason }, &res.Board, &res.Created)
 	if err != nil {
 		return ShowResult{}, err
 	}
 	return res, nil
 }
 
-// Patch changes how a frame stands on the board; the page it shows does not
-// change here (Show with a FrameID does that).
-type Patch struct {
-	Title  *string
-	Device *string
-	Width  *int
-	Height *int
-	X      *int
-	Y      *int
+// currentOrNew is the file a Show without one goes to: the chat's current
+// file while it is still there, else a new canvas/<folder of the page>.canvas,
+// numbered when the name is taken.
+func currentOrNew(workspace string, st State, page string) (string, bool, error) {
+	if cur := st.in(workspace).Current; cur != "" {
+		if rel, err := resolveCanvasFile(workspace, cur, true); err == nil {
+			return rel, false, nil
+		}
+	}
+	base := path.Base(path.Dir(page))
+	if base == "." || base == "/" {
+		base = strings.TrimSuffix(path.Base(page), path.Ext(page))
+	}
+	for n := 1; n < 1000; n++ {
+		name := "canvas/" + base + ".canvas"
+		if n > 1 {
+			name = fmt.Sprintf("canvas/%s-%d.canvas", base, n)
+		}
+		rel, err := resolveCanvasFile(workspace, name, false)
+		if errors.Is(err, errCanvasExists) {
+			continue
+		}
+		if err != nil {
+			return "", false, err
+		}
+		if err := createCanvasFile(workspace, rel); err != nil {
+			return "", false, err
+		}
+		return rel, true, nil
+	}
+	return "", false, errors.New("no free name for a new canvas file under canvas/")
 }
 
-// Update applies a patch to one frame.
-func Update(bundle, frameID string, p Patch) (Board, Frame, error) {
-	var out Frame
+// Open makes a .canvas file of the workspace the one the chat shows pages on.
+func Open(ref Ref) (Board, error) {
 	var board Board
-	err := mutate(bundle, func(b *Board) (string, error) {
-		i := indexOf(b.Frames, frameID)
-		if i < 0 {
-			return "", fmt.Errorf("%w: %s", ErrFrameNotFound, frameID)
+	err := mutate(ref, nil, func(b *Board) (string, error) {
+		if !b.fileOK {
+			return "", fmt.Errorf("%s cannot be read: %s", b.File, b.Error)
 		}
-		f := b.Frames[i]
-		if p.Title != nil {
-			f.Title = strings.TrimSpace(*p.Title)
-		}
-		if p.Device != nil || p.Width != nil || p.Height != nil {
-			device, w, h := "", 0, 0
-			switch {
-			case p.Width != nil || p.Height != nil:
-				// A custom size, starting from the frame's own.
-				if p.Device != nil && *p.Device != "" {
-					return "", errors.New("give either a device or a width and a height, not both")
-				}
-				w, h = f.Width, f.Height
-				if p.Width != nil {
-					w = *p.Width
-				}
-				if p.Height != nil {
-					h = *p.Height
-				}
-			case *p.Device == "":
-				// Custom at the size the frame has.
-				w, h = f.Width, f.Height
-			default:
-				device = *p.Device
-			}
-			d, rw, rh, err := resolveSize(device, w, h)
-			if err != nil {
+		b.state.Current = b.File
+		return "", nil
+	}, func() string { return ReasonOpened }, &board, nil)
+	return board, err
+}
+
+// NodeChange moves or resizes one node of a board: a frame (by a device or a
+// size), or a text card, a link or a group.
+type NodeChange struct {
+	ID                  string
+	X, Y, Width, Height *int
+	// Device sizes a frame by name instead of Width and Height.
+	Device *string
+}
+
+// MaxNodeChanges bounds one change of nodes (a group dragged with all it holds).
+const MaxNodeChanges = 500
+
+// UpdateNodes applies the changes in one write: all of them, or none when one
+// names a node the board does not hold.
+func UpdateNodes(ref Ref, changes []NodeChange) (Board, error) {
+	if len(changes) == 0 {
+		return Board{}, errors.New("no node to change")
+	}
+	if len(changes) > MaxNodeChanges {
+		return Board{}, fmt.Errorf("at most %d nodes change at once", MaxNodeChanges)
+	}
+	var board Board
+	frameID := ""
+	if len(changes) == 1 {
+		frameID = changes[0].ID
+	}
+	err := mutate(ref, nil, func(b *Board) (string, error) {
+		for _, c := range changes {
+			if err := applyNodeChange(b, c); err != nil {
 				return "", err
+			}
+		}
+		b.dirty = true
+		return frameID, nil
+	}, func() string { return ReasonUpdated }, &board, nil)
+	return board, err
+}
+
+func applyNodeChange(b *Board, c NodeChange) error {
+	pos := func(dst *int, v *int) {
+		if v != nil {
+			*dst = clamp(*v, -100000, 100000)
+		}
+	}
+	if i := indexOf(b.Frames, c.ID); i >= 0 {
+		f := &b.Frames[i]
+		pos(&f.X, c.X)
+		pos(&f.Y, c.Y)
+		switch {
+		case c.Device != nil:
+			d, w, h, err := resolveSize(*c.Device, 0, 0)
+			if err != nil {
+				return err
+			}
+			f.Device, f.Width, f.Height = d, w, h
+		case c.Width != nil || c.Height != nil:
+			w, h := f.Width, f.Height
+			if c.Width != nil {
+				w = *c.Width
+			}
+			if c.Height != nil {
+				h = *c.Height
+			}
+			d, rw, rh, err := resolveSize("", w, h)
+			if err != nil {
+				return err
 			}
 			f.Device, f.Width, f.Height = d, rw, rh
 		}
-		if p.X != nil {
-			f.X = clamp(*p.X, -100000, 100000)
+		return nil
+	}
+	for i := range b.Items {
+		it := &b.Items[i]
+		if it.ID != c.ID {
+			continue
 		}
-		if p.Y != nil {
-			f.Y = clamp(*p.Y, -100000, 100000)
+		pos(&it.X, c.X)
+		pos(&it.Y, c.Y)
+		if c.Width != nil {
+			it.Width = clamp(*c.Width, 20, 20000)
 		}
-		b.Frames[i] = f
-		b.dirty = true
-		out = f
-		return f.ID, nil
-	}, func() string { return ReasonUpdated }, &board)
-	return board, out, err
+		if c.Height != nil {
+			it.Height = clamp(*c.Height, 20, 20000)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrFrameNotFound, c.ID)
 }
 
 // Rotate moves a frame to its next generation, which revokes every address of
 // it handed out so far: the web UI asks for it when the frame's page navigated
 // away from the canvas, since that page could have taken the address along.
-func Rotate(bundle, frameID string) (Board, Frame, error) {
+// The file is not written.
+func Rotate(ref Ref, frameID string) (Board, Frame, error) {
 	var out Frame
 	var board Board
-	err := mutate(bundle, func(b *Board) (string, error) {
+	err := mutate(ref, nil, func(b *Board) (string, error) {
 		i := indexOf(b.Frames, frameID)
 		if i < 0 {
 			return "", fmt.Errorf("%w: %s", ErrFrameNotFound, frameID)
@@ -405,14 +513,15 @@ func Rotate(bundle, frameID string) (Board, Frame, error) {
 		b.Frames[i].Gen++
 		out = b.Frames[i]
 		return frameID, nil
-	}, func() string { return ReasonUpdated }, &board)
+	}, func() string { return ReasonUpdated }, &board, nil)
 	return board, out, err
 }
 
-// Remove takes a frame off the board. Its files stay where they are.
-func Remove(bundle, frameID string) (Board, error) {
+// Remove takes a frame off the board: its node and the edges at it leave the
+// file, the page's files stay where they are.
+func Remove(ref Ref, frameID string) (Board, error) {
 	var board Board
-	err := mutate(bundle, func(b *Board) (string, error) {
+	err := mutate(ref, nil, func(b *Board) (string, error) {
 		i := indexOf(b.Frames, frameID)
 		if i < 0 {
 			return "", fmt.Errorf("%w: %s", ErrFrameNotFound, frameID)
@@ -420,7 +529,7 @@ func Remove(bundle, frameID string) (Board, error) {
 		b.Frames = append(b.Frames[:i], b.Frames[i+1:]...)
 		b.dirty = true
 		return frameID, nil
-	}, func() string { return ReasonRemoved }, &board)
+	}, func() string { return ReasonRemoved }, &board, nil)
 	return board, err
 }
 
@@ -441,19 +550,6 @@ func indexOf(frames []Frame, id string) int {
 		}
 	}
 	return -1
-}
-
-func newFrameID() string {
-	const alphabet = "abcdefghijkmnpqrstuvwxyz23456789"
-	var raw [10]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		panic(err)
-	}
-	out := make([]byte, len(raw))
-	for i, c := range raw {
-		out[i] = alphabet[int(c)%len(alphabet)]
-	}
-	return "fr_" + string(out)
 }
 
 // resolveSize turns a device name or a custom size into the frame's size.
@@ -520,10 +616,7 @@ func resolvePage(workspace, pagePath, rootPath string) (resolvedPage, error) {
 	if info.Size() > MaxInjectBytes {
 		return resolvedPage{}, fmt.Errorf("%s is %d MB; the canvas runs pages up to %d MB: move inlined data into files of its folder", pagePath, info.Size()>>20, MaxInjectBytes>>20)
 	}
-	rootRel := ""
-	if dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(pageRel))); dir != "." {
-		rootRel = dir
-	}
+	rootRel := defaultRoot(pageRel)
 	if strings.TrimSpace(rootPath) != "" {
 		rootRel, err = insideWorkspace(workspace, realWS, rootPath)
 		if err != nil {
@@ -565,7 +658,8 @@ func insideWorkspace(workspace, realWS, p string) (string, error) {
 	return rel, nil
 }
 
-// locks serialise the read-modify-write of one bundle's board in this process.
+// locks serialise the read-modify-write of one chat's bookkeeping in this
+// process; fileLocks (file.go) serialise one file's across chats, taken inside.
 var locks sync.Map // canonical bundle -> *sync.Mutex
 
 func lockFor(bundle string) *sync.Mutex {
@@ -574,70 +668,112 @@ func lockFor(bundle string) *sync.Mutex {
 	return m.(*sync.Mutex)
 }
 
-// mutate reads the board, applies fn, bumps the revision, writes the board
-// through a temporary file and a rename, and announces the change.
-func mutate(bundle string, fn func(*Board) (frameID string, err error), reason func() string, out *Board) error {
-	if strings.TrimSpace(bundle) == "" {
+// mutate reads a board, applies fn, writes the file when fn changed its nodes,
+// keeps the chat's generations and roots, bumps the revision and announces the
+// change. pick, when set, chooses the file under the chat's lock (Show without
+// a file), and created reports that it made one.
+func mutate(ref Ref, pick func(State) (string, bool, error), fn func(*Board) (frameID string, err error), reason func() string, out *Board, created *bool) error {
+	if strings.TrimSpace(ref.Bundle) == "" {
 		return errors.New("the session is not persisted, so it has no canvas")
 	}
-	mu := lockFor(bundle)
+	mu := lockFor(ref.Bundle)
 	mu.Lock()
-	b, err := Load(bundle)
+	defer mu.Unlock()
+	made := false
+	if pick != nil {
+		st, err := LoadState(ref.Bundle)
+		if err != nil {
+			return err
+		}
+		ref.File, made, err = pick(st)
+		if err != nil {
+			return err
+		}
+	}
+	err := mutateFile(ref, fn, reason, out)
+	if err != nil && made {
+		// Nothing went onto the file this Show made: it goes too, or the next
+		// Show would number its name.
+		_ = os.Remove(filepath.Join(ref.Workspace, filepath.FromSlash(ref.File)))
+		made = false
+	}
+	if created != nil {
+		*created = made
+	}
+	return err
+}
+
+func mutateFile(ref Ref, fn func(*Board) (string, error), reason func() string, out *Board) error {
+	rel, err := resolveCanvasFile(ref.Workspace, ref.File, true)
 	if err != nil {
-		mu.Unlock()
+		return err
+	}
+	ref.File = rel
+	// The whole read-modify-write of one file is one turn across chats, so
+	// two of them never replay a stale board over each other's change.
+	fmu := fileLockFor(ref.Workspace, rel)
+	fmu.Lock()
+	defer fmu.Unlock()
+	b, err := Load(ref)
+	if err != nil {
 		return err
 	}
 	frameID, err := fn(&b)
 	if err != nil {
-		mu.Unlock()
 		return err
 	}
-	b.Version = 1
-	b.Revision++
-	if b.Frames == nil {
-		b.Frames = []Frame{}
+	if b.dirty && !b.fileOK {
+		return fmt.Errorf("%s cannot be read: %s", b.File, b.Error)
 	}
-	stored := b
-	if b.Link != nil {
-		if b.Gens == nil {
-			b.Gens = map[string]int{}
+	st := &b.state
+	if st.Gens == nil {
+		st.Gens = map[string]int{}
+	}
+	if b.fileOK {
+		kept := map[string]bool{}
+		for _, fr := range b.Frames {
+			kept[fr.ID] = true
+			st.Gens[NodeKey(b.File, fr.ID)] = fr.Gen
+		}
+		for id, was := range b.read {
+			if !kept[id] {
+				st.Gens[NodeKey(b.File, id)] = was.Gen + 1
+			}
+		}
+		prefix := b.File + "#"
+		for k := range st.Roots {
+			if strings.HasPrefix(k, prefix) {
+				delete(st.Roots, k)
+			}
 		}
 		for _, fr := range b.Frames {
-			b.Gens[fr.ID] = fr.Gen
-		}
-		if b.fileOK {
-			b.Roots = map[string]string{}
-			for _, fr := range b.Frames {
-				if fr.Root != defaultRoot(fr.Path) {
-					b.Roots[fr.ID] = rootOrDot(fr.Root)
+			if fr.Root != defaultRoot(fr.Path) {
+				if st.Roots == nil {
+					st.Roots = map[string]string{}
 				}
+				st.Roots[NodeKey(b.File, fr.ID)] = rootOrDot(fr.Root)
 			}
-		}
-		if b.fileOK && b.dirty {
-			if err := writeLinked(&b); err != nil {
-				mu.Unlock()
-				return err
-			}
-		}
-		stored.Frames = b.own
-		stored.Gens = b.Gens
-		stored.Roots = b.Roots
-		if stored.Frames == nil {
-			stored.Frames = []Frame{}
 		}
 	}
-	if err := write(bundle, stored); err != nil {
-		mu.Unlock()
+	if b.dirty {
+		if err := writeBoardFile(&b); err != nil {
+			return err
+		}
+	}
+	st.Version = 1
+	st.Revision++
+	st.Workspace = ref.Workspace
+	if err := writeState(ref.Bundle, *st); err != nil {
 		return err
 	}
-	mu.Unlock()
+	b.Revision = st.Revision
 	*out = b
-	announce(Change{Bundle: bundle, SessionID: filepath.Base(bundle), Revision: b.Revision, FrameID: frameID, Reason: reason()})
+	announce(Change{SessionID: filepath.Base(ref.Bundle), File: b.File, Revision: b.Revision, FrameID: frameID, Reason: reason()})
 	return nil
 }
 
-func write(bundle string, b Board) error {
-	raw, err := json.MarshalIndent(b, "", "  ")
+func writeState(bundle string, st State) error {
+	raw, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -665,10 +801,10 @@ func write(bundle string, b Board) error {
 	return nil
 }
 
-// Change is one write to a board.
+// Change is one write to a board through the canvas.
 type Change struct {
-	Bundle    string
 	SessionID string
+	File      string
 	Revision  int64
 	FrameID   string
 	Reason    string
@@ -707,3 +843,22 @@ func announce(c Change) {
 		fn(c)
 	}
 }
+
+// ChatWorkspace is the working directory a bundle's session records, "" when
+// it records none: the workspace a chat's boards are files of.
+func ChatWorkspace(bundle string) string {
+	raw, err := os.ReadFile(filepath.Join(bundle, sessionMetaFile))
+	if err != nil {
+		return ""
+	}
+	var meta struct {
+		CWD string `json:"cwd"`
+	}
+	if json.Unmarshal(raw, &meta) != nil {
+		return ""
+	}
+	return strings.TrimSpace(meta.CWD)
+}
+
+// sessionMetaFile is the session's own file in its bundle (internal/session).
+const sessionMetaFile = "session.json"

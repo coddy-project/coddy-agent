@@ -9,7 +9,7 @@ import (
 func TestCapabilityRoundTrip(t *testing.T) {
 	key := []byte("0123456789abcdef0123456789abcdef")
 	now := time.Unix(1_800_000_000, 0)
-	claim := Claim{Session: "sess_a", Frame: "fr_1", Workspace: "ws-id", Root: "site", Gen: 3}
+	claim := Claim{Session: "sess_a", File: "canvas/site.canvas", Frame: "fr_1", Workspace: "ws-id", Root: "site", Gen: 3}
 	token := SignCapability(key, claim, now)
 	if strings.ContainsAny(token, "/%?#+= ") {
 		t.Fatalf("token %q is not a single safe path segment", token)
@@ -18,7 +18,7 @@ func TestCapabilityRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Session != "sess_a" || got.Frame != "fr_1" || got.Workspace != "ws-id" || got.Root != "site" || got.Gen != 3 {
+	if got.Session != "sess_a" || got.File != "canvas/site.canvas" || got.Frame != "fr_1" || got.Workspace != "ws-id" || got.Root != "site" || got.Gen != 3 {
 		t.Fatalf("claim %+v", got)
 	}
 	if got.Expires != now.Add(CapabilityTTL).Unix() {
@@ -30,7 +30,7 @@ func TestCapabilityRefusals(t *testing.T) {
 	key := []byte("0123456789abcdef0123456789abcdef")
 	other := []byte("fedcba9876543210fedcba9876543210")
 	now := time.Unix(1_800_000_000, 0)
-	token := SignCapability(key, Claim{Session: "sess_a", Frame: "fr_1", Workspace: "w", Root: ""}, now)
+	token := SignCapability(key, Claim{Session: "sess_a", File: "b.canvas", Frame: "fr_1", Workspace: "w", Root: ""}, now)
 	parts := strings.SplitN(token, ".", 2)
 	cases := map[string]struct {
 		key   []byte
@@ -39,7 +39,8 @@ func TestCapabilityRefusals(t *testing.T) {
 	}{
 		"other key":       {other, token, now},
 		"expired":         {key, token, now.Add(CapabilityTTL + time.Second)},
-		"from the future": {key, SignCapability(key, Claim{Session: "s", Frame: "f", Workspace: "w"}, now.Add(48*time.Hour)), now},
+		"from the future": {key, SignCapability(key, Claim{Session: "s", File: "b.canvas", Frame: "f", Workspace: "w"}, now.Add(48*time.Hour)), now},
+		"no file":         {key, SignCapability(key, Claim{Session: "s", Frame: "f", Workspace: "w"}, now), now},
 		"tampered claim":  {key, "e30." + parts[1], now},
 		"no signature":    {key, parts[0], now},
 		"empty":           {key, "", now},

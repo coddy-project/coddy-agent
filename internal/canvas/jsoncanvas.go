@@ -2,17 +2,18 @@ package canvas
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 )
 
 // JSON Canvas 1.0 (https://jsoncanvas.org), the open format of Obsidian's
 // canvases: a document of nodes (text, file, link, group) and edges between
-// them. A board linked to a .canvas file of the workspace reads it and writes
-// it back here. Everything the canvas does not know - fields of a later
+// them. A board is a .canvas file of the workspace, read and written back
+// here. Everything the canvas does not know - fields of a later
 // version, another tool's extensions, the order of the keys - is kept as it
 // was, and the file is written the way Obsidian writes it: one node and one
 // edge per line, so a change shows in git as the lines it changed.
@@ -284,7 +285,7 @@ func listJSON(list []object) json.RawMessage {
 	return b.Bytes()
 }
 
-// Item is a node of a linked board that is not a live frame: a text card, a
+// Item is a node of a board that is not a live frame: a text card, a
 // link, a group, a file the canvas does not run.
 type Item struct {
 	ID     string `json:"id"`
@@ -302,7 +303,7 @@ type Item struct {
 	Note string `json:"note,omitempty"`
 }
 
-// Edge is a line between two nodes of a linked board.
+// Edge is a line between two nodes of a board.
 type Edge struct {
 	ID       string `json:"id"`
 	FromNode string `json:"fromNode"`
@@ -366,8 +367,8 @@ func (d *Document) edgeList() []Edge {
 const coddyExt = "coddy"
 
 // frameExt holds what JSON Canvas has no field for and is harmless to take
-// from a file: never a root, which would widen what a page reads (the
-// session keeps those, Board.Roots).
+// from a file: never a root, which would widen what a page reads (the chat
+// keeps those, State.Roots).
 type frameExt struct {
 	Device  string `json:"device,omitempty"`
 	Title   string `json:"title,omitempty"`
@@ -384,11 +385,9 @@ func (o object) ext() frameExt {
 
 // newNodeID returns an id in Obsidian's own shape: 16 hex digits.
 func newNodeID() string {
-	id := newFrameID()
-	var sum uint64 = 1469598103934665603
-	for _, c := range id {
-		sum ^= uint64(c)
-		sum *= 1099511628211
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		panic(err)
 	}
-	return fmt.Sprintf("%016s", strconv.FormatUint(sum, 16))
+	return hex.EncodeToString(raw[:])
 }

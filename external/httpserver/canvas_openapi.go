@@ -2,16 +2,21 @@
 
 package httpserver
 
-// mergeCanvasOpenAPI adds the canvas routes: the board of a chat, its frames,
-// the browser's reports and the frames' own addresses.
+// mergeCanvasOpenAPI adds the canvas routes: the boards of a chat (.canvas
+// files of its workspace), their frames, the browser's reports and the frames'
+// own addresses.
 func mergeCanvasOpenAPI(doc map[string]interface{}) {
 	paths := doc["paths"].(map[string]interface{})
 	prop := func(kind string) map[string]interface{} { return map[string]interface{}{"type": kind} }
 	object := func(props map[string]interface{}) map[string]interface{} {
 		return map[string]interface{}{"type": "object", "properties": props}
 	}
-	id := map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": prop("string"), "description": "Session id; a subagent's id acts on the board of the top session of its spawn tree."}
-	frameParam := map[string]interface{}{"name": "frame", "in": "path", "required": true, "schema": prop("string")}
+	id := map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": prop("string"), "description": "Session id; a subagent's id acts on the canvas of the top session of its spawn tree."}
+	frameParam := map[string]interface{}{"name": "frame", "in": "path", "required": true, "schema": prop("string"), "description": "The id of the frame's node in the file."}
+	fileParam := func(required bool, description string) map[string]interface{} {
+		return map[string]interface{}{"name": "file", "in": "query", "required": required, "schema": prop("string"), "description": description}
+	}
+	theFile := fileParam(true, "The .canvas file, relative to the session's workspace, outside dot-named folders.")
 	jsonBody := func(schema map[string]interface{}) map[string]interface{} {
 		return map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": schema}}}
 	}
@@ -26,11 +31,10 @@ func mergeCanvasOpenAPI(doc map[string]interface{}) {
 		"id": prop("string"), "path": prop("string"), "root": prop("string"), "title": prop("string"),
 		"device": map[string]interface{}{"type": "string", "enum": []string{"desktop", "tablet", "phone"}},
 		"width":  prop("integer"), "height": prop("integer"), "x": prop("integer"), "y": prop("integer"),
-		"added_by": prop("string"), "added_at": map[string]interface{}{"type": "string", "format": "date-time"},
-		"shown_at":   map[string]interface{}{"type": "string", "format": "date-time"},
+		"added_by":   prop("string"),
 		"gen":        map[string]interface{}{"type": "integer", "description": "The frame's generation; its address is signed for it, and a rotate moves it on."},
 		"stamp":      map[string]interface{}{"type": "string", "description": "Digest of the names, sizes and modification times of the files under the frame's root; it moves when they change."},
-		"url":        map[string]interface{}{"type": "string", "description": "The frame's address relative to the API base: /coddy/canvas/<capability>/<page>. Valid while the frame is on the board at this generation, for 12 hours."},
+		"url":        map[string]interface{}{"type": "string", "description": "The frame's address relative to the API base: /coddy/canvas/<capability>/<page>. Valid while the file holds the frame at this generation, for 12 hours."},
 		"expires_at": map[string]interface{}{"type": "string", "format": "date-time"},
 		"report":     report,
 	})
@@ -45,18 +49,17 @@ func mergeCanvasOpenAPI(doc map[string]interface{}) {
 		"id": prop("string"), "fromNode": prop("string"), "fromSide": prop("string"), "fromEnd": prop("string"),
 		"toNode": prop("string"), "toSide": prop("string"), "toEnd": prop("string"), "color": prop("string"), "label": prop("string"),
 	})
-	link := object(map[string]interface{}{
-		"path":  map[string]interface{}{"type": "string", "description": "The linked .canvas file, relative to the workspace."},
-		"stamp": map[string]interface{}{"type": "string", "description": "Moves when the file changes; \"missing\" when it is gone."},
-		"error": map[string]interface{}{"type": "string", "description": "Why the file could not be read; the board then shows nothing of it."},
-	})
 	board := object(map[string]interface{}{
-		"session_id": prop("string"), "revision": prop("integer"), "frames": map[string]interface{}{"type": "array", "items": frame},
-		"link":  link,
-		"items": map[string]interface{}{"type": "array", "items": item, "description": "The nodes of a linked file that are not live frames."},
-		"edges": map[string]interface{}{"type": "array", "items": edge},
+		"session_id": prop("string"),
+		"file":       map[string]interface{}{"type": "string", "description": "The board's .canvas file, relative to the workspace; empty while the chat has no canvas."},
+		"current":    map[string]interface{}{"type": "boolean", "description": "Whether the agent shows pages on this file when it names none."},
+		"revision":   map[string]interface{}{"type": "integer", "description": "Moves with every change made through the canvas in any of the chat's files."},
+		"stamp":      map[string]interface{}{"type": "string", "description": "Moves when the file changes, by whoever changed it; \"missing\" when it is gone."},
+		"error":      map[string]interface{}{"type": "string", "description": "Why the file could not be read; nothing of it is shown or written then."},
+		"frames":     map[string]interface{}{"type": "array", "items": frame},
+		"items":      map[string]interface{}{"type": "array", "items": item, "description": "The file's nodes that are not live frames."},
+		"edges":      map[string]interface{}{"type": "array", "items": edge},
 	})
-	canvasFile := jsonBody(object(map[string]interface{}{"path": map[string]interface{}{"type": "string", "description": "A .canvas file, relative to the session's workspace, outside dot-named folders."}}))
 	errs := func(codes ...string) map[string]interface{} {
 		out := map[string]interface{}{}
 		for _, c := range codes {
@@ -69,71 +72,52 @@ func mergeCanvasOpenAPI(doc map[string]interface{}) {
 		return base
 	}
 	paths["/coddy/sessions/{id}/canvas"] = map[string]interface{}{"get": map[string]interface{}{
-		"operationId": "coddyCanvasGet", "summary": "Read the chat's canvas",
-		"description": "The frames of the board, each with its stamp, a fresh address and the counts of the newest browser report. 404 while tools.canvas.enable is false.",
-		"parameters":  []interface{}{id},
+		"operationId": "coddyCanvasGet", "summary": "Read a canvas of the chat",
+		"description": "A .canvas file of the session's workspace (JSON Canvas, the format of Obsidian's canvases) as the canvas shows it: its file nodes naming HTML pages as frames, each with its stamp, a fresh address and the counts of the newest browser report, its other nodes and its edges. Without file, the file the agent shows pages on, or an answer with an empty file while the chat has none. Reading writes nothing. 404 while tools.canvas.enable is false.",
+		"parameters":  []interface{}{id, fileParam(false, "The .canvas file; default the chat's current one.")},
+		"responses":   with(errs("400", "404", "409"), "200", ok("The board", board)),
+	}}
+	paths["/coddy/sessions/{id}/canvas/open"] = map[string]interface{}{"post": map[string]interface{}{
+		"operationId": "coddyCanvasOpen", "summary": "Make a .canvas file the chat's canvas",
+		"description": "The agent shows pages on this file from now on when it names none; the web UI calls it when the person opens the file. Writes nothing to the file. 400 for a file that is missing or does not parse.",
+		"parameters":  []interface{}{id, theFile},
 		"responses":   with(errs("400", "404", "409"), "200", ok("The board", board)),
 	}}
 	paths["/coddy/sessions/{id}/canvas/frames"] = map[string]interface{}{"post": map[string]interface{}{
-		"operationId": "coddyCanvasFrameAdd", "summary": "Put a page of the workspace on the canvas",
-		"description": "The same page at the same size is one frame: showing it again returns that frame with reason shown. The page must be an .html or .htm file of the session's workspace outside dot-named folders; the root, by default the page's folder, must contain it. 409 past 24 frames.",
-		"parameters":  []interface{}{id},
+		"operationId": "coddyCanvasFrameAdd", "summary": "Put a page of the workspace on a canvas",
+		"description": "Adds a file node for the page to the file, or, for the same page at the same size, returns the frame already there with reason shown. Without file the page goes on the chat's current canvas, or on a new canvas/<page folder>.canvas (created says so). The page must be an .html or .htm file of the session's workspace outside dot-named folders; the root, by default the page's folder, must contain it. 409 past 24 frames.",
+		"parameters":  []interface{}{id, fileParam(false, "An existing .canvas file; default the chat's current one.")},
 		"requestBody": jsonBody(object(map[string]interface{}{"path": prop("string"), "root": prop("string"), "title": prop("string"), "device": prop("string"), "width": prop("integer"), "height": prop("integer")})),
-		"responses":   with(errs("400", "404", "409"), "200", ok("The frame", object(map[string]interface{}{"reason": prop("string"), "frame": frame, "revision": prop("integer")}))),
+		"responses": with(errs("400", "404", "409"), "200", ok("The frame", object(map[string]interface{}{
+			"reason": prop("string"), "file": prop("string"), "created": prop("boolean"), "frame": frame, "revision": prop("integer"),
+		}))),
 	}}
-	paths["/coddy/sessions/{id}/canvas/frames/{frame}"] = map[string]interface{}{
-		"patch": map[string]interface{}{
-			"operationId": "coddyCanvasFrameUpdate", "summary": "Move, resize or rename a frame",
-			"parameters":  []interface{}{id, frameParam},
-			"requestBody": jsonBody(object(map[string]interface{}{"title": prop("string"), "device": prop("string"), "width": prop("integer"), "height": prop("integer"), "x": prop("integer"), "y": prop("integer")})),
-			"responses":   with(errs("400", "404"), "200", ok("The frame", object(map[string]interface{}{"frame": frame, "revision": prop("integer")}))),
-		},
-		"delete": map[string]interface{}{
-			"operationId": "coddyCanvasFrameRemove", "summary": "Take a frame off the canvas",
-			"description": "The files stay; every address of the frame stops working.",
-			"parameters":  []interface{}{id, frameParam},
-			"responses":   with(errs("404"), "200", ok("Removed", object(map[string]interface{}{"revision": prop("integer")}))),
-		},
-	}
+	paths["/coddy/sessions/{id}/canvas/frames/{frame}"] = map[string]interface{}{"delete": map[string]interface{}{
+		"operationId": "coddyCanvasFrameRemove", "summary": "Take a frame off a canvas",
+		"description": "Removes the frame's node and the edges at it from the file; the page's files stay, and every address of the frame stops working.",
+		"parameters":  []interface{}{id, frameParam, theFile},
+		"responses":   with(errs("400", "404"), "200", ok("Removed", object(map[string]interface{}{"revision": prop("integer")}))),
+	}}
 	paths["/coddy/sessions/{id}/canvas/frames/{frame}/rotate"] = map[string]interface{}{"post": map[string]interface{}{
 		"operationId": "coddyCanvasFrameRotate", "summary": "Revoke a frame's addresses",
-		"description": "Moves the frame to its next generation, so every address handed out before stops working; the web UI calls it when the frame's page navigated away from the canvas.",
-		"parameters":  []interface{}{id, frameParam},
-		"responses":   with(errs("404"), "200", ok("The frame with its new address", object(map[string]interface{}{"frame": frame, "revision": prop("integer")}))),
+		"description": "Moves the frame to its next generation, kept in the session and never in the file, so every address handed out before stops working; the web UI calls it when the frame's page navigated away from the canvas.",
+		"parameters":  []interface{}{id, frameParam, theFile},
+		"responses":   with(errs("400", "404"), "200", ok("The frame with its new address", object(map[string]interface{}{"frame": frame, "revision": prop("integer")}))),
 	}}
 	paths["/coddy/sessions/{id}/canvas/nodes"] = map[string]interface{}{"patch": map[string]interface{}{
-		"operationId": "coddyCanvasNodesUpdate", "summary": "Move or resize nodes of the canvas",
-		"description": "Frames, and the text cards, links and groups of a linked .canvas file, in one change written to the file once (a group dragged with what it holds): all of them, or none and 404 when one names a node the board does not hold. At most 500.",
-		"parameters":  []interface{}{id},
-		"requestBody": jsonBody(object(map[string]interface{}{"nodes": map[string]interface{}{"type": "array", "items": object(map[string]interface{}{"id": prop("string"), "x": prop("integer"), "y": prop("integer"), "width": prop("integer"), "height": prop("integer")})}})),
-		"responses":   with(errs("400", "404"), "200", ok("Changed", object(map[string]interface{}{"revision": prop("integer")}))),
-	}}
-	paths["/coddy/sessions/{id}/canvas/link"] = map[string]interface{}{
-		"post": map[string]interface{}{
-			"operationId": "coddyCanvasLink", "summary": "Open a .canvas file of the workspace on the canvas",
-			"description": "From now on the board is that JSON Canvas file (the format of Obsidian's canvases): its file nodes naming HTML pages are live frames, the other nodes and the edges are drawn, and every change is written back to the file, keeping what Coddy does not know. Linking writes nothing. The chat's own frames wait until the link is undone.",
-			"parameters":  []interface{}{id},
-			"requestBody": canvasFile,
-			"responses":   with(errs("400", "404", "409"), "200", ok("The board", board)),
-		},
-		"delete": map[string]interface{}{
-			"operationId": "coddyCanvasUnlink", "summary": "Give the chat its own canvas back",
-			"description": "The file stays as it is. 409 while the board is not linked.",
-			"parameters":  []interface{}{id},
-			"responses":   with(errs("404", "409"), "200", ok("The board", board)),
-		},
-	}
-	paths["/coddy/sessions/{id}/canvas/export"] = map[string]interface{}{"post": map[string]interface{}{
-		"operationId": "coddyCanvasExport", "summary": "Save the canvas as a .canvas file",
-		"description": "Writes the chat's own board as a new JSON Canvas file of the workspace, making the folders it needs, and links the board to it. 409 when the file exists or the board is already linked.",
-		"parameters":  []interface{}{id},
-		"requestBody": canvasFile,
-		"responses":   with(errs("400", "404", "409"), "200", ok("The board", board)),
+		"operationId": "coddyCanvasNodesUpdate", "summary": "Move or resize nodes of a canvas",
+		"description": "Frames (by a size or a device), text cards, links and groups, in one change written to the file once (a group dragged with what it holds): all of them, or none and 404 when one names a node the file does not hold. Only the nodes named are rewritten, in the key order Obsidian writes. At most 500.",
+		"parameters":  []interface{}{id, theFile},
+		"requestBody": jsonBody(object(map[string]interface{}{"nodes": map[string]interface{}{"type": "array", "items": object(map[string]interface{}{
+			"id": prop("string"), "x": prop("integer"), "y": prop("integer"), "width": prop("integer"), "height": prop("integer"),
+			"device": map[string]interface{}{"type": "string", "enum": []string{"desktop", "tablet", "phone"}, "description": "A frame's size by name, instead of width and height."},
+		})}})),
+		"responses": with(errs("400", "404"), "200", ok("Changed", object(map[string]interface{}{"revision": prop("integer")}))),
 	}}
 	paths["/coddy/sessions/{id}/canvas/frames/{frame}/report"] = map[string]interface{}{"post": map[string]interface{}{
 		"operationId": "coddyCanvasFrameReport", "summary": "Report what the browser saw in a frame",
 		"description": "Kept in memory, the newest per frame, at most 20 console lines of at most 1,000 characters; canvas_inspect reads it. stamp names the files the frame was loaded for; closed says the frame was put away.",
-		"parameters":  []interface{}{id, frameParam},
+		"parameters":  []interface{}{id, frameParam, theFile},
 		"requestBody": jsonBody(object(map[string]interface{}{
 			"stamp": prop("string"), "loaded": prop("boolean"), "closed": prop("boolean"), "error": prop("string"), "title": prop("string"),
 			"console": map[string]interface{}{"type": "array", "items": object(map[string]interface{}{"level": map[string]interface{}{"type": "string", "enum": []string{"error", "warning"}}, "message": prop("string"), "source": prop("string"), "line": prop("integer"), "column": prop("integer")})},
@@ -142,7 +126,7 @@ func mergeCanvasOpenAPI(doc map[string]interface{}) {
 	}}
 	file := map[string]interface{}{
 		"summary": "Serve a file of a frame",
-		"description": "Authenticated by the capability in the path alone (no bearer, no cookie), valid while the frame is on the board at the generation it was signed for. Serves the files of the frame's root through os.Root: GET and HEAD, no dot-named paths, no symbolic links, a folder's index.html, never a listing. " +
+		"description": "Authenticated by the capability in the path alone (no bearer, no cookie), valid while the .canvas file holds the frame at the generation it was signed for, in the session's working directory. Serves the files of the frame's root through os.Root: GET and HEAD, no dot-named paths, no symbolic links, a folder's index.html, never a listing. " +
 			"Every response carries Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals with the allowed sources, nosniff, Referrer-Policy: no-referrer, Access-Control-Allow-Origin: * and Cache-Control: no-store; an HTML page gets the bridge script at the start of its head. A preflight OPTIONS is answered with Access-Control-Allow-Origin: *. " +
 			"Every other route refuses a request whose Origin is null (403).",
 		"parameters": []interface{}{

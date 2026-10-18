@@ -28,15 +28,12 @@ const maxCanvasReportBytes = 64 << 10
 
 func (s *Server) registerCanvasRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/canvas", s.canvasBoard)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/canvas/open", s.canvasOpen)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/canvas/frames", s.canvasAddFrame)
-	s.mux.HandleFunc("PATCH /coddy/sessions/{id}/canvas/frames/{frame}", s.canvasPatchFrame)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/canvas/frames/{frame}", s.canvasRemoveFrame)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/canvas/frames/{frame}/rotate", s.canvasRotateFrame)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/canvas/frames/{frame}/report", s.canvasReport)
 	s.mux.HandleFunc("PATCH /coddy/sessions/{id}/canvas/nodes", s.canvasPatchNodes)
-	s.mux.HandleFunc("POST /coddy/sessions/{id}/canvas/link", s.canvasLink)
-	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/canvas/link", s.canvasUnlink)
-	s.mux.HandleFunc("POST /coddy/sessions/{id}/canvas/export", s.canvasExport)
 	s.mux.HandleFunc(canvasFilePattern, s.canvasFile)
 }
 
@@ -58,23 +55,38 @@ func (s *Server) canvasKey() []byte {
 	return canvas.DeriveKey(s.workspaceSigningKey())
 }
 
-// canvasBundle resolves the board a session's routes act on: the bundle of the
-// top session of its spawn tree.
-func (s *Server) canvasBundle(w http.ResponseWriter, r *http.Request) (string, bool) {
+// canvasRef resolves the board a session's routes act on: the bookkeeping of
+// the top session of its spawn tree, the session's working directory and the
+// .canvas file the file query names ("" when it names none and need is false).
+func (s *Server) canvasRef(w http.ResponseWriter, r *http.Request, need bool) (canvas.Ref, bool) {
 	if !s.canvasEnabled() {
 		http.NotFound(w, r)
-		return "", false
+		return canvas.Ref{}, false
 	}
 	st := s.coddyEnsureLoaded(w, r, r.PathValue("id"))
 	if st == nil {
-		return "", false
+		return canvas.Ref{}, false
 	}
 	dir := strings.TrimSpace(st.GetPersistedSessionDir())
 	if dir == "" {
 		writeSubagentsError(w, http.StatusConflict, "this session is not saved, so it has no canvas")
-		return "", false
+		return canvas.Ref{}, false
 	}
-	return canvas.BoardBundle(dir), true
+	file := strings.TrimSpace(r.URL.Query().Get("file"))
+	if file != "" {
+		// The file is named relative to the session's workspace; an absolute
+		// path or a climb out is refused here and again by the canvas.
+		rel, err := session.NormalizeWorkspaceRelativePath(file)
+		if err != nil || rel == "" || !canvas.IsCanvasFile(rel) {
+			writeSubagentsError(w, http.StatusBadRequest, "file must name a .canvas file of the working directory")
+			return canvas.Ref{}, false
+		}
+		file = rel
+	} else if need {
+		writeSubagentsError(w, http.StatusBadRequest, "name the .canvas file with the file query")
+		return canvas.Ref{}, false
+	}
+	return canvas.Ref{Bundle: canvas.BoardBundle(dir), Workspace: st.GetCWD(), File: file}, true
 }
 
 type canvasReportSummary struct {
@@ -99,8 +111,6 @@ type canvasFrameJSON struct {
 	X         int                  `json:"x"`
 	Y         int                  `json:"y"`
 	AddedBy   string               `json:"added_by,omitempty"`
-	AddedAt   time.Time            `json:"added_at"`
-	ShownAt   time.Time            `json:"shown_at"`
 	Gen       int                  `json:"gen"`
 	Stamp     string               `json:"stamp"`
 	URL       string               `json:"url"`
@@ -109,36 +119,33 @@ type canvasFrameJSON struct {
 }
 
 type canvasBoardJSON struct {
-	SessionID string            `json:"session_id"`
-	Revision  int64             `json:"revision"`
-	Frames    []canvasFrameJSON `json:"frames"`
-	// Link, Items and Edges are there while the board is a .canvas file of
-	// the workspace.
-	Link  *canvasLinkJSON `json:"link,omitempty"`
-	Items []canvas.Item   `json:"items,omitempty"`
-	Edges []canvas.Edge   `json:"edges,omitempty"`
-}
-
-type canvasLinkJSON struct {
-	Path  string `json:"path"`
-	Stamp string `json:"stamp"`
-	Error string `json:"error,omitempty"`
+	SessionID string `json:"session_id"`
+	// File is the board's .canvas file, "" when the chat has none yet.
+	File string `json:"file"`
+	// Current says the agent shows pages on this file when it names none.
+	Current  bool              `json:"current"`
+	Revision int64             `json:"revision"`
+	Stamp    string            `json:"stamp,omitempty"`
+	Error    string            `json:"error,omitempty"`
+	Frames   []canvasFrameJSON `json:"frames"`
+	Items    []canvas.Item     `json:"items"`
+	Edges    []canvas.Edge     `json:"edges"`
 }
 
 // frameJSON is a frame as the web UI reads it: with its stamp, a fresh
 // address relative to the API base and the newest report's counts.
-func (s *Server) frameJSON(sessionID string, f canvas.Frame, now time.Time) canvasFrameJSON {
+func (s *Server) frameJSON(sessionID, file string, f canvas.Frame, now time.Time) canvasFrameJSON {
 	token := canvas.SignCapability(s.canvasKey(), canvas.Claim{
-		Session: sessionID, Frame: f.ID, Workspace: workspaceIdentity(f.Workspace), Root: f.Root, Gen: f.Gen,
+		Session: sessionID, File: file, Frame: f.ID, Workspace: workspaceIdentity(f.Workspace), Root: f.Root, Gen: f.Gen,
 	}, now)
 	out := canvasFrameJSON{
 		ID: f.ID, Path: f.Path, Root: f.Root, Title: f.Title, Device: f.Device, Width: f.Width, Height: f.Height,
-		X: f.X, Y: f.Y, AddedBy: f.AddedBy, AddedAt: f.AddedAt, ShownAt: f.ShownAt, Gen: f.Gen,
+		X: f.X, Y: f.Y, AddedBy: f.AddedBy, Gen: f.Gen,
 		Stamp:     canvas.Stamp(f.Workspace, f.Root),
 		URL:       canvasFilePrefix + token + "/" + escapeSlashPath(f.PageInRoot()),
 		ExpiresAt: now.Add(canvas.CapabilityTTL).UTC(),
 	}
-	if rep, ok := canvas.DefaultReports().Get(sessionID, f.ID); ok {
+	if rep, ok := canvas.DefaultReports().Get(sessionID, canvas.NodeKey(file, f.ID)); ok {
 		sum := &canvasReportSummary{Stamp: rep.Stamp, Loaded: rep.Loaded, Closed: rep.Closed, Error: rep.Error, Title: rep.Title, At: rep.At}
 		for _, e := range rep.Console {
 			if e.Level == "warning" {
@@ -160,47 +167,87 @@ func escapeSlashPath(p string) string {
 	return strings.Join(parts, "/")
 }
 
-func (s *Server) boardJSON(bundle string, b canvas.Board) canvasBoardJSON {
-	sid := canvas.SessionIDOfBundle(bundle)
+func (s *Server) boardJSON(ref canvas.Ref, b canvas.Board) canvasBoardJSON {
+	sid := canvas.SessionIDOfBundle(ref.Bundle)
 	now := time.Now()
-	out := canvasBoardJSON{SessionID: sid, Revision: b.Revision, Frames: make([]canvasFrameJSON, 0, len(b.Frames))}
-	for _, f := range b.Frames {
-		out.Frames = append(out.Frames, s.frameJSON(sid, f, now))
+	out := canvasBoardJSON{
+		SessionID: sid, File: b.File, Revision: b.Revision, Stamp: canvas.FileStamp(b), Error: b.Error,
+		Frames: make([]canvasFrameJSON, 0, len(b.Frames)), Items: b.Items, Edges: b.Edges,
 	}
-	if b.Link != nil {
-		out.Link = &canvasLinkJSON{Path: b.Link.Path, Stamp: canvas.LinkStamp(b), Error: b.LinkError}
-		out.Items, out.Edges = b.Items, b.Edges
+	if out.Items == nil {
+		out.Items = []canvas.Item{}
+	}
+	if out.Edges == nil {
+		out.Edges = []canvas.Edge{}
+	}
+	if cur, err := canvas.Current(ref.Bundle, ref.Workspace); err == nil {
+		out.Current = cur == b.File
+	}
+	for _, f := range b.Frames {
+		out.Frames = append(out.Frames, s.frameJSON(sid, b.File, f, now))
 	}
 	return out
 }
 
+// canvasBoard answers a board: the file the query names, or the chat's
+// current one, or an empty answer naming no file while the chat has none.
 func (s *Server) canvasBoard(w http.ResponseWriter, r *http.Request) {
-	bundle, ok := s.canvasBundle(w, r)
+	ref, ok := s.canvasRef(w, r, false)
 	if !ok {
 		return
 	}
-	b, err := canvas.Load(bundle)
+	if ref.File == "" {
+		cur, err := canvas.Current(ref.Bundle, ref.Workspace)
+		if err != nil {
+			writeSubagentsError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if cur == "" {
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, http.StatusOK, canvasBoardJSON{
+				SessionID: canvas.SessionIDOfBundle(ref.Bundle), Frames: []canvasFrameJSON{}, Items: []canvas.Item{}, Edges: []canvas.Edge{},
+			})
+			return
+		}
+		ref.File = cur
+	}
+	b, err := canvas.Load(ref)
 	if err != nil {
-		writeSubagentsError(w, http.StatusInternalServerError, err.Error())
+		writeCanvasError(w, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, s.boardJSON(bundle, b))
+	writeJSON(w, http.StatusOK, s.boardJSON(ref, b))
 }
 
 func writeCanvasError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, canvas.ErrFrameNotFound):
 		writeSubagentsError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, canvas.ErrTooManyFrames), errors.Is(err, canvas.ErrCanvasExists), errors.Is(err, canvas.ErrNotLinked), errors.Is(err, canvas.ErrAlreadyLinked):
+	case errors.Is(err, canvas.ErrTooManyFrames):
 		writeSubagentsError(w, http.StatusConflict, err.Error())
 	default:
 		writeSubagentsError(w, http.StatusBadRequest, err.Error())
 	}
 }
 
+// canvasOpen makes a .canvas file the one the agent shows pages on: the web
+// UI asks for it when the person opens the file.
+func (s *Server) canvasOpen(w http.ResponseWriter, r *http.Request) {
+	ref, ok := s.canvasRef(w, r, true)
+	if !ok {
+		return
+	}
+	b, err := canvas.Open(ref)
+	if err != nil {
+		writeCanvasError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.boardJSON(ref, b))
+}
+
 func (s *Server) canvasAddFrame(w http.ResponseWriter, r *http.Request) {
-	bundle, ok := s.canvasBundle(w, r)
+	ref, ok := s.canvasRef(w, r, false)
 	if !ok {
 		return
 	}
@@ -222,87 +269,62 @@ func (s *Server) canvasAddFrame(w http.ResponseWriter, r *http.Request) {
 		writeSubagentsError(w, http.StatusBadRequest, "invalid workspace path")
 		return
 	}
-	st := s.mgr.SessionByID(r.PathValue("id"))
-	if st == nil {
-		writeSubagentsError(w, http.StatusNotFound, "session not found")
-		return
-	}
-	res, err := canvas.Show(bundle, canvas.ShowRequest{
-		Workspace: st.GetCWD(), Path: req.Path, Root: req.Root, Title: req.Title,
+	res, err := canvas.Show(ref, canvas.ShowRequest{
+		Path: req.Path, Root: req.Root, Title: req.Title,
 		Device: req.Device, Width: req.Width, Height: req.Height, AddedBy: "user",
 	})
 	if err != nil {
 		writeCanvasError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"reason": res.Reason, "frame": s.frameJSON(canvas.SessionIDOfBundle(bundle), res.Frame, time.Now()), "revision": res.Board.Revision})
-}
-
-func (s *Server) canvasPatchFrame(w http.ResponseWriter, r *http.Request) {
-	bundle, ok := s.canvasBundle(w, r)
-	if !ok {
-		return
-	}
-	var req struct {
-		Title  *string `json:"title"`
-		Device *string `json:"device"`
-		Width  *int    `json:"width"`
-		Height *int    `json:"height"`
-		X      *int    `json:"x"`
-		Y      *int    `json:"y"`
-	}
-	if json.NewDecoder(io.LimitReader(r.Body, 16384)).Decode(&req) != nil {
-		writeSubagentsError(w, http.StatusBadRequest, "invalid frame change")
-		return
-	}
-	b, f, err := canvas.Update(bundle, r.PathValue("frame"), canvas.Patch{Title: req.Title, Device: req.Device, Width: req.Width, Height: req.Height, X: req.X, Y: req.Y})
-	if err != nil {
-		writeCanvasError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"frame": s.frameJSON(canvas.SessionIDOfBundle(bundle), f, time.Now()), "revision": b.Revision})
+	sid := canvas.SessionIDOfBundle(ref.Bundle)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"reason": res.Reason, "file": res.Board.File, "created": res.Created,
+		"frame": s.frameJSON(sid, res.Board.File, res.Frame, time.Now()), "revision": res.Board.Revision,
+	})
 }
 
 func (s *Server) canvasRemoveFrame(w http.ResponseWriter, r *http.Request) {
-	bundle, ok := s.canvasBundle(w, r)
+	ref, ok := s.canvasRef(w, r, true)
 	if !ok {
 		return
 	}
 	frame := r.PathValue("frame")
-	b, err := canvas.Remove(bundle, frame)
+	b, err := canvas.Remove(ref, frame)
 	if err != nil {
 		writeCanvasError(w, err)
 		return
 	}
-	canvas.DefaultReports().Forget(canvas.SessionIDOfBundle(bundle), frame)
+	canvas.DefaultReports().Forget(canvas.SessionIDOfBundle(ref.Bundle), canvas.NodeKey(b.File, frame))
 	writeJSON(w, http.StatusOK, map[string]any{"revision": b.Revision})
 }
 
 func (s *Server) canvasRotateFrame(w http.ResponseWriter, r *http.Request) {
-	bundle, ok := s.canvasBundle(w, r)
+	ref, ok := s.canvasRef(w, r, true)
 	if !ok {
 		return
 	}
-	b, f, err := canvas.Rotate(bundle, r.PathValue("frame"))
+	b, f, err := canvas.Rotate(ref, r.PathValue("frame"))
 	if err != nil {
 		writeCanvasError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"frame": s.frameJSON(canvas.SessionIDOfBundle(bundle), f, time.Now()), "revision": b.Revision})
+	writeJSON(w, http.StatusOK, map[string]any{"frame": s.frameJSON(canvas.SessionIDOfBundle(ref.Bundle), b.File, f, time.Now()), "revision": b.Revision})
 }
 
 func (s *Server) canvasPatchNodes(w http.ResponseWriter, r *http.Request) {
-	bundle, ok := s.canvasBundle(w, r)
+	ref, ok := s.canvasRef(w, r, true)
 	if !ok {
 		return
 	}
 	var req struct {
 		Nodes []struct {
-			ID     string `json:"id"`
-			X      *int   `json:"x"`
-			Y      *int   `json:"y"`
-			Width  *int   `json:"width"`
-			Height *int   `json:"height"`
+			ID     string  `json:"id"`
+			X      *int    `json:"x"`
+			Y      *int    `json:"y"`
+			Width  *int    `json:"width"`
+			Height *int    `json:"height"`
+			Device *string `json:"device"`
 		} `json:"nodes"`
 	}
 	if json.NewDecoder(io.LimitReader(r.Body, 128<<10)).Decode(&req) != nil {
@@ -311,9 +333,9 @@ func (s *Server) canvasPatchNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	changes := make([]canvas.NodeChange, 0, len(req.Nodes))
 	for _, n := range req.Nodes {
-		changes = append(changes, canvas.NodeChange{ID: n.ID, X: n.X, Y: n.Y, Width: n.Width, Height: n.Height})
+		changes = append(changes, canvas.NodeChange{ID: n.ID, X: n.X, Y: n.Y, Width: n.Width, Height: n.Height, Device: n.Device})
 	}
-	b, err := canvas.UpdateNodes(bundle, changes)
+	b, err := canvas.UpdateNodes(ref, changes)
 	if err != nil {
 		writeCanvasError(w, err)
 		return
@@ -321,84 +343,15 @@ func (s *Server) canvasPatchNodes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"revision": b.Revision})
 }
 
-// canvasFileRequest reads the .canvas path of a link or an export request,
-// named relative to the session's workspace.
-func (s *Server) canvasFileRequest(w http.ResponseWriter, r *http.Request) (cwd, path string, ok bool) {
-	var req struct {
-		Path string `json:"path"`
-	}
-	if json.NewDecoder(io.LimitReader(r.Body, 16384)).Decode(&req) != nil {
-		writeSubagentsError(w, http.StatusBadRequest, "invalid canvas file request")
-		return "", "", false
-	}
-	if rel, err := session.NormalizeWorkspaceRelativePath(req.Path); err != nil || rel == "" {
-		writeSubagentsError(w, http.StatusBadRequest, "invalid workspace path")
-		return "", "", false
-	}
-	st := s.mgr.SessionByID(r.PathValue("id"))
-	if st == nil {
-		writeSubagentsError(w, http.StatusNotFound, "session not found")
-		return "", "", false
-	}
-	return st.GetCWD(), req.Path, true
-}
-
-func (s *Server) canvasLink(w http.ResponseWriter, r *http.Request) {
-	bundle, ok := s.canvasBundle(w, r)
-	if !ok {
-		return
-	}
-	cwd, path, ok := s.canvasFileRequest(w, r)
-	if !ok {
-		return
-	}
-	b, err := canvas.LinkFile(bundle, cwd, path)
-	if err != nil {
-		writeCanvasError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.boardJSON(bundle, b))
-}
-
-func (s *Server) canvasUnlink(w http.ResponseWriter, r *http.Request) {
-	bundle, ok := s.canvasBundle(w, r)
-	if !ok {
-		return
-	}
-	b, err := canvas.Unlink(bundle)
-	if err != nil {
-		writeCanvasError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.boardJSON(bundle, b))
-}
-
-func (s *Server) canvasExport(w http.ResponseWriter, r *http.Request) {
-	bundle, ok := s.canvasBundle(w, r)
-	if !ok {
-		return
-	}
-	cwd, path, ok := s.canvasFileRequest(w, r)
-	if !ok {
-		return
-	}
-	b, err := canvas.Export(bundle, cwd, path)
-	if err != nil {
-		writeCanvasError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, s.boardJSON(bundle, b))
-}
-
 func (s *Server) canvasReport(w http.ResponseWriter, r *http.Request) {
-	bundle, ok := s.canvasBundle(w, r)
+	ref, ok := s.canvasRef(w, r, true)
 	if !ok {
 		return
 	}
 	frame := r.PathValue("frame")
-	b, err := canvas.Load(bundle)
+	b, err := canvas.Load(ref)
 	if err != nil {
-		writeSubagentsError(w, http.StatusInternalServerError, err.Error())
+		writeCanvasError(w, err)
 		return
 	}
 	if _, ok := b.Frame(frame); !ok {
@@ -418,16 +371,17 @@ func (s *Server) canvasReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	canvas.DefaultReports().Put(canvas.Report{
-		SessionID: canvas.SessionIDOfBundle(bundle), FrameID: frame, Stamp: req.Stamp,
+		SessionID: canvas.SessionIDOfBundle(ref.Bundle), FrameID: canvas.NodeKey(b.File, frame), Stamp: req.Stamp,
 		Loaded: req.Loaded, Closed: req.Closed, Error: req.Error, Title: req.Title, Console: req.Console,
 	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // canvasFile serves a frame's files. The capability names the session, the
-// frame, its generation, its root and its workspace, and the request is
-// served only while the board still holds that frame so: a frame removed,
-// pointed elsewhere or rotated takes every address of it with it.
+// board's file, the frame, its generation, its root and its workspace, and the
+// request is served only while the file still holds that frame so, in the
+// session's working directory: a frame removed, pointed elsewhere or rotated
+// takes every address of it with it.
 func (s *Server) canvasFile(w http.ResponseWriter, r *http.Request) {
 	if !s.canvasEnabled() {
 		http.NotFound(w, r)
@@ -443,15 +397,22 @@ func (s *Server) canvasFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	bundle := fs.SessionPath(claim.Session)
-	b, err := canvas.Load(bundle)
-	if err != nil {
-		http.NotFound(w, r)
+	cwd := ""
+	if st := s.mgr.SessionByID(claim.Session); st != nil {
+		cwd = st.GetCWD()
+	} else if meta, err := fs.ReadMeta(claim.Session); err == nil {
+		cwd = meta.CWD
+	}
+	stale := func() {
+		http.Error(w, "this canvas address no longer applies; reload the canvas", http.StatusUnauthorized)
+	}
+	if cwd == "" || workspaceIdentity(cwd) != claim.Workspace {
+		stale()
 		return
 	}
-	f, ok := b.Frame(claim.Frame)
-	if !ok || f.Gen != claim.Gen || f.Root != claim.Root || workspaceIdentity(f.Workspace) != claim.Workspace {
-		http.Error(w, "this canvas address no longer applies; reload the canvas", http.StatusUnauthorized)
+	f, err := canvas.FrameOf(canvas.Ref{Bundle: fs.SessionPath(claim.Session), Workspace: cwd, File: claim.File}, claim.Frame)
+	if err != nil || f.Gen != claim.Gen || f.Root != claim.Root {
+		stale()
 		return
 	}
 	canvas.ServeFrame(w, r, f, r.PathValue("path"), canvas.ServeOptions{AllowedSources: s.canvasSources()})
@@ -468,6 +429,7 @@ func canvasChangedFrame(c canvas.Change, at time.Time) []byte {
 	body, err := json.Marshal(map[string]interface{}{
 		"object":    "coddy.canvas_changed",
 		"sessionId": c.SessionID,
+		"file":      c.File,
 		"revision":  c.Revision,
 		"frameId":   c.FrameID,
 		"reason":    c.Reason,

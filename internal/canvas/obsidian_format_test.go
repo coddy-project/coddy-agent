@@ -39,11 +39,9 @@ func TestAMoveOfTheSampleChangesOnlyItsNodesLine(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "sample.canvas"), raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LinkFile(bundle, ws, "sample.canvas"); err != nil {
-		t.Fatal(err)
-	}
+	ref := Ref{Bundle: bundle, Workspace: ws, File: "sample.canvas"}
 	x := 41
-	if _, err := UpdateNodes(bundle, []NodeChange{{ID: "59e896bc8da20699", X: &x}}); err != nil {
+	if _, err := UpdateNodes(ref, []NodeChange{{ID: "59e896bc8da20699", X: &x}}); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := os.ReadFile(filepath.Join(ws, "sample.canvas"))
@@ -67,13 +65,11 @@ func TestCoddyWritesCharactersAsObsidianDoes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "board.canvas"), []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LinkFile(bundle, ws, "board.canvas"); err != nil {
-		t.Fatal(err)
-	}
+	ref := Ref{Bundle: bundle, Workspace: ws, File: "board.canvas"}
 	// JSON.stringify, which Obsidian saves with, escapes only quotes,
 	// backslashes and control characters.
 	title := "Cart <beta> & co\u2028\"q\" \\ \x01"
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/a&b.html", Title: title}); err != nil {
+	if _, err := Show(ref, ShowRequest{Path: "site/a&b.html", Title: title}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(ws, "board.canvas"))
@@ -85,19 +81,16 @@ func TestCoddyWritesCharactersAsObsidianDoes(t *testing.T) {
 	if bytes.HasSuffix(raw, []byte("\n")) {
 		t.Errorf("a file that ended at its brace gained a newline:\n%q", raw)
 	}
-	b, _ := Load(bundle)
+	b, _ := Load(ref)
 	if f := b.Frames[0]; f.Title != title {
 		t.Fatalf("the title read back as %q", f.Title)
 	}
 }
 
 func TestAFileThatEndedWithANewlineKeepsIt(t *testing.T) {
-	ws, bundle, file := linkedWorkspace(t)
-	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
-		t.Fatal(err)
-	}
+	ref, file := obsidianBoard(t)
 	x := 5
-	if _, err := UpdateNodes(bundle, []NodeChange{{ID: "0123456789abcdef", X: &x}}); err != nil {
+	if _, err := UpdateNodes(ref, []NodeChange{{ID: "0123456789abcdef", X: &x}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(file)
@@ -106,17 +99,14 @@ func TestAFileThatEndedWithANewlineKeepsIt(t *testing.T) {
 	}
 }
 
-func TestAnExportEndsAsObsidianDoes(t *testing.T) {
+func TestANewBoardEndsAsObsidianDoes(t *testing.T) {
 	ws, bundle := workspace(t, "site/index.html")
-	if _, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/index.html"}); err != nil {
+	if _, err := Show(Ref{Bundle: bundle, Workspace: ws}, ShowRequest{Path: "site/index.html"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Export(bundle, ws, "new.canvas"); err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := os.ReadFile(filepath.Join(ws, "new.canvas"))
+	raw, _ := os.ReadFile(filepath.Join(ws, "canvas", "site.canvas"))
 	if !bytes.HasSuffix(raw, []byte("\n\t\"edges\":[]\n}")) {
-		t.Fatalf("an exported file ends %q", raw[len(raw)-12:])
+		t.Fatalf("a new board ends %q", raw[len(raw)-12:])
 	}
 }
 
@@ -163,10 +153,8 @@ func TestANodeCoddyAddsIsWrittenAsObsidianWritesIt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "coddy.canvas"), obsidianSample(t), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LinkFile(bundle, ws, "coddy.canvas"); err != nil {
-		t.Fatal(err)
-	}
-	res, err := Show(bundle, ShowRequest{Workspace: ws, Path: "site/index.html", Title: "Cart <beta> & \"co\"", Device: DevicePhone, AddedBy: "agent"})
+	ref := Ref{Bundle: bundle, Workspace: ws, File: "coddy.canvas"}
+	res, err := Show(ref, ShowRequest{Path: "site/index.html", Title: "Cart <beta> & \"co\"", Device: DevicePhone, AddedBy: "agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,12 +168,9 @@ func TestANodeCoddyAddsIsWrittenAsObsidianWritesIt(t *testing.T) {
 }
 
 func TestANodeCoddyMovesTakesObsidiansKeyOrder(t *testing.T) {
-	ws, bundle, file := linkedWorkspace(t)
-	if _, err := LinkFile(bundle, ws, "design/shop.canvas"); err != nil {
-		t.Fatal(err)
-	}
+	ref, file := obsidianBoard(t)
 	x := 7
-	if _, err := UpdateNodes(bundle, []NodeChange{{ID: "0123456789abcdef", X: &x}}); err != nil {
+	if _, err := UpdateNodes(ref, []NodeChange{{ID: "0123456789abcdef", X: &x}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(file)
@@ -229,11 +214,9 @@ func TestAGroupCoddyMovesKeepsItsLabelAfterTheGeometry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ws, "sample.canvas"), raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LinkFile(bundle, ws, "sample.canvas"); err != nil {
-		t.Fatal(err)
-	}
+	ref := Ref{Bundle: bundle, Workspace: ws, File: "sample.canvas"}
 	y := -600
-	if _, err := UpdateNodes(bundle, []NodeChange{{ID: "754a8ef995f366bc", Y: &y}}); err != nil {
+	if _, err := UpdateNodes(ref, []NodeChange{{ID: "754a8ef995f366bc", Y: &y}}); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := os.ReadFile(filepath.Join(ws, "sample.canvas"))

@@ -39,7 +39,7 @@ func siteFrame(t *testing.T) (Frame, string) {
 	writeFile(t, ws, "site/.env", "SECRET=1")
 	writeFile(t, ws, "site/.git/config", "[core]")
 	writeFile(t, ws, "secret.txt", "outside the root")
-	return Frame{ID: "fr_1", Path: "site/index.html", Root: "site", Workspace: ws, Width: 1280, Height: 800}, ws
+	return Frame{ID: "aaaaaaaaaaaaaaaa", Path: "site/index.html", Root: "site", Workspace: ws, Width: 1280, Height: 800}, ws
 }
 
 func TestServeFrameAnswersThePageWithTheBridgeAndTheSandbox(t *testing.T) {
@@ -191,7 +191,7 @@ func TestServeFrameAnswersAPageThatGrewTooLargeWithTheBridge(t *testing.T) {
 	if csp := rec.Header().Get("Content-Security-Policy"); !strings.HasPrefix(csp, "sandbox allow-scripts") {
 		t.Fatalf("the answer lost the sandbox: %q", csp)
 	}
-	if _, err := Show(t.TempDir(), ShowRequest{Workspace: ws, Path: "site/big.html"}); err == nil || !strings.Contains(err.Error(), "up to 10 MB") {
+	if _, err := Show(Ref{Bundle: t.TempDir(), Workspace: ws}, ShowRequest{Path: "site/big.html"}); err == nil || !strings.Contains(err.Error(), "up to 10 MB") {
 		t.Fatalf("a page too large was put on the canvas: %v", err)
 	}
 }
