@@ -260,10 +260,10 @@ func superviseOperatorRunAndRelease(ctx context.Context, env *tooling.Env, req a
 				return
 			case <-stop:
 				stop = nil
-				go run.Kill(operatorStopGrace)
+				go killIfRunning(run, operatorStopGrace)
 			case <-kill:
 				kill = nil
-				go run.Kill(0)
+				go killIfRunning(run, 0)
 			}
 		}
 	}()
@@ -321,15 +321,15 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			kill = nil
 			stopped = true
 			escalate = nil
-			go run.Kill(0)
+			go killIfRunning(run, 0)
 		case <-escalate:
 			escalate = nil
-			go run.Kill(operatorStopGrace)
+			go killIfRunning(run, operatorStopGrace)
 		case <-ctx.Done():
 			run.Interrupt()
 			go func() {
 				time.Sleep(operatorInterruptWait())
-				run.Kill(operatorStopGrace)
+				killIfRunning(run, operatorStopGrace)
 			}()
 			drain := time.NewTimer(operatorCancelDrain)
 			defer drain.Stop()
@@ -341,7 +341,7 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 				case <-kill:
 					// A second Stop during the drain kills at once.
 					kill = nil
-					go run.Kill(0)
+					go killIfRunning(run, 0)
 					continue
 				case <-drain.C:
 					// Still running: the request stays open, so a Stop
@@ -362,6 +362,17 @@ func superviseOperatorRun(ctx context.Context, env *tooling.Env, req acp.Operato
 			}
 		}
 	}
+}
+
+// killIfRunning terminates a run that has not ended yet. A run that has is
+// left alone: on Windows its pid may already name another process.
+func killIfRunning(run operatorRun, grace time.Duration) {
+	select {
+	case <-run.Done():
+		return
+	default:
+	}
+	run.Kill(grace)
 }
 
 // operatorInterruptWait is how long a stop waits after the interrupt before it
