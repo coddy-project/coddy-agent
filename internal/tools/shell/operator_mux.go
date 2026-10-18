@@ -298,12 +298,16 @@ func writeMuxLauncher(base, cwd string, commandShell platform.Shell, command str
 	script := "#!/bin/sh\n" +
 		"exec 9>>" + shellQuote(l.traceFile) + "\n" +
 		"echo \"launcher $$ started\" >&9\n" +
+		// The launcher's own shell trace goes to the trace file; the
+		// command gets the window's stderr back (fd 8).
+		"exec 8>&2 2>&9\n" +
+		"set -x\n" +
 		"echo $$ > " + shellQuote(l.pidFile) + " || exit 1\n" +
 		"cd " + shellQuote(cwd) + " || exit 1\n" +
 		"trap 'echo \"launcher got INT\" >&9' INT\n" +
 		"trap 'echo \"launcher got HUP\" >&9' HUP\n" +
 		"trap 'echo \"launcher got TERM\" >&9; exit 143' TERM\n" +
-		strings.Join(quoted, " ") + " 9>&-\n" +
+		strings.Join(quoted, " ") + " 2>&8 8>&- 9>&-\n" +
 		"code=$?\n" +
 		"echo \"command exited $code\" >&9\n" +
 		"printf '%s' \"$code\" > " + shellQuote(l.exitFile+".tmp") + " && mv " + shellQuote(l.exitFile+".tmp") + " " + shellQuote(l.exitFile) + "\n" +
