@@ -655,6 +655,16 @@ SSE payloads
   - `usage_update` (`used` / `size` for the current model context; emitted again after compaction)
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`, which carries the model's reasoning whichever field the provider sent it in (`reasoning_content`, `reasoning` or `thinking`)
 
+## Operator command card
+
+An [operator command](../features/operator-commands.md) - a command the agent was refused and asks you to run - is a card at its place in the chat (**`messages/OperatorCommandCard.tsx`**; **`DESIGN.md`**, *Operator command card*). Every streaming turn the web UI sends declares that it answers them (**`metadata.coddy_operator_commands`**), so the server offers the tool only to it.
+
+- The card shows the agent's reason, the shell and the host as badges, the folder, and the whole command in the read-only shell block (copy only). Nothing on it is an input, and nothing takes the focus when it appears.
+- **Run** and **Decline** answer **`POST /coddy/sessions/{id}/operator-command`**; the first answer from any tab or console following the session wins, and a card whose request another surface answered says so (*Already answered elsewhere*).
+- While the command runs, the card shows the last lines of its output and **Stop**, which becomes **Kill** once a stop is on its way.
+- When it ends the card says how (*Exit code N*, *Stopped (exit code N)*, *Declined*) and keeps the output; after a reload it is rebuilt from the call's result, which names the shell, the host and the folder.
+- A request still waiting survives a reload of the tab (sessionStorage), and the card offers Run and Decline again.
+
 ## Long sessions
 
 ![The top of a long transcript while the page above it is read, dark theme at 1280 px](../assets/transcript-earlier-loading-dark-1280.png)
