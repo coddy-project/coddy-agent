@@ -24,6 +24,38 @@ func DetachProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setpgid = true
 }
 
+// DetachSession is DetachProcessGroup for a command that must not have a
+// controlling terminal: the child leads a session of its own (and so a process
+// group of its own, which TerminateProcessGroup reaches), and a program in it
+// that opens /dev/tty fails at once instead of drawing over the console or
+// stopping on SIGTTIN. Setpgid is cleared: setpgid in a session leader fails.
+func DetachSession(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = false
+	cmd.SysProcAttr.Setsid = true
+}
+
+// InterruptProcessGroup sends SIGINT to the group started by cmd, what Ctrl+C
+// in a terminal does. A group that already exited is not an error.
+func InterruptProcessGroup(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGINT); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
+}
+
+// ApplyShellCommandLine is a Windows concern (cmd.exe quoting); elsewhere the
+// argv of Shell.Command reaches the shell as it is.
+func ApplyShellCommandLine(*exec.Cmd, Shell, string) {}
+
 // KillTreeOnClose is a Windows job object elsewhere: on unix the process
 // group DetachProcessGroup set up already reaches a child that outlived its
 // parent, so there is nothing to attach and the returned function does

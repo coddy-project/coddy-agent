@@ -47,6 +47,28 @@ func StartOperatorCommandForShell(command, cwd string, commandShell platform.She
 	return &OperatorCommand{sc: sc, tail: tail}, nil
 }
 
+// StartOperatorToolCommand launches a command the operator ran for the agent
+// through the operator_command tool. It is StartOperatorCommandForShell plus
+// what a command started from a server or under the console's screen needs:
+// a session of its own, so it has no controlling terminal, and cmd.exe's
+// command line handed over verbatim.
+func StartOperatorToolCommand(command, cwd string, commandShell platform.Shell) (*OperatorCommand, error) {
+	tail := &tailBuffer{limit: operatorOutputCap}
+	sc, err := startForegroundInto(command, &tooling.Env{CWD: cwd}, commandShell, tail,
+		platform.DetachSession,
+		func(cmd *exec.Cmd) { platform.ApplyShellCommandLine(cmd, commandShell, command) })
+	if err != nil {
+		return nil, err
+	}
+	return &OperatorCommand{sc: sc, tail: tail}, nil
+}
+
+// Interrupt sends the command what Ctrl+C sends (SIGINT to its process group;
+// nothing on Windows, which has no console here to deliver it to).
+func (c *OperatorCommand) Interrupt() {
+	_ = platform.InterruptProcessGroup(c.sc.cmd)
+}
+
 // Output returns the retained tail of what the command printed, decoded and
 // stripped of terminal control sequences. It is safe to call while the command
 // runs, and costs the same on every call.

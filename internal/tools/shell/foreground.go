@@ -66,7 +66,10 @@ func startForeground(command string, env *tooling.Env, commandShell platform.She
 // the child starts. A sink handed over afterwards would leave a window in
 // which output still lands in the unbounded buffer, which is the whole thing a
 // bounded sink exists to prevent.
-func startForegroundInto(command string, env *tooling.Env, commandShell platform.Shell, sink io.Writer) (*startedCommand, error) {
+//
+// Each option adjusts the command after the process group is set up and
+// before AdaptCommand, which must see the final command.
+func startForegroundInto(command string, env *tooling.Env, commandShell platform.Shell, sink io.Writer, options ...func(*exec.Cmd)) (*startedCommand, error) {
 	executable, commandArgs := commandShell.Command(command)
 	cmd := exec.Command(executable, commandArgs...) // #nosec G204 -- the command is operator-approved shell input, same as the background runner
 	if env != nil {
@@ -78,6 +81,9 @@ func startForegroundInto(command string, env *tooling.Env, commandShell platform
 	cmd.Stderr = writer
 	cmd.WaitDelay = waitPipeDrainDelay
 	platform.DetachProcessGroup(cmd)
+	for _, option := range options {
+		option(cmd)
+	}
 	platform.AdaptCommand(cmd)
 
 	if err := cmd.Start(); err != nil {

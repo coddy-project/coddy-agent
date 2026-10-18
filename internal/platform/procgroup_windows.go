@@ -29,6 +29,34 @@ func DetachProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.CreationFlags |= syscall.CREATE_NEW_PROCESS_GROUP
 }
 
+// DetachSession is DetachProcessGroup on Windows: a console-less child of a
+// new process group is already as detached as Windows makes it.
+func DetachSession(cmd *exec.Cmd) {
+	DetachProcessGroup(cmd)
+}
+
+// InterruptProcessGroup does nothing on Windows: the command has no console to
+// deliver Ctrl+C to, so a stop goes straight to TerminateProcessGroup.
+func InterruptProcessGroup(*exec.Cmd) error {
+	return nil
+}
+
+// ApplyShellCommandLine hands cmd.exe its command line verbatim. Go quotes
+// every argument the way the C runtime parses them, which cmd does not: a
+// command holding a double quote reaches it mangled. With /s /c and the
+// command in one outer pair of quotes, cmd strips exactly that pair and runs
+// the rest as written; /d skips AutoRun. Other shells parse the C runtime's
+// quoting and keep the argv of Shell.Command.
+func ApplyShellCommandLine(cmd *exec.Cmd, shell Shell, command string) {
+	if cmd == nil || shell.Kind != ShellCmd {
+		return
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CmdLine = syscall.EscapeArg(shell.Path) + ` /d /s /c "` + command + `"`
+}
+
 // KillTreeOnClose puts the process cmd started into a job object that ends
 // every process in it once the job is closed, and returns the function that
 // closes it. What the process starts from then on joins the job too, so the
